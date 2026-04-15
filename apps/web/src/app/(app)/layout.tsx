@@ -1,5 +1,6 @@
 import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 
 export default async function AppLayout({
   children,
@@ -8,6 +9,8 @@ export default async function AppLayout({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+
+  const isAdmin = session.user?.role === 'admin' || session.user?.role === 'vice_admin'
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -31,6 +34,27 @@ export default async function AppLayout({
             </form>
           </div>
         </div>
+        <nav className="mx-auto max-w-5xl border-t border-gray-100 px-4">
+          <ul className="flex gap-6 text-sm">
+            <li>
+              <Link href="/dashboard" className="inline-block py-2 text-gray-600 hover:text-brand">
+                ダッシュボード
+              </Link>
+            </li>
+            <li>
+              <Link href="/events" className="inline-block py-2 text-gray-600 hover:text-brand">
+                イベント
+              </Link>
+            </li>
+            {isAdmin && (
+              <li>
+                <Link href="/admin/members" className="inline-block py-2 text-gray-600 hover:text-brand">
+                  会員管理
+                </Link>
+              </li>
+            )}
+          </ul>
+        </nav>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6">
         {children}

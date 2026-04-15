@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { cors } from 'hono/cors'
+import { eventsRoute } from './routes/events'
 
 const app = new Hono().basePath('/api')
 
@@ -11,6 +12,7 @@ app.use('*', cors({
 
 const routes = app
   .get('/health', (c) => c.json({ status: 'ok' }))
+  .route('/events', eventsRoute)
 
 export type AppType = typeof routes
 export { app }

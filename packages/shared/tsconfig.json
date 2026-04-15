@@ -2,7 +2,9 @@
   "extends": "@kagetra/typescript-config/base",
   "compilerOptions": {
     "rootDir": "./src",
-    "noEmit": true
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler"
   },
   "include": ["src"]
 }
