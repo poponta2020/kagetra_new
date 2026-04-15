@@ -21,8 +21,8 @@
       "Edit(/.claude/skills/dod/**)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\user\\kegetra_new\\kagetra_new\\.claude",
-      "c:\\Users\\user\\kegetra_new\\kagetra_new\\.claude\\skills"
+      ".claude",
+      ".claude/skills"
     ]
   }
 }
