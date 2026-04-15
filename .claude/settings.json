@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Agent",
+      "Skill",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "mcp__plugin_claude-mem_mcp-search__search",
+      "mcp__plugin_claude-mem_mcp-search__get_observations",
+      "mcp__plugin_claude-mem_mcp-search__smart_outline",
+      "Edit(/.claude/skills/implement/**)",
+      "Edit(/.claude/skills/review/**)",
+      "Edit(/.claude/skills/ship/**)",
+      "Edit(/.claude/skills/dod/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\user\\kegetra_new\\kagetra_new\\.claude",
+      "c:\\Users\\user\\kegetra_new\\kagetra_new\\.claude\\skills"
+    ]
+  }
+}

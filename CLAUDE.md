@@ -45,7 +45,7 @@ scripts/migration/ → データ移行
 4. **claude-mem記録**: 設計判断/バグ修正/完了/フィードバック時に必ず
 5. **破壊的変更禁止**: テスト破壊は承認必須、直接ALTER禁止、本番操作は確認
 6. **セッションプロトコル**: 開始→git pull→.claude/memory/からローカルmemoryへ同期→docs/worklog.md確認→続きから / 終了→worklog.md追記→ローカルmemoryから.claude/memory/へ同期→コミット→git push
-7. **DoD**: APIテスト+フロントテスト+E2E+CI+Codexレビュー対応(VS Code経由)+スマホ実機確認+claude-mem記録
+7. **DoD**: 実装完了→テスト(API+フロント+E2E)+CI通過+claude-mem記録→PR作成+Codexレビュー+指摘修正→最終確認(スマホ実機含む)+ship
 8. **フェーズ品質ゲート**: 全DoD+移行確認+リグレッションなし+本番確認+総括+次Phase合意
 9. **スコープ管理**: Phase外要望はclaude-memに記録、混ぜない。ついでリファクタ禁止
 10. **トラブル対応**: 原因確認→修正PRまたはロールバック→インシデント記録
