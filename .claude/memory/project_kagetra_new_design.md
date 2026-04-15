@@ -2,6 +2,7 @@
 name: kagetra_new 設計判断まとめ
 description: kagetra_new プロジェクトの全設計判断（技術スタック、アーキテクチャ、機能スコープ、開発ルール等）。2026-04-15に grill-me セッションで確定。
 type: project
+originSessionId: 7a6f3eef-c1d7-4809-af7e-04e5801e5d83
 ---
 ## kagetra_new 設計判断（2026-04-15 確定）
 

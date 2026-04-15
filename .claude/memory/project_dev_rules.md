@@ -2,6 +2,7 @@
 name: kagetra_new 開発ルール11条
 description: kagetra_new の開発プロセスルール（実装前確認、テストファースト、セッションプロトコル、DoD、品質ゲート、並行作業管理等）。全セッションで遵守必須。
 type: feedback
+originSessionId: 7a6f3eef-c1d7-4809-af7e-04e5801e5d83
 ---
 ## 開発ルール（全11条）— 2026-04-15 確定
 
@@ -17,7 +18,7 @@ type: feedback
 3. **1PR = 1機能** — 小さく、混ぜない、description必須
 4. **claude-mem記録** — 設計判断/バグ修正/完了/フィードバック時に必ず
 5. **破壊的変更禁止** — テスト破壊は承認必須、直接ALTER禁止、本番操作は確認
-6. **セッションプロトコル** — 開始: git pull→memory同期→進捗確認→続きから / 終了: 記録→memory同期→コミット→push
+6. **セッションプロトコル** — 開始: git pull→.claude/memory/からローカルmemory同期→worklog.md確認→続きから / 終了: worklog.md追記→memory同期→コミット→push
 7. **Definition of Done** — APIテスト+フロントテスト+E2E+CI+Codexレビュー+スマホ実機+claude-mem記録
 8. **フェーズ品質ゲート** — 全DoD達成+移行確認+リグレッションなし+本番確認+総括+次Phase合意
 9. **スコープ管理** — Phase外の要望はclaude-memに記録、混ぜない。ついでリファクタ禁止

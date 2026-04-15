@@ -2,6 +2,7 @@
 name: ユーザープロフィール
 description: kagetra_new開発者。競技かるた会の運営者、1人開発、品質重視、日本語でのコミュニケーション。
 type: user
+originSessionId: 7a6f3eef-c1d7-4809-af7e-04e5801e5d83
 ---
 - 競技かるた会の運営に関わっている（会員100名超の会）
 - 1人で開発を進める（Claude + Codexがパートナー）
