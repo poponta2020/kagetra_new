@@ -1,0 +1,20 @@
+{
+  "name": "kagetra",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev --filter=@kagetra/web",
+    "dev:api": "turbo run dev --filter=@kagetra/api",
+    "db:generate": "pnpm --filter=@kagetra/shared db:generate",
+    "db:migrate": "pnpm --filter=@kagetra/shared db:migrate",
+    "db:push": "pnpm --filter=@kagetra/shared db:push"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0"
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: kagetra-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kagetra
+      POSTGRES_USER: kagetra
+      POSTGRES_PASSWORD: kagetra_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kagetra -d kagetra"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:
