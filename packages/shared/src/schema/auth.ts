@@ -7,7 +7,7 @@ import {
   timestamp,
 } from 'drizzle-orm/pg-core'
 import type { AdapterAccountType } from '@auth/core/adapters'
-import { userRoleEnum } from './enums'
+import { userRoleEnum, gradeEnum } from './enums'
 
 export const users = pgTable('users', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -18,6 +18,7 @@ export const users = pgTable('users', {
   // kagetra extensions
   lineUserId: text('line_user_id').unique(),
   role: userRoleEnum('role').notNull().default('member'),
+  grade: gradeEnum('grade'),
   isInvited: boolean('is_invited').notNull().default(false),
   invitedAt: timestamp('invited_at', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),

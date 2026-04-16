@@ -1,3 +1,7 @@
 export * from './enums'
 export * from './auth'
+export * from './event-groups'
 export * from './events'
+export * from './event-attendances'
+export * from './schedule-items'
+export * from './relations'
