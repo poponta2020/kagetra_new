@@ -11,11 +11,13 @@ export default async function EventDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const idNum = Number(id)
+  if (!Number.isInteger(idNum) || idNum <= 0) notFound()
   const session = await auth()
   const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
 
   const event = await db.query.events.findFirst({
-    where: eq(events.id, Number(id)),
+    where: eq(events.id, idNum),
     with: {
       eventGroup: true,
       attendances: {
@@ -29,7 +31,7 @@ export default async function EventDetailPage({
   // Get eligible users for unanswered count
   const eligibleUsers = event.eligibleGrades?.length
     ? await db.query.users.findMany({
-        where: inArray(users.grade, event.eligibleGrades as ('A' | 'B' | 'C' | 'D' | 'E')[]),
+        where: inArray(users.grade, event.eligibleGrades),
       })
     : await db.query.users.findMany()
 
@@ -44,7 +46,8 @@ export default async function EventDetailPage({
   const myAttendance = session ? event.attendances.find(a => a.userId === session.user.id) : null
 
   // Fetch current user's grade from DB if logged in
-  let currentUserGrade: string | null = null
+  type Grade = 'A' | 'B' | 'C' | 'D' | 'E'
+  let currentUserGrade: Grade | null = null
   if (session?.user.id) {
     const currentUser = await db.query.users.findFirst({
       where: eq(users.id, session.user.id),
@@ -53,13 +56,15 @@ export default async function EventDetailPage({
   }
 
   const isEligible = !event.eligibleGrades?.length || (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
-  const canRespond = session && isBeforeDeadline && isEligible
+  // Admins/vice-admins can update after the internal deadline (administrative override).
+  const canRespond = session && (isBeforeDeadline || isAdmin) && isEligible
   const eventIdForAction = event.id
 
   async function submitAttendance(formData: FormData) {
     'use server'
     const session = await auth()
     if (!session?.user?.id) throw new Error('Unauthorized')
+    const isAdminUser = session.user.role === 'admin' || session.user.role === 'vice_admin'
 
     const attend = formData.get('attend') === 'true'
     const comment = (formData.get('comment') as string) || null
@@ -73,7 +78,7 @@ export default async function EventDetailPage({
     if (!targetEvent) throw new Error('Event not found')
 
     const todayJst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
-    if (targetEvent.internalDeadline && targetEvent.internalDeadline < todayJst) {
+    if (!isAdminUser && targetEvent.internalDeadline && targetEvent.internalDeadline < todayJst) {
       throw new Error('会内締切を過ぎています')
     }
     if (

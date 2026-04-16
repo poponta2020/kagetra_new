@@ -1,4 +1,3 @@
-CREATE TYPE "public"."attendance_status" AS ENUM('attend', 'absent');--> statement-breakpoint
 CREATE TYPE "public"."event_kind" AS ENUM('individual', 'team');--> statement-breakpoint
 CREATE TYPE "public"."event_status" AS ENUM('draft', 'published', 'cancelled', 'done');--> statement-breakpoint
 CREATE TYPE "public"."grade" AS ENUM('A', 'B', 'C', 'D', 'E');--> statement-breakpoint
@@ -75,7 +74,7 @@ CREATE TABLE "events" (
 	"entry_deadline" date,
 	"internal_deadline" date,
 	"event_group_id" integer,
-	"eligible_grades" text[],
+	"eligible_grades" "grade"[],
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -100,7 +99,6 @@ CREATE TABLE "schedule_items" (
 	"end_time" text,
 	"location" text,
 	"description" text,
-	"is_public" boolean DEFAULT true NOT NULL,
 	"owner_id" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL

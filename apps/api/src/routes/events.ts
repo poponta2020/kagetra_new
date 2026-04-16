@@ -37,15 +37,6 @@ const route = new Hono()
     if (isNaN(id)) return c.json({ error: 'Invalid id' }, 400)
     const event = await db.query.events.findFirst({
       where: eq(events.id, id),
-      with: {
-        attendances: {
-          with: {
-            user: {
-              columns: { id: true, name: true, grade: true },
-            },
-          },
-        },
-      },
     })
     if (!event) return c.json({ error: 'Not found' }, 404)
     return c.json(event)

@@ -1,5 +1,5 @@
 {
-  "id": "397afade-3214-4fdd-ac66-65ac7c3a263c",
+  "id": "d6ddf764-f883-4c25-8943-6d9146656c24",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -477,7 +477,8 @@
         },
         "eligible_grades": {
           "name": "eligible_grades",
-          "type": "text[]",
+          "type": "grade[]",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
         },
@@ -700,13 +701,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "is_public": {
-          "name": "is_public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
         "owner_id": {
           "name": "owner_id",
           "type": "text",
@@ -752,14 +746,6 @@
     }
   },
   "enums": {
-    "public.attendance_status": {
-      "name": "attendance_status",
-      "schema": "public",
-      "values": [
-        "attend",
-        "absent"
-      ]
-    },
     "public.event_kind": {
       "name": "event_kind",
       "schema": "public",

@@ -1,5 +1,5 @@
 import { integer, pgTable, text, timestamp, date, boolean } from 'drizzle-orm/pg-core'
-import { eventStatusEnum, eventKindEnum } from './enums'
+import { eventStatusEnum, eventKindEnum, gradeEnum } from './enums'
 import { users } from './auth'
 import { eventGroups } from './event-groups'
 
@@ -20,7 +20,7 @@ export const events = pgTable('events', {
   entryDeadline: date('entry_deadline', { mode: 'string' }),
   internalDeadline: date('internal_deadline', { mode: 'string' }),
   eventGroupId: integer('event_group_id').references(() => eventGroups.id, { onDelete: 'set null' }),
-  eligibleGrades: text('eligible_grades').array(),
+  eligibleGrades: gradeEnum('eligible_grades').array(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 })

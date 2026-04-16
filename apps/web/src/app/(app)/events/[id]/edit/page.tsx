@@ -11,13 +11,15 @@ export default async function EditEventPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const idNum = Number(id)
+  if (!Number.isInteger(idNum) || idNum <= 0) notFound()
   const session = await auth()
   if (!session || (session.user.role !== 'admin' && session.user.role !== 'vice_admin')) {
     redirect('/403')
   }
 
   const event = await db.query.events.findFirst({
-    where: eq(events.id, Number(id)),
+    where: eq(events.id, idNum),
   })
 
   if (!event) notFound()
@@ -35,7 +37,7 @@ export default async function EditEventPage({
       throw new Error('Unauthorized')
     }
 
-    const eligibleGrades = ['A', 'B', 'C', 'D', 'E'].filter(g => formData.get(`grade_${g}`) === 'on')
+    const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
     await db.update(events).set({
       title: formData.get('title') as string,
@@ -183,7 +185,7 @@ export default async function EditEventPage({
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">参加可能な級</label>
           <div className="flex gap-4">
-            {['A', 'B', 'C', 'D', 'E'].map((grade) => (
+            {(['A', 'B', 'C', 'D', 'E'] as const).map((grade) => (
               <label key={grade} className="flex items-center gap-1 text-sm">
                 <input
                   name={`grade_${grade}`}

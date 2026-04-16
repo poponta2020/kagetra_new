@@ -21,7 +21,7 @@ export default async function NewEventPage() {
       throw new Error('Unauthorized')
     }
 
-    const eligibleGrades = ['A', 'B', 'C', 'D', 'E'].filter(g => formData.get(`grade_${g}`) === 'on')
+    const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
     const result = await db.insert(events).values({
       title: formData.get('title') as string,

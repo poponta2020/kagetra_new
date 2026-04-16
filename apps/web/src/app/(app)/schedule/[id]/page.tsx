@@ -18,11 +18,13 @@ export default async function ScheduleDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const idNum = Number(id)
+  if (!Number.isInteger(idNum) || idNum <= 0) notFound()
   const session = await auth()
   const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
 
   const item = await db.query.scheduleItems.findFirst({
-    where: eq(scheduleItems.id, Number(id)),
+    where: eq(scheduleItems.id, idNum),
   })
 
   if (!item) notFound()

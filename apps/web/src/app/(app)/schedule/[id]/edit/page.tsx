@@ -11,13 +11,15 @@ export default async function EditSchedulePage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const idNum = Number(id)
+  if (!Number.isInteger(idNum) || idNum <= 0) notFound()
   const session = await auth()
   if (!session || (session.user.role !== 'admin' && session.user.role !== 'vice_admin')) {
     redirect('/403')
   }
 
   const item = await db.query.scheduleItems.findFirst({
-    where: eq(scheduleItems.id, Number(id)),
+    where: eq(scheduleItems.id, idNum),
   })
 
   if (!item) notFound()
