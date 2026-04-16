@@ -38,7 +38,6 @@ export default async function EditSchedulePage({
       endTime: (formData.get('endTime') as string) || null,
       location: (formData.get('location') as string) || null,
       description: (formData.get('description') as string) || null,
-      isPublic: formData.get('isPublic') === 'on',
       updatedAt: new Date(),
     }).where(eq(scheduleItems.id, itemId))
 
@@ -123,17 +122,6 @@ export default async function EditSchedulePage({
             defaultValue={item.description ?? ''}
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <input
-              name="isPublic"
-              type="checkbox"
-              defaultChecked={item.isPublic}
-              className="rounded border-gray-300"
-            />
-            公開する
-          </label>
         </div>
         <div className="flex gap-3">
           <button

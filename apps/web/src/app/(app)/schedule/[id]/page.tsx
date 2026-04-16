@@ -70,10 +70,6 @@ export default async function ScheduleDetailPage({
             <dd className="whitespace-pre-wrap">{item.description}</dd>
           </div>
         )}
-        <div>
-          <dt className="text-sm text-gray-500">公開</dt>
-          <dd>{item.isPublic ? 'はい' : 'いいえ'}</dd>
-        </div>
       </div>
       <Link href="/schedule" className="text-sm text-gray-500 hover:text-gray-700">
         ← スケジュール一覧に戻る

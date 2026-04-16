@@ -2,7 +2,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events, eventGroups } from '@kagetra/shared/schema'
+import { events } from '@kagetra/shared/schema'
 
 export default async function NewEventPage() {
   const session = await auth()

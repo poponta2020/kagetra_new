@@ -1,0 +1,1 @@
+ALTER TABLE "schedule_items" DROP COLUMN "is_public";

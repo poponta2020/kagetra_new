@@ -2,7 +2,7 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events, eventGroups } from '@kagetra/shared/schema'
+import { events } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 
 export default async function EditEventPage({

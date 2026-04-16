@@ -8,6 +8,13 @@
       "when": 1776358215345,
       "tag": "0000_faulty_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776360949106,
+      "tag": "0001_productive_wonder_man",
+      "breakpoints": true
     }
   ]
 }
