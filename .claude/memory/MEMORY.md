@@ -1,14 +1,14 @@
 # Memory Index
 
 ## User
-- [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住
+- [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
-- [kagetra_new 設計判断まとめ](project_kagetra_new_design.md) — 技術スタック・アーキテクチャ・機能スコープ・外部API等の全設計判断(2026-04-15確定)
+- [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 
 ## Reference
-- [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、新機能設計時の旧データ構造リファレンス
+- [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
 
 ## Feedback
-- [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD・品質ゲート・並行作業等(2026-04-15確定)
-- [セッション終了時memory同期](feedback_session_end_sync.md) — 設計判断をmemoryに書き込んでから同期。ファイルコピーだけでは不十分
+- [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等
+- [メモリ運用ルール](feedback_memory_management.md) — 何を書く/書かない、セッション終了時の同期手順、肥大化防止
