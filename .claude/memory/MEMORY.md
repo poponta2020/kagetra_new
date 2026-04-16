@@ -11,3 +11,4 @@
 
 ## Feedback
 - [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD・品質ゲート・並行作業等(2026-04-15確定)
+- [セッション終了時memory同期](feedback_session_end_sync.md) — 設計判断をmemoryに書き込んでから同期。ファイルコピーだけでは不十分
