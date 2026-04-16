@@ -45,7 +45,7 @@ export default async function EditEventPage({
       endTime: (formData.get('endTime') as string) || null,
       location: (formData.get('location') as string) || null,
       capacity: formData.get('capacity') ? Number(formData.get('capacity')) : null,
-      status: formData.get('status') as 'draft' | 'published' | 'cancelled',
+      status: formData.get('status') as 'draft' | 'published' | 'cancelled' | 'done',
       formalName: (formData.get('formalName') as string) || null,
       official: formData.get('official') === 'on',
       kind: (formData.get('kind') as 'individual' | 'team') || 'individual',
@@ -215,6 +215,7 @@ export default async function EditEventPage({
             <option value="draft">下書き</option>
             <option value="published">公開</option>
             <option value="cancelled">中止</option>
+            <option value="done">終了</option>
           </select>
         </div>
         <div className="flex gap-3">

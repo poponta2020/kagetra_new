@@ -38,8 +38,8 @@ export default async function EventDetailPage({
   const respondedUserIds = new Set(event.attendances.map(a => a.userId))
   const unansweredUsers = eligibleUsers.filter(u => !respondedUserIds.has(u.id))
 
-  // Check if current user can respond to attendance
-  const todayStr = new Date().toISOString().slice(0, 10)
+  // Check if current user can respond to attendance (JST-based comparison)
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
   const isBeforeDeadline = !event.internalDeadline || event.internalDeadline >= todayStr
   const myAttendance = session ? event.attendances.find(a => a.userId === session.user.id) : null
 
@@ -54,26 +54,45 @@ export default async function EventDetailPage({
 
   const isEligible = !event.eligibleGrades?.length || (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
   const canRespond = session && isBeforeDeadline && isEligible
+  const eventIdForAction = event.id
 
   async function submitAttendance(formData: FormData) {
     'use server'
     const session = await auth()
-    if (!session) throw new Error('Unauthorized')
+    if (!session?.user?.id) throw new Error('Unauthorized')
 
-    const eventId = Number(formData.get('eventId'))
     const attend = formData.get('attend') === 'true'
     const comment = (formData.get('comment') as string) || null
 
+    // Re-validate business rules on the server to prevent UI bypass.
+    // event id comes from the closure (route context), not a form field that could be tampered with.
+    const [targetEvent, currentUser] = await Promise.all([
+      db.query.events.findFirst({ where: eq(events.id, eventIdForAction) }),
+      db.query.users.findFirst({ where: eq(users.id, session.user.id) }),
+    ])
+    if (!targetEvent) throw new Error('Event not found')
+
+    const todayJst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
+    if (targetEvent.internalDeadline && targetEvent.internalDeadline < todayJst) {
+      throw new Error('会内締切を過ぎています')
+    }
+    if (
+      targetEvent.eligibleGrades?.length &&
+      (!currentUser?.grade || !targetEvent.eligibleGrades.includes(currentUser.grade))
+    ) {
+      throw new Error('対象外の級です')
+    }
+
     await db
       .insert(eventAttendances)
-      .values({ eventId, userId: session.user.id, attend, comment })
+      .values({ eventId: eventIdForAction, userId: session.user.id, attend, comment })
       .onConflictDoUpdate({
         target: [eventAttendances.eventId, eventAttendances.userId],
         set: { attend, comment, updatedAt: new Date() },
       })
 
     const { revalidatePath } = await import('next/cache')
-    revalidatePath(`/events/${eventId}`)
+    revalidatePath(`/events/${eventIdForAction}`)
   }
 
   return (
@@ -215,7 +234,6 @@ export default async function EventDetailPage({
           <div className="border-t pt-4">
             {canRespond ? (
               <form action={submitAttendance} className="space-y-3">
-                <input type="hidden" name="eventId" value={event.id} />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">コメント（任意）</label>
                   <textarea
