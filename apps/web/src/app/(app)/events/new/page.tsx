@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events } from '@kagetra/shared/schema'
+import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
 
 export default async function NewEventPage() {
   const session = await auth()
@@ -21,25 +22,18 @@ export default async function NewEventPage() {
       throw new Error('Unauthorized')
     }
 
+    const parsed = eventFormSchema.safeParse(extractEventFormData(formData))
+    if (!parsed.success) {
+      throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
+    }
+    const data = parsed.data
+
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
     const result = await db.insert(events).values({
-      title: formData.get('title') as string,
-      description: (formData.get('description') as string) || undefined,
-      eventDate: formData.get('eventDate') as string,
-      startTime: (formData.get('startTime') as string) || undefined,
-      endTime: (formData.get('endTime') as string) || undefined,
-      location: (formData.get('location') as string) || undefined,
-      capacity: formData.get('capacity') ? Number(formData.get('capacity')) : undefined,
-      status: (formData.get('status') as 'draft' | 'published') || 'draft',
+      ...data,
       createdBy: session.user.id,
-      formalName: (formData.get('formalName') as string) || undefined,
-      official: formData.get('official') === 'on',
-      kind: (formData.get('kind') as 'individual' | 'team') || 'individual',
-      entryDeadline: (formData.get('entryDeadline') as string) || undefined,
-      internalDeadline: (formData.get('internalDeadline') as string) || undefined,
-      eventGroupId: formData.get('eventGroupId') ? Number(formData.get('eventGroupId')) : undefined,
-      eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : undefined,
+      eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
     }).returning()
 
     const created = result[0]!

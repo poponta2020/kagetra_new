@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { scheduleItems } from '@kagetra/shared/schema'
+import { scheduleFormSchema, extractScheduleFormData } from '@/lib/form-schemas'
 
 export default async function NewSchedulePage() {
   const session = await auth()
@@ -17,14 +18,13 @@ export default async function NewSchedulePage() {
       throw new Error('Unauthorized')
     }
 
+    const parsed = scheduleFormSchema.safeParse(extractScheduleFormData(formData))
+    if (!parsed.success) {
+      throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
+    }
+
     const result = await db.insert(scheduleItems).values({
-      date: formData.get('date') as string,
-      name: formData.get('name') as string,
-      kind: (formData.get('kind') as 'practice' | 'meeting' | 'social' | 'other') || 'other',
-      startTime: (formData.get('startTime') as string) || undefined,
-      endTime: (formData.get('endTime') as string) || undefined,
-      location: (formData.get('location') as string) || undefined,
-      description: (formData.get('description') as string) || undefined,
+      ...parsed.data,
       ownerId: session.user.id,
     }).returning()
 

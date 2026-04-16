@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
+import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
 
 export default async function EditEventPage({
   params,
@@ -37,23 +38,16 @@ export default async function EditEventPage({
       throw new Error('Unauthorized')
     }
 
+    const parsed = eventFormSchema.safeParse(extractEventFormData(formData))
+    if (!parsed.success) {
+      throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
+    }
+    const data = parsed.data
+
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
     await db.update(events).set({
-      title: formData.get('title') as string,
-      description: (formData.get('description') as string) || null,
-      eventDate: formData.get('eventDate') as string,
-      startTime: (formData.get('startTime') as string) || null,
-      endTime: (formData.get('endTime') as string) || null,
-      location: (formData.get('location') as string) || null,
-      capacity: formData.get('capacity') ? Number(formData.get('capacity')) : null,
-      status: formData.get('status') as 'draft' | 'published' | 'cancelled' | 'done',
-      formalName: (formData.get('formalName') as string) || null,
-      official: formData.get('official') === 'on',
-      kind: (formData.get('kind') as 'individual' | 'team') || 'individual',
-      entryDeadline: (formData.get('entryDeadline') as string) || null,
-      internalDeadline: (formData.get('internalDeadline') as string) || null,
-      eventGroupId: formData.get('eventGroupId') ? Number(formData.get('eventGroupId')) : null,
+      ...data,
       eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
       updatedAt: new Date(),
     }).where(eq(events.id, eventId))

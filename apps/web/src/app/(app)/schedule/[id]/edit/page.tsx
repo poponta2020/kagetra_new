@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import { scheduleItems } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
+import { scheduleFormSchema, extractScheduleFormData } from '@/lib/form-schemas'
 
 export default async function EditSchedulePage({
   params,
@@ -32,14 +33,14 @@ export default async function EditSchedulePage({
     if (!session || (session.user.role !== 'admin' && session.user.role !== 'vice_admin')) {
       throw new Error('Unauthorized')
     }
+
+    const parsed = scheduleFormSchema.safeParse(extractScheduleFormData(formData))
+    if (!parsed.success) {
+      throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
+    }
+
     await db.update(scheduleItems).set({
-      date: formData.get('date') as string,
-      name: formData.get('name') as string,
-      kind: (formData.get('kind') as 'practice' | 'meeting' | 'social' | 'other') || 'other',
-      startTime: (formData.get('startTime') as string) || null,
-      endTime: (formData.get('endTime') as string) || null,
-      location: (formData.get('location') as string) || null,
-      description: (formData.get('description') as string) || null,
+      ...parsed.data,
       updatedAt: new Date(),
     }).where(eq(scheduleItems.id, itemId))
 

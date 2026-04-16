@@ -1,17 +1,27 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events } from '@kagetra/shared/schema'
-import { desc } from 'drizzle-orm'
+import { events, eventAttendances } from '@kagetra/shared/schema'
+import { desc, eq, count } from 'drizzle-orm'
 import { auth } from '@/auth'
 
 export default async function EventsPage() {
   const session = await auth()
   const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
 
-  const eventList = await db.query.events.findMany({
-    orderBy: [desc(events.eventDate)],
-    with: { attendances: true },
-  })
+  const [eventList, attendCounts] = await Promise.all([
+    db.query.events.findMany({
+      orderBy: [desc(events.eventDate)],
+    }),
+    db
+      .select({
+        eventId: eventAttendances.eventId,
+        count: count(),
+      })
+      .from(eventAttendances)
+      .where(eq(eventAttendances.attend, true))
+      .groupBy(eventAttendances.eventId),
+  ])
+  const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
 
   return (
     <div className="space-y-4">
@@ -31,7 +41,7 @@ export default async function EventsPage() {
           <p className="text-sm text-gray-500">イベントはまだありません</p>
         ) : (
           eventList.map((event) => {
-            const attendCount = event.attendances.filter(a => a.attend).length
+            const attendCount = attendCountMap.get(event.id) ?? 0
             return (
               <Link
                 key={event.id}

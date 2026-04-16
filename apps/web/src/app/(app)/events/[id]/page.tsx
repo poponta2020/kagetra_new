@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances, users } from '@kagetra/shared/schema'
+import type { Grade } from '@kagetra/shared/types'
 import { eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
 
@@ -46,7 +47,6 @@ export default async function EventDetailPage({
   const myAttendance = session ? event.attendances.find(a => a.userId === session.user.id) : null
 
   // Fetch current user's grade from DB if logged in
-  type Grade = 'A' | 'B' | 'C' | 'D' | 'E'
   let currentUserGrade: Grade | null = null
   if (session?.user.id) {
     const currentUser = await db.query.users.findFirst({
