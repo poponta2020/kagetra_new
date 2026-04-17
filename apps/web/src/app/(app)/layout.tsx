@@ -46,6 +46,11 @@ export default async function AppLayout({
                 イベント
               </Link>
             </li>
+            <li>
+              <Link href="/schedule" className="inline-block py-2 text-gray-600 hover:text-brand">
+                スケジュール
+              </Link>
+            </li>
             {isAdmin && (
               <li>
                 <Link href="/admin/members" className="inline-block py-2 text-gray-600 hover:text-brand">

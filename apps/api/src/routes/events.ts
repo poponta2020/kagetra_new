@@ -13,7 +13,14 @@ const createEventSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   location: z.string().optional(),
   capacity: z.number().int().positive().optional(),
-  status: z.enum(['draft', 'published', 'cancelled']).optional(),
+  status: z.enum(['draft', 'published', 'cancelled', 'done']).optional(),
+  formalName: z.string().max(200).optional(),
+  official: z.boolean().optional(),
+  kind: z.enum(['individual', 'team']).optional(),
+  entryDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  internalDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  eventGroupId: z.number().int().positive().optional(),
+  eligibleGrades: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).optional(),
 })
 
 const updateEventSchema = createEventSchema.partial()
