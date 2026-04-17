@@ -48,20 +48,24 @@ export default async function EventDetailPage({
   const isBeforeDeadline = !event.internalDeadline || event.internalDeadline >= todayStr
   const myAttendance = session ? event.attendances.find(a => a.userId === session.user.id) : null
 
-  // Fetch current user's grade from DB if logged in
+  // Fetch current user's grade + isInvited from DB if logged in
   let currentUserGrade: Grade | null = null
+  let currentUserIsInvited = false
   if (session?.user.id) {
     const currentUser = await db.query.users.findFirst({
       where: eq(users.id, session.user.id),
     })
     currentUserGrade = currentUser?.grade ?? null
+    currentUserIsInvited = currentUser?.isInvited ?? false
   }
 
   const isEligible = !event.eligibleGrades?.length || (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
-  // Admins/vice-admins bypass both the deadline and the grade filter (administrative override).
+  // Admins/vice-admins bypass deadline/grade/invite checks (administrative override).
+  // For non-admins, isInvited is required because Auth.js signIn allows returning users
+  // (with already-linked accounts) to skip the isInvited gate — so the app must re-check here.
   // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades;
   // there is no self-service grade UI in this PR, so such users must ask an admin to set it.
-  const canRespond = session && (isAdmin || (isBeforeDeadline && isEligible))
+  const canRespond = session && (isAdmin || (currentUserIsInvited && isBeforeDeadline && isEligible))
   const eventIdForAction = event.id
 
   async function submitAttendance(formData: FormData) {
@@ -82,6 +86,9 @@ export default async function EventDetailPage({
     if (!targetEvent) throw new Error('Event not found')
 
     const todayJst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
+    if (!isAdminUser && !currentUser?.isInvited) {
+      throw new Error('出欠回答の対象外です')
+    }
     if (!isAdminUser && targetEvent.internalDeadline && targetEvent.internalDeadline < todayJst) {
       throw new Error('会内締切を過ぎています')
     }
@@ -281,6 +288,8 @@ export default async function EventDetailPage({
                   </button>
                 </div>
               </form>
+            ) : !currentUserIsInvited ? (
+              <p className="text-sm text-gray-500">出欠回答の対象外です</p>
             ) : !isBeforeDeadline ? (
               <p className="text-sm text-gray-500">締切済み</p>
             ) : event.eligibleGrades?.length && currentUserGrade == null ? (

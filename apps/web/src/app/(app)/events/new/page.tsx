@@ -2,7 +2,8 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events } from '@kagetra/shared/schema'
+import { events, eventGroups } from '@kagetra/shared/schema'
+import { eq } from 'drizzle-orm'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
 
 export default async function NewEventPage() {
@@ -27,6 +28,17 @@ export default async function NewEventPage() {
       throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
     }
     const data = parsed.data
+
+    // Validate eventGroupId existence before insert to avoid FK exceptions surfacing as 500s.
+    if (data.eventGroupId != null) {
+      const group = await db.query.eventGroups.findFirst({
+        where: eq(eventGroups.id, data.eventGroupId),
+        columns: { id: true },
+      })
+      if (!group) {
+        throw new Error('入力が不正です: 指定された大会グループが存在しません')
+      }
+    }
 
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
