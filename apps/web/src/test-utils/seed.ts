@@ -23,6 +23,7 @@ export async function createUser(overrides: Partial<NewUser> = {}) {
       ...overrides,
     })
     .returning()
+  if (!user) throw new Error('Failed to insert test user')
   return user
 }
 
@@ -48,6 +49,7 @@ export async function createEvent(overrides: Partial<NewEvent> = {}) {
       ...overrides,
     })
     .returning()
+  if (!event) throw new Error('Failed to insert test event')
   return event
 }
 
@@ -59,6 +61,7 @@ export async function createEventGroup(overrides: Partial<NewEventGroup> = {}) {
       ...overrides,
     })
     .returning()
+  if (!group) throw new Error('Failed to insert test event group')
   return group
 }
 
@@ -75,5 +78,6 @@ export async function createEventAttendance(
       ...overrides,
     })
     .returning()
+  if (!attendance) throw new Error('Failed to insert test event attendance')
   return attendance
 }
