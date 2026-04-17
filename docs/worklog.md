@@ -183,3 +183,33 @@
 - drizzle-kit push は `--force` で非対話化、test DB は tmpfs でデータロス許容
 - Playwright Chromium のみ。Multi-browser は Phase 1-V 以降
 - cross-env を devDep に追加（Windows cmd での `DATABASE_URL=... pnpm` 構文非対応の回避）
+
+---
+
+## 2026-04-17 セッション6（テスト基盤整備PR ship）
+
+### 完了
+- **PR #2 マージ完了**: テスト基盤整備 + 権限制御5件のテスト を main にマージ（2026-04-17 12:24 UTC）
+  - URL: https://github.com/poponta2020/kagetra_new/pull/2
+  - コミット aa3967a（merge commit）
+  - Codexレビュー: 2ラウンド実施、最終ラウンドは指摘なし
+- レビュー対応で反映した修正:
+  - **R1 (Should fix)**: Playwright `reuseExistingServer: !process.env.CI` で dev サーバーを再利用すると webServer.env が適用されずテスト/dev DB 不整合 → 専用ポート 3001 + `reuseExistingServer: false` で分離
+- CI 初回失敗の対応（R1 と同時対応）:
+  - CI で Playwright 側に drizzle-kit push が無くテーブル未存在エラー
+  - `apps/web/e2e/global-setup.ts` を追加し、Playwright globalSetup としてスキーマ適用（Vitest/Playwright の各 runner が独立自足化）
+
+### 指摘されていた5件のテスト全て本番のCIで安定的にPASS
+- Vitest 4件（一般会員3件 + 管理者特権1件）
+- Playwright E2E 1件（admin grade更新 → eligibility 変化）
+
+### 現在のPhase
+- Phase 1（基盤）— テスト基盤整備 ship 完了、Phase 1-5 と Phase 1-V が残り
+
+### 次回やること
+- Phase 1-5: データ移行（旧kagetraからの会員+イベント移行）
+- Phase 1-V: 最終検証（スマホ実機 + API認証ミドルウェア + 全体E2E拡充）
+
+### 備考
+- CI の `pnpm test:e2e` は Playwright globalSetup が動くため、Vitest とは独立に E2E が実行可能
+- 将来 Phase 2 以降でテストケースを追加する際は、Vitest なら `apps/web/src/**/*.test.ts`、E2E なら `apps/web/e2e/*.spec.ts` に置けば自動検出される
