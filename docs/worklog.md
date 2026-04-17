@@ -133,3 +133,50 @@
 ### 備考
 - Windows build の symlink EPERM は既知（Linux/Docker本番では問題なし）
 - API認証ミドルウェアは Phase 1-V 以降で対応予定
+
+---
+
+## 2026-04-17 セッション5（テスト基盤整備PR）
+
+### 完了
+- **ブランチ `feat/test-infra-permission-control`**: Vitest + Playwright + 権限制御4件のテスト + CI統合
+- Vitest 3.2+ 導入（root `vitest.config.ts` の `test.projects` 方式、workspace.ts は deprecated）
+- apps/web/vitest.config.mts: jsdom + React Testing Library + tsconfig paths
+- テストDB基盤: docker-compose に `postgres-test` サービス（port 5434, tmpfs）、`pnpm test:db:up/down/push` スクリプト
+- `apps/web/src/test-utils/`:
+  - `db.ts` — testDb クライアント + `truncateAll()` CASCADE ヘルパー
+  - `seed.ts` — createUser/createAdmin/createEvent シードヘルパー
+  - `auth-mock.ts` — vi.mock 用 `mockAuthModule()` + `setAuthSession()`
+  - `playwright-auth.ts` — E2E用に test DB に user+session を仕込むヘルパー
+- `apps/web/vitest.setup.ts`: DATABASE_URL を test DB に強制上書き（dev DB への誤書き込み防止）
+- `apps/web/vitest.global-setup.ts`: テスト前に `drizzle-kit push --force` で test DB にスキーマ適用
+- **権限制御 Vitest ユニットテスト 4件 すべてPASS**: `apps/web/src/app/(app)/events/[id]/actions.test.ts`
+  - 一般会員 + isInvited=false → 出欠回答の対象外です ✅
+  - 一般会員 + 締切経過 → 会内締切を過ぎています ✅
+  - 一般会員 + eligibleGrades 不一致 → 対象外の級です ✅
+  - 管理者 + 締切後 + 対象外級 → 管理者特権で成功 ✅
+- Server Action 抽出: `events/[id]/page.tsx` 内クロージャだった `submitAttendance` を `actions.ts` に分離し、page は `.bind(null, event.id)` で呼ぶ
+- Auth.js v5 構成分割: `auth.config.ts`（Edge-safe: providers+pages のみ）と `auth.ts`（full: DrizzleAdapter 込み）に分離。middleware は軽量設定を使う
+  - **副次効果**: middleware が Edge ランタイムで `pg` を取り込んでビルド失敗していた既存の潜在バグを解消
+- next.config に `experimental.nodeMiddleware: true` 追加（フルauth()がNodeランタイムで走る安全網）
+- Playwright 1.59 導入: `playwright.config.ts` + `apps/web/e2e/grade-update.spec.ts`（grade更新で eligibility が変化するE2E、現状 `test.skip`）
+- CI統合: `.github/workflows/ci.yml` に postgres:16-alpine サービス追加 + `TEST_DATABASE_URL` 環境変数 + Vitest ステップ
+- scripts/ 配下にコミット対象外の review/ ディレクトリ、test-results/ 等を .gitignore に追加
+
+### 一部未対応
+- E2Eテスト #5（admin grade更新 → member eligibility変化）は `test.skip`
+  - 理由: 直接cookie注入でGETは動くがServer Action POSTが session=null になる。CSRF/session ハンドシェイクの仕組みを要調査。Phase 1-V で本格対応
+  - 同等の認可ゲートは Vitest ユニットテスト側で vi.mock('@/auth') 経由でカバー済み
+
+### 現在のPhase
+- Phase 1（基盤）— テスト基盤整備 PR 準備完了、Phase 1-5 と Phase 1-V が残り
+
+### 次回やること
+- 本PRのCodexレビュー → 指摘修正 → ship
+- Phase 1-5: データ移行（旧kagetraからの会員+イベント移行）
+- Phase 1-V: 最終検証（E2E skip解消 + スマホ実機 + API認証ミドルウェア）
+
+### 備考
+- drizzle-kit push は `--force` で非対話化、test DB は tmpfs でデータロス許容
+- Playwright Chromium のみ。Multi-browser は Phase 1-V 以降
+- cross-env を devDep に追加（Windows cmd での `DATABASE_URL=... pnpm` 構文非対応の回避）
