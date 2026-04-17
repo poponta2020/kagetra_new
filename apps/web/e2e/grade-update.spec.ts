@@ -28,13 +28,7 @@ test.describe('Admin grade update changes member eligibility', () => {
     await truncateAll()
   })
 
-  // TODO: un-skip once Auth.js v5 database-session cookie round-trip works
-  // reliably in E2E. Direct cookie injection gets to page renders (GET) but
-  // Server Action POSTs currently receive session=null in the action body,
-  // so updateMemberGrade throws Unauthorized. The unit tests in
-  // events/[id]/actions.test.ts already cover the same authorization gates
-  // via vi.mock('@/auth'); this E2E needs the CSRF/session handshake.
-  test.skip('grade が設定されると対象大会に回答できるようになる', async ({ browser }) => {
+  test('grade が設定されると対象大会に回答できるようになる', async ({ browser }) => {
     // Seed: admin, member (grade=null, invited), event eligible for grade A only.
     const admin = await seedAdminSession({ name: 'Admin User' })
     const member = await seedMemberSession({
@@ -57,7 +51,7 @@ test.describe('Admin grade update changes member eligibility', () => {
       memberPage.getByText(/級が未設定/),
     ).toBeVisible()
     await expect(
-      memberPage.getByRole('button', { name: '参加' }),
+      memberPage.getByRole('button', { name: '参加', exact: true }),
     ).toHaveCount(0)
 
     // Admin updates member's grade to A
@@ -76,7 +70,7 @@ test.describe('Admin grade update changes member eligibility', () => {
     // After grade update: member can now respond
     await memberPage.goto(`/events/${event.id}`)
     await expect(
-      memberPage.getByRole('button', { name: '参加' }),
+      memberPage.getByRole('button', { name: '参加', exact: true }),
     ).toBeVisible()
 
     await memberContext.close()

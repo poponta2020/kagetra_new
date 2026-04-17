@@ -159,14 +159,17 @@
 - Auth.js v5 構成分割: `auth.config.ts`（Edge-safe: providers+pages のみ）と `auth.ts`（full: DrizzleAdapter 込み）に分離。middleware は軽量設定を使う
   - **副次効果**: middleware が Edge ランタイムで `pg` を取り込んでビルド失敗していた既存の潜在バグを解消
 - next.config に `experimental.nodeMiddleware: true` 追加（フルauth()がNodeランタイムで走る安全網）
-- Playwright 1.59 導入: `playwright.config.ts` + `apps/web/e2e/grade-update.spec.ts`（grade更新で eligibility が変化するE2E、現状 `test.skip`）
+- Playwright 1.59 導入: `playwright.config.ts` + `apps/web/e2e/grade-update.spec.ts`（grade更新で eligibility が変化するE2E）✅ PASS
+- middleware を pass-through に変更（`auth as middleware` は DB session token を JWT として扱い JWTSessionError を出すため）。認可は各ページ/Server Action 側の `auth()` 呼び出しに委譲
 - CI統合: `.github/workflows/ci.yml` に postgres:16-alpine サービス追加 + `TEST_DATABASE_URL` 環境変数 + Vitest ステップ
 - scripts/ 配下にコミット対象外の review/ ディレクトリ、test-results/ 等を .gitignore に追加
 
-### 一部未対応
-- E2Eテスト #5（admin grade更新 → member eligibility変化）は `test.skip`
-  - 理由: 直接cookie注入でGETは動くがServer Action POSTが session=null になる。CSRF/session ハンドシェイクの仕組みを要調査。Phase 1-V で本格対応
-  - 同等の認可ゲートは Vitest ユニットテスト側で vi.mock('@/auth') 経由でカバー済み
+### 指摘されていた5件のテスト全てPASS
+- 一般会員: isInvited=false で回答不可 ✅ Vitest
+- 一般会員: 締切後は回答不可 ✅ Vitest
+- 一般会員: eligibleGrades 不一致で回答不可 ✅ Vitest
+- 管理者: 締切後/対象外級でも回答可能 ✅ Vitest
+- 管理者: admin/members で grade 更新後に出欠可否が変わる ✅ Playwright E2E
 
 ### 現在のPhase
 - Phase 1（基盤）— テスト基盤整備 PR 準備完了、Phase 1-5 と Phase 1-V が残り
