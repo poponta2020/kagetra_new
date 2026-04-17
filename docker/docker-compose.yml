@@ -17,5 +17,23 @@ services:
       timeout: 5s
       retries: 10
 
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: kagetra-db-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kagetra_test
+      POSTGRES_USER: kagetra
+      POSTGRES_PASSWORD: kagetra_dev
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kagetra -d kagetra_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   db_data:

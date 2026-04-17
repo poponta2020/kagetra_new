@@ -11,5 +11,6 @@ export default defineProject({
     globals: true,
     include: ['src/**/*.test.{ts,tsx}'],
     passWithNoTests: true,
+    globalSetup: ['./vitest.global-setup.ts'],
   },
 })
