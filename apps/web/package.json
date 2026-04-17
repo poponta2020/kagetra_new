@@ -8,7 +8,8 @@
     "start": "next start",
     "check-types": "tsc --noEmit",
     "lint": "next lint",
-    "test": "echo 'no tests yet'"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",

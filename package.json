@@ -15,6 +15,14 @@
     "db:push": "pnpm --filter=@kagetra/shared db:push"
   },
   "devDependencies": {
-    "turbo": "^2.4.0"
+    "@playwright/test": "^1.48.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^25.0.0",
+    "turbo": "^2.4.0",
+    "vite-tsconfig-paths": "^5.0.0",
+    "vitest": "^3.2.0"
   }
 }
