@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances, users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
 
 export default async function EventDetailPage({
@@ -29,12 +29,14 @@ export default async function EventDetailPage({
 
   if (!event) notFound()
 
-  // Get eligible users for unanswered count
-  const eligibleUsers = event.eligibleGrades?.length
-    ? await db.query.users.findMany({
-        where: inArray(users.grade, event.eligibleGrades),
-      })
-    : await db.query.users.findMany()
+  // Unanswered count must only consider invited users; the users table may contain
+  // legacy/migration rows with isInvited=false that should not count toward the denominator.
+  const eligibleUsers = await db.query.users.findMany({
+    columns: { id: true, name: true },
+    where: event.eligibleGrades?.length
+      ? and(eq(users.isInvited, true), inArray(users.grade, event.eligibleGrades))
+      : eq(users.isInvited, true),
+  })
 
   const attendingList = event.attendances.filter(a => a.attend)
   const notAttendingList = event.attendances.filter(a => !a.attend)
@@ -56,8 +58,10 @@ export default async function EventDetailPage({
   }
 
   const isEligible = !event.eligibleGrades?.length || (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
-  // Admins/vice-admins can update after the internal deadline (administrative override).
-  const canRespond = session && (isBeforeDeadline || isAdmin) && isEligible
+  // Admins/vice-admins bypass both the deadline and the grade filter (administrative override).
+  // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades;
+  // there is no self-service grade UI in this PR, so such users must ask an admin to set it.
+  const canRespond = session && (isAdmin || (isBeforeDeadline && isEligible))
   const eventIdForAction = event.id
 
   async function submitAttendance(formData: FormData) {
@@ -82,6 +86,7 @@ export default async function EventDetailPage({
       throw new Error('会内締切を過ぎています')
     }
     if (
+      !isAdminUser &&
       targetEvent.eligibleGrades?.length &&
       (!currentUser?.grade || !targetEvent.eligibleGrades.includes(currentUser.grade))
     ) {
@@ -278,6 +283,8 @@ export default async function EventDetailPage({
               </form>
             ) : !isBeforeDeadline ? (
               <p className="text-sm text-gray-500">締切済み</p>
+            ) : event.eligibleGrades?.length && currentUserGrade == null ? (
+              <p className="text-sm text-gray-500">級が未設定のため回答できません。管理者に級の設定を依頼してください。</p>
             ) : !isEligible ? (
               <p className="text-sm text-gray-500">対象外の級です</p>
             ) : null}
