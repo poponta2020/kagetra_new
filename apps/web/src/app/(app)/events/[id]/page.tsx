@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events, eventAttendances, users } from '@kagetra/shared/schema'
+import { events, users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
 import { and, eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
+import { submitAttendance } from './actions'
 
 export default async function EventDetailPage({
   params,
@@ -66,51 +67,7 @@ export default async function EventDetailPage({
   // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades;
   // there is no self-service grade UI in this PR, so such users must ask an admin to set it.
   const canRespond = session && (isAdmin || (currentUserIsInvited && isBeforeDeadline && isEligible))
-  const eventIdForAction = event.id
-
-  async function submitAttendance(formData: FormData) {
-    'use server'
-    const session = await auth()
-    if (!session?.user?.id) throw new Error('Unauthorized')
-    const isAdminUser = session.user.role === 'admin' || session.user.role === 'vice_admin'
-
-    const attend = formData.get('attend') === 'true'
-    const comment = (formData.get('comment') as string) || null
-
-    // Re-validate business rules on the server to prevent UI bypass.
-    // event id comes from the closure (route context), not a form field that could be tampered with.
-    const [targetEvent, currentUser] = await Promise.all([
-      db.query.events.findFirst({ where: eq(events.id, eventIdForAction) }),
-      db.query.users.findFirst({ where: eq(users.id, session.user.id) }),
-    ])
-    if (!targetEvent) throw new Error('Event not found')
-
-    const todayJst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
-    if (!isAdminUser && !currentUser?.isInvited) {
-      throw new Error('出欠回答の対象外です')
-    }
-    if (!isAdminUser && targetEvent.internalDeadline && targetEvent.internalDeadline < todayJst) {
-      throw new Error('会内締切を過ぎています')
-    }
-    if (
-      !isAdminUser &&
-      targetEvent.eligibleGrades?.length &&
-      (!currentUser?.grade || !targetEvent.eligibleGrades.includes(currentUser.grade))
-    ) {
-      throw new Error('対象外の級です')
-    }
-
-    await db
-      .insert(eventAttendances)
-      .values({ eventId: eventIdForAction, userId: session.user.id, attend, comment })
-      .onConflictDoUpdate({
-        target: [eventAttendances.eventId, eventAttendances.userId],
-        set: { attend, comment, updatedAt: new Date() },
-      })
-
-    const { revalidatePath } = await import('next/cache')
-    revalidatePath(`/events/${eventIdForAction}`)
-  }
+  const boundSubmitAttendance = submitAttendance.bind(null, event.id)
 
   return (
     <div className="space-y-6">
@@ -250,7 +207,7 @@ export default async function EventDetailPage({
         {session && (
           <div className="border-t pt-4">
             {canRespond ? (
-              <form action={submitAttendance} className="space-y-3">
+              <form action={boundSubmitAttendance} className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">コメント（任意）</label>
                   <textarea

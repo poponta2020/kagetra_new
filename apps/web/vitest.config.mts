@@ -7,7 +7,7 @@ export default defineProject({
   test: {
     name: 'web',
     environment: 'jsdom',
-    setupFiles: [],
+    setupFiles: ['./vitest.setup.ts'],
     globals: true,
     include: ['src/**/*.test.{ts,tsx}'],
     passWithNoTests: true,
