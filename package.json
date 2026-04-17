@@ -15,7 +15,9 @@
     "db:push": "pnpm --filter=@kagetra/shared db:push",
     "test:db:up": "docker compose -f docker/docker-compose.yml up -d postgres-test",
     "test:db:down": "docker compose -f docker/docker-compose.yml stop postgres-test",
-    "test:db:push": "cross-env DATABASE_URL=postgresql://kagetra:kagetra_dev@localhost:5434/kagetra_test pnpm --filter=@kagetra/shared db:push --force"
+    "test:db:push": "cross-env DATABASE_URL=postgresql://kagetra:kagetra_dev@localhost:5434/kagetra_test pnpm --filter=@kagetra/shared db:push --force",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
