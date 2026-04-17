@@ -103,3 +103,33 @@
 - pnpm build の Windows symlink警告は既知問題（EPERM, standalone trace copy）
 - attendanceStatusEnum が enums.ts に定義されているが未使用（attend は boolean で実装）→ 次回クリーンアップ可
 - API認証ミドルウェアは未実装（x-user-id ヘッダーで仮対応、フロントはServer Actions経由）
+
+---
+
+## 2026-04-17 セッション4（Phase 1-4 ship）
+
+### 完了
+- **PR #1 マージ完了**: Phase 1-4 スケジュール機能（出欠管理+スケジュール）を main にマージ（2026-04-17 09:21 UTC）
+  - URL: https://github.com/poponta2020/kagetra_new/pull/1
+  - コミット 2668049（merge commit）
+  - Codexレビュー: 計7ラウンド実施、最終ラウンドは Blocker/Should fix なし
+- レビュー対応で反映した主な修正（R1〜R6）:
+  - isInvited ガード強化（signInコールバック、events 詳細/Server Action）
+  - 管理者の会員級編集UI追加（admin/members）
+  - eventGroupId 実在チェック追加（event create/edit Server Action）
+
+### 未対応（次PRにフォロー）
+- [Nit] 権限制御のE2E/統合テスト5件（isInvited/締切/eligibleGrades/管理者特権/grade更新）
+  - 理由: テスト基盤（Vitest/Playwright）未整備。テスト基盤整備PRとして別スコープで実施
+
+### 現在のPhase
+- Phase 1（基盤）— 1-4 まで ship 完了、1-5(データ移行) と 1-V(最終検証) が残り
+
+### 次回やること
+- テスト基盤整備PR（Vitest + Playwright + 権限制御テスト5件）
+- Phase 1-5: データ移行（旧kagetraからの会員+イベント移行）
+- Phase 1-V: 最終検証（E2E, CI, スマホ実機確認）
+
+### 備考
+- Windows build の symlink EPERM は既知（Linux/Docker本番では問題なし）
+- API認証ミドルウェアは Phase 1-V 以降で対応予定
