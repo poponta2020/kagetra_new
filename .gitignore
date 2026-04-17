@@ -8,3 +8,6 @@ coverage/
 !.env.example
 *.tsbuildinfo
 scripts/migration/dump/
+test-results/
+playwright-report/
+playwright/.auth/

@@ -12,6 +12,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kagetra_test
+          POSTGRES_USER: kagetra
+          POSTGRES_PASSWORD: kagetra_dev
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U kagetra -d kagetra_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://kagetra:kagetra_dev@localhost:5434/kagetra_test
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,5 +58,13 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
-      - name: Test
+      - name: Test (Vitest)
         run: pnpm test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Test (Playwright E2E)
+        run: pnpm test:e2e
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}

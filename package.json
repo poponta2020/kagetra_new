@@ -12,9 +12,23 @@
     "dev:api": "turbo run dev --filter=@kagetra/api",
     "db:generate": "pnpm --filter=@kagetra/shared db:generate",
     "db:migrate": "pnpm --filter=@kagetra/shared db:migrate",
-    "db:push": "pnpm --filter=@kagetra/shared db:push"
+    "db:push": "pnpm --filter=@kagetra/shared db:push",
+    "test:db:up": "docker compose -f docker/docker-compose.yml up -d postgres-test",
+    "test:db:down": "docker compose -f docker/docker-compose.yml stop postgres-test",
+    "test:db:push": "cross-env DATABASE_URL=postgresql://kagetra:kagetra_dev@localhost:5434/kagetra_test pnpm --filter=@kagetra/shared db:push --force",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
-    "turbo": "^2.4.0"
+    "@playwright/test": "^1.48.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "cross-env": "^7.0.3",
+    "jsdom": "^25.0.0",
+    "turbo": "^2.4.0",
+    "vite-tsconfig-paths": "^5.0.0",
+    "vitest": "^3.2.0"
   }
 }
