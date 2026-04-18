@@ -9,24 +9,29 @@ export type MockSessionUser = {
   image?: string | null
   role: UserRole
   mustChangePassword?: boolean
+  lineUserId?: string | null
 }
 
 export type MockSession = {
   user: Required<Pick<MockSessionUser, 'id' | 'role'>> &
-    Omit<MockSessionUser, 'id' | 'role'> & { mustChangePassword: boolean }
+    Omit<MockSessionUser, 'id' | 'role'> & {
+      mustChangePassword: boolean
+      lineUserId: string | null
+    }
   expires: string
 }
 
 /**
  * Build a minimal session object compatible with auth() return shape under the
  * JWT strategy. Only fields consumed by Server Actions / layouts (id, role,
- * mustChangePassword) are required.
+ * mustChangePassword, lineUserId) are required.
  */
 export function buildMockSession(user: MockSessionUser): MockSession {
   return {
     user: {
       ...user,
       mustChangePassword: user.mustChangePassword ?? false,
+      lineUserId: user.lineUserId ?? null,
     },
     expires: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
   }

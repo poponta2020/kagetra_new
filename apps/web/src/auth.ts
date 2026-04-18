@@ -9,7 +9,7 @@ import { authConfig } from './auth.config'
  * jwt/session callbacks). Middleware re-creates a NextAuth instance from
  * `authConfig` alone — no providers needed there.
  */
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   ...authConfig,
   providers: [
     Credentials({

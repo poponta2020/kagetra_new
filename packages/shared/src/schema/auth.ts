@@ -7,7 +7,7 @@ import {
   timestamp,
 } from 'drizzle-orm/pg-core'
 import type { AdapterAccountType } from '@auth/core/adapters'
-import { userRoleEnum, gradeEnum } from './enums'
+import { userRoleEnum, gradeEnum, genderEnum } from './enums'
 
 export const users = pgTable('users', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -23,6 +23,12 @@ export const users = pgTable('users', {
   invitedAt: timestamp('invited_at', { mode: 'date' }),
   passwordHash: text('password_hash'),
   mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // Phase 1-5 PR-B: extended profile fields
+  gender: genderEnum('gender'),
+  affiliation: text('affiliation'),
+  dan: integer('dan'),
+  zenNichikyo: boolean('zen_nichikyo').notNull().default(false),
+  deactivatedAt: timestamp('deactivated_at', { mode: 'date', withTimezone: true }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 })
