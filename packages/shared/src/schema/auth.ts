@@ -11,7 +11,7 @@ import { userRoleEnum, gradeEnum } from './enums'
 
 export const users = pgTable('users', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: text('name'),
+  name: text('name').unique(),
   email: text('email').unique(),
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
@@ -21,6 +21,8 @@ export const users = pgTable('users', {
   grade: gradeEnum('grade'),
   isInvited: boolean('is_invited').notNull().default(false),
   invitedAt: timestamp('invited_at', { mode: 'date' }),
+  passwordHash: text('password_hash'),
+  mustChangePassword: boolean('must_change_password').notNull().default(false),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 })
