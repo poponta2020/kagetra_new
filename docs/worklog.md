@@ -213,3 +213,47 @@
 ### 備考
 - CI の `pnpm test:e2e` は Playwright globalSetup が動くため、Vitest とは独立に E2E が実行可能
 - 将来 Phase 2 以降でテストケースを追加する際は、Vitest なら `apps/web/src/**/*.test.ts`、E2E なら `apps/web/e2e/*.spec.ts` に置けば自動検出される
+
+---
+
+## 2026-04-18 セッション7（Phase 1-5 計画策定 + PR-A ship）
+
+### 完了
+- **Phase 1-5 データ移行計画を策定** (`docs/phase-1-5-migration-plan.md`): Q1〜Q6 の grill-me で全判断事項を確定
+  - Q1: 移行対象 = users / event_groups / events / event_attendances / schedule_items
+  - Q2: **認証方式を LINE Login → ユーザー名+パスワードに変更**（旧 `users` の identity 紐付け困難のため）。初期パス `pppppppp`、初回変更強制
+  - Q3: `users.deactivatedAt` 新設（退会者管理、PR-B で実装）
+  - Q4: 出欠は `positive→attend` bool変換、`cancel=true→attend=false`、`gradeSnapshot` 追加、`user_name` 破棄、`event_comments` 対象外（Phase 4 で対応）
+  - Q5: 冪等アップサート用に `legacyId` 各テーブル追加、旧システムは ship 後凍結
+  - Q6: `gender/affiliation/dan/zenNichikyo` カラム追加、permission=1 は admin 扱い、affiliation は全員 NULL 初期化
+- **PR #3 マージ完了** (PR-A: 認証方式変更): 2026-04-18
+  - URL: https://github.com/poponta2020/kagetra_new/pull/3
+  - Merge commit: 968cb9c
+  - Codex レビュー: 2ラウンド (R1 = Blocker 2 + Should fix 3、R2 = Nits 2件のみ → マージ可)
+- 実装内容 (PR-A):
+  - Auth.js v5 Credentials provider + bcrypt(cost 12)、JWT セッション (Edge middleware 用)
+  - `users.password_hash` (nullable) / `users.must_change_password` (default false) / `UNIQUE(users.name)` 追加
+  - `/login` (username+password フォーム) + `/change-password` (強制変更フロー) 新設
+  - 旧 `/auth/signin` `/auth/error` `/auth/not-invited` と `(auth)/layout` 削除
+  - middleware: 未認証→`/login`、mustChangePassword=true→`/change-password` 強制リダイレクト
+  - Codex R1 対応: migration SQL に DO ブロック (UNIQUE衝突時 RAISE EXCEPTION)、新旧同一パス禁止、authorize にダミーハッシュ compare (タイミング攻撃耐性)、AuthError narrow
+- テスト: Vitest 18/18 (+新 same-password rejection)、Playwright 3/3、CI PASS
+
+### Phase 1-5 の進捗
+- PR-A (認証方式変更) — **ship完了** ✅
+- PR-B (プロフィール拡張 + LINE連携) — 未着手
+- PR-C (データ移行スクリプト) — 未着手
+- Phase 4 (本番適用) — 未着手
+
+### 次回やること
+- PR-B 着手 (`docs/phase-1-5-migration-plan.md` の Phase 2 セクション):
+  - `gender` / `affiliation` / `dan` / `zenNichikyo` / `deactivatedAt` カラム追加
+  - 管理画面の会員編集フォーム拡張
+  - LINE OAuth 連携フロー (raw OAuth2 実装、セッション生成せず lineUserId のみ取得)
+  - middleware で `lineUserId IS NULL` 時に `/settings/line-link` 強制誘導
+
+### 備考
+- 旧パスワードハッシュ(PBKDF2-SHA1 100iter)の移植は行わず、全員初期 `pppppppp` リセット方針で確定
+- 他端末 JWT 無効化は Should-fix として指摘されたが、66名・30日TTL の運用規模に対し tokenVersion 導入等は複雑性過多と判断して見送り。要件変化時に再検討
+- 残置: Auth.js v4 時代のテーブル (`sessions`/`accounts`/`verificationTokens`) と `@auth/drizzle-adapter` 依存 — follow-up PR で削除予定
+- Phase 1-V (最終検証: スマホ実機 + API認証ミドルウェア) は Phase 1-5 完了後に残課題として存在
