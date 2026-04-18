@@ -12,11 +12,12 @@ type NewEventGroup = InferInsertModel<typeof eventGroups>
  * All schema fields are nullable/have defaults except id (auto-generated via crypto.randomUUID()).
  */
 export async function createUser(overrides: Partial<NewUser> = {}) {
+  const uniqueId = crypto.randomUUID()
   const [user] = await testDb
     .insert(users)
     .values({
-      name: 'Test User',
-      email: `test-${crypto.randomUUID()}@example.com`,
+      name: `test-user-${uniqueId}`,
+      email: `test-${uniqueId}@example.com`,
       role: 'member',
       isInvited: true,
       grade: 'A',

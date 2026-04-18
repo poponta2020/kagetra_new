@@ -34,8 +34,7 @@ export default defineConfig({
     env: {
       DATABASE_URL: TEST_DATABASE_URL,
       AUTH_SECRET: 'e2e-test-secret-do-not-use-in-production',
-      AUTH_LINE_ID: 'e2e-dummy-id',
-      AUTH_LINE_SECRET: 'e2e-dummy-secret',
+      AUTH_TRUST_HOST: 'true',
       NEXTAUTH_URL: E2E_BASE_URL,
     },
   },

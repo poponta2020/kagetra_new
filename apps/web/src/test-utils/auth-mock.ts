@@ -8,27 +8,33 @@ export type MockSessionUser = {
   email?: string | null
   image?: string | null
   role: UserRole
+  mustChangePassword?: boolean
 }
 
 export type MockSession = {
-  user: MockSessionUser
+  user: Required<Pick<MockSessionUser, 'id' | 'role'>> &
+    Omit<MockSessionUser, 'id' | 'role'> & { mustChangePassword: boolean }
   expires: string
 }
 
 /**
- * Build a minimal session object compatible with auth() return shape.
- * Only fields consumed by Server Actions (id, role) are required.
+ * Build a minimal session object compatible with auth() return shape under the
+ * JWT strategy. Only fields consumed by Server Actions / layouts (id, role,
+ * mustChangePassword) are required.
  */
 export function buildMockSession(user: MockSessionUser): MockSession {
   return {
-    user,
+    user: {
+      ...user,
+      mustChangePassword: user.mustChangePassword ?? false,
+    },
     expires: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
   }
 }
 
 /**
- * Use in test files to swap auth() with a mock. Call setAuthSession() in beforeEach
- * to control the session per test.
+ * Use in test files to swap auth() with a mock. Call setAuthSession() in
+ * beforeEach to control the session per test.
  *
  *   vi.mock('@/auth', () => mockAuthModule())
  *   setAuthSession({ id: 'u1', role: 'admin' })

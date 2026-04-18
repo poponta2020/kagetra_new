@@ -1,27 +1,56 @@
+import NextAuth from 'next-auth'
 import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { authConfig } from './auth.config'
 
 /**
- * Minimal middleware — no auth processing here.
+ * Edge-safe middleware using JWT sessions.
  *
- * Auth.js v5 database sessions require pg/crypto which is unavailable in the
- * Edge runtime. Using `auth as middleware` from '@/auth' (which carries the
- * DrizzleAdapter) would emit JWTSessionError on every request, potentially
- * clearing session cookies.
- *
- * Instead, each page/route calls `auth()` from '@/auth' directly, which runs
- * in Node.js and can perform the DB session lookup via the adapter.
- *
- * The Auth.js OAuth endpoints (/api/auth/…) are excluded from this matcher
- * and continue to work normally.
- *
- * TODO: Switch to `experimental.nodeMiddleware: true` + `export const runtime
- * = 'nodejs'` in next.config.ts once that API is stable, then restore
- * `export { auth as middleware } from '@/auth'` for automatic session refresh.
+ * Auth.js v5 with JWT strategy reads the session token from cookies without
+ * needing DB access, so this runs safely in the Edge runtime. The Credentials
+ * provider's `authorize` callback lives in `auth.ts` and is not referenced here.
  */
-export function middleware(_request: NextRequest) {
-  return NextResponse.next()
+const { auth } = NextAuth(authConfig)
+
+const PUBLIC_PATHS = ['/login']
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  )
 }
+
+export default auth((req) => {
+  const { nextUrl } = req
+  const session = req.auth
+  const pathname = nextUrl.pathname
+
+  // Unauthenticated: only /login is reachable.
+  if (!session) {
+    if (isPublicPath(pathname)) return NextResponse.next()
+    const url = nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // Authenticated but must change password: force /change-password.
+  if (
+    session.user?.mustChangePassword &&
+    pathname !== '/change-password'
+  ) {
+    const url = nextUrl.clone()
+    url.pathname = '/change-password'
+    return NextResponse.redirect(url)
+  }
+
+  // Authenticated user visiting /login → redirect to dashboard root.
+  if (isPublicPath(pathname)) {
+    const url = nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.redirect(url)
+  }
+
+  return NextResponse.next()
+})
 
 export const config = {
   matcher: [
