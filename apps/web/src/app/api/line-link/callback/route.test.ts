@@ -97,7 +97,7 @@ describe('GET /api/line-link/callback', () => {
     expect(unchanged?.lineUserId).toBeNull()
   })
 
-  it('error パラメータあり: DB を書き換えずエラー画面へ', async () => {
+  it('error パラメータあり: DB を書き換えずエラー画面へ、かつ state cookie が削除される', async () => {
     const user = await createUser({ name: 'carol', lineUserId: null })
     await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
     cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
@@ -112,6 +112,30 @@ describe('GET /api/line-link/callback', () => {
       where: eq(users.id, user.id),
     })
     expect(unchanged?.lineUserId).toBeNull()
+
+    // state cookie must be dropped on every exit path (including error=) —
+    // prevents stale state from lingering for the next attempt.
+    expect(cookieJar.has(LINE_STATE_COOKIE)).toBe(false)
+  })
+
+  it('エラー時のリダイレクト先が req.url と同じ origin になる (NEXTAUTH_URL 非依存)', async () => {
+    const user = await createUser({ name: 'host-check', lineUserId: null })
+    await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
+    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+
+    // Override NEXTAUTH_URL to a bogus host; redirect must still use req.url
+    const prev = process.env.NEXTAUTH_URL
+    process.env.NEXTAUTH_URL = 'http://bogus.example.invalid'
+
+    try {
+      const res = await GET(makeRequest({ error: 'access_denied', state: 'state-abc' }))
+      const location = res.headers.get('location') ?? ''
+      expect(location).toContain('http://localhost:3000/settings/line-link')
+      expect(location).not.toContain('bogus.example.invalid')
+    } finally {
+      if (prev === undefined) delete process.env.NEXTAUTH_URL
+      else process.env.NEXTAUTH_URL = prev
+    }
   })
 
   it('別会員の lineUserId と衝突: error=conflict を返す', async () => {

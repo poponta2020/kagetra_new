@@ -157,6 +157,56 @@ describe('Admin member profile edit actions', () => {
       )
       expect(result.error).toBeDefined()
     })
+
+    it('dan に非整数 (3abc) を入れると入力エラー、DBは変更されない', async () => {
+      const admin = await createAdmin({ name: 'admin-dan-nonint' })
+      const target = await createUser({ name: 'target-dan-nonint', dan: 5 })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '3abc',
+          zenNichikyo: '',
+        }),
+      )
+      expect(result.error).toBeDefined()
+
+      // DB は未変更（5 のまま）
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.dan).toBe(5)
+    })
+
+    it('未知の grade (Z) は silent null にせず入力エラーとして拒否する', async () => {
+      const admin = await createAdmin({ name: 'admin-grade-unk' })
+      const target = await createUser({ name: 'target-grade-unk', grade: 'A' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: 'Z',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+        }),
+      )
+      expect(result.error).toBeDefined()
+
+      // DB は未変更（A のまま）。旧実装は silent に null を入れていた。
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.grade).toBe('A')
+    })
   })
 
   describe('toggleMemberDeactivation', () => {

@@ -31,20 +31,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const state = url.searchParams.get('state')
   const error = url.searchParams.get('error')
 
-  if (error) {
-    return redirectToLinkPage('denied')
-  }
-
-  // State verification (CSRF). Always drop the cookie regardless of outcome.
+  // Drop the CSRF state cookie on every path (success, error, mismatch).
+  // Must happen before early returns so LINE's error redirect also clears it.
   const cookieStore = await cookies()
   const storedState = cookieStore.get(LINE_STATE_COOKIE)?.value
   cookieStore.delete(LINE_STATE_COOKIE)
 
+  if (error) {
+    return redirectToLinkPage(req, 'denied')
+  }
   if (!state || !storedState || state !== storedState) {
-    return redirectToLinkPage('state_mismatch')
+    return redirectToLinkPage(req, 'state_mismatch')
   }
   if (!code) {
-    return redirectToLinkPage('oauth_failed')
+    return redirectToLinkPage(req, 'oauth_failed')
   }
 
   const session = await auth()
@@ -62,13 +62,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
     } else {
       const env = readLineOAuthEnv()
-      if (!env) return redirectToLinkPage('missing_env')
+      if (!env) return redirectToLinkPage(req, 'missing_env')
       const accessToken = await exchangeCodeForAccessToken(env, code)
       profile = await fetchLineProfile(accessToken)
     }
   } catch {
     // Intentionally do not log the access_token or profile payload.
-    return redirectToLinkPage('oauth_failed')
+    return redirectToLinkPage(req, 'oauth_failed')
   }
 
   // Conflict: another account already linked with this lineUserId.
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     columns: { id: true },
   })
   if (existing && existing.id !== session.user.id) {
-    return redirectToLinkPage('conflict')
+    return redirectToLinkPage(req, 'conflict')
   }
 
   try {
@@ -85,9 +85,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .update(users)
       .set({ lineUserId: profile.userId, updatedAt: new Date() })
       .where(eq(users.id, session.user.id))
-  } catch {
-    // Catch unique-violation racing with a concurrent link on the other side.
-    return redirectToLinkPage('conflict')
+  } catch (err) {
+    // Only the 23505 unique_violation race is a conflict; other DB errors
+    // (connectivity, timeouts) are operational failures and deserve a
+    // different UX + separate observability category.
+    if (isUniqueViolation(err)) {
+      return redirectToLinkPage(req, 'conflict')
+    }
+    return redirectToLinkPage(req, 'oauth_failed')
   }
 
   // Refresh the JWT so middleware sees the new lineUserId without requiring
@@ -104,13 +109,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   return NextResponse.redirect(new URL('/', req.url))
 }
 
-function redirectToLinkPage(errorCode: string): NextResponse {
+function redirectToLinkPage(req: NextRequest, errorCode: string): NextResponse {
+  // Use the request URL as the origin so the redirect stays on the same host
+  // as the caller (works behind reverse proxies without requiring NEXTAUTH_URL).
   return NextResponse.redirect(
-    // Absolute base is injected by Next at runtime via request URL; we use a
-    // relative URL here and let NextResponse.redirect resolve it.
     new URL(
       `/settings/line-link?error=${encodeURIComponent(errorCode)}`,
-      process.env.NEXTAUTH_URL ?? 'http://localhost:3000',
+      req.url,
     ),
   )
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  // node-postgres exposes the PG error code on the `code` field.
+  // 23505 = unique_violation per PostgreSQL error codes.
+  const code = (err as { code?: unknown }).code
+  if (code === '23505') return true
+  // Drizzle may nest the driver error in `.cause`.
+  const cause = (err as { cause?: unknown }).cause
+  if (
+    typeof cause === 'object' &&
+    cause !== null &&
+    (cause as { code?: unknown }).code === '23505'
+  ) {
+    return true
+  }
+  return false
 }

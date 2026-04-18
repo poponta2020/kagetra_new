@@ -11,38 +11,37 @@ import { users } from '@kagetra/shared/schema'
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
 
+// Normalize a FormData entry for strict zod validation. Returns:
+//   - null: when the field is missing or empty (→ nullable zod accepts as null)
+//   - the trimmed string: otherwise (zod enum / coerce validates strictness)
+function formEntryOrNull(raw: FormDataEntryValue | null): string | null {
+  if (typeof raw !== 'string') return null
+  const s = raw.trim()
+  return s.length === 0 ? null : s
+}
+
 const updateProfileSchema = z.object({
   userId: z.string().min(1),
+  // Unknown enum values (e.g. 'Z', 'anything') → zod rejects (not silently → null)
   grade: z.enum(GRADES).nullable(),
   gender: z.enum(GENDERS).nullable(),
-  affiliation: z.string().nullable(),
-  dan: z.number().int().min(0).max(9).nullable(),
+  affiliation: z.string().max(255).nullable(),
+  // Strictly integer 0-9. Rejects '3abc', '3.5', negatives, etc.
+  // Preprocess: empty/null → null; otherwise require /^\d+$/ and parse to int.
+  dan: z.preprocess((v) => {
+    if (v === null) return null
+    if (typeof v !== 'string') return v
+    const s = v.trim()
+    if (s.length === 0) return null
+    if (!/^\d+$/.test(s)) return Number.NaN // force zod int() to reject
+    return Number.parseInt(s, 10)
+  }, z.union([z.number().int().min(0).max(9), z.null()])),
   zenNichikyo: z.boolean(),
 })
 
 export type UpdateProfileState = {
   error?: string
   success?: boolean
-}
-
-function parseNullableString(raw: FormDataEntryValue | null): string | null {
-  if (raw === null) return null
-  const s = typeof raw === 'string' ? raw.trim() : ''
-  return s.length === 0 ? null : s
-}
-
-function parseNullableEnum<T extends readonly string[]>(
-  raw: FormDataEntryValue | null,
-  values: T,
-): T[number] | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null
-  return (values as readonly string[]).includes(raw) ? (raw as T[number]) : null
-}
-
-function parseNullableInt(raw: FormDataEntryValue | null): number | null {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return null
-  const n = Number.parseInt(raw, 10)
-  return Number.isFinite(n) ? n : null
 }
 
 async function assertAdminSession() {
@@ -64,10 +63,10 @@ export async function updateMemberProfile(
 
   const parsed = updateProfileSchema.safeParse({
     userId: formData.get('userId'),
-    grade: parseNullableEnum(formData.get('grade'), GRADES),
-    gender: parseNullableEnum(formData.get('gender'), GENDERS),
-    affiliation: parseNullableString(formData.get('affiliation')),
-    dan: parseNullableInt(formData.get('dan')),
+    grade: formEntryOrNull(formData.get('grade')),
+    gender: formEntryOrNull(formData.get('gender')),
+    affiliation: formEntryOrNull(formData.get('affiliation')),
+    dan: formData.get('dan'),
     zenNichikyo: formData.get('zenNichikyo') === 'on',
   })
   if (!parsed.success) {
