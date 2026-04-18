@@ -60,6 +60,14 @@ export async function changePasswordAction(
     return { error: '現在のパスワードが違います' }
   }
 
+  // Prevent bypassing the forced-change requirement by reusing the same
+  // password — especially critical because the initial password is shared
+  // across all migrated users (pppppppp).
+  const newMatchesCurrent = await bcrypt.compare(newPassword, user.passwordHash)
+  if (newMatchesCurrent) {
+    return { error: '新しいパスワードは現在のパスワードと異なるものにしてください' }
+  }
+
   const newHash = await bcrypt.hash(newPassword, BCRYPT_COST)
   await db
     .update(users)

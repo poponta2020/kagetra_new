@@ -16,6 +16,15 @@ export type AuthorizedUser = {
   mustChangePassword: boolean
 }
 
+// Generated once at module load. Comparing any input against this takes the
+// same time as comparing against a real bcrypt(cost=12) hash, which keeps
+// authorize() timing-constant regardless of whether the username exists or
+// has a usable passwordHash — preventing user-enumeration side channels.
+const DUMMY_HASH_PROMISE: Promise<string> = bcrypt.hash(
+  'timing-safe-placeholder-not-a-real-password',
+  12,
+)
+
 /**
  * Credentials provider `authorize` predicate, extracted from `auth.ts` so
  * tests can exercise it without running the NextAuth HTTP pipeline.
@@ -33,10 +42,15 @@ export async function authorizeCredentials(
   const user = await db.query.users.findFirst({
     where: eq(users.name, username),
   })
-  if (!user || !user.passwordHash || !user.isInvited) return null
 
-  const ok = await bcrypt.compare(password, user.passwordHash)
-  if (!ok) return null
+  // Always run bcrypt.compare so response time does not depend on whether the
+  // user exists / has a passwordHash / is invited.
+  const hashToCompare = user?.passwordHash ?? (await DUMMY_HASH_PROMISE)
+  const passwordOk = await bcrypt.compare(password, hashToCompare)
+
+  if (!user || !user.passwordHash || !user.isInvited || !passwordOk) {
+    return null
+  }
 
   return {
     id: user.id,

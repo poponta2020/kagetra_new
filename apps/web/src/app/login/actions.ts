@@ -36,7 +36,10 @@ export async function login(
       redirect: false,
     })
   } catch (err) {
-    if (err instanceof AuthError) {
+    // Only translate CredentialsSignin (bad username/password) to the generic
+    // user-facing message. Other AuthError subtypes (configuration issues,
+    // transport failures, etc.) should surface so they are observable.
+    if (err instanceof AuthError && err.type === 'CredentialsSignin') {
       return { error: 'ユーザー名またはパスワードが違います' }
     }
     throw err

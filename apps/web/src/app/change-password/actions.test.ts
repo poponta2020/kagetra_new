@@ -67,6 +67,27 @@ describe('changePasswordAction', () => {
     expect(ok).toBe(true)
   })
 
+  it('新パスワードが現パスワードと同じ場合は失敗する（強制変更バイパス防止）', async () => {
+    const user = await seedWithPassword('alice', 'pppppppp')
+    await setAuthSession({ id: user.id, role: 'member', mustChangePassword: true })
+
+    const result = await changePasswordAction(
+      {},
+      formOf({
+        currentPassword: 'pppppppp',
+        newPassword: 'pppppppp',
+        confirmPassword: 'pppppppp',
+      }),
+    )
+    expect(result.error).toMatch(/現在のパスワードと異なる/)
+
+    // Ensure the DB was NOT mutated (mustChangePassword still true)
+    const unchanged = await testDb.query.users.findFirst({
+      where: eq(users.id, user.id),
+    })
+    expect(unchanged?.mustChangePassword).toBe(true)
+  })
+
   it('誤った現パスワードで失敗する', async () => {
     const user = await seedWithPassword('alice', 'pppppppp')
     await setAuthSession({ id: user.id, role: 'member', mustChangePassword: true })
