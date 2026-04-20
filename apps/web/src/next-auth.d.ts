@@ -9,6 +9,7 @@ declare module 'next-auth' {
       id: string
       role: 'admin' | 'vice_admin' | 'member'
       mustChangePassword: boolean
+      lineUserId: string | null
       name?: string | null
       email?: string | null
       image?: string | null
@@ -19,6 +20,7 @@ declare module 'next-auth' {
     role?: 'admin' | 'vice_admin' | 'member'
     mustChangePassword?: boolean
     isInvited?: boolean
+    lineUserId?: string | null
   }
 }
 
@@ -27,6 +29,7 @@ declare module 'next-auth/jwt' {
     id?: string
     role?: 'admin' | 'vice_admin' | 'member'
     mustChangePassword?: boolean
+    lineUserId?: string | null
   }
 }
 
@@ -35,6 +38,7 @@ declare module '@auth/core/types' {
     role?: 'admin' | 'vice_admin' | 'member'
     mustChangePassword?: boolean
     isInvited?: boolean
+    lineUserId?: string | null
   }
 }
 
@@ -43,5 +47,6 @@ declare module '@auth/core/adapters' {
     role?: 'admin' | 'vice_admin' | 'member'
     mustChangePassword?: boolean
     isInvited?: boolean
+    lineUserId?: string | null
   }
 }

@@ -27,6 +27,7 @@ export type SeededSession = {
 type IssueOptions = {
   role: 'admin' | 'vice_admin' | 'member'
   mustChangePassword?: boolean
+  lineUserId?: string | null
 }
 
 async function issueJwtSession(
@@ -45,6 +46,7 @@ async function issueJwtSession(
       name,
       role: opts.role,
       mustChangePassword: opts.mustChangePassword ?? false,
+      lineUserId: opts.lineUserId ?? null,
       iat: now,
       exp: now + SESSION_MAX_AGE,
       jti: crypto.randomUUID(),
@@ -60,6 +62,7 @@ export async function seedMemberSession(
   return issueJwtSession(user.id, user.name, {
     role: user.role,
     mustChangePassword: user.mustChangePassword ?? false,
+    lineUserId: user.lineUserId ?? null,
   })
 }
 
@@ -70,5 +73,6 @@ export async function seedAdminSession(
   return issueJwtSession(user.id, user.name, {
     role: user.role,
     mustChangePassword: user.mustChangePassword ?? false,
+    lineUserId: user.lineUserId ?? null,
   })
 }

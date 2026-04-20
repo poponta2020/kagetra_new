@@ -15,6 +15,13 @@
       "when": 1776513637134,
       "tag": "0001_nifty_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776519401832,
+      "tag": "0002_furry_vance_astro",
+      "breakpoints": true
     }
   ]
 }
