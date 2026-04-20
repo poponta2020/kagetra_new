@@ -257,3 +257,43 @@
 - 他端末 JWT 無効化は Should-fix として指摘されたが、66名・30日TTL の運用規模に対し tokenVersion 導入等は複雑性過多と判断して見送り。要件変化時に再検討
 - 残置: Auth.js v4 時代のテーブル (`sessions`/`accounts`/`verificationTokens`) と `@auth/drizzle-adapter` 依存 — follow-up PR で削除予定
 - Phase 1-V (最終検証: スマホ実機 + API認証ミドルウェア) は Phase 1-5 完了後に残課題として存在
+
+---
+
+## 2026-04-21 セッション（Phase 1-5 PR-B ship）
+
+### 完了
+- **PR #4 マージ完了** (PR-B: プロフィール拡張 + LINE連携): 2026-04-21
+  - URL: https://github.com/poponta2020/kagetra_new/pull/4
+  - Merge commit: `042c609`
+  - Codex レビュー: 3ラウンド
+    - R1: Blocker 2 + Should fix 3 → `a3f99d3`
+    - R2: Blocker 1 + Should fix + Nit → `09a0e66`
+    - R3: Should fix × 2 + Nit × 2（Blocker なし）→ `6ff11c7`
+- 実装内容 (PR-B):
+  - `users` 拡張: `gender` / `affiliation` / `dan` / `zen_nichikyo` / `deactivated_at` + `users_dan_range` CHECK 制約 (0-9 or NULL)
+  - LINE OAuth2 raw 実装（Auth.js LINE provider は不使用 — session 化せず `lineUserId` のみ紐付け）
+  - 署名付き state cookie で `userId` を cookie にバインド（tab 切替 / ログアウト再ログインによる取り違え対策）
+  - UNIQUE 違反を事前 `SELECT` + `23505` 捕捉の二段構え、`unstable_update` 失敗時は `nodeJwtCallback` が次 Node render で JWT 自己修復
+  - zod で LINE Profile レスポンス実行時検証（`userId` 欠落/空文字で hard fail → `oauth_failed`）
+  - middleware: `lineUserId IS NULL` → `/settings/line-link` 強制誘導
+  - 管理画面: 会員編集フォームに gender/affiliation/dan/zen_nichikyo/退会トグル追加
+  - E2E: `LINE_OAUTH_TEST_MODE` 環境変数 + `NODE_ENV !== 'production'` ガードで Playwright/Vitest から HTTP なしで動作確認
+- テスト: Vitest 47/47 (PR-A の 18 + 新規 29)、Playwright 4/4、CI PASS
+
+### Phase 1-5 の進捗
+- PR-A (認証方式変更) — **ship完了** ✅
+- PR-B (プロフィール拡張 + LINE連携) — **ship完了** ✅
+- PR-C (データ移行スクリプト) — 未着手
+- Phase 4 (本番適用) — 未着手
+
+### 次回やること
+- PR-C 着手 (`docs/phase-1-5-migration-plan.md` の Phase 3 セクション):
+  - 各テーブルへの `legacyId` 列追加（冪等アップサート用）
+  - `event_attendances.gradeSnapshot` 追加
+  - `scripts/migration/` データ移行スクリプト本体（users / event_groups / events / event_attendances / schedule_items）
+
+### 備考
+- Codex R3 で指摘された Should fix 2 件はどちらもマージ前の防御強化（DB 層の CHECK、外部 API レスポンスの zod 検証）で、機能変更を伴わない。Nit 2 件（`missing_env` の throw→redirect、authorized コメント明確化）も同時に対応済み
+- LINE OAuth `access_token` は一切永続化しない方針を維持（メモリ上でのみ使用）
+- `CHECK (dan BETWEEN 0 AND 9 OR dan IS NULL)` はスキーマ側で `check()` 宣言 + 新規 migration `0003_dan_range_check.sql` に分離（drizzle-kit generate 方式で自然に別ファイルになった）
