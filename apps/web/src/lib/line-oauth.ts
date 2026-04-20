@@ -8,6 +8,7 @@
  * Docs: https://developers.line.biz/ja/docs/line-login/integrate-line-login/
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { z } from 'zod'
 
 export const LINE_AUTHORIZE_URL = 'https://access.line.me/oauth2/v2.1/authorize'
 export const LINE_TOKEN_URL = 'https://api.line.me/oauth2/v2.1/token'
@@ -16,11 +17,16 @@ export const LINE_PROFILE_URL = 'https://api.line.me/v2/profile'
 export const LINE_STATE_COOKIE = 'line_link_state'
 export const LINE_STATE_MAX_AGE = 300 // 5 minutes
 
-export type LineProfile = {
-  userId: string
-  displayName: string
-  pictureUrl?: string
-}
+// `userId` is the only field we persist; empty/missing must hard-fail so a
+// malformed upstream response can't silently overwrite users.lineUserId with
+// an empty string or leave the flow looking successful without a real link.
+const lineProfileSchema = z.object({
+  userId: z.string().min(1),
+  displayName: z.string(),
+  pictureUrl: z.string().optional(),
+})
+
+export type LineProfile = z.infer<typeof lineProfileSchema>
 
 export type LineOAuthEnv = {
   channelId: string
@@ -97,7 +103,11 @@ export async function fetchLineProfile(accessToken: string): Promise<LineProfile
   if (!res.ok) {
     throw new Error(`LINE profile fetch failed: ${res.status}`)
   }
-  return (await res.json()) as LineProfile
+  const parsed = lineProfileSchema.safeParse(await res.json())
+  if (!parsed.success) {
+    throw new Error('LINE profile response failed validation')
+  }
+  return parsed.data
 }
 
 // --- Signed state cookie ------------------------------------------------

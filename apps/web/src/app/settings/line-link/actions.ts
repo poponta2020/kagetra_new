@@ -28,9 +28,10 @@ export async function startLineLink() {
 
   const env = readLineOAuthEnv()
   if (!env) {
-    throw new Error(
-      'LINE Login 環境変数が未設定です (LINE_LOGIN_CHANNEL_ID / SECRET / CALLBACK_URL)',
-    )
+    // The callback route surfaces the same `missing_env` code to the page,
+    // which renders an admin-facing message. Keep the two entry points
+    // symmetric so users never hit a raw 500 from a config gap.
+    redirect('/settings/line-link?error=missing_env')
   }
 
   const state = crypto.randomUUID()

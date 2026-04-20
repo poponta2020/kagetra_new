@@ -20,7 +20,11 @@ export const authConfig = {
   },
   callbacks: {
     authorized({ auth }) {
-      // Let middleware handle redirects explicitly; always allow here.
+      // Gate pages on "has a session at all" only; per-route access rules
+      // (mustChangePassword, lineUserId link, role checks) are enforced in
+      // middleware.ts, which can redirect to specific destinations. Returning
+      // `true` here would bypass Auth.js's default unauthenticated redirect,
+      // so we still require `auth` to be present.
       return !!auth
     },
     async jwt({ token, user, trigger, session }) {
