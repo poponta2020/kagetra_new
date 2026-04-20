@@ -7,6 +7,7 @@ import {
   LINE_STATE_COOKIE,
   LINE_STATE_MAX_AGE,
   buildAuthorizeUrl,
+  buildLineLinkStateCookie,
   readLineOAuthEnv,
 } from '@/lib/line-oauth'
 
@@ -15,8 +16,9 @@ import {
  *
  * 1. Require authenticated session (otherwise middleware wouldn't even
  *    serve the page, but we double-check here).
- * 2. Generate a CSRF `state` token, store it in an httpOnly cookie.
- * 3. Redirect to LINE authorize URL.
+ * 2. Generate a CSRF `state` token bound to the initiating userId, store
+ *    the signed pair in an httpOnly cookie.
+ * 3. Redirect to LINE authorize URL (plain state, no userId leaks).
  */
 export async function startLineLink() {
   const session = await auth()
@@ -32,8 +34,9 @@ export async function startLineLink() {
   }
 
   const state = crypto.randomUUID()
+  const signedCookie = buildLineLinkStateCookie(state, session.user.id)
   const cookieStore = await cookies()
-  cookieStore.set(LINE_STATE_COOKIE, state, {
+  cookieStore.set(LINE_STATE_COOKIE, signedCookie, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',

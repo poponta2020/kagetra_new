@@ -21,10 +21,16 @@ async function updateMemberGrade(formData: FormData) {
   if (typeof userId !== 'string' || userId.length === 0) {
     throw new Error('userId が不正です')
   }
-  const grade: Grade | null =
-    typeof gradeRaw === 'string' && (GRADES as readonly string[]).includes(gradeRaw)
-      ? (gradeRaw as Grade)
-      : null
+  // Match updateMemberProfile: reject unknown grade values rather than
+  // silently coercing to null. Empty string is the explicit "未設定" choice.
+  let grade: Grade | null
+  if (typeof gradeRaw !== 'string' || gradeRaw === '') {
+    grade = null
+  } else if ((GRADES as readonly string[]).includes(gradeRaw)) {
+    grade = gradeRaw as Grade
+  } else {
+    throw new Error('grade が不正です')
+  }
 
   await db
     .update(users)

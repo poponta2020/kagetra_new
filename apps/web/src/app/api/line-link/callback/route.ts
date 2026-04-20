@@ -10,6 +10,7 @@ import {
   fetchLineProfile,
   isLineOAuthTestMode,
   readLineOAuthEnv,
+  verifyLineLinkStateCookie,
   type LineProfile,
 } from '@/lib/line-oauth'
 
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic'
  * LINE Login OAuth2 callback handler.
  *
  * Flow:
- * 1. Verify `state` against the cookie we set in the Server Action (CSRF).
+ * 1. Verify the signed `state` cookie (CSRF + initiating userId binding).
  * 2. Exchange `code` for an access_token (HTTP POST to LINE).
  * 3. Fetch profile with the token.
  * 4. Persist `users.lineUserId` (UNIQUE; collision -> error screen).
@@ -34,13 +35,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Drop the CSRF state cookie on every path (success, error, mismatch).
   // Must happen before early returns so LINE's error redirect also clears it.
   const cookieStore = await cookies()
-  const storedState = cookieStore.get(LINE_STATE_COOKIE)?.value
+  const storedCookie = cookieStore.get(LINE_STATE_COOKIE)?.value
   cookieStore.delete(LINE_STATE_COOKIE)
 
   if (error) {
     return redirectToLinkPage(req, 'denied')
   }
-  if (!state || !storedState || state !== storedState) {
+  const verifiedCookie = storedCookie
+    ? verifyLineLinkStateCookie(storedCookie)
+    : null
+  if (!state || !verifiedCookie || state !== verifiedCookie.state) {
     return redirectToLinkPage(req, 'state_mismatch')
   }
   if (!code) {
@@ -50,6 +54,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  // The session that started the flow must be the same session that returns
+  // to the callback. A logout/relogin as a different user in another tab
+  // between /start and /callback would otherwise attach LINE to whoever is
+  // authenticated at callback time.
+  if (session.user.id !== verifiedCookie.userId) {
+    return redirectToLinkPage(req, 'state_mismatch')
   }
 
   let profile: LineProfile
@@ -101,9 +113,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     await unstable_update({ user: { lineUserId: profile.userId } })
   } catch {
-    // If the refresh fails, middleware will redirect to the link page once
-    // more (where the DB-backed "linked" state shows and the user can proceed
-    // on their next request).
+    // If the refresh fails, the user would otherwise be trapped: edge
+    // middleware still sees lineUserId=null in the stale JWT and bounces to
+    // /settings/line-link, where the DB says "linked" but the JWT is never
+    // rewritten. `nodeJwtCallback` self-heals the JWT against the DB on the
+    // next Node render, so the next request through the settings page (or
+    // any Server Component) will write a fresh cookie and unblock the user.
   }
 
   return NextResponse.redirect(new URL('/', req.url))

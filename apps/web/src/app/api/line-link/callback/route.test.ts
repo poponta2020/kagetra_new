@@ -33,7 +33,9 @@ vi.mock('next/headers', () => ({
 }))
 
 const { GET } = await import('./route')
-const { LINE_STATE_COOKIE } = await import('@/lib/line-oauth')
+const { LINE_STATE_COOKIE, buildLineLinkStateCookie } = await import(
+  '@/lib/line-oauth'
+)
 
 function makeRequest(search: Record<string, string>) {
   const url = new URL('http://localhost:3000/api/line-link/callback')
@@ -61,7 +63,7 @@ describe('GET /api/line-link/callback', () => {
   it('正常系: state 一致 + code 有効 → lineUserId 保存 + / へリダイレクト', async () => {
     const user = await createUser({ name: 'alice', lineUserId: null })
     await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
-    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
 
     const res = await GET(makeRequest({ code: 'code-xyz', state: 'state-abc' }))
 
@@ -82,7 +84,7 @@ describe('GET /api/line-link/callback', () => {
   it('state 不一致: DB を書き換えず /settings/line-link?error=state_mismatch に戻る', async () => {
     const user = await createUser({ name: 'bob', lineUserId: null })
     await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
-    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
 
     const res = await GET(
       makeRequest({ code: 'code-xyz', state: 'different' }),
@@ -100,7 +102,7 @@ describe('GET /api/line-link/callback', () => {
   it('error パラメータあり: DB を書き換えずエラー画面へ、かつ state cookie が削除される', async () => {
     const user = await createUser({ name: 'carol', lineUserId: null })
     await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
-    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
 
     const res = await GET(
       makeRequest({ error: 'access_denied', state: 'state-abc' }),
@@ -121,7 +123,7 @@ describe('GET /api/line-link/callback', () => {
   it('エラー時のリダイレクト先が req.url と同じ origin になる (NEXTAUTH_URL 非依存)', async () => {
     const user = await createUser({ name: 'host-check', lineUserId: null })
     await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
-    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
 
     // Override NEXTAUTH_URL to a bogus host; redirect must still use req.url
     const prev = process.env.NEXTAUTH_URL
@@ -145,7 +147,10 @@ describe('GET /api/line-link/callback', () => {
     await createUser({ name: 'other', lineUserId: conflictId })
 
     await setAuthSession({ id: callbackUser.id, role: 'member', lineUserId: null })
-    cookieJar.set(LINE_STATE_COOKIE, 'state-abc')
+    cookieJar.set(
+      LINE_STATE_COOKIE,
+      buildLineLinkStateCookie('state-abc', callbackUser.id),
+    )
 
     const res = await GET(
       makeRequest({ code: 'code-xyz', state: 'state-abc' }),
@@ -168,5 +173,67 @@ describe('GET /api/line-link/callback', () => {
     )
     const location = res.headers.get('location') ?? ''
     expect(location).toContain('error=state_mismatch')
+  })
+
+  it('cookie 署名が壊れている場合: error=state_mismatch, DB 変更なし', async () => {
+    const user = await createUser({ name: 'tamper', lineUserId: null })
+    await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
+    // Truncate the signature so verifyLineLinkStateCookie rejects it.
+    const tampered = buildLineLinkStateCookie('state-abc', user.id).slice(0, -4)
+    cookieJar.set(LINE_STATE_COOKIE, tampered)
+
+    const res = await GET(makeRequest({ code: 'code-xyz', state: 'state-abc' }))
+    const location = res.headers.get('location') ?? ''
+    expect(location).toContain('error=state_mismatch')
+
+    const unchanged = await testDb.query.users.findFirst({
+      where: eq(users.id, user.id),
+    })
+    expect(unchanged?.lineUserId).toBeNull()
+  })
+
+  it('cookie の userId と session の userId が不一致: error=state_mismatch で DB 変更なし', async () => {
+    // alice started the flow; bob is logged in at callback time (tab switch).
+    const alice = await createUser({ name: 'alice-start', lineUserId: null })
+    const bob = await createUser({ name: 'bob-callback', lineUserId: null })
+    await setAuthSession({ id: bob.id, role: 'member', lineUserId: null })
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', alice.id))
+
+    const res = await GET(makeRequest({ code: 'code-xyz', state: 'state-abc' }))
+    const location = res.headers.get('location') ?? ''
+    expect(location).toContain('error=state_mismatch')
+
+    // Neither alice nor bob should have been linked.
+    const [aliceAfter, bobAfter] = await Promise.all([
+      testDb.query.users.findFirst({ where: eq(users.id, alice.id) }),
+      testDb.query.users.findFirst({ where: eq(users.id, bob.id) }),
+    ])
+    expect(aliceAfter?.lineUserId).toBeNull()
+    expect(bobAfter?.lineUserId).toBeNull()
+  })
+
+  it('unstable_update が throw しても DB は更新され / にリダイレクトされる', async () => {
+    // Regression guard for the Blocker: silent unstable_update failure must
+    // not roll back the DB write. Recovery is handled by nodeJwtCallback
+    // self-healing on the next Node render.
+    const user = await createUser({ name: 'heal-on-next', lineUserId: null })
+    await setAuthSession({ id: user.id, role: 'member', lineUserId: null })
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
+
+    const authMod = (await import('@/auth')) as unknown as {
+      unstable_update: ReturnType<typeof vi.fn>
+    }
+    authMod.unstable_update.mockRejectedValueOnce(new Error('jwt update boom'))
+
+    const res = await GET(makeRequest({ code: 'code-xyz', state: 'state-abc' }))
+    expect(res.status).toBeGreaterThanOrEqual(300)
+    expect(res.status).toBeLessThan(400)
+    const location = res.headers.get('location') ?? ''
+    expect(location).toMatch(/\/$|\/\?/)
+
+    const updated = await testDb.query.users.findFirst({
+      where: eq(users.id, user.id),
+    })
+    expect(updated?.lineUserId).toMatch(/^Utest-/)
   })
 })

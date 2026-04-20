@@ -71,4 +71,37 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     )
     expect(result).toBeNull()
   })
+
+  // Self-heal behavior: the LINE-link callback's unstable_update() may fail
+  // silently. Without this, the JWT would be stuck with lineUserId=null and
+  // edge middleware would loop the user back to /settings/line-link. The
+  // Node callback refreshes the field from DB so the next Node render
+  // unblocks the user.
+  it('DB の lineUserId が token と違う場合、token を DB に合わせて更新する', async () => {
+    const user = await createUser({ name: 'heal', lineUserId: 'Ufromdb12345' })
+    const result = await nodeJwtCallback(
+      {
+        token: { id: user.id, sub: user.id, lineUserId: null },
+        user: undefined,
+        trigger: undefined,
+      },
+      passThroughBase,
+    )
+    expect(result).not.toBeNull()
+    expect(result?.lineUserId).toBe('Ufromdb12345')
+  })
+
+  it('DB で lineUserId が null の場合、token の古い値は null に戻す', async () => {
+    const user = await createUser({ name: 'unlink', lineUserId: null })
+    const result = await nodeJwtCallback(
+      {
+        token: { id: user.id, sub: user.id, lineUserId: 'Ustaletoken' },
+        user: undefined,
+        trigger: undefined,
+      },
+      passThroughBase,
+    )
+    expect(result).not.toBeNull()
+    expect(result?.lineUserId).toBeNull()
+  })
 })
