@@ -20,7 +20,11 @@ export const authConfig = {
   },
   callbacks: {
     authorized({ auth }) {
-      // Let middleware handle redirects explicitly; always allow here.
+      // Gate pages on "has a session at all" only; per-route access rules
+      // (mustChangePassword, lineUserId link, role checks) are enforced in
+      // middleware.ts, which can redirect to specific destinations. Returning
+      // `true` here would bypass Auth.js's default unauthenticated redirect,
+      // so we still require `auth` to be present.
       return !!auth
     },
     async jwt({ token, user, trigger, session }) {
@@ -30,12 +34,30 @@ export const authConfig = {
         token.mustChangePassword = Boolean(
           (user as { mustChangePassword?: boolean }).mustChangePassword,
         )
+        // lineUserId: null on first login (pre-link), set after LINE OAuth
+        // completes. Middleware uses this to enforce the link step without
+        // hitting the DB on every request.
+        token.lineUserId =
+          (user as { lineUserId?: string | null }).lineUserId ?? null
       }
-      // Allow session.update({ mustChangePassword: false }) post password change.
+      // Allow session.update({ mustChangePassword | lineUserId }) post flow.
+      // Auth.js passes the update payload through as `session`; callers may
+      // pass either a flat `{ ...patch }` or `{ user: { ...patch } }`.
       if (trigger === 'update' && session && typeof session === 'object') {
-        const patch = session as { mustChangePassword?: boolean }
+        type Patch = {
+          mustChangePassword?: boolean
+          lineUserId?: string | null
+        }
+        const s = session as Patch & { user?: Patch }
+        const patch: Patch = s.user ?? s
         if (typeof patch.mustChangePassword === 'boolean') {
           token.mustChangePassword = patch.mustChangePassword
+        }
+        if (
+          typeof patch.lineUserId === 'string' ||
+          patch.lineUserId === null
+        ) {
+          token.lineUserId = patch.lineUserId
         }
       }
       return token
@@ -45,6 +67,8 @@ export const authConfig = {
         session.user.id = (token.id as string) ?? (token.sub as string)
         session.user.role = token.role as 'admin' | 'vice_admin' | 'member'
         session.user.mustChangePassword = Boolean(token.mustChangePassword)
+        session.user.lineUserId =
+          (token.lineUserId as string | null | undefined) ?? null
       }
       return session
     },

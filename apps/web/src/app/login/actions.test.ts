@@ -98,4 +98,30 @@ describe('authorizeCredentials — Credentials provider predicate', () => {
     const result = await authorizeCredentials(null)
     expect(result).toBeNull()
   })
+
+  it('deactivatedAt がセットされたユーザーは null を返す', async () => {
+    await seedWithPassword('alice', 'password123', {
+      isInvited: true,
+      mustChangePassword: false,
+      deactivatedAt: new Date(),
+    })
+    const result = await authorizeCredentials({
+      username: 'alice',
+      password: 'password123',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('認証成功時に lineUserId が結果に含まれる', async () => {
+    await seedWithPassword('alice', 'password123', {
+      isInvited: true,
+      mustChangePassword: false,
+      lineUserId: 'Uabc123',
+    })
+    const result = await authorizeCredentials({
+      username: 'alice',
+      password: 'password123',
+    })
+    expect(result?.lineUserId).toBe('Uabc123')
+  })
 })

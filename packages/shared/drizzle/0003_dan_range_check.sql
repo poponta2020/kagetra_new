@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD CONSTRAINT "users_dan_range" CHECK ("users"."dan" BETWEEN 0 AND 9 OR "users"."dan" IS NULL);

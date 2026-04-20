@@ -51,7 +51,13 @@ export async function login(
   // lagging behind the rendered content.
   const user = await db.query.users.findFirst({
     where: eq(users.name, parsed.data.username),
-    columns: { mustChangePassword: true },
+    columns: { mustChangePassword: true, lineUserId: true },
   })
-  redirect(user?.mustChangePassword ? '/change-password' : '/')
+  if (user?.mustChangePassword) {
+    redirect('/change-password')
+  }
+  if (user && !user.lineUserId) {
+    redirect('/settings/line-link')
+  }
+  redirect('/')
 }

@@ -19,6 +19,16 @@ function isPublicPath(pathname: string): boolean {
   )
 }
 
+// LINE-link flow: user is already authenticated but has no lineUserId.
+// These paths must remain reachable so the link can be completed.
+const LINE_LINK_PATHS = ['/settings/line-link', '/api/line-link']
+
+function isLineLinkPath(pathname: string): boolean {
+  return LINE_LINK_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  )
+}
+
 export default auth((req) => {
   const { nextUrl } = req
   const session = req.auth
@@ -39,6 +49,19 @@ export default auth((req) => {
   ) {
     const url = nextUrl.clone()
     url.pathname = '/change-password'
+    return NextResponse.redirect(url)
+  }
+
+  // Authenticated, password OK, but LINE not yet linked: force /settings/line-link.
+  // JWT-only check (token.lineUserId is set at login and on successful link),
+  // so middleware never touches the DB.
+  if (
+    !session.user?.mustChangePassword &&
+    !session.user?.lineUserId &&
+    !isLineLinkPath(pathname)
+  ) {
+    const url = nextUrl.clone()
+    url.pathname = '/settings/line-link'
     return NextResponse.redirect(url)
   }
 

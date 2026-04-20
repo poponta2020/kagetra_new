@@ -14,6 +14,7 @@ export type AuthorizedUser = {
   name: string | null
   role: 'admin' | 'vice_admin' | 'member'
   mustChangePassword: boolean
+  lineUserId: string | null
 }
 
 // Generated once at module load. Comparing any input against this takes the
@@ -48,7 +49,13 @@ export async function authorizeCredentials(
   const hashToCompare = user?.passwordHash ?? (await DUMMY_HASH_PROMISE)
   const passwordOk = await bcrypt.compare(password, hashToCompare)
 
-  if (!user || !user.passwordHash || !user.isInvited || !passwordOk) {
+  if (
+    !user ||
+    !user.passwordHash ||
+    !user.isInvited ||
+    user.deactivatedAt != null ||
+    !passwordOk
+  ) {
     return null
   }
 
@@ -57,5 +64,6 @@ export async function authorizeCredentials(
     name: user.name,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    lineUserId: user.lineUserId,
   }
 }
