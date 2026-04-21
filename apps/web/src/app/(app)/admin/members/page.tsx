@@ -6,6 +6,7 @@ import { users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { formatLinkedAt, formatLinkMethod } from './_line-link-format'
 
 const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E'] as const
 
@@ -55,6 +56,9 @@ export default async function MembersPage() {
       isInvited: true,
       createdAt: true,
       deactivatedAt: true,
+      lineUserId: true,
+      lineLinkedAt: true,
+      lineLinkedMethod: true,
     },
     orderBy: (users, { asc }) => [asc(users.createdAt)],
   })
@@ -71,6 +75,8 @@ export default async function MembersPage() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">級</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">招待状態</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">登録日</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">LINE 紐付け日時</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">方法</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
             </tr>
           </thead>
@@ -118,6 +124,12 @@ export default async function MembersPage() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {member.createdAt.toLocaleDateString('ja-JP')}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    {formatLinkedAt(member.lineLinkedAt)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    {formatLinkMethod(member.lineLinkedMethod)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     <Link

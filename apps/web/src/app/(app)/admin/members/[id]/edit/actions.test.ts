@@ -9,7 +9,7 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
-const { updateMemberProfile, toggleMemberDeactivation } = await import('./actions')
+const { updateMemberProfile, toggleMemberDeactivation, unlinkLine } = await import('./actions')
 
 function formOf(data: Record<string, string>) {
   const fd = new FormData()
@@ -255,6 +255,72 @@ describe('Admin member profile edit actions', () => {
       await expect(
         toggleMemberDeactivation(formOf({ userId: target.id })),
       ).rejects.toThrow(/Unauthorized/)
+    })
+  })
+
+  describe('unlinkLine', () => {
+    it('admin が実行 → lineUserId/lineLinkedAt/lineLinkedMethod が NULL に戻る', async () => {
+      const member = await createUser({
+        name: 'linked',
+        isInvited: true,
+        lineUserId: 'Usome-id',
+        lineLinkedAt: new Date(),
+        lineLinkedMethod: 'self_identify',
+      })
+      const admin = await createAdmin({ name: 'admin-unlink-1' })
+      await setAuthSession({
+        id: admin.id,
+        role: 'admin',
+        lineUserId: admin.lineUserId ?? null,
+      })
+
+      const fd = new FormData()
+      fd.set('userId', member.id)
+      await unlinkLine(fd)
+
+      const updated = await testDb.query.users.findFirst({
+        where: eq(users.id, member.id),
+      })
+      expect(updated?.lineUserId).toBeNull()
+      expect(updated?.lineLinkedAt).toBeNull()
+      expect(updated?.lineLinkedMethod).toBeNull()
+    })
+
+    it('member が実行 → forbidden throw (DB 無変化)', async () => {
+      const target = await createUser({
+        name: 'target-unlink',
+        lineUserId: 'Utgt',
+        lineLinkedMethod: 'self_identify',
+      })
+      const caller = await createUser({ name: 'caller-unlink', role: 'member' })
+      await setAuthSession({
+        id: caller.id,
+        role: 'member',
+        lineUserId: caller.lineUserId ?? null,
+      })
+
+      const fd = new FormData()
+      fd.set('userId', target.id)
+      await expect(unlinkLine(fd)).rejects.toThrow(/forbidden/)
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.lineUserId).toBe('Utgt')
+      expect(unchanged?.lineLinkedMethod).toBe('self_identify')
+    })
+
+    it('存在しない userId を指定 → 無害 (0 行 update で throw しない)', async () => {
+      const admin = await createAdmin({ name: 'admin-unlink-missing' })
+      await setAuthSession({
+        id: admin.id,
+        role: 'admin',
+        lineUserId: admin.lineUserId ?? null,
+      })
+
+      const fd = new FormData()
+      fd.set('userId', 'non-existent-id')
+      await expect(unlinkLine(fd)).resolves.toBeUndefined()
     })
   })
 })

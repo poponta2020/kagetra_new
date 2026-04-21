@@ -20,6 +20,8 @@ function formEntryOrNull(raw: FormDataEntryValue | null): string | null {
   return s.length === 0 ? null : s
 }
 
+const unlinkLineInputSchema = z.object({ userId: z.string().min(1) })
+
 const updateProfileSchema = z.object({
   userId: z.string().min(1),
   // Unknown enum values (e.g. 'Z', 'anything') → zod rejects (not silently → null)
@@ -120,4 +122,38 @@ export async function toggleMemberDeactivation(formData: FormData) {
   revalidatePath('/admin/members')
   revalidatePath(`/admin/members/${userId}/edit`)
   redirect(`/admin/members/${userId}/edit`)
+}
+
+/**
+ * Clear the LINE binding for a member. Admin-only.
+ *
+ * After this runs, the member's next LINE login routes them through
+ * /self-identify again, so they can re-claim (or an admin can claim on
+ * their behalf by editing later). We null out `lineLinkedAt` and
+ * `lineLinkedMethod` so the audit row shows "未紐付け" instead of a
+ * stale timestamp.
+ *
+ * Non-admin access is rejected — `assertAdminSession` accepts `vice_admin`
+ * too, but this action is deliberately stricter (only `admin`), matching the
+ * plan's specification for audit-sensitive operations.
+ */
+export async function unlinkLine(formData: FormData) {
+  const session = await auth()
+  if (session?.user?.role !== 'admin') throw new Error('forbidden')
+
+  const parsed = unlinkLineInputSchema.safeParse({ userId: formData.get('userId') })
+  if (!parsed.success) throw new Error('invalid_input')
+
+  await db
+    .update(users)
+    .set({
+      lineUserId: null,
+      lineLinkedAt: null,
+      lineLinkedMethod: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, parsed.data.userId))
+
+  revalidatePath(`/admin/members/${parsed.data.userId}/edit`)
+  revalidatePath('/admin/members')
 }
