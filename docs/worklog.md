@@ -297,3 +297,42 @@
 - Codex R3 で指摘された Should fix 2 件はどちらもマージ前の防御強化（DB 層の CHECK、外部 API レスポンスの zod 検証）で、機能変更を伴わない。Nit 2 件（`missing_env` の throw→redirect、authorized コメント明確化）も同時に対応済み
 - LINE OAuth `access_token` は一切永続化しない方針を維持（メモリ上でのみ使用）
 - `CHECK (dan BETWEEN 0 AND 9 OR dan IS NULL)` はスキーマ側で `check()` 宣言 + 新規 migration `0003_dan_range_check.sql` に分離（drizzle-kit generate 方式で自然に別ファイルになった）
+
+---
+
+## 2026-04-21 セッション2（Phase 1-5 PR-D: LINE Login 差し戻し + /self-identify）
+
+### 方針転換
+- Apr 18 (PR #3) で username+password Credentials に切り替えた判断を、Apr 21 に再考
+- 理由: LINE Login の方が UX 単純、家/会社環境で別マシンから LINE login 疎通確認済み
+- 旧 66 会員 identity 紐付けの元問題は「LINE login → 未リンクなら /self-identify で本人選択 → 即時紐付け（事後 admin モニター方式 = option C）」で解決
+- 7 phase に分けた詳細計画を `docs/plans/phase-1-5-auth-pivot-line-login.md` にまとめて `/claude-mem:do` で実行
+
+### 完了（PR #5 仮、本日中に作成・レビュー予定）
+- **Phase 1 `65670c9`** — Schema pivot: `passwordHash` / `mustChangePassword` DROP + `lineLinkedAt` / `lineLinkedMethod` (pgEnum) ADD + `0004_auth_pivot_line_login.sql` 自動生成。`docs/phase-1-5-migration-plan.md` §3.4 を bcrypt/`pppppppp` 除去 + アナウンス文面例追加。memory #3 を LINE → Credentials → LINE 変遷で書き換え、#18 監査設計を新設
+- **Phase 2 `175044e`** — Auth 基盤差し替え: `auth.config.ts` を LINE provider 定義に (Edge 安全)、`auth.ts` に `signIn` callback で deactivated 拒否、`nodeJwtCallback` を第一原理から書き直し (初回 sign-in で LINE user ID → 内部 users row 解決、毎回 deactivation recheck)。`middleware.ts` は `mustChangePassword` gate 除去、未紐付け → /self-identify 誘導。`.env.example` に `AUTH_LINE_ID/SECRET` 追加 (既存 `LINE_LOGIN_*` は account switch 専用として維持)。Phase 6 削除予定ファイル由来の typecheck 24 件は一時的に容認
+- **Phase 3 `9d79de4`** — `/auth/signin` + `/self-identify` 実装: Server Components + Server Action `claimMemberIdentity` (3 条件を WHERE 句一発で評価する conditional UPDATE、23505 捕捉、redirect sentinel の re-throw)。Vitest 6/6 PASS
+- **Phase 4 `12c923a`** — `/settings/line-link` を「LINE アカウント切替」用途にリファクタ。成立時は `line_linked_method='account_switch'` + `line_linked_at=now()` を記録。既存 state cookie HMAC + zod Profile 検証はそのまま流用。callback route test 10/10 PASS
+- **Phase 5 `01fda6d`** — Admin 監査 UI: `/admin/members` に「LINE 紐付け日時」「方法」2 列追加 (default sort 不変)、会員編集画面に「LINE 紐付けを解除」ボタン + `unlinkLine` action (admin role 限定、解除後は該当会員が再度 /self-identify 可能)。共通フォーマッタ `_line-link-format.ts` で enum → JA ラベル
+- **Phase 6 `a49a26f`** — Credentials 基盤完全除去: `/login` + `/change-password` dir ごと削除、`credentials-authorize.ts` 削除、`bcrypt` + `@types/bcrypt` 依存除去、test-utils (auth-mock / seed / playwright-auth) から `mustChangePassword` 除去 + `lineLinkedAt/Method` 対応。残存 `/login` 文字列参照 (layout.tsx / page.tsx / callback route) を `/auth/signin` に置換。`node-jwt-callback.test.ts` を新 callback 仕様に書き換え (7/7 PASS)。typecheck / lint / Vitest 41/41 が緑に復帰
+- **Phase 7 (本 commit)** — E2E `self-identify-flow.spec.ts` 新規 5 ケース (claim 正常系、紐付け済み user dashboard 直行、未招待/deactivated 候補除外、候補ゼロ時メッセージ)。Playwright 6/6 PASS (既存 grade-update 1 + 新規 5)。`issueUnboundLineSession` ヘルパーで JWT 直接注入して LINE OAuth ラウンドトリップを回避
+
+### E2E 実装中に発見したバグ (本 PR 内で修正済)
+- `auth.config.ts` の session callback が `token.id ?? token.sub` とフォールバックしていて、LINE provider では `token.sub = LINE user ID` (internal users.id と別 namespace) なので未紐付け state でも session.user.id が埋まり、middleware の /self-identify 誘導が効かなかった。Credentials 時代の慣習で、LINE login では有害。`session.user.id = (token.id as string | undefined) ?? ''` に修正
+
+### Phase 1-5 の進捗
+- PR-A (認証方式変更 = Credentials) — **ship完了 (PR #3)、PR-D で差し戻し**
+- PR-B (プロフィール拡張 + LINE連携) — **ship完了 (PR #4)**。profile fields は PR-D でも保持、LINE link は「account switch」用途にリファクタ
+- **PR-D (LINE Login 戻し + /self-identify) — 実装完了、PR 作成待ち** ← 今回
+- PR-C (データ移行スクリプト) — 未着手 (PR-D で `docs/phase-1-5-migration-plan.md` §3.4 を LINE 前提に更新済み)
+- Phase 4 (本番適用) — 未着手
+
+### 次回やること
+- PR #5 の Codex レビュー → 指摘対応 → ship
+- PR-C 着手 (データ移行スクリプト本体、更新済み §3.4 を参照)
+
+### 備考
+- 方針転換の経緯は `.claude/memory/project_kagetra_new_design.md` #3 に集約済み
+- account switch flow の E2E は Vitest callback 10 ケースで backend logic を網羅済みのため、UI ラウンドトリップ E2E は follow-up (本 PR スコープ外)
+- `issueUnboundLineSession` は今後 LINE login 関連の E2E で再利用可能
+- Phase 2 中 typecheck が一時的に red になる設計は明示的に許容 (phase 単位の commit + worktree なしの main dir 作業なので、git reset で 1 phase 前に戻れる前提)

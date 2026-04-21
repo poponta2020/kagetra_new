@@ -36,7 +36,7 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
       {
         token: {} as JWT,
         user: { id: 'Uabc123' } as { id: string },
-        account: { provider: 'line' } as { provider: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
@@ -54,7 +54,7 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
       {
         token: {} as JWT,
         user: { id: 'Uunknown' } as { id: string },
-        account: { provider: 'line' } as { provider: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
@@ -73,7 +73,7 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
       {
         token: {} as JWT,
         user: { id: 'Uretired' } as { id: string },
-        account: { provider: 'line' } as { provider: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],

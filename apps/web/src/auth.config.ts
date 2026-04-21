@@ -71,7 +71,12 @@ export const authConfig = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = (token.id as string) ?? (token.sub as string)
+        // IMPORTANT: do not fall back to token.sub here. For LINE logins,
+        // token.sub is profile.sub (the LINE user ID), a different namespace
+        // from our internal users.id. Middleware checks `!session.user?.id`
+        // to decide whether to route to /self-identify; falling back to
+        // token.sub would paper over the unbound state and skip that gate.
+        session.user.id = (token.id as string | undefined) ?? ''
         session.user.role = token.role as 'admin' | 'vice_admin' | 'member'
         session.user.lineUserId = (token.lineUserId as string | null | undefined) ?? null
         session.user.lineLinkedAt = (token.lineLinkedAt as string | null | undefined) ?? null

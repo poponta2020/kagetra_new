@@ -82,3 +82,35 @@ export async function seedAdminSession(
     lineLinkedMethod: user.lineLinkedMethod ?? null,
   })
 }
+
+/**
+ * Issue a session cookie that simulates "LINE login succeeded but no internal
+ * users row matches yet" — the state between Auth.js's LINE provider binding
+ * and the /self-identify claim. Middleware reads `token.id === undefined` and
+ * redirects to /self-identify; the form then uses `token.lineUserId` to bind.
+ *
+ * Use this in E2E tests that exercise the first-time claim flow. Does not
+ * create any DB row — the test body seeds the invited candidates separately.
+ */
+export async function issueUnboundLineSession(
+  lineUserId: string,
+): Promise<{ sessionToken: string }> {
+  const now = Math.floor(Date.now() / 1000)
+  const token = await encode({
+    salt: SALT,
+    secret: AUTH_SECRET,
+    maxAge: SESSION_MAX_AGE,
+    token: {
+      // id intentionally omitted — this is the cue for middleware to route
+      // the user to /self-identify.
+      sub: lineUserId,
+      lineUserId,
+      lineLinkedAt: null,
+      lineLinkedMethod: null,
+      iat: now,
+      exp: now + SESSION_MAX_AGE,
+      jti: crypto.randomUUID(),
+    },
+  })
+  return { sessionToken: token }
+}
