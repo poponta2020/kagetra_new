@@ -12,7 +12,12 @@ import {
 } from '@/lib/line-oauth'
 
 /**
- * Server Action: initiate LINE Login OAuth2 flow.
+ * Server Action: initiate LINE account-switch OAuth2 flow.
+ *
+ * Primary LINE login is handled by Auth.js (`/api/auth/callback/line`); this
+ * Server Action is only entered from `/settings/line-link` when an already-
+ * authenticated user wants to repoint their account at a different LINE ID
+ * (e.g. after a phone/account change).
  *
  * 1. Require authenticated session (otherwise middleware wouldn't even
  *    serve the page, but we double-check here).
@@ -23,7 +28,7 @@ import {
 export async function startLineLink() {
   const session = await auth()
   if (!session?.user?.id) {
-    redirect('/login')
+    redirect('/auth/signin')
   }
 
   const env = readLineOAuthEnv()

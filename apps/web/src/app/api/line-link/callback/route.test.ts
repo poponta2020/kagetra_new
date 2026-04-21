@@ -77,8 +77,28 @@ describe('GET /api/line-link/callback', () => {
       where: eq(users.id, user.id),
     })
     expect(updated?.lineUserId).toMatch(/^Utest-/)
+    expect(updated?.lineLinkedMethod).toBe('account_switch')
+    expect(updated?.lineLinkedAt).toBeInstanceOf(Date)
     // Cookie must be cleared
     expect(cookieJar.has(LINE_STATE_COOKIE)).toBe(false)
+  })
+
+  it('既に他 LINE に紐付け済みの user が別 LINE に切り替え → lineUserId と lineLinkedMethod=account_switch が更新される', async () => {
+    const user = await createUser({ name: 'switcher', lineUserId: 'Uold-user-id' })
+    await setAuthSession({ id: user.id, role: 'member', lineUserId: 'Uold-user-id' })
+    cookieJar.set(LINE_STATE_COOKIE, buildLineLinkStateCookie('state-abc', user.id))
+
+    const res = await GET(makeRequest({ code: 'code-xyz', state: 'state-abc' }))
+    expect(res.status).toBeGreaterThanOrEqual(300)
+    expect(res.status).toBeLessThan(400)
+
+    const updated = await testDb.query.users.findFirst({
+      where: eq(users.id, user.id),
+    })
+    // Test-mode profile returns `Utest-<first 8 of user.id>`
+    expect(updated?.lineUserId).toMatch(/^Utest-/)
+    expect(updated?.lineUserId).not.toBe('Uold-user-id')
+    expect(updated?.lineLinkedMethod).toBe('account_switch')
   })
 
   it('state 不一致: DB を書き換えず /settings/line-link?error=state_mismatch に戻る', async () => {
