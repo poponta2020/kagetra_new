@@ -6,25 +6,22 @@ import { authConfig } from './auth.config'
  * Edge-safe middleware using JWT sessions.
  *
  * Auth.js v5 with JWT strategy reads the session token from cookies without
- * needing DB access, so this runs safely in the Edge runtime. The Credentials
- * provider's `authorize` callback lives in `auth.ts` and is not referenced here.
+ * needing DB access, so this runs in the Edge runtime.
+ *
+ * Per-user gating decisions read only JWT claims set by the Node-side jwt
+ * callback in auth.ts:
+ *   - token.id set    → user is fully bound to an invited member; allow through
+ *   - token.id unset  → LINE login succeeded but no matching internal user row
+ *                        yet; force /self-identify so the user can claim
+ *   - no session      → force /auth/signin
  */
 const { auth } = NextAuth(authConfig)
 
-const PUBLIC_PATHS = ['/login']
+const PUBLIC_PATHS = ['/auth/signin', '/auth/error']
+const SELF_IDENTIFY_PATHS = ['/self-identify']
 
-function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  )
-}
-
-// LINE-link flow: user is already authenticated but has no lineUserId.
-// These paths must remain reachable so the link can be completed.
-const LINE_LINK_PATHS = ['/settings/line-link', '/api/line-link']
-
-function isLineLinkPath(pathname: string): boolean {
-  return LINE_LINK_PATHS.some(
+function startsWithAny(pathname: string, prefixes: string[]): boolean {
+  return prefixes.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
 }
@@ -34,39 +31,28 @@ export default auth((req) => {
   const session = req.auth
   const pathname = nextUrl.pathname
 
-  // Unauthenticated: only /login is reachable.
+  // Unauthenticated: only /auth/signin is reachable; /auth/error too for LINE errors.
   if (!session) {
-    if (isPublicPath(pathname)) return NextResponse.next()
+    if (startsWithAny(pathname, PUBLIC_PATHS)) return NextResponse.next()
     const url = nextUrl.clone()
-    url.pathname = '/login'
+    url.pathname = '/auth/signin'
     return NextResponse.redirect(url)
   }
 
-  // Authenticated but must change password: force /change-password.
+  // Authenticated but no internal id yet → /self-identify (LINE user ID is set,
+  // but the user hasn't claimed an invited member row).
   if (
-    session.user?.mustChangePassword &&
-    pathname !== '/change-password'
+    !session.user?.id &&
+    !startsWithAny(pathname, SELF_IDENTIFY_PATHS) &&
+    !startsWithAny(pathname, PUBLIC_PATHS)
   ) {
     const url = nextUrl.clone()
-    url.pathname = '/change-password'
+    url.pathname = '/self-identify'
     return NextResponse.redirect(url)
   }
 
-  // Authenticated, password OK, but LINE not yet linked: force /settings/line-link.
-  // JWT-only check (token.lineUserId is set at login and on successful link),
-  // so middleware never touches the DB.
-  if (
-    !session.user?.mustChangePassword &&
-    !session.user?.lineUserId &&
-    !isLineLinkPath(pathname)
-  ) {
-    const url = nextUrl.clone()
-    url.pathname = '/settings/line-link'
-    return NextResponse.redirect(url)
-  }
-
-  // Authenticated user visiting /login → redirect to dashboard root.
-  if (isPublicPath(pathname)) {
+  // Authenticated + bound user visiting /auth/signin → dashboard.
+  if (startsWithAny(pathname, PUBLIC_PATHS)) {
     const url = nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)

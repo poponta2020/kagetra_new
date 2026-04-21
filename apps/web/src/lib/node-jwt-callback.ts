@@ -1,58 +1,83 @@
+import type { JWT } from 'next-auth/jwt'
+import type { User, Session, Account } from 'next-auth'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
-import type { JWT } from 'next-auth/jwt'
-import type { User, Session } from 'next-auth'
 
 type JwtParams = {
   token: JWT
   user?: User
-  trigger?: 'signIn' | 'signUp' | 'update' | string
-  session?: Session | Record<string, unknown>
+  account?: Account | null
+  trigger?: 'signIn' | 'signUp' | 'update'
+  session?: Session | null
+  isNewUser?: boolean
 }
 
-type BaseJwt = (p: JwtParams) => Promise<JWT | null> | JWT | null
+type BaseJwt = (params: JwtParams) => Promise<JWT> | JWT
 
 /**
- * Node-only JWT callback that wraps the edge-safe base callback and adds
- * DB revalidation. Two jobs:
+ * Node-only jwt callback wrapper. Two responsibilities:
  *
- * 1. Catch user deactivation — a revoked account returns null here so the
- *    next Node render bounces to /login.
- * 2. Self-heal `lineUserId` — if the LINE-link callback's `unstable_update`
- *    failed (transient error, concurrent request), the JWT can stay stale
- *    with `lineUserId=null` even though the DB is linked. Edge middleware
- *    would then trap the user on /settings/line-link indefinitely. Pulling
- *    the current `lineUserId` from the same row we're already fetching for
- *    the deactivation check lets the JWT recover on the next Node render.
+ * 1. On first sign-in (trigger=signIn, user && account): the token has
+ *    `lineUserId = user.id` (the LINE profile.sub) from the base callback.
+ *    Resolve that to our internal users row and populate id/role/name/
+ *    lineLinkedAt/lineLinkedMethod on the token. If no row matches, leave
+ *    `token.id` undefined — middleware reads that state and redirects to
+ *    /self-identify so the user can claim an invited member row.
  *
- * Edge middleware uses only the base callback (via auth.config.ts) and is
- * kept DB-free.
+ * 2. On every subsequent call (trigger=undefined or 'update'): if `token.id`
+ *    is set, recheck deactivatedAt; if the user was deactivated after login,
+ *    blank out the token so Auth.js treats the session as signed-out.
  */
 export async function nodeJwtCallback(
   params: JwtParams,
-  baseCallback: BaseJwt,
-): Promise<JWT | null> {
-  const token = await baseCallback(params)
-  if (!token) return null
+  baseJwt: BaseJwt,
+): Promise<JWT> {
+  // Let the base callback populate token.lineUserId + any update()-driven patches first.
+  const token = await baseJwt(params)
 
-  // Skip the DB check on the initial sign-in path (user is set then) —
-  // authorizeCredentials already enforced deactivatedAt and provided the
-  // authoritative lineUserId.
-  if (params.user) return token
+  const lineUserId = token.lineUserId as string | null | undefined
 
-  const userId = (token.id ?? token.sub) as string | undefined
-  if (!userId) return token
-
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-    columns: { deactivatedAt: true, lineUserId: true },
-  })
-  if (!dbUser || dbUser.deactivatedAt != null) {
-    return null
+  // First sign-in path: baseJwt has just set lineUserId from user.id.
+  if (params.trigger === 'signIn' && lineUserId) {
+    const row = await db.query.users.findFirst({
+      where: eq(users.lineUserId, lineUserId),
+      columns: {
+        id: true,
+        name: true,
+        role: true,
+        lineLinkedAt: true,
+        lineLinkedMethod: true,
+        deactivatedAt: true,
+      },
+    })
+    if (row && !row.deactivatedAt) {
+      token.id = row.id
+      token.name = row.name ?? undefined
+      token.role = row.role
+      token.lineLinkedAt = row.lineLinkedAt ? row.lineLinkedAt.toISOString() : null
+      token.lineLinkedMethod = row.lineLinkedMethod
+    }
+    // If row is missing or deactivated, leave token.id undefined.
+    // Middleware will route to /self-identify (for missing row); deactivated
+    // users never reach here because signIn() in auth.ts already returns false.
+    return token
   }
-  if (token.lineUserId !== dbUser.lineUserId) {
-    token.lineUserId = dbUser.lineUserId
+
+  // Every-request path: if we previously resolved an id, revalidate it against
+  // the DB. This catches admins who were deactivated mid-session.
+  const id = token.id as string | undefined
+  if (id) {
+    const row = await db.query.users.findFirst({
+      where: eq(users.id, id),
+      columns: { id: true, deactivatedAt: true },
+    })
+    if (!row || row.deactivatedAt) {
+      // Blank the token: returning an empty-ish JWT leaves no usable claims,
+      // so middleware / Server Components will treat as unauthenticated.
+      return {} as JWT
+    }
   }
+
   return token
 }
