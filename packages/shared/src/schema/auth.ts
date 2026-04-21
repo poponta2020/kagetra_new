@@ -9,7 +9,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import type { AdapterAccountType } from '@auth/core/adapters'
-import { userRoleEnum, gradeEnum, genderEnum } from './enums'
+import { userRoleEnum, gradeEnum, genderEnum, lineLinkMethodEnum } from './enums'
 
 export const users = pgTable(
   'users',
@@ -25,14 +25,14 @@ export const users = pgTable(
     grade: gradeEnum('grade'),
     isInvited: boolean('is_invited').notNull().default(false),
     invitedAt: timestamp('invited_at', { mode: 'date' }),
-    passwordHash: text('password_hash'),
-    mustChangePassword: boolean('must_change_password').notNull().default(false),
     // Phase 1-5 PR-B: extended profile fields
     gender: genderEnum('gender'),
     affiliation: text('affiliation'),
     dan: integer('dan'),
     zenNichikyo: boolean('zen_nichikyo').notNull().default(false),
     deactivatedAt: timestamp('deactivated_at', { mode: 'date', withTimezone: true }),
+    lineLinkedAt: timestamp('line_linked_at', { mode: 'date', withTimezone: true }),
+    lineLinkedMethod: lineLinkMethodEnum('line_link_method'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   },
