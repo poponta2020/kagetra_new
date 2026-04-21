@@ -24,10 +24,13 @@ export type SeededSession = {
   sessionToken: string
 }
 
+type LineLinkedMethod = 'self_identify' | 'admin_link' | 'account_switch'
+
 type IssueOptions = {
   role: 'admin' | 'vice_admin' | 'member'
-  mustChangePassword?: boolean
   lineUserId?: string | null
+  lineLinkedAt?: string | null
+  lineLinkedMethod?: LineLinkedMethod | null
 }
 
 async function issueJwtSession(
@@ -45,8 +48,9 @@ async function issueJwtSession(
       id: userId,
       name,
       role: opts.role,
-      mustChangePassword: opts.mustChangePassword ?? false,
       lineUserId: opts.lineUserId ?? null,
+      lineLinkedAt: opts.lineLinkedAt ?? null,
+      lineLinkedMethod: opts.lineLinkedMethod ?? null,
       iat: now,
       exp: now + SESSION_MAX_AGE,
       jti: crypto.randomUUID(),
@@ -61,8 +65,9 @@ export async function seedMemberSession(
   const user = await createUser(overrides)
   return issueJwtSession(user.id, user.name, {
     role: user.role,
-    mustChangePassword: user.mustChangePassword ?? false,
     lineUserId: user.lineUserId ?? null,
+    lineLinkedAt: user.lineLinkedAt?.toISOString() ?? null,
+    lineLinkedMethod: user.lineLinkedMethod ?? null,
   })
 }
 
@@ -72,7 +77,8 @@ export async function seedAdminSession(
   const user = await createAdmin(overrides)
   return issueJwtSession(user.id, user.name, {
     role: user.role,
-    mustChangePassword: user.mustChangePassword ?? false,
     lineUserId: user.lineUserId ?? null,
+    lineLinkedAt: user.lineLinkedAt?.toISOString() ?? null,
+    lineLinkedMethod: user.lineLinkedMethod ?? null,
   })
 }

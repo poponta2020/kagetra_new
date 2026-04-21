@@ -11,9 +11,8 @@ type NewEventGroup = InferInsertModel<typeof eventGroups>
  * Create a user. Defaults to a member role with a unique email.
  * All schema fields are nullable/have defaults except id (auto-generated via crypto.randomUUID()).
  *
- * `lineUserId` defaults to a unique value so most tests bypass the Phase 1-5
- * LINE-link middleware redirect. Tests exercising the line-link flow should
- * override with `lineUserId: null`.
+ * `lineUserId` defaults to `null` (unlinked). Tests that need a LINE-linked
+ * user should override explicitly (e.g. `lineUserId: 'Utest-xxx', lineLinkedAt: new Date()`).
  */
 export async function createUser(overrides: Partial<NewUser> = {}) {
   const uniqueId = crypto.randomUUID()
@@ -25,7 +24,7 @@ export async function createUser(overrides: Partial<NewUser> = {}) {
       role: 'member',
       isInvited: true,
       grade: 'A',
-      lineUserId: `Utest-${uniqueId}`,
+      lineUserId: null,
       ...overrides,
     })
     .returning()

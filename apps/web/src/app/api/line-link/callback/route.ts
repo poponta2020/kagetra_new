@@ -58,7 +58,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.redirect(new URL('/login', req.url))
+    return NextResponse.redirect(new URL('/auth/signin', req.url))
   }
 
   // The session that started the flow must be the same session that returns
