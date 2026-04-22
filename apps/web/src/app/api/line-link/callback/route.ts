@@ -129,12 +129,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       },
     })
   } catch {
-    // If the refresh fails, the user would otherwise be trapped: edge
-    // middleware still sees lineUserId=null in the stale JWT and bounces to
-    // /settings/line-link, where the DB says "linked" but the JWT is never
-    // rewritten. `nodeJwtCallback` self-heals the JWT against the DB on the
-    // next Node render, so the next request through the settings page (or
-    // any Server Component) will write a fresh cookie and unblock the user.
+    // If the refresh fails, the stale JWT still carries the old lineUserId,
+    // which would make /settings/line-link render with the pre-switch state
+    // even though the DB already points at the new LINE id. Middleware
+    // itself only gates on `session.user.id` (not lineUserId), so the user
+    // isn't locked out — but the linked-account UI would lie. The `if (id)`
+    // branch of `nodeJwtCallback` re-reads lineUserId/lineLinkedAt/method
+    // from the DB on every Node render, so the next request through any
+    // Server Component writes a fresh cookie and the UI becomes accurate.
   }
 
   return NextResponse.redirect(new URL('/', req.url))

@@ -30,7 +30,10 @@ type BaseJwt = (params: JwtParams) => Promise<JWT> | JWT
  * 2. On every subsequent call once `token.id` is set: recheck deactivatedAt;
  *    if the user was deactivated after login, return `null` so Auth.js
  *    invalidates the session cookie and middleware's unauthenticated branch
- *    fires on the next request.
+ *    fires on the next request. Also re-sync `lineUserId`/`lineLinkedAt`/
+ *    `lineLinkedMethod` from the DB so an account-switch whose
+ *    `unstable_update` failed (network hiccup, etc.) self-heals on the next
+ *    Node render instead of leaving the JWT pointing at the old LINE id.
  */
 export async function nodeJwtCallback(
   params: JwtParams,
@@ -72,11 +75,19 @@ export async function nodeJwtCallback(
   }
 
   // Every-request path: if we previously resolved an id, revalidate it against
-  // the DB. This catches admins who were deactivated mid-session.
+  // the DB. This catches admins who were deactivated mid-session, and also
+  // rehydrates `lineUserId`/`lineLinkedAt`/`lineLinkedMethod` so an
+  // account-switch whose `unstable_update` failed recovers on the next render.
   if (id) {
     const row = await db.query.users.findFirst({
       where: eq(users.id, id),
-      columns: { id: true, deactivatedAt: true },
+      columns: {
+        id: true,
+        deactivatedAt: true,
+        lineUserId: true,
+        lineLinkedAt: true,
+        lineLinkedMethod: true,
+      },
     })
     if (!row || row.deactivatedAt) {
       // Returning null invalidates the Auth.js session cookie on next render,
@@ -84,6 +95,12 @@ export async function nodeJwtCallback(
       // A subsequent LINE re-login will be rejected at the signIn() callback
       // with `?error=deactivated`.
       return null
+    }
+    const dbLineLinkedAt = row.lineLinkedAt ? row.lineLinkedAt.toISOString() : null
+    if (token.lineUserId !== row.lineUserId) token.lineUserId = row.lineUserId
+    if (token.lineLinkedAt !== dbLineLinkedAt) token.lineLinkedAt = dbLineLinkedAt
+    if (token.lineLinkedMethod !== row.lineLinkedMethod) {
+      token.lineLinkedMethod = row.lineLinkedMethod
     }
   }
 

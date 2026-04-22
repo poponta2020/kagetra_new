@@ -157,6 +157,41 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     expect(jwt.lineLinkedMethod).toBe('self_identify')
   })
 
+  it('account-switch 後 unstable_update 失敗時: token.id あり & JWT の lineUserId が古い → DB の新しい値で自己修復する', async () => {
+    // account-switch フロー (apps/web/src/app/api/line-link/callback/route.ts) で
+    // DB の UPDATE は成功したが unstable_update() が失敗したシナリオ。
+    // 古い JWT は token.id はそのままだが token.lineUserId / lineLinkedAt /
+    // lineLinkedMethod が旧値のまま残る。次回 Node render で nodeJwtCallback
+    // が DB を読み直し、最新の値を書き戻すことで UI が真実と一致する。
+    const user = await createUser({
+      name: 'switched',
+      lineUserId: 'Unew-line-id',
+      role: 'member',
+      lineLinkedAt: new Date('2026-04-22T05:00:00Z'),
+      lineLinkedMethod: 'account_switch',
+    })
+    const result = await nodeJwtCallback(
+      {
+        token: {
+          id: user.id,
+          sub: user.id,
+          lineUserId: 'Uold-line-id',
+          lineLinkedAt: '2026-04-01T00:00:00.000Z',
+          lineLinkedMethod: 'self_identify',
+        } as JWT,
+        user: undefined,
+        trigger: undefined,
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    const jwt = result as JWT
+    expect(jwt.id).toBe(user.id)
+    expect(jwt.lineUserId).toBe('Unew-line-id')
+    expect(jwt.lineLinkedAt).toBe('2026-04-22T05:00:00.000Z')
+    expect(jwt.lineLinkedMethod).toBe('account_switch')
+  })
+
   it('post /self-identify: lineUserId に該当するのが deactivated row → id 未設定のまま保持', async () => {
     // 管理者が直接ユーザーを deactivate した直後など、DB では無効化されているが
     // JWT には古い lineUserId のみ残っているケース。token.id が未設定のため
