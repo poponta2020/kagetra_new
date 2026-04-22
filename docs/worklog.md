@@ -422,3 +422,27 @@
 - Phase UI-2 着手: Layout shell (AppBar + 下部タブ) + primitives (Card/Btn/Pill/...)
 - Phase UI-3: 既存 15 画面の再スタイル
 - 性能観測: 本番投入後 LCP/FCP 実測、必要なら Sans 側 preload 方針再調整
+
+---
+
+## 2026-04-22〜23 セッション4（Phase UI-2 レビュー対応 → ship）
+
+### 完了
+- PR #7 レビュー round 1 受領 → Blocker 1 + Should 3 + Nit 2 を識別
+- PR #7 レビュー round 1 対応 (`584a6f7`):
+  - **Blocker**: `AppBar` を Server Component のままにしていた問題 → `'use client'` 付与（`onBack` は DOM イベントハンドラ）
+  - **Should**: `BottomNav` に `isAdmin` prop を追加して `会員` タブを admin-only にゲーティング（一般会員の /403 ループ回帰を解消）
+  - **Should**: `BottomNav` のアクティブ判定を `pathname === prefix || pathname.startsWith(prefix + '/')` のセグメント境界判定に変更（`/events-archive` 誤判定を防止）
+  - **Should**: `StatusPill` の `status in STATUS_MAP` を `Object.hasOwn` ベースの型ガード `isKnownStatus` に置換（`toString` など prototype キーの誤マッチを防止）
+  - **Nit**: `DescList` の key を `${label}-${i}` に変更（重複ラベル時の collision 防止）
+  - **Nit**: `bottom-nav.test.tsx` (7 tests) + `status-pill.test.tsx` (6 tests) の回帰テスト追加
+  - `MobileShell` に `isAdmin` を threading、`(app)/layout.tsx` でセッションから導出
+  - vitest 69/69 PASS, next lint clean, turbo check-types 3/3 PASS
+- PR #7 レビュー round 2: Blocker/Should fix なし、`font-serif` → `font-display` の命名統一が Nit（任意、未対応）
+- **PR #7 マージ済み** (`07320e6`, `gh pr merge --merge --delete-branch`)
+- ローカルブランチ `feat/ui-foundation-shell-and-primitives` 削除、worktree (`C:/tmp/impl-ui-2`) 撤去
+- レビュー artefact (`scripts/review/output/*pr7*`) 全削除
+
+### 次回
+- Phase UI-3 着手: 既存 15 画面の primitives + MobileShell 適用
+- Nit 対応: `app-bar-main.tsx:25` の `font-serif` → `font-display` 命名統一（Phase UI-3 のついでに拾う）
