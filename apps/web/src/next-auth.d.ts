@@ -8,8 +8,9 @@ declare module 'next-auth' {
     user: {
       id: string
       role: 'admin' | 'vice_admin' | 'member'
-      mustChangePassword: boolean
       lineUserId: string | null
+      lineLinkedAt: string | null
+      lineLinkedMethod: 'self_identify' | 'admin_link' | 'account_switch' | null
       name?: string | null
       email?: string | null
       image?: string | null
@@ -18,9 +19,10 @@ declare module 'next-auth' {
 
   interface User {
     role?: 'admin' | 'vice_admin' | 'member'
-    mustChangePassword?: boolean
     isInvited?: boolean
     lineUserId?: string | null
+    lineLinkedAt?: string | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
   }
 }
 
@@ -28,25 +30,28 @@ declare module 'next-auth/jwt' {
   interface JWT {
     id?: string
     role?: 'admin' | 'vice_admin' | 'member'
-    mustChangePassword?: boolean
     lineUserId?: string | null
+    lineLinkedAt?: string | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
   }
 }
 
 declare module '@auth/core/types' {
   interface User {
     role?: 'admin' | 'vice_admin' | 'member'
-    mustChangePassword?: boolean
     isInvited?: boolean
     lineUserId?: string | null
+    lineLinkedAt?: string | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
   }
 }
 
 declare module '@auth/core/adapters' {
   interface AdapterUser {
     role?: 'admin' | 'vice_admin' | 'member'
-    mustChangePassword?: boolean
     isInvited?: boolean
     lineUserId?: string | null
+    lineLinkedAt?: string | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
   }
 }

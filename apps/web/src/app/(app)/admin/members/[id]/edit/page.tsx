@@ -6,7 +6,8 @@ import { users } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 import type { Grade, Gender } from '@kagetra/shared/types'
 import { EditMemberForm } from './edit-member-form'
-import { toggleMemberDeactivation } from './actions'
+import { toggleMemberDeactivation, unlinkLine } from './actions'
+import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
 const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS: readonly Gender[] = ['male', 'female'] as const
@@ -39,6 +40,8 @@ export default async function EditMemberPage({
       deactivatedAt: true,
       isInvited: true,
       lineUserId: true,
+      lineLinkedAt: true,
+      lineLinkedMethod: true,
     },
   })
   if (!member) notFound()
@@ -73,6 +76,38 @@ export default async function EditMemberPage({
         grades={GRADES}
         genders={GENDERS}
       />
+
+      {member.lineUserId && (
+        <section className="rounded-lg bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold">LINE 紐付け</h3>
+          <dl className="mt-2 space-y-1 text-sm text-gray-600">
+            <div>
+              <dt className="inline font-medium">紐付け日時: </dt>
+              <dd className="inline">
+                {member.lineLinkedAt ? formatLinkedAt(member.lineLinkedAt) : '不明'}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium">方法: </dt>
+              <dd className="inline">{formatLinkMethod(member.lineLinkedMethod)}</dd>
+            </div>
+          </dl>
+          {session.user?.role === 'admin' && (
+            <form action={unlinkLine} className="mt-3">
+              <input type="hidden" name="userId" value={member.id} />
+              <button
+                type="submit"
+                className="rounded-md bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+              >
+                LINE 紐付けを解除
+              </button>
+            </form>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            解除すると本人の次回 LINE ログインで /self-identify から再選択できます。
+          </p>
+        </section>
+      )}
 
       <section className="rounded-lg bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold">退会処理</h3>

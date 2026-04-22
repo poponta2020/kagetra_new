@@ -279,11 +279,11 @@ GROUP BY u.id;
 - `affiliation` = NULL
 - `dan` = parseInt(値) （NULL可）
 - `zenNichikyo` = bool
-- `passwordHash` = **一度だけ計算した bcrypt('pppppppp', 12) を使い回す**
-- `mustChangePassword` = true
 - `isInvited` = true
-- `lineUserId` = NULL
+- `lineUserId` = NULL (会員は初回 LINE login 後に /self-identify で自己申告)
 - `deactivatedAt` = loginable=false ? now() : NULL
+- `lineLinkedAt` = NULL
+- `lineLinkedMethod` = NULL
 - `createdAt/updatedAt` = 旧維持
 
 UPSERT: `ON CONFLICT (legacy_id) DO UPDATE SET ...`
@@ -447,3 +447,27 @@ UPSERT: `ON CONFLICT (event_id, user_id) DO UPDATE SET ...`（UNIQUE制約）
 | W2 | PR-B 実装・PR レビュー・ship（ステージングで LINE 実連携確認） |
 | W3 | PR-C 実装・テスト、ステージングで本番同等データに対して migrate:run |
 | W4 | 本番適用（Phase 4）、初期パス配布、モニタリング |
+
+## アナウンス文面例 (移行時)
+
+移行完了後、会員向けにLINEグループ等で送信するアナウンス文のテンプレート。
+
+---
+
+【かげとら新システム移行のお知らせ】
+
+旧サイトのログイン方法が変わりました。新システムではLINEログインのみとなります。
+
+■ 手順
+1. https://<本番URL>/ にアクセス
+2. 「LINEでログイン」ボタンを押し、LINE認証を完了
+3. 「あなたは誰ですか？」画面で、お名前を一覧から選んで確定
+
+これで完了です。以降は1クリックでログインできます。
+
+■ 一覧にお名前がない / 選んだけどうまく動かない 場合
+管理者 (<管理者名>) までLINEでご連絡ください。
+
+■ 注意
+- 他の方の名前を誤って選ばないようご注意ください
+- 誤って選んだ場合は管理者に連絡、解除後に再選択可能です

@@ -1,107 +1,216 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { JWT } from 'next-auth/jwt'
 import { closeTestDb, truncateAll } from '@/test-utils/db'
 import { createUser } from '@/test-utils/seed'
 import { nodeJwtCallback } from './node-jwt-callback'
 
-// Minimal stand-in for the edge-safe jwt callback: returns the token as-is.
-// The Node wrapper is what should add the DB revalidation.
-const passThroughBase = vi.fn(async ({ token }: { token: unknown }) => token as never)
+// Stand-in for the edge-safe jwt callback from auth.config.ts. On first LINE
+// sign-in the real base stashes `user.id` (= profile.sub) into
+// `token.lineUserId`; we replicate that minimal behavior here so the Node
+// wrapper can exercise its resolution step.
+const edgeStyleBase = vi.fn(async ({ token, user, account }: { token: JWT; user?: { id: string }; account?: { provider: string } | null }): Promise<JWT> => {
+  if (user && account?.provider === 'line') {
+    ;(token as Record<string, unknown>).lineUserId = user.id
+  }
+  return token
+})
 
 describe('nodeJwtCallback — Node-side DB revalidation', () => {
   beforeEach(async () => {
     await truncateAll()
-    passThroughBase.mockClear()
+    edgeStyleBase.mockClear()
   })
   afterAll(async () => {
     await closeTestDb()
   })
 
-  it('アクティブな会員は token が返る', async () => {
-    const user = await createUser({ name: 'active', deactivatedAt: null })
+  it('初回サインイン: LINE user ID が DB にマッチ → id/role/name/lineLinkedAt/lineLinkedMethod を token に埋める', async () => {
+    const user = await createUser({
+      name: 'alice',
+      lineUserId: 'Uabc123',
+      role: 'member',
+      lineLinkedAt: new Date('2026-04-20T10:00:00Z'),
+      lineLinkedMethod: 'self_identify',
+    })
     const result = await nodeJwtCallback(
-      { token: { id: user.id, sub: user.id }, user: undefined, trigger: undefined },
-      passThroughBase,
+      {
+        token: {} as JWT,
+        user: { id: 'Uabc123' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
+        trigger: 'signIn',
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
     )
     expect(result).not.toBeNull()
-    expect(result?.id).toBe(user.id)
+    const jwt = result as JWT
+    expect(jwt.id).toBe(user.id)
+    expect(jwt.role).toBe('member')
+    expect(jwt.name).toBe('alice')
+    expect(jwt.lineUserId).toBe('Uabc123')
+    expect(jwt.lineLinkedAt).toBe('2026-04-20T10:00:00.000Z')
+    expect(jwt.lineLinkedMethod).toBe('self_identify')
   })
 
-  it('deactivatedAt セット済みの会員は null を返してセッションを即無効化する', async () => {
-    const user = await createUser({
+  it('初回サインイン: LINE user ID が DB にいない → token.id 未設定のまま (middleware が /self-identify へ)', async () => {
+    const result = await nodeJwtCallback(
+      {
+        token: {} as JWT,
+        user: { id: 'Uunknown' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
+        trigger: 'signIn',
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).id).toBeUndefined()
+    expect((result as JWT).lineUserId).toBe('Uunknown')
+  })
+
+  it('初回サインイン: deactivated 会員 → token.id 未設定 (signIn callback で既に拒否される想定の defense)', async () => {
+    await createUser({
       name: 'retired',
+      lineUserId: 'Uretired',
       deactivatedAt: new Date('2026-04-18T00:00:00Z'),
     })
     const result = await nodeJwtCallback(
-      { token: { id: user.id, sub: user.id }, user: undefined, trigger: undefined },
-      passThroughBase,
-    )
-    expect(result).toBeNull()
-  })
-
-  it('DB に存在しない id は null を返す', async () => {
-    const result = await nodeJwtCallback(
       {
-        token: { id: '00000000-0000-0000-0000-000000000000', sub: '00000000-0000-0000-0000-000000000000' },
-        user: undefined,
-        trigger: undefined,
-      },
-      passThroughBase,
-    )
-    expect(result).toBeNull()
-  })
-
-  it('初回サインイン (user 付き) は DB 再検証をスキップして token をそのまま返す', async () => {
-    // No user in DB — but because params.user is set, we skip revalidation.
-    const result = await nodeJwtCallback(
-      {
-        token: { id: '00000000-0000-0000-0000-000000000000' },
-        user: { id: '00000000-0000-0000-0000-000000000000' } as { id: string },
+        token: {} as JWT,
+        user: { id: 'Uretired' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
-      passThroughBase,
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
     )
     expect(result).not.toBeNull()
+    expect((result as JWT).id).toBeUndefined()
   })
 
-  it('base callback が null を返した場合はそのまま null を返す', async () => {
-    const nullBase = vi.fn(async () => null as unknown as never)
+  it('通常リクエスト: token.id がアクティブ user → token をそのまま返す', async () => {
+    const user = await createUser({ name: 'active', deactivatedAt: null })
     const result = await nodeJwtCallback(
-      { token: { id: 'any' }, user: undefined, trigger: undefined },
-      nullBase,
+      { token: { id: user.id, sub: user.id } as JWT, user: undefined, trigger: undefined },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).id).toBe(user.id)
+  })
+
+  it('通常リクエスト: token.id が deactivated user → null を返してセッション無効化', async () => {
+    const user = await createUser({
+      name: 'retired-mid-session',
+      deactivatedAt: new Date('2026-04-18T00:00:00Z'),
+    })
+    const result = await nodeJwtCallback(
+      { token: { id: user.id, sub: user.id } as JWT, user: undefined, trigger: undefined },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
     )
     expect(result).toBeNull()
   })
 
-  // Self-heal behavior: the LINE-link callback's unstable_update() may fail
-  // silently. Without this, the JWT would be stuck with lineUserId=null and
-  // edge middleware would loop the user back to /settings/line-link. The
-  // Node callback refreshes the field from DB so the next Node render
-  // unblocks the user.
-  it('DB の lineUserId が token と違う場合、token を DB に合わせて更新する', async () => {
-    const user = await createUser({ name: 'heal', lineUserId: 'Ufromdb12345' })
+  it('通常リクエスト: token.id が DB に存在しない → null', async () => {
     const result = await nodeJwtCallback(
       {
-        token: { id: user.id, sub: user.id, lineUserId: null },
+        token: { id: '00000000-0000-0000-0000-000000000000' } as JWT,
         user: undefined,
         trigger: undefined,
       },
-      passThroughBase,
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
     )
-    expect(result).not.toBeNull()
-    expect(result?.lineUserId).toBe('Ufromdb12345')
+    expect(result).toBeNull()
   })
 
-  it('DB で lineUserId が null の場合、token の古い値は null に戻す', async () => {
-    const user = await createUser({ name: 'unlink', lineUserId: null })
+  it('通常リクエスト: token.id 無し & lineUserId に該当 user 無し → token.id 未解決のまま', async () => {
+    const result = await nodeJwtCallback(
+      { token: { lineUserId: 'Upending' } as JWT, user: undefined, trigger: undefined },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).lineUserId).toBe('Upending')
+    expect((result as JWT).id).toBeUndefined()
+  })
+
+  it('post /self-identify: token.lineUserId あり & token.id 未設定 & DB に row あり → 次回 render で id を自動補完', async () => {
+    // /self-identify 完了後、unstable_update({ lineLinkedAt, lineLinkedMethod }) は
+    // id/role/name を渡さないため token.id は未設定のまま。次の render で
+    // nodeJwtCallback が lineUserId → users.id を再解決して middleware の
+    // /self-identify ループを抜けさせる。
+    const user = await createUser({
+      name: 'just-claimed',
+      lineUserId: 'Uself-identified',
+      role: 'member',
+      lineLinkedAt: new Date('2026-04-22T03:00:00Z'),
+      lineLinkedMethod: 'self_identify',
+    })
     const result = await nodeJwtCallback(
       {
-        token: { id: user.id, sub: user.id, lineUserId: 'Ustaletoken' },
+        token: { lineUserId: 'Uself-identified' } as JWT,
         user: undefined,
         trigger: undefined,
       },
-      passThroughBase,
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
     )
     expect(result).not.toBeNull()
-    expect(result?.lineUserId).toBeNull()
+    const jwt = result as JWT
+    expect(jwt.id).toBe(user.id)
+    expect(jwt.role).toBe('member')
+    expect(jwt.name).toBe('just-claimed')
+    expect(jwt.lineLinkedMethod).toBe('self_identify')
+  })
+
+  it('account-switch 後 unstable_update 失敗時: token.id あり & JWT の lineUserId が古い → DB の新しい値で自己修復する', async () => {
+    // account-switch フロー (apps/web/src/app/api/line-link/callback/route.ts) で
+    // DB の UPDATE は成功したが unstable_update() が失敗したシナリオ。
+    // 古い JWT は token.id はそのままだが token.lineUserId / lineLinkedAt /
+    // lineLinkedMethod が旧値のまま残る。次回 Node render で nodeJwtCallback
+    // が DB を読み直し、最新の値を書き戻すことで UI が真実と一致する。
+    const user = await createUser({
+      name: 'switched',
+      lineUserId: 'Unew-line-id',
+      role: 'member',
+      lineLinkedAt: new Date('2026-04-22T05:00:00Z'),
+      lineLinkedMethod: 'account_switch',
+    })
+    const result = await nodeJwtCallback(
+      {
+        token: {
+          id: user.id,
+          sub: user.id,
+          lineUserId: 'Uold-line-id',
+          lineLinkedAt: '2026-04-01T00:00:00.000Z',
+          lineLinkedMethod: 'self_identify',
+        } as JWT,
+        user: undefined,
+        trigger: undefined,
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    const jwt = result as JWT
+    expect(jwt.id).toBe(user.id)
+    expect(jwt.lineUserId).toBe('Unew-line-id')
+    expect(jwt.lineLinkedAt).toBe('2026-04-22T05:00:00.000Z')
+    expect(jwt.lineLinkedMethod).toBe('account_switch')
+  })
+
+  it('post /self-identify: lineUserId に該当するのが deactivated row → id 未設定のまま保持', async () => {
+    // 管理者が直接ユーザーを deactivate した直後など、DB では無効化されているが
+    // JWT には古い lineUserId のみ残っているケース。token.id が未設定のため
+    // 解決 branch で deactivatedAt を見て id を書かず、middleware 側は次の gate
+    // で /self-identify に回す (そこでも該当 row が見つからず進まない)。
+    await createUser({
+      name: 'retired',
+      lineUserId: 'Uretired-in-db',
+      deactivatedAt: new Date('2026-04-21T00:00:00Z'),
+    })
+    const result = await nodeJwtCallback(
+      {
+        token: { lineUserId: 'Uretired-in-db' } as JWT,
+        user: undefined,
+        trigger: undefined,
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).id).toBeUndefined()
   })
 })

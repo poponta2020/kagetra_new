@@ -24,10 +24,13 @@ export type SeededSession = {
   sessionToken: string
 }
 
+type LineLinkedMethod = 'self_identify' | 'admin_link' | 'account_switch'
+
 type IssueOptions = {
   role: 'admin' | 'vice_admin' | 'member'
-  mustChangePassword?: boolean
   lineUserId?: string | null
+  lineLinkedAt?: string | null
+  lineLinkedMethod?: LineLinkedMethod | null
 }
 
 async function issueJwtSession(
@@ -45,8 +48,9 @@ async function issueJwtSession(
       id: userId,
       name,
       role: opts.role,
-      mustChangePassword: opts.mustChangePassword ?? false,
       lineUserId: opts.lineUserId ?? null,
+      lineLinkedAt: opts.lineLinkedAt ?? null,
+      lineLinkedMethod: opts.lineLinkedMethod ?? null,
       iat: now,
       exp: now + SESSION_MAX_AGE,
       jti: crypto.randomUUID(),
@@ -61,8 +65,9 @@ export async function seedMemberSession(
   const user = await createUser(overrides)
   return issueJwtSession(user.id, user.name, {
     role: user.role,
-    mustChangePassword: user.mustChangePassword ?? false,
     lineUserId: user.lineUserId ?? null,
+    lineLinkedAt: user.lineLinkedAt?.toISOString() ?? null,
+    lineLinkedMethod: user.lineLinkedMethod ?? null,
   })
 }
 
@@ -72,7 +77,40 @@ export async function seedAdminSession(
   const user = await createAdmin(overrides)
   return issueJwtSession(user.id, user.name, {
     role: user.role,
-    mustChangePassword: user.mustChangePassword ?? false,
     lineUserId: user.lineUserId ?? null,
+    lineLinkedAt: user.lineLinkedAt?.toISOString() ?? null,
+    lineLinkedMethod: user.lineLinkedMethod ?? null,
   })
+}
+
+/**
+ * Issue a session cookie that simulates "LINE login succeeded but no internal
+ * users row matches yet" — the state between Auth.js's LINE provider binding
+ * and the /self-identify claim. Middleware reads `token.id === undefined` and
+ * redirects to /self-identify; the form then uses `token.lineUserId` to bind.
+ *
+ * Use this in E2E tests that exercise the first-time claim flow. Does not
+ * create any DB row — the test body seeds the invited candidates separately.
+ */
+export async function issueUnboundLineSession(
+  lineUserId: string,
+): Promise<{ sessionToken: string }> {
+  const now = Math.floor(Date.now() / 1000)
+  const token = await encode({
+    salt: SALT,
+    secret: AUTH_SECRET,
+    maxAge: SESSION_MAX_AGE,
+    token: {
+      // id intentionally omitted — this is the cue for middleware to route
+      // the user to /self-identify.
+      sub: lineUserId,
+      lineUserId,
+      lineLinkedAt: null,
+      lineLinkedMethod: null,
+      iat: now,
+      exp: now + SESSION_MAX_AGE,
+      jti: crypto.randomUUID(),
+    },
+  })
+  return { sessionToken: token }
 }

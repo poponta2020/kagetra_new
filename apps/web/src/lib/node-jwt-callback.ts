@@ -1,58 +1,108 @@
+import type { JWT } from 'next-auth/jwt'
+import type { User, Session, Account } from 'next-auth'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
-import type { JWT } from 'next-auth/jwt'
-import type { User, Session } from 'next-auth'
 
 type JwtParams = {
   token: JWT
   user?: User
-  trigger?: 'signIn' | 'signUp' | 'update' | string
-  session?: Session | Record<string, unknown>
+  account?: Account | null
+  trigger?: 'signIn' | 'signUp' | 'update'
+  session?: Session | null
+  isNewUser?: boolean
 }
 
-type BaseJwt = (p: JwtParams) => Promise<JWT | null> | JWT | null
+type BaseJwt = (params: JwtParams) => Promise<JWT> | JWT
 
 /**
- * Node-only JWT callback that wraps the edge-safe base callback and adds
- * DB revalidation. Two jobs:
+ * Node-only jwt callback wrapper. Two responsibilities:
  *
- * 1. Catch user deactivation — a revoked account returns null here so the
- *    next Node render bounces to /login.
- * 2. Self-heal `lineUserId` — if the LINE-link callback's `unstable_update`
- *    failed (transient error, concurrent request), the JWT can stay stale
- *    with `lineUserId=null` even though the DB is linked. Edge middleware
- *    would then trap the user on /settings/line-link indefinitely. Pulling
- *    the current `lineUserId` from the same row we're already fetching for
- *    the deactivation check lets the JWT recover on the next Node render.
+ * 1. Resolve `token.lineUserId` → our internal users row whenever `token.id`
+ *    is not yet set. Runs on first sign-in (baseJwt has just stashed the LINE
+ *    profile.sub as `token.lineUserId`) AND on every subsequent request where
+ *    `token.id` is still unset but `token.lineUserId` is present — i.e. after
+ *    `/self-identify` finishes, or after an account-switch callback updates
+ *    the DB without passing id through `unstable_update`. If no row matches,
+ *    leave `token.id` undefined so middleware keeps redirecting to
+ *    /self-identify.
  *
- * Edge middleware uses only the base callback (via auth.config.ts) and is
- * kept DB-free.
+ * 2. On every subsequent call once `token.id` is set: recheck deactivatedAt;
+ *    if the user was deactivated after login, return `null` so Auth.js
+ *    invalidates the session cookie and middleware's unauthenticated branch
+ *    fires on the next request. Also re-sync `lineUserId`/`lineLinkedAt`/
+ *    `lineLinkedMethod` from the DB so an account-switch whose
+ *    `unstable_update` failed (network hiccup, etc.) self-heals on the next
+ *    Node render instead of leaving the JWT pointing at the old LINE id.
  */
 export async function nodeJwtCallback(
   params: JwtParams,
-  baseCallback: BaseJwt,
+  baseJwt: BaseJwt,
 ): Promise<JWT | null> {
-  const token = await baseCallback(params)
-  if (!token) return null
+  // Let the base callback populate token.lineUserId + any update()-driven patches first.
+  const token = await baseJwt(params)
 
-  // Skip the DB check on the initial sign-in path (user is set then) —
-  // authorizeCredentials already enforced deactivatedAt and provided the
-  // authoritative lineUserId.
-  if (params.user) return token
+  const lineUserId = token.lineUserId as string | null | undefined
+  const id = token.id as string | undefined
 
-  const userId = (token.id ?? token.sub) as string | undefined
-  if (!userId) return token
-
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-    columns: { deactivatedAt: true, lineUserId: true },
-  })
-  if (!dbUser || dbUser.deactivatedAt != null) {
-    return null
+  // Resolve lineUserId → internal users.id whenever id is still unbound.
+  // This covers both the first-signin path and the post-self-identify path
+  // (where unstable_update only rewrites link metadata, not id/role/name).
+  if (!id && lineUserId) {
+    const row = await db.query.users.findFirst({
+      where: eq(users.lineUserId, lineUserId),
+      columns: {
+        id: true,
+        name: true,
+        role: true,
+        lineLinkedAt: true,
+        lineLinkedMethod: true,
+        deactivatedAt: true,
+      },
+    })
+    if (row && !row.deactivatedAt) {
+      token.id = row.id
+      token.name = row.name ?? undefined
+      token.role = row.role
+      token.lineLinkedAt = row.lineLinkedAt ? row.lineLinkedAt.toISOString() : null
+      token.lineLinkedMethod = row.lineLinkedMethod
+    }
+    // If row is missing or deactivated, leave token.id undefined.
+    // Middleware will route to /self-identify (for missing row); deactivated
+    // users never reach here on first signin because signIn() in auth.ts
+    // already returns a redirect string.
+    return token
   }
-  if (token.lineUserId !== dbUser.lineUserId) {
-    token.lineUserId = dbUser.lineUserId
+
+  // Every-request path: if we previously resolved an id, revalidate it against
+  // the DB. This catches admins who were deactivated mid-session, and also
+  // rehydrates `lineUserId`/`lineLinkedAt`/`lineLinkedMethod` so an
+  // account-switch whose `unstable_update` failed recovers on the next render.
+  if (id) {
+    const row = await db.query.users.findFirst({
+      where: eq(users.id, id),
+      columns: {
+        id: true,
+        deactivatedAt: true,
+        lineUserId: true,
+        lineLinkedAt: true,
+        lineLinkedMethod: true,
+      },
+    })
+    if (!row || row.deactivatedAt) {
+      // Returning null invalidates the Auth.js session cookie on next render,
+      // so middleware's `!session` branch fires and redirects to /auth/signin.
+      // A subsequent LINE re-login will be rejected at the signIn() callback
+      // with `?error=deactivated`.
+      return null
+    }
+    const dbLineLinkedAt = row.lineLinkedAt ? row.lineLinkedAt.toISOString() : null
+    if (token.lineUserId !== row.lineUserId) token.lineUserId = row.lineUserId
+    if (token.lineLinkedAt !== dbLineLinkedAt) token.lineLinkedAt = dbLineLinkedAt
+    if (token.lineLinkedMethod !== row.lineLinkedMethod) {
+      token.lineLinkedMethod = row.lineLinkedMethod
+    }
   }
+
   return token
 }

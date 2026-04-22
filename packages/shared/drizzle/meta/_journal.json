@@ -29,6 +29,13 @@
       "when": 1776696747081,
       "tag": "0003_dan_range_check",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776784068804,
+      "tag": "0004_auth_pivot_line_login",
+      "breakpoints": true
     }
   ]
 }

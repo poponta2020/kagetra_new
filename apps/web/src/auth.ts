@@ -1,35 +1,45 @@
 import NextAuth from 'next-auth'
-import Credentials from 'next-auth/providers/credentials'
-import { authorizeCredentials } from '@/lib/credentials-authorize'
-import { nodeJwtCallback } from '@/lib/node-jwt-callback'
+import { eq } from 'drizzle-orm'
 import { authConfig } from './auth.config'
+import { db } from '@/lib/db'
+import { users } from '@kagetra/shared/schema'
+import { nodeJwtCallback } from '@/lib/node-jwt-callback'
 
 /**
- * Full NextAuth instance for the Node runtime. Layers the Credentials
- * provider on top of the edge-safe `authConfig` and wraps its jwt callback
- * with a Node-only DB revalidation step to invalidate deactivated users'
- * sessions. Middleware re-creates a NextAuth instance from `authConfig`
- * alone — it stays DB-free and so may allow one request through, but the
- * next Node render (Server Component / Action) will reject a revoked
- * session and redirect to /login.
+ * Full NextAuth instance for the Node runtime. Inherits the Edge-safe
+ * `authConfig` and layers on:
+ *   - a `signIn` callback that rejects deactivated users at login time
+ *   - a `jwt` callback wrapper that resolves the LINE user ID to our internal
+ *     users.id and fills role/lineLinkedAt/lineLinkedMethod from the DB
+ *
+ * Middleware re-creates a NextAuth instance from `authConfig` alone — it stays
+ * DB-free and therefore can only distinguish "has session" from "no session".
+ * Any per-user gating (deactivation, /self-identify redirect) flows through the
+ * JWT claims set by this file, read by middleware.
  */
 const baseCallbacks = authConfig.callbacks ?? {}
 const baseJwt = baseCallbacks.jwt
 
 export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   ...authConfig,
-  providers: [
-    Credentials({
-      name: 'credentials',
-      credentials: {
-        username: { label: 'ユーザー名', type: 'text' },
-        password: { label: 'パスワード', type: 'password' },
-      },
-      authorize: authorizeCredentials,
-    }),
-  ],
   callbacks: {
     ...baseCallbacks,
+    async signIn({ user, account }) {
+      if (account?.provider !== 'line') return true
+      const lineUserId = user.id
+      if (!lineUserId) return false
+      const existing = await db.query.users.findFirst({
+        where: eq(users.lineUserId, lineUserId),
+        columns: { id: true, deactivatedAt: true },
+      })
+      // Reject deactivated members at login with a dedicated error code so
+      // the SignInPage can show the 退会済み message. Returning `false` here
+      // would surface as Auth.js's generic `AccessDenied` instead.
+      if (existing?.deactivatedAt) return '/auth/signin?error=deactivated'
+      // New LINE user (no match yet) is allowed through; middleware will route
+      // them to /self-identify where they claim an invited member row.
+      return true
+    },
     jwt: async (params) => {
       if (!baseJwt) return params.token
       return nodeJwtCallback(

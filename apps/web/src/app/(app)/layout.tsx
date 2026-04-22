@@ -8,7 +8,7 @@ export default async function AppLayout({
   children: React.ReactNode
 }) {
   const session = await auth()
-  if (!session) redirect('/login')
+  if (!session) redirect('/auth/signin')
 
   const isAdmin = session.user?.role === 'admin' || session.user?.role === 'vice_admin'
 
@@ -22,7 +22,7 @@ export default async function AppLayout({
             <form
               action={async () => {
                 'use server'
-                await signOut({ redirectTo: '/login' })
+                await signOut({ redirectTo: '/auth/signin' })
               }}
             >
               <button

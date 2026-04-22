@@ -36,6 +36,8 @@ export default defineConfig({
       AUTH_SECRET: 'e2e-test-secret-do-not-use-in-production',
       AUTH_TRUST_HOST: 'true',
       NEXTAUTH_URL: E2E_BASE_URL,
+      AUTH_LINE_ID: 'test-line-id',
+      AUTH_LINE_SECRET: 'test-line-secret',
       // Phase 1-5 PR-B: bypass real LINE OAuth in the callback route.
       // Only honored when NODE_ENV !== 'production' (see lib/line-oauth.ts).
       LINE_OAUTH_TEST_MODE: 'true',

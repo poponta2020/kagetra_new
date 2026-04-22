@@ -17,13 +17,18 @@ import {
 export const dynamic = 'force-dynamic'
 
 /**
- * LINE Login OAuth2 callback handler.
+ * LINE account-switch callback handler (secondary flow).
+ *
+ * Primary LINE login is handled by Auth.js (`/api/auth/callback/line`).
+ * This route is reached only from `/settings/line-link` when an already-
+ * authenticated user wants to point their account at a different LINE ID.
  *
  * Flow:
  * 1. Verify the signed `state` cookie (CSRF + initiating userId binding).
  * 2. Exchange `code` for an access_token (HTTP POST to LINE).
  * 3. Fetch profile with the token.
- * 4. Persist `users.lineUserId` (UNIQUE; collision -> error screen).
+ * 4. UPDATE users.lineUserId (UNIQUE; collision -> conflict screen),
+ *    record lineLinkedAt + lineLinkedMethod='account_switch'.
  * 5. Clear the state cookie. Never persist the access_token.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -53,7 +58,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.redirect(new URL('/login', req.url))
+    return NextResponse.redirect(new URL('/auth/signin', req.url))
   }
 
   // The session that started the flow must be the same session that returns
@@ -95,7 +100,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     await db
       .update(users)
-      .set({ lineUserId: profile.userId, updatedAt: new Date() })
+      .set({
+        lineUserId: profile.userId,
+        lineLinkedAt: new Date(),
+        lineLinkedMethod: 'account_switch',
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, session.user.id))
   } catch (err) {
     // Only the 23505 unique_violation race is a conflict; other DB errors
@@ -111,14 +121,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // a full sign-out/sign-in. `unstable_update` re-runs the jwt() callback
   // with the `update` trigger; our callback branches on `session.user.lineUserId`.
   try {
-    await unstable_update({ user: { lineUserId: profile.userId } })
+    await unstable_update({
+      user: {
+        lineUserId: profile.userId,
+        lineLinkedAt: new Date().toISOString(),
+        lineLinkedMethod: 'account_switch',
+      },
+    })
   } catch {
-    // If the refresh fails, the user would otherwise be trapped: edge
-    // middleware still sees lineUserId=null in the stale JWT and bounces to
-    // /settings/line-link, where the DB says "linked" but the JWT is never
-    // rewritten. `nodeJwtCallback` self-heals the JWT against the DB on the
-    // next Node render, so the next request through the settings page (or
-    // any Server Component) will write a fresh cookie and unblock the user.
+    // If the refresh fails, the stale JWT still carries the old lineUserId,
+    // which would make /settings/line-link render with the pre-switch state
+    // even though the DB already points at the new LINE id. Middleware
+    // itself only gates on `session.user.id` (not lineUserId), so the user
+    // isn't locked out — but the linked-account UI would lie. The `if (id)`
+    // branch of `nodeJwtCallback` re-reads lineUserId/lineLinkedAt/method
+    // from the DB on every Node render, so the next request through any
+    // Server Component writes a fresh cookie and the UI becomes accurate.
   }
 
   return NextResponse.redirect(new URL('/', req.url))
