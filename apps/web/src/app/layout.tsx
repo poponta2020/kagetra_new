@@ -4,16 +4,17 @@ import './globals.css'
 
 const notoSansJP = Noto_Sans_JP({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['400', '500', '700'],
   variable: '--font-noto-sans-jp',
   display: 'swap',
 })
 
 const notoSerifJP = Noto_Serif_JP({
   subsets: ['latin'],
-  weight: ['400', '500', '700'],
+  weight: ['700'],
   variable: '--font-noto-serif-jp',
   display: 'swap',
+  preload: false,
 })
 
 export const metadata: Metadata = {

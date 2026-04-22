@@ -263,7 +263,6 @@ const DescList = ({ items }) => (
 // ============================================================
 const AttendanceCounts = ({ ev, variant = 'cards' }) => {
   if (variant === 'bar') {
-    const total = Math.max(ev.attendIds.length + ev.absentIds.length + ev.unansweredCount, 1);
     return (
       <div>
         <div style={{ display: 'flex', height: 8, borderRadius: 9999, overflow: 'hidden', background: C.borderSoft }}>
