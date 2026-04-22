@@ -5,8 +5,13 @@
    Source: docs/design/design.md · docs/design/colors_and_type.css
    ============================================================ */
 
-/* ---------- Webfonts ---------- */
-@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;500;700&display=swap");
+/* ---------- Webfonts ----------
+   Fonts are loaded via next/font/google in app/layout.tsx, which injects
+   the CSS variables --font-noto-sans-jp / --font-noto-serif-jp on <html>.
+   Avoid `@import url(...)` here: Tailwind v4 expands the `@import "tailwindcss";`
+   above into many @layer rules, which pushes any later @import past the
+   start of the stylesheet and makes it invalid per CSS spec.
+   ---------- */
 
 /* ---------- Tailwind v4 @theme (maps tokens to utility classes) ---------- */
 @theme {
@@ -54,10 +59,11 @@
   --color-neutral-bg: #ebe3ce;
   --color-neutral-fg: #5b4f33;
 
-  /* Fonts */
-  --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, -apple-system,
+  /* Fonts (next/font variables injected by layout.tsx) */
+  --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system,
     "Hiragino Sans", "Yu Gothic", sans-serif;
-  --font-display: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
+  --font-display: var(--font-noto-serif-jp), "Yu Mincho",
+    "Hiragino Mincho ProN", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Radii (restrained — washi reads calmer with small radii) */
@@ -137,11 +143,11 @@
   --kg-pill-neutral-bg: var(--kg-neutral-bg);
   --kg-pill-neutral-fg: var(--kg-neutral-fg);
 
-  /* Fonts */
-  --kg-font-sans: "Noto Sans JP", ui-sans-serif, system-ui, -apple-system,
-    "Hiragino Sans", "Yu Gothic", sans-serif;
-  --kg-font-display: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN",
-    serif;
+  /* Fonts (next/font variables injected by layout.tsx) */
+  --kg-font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui,
+    -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  --kg-font-display: var(--font-noto-serif-jp), "Yu Mincho",
+    "Hiragino Mincho ProN", serif;
   --kg-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Type scale (size/weight) — consumed by mobile UI kit sizes */

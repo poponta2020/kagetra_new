@@ -391,7 +391,7 @@ const AdminTally = () => {
         </div>
 
         <div style={{ padding: '0 16px 16px' }}>
-          <SectionLabel action="リマインド送信 →">未回答者 ({ev.unanswerdCount}名)</SectionLabel>
+          <SectionLabel action="リマインド送信 →">未回答者 ({ev.unansweredCount}名)</SectionLabel>
           <Card pad={0}>
             {MEMBERS.filter(m => !ev.attendIds.includes(m.id) && !ev.absentIds.includes(m.id)).slice(0, 5).map((m, i) => (
               <div key={m.id} style={{

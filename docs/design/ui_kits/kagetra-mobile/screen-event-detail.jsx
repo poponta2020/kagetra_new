@@ -1,11 +1,14 @@
 /* Event detail — V3 single-column scroll, no 出欠バー, RSVP: 参加 only (toggles to キャンセル) */
 
-const AttendanceCounts = ({ ev }) => (
+// Local variant — the shared AttendanceCounts (primitives.jsx) supports
+// both 'cards' and 'bar'; this screen renders only the cards layout and is
+// kept separate so redefining it can't overwrite the shared binding.
+const EventDetailAttendanceCounts = ({ ev }) => (
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
     {[
       { l: '参加',   n: ev.attendIds.length,  fg: C.successFg, bg: C.successBg },
       { l: '不参加', n: ev.absentIds.length,  fg: C.dangerFg,  bg: C.dangerBg  },
-      { l: '未回答', n: ev.unanswerdCount,    fg: C.warnFg,    bg: C.warnBg    },
+      { l: '未回答', n: ev.unansweredCount,    fg: C.warnFg,    bg: C.warnBg    },
     ].map((s,i) => (
       <div key={i} style={{
         background: s.bg, borderRadius: 8, padding: '10px 8px', textAlign: 'center',
@@ -70,7 +73,7 @@ const EventDetail = () => {
         {/* attendance summary (counts only, no bar) */}
         <div style={{ padding: '14px 16px', background: C.surface, borderBottom: `1px solid ${C.borderSoft}` }}>
           <SectionLabel>出欠状況</SectionLabel>
-          <AttendanceCounts ev={ev} />
+          <EventDetailAttendanceCounts ev={ev} />
         </div>
 
         {/* participants inline */}

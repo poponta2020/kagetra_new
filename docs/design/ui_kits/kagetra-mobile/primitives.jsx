@@ -263,18 +263,18 @@ const DescList = ({ items }) => (
 // ============================================================
 const AttendanceCounts = ({ ev, variant = 'cards' }) => {
   if (variant === 'bar') {
-    const total = Math.max(ev.attendIds.length + ev.absentIds.length + ev.unanswerdCount, 1);
+    const total = Math.max(ev.attendIds.length + ev.absentIds.length + ev.unansweredCount, 1);
     return (
       <div>
         <div style={{ display: 'flex', height: 8, borderRadius: 9999, overflow: 'hidden', background: C.borderSoft }}>
           {ev.attendIds.length > 0   && <div style={{ flex: ev.attendIds.length,  background: C.brand    }} />}
           {ev.absentIds.length > 0   && <div style={{ flex: ev.absentIds.length,  background: '#F3B4B4' }} />}
-          {ev.unanswerdCount > 0     && <div style={{ flex: ev.unanswerdCount,    background: '#F3D78A' }} />}
+          {ev.unansweredCount > 0     && <div style={{ flex: ev.unansweredCount,    background: '#F3D78A' }} />}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11 }}>
           <span style={{ color: C.successFg }}>● 参加 {ev.attendIds.length}</span>
           <span style={{ color: C.dangerFg }}>● 不参加 {ev.absentIds.length}</span>
-          <span style={{ color: C.warnFg }}>● 未回答 {ev.unanswerdCount}</span>
+          <span style={{ color: C.warnFg }}>● 未回答 {ev.unansweredCount}</span>
         </div>
       </div>
     );
@@ -284,7 +284,7 @@ const AttendanceCounts = ({ ev, variant = 'cards' }) => {
       {[
         { l: '参加',   n: ev.attendIds.length,  fg: C.successFg, bg: C.successBg },
         { l: '不参加', n: ev.absentIds.length,  fg: C.dangerFg,  bg: C.dangerBg  },
-        { l: '未回答', n: ev.unanswerdCount,    fg: C.warnFg,    bg: C.warnBg    },
+        { l: '未回答', n: ev.unansweredCount,    fg: C.warnFg,    bg: C.warnBg    },
       ].map((s,i) => (
         <div key={i} style={{
           background: s.bg, borderRadius: 8, padding: '10px 8px', textAlign: 'center',

@@ -34,7 +34,7 @@ const EVENTS = [
     myResponse: null, // 'attend' | 'absent' | null
     attendIds: [1, 2, 3, 4, 11],
     absentIds: [5, 6],
-    unanswerdCount: 5,
+    unansweredCount: 5,
     description: '今年度の北海道選手権大会です。各級ごとにトーナメント形式で実施します。',
   },
   {
@@ -54,7 +54,7 @@ const EVENTS = [
     myResponse: 'attend',
     attendIds: [7, 8, 9, 5],
     absentIds: [1, 2],
-    unanswerdCount: 3,
+    unansweredCount: 3,
     description: '道央地区の会との交流戦。D/E級中心。',
   },
   {
@@ -74,7 +74,7 @@ const EVENTS = [
     myResponse: null,
     attendIds: [1, 2, 4, 6, 10, 11, 12],
     absentIds: [3, 5],
-    unanswerdCount: 3,
+    unansweredCount: 3,
     description: '通常の月例会です。段位問わず参加可。',
   },
   {
@@ -94,7 +94,7 @@ const EVENTS = [
     myResponse: null,
     attendIds: [],
     absentIds: [],
-    unanswerdCount: 0,
+    unansweredCount: 0,
     description: '',
   },
   {
@@ -114,7 +114,7 @@ const EVENTS = [
     myResponse: 'attend',
     attendIds: [7, 8, 9],
     absentIds: [1, 2],
-    unanswerdCount: 0,
+    unansweredCount: 0,
     description: '',
   },
 ];

@@ -98,7 +98,12 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
     if (!didRead.current) return;
     if (skipNextWrite.current) { skipNextWrite.current = false; return; }
     const t = setTimeout(() => {
-      window.omelette?.writeFile(DC_STATE_FILE, JSON.stringify({ sections: state.sections })).catch(() => {});
+      // Optional-chain the .catch too: without the runtime bridge
+      // `window.omelette?.writeFile(...)` returns undefined, and a bare
+      // `.catch` on that throws. Accept any writeFile that returns a
+      // thenable; swallow failures since this is best-effort persistence.
+      const p = window.omelette?.writeFile?.(DC_STATE_FILE, JSON.stringify({ sections: state.sections }));
+      p?.catch?.(() => {});
     }, 250);
     return () => clearTimeout(t);
   }, [state.sections]);
