@@ -8,6 +8,11 @@ export interface MobileShellProps {
    * caller (e.g. `'山田さん'`). Pass an empty string when unavailable.
    */
   user: string
+  /**
+   * Whether the signed-in user has admin/vice_admin privileges. Forwarded
+   * to `BottomNav` to gate admin-only tabs.
+   */
+  isAdmin: boolean
   /** Server Action forwarded to the top bar's logout form. */
   signOutAction: () => Promise<void>
   children: ReactNode
@@ -26,12 +31,17 @@ export interface MobileShellProps {
  * Server component; client-only bits (pathname-aware tab highlighting)
  * live inside `BottomNav`.
  */
-export function MobileShell({ user, signOutAction, children }: MobileShellProps) {
+export function MobileShell({
+  user,
+  isAdmin,
+  signOutAction,
+  children,
+}: MobileShellProps) {
   return (
     <div className="flex min-h-screen flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
       <main className="flex-1 overflow-y-auto">{children}</main>
-      <BottomNav />
+      <BottomNav isAdmin={isAdmin} />
     </div>
   )
 }

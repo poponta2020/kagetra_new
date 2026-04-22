@@ -9,10 +9,13 @@ interface Tab {
   label: string
   href: string
   /**
-   * Path prefixes that should mark this tab active. Uses `startsWith` so
-   * detail routes (e.g. `/events/123`) also light up the parent tab.
+   * Path prefixes that should mark this tab active. Matching is
+   * segment-boundary aware (exact match or `${prefix}/...`) so sibling
+   * routes like `/events-archive` do not light up the `/events` tab.
    */
   matches: readonly string[]
+  /** When true, tab is only rendered for admin/vice_admin users. */
+  adminOnly?: boolean
 }
 
 const TABS: readonly Tab[] = [
@@ -23,26 +26,41 @@ const TABS: readonly Tab[] = [
     id: 'members',
     label: '会員',
     href: '/admin/members',
-    // `/members` is not implemented yet; the admin-only list is used as
-    // the fallback. Non-admins will be bounced by the per-page 403 guard.
+    // Admin-only until a non-admin `/members` view exists. Showing this
+    // to general members regressed their nav to a 403 loop.
     matches: ['/admin/members', '/members'],
+    adminOnly: true,
   },
 ]
 
+function matchesPath(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(prefix + '/')
+}
+
+export interface BottomNavProps {
+  /**
+   * Whether the current user is admin/vice_admin. Controls visibility of
+   * admin-only tabs (currently 会員).
+   */
+  isAdmin: boolean
+}
+
 /**
- * Sticky mobile bottom tab bar (52px tall). Four fixed tabs as defined in
- * `docs/design/design.md` §3: ホーム / イベント / 予定 / 会員.
+ * Sticky mobile bottom tab bar (52px tall). Tabs per `docs/design/design.md`
+ * §3 — ホーム / イベント / 予定 / 会員 (admin only until a member-facing list
+ * exists).
  *
  * Client component because it reads the current pathname via
  * `usePathname()` to highlight the active tab.
  */
-export function BottomNav() {
+export function BottomNav({ isAdmin }: BottomNavProps) {
   const pathname = usePathname() ?? ''
+  const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
   return (
     <nav className="h-[52px] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
-      {TABS.map((tab) => {
+      {visibleTabs.map((tab) => {
         const active = tab.matches.some((prefix) =>
-          pathname.startsWith(prefix),
+          matchesPath(pathname, prefix),
         )
         return (
           <Link

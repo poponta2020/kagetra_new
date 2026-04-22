@@ -24,7 +24,7 @@ export function DescList({ items, className }: DescListProps) {
     <div className={className}>
       {items.map((item, i) => (
         <div
-          key={item.label}
+          key={`${item.label}-${i}`}
           className={cn(
             'flex items-start py-2.5 text-[13px]',
             i > 0 && 'border-t border-border-soft',

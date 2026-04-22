@@ -15,9 +15,13 @@ export default async function AppLayout({
     await signOut({ redirectTo: '/auth/signin' })
   }
 
+  const role = session.user?.role
+  const isAdmin = role === 'admin' || role === 'vice_admin'
+
   return (
     <MobileShell
       user={session.user?.name ? `${session.user.name}さん` : ''}
+      isAdmin={isAdmin}
       signOutAction={signOutAction}
     >
       {children}

@@ -1,3 +1,5 @@
+'use client'
+
 import type { ReactNode } from 'react'
 
 export interface AppBarProps {
@@ -15,7 +17,8 @@ export interface AppBarProps {
  * In-screen header (distinct from `MobileShell`'s outer top bar).
  *
  * Used for detail screens that want a title + back affordance without
- * replacing the shell chrome.
+ * replacing the shell chrome. Client component because `onBack` is a
+ * DOM event handler and `action` commonly carries interactive children.
  */
 export function AppBar({ title, onBack, action }: AppBarProps) {
   return (

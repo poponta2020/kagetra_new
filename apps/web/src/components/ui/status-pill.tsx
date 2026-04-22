@@ -1,11 +1,13 @@
 import { Pill, type PillSize, type PillTone } from './pill'
 
+type KnownStatus = 'published' | 'cancelled' | 'done'
+
 export interface StatusPillProps {
   /**
    * Event lifecycle status. Known values map to predefined label/tone pairs;
    * anything else falls back to 下書き (draft).
    */
-  status: 'published' | 'cancelled' | 'done' | (string & {})
+  status: KnownStatus | (string & {})
   size?: PillSize
 }
 
@@ -14,13 +16,17 @@ interface StatusMapping {
   tone: PillTone
 }
 
-const STATUS_MAP: Record<'published' | 'cancelled' | 'done', StatusMapping> = {
+const STATUS_MAP: Record<KnownStatus, StatusMapping> = {
   published: { label: '公開', tone: 'success' },
   cancelled: { label: '中止', tone: 'danger' },
   done: { label: '終了', tone: 'info' },
 }
 
 const DEFAULT_MAPPING: StatusMapping = { label: '下書き', tone: 'neutral' }
+
+function isKnownStatus(status: string): status is KnownStatus {
+  return Object.hasOwn(STATUS_MAP, status)
+}
 
 /**
  * Pill variant that renders event lifecycle status in Japanese.
@@ -29,10 +35,7 @@ const DEFAULT_MAPPING: StatusMapping = { label: '下書き', tone: 'neutral' }
  * display something sensible.
  */
 export function StatusPill({ status, size }: StatusPillProps) {
-  const mapping =
-    status in STATUS_MAP
-      ? STATUS_MAP[status as keyof typeof STATUS_MAP]
-      : DEFAULT_MAPPING
+  const mapping = isKnownStatus(status) ? STATUS_MAP[status] : DEFAULT_MAPPING
   return (
     <Pill tone={mapping.tone} size={size}>
       {mapping.label}
