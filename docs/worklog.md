@@ -360,3 +360,44 @@
 ### 次回やること
 - 自己申告の本人性検証方針を決定し別 PR として実装
 - PR-C 着手
+
+---
+
+## 2026-04-22 セッション2（UI デザインシステム導入 Phase UI-1）
+
+### 方針
+- 画面数が少ない段階で UI の方向性を固めるため、データ移行 (PR-C) 着手より先に UI polish フェーズを挟む判断
+- Claude Design (claude.ai/design) で設計を AI に提案させ、Handoff bundle 経由で実装へ渡す運用を試行
+
+### Claude Design ワークフロー
+- GitHub リポジトリを Claude Design に読み込ませてプロジェクト作成
+- 「和紙 × 藍墨」(Style B) のデザインシステムを AI 提案で確定
+  - 藍 `#2B4E8C` (brand) + 朱 `#B33C2D` (accent) + 和紙 `#F4EFE3` (canvas) + 砂系ボーダー
+  - Noto Serif JP (見出し) + Noto Sans JP (本文) の 2 ファミリー
+  - 8 画面のモバイル UI kit (375×812) + 17 枚の preview card + design.md 仕様書
+- Handoff to Claude Code 経由で bundle 受領 (`api.anthropic.com/v1/design/h/...` から gzip tarball)
+
+### 実装計画（3 フェーズ）
+- **Phase UI-1**: トークン基盤 (globals.css + docs/design/) ← 本セッション
+- **Phase UI-2**: Layout shell (AppBar + 下部タブ) + primitives (Card/Btn/Pill/...)
+- **Phase UI-3**: 既存 15 画面の再スタイル
+- スコープ外: RSVP ボトムシート、一般会員 `/members` 一覧、`/events/[id]/admin` 集計（Phase 2+ 新機能扱い）
+
+### Phase UI-1 完了 (`e00f007` / branch `feat/ui-foundation-design-tokens` 押し上げ済み、PR 待ち)
+- `apps/web/src/app/globals.css` 全面書き換え
+  - Tailwind v4 `@theme` で brand/accent/surface/ink/semantic/radii/shadow + Google Fonts 読み込み
+  - `:root` block で kg-* 名前空間の全トークン (CSS 変数) を定義
+  - body baseline styles
+- `docs/design/` に Claude Design handoff bundle を配置
+  - `design.md` (設計書) / `colors_and_type.css` (トークン原本) / `design-system-readme.md` (設計システム総論) / `SKILL.md` (skill manifest) / `ui_kits/kagetra-mobile/` (8 画面プロト) / `README.md` (実装側との対応)
+- 既存の text-brand/bg-brand はその場で藍 `#2B4E8C` に切り替わる (tokens 差し替えによる)
+- ハードコード `#00b900` は完全除去、`#06c755` (LINE green) はトークン定義 + LINE ボタン 2 箇所のみ残存
+- 検証: workspace tsc PASS / web lint 0 warning / web test 44/44 PASS
+
+### 並行作業
+- 古いブランチ整理: `feat/phase-1-4-schedule-attendance` / `feat/test-infra-permission-control` を削除 (main へマージ済み扱いの死にブランチ)
+- メモリ更新: `/self-identify` 本人性検証の扱いを「Follow-up 必須」→「身内アプリでリスク受容、実装しない方針で確定」に変更 (ユーザー判断)
+
+### 次回
+- Phase UI-1 を PR 化 → Codex レビュー → ship
+- 続いて Phase UI-2 着手

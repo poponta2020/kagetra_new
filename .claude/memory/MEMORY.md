@@ -5,7 +5,7 @@
 
 ## Project
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
-- [/self-identify 本人性検証 Follow-up](project_self_identify_verification_pending.md) — PR #5 で未実装のまま ship した Blocker。運用開始前に必ず塞ぐ
+- [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
