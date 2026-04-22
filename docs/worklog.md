@@ -336,3 +336,27 @@
 - account switch flow の E2E は Vitest callback 10 ケースで backend logic を網羅済みのため、UI ラウンドトリップ E2E は follow-up (本 PR スコープ外)
 - `issueUnboundLineSession` は今後 LINE login 関連の E2E で再利用可能
 - Phase 2 中 typecheck が一時的に red になる設計は明示的に許容 (phase 単位の commit + worktree なしの main dir 作業なので、git reset で 1 phase 前に戻れる前提)
+
+---
+
+## 2026-04-22 セッション（PR #5 Codex 4回レビューサイクル → ship）
+
+### 概要
+- PR #5「refactor(auth): pivot to LINE Login + self-identify」を Codex レビュー 3 周 + 修正で完成させマージ
+- https://github.com/poponta2020/kagetra_new/pull/5 merged to `main` (76d40f1)
+
+### レビュー → 修正 ループ
+- **Round 1**: 初回レビューで self-identify JWT ロックアップ + deactivated user リダイレクト欠落を指摘 → `efaa8ed` で修正（`auth.ts` deactivated に `error=deactivated` redirect、`nodeJwtCallback` を trigger 非依存の lineUserId 解決に、deactivated JWT は null 返却）。Vitest 9/9 PASS
+- **Round 2**: account-switch の `unstable_update` 失敗時に id-present branch で LINE フィールドが再同期されないため古い JWT が残る問題を指摘 → `6c0deff` で id-present branch を拡張（`lineUserId / lineLinkedAt / lineLinkedMethod` も diff-based 再同期）、`route.ts` catch コメントの誤った「trapped」記述を正確な表現に修正、回帰テスト追加。Vitest 44/44 PASS
+- **Round 3**: Blocker（自己申告時の本人性検証欠如）と Should fix（候補一覧の個人情報過剰開示）と Nits（`line-oauth.ts` 冒頭コメントの不一致）を指摘
+  - Blocker は方針確認の上、本 PR スコープ外として**見送り**（対策案 1/2/3 の選定が別議論、PR の設計規模が大きいため）。Follow-up として別途検討
+  - Should fix / Nits は `9e2b62e` で対応: 候補表示を氏名のみに絞り（`columns: { id, name }` + 表示も name 単体）、クライアント側検索入力（氏名部分一致）+ スクロール上限を追加（新規 `candidate-list.tsx`）。`line-oauth.ts` コメントを「account-switch 専用の生 OAuth ヘルパー」に修正。Vitest 44/44 + workspace-wide tsc / eslint クリーン
+
+### Follow-up（未着手）
+- **/self-identify の本人性検証 (Blocker 持ち越し)**: ワンタイムトークン（案1）/ 管理者承認（案2）/ 属性照合（案3）のいずれを採るか要決定。現状は「LINE login 通過後、誰でも任意の招待会員を自己申告可能」な設計。運用開始前に必ず塞ぐこと
+- PR-C: データ移行スクリプト本体
+- Phase 4: 本番適用
+
+### 次回やること
+- 自己申告の本人性検証方針を決定し別 PR として実装
+- PR-C 着手
