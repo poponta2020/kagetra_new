@@ -1,0 +1,83 @@
+/* ============================================================
+   Kagetra Mobile Palette — "和紙 × 藍墨" (Style B)
+   Washi-paper background · 藍 (indigo) brand · 朱 (vermillion) accent.
+   Display headings in Noto Serif JP; body in Noto Sans JP.
+   ============================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;500;700&display=swap");
+
+:root {
+  /* ---------- Brand (藍墨) ---------- */
+  --brand: #2B4E8C;
+  --brand-hover: #213C6D;
+  --brand-bg: #E6EDF7;
+  --brand-fg: #1E3A6B;
+
+  /* ---------- Accent (朱) ---------- */
+  --accent: #B33C2D;
+  --accent-bg: #F7E6E2;
+  --accent-fg: #8F2D20;
+
+  /* ---------- Surfaces (和紙) ---------- */
+  --bg: #F4EFE3;
+  --surface: #FBF7ED;
+  --surface-alt: #F0EADC;
+
+  /* ---------- Borders (生成系) ---------- */
+  --border: #D8CDB3;
+  --border-soft: #E6DDC4;
+  --border-strong: #B8AA8A;
+
+  /* ---------- Text (墨) ---------- */
+  --fg: #1E1B13;
+  --fg2: #3A342A;
+  --fg3: #7A6E5A;
+  --fg-mute: #A99C82;
+  --fg-on-brand: #FBF7ED;
+
+  /* ---------- Semantic (朱と藍で意味を作る) ----------
+     参加 = 藍 (success),  不参加・締切 = 朱 (danger/warn),
+     級・補足 = 砂 (info),   下書きなど中立 = 砂 (neutral) */
+  --success:    #2B4E8C;
+  --success-bg: #E6EDF7;
+  --success-fg: #1E3A6B;
+
+  --danger:     #B33C2D;
+  --danger-bg:  #F7E6E2;
+  --danger-fg:  #8F2D20;
+
+  --info-bg:    #EAE4D1;
+  --info-fg:    #5B4F33;
+
+  --warn-bg:    #F7E6E2;
+  --warn-fg:    #8F2D20;
+
+  --neutral-bg: #EBE3CE;
+  --neutral-fg: #5B4F33;
+
+  /* ---------- Typography ---------- */
+  --font-sans:    "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-display: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ---------- Radii ---------- */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+  --r-full: 9999px;
+
+  /* ---------- Spacing ---------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+
+  /* ---------- Shadow (暖色系の柔らかい影) ---------- */
+  --shadow-1: 0 1px 2px rgba(60,45,20,0.06);
+  --shadow-2: 0 4px 12px rgba(60,45,20,0.10);
+  --shadow-fab: 0 6px 16px rgba(60,45,20,0.18);
+}

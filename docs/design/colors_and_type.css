@@ -1,0 +1,304 @@
+/* ============================================================
+   Kagetra Design System — Colors & Type
+   Direction: 和紙 × 藍墨 (washi × sumi-indigo)
+   Washi-paper surfaces · 藍 (indigo) brand · 朱 (vermillion) accent.
+   Display headings in Noto Serif JP; body in Noto Sans JP.
+
+   Note: the upstream kagetra_new repo currently ships with a
+   LINE-green brand (`--color-brand: #00b900`) as a placeholder.
+   This file is the design-system's proposed direction for the
+   new mobile product and will replace that token when adopted.
+   ============================================================ */
+
+/* ---------- Webfonts ---------- */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;500;700&display=swap");
+
+:root {
+  /* =============================================
+     Brand — 藍墨 (sumi-indigo)
+     ============================================= */
+  --kg-brand:        #2B4E8C;
+  --kg-brand-hover:  #213C6D;
+  --kg-brand-bg:     #E6EDF7;  /* indigo-tinted washi */
+  --kg-brand-fg:     #1E3A6B;  /* readable ink on brand-bg */
+
+  /* =============================================
+     Accent — 朱 (vermillion / shu-iro)
+     Used for: 不参加, 締切警告, 必須マーク, エラー.
+     ============================================= */
+  --kg-accent:       #B33C2D;
+  --kg-accent-bg:    #F7E6E2;
+  --kg-accent-fg:    #8F2D20;
+
+  /* =============================================
+     LINE auth — the LINE button keeps its official colour
+     ============================================= */
+  --kg-line-green:     #06c755;
+  --kg-line-green-hv:  #05a648;
+
+  /* =============================================
+     Surfaces — 和紙 (washi)
+     Warm off-white canvas; cards sit one shade lighter.
+     ============================================= */
+  --kg-bg:           #F4EFE3;  /* page canvas (washi) */
+  --kg-surface:      #FBF7ED;  /* card fill (lighter washi) */
+  --kg-surface-alt:  #F0EADC;  /* nested/recessed surface */
+
+  /* =============================================
+     Borders — 生成系 (kinari / unbleached)
+     ============================================= */
+  --kg-border:         #D8CDB3;
+  --kg-border-soft:    #E6DDC4;
+  --kg-border-strong:  #B8AA8A;
+
+  /* =============================================
+     Text — 墨 (sumi)
+     Warm near-black on washi; three mute levels.
+     ============================================= */
+  --kg-fg:         #1E1B13;  /* primary ink */
+  --kg-fg-2:       #3A342A;  /* secondary text */
+  --kg-fg-3:       #7A6E5A;  /* meta / labels */
+  --kg-fg-muted:   #A99C82;  /* placeholders / disabled */
+  --kg-fg-on-brand: #FBF7ED; /* text on brand fill */
+
+  /* =============================================
+     Semantic — 朱と藍で意味を作る
+     参加 = 藍 (success),  不参加・締切 = 朱 (danger/warn)
+     級・補足 = 砂 (info),   下書き等 = 砂 (neutral)
+     ============================================= */
+  --kg-success:     #2B4E8C;
+  --kg-success-bg:  #E6EDF7;
+  --kg-success-fg:  #1E3A6B;
+
+  --kg-danger:      #B33C2D;
+  --kg-danger-bg:   #F7E6E2;
+  --kg-danger-fg:   #8F2D20;
+
+  --kg-info-bg:     #EAE4D1;
+  --kg-info-fg:     #5B4F33;
+
+  --kg-warn-bg:     #F7E6E2;
+  --kg-warn-fg:     #8F2D20;
+
+  --kg-neutral-bg:  #EBE3CE;
+  --kg-neutral-fg:  #5B4F33;
+
+  /* =============================================
+     Banners (use the semantic pairs above)
+     ============================================= */
+  --kg-banner-error-bg: var(--kg-danger-bg);
+  --kg-banner-error-fg: var(--kg-danger-fg);
+  --kg-banner-warn-bg:  var(--kg-warn-bg);
+  --kg-banner-warn-fg:  var(--kg-warn-fg);
+
+  /* =============================================
+     Canonical status-pill pairs
+     Keep the Japanese labels anchored to colour:
+       公開 / 公認 / 参加   → success (藍)
+       中止 / 不参加 / error → danger  (朱)
+       下書き / 非公認 / その他 → neutral (砂)
+       練習 / 級          → info    (砂・深め)
+       会議 / 懇親会 / 終了   → neutral variants
+     ============================================= */
+  --kg-pill-success-bg: var(--kg-success-bg); --kg-pill-success-fg: var(--kg-success-fg);
+  --kg-pill-danger-bg:  var(--kg-danger-bg);  --kg-pill-danger-fg:  var(--kg-danger-fg);
+  --kg-pill-info-bg:    var(--kg-info-bg);    --kg-pill-info-fg:    var(--kg-info-fg);
+  --kg-pill-neutral-bg: var(--kg-neutral-bg); --kg-pill-neutral-fg: var(--kg-neutral-fg);
+
+  /* =============================================
+     Type
+     ============================================= */
+  --kg-font-sans:    "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  --kg-font-display: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
+  --kg-font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --kg-w-regular:  400;
+  --kg-w-medium:   500;
+  --kg-w-semibold: 600;
+  --kg-w-bold:     700;
+
+  /* Size ramp — used by the mobile kit */
+  --kg-text-xxs:   0.625rem;   /* 10px — tiny tags (退会) */
+  --kg-text-xs:    0.75rem;    /* 12px — pills, footnotes */
+  --kg-text-sm:    0.8125rem;  /* 13px — meta, table headers */
+  --kg-text-base:  0.9375rem;  /* 15px — body, buttons, forms */
+  --kg-text-md:    1rem;       /* 16px — list titles */
+  --kg-text-lg:    1.125rem;   /* 18px — card section headings */
+  --kg-text-xl:    1.375rem;   /* 22px — page title (h2), 今後の予定 */
+  --kg-text-2xl:   1.75rem;    /* 28px — event detail title (serif) */
+
+  --kg-leading-tight:  1.25;
+  --kg-leading-normal: 1.55;
+
+  /* =============================================
+     Spacing
+     ============================================= */
+  --kg-space-1:  0.25rem;
+  --kg-space-2:  0.5rem;
+  --kg-space-3:  0.75rem;
+  --kg-space-4:  1rem;
+  --kg-space-5:  1.25rem;
+  --kg-space-6:  1.5rem;
+  --kg-space-8:  2rem;
+
+  /* =============================================
+     Radii — restrained; washi UI reads calmer with small radii
+     ============================================= */
+  --kg-radius-xs:   3px;
+  --kg-radius-sm:   5px;
+  --kg-radius-md:   6px;    /* buttons, inputs */
+  --kg-radius-lg:   8px;    /* cards, sheets */
+  --kg-radius-xl:   12px;   /* large sheets */
+  --kg-radius-full: 9999px; /* pills, grade chips */
+
+  /* =============================================
+     Shadows — 暖色系 (warm-tinted) to match washi
+     ============================================= */
+  --kg-shadow-sm:  0 1px 2px rgba(60,45,20,0.06);
+  --kg-shadow-md:  0 4px 12px rgba(60,45,20,0.10);
+  --kg-shadow-lg:  0 10px 24px rgba(60,45,20,0.14);
+  --kg-shadow-fab: 0 6px 16px rgba(60,45,20,0.18);
+
+  /* =============================================
+     Motion
+     ============================================= */
+  --kg-transition-fast:   150ms ease-out;
+  --kg-transition-shadow: box-shadow 150ms ease-out;
+
+  /* =============================================
+     Container
+     ============================================= */
+  --kg-container: 64rem;  /* max-w-5xl */
+  --kg-gutter:    1rem;
+
+  /* =============================================
+     Semantic aliases — role, not size
+     ============================================= */
+  --h1-font:    var(--kg-font-display);
+  --h1-weight:  var(--kg-w-bold);
+  --h1-size:    var(--kg-text-2xl);
+  --h1-color:   var(--kg-fg);
+
+  --h2-font:    var(--kg-font-display);
+  --h2-weight:  var(--kg-w-medium);
+  --h2-size:    var(--kg-text-xl);
+  --h2-color:   var(--kg-fg);
+
+  --h3-font:    var(--kg-font-sans);
+  --h3-weight:  var(--kg-w-bold);
+  --h3-size:    var(--kg-text-lg);
+  --h3-color:   var(--kg-fg);
+
+  --logo-font:   var(--kg-font-display);
+  --logo-weight: var(--kg-w-bold);
+  --logo-size:   var(--kg-text-xl);
+  --logo-color:  var(--kg-brand);
+
+  --p-font:     var(--kg-font-sans);
+  --p-weight:   var(--kg-w-regular);
+  --p-size:     var(--kg-text-base);
+  --p-color:    var(--kg-fg);
+
+  --meta-size:  var(--kg-text-sm);
+  --meta-color: var(--kg-fg-3);
+
+  --label-size:   var(--kg-text-sm);
+  --label-weight: var(--kg-w-medium);
+  --label-color:  var(--kg-fg-2);
+
+  --pill-size:   var(--kg-text-xs);
+  --pill-weight: var(--kg-w-medium);
+  --pill-pad:    0.15rem 0.55rem;
+
+  --button-size:   var(--kg-text-base);
+  --button-weight: var(--kg-w-medium);
+  --button-pad:    0.65rem 1rem;
+  --button-radius: var(--kg-radius-md);
+}
+
+/* =============================================
+   Baseline
+   ============================================= */
+body.kg {
+  font-family: var(--kg-font-sans);
+  font-size:   var(--kg-text-base);
+  line-height: var(--kg-leading-normal);
+  color:       var(--kg-fg);
+  background:  var(--kg-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =============================================
+   Semantic classes
+   ============================================= */
+.kg-h1        { font-family: var(--h1-font); font-size: var(--h1-size); font-weight: var(--h1-weight); color: var(--h1-color); letter-spacing: 0.01em; }
+.kg-h2        { font-family: var(--h2-font); font-size: var(--h2-size); font-weight: var(--h2-weight); color: var(--h2-color); letter-spacing: 0.01em; }
+.kg-h3        { font-family: var(--h3-font); font-size: var(--h3-size); font-weight: var(--h3-weight); color: var(--h3-color); }
+.kg-logo      { font-family: var(--logo-font); font-size: var(--logo-size); font-weight: var(--logo-weight); color: var(--logo-color); letter-spacing: 0.03em; }
+.kg-body      { font-size: var(--p-size); color: var(--p-color); }
+.kg-meta      { font-size: var(--meta-size); color: var(--meta-color); }
+.kg-footnote  { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+.kg-label     { font-size: var(--label-size); font-weight: var(--label-weight); color: var(--label-color); }
+
+/* Card surfaces */
+.kg-card {
+  background: var(--kg-surface);
+  border: 1px solid var(--kg-border-soft);
+  border-radius: var(--kg-radius-lg);
+  box-shadow: var(--kg-shadow-sm);
+  padding: var(--kg-space-4);
+}
+.kg-card--detail  { padding: var(--kg-space-6); }
+.kg-card--sheet   { padding: var(--kg-space-8); box-shadow: var(--kg-shadow-lg); }
+.kg-card--hover   { transition: var(--kg-transition-shadow); }
+.kg-card--hover:hover { box-shadow: var(--kg-shadow-md); }
+
+/* Buttons */
+.kg-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--button-size); font-weight: var(--button-weight);
+  padding: var(--button-pad); border-radius: var(--button-radius);
+  border: 0; cursor: pointer; transition: var(--kg-transition-fast);
+  font-family: inherit;
+}
+.kg-btn--primary    { background: var(--kg-brand); color: var(--kg-fg-on-brand); }
+.kg-btn--primary:hover    { background: var(--kg-brand-hover); }
+.kg-btn--secondary  { background: var(--kg-surface-alt); color: var(--kg-fg-2); border: 1px solid var(--kg-border); }
+.kg-btn--secondary:hover  { background: var(--kg-border-soft); }
+.kg-btn--danger     { background: var(--kg-accent); color: var(--kg-fg-on-brand); }
+.kg-btn--danger:hover { background: #9E3428; }
+.kg-btn--line       { background: var(--kg-line-green); color: #fff; font-weight: var(--kg-w-semibold); padding: 0.75rem 1rem; }
+.kg-btn--line:hover { background: var(--kg-line-green-hv); }
+
+/* Inputs */
+.kg-input, .kg-select, .kg-textarea {
+  font-family: inherit; font-size: var(--kg-text-base);
+  padding: 0.55rem 0.75rem; border-radius: var(--kg-radius-md);
+  border: 1px solid var(--kg-border); background: var(--kg-surface);
+  color: var(--kg-fg); width: 100%;
+}
+.kg-input:focus, .kg-select:focus, .kg-textarea:focus {
+  outline: none; border-color: var(--kg-brand);
+  box-shadow: 0 0 0 2px var(--kg-brand-bg);
+}
+
+/* Pills */
+.kg-pill {
+  display: inline-flex; align-items: center;
+  font-size: var(--pill-size); font-weight: var(--pill-weight);
+  padding: var(--pill-pad);
+  border-radius: var(--kg-radius-full); line-height: 1;
+}
+.kg-pill--success { background: var(--kg-pill-success-bg); color: var(--kg-pill-success-fg); }
+.kg-pill--danger  { background: var(--kg-pill-danger-bg);  color: var(--kg-pill-danger-fg); }
+.kg-pill--info    { background: var(--kg-pill-info-bg);    color: var(--kg-pill-info-fg); }
+.kg-pill--neutral { background: var(--kg-pill-neutral-bg); color: var(--kg-pill-neutral-fg); }
+
+/* Banners */
+.kg-banner { padding: var(--kg-space-3); border-radius: var(--kg-radius-md); font-size: var(--kg-text-base); }
+.kg-banner--error { background: var(--kg-banner-error-bg); color: var(--kg-banner-error-fg); }
+.kg-banner--warn  { background: var(--kg-banner-warn-bg);  color: var(--kg-banner-warn-fg); }
+
+/* Dividers */
+.kg-divider { height: 1px; background: var(--kg-border-soft); }
