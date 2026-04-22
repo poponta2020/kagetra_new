@@ -1,6 +1,195 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Kagetra Design System — 和紙 × 藍墨 (washi × sumi-indigo)
+   Source: docs/design/design.md · docs/design/colors_and_type.css
+   ============================================================ */
+
+/* ---------- Webfonts ----------
+   Fonts are loaded via next/font/google in app/layout.tsx, which injects
+   the CSS variables --font-noto-sans-jp / --font-noto-serif-jp on <html>.
+   Avoid `@import url(...)` here: Tailwind v4 expands the `@import "tailwindcss";`
+   above into many @layer rules, which pushes any later @import past the
+   start of the stylesheet and makes it invalid per CSS spec.
+   ---------- */
+
+/* ---------- Tailwind v4 @theme (maps tokens to utility classes) ---------- */
 @theme {
-  --color-brand: #00b900;
-  --font-sans: "Noto Sans JP", sans-serif;
+  /* Brand 藍 / Accent 朱 / LINE green (auth only) */
+  --color-brand: #2b4e8c;
+  --color-brand-hover: #213c6d;
+  --color-brand-bg: #e6edf7;
+  --color-brand-fg: #1e3a6b;
+
+  --color-accent: #b33c2d;
+  --color-accent-bg: #f7e6e2;
+  --color-accent-fg: #8f2d20;
+
+  --color-line: #06c755;
+  --color-line-hover: #05a648;
+
+  /* Surfaces 和紙 */
+  --color-canvas: #f4efe3;
+  --color-surface: #fbf7ed;
+  --color-surface-alt: #f0eadc;
+
+  /* Borders 生成 */
+  --color-border-soft: #e6ddc4;
+  --color-border: #d8cdb3;
+  --color-border-strong: #b8aa8a;
+
+  /* Ink 墨 */
+  --color-ink: #1e1b13;
+  --color-ink-2: #3a342a;
+  --color-ink-meta: #7a6e5a;
+  --color-ink-muted: #a99c82;
+  --color-ink-on-brand: #fbf7ed;
+
+  /* Semantic pairs */
+  --color-success: #2b4e8c;
+  --color-success-bg: #e6edf7;
+  --color-success-fg: #1e3a6b;
+  --color-danger: #b33c2d;
+  --color-danger-bg: #f7e6e2;
+  --color-danger-fg: #8f2d20;
+  --color-info-bg: #eae4d1;
+  --color-info-fg: #5b4f33;
+  --color-warn-bg: #f7e6e2;
+  --color-warn-fg: #8f2d20;
+  --color-neutral-bg: #ebe3ce;
+  --color-neutral-fg: #5b4f33;
+
+  /* Fonts (next/font variables injected by layout.tsx) */
+  --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system,
+    "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-display: var(--font-noto-serif-jp), "Yu Mincho",
+    "Hiragino Mincho ProN", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Radii (restrained — washi reads calmer with small radii) */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Shadows 暖色系 (warm-tinted to match washi) */
+  --shadow-sm: 0 1px 2px rgba(60, 45, 20, 0.06);
+  --shadow-md: 0 4px 12px rgba(60, 45, 20, 0.1);
+  --shadow-lg: 0 10px 24px rgba(60, 45, 20, 0.14);
+  --shadow-fab: 0 6px 16px rgba(60, 45, 20, 0.18);
+}
+
+/* ---------- Design-system CSS variables (kg-* namespace) ----------
+   These mirror @theme values but are kept for:
+     - Direct CSS var access in component styles
+     - Semantic names that don't need matching Tailwind utilities
+     - Pill colour pairs consumed by shared primitives
+*/
+:root {
+  /* Brand 藍 (sumi-indigo) */
+  --kg-brand: #2b4e8c;
+  --kg-brand-hover: #213c6d;
+  --kg-brand-bg: #e6edf7;
+  --kg-brand-fg: #1e3a6b;
+
+  /* Accent 朱 (vermillion / shu-iro) */
+  --kg-accent: #b33c2d;
+  --kg-accent-bg: #f7e6e2;
+  --kg-accent-fg: #8f2d20;
+
+  /* LINE auth (the only place LINE green is used) */
+  --kg-line-green: #06c755;
+  --kg-line-green-hv: #05a648;
+
+  /* Surfaces 和紙 (washi) */
+  --kg-bg: #f4efe3;
+  --kg-surface: #fbf7ed;
+  --kg-surface-alt: #f0eadc;
+
+  /* Borders 生成系 (kinari / unbleached) */
+  --kg-border: #d8cdb3;
+  --kg-border-soft: #e6ddc4;
+  --kg-border-strong: #b8aa8a;
+
+  /* Ink 墨 (sumi) */
+  --kg-fg: #1e1b13;
+  --kg-fg-2: #3a342a;
+  --kg-fg-3: #7a6e5a;
+  --kg-fg-muted: #a99c82;
+  --kg-fg-on-brand: #fbf7ed;
+
+  /* Semantic — 参加=藍, 不参加=朱, 補足=砂 */
+  --kg-success: #2b4e8c;
+  --kg-success-bg: #e6edf7;
+  --kg-success-fg: #1e3a6b;
+  --kg-danger: #b33c2d;
+  --kg-danger-bg: #f7e6e2;
+  --kg-danger-fg: #8f2d20;
+  --kg-info-bg: #eae4d1;
+  --kg-info-fg: #5b4f33;
+  --kg-warn-bg: #f7e6e2;
+  --kg-warn-fg: #8f2d20;
+  --kg-neutral-bg: #ebe3ce;
+  --kg-neutral-fg: #5b4f33;
+
+  /* Status pill pairs */
+  --kg-pill-success-bg: var(--kg-success-bg);
+  --kg-pill-success-fg: var(--kg-success-fg);
+  --kg-pill-danger-bg: var(--kg-danger-bg);
+  --kg-pill-danger-fg: var(--kg-danger-fg);
+  --kg-pill-info-bg: var(--kg-info-bg);
+  --kg-pill-info-fg: var(--kg-info-fg);
+  --kg-pill-neutral-bg: var(--kg-neutral-bg);
+  --kg-pill-neutral-fg: var(--kg-neutral-fg);
+
+  /* Fonts (next/font variables injected by layout.tsx) */
+  --kg-font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui,
+    -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  --kg-font-display: var(--font-noto-serif-jp), "Yu Mincho",
+    "Hiragino Mincho ProN", serif;
+  --kg-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale (size/weight) — consumed by mobile UI kit sizes */
+  --kg-text-xxs: 0.625rem;
+  --kg-text-xs: 0.75rem;
+  --kg-text-sm: 0.8125rem;
+  --kg-text-base: 0.9375rem;
+  --kg-text-md: 1rem;
+  --kg-text-lg: 1.125rem;
+  --kg-text-xl: 1.375rem;
+  --kg-text-2xl: 1.75rem;
+
+  --kg-leading-tight: 1.25;
+  --kg-leading-normal: 1.55;
+
+  --kg-w-regular: 400;
+  --kg-w-medium: 500;
+  --kg-w-semibold: 600;
+  --kg-w-bold: 700;
+
+  /* Radii */
+  --kg-radius-xs: 3px;
+  --kg-radius-sm: 5px;
+  --kg-radius-md: 6px;
+  --kg-radius-lg: 8px;
+  --kg-radius-xl: 12px;
+  --kg-radius-full: 9999px;
+
+  /* Shadows 暖色系 */
+  --kg-shadow-sm: 0 1px 2px rgba(60, 45, 20, 0.06);
+  --kg-shadow-md: 0 4px 12px rgba(60, 45, 20, 0.1);
+  --kg-shadow-lg: 0 10px 24px rgba(60, 45, 20, 0.14);
+  --kg-shadow-fab: 0 6px 16px rgba(60, 45, 20, 0.18);
+}
+
+/* ---------- Baseline ---------- */
+body {
+  background: var(--kg-bg);
+  color: var(--kg-fg);
+  font-family: var(--kg-font-sans);
+  font-size: var(--kg-text-base);
+  line-height: var(--kg-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

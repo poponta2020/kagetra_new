@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>かげとら — Mobile UI Kit</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="palette.css?v=2">
+<style>
+  html,body{margin:0;padding:0;height:100%;font-family:"Noto Sans JP",ui-sans-serif,system-ui,sans-serif;}
+  *{box-sizing:border-box;}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="primitives.jsx"></script>
+<script type="text/babel" src="screen-dashboard.jsx"></script>
+<script type="text/babel" src="screen-event-detail.jsx"></script>
+<script type="text/babel" src="screen-extras.jsx"></script>
+<script type="text/babel">
+function App() {
+  const { DesignCanvas, DCSection, DCArtboard,
+          Dashboard, EventDetail,
+          LoginScreen, MemberList, MemberDetail, RsvpModal, EventForm, AdminTally } = window;
+  return (
+    <DesignCanvas>
+      <DCSection id="core" title="コア画面" subtitle="ダッシュボード (タイムライン + 苗字チップ) と イベント詳細 (単列スクロール、参加ボタンのみ)。">
+        <DCArtboard id="dash" label="ダッシュボード" width={375} height={700}>
+          <Dashboard />
+        </DCArtboard>
+        <DCArtboard id="detail" label="イベント詳細" width={375} height={700}>
+          <EventDetail />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="extras" title="付随画面" subtitle="ログイン / 会員一覧 / 会員詳細 / 出欠モーダル / イベント作成 / 管理者集計。">
+        <DCArtboard id="login" label="ログイン" width={375} height={700}>
+          <LoginScreen />
+        </DCArtboard>
+        <DCArtboard id="mlist" label="会員一覧" width={375} height={700}>
+          <MemberList />
+        </DCArtboard>
+        <DCArtboard id="mdetail" label="会員詳細" width={375} height={700}>
+          <MemberDetail />
+        </DCArtboard>
+        <DCArtboard id="rsvp" label="出欠モーダル" width={375} height={700}>
+          <RsvpModal />
+        </DCArtboard>
+        <DCArtboard id="form" label="イベント作成" width={375} height={700}>
+          <EventForm />
+        </DCArtboard>
+        <DCArtboard id="admin" label="管理者: 出欠集計" width={375} height={700}>
+          <AdminTally />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+function mount() {
+  const needed = ['DesignCanvas','DCSection','DCArtboard','Dashboard','EventDetail','LoginScreen','MemberList','MemberDetail','RsvpModal','EventForm','AdminTally'];
+  if (needed.some(k => typeof window[k] !== 'function')) {
+    setTimeout(mount, 50);
+    return;
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+mount();
+</script>
+</body>
+</html>
