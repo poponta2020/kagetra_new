@@ -1,0 +1,52 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { AttendanceCounts } from './attendance-counts'
+
+const ev = {
+  attendIds: [1, 2, 3],
+  absentIds: [4, 5],
+  unansweredCount: 7,
+}
+
+describe('AttendanceCounts', () => {
+  it('variant=cards でカードが3つ並び、参加/不参加/未回答ラベルと数値が表示される', () => {
+    const { container } = render(<AttendanceCounts ev={ev} variant="cards" />)
+    const cards = container.querySelectorAll('[data-card]')
+    expect(cards).toHaveLength(3)
+    expect(screen.getByText('参加')).toBeTruthy()
+    expect(screen.getByText('不参加')).toBeTruthy()
+    expect(screen.getByText('未回答')).toBeTruthy()
+    // Counts rendered (3, 2, 7)
+    expect(screen.getByText('3')).toBeTruthy()
+    expect(screen.getByText('2')).toBeTruthy()
+    expect(screen.getByText('7')).toBeTruthy()
+  })
+
+  it('variant=cards は既定値で、省略時も 3 カード表示', () => {
+    const { container } = render(<AttendanceCounts ev={ev} />)
+    expect(container.querySelectorAll('[data-card]')).toHaveLength(3)
+  })
+
+  it('variant=bar でバーセグメントと凡例が表示され、凡例に各カウントが含まれる', () => {
+    const { container } = render(<AttendanceCounts ev={ev} variant="bar" />)
+    // Three non-zero segments expected
+    const segs = container.querySelectorAll('[data-segment]')
+    expect(segs).toHaveLength(3)
+    // Legend lines include counts
+    expect(screen.getByText(/参加\s*3/)).toBeTruthy()
+    expect(screen.getByText(/不参加\s*2/)).toBeTruthy()
+    expect(screen.getByText(/未回答\s*7/)).toBeTruthy()
+  })
+
+  it('variant=bar で count=0 のセグメントは描画されない', () => {
+    const { container } = render(
+      <AttendanceCounts
+        ev={{ attendIds: [1], absentIds: [], unansweredCount: 0 }}
+        variant="bar"
+      />,
+    )
+    const segs = container.querySelectorAll('[data-segment]')
+    expect(segs).toHaveLength(1)
+    expect(segs[0]?.getAttribute('data-segment')).toBe('attend')
+  })
+})
