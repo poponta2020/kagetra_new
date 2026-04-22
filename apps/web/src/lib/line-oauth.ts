@@ -1,9 +1,10 @@
 /**
- * LINE Login OAuth2 helpers.
+ * LINE Login OAuth2 helpers — account-switch 専用の生 OAuth ヘルパー。
  *
- * We do NOT use the Auth.js LINE provider because it would create a session;
- * here we only want to resolve a `lineUserId` and persist it on the existing
- * user record. Everything is a plain HTTPS POST.
+ * 一次ログインは Auth.js の LINE provider を使って session を発行する。
+ * このファイルは「既存セッションを保ったまま、別の LINE アカウントに
+ * `lineUserId` を振り替える」account-switch フロー専用で、Auth.js の session
+ * を発行しないように生の HTTPS POST で token 交換と profile 取得を行う。
  *
  * Docs: https://developers.line.biz/ja/docs/line-login/integrate-line-login/
  */

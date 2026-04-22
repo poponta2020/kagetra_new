@@ -3,7 +3,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
-import { claimMemberIdentity } from './actions'
+import { CandidateList } from './candidate-list'
 
 const ERROR_MESSAGES: Record<string, string> = {
   unavailable:
@@ -32,7 +32,8 @@ export default async function SelfIdentifyPage({
       eq(users.isInvited, true),
       isNull(users.deactivatedAt),
     ),
-    columns: { id: true, name: true, grade: true, affiliation: true },
+    // 表示は氏名のみに限定する（未紐付け LINE user に対して級/所属を開示しない）。
+    columns: { id: true, name: true },
     orderBy: asc(users.name),
   })
 
@@ -67,34 +68,7 @@ export default async function SelfIdentifyPage({
             選択可能な会員がいません。管理者にご連絡ください。
           </p>
         ) : (
-          <form action={claimMemberIdentity} className="space-y-4">
-            <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
-              {candidates.map((c) => (
-                <li key={c.id}>
-                  <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="userId"
-                      value={c.id}
-                      required
-                      className="h-4 w-4"
-                    />
-                    <span className="text-sm text-gray-900">
-                      {c.name ?? '(名前未設定)'}
-                      {c.grade ? ` (${c.grade}級)` : ''}
-                      {c.affiliation ? ` / ${c.affiliation}` : ''}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <button
-              type="submit"
-              className="w-full rounded-md bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand/90"
-            >
-              このメンバーとして続ける
-            </button>
-          </form>
+          <CandidateList candidates={candidates} />
         )}
 
         <p className="text-xs text-gray-500">
