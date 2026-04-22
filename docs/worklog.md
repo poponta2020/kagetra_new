@@ -401,3 +401,24 @@
 ### 次回
 - Phase UI-1 を PR 化 → Codex レビュー → ship
 - 続いて Phase UI-2 着手
+
+---
+
+## 2026-04-22〜23 セッション3（Phase UI-1 レビュー対応 → ship）
+
+### 完了
+- PR #6 レビュー round 2 対応 (`de4e13e`): Noto JP フォントウェイト圧縮
+  - Noto Sans JP: `400/500/600/700` → `400/500/700` (LINE button の 600 は synthetic fallback 許容)
+  - Noto Serif JP: `400/500/700` → `700` のみ + `preload: false` (display 用途、first view 非必須)
+  - `primitives.jsx:266` 未使用 `total` 変数削除 (Nit)
+  - lint/typecheck/test 44/44 PASS
+- PR #6 レビュー round 3: Blocker/Should fix なし、LCP 実測のみ Nit 提案 → ship判断
+- **PR #6 マージ済み** (`73c4c71`, `gh pr merge --merge --delete-branch`)
+- ローカルブランチ `feat/ui-foundation-design-tokens` 削除、worktree (`C:/tmp/fix-pr6`) 撤去
+- レビュー artefact (`scripts/review/output/*pr6*`) 全削除
+- memory 同期: `project_pr6_font_fix_r2.md` 追加、`project_self_identify_verification_pending.md` をローカルへ取り込み
+
+### 次回
+- Phase UI-2 着手: Layout shell (AppBar + 下部タブ) + primitives (Card/Btn/Pill/...)
+- Phase UI-3: 既存 15 画面の再スタイル
+- 性能観測: 本番投入後 LCP/FCP 実測、必要なら Sans 側 preload 方針再調整
