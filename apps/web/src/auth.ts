@@ -32,8 +32,10 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         where: eq(users.lineUserId, lineUserId),
         columns: { id: true, deactivatedAt: true },
       })
-      // Reject deactivated members at login — no session is created.
-      if (existing?.deactivatedAt) return false
+      // Reject deactivated members at login with a dedicated error code so
+      // the SignInPage can show the 退会済み message. Returning `false` here
+      // would surface as Auth.js's generic `AccessDenied` instead.
+      if (existing?.deactivatedAt) return '/auth/signin?error=deactivated'
       // New LINE user (no match yet) is allowed through; middleware will route
       // them to /self-identify where they claim an invited member row.
       return true
