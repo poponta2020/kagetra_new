@@ -35,11 +35,14 @@ export const authConfig = {
       return !!auth
     },
     async jwt({ token, user, account, trigger, session }) {
-      // First sign-in via LINE: user.id = profile.sub (the stable LINE user ID).
-      // We stash it as token.lineUserId; auth.ts wrapper then resolves it to our
-      // internal users.id on Node side.
-      if (user && account?.provider === 'line') {
-        token.lineUserId = user.id
+      // First sign-in via LINE: account.providerAccountId = profile.sub (the
+      // stable LINE user ID). Under Auth.js v5 with the JWT strategy and no DB
+      // adapter, `user.id` is a random UUID minted per sign-in, so it cannot be
+      // used as the LINE identifier. We stash providerAccountId as
+      // token.lineUserId; auth.ts wrapper then resolves it to our internal
+      // users.id on the Node side.
+      if (user && account?.provider === 'line' && account.providerAccountId) {
+        token.lineUserId = account.providerAccountId
       }
       // session.update({...}) path: account switch completion, admin unlink, etc.
       // Auth.js passes the update payload through as `session`; callers may pass
