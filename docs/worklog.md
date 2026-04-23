@@ -446,3 +446,44 @@
 ### 次回
 - Phase UI-3 着手: 既存 15 画面の primitives + MobileShell 適用
 - Nit 対応: `app-bar-main.tsx:25` の `font-serif` → `font-display` 命名統一（Phase UI-3 のついでに拾う）
+
+---
+
+## 2026-04-23 セッション1（Phase UI-3a 実装 → 途中で LINE auth bug 発覚 → fix PR 先行）
+
+### 経緯
+- Phase UI-3a (dashboard restyle) を計画し `/claude-mem:do` で実装
+  - `apps/web/src/app/(app)/dashboard/page.tsx` を Card + Pill + SectionLabel で再構築
+  - `apps/web/src/lib/role-label.ts` にピュア関数 + 6 unit test を抽出
+  - `app-bar-main.tsx` の `font-serif` → `font-display` carryover nit 同梱
+  - コミット `026be89` on `feat/ui-3a-dashboard-restyle` → push 済み
+  - test 75/75 PASS / lint 0 warning / typecheck PASS
+- dev で実機確認しようとしたら LINE login が `/self-identify` ループに
+  - 最初は dev DB に migration 0004 の列が未適用 → 直接 ALTER で `deactivated_at` / `line_linked_at` / `line_link_method` 追加
+  - 次に accounts/users テーブルの不整合 → poponta2020 に LINE を集約し 土居悠太 ゴースト削除
+  - それでも `/self-identify` ループが止まらず → 診断で **Auth.js v5 JWT strategy の仕様バグ**を発見
+
+### LINE auth 本質バグ (fix PR #8)
+- Auth.js v5 の JWT strategy (adapter なし) では `user.id` はサインインごとのランダム UUID
+- LINE の安定 `sub` は `account.providerAccountId` にしか残らない
+- 旧実装は `user.id` を LINE 識別子として扱っていたため毎ログインで UUID が変わり lookup が常に失敗
+- poponta2020 の `users.line_user_id` が正しく Ufcb... 形式だったのは手動 seed による偶然、実際にはこの auth 経路では絶対に到達できていなかった
+- Fix: `auth.config.ts` と `auth.ts` で `user.id` → `account.providerAccountId`、test mock と fixture も合わせて更新
+- コミット `34b7b6e` on `fix/auth-line-user-id-from-account` → PR #8 作成
+- dev で `/dashboard 200` 到達確認済み
+
+### スコープ判断
+- Phase UI-3a と auth fix を混ぜるのは rule 9（Phase 外要望は混ぜない）違反
+- fix PR を先行、UI-3a ブランチは一旦フリーズ（push 済み、PR 未作成）
+- fix merge 後に UI-3a を main に rebase → dev 実機確認 → UI-3a の PR 作成
+
+### 次回
+- PR #8 (auth fix) の Codex レビュー → 指摘対応 → merge
+- UI-3a branch を main に rebase、dev で `/dashboard` 新スタイル実機確認
+- UI-3a PR 作成（description に「auth fix に依存」明記）
+- 以降 Phase UI-3b (events 画面群) に進む
+
+### 残存している git 状態
+- main: 15406d9（リモート同期済み、push 不要）
+- worktree: `C:/tmp/fix-auth-line-sub` (fix) と `C:/tmp/impl-ui-3a` (UI-3a) 両方保持
+- `.claude/settings.json` ローカル差分あり（memory 同期用 permission 追加、このセッションでは commit しない）
