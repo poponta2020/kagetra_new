@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances } from '@kagetra/shared/schema'
-import { desc, eq, count, lt } from 'drizzle-orm'
+import { and, desc, eq, count, inArray, lt } from 'drizzle-orm'
 import { Card, Pill, StatusPill } from '@/components/ui'
 
 export default async function EventsArchivePage() {
@@ -10,20 +10,30 @@ export default async function EventsArchivePage() {
     timeZone: 'Asia/Tokyo',
   })
 
-  const [eventList, attendCounts] = await Promise.all([
-    db.query.events.findMany({
-      where: lt(events.eventDate, todayStr),
-      orderBy: [desc(events.eventDate)],
-    }),
-    db
-      .select({
-        eventId: eventAttendances.eventId,
-        count: count(),
-      })
-      .from(eventAttendances)
-      .where(eq(eventAttendances.attend, true))
-      .groupBy(eventAttendances.eventId),
-  ])
+  // Fetch event list first so the attendance aggregate can be scoped to the
+  // visible IDs — otherwise we'd scan every row in event_attendances, including
+  // rows for current events rendered on /events.
+  const eventList = await db.query.events.findMany({
+    where: lt(events.eventDate, todayStr),
+    orderBy: [desc(events.eventDate)],
+  })
+  const visibleEventIds = eventList.map((e) => e.id)
+  const attendCounts =
+    visibleEventIds.length === 0
+      ? []
+      : await db
+          .select({
+            eventId: eventAttendances.eventId,
+            count: count(),
+          })
+          .from(eventAttendances)
+          .where(
+            and(
+              inArray(eventAttendances.eventId, visibleEventIds),
+              eq(eventAttendances.attend, true),
+            ),
+          )
+          .groupBy(eventAttendances.eventId)
   const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
 
   return (

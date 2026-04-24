@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances } from '@kagetra/shared/schema'
-import { asc, eq, count, gte } from 'drizzle-orm'
+import { and, asc, eq, count, gte, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { Card, Pill, StatusPill } from '@/components/ui'
 
@@ -20,20 +20,30 @@ export default async function EventsPage() {
     timeZone: 'Asia/Tokyo',
   })
 
-  const [eventList, attendCounts] = await Promise.all([
-    db.query.events.findMany({
-      where: gte(events.eventDate, todayStr),
-      orderBy: [asc(events.eventDate)],
-    }),
-    db
-      .select({
-        eventId: eventAttendances.eventId,
-        count: count(),
-      })
-      .from(eventAttendances)
-      .where(eq(eventAttendances.attend, true))
-      .groupBy(eventAttendances.eventId),
-  ])
+  // Fetch event list first so the attendance aggregate can be scoped to the
+  // visible IDs — otherwise we'd scan every row in event_attendances, including
+  // rows for archived events rendered on /events-archive.
+  const eventList = await db.query.events.findMany({
+    where: gte(events.eventDate, todayStr),
+    orderBy: [asc(events.eventDate)],
+  })
+  const visibleEventIds = eventList.map((e) => e.id)
+  const attendCounts =
+    visibleEventIds.length === 0
+      ? []
+      : await db
+          .select({
+            eventId: eventAttendances.eventId,
+            count: count(),
+          })
+          .from(eventAttendances)
+          .where(
+            and(
+              inArray(eventAttendances.eventId, visibleEventIds),
+              eq(eventAttendances.attend, true),
+            ),
+          )
+          .groupBy(eventAttendances.eventId)
   const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
 
   return (
@@ -54,7 +64,7 @@ export default async function EventsPage() {
       {eventList.length === 0 ? (
         <Card>
           <div className="text-center text-ink-meta py-6">
-            イベントはまだありません
+            現在のイベントはありません
           </div>
         </Card>
       ) : (

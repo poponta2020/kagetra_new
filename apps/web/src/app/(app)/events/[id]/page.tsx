@@ -64,9 +64,18 @@ export default async function EventDetailPage({
   })
 
   const attendingList = event.attendances.filter((a) => a.attend)
-  const notAttendingList = event.attendances.filter((a) => !a.attend)
-  const respondedUserIds = new Set(event.attendances.map((a) => a.userId))
-  const unansweredUsers = eligibleUsers.filter((u) => !respondedUserIds.has(u.id))
+  // Domain rule (CLAUDE.md): 未回答 = 不参加扱い. Collapse "explicit not-attending"
+  // and "unanswered" into a single non-attending count (= eligibles not in attendingList).
+  // Clamp with Math.max to guard against stale attend=true rows whose user is no
+  // longer eligible (e.g. grade changed), which would otherwise drive the count negative.
+  const eligibleUserIdSet = new Set(eligibleUsers.map((u) => u.id))
+  const eligibleAttendingCount = attendingList.filter((a) =>
+    eligibleUserIdSet.has(a.userId),
+  ).length
+  const nonAttendingCount = Math.max(
+    0,
+    eligibleUsers.length - eligibleAttendingCount,
+  )
 
   // Check if current user can respond to attendance (JST-based comparison)
   const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
@@ -191,8 +200,7 @@ export default async function EventDetailPage({
         <AttendanceCounts
           ev={{
             attendIds: attendingList.map((a) => a.userId),
-            absentIds: notAttendingList.map((a) => a.userId),
-            unansweredCount: unansweredUsers.length,
+            nonAttendingCount,
           }}
           variant="cards"
         />
