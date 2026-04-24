@@ -22,7 +22,7 @@ export interface AppBarMainProps {
 export function AppBarMain({ user, signOutAction }: AppBarMainProps) {
   return (
     <div className="h-11 flex-shrink-0 flex items-center justify-between bg-surface border-b border-border px-4">
-      <div className="font-serif font-bold text-base text-brand tracking-[0.02em]">
+      <div className="font-display font-bold text-base text-brand tracking-[0.02em]">
         かげとら
       </div>
       <div className="flex items-center gap-3">
