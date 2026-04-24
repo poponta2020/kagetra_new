@@ -487,3 +487,31 @@
 - main: 15406d9（リモート同期済み、push 不要）
 - worktree: `C:/tmp/fix-auth-line-sub` (fix) と `C:/tmp/impl-ui-3a` (UI-3a) 両方保持
 - `.claude/settings.json` ローカル差分あり（memory 同期用 permission 追加、このセッションでは commit しない）
+
+---
+
+## 2026-04-24 セッション1（PR #8 auth fix Codex レビュー → ship）
+
+### 完了
+- PR #8 (`fix/auth-line-user-id-from-account`) のレビュープロンプト生成（第1回）→ Codex レビュー受領
+- Codex レビュー結果: **Blocker / Should fix なし**、Nit 1件のみ
+  - Nit: `signIn` callback 側に deactivated user 拒否の直接テストがあると安心（現状は `node-jwt-callback.test.ts` が JWT 解決側を押さえるのみ）→ 任意対応として今回は見送り
+  - 検証: Codex 側で `pnpm --filter=@kagetra/web test -- src/lib/node-jwt-callback.test.ts` と `check-types` 実行 → どちらも成功
+- **PR #8 マージ済み** (`be9c04e`, `gh pr merge --merge --delete-branch`)
+- worktree `C:/tmp/fix-auth-line-sub` 撤去（git worktree remove + 残存ディレクトリ rm -rf）
+- ローカルブランチ `fix/auth-line-user-id-from-account` 削除
+- main を `be9c04e` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr8*`) 全削除
+- memory ファイル: ローカルとリポジトリ既に同一（前回セッションで同期済み）
+
+### 残存している git 状態
+- main: `be9c04e`（リモート同期済み）
+- worktree: `C:/tmp/impl-ui-3a` (UI-3a, push 済み・PR 未作成) のみ
+- `.claude/settings.json` ローカル差分は引き続き未コミット
+
+### 次回
+- UI-3a branch を main (`be9c04e`) に rebase → conflict なければそのまま、あれば解消
+- dev で `/dashboard` 新スタイル実機確認（auth fix が main に入ったので LINE login も動くはず）
+- UI-3a PR 作成（auth fix が main にマージ済みなので依存記述は不要）
+- 以降 Phase UI-3b (events 画面群) に進む
+- Nit メモ: `signIn` callback に deactivated user 拒否の直接テスト追加（auth 周辺いじる時のついで対応候補）
