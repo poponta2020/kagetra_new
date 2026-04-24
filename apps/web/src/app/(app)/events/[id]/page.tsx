@@ -5,7 +5,30 @@ import { events, users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
 import { and, eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
+import {
+  AttendanceCounts,
+  Btn,
+  Card,
+  DescList,
+  type DescListItem,
+  GradePill,
+  Pill,
+  SectionLabel,
+  StatusPill,
+} from '@/components/ui'
 import { submitAttendance } from './actions'
+
+// Mirrors EventForm's CANCEL_LINK_CLASS but at size sm so the edit affordance
+// matches the back link's visual weight in the in-page header bar.
+const EDIT_LINK_CLASS =
+  'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-surface text-ink-2 border border-border hover:bg-surface-alt'
+
+/** Extract the surname for the participant chip (split on ASCII or full-width space). */
+function surname(name: string | null | undefined): string {
+  if (!name) return '?'
+  const parts = name.split(/[\s　]/)
+  return parts[0] || name
+}
 
 export default async function EventDetailPage({
   params,
@@ -16,7 +39,8 @@ export default async function EventDetailPage({
   const idNum = Number(id)
   if (!Number.isInteger(idNum) || idNum <= 0) notFound()
   const session = await auth()
-  const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
+  const isAdmin =
+    session?.user.role === 'admin' || session?.user.role === 'vice_admin'
 
   const event = await db.query.events.findFirst({
     where: eq(events.id, idNum),
@@ -39,15 +63,17 @@ export default async function EventDetailPage({
       : eq(users.isInvited, true),
   })
 
-  const attendingList = event.attendances.filter(a => a.attend)
-  const notAttendingList = event.attendances.filter(a => !a.attend)
-  const respondedUserIds = new Set(event.attendances.map(a => a.userId))
-  const unansweredUsers = eligibleUsers.filter(u => !respondedUserIds.has(u.id))
+  const attendingList = event.attendances.filter((a) => a.attend)
+  const notAttendingList = event.attendances.filter((a) => !a.attend)
+  const respondedUserIds = new Set(event.attendances.map((a) => a.userId))
+  const unansweredUsers = eligibleUsers.filter((u) => !respondedUserIds.has(u.id))
 
   // Check if current user can respond to attendance (JST-based comparison)
   const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
   const isBeforeDeadline = !event.internalDeadline || event.internalDeadline >= todayStr
-  const myAttendance = session ? event.attendances.find(a => a.userId === session.user.id) : null
+  const myAttendance = session
+    ? event.attendances.find((a) => a.userId === session.user.id)
+    : null
 
   // Fetch current user's grade + isInvited from DB if logged in
   let currentUserGrade: Grade | null = null
@@ -60,207 +86,174 @@ export default async function EventDetailPage({
     currentUserIsInvited = currentUser?.isInvited ?? false
   }
 
-  const isEligible = !event.eligibleGrades?.length || (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
+  const isEligible =
+    !event.eligibleGrades?.length ||
+    (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
   // Admins/vice-admins bypass deadline/grade/invite checks (administrative override).
   // For non-admins, isInvited is required because Auth.js signIn allows returning users
   // (with already-linked accounts) to skip the isInvited gate — so the app must re-check here.
   // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades;
   // there is no self-service grade UI in this PR, so such users must ask an admin to set it.
-  const canRespond = session && (isAdmin || (currentUserIsInvited && isBeforeDeadline && isEligible))
+  const canRespond =
+    session && (isAdmin || (currentUserIsInvited && isBeforeDeadline && isEligible))
   const boundSubmitAttendance = submitAttendance.bind(null, event.id)
 
+  // Sort participants by ascending grade (A < B < ... < E); unranked goes last.
+  const sortedAttending = attendingList
+    .slice()
+    .sort((a, b) => (a.user.grade ?? 'Z').localeCompare(b.user.grade ?? 'Z'))
+
+  const detailItems: DescListItem[] = [
+    ...(event.formalName
+      ? [{ label: '正式名称', value: event.formalName }]
+      : []),
+    {
+      label: '日付',
+      value: (
+        <>
+          {event.eventDate}
+          {event.startTime && ` ${event.startTime}`}
+          {event.endTime && `〜${event.endTime}`}
+        </>
+      ),
+    },
+    ...(event.location ? [{ label: '会場', value: event.location }] : []),
+    ...(event.eligibleGrades?.length
+      ? [
+          {
+            label: '対象級',
+            value: (
+              <div className="flex flex-wrap gap-1.5">
+                {event.eligibleGrades.map((g) => (
+                  <GradePill key={g} grade={g} size="sm" />
+                ))}
+              </div>
+            ),
+          },
+        ]
+      : []),
+    ...(event.capacity != null
+      ? [{ label: '定員', value: `${event.capacity}名` }]
+      : []),
+    ...(event.eventGroup?.name
+      ? [{ label: '大会グループ', value: event.eventGroup.name }]
+      : []),
+    ...(event.entryDeadline
+      ? [{ label: '大会申込締切', value: event.entryDeadline }]
+      : []),
+    ...(event.internalDeadline
+      ? [{ label: '会内締切', value: event.internalDeadline }]
+      : []),
+    { label: 'ステータス', value: <StatusPill status={event.status} size="sm" /> },
+  ]
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold">{event.title}</h2>
-          <span className={`rounded-full px-2 py-1 text-xs ${
-            event.official ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-          }`}>
-            {event.official ? '公認' : '非公認'}
-          </span>
-        </div>
+        <Link href="/events" className="text-sm text-brand">
+          ← イベント一覧
+        </Link>
         {isAdmin && (
-          <Link
-            href={`/events/${event.id}/edit`}
-            className="rounded-md bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200"
-          >
+          <Link href={`/events/${event.id}/edit`} className={EDIT_LINK_CLASS}>
             編集
           </Link>
         )}
       </div>
-      <div className="rounded-lg bg-white p-6 shadow-sm space-y-4">
-        {event.formalName && (
-          <div>
-            <dt className="text-sm text-gray-500">正式名称</dt>
-            <dd>{event.formalName}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="text-sm text-gray-500">日付</dt>
-          <dd>{event.eventDate}</dd>
-        </div>
-        {(event.startTime || event.endTime) && (
-          <div>
-            <dt className="text-sm text-gray-500">時間</dt>
-            <dd>
-              {event.startTime ?? ''}
-              {event.endTime ? `〜${event.endTime}` : ''}
-            </dd>
-          </div>
-        )}
-        {event.location && (
-          <div>
-            <dt className="text-sm text-gray-500">場所</dt>
-            <dd>{event.location}</dd>
-          </div>
-        )}
-        {event.capacity && (
-          <div>
-            <dt className="text-sm text-gray-500">定員</dt>
-            <dd>{event.capacity}名</dd>
-          </div>
-        )}
-        {event.eventGroup && (
-          <div>
-            <dt className="text-sm text-gray-500">大会グループ</dt>
-            <dd>{event.eventGroup.name}</dd>
-          </div>
-        )}
-        {event.entryDeadline && (
-          <div>
-            <dt className="text-sm text-gray-500">大会申込締切</dt>
-            <dd>{event.entryDeadline}</dd>
-          </div>
-        )}
-        {event.internalDeadline && (
-          <div>
-            <dt className="text-sm text-gray-500">会内締切</dt>
-            <dd>{event.internalDeadline}</dd>
-          </div>
-        )}
-        {event.eligibleGrades && event.eligibleGrades.length > 0 && (
-          <div>
-            <dt className="text-sm text-gray-500">参加可能な級</dt>
-            <dd className="flex gap-1 mt-1">
-              {event.eligibleGrades.map((g) => (
-                <span key={g} className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                  {g}級
-                </span>
-              ))}
-            </dd>
-          </div>
-        )}
-        {event.description && (
-          <div>
-            <dt className="text-sm text-gray-500">説明</dt>
-            <dd className="whitespace-pre-wrap">{event.description}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="text-sm text-gray-500">ステータス</dt>
-          <dd>
-            <span className={`rounded-full px-2 py-1 text-xs ${
-              event.status === 'published' ? 'bg-green-100 text-green-700' :
-              event.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-              event.status === 'done' ? 'bg-blue-100 text-blue-700' :
-              'bg-gray-100 text-gray-600'
-            }`}>
-              {event.status === 'published' ? '公開' : event.status === 'cancelled' ? '中止' : event.status === 'done' ? '終了' : '下書き'}
-            </span>
-          </dd>
-        </div>
-      </div>
 
-      {/* Attendance section */}
-      <div className="rounded-lg bg-white p-6 shadow-sm space-y-4">
-        <h3 className="text-lg font-bold">出欠状況</h3>
-
-        <div className="space-y-3">
-          <div>
-            <span className="text-sm font-medium text-green-700">参加 ({attendingList.length}名)</span>
-            {attendingList.length > 0 && (
-              <p className="mt-1 text-sm text-gray-700">
-                {attendingList.map(a => a.user.name ?? '名前未設定').join(', ')}
-              </p>
-            )}
-          </div>
-          <div>
-            <span className="text-sm font-medium text-red-700">不参加 ({notAttendingList.length}名)</span>
-            {notAttendingList.length > 0 && (
-              <p className="mt-1 text-sm text-gray-700">
-                {notAttendingList.map(a => a.user.name ?? '名前未設定').join(', ')}
-              </p>
-            )}
-          </div>
-          <div>
-            <span className="text-sm font-medium text-gray-500">未回答 ({unansweredUsers.length}名)</span>
-            {unansweredUsers.length > 0 && (
-              <p className="mt-1 text-sm text-gray-700">
-                {unansweredUsers.map(u => u.name ?? '名前未設定').join(', ')}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Attendance form for current user */}
-        {session && (
-          <div className="border-t pt-4">
-            {canRespond ? (
-              <form action={boundSubmitAttendance} className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">コメント（任意）</label>
-                  <textarea
-                    name="comment"
-                    defaultValue={myAttendance?.comment ?? ''}
-                    placeholder="コメント（任意）"
-                    rows={2}
-                    className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    name="attend"
-                    value="true"
-                    className={`rounded-md px-4 py-2 text-sm font-medium ${
-                      myAttendance?.attend === true
-                        ? 'bg-green-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    参加
-                  </button>
-                  <button
-                    type="submit"
-                    name="attend"
-                    value="false"
-                    className={`rounded-md px-4 py-2 text-sm font-medium ${
-                      myAttendance?.attend === false
-                        ? 'bg-red-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    不参加
-                  </button>
-                </div>
-              </form>
-            ) : !currentUserIsInvited ? (
-              <p className="text-sm text-gray-500">出欠回答の対象外です</p>
-            ) : !isBeforeDeadline ? (
-              <p className="text-sm text-gray-500">締切済み</p>
-            ) : event.eligibleGrades?.length && currentUserGrade == null ? (
-              <p className="text-sm text-gray-500">級が未設定のため回答できません。管理者に級の設定を依頼してください。</p>
-            ) : !isEligible ? (
-              <p className="text-sm text-gray-500">対象外の級です</p>
-            ) : null}
+      <div>
+        <h1 className="font-display text-[28px] font-bold text-ink leading-tight">
+          {event.title}
+        </h1>
+        {event.official && (
+          <div className="mt-1.5">
+            <Pill tone="success" size="sm">
+              公認
+            </Pill>
           </div>
         )}
       </div>
 
-      <Link href="/events" className="text-sm text-gray-500 hover:text-gray-700">
-        ← イベント一覧に戻る
-      </Link>
+      <Card>
+        <DescList items={detailItems} />
+      </Card>
+
+      {event.description && (
+        <Card>
+          <SectionLabel>詳細</SectionLabel>
+          <div className="whitespace-pre-wrap text-sm text-ink">
+            {event.description}
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <SectionLabel>出欠状況</SectionLabel>
+        <AttendanceCounts
+          ev={{
+            attendIds: attendingList.map((a) => a.userId),
+            absentIds: notAttendingList.map((a) => a.userId),
+            unansweredCount: unansweredUsers.length,
+          }}
+          variant="cards"
+        />
+      </Card>
+
+      {attendingList.length > 0 && (
+        <Card>
+          <SectionLabel>参加者 ({attendingList.length}名)</SectionLabel>
+          <div className="flex flex-wrap gap-2">
+            {sortedAttending.map((a) => (
+              <span
+                key={a.userId}
+                className="inline-flex items-center gap-1.5 rounded-full bg-neutral-bg px-2 py-0.5 text-xs text-neutral-fg"
+              >
+                {surname(a.user.name)}
+                {a.user.grade && <GradePill grade={a.user.grade} size="sm" />}
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {!canRespond && session && (
+        <Card>
+          <div className="text-sm text-ink-meta">
+            {!currentUserIsInvited && '出欠回答の対象外です'}
+            {currentUserIsInvited &&
+              !isBeforeDeadline &&
+              '会内締切を過ぎています'}
+            {currentUserIsInvited &&
+              isBeforeDeadline &&
+              currentUserGrade == null &&
+              '級が未設定のため回答できません'}
+            {currentUserIsInvited &&
+              isBeforeDeadline &&
+              currentUserGrade != null &&
+              !isEligible &&
+              '対象外の級です'}
+          </div>
+        </Card>
+      )}
+
+      {canRespond && (
+        <div className="sticky bottom-0 bg-canvas/95 backdrop-blur border-t border-border-soft p-3">
+          <form action={boundSubmitAttendance}>
+            <input
+              type="hidden"
+              name="attend"
+              value={myAttendance?.attend === true ? 'false' : 'true'}
+            />
+            <Btn
+              type="submit"
+              kind={myAttendance?.attend === true ? 'secondary' : 'primary'}
+              size="lg"
+              block
+            >
+              {myAttendance?.attend === true ? '参加をキャンセル' : '参加する'}
+            </Btn>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

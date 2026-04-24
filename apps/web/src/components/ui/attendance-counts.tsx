@@ -1,8 +1,13 @@
 import { cn } from '@/lib/utils'
 
 export interface AttendanceEvent {
-  attendIds: number[]
-  absentIds: number[]
+  /**
+   * Attending user IDs. Type is widened to accept either numeric or string IDs
+   * since callers may pass DB-native string PKs (e.g. event_attendances.userId);
+   * the component itself only reads `.length` from these arrays.
+   */
+  attendIds: readonly (number | string)[]
+  absentIds: readonly (number | string)[]
   unansweredCount: number
 }
 
