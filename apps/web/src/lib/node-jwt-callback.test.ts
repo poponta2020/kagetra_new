@@ -5,12 +5,14 @@ import { createUser } from '@/test-utils/seed'
 import { nodeJwtCallback } from './node-jwt-callback'
 
 // Stand-in for the edge-safe jwt callback from auth.config.ts. On first LINE
-// sign-in the real base stashes `user.id` (= profile.sub) into
-// `token.lineUserId`; we replicate that minimal behavior here so the Node
-// wrapper can exercise its resolution step.
-const edgeStyleBase = vi.fn(async ({ token, user, account }: { token: JWT; user?: { id: string }; account?: { provider: string } | null }): Promise<JWT> => {
-  if (user && account?.provider === 'line') {
-    ;(token as Record<string, unknown>).lineUserId = user.id
+// sign-in the real base stashes `account.providerAccountId` (= profile.sub)
+// into `token.lineUserId` — under Auth.js v5 JWT strategy without a DB adapter,
+// `user.id` is a random UUID, so providerAccountId is the stable LINE id. We
+// replicate that minimal behavior here so the Node wrapper can exercise its
+// resolution step.
+const edgeStyleBase = vi.fn(async ({ token, account }: { token: JWT; user?: { id: string }; account?: { provider: string; providerAccountId?: string } | null }): Promise<JWT> => {
+  if (account?.provider === 'line' && account.providerAccountId) {
+    ;(token as Record<string, unknown>).lineUserId = account.providerAccountId
   }
   return token
 })
@@ -35,8 +37,8 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     const result = await nodeJwtCallback(
       {
         token: {} as JWT,
-        user: { id: 'Uabc123' } as { id: string },
-        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
+        user: { id: 'uuid-random' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'Uabc123', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
@@ -55,8 +57,8 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     const result = await nodeJwtCallback(
       {
         token: {} as JWT,
-        user: { id: 'Uunknown' } as { id: string },
-        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
+        user: { id: 'uuid-random' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'Uunknown', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
@@ -75,8 +77,8 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     const result = await nodeJwtCallback(
       {
         token: {} as JWT,
-        user: { id: 'Uretired' } as { id: string },
-        account: { provider: 'line', providerAccountId: 'p', type: 'oidc' } as unknown as import('next-auth').Account,
+        user: { id: 'uuid-random' } as { id: string },
+        account: { provider: 'line', providerAccountId: 'Uretired', type: 'oidc' } as unknown as import('next-auth').Account,
         trigger: 'signIn',
       },
       edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],

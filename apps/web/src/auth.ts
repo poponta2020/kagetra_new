@@ -24,9 +24,9 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   ...authConfig,
   callbacks: {
     ...baseCallbacks,
-    async signIn({ user, account }) {
+    async signIn({ account }) {
       if (account?.provider !== 'line') return true
-      const lineUserId = user.id
+      const lineUserId = account.providerAccountId
       if (!lineUserId) return false
       const existing = await db.query.users.findFirst({
         where: eq(users.lineUserId, lineUserId),
