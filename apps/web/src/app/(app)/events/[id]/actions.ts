@@ -13,7 +13,12 @@ export async function submitAttendance(eventId: number, formData: FormData) {
     session.user.role === 'admin' || session.user.role === 'vice_admin'
 
   const attend = formData.get('attend') === 'true'
-  const comment = (formData.get('comment') as string) || null
+  // Comment is only updated when the form actually submits a `comment` field.
+  // The sticky single-toggle UI intentionally omits it, so we must not overwrite
+  // any existing comment with null on a toggle — read conditionally.
+  const commentRaw = formData.get('comment')
+  const hasComment = commentRaw !== null
+  const comment = hasComment ? ((commentRaw as string) || null) : null
 
   const [targetEvent, currentUser] = await Promise.all([
     db.query.events.findFirst({ where: eq(events.id, eventId) }),
@@ -43,12 +48,16 @@ export async function submitAttendance(eventId: number, formData: FormData) {
     throw new Error('対象外の級です')
   }
 
+  const updateSet: { attend: boolean; updatedAt: Date; comment?: string | null } =
+    { attend, updatedAt: new Date() }
+  if (hasComment) updateSet.comment = comment
+
   await db
     .insert(eventAttendances)
     .values({ eventId, userId: session.user.id, attend, comment })
     .onConflictDoUpdate({
       target: [eventAttendances.eventId, eventAttendances.userId],
-      set: { attend, comment, updatedAt: new Date() },
+      set: updateSet,
     })
 
   revalidatePath(`/events/${eventId}`)

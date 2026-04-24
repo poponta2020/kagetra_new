@@ -27,9 +27,9 @@ describe('StatusPill', () => {
     expect(el.className).toContain('bg-neutral-bg')
   })
 
-  // Regression: `status in STATUS_MAP` would return true for inherited keys
-  // like `toString` and try to render `Object.prototype.toString` as a mapping.
-  // `Object.hasOwn` + type guard must fall back to 下書き instead.
+  // Guardrail: Object.prototype-inherited keys like `toString` /
+  // `hasOwnProperty` must not leak through any lookup — the helper must
+  // treat them as unknown statuses and fall back to 下書き.
   it('Object.prototype 由来のキー (toString) でも 下書き にフォールバック', () => {
     render(<StatusPill status="toString" />)
     expect(screen.getByText('下書き')).toBeTruthy()

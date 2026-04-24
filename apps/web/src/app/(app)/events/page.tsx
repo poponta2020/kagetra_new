@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances } from '@kagetra/shared/schema'
-import { desc, eq, count } from 'drizzle-orm'
+import { asc, eq, count, gte } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { Card, Pill, StatusPill } from '@/components/ui'
 
@@ -14,9 +14,16 @@ export default async function EventsPage() {
   const session = await auth()
   const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
 
+  // JST today; events.eventDate is YYYY-MM-DD so lexicographic compare is correct.
+  // Past events are surfaced on /events-archive — listing them here too would double-list.
+  const todayStr = new Date().toLocaleDateString('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+  })
+
   const [eventList, attendCounts] = await Promise.all([
     db.query.events.findMany({
-      orderBy: [desc(events.eventDate)],
+      where: gte(events.eventDate, todayStr),
+      orderBy: [asc(events.eventDate)],
     }),
     db
       .select({
