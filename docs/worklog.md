@@ -515,3 +515,36 @@
 - UI-3a PR 作成（auth fix が main にマージ済みなので依存記述は不要）
 - 以降 Phase UI-3b (events 画面群) に進む
 - Nit メモ: `signIn` callback に deactivated user 拒否の直接テスト追加（auth 周辺いじる時のついで対応候補）
+
+---
+
+## 2026-04-24 セッション2（Phase UI-3a rebase → PR #9 → Codex レビュー → ship）
+
+### 完了
+- UI-3a branch (`feat/ui-3a-dashboard-restyle`) を新 main (`55d593b`) に rebase → conflict なし、`83edb98` に rewrite
+- rebase 後検証: web test 75/75 PASS / lint 0 warning / check-types PASS
+- `git push --force-with-lease` で remote 更新
+- ユーザー側で `/dashboard` 新スタイル実機確認済み（LINE login 経由で正常表示）
+- **PR #9 作成** (`feat/ui-3a-dashboard-restyle` → main)
+- PR #9 レビュープロンプト生成（第1回）→ Codex レビュー受領
+- Codex レビュー結果: **Blocker / Should fix / Nit すべて該当なし**
+  - 検証: Codex 側で `check-types` / `vitest run src/lib/role-label.test.ts` PASS
+  - 注: `next build` は Windows 固有の `.next/standalone` symlink 権限 (EPERM) で exit 1 だが、今回の差分とは無関係
+- **PR #9 マージ済み** (`3b15d92`, `gh pr merge --merge --delete-branch`)
+- worktree `C:/tmp/impl-ui-3a` 撤去（git remove + 残存ディレクトリ PowerShell `\\?\` 長パス prefix で rm）
+- ローカルブランチ `feat/ui-3a-dashboard-restyle` 削除
+- main を `3b15d92` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr9*`) 全削除
+- memory ファイル: ローカル/リポジトリ既に同一
+
+### 残存している git 状態
+- main: `3b15d92`（リモート同期済み）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- Phase UI-3b (events 画面群) の計画 → grill-me / define-feature → implement
+  - 想定対象: `/events`, `/events/[id]`, `/events/[id]/edit`, `/events/new`, `/events-archive`
+  - dashboard と同様に Card / Pill / SectionLabel + MobileShell 適用
+  - status 表示に StatusPill を活用（既存 test あり）
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト（auth 周辺触る時のついで候補）
