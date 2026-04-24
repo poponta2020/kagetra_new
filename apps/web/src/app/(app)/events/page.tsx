@@ -33,11 +33,16 @@ export default async function EventsPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">イベント一覧</h1>
-        {isAdmin && (
-          <Link href="/events/new" className={NEW_LINK_CLASS}>
-            新規作成
+        <div className="flex items-center gap-3">
+          <Link href="/events-archive" className="text-sm text-brand">
+            過去のイベント →
           </Link>
-        )}
+          {isAdmin && (
+            <Link href="/events/new" className={NEW_LINK_CLASS}>
+              新規作成
+            </Link>
+          )}
+        </div>
       </div>
       {eventList.length === 0 ? (
         <Card>
