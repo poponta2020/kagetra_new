@@ -15,6 +15,10 @@ import { Card, Pill, type PillTone } from '@/components/ui'
  */
 export const dynamic = 'force-dynamic'
 
+// PR1 only emits `fetched` and (for pre-filtered mails) `noise` classification.
+// `parse_failed` / `fetch_failed` rows aren't persisted yet — those errors are
+// logged via the pipeline summary and stay log-only until PR3 lands a failed-row
+// writer. Labels are kept here so the UI doesn't need to grow when that ships.
 const STATUS_LABEL: Record<string, { label: string; tone: PillTone }> = {
   pending: { label: '受信待ち', tone: 'neutral' },
   fetched: { label: '取得済み', tone: 'info' },
@@ -52,7 +56,20 @@ export default async function MailInboxPage() {
     redirect('/403')
   }
 
+  // List view never renders body_text / body_html. Restrict columns so the top
+  // 100 rows don't drag full HTML bodies (and, post-PR2, attachment-derived
+  // payloads) across the wire on every page load. The detail view will fetch
+  // them on demand when it lands.
   const rows = await db.query.mailMessages.findMany({
+    columns: {
+      id: true,
+      receivedAt: true,
+      subject: true,
+      fromName: true,
+      fromAddress: true,
+      status: true,
+      classification: true,
+    },
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: 100,
   })

@@ -1,0 +1,1 @@
+CREATE INDEX "mail_messages_received_at_desc_idx" ON "mail_messages" USING btree ("received_at" DESC NULLS LAST);

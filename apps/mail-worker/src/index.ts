@@ -6,12 +6,25 @@ import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb } from './db.js'
 
 interface CliFlags {
+  /**
+   * Currently a no-op — the worker always exits after one run. Parsed for
+   * forward-compat with the `--watch` flag landing in PR5; keeps existing cron
+   * invocations working unchanged once `--watch` ships.
+   */
   once: boolean
   since: Date | undefined
   mockImap: boolean
   dryRun: boolean
   fixtureDir: string | undefined
 }
+
+/**
+ * Default lookback for live IMAP when `--since` is omitted. Avoids the worst
+ * case (full INBOX scan + body/attachment download) on a stray `pnpm start`.
+ * 7 days is wide enough to catch a missed daily cron once and narrow enough
+ * to keep memory and DB churn bounded.
+ */
+const LIVE_DEFAULT_SINCE_DAYS = 7
 
 function parseArgs(argv: readonly string[]): CliFlags {
   const flags: CliFlags = {
@@ -50,11 +63,16 @@ function printUsage(): void {
 
   --once                 Run pipeline once and exit (P1 default; --watch is PR5).
   --since=YYYY-MM-DD     Only fetch mails received on/after this date.
+                         Live IMAP defaults to last ${LIVE_DEFAULT_SINCE_DAYS} days when omitted.
   --mock-imap            Use fixture eml files instead of live IMAP.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
   --dry-run              Parse only; do not write to DB.
   --help, -h             Show this help.
 `)
+}
+
+function defaultLiveSince(now: Date = new Date()): Date {
+  return new Date(now.getTime() - LIVE_DEFAULT_SINCE_DAYS * 24 * 60 * 60 * 1000)
 }
 
 async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }>> {
@@ -84,8 +102,18 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log('pipeline summary:', summary)
   } else {
+    // Live IMAP without --since used to scan the full INBOX (`{ all: true }`)
+    // and pull every body/attachment into memory. Default to the last
+    // LIVE_DEFAULT_SINCE_DAYS so a stray `pnpm start` can't blow up the worker.
+    const effectiveSince = flags.since ?? defaultLiveSince()
+    if (!flags.since) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${effectiveSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
+      )
+    }
     const summary = await runPipeline({
-      since: flags.since,
+      since: effectiveSince,
       dryRun: flags.dryRun,
       logger: consoleLogger(),
     })
