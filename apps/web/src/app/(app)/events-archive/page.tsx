@@ -1,31 +1,21 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances } from '@kagetra/shared/schema'
-import { and, asc, eq, count, gte, inArray } from 'drizzle-orm'
-import { auth } from '@/auth'
+import { and, desc, eq, count, inArray, lt } from 'drizzle-orm'
 import { Card, Pill, StatusPill } from '@/components/ui'
 
-// Btn primary mirrored as a Link className since wrapping <Link> in <Btn>
-// would nest it inside a <button>.
-const NEW_LINK_CLASS =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-brand text-white hover:bg-brand-hover'
-
-export default async function EventsPage() {
-  const session = await auth()
-  const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
-
+export default async function EventsArchivePage() {
   // JST today; events.eventDate is YYYY-MM-DD so lexicographic compare is correct.
-  // Past events are surfaced on /events-archive — listing them here too would double-list.
   const todayStr = new Date().toLocaleDateString('sv-SE', {
     timeZone: 'Asia/Tokyo',
   })
 
   // Fetch event list first so the attendance aggregate can be scoped to the
   // visible IDs — otherwise we'd scan every row in event_attendances, including
-  // rows for archived events rendered on /events-archive.
+  // rows for current events rendered on /events.
   const eventList = await db.query.events.findMany({
-    where: gte(events.eventDate, todayStr),
-    orderBy: [asc(events.eventDate)],
+    where: lt(events.eventDate, todayStr),
+    orderBy: [desc(events.eventDate)],
   })
   const visibleEventIds = eventList.map((e) => e.id)
   const attendCounts =
@@ -49,22 +39,17 @@ export default async function EventsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold text-ink">イベント一覧</h1>
-        <div className="flex items-center gap-3">
-          <Link href="/events-archive" className="text-sm text-brand">
-            過去のイベント →
-          </Link>
-          {isAdmin && (
-            <Link href="/events/new" className={NEW_LINK_CLASS}>
-              新規作成
-            </Link>
-          )}
-        </div>
+        <h1 className="font-display text-xl font-bold text-ink">
+          過去のイベント
+        </h1>
+        <Link href="/events" className="text-sm text-brand">
+          現在のイベント →
+        </Link>
       </div>
       {eventList.length === 0 ? (
         <Card>
           <div className="text-center text-ink-meta py-6">
-            現在のイベントはありません
+            過去のイベントはまだありません
           </div>
         </Card>
       ) : (
@@ -96,11 +81,6 @@ export default async function EventsPage() {
                     {event.location && (
                       <div className="mt-0.5 text-xs text-ink-meta">
                         {event.location}
-                      </div>
-                    )}
-                    {event.internalDeadline && (
-                      <div className="mt-0.5 text-xs text-ink-meta">
-                        締切: {event.internalDeadline}
                       </div>
                     )}
                   </div>

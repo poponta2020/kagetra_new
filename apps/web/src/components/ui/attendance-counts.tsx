@@ -1,9 +1,18 @@
 import { cn } from '@/lib/utils'
 
 export interface AttendanceEvent {
-  attendIds: number[]
-  absentIds: number[]
-  unansweredCount: number
+  /**
+   * Attending user IDs. Type is widened to accept either numeric or string IDs
+   * since callers may pass DB-native string PKs (e.g. event_attendances.userId);
+   * the component itself only reads `.length` from these arrays.
+   */
+  attendIds: readonly (number | string)[]
+  /**
+   * Count of users who are not attending. By domain rule, unanswered users are
+   * treated as not attending (未回答 = 不参加扱い), so callers should fold the
+   * unanswered count into this value rather than surfacing it as a third bucket.
+   */
+  nonAttendingCount: number
 }
 
 export interface AttendanceCountsProps {
@@ -12,14 +21,14 @@ export interface AttendanceCountsProps {
 }
 
 interface SegmentSpec {
-  key: 'attend' | 'absent' | 'unanswered'
+  key: 'attend' | 'nonAttending'
   value: number
   /** Inline `background` value — CSS variable for brand, literal hex for others. */
   background: string
 }
 
 interface CardSpec {
-  key: 'attend' | 'absent' | 'unanswered'
+  key: 'attend' | 'nonAttending'
   label: string
   count: number
   /** Tailwind classes combining bg + fg tones. */
@@ -27,7 +36,7 @@ interface CardSpec {
 }
 
 /**
- * Renders attendance tallies as either a 3-up tone-tinted card grid (default)
+ * Renders attendance tallies as either a 2-up tone-tinted card grid (default)
  * or a horizontal stacked bar with legend.
  *
  * The bar variant uses inline `flex: n` on each segment so segment widths
@@ -45,11 +54,10 @@ export function AttendanceCounts({
         value: ev.attendIds.length,
         background: 'var(--kg-brand)',
       },
-      { key: 'absent', value: ev.absentIds.length, background: '#F3B4B4' },
       {
-        key: 'unanswered',
-        value: ev.unansweredCount,
-        background: '#F3D78A',
+        key: 'nonAttending',
+        value: ev.nonAttendingCount,
+        background: '#F3B4B4',
       },
     ]
     return (
@@ -67,8 +75,9 @@ export function AttendanceCounts({
         </div>
         <div className="flex justify-between mt-2 text-[11px]">
           <span className="text-success-fg">● 参加 {ev.attendIds.length}</span>
-          <span className="text-danger-fg">● 不参加 {ev.absentIds.length}</span>
-          <span className="text-warn-fg">● 未回答 {ev.unansweredCount}</span>
+          <span className="text-danger-fg">
+            ● 不参加 {ev.nonAttendingCount}
+          </span>
         </div>
       </div>
     )
@@ -82,21 +91,15 @@ export function AttendanceCounts({
       classes: 'bg-success-bg text-success-fg',
     },
     {
-      key: 'absent',
+      key: 'nonAttending',
       label: '不参加',
-      count: ev.absentIds.length,
+      count: ev.nonAttendingCount,
       classes: 'bg-danger-bg text-danger-fg',
-    },
-    {
-      key: 'unanswered',
-      label: '未回答',
-      count: ev.unansweredCount,
-      classes: 'bg-warn-bg text-warn-fg',
     },
   ]
 
   return (
-    <div className="grid grid-cols-3 gap-1.5">
+    <div className="grid grid-cols-2 gap-1.5">
       {cards.map((c) => (
         <div
           key={c.key}

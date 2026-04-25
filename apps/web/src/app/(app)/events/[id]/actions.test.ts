@@ -91,4 +91,24 @@ describe('submitAttendance — permission control', () => {
     const row = await getAttendance(event.id, admin.id)
     expect(row).toMatchObject({ attend: true, comment: 'admin override' })
   })
+
+  // Regression: sticky single-toggle UI submits only `attend`, so the action
+  // must NOT wipe an existing comment when the form omits the `comment` field.
+  it('toggle-only 再送信では既存のコメントが保持される', async () => {
+    const user = await createUser({ isInvited: true, grade: 'A' })
+    const event = await createEvent({ title: 'E5' })
+    await setAuthSession({ id: user.id, role: 'member' })
+
+    await submitAttendance(event.id, formWith(true, 'keep me'))
+    expect(await getAttendance(event.id, user.id)).toMatchObject({
+      attend: true,
+      comment: 'keep me',
+    })
+
+    await submitAttendance(event.id, formWith(false))
+    expect(await getAttendance(event.id, user.id)).toMatchObject({
+      attend: false,
+      comment: 'keep me',
+    })
+  })
 })
