@@ -45,13 +45,14 @@ test.describe('Admin grade update changes member eligibility', () => {
     await addSessionCookie(memberContext, member.sessionToken)
     const memberPage = await memberContext.newPage()
 
-    // Before grade update: member has no grade → form is hidden with ガイドメッセージ
+    // Before grade update: member has no grade → sticky RSVP toggle is hidden
+    // and a guidance message replaces it.
     await memberPage.goto(`/events/${event.id}`)
     await expect(
       memberPage.getByText(/級が未設定/),
     ).toBeVisible()
     await expect(
-      memberPage.getByRole('button', { name: '参加', exact: true }),
+      memberPage.getByRole('button', { name: '参加する' }),
     ).toHaveCount(0)
 
     // Admin updates member's grade to A
@@ -67,10 +68,11 @@ test.describe('Admin grade update changes member eligibility', () => {
     // Wait for revalidation: the persisted value should reflect 'A'
     await expect(gradeSelect).toHaveValue('A')
 
-    // After grade update: member can now respond
+    // After grade update: member can now respond — the sticky RSVP toggle
+    // shows '参加する' (the un-toggled label, since myAttendance is undefined).
     await memberPage.goto(`/events/${event.id}`)
     await expect(
-      memberPage.getByRole('button', { name: '参加', exact: true }),
+      memberPage.getByRole('button', { name: '参加する' }),
     ).toBeVisible()
 
     await memberContext.close()
