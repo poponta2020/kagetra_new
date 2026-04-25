@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb } from './db.js'
-import { loadConfig } from './config.js'
+import { loadLogConfig } from './config.js'
 import { parseSinceArg } from './cli-args.js'
 
 interface CliFlags {
@@ -61,8 +61,11 @@ function printUsage(): void {
 
   --once                 Run pipeline once and exit (P1 default; --watch is PR5).
   --since=YYYY-MM-DD     Only fetch mails received on/after this date (JST 00:00).
-                         Pass an ISO datetime with offset (e.g. 2026-04-12T15:00:00+09:00)
-                         to use a sub-day cutoff. Live IMAP defaults to the last
+                         Pass an ISO datetime to use a sub-day cutoff. Datetimes
+                         without an explicit offset are interpreted as JST
+                         (e.g. 2026-04-12T15:00:00 == 2026-04-12T15:00:00+09:00),
+                         so admins on a UTC host don't have to remember to append
+                         "+09:00". Live IMAP defaults to the last
                          ${LIVE_DEFAULT_SINCE_DAYS} days when omitted.
   --mock-imap            Use fixture eml files instead of live IMAP.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
@@ -134,7 +137,7 @@ async function main(): Promise<void> {
 const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 } as const
 
 function consoleLogger() {
-  const minRank = LEVEL_RANK[loadConfig().MAIL_WORKER_LOG_LEVEL]
+  const minRank = LEVEL_RANK[loadLogConfig().MAIL_WORKER_LOG_LEVEL]
   const format = (msg: string, ctx?: Record<string, unknown>) =>
     `[mail-worker] ${msg}${ctx ? ' ' + JSON.stringify(ctx) : ''}`
   return {

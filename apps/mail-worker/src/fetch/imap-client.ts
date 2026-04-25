@@ -1,6 +1,6 @@
 import { ImapFlow, type FetchMessageObject } from 'imapflow'
 import { simpleParser } from 'mailparser'
-import { loadConfig } from '../config.js'
+import { loadImapConfig } from '../config.js'
 
 /**
  * Single parsed mail metadata produced by either the live IMAP path or the
@@ -71,7 +71,7 @@ export class ImapClient {
   private flow: ImapFlow | null = null
 
   async connect(): Promise<void> {
-    const config = loadConfig()
+    const config = loadImapConfig()
     if (!config.YAHOO_IMAP_USER || !config.YAHOO_IMAP_APP_PASSWORD) {
       throw new Error(
         'YAHOO_IMAP_USER / YAHOO_IMAP_APP_PASSWORD are required for live IMAP. Use --mock-imap to skip.',
