@@ -1,5 +1,12 @@
-import 'dotenv/config'
+import { config as dotenvConfig } from 'dotenv'
+import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+
+// Load repo-root .env so `pnpm --filter @kagetra/mail-worker start` (which uses
+// apps/mail-worker as cwd) still picks up DATABASE_URL / YAHOO_IMAP_* defined
+// at the monorepo root. Existing process.env wins (override defaults to false),
+// so CI / docker can keep injecting via real env vars.
+dotenvConfig({ path: fileURLToPath(new URL('../../../.env', import.meta.url)) })
 
 /**
  * Worker env contract.

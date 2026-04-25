@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb } from './db.js'
+import { loadConfig } from './config.js'
+import { parseSinceArg } from './cli-args.js'
 
 interface CliFlags {
   /**
@@ -40,11 +42,7 @@ function parseArgs(argv: readonly string[]): CliFlags {
     else if (arg === '--dry-run') flags.dryRun = true
     else if (arg.startsWith('--since=')) {
       const value = arg.slice('--since='.length)
-      const date = new Date(value)
-      if (Number.isNaN(date.getTime())) {
-        throw new Error(`--since must be a parseable date, got: ${value}`)
-      }
-      flags.since = date
+      flags.since = parseSinceArg(value)
     } else if (arg.startsWith('--fixture-dir=')) {
       flags.fixtureDir = arg.slice('--fixture-dir='.length)
     } else if (arg === '--help' || arg === '-h') {
@@ -62,8 +60,10 @@ function printUsage(): void {
   console.log(`Usage: mail-worker [flags]
 
   --once                 Run pipeline once and exit (P1 default; --watch is PR5).
-  --since=YYYY-MM-DD     Only fetch mails received on/after this date.
-                         Live IMAP defaults to last ${LIVE_DEFAULT_SINCE_DAYS} days when omitted.
+  --since=YYYY-MM-DD     Only fetch mails received on/after this date (JST 00:00).
+                         Pass an ISO datetime with offset (e.g. 2026-04-12T15:00:00+09:00)
+                         to use a sub-day cutoff. Live IMAP defaults to the last
+                         ${LIVE_DEFAULT_SINCE_DAYS} days when omitted.
   --mock-imap            Use fixture eml files instead of live IMAP.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
   --dry-run              Parse only; do not write to DB.
@@ -124,15 +124,29 @@ async function main(): Promise<void> {
   await closeDb()
 }
 
+/**
+ * Console logger gated by `MAIL_WORKER_LOG_LEVEL` (debug | info | warn | error).
+ * The PipelineLogger contract only exposes `info` / `warn`, so the level acts
+ * as a min-level filter: `warn` silences info logs, `error` silences both,
+ * `debug` / `info` (default) emit everything. Operators were able to set this
+ * via env before but it was a silent no-op — now it actually applies.
+ */
+const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 } as const
+
 function consoleLogger() {
+  const minRank = LEVEL_RANK[loadConfig().MAIL_WORKER_LOG_LEVEL]
+  const format = (msg: string, ctx?: Record<string, unknown>) =>
+    `[mail-worker] ${msg}${ctx ? ' ' + JSON.stringify(ctx) : ''}`
   return {
     info: (msg: string, ctx?: Record<string, unknown>) => {
+      if (LEVEL_RANK.info < minRank) return
       // eslint-disable-next-line no-console
-      console.log(`[mail-worker] ${msg}${ctx ? ' ' + JSON.stringify(ctx) : ''}`)
+      console.log(format(msg, ctx))
     },
     warn: (msg: string, ctx?: Record<string, unknown>) => {
+      if (LEVEL_RANK.warn < minRank) return
       // eslint-disable-next-line no-console
-      console.warn(`[mail-worker] ${msg}${ctx ? ' ' + JSON.stringify(ctx) : ''}`)
+      console.warn(format(msg, ctx))
     },
   }
 }
