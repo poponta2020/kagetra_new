@@ -63,18 +63,18 @@ export default async function EventDetailPage({
       : eq(users.isInvited, true),
   })
 
-  const attendingList = event.attendances.filter((a) => a.attend)
-  // Domain rule (CLAUDE.md): 未回答 = 不参加扱い. Collapse "explicit not-attending"
-  // and "unanswered" into a single non-attending count (= eligibles not in attendingList).
-  // Clamp with Math.max to guard against stale attend=true rows whose user is no
-  // longer eligible (e.g. grade changed), which would otherwise drive the count negative.
+  // Domain rule (CLAUDE.md): 未回答 = 不参加扱い. Both the participant chips and
+  // the count cards are scoped to currently-eligible attendees so that 参加 +
+  // (不参加 + 未回答) always equals the eligible denominator. Stale attend=true
+  // rows from non-eligible users (e.g. grade changed, or admin-override answers
+  // for a different cohort) are excluded from the displayed totals.
   const eligibleUserIdSet = new Set(eligibleUsers.map((u) => u.id))
-  const eligibleAttendingCount = attendingList.filter((a) =>
-    eligibleUserIdSet.has(a.userId),
-  ).length
+  const eligibleAttendingList = event.attendances.filter(
+    (a) => a.attend && eligibleUserIdSet.has(a.userId),
+  )
   const nonAttendingCount = Math.max(
     0,
-    eligibleUsers.length - eligibleAttendingCount,
+    eligibleUsers.length - eligibleAttendingList.length,
   )
 
   // Check if current user can respond to attendance (JST-based comparison)
@@ -108,7 +108,7 @@ export default async function EventDetailPage({
   const boundSubmitAttendance = submitAttendance.bind(null, event.id)
 
   // Sort participants by ascending grade (A < B < ... < E); unranked goes last.
-  const sortedAttending = attendingList
+  const sortedAttending = eligibleAttendingList
     .slice()
     .sort((a, b) => (a.user.grade ?? 'Z').localeCompare(b.user.grade ?? 'Z'))
 
@@ -199,16 +199,16 @@ export default async function EventDetailPage({
         <SectionLabel>出欠状況</SectionLabel>
         <AttendanceCounts
           ev={{
-            attendIds: attendingList.map((a) => a.userId),
+            attendIds: eligibleAttendingList.map((a) => a.userId),
             nonAttendingCount,
           }}
           variant="cards"
         />
       </Card>
 
-      {attendingList.length > 0 && (
+      {eligibleAttendingList.length > 0 && (
         <Card>
-          <SectionLabel>参加者 ({attendingList.length}名)</SectionLabel>
+          <SectionLabel>参加者 ({eligibleAttendingList.length}名)</SectionLabel>
           <div className="flex flex-wrap gap-2">
             {sortedAttending.map((a) => (
               <span
@@ -240,6 +240,41 @@ export default async function EventDetailPage({
               !isEligible &&
               '対象外の級です'}
           </div>
+        </Card>
+      )}
+
+      {canRespond && (
+        <Card>
+          {/* Comment editor is intentionally separated from the sticky toggle so
+              the toggle can keep submitting only `attend` (preserves an existing
+              comment via submitAttendance's omitted-field guard), while this
+              form explicitly sends `comment` when the user wants to edit it. */}
+          <details>
+            <summary className="cursor-pointer text-xs font-semibold text-ink-meta tracking-[0.02em]">
+              コメント{myAttendance?.comment ? '（記入済み）' : ''}
+            </summary>
+            <form
+              action={boundSubmitAttendance}
+              className="mt-3 flex flex-col gap-2"
+            >
+              <input
+                type="hidden"
+                name="attend"
+                value={myAttendance?.attend === true ? 'true' : 'false'}
+              />
+              <textarea
+                name="comment"
+                rows={2}
+                defaultValue={myAttendance?.comment ?? ''}
+                className="block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30"
+              />
+              <div className="flex justify-end">
+                <Btn type="submit" kind="secondary" size="sm">
+                  コメントを保存
+                </Btn>
+              </div>
+            </form>
+          </details>
         </Card>
       )}
 

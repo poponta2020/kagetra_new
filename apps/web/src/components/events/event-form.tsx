@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { EventKind, EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
 
 export interface EventFormProps {
@@ -10,7 +11,7 @@ export interface EventFormProps {
     title?: string | null
     formalName?: string | null
     official?: boolean
-    kind?: string
+    kind?: EventKind
     eventDate?: string | null
     startTime?: string | null
     endTime?: string | null
@@ -21,7 +22,7 @@ export interface EventFormProps {
     eventGroupId?: number | null
     eligibleGrades?: string[] | null
     description?: string | null
-    status?: string
+    status?: EventStatus
   }
 }
 
