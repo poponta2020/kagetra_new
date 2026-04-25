@@ -4,6 +4,7 @@ import { events } from './events'
 import { eventGroups } from './event-groups'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
+import { mailMessages } from './mail-messages'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -42,3 +43,7 @@ export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
     references: [users.id],
   }),
 }))
+
+// PR1: placeholder so downstream PRs (mail_attachments, tournament_drafts) can
+// extend mail_messages relations without changing the export shape.
+export const mailMessagesRelations = relations(mailMessages, () => ({}))

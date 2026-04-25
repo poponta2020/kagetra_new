@@ -1,0 +1,10 @@
+Return-Path: <quiet@example.org>
+Delivered-To: org@example.com
+From: Anonymous <quiet@example.org>
+To: org@example.com
+Date: Wed, 15 Apr 2026 08:00:00 +0900
+Message-ID: <no-subject-2026-04-15@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+(no subject body — testing nullable subject handling)

@@ -1,0 +1,12 @@
+{
+  "extends": "@kagetra/typescript-config/base",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  },
+  "include": ["src", "test"],
+  "exclude": ["node_modules", "dist"]
+}

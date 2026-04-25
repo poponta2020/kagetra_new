@@ -1,0 +1,33 @@
+{
+  "name": "@kagetra/mail-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --outDir dist --clean",
+    "check-types": "tsc --noEmit",
+    "lint": "echo 'no lint configured yet'",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kagetra/shared": "workspace:*",
+    "dotenv": "^16.4.0",
+    "drizzle-orm": "0.45.2",
+    "imapflow": "^1.0.0",
+    "mailparser": "^3.7.0",
+    "pg": "^8.13.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@kagetra/typescript-config": "workspace:*",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}

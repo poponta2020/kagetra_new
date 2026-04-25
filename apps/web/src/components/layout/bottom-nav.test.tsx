@@ -14,22 +14,32 @@ describe('BottomNav', () => {
     mockUsePathname.mockReturnValue('/dashboard')
   })
 
-  it('isAdmin=true のとき 4 タブすべてを表示する', () => {
+  it('isAdmin=true のとき 5 タブすべてを表示する', () => {
     render(<BottomNav isAdmin />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
     expect(screen.getByText('会員')).toBeTruthy()
+    expect(screen.getByText('メール')).toBeTruthy()
   })
 
   // Regression: non-admins previously saw 会員 tab and were bounced to /403
-  // by the admin-only page guard — breaking their bottom-nav UX.
-  it('isAdmin=false のとき 会員 タブを表示しない', () => {
+  // by the admin-only page guard — breaking their bottom-nav UX. メール
+  // (mail-inbox) follows the same admin-only convention.
+  it('isAdmin=false のとき 会員 / メール タブを表示しない', () => {
     render(<BottomNav isAdmin={false} />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
     expect(screen.queryByText('会員')).toBeNull()
+    expect(screen.queryByText('メール')).toBeNull()
+  })
+
+  it('pathname=/admin/mail-inbox で メール タブが active', () => {
+    mockUsePathname.mockReturnValue('/admin/mail-inbox')
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('メール').closest('a')
+    expect(link?.className).toContain('border-brand')
   })
 
   it('pathname=/events で イベント タブが active になる', () => {

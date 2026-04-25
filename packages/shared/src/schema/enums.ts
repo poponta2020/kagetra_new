@@ -11,3 +11,20 @@ export const lineLinkMethodEnum = pgEnum('line_link_method', [
   'admin_link',
   'account_switch',
 ])
+
+// mail-tournament-import (PR1)
+export const mailMessageStatusEnum = pgEnum('mail_message_status', [
+  'pending',
+  'fetched',
+  'parse_failed',
+  'fetch_failed',
+  'ai_processing',
+  'ai_done',
+  'ai_failed',
+  'archived',
+])
+export const mailClassificationEnum = pgEnum('mail_classification', [
+  'tournament',
+  'noise',
+  'unknown',
+])
