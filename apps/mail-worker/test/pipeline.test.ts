@@ -151,6 +151,49 @@ describe('pipeline (fixture → DB)', () => {
     expect(rows[0]!.subject).toBe('Re: Lunch next week?')
   })
 
+  it('isolates per-mail parse errors: one unparseable mail bumps failed and the rest still persist', async () => {
+    // Eml without Message-ID — fetcher cannot key it for de-dup, so it goes
+    // to `errors` instead of `prepared`. The other two mails must still
+    // insert cleanly and the summary must reflect 1 failure.
+    const NO_MESSAGE_ID_EML = Buffer.from(
+      [
+        'From: ghost@example.com',
+        'To: us@example.com',
+        'Subject: I lost my Message-ID',
+        'Date: Tue, 14 Apr 2026 09:00:00 +0900',
+        '',
+        'Body without an ID.',
+        '',
+      ].join('\r\n'),
+    )
+
+    const warnSpy = vi.fn()
+    const summary = await runPipelineFromFixtures(
+      [
+        { source: await loadFixture('personal-mail.eml'), imapUid: 10 },
+        { source: NO_MESSAGE_ID_EML, imapUid: 11 },
+        { source: await loadFixture('tournament-announcement.eml'), imapUid: 12 },
+      ],
+      { logger: { info: vi.fn(), warn: warnSpy } },
+    )
+
+    // fetched counts every mail the source saw, including failures.
+    expect(summary.fetched).toBe(3)
+    expect(summary.inserted).toBe(2)
+    expect(summary.failed).toBe(1)
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'mail fetch failed',
+      expect.objectContaining({
+        stage: 'parse_failed',
+        imapUid: 11,
+      }),
+    )
+
+    const rows = await testDb.select().from(mailMessages)
+    expect(rows).toHaveLength(2)
+  })
+
   it('isolates per-mail errors: one bad insert does not abort the batch', async () => {
     // Stub insertMailMessage so the second mail throws but the others succeed.
     const persistModule = await import('../src/persist/mail-message.js')

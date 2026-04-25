@@ -1,13 +1,22 @@
-import { ImapClient, parseEmlBuffer, type ParsedMailMeta } from './imap-client.js'
+import {
+  ImapClient,
+  parseEmlBuffer,
+  type FetchSinceResult,
+  type FetchedMailError,
+  type ParsedMailMeta,
+} from './imap-client.js'
 import { shouldSkipByHeaders } from './pre-filter.js'
 
 /**
  * Pluggable source of raw mails for the fetcher. The IMAP path uses
  * `LiveMailSource`; tests and `--mock-imap` use `FixtureMailSource` with eml
  * buffers.
+ *
+ * `fetch` returns both successfully-parsed mails AND per-mail parse errors so
+ * one bad message can never abort the batch.
  */
 export interface MailSource {
-  fetch(since: Date | undefined): Promise<ParsedMailMeta[]>
+  fetch(since: Date | undefined): Promise<FetchSinceResult>
   close(): Promise<void>
 }
 
@@ -19,7 +28,7 @@ export class LiveMailSource implements MailSource {
   private client = new ImapClient()
   private connected = false
 
-  async fetch(since: Date | undefined): Promise<ParsedMailMeta[]> {
+  async fetch(since: Date | undefined): Promise<FetchSinceResult> {
     if (!this.connected) {
       await this.client.connect()
       this.connected = true
@@ -48,19 +57,37 @@ export interface FixtureEntry {
 export class FixtureMailSource implements MailSource {
   constructor(private readonly entries: readonly FixtureEntry[]) {}
 
-  async fetch(since: Date | undefined): Promise<ParsedMailMeta[]> {
-    const out: ParsedMailMeta[] = []
+  async fetch(since: Date | undefined): Promise<FetchSinceResult> {
+    const parsed: ParsedMailMeta[] = []
+    const errors: FetchedMailError[] = []
     for (const entry of this.entries) {
-      const parsed = await parseEmlBuffer(
-        entry.source,
-        entry.imapUid ?? null,
-        entry.imapBox ?? 'INBOX',
-      )
-      if (!parsed) continue
-      if (since && parsed.receivedAt < since) continue
-      out.push(parsed)
+      const imapUid = entry.imapUid ?? null
+      const imapBox = entry.imapBox ?? 'INBOX'
+      try {
+        const meta = await parseEmlBuffer(entry.source, imapUid, imapBox)
+        if (!meta) {
+          errors.push({
+            imapUid,
+            imapBox,
+            envelopeMessageId: null,
+            reason: 'Message-ID header missing — cannot key for de-dup',
+            stage: 'parse_failed',
+          })
+          continue
+        }
+        if (since && meta.receivedAt < since) continue
+        parsed.push(meta)
+      } catch (err) {
+        errors.push({
+          imapUid,
+          imapBox,
+          envelopeMessageId: null,
+          reason: err instanceof Error ? err.message : String(err),
+          stage: 'parse_failed',
+        })
+      }
     }
-    return out
+    return { parsed, errors }
   }
 
   async close(): Promise<void> {
@@ -76,6 +103,8 @@ export interface PreparedMail {
 
 export interface FetchResult {
   prepared: PreparedMail[]
+  /** Per-mail parse failures forwarded from the source — pipeline counts them. */
+  errors: FetchedMailError[]
 }
 
 /**
@@ -87,10 +116,10 @@ export async function fetchMails(
   source: MailSource,
   since: Date | undefined,
 ): Promise<FetchResult> {
-  const mails = await source.fetch(since)
-  const prepared = mails.map((meta) => ({
+  const { parsed, errors } = await source.fetch(since)
+  const prepared = parsed.map((meta) => ({
     meta,
     noise: shouldSkipByHeaders(meta.headers),
   }))
-  return { prepared }
+  return { prepared, errors }
 }

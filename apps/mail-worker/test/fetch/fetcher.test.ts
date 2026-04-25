@@ -10,6 +10,19 @@ async function loadFixture(name: string): Promise<Buffer> {
   return readFile(join(FIXTURE_DIR, name))
 }
 
+/** RFC 822 buffer with no Message-ID — used to exercise the parse-error path. */
+const NO_MESSAGE_ID_EML = Buffer.from(
+  [
+    'From: ghost@example.com',
+    'To: us@example.com',
+    'Subject: I lost my Message-ID',
+    'Date: Tue, 14 Apr 2026 09:00:00 +0900',
+    '',
+    'Body without an ID.',
+    '',
+  ].join('\r\n'),
+)
+
 describe('fetchMails (FixtureMailSource)', () => {
   it('parses three fixture eml files into ParsedMailMeta', async () => {
     const source = new FixtureMailSource([
@@ -20,6 +33,7 @@ describe('fetchMails (FixtureMailSource)', () => {
 
     const result = await fetchMails(source, undefined)
     expect(result.prepared).toHaveLength(3)
+    expect(result.errors).toHaveLength(0)
     const subjects = result.prepared.map((p) => p.meta.subject)
     expect(subjects).toContain('Weekly Update: New Features Available')
     expect(subjects).toContain('Re: Lunch next week?')
@@ -97,6 +111,26 @@ describe('fetchMails (FixtureMailSource)', () => {
     const result = await fetchMails(source, undefined)
     expect(result.prepared[0]!.meta.fromAddress).toBe('friend@example.org')
     expect(result.prepared[0]!.meta.fromName).toBe('Yamada Taro')
+    await source.close()
+  })
+
+  it('captures parse errors per-mail without aborting the batch', async () => {
+    // Mail 2 is missing Message-ID — without per-mail isolation it would
+    // silently disappear; we want it surfaced as `errors` while the others
+    // still parse successfully.
+    const source = new FixtureMailSource([
+      { source: await loadFixture('personal-mail.eml'), imapUid: 1 },
+      { source: NO_MESSAGE_ID_EML, imapUid: 2 },
+      { source: await loadFixture('tournament-announcement.eml'), imapUid: 3 },
+    ])
+    const result = await fetchMails(source, undefined)
+    expect(result.prepared).toHaveLength(2)
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]!).toMatchObject({
+      imapUid: 2,
+      stage: 'parse_failed',
+    })
+    expect(result.errors[0]!.reason).toMatch(/message-id/i)
     await source.close()
   })
 })

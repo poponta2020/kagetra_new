@@ -11,17 +11,19 @@
  *   - `Precedence` is `bulk` or `junk` (NOT `list`; see below)
  *   - `X-Spam-Flag` is `YES`
  *   - `X-Spam-Status` starts with `Yes`
- *   - `List-Unsubscribe` is present, BUT only when `List-Id` is missing AND
- *     `From` looks like a no-reply address. This catches consumer newsletters
- *     while letting mailing-list announcements (e.g. taikai-ajka) through.
+ *   - `List-Unsubscribe` is present AND `List-Id` is missing. Real mailing
+ *     lists (Mailman, sympa, taikai-ajka, etc.) always set `List-Id`; without
+ *     it we treat List-Unsubscribe as a marketing-traffic signal and skip.
  *
- * Why we do NOT skip on `Precedence: list` or `List-Unsubscribe` alone:
- * those are standard ML headers (Mailman, sympa, etc.) that legitimate
+ * Why we do NOT skip on `Precedence: list` or on `List-Unsubscribe` paired
+ * with `List-Id`: those are standard ML headers that legitimate
  * tournament-announcement mailing lists set. The whole point of PR1 is to
  * ingest taikai-ajka, so blocking ML headers would silently break the feature.
  *
- * Header keys are matched case-insensitively. `headers` is expected to already
- * have lowercase keys (see `imap-client.ts`).
+ * Header keys lookup contract: `headers` MUST already have lowercase keys
+ * (imap-client.ts normalises them on the way in). The `get()` helper lowercases
+ * the lookup name purely for ergonomics, so call sites can write
+ * `get('Auto-Submitted')` without thinking about casing.
  */
 export function shouldSkipByHeaders(headers: Record<string, string>): boolean {
   const get = (name: string): string | undefined => headers[name.toLowerCase()]
@@ -40,15 +42,15 @@ export function shouldSkipByHeaders(headers: Record<string, string>): boolean {
   const spamStatus = get('x-spam-status')?.trim().toLowerCase()
   if (spamStatus && spamStatus.startsWith('yes')) return true
 
-  // List-Unsubscribe alone is too common in ML mails to be a noise signal.
-  // Only treat it as noise when there's no List-Id (so it's not a real ML)
-  // AND the From address looks like a no-reply (consumer newsletter pattern).
+  // List-Unsubscribe without List-Id is the strongest "consumer newsletter"
+  // signal we have. Properly-configured mailing lists always set List-Id;
+  // absence means this isn't a real ML and is most likely marketing traffic
+  // we don't want to AI-process. ML allowlisting is therefore expressed via
+  // List-Id presence alone.
   const listUnsubscribe = get('list-unsubscribe')?.trim()
   if (listUnsubscribe) {
     const listId = get('list-id')?.trim()
-    const from = get('from')?.toLowerCase() ?? ''
-    const isNoReply = /no-?reply|donotreply/.test(from)
-    if (!listId && isNoReply) return true
+    if (!listId) return true
   }
 
   return false

@@ -3,11 +3,16 @@ import { insertMailMessage } from './persist/mail-message.js'
 import { getDb } from './db.js'
 
 export interface PipelineSummary {
+  /** Total mails seen by the source (parsed OK + parse failures). */
   fetched: number
   inserted: number
   duplicated: number
   noise: number
-  /** Per-mail persistence failures (parse OK, DB insert threw). */
+  /**
+   * Per-mail failures: parse errors from the fetch path AND DB insert errors
+   * from the persist path. Either way the mail is neither inserted nor
+   * counted as duplicated. `fetched = inserted + duplicated + failed`.
+   */
   failed: number
 }
 
@@ -42,8 +47,11 @@ const NOOP_LOGGER: PipelineLogger = {
  * notification — the pipeline only persists mail rows, optionally tagging
  * `classification='noise'` for header-filtered traffic.
  *
- * Per-mail errors are isolated: one failed insert won't abort the batch.
- * Failures bump `summary.failed` and are logged via the injected logger.
+ * Per-mail errors are isolated at two layers:
+ *   1. fetch/parse — surfaced as `result.errors` from the source; one bad
+ *      RFC 822 buffer can't abort the batch.
+ *   2. persist — DB insert failures are caught per-mail.
+ * Both bump `summary.failed` and are logged via the injected logger.
  */
 export async function runPipeline(opts: RunPipelineOptions = {}): Promise<PipelineSummary> {
   const log = opts.logger ?? NOOP_LOGGER
@@ -58,7 +66,18 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
 
   try {
     const result = await fetchMails(source, opts.since)
-    summary.fetched = result.prepared.length
+    summary.fetched = result.prepared.length + result.errors.length
+    summary.failed = result.errors.length
+
+    for (const err of result.errors) {
+      log.warn('mail fetch failed', {
+        stage: err.stage,
+        imapUid: err.imapUid,
+        imapBox: err.imapBox,
+        envelopeMessageId: err.envelopeMessageId,
+        reason: err.reason,
+      })
+    }
 
     if (opts.dryRun) {
       summary.noise = result.prepared.filter((p) => p.noise).length

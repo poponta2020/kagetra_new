@@ -31,6 +31,26 @@ export interface ParsedMailMeta {
 }
 
 /**
+ * Per-mail failure surfaced from the fetch path. We carry whatever identifying
+ * fields IMAP gives us before parse — UID, mailbox, and the envelope-level
+ * Message-ID — so the worker can log a meaningful trail even when the RFC 822
+ * source is unparseable.
+ */
+export interface FetchedMailError {
+  imapUid: number | null
+  imapBox: string | null
+  /** envelope.messageId from IMAP, when available; null on the fixture path. */
+  envelopeMessageId: string | null
+  reason: string
+  stage: 'parse_failed' | 'fetch_failed'
+}
+
+export interface FetchSinceResult {
+  parsed: ParsedMailMeta[]
+  errors: FetchedMailError[]
+}
+
+/**
  * Thin wrapper over imapflow 1.3.x. We expose only the operations the worker
  * uses (connect / open INBOX / fetch by SearchObject / disconnect) so the
  * fetcher layer doesn't need to know about IMAP semantics directly.
@@ -81,25 +101,56 @@ export class ImapClient {
   /**
    * Fetch all messages received on/after `since` from INBOX.
    *
-   * IMAP's SEARCH `since` is date-granular (server compares Date header truncated
-   * to day). Callers wanting "today's mail" should pass today's date; finer
-   * filtering must happen in pre-filter / fetcher.
+   * IMAP `SEARCH SINCE` is date-granular (server compares Date header truncated
+   * to day), so we deliberately over-fetch and re-filter post-parse using
+   * `receivedAt` (sourced from `internalDate`). This honours sub-day cutoffs
+   * like `--since=2026-04-12T15:00:00+09:00`.
+   *
+   * Per-mail parse failures are isolated: one bad message bumps `errors` and
+   * the loop moves on, so a single malformed mail can't stall the entire batch.
    */
-  async fetchSince(since: Date | undefined, mailbox = 'INBOX'): Promise<ParsedMailMeta[]> {
+  async fetchSince(since: Date | undefined, mailbox = 'INBOX'): Promise<FetchSinceResult> {
     if (!this.flow) throw new Error('ImapClient: not connected')
     await this.flow.mailboxOpen(mailbox)
-    const query = since ? { since } : { all: true }
-    const out: ParsedMailMeta[] = []
-    for await (const msg of this.flow.fetch(query, {
+    const searchQuery = since ? { since } : { all: true }
+    const parsed: ParsedMailMeta[] = []
+    const errors: FetchedMailError[] = []
+    for await (const msg of this.flow.fetch(searchQuery, {
       uid: true,
       envelope: true,
       source: true,
       headers: true,
+      internalDate: true,
     })) {
-      const parsed = await parseFetched(msg, mailbox)
-      if (parsed) out.push(parsed)
+      const uid = typeof msg.uid === 'number' ? msg.uid : null
+      const envelopeMessageId = normalizeEnvelopeMessageId(msg.envelope?.messageId)
+      try {
+        const meta = await parseFetched(msg, mailbox)
+        if (!meta) {
+          errors.push({
+            imapUid: uid,
+            imapBox: mailbox,
+            envelopeMessageId,
+            reason: !msg.source
+              ? 'fetch returned no RFC 822 source buffer'
+              : 'Message-ID header missing — cannot key for de-dup',
+            stage: 'parse_failed',
+          })
+          continue
+        }
+        if (since && meta.receivedAt < since) continue
+        parsed.push(meta)
+      } catch (err) {
+        errors.push({
+          imapUid: uid,
+          imapBox: mailbox,
+          envelopeMessageId,
+          reason: err instanceof Error ? err.message : String(err),
+          stage: 'parse_failed',
+        })
+      }
     }
-    return out
+    return { parsed, errors }
   }
 }
 
@@ -114,7 +165,8 @@ async function parseFetched(
 ): Promise<ParsedMailMeta | null> {
   if (!msg.source) return null
   const parsed = await simpleParser(msg.source)
-  return parsedMailToMeta(parsed, msg.uid, mailbox)
+  const internalDate = msg.internalDate instanceof Date ? msg.internalDate : null
+  return parsedMailToMeta(parsed, msg.uid ?? null, mailbox, internalDate)
 }
 
 /**
@@ -125,20 +177,27 @@ export async function parseEmlBuffer(
   source: Buffer,
   imapUid: number | null = null,
   imapBox: string | null = null,
+  internalDate: Date | null = null,
 ): Promise<ParsedMailMeta | null> {
   const parsed = await simpleParser(source)
-  return parsedMailToMeta(parsed, imapUid, imapBox)
+  return parsedMailToMeta(parsed, imapUid, imapBox, internalDate)
 }
 
 /**
  * Convert mailparser.ParsedMail → ParsedMailMeta. Skips mails whose
  * Message-ID is missing because de-dup keys off of it; without an ID we have
  * no safe primary key for `mail_messages.message_id`.
+ *
+ * `receivedAt` prefers IMAP `internalDate` (when supplied) over the RFC 5322
+ * `Date` header. The Date header is sender-controlled and can be wildly off
+ * for late or auto-generated mails, while `internalDate` reflects when the
+ * Yahoo!IMAP server received it — which is the order the inbox UI cares about.
  */
 function parsedMailToMeta(
   parsed: import('mailparser').ParsedMail,
   imapUid: number | null,
   imapBox: string | null,
+  internalDate: Date | null,
 ): ParsedMailMeta | null {
   const messageId = parsed.messageId?.trim()
   if (!messageId) return null
@@ -150,7 +209,7 @@ function parsedMailToMeta(
   const toAddresses = collectAddresses(parsed.to)
 
   const subject = parsed.subject && parsed.subject.length > 0 ? parsed.subject : null
-  const receivedAt = parsed.date ?? new Date()
+  const receivedAt = internalDate ?? parsed.date ?? new Date()
   const bodyText = typeof parsed.text === 'string' ? parsed.text : null
   const bodyHtml = typeof parsed.html === 'string' ? parsed.html : null
 
@@ -200,4 +259,14 @@ function stringifyHeaderValue(value: unknown): string {
     return (value as { value: string }).value
   }
   return String(value ?? '')
+}
+
+/**
+ * Envelope.messageId can be string, undefined, or (rarely) a non-string.
+ * Normalise to `string | null` so callers don't have to re-check.
+ */
+function normalizeEnvelopeMessageId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }

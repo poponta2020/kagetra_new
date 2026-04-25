@@ -11,38 +11,29 @@ describe('shouldSkipByHeaders', () => {
     ).toBe(false)
   })
 
-  it('does NOT skip when only List-Unsubscribe is present (ML mails commonly have it)', () => {
+  it('skips when List-Unsubscribe is present and List-Id is missing (consumer newsletter signal)', () => {
     expect(
       shouldSkipByHeaders({
         'list-unsubscribe': '<mailto:unsubscribe@example.com>',
         from: 'announcer@example.org',
       }),
-    ).toBe(false)
+    ).toBe(true)
   })
 
-  it('skips when List-Unsubscribe is present, no List-Id, and From is a no-reply address', () => {
+  it('skips when List-Unsubscribe + no List-Id, even with a regular From address', () => {
     expect(
       shouldSkipByHeaders({
         'list-unsubscribe': '<mailto:u@x.com>, <https://x.com/unsub>',
-        from: 'no-reply@example-newsletter.com',
+        from: 'marketing@example.com',
       }),
     ).toBe(true)
   })
 
-  it('skips when List-Unsubscribe + From contains noreply (no hyphen variant)', () => {
+  it('skips when List-Unsubscribe + no List-Id + no-reply From (still noise)', () => {
     expect(
       shouldSkipByHeaders({
         'list-unsubscribe': '<https://x.com/unsub>',
         from: 'noreply@example.com',
-      }),
-    ).toBe(true)
-  })
-
-  it('skips when List-Unsubscribe + From contains donotreply', () => {
-    expect(
-      shouldSkipByHeaders({
-        'list-unsubscribe': '<mailto:u@x.com>',
-        from: 'Donotreply@bank.example',
       }),
     ).toBe(true)
   })
