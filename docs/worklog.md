@@ -548,3 +548,39 @@
   - dashboard と同様に Card / Pill / SectionLabel + MobileShell 適用
   - status 表示に StatusPill を活用（既存 test あり）
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト（auth 周辺触る時のついで候補）
+
+---
+
+## 2026-04-25 セッション1（PR #10 Phase UI-3b → Codex 3回レビュー → ship）
+
+### 完了
+- **PR #10** (`feat/ui-3b-events-restyle` → main) — events 画面群 6 phase 再スタイル
+  - `eventStatus` helper 抽出 + 7 tests / `EventForm` 抽出 + 3 tests (new 213→66, edit 242→97 lines)
+  - `/events` 一覧: 未来 only + Card / StatusPill / Pill 化、参加数集計を visibleEventIds に scope
+  - `/events/[id]` 詳細: design.md:158-200 仕様、sticky 単一トグル RSVP（参加する ↔ 参加をキャンセル）
+  - `/events-archive` 新規（`eventDate < today` JST、降順、フィルタ無し）
+  - `AttendanceCounts` を 3-up → 2-up に統合（未回答 = 不参加扱いをドメインルールとして UI 側で吸収）
+- Codex レビュー r1 → r2 → r3、3 ラウンドで Should fix を全て解消:
+  - r1: 未回答 = 不参加扱い反映、`StatusPill` の `Object.hasOwn` ガード、`/events` 集計を visibleEventIds に絞る、空状態文言
+  - r2: 出欠 action `comment` 省略時の保持（toggle-only 再送信で既存コメント不変）+ regression test
+  - r3: 詳細画面の集計を `eligibleAttendingList` で統一（参加チップ・カード・soted リスト共通）/ コメント編集 UI を `<details>` で復活 / `EventForm` の `kind` `status` を `EventKind` `EventStatus` 厳密型化
+- **CI green 化**: PR 初回 push から CI が赤かった原因は E2E `grade-update.spec.ts` が旧ボタン名 `参加` (exact:true) を期待していた点。Phase UI-3b/4 の sticky 単一トグル化で `参加する` に変わったため。`a7e40ab` で `参加する` に追従して全 check pass
+- **PR #10 マージ済み** (`284281a`, `gh pr merge --merge --delete-branch`)
+- worktree `C:/tmp/impl-ui-3b` 撤去（git remove → not a working tree → prune）
+- ローカルブランチ `feat/ui-3b-events-restyle` 削除
+- main を `284281a` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr10*`) 全削除
+
+### 学び
+- restyle 系 PR は既存の E2E テストで参照しているテキスト/ロケーターを必ずチェックする。Vitest unit のみだとボタン文言変更に気付けない
+- レビュー観点ズレの典型: 集計の denominator は eligible で揃える、片側だけ filter すると合計が崩れる
+
+### 残存している git 状態
+- main: `284281a`（リモート同期済み）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- Phase UI-3c または P2 着手（試合結果・統計）の選択
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト（auth 周辺触る時のついで候補）
+- carryover Nit: r3 で言及された「対象外の参加行を別枠で表示」案（管理者特権 attend を拾うか）— 必要が出てから検討
