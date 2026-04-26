@@ -34,6 +34,14 @@ export interface PipelineSummary {
    */
   draftsInserted: number
   draftsUpdated: number
+  /**
+   * Drafts left untouched because their existing status was operator-owned
+   * (`approved` / `rejected`). Bumped by the AI write path when reextract /
+   * pipeline tries to refresh a draft an admin already acted on. Should be
+   * zero in normal operation — non-zero means an operator decision survived
+   * a stale AI re-run, which is the desired behaviour but worth surfacing.
+   */
+  draftsPreserved: number
   /** Tournament-positive + AI-classified-as-noise mails (any successful AI run). */
   aiSucceeded: number
   /** AI calls that threw twice or returned malformed payloads. */
@@ -89,6 +97,7 @@ function emptySummary(): PipelineSummary {
     attachmentsSkipped: 0,
     draftsInserted: 0,
     draftsUpdated: 0,
+    draftsPreserved: 0,
     aiSucceeded: 0,
     aiFailed: 0,
     aiSkipped: 0,
@@ -412,6 +421,7 @@ async function runAiPhase(
     const tally = await persistOutcome(db, rowId, outcome)
     summary.draftsInserted += tally.draftsInserted
     summary.draftsUpdated += tally.draftsUpdated
+    summary.draftsPreserved += tally.draftsPreserved
     summary.aiSucceeded += tally.aiSucceeded
     summary.aiFailed += tally.aiFailed
     summary.aiSkipped += tally.aiSkipped

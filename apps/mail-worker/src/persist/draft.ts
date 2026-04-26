@@ -40,10 +40,13 @@ export interface UpsertDraftResult {
   /**
    * `'inserted'` when this is the first draft for the mail; `'updated'` when
    * an existing draft was overwritten (re-extract path or earlier ai_failed
-   * being retried). The pipeline counters split insert/update so an operator
-   * can tell pure new volume from re-runs at a glance.
+   * being retried); `'preserved'` when the existing draft was kept as-is
+   * because its status is operator-owned (`approved` / `rejected`) — see the
+   * guard in `upsertDraft`. The pipeline counters split these so an operator
+   * can tell pure new volume from re-runs and from no-op refresh attempts at a
+   * glance.
    */
-  action: 'inserted' | 'updated'
+  action: 'inserted' | 'updated' | 'preserved'
 }
 
 /**
@@ -63,7 +66,7 @@ export async function upsertDraft(
   input: UpsertDraftInput,
 ): Promise<UpsertDraftResult> {
   const existing = await db
-    .select({ id: tournamentDrafts.id })
+    .select()
     .from(tournamentDrafts)
     .where(eq(tournamentDrafts.messageId, input.messageId))
     .limit(1)
@@ -91,12 +94,25 @@ export async function upsertDraft(
     return { row: inserted[0], action: 'inserted' }
   }
 
+  // Operator-owned terminal states are off-limits to the AI write path.
+  // Without this guard, a `reextract --since=...` against mails where an
+  // admin has already approved/rejected the draft would silently flip the
+  // status back to `pending_review` (or `ai_failed`), erasing the human
+  // decision. The noise branch in `persistOutcome` already filters
+  // `inArray(status, ['pending_review', 'ai_failed'])`; this is the matching
+  // guard for the tournament / failed branches that flow through here.
+  // `superseded` is intentionally NOT protected: it's set automatically by
+  // the noise branch when AI reverses a previous positive verdict, so
+  // re-promoting back to `pending_review` when AI flips back to positive
+  // matches the "AI is the source of truth until a human acts" rule.
+  if (existing[0]!.status === 'approved' || existing[0]!.status === 'rejected') {
+    return { row: existing[0]!, action: 'preserved' }
+  }
+
   // Re-extract path: keep the original `created_at` and `id`, refresh
   // everything else and bump `updated_at`. We deliberately do NOT touch the
-  // approval columns (`approvedAt`, `rejectedAt`, etc.) — re-extracting an
-  // already-approved draft is an operator footgun the UI guards against (PR4),
-  // but if it ever happens here we don't want to silently nuke the audit
-  // trail. PR4 will revisit this once the approval surface is in place.
+  // approval columns (`approvedAt`, `rejectedAt`, etc.) — they belong to the
+  // approve/reject paths in PR4 and the worker has no business writing them.
   const updated = await db
     .update(tournamentDrafts)
     .set({

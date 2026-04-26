@@ -157,6 +157,14 @@ export async function classifyMail(
 export interface PersistOutcomeTally {
   draftsInserted: number
   draftsUpdated: number
+  /**
+   * Drafts left untouched because their existing status was operator-owned
+   * (`approved` / `rejected`). Surfaced separately from `draftsUpdated` so the
+   * reextract CLI can show "AI verdict ran but admin decision preserved" at a
+   * glance — distinct from "no draft existed yet" or "draft was actually
+   * refreshed".
+   */
+  draftsPreserved: number
   aiSucceeded: number
   aiFailed: number
   aiSkipped: number
@@ -166,6 +174,7 @@ export function emptyOutcomeTally(): PersistOutcomeTally {
   return {
     draftsInserted: 0,
     draftsUpdated: 0,
+    draftsPreserved: 0,
     aiSucceeded: 0,
     aiFailed: 0,
     aiSkipped: 0,
@@ -206,8 +215,14 @@ export async function persistOutcome(
       aiCostUsd: null,
     })
     if (upsert.action === 'inserted') tally.draftsInserted += 1
-    else tally.draftsUpdated += 1
+    else if (upsert.action === 'updated') tally.draftsUpdated += 1
+    else tally.draftsPreserved += 1
     tally.aiFailed += 1
+    // Mail status mirrors the AI outcome; the existing draft preservation
+    // happens at the draft level only, so an admin-approved draft on a now-
+    // failing mail still flips `mail_messages.status` to `ai_failed` to
+    // surface the regression in the inbox UI without rewriting the audit
+    // trail attached to the draft.
     await updateStatus(db, messageId, 'ai_failed')
     return tally
   }
@@ -232,7 +247,8 @@ export async function persistOutcome(
       aiCostUsd: result.costUsd.toFixed(6),
     })
     if (upsert.action === 'inserted') tally.draftsInserted += 1
-    else tally.draftsUpdated += 1
+    else if (upsert.action === 'updated') tally.draftsUpdated += 1
+    else tally.draftsPreserved += 1
     tally.aiSucceeded += 1
     // Update classification AND status atomically. Skipping the
     // classification update here used to leave positive mails with a NULL

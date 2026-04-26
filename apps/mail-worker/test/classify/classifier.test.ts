@@ -421,6 +421,184 @@ describe('classifier', () => {
       expect(drafts[0]!.status).toBe('approved')
     })
 
+    it('preserves an existing approved draft when re-extract finds tournament', async () => {
+      // Reextract scenario: an admin already approved this draft in PR4 UI.
+      // A prompt-version bump triggers re-classification; AI says tournament
+      // (consistent with the original verdict). Without the upsertDraft
+      // guard, status would silently flip back to `pending_review`, erasing
+      // the human decision. We expect: no draft mutation, draftsPreserved=1.
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<approved-tournament@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      // Seed an approved draft.
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'approved',
+        confidence: '0.95',
+        isCorrection: false,
+        referencesSubject: null,
+        extractedPayload: payload,
+        aiRawResponse: null,
+        promptVersion: 'fixture-1.0',
+        aiModel: 'fixture',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+      expect(tally.draftsPreserved).toBe(1)
+      expect(tally.draftsInserted).toBe(0)
+      expect(tally.draftsUpdated).toBe(0)
+      expect(tally.aiSucceeded).toBe(1)
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts).toHaveLength(1)
+      expect(drafts[0]!.status).toBe('approved')
+    })
+
+    it('preserves an existing rejected draft when re-extract finds tournament', async () => {
+      // Same shape as the approved case: a `rejected` draft is operator-owned
+      // and must survive a stale AI re-run without being clobbered back to
+      // `pending_review`.
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<rejected-tournament@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'rejected',
+        confidence: '0.40',
+        isCorrection: false,
+        referencesSubject: null,
+        extractedPayload: payload,
+        aiRawResponse: null,
+        promptVersion: 'fixture-1.0',
+        aiModel: 'fixture',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+      expect(tally.draftsPreserved).toBe(1)
+      expect(tally.draftsUpdated).toBe(0)
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts[0]!.status).toBe('rejected')
+    })
+
+    it('preserves an approved draft even when re-extract fails (BrokenLLM)', async () => {
+      // The failed branch in persistOutcome also calls upsertDraft (to write
+      // the raw error). It must respect the same approved/rejected guard, or
+      // a transient API failure during reextract would silently flip an
+      // approved row to `ai_failed` and lose the audit trail.
+      const id = await insertTestMail({
+        messageId: '<approved-then-fail@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'approved',
+        confidence: '0.95',
+        isCorrection: false,
+        referencesSubject: null,
+        extractedPayload: {},
+        aiRawResponse: null,
+        promptVersion: 'fixture-1.0',
+        aiModel: 'fixture',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'failed',
+        rawResponse: 'Error: BrokenLLMExtractor: forced failure',
+        reason: 'LLM call or Zod validation failed twice',
+      })
+      expect(tally.draftsPreserved).toBe(1)
+      expect(tally.draftsInserted).toBe(0)
+      expect(tally.aiFailed).toBe(1)
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts[0]!.status).toBe('approved')
+      // aiRawResponse stays at the original NULL; the failure raw response
+      // does NOT leak into the approved row.
+      expect(drafts[0]!.aiRawResponse).toBeNull()
+
+      // Mail status still reflects the latest verdict so the inbox UI can
+      // surface that the model is now failing on this thread; the draft
+      // audit trail is independent of mail status.
+      const mail = await testDb
+        .select()
+        .from(mailMessages)
+        .where(eq(mailMessages.id, id))
+      expect(mail[0]!.status).toBe('ai_failed')
+    })
+
+    it('still updates a superseded draft on tournament re-extract (allowed promotion)', async () => {
+      // `superseded` is set automatically by the noise branch when AI flips
+      // a previous positive verdict to noise. It is NOT an operator-owned
+      // state, so a later AI re-run that flips back to tournament must be
+      // allowed to refresh the draft to `pending_review`. The guard in
+      // upsertDraft only protects approved/rejected.
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<superseded-revived@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'superseded',
+        confidence: '0.50',
+        isCorrection: false,
+        referencesSubject: null,
+        extractedPayload: {},
+        aiRawResponse: null,
+        promptVersion: 'fixture-0.9',
+        aiModel: 'fixture',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+      expect(tally.draftsUpdated).toBe(1)
+      expect(tally.draftsPreserved).toBe(0)
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts[0]!.status).toBe('pending_review')
+    })
+
     it('returns aiSkipped tally and writes nothing when outcome is skipped_noise', async () => {
       const id = await insertTestMail({
         messageId: '<persist-skipped@example.com>',
