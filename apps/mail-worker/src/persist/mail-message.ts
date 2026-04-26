@@ -1,8 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { mailMessages } from '@kagetra/shared/schema'
-import type { getDb } from '../db.js'
+import type { Db } from '../db.js'
 
-type Db = ReturnType<typeof getDb>
 type MailMessageRow = typeof mailMessages.$inferSelect
 type MailMessageInsert = typeof mailMessages.$inferInsert
 

@@ -28,7 +28,44 @@ export interface ParsedMailMeta {
   headers: Record<string, string>
   imapUid: number | null
   imapBox: string | null
+  /**
+   * Attachments accepted for persistence. Inline images referenced by HTML
+   * `<img src="cid:...">` are dropped here (multipart/related parts) so the
+   * worker doesn't store every newsletter banner, and oversized parts are
+   * dropped against MAX_ATTACHMENT_BYTES with a warning. Attachments without
+   * a filename header are dropped too — the DB column is `NOT NULL`.
+   */
+  attachments: ParsedAttachment[]
+  /**
+   * Reasons individual attachments were skipped before reaching the persist
+   * layer. Surfaced in pipeline logs so the operator can spot e.g. an
+   * oversized PDF without scraping mail-worker stderr.
+   */
+  attachmentSkips: ParsedAttachmentSkip[]
 }
+
+export interface ParsedAttachment {
+  filename: string
+  contentType: string
+  sizeBytes: number
+  data: Buffer
+}
+
+export interface ParsedAttachmentSkip {
+  filename: string | null
+  contentType: string
+  sizeBytes: number
+  reason: 'no_filename' | 'inline_referenced' | 'oversized'
+}
+
+/**
+ * Hard cap for a single attachment. Yahoo!Mail's send limit is 25 MB, so
+ * anything larger reaching us is almost certainly a misconfigured forward.
+ * Persisting 100 MB+ blobs into Postgres bytea would trash the inbox query
+ * for everyone, so we drop oversized parts at the parse boundary and log
+ * them rather than truncating.
+ */
+export const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024
 
 /**
  * Per-mail failure surfaced from the fetch path. We carry whatever identifying
@@ -218,6 +255,8 @@ function parsedMailToMeta(
     headers[key.toLowerCase()] = stringifyHeaderValue(value)
   }
 
+  const { attachments, attachmentSkips } = collectAttachments(parsed)
+
   return {
     messageId,
     fromAddress,
@@ -230,7 +269,60 @@ function parsedMailToMeta(
     headers,
     imapUid,
     imapBox,
+    attachments,
+    attachmentSkips,
   }
+}
+
+/**
+ * Map mailparser's `attachments[]` onto our persistable shape, applying the
+ * three filters the PR2 grill-me locked in:
+ *
+ *   1. `filename` is required — the DB column is NOT NULL, and parts without
+ *      a filename are almost always boilerplate/structural.
+ *   2. Inline parts referenced by HTML body via `cid:` (mailparser sets
+ *      `related === true` and a `cid` value on multipart/related entries) are
+ *      dropped to avoid storing every newsletter banner. Inline parts that
+ *      are NOT in a related package (rare, but possible) are kept since the
+ *      sender deliberately attached them.
+ *   3. `sizeBytes > MAX_ATTACHMENT_BYTES` is dropped wholesale — bytea
+ *      truncation would silently corrupt downstream extraction.
+ */
+function collectAttachments(parsed: import('mailparser').ParsedMail): {
+  attachments: ParsedAttachment[]
+  attachmentSkips: ParsedAttachmentSkip[]
+} {
+  const attachments: ParsedAttachment[] = []
+  const attachmentSkips: ParsedAttachmentSkip[] = []
+  for (const part of parsed.attachments ?? []) {
+    const filename = typeof part.filename === 'string' && part.filename.length > 0
+      ? part.filename
+      : null
+    const contentType = part.contentType ?? 'application/octet-stream'
+    const data = part.content instanceof Buffer ? part.content : Buffer.from(part.content)
+    // The 30 MB gate must run against the actual decoded payload, not
+    // mailparser's `part.size` — that field is best-effort and can under-report
+    // (e.g. when `size` is taken from a Content-Length-style header that
+    // differs from the decoded body), which would let an oversized buffer
+    // through into bytea. We always trust `data.length` for both the gate and
+    // the persisted column so the download route's size accounting agrees.
+    const sizeBytes = data.length
+
+    if (part.related === true && typeof part.cid === 'string' && part.cid.length > 0) {
+      attachmentSkips.push({ filename, contentType, sizeBytes, reason: 'inline_referenced' })
+      continue
+    }
+    if (!filename) {
+      attachmentSkips.push({ filename: null, contentType, sizeBytes, reason: 'no_filename' })
+      continue
+    }
+    if (sizeBytes > MAX_ATTACHMENT_BYTES) {
+      attachmentSkips.push({ filename, contentType, sizeBytes, reason: 'oversized' })
+      continue
+    }
+    attachments.push({ filename, contentType, sizeBytes, data })
+  }
+  return { attachments, attachmentSkips }
 }
 
 function collectAddresses(

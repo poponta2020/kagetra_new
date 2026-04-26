@@ -28,3 +28,11 @@ export const mailClassificationEnum = pgEnum('mail_classification', [
   'noise',
   'unknown',
 ])
+
+// mail-tournament-import (PR2)
+export const attachmentExtractionStatusEnum = pgEnum('attachment_extraction_status', [
+  'pending',
+  'extracted',
+  'failed',
+  'unsupported',
+])
