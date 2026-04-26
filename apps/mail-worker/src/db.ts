@@ -1,5 +1,8 @@
-import { drizzle } from 'drizzle-orm/node-postgres'
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
+import type { NodePgQueryResultHKT } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
+import type { ExtractTablesWithRelations } from 'drizzle-orm'
+import type { PgTransaction } from 'drizzle-orm/pg-core'
 import * as schema from '@kagetra/shared/schema'
 import { loadDbConfig } from './config.js'
 
@@ -12,10 +15,22 @@ import { loadDbConfig } from './config.js'
  */
 let pool: Pool | null = null
 
-type Db = ReturnType<typeof drizzle<typeof schema>>
-let cachedDb: Db | null = null
+export type DbClient = NodePgDatabase<typeof schema>
+export type DbTransaction = PgTransaction<
+  NodePgQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>
+/**
+ * Either the top-level pool client or a per-mail transaction handle. Both
+ * carry the same `insert / update / select / query` surface, so persisters
+ * accept either and the pipeline can wrap a parent + attachments into one
+ * atomic unit (see `runPipeline` in `pipeline.ts`).
+ */
+export type Db = DbClient | DbTransaction
+let cachedDb: DbClient | null = null
 
-export function getDb(): Db {
+export function getDb(): DbClient {
   if (cachedDb) return cachedDb
   const config = loadDbConfig()
   pool = new Pool({ connectionString: config.DATABASE_URL })

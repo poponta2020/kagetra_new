@@ -2,7 +2,7 @@ import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from '
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
 import { insertMailMessage } from './persist/mail-message.js'
 import { insertMailAttachment } from './persist/attachment.js'
-import { extractAttachment } from './extract/orchestrator.js'
+import { extractAttachment, type ExtractionStatus } from './extract/orchestrator.js'
 import { getDb } from './db.js'
 
 export interface PipelineSummary {
@@ -12,9 +12,10 @@ export interface PipelineSummary {
   duplicated: number
   noise: number
   /**
-   * Per-mail failures: parse errors from the fetch path AND DB insert errors
-   * from the persist path. Either way the mail is neither inserted nor
-   * counted as duplicated. `fetched = inserted + duplicated + failed`.
+   * Per-mail failures: parse errors from the fetch path AND DB transaction
+   * errors from the persist path. Either way the mail is neither inserted nor
+   * counted as duplicated, and can be retried on the next run because the
+   * parent + all attachments roll back together. `fetched = inserted + duplicated + failed`.
    */
   failed: number
   /** Attachment counters (PR2). Skips are inline/oversized/no-filename drops
@@ -24,7 +25,6 @@ export interface PipelineSummary {
   attachmentsExtractionFailed: number
   attachmentsUnsupported: number
   attachmentsSkipped: number
-  attachmentsDbFailed: number
 }
 
 export interface RunPipelineOptions {
@@ -63,8 +63,13 @@ function emptySummary(): PipelineSummary {
     attachmentsExtractionFailed: 0,
     attachmentsUnsupported: 0,
     attachmentsSkipped: 0,
-    attachmentsDbFailed: 0,
   }
+}
+
+interface ExtractedAttachment {
+  att: ParsedAttachment
+  text: string | null
+  status: ExtractionStatus
 }
 
 /**
@@ -74,12 +79,13 @@ function emptySummary(): PipelineSummary {
  * Per-mail and per-attachment errors are isolated:
  *   1. fetch/parse — surfaced as `result.errors` from the source; one bad
  *      RFC 822 buffer can't abort the batch.
- *   2. mail persist — DB insert failures are caught per-mail.
- *   3. attachment extract — corrupt PDFs/DOCX/XLSX downgrade to
+ *   2. attachment extract — corrupt PDFs/DOCX downgrade to
  *      `extraction_status='failed'` and the binary is still persisted.
- *   4. attachment persist — DB insert failures bump
- *      `attachmentsDbFailed` but do not kill the parent mail or sibling
- *      attachments.
+ *   3. mail + attachments persist — wrapped in a single transaction per mail.
+ *      If the parent insert or any attachment insert raises, the whole row
+ *      group rolls back and is counted as `failed`. The Message-ID UNIQUE
+ *      makes the retry idempotent on the next run, so transient DB hiccups
+ *      can't leave an orphan parent without its attachments.
  *
  * In dry-run mode, attachments are still inspected for skip/extraction
  * counters but never inserted, so operators can preview pipeline behaviour
@@ -112,7 +118,7 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
       for (const { meta } of result.prepared) {
         accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
         for (const att of meta.attachments) {
-          await accountAttachmentExtraction(att, summary, log, meta.messageId)
+          await runExtraction(att, summary, log, meta.messageId)
         }
       }
       log.info('pipeline dry-run', { ...summary })
@@ -121,40 +127,64 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
 
     const db = getDb()
     for (const { meta, noise } of result.prepared) {
-      let mailRowId: number | null = null
+      // Attachment skip counters land regardless of duplicate/insert status —
+      // operators care that an inline-only mail came in even when the parent
+      // row already existed.
+      accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
+
+      // Extract first, outside the DB transaction. Extraction is CPU-heavy
+      // and side-effect-free, so we don't want to hold a Postgres txn open
+      // while pdfjs / mammoth chew through bytes. Counters tracking the work
+      // (attachmentsExtracted / Failed / Unsupported) are correctly populated
+      // before any DB touch.
+      const extracted: ExtractedAttachment[] = []
+      for (const att of meta.attachments) {
+        const result = await runExtraction(att, summary, log, meta.messageId)
+        extracted.push({ att, ...result })
+      }
+
+      let parentResult: { duplicated: boolean; rowId: number | null }
       try {
-        const { row, duplicated } = await insertMailMessage(db, {
-          messageId: meta.messageId,
-          fromAddress: meta.fromAddress,
-          fromName: meta.fromName,
-          toAddresses: meta.toAddresses,
-          subject: meta.subject,
-          receivedAt: meta.receivedAt,
-          bodyText: meta.bodyText,
-          bodyHtml: meta.bodyHtml,
-          // Pre-filtered mails skip AI in PR3; recording the classification now
-          // means the inbox UI can hide them straight away even before AI runs.
-          classification: noise ? 'noise' : null,
-          status: 'fetched',
-          imapUid: meta.imapUid,
-          imapBox: meta.imapBox,
-        })
-        if (duplicated) {
-          summary.duplicated += 1
-        } else {
-          summary.inserted += 1
-        }
-        if (noise) summary.noise += 1
-        mailRowId = duplicated ? null : row.id
-        log.info('persisted mail', {
-          id: row.id,
-          messageId: row.messageId,
-          duplicated,
-          noise,
+        parentResult = await db.transaction(async (tx) => {
+          const { row, duplicated } = await insertMailMessage(tx, {
+            messageId: meta.messageId,
+            fromAddress: meta.fromAddress,
+            fromName: meta.fromName,
+            toAddresses: meta.toAddresses,
+            subject: meta.subject,
+            receivedAt: meta.receivedAt,
+            bodyText: meta.bodyText,
+            bodyHtml: meta.bodyHtml,
+            // Pre-filtered mails skip AI in PR3; recording the classification
+            // now means the inbox UI can hide them straight away even before
+            // AI runs.
+            classification: noise ? 'noise' : null,
+            status: 'fetched',
+            imapUid: meta.imapUid,
+            imapBox: meta.imapBox,
+          })
+          if (!duplicated) {
+            // Insert siblings inside the same txn; any failure here aborts
+            // the parent insert too, so the next run can retry the mail
+            // cleanly via Message-ID dedup.
+            for (const { att, text, status } of extracted) {
+              await insertMailAttachment(tx, {
+                mailMessageId: row.id,
+                filename: att.filename,
+                contentType: att.contentType,
+                sizeBytes: att.sizeBytes,
+                data: att.data,
+                extractedText: text,
+                extractionStatus: status,
+              })
+            }
+          }
+          return { duplicated, rowId: duplicated ? null : row.id }
         })
       } catch (err) {
-        // Isolate per-mail failures so one bad row doesn't abort the batch.
-        // The mail can be retried on the next run (Message-ID dedup is idempotent).
+        // Atomic failure — the parent insert (if it ran) was rolled back, so
+        // the mail can be retried on the next run. We don't bump
+        // attachmentsInserted at all because the rollback un-inserted them.
         summary.failed += 1
         log.warn('mail persist failed', {
           messageId: meta.messageId,
@@ -163,47 +193,19 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         continue
       }
 
-      // Attachment skip counters land regardless of duplicate status — operators
-      // care that an inline-only mail came in even when the parent row already
-      // existed.
-      accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
-
-      // We only INSERT attachments for newly-persisted mails. Re-running with
-      // `mail_messages.message_id` already present (`mailRowId === null`) means
-      // the prior run already handled attachments; re-inserting would create
-      // duplicates because mail_attachments has no UNIQUE key (an attachment
-      // can legitimately repeat within one mail, e.g. two PDFs called "案内").
-      if (mailRowId === null) {
-        // Still account extraction outcome for the dry-run-style counters so
-        // the summary reflects the work the pipeline actually inspected.
-        for (const att of meta.attachments) {
-          await accountAttachmentExtraction(att, summary, log, meta.messageId)
-        }
-        continue
+      if (parentResult.duplicated) {
+        summary.duplicated += 1
+      } else {
+        summary.inserted += 1
+        summary.attachmentsInserted += extracted.length
       }
-
-      for (const att of meta.attachments) {
-        const result = await accountAttachmentExtraction(att, summary, log, meta.messageId)
-        try {
-          await insertMailAttachment(db, {
-            mailMessageId: mailRowId,
-            filename: att.filename,
-            contentType: att.contentType,
-            sizeBytes: att.sizeBytes,
-            data: att.data,
-            extractedText: result.text,
-            extractionStatus: result.status,
-          })
-          summary.attachmentsInserted += 1
-        } catch (err) {
-          summary.attachmentsDbFailed += 1
-          log.warn('attachment persist failed', {
-            messageId: meta.messageId,
-            filename: att.filename,
-            err: err instanceof Error ? err.message : String(err),
-          })
-        }
-      }
+      if (noise) summary.noise += 1
+      log.info('persisted mail', {
+        id: parentResult.rowId,
+        messageId: meta.messageId,
+        duplicated: parentResult.duplicated,
+        noise,
+      })
     }
     return summary
   } finally {
@@ -233,12 +235,12 @@ function accountAttachmentSkips(
   }
 }
 
-async function accountAttachmentExtraction(
+async function runExtraction(
   att: ParsedAttachment,
   summary: PipelineSummary,
   log: PipelineLogger,
   messageId: string,
-): Promise<{ text: string | null; status: 'extracted' | 'failed' | 'unsupported' }> {
+): Promise<{ text: string | null; status: ExtractionStatus }> {
   const result = await extractAttachment({
     contentType: att.contentType,
     filename: att.filename,

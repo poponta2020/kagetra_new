@@ -1,7 +1,6 @@
 import { mailAttachments } from '@kagetra/shared/schema'
-import type { getDb } from '../db.js'
+import type { Db } from '../db.js'
 
-type Db = ReturnType<typeof getDb>
 type MailAttachmentRow = typeof mailAttachments.$inferSelect
 type MailAttachmentInsert = typeof mailAttachments.$inferInsert
 

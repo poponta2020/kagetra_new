@@ -1,13 +1,18 @@
 import JSZip from 'jszip'
-import * as XLSX from 'xlsx'
 
 /**
  * Minimal-but-valid binary builders for the attachment extractor tests.
  *
- * The goal isn't a "rich" PDF/DOCX/XLSX — just enough that pdfjs-dist /
- * mammoth / xlsx accept the input and surface the embedded text so we can
- * verify the extractor wires up correctly. Generating in memory keeps fixture
- * commits small and avoids checking in opaque binaries.
+ * The goal isn't a "rich" PDF/DOCX — just enough that pdfjs-dist / mammoth
+ * accept the input and surface the embedded text so we can verify the
+ * extractor wires up correctly. Generating in memory keeps fixture commits
+ * small and avoids checking in opaque binaries.
+ *
+ * `buildMinimalXlsx` is intentionally a stub: PR2 dropped XLSX extraction
+ * (the only viable parser, `xlsx@0.18.5`, has unpatched high-severity
+ * vulnerabilities). Tests now only need bytes to drive the "unsupported"
+ * routing path, so the helper returns a tiny ZIP-like buffer rather than a
+ * real XLSX.
  */
 
 /**
@@ -90,15 +95,18 @@ export async function buildMinimalDocx(text: string): Promise<Buffer> {
 }
 
 /**
- * Build a minimal XLSX with one sheet whose cells contain `rows`. Uses the
- * `xlsx` lib already required by the extractor, so the round-trip exercises
- * the same parser path the real attachment pipeline uses.
+ * Stand-in for an XLSX attachment buffer. Returns just enough of a ZIP
+ * envelope (PK\x03\x04 magic) to look plausible at the mail-parser layer.
+ * Pipeline tests use this only to drive the "unsupported" routing path, so a
+ * real XLSX is unnecessary — see the file header for why XLSX extraction is
+ * disabled in PR2. The arguments are accepted but ignored to keep callers
+ * legible.
  */
-export function buildMinimalXlsx(sheetName: string, rows: (string | number)[][]): Buffer {
-  const ws = XLSX.utils.aoa_to_sheet(rows)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, sheetName)
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+export function buildMinimalXlsx(_sheetName: string, _rows: (string | number)[][]): Buffer {
+  return Buffer.from([
+    0x50, 0x4b, 0x03, 0x04, // PK\x03\x04 local file header magic
+    0x00, 0x00, 0x00, 0x00,
+  ])
 }
 
 /**

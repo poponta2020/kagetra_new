@@ -9,23 +9,32 @@ export const dynamic = 'force-dynamic'
 /**
  * GET /api/admin/mail/attachments/:id
  *
- * Streams a stored mail attachment back to the browser (PDF preview, DOCX /
- * XLSX download). admin / vice_admin only — pre-filtered by `auth()` to keep
- * the same gate model that `/admin/mail-inbox` uses on the page side.
+ * Streams a stored mail attachment back to the browser. admin / vice_admin only.
  *
- * Two design notes worth preserving as later PRs touch this:
- *   - bytea is materialised into a Node Buffer by the `pg` driver (see
- *     `packages/shared/src/schema/mail-attachments.ts` customType). We pass
- *     it straight to `new NextResponse(Buffer)`; no Uint8Array round-trip.
- *   - Filenames are RFC 5987-encoded (`filename*=UTF-8''…`) alongside a
- *     legacy `filename="…"` so non-ASCII names like "大会要項.pdf" survive
- *     proxies that reject 8-bit headers. Modern browsers prefer the
- *     starred form (Firefox, Chrome, Safari all read it).
+ * Mail attachments are UNTRUSTED user input from the IMAP fetcher: a hostile
+ * sender can attach `text/html` or `image/svg+xml` and turn an inline preview
+ * into stored XSS on the same origin as the admin UI. To prevent that:
+ *   - Only `application/pdf` (sandboxed by the browser viewer) is allowed to
+ *     render inline; everything else is forced to
+ *     `Content-Disposition: attachment` with `Content-Type: application/octet-stream`
+ *     so the browser downloads instead of executing.
+ *   - `X-Content-Type-Options: nosniff` is always set so the browser cannot
+ *     override the declared type by sniffing the body.
+ *
+ * Filenames are RFC 5987-encoded (`filename*=UTF-8''…`) alongside a legacy
+ * `filename="…"` so non-ASCII names like "大会要項.pdf" survive proxies that
+ * reject 8-bit headers.
  *
  * Refs:
  *   - https://nextjs.org/docs/app/building-your-application/routing/route-handlers
  *   - https://datatracker.ietf.org/doc/html/rfc5987
+ *   - https://datatracker.ietf.org/doc/html/rfc6266
  */
+const INLINE_ALLOWED_CONTENT_TYPES = new Set<string>([
+  'application/pdf',
+  'application/x-pdf',
+])
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -57,24 +66,36 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
+  // Strip parameters (e.g. `; charset=utf-8`) before allowlist comparison so a
+  // hostile `application/pdf; charset=utf-8\r\n…` header can't slip through and
+  // also can't header-inject — we never echo the raw value back.
+  const declaredContentType = (row.contentType ?? '')
+    .toLowerCase()
+    .split(';')[0]
+    ?.trim() ?? ''
+  const allowInline = INLINE_ALLOWED_CONTENT_TYPES.has(declaredContentType)
+  const responseContentType = allowInline ? declaredContentType : 'application/octet-stream'
+  const dispositionType = allowInline ? 'inline' : 'attachment'
+
   const safeAscii = row.filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '')
   const utf8Encoded = encodeURIComponent(row.filename)
-  const disposition = `inline; filename="${safeAscii}"; filename*=UTF-8''${utf8Encoded}`
+  const disposition = `${dispositionType}; filename="${safeAscii}"; filename*=UTF-8''${utf8Encoded}`
 
   // pg returns bytea as a Node Buffer (a Uint8Array subclass over an
-  // ArrayBufferLike). lib.dom's `BlobPart` and `BodyInit` insist on a
-  // plain `ArrayBuffer`-backed Uint8Array, so we copy the bytes once into a
-  // fresh ArrayBuffer-backed view. For mail-worker attachments capped at
-  // ~30 MB the copy cost is negligible relative to the network egress.
+  // ArrayBufferLike). lib.dom's `BodyInit` insists on a plain
+  // `ArrayBuffer`-backed Uint8Array, so we copy the bytes once into a fresh
+  // ArrayBuffer-backed view and hand that straight to NextResponse — passing
+  // a Blob round-trips bytes through jsdom's UTF-8 path under tests, which
+  // truncates on multibyte boundaries.
   const copied = new Uint8Array(row.sizeBytes)
   copied.set(row.data)
-  const blob = new Blob([copied], { type: row.contentType || 'application/octet-stream' })
-  return new NextResponse(blob, {
+  return new NextResponse(copied, {
     status: 200,
     headers: {
-      'Content-Type': row.contentType || 'application/octet-stream',
+      'Content-Type': responseContentType,
       'Content-Disposition': disposition,
       'Content-Length': row.sizeBytes.toString(),
+      'X-Content-Type-Options': 'nosniff',
       // Attachments may carry tournament info before approval; do not let
       // browser caches retain them past the auth boundary.
       'Cache-Control': 'no-store',

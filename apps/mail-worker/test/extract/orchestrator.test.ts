@@ -31,7 +31,10 @@ describe('extractAttachment (orchestrator)', () => {
     expect(result.text).toBe('Hello DOCX')
   })
 
-  it('routes the XLSX OpenXML content type to the XLSX extractor', async () => {
+  it('treats XLSX OpenXML attachments as unsupported (PR2: extractor disabled)', async () => {
+    // PR2 dropped the XLSX text extractor because the only viable JS parser
+    // (`xlsx@0.18.5`) carries unpatched high-severity vulnerabilities. The
+    // binary still persists upstream; we just refuse to parse it.
     const data = buildMinimalXlsx('S1', [['a', 'b']])
     const result = await extractAttachment({
       contentType:
@@ -39,8 +42,19 @@ describe('extractAttachment (orchestrator)', () => {
       filename: 'roster.xlsx',
       data,
     })
-    expect(result.status).toBe('extracted')
-    expect(result.text).toContain('a,b')
+    expect(result.status).toBe('unsupported')
+    expect(result.text).toBeNull()
+  })
+
+  it('treats octet-stream + .xlsx filename as unsupported', async () => {
+    // Suffix-tiebreaker must NOT route XLSX through any extractor.
+    const result = await extractAttachment({
+      contentType: 'application/octet-stream',
+      filename: 'roster.xlsx',
+      data: buildMinimalXlsx('S', [['a']]),
+    })
+    expect(result.status).toBe('unsupported')
+    expect(result.text).toBeNull()
   })
 
   it('falls back to filename suffix for application/octet-stream', async () => {

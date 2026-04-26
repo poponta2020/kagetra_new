@@ -44,7 +44,6 @@ describe('pipeline (attachments → DB)', () => {
     expect(summary.attachmentsExtractionFailed).toBe(0)
     expect(summary.attachmentsUnsupported).toBe(0)
     expect(summary.attachmentsSkipped).toBe(0)
-    expect(summary.attachmentsDbFailed).toBe(0)
 
     const [mail] = await testDb.select().from(mailMessages)
     expect(mail).toBeTruthy()
@@ -89,7 +88,10 @@ describe('pipeline (attachments → DB)', () => {
     expect(rows[0]!.extractedText).toBe('参加申込書 PR2')
   })
 
-  it('extracts XLSX text via SheetJS sheet_to_csv', async () => {
+  it('persists XLSX attachments as unsupported (PR2: extractor disabled)', async () => {
+    // PR2 dropped the XLSX text extractor (xlsx@0.18.5 has unpatched high-
+    // severity Prototype Pollution / ReDoS); the binary still persists so an
+    // admin can download it manually.
     const xlsx = buildMinimalXlsx('Schedule', [
       ['Date', 'Round'],
       ['2026-05-30', 'A'],
@@ -111,12 +113,14 @@ describe('pipeline (attachments → DB)', () => {
     })
     const summary = await runPipelineFromFixtures([{ source: eml }])
     expect(summary.attachmentsInserted).toBe(1)
-    expect(summary.attachmentsExtracted).toBe(1)
+    expect(summary.attachmentsExtracted).toBe(0)
+    expect(summary.attachmentsUnsupported).toBe(1)
 
     const rows = await testDb.select().from(mailAttachments)
     expect(rows).toHaveLength(1)
-    expect(rows[0]!.extractedText).toContain('Date,Round')
-    expect(rows[0]!.extractedText).toContain('2026-05-30,A')
+    expect(rows[0]!.extractionStatus).toBe('unsupported')
+    expect(rows[0]!.extractedText).toBeNull()
+    expect(rows[0]!.data.equals(xlsx)).toBe(true)
   })
 
   it('persists a corrupt PDF with extraction_status=failed and keeps the binary', async () => {
@@ -286,14 +290,17 @@ describe('pipeline (attachments → DB)', () => {
     })
     const summary = await runPipelineFromFixtures([{ source: eml }])
     expect(summary.attachmentsInserted).toBe(3)
-    expect(summary.attachmentsExtracted).toBe(2)
+    expect(summary.attachmentsExtracted).toBe(1)
     expect(summary.attachmentsExtractionFailed).toBe(1)
+    // XLSX no longer extracts (see file-level note); it lands as unsupported
+    // alongside the corrupt PDF that lands as failed.
+    expect(summary.attachmentsUnsupported).toBe(1)
 
     const rows = await testDb.select().from(mailAttachments)
     expect(rows).toHaveLength(3)
     const byName = new Map(rows.map((r) => [r.filename, r]))
     expect(byName.get('good.pdf')!.extractionStatus).toBe('extracted')
     expect(byName.get('broken.pdf')!.extractionStatus).toBe('failed')
-    expect(byName.get('good.xlsx')!.extractionStatus).toBe('extracted')
+    expect(byName.get('good.xlsx')!.extractionStatus).toBe('unsupported')
   })
 })
