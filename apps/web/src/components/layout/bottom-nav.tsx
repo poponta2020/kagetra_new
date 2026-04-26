@@ -31,6 +31,16 @@ const TABS: readonly Tab[] = [
     matches: ['/admin/members', '/members'],
     adminOnly: true,
   },
+  // mail-tournament-import (PR1): admin-only inbox of mails fetched by
+  // apps/mail-worker. Hidden for general members so the BottomNav stays at
+  // 4 tabs for them; admins see 5.
+  {
+    id: 'mail-inbox',
+    label: 'メール',
+    href: '/admin/mail-inbox',
+    matches: ['/admin/mail-inbox'],
+    adminOnly: true,
+  },
 ]
 
 function matchesPath(pathname: string, prefix: string): boolean {
