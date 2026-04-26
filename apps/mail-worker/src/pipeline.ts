@@ -188,6 +188,11 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         summary.failed += 1
         log.warn('mail persist failed', {
           messageId: meta.messageId,
+          // Mirror the fetch-error log fields (`pipeline.ts:104-110`) so an
+          // operator can cross-reference the failing mail against the IMAP
+          // server's per-uid state.
+          imapUid: meta.imapUid,
+          imapBox: meta.imapBox,
           err: err instanceof Error ? err.message : String(err),
         })
         continue

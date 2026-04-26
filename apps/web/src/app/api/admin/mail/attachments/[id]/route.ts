@@ -48,10 +48,14 @@ export async function GET(
   }
 
   const { id } = await params
-  const attachmentId = Number.parseInt(id, 10)
-  if (!Number.isFinite(attachmentId) || attachmentId <= 0) {
+  // Reject anything other than a canonical positive integer string. Drizzle
+  // parameterizes the query so SQL injection isn't the concern; the worry is
+  // that `Number.parseInt('1.5', 10)` and `Number.parseInt('1e5', 10)` both
+  // return `1`, silently mapping unrelated URLs onto the same row.
+  if (!/^[1-9]\d*$/.test(id)) {
     return NextResponse.json({ error: 'Invalid attachment id' }, { status: 400 })
   }
+  const attachmentId = Number.parseInt(id, 10)
 
   const row = await db.query.mailAttachments.findFirst({
     where: eq(mailAttachments.id, attachmentId),
@@ -59,7 +63,6 @@ export async function GET(
       data: true,
       filename: true,
       contentType: true,
-      sizeBytes: true,
     },
   })
   if (!row) {
@@ -87,14 +90,20 @@ export async function GET(
   // ArrayBuffer-backed view and hand that straight to NextResponse — passing
   // a Blob round-trips bytes through jsdom's UTF-8 path under tests, which
   // truncates on multibyte boundaries.
-  const copied = new Uint8Array(row.sizeBytes)
+  //
+  // Size is taken from the actual `data` payload, not the `sizeBytes` column.
+  // The writer (imap-client) falls back to `data.length` when mailparser
+  // misreports `part.size`, so the two can drift; trusting the column would
+  // either RangeError on `copied.set` (column < data) or return a
+  // zero-padded body that hangs the browser on Content-Length (column > data).
+  const copied = new Uint8Array(row.data.length)
   copied.set(row.data)
   return new NextResponse(copied, {
     status: 200,
     headers: {
       'Content-Type': responseContentType,
       'Content-Disposition': disposition,
-      'Content-Length': row.sizeBytes.toString(),
+      'Content-Length': row.data.length.toString(),
       'X-Content-Type-Options': 'nosniff',
       // Attachments may carry tournament info before approval; do not let
       // browser caches retain them past the auth boundary.

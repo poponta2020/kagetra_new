@@ -26,12 +26,18 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
     isEvalSupported: false,
   }).promise
 
-  const pages: string[] = []
-  for (let n = 1; n <= pdf.numPages; n += 1) {
-    const page = await pdf.getPage(n)
-    const tc = await page.getTextContent()
-    pages.push(tc.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+  // Wrap the per-page loop in try/finally so a malformed PDF that throws from
+  // `getPage`/`getTextContent` still releases the pdfjs document handle.
+  // Without this, the cron worker leaks worker / font buffers across runs.
+  try {
+    const pages: string[] = []
+    for (let n = 1; n <= pdf.numPages; n += 1) {
+      const page = await pdf.getPage(n)
+      const tc = await page.getTextContent()
+      pages.push(tc.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+    }
+    return pages.join('\n').trim()
+  } finally {
+    await pdf.destroy()
   }
-  await pdf.destroy()
-  return pages.join('\n').trim()
 }

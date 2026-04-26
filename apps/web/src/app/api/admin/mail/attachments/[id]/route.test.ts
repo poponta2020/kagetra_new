@@ -65,6 +65,16 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     expect(mockFindFirst).not.toHaveBeenCalled()
   })
 
+  it.each(['1.5', '1e5', '01', '-1', ' 1', '1 '])(
+    'returns 400 for non-canonical id %p (parseInt would silently coerce)',
+    async (badId) => {
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const res = await GET(makeRequest(), mkParams(badId))
+      expect(res.status).toBe(400)
+      expect(mockFindFirst).not.toHaveBeenCalled()
+    },
+  )
+
   it('returns 404 when the row is missing', async () => {
     await setAuthSession({ id: 'u1', role: 'admin' })
     mockFindFirst.mockResolvedValue(undefined)
@@ -159,6 +169,27 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
     // Whatever the stored value, the response carries no `; bogus=1`.
     expect(res.headers.get('content-type')).not.toContain('bogus')
+  })
+
+  it('uses data.length for body + Content-Length even when sizeBytes column disagrees', async () => {
+    // Writer (imap-client) falls back to `data.length` when mailparser
+    // misreports `part.size`, so the column can drift. Trusting the column
+    // here would either RangeError (column < data) or return a zero-padded
+    // body the browser waits forever on (column > data).
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    const data = Buffer.from('%PDF-1.4 mismatch')
+    mockFindFirst.mockResolvedValue({
+      data,
+      filename: 'a.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: data.length + 100, // intentionally wrong
+    })
+    const res = await GET(makeRequest(), mkParams('1'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-length')).toBe(String(data.length))
+    const body = new Uint8Array(await res.arrayBuffer())
+    expect(body.byteLength).toBe(data.length)
+    expect(Array.from(body)).toEqual(Array.from(new Uint8Array(data)))
   })
 
   it('emits both legacy filename= and RFC 5987 filename*= for non-ASCII names', async () => {
