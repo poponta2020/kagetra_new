@@ -1,8 +1,8 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { mailMessages } from '@kagetra/shared/schema'
 import { Card, Pill, type PillTone } from '@/components/ui'
+import { AttachmentList } from './components/AttachmentList'
 
 /**
  * /admin/mail-inbox — list of mails fetched by `apps/mail-worker` (PR1).
@@ -57,9 +57,12 @@ export default async function MailInboxPage() {
   }
 
   // List view never renders body_text / body_html. Restrict columns so the top
-  // 100 rows don't drag full HTML bodies (and, post-PR2, attachment-derived
-  // payloads) across the wire on every page load. The detail view will fetch
-  // them on demand when it lands.
+  // 100 rows don't drag full HTML bodies across the wire on every page load.
+  // PR2 layers in attachment chips: we pull only the chip-worthy columns
+  // (id / filename / content_type / extraction_status) — `data` (bytea) is
+  // explicitly omitted so the list query doesn't haul attachment payloads
+  // into the response body. The detail view will fetch full bodies on demand
+  // when PR4 lands.
   const rows = await db.query.mailMessages.findMany({
     columns: {
       id: true,
@@ -69,6 +72,16 @@ export default async function MailInboxPage() {
       fromAddress: true,
       status: true,
       classification: true,
+    },
+    with: {
+      attachments: {
+        columns: {
+          id: true,
+          filename: true,
+          contentType: true,
+          extractionStatus: true,
+        },
+      },
     },
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: 100,
@@ -120,6 +133,7 @@ export default async function MailInboxPage() {
                   <div className="text-xs text-ink-meta truncate">
                     {row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress}
                   </div>
+                  <AttachmentList items={row.attachments} />
                 </div>
               </Card>
             )
