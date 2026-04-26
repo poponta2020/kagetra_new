@@ -50,6 +50,13 @@
       "when": 1777123636439,
       "tag": "0006_solid_mindworm",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777174603485,
+      "tag": "0007_massive_living_lightning",
+      "breakpoints": true
     }
   ]
 }
