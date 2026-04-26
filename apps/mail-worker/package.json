@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@kagetra/shared": "workspace:*",
     "dotenv": "^16.4.0",
     "drizzle-orm": "0.45.2",
@@ -23,7 +24,8 @@
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^5.6.205",
     "pg": "^8.13.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@kagetra/typescript-config": "workspace:*",
