@@ -56,6 +56,13 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid attachment id' }, { status: 400 })
   }
   const attachmentId = Number.parseInt(id, 10)
+  // `mail_attachments.id` is Postgres `serial` (int4). Anything beyond
+  // 2**31 - 1 cannot exist in the column — reject at the route boundary so
+  // pg doesn't raise a runtime "value out of range" 500 for what is really a
+  // 400-class input.
+  if (attachmentId > 2147483647) {
+    return NextResponse.json({ error: 'Invalid attachment id' }, { status: 400 })
+  }
 
   const row = await db.query.mailAttachments.findFirst({
     where: eq(mailAttachments.id, attachmentId),
@@ -92,10 +99,11 @@ export async function GET(
   // truncates on multibyte boundaries.
   //
   // Size is taken from the actual `data` payload, not the `sizeBytes` column.
-  // The writer (imap-client) falls back to `data.length` when mailparser
-  // misreports `part.size`, so the two can drift; trusting the column would
-  // either RangeError on `copied.set` (column < data) or return a
-  // zero-padded body that hangs the browser on Content-Length (column > data).
+  // The writer (imap-client) now pins `sizeBytes` to `data.length`, so the
+  // two should agree — but we keep the defensive copy here so any historical
+  // row written before that fix (or future divergence) cannot RangeError on
+  // `copied.set` (column < data) or hang the browser on a zero-padded body
+  // (column > data).
   const copied = new Uint8Array(row.data.length)
   copied.set(row.data)
   return new NextResponse(copied, {

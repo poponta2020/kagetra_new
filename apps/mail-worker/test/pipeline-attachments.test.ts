@@ -258,10 +258,17 @@ describe('pipeline (attachments → DB)', () => {
     })
     const first = await runPipelineFromFixtures([{ source: eml }])
     expect(first.attachmentsInserted).toBe(1)
+    expect(first.attachmentsExtracted).toBe(1)
 
     const second = await runPipelineFromFixtures([{ source: eml }])
     expect(second.duplicated).toBe(1)
     expect(second.attachmentsInserted).toBe(0)
+    // Pre-check on Message-ID skips extraction entirely for the duplicate.
+    // Without it, every cron re-fetch would re-parse the same PDFs (which
+    // can be tens of megabytes) for nothing.
+    expect(second.attachmentsExtracted).toBe(0)
+    expect(second.attachmentsExtractionFailed).toBe(0)
+    expect(second.attachmentsUnsupported).toBe(0)
     // mail_attachments should still hold exactly one row.
     const rows = await testDb.select().from(mailAttachments)
     expect(rows).toHaveLength(1)

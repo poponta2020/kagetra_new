@@ -75,6 +75,16 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     },
   )
 
+  it('returns 400 for ids beyond int4 max (would 500 from pg otherwise)', async () => {
+    // `mail_attachments.id` is a Postgres serial (int4). A canonical-looking
+    // digit string above 2**31 - 1 passes the regex but crashes the query;
+    // we want it surfaced as 400, not as a generic 500.
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    const res = await GET(makeRequest(), mkParams('999999999999999999999'))
+    expect(res.status).toBe(400)
+    expect(mockFindFirst).not.toHaveBeenCalled()
+  })
+
   it('returns 404 when the row is missing', async () => {
     await setAuthSession({ id: 'u1', role: 'admin' })
     mockFindFirst.mockResolvedValue(undefined)

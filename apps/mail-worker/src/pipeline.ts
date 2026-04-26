@@ -1,6 +1,6 @@
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
-import { insertMailMessage } from './persist/mail-message.js'
+import { findByMessageId, insertMailMessage } from './persist/mail-message.js'
 import { insertMailAttachment } from './persist/attachment.js'
 import { extractAttachment, type ExtractionStatus } from './extract/orchestrator.js'
 import { getDb } from './db.js'
@@ -131,6 +131,26 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
       // operators care that an inline-only mail came in even when the parent
       // row already existed.
       accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
+
+      // Pre-check Message-ID before kicking off CPU-heavy extraction. cron
+      // re-fetches the same window on every tick, so most mails already exist
+      // and re-parsing their PDFs (which can be tens of megabytes through
+      // pdfjs) is pure waste. The transactional `ON CONFLICT DO NOTHING` in
+      // `insertMailMessage` is still our final defense against the rare race
+      // where two workers land the same Message-ID concurrently — this
+      // pre-check is a fast path, not a uniqueness guarantee.
+      const existing = await findByMessageId(db, meta.messageId)
+      if (existing) {
+        summary.duplicated += 1
+        if (noise) summary.noise += 1
+        log.info('persisted mail', {
+          id: null,
+          messageId: meta.messageId,
+          duplicated: true,
+          noise,
+        })
+        continue
+      }
 
       // Extract first, outside the DB transaction. Extraction is CPU-heavy
       // and side-effect-free, so we don't want to hold a Postgres txn open

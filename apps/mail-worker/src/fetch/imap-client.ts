@@ -300,7 +300,13 @@ function collectAttachments(parsed: import('mailparser').ParsedMail): {
       : null
     const contentType = part.contentType ?? 'application/octet-stream'
     const data = part.content instanceof Buffer ? part.content : Buffer.from(part.content)
-    const sizeBytes = typeof part.size === 'number' && part.size > 0 ? part.size : data.length
+    // The 30 MB gate must run against the actual decoded payload, not
+    // mailparser's `part.size` — that field is best-effort and can under-report
+    // (e.g. when `size` is taken from a Content-Length-style header that
+    // differs from the decoded body), which would let an oversized buffer
+    // through into bytea. We always trust `data.length` for both the gate and
+    // the persisted column so the download route's size accounting agrees.
+    const sizeBytes = data.length
 
     if (part.related === true && typeof part.cid === 'string' && part.cid.length > 0) {
       attachmentSkips.push({ filename, contentType, sizeBytes, reason: 'inline_referenced' })
