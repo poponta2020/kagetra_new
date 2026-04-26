@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { mailMessages } from '@kagetra/shared/schema'
 import {
@@ -64,6 +66,81 @@ describe('parseReextractArgs', () => {
     expect(args.help).toBe(true)
     expect(args.includePrefilterNoise).toBe(false)
   })
+
+  it('rejects calendar-day overflow like 2026-04-31 even though Date silently rolls it forward', () => {
+    // Review r3 Nit: `new Date('2026-04-31T00:00:00+09:00')` does NOT
+    // produce NaN; it normalises to 2026-05-01 JST, which would silently
+    // shift an operator's `--since` by a day. The round-trip check must
+    // reject it so the operator sees the typo.
+    expect(() =>
+      parseReextractArgs(['node', 'reextract.ts', '--since=2026-04-31']),
+    ).toThrow(/2026-04-31/)
+  })
+
+  it('rejects malformed date shapes (not YYYY-MM-DD)', () => {
+    // Single-digit month/day, ISO datetime, garbage strings — all rejected
+    // up front by the regex.
+    expect(() =>
+      parseReextractArgs(['node', 'reextract.ts', '--since=2026-4-1']),
+    ).toThrow(/YYYY-MM-DD/)
+    expect(() =>
+      parseReextractArgs([
+        'node',
+        'reextract.ts',
+        '--since=2026-04-15T09:00:00Z',
+      ]),
+    ).toThrow(/YYYY-MM-DD/)
+    expect(() =>
+      parseReextractArgs(['node', 'reextract.ts', '--since=yesterday']),
+    ).toThrow(/YYYY-MM-DD/)
+  })
+
+  it('throws on unknown flags instead of silently dropping them', () => {
+    // Review r3 Nit: a typo like `--include-prefiler-noise` previously fell
+    // through the `if`/`else if` chain and the operator would think the
+    // run included pre-filter noise when it didn't.
+    expect(() =>
+      parseReextractArgs([
+        'node',
+        'reextract.ts',
+        '--since=2026-04-01',
+        '--include-prefiler-noise',
+      ]),
+    ).toThrow(/unknown flag/)
+  })
+})
+
+describe('reextract CLI entrypoint', () => {
+  it('prints usage when invoked as a script with --help on every platform', () => {
+    // Review r3 Should fix: the entrypoint guard previously compared
+    // `import.meta.url` against a hand-built `file://${argv[1]}`, which is
+    // off by one slash on Windows (`file://C:/...` vs `file:///C:/...`).
+    // The result was that `tsx src/reextract.ts --help` exited 0 with no
+    // output, leaving operators thinking re-extracts succeeded when in
+    // fact the CLI body never ran.
+    //
+    // We invoke the script via the local `tsx` and assert usage shows up
+    // on stdout. This catches a regression from any future entrypoint
+    // tweak (e.g. switching to a different URL helper).
+    const reextractPath = fileURLToPath(
+      new URL('../src/reextract.ts', import.meta.url),
+    )
+    // `npx --no-install tsx` would also work but is slower; `pnpm exec`
+    // is already on PATH in CI and dev. Use shell:true so Windows can
+    // resolve the `pnpm.cmd` shim (matches the rest of the test suite —
+    // see the test-db helper).
+    const result = spawnSync(
+      'pnpm',
+      ['exec', 'tsx', reextractPath, '--help'],
+      {
+        encoding: 'utf8',
+        shell: true,
+      },
+    )
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Usage:')
+    expect(result.stdout).toContain('--include-prefilter-noise')
+  }, 30_000)
 })
 
 describe('selectReextractTargets', () => {

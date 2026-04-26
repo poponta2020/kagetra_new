@@ -3,10 +3,11 @@ import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
-import type {
-  LLMExtractionInput,
-  LLMExtractionResult,
-  LLMExtractor,
+import {
+  LLMExtractorError,
+  type LLMExtractionInput,
+  type LLMExtractionResult,
+  type LLMExtractor,
 } from './llm/types.js'
 import { buildSystemPrompt, PROMPT_VERSION } from './prompt.js'
 
@@ -26,8 +27,22 @@ export type ClassifyOutcome =
   | { kind: 'noise'; result: LLMExtractionResult }
   /** Pre-filter (PR1) already classified the mail as noise; skip the LLM. */
   | { kind: 'skipped_noise' }
-  /** LLM call or Zod validation failed twice; payload to persist comes from caller. */
-  | { kind: 'failed'; rawResponse: string | null; reason: string }
+  /**
+   * LLM call or Zod validation failed twice; payload to persist comes from
+   * caller. `rawResponse` carries the provider's actual response when the
+   * thrown error was an `LLMExtractorError` subclass (e.g. content blocks
+   * for `LLMNoToolUseError`, the unparsed tool input for
+   * `LLMValidationError`); otherwise it falls back to the error message.
+   * `attemptedModel` is the `llm.modelId` of the extractor that failed,
+   * recorded so the `ai_failed` draft's `ai_model` column stays accurate
+   * across model bumps and provider swaps.
+   */
+  | {
+      kind: 'failed'
+      rawResponse: string | null
+      attemptedModel: string
+      reason: string
+    }
 
 export interface ClassifyOptions {
   /**
@@ -131,9 +146,20 @@ export async function classifyMail(
   }
 
   if (!lastResult) {
+    // Prefer the provider response captured by `LLMExtractorError` (e.g.
+    // Anthropic's tool_use-less content blocks or the unparsed tool input
+    // from a Zod failure). Fall back to the error message only when the
+    // error didn't carry a provider response.
+    const rawResponse =
+      lastError instanceof LLMExtractorError
+        ? lastError.rawResponse
+        : lastError instanceof Error
+          ? lastError.message
+          : String(lastError)
     return {
       kind: 'failed',
-      rawResponse: lastError instanceof Error ? lastError.message : String(lastError),
+      rawResponse,
+      attemptedModel: llm.modelId,
       reason: 'LLM call or Zod validation failed twice',
     }
   }
@@ -206,10 +232,11 @@ export async function persistOutcome(
       extractedPayload: {},
       aiRawResponse: outcome.rawResponse,
       promptVersion: PROMPT_VERSION,
-      // We don't know which model was attempted (it failed before reaching
-      // the result), but `ai_model` is NOT NULL — record the configured
-      // model name from the prompt-version line so the row stays insertable.
-      aiModel: 'claude-sonnet-4-6',
+      // The classifier captured the extractor's `modelId` at the time of
+      // failure, so this stays correct after a model bump or under a
+      // non-Anthropic extractor — review r3 Should fix replaced the
+      // previous `'claude-sonnet-4-6'` literal.
+      aiModel: outcome.attemptedModel,
       aiTokensInput: null,
       aiTokensOutput: null,
       aiCostUsd: null,

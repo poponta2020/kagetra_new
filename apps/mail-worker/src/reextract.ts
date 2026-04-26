@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import { and, eq, gte, inArray, or } from 'drizzle-orm'
 import { mailMessages } from '@kagetra/shared/schema'
 import { closeDb, getDb, type Db } from './db.js'
@@ -51,6 +52,14 @@ interface ReextractArgs {
 
 const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived', 'ai_processing'] as const
 
+// `^YYYY-MM-DD$`. The format check is shape-only; we still round-trip the
+// resulting Date back into JST y/m/d to catch values like `2026-04-31` that
+// the JS `Date` constructor silently rolls into the next month (review r3
+// Nit). `\d{4}` would also accept `9999`, which is fine — calendar dates
+// only need to be syntactically well-formed; out-of-range years are an
+// operator typo we accept rather than complicate the regex.
+const SINCE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
 function parseArgs(argv: readonly string[]): ReextractArgs {
   const args: ReextractArgs = {
     since: null,
@@ -58,22 +67,76 @@ function parseArgs(argv: readonly string[]): ReextractArgs {
     help: false,
   }
   for (const a of argv.slice(2)) {
-    if (a === '--help' || a === '-h') args.help = true
-    else if (a === '--include-prefilter-noise') args.includePrefilterNoise = true
-    else if (a.startsWith('--since=')) {
+    if (a === '--help' || a === '-h') {
+      args.help = true
+    } else if (a === '--include-prefilter-noise') {
+      args.includePrefilterNoise = true
+    } else if (a.startsWith('--since=')) {
       const v = a.slice('--since='.length)
       // Operators always pass a calendar day for re-extracts; the inline
-      // `T00:00:00+09:00` parse keeps the CLI surface narrow. ISO datetimes
-      // are intentionally rejected here — see `printUsage()` and the
-      // matching `--since=YYYY-MM-DD` error below.
-      const date = new Date(`${v}T00:00:00+09:00`)
-      if (Number.isNaN(date.getTime())) {
+      // `T00:00:00+09:00` parse keeps the CLI surface narrow. We refuse
+      // ISO datetimes, missing zero-pads (`2026-4-1`), and out-of-range
+      // calendar days (`2026-04-31`) here — all three used to slip through
+      // because `new Date(...)` either NaN'd silently or auto-rolled the
+      // overflow (review r3 Nit).
+      const match = SINCE_DATE_RE.exec(v)
+      if (!match) {
         throw new Error(`--since must be YYYY-MM-DD, got: ${v}`)
       }
+      const [, yyyy, mm, dd] = match
+      const date = new Date(`${v}T00:00:00+09:00`)
+      // Round-trip back through JST y/m/d to reject `2026-04-31` (which
+      // `Date` accepts and rolls forward to 2026-05-01). We compare the
+      // JST-local components rather than UTC ones — JST is the parsed
+      // timezone, so a same-day round-trip means it's a real calendar day.
+      const jst = jstYearMonthDay(date)
+      if (
+        Number.isNaN(date.getTime()) ||
+        jst.year !== Number(yyyy) ||
+        jst.month !== Number(mm) ||
+        jst.day !== Number(dd)
+      ) {
+        throw new Error(`--since is not a valid calendar day: ${v}`)
+      }
       args.since = date
+    } else {
+      // Unknown flag — fail loudly rather than silently no-op. Without this
+      // a typo like `--include-prefiler-noise` would just be dropped and
+      // the operator would think the run included pre-filter noise when it
+      // didn't (review r3 Nit).
+      throw new Error(`unknown flag: ${a}`)
     }
   }
   return args
+}
+
+/**
+ * Extract JST (UTC+9) calendar y/m/d from a Date. Used to round-trip the
+ * `--since` value back into the input shape — if the operator passes
+ * `2026-04-31` and JS rolls it to `2026-05-01`, the components won't match.
+ *
+ * Implemented with `toLocaleString` so we don't pull in a tz library; the
+ * `en-CA` locale renders as `YYYY-MM-DD HH:mm:ss`, which we split.
+ */
+function jstYearMonthDay(date: Date): {
+  year: number
+  month: number
+  day: number
+} {
+  const ymd = date
+    .toLocaleString('en-CA', {
+      timeZone: 'Asia/Tokyo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    .slice(0, 10) // strip any time component locales might append
+  const [yearStr, monthStr, dayStr] = ymd.split('-')
+  return {
+    year: Number(yearStr),
+    month: Number(monthStr),
+    day: Number(dayStr),
+  }
 }
 
 function printUsage(): void {
@@ -187,7 +250,17 @@ async function main(): Promise<number> {
 
 // Entrypoint guard. Equivalent to Python's `if __name__ == '__main__':` —
 // allows tests to import this module without auto-running the CLI.
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
+//
+// `pathToFileURL` produces the canonical `file://` form for the current
+// platform: `file:///C:/path/to/reextract.ts` on Windows,
+// `file:///path/to/reextract.ts` on POSIX. Doing the slash count by hand
+// (the previous implementation) got it wrong on Windows — `file://C:/...`
+// vs `file:///C:/...` differ by one slash, so the guard never matched and
+// the CLI silently exited 0 without doing anything (review r3 Should fix).
+if (
+  process.argv[1] &&
+  pathToFileURL(process.argv[1]).href === import.meta.url
+) {
   main()
     .then((code) => {
       process.exit(code)

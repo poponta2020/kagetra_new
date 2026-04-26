@@ -54,6 +54,8 @@ const FIXTURE_NOISE_PAYLOAD: ExtractionPayload = {
 }
 
 export class FixtureLLMExtractor implements LLMExtractor {
+  readonly modelId = FIXTURE_MODEL
+
   constructor(private readonly fixtures: Map<string, ExtractionPayload>) {}
 
   async extract(input: LLMExtractionInput): Promise<LLMExtractionResult> {

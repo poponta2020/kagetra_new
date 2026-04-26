@@ -21,6 +21,7 @@ import type {
  * with `FixtureLLMExtractor` at the call site.
  */
 export class BrokenLLMExtractor implements LLMExtractor {
+  readonly modelId = 'broken'
   private callCount = 0
 
   constructor(private readonly opts: { failOnce?: boolean } = {}) {}

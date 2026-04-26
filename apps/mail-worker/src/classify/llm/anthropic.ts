@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { ExtractionPayloadSchema } from '../schema.js'
-import type {
-  LLMExtractionInput,
-  LLMExtractionResult,
-  LLMExtractor,
+import {
+  LLMExtractorError,
+  type LLMExtractionInput,
+  type LLMExtractionResult,
+  type LLMExtractor,
 } from './types.js'
 import { calculateCostUsd } from '../cost.js'
 import { buildUserPrompt } from '../prompt.js'
@@ -43,7 +44,13 @@ import { buildUserPrompt } from '../prompt.js'
  *     trip and breaks at runtime — see Phase 0 facts.
  */
 const TOOL_NAME = 'record_extraction'
-const MODEL_ID = 'claude-sonnet-4-6'
+/**
+ * Public so the classifier (and tests) can refer to the model by import
+ * rather than by literal string. Previously the classifier's failed branch
+ * had a duplicate `'claude-sonnet-4-6'` literal that drifted out of sync
+ * with this constant whenever we bumped the model (review r3 Should fix).
+ */
+export const ANTHROPIC_SONNET_46_MODEL_ID = 'claude-sonnet-4-6'
 const DEFAULT_MAX_TOKENS = 4096
 
 /**
@@ -51,14 +58,37 @@ const DEFAULT_MAX_TOKENS = 4096
  * name. The classifier (Phase 4) catches this and persists an `ai_failed`
  * draft with the raw response so a reviewer can see what the model said
  * instead of calling the tool.
+ *
+ * Inherits `LLMExtractorError.rawResponse` so the classifier can pull the
+ * JSON-serialised content blocks out without knowing about Anthropic types
+ * (review r3 Should fix: failed-branch `aiRawResponse` used to receive only
+ * the generic error message).
  */
-export class LLMNoToolUseError extends Error {
+export class LLMNoToolUseError extends LLMExtractorError {
   constructor(
     message: string,
     public readonly content: Anthropic.ContentBlock[],
   ) {
-    super(message)
+    super(message, JSON.stringify(content))
     this.name = 'LLMNoToolUseError'
+  }
+}
+
+/**
+ * Thrown when Anthropic returns a `tool_use` block but its `input` payload
+ * fails Zod validation against `ExtractionPayloadSchema`. The classifier
+ * persists `rawResponse` (the unparsed tool input) on the resulting
+ * `ai_failed` draft so a reviewer can see exactly what shape the model
+ * returned.
+ */
+export class LLMValidationError extends LLMExtractorError {
+  constructor(
+    message: string,
+    public readonly toolInput: unknown,
+    public readonly zodError: z.ZodError,
+  ) {
+    super(message, JSON.stringify(toolInput))
+    this.name = 'LLMValidationError'
   }
 }
 
@@ -77,6 +107,7 @@ export interface AnthropicSonnet46Opts {
 export class AnthropicSonnet46Extractor implements LLMExtractor {
   private readonly client: Anthropic
   private readonly maxTokens: number
+  readonly modelId: string = ANTHROPIC_SONNET_46_MODEL_ID
 
   constructor(opts: AnthropicSonnet46Opts) {
     this.client = new Anthropic({ apiKey: opts.apiKey, maxRetries: 3 })
@@ -101,7 +132,7 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
     delete inputSchemaJson.$schema
 
     const response = await this.client.messages.create({
-      model: MODEL_ID,
+      model: ANTHROPIC_SONNET_46_MODEL_ID,
       max_tokens: this.maxTokens,
       system: [
         {
@@ -151,11 +182,21 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
       )
     }
     // `toolUse.input` is already a parsed object — the SDK does not deliver
-    // it as a JSON string. Hand it straight to Zod for validation.
-    const parsed = ExtractionPayloadSchema.parse(toolUse.input)
+    // it as a JSON string. Hand it straight to Zod for validation. We wrap
+    // the Zod failure as `LLMValidationError` so the classifier (and the
+    // human eventually reviewing the `ai_failed` draft) can see the actual
+    // tool input the model returned, not just the Zod error message.
+    const safeParse = ExtractionPayloadSchema.safeParse(toolUse.input)
+    if (!safeParse.success) {
+      throw new LLMValidationError(
+        `Anthropic tool_use input failed schema validation: ${safeParse.error.message}`,
+        toolUse.input,
+        safeParse.error,
+      )
+    }
 
     return {
-      parsed,
+      parsed: safeParse.data,
       raw: JSON.stringify(toolUse.input),
       tokensInput: response.usage.input_tokens,
       tokensOutput: response.usage.output_tokens,
@@ -168,7 +209,7 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
           response.usage.cache_creation_input_tokens ?? 0,
         cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
       }),
-      model: MODEL_ID,
+      model: ANTHROPIC_SONNET_46_MODEL_ID,
       promptVersion: input.promptVersion,
     }
   }

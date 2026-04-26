@@ -16,7 +16,12 @@ import {
   loadFixturesFromDir,
 } from '../../src/classify/llm/fixture.js'
 import { BrokenLLMExtractor } from '../../src/classify/llm/broken.js'
-import type { LLMExtractionResult } from '../../src/classify/llm/types.js'
+import {
+  LLMExtractorError,
+  type LLMExtractionInput,
+  type LLMExtractionResult,
+  type LLMExtractor,
+} from '../../src/classify/llm/types.js'
 import { closeTestDb, testDb, truncateMailTables } from '../test-db.js'
 import { closeDb, getDb } from '../../src/db.js'
 
@@ -115,7 +120,8 @@ describe('classifier', () => {
     it('short-circuits to skipped_noise when pre-filter set classification=noise (force=false)', async () => {
       let calls = 0
       const llm = new FixtureLLMExtractor(new Map())
-      const wrapped = {
+      const wrapped: LLMExtractor = {
+        modelId: llm.modelId,
         async extract(input: Parameters<typeof llm.extract>[0]) {
           calls += 1
           return llm.extract(input)
@@ -180,6 +186,46 @@ describe('classifier', () => {
       if (outcome.kind === 'failed') {
         expect(outcome.rawResponse).toContain('BrokenLLMExtractor')
         expect(outcome.reason).toContain('failed twice')
+        // The attempted model comes from `llm.modelId` (review r3 Should
+        // fix). `BrokenLLMExtractor` advertises itself as 'broken'.
+        expect(outcome.attemptedModel).toBe('broken')
+      }
+    })
+
+    it("preserves the provider's actual response on rawResponse when an LLMExtractorError is thrown", async () => {
+      // Review r3 Should fix: the failed branch used to put only
+      // `error.message` into `rawResponse`, so a reviewer of an `ai_failed`
+      // draft would see "Anthropic response missing tool_use block ..."
+      // with no clue what the model actually returned. The classifier now
+      // reads `rawResponse` directly off any `LLMExtractorError`.
+      class CapturedResponseError extends LLMExtractorError {
+        constructor() {
+          super('no tool_use', JSON.stringify([{ type: 'text', text: 'I refuse' }]))
+        }
+      }
+      class CapturingLLM implements LLMExtractor {
+        readonly modelId = 'test-model-7'
+        async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+          throw new CapturedResponseError()
+        }
+      }
+      const id = await insertTestMail({
+        messageId: '<capture-raw@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      const outcome = await classifyMail(getDb(), id, new CapturingLLM())
+
+      expect(outcome.kind).toBe('failed')
+      if (outcome.kind === 'failed') {
+        // The text the model "actually returned" survives all the way to
+        // the failed outcome instead of being clobbered by a generic
+        // "no tool_use" message.
+        expect(outcome.rawResponse).toContain('I refuse')
+        expect(outcome.rawResponse).not.toContain('no tool_use')
+        // attemptedModel is captured from `llm.modelId` even when the
+        // extractor never produces a result.
+        expect(outcome.attemptedModel).toBe('test-model-7')
       }
     })
 
@@ -307,6 +353,7 @@ describe('classifier', () => {
       const outcome: ClassifyOutcome = {
         kind: 'failed',
         rawResponse: 'Error: BrokenLLMExtractor: forced failure',
+        attemptedModel: 'broken',
         reason: 'LLM call or Zod validation failed twice',
       }
 
@@ -324,6 +371,9 @@ describe('classifier', () => {
       expect(drafts[0]!.status).toBe('ai_failed')
       expect(drafts[0]!.aiRawResponse).toContain('BrokenLLMExtractor')
       expect(drafts[0]!.confidence).toBeNull()
+      // aiModel mirrors outcome.attemptedModel (review r3 Should fix —
+      // previously a hardcoded `'claude-sonnet-4-6'`).
+      expect(drafts[0]!.aiModel).toBe('broken')
 
       const mail = await testDb
         .select()
@@ -533,6 +583,7 @@ describe('classifier', () => {
       const tally = await persistOutcome(getDb(), id, {
         kind: 'failed',
         rawResponse: 'Error: BrokenLLMExtractor: forced failure',
+        attemptedModel: 'broken',
         reason: 'LLM call or Zod validation failed twice',
       })
       expect(tally.draftsPreserved).toBe(1)
