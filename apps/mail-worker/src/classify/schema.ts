@@ -19,7 +19,7 @@ import { z } from 'zod'
  *
  * Date fields stay as `string + regex(YYYY-MM-DD)` rather than `z.date()` to
  * keep the LLM tool-call payload trivially round-trippable as JSON, and to
- * match the JSON Schema we hand to Anthropic via `zod-to-json-schema`.
+ * match the JSON Schema we hand to Anthropic via `z.toJSONSchema`.
  */
 const GradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
 

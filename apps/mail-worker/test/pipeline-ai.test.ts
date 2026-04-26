@@ -5,12 +5,13 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import { runPipelineFromFixtures } from '../src/pipeline.js'
-import { FixtureLLMExtractor } from '../src/classify/llm/fixture.js'
-import { BrokenLLMExtractor } from '../src/classify/llm/broken.js'
 import {
-  ExtractionPayloadSchema,
-  type ExtractionPayload,
-} from '../src/classify/schema.js'
+  FixtureFileSchema,
+  FixtureLLMExtractor,
+  loadFixturesFromDir,
+} from '../src/classify/llm/fixture.js'
+import { BrokenLLMExtractor } from '../src/classify/llm/broken.js'
+import { type ExtractionPayload } from '../src/classify/schema.js'
 import { closeTestDb, testDb, truncateMailTables } from './test-db.js'
 import { closeDb } from '../src/db.js'
 
@@ -23,7 +24,7 @@ async function loadEml(name: string): Promise<Buffer> {
 
 async function loadPayload(filename: string): Promise<ExtractionPayload> {
   const raw = await readFile(join(LLM_FIXTURE_DIR, filename), 'utf8')
-  return ExtractionPayloadSchema.parse(JSON.parse(raw))
+  return FixtureFileSchema.parse(JSON.parse(raw)).payload
 }
 
 const TOURNAMENT_SUBJECT = '[taikai-ajka:828] 第65回全日本選手権大会/ご案内'
@@ -31,11 +32,7 @@ const ML_TOURNAMENT_SUBJECT = '[taikai-ajka:829] 第66回標榜大会のご案�
 const NEWSLETTER_SUBJECT = 'Weekly Update: New Features Available'
 
 async function buildExtractor(): Promise<FixtureLLMExtractor> {
-  const fixtures = new Map<string, ExtractionPayload>()
-  fixtures.set(TOURNAMENT_SUBJECT, await loadPayload('tournament-announcement.expected.json'))
-  fixtures.set(ML_TOURNAMENT_SUBJECT, await loadPayload('ml-tournament.expected.json'))
-  fixtures.set(NEWSLETTER_SUBJECT, await loadPayload('newsletter.expected.json'))
-  return new FixtureLLMExtractor(fixtures)
+  return new FixtureLLMExtractor(await loadFixturesFromDir(LLM_FIXTURE_DIR))
 }
 
 describe('pipeline AI phase (fixture LLM → DB)', () => {
@@ -181,6 +178,74 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
     const mail = await testDb.select().from(mailMessages)
     expect(mail[0]!.classification).toBe('noise')
     expect(mail[0]!.status).toBe('ai_done')
+  })
+
+  it('retries the AI phase on a duplicate whose previous run left status=ai_processing', async () => {
+    // Simulates the crash-mid-call recovery scenario from review r1: a row
+    // marked `ai_processing` by an earlier run that died before
+    // `persistOutcome` finished. On the next pipeline tick the same mail is
+    // re-fetched, hits the duplicate fast path, and (post-fix) re-runs the
+    // AI phase on the existing row instead of leaving it stuck forever.
+    const llm = await buildExtractor()
+    const eml = await loadEml('tournament-announcement.eml')
+
+    // First run completes normally.
+    const first = await runPipelineFromFixtures(
+      [{ source: eml, imapUid: 700 }],
+      { llmExtractor: llm },
+    )
+    expect(first.draftsInserted).toBe(1)
+
+    // Force the row back to ai_processing as if a worker crashed mid-call.
+    await testDb
+      .update(mailMessages)
+      .set({ status: 'ai_processing' })
+      .where(eq(mailMessages.status, 'ai_done'))
+
+    // Second run sees the duplicate and (post-fix) re-runs the AI phase.
+    const second = await runPipelineFromFixtures(
+      [{ source: eml, imapUid: 700 }],
+      { llmExtractor: llm },
+    )
+    expect(second.duplicated).toBe(1)
+    // The retry succeeded — the existing draft is updated, not duplicated.
+    expect(second.aiSucceeded).toBe(1)
+    expect(second.draftsUpdated).toBe(1)
+    expect(second.draftsInserted).toBe(0)
+
+    const drafts = await testDb.select().from(tournamentDrafts)
+    expect(drafts).toHaveLength(1)
+
+    const mail = await testDb.select().from(mailMessages)
+    expect(mail[0]!.status).toBe('ai_done')
+  })
+
+  it('does NOT retry AI on a pre-filter-noise duplicate (status=fetched, classification=noise)', async () => {
+    // Pre-filter noise rows are deliberately never sent to AI — they're
+    // marked `classification='noise'` at insert time and stay `status=fetched`
+    // because the AI phase short-circuits. The duplicate-recovery branch
+    // must respect that decision (review r1 — only resurrect rows whose AI
+    // never had a chance to run, not rows whose AI was deliberately skipped).
+    const llm = await buildExtractor()
+    const eml = await loadEml('newsletter-with-unsubscribe.eml')
+
+    const first = await runPipelineFromFixtures(
+      [{ source: eml, imapUid: 800 }],
+      { llmExtractor: llm },
+    )
+    expect(first.aiSkipped).toBe(1)
+    expect(first.aiSucceeded).toBe(0)
+
+    const second = await runPipelineFromFixtures(
+      [{ source: eml, imapUid: 800 }],
+      { llmExtractor: llm },
+    )
+    expect(second.duplicated).toBe(1)
+    // Crucially: AI was NOT re-run for this duplicate.
+    expect(second.aiSucceeded).toBe(0)
+    expect(second.aiFailed).toBe(0)
+    expect(second.draftsInserted).toBe(0)
+    expect(second.draftsUpdated).toBe(0)
   })
 
   it('without an llmExtractor the AI phase is a no-op (legacy / dry-run compatibility)', async () => {

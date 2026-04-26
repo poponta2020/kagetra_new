@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { ExtractionPayloadSchema, type ExtractionPayload } from '../schema.js'
 import type {
   LLMExtractionInput,
@@ -74,14 +75,30 @@ export class FixtureLLMExtractor implements LLMExtractor {
 }
 
 /**
- * Read a directory of `<subject>.expected.json` files and key each parsed
- * payload by the basename (without extension). Used by `--mock-llm` to seed
- * `FixtureLLMExtractor` from on-disk fixtures without rebuilding the worker.
+ * On-disk fixture file shape: `{ subject, payload }`. The wrapper exists so
+ * `loadFixturesFromDir` can key by the actual mail subject (which may contain
+ * `:` `/` and other characters that aren't legal in Windows filenames). Until
+ * review r1 the loader keyed by filename basename, which silently meant
+ * `--mock-llm` smoke runs never matched any fixture and always returned the
+ * noise default — see PR3 review r1 Should Fix.
+ */
+export const FixtureFileSchema = z.object({
+  subject: z.string(),
+  payload: ExtractionPayloadSchema,
+})
+
+export type FixtureFile = z.infer<typeof FixtureFileSchema>
+
+/**
+ * Read a directory of `*.expected.json` files (each shaped per
+ * `FixtureFileSchema`) and key the parsed payloads by the on-file `subject`.
+ * Used both by `--mock-llm` and by the worker's fixture-based unit tests, so
+ * the two stay in sync.
  *
- * Each file is validated against `ExtractionPayloadSchema` so a typo in a
- * fixture surfaces at load time rather than producing a confusing classifier
- * Zod failure later. Files that don't end in `.expected.json` are ignored so
- * the same directory can also hold human-readable READMEs.
+ * Each file is validated against `FixtureFileSchema` so a typo in a fixture
+ * surfaces at load time rather than producing a confusing classifier Zod
+ * failure later. Files that don't end in `.expected.json` are ignored so the
+ * same directory can also hold human-readable READMEs.
  */
 export async function loadFixturesFromDir(
   dir: string,
@@ -91,9 +108,8 @@ export async function loadFixturesFromDir(
   for (const entry of entries) {
     if (!entry.isFile()) continue
     if (!entry.name.endsWith('.expected.json')) continue
-    const subject = entry.name.slice(0, -'.expected.json'.length)
     const raw = await readFile(join(dir, entry.name), 'utf8')
-    const payload = ExtractionPayloadSchema.parse(JSON.parse(raw))
+    const { subject, payload } = FixtureFileSchema.parse(JSON.parse(raw))
     fixtures.set(subject, payload)
   }
   return fixtures

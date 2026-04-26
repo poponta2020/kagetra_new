@@ -14,11 +14,14 @@ import { loadLlmConfig } from './config.js'
  *   3. Pre-filter rule change — re-classify mails the worker dropped early.
  *
  * Selection criteria:
- *   - `received_at >= --since` (JST 00:00 if a date-only value is given)
- *   - `status IN ('ai_done', 'ai_failed', 'archived')` — these are the
- *     terminal states for which a re-extract is meaningful. `'pending'` and
- *     `'fetched'` will be picked up by the regular pipeline; `'ai_processing'`
- *     means a worker is mid-call and the operator should let it finish.
+ *   - `received_at >= --since` (a YYYY-MM-DD value resolves to JST 00:00)
+ *   - `status IN ('ai_done', 'ai_failed', 'archived', 'ai_processing')` —
+ *     terminal AI states (done/failed/archived) plus `ai_processing` to
+ *     unstick rows whose worker crashed mid-call. The regular pipeline's
+ *     duplicate path also retries `ai_processing` next run, so this is a
+ *     belt-and-braces escape hatch for mails that won't be re-fetched
+ *     (e.g. already deleted from IMAP). `'pending'` and `'fetched'` rows
+ *     are owned by the regular pipeline.
  *
  * Each mail is run through `classifyMail(... { force: true })` so the
  * pre-filter `classification === 'noise'` short-circuit is bypassed. Drafts
@@ -34,7 +37,7 @@ interface ReextractArgs {
   help: boolean
 }
 
-const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived'] as const
+const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived', 'ai_processing'] as const
 
 function parseArgs(argv: readonly string[]): ReextractArgs {
   const args: ReextractArgs = { since: null, help: false }
@@ -42,10 +45,10 @@ function parseArgs(argv: readonly string[]): ReextractArgs {
     if (a === '--help' || a === '-h') args.help = true
     else if (a.startsWith('--since=')) {
       const v = a.slice('--since='.length)
-      // Match the main pipeline's --since semantics (JST start-of-day for a
-      // bare YYYY-MM-DD). Re-uses the inline form to keep the CLI surface
-      // small; cli-args.parseSinceArg also works for ISO datetimes — if the
-      // operator hits the bare-date case in practice, that's enough coverage.
+      // Operators always pass a calendar day for re-extracts; the inline
+      // `T00:00:00+09:00` parse keeps the CLI surface narrow. ISO datetimes
+      // are intentionally rejected here — see `printUsage()` and the
+      // matching `--since=YYYY-MM-DD` error below.
       const date = new Date(`${v}T00:00:00+09:00`)
       if (Number.isNaN(date.getTime())) {
         throw new Error(`--since must be YYYY-MM-DD, got: ${v}`)

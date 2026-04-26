@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { z } from 'zod'
 import { ExtractionPayloadSchema } from '../schema.js'
 import type {
   LLMExtractionInput,
@@ -84,21 +84,18 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
   }
 
   async extract(input: LLMExtractionInput): Promise<LLMExtractionResult> {
-    // `zod-to-json-schema` was published against Zod v3's class hierarchy.
-    // We're on Zod v4, which is runtime-compatible with the library (it
-    // walks `_def` the same way) but does not satisfy the published
-    // `ZodSchema<any>` parameter type. Cast to bypass — runtime behaviour is
-    // identical, and downstream we treat the result as JSON Schema 7
-    // anyway. This is the same workaround the upstream README documents.
-    const inputSchemaJson = zodToJsonSchema(
-      ExtractionPayloadSchema as unknown as Parameters<typeof zodToJsonSchema>[0],
-      {
-        // Default output produces `$ref`-based definitions the Anthropic API
-        // currently rejects. `jsonSchema7` flattens to a single inline
-        // object, which is what `Tool.InputSchema` expects.
-        target: 'jsonSchema7',
-      },
-    ) as Record<string, unknown>
+    // Zod v4 ships its own JSON Schema converter; the older
+    // `zod-to-json-schema` package walks v3's `_def` shape and silently
+    // returns a near-empty `{ "$schema": "..." }` for v4 schemas. That made
+    // the Anthropic call go out with no input_schema constraints at all
+    // (Phase 0 review: PR3 r1 Blocker). `target: 'draft-7'` keeps the
+    // payload aligned with `Tool.InputSchema`, and `io: 'input'` requests
+    // the input-side schema (matters once `.transform()` / coerced types
+    // creep in — currently a no-op but cheap insurance against drift).
+    const inputSchemaJson = z.toJSONSchema(ExtractionPayloadSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }) as Record<string, unknown>
     // `$schema` keyword is metadata — Anthropic ignores it but warns if
     // present, so strip it preemptively.
     delete inputSchemaJson.$schema
@@ -123,7 +120,7 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
           description: 'Record extracted tournament announcement fields.',
           // The SDK types `input_schema` as a narrow shape (`{ type:
           // 'object'; properties?; required?; [k]: unknown }`), but
-          // `zodToJsonSchema` returns a wider JSON Schema that includes
+          // `z.toJSONSchema` returns a wider JSON Schema that includes
           // every keyword in the spec. The cast is safe — Anthropic
           // accepts arbitrary JSON Schema 7 here.
           input_schema:

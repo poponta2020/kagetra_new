@@ -173,11 +173,38 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         summary.duplicated += 1
         if (noise) summary.noise += 1
         log.info('persisted mail', {
-          id: null,
+          id: existing.id,
           messageId: meta.messageId,
           duplicated: true,
           noise,
         })
+        // Recover rows the AI phase never finished. Two scenarios:
+        //   1. status='ai_processing' — a previous run crashed or DB-faulted
+        //      between marking the row and persisting the outcome. Without
+        //      this branch the mail stays `ai_processing` forever (review
+        //      r1: "ai_processing 復旧経路が実装されていません").
+        //   2. status='fetched' AND classification IS NULL — pre-PR3 backfill
+        //      or a worker that crashed between the mail-insert txn and the
+        //      AI call. Pre-filter noise rows (`classification='noise'`,
+        //      `status='fetched'`) are deliberately excluded — they were
+        //      intentionally never sent to AI.
+        // A duplicate that's already `ai_done`/`ai_failed`/`archived` keeps
+        // the existing fast-path behaviour: no AI re-run, operator owns it
+        // via the reextract CLI.
+        if (
+          opts.llmExtractor &&
+          (existing.status === 'ai_processing' ||
+            (existing.status === 'fetched' && existing.classification !== 'noise'))
+        ) {
+          await runAiPhase(
+            db,
+            opts.llmExtractor,
+            existing.id,
+            meta.messageId,
+            summary,
+            log,
+          )
+        }
         continue
       }
 

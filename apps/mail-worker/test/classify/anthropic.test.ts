@@ -141,6 +141,50 @@ describe('AnthropicSonnet46Extractor', () => {
     })
   })
 
+  it('passes a populated JSON Schema (type=object, required+properties) as input_schema', async () => {
+    // Locks in the Zod-v4 → JSON Schema conversion. The earlier
+    // `zod-to-json-schema` (v3) library returned `{ "$schema": "..." }` for
+    // a Zod-v4 schema, so the live API was effectively called with no
+    // schema constraints — review r1 Blocker. Any future swap of the
+    // conversion library must keep this assertion green.
+    messagesCreate.mockResolvedValue(buildSuccessResponse())
+    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    await llm.extract(buildInput())
+
+    const args = messagesCreate.mock.calls[0]![0] as {
+      tools: Array<{
+        name: string
+        input_schema: {
+          type?: string
+          properties?: Record<string, unknown>
+          required?: string[]
+          $schema?: string
+        }
+      }>
+    }
+    const schema = args.tools[0]!.input_schema
+    expect(schema.type).toBe('object')
+    expect(schema.properties).toBeDefined()
+    expect(Object.keys(schema.properties!)).toEqual(
+      expect.arrayContaining([
+        'is_tournament_announcement',
+        'confidence',
+        'reason',
+        'extracted',
+      ]),
+    )
+    expect(schema.required).toEqual(
+      expect.arrayContaining([
+        'is_tournament_announcement',
+        'confidence',
+        'reason',
+        'extracted',
+      ]),
+    )
+    // `$schema` is metadata Anthropic warns on; we strip it before sending.
+    expect(schema.$schema).toBeUndefined()
+  })
+
   it('places PDF document blocks before the text block in user content', async () => {
     messagesCreate.mockResolvedValue(buildSuccessResponse())
     const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })

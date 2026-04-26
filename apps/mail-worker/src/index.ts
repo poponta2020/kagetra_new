@@ -146,9 +146,13 @@ async function main(): Promise<void> {
 
 /**
  * Build the AI extractor based on CLI flags. `--dry-run` returns `undefined`
- * (the pipeline skips AI entirely). `--mock-llm` loads LLM fixtures from disk;
- * a missing `test/fixtures/llm/` directory is treated as an empty fixture map
- * so a fresh checkout can run the smoke without seeding fixtures first.
+ * (the pipeline skips AI entirely). `--mock-llm` loads LLM fixtures from disk
+ * via `loadFixturesFromDir`, which keys each payload by the on-file
+ * `subject` field so `--mock-imap --mock-llm` smoke runs actually match the
+ * real eml subjects (review r1: pre-fix the loader keyed by filename basename
+ * and never matched). A missing `test/fixtures/llm/` directory is treated as
+ * an empty fixture map so a fresh checkout can run the smoke without seeding
+ * fixtures first.
  *
  * The default branch invokes `loadLlmConfig()` which throws unless
  * `ANTHROPIC_API_KEY` is set. We deliberately call this lazily here, AFTER

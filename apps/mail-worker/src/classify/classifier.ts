@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { mailMessages } from '@kagetra/shared/schema'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
@@ -234,18 +234,43 @@ export async function persistOutcome(
     if (upsert.action === 'inserted') tally.draftsInserted += 1
     else tally.draftsUpdated += 1
     tally.aiSucceeded += 1
-    await updateStatus(db, messageId, 'ai_done')
+    // Update classification AND status atomically. Skipping the
+    // classification update here used to leave positive mails with a NULL
+    // pill while the noise branch updated theirs (review r1 Should Fix:
+    // "AI が tournament と判定しても classification が更新されません").
+    await db
+      .update(mailMessages)
+      .set({ classification: 'tournament', status: 'ai_done', updatedAt: sql`now()` })
+      .where(eq(mailMessages.id, messageId))
     return tally
   }
 
   // outcome.kind === 'noise' — AI verdict was "not a tournament announcement".
-  // No draft is inserted (drafts only exist for tournament-positive mails);
-  // the mail's `classification` is upgraded to 'noise' so the inbox UI can
-  // hide it. We DO NOT insert/update a draft row in this branch.
+  // No new draft is inserted (drafts only exist for tournament-positive
+  // mails); the mail's `classification` is upgraded to 'noise' so the inbox
+  // UI can hide it.
+  //
+  // Re-extract corner case: if a previous run created a `pending_review` /
+  // `ai_failed` draft and this run flipped the verdict to noise (prompt or
+  // model bump), the stale draft must be marked `superseded` so the review
+  // queue stops surfacing it. We deliberately do NOT touch `approved` /
+  // `rejected` drafts — those are operator-owned audit trail; flipping them
+  // here would silently overwrite a human decision.
   await db
     .update(mailMessages)
-    .set({ classification: 'noise', status: 'ai_done' })
+    .set({ classification: 'noise', status: 'ai_done', updatedAt: sql`now()` })
     .where(eq(mailMessages.id, messageId))
+  const superseded = await db
+    .update(tournamentDrafts)
+    .set({ status: 'superseded', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(tournamentDrafts.messageId, messageId),
+        inArray(tournamentDrafts.status, ['pending_review', 'ai_failed']),
+      ),
+    )
+    .returning({ id: tournamentDrafts.id })
+  if (superseded.length > 0) tally.draftsUpdated += 1
   tally.aiSucceeded += 1
   return tally
 }
