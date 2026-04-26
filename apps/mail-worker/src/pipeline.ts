@@ -1,9 +1,11 @@
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
-import { findByMessageId, insertMailMessage } from './persist/mail-message.js'
+import { findByMessageId, insertMailMessage, updateStatus } from './persist/mail-message.js'
 import { insertMailAttachment } from './persist/attachment.js'
 import { extractAttachment, type ExtractionStatus } from './extract/orchestrator.js'
 import { getDb } from './db.js'
+import { classifyMail, persistOutcome } from './classify/classifier.js'
+import type { LLMExtractor } from './classify/llm/types.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -25,6 +27,19 @@ export interface PipelineSummary {
   attachmentsExtractionFailed: number
   attachmentsUnsupported: number
   attachmentsSkipped: number
+  /**
+   * AI phase counters (PR3). Populated only when `runPipeline()` was given an
+   * `llmExtractor`. When no extractor is provided (legacy tests, --dry-run)
+   * all four stay 0.
+   */
+  draftsInserted: number
+  draftsUpdated: number
+  /** Tournament-positive + AI-classified-as-noise mails (any successful AI run). */
+  aiSucceeded: number
+  /** AI calls that threw twice or returned malformed payloads. */
+  aiFailed: number
+  /** Pre-filter said noise → AI was not invoked. */
+  aiSkipped: number
 }
 
 export interface RunPipelineOptions {
@@ -39,6 +54,15 @@ export interface RunPipelineOptions {
   dryRun?: boolean
   /** Optional logger. Defaults to no-op so tests stay quiet. */
   logger?: PipelineLogger
+  /**
+   * AI extractor for the post-persist classifier phase. When omitted the AI
+   * phase is skipped entirely — used by `--dry-run`, by older PR1/PR2 tests
+   * that haven't been migrated, and by `--mock-imap` smoke runs that don't
+   * want to load `ANTHROPIC_API_KEY`. When provided, every freshly inserted
+   * mail (skipping duplicates and pre-filtered noise) is run through
+   * `classifyMail` + `persistOutcome` in its own try/catch.
+   */
+  llmExtractor?: LLMExtractor
 }
 
 export interface PipelineLogger {
@@ -63,6 +87,11 @@ function emptySummary(): PipelineSummary {
     attachmentsExtractionFailed: 0,
     attachmentsUnsupported: 0,
     attachmentsSkipped: 0,
+    draftsInserted: 0,
+    draftsUpdated: 0,
+    aiSucceeded: 0,
+    aiFailed: 0,
+    aiSkipped: 0,
   }
 }
 
@@ -231,6 +260,31 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         duplicated: parentResult.duplicated,
         noise,
       })
+
+      // AI phase. Only runs for freshly inserted mails (parent row id known)
+      // when an extractor was wired; duplicates and missing extractor short
+      // circuit. AI calls are deliberately OUTSIDE the mail+attachments txn
+      // (which committed above) — Anthropic round trips can take seconds and
+      // we don't want a Postgres connection idle in transaction during them.
+      //
+      // Pre-filter noise mails are short-circuited here rather than via the
+      // classifier's `skipped_noise` branch — saves a DB read and avoids
+      // setting `status: ai_processing` on a row that's never going to be
+      // classified.
+      if (opts.llmExtractor && !parentResult.duplicated && parentResult.rowId !== null) {
+        if (noise) {
+          summary.aiSkipped += 1
+        } else {
+          await runAiPhase(
+            db,
+            opts.llmExtractor,
+            parentResult.rowId,
+            meta.messageId,
+            summary,
+            log,
+          )
+        }
+      }
     }
     return summary
   } finally {
@@ -283,6 +337,75 @@ async function runExtraction(
     })
   }
   return { text: result.text, status: result.status }
+}
+
+/**
+ * Wrapper around `classifyMail` + `persistOutcome` for the per-mail AI phase.
+ *
+ * Three policy decisions are concentrated here:
+ *
+ *   1. **`status: 'ai_processing'` marker.** Set BEFORE the Anthropic call so
+ *      a worker that crashes mid-call leaves the row in a state the next run
+ *      can recognise as "needs retry". The marker is best-effort — if even
+ *      this update fails the AI call still runs, because losing the marker
+ *      is strictly less bad than losing the AI result.
+ *
+ *   2. **Per-mail try/catch.** Mirrors the per-mail isolation pattern from
+ *      PR1's persist phase: one mail's AI failure must not abort the batch.
+ *      If the catch path itself fails (DB down etc.) we log and continue —
+ *      the next pipeline run will see the `ai_processing` marker and retry.
+ *
+ *   3. **Tally roll-up via `persistOutcome`.** All draft/status writes
+ *      happen inside `persistOutcome` so the reextract CLI can reuse the
+ *      same write path with no drift.
+ */
+async function runAiPhase(
+  db: import('./db.js').Db,
+  llm: LLMExtractor,
+  rowId: number,
+  messageId: string,
+  summary: PipelineSummary,
+  log: PipelineLogger,
+): Promise<void> {
+  // Best-effort marker so a crash mid-call is recoverable on the next run.
+  // Wrap in try/catch so a transient update failure doesn't keep us from
+  // attempting the AI call itself.
+  try {
+    await updateStatus(db, rowId, 'ai_processing')
+  } catch (err) {
+    log.warn('ai status marker failed', {
+      messageId,
+      rowId,
+      err: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  try {
+    const outcome = await classifyMail(db, rowId, llm, { force: false })
+    const tally = await persistOutcome(db, rowId, outcome)
+    summary.draftsInserted += tally.draftsInserted
+    summary.draftsUpdated += tally.draftsUpdated
+    summary.aiSucceeded += tally.aiSucceeded
+    summary.aiFailed += tally.aiFailed
+    summary.aiSkipped += tally.aiSkipped
+    log.info('ai outcome', {
+      messageId,
+      rowId,
+      kind: outcome.kind,
+      draftsInserted: tally.draftsInserted,
+      draftsUpdated: tally.draftsUpdated,
+    })
+  } catch (err) {
+    // Outer catch: classifyMail / persistOutcome blew up in a way the inner
+    // retry didn't catch (DB write failure, missing row, etc.). Log and move
+    // on — the row stays in `ai_processing` and the next run picks it up.
+    summary.aiFailed += 1
+    log.warn('ai phase failed', {
+      messageId,
+      rowId,
+      err: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 /**
