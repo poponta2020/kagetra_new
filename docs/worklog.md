@@ -584,3 +584,39 @@
 - Phase UI-3c または P2 着手（試合結果・統計）の選択
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト（auth 周辺触る時のついで候補）
 - carryover Nit: r3 で言及された「対象外の参加行を別枠で表示」案（管理者特権 attend を拾うか）— 必要が出てから検討
+
+---
+
+## 2026-04-26 セッション1（PR #17 Phase P3-A/PR1 mail-worker → Codex 4回レビュー → ship）
+
+### 完了
+- **PR #17** (`feat/mail-tournament-import-pr1` → main) — メール大会案内 import 基盤の最小スライス
+  - 新規 `apps/mail-worker` パッケージ: imapflow + mailparser、`MailSource` 抽象化（Live/Fixture）、pre-filter（`Auto-Submitted` / `Precedence:bulk|junk` / `X-Spam-*` / no-reply 系の `List-Unsubscribe` を noise 分類、`Precedence:list` は ML として keep）、`ON CONFLICT(message_id) DO NOTHING` で idempotent、メール単位 `try/catch` で 1 件失敗が batch を止めない
+  - CLI: `--once` / `--since=YYYY-MM-DD` / `--mock-imap` / `--fixture-dir=` / `--dry-run`
+  - スキーマ: `mail_messages` テーブル（`subject` nullable）、`mail_message_status` / `mail_classification` enum、Drizzle migration `0005_mail_messages.sql`
+  - `/admin/mail-inbox` 一覧ページ（admin / vice_admin guard）+ BottomNav に admin 限定「メール」タブ
+- **Codex レビュー r1 → r2 → r3 → r4** で Should fix を順次解消:
+  - r1: メール単位の per-mail `try/catch` 隔離 / `internalDate` を `receivedAt` の優先ソースに / IMAP `SEARCH SINCE` の day 粒度を補う post-fetch pre-filter
+  - r2: 一覧 query の slim 化（本文/HTML を一覧で読み込まない）/ `received_at DESC` index 追加 / live IMAP の bounded default `--since`（直近 7 日）
+  - r3: root `.env` 明示 load / `--since=YYYY-MM-DD` を JST 00:00 として固定 / `MAIL_WORKER_LOG_LEVEL` を `consoleLogger` に配線
+  - r4: **config を `loadLogConfig` / `loadImapConfig` / `loadDbConfig` に分割**（`--mock-imap --dry-run` smoke path で `DATABASE_URL` 必須を踏まなくする）+ `--since` の offset 無し datetime を JST 解釈に固定（UTC ホスト誤解防止）+ `test/config.test.ts` で per-loader 要件を pin
+- **PR #17 マージ済み** (`48308c3`, `gh pr merge --merge --delete-branch`)
+- 親 Issue **#12 自動クローズ**（PR body の `Closes #12`）
+- ローカルブランチ `feat/mail-tournament-import-pr1` 削除
+- main を `48308c3` まで fast-forward 同期（`docs/features/` の untracked 旧版を削除してから ff）
+- レビュー artefact (`scripts/review/output/*pr17*`) 全削除
+
+### 学び
+- 「smoke path で DB env を要求するな」の典型 — 共通 `loadConfig()` が log level も DB URL も同じ schema で検証していたため、ロガー初期化だけで `--mock-imap --dry-run` が DB 不在で落ちていた。**config は subsystem ごとに schema を割って per-loader 化**するのが原則
+- IMAP `SEARCH SINCE` は date-granular。sub-day cutoff を許す場合は、サーバ側 search を粗くしてクライアント側で `internalDate` 比較する二段構えが必要
+- 「offset 無し ISO datetime」を `new Date(value)` に渡すとランタイムの local TZ 解釈になり、JST 開発機 vs UTC 本番で 9 時間ずれる。JST-only アプリなら **明示的に JST suffix を補う**のが安全（reject より UX が良い）
+
+### 残存している git 状態
+- main: `48308c3`（リモート同期済み）
+- worktree: なし（`C:/tmp/impl-mail-pr1` は git deregister 済みだが、Windows ファイルハンドルの都合で空 dir 残存。後日自然解消）
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- P3-A の続き（PR2 #13 以降: AI 抽出 / 添付保存 / 承認 UI / LINE 通知）or Phase UI-3c / P2 着手
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト
+- carryover Nit: 対象外の参加行を別枠で表示案
