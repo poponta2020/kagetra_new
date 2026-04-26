@@ -33,6 +33,17 @@ export const eventFormSchema = z.object({
   entryDeadline: optionalDateStr,
   internalDeadline: optionalDateStr,
   eventGroupId: optionalPositiveInt,
+  feeJpy: optionalPositiveInt,
+  paymentDeadline: optionalDateStr,
+  paymentInfo: optionalStr,
+  paymentMethod: optionalStr,
+  entryMethod: optionalStr,
+  organizer: optionalStr,
+  capacityA: optionalPositiveInt,
+  capacityB: optionalPositiveInt,
+  capacityC: optionalPositiveInt,
+  capacityD: optionalPositiveInt,
+  capacityE: optionalPositiveInt,
 })
 
 export const scheduleFormSchema = z.object({
@@ -64,6 +75,17 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
     entryDeadline: formData.get('entryDeadline'),
     internalDeadline: formData.get('internalDeadline'),
     eventGroupId: formData.get('eventGroupId'),
+    feeJpy: formData.get('feeJpy'),
+    paymentDeadline: formData.get('paymentDeadline'),
+    paymentInfo: formData.get('paymentInfo'),
+    paymentMethod: formData.get('paymentMethod'),
+    entryMethod: formData.get('entryMethod'),
+    organizer: formData.get('organizer'),
+    capacityA: formData.get('capacityA'),
+    capacityB: formData.get('capacityB'),
+    capacityC: formData.get('capacityC'),
+    capacityD: formData.get('capacityD'),
+    capacityE: formData.get('capacityE'),
   }
 }
 

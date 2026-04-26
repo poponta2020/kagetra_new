@@ -23,6 +23,17 @@ export interface EventFormProps {
     eligibleGrades?: string[] | null
     description?: string | null
     status?: EventStatus
+    feeJpy?: number | null
+    paymentDeadline?: string | null
+    paymentInfo?: string | null
+    paymentMethod?: string | null
+    entryMethod?: string | null
+    organizer?: string | null
+    capacityA?: number | null
+    capacityB?: number | null
+    capacityC?: number | null
+    capacityD?: number | null
+    capacityE?: number | null
   }
 }
 
@@ -206,6 +217,125 @@ export function EventForm({
                 {g}級
               </label>
             ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={LABEL_CLASS}>参加費 (円)</label>
+            <input
+              name="feeJpy"
+              type="number"
+              min="0"
+              step="100"
+              defaultValue={defaultValues?.feeJpy ?? ''}
+              className={FIELD_CLASS}
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLASS}>支払締切</label>
+            <input
+              name="paymentDeadline"
+              type="date"
+              defaultValue={defaultValues?.paymentDeadline ?? ''}
+              className={FIELD_CLASS}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={LABEL_CLASS}>支払方法</label>
+          <input
+            name="paymentMethod"
+            type="text"
+            defaultValue={defaultValues?.paymentMethod ?? ''}
+            className={FIELD_CLASS}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL_CLASS}>支払情報</label>
+          <textarea
+            name="paymentInfo"
+            rows={2}
+            defaultValue={defaultValues?.paymentInfo ?? ''}
+            className={FIELD_CLASS}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL_CLASS}>申込方法</label>
+          <input
+            name="entryMethod"
+            type="text"
+            defaultValue={defaultValues?.entryMethod ?? ''}
+            className={FIELD_CLASS}
+          />
+        </div>
+
+        <div>
+          <label className={LABEL_CLASS}>主催</label>
+          <input
+            name="organizer"
+            type="text"
+            defaultValue={defaultValues?.organizer ?? ''}
+            className={FIELD_CLASS}
+          />
+        </div>
+
+        <div>
+          <label className={`${LABEL_CLASS} mb-2`}>級別定員</label>
+          <div className="grid grid-cols-5 gap-2">
+            <div>
+              <label className={LABEL_CLASS}>A 級</label>
+              <input
+                name="capacityA"
+                type="number"
+                min="1"
+                defaultValue={defaultValues?.capacityA ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>B 級</label>
+              <input
+                name="capacityB"
+                type="number"
+                min="1"
+                defaultValue={defaultValues?.capacityB ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>C 級</label>
+              <input
+                name="capacityC"
+                type="number"
+                min="1"
+                defaultValue={defaultValues?.capacityC ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>D 級</label>
+              <input
+                name="capacityD"
+                type="number"
+                min="1"
+                defaultValue={defaultValues?.capacityD ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>E 級</label>
+              <input
+                name="capacityE"
+                type="number"
+                min="1"
+                defaultValue={defaultValues?.capacityE ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
           </div>
         </div>
 
