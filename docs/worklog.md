@@ -620,3 +620,43 @@
 - P3-A の続き（PR2 #13 以降: AI 抽出 / 添付保存 / 承認 UI / LINE 通知）or Phase UI-3c / P2 着手
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト
 - carryover Nit: 対象外の参加行を別枠で表示案
+
+---
+
+## 2026-04-26 セッション2（PR #18 Phase P3-A/PR2 添付テキスト化 + bytea 永続化 → Codex 3回レビュー → ship）
+
+### 完了
+- **PR #18** (`feat/mail-tournament-import-pr2` → main) — メール添付の text 化 + bytea 永続化 + admin 配信 + inbox chips
+  - スキーマ: `mail_attachments` テーブル（bytea 原本 + 抽出済みテキスト + status）+ `attachment_extraction_status` enum + Drizzle migration `0007_massive_living_lightning.sql`、`mail_messages.id` への CASCADE FK と `mail_message_id` index
+  - bytea は drizzle 0.45.x に組込ヘルパーがないため `customType<{ data: Buffer }>` で宣言、pg ドライバが Buffer を自動マッピング
+  - 抽出器: `pdfjs-dist@^5.6.205` (legacy/Node entrypoint) + `mammoth@^1.12.0`、xlsx は r1 で削除（後述）
+  - `apps/mail-worker/src/extract/orchestrator.ts`: content-type → 抽出器 routing。`application/octet-stream` 時のみ filename suffix で tiebreaker し、既知 non-text type は suffix で覆さない
+  - `apps/mail-worker/src/pipeline.ts`: 添付フィルタ（`filename` 必須 / cid 参照 inline / 30MB 超 を skip）+ per-attachment try/catch + 親メールと添付の atomic INSERT（transaction）
+  - `apps/web/src/app/api/admin/mail/attachments/[id]/route.ts`: admin / vice_admin gate + content-type allowlist で PDF のみ inline / それ以外 octet-stream + attachment + `nosniff` + `no-store` + RFC 5987 filename
+  - `/admin/mail-inbox` 一覧: relation query で bytea data を明示除外して slim 化 + `AttachmentList` chip コンポーネントで filename / extraction_status を可視化
+- **Codex レビュー r1 → r2 → r3** で Should fix を順次解消:
+  - r1 (`1275598`): admin 配信 route の XSS（HTML/SVG/script 系を inline で渡せる穴）→ allowlist + forced download / `xlsx@0.18.5` 削除（unpatched Prototype Pollution + ReDoS、persist は残し extraction だけ unsupported に降格）/ 親メール + 添付 INSERT を transaction 化（部分永続化を防止）
+  - r2 (`d9efbf6`): 配信 route の Content-Length / body を `data.length` ベースに（mailparser の `part.size` ズレ対策）+ pdfjs cleanup + log / コメント整理
+  - r3 (`08b3f52`): **imap-client の 30MB gate も `data.length` ベースに**（writer 側でも `part.size` を信用しない）+ **pipeline の duplicate pre-check**（cron 再実行で同じ PDF を毎回 pdfjs に通すムダを排除、ON CONFLICT は race 防御として残置）+ attachments route の int4 オーバーフロー id を 400 に（pg 500 にしない）+ `apps/mail-worker/package.json` に `engines.node: ">=22.13.0"` を declare
+- **PR #18 マージ済み** (`e8837b1`, `gh pr merge --merge --delete-branch`)
+- 子 Issue **#13 自動クローズ**（PR body の `Closes #13`）/ 親 Issue #11 は OPEN 継続（PR3 以降あり）
+- worktree `C:/tmp/impl-mail-pr2` 撤去（`git worktree remove` → not empty → branch 削除後に `rm -rf` で残骸掃除）
+- ローカルブランチ `feat/mail-tournament-import-pr2` 削除
+- main を `e8837b1` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr18*`, `pr18-diff-*.txt`) 全削除
+
+### 学び
+- **「writer 側で安全側に倒し、reader 側でも防御する」二段構え** — bytea サイズは imap-client (writer) と attachments route (reader) の両方が `data.length` を真値とする。writer 側を直さないと 30MB cap を `part.size` の under-report で素通りされる。reader 側だけの defensive copy では DB に既に過大データが入っていた場合に間に合わない
+- **idempotent でも extraction まで idempotent にすべき** — `ON CONFLICT DO NOTHING` で行は増えなくても、cron が同じウィンドウを再 fetch するたびに数十 MB の PDF を pdfjs に通すと CPU 浪費。Message-ID で pre-check して extraction 自体を skip するのが正解。race は ON CONFLICT が拾う
+- **int4 column の id を route で受けるときは boundary 値を弾く** — `serial` (int4) なので `> 2147483647` は DB が "value out of range" 500 を出す。route で 400 に変換する規則を attachments 系で確立
+- **vulnerable な dependency は extractor を消して persist は残す** — xlsx@0.18.5 は npm 公開最終 + 高 severity 未パッチ。完全に dep ごと削除すると admin が手で XLSX を取得できない。extractor だけ disable して `unsupported` 行で persist + admin 配信は維持、というトレードオフが妥当
+
+### 残存している git 状態
+- main: `e8837b1`（リモート同期済み、これからさらに worklog/memory コミットが乗る）
+- worktree: なし（`C:/tmp/impl-mail-pr2` は完全削除済み）
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- PR3 (#14) — AI 抽出（Claude API → 大会概要を構造化）あたりが次スライス候補
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト
+- carryover Nit: 対象外の参加行を別枠で表示案
