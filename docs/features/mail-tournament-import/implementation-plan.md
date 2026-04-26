@@ -106,36 +106,47 @@ PR1 ──→ PR2 ──→ PR3 ──→ PR4
 ### タスク3: PR3 — AI 抽出 + tournament_drafts 作成
 
 - [ ] 完了
-- **概要**: Anthropic Sonnet 4.6 で大会案内判定 + 構造化抽出、`tournament_drafts` に永続化。Zod スキーマで output validate、プロバイダ抽象化レイヤを設計。プロンプトキャッシュを有効化。`/admin/mail-inbox` 一覧に大会名・信頼度バッジを表示。
+- **概要**: Anthropic Sonnet 4.6 で大会案内判定 + 構造化抽出、`tournament_drafts` に永続化。Zod スキーマで output validate、プロバイダ抽象化レイヤを設計。プロンプトキャッシュを有効化。`/admin/mail-inbox` 一覧の各メール行に大会名・信頼度バッジ・status pill を追加。
 - **変更対象ファイル**:
   - `packages/shared/src/schema/enums.ts` — `tournamentDraftStatusEnum` 追加
-  - `packages/shared/src/schema/tournament-drafts.ts` — 新規
-  - `packages/shared/src/schema/relations.ts` — tournament_drafts 関連を追加
+  - `packages/shared/src/schema/tournament-drafts.ts` — 新規（`UNIQUE(message_id)` + index `(status, created_at DESC)`）
+  - `packages/shared/src/schema/relations.ts` — `mailMessages` ↔ `tournamentDrafts` (1:0..1) を追加
   - `packages/shared/src/schema/index.ts` — re-export
-  - `packages/shared/migrations/<n>_tournament_drafts.sql` — Drizzle migration
+  - `packages/shared/migrations/0008_<auto>.sql` — Drizzle migration（enum + table + indices + 自己 FK）
   - `apps/mail-worker/package.json` — `@anthropic-ai/sdk`, `zod-to-json-schema` を依存追加
   - `apps/mail-worker/src/classify/llm/types.ts` — `LLMExtractor` interface
-  - `apps/mail-worker/src/classify/llm/anthropic.ts` — `AnthropicSonnet46Extractor` 実装（PDF native、cache_control、structured output）
-  - `apps/mail-worker/src/classify/llm/index.ts` — provider factory
+  - `apps/mail-worker/src/classify/llm/anthropic.ts` — `AnthropicSonnet46Extractor`（tool use 強制 + cache_control 1h + PDF native document block）
+  - `apps/mail-worker/src/classify/llm/fixture.ts` — `FixtureLLMExtractor` (`--mock-llm` と test 共通、subject ベース Map lookup)
+  - `apps/mail-worker/src/classify/llm/index.ts` — provider factory（`createLLMExtractor()` が env / DI で実装選択）
   - `apps/mail-worker/src/classify/schema.ts` — Zod schema (`ExtractionPayloadSchema`)
-  - `apps/mail-worker/src/classify/prompt.ts` — system prompt + few-shot 例（最低 3 件: 陽性 / 陰性 / 訂正版）
-  - `apps/mail-worker/src/classify/classifier.ts` — 1 メール → 抽出結果（retry 1 回）
-  - `apps/mail-worker/src/persist/draft.ts` — tournament_drafts CRUD
-  - `apps/mail-worker/src/pipeline.ts` — fetch → 添付 → AI → tournament_drafts まで拡張
-  - `apps/mail-worker/test/classify/*.test.ts` — モック LLM での classifier テスト
+  - `apps/mail-worker/src/classify/prompt.ts` — system prompt + few-shot 例 + `PROMPT_VERSION = '1.0.0'`
+  - `apps/mail-worker/src/classify/classifier.ts` — `classifyMail(messageId, opts)` を export（pipeline と Server Action 双方から呼べる、retry 1 回）
+  - `apps/mail-worker/src/classify/cost.ts` — token → USD 換算（Sonnet 4.6 価格 hardcoded）
+  - `apps/mail-worker/src/persist/draft.ts` — tournament_drafts upsert（`ON CONFLICT (message_id) DO UPDATE`）
+  - `apps/mail-worker/src/pipeline.ts` — pipeline に AI フェーズ統合（mail+attachments txn → AI → draft 別 txn、noise はスキップ、direct loop で順次処理）
+  - `apps/mail-worker/src/index.ts` — `--mock-llm` CLI flag 追加
+  - `apps/mail-worker/src/reextract.ts` — CLI batch 再抽出 (`--since=YYYY-MM-DD`)
+  - `apps/mail-worker/test/fixtures/llm/*.expected.json` — AI 期待出力 fixture
+  - `apps/mail-worker/test/fixtures/correction-tournament.eml` — 訂正版 eml 新規
+  - `apps/mail-worker/test/classify/classifier.test.ts` — モック LLM での classifier テスト（陽性 / 陰性 / 訂正版 / Zod 失敗 retry / 再抽出 UPDATE）
+  - `apps/mail-worker/test/classify/anthropic.test.ts` — Anthropic SDK 引数 spy（cache_control 検証）
   - `apps/mail-worker/test/pipeline.test.ts` — pipeline 全体（fixture 再生 → drafts まで）
-  - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` — 大会名 / 開催日 / 信頼度 / status 表示追加
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx` — 新規
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/DraftCard.tsx` — 新規（一覧の各行）
-- **依存タスク**: タスク 2
+  - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` — 各メールカードに大会名 / 開催日 / 信頼度バッジ / draft status pill を追加（filter 行は **PR4 へ持ち越し**）
+  - `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx` — 新規（`>=0.9` success, `>=0.5` warning, `<0.5` neutral, null は "—"）
+  - `apps/web/src/app/(app)/admin/mail-inbox/components/DraftCard.tsx` — 新規（一覧カード内で添付チップの隣に縦積み）
+  - `.env.example` — `ANTHROPIC_API_KEY` を追加
+  - `docs/features/mail-tournament-import/cache-smoke.md` — prompt cache の手動 smoke test 手順（実機で 2 回叩いて `cache_read_input_tokens > 0` 確認）
+- **依存タスク**: タスク 2 (PR2 #13 ship 済 = `e8837b1`)
 - **対応 Issue**: #14 (親 #11)
 - **完了条件 (DoD)**:
-  - 大会案内 fixture を AI に通す（モック）と `is_tournament_announcement=true`, `confidence>=0.9`, `extracted.title` 等が抽出される
-  - メルマガ fixture を AI に通すと `is_tournament_announcement=false` で draft 作成されない（`mail_messages.classification='noise'`）
+  - 大会案内 fixture を `FixtureLLMExtractor` 経由で AI に通すと `is_tournament_announcement=true`, `confidence>=0.9`, `extracted.title` 等が抽出される
+  - メルマガ fixture（pre-filter で noise 化済）は AI 呼び出しを **スキップ**、draft 作成されない（`mail_messages.classification='noise'`）
+  - メルマガが pre-filter を通過したケース（false negative）でも、AI が `is_tournament_announcement=false` を返したら draft 作成されない、`mail_messages.classification='noise'` に upgrade
   - 訂正版 fixture を AI に通すと `is_correction=true`, `references_subject` が出力される
-  - 同じメールを再 AI 抽出した時、`tournament_drafts.extracted_payload` が上書きされ、`prompt_version` が更新される
-  - 壊れた JSON を返すモック LLM の場合、retry 1 回 → 失敗で `tournament_drafts.status='ai_failed'` になる
-  - プロンプトキャッシュが効いている（cache_control が system block に付与、`anthropic_cached_input_tokens` が 2 回目以降で 0 でない）
+  - 同じメールを再 classify した時、`tournament_drafts.extracted_payload` が UPDATE され（`UNIQUE(message_id)` で INSERT は失敗）、`prompt_version` が更新される
+  - 壊れた tool_use.input を返す `BrokenLLMExtractor` の場合、retry 1 回 → 失敗で `tournament_drafts.status='ai_failed'`、`ai_raw_response` に raw text が入る
+  - `Anthropic SDK` の `messages.create` 呼び出し引数を spy し、`system[].cache_control.type === 'ephemeral'` + `ttl: '1h'` がセットされていることを unit test で確認
+  - 実 API の cache hit 確認は手動 smoke（cache-smoke.md 手順）で ship 前に 1 回検証
   - `/admin/mail-inbox` 一覧で大会名・開催日・信頼度バッジ・status が表示される
   - vitest で classifier の単体テストが PASS（モック LLM）
   - check-types / lint / vitest / E2E のすべてが CI で通過

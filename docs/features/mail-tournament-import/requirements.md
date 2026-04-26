@@ -131,15 +131,17 @@ status: completed
 
 #### 3.2.2 AI 抽出ルール
 - モデル: Claude Sonnet 4.6（プロバイダ抽象化レイヤ経由、将来 Gemini に切替可能）
-- プロンプトキャッシュ: 1 時間 TTL でシステムプロンプト全体をキャッシュ
+- プロンプトキャッシュ: 1 時間 TTL (`cache_control: { type: 'ephemeral', ttl: '1h' }`) でシステムプロンプト全体をキャッシュ
+- structured output 取得: **Tool use** (`tools: [{ name: 'record_extraction', input_schema: <ZodToJsonSchema> }]` + `tool_choice: { type: 'tool', name: 'record_extraction' }`)
 - 入力:
   - メール本文（text/plain or HTML→text）
-  - 添付の PDF: ネイティブ PDF input（base64）として AI に直接渡す
-  - 添付の DOCX: `mammoth` でテキスト抽出、テキストとして AI に渡す
-  - 添付の XLSX: `xlsx` ライブラリで table → テキスト、デフォルトで省略（オプションで投入可）
+  - 添付の PDF: **ネイティブ PDF input**（base64 document content block）として AI に直接渡す（Sonnet 4.6 は最大 100 pages / 32MB）
+  - 添付の DOCX: `mammoth` でテキスト抽出、テキストとして AI に渡す（PR2 で抽出済み）
+  - 添付の XLSX: PR2 で extractor disable 済（脆弱性）、bytea は残るが本 PR では AI に渡さない
 - 出力: Zod スキーマで validate された JSON（後述 4.x 参照）
 - 信頼度: AI が `confidence: 0.0-1.0` を出力、`tournament_drafts.confidence` に保存
 - v1 では信頼度による自動承認なし、全件 manual review
+- **Pre-filter で `classification='noise'` 確定済みメールは AI 呼び出しスキップ**（コスト削減、月 22 件想定で AI コール対象を限定）
 
 #### 3.2.3 重複防止・再処理
 - `Message-ID` で de-dup
@@ -161,9 +163,18 @@ status: completed
 | IMAP 接続失敗（一時的） | 次の cron まで待つ。連続 3 回失敗で LINE 通知 |
 | 個別メールの取得失敗 | `mail_messages.status = 'fetch_failed'` で次回スキップ。手動再試行ボタンを UI に |
 | 添付パース失敗 | `mail_attachments.extracted_text = null`、AI には body だけ渡す |
-| AI API レート制限 | 指数バックオフで 3 回まで試行、失敗で `tournament_drafts.status = 'ai_failed'` |
-| AI 出力 JSON 壊れ | 1 回再試行、ダメなら `ai_failed`。LINE 通知（連続失敗時のみ） |
+| AI API 5xx / network | Anthropic SDK の `maxRetries: 3`（指数バックオフ） |
+| AI API 429 (rate limit) | SDK が `Retry-After` ヘッダーを尊重して backoff |
+| AI tool_use.input が Zod validate 失敗 | classifier 内で 1 回 retry（前回エラーを user message に追加して再 ask）、ダメなら `ai_failed` で `ai_raw_response` 保存 |
 | events INSERT 失敗 | 承認 UI で「保存失敗」表示、admin が修正 |
+
+**`mail_messages.status` 状態遷移（PR3 で導入）**:
+- AI 呼び出し前: `status = 'ai_processing'`（クラッシュ resume の手がかり）
+- AI 成功: `status = 'ai_done'`
+- AI 失敗: `status = 'ai_failed'`
+- pre-filter で noise 確定: AI スキップ、`status = 'fetched'` のまま
+
+**Pipeline txn 構造**: mail + attachments INSERT は txn 内（PR2 既存）、AI 呼び出しは txn 外で実行（数十秒〜分単位、connection pool 占有回避）、tournament_drafts INSERT は別 txn。AI 失敗時は mail 行は残り、再走時に「mail はあるが draft が無い」を resume 検出可能。
 
 #### 3.2.6 LINE 通知
 - 通知先: `line_channels` テーブルから `status='system'` の channel access token で push
@@ -260,18 +271,19 @@ status: completed
 | カラム | 型 | 制約 | 説明 |
 |---|---|---|---|
 | id | integer | pk | |
-| message_id | integer | fk → mail_messages.id, not null | |
+| message_id | integer | fk → mail_messages.id, **unique**, not null | 1 mail = 0 or 1 draft (再抽出は UPDATE) |
 | status | tournament_draft_status | not null | enum |
-| confidence | numeric(3,2) | nullable | 0.00-1.00 |
+| confidence | numeric(3,2) | nullable, CHECK `BETWEEN 0 AND 1` | 0.00-1.00、AI 失敗時 null |
 | is_correction | boolean | not null default false | |
 | references_subject | text | nullable | AI が示唆した訂正元の件名 |
-| superseded_by_draft_id | integer | nullable, self-fk | この draft を上書きした draft |
-| extracted_payload | jsonb | not null | AI 出力の生 JSON |
-| prompt_version | text | not null | 例 "v1.0.0" |
+| superseded_by_draft_id | integer | nullable, self-fk | 訂正版（別 mail）から上書きした draft |
+| extracted_payload | jsonb | not null default `'{}'::jsonb` | Zod validate 通った parsed JSON のみ |
+| ai_raw_response | text | nullable | AI 失敗時の生 text（debug 用、成功時は null） |
+| prompt_version | text | not null | semver 文字列 (例 "1.0.0") |
 | ai_model | text | not null | 例 "claude-sonnet-4-6" |
 | ai_tokens_input | integer | nullable | |
 | ai_tokens_output | integer | nullable | |
-| ai_cost_jpy | numeric(8,2) | nullable | 円換算コスト |
+| ai_cost_usd | numeric(10,6) | nullable | USD 建てコスト（JPY 換算は表示時） |
 | event_id | integer | nullable, fk → events.id | 承認後に作成された events への参照 |
 | approved_by_user_id | text | nullable, fk → users.id | |
 | approved_at | timestamp tz | nullable | |
@@ -282,6 +294,10 @@ status: completed
 | updated_at | timestamp tz | not null default now() | |
 
 `tournament_draft_status` enum: `'pending_review' | 'approved' | 'rejected' | 'ai_failed' | 'superseded'`
+
+**Indices**:
+- `(status, created_at DESC)` — 一覧クエリ用
+- `(message_id)` — UNIQUE 制約で自動作成
 
 **`line_channels`** (LINE Messaging Channel プール)
 | カラム | 型 | 制約 | 説明 |
