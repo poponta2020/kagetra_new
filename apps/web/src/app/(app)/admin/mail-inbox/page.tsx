@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
 import { Card, Pill, type PillTone } from '@/components/ui'
 import { AttachmentList } from './components/AttachmentList'
+import { DraftCard } from './components/DraftCard'
 
 /**
  * /admin/mail-inbox — list of mails fetched by `apps/mail-worker` (PR1).
@@ -82,6 +83,18 @@ export default async function MailInboxPage() {
           extractionStatus: true,
         },
       },
+      // PR3 addition: 1:0..1 — at most one tournament_drafts row per mail
+      // (UNIQUE on message_id). PR4 will add the detail page + approval
+      // form; here we just need enough columns for the inline DraftCard.
+      draft: {
+        columns: {
+          status: true,
+          confidence: true,
+          isCorrection: true,
+          referencesSubject: true,
+          extractedPayload: true,
+        },
+      },
     },
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: 100,
@@ -134,6 +147,7 @@ export default async function MailInboxPage() {
                     {row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress}
                   </div>
                   <AttachmentList items={row.attachments} />
+                  {row.draft && <DraftCard draft={row.draft} />}
                 </div>
               </Card>
             )

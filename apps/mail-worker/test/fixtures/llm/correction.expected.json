@@ -1,0 +1,35 @@
+{
+  "subject": "Re: 【訂正】第65回全日本選手権大会のご案内",
+  "payload": {
+    "is_tournament_announcement": true,
+    "confidence": 0.93,
+    "reason": "件名に【訂正】、本文に「先日ご案内した」「訂正いたします」との明示。元案内の続報",
+    "is_correction": true,
+    "references_subject": "第65回全日本選手権大会のご案内",
+    "extracted": {
+      "title": "第65回全日本選手権大会",
+      "formal_name": null,
+      "event_date": null,
+      "venue": null,
+      "fee_jpy": null,
+      "payment_deadline": null,
+      "payment_info_text": null,
+      "payment_method": null,
+      "entry_method": null,
+      "organizer_text": null,
+      "entry_deadline": "2026-05-07",
+      "eligible_grades": null,
+      "kind": null,
+      "capacity_total": null,
+      "capacity_a": null,
+      "capacity_b": null,
+      "capacity_c": null,
+      "capacity_d": null,
+      "capacity_e": null,
+      "official": null
+    },
+    "extras": {
+      "local_rules_summary": "申込締切のみ訂正(2026-04-30 → 2026-05-07)、その他の項目は元案内に従う"
+    }
+  }
+}

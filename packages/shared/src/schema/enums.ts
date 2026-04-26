@@ -36,3 +36,12 @@ export const attachmentExtractionStatusEnum = pgEnum('attachment_extraction_stat
   'failed',
   'unsupported',
 ])
+
+// mail-tournament-import (PR3)
+export const tournamentDraftStatusEnum = pgEnum('tournament_draft_status', [
+  'pending_review',
+  'approved',
+  'rejected',
+  'ai_failed',
+  'superseded',
+])

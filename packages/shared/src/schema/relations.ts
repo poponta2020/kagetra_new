@@ -6,6 +6,7 @@ import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
 import { mailMessages } from './mail-messages'
 import { mailAttachments } from './mail-attachments'
+import { tournamentDrafts } from './tournament-drafts'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -45,13 +46,28 @@ export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
   }),
 }))
 
-export const mailMessagesRelations = relations(mailMessages, ({ many }) => ({
+export const mailMessagesRelations = relations(mailMessages, ({ one, many }) => ({
   attachments: many(mailAttachments),
+  draft: one(tournamentDrafts, {
+    fields: [mailMessages.id],
+    references: [tournamentDrafts.messageId],
+  }),
 }))
 
 export const mailAttachmentsRelations = relations(mailAttachments, ({ one }) => ({
   mail: one(mailMessages, {
     fields: [mailAttachments.mailMessageId],
     references: [mailMessages.id],
+  }),
+}))
+
+export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one }) => ({
+  mail: one(mailMessages, {
+    fields: [tournamentDrafts.messageId],
+    references: [mailMessages.id],
+  }),
+  event: one(events, {
+    fields: [tournamentDrafts.eventId],
+    references: [events.id],
   }),
 }))

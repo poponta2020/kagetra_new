@@ -1,11 +1,15 @@
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb } from './db.js'
-import { loadLogConfig } from './config.js'
+import { loadLogConfig, loadLlmConfig } from './config.js'
 import { parseSinceArg } from './cli-args.js'
+import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
+import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
+import type { LLMExtractor } from './classify/llm/types.js'
+import type { ExtractionPayload } from './classify/schema.js'
 
 interface CliFlags {
   /**
@@ -16,6 +20,7 @@ interface CliFlags {
   once: boolean
   since: Date | undefined
   mockImap: boolean
+  mockLlm: boolean
   dryRun: boolean
   fixtureDir: string | undefined
 }
@@ -33,12 +38,14 @@ function parseArgs(argv: readonly string[]): CliFlags {
     once: false,
     since: undefined,
     mockImap: false,
+    mockLlm: false,
     dryRun: false,
     fixtureDir: undefined,
   }
   for (const arg of argv) {
     if (arg === '--once') flags.once = true
     else if (arg === '--mock-imap') flags.mockImap = true
+    else if (arg === '--mock-llm') flags.mockLlm = true
     else if (arg === '--dry-run') flags.dryRun = true
     else if (arg.startsWith('--since=')) {
       const value = arg.slice('--since='.length)
@@ -68,8 +75,10 @@ function printUsage(): void {
                          "+09:00". Live IMAP defaults to the last
                          ${LIVE_DEFAULT_SINCE_DAYS} days when omitted.
   --mock-imap            Use fixture eml files instead of live IMAP.
+  --mock-llm             Use FixtureLLMExtractor (loads test/fixtures/llm/*.expected.json)
+                         instead of Anthropic. Skips ANTHROPIC_API_KEY validation.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
-  --dry-run              Parse only; do not write to DB.
+  --dry-run              Parse only; do not write to DB or call the LLM.
   --help, -h             Show this help.
 `)
 }
@@ -91,6 +100,12 @@ async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2))
 
+  // Build the LLM extractor. Three branches:
+  //   --dry-run    → no extractor (AI phase is skipped entirely)
+  //   --mock-llm   → FixtureLLMExtractor (no ANTHROPIC_API_KEY required)
+  //   default      → AnthropicSonnet46Extractor (loadLlmConfig validates env)
+  const llmExtractor = await buildLlmExtractor(flags)
+
   if (flags.mockImap) {
     const dir = flags.fixtureDir
       ?? join(fileURLToPath(new URL('..', import.meta.url)), 'test', 'fixtures')
@@ -101,6 +116,7 @@ async function main(): Promise<void> {
       source,
       dryRun: flags.dryRun,
       logger: consoleLogger(),
+      llmExtractor,
     })
     // eslint-disable-next-line no-console
     console.log('pipeline summary:', summary)
@@ -119,12 +135,56 @@ async function main(): Promise<void> {
       since: effectiveSince,
       dryRun: flags.dryRun,
       logger: consoleLogger(),
+      llmExtractor,
     })
     // eslint-disable-next-line no-console
     console.log('pipeline summary:', summary)
   }
 
   await closeDb()
+}
+
+/**
+ * Build the AI extractor based on CLI flags. `--dry-run` returns `undefined`
+ * (the pipeline skips AI entirely). `--mock-llm` loads LLM fixtures from disk
+ * via `loadFixturesFromDir`, which keys each payload by the on-file
+ * `subject` field so `--mock-imap --mock-llm` smoke runs actually match the
+ * real eml subjects (review r1: pre-fix the loader keyed by filename basename
+ * and never matched). A missing `test/fixtures/llm/` directory is treated as
+ * an empty fixture map so a fresh checkout can run the smoke without seeding
+ * fixtures first.
+ *
+ * The default branch invokes `loadLlmConfig()` which throws unless
+ * `ANTHROPIC_API_KEY` is set. We deliberately call this lazily here, AFTER
+ * the `--mock-llm` and `--dry-run` early returns, so `--mock-llm` smoke runs
+ * never require a real key.
+ */
+async function buildLlmExtractor(flags: CliFlags): Promise<LLMExtractor | undefined> {
+  if (flags.dryRun) return undefined
+
+  if (flags.mockLlm) {
+    const llmFixtureDir = join(
+      fileURLToPath(new URL('..', import.meta.url)),
+      'test',
+      'fixtures',
+      'llm',
+    )
+    let fixtures = new Map<string, ExtractionPayload>()
+    try {
+      const dirStat = await stat(llmFixtureDir)
+      if (dirStat.isDirectory()) {
+        fixtures = await loadFixturesFromDir(llmFixtureDir)
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      // Missing directory → empty fixture map. The default noise response in
+      // FixtureLLMExtractor handles every mail without crashing.
+    }
+    return new FixtureLLMExtractor(fixtures)
+  }
+
+  const llmConfig = loadLlmConfig()
+  return new AnthropicSonnet46Extractor({ apiKey: llmConfig.anthropicApiKey })
 }
 
 /**

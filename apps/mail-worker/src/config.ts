@@ -43,9 +43,17 @@ const DbConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
 })
 
+const LlmConfigSchema = z.object({
+  ANTHROPIC_API_KEY: z.string().min(1),
+})
+
 export type LogConfig = z.infer<typeof LogConfigSchema>
 export type ImapConfig = z.infer<typeof ImapConfigSchema>
 export type DbConfig = z.infer<typeof DbConfigSchema>
+
+export interface LlmConfig {
+  anthropicApiKey: string
+}
 
 /**
  * Lazy per-schema parse so unit tests can call `loadXxxConfig()` after
@@ -55,6 +63,7 @@ export type DbConfig = z.infer<typeof DbConfigSchema>
 let cachedLog: LogConfig | null = null
 let cachedImap: ImapConfig | null = null
 let cachedDb: DbConfig | null = null
+let cachedLlm: LlmConfig | null = null
 
 function configError(name: string, issues: z.ZodIssue[]): Error {
   const lines = issues
@@ -87,8 +96,24 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
   return cachedDb
 }
 
+/**
+ * Validate the Anthropic credentials needed by `AnthropicSonnet46Extractor`.
+ * Lazy on purpose: the `--mock-llm` smoke path constructs `FixtureLLMExtractor`
+ * directly and must NOT require a real API key, so we never call this at
+ * module load. The `--dry-run` path skips the AI phase entirely and likewise
+ * avoids loading.
+ */
+export function loadLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
+  if (cachedLlm) return cachedLlm
+  const parsed = LlmConfigSchema.safeParse(env)
+  if (!parsed.success) throw configError('llm', parsed.error.issues)
+  cachedLlm = { anthropicApiKey: parsed.data.ANTHROPIC_API_KEY }
+  return cachedLlm
+}
+
 export function resetConfigForTests(): void {
   cachedLog = null
   cachedImap = null
   cachedDb = null
+  cachedLlm = null
 }

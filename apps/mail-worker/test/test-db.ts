@@ -23,9 +23,10 @@ const testPool = new Pool({ connectionString: TEST_DATABASE_URL })
 export const testDb = drizzle(testPool, { schema })
 
 export async function truncateMailTables() {
-  // Single statement; CASCADE pulls `mail_attachments` (and any future child
-  // table) along through the FK, and RESTART IDENTITY applies to the cascaded
-  // tables too. The plural function name reflects that scope.
+  // Single statement; CASCADE pulls `mail_attachments` AND `tournament_drafts`
+  // (PR3) along through the FK, and RESTART IDENTITY applies to the cascaded
+  // tables too. The plural function name reflects that scope: any table whose
+  // PK chains to `mail_messages.id` is wiped here.
   await testDb.execute(sql`TRUNCATE TABLE mail_messages RESTART IDENTITY CASCADE`)
 }
 

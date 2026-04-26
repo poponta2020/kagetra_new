@@ -57,6 +57,13 @@
       "when": 1777174603485,
       "tag": "0007_massive_living_lightning",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777201399502,
+      "tag": "0008_unknown_star_brand",
+      "breakpoints": true
     }
   ]
 }

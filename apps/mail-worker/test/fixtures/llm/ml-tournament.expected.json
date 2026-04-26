@@ -1,0 +1,32 @@
+{
+  "subject": "[taikai-ajka:829] 第66回標榜大会のご案内",
+  "payload": {
+    "is_tournament_announcement": true,
+    "confidence": 0.88,
+    "reason": "ML 配信のメールだが、本文に大会名・開催日・会場・参加費・申込締切が明記されている",
+    "is_correction": false,
+    "references_subject": null,
+    "extracted": {
+      "title": "第66回標榜大会",
+      "formal_name": null,
+      "event_date": "2026-06-20",
+      "venue": "東京都千代田区",
+      "fee_jpy": 4000,
+      "payment_deadline": null,
+      "payment_info_text": null,
+      "payment_method": null,
+      "entry_method": null,
+      "organizer_text": "(一社)全日本かるた協会",
+      "entry_deadline": "2026-06-05",
+      "eligible_grades": null,
+      "kind": "individual",
+      "capacity_total": null,
+      "capacity_a": null,
+      "capacity_b": null,
+      "capacity_c": null,
+      "capacity_d": null,
+      "capacity_e": null,
+      "official": true
+    }
+  }
+}
