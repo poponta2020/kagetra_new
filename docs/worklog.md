@@ -660,3 +660,44 @@
 - PR3 (#14) — AI 抽出（Claude API → 大会概要を構造化）あたりが次スライス候補
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト
 - carryover Nit: 対象外の参加行を別枠で表示案
+
+---
+
+## 2026-04-27 セッション3（PR #19 Phase P3-A/PR3 AI 抽出 + tournament_drafts → Codex 4回レビュー → ship）
+
+### 完了
+- **PR #19** (`feat/mail-tournament-import-pr3` → main, merge `f441798`) — Anthropic Sonnet 4.6 によるメール構造化抽出 + `tournament_drafts` 永続化 + `/admin/mail-inbox` の信頼度バッジ
+  - スキーマ: `tournament_draft_status` enum (`pending_review` / `approved` / `rejected` / `ai_failed` / `superseded`) + `tournament_drafts` テーブル（1 mail = 0/1 draft、`UNIQUE(message_id)` で再抽出 UPDATE）+ Drizzle migration `0008_unknown_star_brand.sql`
+  - LLM 抽象化: `LLMExtractor` interface + `AnthropicSonnet46Extractor`（強制 tool_use / 1h ephemeral cache / PDF native document block）+ `FixtureLLMExtractor` / `BrokenLLMExtractor`
+  - prompt: `PROMPT_VERSION = '1.0.0'`、~3,700 tok の system + 3 件 few-shot（陽性 PDF / 陰性 newsletter / 訂正版）
+  - `classifyMail` / `persistOutcome` 二段化で通常 pipeline と `reextract` CLI が同じ書き込み経路を共有、approved/rejected draft は再抽出で保護
+  - `apps/web` 側: `ConfidenceBadge` (`>=0.9` success / `>=0.5` warn / `<0.5` neutral) + `DraftCard` を `/admin/mail-inbox` に inline 表示
+- **Codex レビュー r1 → r2 → r3 → r4** で Should fix を順次解消:
+  - r1 (`b2e941c`): Zod v4 → JSON Schema 変換が `zod-to-json-schema` (v3) で空 schema を生成し live API に no-constraint で出ていた Blocker → `z.toJSONSchema(..., target: 'draft-7', io: 'input')` に切替 / AI 失敗 recovery (duplicate path で `ai_processing` を再試行) / draft state 遷移整理 / fixture key を filename basename → on-file `subject` に
+  - r2 (`1a1934f`): approved/rejected draft を AI 再実行が `pending_review` に書き戻していた Should fix → `upsertDraft` に operator-owned 状態保護を追加 / `reextract` CLI に `--include-prefilter-noise` opt-in 追加（pre-filter rule 変更後の取り戻し用）/ noise 再判定時に古い `pending_review` / `ai_failed` draft を `superseded` に
+  - r3 (`ae8bc09`): Windows で `reextract` の entrypoint guard が一致せず `--help` も含めて全 silent no-op → `pathToFileURL(process.argv[1]).href === import.meta.url` に置換 / `LLMExtractorError` 基底を導入し `ai_raw_response` に provider の実レスポンス (`LLMNoToolUseError.content` を JSON 化、Zod 失敗を `LLMValidationError` で包んで `toolUse.input` を保存) / failed draft の `ai_model` を `llm.modelId` に動的化（ハードコードの `claude-sonnet-4-6` を排除）/ `parseArgs` を `^YYYY-MM-DD$` + JST round-trip + 未知フラグ拒否に厳格化 / `tsx src/reextract.ts --help` を spawn する subprocess test 追加
+  - r4: Blocker / Should fix なし、Nit 2 件のみ（`toLocaleString('en-CA')` の locale 依存 / `pnpm` 直接 spawn の PATH 依存）→ どちらも将来の test infrastructure 整理時に拾う
+- **PR #19 マージ済み** (`f441798`, `gh pr merge --merge --delete-branch`)
+- 子 Issue **#14 自動クローズ**（PR body の `Closes #14`）/ 親 Issue #11 は OPEN 継続（PR4 以降あり）
+- worktree `C:/tmp/impl-mail-pr3` 撤去（`git worktree remove --force` → "Directory not empty" → `cmd /c rmdir /s /q` で node_modules の長パス含めて完全削除）
+- ローカルブランチ `feat/mail-tournament-import-pr3` 削除
+- main を `f441798` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr19*`, `pr19-diff-*.txt`) 全削除
+
+### 学び
+- **JS の Date は silent normalize** — `new Date('2026-04-31T...')` は NaN にならず 5/1 にロールするので、CLI parser は regex 形式チェック後に round-trip 検証まで掛けて初めて typo を弾ける。`Number.isNaN(date.getTime())` だけでは網羅できない
+- **Windows の entrypoint guard はライブラリ任せ** — `import.meta.url` は `file:///C:/...`、`process.argv[1]` は `C:\...` でスラッシュ数も区切りも違う。手作業で `replace(/\\/g, '/')` で組み立てると 1 スラッシュ分ずれて全 silent exit 0 になる。`pathToFileURL(process.argv[1]).href === import.meta.url` が canonical
+- **provider-neutral 抽象化のエラーは `rawResponse` を持たせる** — provider 固有の `Anthropic.ContentBlock[]` を classifier 側に漏らさず、しかし AI 失敗 draft で人間が原文を読めるようにする両立。`LLMExtractorError` 基底に `rawResponse: string | null` を持たせ、subclass の constructor で JSON.stringify する設計が綺麗
+- **failed branch の `ai_model` を成功 branch と同じ source から取る** — 成功 branch は `result.model`（provider が返した実際のモデル）、失敗 branch は `llm.modelId`（extractor インスタンス自身が宣言）。後者をハードコードにすると model bump や別 provider 投入時に audit trail が嘘になる。「extractor 自身が自分の identity を宣言」というインターフェース契約を増やすコストの方が安い
+- **CLI parser は未知フラグを silent drop しない** — `if/else if` の最後に `else throw new Error('unknown flag')` を入れるだけで `--include-prefiler-noise` (typo) が即死する。CLI 経由で本番 DB を触る場合の typo 安全網
+
+### 残存している git 状態
+- main: `f441798`（このコミットの後にさらに worklog コミットが乗る）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- PR4 (#11 子) — 承認 UI（events 化フロー）+ filter 行 + LINE 通知 hookup あたり
+- carryover r4 Nit: `--since` round-trip を locale 非依存な UTC component ベースに / `reextract` entrypoint test の `pnpm` 起動を `process.execPath` + 直接 tsx に
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト
+- carryover Nit: 対象外の参加行を別枠で表示案
