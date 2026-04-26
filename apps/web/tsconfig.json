@@ -17,6 +17,7 @@
     "next-env.d.ts",
     "src",
     "../../packages/shared/src",
+    "../../apps/mail-worker/src",
     ".next/types/**/*.ts"
   ],
   "exclude": [
