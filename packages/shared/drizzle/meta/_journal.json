@@ -64,6 +64,13 @@
       "when": 1777201399502,
       "tag": "0008_unknown_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777218927459,
+      "tag": "0009_nappy_kat_farrell",
+      "breakpoints": true
     }
   ]
 }

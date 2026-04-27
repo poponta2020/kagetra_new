@@ -6,7 +6,36 @@ import { z } from 'zod'
 // apps/mail-worker as cwd) still picks up DATABASE_URL / YAHOO_IMAP_* defined
 // at the monorepo root. Existing process.env wins (override defaults to false),
 // so CI / docker can keep injecting via real env vars.
-dotenvConfig({ path: fileURLToPath(new URL('../../../.env', import.meta.url)) })
+//
+// Deferred behind a once-flag instead of running at module load: this module
+// is now imported by @kagetra/web (PR4 reextract Server Action), and webpack
+// statically analyses `new URL(staticString, import.meta.url)` as a bundled
+// asset — leaking the worker-only dotenv side effect into the Next bundle as
+// a "Module not found: ../../../.env" error. The first `load*Config()` call
+// triggers it, which is the only path that needs it; the web bundle never
+// hits that path for `loadLlmConfig` because the action passes the API key
+// through process.env populated by Next's own .env loading.
+let dotenvLoaded = false
+function ensureDotenvLoaded(): void {
+  if (dotenvLoaded) return
+  dotenvLoaded = true
+  try {
+    // The path is built from runtime fragments rather than a single literal so
+    // bundlers (webpack in @kagetra/web) do not statically resolve it as an
+    // asset reference and fail with "Module not found: ../../../.env". The
+    // worker runtime still resolves the URL identically.
+    const segments = ['..', '..', '..', '.env']
+    const relative = segments.join('/')
+    dotenvConfig({
+      path: fileURLToPath(new URL(relative, import.meta.url)),
+    })
+  } catch {
+    // Silent: web bundle has no resolvable .env at this URL, and Next's own
+    // dotenv has already populated process.env by the time loadLlmConfig is
+    // called from a Server Action. Worker callers always run from disk where
+    // the URL resolves.
+  }
+}
 
 /**
  * Worker env contracts, split per concern so each subsystem only validates the
@@ -74,6 +103,7 @@ function configError(name: string, issues: z.ZodIssue[]): Error {
 
 export function loadLogConfig(env: NodeJS.ProcessEnv = process.env): LogConfig {
   if (cachedLog) return cachedLog
+  ensureDotenvLoaded()
   const parsed = LogConfigSchema.safeParse(env)
   if (!parsed.success) throw configError('log', parsed.error.issues)
   cachedLog = parsed.data
@@ -82,6 +112,7 @@ export function loadLogConfig(env: NodeJS.ProcessEnv = process.env): LogConfig {
 
 export function loadImapConfig(env: NodeJS.ProcessEnv = process.env): ImapConfig {
   if (cachedImap) return cachedImap
+  ensureDotenvLoaded()
   const parsed = ImapConfigSchema.safeParse(env)
   if (!parsed.success) throw configError('imap', parsed.error.issues)
   cachedImap = parsed.data
@@ -90,6 +121,7 @@ export function loadImapConfig(env: NodeJS.ProcessEnv = process.env): ImapConfig
 
 export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
   if (cachedDb) return cachedDb
+  ensureDotenvLoaded()
   const parsed = DbConfigSchema.safeParse(env)
   if (!parsed.success) throw configError('db', parsed.error.issues)
   cachedDb = parsed.data
@@ -105,6 +137,7 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
  */
 export function loadLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
   if (cachedLlm) return cachedLlm
+  ensureDotenvLoaded()
   const parsed = LlmConfigSchema.safeParse(env)
   if (!parsed.success) throw configError('llm', parsed.error.issues)
   cachedLlm = { anthropicApiKey: parsed.data.ANTHROPIC_API_KEY }
@@ -116,4 +149,7 @@ export function resetConfigForTests(): void {
   cachedImap = null
   cachedDb = null
   cachedLlm = null
+  // dotenvLoaded intentionally not reset: dotenv merges into process.env, so
+  // re-running it has no value and would only re-trigger the webpack URL
+  // analysis under bundlers.
 }

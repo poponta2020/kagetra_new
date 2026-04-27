@@ -17,6 +17,12 @@ const optionalPositiveInt = z
   .refine((v) => v === null || (Number.isInteger(v) && v > 0), {
     message: '正の整数を指定してください',
   })
+const optionalNonNegativeInt = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((v) => (v && v !== '' ? Number(v) : null))
+  .refine((v) => v === null || (Number.isInteger(v) && v >= 0), {
+    message: '0以上の整数を指定してください',
+  })
 
 export const eventFormSchema = z.object({
   title: z.string().min(1, 'タイトルは必須').max(200, 'タイトルは200文字以内'),
@@ -33,6 +39,17 @@ export const eventFormSchema = z.object({
   entryDeadline: optionalDateStr,
   internalDeadline: optionalDateStr,
   eventGroupId: optionalPositiveInt,
+  feeJpy: optionalNonNegativeInt,
+  paymentDeadline: optionalDateStr,
+  paymentInfo: optionalStr,
+  paymentMethod: optionalStr,
+  entryMethod: optionalStr,
+  organizer: optionalStr,
+  capacityA: optionalPositiveInt,
+  capacityB: optionalPositiveInt,
+  capacityC: optionalPositiveInt,
+  capacityD: optionalPositiveInt,
+  capacityE: optionalPositiveInt,
 })
 
 export const scheduleFormSchema = z.object({
@@ -64,6 +81,17 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
     entryDeadline: formData.get('entryDeadline'),
     internalDeadline: formData.get('internalDeadline'),
     eventGroupId: formData.get('eventGroupId'),
+    feeJpy: formData.get('feeJpy'),
+    paymentDeadline: formData.get('paymentDeadline'),
+    paymentInfo: formData.get('paymentInfo'),
+    paymentMethod: formData.get('paymentMethod'),
+    entryMethod: formData.get('entryMethod'),
+    organizer: formData.get('organizer'),
+    capacityA: formData.get('capacityA'),
+    capacityB: formData.get('capacityB'),
+    capacityC: formData.get('capacityC'),
+    capacityD: formData.get('capacityD'),
+    capacityE: formData.get('capacityE'),
   }
 }
 
