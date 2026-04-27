@@ -701,3 +701,49 @@
 - carryover r4 Nit: `--since` round-trip を locale 非依存な UTC component ベースに / `reextract` entrypoint test の `pnpm` 起動を `process.execPath` + 直接 tsx に
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト
 - carryover Nit: 対象外の参加行を別枠で表示案
+
+---
+
+## 2026-04-27 セッション4（PR #20 Phase P3-A/PR4 承認 UI + events 拡張 → Codex 4回レビュー → ship）
+
+### 完了
+- **PR #20** (`feat/mail-tournament-import-pr4` → main, merge `d1ec898`) — `/admin/mail-inbox/[id]` 承認ワークフロー UI と `events` 拡張カラム 11 個（料金/締切/申込/主催 + 級別定員 A〜E）。PR3 で揃った `tournament_drafts` を「AI 抽出値で pre-fill された events フォーム → 承認で events INSERT」フローまで繋げて完成
+  - スキーマ: Drizzle migration `0009_nappy_kat_farrell.sql`（11 ALTER のみ、既存 events 非破壊）
+  - 4 つの Server Action (`apps/web/.../mail-inbox/actions.ts`): `approveDraft` / `rejectDraft` / `linkDraftToEvent` / `reextractDraft`、全部 `requireAdminSession()` で admin/vice_admin gate + APPROVABLE/REJECTABLE/LINKABLE/REEXTRACTABLE_STATUSES の terminal status guard
+  - `approveDraft`: events INSERT + draft 更新 + audit 列を 1 transaction、speculative insert は rollback で巻き戻る
+  - `reextractDraft`: `@kagetra/mail-worker/classify/classifier` の `classifyMail` + `persistOutcome` を web 側から同期 await（Q1 確定）。`apps/mail-worker/package.json` に exports map 追加 + `apps/web/next.config.ts` に `transpilePackages` + webpack `extensionAlias` を配線
+  - 詳細画面の status guard: approved → events 行へジャンプ banner、rejected → 理由 banner、superseded → read-only。reextract / link は approved/rejected/superseded で完全 hide
+  - `CorrectionHint` (`is_correction=true` 警告 banner) + `ExtractedPayloadView` (`<details>` 折りたたみ AI 抽出 dump)
+- **Codex レビュー r1 → r2 → r3 → r4** で Should fix を順次解消:
+  - r1: terminal status mutation guard 追加（rejected を reextract で pending_review に書き戻すバグ）/ `eligibleGrades` の grade_X チェックボックス → `gradeEnum[]` 保存追加 / 追加イベント項目を EventForm + 編集画面 + 詳細画面に通し
+  - r2: 既存 approved/rejected draft の transaction 内 status 二重チェック追加（race で terminal を上書きしない）/ `feeJpy=0` を非負整数として正しく保存（`||` で 0 が落ちていた Should fix）
+  - r3 (`4c59ba3`): `ai_failed` draft (`extractedPayload: {}`) の詳細ページが `Object.entries(payload.extracted)` で 500 になる Blocker → 詳細ページで `payload.extracted` 不在時を `null` に正規化、`ExtractedPayloadView` の失敗フォールバックに流して救済 UI を残す / `CorrectionHint` に `isCorrection` prop 追加（`references_subject` が null でも warning を出す Should fix）/ `page.test.tsx` を新規追加して両ケースを RTL で検証（次回以降 server component test の reference に）
+  - r4 (`a4ae103`): reextract E2E が click せず "ボタンが表示される smoke test" でしかないのに名称・コメントで wiring 保証を主張していた Should fix → テスト名と comment を smoke のみに rename（深い保証は Vitest action test 側）/ `groups` と `eventCandidates` lookup を terminal status の read-only 表示でも fetch していた Nit → `showApproval` / `showLink` を計算順を queries より前に上げて `? ... : []` で gating
+  - r4 では Blocker 0 で「マージ可能」判定。Codex の追加調査メモ: `@kagetra/web` と `@kagetra/mail-worker` は `tsc --noEmit` 成功、`next build` は production compile + page generation まで成功で最後の standalone trace copy が Windows symlink 権限 (`EPERM`) で失敗（CI Linux では問題なし）、Vitest は global setup の plain `pnpm` 呼び出しがレビュー環境の PATH に無く失敗
+- **CI flake 修正** (`0faba22`): PR4 で apps/web 側に `mail_messages` / `tournament_drafts` を TRUNCATE する vitest を追加した結果、apps/mail-worker 既存テストと並行で同じ test DB を破壊し pg deadlock (`TRUNCATE … RESTART IDENTITY CASCADE` vs `INSERT into tournament_drafts`) で flaky FAIL になっていた。両 package とも `fileParallelism: false` 済みなので、root `package.json` の `test` script を `turbo run test --concurrency=1` にして cross-package も serialize。CI 緑化を確認した上で merge
+- **PR #20 マージ済み** (`d1ec898`, `gh pr merge --merge --delete-branch`)
+- 親 Issue #15 は既にクローズ済み（PR を Closes #15 で関連付け済みだった）
+- worktree `C:/tmp/impl-mail-pr4` 撤去（force-remove → 残存 dir を `rm -rf`）
+- ローカルブランチ `feat/mail-tournament-import-pr4` 削除
+- main を `d1ec898` まで fast-forward 同期（途中 `docs/features/mail-tournament-import/pr4-plan.md` がローカル untracked と完全一致だったので削除して再 ff）
+- レビュー artefact (`scripts/review/output/*pr20*`, `pr20-diff-r*.txt`) 全削除
+
+### 学び
+- **モノレポ test の cross-package DB contention** — 各 package が個別に `fileParallelism: false` を入れても、turbo がパッケージ間で並列実行する以上、共有 DB を持つ test は別 process 同士で deadlock しうる。`pg deadlock detected` がランダム test で散発し、しかも main で再現しないので「PR が flaky にした」ように見えるのが厄介。`turbo run test --concurrency=1` で cross-package を serialize するのが最小コストの解。本格対応は schema-per-package（search_path 切替）か packageDB 分離だが、pnpm + turbo 上では concurrency=1 で十分速い（4 package × 30s ≈ 2min、CI 15min budget の枠内）
+- **ai_failed draft の `extractedPayload: {}` を `as ExtractionPayload` で押し通すと 500** — TS の cast は実行時保証ゼロなので、jsonb の defensive narrow（DraftCard と同じ pattern）を入れないと `payload.extracted` が `undefined` になり `Object.entries` で爆発。「worker が validate 済みだから web は trust」というコメントを書いていても、failed branch で持つ `{}` は schema 準拠ではないので例外側を必ず想定する。今回 r3 Blocker として顕在化したが、設計時に「failed → null と同じ表示にする」と明示しておくべきだった
+- **`isCorrection` カラムを単独で受けないと訂正版警告が消える** — `references_subject` だけ banner に渡すと、AI が "correction" と判定したのに参照件名を取れなかったケース（typo / 件名差し替え訂正など）でユーザーに heads-up が出ない。column-level の boolean フラグを並行して持っているなら **両方** を visibility 判定に入れる。今回は `CorrectionHint` の signature に `isCorrection` を追加して `!isCorrection && referencesSubject===null && ...` の guard と「参照件名は取得できませんでした」フォールバック文を出す形に
+- **Server Component の test は async 関数を直接 await + RTL で `render(returnedJSX)` で素直に通る** — Next 15 の Server Component は async function なので、`mockAuthModule` で `@/auth` を、`vi.mock('next/navigation')` で `notFound`/`redirect` を throw に差し替えれば、`const ui = await Page({ params: Promise.resolve({ id }) })` → `render(ui)` だけで integration 風に検証できる。`apps/web/vitest.setup.ts` が `DATABASE_URL` を test DB に固定するので、`@/lib/db` の Pool もそのまま test DB に向く。次回以降、page-level の rendering バグは vitest 側で先に拾える
+- **「smoke test なのに wiring 保証を装う」コメントは E2E の typo より厄介** — テスト名やコメントが「click 後もページが描画される」と謳いつつ実際は `toBeVisible()` だけ、というのはテストとしては動くが将来の信頼を蝕む（form `action=` を外しても誰も気付かない）。E2E でやるなら HTTP intercept まで含めて click/submit を検証、そこまでやらない方針なら名称を smoke に揃えて過剰な保証を主張しない、という r4 Should fix が普遍的に効く判断軸
+- **読み取り専用ビューでも dropdown lookup を fetch しないために、status flag の計算順を queries より上に置く** — 細かい micro-opt だが、`approved`/`rejected`/`superseded` の audit 用途で詳細を開く頻度が今後増える前提なら、毎回 `eventGroups.findMany` + `events` の 6mo lookup を打たない方が良い。`isApproved` 系の computed flag を queries より前に持ち上げて `showApproval ? await ... : []` で gating する pattern は他の admin 詳細ページにも展開可能
+
+### 残存している git 状態
+- main: `d1ec898`（このコミットの後にさらに worklog/memory 同期コミットが乗る）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- **PR5 (#16 子)** — 定期実行（cron / queue）+ LINE 通知 + デプロイ配線。これで P3-A メール大会取り込み Phase が一旦 close
+- carryover from PR4 r4: `next build` の Windows standalone trace copy が `EPERM` で落ちる件は CI (Linux) では問題ないが、ローカル build 検証がしづらいので将来 docker-based local build script を用意するかも
+- carryover Nit (PR3 r4 から継続): `--since` round-trip を locale 非依存な UTC component ベースに / `reextract` entrypoint test の `pnpm` 起動を `process.execPath` + 直接 tsx に
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト
+- carryover Nit: 対象外の参加行を別枠で表示案
