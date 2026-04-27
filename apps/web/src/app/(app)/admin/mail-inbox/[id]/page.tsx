@@ -170,27 +170,48 @@ export default async function MailDraftDetailPage({
       .limit(3)
   }
 
-  // Approval form needs the groups dropdown options (id+name only).
-  const groups = await db.query.eventGroups.findMany({
-    columns: { id: true, name: true },
-    orderBy: (g, { asc }) => [asc(g.name)],
-  })
+  const isApproved = draft.status === 'approved'
+  const isRejected = draft.status === 'rejected'
+  const isSuperseded = draft.status === 'superseded'
+  // approved / rejected / superseded are terminal at the action layer
+  // (see APPROVABLE_STATUSES in actions.ts), so the UI hides every operator
+  // button when the draft is in any of those states. Showing a button that
+  // would always 500 is worse than no button at all.
+  const showApproval = !isApproved && !isRejected && !isSuperseded
+  const showReject = showApproval
+  const showLink = showApproval
+  const showReextract = showApproval
+
+  // Gate the dropdown queries on showApproval / showLink so a read-only audit
+  // view of an approved/rejected/superseded draft does not pay for two extra
+  // round-trips that nothing on the page consumes (review r4 nit).
+  const groups = showApproval
+    ? await db.query.eventGroups.findMany({
+        columns: { id: true, name: true },
+        orderBy: (g, { asc }) => [asc(g.name)],
+      })
+    : []
 
   // Linking-candidate dropdown: recent events (6 mo window) so an admin can
   // attach this draft's mail to an already-published event without paging
   // through the full archive. 100 cap keeps the <select> tractable.
-  const eventCandidates = await db
-    .select({
-      id: events.id,
-      title: events.title,
-      eventDate: events.eventDate,
-    })
-    .from(events)
-    .where(
-      gte(events.eventDate, sql`(CURRENT_DATE - INTERVAL '6 months')::date`),
-    )
-    .orderBy(desc(events.eventDate))
-    .limit(100)
+  const eventCandidates = showLink
+    ? await db
+        .select({
+          id: events.id,
+          title: events.title,
+          eventDate: events.eventDate,
+        })
+        .from(events)
+        .where(
+          gte(
+            events.eventDate,
+            sql`(CURRENT_DATE - INTERVAL '6 months')::date`,
+          ),
+        )
+        .orderBy(desc(events.eventDate))
+        .limit(100)
+    : []
 
   const status = STATUS_LABEL[draft.status] ?? {
     label: draft.status,
@@ -210,18 +231,6 @@ export default async function MailDraftDetailPage({
     if (!Number.isInteger(eventId) || eventId <= 0) return
     await linkDraftToEvent(draftId, eventId)
   }
-
-  const isApproved = draft.status === 'approved'
-  const isRejected = draft.status === 'rejected'
-  const isSuperseded = draft.status === 'superseded'
-  // approved / rejected / superseded are terminal at the action layer
-  // (see APPROVABLE_STATUSES in actions.ts), so the UI hides every operator
-  // button when the draft is in any of those states. Showing a button that
-  // would always 500 is worse than no button at all.
-  const showApproval = !isApproved && !isRejected && !isSuperseded
-  const showReject = showApproval
-  const showLink = showApproval
-  const showReextract = showApproval
 
   return (
     <div className="flex flex-col gap-4">

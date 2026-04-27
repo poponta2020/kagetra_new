@@ -187,16 +187,21 @@ test.describe('/admin/mail-inbox/[id] approval flow', () => {
     await context.close()
   })
 
-  test('reextract: ボタンクリック後もページが描画され続ける (200 応答)', async ({
+  test('reextract: 再抽出ボタンが表示される (smoke test)', async ({
     browser,
   }) => {
-    // Re-extract triggers AnthropicSonnet46Extractor instantiation, which
-    // requires a real API key. We don't stub Anthropic via HTTP intercept
-    // here — the deeper "classifyMail was called with force=true" assertion
-    // lives in the Vitest action tests. For E2E we just verify the action
-    // path is wired up: clicking the button does not crash the page (it may
-    // surface an Anthropic API error, which Next renders as 500; the action
-    // test confirms the upstream wiring is correct).
+    // Smoke test only: assert the 再抽出 button is rendered + enabled for a
+    // pending_review draft. This does NOT click/submit — submitting would
+    // invoke AnthropicSonnet46Extractor, which needs either a working
+    // ANTHROPIC_API_KEY or an HTTP intercept for the SDK; both are deferred.
+    //
+    // The deeper assertions (classifyMail force=true, persistOutcome, status
+    // guards) live in the Vitest action test
+    // (src/app/(app)/admin/mail-inbox/actions.test.ts), which mocks the
+    // mail-worker classifier surface directly. Form-wiring (`action=
+    // reextractAction`) is therefore only loosely covered here — keep the
+    // PR4 review r4 follow-up note in mind if the reextract Server Action
+    // signature changes.
 
     const admin = await seedAdminSession({ name: 'Admin Reextractor' })
     const mail = await createMailMessage({ subject: '再抽出対象メール' })
@@ -214,13 +219,8 @@ test.describe('/admin/mail-inbox/[id] approval flow', () => {
     const initialResponse = await page.goto(detailUrl)
     expect(initialResponse?.ok()).toBe(true)
 
-    // Reextract button is rendered for non-approved/non-superseded drafts.
     const reextractButton = page.getByRole('button', { name: '再抽出' })
     await expect(reextractButton).toBeVisible()
-
-    // Smoke-only: assert the button exists and is enabled. Submitting it
-    // would require either a working ANTHROPIC_API_KEY or an HTTP intercept
-    // for the SDK — both deferred to Vitest in this PR.
     await expect(reextractButton).toBeEnabled()
 
     await context.close()
