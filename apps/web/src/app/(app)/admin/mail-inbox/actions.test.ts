@@ -1,6 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { events, tournamentDrafts } from '@kagetra/shared/schema'
+import {
+  eventGroups,
+  events,
+  tournamentDrafts,
+} from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -191,6 +195,110 @@ describe('admin/mail-inbox actions', () => {
       expect(after?.status).toBe('approved')
       expect(after?.eventId).not.toBeNull()
     })
+
+    it('rejected な draft は再承認できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'rejected',
+      })
+
+      await expect(
+        approveDraft(draft.id, buildApproveFormData()),
+      ).rejects.toThrow('draft is not approvable')
+
+      // Speculative event insert is rolled back with the transaction.
+      const eventRows = await testDb.select().from(events)
+      expect(eventRows).toHaveLength(0)
+    })
+
+    it('grade_X チェックボックスを eligibleGrades として保存する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({
+          title: '級別承認テスト',
+          grade_A: 'on',
+          grade_C: 'on',
+          grade_E: 'on',
+        }),
+      )
+
+      const inserted = await testDb.query.events.findFirst({
+        where: eq(events.title, '級別承認テスト'),
+      })
+      expect(inserted).toBeDefined()
+      expect(inserted?.eligibleGrades).toEqual(['A', 'C', 'E'])
+    })
+
+    it('grade_X が一切 on でない場合 eligibleGrades は NULL', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({ title: '級指定なし' }),
+      )
+
+      const inserted = await testDb.query.events.findFirst({
+        where: eq(events.title, '級指定なし'),
+      })
+      expect(inserted?.eligibleGrades).toBeNull()
+    })
+
+    it('存在しない eventGroupId が指定されると入力エラーで弾く', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await expect(
+        approveDraft(
+          draft.id,
+          buildApproveFormData({ eventGroupId: '999999' }),
+        ),
+      ).rejects.toThrow(/大会グループ/)
+
+      // Validation runs before the transaction, so neither events nor draft
+      // status should change.
+      const eventRows = await testDb.select().from(events)
+      expect(eventRows).toHaveLength(0)
+      const after = await getDraft(draft.id)
+      expect(after?.status).toBe('pending_review')
+    })
+
+    it('既存 eventGroupId 指定なら通常通り events に紐付く', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const [group] = await testDb
+        .insert(eventGroups)
+        .values({ name: 'テストグループ' })
+        .returning()
+      if (!group) throw new Error('eventGroups insert failed')
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({
+          title: 'グループ付き大会',
+          eventGroupId: String(group.id),
+        }),
+      )
+
+      const inserted = await testDb.query.events.findFirst({
+        where: eq(events.title, 'グループ付き大会'),
+      })
+      expect(inserted?.eventGroupId).toBe(group.id)
+    })
   })
 
   describe('rejectDraft', () => {
@@ -245,6 +353,29 @@ describe('admin/mail-inbox actions', () => {
       await setAuthSession({ id: member.id, role: 'member' })
       await expect(rejectDraft(draft.id, fd)).rejects.toThrow('Forbidden')
     })
+
+    it.each([['approved'], ['rejected'], ['superseded']] as const)(
+      '%s な draft は再却下できない',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage()
+        const draft = await createTournamentDraft({
+          messageId: mail.id,
+          status,
+        })
+        const fd = new FormData()
+        fd.set('rejection_reason', '再却下しようとする')
+
+        await expect(rejectDraft(draft.id, fd)).rejects.toThrow(
+          'draft is not rejectable',
+        )
+
+        // Status must be unchanged (no silent overwrite of finalized state).
+        const after = await getDraft(draft.id)
+        expect(after?.status).toBe(status)
+      },
+    )
   })
 
   describe('linkDraftToEvent', () => {
@@ -292,6 +423,27 @@ describe('admin/mail-inbox actions', () => {
         'Forbidden',
       )
     })
+
+    it.each([['approved'], ['rejected'], ['superseded']] as const)(
+      '%s な draft は既存 events に紐付け直せない',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage()
+        const draft = await createTournamentDraft({
+          messageId: mail.id,
+          status,
+        })
+        const event = await createEvent({ title: 'Target' })
+
+        await expect(linkDraftToEvent(draft.id, event.id)).rejects.toThrow(
+          'draft is not linkable',
+        )
+
+        const after = await getDraft(draft.id)
+        expect(after?.status).toBe(status)
+      },
+    )
   })
 
   describe('reextractDraft', () => {
@@ -337,6 +489,37 @@ describe('admin/mail-inbox actions', () => {
       await expect(reextractDraft(draft.id)).rejects.toThrow('Forbidden')
 
       expect(classifyMailMock).not.toHaveBeenCalled()
+    })
+
+    it.each([['approved'], ['rejected'], ['superseded']] as const)(
+      '%s な draft は再抽出できない (classifyMail を呼ばない)',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage()
+        const draft = await createTournamentDraft({
+          messageId: mail.id,
+          status,
+        })
+
+        await expect(reextractDraft(draft.id)).rejects.toThrow(
+          'draft is not reextractable',
+        )
+        expect(classifyMailMock).not.toHaveBeenCalled()
+      },
+    )
+
+    it('ai_failed な draft は再抽出できる (recovery path)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'ai_failed',
+      })
+
+      await reextractDraft(draft.id)
+      expect(classifyMailMock).toHaveBeenCalledTimes(1)
     })
   })
 })

@@ -90,6 +90,17 @@ export default async function EditEventPage({
           eligibleGrades: event.eligibleGrades,
           description: event.description,
           status: event.status,
+          feeJpy: event.feeJpy,
+          paymentDeadline: event.paymentDeadline,
+          paymentInfo: event.paymentInfo,
+          paymentMethod: event.paymentMethod,
+          entryMethod: event.entryMethod,
+          organizer: event.organizer,
+          capacityA: event.capacityA,
+          capacityB: event.capacityB,
+          capacityC: event.capacityC,
+          capacityD: event.capacityD,
+          capacityE: event.capacityE,
         }}
       />
     </div>

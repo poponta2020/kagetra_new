@@ -205,10 +205,14 @@ export default async function MailDraftDetailPage({
   const isApproved = draft.status === 'approved'
   const isRejected = draft.status === 'rejected'
   const isSuperseded = draft.status === 'superseded'
+  // approved / rejected / superseded are terminal at the action layer
+  // (see APPROVABLE_STATUSES in actions.ts), so the UI hides every operator
+  // button when the draft is in any of those states. Showing a button that
+  // would always 500 is worse than no button at all.
   const showApproval = !isApproved && !isRejected && !isSuperseded
   const showReject = showApproval
-  const showLink = !isApproved && !isSuperseded
-  const showReextract = !isApproved && !isSuperseded
+  const showLink = showApproval
+  const showReextract = showApproval
 
   return (
     <div className="flex flex-col gap-4">

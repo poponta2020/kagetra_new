@@ -112,6 +112,18 @@ export default async function EventDetailPage({
     .slice()
     .sort((a, b) => (a.user.grade ?? 'Z').localeCompare(b.user.grade ?? 'Z'))
 
+  // Per-grade capacity is shown only when at least one grade-level cap is set,
+  // so events without bracketed entry caps stay uncluttered.
+  const perGradeCapacities: Array<{ grade: Grade; capacity: number }> = (
+    [
+      ['A', event.capacityA],
+      ['B', event.capacityB],
+      ['C', event.capacityC],
+      ['D', event.capacityD],
+      ['E', event.capacityE],
+    ] as const
+  ).flatMap(([g, c]) => (c != null ? [{ grade: g as Grade, capacity: c }] : []))
+
   const detailItems: DescListItem[] = [
     ...(event.formalName
       ? [{ label: '正式名称', value: event.formalName }]
@@ -144,6 +156,26 @@ export default async function EventDetailPage({
     ...(event.capacity != null
       ? [{ label: '定員', value: `${event.capacity}名` }]
       : []),
+    ...(perGradeCapacities.length
+      ? [
+          {
+            label: '級別定員',
+            value: (
+              <div className="flex flex-wrap gap-1.5">
+                {perGradeCapacities.map(({ grade, capacity }) => (
+                  <span
+                    key={grade}
+                    className="inline-flex items-center gap-1 rounded-full bg-neutral-bg px-2 py-0.5 text-xs text-neutral-fg"
+                  >
+                    <GradePill grade={grade} size="sm" />
+                    {capacity}名
+                  </span>
+                ))}
+              </div>
+            ),
+          },
+        ]
+      : []),
     ...(event.eventGroup?.name
       ? [{ label: '大会グループ', value: event.eventGroup.name }]
       : []),
@@ -152,6 +184,29 @@ export default async function EventDetailPage({
       : []),
     ...(event.internalDeadline
       ? [{ label: '会内締切', value: event.internalDeadline }]
+      : []),
+    ...(event.organizer ? [{ label: '主催', value: event.organizer }] : []),
+    ...(event.entryMethod
+      ? [{ label: '申込方法', value: event.entryMethod }]
+      : []),
+    ...(event.feeJpy != null
+      ? [{ label: '参加費', value: `${event.feeJpy.toLocaleString('ja-JP')}円` }]
+      : []),
+    ...(event.paymentDeadline
+      ? [{ label: '支払締切', value: event.paymentDeadline }]
+      : []),
+    ...(event.paymentMethod
+      ? [{ label: '支払方法', value: event.paymentMethod }]
+      : []),
+    ...(event.paymentInfo
+      ? [
+          {
+            label: '支払情報',
+            value: (
+              <span className="whitespace-pre-wrap">{event.paymentInfo}</span>
+            ),
+          },
+        ]
       : []),
     { label: 'ステータス', value: <StatusPill status={event.status} size="sm" /> },
   ]
