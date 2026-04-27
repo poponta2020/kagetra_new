@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Card, Pill } from '@/components/ui'
 
 export interface CorrectionHintProps {
+  isCorrection: boolean
   referencesSubject: string | null
   relatedDrafts: Array<{
     id: number
@@ -21,16 +22,23 @@ export interface CorrectionHintProps {
  * earlier drafts/events that look related. Renders nothing when none of
  * those signals are present so the parent can drop it unconditionally.
  *
+ * `isCorrection` is the column-level flag the worker persisted alongside the
+ * jsonb payload; it is checked independently of `referencesSubject` so a
+ * "correction without a parseable subject" still surfaces a warning to the
+ * operator (instead of silently dropping the heads-up).
+ *
  * Approved drafts are still listed but visually distinguished by an
  * `events #N` pill so an admin can jump straight to the published event
  * without re-following the draft chain.
  */
 export function CorrectionHint({
+  isCorrection,
   referencesSubject,
   relatedDrafts,
   relatedEvents,
 }: CorrectionHintProps) {
   if (
+    !isCorrection &&
     referencesSubject === null &&
     relatedDrafts.length === 0 &&
     relatedEvents.length === 0
@@ -43,10 +51,16 @@ export function CorrectionHint({
       <div className="space-y-2 text-sm">
         <div className="font-semibold text-warn-fg">⚠ 訂正版の可能性</div>
 
-        {referencesSubject && (
+        {referencesSubject ? (
           <div className="text-ink-2">
             AI が「{referencesSubject}」への訂正と判断しました。
           </div>
+        ) : (
+          isCorrection && (
+            <div className="text-ink-2">
+              AI が訂正版と判断しましたが、参照件名は取得できませんでした。
+            </div>
+          )
         )}
 
         {relatedDrafts.length > 0 && (

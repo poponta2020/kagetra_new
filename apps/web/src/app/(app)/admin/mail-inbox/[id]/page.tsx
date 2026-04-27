@@ -99,11 +99,19 @@ export default async function MailDraftDetailPage({
   })
   if (!draft || !draft.mail) notFound()
 
-  // Defensive cast mirroring DraftCard: the worker validated this jsonb on
+  // Defensive narrow mirroring DraftCard: the worker validated this jsonb on
   // insert, so the web layer trusts it without re-running Zod (avoids pulling
   // mail-worker's Zod schema into the Next bundle for a read-only consumer).
-  const extractedPayload =
-    (draft.extractedPayload as ExtractionPayload | null) ?? null
+  // ai_failed drafts persist `extractedPayload: {}` (see classifier.ts), so a
+  // raw cast leaves `extracted` undefined and crashes ExtractedPayloadView.
+  // Any payload missing the `extracted` block collapses to `null` and renders
+  // the same failure fallback as a literal-null payload — keeping the recovery
+  // / re-extract surface reachable for ai_failed drafts.
+  const rawPayload = draft.extractedPayload as Partial<ExtractionPayload> | null
+  const extractedPayload: ExtractionPayload | null =
+    rawPayload && rawPayload.extracted
+      ? (rawPayload as ExtractionPayload)
+      : null
   const referencesSubject = extractedPayload?.references_subject ?? null
 
   // Correction lookups — only run when the AI surfaced a referenced subject.
@@ -295,6 +303,7 @@ export default async function MailDraftDetailPage({
       )}
 
       <CorrectionHint
+        isCorrection={draft.isCorrection}
         referencesSubject={referencesSubject}
         relatedDrafts={relatedDrafts}
         relatedEvents={relatedEvents}
