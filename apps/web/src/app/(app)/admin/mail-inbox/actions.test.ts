@@ -214,6 +214,23 @@ describe('admin/mail-inbox actions', () => {
       expect(eventRows).toHaveLength(0)
     })
 
+    it('feeJpy=0 は無料大会として承認できる (非負整数を許可)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({ title: '無料大会', feeJpy: '0' }),
+      )
+
+      const inserted = await testDb.query.events.findFirst({
+        where: eq(events.title, '無料大会'),
+      })
+      expect(inserted?.feeJpy).toBe(0)
+    })
+
     it('grade_X チェックボックスを eligibleGrades として保存する', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

@@ -17,6 +17,12 @@ const optionalPositiveInt = z
   .refine((v) => v === null || (Number.isInteger(v) && v > 0), {
     message: '正の整数を指定してください',
   })
+const optionalNonNegativeInt = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((v) => (v && v !== '' ? Number(v) : null))
+  .refine((v) => v === null || (Number.isInteger(v) && v >= 0), {
+    message: '0以上の整数を指定してください',
+  })
 
 export const eventFormSchema = z.object({
   title: z.string().min(1, 'タイトルは必須').max(200, 'タイトルは200文字以内'),
@@ -33,7 +39,7 @@ export const eventFormSchema = z.object({
   entryDeadline: optionalDateStr,
   internalDeadline: optionalDateStr,
   eventGroupId: optionalPositiveInt,
-  feeJpy: optionalPositiveInt,
+  feeJpy: optionalNonNegativeInt,
   paymentDeadline: optionalDateStr,
   paymentInfo: optionalStr,
   paymentMethod: optionalStr,

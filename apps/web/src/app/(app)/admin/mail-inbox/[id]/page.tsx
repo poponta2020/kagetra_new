@@ -32,10 +32,11 @@ import {
  * the four bound Server Actions (approve / reject / re-extract / link)
  * inline; the page itself owns no client state.
  *
- * Status guard mirrors the worklog spec: approved drafts collapse to a
- * banner + jump to the published event, rejected drafts hide approval
- * controls but keep the re-extract button so an admin can retry, and
- * superseded drafts go fully read-only.
+ * Status guard mirrors the action layer (APPROVABLE_STATUSES in
+ * actions.ts): only pending_review / ai_failed render operator buttons.
+ * approved / rejected / superseded all collapse to a read-only view with
+ * no approve / reject / re-extract / link controls — showing buttons that
+ * would always 500 is worse than no buttons at all.
  */
 export const dynamic = 'force-dynamic'
 
