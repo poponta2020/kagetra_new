@@ -24,6 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
     "@kagetra/shared": "workspace:*",
+    "@line/bot-sdk": "^11.0.0",
     "dotenv": "^16.4.0",
     "drizzle-orm": "0.45.2",
     "imapflow": "^1.0.0",
