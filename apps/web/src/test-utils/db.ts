@@ -12,12 +12,21 @@ export const testDb = drizzle(testPool, { schema })
 
 // TRUNCATE all tables (CASCADE to handle FK). Call in beforeEach.
 // Table names match pgTable(...) first arg in packages/shared/src/schema/*.ts.
+//
+// PR5 added `mail_worker_jobs` (requested_by_user_id ON DELETE CASCADE — would
+// disappear with users anyway) and `mail_worker_runs` (triggered_by_user_id
+// ON DELETE SET NULL — would survive as orphaned rows). Listing both
+// explicitly + RESTART IDENTITY keeps inserted ids deterministic across tests
+// and isolates the trigger/run history between specs.
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
       tournament_drafts,
       mail_attachments,
       mail_messages,
+      mail_worker_jobs,
+      mail_worker_runs,
+      line_channels,
       event_attendances,
       schedule_items,
       events,
