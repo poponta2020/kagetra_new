@@ -1,0 +1,39 @@
+[Unit]
+Description=Kagetra mail-worker (cron + job dispatcher)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/mail-worker.md
+
+[Service]
+# Type=oneshot — pipeline は冪等な 1 サイクル + exit 0/1 設計なので
+# 長期常駐させない。timer 側 (kagetra-mail-worker.timer) が 30 分ごとに
+# 起動する。多重起動は systemd が自動的に直列化する。
+Type=oneshot
+
+# 専用 system user (root 回避)。docs/deploy/mail-worker.md §1 で
+# `useradd -r -s /bin/bash -m -d /opt/kagetra kagetra` 手順を案内。
+User=kagetra
+Group=kagetra
+
+# kagetra deploy ルート。clone 後に corepack pnpm install + build した場所。
+WorkingDirectory=/opt/kagetra
+
+# DATABASE_URL, IMAP_HOST/USER/PASSWORD, ANTHROPIC_API_KEY 等を含む。
+# 実体は .env.production (mode 0600, owner kagetra)、リポジトリには
+# commit しない。LINE 認証情報は seed-system-channel.ts で DB に投入する
+# ので env には不要。
+EnvironmentFile=/opt/kagetra/.env.production
+
+# corepack 経由で pnpm を呼ぶことで Node 同梱版を使う (グローバル pnpm
+# 不要)。--filter で workspace を限定し、build 済みの dist/index.js を実行。
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/mail-worker exec node dist/index.js
+
+# journalctl -u kagetra-mail-worker.service で運用ログを追える。
+StandardOutput=journal
+StandardError=journal
+
+# 1 サイクル上限 5 分 (IMAP 取得 + AI 分類 + DB write の合計)。超えたら
+# kill して次回 timer 発火に任せる (途中まで処理した分は idempotent)。
+TimeoutStartSec=300
+
+# 安全ネット: 子プロセスが暴走したら 30 秒で SIGKILL。
+TimeoutStopSec=30
