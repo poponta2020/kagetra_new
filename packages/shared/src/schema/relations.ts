@@ -7,6 +7,8 @@ import { scheduleItems } from './schedule-items'
 import { mailMessages } from './mail-messages'
 import { mailAttachments } from './mail-attachments'
 import { tournamentDrafts } from './tournament-drafts'
+import { lineChannels } from './line-channels'
+import { mailWorkerJobs, mailWorkerRuns } from './mail-worker'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -35,8 +37,14 @@ export const eventAttendancesRelations = relations(eventAttendances, ({ one }) =
   }),
 }))
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   attendances: many(eventAttendances),
+  // PR5: per-user assigned LINE Messaging channel (FK declared on
+  // line_channels.assignedUserId; relation wired here to avoid circular import).
+  lineChannel: one(lineChannels, {
+    fields: [users.lineChannelId],
+    references: [lineChannels.id],
+  }),
 }))
 
 export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
@@ -69,5 +77,32 @@ export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one }) =
   event: one(events, {
     fields: [tournamentDrafts.eventId],
     references: [events.id],
+  }),
+}))
+
+// PR5 (mail-tournament-import)
+export const lineChannelsRelations = relations(lineChannels, ({ one }) => ({
+  assignedUser: one(users, {
+    fields: [lineChannels.assignedUserId],
+    references: [users.id],
+  }),
+}))
+
+export const mailWorkerRunsRelations = relations(mailWorkerRuns, ({ one, many }) => ({
+  triggeredBy: one(users, {
+    fields: [mailWorkerRuns.triggeredByUserId],
+    references: [users.id],
+  }),
+  jobs: many(mailWorkerJobs),
+}))
+
+export const mailWorkerJobsRelations = relations(mailWorkerJobs, ({ one }) => ({
+  requestedBy: one(users, {
+    fields: [mailWorkerJobs.requestedByUserId],
+    references: [users.id],
+  }),
+  run: one(mailWorkerRuns, {
+    fields: [mailWorkerJobs.runId],
+    references: [mailWorkerRuns.id],
   }),
 }))

@@ -35,6 +35,12 @@ export const users = pgTable(
     lineLinkedMethod: lineLinkMethodEnum('line_link_method'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+    // PR5 (mail-tournament-import): per-user LINE Messaging channel assignment.
+    // FK to line_channels.id is declared in line_channels.ts (assigned_user_id)
+    // to avoid a circular import; here we keep the reverse pointer as a plain
+    // integer column and wire up the relation in relations.ts.
+    lineChannelId: integer('line_channel_id'),
+    notificationLineUserId: text('notification_line_user_id'),
   },
   (table) => [
     // dan is 段位 (kyu/dan rank). Valid range is 0–9; enforce at the DB layer
