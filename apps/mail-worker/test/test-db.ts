@@ -30,6 +30,22 @@ export async function truncateMailTables() {
   await testDb.execute(sql`TRUNCATE TABLE mail_messages RESTART IDENTITY CASCADE`)
 }
 
+/**
+ * PR5 Phase 3: clear `mail_worker_runs` + `mail_worker_jobs` between tests
+ * that exercise the dispatcher / runOnce. Separate from `truncateMailTables`
+ * because some tests (e.g. classifier-only) don't need to touch the runs
+ * tables and a wider TRUNCATE would slow them down.
+ *
+ * `mail_worker_jobs` references `mail_worker_runs.id`, so we truncate the
+ * jobs table first (or rely on CASCADE). RESTART IDENTITY keeps assertions
+ * that compare against `runId === 1` deterministic across runs.
+ */
+export async function truncateMailWorkerTables() {
+  await testDb.execute(
+    sql`TRUNCATE TABLE mail_worker_jobs, mail_worker_runs RESTART IDENTITY CASCADE`,
+  )
+}
+
 export async function closeTestDb() {
   await testPool.end()
 }
