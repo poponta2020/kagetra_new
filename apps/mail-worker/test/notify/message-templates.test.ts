@@ -5,15 +5,16 @@ import {
 } from '../../src/notify/message-templates.js'
 
 describe('buildNewDraftsMessage', () => {
-  it('throws on empty input (caller is expected to gate on N >= 1)', () => {
-    expect(() => buildNewDraftsMessage({ drafts: [] })).toThrow(
-      /requires at least one draft/,
-    )
+  it('throws on totalCount=0 (caller is expected to gate on >= 1)', () => {
+    expect(() =>
+      buildNewDraftsMessage({ totalCount: 0, previewSubjects: [] }),
+    ).toThrow(/totalCount >= 1/)
   })
 
   it('renders a single draft without an overflow line', () => {
     const out = buildNewDraftsMessage({
-      drafts: [{ subject: '第65回全日本選手権大会' }],
+      totalCount: 1,
+      previewSubjects: ['第65回全日本選手権大会'],
     })
     expect(out).toBe(
       [
@@ -25,8 +26,11 @@ describe('buildNewDraftsMessage', () => {
   })
 
   it('renders exactly 5 drafts with all subjects, no overflow line', () => {
-    const drafts = [1, 2, 3, 4, 5].map((n) => ({ subject: `大会${n}` }))
-    const out = buildNewDraftsMessage({ drafts })
+    const previewSubjects = [1, 2, 3, 4, 5].map((n) => `大会${n}`)
+    const out = buildNewDraftsMessage({
+      totalCount: previewSubjects.length,
+      previewSubjects,
+    })
     const lines = out.split('\n')
     expect(lines).toEqual([
       '📬 新規大会案内 5 件を取り込みました',
@@ -40,8 +44,11 @@ describe('buildNewDraftsMessage', () => {
   })
 
   it('truncates to top 5 and appends 他 N 件 when over limit (6 drafts → 1 件)', () => {
-    const drafts = [1, 2, 3, 4, 5, 6].map((n) => ({ subject: `大会${n}` }))
-    const out = buildNewDraftsMessage({ drafts })
+    const previewSubjects = [1, 2, 3, 4, 5, 6].map((n) => `大会${n}`)
+    const out = buildNewDraftsMessage({
+      totalCount: previewSubjects.length,
+      previewSubjects,
+    })
     const lines = out.split('\n')
     expect(lines).toEqual([
       '📬 新規大会案内 6 件を取り込みました',
@@ -55,16 +62,48 @@ describe('buildNewDraftsMessage', () => {
     ])
   })
 
-  it('overflow line shows total - 5 (10 drafts → 他 5 件)', () => {
-    const drafts = Array.from({ length: 10 }, (_, i) => ({
-      subject: `大会${i + 1}`,
-    }))
-    const out = buildNewDraftsMessage({ drafts })
+  it('overflow line shows totalCount - 5 (10 drafts → 他 5 件)', () => {
+    const previewSubjects = Array.from(
+      { length: 10 },
+      (_, i) => `大会${i + 1}`,
+    )
+    const out = buildNewDraftsMessage({
+      totalCount: previewSubjects.length,
+      previewSubjects,
+    })
     expect(out).toContain('📬 新規大会案内 10 件を取り込みました')
     expect(out).toContain('他 5 件')
-    // Sanity: only the first 5 subjects show up explicitly
     expect(out).toContain('・大会5')
     expect(out).not.toContain('・大会6')
+    expect(out.endsWith('→ /admin/mail-inbox')).toBe(true)
+  })
+
+  it('totalCount > previewSubjects.length: 他 件 reflects the canonical count', () => {
+    // pipeline.ts caps the post-hoc subject lookup at 10; an 11-draft run
+    // means previewSubjects has 10 entries but totalCount is 11. The overflow
+    // line must still account for the missing 6, not just (totalCount - 10).
+    const previewSubjects = Array.from(
+      { length: 10 },
+      (_, i) => `大会${i + 1}`,
+    )
+    const out = buildNewDraftsMessage({
+      totalCount: 11,
+      previewSubjects,
+    })
+    expect(out).toContain('📬 新規大会案内 11 件を取り込みました')
+    // Top 5 of the 10 known subjects are shown; overflow = 11 - 5 = 6.
+    expect(out).toContain('他 6 件')
+  })
+
+  it('empty previewSubjects: still renders the headline + fallback line', () => {
+    // Subject lookup failed entirely (DB hiccup, race, etc.). Pre-fix the
+    // notification was silently skipped — the admin would miss new drafts.
+    const out = buildNewDraftsMessage({
+      totalCount: 3,
+      previewSubjects: [],
+    })
+    expect(out).toContain('📬 新規大会案内 3 件を取り込みました')
+    expect(out).toContain('(件名取得に失敗 / 3 件)')
     expect(out.endsWith('→ /admin/mail-inbox')).toBe(true)
   })
 })

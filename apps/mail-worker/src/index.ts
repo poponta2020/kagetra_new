@@ -1,12 +1,17 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runOnce } from './pipeline.js'
+import { runOnce, runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb, getDb } from './db.js'
 import { loadLogConfig, loadLlmConfig } from './config.js'
 import { parseSinceArg } from './cli-args.js'
-import { claimNextJob, markJobDone, markJobFailed } from './jobs.js'
+import {
+  claimNextJob,
+  markJobDone,
+  markJobFailed,
+  recoverStaleClaimedJobs,
+} from './jobs.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
@@ -137,16 +142,33 @@ async function main(): Promise<void> {
 
   const log = consoleLogger()
 
-  // Dispatcher: `--no-claim` skips the queue entirely (test/debug); `--dry-run`
-  // also skips it because runOnce would write a `mail_worker_runs` row, which
-  // a dry-run shouldn't do. Otherwise, try to claim a pending admin job; if
-  // none, fall through to a cron tick.
-  if (flags.noClaim || flags.dryRun) {
+  // Dispatcher: `--dry-run` bypasses runOnce / job claim / notify entirely so
+  // it never writes a `mail_worker_runs` row. The CLI usage promises "do not
+  // write to DB", and runOnce would INSERT a running row before runPipeline
+  // even starts. runPipeline(dryRun:true) is pure (parse + classify + count),
+  // so this path stays runnable without DATABASE_URL.
+  if (flags.dryRun) {
+    const summary = await runPipeline({
+      since: flags.mockImap ? flags.since : cronSince,
+      source,
+      dryRun: true,
+      logger: log,
+      llmExtractor,
+    })
+    // eslint-disable-next-line no-console
+    console.log('pipeline summary:', summary)
+    await closeDb()
+    return
+  }
+
+  // `--no-claim` skips the job queue but still wraps the run in a
+  // `mail_worker_runs` row (test/debug for the cron-tick code path).
+  // Otherwise, try to claim a pending admin job; if none, fall through.
+  if (flags.noClaim) {
     const summary = await runOnce({
       kind: 'cron',
       since: flags.mockImap ? flags.since : cronSince,
       source,
-      dryRun: flags.dryRun,
       logger: log,
       llmExtractor,
     })
@@ -157,6 +179,24 @@ async function main(): Promise<void> {
   }
 
   const db = getDb()
+
+  // Recover any `claimed` rows orphaned by a previous worker crash before we
+  // try to claim a new one. Otherwise a dead row keeps blocking the queue
+  // from the admin's POV (review r1). Failure here is non-fatal — the
+  // dispatcher still gets a chance to claim a fresh `pending` row.
+  await recoverStaleClaimedJobs(db).then(
+    (recovered) => {
+      if (recovered > 0) {
+        log.warn('recovered stale claimed mail_worker_jobs rows', { recovered })
+      }
+    },
+    (err) => {
+      log.warn('recoverStaleClaimedJobs failed; continuing', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+    },
+  )
+
   const job = await claimNextJob(db).catch((err) => {
     log.warn('claimNextJob failed; falling back to cron tick', {
       err: err instanceof Error ? err.message : String(err),

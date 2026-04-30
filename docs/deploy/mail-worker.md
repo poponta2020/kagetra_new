@@ -9,7 +9,8 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
   write が同時に走るので 512 MB は不可)
 - Ubuntu 22.04 LTS (systemd 249+ — `OnUnitActiveSec` / `Persistent=true`
   が安定して動くバージョン)
-- Node.js 20+ (corepack 経由で pnpm @ 9.x を解決)
+- Node.js 22.13+ (`apps/mail-worker/package.json` の `engines.node` 要件。
+  corepack 経由で pnpm @ 9.x を解決)
 - PostgreSQL 16 (Lightsail Managed DB or self-hosted Docker、TLS 必須)
 - 専用 system user `kagetra` (sudo 不要、`/opt/kagetra` が home)
 - ドメイン + Let's Encrypt 証明書 (web 側別途、mail-worker 自体は HTTP
@@ -52,14 +53,15 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
 
    ```env
    DATABASE_URL=postgres://kagetra:CHANGEME@db.example.com:5432/kagetra?sslmode=require
-   IMAP_HOST=imap.mail.yahoo.co.jp
-   IMAP_PORT=993
-   IMAP_USER=kagetra-import@yahoo.co.jp
-   IMAP_PASSWORD=CHANGEME
-   IMAP_MAILBOX=INBOX
+   # IMAP は YAHOO_IMAP_* 名で読む (apps/mail-worker/src/config.ts)。
+   # HOST / PORT は省略時 imap.mail.yahoo.co.jp:993 が既定。
+   YAHOO_IMAP_HOST=imap.mail.yahoo.co.jp
+   YAHOO_IMAP_PORT=993
+   YAHOO_IMAP_USER=kagetra-import@yahoo.co.jp
+   YAHOO_IMAP_APP_PASSWORD=CHANGEME
    ANTHROPIC_API_KEY=sk-ant-CHANGEME
    # LINE は seed-system-channel.ts で DB に投入するため env 不要
-   # LOG_LEVEL=info
+   # MAIL_WORKER_LOG_LEVEL=info  # debug | info | warn | error
    ```
 
 6. migration apply (PR1 〜 PR5 のスキーマを反映):
@@ -135,10 +137,10 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
 | `LineSystemChannelNotConfiguredError` ログ | `seed-system-channel.ts` 未実行。§2 の手順 1〜6 を実施 |
 | 「pushSystemNotification skipped: no-user-id」 | seed 時に `--notification-line-user-id` 未指定。同じ script を `--notification-line-user-id=U...` 付きで再実行 (UPDATE される) |
 | LINE 401 / 403 ログ | Channel Access Token expire。LINE Developers Console で再発行 → §5 |
-| IMAP 認証失敗が連続 | Yahoo!Mail のアプリパスワード期限切れ。再発行 → `.env.production` 更新 → `sudo systemctl restart kagetra-mail-worker.service` (timer 自体は restart 不要) |
+| IMAP 認証失敗が連続 | Yahoo!Mail のアプリパスワード期限切れ。再発行 → `.env.production` の `YAHOO_IMAP_APP_PASSWORD` 更新 → `sudo systemctl restart kagetra-mail-worker.service` (timer 自体は restart 不要) |
 | `tournament_drafts` が増えない | `journalctl -u kagetra-mail-worker.service` で `evaluator: classified=0` を確認。pre-filter rule (venue allow-list / sender) の意図確認 |
 | timer は走るが実行されない | `systemctl status kagetra-mail-worker.service` で exit code 確認、`journalctl -u kagetra-mail-worker.service` で詳細 |
-| 連続失敗で LINE 通知が止まらない | `mail_worker_runs` の `notified_imap_alert` / `notified_ai_alert` 列を確認。復旧後の成功 run で自動的に false にリセットされる |
+| 連続失敗で LINE 通知が止まらない | `mail_worker_runs.summary` JSON 内の `notified_imap_alert` / `notified_ai_alert` フラグを確認 (`SELECT id, summary->>'notified_imap_alert' FROM mail_worker_runs ORDER BY id DESC LIMIT 5;`)。復旧後の成功 run でフラグが付かなくなることでアラートはリセットされる |
 
 ## 5. アクセストークン rotation
 

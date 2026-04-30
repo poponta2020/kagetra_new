@@ -61,8 +61,7 @@ const SYSTEM_ADMIN_USER = 'U-admin-1'
 
 async function truncateLineChannels() {
   // Only `line_channels` is touched by these tests; mail_messages stays
-  // untouched so other test files can run in any order. CASCADE drops the
-  // `users.line_channel_id` reverse pointer too, but no users are seeded here.
+  // untouched so other test files can run in any order.
   await testDb.execute(sql`TRUNCATE TABLE line_channels RESTART IDENTITY CASCADE`)
 }
 

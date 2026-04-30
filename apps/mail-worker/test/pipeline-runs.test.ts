@@ -10,7 +10,7 @@ import {
   truncateMailTables,
   truncateMailWorkerTables,
 } from './test-db.js'
-import { runOnce } from '../src/pipeline.js'
+import { runOnce, runPipeline } from '../src/pipeline.js'
 import { FixtureMailSource, type MailSource } from '../src/fetch/fetcher.js'
 import type { FetchSinceResult } from '../src/fetch/imap-client.js'
 import {
@@ -110,6 +110,32 @@ describe('runOnce → mail_worker_runs persistence', () => {
   afterAll(async () => {
     await closeDb()
     await closeTestDb()
+  })
+
+  it('runPipeline(dryRun=true) does NOT insert a mail_worker_runs row (regression: --dry-run was writing a run row)', async () => {
+    // Pre-fix: index.ts routed --dry-run through runOnce(), which always
+    // INSERTs a mail_worker_runs row before delegating. The CLI usage
+    // promised "do not write to DB", so dry-run is now wired to runPipeline
+    // directly. This test pins the contract on the layer the dispatcher
+    // calls — runPipeline must not touch mail_worker_runs.
+    const llm = await buildExtractor()
+    const source = await buildSource(['tournament-announcement.eml'])
+
+    const before = await testDb.select().from(mailWorkerRuns)
+    expect(before).toHaveLength(0)
+
+    const summary = await runPipeline({
+      source,
+      dryRun: true,
+      llmExtractor: llm,
+    })
+
+    // Dry-run still surfaces fetch counters but skips DB writes.
+    expect(summary.fetched).toBe(1)
+    expect(summary.inserted).toBe(0)
+
+    const after = await testDb.select().from(mailWorkerRuns)
+    expect(after).toHaveLength(0)
   })
 
   it('happy path: inserts running row and updates to success with summary counters', async () => {
@@ -448,6 +474,144 @@ describe('runOnce → mail_worker_runs persistence', () => {
       notifier,
     })
     expect(notifier).not.toHaveBeenCalled()
+  })
+
+  it('AI consecutive-failure: [0, 0, 3] does NOT trigger (only one run actually failed)', async () => {
+    // Pre-fix the orchestrator triggered on cumulative >= 3 alone, so a
+    // single bad batch of 3 looked the same as three consecutive failed runs.
+    // Now every recent run must have ai_failed > 0.
+    await seedPriorRuns([
+      {
+        status: 'success',
+        summary: {
+          fetched: 1,
+          classified: 1,
+          drafts_created: 0,
+          ai_failed: 0,
+          imap_error: false,
+          errors: [],
+        },
+        startedAtOffsetMs: -2000,
+      },
+      {
+        status: 'success',
+        summary: {
+          fetched: 1,
+          classified: 1,
+          drafts_created: 0,
+          ai_failed: 0,
+          imap_error: false,
+          errors: [],
+        },
+        startedAtOffsetMs: -1000,
+      },
+    ])
+
+    // Current run: a single mail that AI fails on three retries (broken
+    // extractor → ai_failed=1 in our pipeline summary, not 3 — the broken
+    // extractor crashes the AI phase once per mail). To approximate the
+    // [0, 0, 3] scenario we directly invoke evaluateAndNotify against a
+    // current run with summary.ai_failed=3.
+    const currentInserted = await testDb
+      .insert(mailWorkerRuns)
+      .values({
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        kind: 'cron',
+        status: 'ai_failed',
+        summary: {
+          fetched: 3,
+          classified: 3,
+          drafts_created: 0,
+          ai_failed: 3,
+          imap_error: false,
+          errors: ['Anthropic 500'],
+        } satisfies MailWorkerRunSummary,
+        error: null,
+      })
+      .returning({ id: mailWorkerRuns.id })
+    const currentRunId = currentInserted[0]!.id
+
+    const { evaluateAndNotify } = await import('../src/notify/orchestrator.js')
+    const notifier = vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => ({}),
+    )
+    await evaluateAndNotify(
+      (await import('../src/db.js')).getDb(),
+      currentRunId,
+      undefined,
+      notifier,
+    )
+    expect(notifier).not.toHaveBeenCalled()
+    const row = await fetchRunById(currentRunId)
+    const summary = row.summary as MailWorkerRunSummary
+    expect(summary.notified_ai_alert).toBeUndefined()
+  })
+
+  it('AI consecutive-failure: [1, 1, 1] DOES trigger (three runs in a row each failed once)', async () => {
+    await seedPriorRuns([
+      {
+        status: 'ai_failed',
+        summary: {
+          fetched: 1,
+          classified: 1,
+          drafts_created: 0,
+          ai_failed: 1,
+          imap_error: false,
+          errors: ['fail #1'],
+        },
+        startedAtOffsetMs: -2000,
+      },
+      {
+        status: 'ai_failed',
+        summary: {
+          fetched: 1,
+          classified: 1,
+          drafts_created: 0,
+          ai_failed: 1,
+          imap_error: false,
+          errors: ['fail #2'],
+        },
+        startedAtOffsetMs: -1000,
+      },
+    ])
+
+    const currentInserted = await testDb
+      .insert(mailWorkerRuns)
+      .values({
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        kind: 'cron',
+        status: 'ai_failed',
+        summary: {
+          fetched: 1,
+          classified: 1,
+          drafts_created: 0,
+          ai_failed: 1,
+          imap_error: false,
+          errors: ['fail #3'],
+        } satisfies MailWorkerRunSummary,
+        error: null,
+      })
+      .returning({ id: mailWorkerRuns.id })
+    const currentRunId = currentInserted[0]!.id
+
+    const { evaluateAndNotify } = await import('../src/notify/orchestrator.js')
+    const notifier = vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => ({}),
+    )
+    await evaluateAndNotify(
+      (await import('../src/db.js')).getDb(),
+      currentRunId,
+      undefined,
+      notifier,
+    )
+    expect(notifier).toHaveBeenCalledTimes(1)
+    const messageArg = notifier.mock.calls[0]![1] as string
+    expect(messageArg).toMatch(/AI 抽出/)
+    const row = await fetchRunById(currentRunId)
+    const summary = row.summary as MailWorkerRunSummary
+    expect(summary.notified_ai_alert).toBe(true)
   })
 
   it('catches notifier throws (LineNotifyError-style) without aborting the run', async () => {

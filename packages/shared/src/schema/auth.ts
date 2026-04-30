@@ -35,11 +35,11 @@ export const users = pgTable(
     lineLinkedMethod: lineLinkMethodEnum('line_link_method'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
-    // PR5 (mail-tournament-import): per-user LINE Messaging channel assignment.
-    // FK to line_channels.id is declared in line_channels.ts (assigned_user_id)
-    // to avoid a circular import; here we keep the reverse pointer as a plain
-    // integer column and wire up the relation in relations.ts.
-    lineChannelId: integer('line_channel_id'),
+    // PR5 (mail-tournament-import): per-user notification preference. The
+    // channel↔user pairing is canonically stored on `line_channels.assigned_user_id`
+    // (FK + future UNIQUE), so we deliberately do NOT carry a reverse pointer
+    // on users — review r1 flagged that as a dual source of truth with no
+    // integrity constraint. Channel lookup goes user → line_channels.assigned_user_id.
     notificationLineUserId: text('notification_line_user_id'),
   },
   (table) => [

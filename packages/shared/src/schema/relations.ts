@@ -37,14 +37,13 @@ export const eventAttendancesRelations = relations(eventAttendances, ({ one }) =
   }),
 }))
 
-export const usersRelations = relations(users, ({ one, many }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
   attendances: many(eventAttendances),
-  // PR5: per-user assigned LINE Messaging channel (FK declared on
-  // line_channels.assignedUserId; relation wired here to avoid circular import).
-  lineChannel: one(lineChannels, {
-    fields: [users.lineChannelId],
-    references: [lineChannels.id],
-  }),
+  // PR5: the user → LINE channel relation is one-to-one but its sole FK is
+  // `line_channels.assigned_user_id` → `users.id`. Look up a user's channel
+  // by querying line_channels with `assignedUserId = users.id`. Pre-fix we
+  // also carried `users.line_channel_id` as a reverse pointer, but it had no
+  // SQL FK / UNIQUE so the two sides could disagree (review r1).
 }))
 
 export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({

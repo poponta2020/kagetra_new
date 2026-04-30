@@ -86,14 +86,17 @@ export async function evaluateAndNotify(
   }
   const currentSummary = (current.summary ?? {}) as MailWorkerRunSummary
 
-  // (1) New drafts
-  if ((currentSummary.drafts_created ?? 0) > 0) {
+  // (1) New drafts. Always notify when drafts_created > 0, even if the
+  // post-hoc subject lookup came back empty — losing a subject preview is far
+  // worse than silently dropping the alert. `totalCount` is the canonical
+  // count from the run summary; subjects are a preview list (top-N).
+  const draftsCreated = currentSummary.drafts_created ?? 0
+  if (draftsCreated > 0) {
     const subjects = currentSummary.new_draft_subjects ?? []
-    if (subjects.length > 0) {
-      await safeNotify(notifier, db, buildNewDraftsMessage({
-        drafts: subjects.map((subject) => ({ subject })),
-      }), logger)
-    }
+    await safeNotify(notifier, db, buildNewDraftsMessage({
+      totalCount: draftsCreated,
+      previewSubjects: subjects,
+    }), logger)
   }
 
   // (2) IMAP consecutive failures.
@@ -123,13 +126,25 @@ export async function evaluateAndNotify(
     }
   }
 
-  // (3) AI consecutive failures.
-  const aiFailedCumulative = recent.reduce(
-    (acc, r) => acc + (((r.summary ?? {}) as MailWorkerRunSummary).ai_failed ?? 0),
+  // (3) AI consecutive failures. Two conditions, both required:
+  //   a. Every run in the recent window has `ai_failed > 0` — i.e. the failure
+  //      is *consecutive*, not a single bad batch (review r1: pre-fix,
+  //      `[0, 0, 3]` would also pinned the alert).
+  //   b. Cumulative `ai_failed` across the window meets the threshold.
+  // (a) alone is not enough: 3 runs with `ai_failed=1` each (3 mails total)
+  // is enough signal to alert; (b) alone is not enough: a single batch with
+  // ai_failed=3 isn't a consecutive failure.
+  const recentSummaries = recent.map(
+    (r) => (r.summary ?? {}) as MailWorkerRunSummary,
+  )
+  const aiFailedCumulative = recentSummaries.reduce(
+    (acc, s) => acc + (s.ai_failed ?? 0),
     0,
   )
+  const aiFailedEveryRun = recentSummaries.every((s) => (s.ai_failed ?? 0) > 0)
   if (
     recent.length >= CONSECUTIVE_RUN_WINDOW &&
+    aiFailedEveryRun &&
     aiFailedCumulative >= AI_FAILURE_THRESHOLD &&
     !(prevSummary?.notified_ai_alert === true)
   ) {

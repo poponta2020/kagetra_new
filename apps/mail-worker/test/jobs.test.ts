@@ -3,7 +3,13 @@ import { sql } from 'drizzle-orm'
 import { mailWorkerJobs, users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateMailWorkerTables } from './test-db.js'
 import { closeDb, getDb } from '../src/db.js'
-import { claimNextJob, markJobDone, markJobFailed } from '../src/jobs.js'
+import {
+  claimNextJob,
+  markJobDone,
+  markJobFailed,
+  recoverStaleClaimedJobs,
+  STALE_CLAIM_RECOVERY_MS,
+} from '../src/jobs.js'
 
 const ADMIN_USER_ID = 'user-admin-1'
 
@@ -105,6 +111,55 @@ describe('jobs queue', () => {
     expect(row.status).toBe('done')
     expect(row.runId).toBe(runId)
     expect(row.error).toBeNull()
+  })
+
+  it('recoverStaleClaimedJobs flips claimed rows older than the threshold back to pending', async () => {
+    // Seed a claimed job whose claimed_at is well past the stale threshold
+    // (simulates a worker that died after claiming). The dispatcher must be
+    // able to re-claim it on the next tick — otherwise the queue is stuck.
+    await seedJob()
+    const claimed = await claimNextJob(getDb())
+    expect(claimed).not.toBeNull()
+
+    // Force claimed_at into the past by 2 hours (threshold is 1 hour).
+    const ancient = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    await testDb.execute(
+      sql`UPDATE mail_worker_jobs SET claimed_at = ${ancient} WHERE id = ${claimed!.id}`,
+    )
+
+    const recovered = await recoverStaleClaimedJobs(getDb())
+    expect(recovered).toBe(1)
+
+    // Row is back to pending and claimed_at is cleared (so the next claim
+    // stamps a fresh timestamp instead of inheriting the dead worker's).
+    const row = (await testDb.select().from(mailWorkerJobs))[0]!
+    expect(row.status).toBe('pending')
+    expect(row.claimedAt).toBeNull()
+
+    // ...and the dispatcher can now re-claim it cleanly.
+    const reclaimed = await claimNextJob(getDb())
+    expect(reclaimed?.id).toBe(claimed!.id)
+  })
+
+  it('recoverStaleClaimedJobs leaves recently claimed rows alone (no thrashing)', async () => {
+    await seedJob()
+    const claimed = await claimNextJob(getDb())
+    expect(claimed).not.toBeNull()
+    // Don't touch claimed_at — it's `now()` and not stale.
+
+    const recovered = await recoverStaleClaimedJobs(getDb())
+    expect(recovered).toBe(0)
+
+    const row = (await testDb.select().from(mailWorkerJobs))[0]!
+    expect(row.status).toBe('claimed')
+    expect(row.claimedAt).not.toBeNull()
+  })
+
+  it('STALE_CLAIM_RECOVERY_MS is well above the systemd timer interval', () => {
+    // The timer runs every 30 minutes (per docs/deploy/mail-worker.md).
+    // The recovery threshold must be strictly larger so we never race a
+    // pipeline that's still legitimately running.
+    expect(STALE_CLAIM_RECOVERY_MS).toBeGreaterThan(30 * 60 * 1000)
   })
 
   it('markJobFailed records the error string and supports a null run id', async () => {

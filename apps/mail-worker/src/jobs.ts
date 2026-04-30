@@ -1,6 +1,19 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm'
 import { mailWorkerJobs } from '@kagetra/shared/schema'
 import type { Db } from './db.js'
+
+/**
+ * How long a `claimed` row may sit before the dispatcher recovers it back to
+ * `pending`. The systemd timer fires every 30 min and pipelines normally
+ * complete in seconds — a row idle in `claimed` for an hour is, in practice,
+ * always an orphan from a worker crash / kill / host reboot. Set well above
+ * the timer interval so we never race a still-running pipeline.
+ *
+ * Pre-fix: there was no recovery at all. A worker killed mid-claim left the
+ * job stuck in `claimed` forever, and `claimNextJob` only picks up `pending`,
+ * so subsequent admin triggers piled up behind the dead row (review r1).
+ */
+export const STALE_CLAIM_RECOVERY_MS = 60 * 60 * 1000 // 1 hour
 
 /**
  * `mail_worker_jobs` queue ops for the dispatcher (PR5 Phase 3c).
@@ -74,6 +87,39 @@ export async function claimNextJob(db: Db): Promise<ClaimedJob | null> {
       requestedAt: row.requestedAt,
     }
   })
+}
+
+/**
+ * Reset rows stuck in `claimed` past the stale threshold back to `pending`
+ * so the dispatcher can re-claim them. Returns the number of rows recovered.
+ *
+ * Intended to be called once per dispatcher tick before `claimNextJob`. The
+ * UPDATE is a single statement (no transaction needed) — Postgres serialises
+ * concurrent recoveries via row-level locks, and a job that another worker
+ * just legitimately re-claimed will simply skip the WHERE filter on the next
+ * comparison. Safer than reading-then-writing with a race window.
+ *
+ * `claimedAt` is set back to NULL on recovery so the next claim attempt
+ * stamps it fresh — without this, the row's claimedAt would carry the dead
+ * worker's timestamp into the new run and confuse troubleshooting.
+ */
+export async function recoverStaleClaimedJobs(
+  db: Db,
+  staleAfterMs: number = STALE_CLAIM_RECOVERY_MS,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - staleAfterMs)
+  const recovered = await db
+    .update(mailWorkerJobs)
+    .set({ status: 'pending', claimedAt: null })
+    .where(
+      and(
+        eq(mailWorkerJobs.status, 'claimed'),
+        isNotNull(mailWorkerJobs.claimedAt),
+        lt(mailWorkerJobs.claimedAt, cutoff),
+      ),
+    )
+    .returning({ id: mailWorkerJobs.id })
+  return recovered.length
 }
 
 /**
