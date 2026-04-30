@@ -12,7 +12,10 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
 - Node.js 22.13+ (`apps/mail-worker/package.json` の `engines.node` 要件。
   corepack 経由で pnpm @ 9.x を解決)
 - PostgreSQL 16 (Lightsail Managed DB or self-hosted Docker、TLS 必須)
-- 専用 system user `kagetra` (sudo 不要、`/opt/kagetra` が home)
+- 専用 system user `kagetra` (sudo 不要、`/opt/kagetra` が home)。
+  `useradd -m` は使わない (`/etc/skel` 由来の `.bashrc` 等が home に
+  作られると後段の `git clone /opt/kagetra` が「destination is not empty」で
+  失敗するため)
 - ドメイン + Let's Encrypt 証明書 (web 側別途、mail-worker 自体は HTTP
   受け口を持たないので不要)
 
@@ -21,12 +24,17 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
 1. system user 作成:
 
    ```bash
-   sudo useradd -r -s /bin/bash -m -d /opt/kagetra kagetra
+   # `-m` は付けない (review r2 blocker)。`-m` が付くと /etc/skel から
+   # .bashrc / .profile が home にコピーされて後の `git clone` が失敗する。
+   sudo useradd -r -s /bin/bash -d /opt/kagetra kagetra
+   sudo install -d -o kagetra -g kagetra -m 0755 /opt/kagetra
    ```
 
 2. リポジトリ clone:
 
    ```bash
+   # 上記 `install -d` で空の /opt/kagetra を用意済みなので
+   # `git clone ... /opt/kagetra` は成功する (空ディレクトリへの clone は許容)。
    sudo -u kagetra git clone https://github.com/poponta2020/kagetra_new.git /opt/kagetra
    ```
 

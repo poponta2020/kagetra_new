@@ -55,6 +55,15 @@ export interface PipelineSummary {
   aiFailed: number
   /** Pre-filter said noise → AI was not invoked. */
   aiSkipped: number
+  /**
+   * Capped error messages from per-mail AI failures (review r2 should-fix).
+   * Populated by `runAiPhase` for both the outer-catch path (classifyMail /
+   * persistOutcome threw) and the `kind: 'failed'` outcome (LLM call or Zod
+   * validation failed twice). `runOnce` merges these into `summary.errors` so
+   * the AI consecutive-failure LINE alert can surface the actual provider
+   * error instead of "unknown AI error".
+   */
+  aiErrors: string[]
 }
 
 export interface RunPipelineOptions {
@@ -90,6 +99,14 @@ const NOOP_LOGGER: PipelineLogger = {
   warn: () => undefined,
 }
 
+/**
+ * Limit `summary.errors` (and the per-run `summary.aiErrors` feed that flows
+ * into it) so a malformed mail batch can't blow up jsonb size. Used in two
+ * places: `runAiPhase` caps how many AI failure messages it accumulates, and
+ * `runOnce` slices the merged error list before persisting.
+ */
+const MAX_ERRORS_IN_SUMMARY = 10
+
 function emptySummary(): PipelineSummary {
   return {
     fetched: 0,
@@ -108,6 +125,7 @@ function emptySummary(): PipelineSummary {
     aiSucceeded: 0,
     aiFailed: 0,
     aiSkipped: 0,
+    aiErrors: [],
   }
 }
 
@@ -432,6 +450,18 @@ async function runAiPhase(
     summary.aiSucceeded += tally.aiSucceeded
     summary.aiFailed += tally.aiFailed
     summary.aiSkipped += tally.aiSkipped
+    // `kind: 'failed'` means LLM call/Zod validation failed twice and the
+    // failure is already persisted on the draft row. Surface a short reason
+    // here too so the AI alert message has something concrete to show. We
+    // prefer `rawResponse` (the actual provider output / underlying error)
+    // over the static `reason` line, but fall back when rawResponse is null.
+    if (
+      outcome.kind === 'failed' &&
+      summary.aiErrors.length < MAX_ERRORS_IN_SUMMARY
+    ) {
+      const detail = outcome.rawResponse ?? outcome.reason
+      summary.aiErrors.push(truncateAiError(detail))
+    }
     log.info('ai outcome', {
       messageId,
       rowId,
@@ -444,12 +474,26 @@ async function runAiPhase(
     // retry didn't catch (DB write failure, missing row, etc.). Log and move
     // on — the row stays in `ai_processing` and the next run picks it up.
     summary.aiFailed += 1
+    const message = err instanceof Error ? err.message : String(err)
+    if (summary.aiErrors.length < MAX_ERRORS_IN_SUMMARY) {
+      summary.aiErrors.push(truncateAiError(message))
+    }
     log.warn('ai phase failed', {
       messageId,
       rowId,
-      err: err instanceof Error ? err.message : String(err),
+      err: message,
     })
   }
+}
+
+/** Trim a single AI error string so one verbose provider response can't blow
+ * up `mail_worker_runs.summary` jsonb size. 500 chars is enough for a Zod
+ * issue list or an HTTP error body excerpt while staying well under any
+ * realistic row-size cap. */
+const MAX_AI_ERROR_LENGTH = 500
+function truncateAiError(s: string): string {
+  if (s.length <= MAX_AI_ERROR_LENGTH) return s
+  return s.slice(0, MAX_AI_ERROR_LENGTH) + '…'
 }
 
 /**
@@ -483,8 +527,6 @@ export async function runPipelineFromFixtures(
 // connection-pool contention with multi-second IMAP/Anthropic round trips.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Limit `summary.errors` so a malformed mail batch can't blow up jsonb size. */
-const MAX_ERRORS_IN_SUMMARY = 10
 /** Cap subject list at 10 (the templates layer further trims to 5 for display). */
 const MAX_DRAFT_SUBJECTS = 10
 
@@ -564,8 +606,14 @@ export async function runOnce(opts: RunOnceOptions = {}): Promise<RunOnceResult>
     ? await fetchNewDraftSubjects(db, startedAt)
     : []
 
+  // Merge top-level error (if any) with per-mail AI errors collected by
+  // runAiPhase. Top-level first so the AI alert's `lastError` lookup
+  // (notify/orchestrator.ts) prefers the most-specific failure when one
+  // exists. Capped to MAX_ERRORS_IN_SUMMARY so a giant batch of AI
+  // failures can't bloat the jsonb row.
   const errors: string[] = []
   if (topLevelError) errors.push(topLevelError.message)
+  for (const aiErr of summary.aiErrors) errors.push(aiErr)
 
   const summaryJson: MailWorkerRunSummary = {
     fetched: summary.fetched,
@@ -604,10 +652,34 @@ export async function runOnce(opts: RunOnceOptions = {}): Promise<RunOnceResult>
 
   // If the pipeline itself top-level threw we should still rethrow so the
   // CLI can exit non-zero. The run row is already persisted with
-  // status=imap_failed so the next run's evaluator can see it.
-  if (topLevelError) throw topLevelError
+  // status=imap_failed so the next run's evaluator can see it. We wrap the
+  // error in `RunOnceError` so the dispatcher (`index.ts`) can recover the
+  // `runId` and link the failed `mail_worker_jobs` row back to the run that
+  // captured the error detail (review r2). Message + cause are forwarded so
+  // existing `rejects.toThrow(/.../)` tests keep matching.
+  if (topLevelError) {
+    throw new RunOnceError(topLevelError.message, runId, { cause: topLevelError })
+  }
 
   return { ...summary, runId }
+}
+
+/**
+ * Wrapper around a runOnce top-level failure that carries the `mail_worker_runs.id`
+ * of the run row that already captured the error. `index.ts` checks
+ * `instanceof RunOnceError` to forward `runId` to `markJobFailed`, so the
+ * failed manual job links to its run.
+ *
+ * `message` mirrors the underlying error so existing
+ * `expect(...).rejects.toThrow(/imap connect refused/)` tests still pass.
+ */
+export class RunOnceError extends Error {
+  readonly runId: number
+  constructor(message: string, runId: number, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'RunOnceError'
+    this.runId = runId
+  }
 }
 
 function computeRunStatus(

@@ -10,7 +10,7 @@ import {
   truncateMailTables,
   truncateMailWorkerTables,
 } from './test-db.js'
-import { runOnce, runPipeline } from '../src/pipeline.js'
+import { runOnce, RunOnceError, runPipeline } from '../src/pipeline.js'
 import { FixtureMailSource, type MailSource } from '../src/fetch/fetcher.js'
 import type { FetchSinceResult } from '../src/fetch/imap-client.js'
 import {
@@ -200,6 +200,40 @@ describe('runOnce → mail_worker_runs persistence', () => {
     expect(summary.fetched).toBe(0)
   })
 
+  it('IMAP throw rethrows as RunOnceError carrying the run id (review r2 should-fix: link manual job to run)', async () => {
+    // The dispatcher (`index.ts`) reads `err.runId` so the failed
+    // `mail_worker_jobs` row links back to the run that captured the IMAP
+    // error detail. Pre-fix, runOnce rethrew the bare error and the runId
+    // was lost to the catch site. The behaviour is independent of kind, so
+    // we exercise it with the lighter `cron` path (no users FK to seed).
+    const notifier = vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => ({}),
+    )
+
+    let caught: unknown = null
+    try {
+      await runOnce({
+        kind: 'cron',
+        source: new ThrowingMailSource('IMAP boom'),
+        notifier,
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(RunOnceError)
+    const runOnceErr = caught as RunOnceError
+    expect(runOnceErr.message).toBe('IMAP boom')
+    expect(runOnceErr.runId).toBeGreaterThan(0)
+    // The original error is preserved on `cause` so callers wanting the
+    // stack trace can drill down past the wrapper.
+    expect(runOnceErr.cause).toBeInstanceOf(Error)
+
+    // The runId points at the actual persisted row (status=imap_failed).
+    const row = await fetchRunById(runOnceErr.runId)
+    expect(row.status).toBe('imap_failed')
+    expect(row.error).toBe('IMAP boom')
+  })
+
   it('AI partial: some succeed, some fail → status=partial', async () => {
     // Two mails: one positive that uses the fixture extractor (succeeds),
     // and one ml-tournament that the broken extractor throws on. We compose
@@ -257,6 +291,32 @@ describe('runOnce → mail_worker_runs persistence', () => {
     expect(result.aiSucceeded).toBe(0)
     const row = await fetchRunById(result.runId)
     expect(row.status).toBe('ai_failed')
+  })
+
+  it('AI failure: actual error text is captured in summary.errors (review r2 should-fix)', async () => {
+    // Pre-fix, runAiPhase only logged the AI failure and never propagated
+    // the message into `summary.errors`, so the AI consecutive-failure LINE
+    // alert showed "unknown AI error". The fix surfaces the underlying
+    // provider response (or thrown error message) into `summary.aiErrors`,
+    // which `runOnce` merges into `summary.errors`.
+    const source = await buildSource(['tournament-announcement.eml'])
+    const notifier = vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => ({}),
+    )
+
+    const result = await runOnce({
+      kind: 'cron',
+      source,
+      llmExtractor: new BrokenLLMExtractor(),
+      notifier,
+    })
+
+    // In-memory summary reflects the captured AI error.
+    expect(result.aiErrors).toContain('BrokenLLMExtractor: forced failure')
+    // And it survives the persisted-summary round-trip.
+    const row = await fetchRunById(result.runId)
+    const summary = row.summary as MailWorkerRunSummary
+    expect(summary.errors).toContain('BrokenLLMExtractor: forced failure')
   })
 
   it('triggers IMAP consecutive-failure notification on the 3rd run and marks notified_imap_alert', async () => {
