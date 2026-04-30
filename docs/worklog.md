@@ -747,3 +747,50 @@
 - carryover Nit (PR3 r4 から継続): `--since` round-trip を locale 非依存な UTC component ベースに / `reextract` entrypoint test の `pnpm` 起動を `process.execPath` + 直接 tsx に
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト
 - carryover Nit: 対象外の参加行を別枠で表示案
+
+---
+
+## 2026-04-30 セッション1（PR #21 Phase P3-A/PR5 定期実行 + LINE 通知 + デプロイ → Codex 3回レビュー → ship、P3-A close）
+
+### 完了
+- **PR #21** (`feat/mail-tournament-import-pr5` → main, merge `8371467`) — Phase P3-A メール大会取り込みの最終 PR。systemd timer cron + LINE 通知 + 手動取り込み + デプロイ配線を載せて P3-A を close
+  - スキーマ: Drizzle migration `0010_panoramic_rattler.sql`（4 enum + 3 table: `line_channels` / `mail_worker_runs` / `mail_worker_jobs` + `users` 拡張）。pre-production につき新規 migration を切らず 0010 を直接編集
+  - `apps/mail-worker/src/notify/{line,message-templates}.ts`: `@line/bot-sdk ^11.0.0` で system 用 channel から push、新規 draft 通知（上位 5 件題名 + 「他 N 件」）と異常時通知（IMAP/AI 連続 3 失敗、復旧後の重複抑制 `notified_*_alert` フラグ付き）
+  - `apps/mail-worker/src/pipeline.ts` に `runOnce` ラッパ追加（既存 `runPipeline` 非破壊で重ねる構成、PR4 までの 145 tests を保護）。`runs` 永続化は IMAP/AI 呼び出しと同じ理由で transaction の外
+  - `apps/mail-worker/src/jobs.ts`: `FOR UPDATE SKIP LOCKED` で `mail_worker_jobs` を atomic claim、worker crash 時の stale 復旧（`recoverStaleClaimedJobs`、1h threshold）も実装。重複 claim は schema の UNIQUE で吸収する設計
+  - `apps/mail-worker/src/index.ts` を dispatcher 化: `--dry-run` / `--no-claim` / manual job / cron tick の 4 経路を分岐、後続 r2 fix で全経路を `try/finally { await closeDb() }` に包んで pool leak を塞いだ
+  - `apps/web/.../mail-inbox/{actions,page}.tsx`: `triggerMailFetch` Server Action（preset 24h/3d/7d/任意日付、`mail_worker_jobs` への INSERT のみで実行は worker 任せ）+ `TriggerFetchButton`（shadcn 入れずに native `<dialog>` + radio で同等 UX）+ 「最近の取り込み履歴」セクション
+  - デプロイ配線: `apps/mail-worker/systemd/{kagetra-mail-worker.service,.timer}`（`Type=oneshot`, `OnUnitActiveSec=30min`, `Persistent=true`）+ `seed-system-channel.ts`（引数 + env fallback、dry-run、redacted secret、idempotent UPSERT で token rotation 対応）+ 173 行の `docs/deploy/mail-worker.md`（前提 / 初回デプロイ / LINE Bot 登録 / 動作確認 / トラブルシュート / トークン rotation / 監視）
+- **Codex レビュー r1 → r2 → r3** で Blocker / Should fix を順次解消:
+  - r1 (`a4ae103`〜継続、ce13806 で完了): `--dry-run` が `runOnce()` 経由で `mail_worker_runs` を INSERT してしまう Blocker → CLI usage の「do not write to DB」契約を満たすため dispatcher で `--dry-run` を `runPipeline(dryRun:true)` 直行へ分岐、test で pin / AI 連続失敗判定が累計 sum だけで `[0,0,3]` でも誤発火する bug → `aiFailedEveryRun` ガードを追加 / draft 通知で `drafts.length` を total count に流用していたバグ（件名取得失敗時に "0 件" 通知になる）→ `buildNewDraftsMessage({ totalCount, previewSubjects })` で canonical count と表示用件名を分離 / stale `claimed` job の復旧経路欠落 → `recoverStaleClaimedJobs` 追加 / deploy doc の env 変数名（`IMAP_*` vs `YAHOO_IMAP_*`）と `notified_*_alert` の説明を訂正
+  - r2 (`37bf898`): 失敗時に DB pool を閉じない Blocker（`runOnce()` rethrow 経由で `closeDb()` を skip、systemd が TimeoutStartSec まで待つ運用）→ `main()` 内ディスパッチャ全体を `try/finally { await closeDb() }` で包み全経路で必ず close / AI 失敗の実エラーが `summary.errors` に入らない Should fix（AI 連続失敗 LINE 通知が "unknown AI error" になる）→ `PipelineSummary.aiErrors: string[]` を追加して outer catch と `kind:'failed'` 両 path で `truncateAiError(...)`（500 char cap）で蓄積、`runOnce()` で `summary.errors` にマージ / manual job が top-level failure 時に `mail_worker_runs.id` をリンクできない Should fix → `RunOnceError extends Error { readonly runId: number }` を導入、dispatcher catch で `err instanceof RunOnceError ? err.runId : null` を `markJobFailed` に forward / 初回 deploy 手順の `useradd -m` が `/etc/skel` から `.bashrc` 等を home にコピーして `git clone /opt/kagetra` が "destination is not empty" で失敗する Should fix → `-m` を外し `install -d -o kagetra -g kagetra -m 0755 /opt/kagetra` で空ディレクトリを明示作成してから clone する手順に変更
+  - r3 (clean): Blocker 0 / Should fix 0 / Nit 1（`truncateAiError()` の `String.prototype.slice()` が UTF-16 code unit で絵文字 surrogate pair を割り得る、実害は小さく見送り）。マージ判定
+- **PR #21 マージ済み** (`8371467`, `gh pr merge --merge --delete-branch`)
+- 親 Issue #16 は PR の `Closes #16` で auto-close 済み
+- worktree `C:/tmp/impl-mail-pr5` 撤去（`git worktree remove` → 残存 dir を `rm -rf`）
+- ローカルブランチ `feat/mail-tournament-import-pr5` 削除
+- main を `8371467` まで fast-forward 同期
+- レビュー artefact (`scripts/review/output/*pr21*`) 全削除
+
+### 学び
+- **systemd `Type=oneshot` で pool leak を起こすと TimeoutStartSec まで吊られる** — Node.js の `pg.Pool` は idle connection を握ったまま `process.exit` を阻害するので、IMAP 失敗で rethrow した瞬間 `closeDb()` を skip すると worker が exit せず systemd が `TimeoutStartSec=300` まで kill 待ち。30 分 timer なら多重実行にはならないが、journalctl 上は失敗時刻が「kill 5 分後」にずれて切り分けが難しくなる。CLI ENTRY 全体を `try/finally { await closeDb() }` で包む（dry-run のように pool 未作成な経路は no-op で吸収）のが最小コストで、テストは `expect(closeDb).toHaveBeenCalled()` ではなく「rethrow 後も pool が closed」をプロセスレベルで確認しないと catch しづらい
+- **`Error` を rethrow するか custom subclass で wrap するかは「caller が context を取り出す必要があるか」で決める** — `runOnce()` の top-level failure では `mail_worker_runs.id` を caller (`index.ts` の dispatcher) に渡す必要があったが、bare error を mutate（`err.runId = ...`）するのは TS 的に汚く既存テストの `rejects.toThrow(/.../)` も微妙に壊れる。`class RunOnceError extends Error { readonly runId; constructor(message, runId, { cause }) { super(message, { cause }) } }` にすると、`message` を元 error と揃えてマッチ系テストを保ち、`cause` でスタック追跡を残し、`instanceof RunOnceError` で context 取得を分岐できる。Node 16+ の `Error.cause` がこの pattern を綺麗に閉じる
+- **AI 失敗を「summary.errors に入れる」のは観測性のための最小単位** — `runAiPhase` の outer catch でも `kind:'failed'` 経路でも、エラー文字列を `summary.aiErrors` に蓄積し `runOnce()` で `summary.errors` にマージしておくだけで、AI 連続失敗 LINE 通知の `lastError` lookup（`s.errors[s.errors.length - 1]`）が "unknown AI error" を返さなくなる。500 char + 10 件の cap は jsonb サイズ防御で、Anthropic の Zod issue list（数 KB になり得る）が 1 件で run row を破壊するのを防ぐ。順序意図は「top-level error を先頭、AI errors を後ろ」で、notify 側の最後尾 lookup と整合する
+- **deploy doc の `useradd -m` は `/etc/skel` 経由の隠れ side effect** — Ubuntu 22.04 の `/etc/skel` は `.bashrc` / `.profile` / `.bash_logout` を自動コピーするので、後段の `git clone <repo> /opt/kagetra` が "destination path '/opt/kagetra' already exists and is not an empty directory" で fatal する。`-m` を外して `install -d -o kagetra -g kagetra -m 0755 /opt/kagetra` で「空ディレクトリ + 正しい owner」を明示作成すると、systemd unit の `WorkingDirectory=/opt/kagetra` / `EnvironmentFile=/opt/kagetra/.env.production` を変えずに済む。doc を真面目にコピーして実行するレビュアーが必ず踏むので、初回デプロイ手順の検証は実機で 1 回通すか、対応しない場合は `useradd` 直後に `ls -la /opt/kagetra` でゼロ件を確認する手順を doc に明記する
+- **クロックスキューで `gte(createdAt, startedAt)` テストが flaky** — Postgres-in-Docker on Windows で、JS の `new Date()` で startedAt を取得 → DB に INSERT → `now()` で createdAt が振られる、という流れで稀に `now() < startedAt` になり draft が `gte` で落ちる。今回は full-suite 実行で 1 回再現したが standalone では再現せず、原因は test ordering ではなく Docker VM の clock drift だった。本格対応は `startedAt` を DB の `now()` から取る（INSERT … RETURNING `started_at`）か、テスト側で 100ms tolerance を持たせる。今回は flaky を一旦受容、対応は持ち越し
+- **PR4 の CI flake 修正（`turbo run test --concurrency=1`）が PR5 でも効いた** — mail-worker と web が同じ Postgres test DB を共有しているので、`pnpm --filter @kagetra/mail-worker test` と `pnpm --filter @kagetra/web test` を並列走行すると TRUNCATE/INSERT の deadlock が散発する。Codex r3 でも「同時実行で deadlock 出たが順次なら通る」と確認、今回もこの判断を確認できた（ただし root cause は未解消、将来は schema-per-package 検討）
+
+### 残存している git 状態
+- main: `8371467`（このコミットの後にさらに worklog/memory 同期コミットが乗る）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission, 意図的に保留）
+
+### 次回
+- **Phase P3-A は close** — メール大会取り込み（mail-worker 側 schema/AI/承認 UI/通知/cron/デプロイ）が PR1〜PR5 で揃った。本番 Lightsail への初回デプロイは `docs/deploy/mail-worker.md` に従って手動実施
+- **次は Phase P3-B 候補** — LINE グループ転送 + bot コマンド受信（外部 webhook 受け口、新 issue 切る前提）。または P3-C「AI 大会案内 PDF/Word 読み込み（カレンダー側）」「AI 名簿 → 反映」「AI 旅費見積もり」のどれか着手前に grill-me で優先度確定
+- carryover Nit (PR5 r3 から): `truncateAiError()` を `Array.from(s)` で code-point 単位に揃える（既存 `truncateByCodePoint()` と方針統一、絵文字混入時の `…` 不整合回避）
+- carryover from PR4 r4: `next build` の Windows standalone trace copy `EPERM` 問題、docker-based local build script を用意するかどうか
+- carryover Nit (PR3 r4 から継続): `--since` round-trip を locale 非依存な UTC component ベースに / `reextract` entrypoint test の `pnpm` 起動を `process.execPath` + 直接 tsx に
+- carryover Nit: `signIn` callback の deactivated user 拒否テスト
+- carryover Nit: 対象外の参加行を別枠で表示案
+- 本番 Lightsail デプロイ + LINE Bot 作成 + `seed-system-channel.ts` 投入は手動実施待ち
