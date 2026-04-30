@@ -1,0 +1,24 @@
+[Unit]
+Description=Run kagetra mail-worker every 30 minutes
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/mail-worker.md
+Requires=kagetra-mail-worker.service
+
+[Timer]
+# 起動直後に走らせず、postgres / 他依存サービスの安定化を待つ。
+OnBootSec=2min
+
+# 前回 active になった時点から 30 分後に発火 (即時実行ではなく
+# interval ベース)。Type=oneshot との組み合わせで多重起動は無い。
+OnUnitActiveSec=30min
+
+# ±1 分の精度で OK (high-precision 不要、battery save 効果あり)。
+AccuracySec=1min
+
+# 起動時に missed run があれば catchup (例: ホストが reboot 中に
+# timer が空振りした場合、起動後に 1 回だけ走らせる)。
+Persistent=true
+
+Unit=kagetra-mail-worker.service
+
+[Install]
+WantedBy=timers.target

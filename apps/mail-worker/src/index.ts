@@ -1,11 +1,17 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runPipeline } from './pipeline.js'
+import { runOnce, RunOnceError, runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
-import { closeDb } from './db.js'
+import { closeDb, getDb } from './db.js'
 import { loadLogConfig, loadLlmConfig } from './config.js'
 import { parseSinceArg } from './cli-args.js'
+import {
+  claimNextJob,
+  markJobDone,
+  markJobFailed,
+  recoverStaleClaimedJobs,
+} from './jobs.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
@@ -22,6 +28,11 @@ interface CliFlags {
   mockImap: boolean
   mockLlm: boolean
   dryRun: boolean
+  /**
+   * PR5: skip the `mail_worker_jobs` claim step and run a pure cron tick.
+   * Used by tests / smoke / debug to exercise the legacy code path.
+   */
+  noClaim: boolean
   fixtureDir: string | undefined
 }
 
@@ -40,6 +51,7 @@ function parseArgs(argv: readonly string[]): CliFlags {
     mockImap: false,
     mockLlm: false,
     dryRun: false,
+    noClaim: false,
     fixtureDir: undefined,
   }
   for (const arg of argv) {
@@ -47,6 +59,7 @@ function parseArgs(argv: readonly string[]): CliFlags {
     else if (arg === '--mock-imap') flags.mockImap = true
     else if (arg === '--mock-llm') flags.mockLlm = true
     else if (arg === '--dry-run') flags.dryRun = true
+    else if (arg === '--no-claim') flags.noClaim = true
     else if (arg.startsWith('--since=')) {
       const value = arg.slice('--since='.length)
       flags.since = parseSinceArg(value)
@@ -79,6 +92,7 @@ function printUsage(): void {
                          instead of Anthropic. Skips ANTHROPIC_API_KEY validation.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
   --dry-run              Parse only; do not write to DB or call the LLM.
+  --no-claim             Skip mail_worker_jobs claim and run a pure cron tick (test/debug).
   --help, -h             Show this help.
 `)
 }
@@ -106,42 +120,143 @@ async function main(): Promise<void> {
   //   default      → AnthropicSonnet46Extractor (loadLlmConfig validates env)
   const llmExtractor = await buildLlmExtractor(flags)
 
+  // Build the IMAP source: `--mock-imap` reads fixture eml files; otherwise
+  // we let `runPipeline` instantiate a `LiveMailSource` (via the default).
+  let source: FixtureMailSource | undefined
   if (flags.mockImap) {
     const dir = flags.fixtureDir
       ?? join(fileURLToPath(new URL('..', import.meta.url)), 'test', 'fixtures')
     const fixtures = await loadFixtureBuffers(dir)
-    const source = new FixtureMailSource(fixtures)
-    const summary = await runPipeline({
-      since: flags.since,
-      source,
-      dryRun: flags.dryRun,
-      logger: consoleLogger(),
-      llmExtractor,
-    })
-    // eslint-disable-next-line no-console
-    console.log('pipeline summary:', summary)
-  } else {
-    // Live IMAP without --since used to scan the full INBOX (`{ all: true }`)
-    // and pull every body/attachment into memory. Default to the last
-    // LIVE_DEFAULT_SINCE_DAYS so a stray `pnpm start` can't blow up the worker.
-    const effectiveSince = flags.since ?? defaultLiveSince()
-    if (!flags.since) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${effectiveSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
-      )
-    }
-    const summary = await runPipeline({
-      since: effectiveSince,
-      dryRun: flags.dryRun,
-      logger: consoleLogger(),
-      llmExtractor,
-    })
-    // eslint-disable-next-line no-console
-    console.log('pipeline summary:', summary)
+    source = new FixtureMailSource(fixtures)
   }
 
-  await closeDb()
+  // Default lookback for cron / live IMAP. Logged the first time we apply it
+  // so operators know why a manual `pnpm start` looks at the last 7 days.
+  const cronSince = flags.since ?? defaultLiveSince()
+  if (!flags.since && !flags.mockImap) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${cronSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
+    )
+  }
+
+  const log = consoleLogger()
+
+  // The whole dispatcher runs inside try/finally so the pg pool is always
+  // closed — including on top-level throw. Pre-fix, IMAP failures in
+  // runOnce() rethrew past the bottom-of-main `closeDb()`, leaving the pool
+  // open until systemd's TimeoutStartSec killed the unit (review r2 blocker).
+  // closeDb() is idempotent and a no-op when no pool was opened, so the
+  // dry-run / parseArgs-throw paths are safe.
+  try {
+    // Dispatcher: `--dry-run` bypasses runOnce / job claim / notify entirely so
+    // it never writes a `mail_worker_runs` row. The CLI usage promises "do not
+    // write to DB", and runOnce would INSERT a running row before runPipeline
+    // even starts. runPipeline(dryRun:true) is pure (parse + classify + count),
+    // so this path stays runnable without DATABASE_URL.
+    if (flags.dryRun) {
+      const summary = await runPipeline({
+        since: flags.mockImap ? flags.since : cronSince,
+        source,
+        dryRun: true,
+        logger: log,
+        llmExtractor,
+      })
+      // eslint-disable-next-line no-console
+      console.log('pipeline summary:', summary)
+      return
+    }
+
+    // `--no-claim` skips the job queue but still wraps the run in a
+    // `mail_worker_runs` row (test/debug for the cron-tick code path).
+    // Otherwise, try to claim a pending admin job; if none, fall through.
+    if (flags.noClaim) {
+      const summary = await runOnce({
+        kind: 'cron',
+        since: flags.mockImap ? flags.since : cronSince,
+        source,
+        logger: log,
+        llmExtractor,
+      })
+      // eslint-disable-next-line no-console
+      console.log('pipeline summary:', summary)
+      return
+    }
+
+    const db = getDb()
+
+    // Recover any `claimed` rows orphaned by a previous worker crash before we
+    // try to claim a new one. Otherwise a dead row keeps blocking the queue
+    // from the admin's POV (review r1). Failure here is non-fatal — the
+    // dispatcher still gets a chance to claim a fresh `pending` row.
+    await recoverStaleClaimedJobs(db).then(
+      (recovered) => {
+        if (recovered > 0) {
+          log.warn('recovered stale claimed mail_worker_jobs rows', { recovered })
+        }
+      },
+      (err) => {
+        log.warn('recoverStaleClaimedJobs failed; continuing', {
+          err: err instanceof Error ? err.message : String(err),
+        })
+      },
+    )
+
+    const job = await claimNextJob(db).catch((err) => {
+      log.warn('claimNextJob failed; falling back to cron tick', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+      return null
+    })
+
+    if (job) {
+      log.info('claimed mail_worker_jobs row', {
+        jobId: job.id,
+        requestedByUserId: job.requestedByUserId,
+        since: job.since?.toISOString() ?? null,
+      })
+      try {
+        const summary = await runOnce({
+          kind: 'manual',
+          triggeredByUserId: job.requestedByUserId,
+          since: job.since ?? cronSince,
+          source,
+          logger: log,
+          llmExtractor,
+        })
+        await markJobDone(db, job.id, summary.runId)
+        // eslint-disable-next-line no-console
+        console.log('pipeline summary:', summary)
+      } catch (err) {
+        // runOnce may throw on top-level IMAP failure; the run row is already
+        // persisted with status=imap_failed inside runOnce. Mark the job
+        // failed so the admin sees the error in the inbox UI. When runOnce
+        // throws RunOnceError we forward its `runId` so the failed job links
+        // back to the run that captured the error detail (review r2).
+        const message = err instanceof Error ? err.message : String(err)
+        const failedRunId = err instanceof RunOnceError ? err.runId : null
+        await markJobFailed(db, job.id, message, failedRunId).catch((markErr) => {
+          log.warn('markJobFailed also failed', {
+            jobId: job.id,
+            err: markErr instanceof Error ? markErr.message : String(markErr),
+          })
+        })
+        throw err
+      }
+    } else {
+      const summary = await runOnce({
+        kind: 'cron',
+        since: cronSince,
+        source,
+        logger: log,
+        llmExtractor,
+      })
+      // eslint-disable-next-line no-console
+      console.log('pipeline summary:', summary)
+    }
+  } finally {
+    await closeDb()
+  }
 }
 
 /**

@@ -71,6 +71,13 @@
       "when": 1777218927459,
       "tag": "0009_nappy_kat_farrell",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777346029755,
+      "tag": "0010_panoramic_rattler",
+      "breakpoints": true
     }
   ]
 }

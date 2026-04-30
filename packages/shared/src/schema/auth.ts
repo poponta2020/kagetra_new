@@ -35,6 +35,12 @@ export const users = pgTable(
     lineLinkedMethod: lineLinkMethodEnum('line_link_method'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+    // PR5 (mail-tournament-import): per-user notification preference. The
+    // channel↔user pairing is canonically stored on `line_channels.assigned_user_id`
+    // (FK + future UNIQUE), so we deliberately do NOT carry a reverse pointer
+    // on users — review r1 flagged that as a dual source of truth with no
+    // integrity constraint. Channel lookup goes user → line_channels.assigned_user_id.
+    notificationLineUserId: text('notification_line_user_id'),
   },
   (table) => [
     // dan is 段位 (kyu/dan rank). Valid range is 0–9; enforce at the DB layer

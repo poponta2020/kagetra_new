@@ -1,9 +1,12 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import { desc } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { Card, Pill, type PillTone } from '@/components/ui'
+import { mailWorkerRuns } from '@kagetra/shared/schema'
 import { AttachmentList } from './components/AttachmentList'
 import { DraftCard } from './components/DraftCard'
+import { TriggerFetchButton } from './components/TriggerFetchButton'
 
 /**
  * /admin/mail-inbox — list of mails fetched by `apps/mail-worker` (PR1).
@@ -37,6 +40,21 @@ const CLASSIFICATION_LABEL: Record<string, { label: string; tone: PillTone }> = 
   unknown: { label: '不明', tone: 'neutral' },
 }
 
+// PR5 Phase 4c — `mail_worker_runs.status` mapping for the recent-runs table.
+// Mirrors the enum in packages/shared/src/schema/enums.ts.
+const RUN_STATUS_LABEL: Record<string, { label: string; tone: PillTone }> = {
+  running: { label: '実行中', tone: 'info' },
+  success: { label: '成功', tone: 'success' },
+  imap_failed: { label: 'IMAP 失敗', tone: 'danger' },
+  ai_failed: { label: 'AI 失敗', tone: 'danger' },
+  partial: { label: '部分成功', tone: 'warn' },
+}
+
+const RUN_KIND_LABEL: Record<string, string> = {
+  cron: '定期',
+  manual: '手動',
+}
+
 function formatJst(date: Date): string {
   return date.toLocaleString('ja-JP', {
     timeZone: 'Asia/Tokyo',
@@ -56,6 +74,24 @@ export default async function MailInboxPage() {
   ) {
     redirect('/403')
   }
+
+  // PR5 Phase 4c — recent mail-worker invocations. The list query below is the
+  // existing PR1-PR4 surface; this query is independent so it can fail or
+  // return empty without affecting the inbox itself. Limit 5 mirrors the
+  // pr5-plan.md DoD ("直近 5 件").
+  const recentRuns = await db
+    .select({
+      id: mailWorkerRuns.id,
+      startedAt: mailWorkerRuns.startedAt,
+      finishedAt: mailWorkerRuns.finishedAt,
+      kind: mailWorkerRuns.kind,
+      status: mailWorkerRuns.status,
+      summary: mailWorkerRuns.summary,
+      error: mailWorkerRuns.error,
+    })
+    .from(mailWorkerRuns)
+    .orderBy(desc(mailWorkerRuns.startedAt))
+    .limit(5)
 
   // List view never renders body_text / body_html. Restrict columns so the top
   // 100 rows don't drag full HTML bodies across the wire on every page load.
@@ -104,7 +140,75 @@ export default async function MailInboxPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">メール受信箱</h1>
+        <TriggerFetchButton />
       </div>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="font-display text-sm font-semibold text-ink-2">
+          最近の取り込み履歴
+        </h2>
+        {recentRuns.length === 0 ? (
+          <Card>
+            <div className="py-3 text-center text-xs text-ink-meta">
+              まだ実行履歴がありません
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border-soft text-left text-ink-meta">
+                    <th className="py-1 pr-3 font-medium">開始</th>
+                    <th className="py-1 pr-3 font-medium">種別</th>
+                    <th className="py-1 pr-3 font-medium">状態</th>
+                    <th className="py-1 pr-3 font-medium">新規 draft</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentRuns.map((run) => {
+                    const status = RUN_STATUS_LABEL[run.status] ?? {
+                      label: run.status,
+                      tone: 'neutral' as const,
+                    }
+                    const kindLabel = RUN_KIND_LABEL[run.kind] ?? run.kind
+                    // summary jsonb is `unknown`. Pull the one field we render
+                    // defensively without trusting the shape.
+                    const summary = (run.summary ?? {}) as {
+                      drafts_created?: number
+                    }
+                    const draftsCreated = summary.drafts_created ?? 0
+                    return (
+                      <tr
+                        key={run.id}
+                        className="border-b border-border-soft last:border-0"
+                      >
+                        <td className="py-1.5 pr-3 text-ink-2">
+                          {formatJst(run.startedAt)}
+                        </td>
+                        <td className="py-1.5 pr-3 text-ink-2">{kindLabel}</td>
+                        <td className="py-1.5 pr-3">
+                          <span
+                            className="inline-flex items-center gap-1"
+                            title={run.error ?? undefined}
+                          >
+                            <Pill tone={status.tone} size="sm">
+                              {status.label}
+                            </Pill>
+                          </span>
+                        </td>
+                        <td className="py-1.5 pr-3 text-ink-2">
+                          {draftsCreated} 件
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+      </section>
 
       {rows.length === 0 ? (
         <Card>

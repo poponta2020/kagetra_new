@@ -45,3 +45,26 @@ export const tournamentDraftStatusEnum = pgEnum('tournament_draft_status', [
   'ai_failed',
   'superseded',
 ])
+
+// PR5 (mail-tournament-import)
+export const lineChannelStatusEnum = pgEnum('line_channel_status', [
+  'available',
+  'assigned',
+  'active',
+  'system',
+  'disabled',
+])
+export const mailWorkerRunKindEnum = pgEnum('mail_worker_run_kind', ['cron', 'manual'])
+export const mailWorkerRunStatusEnum = pgEnum('mail_worker_run_status', [
+  'running',
+  'success',
+  'imap_failed',
+  'ai_failed',
+  'partial',
+])
+export const mailWorkerJobStatusEnum = pgEnum('mail_worker_job_status', [
+  'pending',
+  'claimed',
+  'done',
+  'failed',
+])

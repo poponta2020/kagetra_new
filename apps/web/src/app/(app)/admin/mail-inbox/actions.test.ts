@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import {
   eventGroups,
   events,
+  mailWorkerJobs,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
@@ -44,8 +45,13 @@ vi.mock('@kagetra/mail-worker/config', () => ({
 
 // Import after mocks so `@/auth` and the mail-worker imports resolve to the
 // mocked modules.
-const { approveDraft, rejectDraft, linkDraftToEvent, reextractDraft } =
-  await import('./actions')
+const {
+  approveDraft,
+  rejectDraft,
+  linkDraftToEvent,
+  reextractDraft,
+  triggerMailFetch,
+} = await import('./actions')
 
 function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
   const fd = new FormData()
@@ -537,6 +543,201 @@ describe('admin/mail-inbox actions', () => {
 
       await reextractDraft(draft.id)
       expect(classifyMailMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('triggerMailFetch', () => {
+    function buildFormData(
+      preset: '24h' | '3d' | '7d' | 'custom',
+      customDate?: string,
+    ) {
+      const fd = new FormData()
+      fd.set('preset', preset)
+      if (customDate !== undefined) fd.set('customDate', customDate)
+      return fd
+    }
+
+    it('admin が 7d preset で job を予約できる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const before = Date.now()
+      const result = await triggerMailFetch(buildFormData('7d'))
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('expected ok')
+      expect(typeof result.jobId).toBe('number')
+
+      const job = await testDb.query.mailWorkerJobs.findFirst({
+        where: eq(mailWorkerJobs.id, result.jobId),
+      })
+      expect(job?.status).toBe('pending')
+      expect(job?.requestedByUserId).toBe(admin.id)
+      // since should land roughly 7 days before "now" (within a few seconds
+      // of the call). Use a generous window so a slow CI host doesn't flake.
+      const sevenDaysMs = 7 * 24 * 3600 * 1000
+      const sinceMs = job?.since?.getTime() ?? -1
+      expect(sinceMs).toBeGreaterThanOrEqual(before - sevenDaysMs - 5000)
+      expect(sinceMs).toBeLessThanOrEqual(before - sevenDaysMs + 5000)
+    })
+
+    it('vice_admin も予約できる', async () => {
+      const vice = await createUser({ role: 'vice_admin' })
+      await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+      const result = await triggerMailFetch(buildFormData('7d'))
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('expected ok')
+
+      const job = await testDb.query.mailWorkerJobs.findFirst({
+        where: eq(mailWorkerJobs.id, result.jobId),
+      })
+      expect(job?.requestedByUserId).toBe(vice.id)
+    })
+
+    it('未認証は Unauthorized を投げる (job は作られない)', async () => {
+      await setAuthSession(null)
+
+      await expect(triggerMailFetch(buildFormData('7d'))).rejects.toThrow(
+        'Unauthorized',
+      )
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('member ロールは Forbidden を投げる (job は作られない)', async () => {
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+
+      await expect(triggerMailFetch(buildFormData('7d'))).rejects.toThrow(
+        'Forbidden',
+      )
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('preset=24h で since が ~24h 前', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const before = Date.now()
+
+      const result = await triggerMailFetch(buildFormData('24h'))
+      if (!result.ok) throw new Error('expected ok')
+      const job = await testDb.query.mailWorkerJobs.findFirst({
+        where: eq(mailWorkerJobs.id, result.jobId),
+      })
+      const expected = before - 24 * 3600 * 1000
+      const sinceMs = job?.since?.getTime() ?? -1
+      expect(sinceMs).toBeGreaterThanOrEqual(expected - 5000)
+      expect(sinceMs).toBeLessThanOrEqual(expected + 5000)
+    })
+
+    it('preset=3d で since が ~3 days 前', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const before = Date.now()
+
+      const result = await triggerMailFetch(buildFormData('3d'))
+      if (!result.ok) throw new Error('expected ok')
+      const job = await testDb.query.mailWorkerJobs.findFirst({
+        where: eq(mailWorkerJobs.id, result.jobId),
+      })
+      const expected = before - 3 * 24 * 3600 * 1000
+      const sinceMs = job?.since?.getTime() ?? -1
+      expect(sinceMs).toBeGreaterThanOrEqual(expected - 5000)
+      expect(sinceMs).toBeLessThanOrEqual(expected + 5000)
+    })
+
+    it('preset=custom + customDate=2026-04-20 で since が JST 0:00', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await triggerMailFetch(
+        buildFormData('custom', '2026-04-20'),
+      )
+      if (!result.ok) throw new Error('expected ok')
+
+      const job = await testDb.query.mailWorkerJobs.findFirst({
+        where: eq(mailWorkerJobs.id, result.jobId),
+      })
+      // 2026-04-20T00:00:00+09:00 === 2026-04-19T15:00:00Z
+      expect(job?.since?.toISOString()).toBe('2026-04-19T15:00:00.000Z')
+    })
+
+    it('preset=custom で customDate 欠如だと invalid form input', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await triggerMailFetch(buildFormData('custom'))
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected error')
+      expect(result.error).toBe('invalid form input')
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('preset=custom で customDate が regex 違反だと invalid form input', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await triggerMailFetch(
+        buildFormData('custom', '2026/04/20'),
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected error')
+      expect(result.error).toBe('invalid form input')
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('未知の preset は invalid form input', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const fd = new FormData()
+      fd.set('preset', 'bogus')
+      const result = await triggerMailFetch(fd)
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected error')
+      expect(result.error).toBe('invalid form input')
+    })
+
+    it('未来日付の customDate は弾く', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      // Pick a date safely in the future so the test stays valid as the
+      // current date marches forward.
+      const future = new Date(Date.now() + 365 * 24 * 3600 * 1000)
+      const yyyy = future.getUTCFullYear()
+      const mm = String(future.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(future.getUTCDate()).padStart(2, '0')
+      const result = await triggerMailFetch(
+        buildFormData('custom', `${yyyy}-${mm}-${dd}`),
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('expected error')
+      expect(result.error).toMatch(/未来/)
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('mail_worker_jobs に INSERT され status=pending、戻り値 { ok: true, jobId }', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await triggerMailFetch(buildFormData('24h'))
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('expected ok')
+      expect(result.jobId).toBeGreaterThan(0)
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]?.id).toBe(result.jobId)
+      expect(jobs[0]?.status).toBe('pending')
     })
   })
 })

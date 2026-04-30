@@ -1,3 +1,5 @@
+import { and, eq, gte, inArray, sql } from 'drizzle-orm'
+import { mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
 import { findByMessageId, insertMailMessage, updateStatus } from './persist/mail-message.js'
@@ -6,6 +8,11 @@ import { extractAttachment, type ExtractionStatus } from './extract/orchestrator
 import { getDb } from './db.js'
 import { classifyMail, persistOutcome } from './classify/classifier.js'
 import type { LLMExtractor } from './classify/llm/types.js'
+import {
+  evaluateAndNotify,
+  type MailWorkerRunSummary,
+  type Notifier,
+} from './notify/orchestrator.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -48,6 +55,15 @@ export interface PipelineSummary {
   aiFailed: number
   /** Pre-filter said noise → AI was not invoked. */
   aiSkipped: number
+  /**
+   * Capped error messages from per-mail AI failures (review r2 should-fix).
+   * Populated by `runAiPhase` for both the outer-catch path (classifyMail /
+   * persistOutcome threw) and the `kind: 'failed'` outcome (LLM call or Zod
+   * validation failed twice). `runOnce` merges these into `summary.errors` so
+   * the AI consecutive-failure LINE alert can surface the actual provider
+   * error instead of "unknown AI error".
+   */
+  aiErrors: string[]
 }
 
 export interface RunPipelineOptions {
@@ -83,6 +99,14 @@ const NOOP_LOGGER: PipelineLogger = {
   warn: () => undefined,
 }
 
+/**
+ * Limit `summary.errors` (and the per-run `summary.aiErrors` feed that flows
+ * into it) so a malformed mail batch can't blow up jsonb size. Used in two
+ * places: `runAiPhase` caps how many AI failure messages it accumulates, and
+ * `runOnce` slices the merged error list before persisting.
+ */
+const MAX_ERRORS_IN_SUMMARY = 10
+
 function emptySummary(): PipelineSummary {
   return {
     fetched: 0,
@@ -101,6 +125,7 @@ function emptySummary(): PipelineSummary {
     aiSucceeded: 0,
     aiFailed: 0,
     aiSkipped: 0,
+    aiErrors: [],
   }
 }
 
@@ -425,6 +450,18 @@ async function runAiPhase(
     summary.aiSucceeded += tally.aiSucceeded
     summary.aiFailed += tally.aiFailed
     summary.aiSkipped += tally.aiSkipped
+    // `kind: 'failed'` means LLM call/Zod validation failed twice and the
+    // failure is already persisted on the draft row. Surface a short reason
+    // here too so the AI alert message has something concrete to show. We
+    // prefer `rawResponse` (the actual provider output / underlying error)
+    // over the static `reason` line, but fall back when rawResponse is null.
+    if (
+      outcome.kind === 'failed' &&
+      summary.aiErrors.length < MAX_ERRORS_IN_SUMMARY
+    ) {
+      const detail = outcome.rawResponse ?? outcome.reason
+      summary.aiErrors.push(truncateAiError(detail))
+    }
     log.info('ai outcome', {
       messageId,
       rowId,
@@ -437,12 +474,26 @@ async function runAiPhase(
     // retry didn't catch (DB write failure, missing row, etc.). Log and move
     // on — the row stays in `ai_processing` and the next run picks it up.
     summary.aiFailed += 1
+    const message = err instanceof Error ? err.message : String(err)
+    if (summary.aiErrors.length < MAX_ERRORS_IN_SUMMARY) {
+      summary.aiErrors.push(truncateAiError(message))
+    }
     log.warn('ai phase failed', {
       messageId,
       rowId,
-      err: err instanceof Error ? err.message : String(err),
+      err: message,
     })
   }
+}
+
+/** Trim a single AI error string so one verbose provider response can't blow
+ * up `mail_worker_runs.summary` jsonb size. 500 chars is enough for a Zod
+ * issue list or an HTTP error body excerpt while staying well under any
+ * realistic row-size cap. */
+const MAX_AI_ERROR_LENGTH = 500
+function truncateAiError(s: string): string {
+  if (s.length <= MAX_AI_ERROR_LENGTH) return s
+  return s.slice(0, MAX_AI_ERROR_LENGTH) + '…'
 }
 
 /**
@@ -455,4 +506,236 @@ export async function runPipelineFromFixtures(
 ): Promise<PipelineSummary> {
   const source = new FixtureMailSource(fixtures)
   return runPipeline({ ...opts, source })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runOnce: PR5 Phase 3a wrapper
+//
+// Wraps `runPipeline` with mail_worker_runs persistence + notification
+// orchestration. The pipeline itself still does the IMAP/AI work; runOnce is
+// responsible for:
+//   1. Inserting a `running` row at the start.
+//   2. Running the pipeline (catch top-level errors so the row can still be
+//      finalized).
+//   3. Computing terminal status from the summary.
+//   4. UPDATEing the row with `summary`/`error`/`finished_at`/`status`.
+//   5. Calling `evaluateAndNotify` (which handles new-draft + consecutive-
+//      failure pings, with its own catch for LineNotifyError).
+//
+// Crucially, the runs INSERT/UPDATE happen OUTSIDE the per-mail transactions
+// — the same reason classify/persist run outside the mail-insert txn:
+// connection-pool contention with multi-second IMAP/Anthropic round trips.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Cap subject list at 10 (the templates layer further trims to 5 for display). */
+const MAX_DRAFT_SUBJECTS = 10
+
+export interface RunOnceOptions extends RunPipelineOptions {
+  /** Distinguishes scheduler invocations from admin-requested ones. Default 'cron'. */
+  kind?: 'cron' | 'manual'
+  /** Set when this run was claimed from a `mail_worker_jobs` row. */
+  triggeredByUserId?: string | null
+  /**
+   * DI seam for tests: replace the LINE push with a `vi.fn()`. Defaults to
+   * the real `pushSystemNotification`.
+   */
+  notifier?: Notifier
+}
+
+export interface RunOnceResult extends PipelineSummary {
+  /** The `mail_worker_runs.id` of the row created for this invocation. */
+  runId: number
+}
+
+/**
+ * Top-level entry: insert a `mail_worker_runs` row, execute the pipeline,
+ * finalize the row, fire any LINE notifications, and return the run id +
+ * pipeline counters.
+ *
+ * Failure semantics:
+ *   - IMAP-only failure (top-level throw from `runPipeline`) → status
+ *     `'imap_failed'`, summary.imap_error=true.
+ *   - AI failures with at least one mail also classified successfully →
+ *     status `'partial'`.
+ *   - AI failures only, mail count > 0, no AI successes → `'ai_failed'`.
+ *   - Otherwise (incl. fetched=0 with no errors) → `'success'`.
+ *
+ * Any failure to UPDATE the run row at the end is rethrown — that's a real
+ * DB problem the cron / dispatcher should surface (exit 1). Notification
+ * failures are caught inside `evaluateAndNotify` and DO NOT affect the run.
+ */
+export async function runOnce(opts: RunOnceOptions = {}): Promise<RunOnceResult> {
+  const log = opts.logger ?? NOOP_LOGGER
+  const kind = opts.kind ?? 'cron'
+  const db = getDb()
+
+  // (1) Insert running row up front. We need its id so a crash later can be
+  // diagnosed by inspecting the orphaned `running` row.
+  const startedAt = new Date()
+  const inserted = await db
+    .insert(mailWorkerRuns)
+    .values({
+      startedAt,
+      kind,
+      status: 'running',
+      triggeredByUserId: opts.triggeredByUserId ?? null,
+      since: opts.since ?? null,
+    })
+    .returning({ id: mailWorkerRuns.id })
+  const runId = inserted[0]!.id
+
+  // (2) Execute pipeline. Catch top-level throws (IMAP fetch failure,
+  // connection refused, etc.) — anything per-mail is already isolated inside
+  // runPipeline.
+  let summary: PipelineSummary = emptySummary()
+  let topLevelError: Error | null = null
+  try {
+    summary = await runPipeline(opts)
+  } catch (err) {
+    topLevelError = err instanceof Error ? err : new Error(String(err))
+    log.warn('pipeline top-level error', {
+      runId,
+      err: topLevelError.message,
+    })
+  }
+
+  // (3) Compose summary jsonb. New draft subjects are looked up post-hoc
+  // (createdAt >= startedAt) so we don't have to thread them through the
+  // pipeline summary shape (which would risk regressing classifier tests).
+  const newDraftSubjects = summary.draftsInserted > 0
+    ? await fetchNewDraftSubjects(db, startedAt)
+    : []
+
+  // Merge top-level error (if any) with per-mail AI errors collected by
+  // runAiPhase. Top-level first so the AI alert's `lastError` lookup
+  // (notify/orchestrator.ts) prefers the most-specific failure when one
+  // exists. Capped to MAX_ERRORS_IN_SUMMARY so a giant batch of AI
+  // failures can't bloat the jsonb row.
+  const errors: string[] = []
+  if (topLevelError) errors.push(topLevelError.message)
+  for (const aiErr of summary.aiErrors) errors.push(aiErr)
+
+  const summaryJson: MailWorkerRunSummary = {
+    fetched: summary.fetched,
+    classified: summary.aiSucceeded + summary.aiFailed + summary.aiSkipped,
+    drafts_created: summary.draftsInserted,
+    ai_failed: summary.aiFailed,
+    imap_error: topLevelError !== null,
+    errors: errors.slice(0, MAX_ERRORS_IN_SUMMARY),
+    new_draft_subjects: newDraftSubjects.slice(0, MAX_DRAFT_SUBJECTS),
+  }
+
+  const status = computeRunStatus(summary, topLevelError !== null)
+
+  // (4) Finalize the run row. If THIS update fails it's a real DB problem
+  // — let it propagate so the cron exits 1 and we notice.
+  await db
+    .update(mailWorkerRuns)
+    .set({
+      finishedAt: sql`now()`,
+      status,
+      summary: summaryJson,
+      error: topLevelError ? topLevelError.message : null,
+    })
+    .where(eq(mailWorkerRuns.id, runId))
+
+  // (5) Notification orchestration. Catches its own LineNotifyError so we
+  // don't propagate transient LINE failures past the run boundary.
+  try {
+    await evaluateAndNotify(db, runId, log, opts.notifier)
+  } catch (err) {
+    log.warn('evaluateAndNotify threw', {
+      runId,
+      err: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  // If the pipeline itself top-level threw we should still rethrow so the
+  // CLI can exit non-zero. The run row is already persisted with
+  // status=imap_failed so the next run's evaluator can see it. We wrap the
+  // error in `RunOnceError` so the dispatcher (`index.ts`) can recover the
+  // `runId` and link the failed `mail_worker_jobs` row back to the run that
+  // captured the error detail (review r2). Message + cause are forwarded so
+  // existing `rejects.toThrow(/.../)` tests keep matching.
+  if (topLevelError) {
+    throw new RunOnceError(topLevelError.message, runId, { cause: topLevelError })
+  }
+
+  return { ...summary, runId }
+}
+
+/**
+ * Wrapper around a runOnce top-level failure that carries the `mail_worker_runs.id`
+ * of the run row that already captured the error. `index.ts` checks
+ * `instanceof RunOnceError` to forward `runId` to `markJobFailed`, so the
+ * failed manual job links to its run.
+ *
+ * `message` mirrors the underlying error so existing
+ * `expect(...).rejects.toThrow(/imap connect refused/)` tests still pass.
+ */
+export class RunOnceError extends Error {
+  readonly runId: number
+  constructor(message: string, runId: number, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'RunOnceError'
+    this.runId = runId
+  }
+}
+
+function computeRunStatus(
+  summary: PipelineSummary,
+  imapError: boolean,
+): 'success' | 'imap_failed' | 'ai_failed' | 'partial' {
+  if (imapError) return 'imap_failed'
+  // AI partial: some succeeded, some failed.
+  if (summary.aiFailed > 0 && summary.aiSucceeded > 0) return 'partial'
+  // AI-only failure path: mails were fetched but AI failed on every attempt
+  // (i.e. zero successes). Skipped pre-filter mails are not counted as AI
+  // failures.
+  if (
+    summary.aiFailed > 0 &&
+    summary.aiSucceeded === 0 &&
+    (summary.aiFailed + summary.aiSucceeded) > 0
+  ) {
+    return 'ai_failed'
+  }
+  return 'success'
+}
+
+/**
+ * Look up subjects of drafts created during this run. We filter by
+ * `createdAt >= startedAt` and join through `mail_messages` for the subject
+ * line. Drafts are typically small in number per run (a handful at most), so
+ * the IN-list join is cheap.
+ *
+ * If the query fails for any reason we return `[]` rather than aborting the
+ * whole run — a missing notification preview is far less bad than rolling
+ * back a successful pipeline write.
+ */
+async function fetchNewDraftSubjects(
+  db: import('./db.js').Db,
+  startedAt: Date,
+): Promise<string[]> {
+  try {
+    const draftRows = await db
+      .select({ messageId: tournamentDrafts.messageId })
+      .from(tournamentDrafts)
+      .where(
+        and(
+          gte(tournamentDrafts.createdAt, startedAt),
+          eq(tournamentDrafts.status, 'pending_review'),
+        ),
+      )
+    if (draftRows.length === 0) return []
+    const ids = draftRows.map((r) => r.messageId)
+    const subjects = await db
+      .select({ subject: mailMessages.subject })
+      .from(mailMessages)
+      .where(inArray(mailMessages.id, ids))
+    return subjects
+      .map((r) => r.subject ?? '(no subject)')
+      .filter((s): s is string => typeof s === 'string')
+  } catch {
+    return []
+  }
 }
