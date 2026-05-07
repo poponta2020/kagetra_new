@@ -844,3 +844,36 @@
   6. 問題なければ範囲拡大 (`--since=2026-04-01`)、コスト・精度所感を worklog 追記
   7. テスト終了後に API キー / App Password を revoke
 - 引き続き carryover Nits (PR3 r4, PR4 r4, PR5 r3) と本番 Lightsail デプロイは手動実施待ち
+
+---
+
+## 2026-05-07 セッション2（PR #22 ship + stale remote branch 一括掃除）
+
+### 完了
+- **stale remote branch 10 本を一括削除** — main にマージ済みで残っていた `feat/mail-tournament-import-pr1〜pr5` (PR #17〜21)、`feat/ui-3a-dashboard-restyle` (PR #9)、`feat/ui-3b-events-restyle` (PR #10)、`feat/ui-foundation-design-tokens` (PR #6)、`feat/ui-foundation-shell-and-primitives` (PR #7)、`fix/auth-line-user-id-from-account` (PR #8) を `git push origin --delete` で除去。各 tip SHA は復元用に控え (pr1=`5af905b` / pr2=`08b3f52` / pr3=`ae8bc09` / pr4=`0faba22` / pr5=`37bf898` / ui-3a=`83edb98` / ui-3b=`a7e40ab` / ui-foundation-tokens=`de4e13e` / ui-foundation-shell=`584a6f7` / fix/auth=`34b7b6e`)。事前検証: `git merge-base origin/main origin/<branch> == origin/<branch>` (= ancestor of main) を 10 本全てで確認 + `gh pr list --state merged` のマージ履歴とブランチ名を 1:1 突合
+- **PR #22** (`feat/local-dev-handover` → main, merge `74afa73`) ship — 家・会社の 2 環境用ローカル動作確認セットアップ。dev only で production には影響しない
+  - `apps/web/scripts/dev-issue-cookie.ts` 新規（admin/member/vice_admin の seed + Auth.js JWT 発行を idempotent に行う、`pnpm --filter @kagetra/web dev:cookie -- --role=member` 等で利用）
+  - `docs/dev/local-dev-setup.md` 新規（284→288 行、env 配置 / DB 起動 / Cookie 注入 vs 実 LINE Login / mail-worker 実 API テスト / Sonnet 4.6 コスト目安 / トラブルシュート 一通り）
+  - `.gitignore` に `.claude/settings.local.json` 追加（per-machine override の git status 汚染解消）
+  - `.claude/memory/reference_local_dev_setup.md` 新規 + index 同期、`scripts/review/output/yahoo-mail-tournament-investigation-2026-04-17.md` 削除（PR1 era 残骸）
+- **review prep で気づいた 2 点を merge 前に追加 commit** (`72f14c7`):
+  - (a) `apps/web/.env.local` テンプレートの `AUTH_SECRET` 行に「⚠ Production には絶対に使わない、本番は `openssl rand -base64 32` 等で別値」コメントを追加。test secret 漏れで本番セッション偽造ができない安全性は production が異なる secret を使う前提が満たされている時だけ成り立つ、という条件を明記
+  - (b) Cookie 注入セクションに「`--name=...` は新規 insert 時のみ反映、既存ユーザーの name は更新しない（変更したい場合は dev DB 直接 UPDATE か対象 email 行を削除して再実行）」を追記
+- **Codex レビューはスキップ判断** — dev only (apps/web/scripts/, docs/dev/) かつ DB schema 変更なし、CI 通過、ユーザー本人が手動検証済 (admin/member 切替・全画面 200・実 LINE Login `/self-identify` 成功) のため。CLAUDE.md 開発ルール 7 (DoD) は通常レビュー必須だが、production path 0 行の dev tooling については追加 Codex API コストに見合わないと判断
+- **後始末**: worktree `C:/tmp/impl-pr22` 撤去、ローカルブランチ `feat/local-dev-handover` 削除、main を `74afa73` まで fast-forward
+
+### 学び
+- **「test secret leak does not compromise prod」は条件付きの安全性** — `playwright-auth.ts` と dev:cookie で AUTH_SECRET を共有する設計は、production deploy operator が必ず別 secret を設定する前提が満たされている時しか成り立たない。前提を doc に書かないと、いつか deploy 担当が「dev で動いた env をそのままコピー」して production も `e2e-test-secret-do-not-use-in-production` で動き出すリスクが残る。安全性が条件付きの設計は、その条件を「misleading に見える値」のすぐ隣に書くのが最も読み落としにくい（別 doc に分離すると本人が気付きにくい）
+- **mail-worker と web app の env 境界** — `docs/deploy/mail-worker.md` には DATABASE_URL / YAHOO_IMAP_* / ANTHROPIC_API_KEY のみ書かれていて、`AUTH_SECRET` は出てこない。これは仕様で正しく、mail-worker は Auth.js セッションを発行/検証しないから。web app の deploy 用 doc はまだ存在しないので、AUTH_SECRET の本番別値要件は当面 dev doc 側に置き、後日 `docs/deploy/web.md` を切ったときに重複記載する方針
+- **stale remote branch 削除前の merge 検証は「`merge-base == branch tip`」が最終判定** — `git rev-list --left-right --count` で「branch_ahead == 0」を見るだけだと、例えば fast-forward で `branch tip == origin/main` のときは安全だが、merge commit 経由でマージされた branch では「branch_ahead > 0」が出ても tip 自体が main の ancestor になっている場合がある。`git merge-base origin/main origin/<branch> == $(git rev-parse origin/<branch>)` で 1 行判定する方が誤判定が出ない。GitHub の `gh pr list --state merged` の `headRefName` と突合すると更に確実
+
+### 残存している git 状態
+- main: `74afa73`（このセッション後に worklog/memory 同期 commit が乗る）
+- worktree: なし
+- `.claude/settings.json` ローカル差分は引き続き未コミット（memory 同期 permission 等、scope 外で意図的に保留）
+
+### 次回
+- **mail-worker 実 API テスト** — ユーザー側で Anthropic API キー + Yahoo!Mail App Password を発行 → Claude 側で受領 → `<repo>/.env` 作成 → `--since=2026-05-05` 直近 2 日プローブ → UI で精度目視 → 承認/却下/再抽出/紐付け各操作を 1 回ずつ
+- **本番 Lightsail デプロイ** — `docs/deploy/mail-worker.md` 手順で systemd timer + LINE Bot 登録 + seed-system-channel 投入。AUTH_SECRET 本番別値要件は web app deploy 時に重複記載
+- **Phase P3-B / P3-C 優先度確定** — grill-me で確定後、make-plan → implement
+- carryover Nits は引き続き保留（PR3 r4 `--since` UTC 化、PR4 r4 Windows next build EPERM、PR5 r3 `truncateAiError` の code-point 化、signIn deactivated user テスト、対象外参加行の別枠表示）
