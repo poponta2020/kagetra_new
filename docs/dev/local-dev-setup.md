@@ -39,6 +39,10 @@ FRONTEND_URL=http://localhost:3000
 
 # Aligned with apps/web/src/test-utils/playwright-auth.ts so the dev:cookie
 # script issues tokens that the dev server can decode.
+# ⚠ Production には絶対に使わない。本番デプロイでは必ず別値 (`openssl rand
+# -base64 32` 等) を設定する。「test secret が漏れても本番セッション偽造
+# できない」という安全性は、production の AUTH_SECRET が dev と異なる前提
+# が満たされている時のみ成り立つ。
 AUTH_SECRET=e2e-test-secret-do-not-use-in-production
 
 # Real LINE Login channel — primary login + invited-member self-identify flow.
@@ -105,7 +109,7 @@ pnpm --filter @kagetra/web dev:cookie -- --role=vice_admin --name="副管理 太
 
 実装は [apps/web/scripts/dev-issue-cookie.ts](../../apps/web/scripts/dev-issue-cookie.ts)。出力された `document.cookie = "..."` 行を Chrome DevTools Console に貼って Enter → リロードでログイン状態に。
 
-idempotent: 同じ role の既存ユーザー (`dev-admin@kagetra.local` 等) があれば再利用、なければ insert。
+idempotent: 同じ role の既存ユーザー (`dev-admin@kagetra.local` 等) があれば再利用、なければ insert。`--name=...` は新規 insert 時のみ反映され、既存ユーザーの `name` は更新しない（変更したい場合は dev DB で直接 UPDATE するか、対象 email の行を手動削除してから再実行）。
 
 ### 2-B. 実 LINE Login
 
