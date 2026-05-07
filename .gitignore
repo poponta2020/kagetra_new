@@ -11,3 +11,4 @@ scripts/migration/dump/
 test-results/
 playwright-report/
 playwright/.auth/
+.claude/settings.local.json

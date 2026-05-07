@@ -794,3 +794,53 @@
 - carryover Nit: `signIn` callback の deactivated user 拒否テスト
 - carryover Nit: 対象外の参加行を別枠で表示案
 - 本番 Lightsail デプロイ + LINE Bot 作成 + `seed-system-channel.ts` 投入は手動実施待ち
+
+---
+
+## 2026-05-02〜07 セッション（ローカル動作確認セットアップ + mail-worker 実 API テスト準備）
+
+### 完了
+- **`apps/web/.env.local` / `packages/shared/.env`** 配置（gitignored、Cookie 注入用 `AUTH_SECRET=e2e-test-secret-do-not-use-in-production` で `playwright-auth.ts` を流用可能に揃えた）
+- **`apps/web/scripts/dev-issue-cookie.ts` 新規追加**（commit 対象）— admin/member/vice_admin の seed + Auth.js JWT 発行を 1 コマンド化、`pnpm --filter @kagetra/web dev:cookie -- --role=member` 等で利用。idempotent（同 email の既存 user は再利用）。本番デプロイには影響しない dev only ツール
+  - `apps/web/package.json` に `tsx` devDependency と `dev:cookie` script を追加
+- **dev DB に Drizzle 0001〜0010 全マイグレーション適用** (`pnpm --filter @kagetra/shared db:push --force`、TTY 不要にするため `--force` が必須なのを確認)
+- **dev DB に admin / member 2 ユーザー seed**（`dev-admin@kagetra.local` / `dev-member@kagetra.local`、両方 `is_invited=true && line_user_id=null` で /self-identify 候補にも乗る）
+- **Cookie 注入方式でログイン動作確認**: 全主要ルート（`/dashboard` `/events` `/schedule` `/admin/members` `/admin/mail-inbox`）で 200 を確認
+- **実 LINE Login 動作確認**: ユーザー手元の LINE Login channel ID/SECRET を `.env.local` に投入 → `/auth/signin` → LINE 認可 → 初回ログインなので `/self-identify` に飛び → 候補から **Dev Admin** を選択 → 自身の `lineUserId` が Dev Admin 行に紐付いてダッシュボード着地。production と同等のサインインフローを実機検証
+- **「メール取り込み」ボタンの仕様確認**: `triggerMailFetch` Server Action は `mail_worker_jobs` への INSERT のみで、実取得は別プロセスの mail-worker 担当（dev では未起動なので draft は生成されない、UI には「ジョブ #N 予約」のみ表示される動作を確認）
+- **mail-worker 実 API テストのための事前調査**:
+  - 使用モデル: `claude-sonnet-4-6` (cost.ts 記載は 2026-04 時点の単価)
+  - プロンプトキャッシング 1h ephemeral 有効、システムプロンプト ~6,000 tok
+  - 1 通あたりコスト: 標準（本文+添付 1）で **約 $0.018**、軽量で約 $0.011、重め（PDF 複数）で約 $0.038
+  - **1000 円（≒$6.67）で 約 360 通**（標準ケース）— 過去 investigation の 22 通/月 に対して 1 年分以上カバー可能
+- **引き継ぎ書 `docs/dev/local-dev-setup.md` 新規作成** — 家・会社の 2 環境で初めて触る人が 1 ファイルから動作確認まで辿れるように、env 配置 / DB 起動 / Cookie 注入 vs 実 LINE / mail-worker 実 API テスト手順 / コスト目安 / トラブルシュートまで網羅
+- **不要レビュー artefact のクリーンアップ**: `scripts/review/output/{pr1-diff-r6.txt, pr1-diff-r7.txt, april-tournament-extract-2026-04.json, yahoo-mail-tournament-investigation-2026-04-17.md, review-prompt-pr5-1.md, review-result-pr5-1.md}` を削除（過去 PR1/PR21 の investigation/review 残骸、worklog 上の cleanup glob `*pr20*` `*pr21*` から漏れていたファイル）
+
+### 学び・確認事項
+- **mail-worker は repo-root の `.env` を読む** ([apps/mail-worker/src/config.ts:1-38](../apps/mail-worker/src/config.ts#L1-L38))。`apps/web/.env.local` でも `packages/shared/.env` でもなく `<repo>/.env`。dotenv の読み込みは `loadLlmConfig` 等の初回呼び出し時に lazy で走る（webpack の static analysis を回避するため `new URL` をフラグメント結合で組み立てる工夫付き）
+- **drizzle-kit push は TTY が必須** — Git Bash の `pnpm --filter @kagetra/shared db:push` は「変更を確認するか？」プロンプトで止まる。`--force` を付ければ非対話で適用される（既存 `test:db:push` script も同じ理由で `--force` 付き）
+- **Auth.js の Cookie 注入方式が本物の OAuth フローと共存できる** — `AUTH_SECRET` を `e2e-test-secret-do-not-use-in-production` に揃えることで、`playwright-auth.ts` の `issueJwtSession` ロジックを dev script 側に流用可能。production では `AUTH_SECRET` を別値にするので、test secret が漏れても本番セッション偽造はできない
+- **LINE Login の `Configuration` エラー判別ポイント** — `AUTH_LINE_ID` が数字でない場合 LINE 側で「Failed to convert ... clientId」400、callback URL 不一致なら redirect_uri mismatch、IDP 側の channel 状態が無効なら AccessDenied。`.env.example` に書かれた dev-placeholder のままサインインボタンを押すと一発で 400 になる（Cookie 注入なら気付かない罠）
+- **dev `.env.local` の AUTH_LINE_ID/SECRET は本物でも安全** — gitignored なので commit されない。team 共有が必要な channel なら 1Password 等の vault 推奨だが、1 人開発の dev 環境では `.env.local` 直書きで OK
+- **Anthropic API キーと Claude.ai サブスク (Pro/Max) は完全別課金** — 「Pro/Max サブスクで API を代用したい」要望は仕様上不可能。代替は (a) `--mock-llm` で fixture 出力、(b) Claude Code (=このセッション) が prompt + schema を読んで extract を代行、(c) 実 API でテスト（最小 $5 から）。今回は (c) で進める方針確定
+- **Yahoo!JAPAN は 2025 年後半から IMAP デフォルト無効化** — App Password 発行前に「IMAP/POP/SMTP アクセス → 外部メールソフトを許可」の切替が必要。これを忘れると App Password を作っても LOGIN コマンドが拒否される
+
+### 残存している git 状態
+- main: `c08aa1c` の上にこのセッションの commit が乗る予定
+- worktree: なし（root 作業のみ）
+- `.claude/settings.json` の `effortLevel: "xhigh"` ローカル差分は引き続き未コミット（前回 worklog の判断を継続、scope 外）
+- `.claude/settings.local.json` も引き続き untracked（個人環境用）
+
+### 次回
+- **ユーザー側で 2 つ発行** (引き継ぎ書 5 章参照):
+  - Anthropic API キー（$5 入金）
+  - Yahoo!Mail App Password（IMAP アクセス許可も必要）
+- **Claude 側で受領後**:
+  1. `<repo root>/.env` を新規作成
+  2. `apps/web/.env.local` の `ANTHROPIC_API_KEY` 同値で埋める（再抽出ボタン用）
+  3. `pnpm --filter @kagetra/mail-worker start --since=2026-05-05` で直近 2 日プローブ
+  4. `mail_worker_runs` / `tournament_drafts` の中身確認 → UI で精度目視
+  5. 承認 / 却下 / 再抽出 / イベント紐付け の各操作を実機で 1 回ずつ
+  6. 問題なければ範囲拡大 (`--since=2026-04-01`)、コスト・精度所感を worklog 追記
+  7. テスト終了後に API キー / App Password を revoke
+- 引き続き carryover Nits (PR3 r4, PR4 r4, PR5 r3) と本番 Lightsail デプロイは手動実施待ち
