@@ -877,3 +877,79 @@
 - **本番 Lightsail デプロイ** — `docs/deploy/mail-worker.md` 手順で systemd timer + LINE Bot 登録 + seed-system-channel 投入。AUTH_SECRET 本番別値要件は web app deploy 時に重複記載
 - **Phase P3-B / P3-C 優先度確定** — grill-me で確定後、make-plan → implement
 - carryover Nits は引き続き保留（PR3 r4 `--since` UTC 化、PR4 r4 Windows next build EPERM、PR5 r3 `truncateAiError` の code-point 化、signIn deactivated user テスト、対象外参加行の別枠表示）
+
+---
+
+## 2026-05-08 セッション（mail-worker 実 API テスト Phase 1: 環境準備〜直近 2 日プローブ、別環境引き継ぎで中断）
+
+### 完了
+- **Anthropic API キー発行 + 配置** — ユーザーが console.anthropic.com で `kagetra-dev` キー発行 + $5 入金。`<repo>/.env` (新規) と `apps/web/.env.local` (再抽出 Server Action 用) の `ANTHROPIC_API_KEY` に同値を投入。両ファイルとも `.gitignore` で `.env` (line 6) / `.env.*` (line 7) で確実に無視されることを `git check-ignore -v` で確認
+- **Yahoo!JAPAN メール認証経路を確定** — App Password 発行ルート（worklog 5/2-7 と引き継ぎ書 3-2 節の前提）が **2025-2026 のセキュリティ強化により利用不可** であることを WebSearch + 一次/二次ソースで確認。Yahoo!JAPAN は OAuth 2.0 (Outlook 等のブラウザ認証) を推奨、App Password 機能は「サービスのアップグレードに伴い一時的に削除」状態。代替として **「Yahoo メイン PW + IMAP 許可設定」ルート**（一時的措置）で接続成功
+- **Yahoo 側設定変更（ユーザー側）**: `https://mail.yahoo.co.jp` → 歯車 → メールの設定 → IMAP/POP/SMTPアクセス → 「Yahoo!JAPAN公式サービス以外からのアクセスも有効にする」+ IMAP「有効にする」+ 保存
+- **dev DB の migration 状態欠落を発見・修正** — worklog 5/2-7 で「`db:push --force` で 0001〜0010 全マイグレーション適用」と記録していたが、実際は **0000-0004 の 8 テーブル分しか入っていなかった**（mail_worker_runs / mail_worker_jobs / mail_messages / mail_attachments / tournament_drafts / line_channels が欠落）。`pnpm --filter @kagetra/shared db:push --force` も `db:migrate` も非対話シェルでは enum resolver で TTY エラーで失敗するため、**0005-0010 を `docker exec -i kagetra-db psql ... < migrations/000X.sql` で順番に直接適用**。drizzle メタデータ (`__drizzle_migrations`) は未管理だが dev のみなので一旦許容
+- **`--since=2026-05-05` 実 IMAP + 実 LLM プローブ成功** — fetched=19 / inserted=19 / aiSucceeded=15 / aiFailed=4 / draftsInserted=6 / runId=1 (status=partial) / 所要 2:44 / 添付 28 件中 7 件 PDF/Word 抽出成功・21 件 unsupported (画像等)
+- **Extract 精度確認**: SQL で `tournament_drafts` の `extracted_payload` 目視。
+  - **draft 6 (conf 0.97)**: 「第78回全国競技かるた京都大会（AB級）」 — 正式名称・会場 (知恩院和順会館)・参加費 ¥2500・定員 (A=64, B=128, total=192)・参加資格 (A,B級)・申込締切 2026-05-22・申込手段 (メール添付)・主催 (京都府かるた協会) すべて正確。`event_date=null` の理由 ("A級とB級で開催日が異なるため") も extras に記録。`extras` に時刻表・参加資格生テキスト・ローカルルール (和装) まで保存
+  - **draft 5 (conf 0.82)**: 「全日本かるた協会法人化30周年記念大会」 — 6 部門 (2-3-4-5-6段-シニア)・各定員・参加費・申込期間 6/15-7/10 まで詳細抽出。confidence 低めなのは AI 自身が「案扱い、6月中旬に正式案内予定」と認識しているため
+  - 4 件 ai_failed: 全て `400 invalid_request_error: messages.0.content.0.pdf.source.base64.data: The PDF specified was not valid` — 添付 PDF を Anthropic が解読できないバグ可能性 (carryover 化)
+- **コスト実績**: 成功 2 件で input 5,070 tok / output 1,840 tok / **$0.047** (1 通あたり $0.024、引き継ぎ書 3-5 節の標準ケース $0.018 より 33% 高め)
+- **notifier system_channel seed 警告**: `No line_channels row with status=system found. Seed one via apps/mail-worker/scripts/seed-system-channel.ts.` — pipeline は continue する設計通り。dev では LINE 通知不要なので OK、本番デプロイ時に必須
+- **Next.js dev server 起動確認**: `pnpm --filter @kagetra/web dev` で localhost:3000 が `/auth/signin` リダイレクトを返すこと確認 (HTTP 307)。UI 検証は別環境で実施
+
+### 学び・確認事項
+- **Yahoo!JAPAN App Password は 2025 年後半から実質廃止された** — Outlook/Apple Mail から動かなくなった件 (note.com/440found 2026-04-04) と、不正ログイン対策として 2025-10 に IMAP/POP/SMTP がデフォルト「許可しない」化 (whatsnewmail.yahoo.co.jp 20251008a) が並走。Yahoo!JAPAN は OAuth 2.0 + パスキー一本化方針 (2027 春までに password-only 廃止) で、外部メールクライアント向けには「OAuth 対応クライアント以外は推奨しない」ポリシー。`imapflow` のような LOGIN ベースの IMAP クライアントから使うルートは「メイン PW + IMAP 許可」しか残っていない (これも公式は推奨しない位置付け)
+- **「db:push --force」の非対話モードは enum 追加に対応していない** — `drizzle-kit push --force` の `--force` は「変更を確認するか」プロンプトには効くが、`promptNamedWithSchemasConflict` (新 enum 作成 vs rename 判定) には効かず TTY 必須でクラッシュする (`Error: Interactive prompts require a TTY terminal`)。同様に `drizzle-kit migrate` も非対話で失敗 (詳細エラーは出ないがおそらく applied/unapplied 状態管理の差分が原因)。**確実な手段は `psql -f migrations/000X.sql` を順番に適用**。引き継ぎ書 1-3 節の `db:push --force` 記述は信頼できないので doc 修正が carryover
+- **dev 環境間で migration 状態が分岐する** — 5/2 セッションで適用したつもりの 0005-0010 が今回は欠落していた。原因は不明 (DB volume が一度 reset された / 別 docker container が動いていた / 当時 0005-0010 は本当に当たっていなかった可能性 など)。教訓は「migration 適用済みかどうかは worklog の記述ではなく、`\dt` で実際のテーブル一覧を起動時に確認する」「`__drizzle_migrations` メタテーブルが未管理なので、dev 環境でも将来 `db:migrate` 経路を整える（drizzle-kit にメタを書かせる初回実行 or 手動 INSERT）か、引き続き psql 直接適用で運用するかの方針を決めるべき」
+- **抽出精度は本番運用に十分な水準** — confidence 0.82-0.97 の draft が、添付 PDF/Word 込みで大会名・会場・定員（A/B 級別）・申込締切・申込手段・参加資格生テキスト・ローカルルール（和装等）まで構造化されて入った。`extras` に「raw text + AI が判断に使った要約」を保存する設計が、admin が承認時に「AI が誤読していないか」を 1 画面で確認できる UX に直結している
+- **PDF base64 invalid エラーの再現性** — 4 件すべて同じエラー文字列 (`The PDF specified was not valid`)。原因仮説: (a) Anthropic 側の PDF パーサが受け付けない PDF バージョン/エンコーディング、(b) imap-client.ts が PDF 添付を base64 エンコードする際のバイナリ取り扱いミス、(c) PDF 自体が破損。再現すれば優先度高めの bug fix 候補（mail_messages id=1,2,3,12 の添付を取り出して直接 Anthropic に投げ直すデバッグ手順を carryover に）
+
+### 残存している git 状態（commit 後）
+- `<repo>/.env` (gitignored): Anthropic key + Yahoo メイン PW 込み、テスト終了時に削除予定
+- `apps/web/.env.local` (gitignored): `ANTHROPIC_API_KEY` 行追加済み (再抽出ボタン用)
+- `.claude/settings.json` ローカル差分は引き続き未コミット (intentional)
+- dev DB (kagetra-db on 5433): 0000-0010 全テーブル + draft 6 件 + run 1 件 + mail_messages 19 件入り、`__drizzle_migrations` 未管理
+
+### 次回（別環境引き継ぎ用チェックリスト）
+
+**前提**: Anthropic key と Yahoo メイン PW は前環境と共通利用可能。テスト終了後に両方 revoke / rotate する想定。
+
+1. **env 配置（gitignored、別環境では手動コピー）**:
+   - `<repo>/.env` を新規作成。テンプレートは引き継ぎ書 1-2 節 + 今回 3-2 節を Yahoo App Password → メイン PW に読み替え。実際の値は前環境の `.env` を 1Password / 安全な経路でコピー
+   - `apps/web/.env.local` の `ANTHROPIC_API_KEY` 行も同値で埋める
+   - 両ファイルとも `git check-ignore -v` で無視確認
+
+2. **DB セットアップ**:
+   - `docker compose up -d kagetra-db` (port 5433)
+   - **`docker exec kagetra-db psql -U kagetra -d kagetra -c "\dt"` でテーブル数確認**: 14 テーブル (0010 まで適用済み) でなければ `for f in packages/shared/drizzle/000{0..4}*.sql packages/shared/drizzle/000{5..9}*.sql packages/shared/drizzle/0010*.sql; do docker exec -i kagetra-db psql -U kagetra -d kagetra -v ON_ERROR_STOP=1 < "$f"; done` で順次適用 (`db:push --force` は非対話で失敗するので使わない)
+   - admin user seed: `pnpm --filter @kagetra/web dev:cookie -- --role=admin` か、既存 `users` テーブルの自分の row を `UPDATE users SET role='admin' WHERE id=...`
+
+3. **Yahoo IMAP 許可設定**: ユーザー側で 1 度だけ。`https://mail.yahoo.co.jp` → 歯車 → メールの設定 → IMAP/POP/SMTPアクセス → 「Yahoo!JAPAN公式サービス以外からのアクセスも有効にする」+ IMAP「有効にする」+ 保存。**設定はユーザーアカウントに紐づくので前環境で済んでいれば別環境でも有効**（ブラウザの cookie とは無関係）
+
+4. **再開ポイント — UI 検証** (前環境では未実施):
+   - `pnpm --filter @kagetra/web dev` で localhost:3000 起動
+   - 実 LINE Login で signin (Cookie 注入でも可、admin role 必要)
+   - `/admin/mail-inbox` を開いて run 履歴 + draft 6 件が見えるか
+   - 各 draft 詳細 (`/admin/mail-inbox/[id]`) で **承認 / 却下 / 再抽出 / 既存イベントに紐付け** を 1 回ずつ操作
+     - 承認候補: draft id=6 (京都大会 conf 0.97) → events に行が入るか
+     - 却下候補: draft id=5 (30周年大会 conf 0.82) に「案扱いで保留」と理由付き
+     - 再抽出候補: draft id=1〜4 のうち 1 件 (ai_failed の PDF base64 エラー組) → 新 draft が superseded リンクで作られるか確認
+     - 紐付け候補: 別の 1 件で `linked_event_id` 設定 (要 events 行、なければ手動 INSERT)
+
+5. **問題なければ範囲拡大**: `pnpm --filter @kagetra/mail-worker start --since=2026-04-01` で 1 ヶ月分プローブ → コスト・精度所感を worklog 追記
+
+6. **テスト終了時 cleanup** (順序):
+   - `<repo>/.env` 削除 (`rm .env`)
+   - `apps/web/.env.local` の `ANTHROPIC_API_KEY` 行削除
+   - Anthropic console で `kagetra-dev` key を delete
+   - Yahoo!JAPAN ID のパスワードを変更 (https://accounts.yahoo.co.jp/ → ログインとセキュリティ → パスワード変更)
+   - 必要なら Yahoo の IMAP 許可も「許可しない」へ戻す (任意)
+
+### 新規 carryover (PDF base64 invalid の調査が優先度高)
+- **mail-worker の PDF 添付 → Anthropic 投入経路の bug 調査** — 今回 4/19 通 (21%) で同じ `The PDF specified was not valid` エラー。`mail_messages` id=1,2,3,12 の `mail_attachments` 行と元 IMAP body を取り出し、(a) 直接 base64 を Anthropic に投げ直して同じエラー出るか、(b) 別の base64 encoder で再エンコードして通るか、(c) imap-client.ts の `parseAttachments` で PDF を取り出す経路に問題ないか、を切り分け
+- **`db:push --force` / `db:migrate` の TTY 失敗を doc 化** — 引き継ぎ書 1-3 節と CLAUDE.md 開発ルールに「非対話シェルでは psql 直接適用」を追記。`__drizzle_migrations` 未管理状態の解消方針も合わせて
+- **system_channel seed コマンドの dev fixture** — `apps/mail-worker/scripts/seed-system-channel.ts` を dev でも実行できる fixture モード（dummy LINE token で seed のみ）があると notifier warning が消えて実機検証時のログがクリーンになる。今回は実害なしなので低優先
+
+### 引き続き持ち越し
+- carryover Nits (PR3 r4 `--since` UTC 化、PR4 r4 Windows next build EPERM、PR5 r3 `truncateAiError` の code-point 化、signIn deactivated user テスト、対象外参加行の別枠表示)
+- 本番 Lightsail デプロイ + LINE Bot 作成 + seed-system-channel 投入は手動実施待ち
+- Phase P3-B / P3-C 優先度確定 (grill-me で確定後、make-plan → implement)
