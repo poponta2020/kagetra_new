@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { desc } from 'drizzle-orm'
 import { db } from '@/lib/db'
@@ -120,10 +121,11 @@ export default async function MailInboxPage() {
         },
       },
       // PR3 addition: 1:0..1 — at most one tournament_drafts row per mail
-      // (UNIQUE on message_id). PR4 will add the detail page + approval
-      // form; here we just need enough columns for the inline DraftCard.
+      // (UNIQUE on message_id). PR4 added the detail page + approval form;
+      // we select `id` so the inline card can wrap-link into /[id].
       draft: {
         columns: {
+          id: true,
           status: true,
           confidence: true,
           isCorrection: true,
@@ -251,7 +253,14 @@ export default async function MailInboxPage() {
                     {row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress}
                   </div>
                   <AttachmentList items={row.attachments} />
-                  {row.draft && <DraftCard draft={row.draft} />}
+                  {row.draft && (
+                    <Link
+                      href={`/admin/mail-inbox/${row.draft.id}`}
+                      className="block"
+                    >
+                      <DraftCard draft={row.draft} />
+                    </Link>
+                  )}
                 </div>
               </Card>
             )
