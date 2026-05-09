@@ -1018,3 +1018,41 @@
 - 本番 Lightsail デプロイ + LINE Bot 作成 + seed-system-channel 投入は手動実施待ち
 - Phase P3-B / P3-C 優先度確定 (grill-me で確定後、make-plan → implement)
 - mail-worker 実 API テストは Phase 2 で十分なサンプル ($0.38, 49 drafts) が取れた。Anthropic API キーと Yahoo メイン PW は本セッション終了後の cleanup 判断（次セッションで本番デプロイに進むなら一時保留、進まないなら revoke）
+
+---
+
+## 2026-05-09 セッション 2（PR #23 ship: mail-inbox 一覧 → 詳細リンク wiring、🔴 carryover 1 件解消）
+
+### 完了
+- **PR #23** (`fix/mail-inbox-list-detail-link` → main, merge `f4d9533`) ship — `/admin/mail-inbox` 一覧 Card に href がなく、URL 直打ち以外で `/admin/mail-inbox/[id]` (承認 / 却下 / 再抽出 / 紐付け画面) に遷移できなかった bug を修正。worklog 5/9 セッション 1 で発見した 🔴 carryover を解消
+  - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`: `db.query.mailMessages.findMany` の `with.draft.columns` に `id: true` を追加 + `<DraftCard>` を `<Link href={`/admin/mail-inbox/${row.draft.id}`} className="block">` で wrap (events / schedule の一覧と同じパターン)
+  - `apps/web/src/app/(app)/admin/mail-inbox/page.test.tsx` 新規 71 行 — 一覧 Server Component の RTL test、`screen.getByText('承認待ち').closest('a')` で wrapper anchor を取って `href` の値まで固定。次回 wiring が壊れたら即落ちる
+  - `DraftCard.tsx` は **touch せず** — URL 構築は親 page の責務に保持し、コンポーネント側に id prop / route knowledge を持ち込まない (dashboard 等で再利用するときの依存を最小化)
+- **検証**: `tsc --noEmit` pass / `next lint` 0 warnings / vitest 21 files / 168 tests all pass
+- **Codex レビュー r1 (clean)**: Blocker 0 / Should fix 0 / Nits 0 でマージ判定。「URL 構築の責務分離」「`id` only の minimal select」「regression test の `closest('a')` 確認」を 3 点評価
+- **後始末**: worktree `C:/tmp/fix-mail-inbox-link` 撤去 (`git worktree remove --force` がメタ削除のみ成功 → 残存 dir を `rm -rf` で物理削除する worklog 4/27 PR4 確立の二段構えで対応)、ローカルブランチ `fix/mail-inbox-list-detail-link` 削除、main を `f4d9533` まで fast-forward、レビュー artefact (`scripts/review/output/review-{prompt,result}-pr23-1.md`) 削除
+
+### 学び
+- **`useRouter` mock が一覧 page test には必須** — 既存 `[id]/page.test.tsx` (PR4 r3 で追加された detail page test) は `notFound` / `redirect` だけ mock すれば足りていたが、一覧 page の Server Component には `TriggerFetchButton` という Client Component が間接的に含まれ、これが `useRouter()` を render 中に呼ぶ。jsdom 下では mock が無いと `No "useRouter" export is defined` で落ちる。テンプレ流用時は「親 page にどんな Client Component が間接的に含まれるか」を grep で確認しないと初回テストが落ちる
+- **Windows worktree の node_modules で `git worktree remove` が "Directory not empty"** — pnpm install 後の symlink 構造を Windows git が解決しきれず、`--force` でもメタ情報削除までしか進まない。worklog 4/27 PR4 / 5/8 PR #22 と同じパターンで「git worktree remove --force → 残存 dir を rm -rf」が確立済の対処手順だと再確認
+- **小規模 bug fix でも CLAUDE.md ルール 1 (実装前確認 → 計画 → 承認 → /claude-mem:do) は機能した** — 30 分の小修正で make-plan skill は overkill だったが、平文計画の提示 + ユーザー /claude-mem:do 承認 → 実装 → /review → /ship のフローが回り、Codex r1 clean で 1 往復で ship。レビュー artefact のテンプレ + 削除手順が PR #21 までで磨かれているおかげで overhead が小さい
+
+### 残存している git 状態
+- main: `f4d9533`（このセッションの worklog/memory 同期 commit がこれから乗る）
+- worktree: なし
+- ローカルに残る古いブランチ: `feat/local-dev-handover` (6fc56bf, PR #22 で merged 済)、`feat/phase-1-5-auth-pivot-line-login` (f51decb, 古い、状態要確認)。/ship スコープ外で次回掃除候補
+- `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` は引き続き残置 (テスト継続前提)
+- `.claude/settings.json` ローカル差分は引き続き未コミット (intentional)
+- `.claude/settings.local.json` の `Bash(docker exec kagetra-db psql:*)` 追加は引き続き gitignored
+
+### 次回 (carryover 持ち越し)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- 🟠 PDF base64 invalid bug 調査 (ai_failed 29/49 件)
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 conf による 2 階層 sort UI (P3-A 改善)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
