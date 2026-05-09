@@ -953,3 +953,68 @@
 - carryover Nits (PR3 r4 `--since` UTC 化、PR4 r4 Windows next build EPERM、PR5 r3 `truncateAiError` の code-point 化、signIn deactivated user テスト、対象外参加行の別枠表示)
 - 本番 Lightsail デプロイ + LINE Bot 作成 + seed-system-channel 投入は手動実施待ち
 - Phase P3-B / P3-C 優先度確定 (grill-me で確定後、make-plan → implement)
+
+---
+
+## 2026-05-09 セッション（mail-worker 実 API テスト Phase 2: 別環境引き継ぎ + UI 検証 4 操作 + 1ヶ月分プローブ + Windows ネイティブクラッシュ発見）
+
+### 完了
+- **別環境セットアップ**: `<repo>/.env` 新規作成（DATABASE_URL は dev 固定値、ANTHROPIC_API_KEY/YAHOO_IMAP_USER/YAHOO_IMAP_APP_PASSWORD は前環境から手動コピー）+ `apps/web/.env.local` 末尾に `ANTHROPIC_API_KEY` 追加（再抽出ボタン用）。両ファイル `.gitignore` で無視確認済み
+- **dev DB 状態確認**: 14 テーブル applied 済（前環境 5/8 セッションの作業が残存）、admin/member 2 ユーザー seed 済。ただし mail_messages / drafts / runs はゼロ（DB 状態は環境ごとローカル、worklog 5/8 引き継ぎ書「draft 6 件が見える」は前提誤りだった）
+- **stale dev server プロセス kill**: PID 10636 が 5/5 23:57 起動の Next.js dev server で 2 日間動きっぱなし。`Stop-Process` で kill、port 3000 解放してから `pnpm exec next dev` で再起動
+- **mail-worker Phase 1 再実行 (`--since=2026-05-05`)**: 22 通 / 8 drafts / aiSucceeded=16 / aiFailed=6 / 所要 2 分。`<CAGNnhpe...>` 等の新規メール 3 通追加で Phase 1 worklog の 19 通から微増。aiFailed 6 件全て同じ `400 The PDF specified was not valid` で worklog 5/8 carryover を再現
+- **UI 検証 4 操作すべて成功**:
+  - 承認 (draft 6 京都大会 conf 0.97) → events 1 INSERT (`title='第78回全国競技かるた京都大会（AB級）'`, `event_date=2026-06-27`, `fee_jpy=2500`)、status=approved
+  - 却下 (draft 5 30周年 conf 0.82) → status=rejected, rejected_at + rejection_reason='案扱い、6月中旬に正式案内予定のため保留' 保存
+  - 再抽出 (draft 1 横浜大会 ai_failed) → 同 row が UPSERT で書き換え、PDF base64 bug 再現で再度 ai_failed のまま（updated_at だけ進む）
+  - 紐付け (draft 4 横浜結果報告) → events 1 に `linkDraftToEvent`、status=approved, event_id=1, approved_by_user_id=Dev Admin
+- **mail-worker Phase 2 (`--since=2026-04-01`) 1ヶ月分プローブ — id=125 で Windows ネイティブクラッシュ**:
+  - 124 通までは persist + AI 抽出成功、id=125 (`<CAO6okM8P7qT+b=iPtGTafMX8PSbWB2jkr+oS=cBg8KF1dzL6JA@mail.gmail.com>`) を AI に投げる直前で **Windows STATUS_ACCESS_VIOLATION (0xC0000005)** によって tsx (Node) プロセス native crash, exit 3221226505
+  - `mail_worker_runs` の summary 書き込み前に落ちたので run 2 が `status='running'` のまま放置 → 手動で `status='partial'`, `finished_at=now()`, `error='worker crashed (Windows STATUS_ACCESS_VIOLATION 0xC0000005) after persisting message id=125; finalized manually'` で finalize
+- **コスト集計** (49 drafts, セッション全体):
+  - pending_review: 17 件, $0.336, input=30,703 / output=14,086 tok
+  - approved: 2 件, $0.022 (京都大会 + 横浜結果報告紐付け)
+  - rejected: 1 件, $0.025 (30周年)
+  - ai_failed: 29 件, $0 (Anthropic は 400 invalid_request_error 系では課金しない仕様確認 ✓)
+  - **総額 $0.382 (約 ¥58)** — 124 通プローブ + UI 4 操作 + 再抽出 3 回試行を合算
+- **精度所感** (pending_review 17 件):
+  - **conf 0.97 が 6 件** — 福井A-C / 益田E / 福井D / シニア / 全国女流 / 兵庫。新規大会案内、AI 自信高め
+  - **conf 0.93-0.95 が 2 件** — 広島 / シニア再送 (添付資料あり修正版)
+  - **conf 0.82 が 6 件** — 酒田 / 富山DE / 椿杯訂正 / 秋田変更 / 酒田3次案内 / 鳳玉抽選結果
+  - **conf 0.72 が 3 件** — さがみ野抽選結果 / 吉野会抽選結果 / 椿杯。「抽選結果」「変更について」など更新通知系で confidence 控えめ
+  - 抽選結果/訂正/変更が conf 0.72-0.82、新規案内が conf 0.97 で **運用上区別可能**。admin が高 conf から順に処理すれば throughput 上がる
+- **`.claude/settings.local.json` 編集**: `Bash(docker exec kagetra-db psql:*)` を allow に追加（既存 4 つの pnpm 系を保持）。これで dev DB の SQL 確認が permission prompt 無しで通るように
+
+### 学び
+- **DB 状態は環境ごとローカル、worklog 5/8 引き継ぎ書 4 番の前提が誤り** — 「別環境で前環境の draft 6 件を UI 検証」は dev DB が docker volume なので不可能。引き継ぎ書 5/7 にも「draft 6 件が見えるか」と書かれていたが、別環境では mail-worker を再走させる必要がある。引き継ぎ書はチェックリスト 4 番に「mail-worker を再走させて draft を再生成、UI 検証へ」の手順を補足するか、もしくは「pg_dump で前環境の DB を持ち込む」オプションを併記すべき
+- **`reextractDraft` は新 draft を作らず既存 row を UPSERT で上書きする** — worklog 5/8 と引き継ぎ書 5/7 に「新 draft が superseded リンクで作られる」と誤記。実装は [actions.ts:165](../apps/web/src/app/(app)/admin/mail-inbox/actions.ts#L165) の `persistOutcome(db, draft.messageId, outcome)` で UPSERT on `message_id`。`superseded_by_draft_id` カラムは別経路（is_correction 後発 draft が前 draft を supersede する将来機能のための予約か）で使う想定だったかもしれないが、現実装では再抽出経路では set しない。doc 訂正必要
+- **`/admin/mail-inbox` 一覧から詳細ページへのリンクが未実装** — 一覧 Card に `href` がなく、`<Link>` で囲まれていない。`/admin/mail-inbox/[id]` ページは存在するが URL 直打ち以外で辿れない。これは PR4 で詳細ページを作った際に一覧側の wiring を忘れた抜け漏れと見られ、tap 1 つで遷移する実装に直すのが必要 (carryover 化、優先度高)
+- **Windows での mail-worker native crash は addr violation (0xC0000005)** — 124 通中 1 通 (id=125, gmail 由来) で Node プロセスがクラッシュ。tsx + pdfjs-dist + imapflow いずれかのネイティブコードパスで segfault っぽい挙動。本番 Lightsail (Linux) では再現しないと予想されるが、Windows での動作確認時には `--limit=N` のような明示停止オプションがあると便利。原因切り分けは id=125 の mail_messages / mail_attachments を取り出して直接 Anthropic SDK に投げる小さな再現テストを書くのが最短
+- **AI 失敗時は Anthropic 課金 0** — `tournament_drafts.ai_cost_usd` を SUM したら ai_failed 29 件は全て 0。Anthropic API は 400 invalid_request_error 系では課金しない仕様。PDF base64 bug は精度を失うが直接コスト的には無害（ただし observability は失う）
+- **conf 値で運用 sort できる** — pending_review 17 件で conf 0.97 / 0.82 / 0.72 が綺麗に分かれた。UI で「conf 0.9+ を上に固定 sort + 視覚的強調」「0.7-0.9 を補足表示」のような 2 階層 grouping を入れると admin の処理 throughput が上がる (P3-A 改善 carryover)
+- **drizzle-kit push の TTY 問題は前環境で発生したが今回は無関係だった** — 別環境では DB volume が前環境から persist していたわけではない（環境ごとローカル）が、たまたま 14 テーブル全て揃っていた。今回は psql 直接適用は不要だった。worklog 5/8 学びの「migration 状態は worklog ではなく `\dt` で確認」は今回も有効
+
+### 残存している git 状態
+- main: `b3acb2d` のまま（このセッションの worklog/memory 同期 commit がこれから乗る）
+- worktree: なし
+- `<repo>/.env` (gitignored, テスト終了時削除予定)
+- `apps/web/.env.local` の `ANTHROPIC_API_KEY` 行 (gitignored, 同上)
+- `.claude/settings.local.json` に `Bash(docker exec kagetra-db psql:*)` 追加 (gitignored、別マシンでも独立に許可必要)
+- `.claude/settings.json` ローカル差分は引き続き未コミット (intentional)
+- dev DB (kagetra-db on 5433): 0010 適用済み、mail_messages 125 + mail_attachments 142 + drafts 49 + runs 2 (id=2 は手動 finalize 済み)
+- events: 1 行 (京都大会、UI 検証で承認した結果)
+
+### 新規 carryover (優先度別)
+- **🔴 `/admin/mail-inbox` 一覧 → 詳細リンク未実装の修正** — DraftCard or 親 Card を Link で囲む小さな PR。UI 動作確認を阻害する明らかな bug
+- **🔴 mail-worker Windows native crash の調査** — id=125 周辺の mail / 添付を取り出して直接 Anthropic SDK に投げる再現テスト。本番 Linux で再現するなら原因モジュール (pdfjs-dist / imapflow) を特定。再現しないなら Windows 注意書きを doc 化
+- **🟠 PDF base64 invalid bug 調査** (worklog 5/8 carryover を継続) — ai_failed 29 件中ほぼ全てが PDF source.base64.data エラー。`mail_attachments` 行の data (bytea) を取り出して直接 Anthropic に投げて再現確認 → encoder bug or PDF パース bug の切り分け
+- **🟡 reextract 仕様の doc 訂正** — worklog 5/8 と引き継ぎ書 5/7 の「新 draft が superseded リンクで作られる」記述を「既存 draft を UPSERT 上書き」に修正、`superseded_by_draft_id` カラムの設計意図 / 現使用状況も合わせて整理
+- **🟡 conf による 2 階層 sort UI** — `/admin/mail-inbox` で「conf 0.9+ 審査必須」「0.7-0.9 補足情報」のような明示的 grouping を P3-A 改善として
+- **🟡 `db:push --force` 引き継ぎ書記述の正確化** — 5/8 carryover「非対話シェルでは psql 直接適用」を `docs/dev/local-dev-setup.md` 1-3 節に追記。今回は別環境で偶然 14 テーブル揃っていたが、ゼロから作る場合は引き継ぎ書通りでは詰まる
+- **🟡 別環境引き継ぎ手順の整理** — 「DB は環境ごとローカル」「mail-worker 再走で draft 再生成」「`<repo>/.env` は手動コピーで OK」を引き継ぎ書 5 節に明記。pg_dump 経由で前環境 DB を移植するオプションも併記
+
+### 引き続き持ち越し
+- carryover Nits (PR3 r4 `--since` UTC 化、PR4 r4 Windows next build EPERM、PR5 r3 `truncateAiError` の code-point 化、signIn deactivated user テスト、対象外参加行の別枠表示)
+- 本番 Lightsail デプロイ + LINE Bot 作成 + seed-system-channel 投入は手動実施待ち
+- Phase P3-B / P3-C 優先度確定 (grill-me で確定後、make-plan → implement)
+- mail-worker 実 API テストは Phase 2 で十分なサンプル ($0.38, 49 drafts) が取れた。Anthropic API キーと Yahoo メイン PW は本セッション終了後の cleanup 判断（次セッションで本番デプロイに進むなら一時保留、進まないなら revoke）
