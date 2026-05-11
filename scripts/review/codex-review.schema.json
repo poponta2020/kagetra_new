@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CodexReviewResult",
+  "description": "Structured code review output produced by codex exec for the /auto-review-loop skill. Note: OpenAI Structured Output requires every property listed under 'required' — optional fields are expressed by union with null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "blockers", "should_fix", "nits", "good_points"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "needs_changes"],
+      "description": "pass = ブロッカーなしでマージ可能。needs_changes = blockers または should_fix のいずれかに項目あり。"
+    },
+    "summary": {
+      "type": "string",
+      "description": "全体所感（1〜3 段落）。マージ判断の根拠を明示すること。"
+    },
+    "blockers": {
+      "type": "array",
+      "description": "🔴 必須修正項目（バグ・セキュリティ・データ整合性違反など）。空配列なら verdict=pass の必要条件。",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "should_fix": {
+      "type": "array",
+      "description": "🟡 強く推奨される修正（型安全性・パフォーマンス・既存パターン逸脱など）。",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "nits": {
+      "type": "array",
+      "description": "🟢 任意対応（命名・可読性・コメント等）。",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "good_points": {
+      "type": "array",
+      "description": "良かった点（任意。なければ空配列）。",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line", "line_end", "title", "rationale", "suggestion"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "対象ファイルのリポジトリルートからの相対パス。"
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "description": "対象行番号。ファイル単位の指摘なら null。"
+        },
+        "line_end": {
+          "type": ["integer", "null"],
+          "description": "範囲指摘の終端行。単行なら null。"
+        },
+        "title": {
+          "type": "string",
+          "description": "指摘の要約（1 行）。"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "なぜ問題かの根拠。"
+        },
+        "suggestion": {
+          "type": "string",
+          "description": "具体的な修正案。コード片を含めて良い。"
+        }
+      }
+    }
+  }
+}

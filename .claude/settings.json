@@ -18,7 +18,10 @@
       "Edit(/.claude/skills/implement/**)",
       "Edit(/.claude/skills/review/**)",
       "Edit(/.claude/skills/ship/**)",
-      "Edit(/.claude/skills/dod/**)"
+      "Edit(/.claude/skills/dod/**)",
+      "Edit(/.claude/skills/auto-review-loop/**)",
+      "Bash(codex exec:*)",
+      "Bash(codex --version)"
     ],
     "additionalDirectories": [
       ".claude",
