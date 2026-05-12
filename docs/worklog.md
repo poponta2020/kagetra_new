@@ -1121,6 +1121,7 @@
 - **`/auto-review-loop` の worktree 流用導線が正しく機能** — Step 2 の「既存があれば再利用、なければ新規作成」で `/tmp/fix-pr24` を新規作成し、`/ship` Step 9 で worktree 削除まで一気通貫。スキル間の状態引き継ぎが想定どおりに動いた
 - **Codex の "debug script は blocker 扱いしない" 判断が妥当** — `apps/mail-worker/scripts/debug-pdf.ts` 453 行は単体で見れば大きな新規ファイルだが、目的が手動診断であり運用コードに混入していないので Codex は good_points にも blocker にも置かなかった。プロンプトの「分類ルール」が効いている
 - **main 直 push の deny ガードは ship でも発火する** — `/ship` Step 10 の worklog/memory 同期 commit を main に push する箇所で常にブロックされる。ガード自体は正しく機能しているので、push は (a) ユーザーが手動 (b) 各 ship を docs PR 化、の 2 択を選ぶ運用に固定化
+- **(解消) ↑ ガードは settings.json の明示 allow で上書き可能** — `.claude/settings.json` の `permissions.allow` に `Bash(git push origin main)` と `Bash(git push origin main:main)` を追記したところ、以降の `git push origin main` は確認なしで通った（commit `08308d2` で実証）。`Bash(*)` という広い allow が既にあっても model 側のポリシー判断が deny を出すが、より specific な allow ルールで上書きできる仕様。`--force` や実装コードの main 直 push は事前認可の範囲外として明示的に区切り、memory `feedback_main_push_authorized_for_ship.md` に Why/How を記録
 
 ### 残存している git 状態
 - main: `303527c`（このセッション 2 の worklog 同期 commit がこれから乗る予定、main 直 push は手動 or PR 化）
