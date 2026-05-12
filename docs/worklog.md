@@ -1143,3 +1143,54 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-12 セッション 3（PR #24 効果計測: ai_failed 29 件すべて救済を実証）
+
+### 完了
+- **PR #24 (bytea hex-decode fix) の効果計測** — dev DB の `tournament_drafts` で `status='ai_failed'` だった 29 件 (worklog 5/9 Phase 2 mail-worker run の残滓) を再抽出し、すべて救済を確認
+  - 結果: **29/29 (100%) が ai_failed から脱出** — `pending_review` 18 件 + `superseded` (AI が noise と判定) 11 件
+  - `tournament_drafts` 推移: `ai_failed 29→0` / `pending_review 17→35` (+18) / `superseded 0→11` (+11) / `approved 2→2` / `rejected 1→1`、total 49 維持
+  - `mail_messages` 推移: `ai_failed 30→1` / `ai_done 94→123` (+29)、total 125 維持。残った `ai_failed=1` は mail_id=12 (横浜大会結果報告) で、draft は既に `approved`、approve action が `mail_messages.status` を更新していない pre-existing な data sync gap (本セッション scope 外)
+  - 新たに pending_review になった 18 件の conf 分布: 0.97-0.98 が 10 件、0.95-0.96 が 2 件、0.91 が 2 件、0.82 が 1 件、0.72 が 3 件 (median ~0.97、AI 自信高め)
+  - 総コスト: $0.78 (Sonnet 4.6、18 tournament draft のみ DB に persist。noise 11 件は Anthropic 課金されたが `upsertDraft` を通らないため `tournament_drafts.ai_cost_usd` には積まれない設計 — `classifier.ts:336-348` の noise path 参照)
+  - 高コスト 2 件: mail_id=26 ($0.162, 全道大会実施要項)、mail_id=1 ($0.078, 横浜大会受付名簿)。PDF サイズに比例
+- **失敗パターンの 1 種類確定** — 29 件全てが `claude-sonnet-4-6` + `400 invalid_request_error: messages.0.content.{0,1}.pdf.source.base64.data: The PDF specified was not valid` の同一 signature。worklog 2026-05-11 (PR #24 開発時) の診断 「bytea hex escape string を UTF-8 として `Buffer.from` した結果壊れていた」が 100% 実証された
+- **計測方法**: `apps/mail-worker/scripts/reextract-failed.ts` を throwaway で書いて実行 → 結果記録後削除。`apps/mail-worker/src/reextract.ts` (本物 CLI) の構造をコピーしつつ、対象を `mail_messages.id IN (SELECT message_id FROM tournament_drafts WHERE status='ai_failed')` に絞っただけ。`classifyMail({force:true}) + persistOutcome` を通すので本物 CLI と同じ書き込み path。`approved` / `rejected` の preserve も `persistOutcome` 側のロジックでカバーされ、当該 3 件は不変
+- **Orchestration**: `/claude-mem:do` で general-purpose subagent に measurement 一括委任 → 構造化レポート取得 → orchestrator (main) が DB 直接 SELECT で sanity check (subagent の数値 100% 一致) → script 削除 + worklog 記録 → commit / push の二段構え
+
+### 学び
+- **bytea hex escape 修正は noise 判定にも効いていた** — 29 件のうち 11 件 (約 38%) が「PR #24 で AI が見えるようになった結果、noise だと判定された」mail。PR #24 がなければこれらは延々と ai_failed のまま admin の手動却下 backlog を肥やしていた。bug 修正の恩恵は tournament 抽出だけでなく **noise filter の機会喪失も解消** している
+- **`mail_messages.status` と `tournament_drafts.status` は二系統で independent** — approve/reject action は `tournament_drafts.status` のみ更新し、`mail_messages.status` は触らない。mail_id=12 のように「draft は approved、mail_messages は ai_failed のまま」というケースが発生する。実害は (今のところ) なさそうだが、reextract CLI が `mail_messages.status='ai_failed'` を retarget するため、 approved な draft の親 mail が再 AI 抽出される可能性がある (`persistOutcome` が approved を preserve するので最終的には害なし、ただし無駄 API call) → 別 carryover に
+- **Subagent 委任は measurement task で有効に機能** — script 書き〜実行〜DB SELECT〜整形レポートまでを 1 subagent でこなして、orchestrator (main) は計画 / sanity check / cleanup に集中できた。tool_uses=119, duration=16分。これが main で全部やると context が SELECT 結果と log で埋まる。`/do` skill の orchestrator 設計が小規模 measurement にもフィットすると確認
+- **`-U postgres` で叩いたら role 不在エラー** — docker-compose.yml の `POSTGRES_USER=kagetra` なので `docker exec kagetra-db psql -U kagetra -d kagetra ...` が正しい。worklog 5/9 の `Bash(docker exec kagetra-db psql:*)` allow は shape のみで user は別途。これは memory 不要、docker-compose.yml が source of truth
+
+### 残存している git 状態
+- main: `dadcbd6`（このセッションの worklog 同期 commit がこれから乗る予定）
+- worktree: なし
+- 開いている PR: なし
+- ローカルに残る古いブランチ: `feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`（次回掃除候補のまま）
+- `apps/mail-worker/scripts/reextract-failed.ts`: throwaway として書いて検証後削除済 (untracked → 物理削除)
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB 状態変化: 5/9 セッション以降の AI 抽出履歴が完全に refresh されている (pending_review 35 件 = レビュー材料が一気に増えた)
+
+### 新規 carryover
+- **🟡 `mail_messages.status` と `tournament_drafts.status` の sync gap** — `approveDraft` / `rejectDraft` action が `mail_messages.status` を `ai_done` のまま放置 (draft が approved/rejected の場合、mail を `archived` などに切り替えるべきか要設計判断)。mail_id=12 の inconsistency が一例。実害現状なし、将来 reextract CLI 等で不要な AI 再抽出が走るリスク
+- **🟡 `apps/mail-worker/src/reextract.ts` に `--status=...` filter を足す** — 今回の throwaway scripts/reextract-failed.ts と等価の機能。ai_failed のみ / pending_review のみを retry したいケースは将来も発生する (model bump 時等)
+- **🟢 noise 11 件の reextract 後の取り扱い** — `tournament_drafts.status='superseded'` になっているが、admin が UI で確認する経路が `/admin/mail-inbox` ページの想定に含まれているか未確認 (現状の SELECT では一覧の filter 設計次第)。低優先、運用で困ったら見る
+
+### 次回 (carryover 持ち越し)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- ~~🟠 PDF base64 invalid bug の再検証~~ → **本セッションで完了、29/29 救済を実証**
+- 🟡 `mail_messages.status` と `tournament_drafts.status` の sync gap (新規)
+- 🟡 `reextract.ts` に `--status=...` filter 追加 (新規)
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 conf による 2 階層 sort UI (P3-A 改善) — **pending_review 35 件に増えた今こそ価値が高い**
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (max-tokens / ping-pong / max-rounds どれかが効く PR で)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- 🟢 noise 11 件の UI 露出経路の確認 (新規、低優先)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
