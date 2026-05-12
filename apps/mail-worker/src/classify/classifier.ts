@@ -12,6 +12,36 @@ import {
 import { buildSystemPrompt, PROMPT_VERSION } from './prompt.js'
 
 /**
+ * Normalise a `bytea` column value into a `Buffer`.
+ *
+ * drizzle-orm/node-postgres returns bytea differently depending on the query
+ * shape: a direct `findFirst({ where })` returns a real `Buffer`, but a nested
+ * `findFirst({ with: { attachments: { columns: { data: true } } } })` returns
+ * the raw postgres hex-escape string (`"\\x255044462d..."`) — the same form
+ * `SELECT data FROM mail_attachments` would print in psql. Calling
+ * `Buffer.from(string)` on that re-interprets the literal `\x` characters as
+ * UTF-8 and corrupts the bytes, which manifests downstream as Anthropic's
+ *   400 invalid_request_error: messages.0.content.0.pdf.source.base64.data:
+ *   The PDF specified was not valid
+ * — verified 2026-05-11 via `apps/mail-worker/scripts/debug-pdf.ts` and the
+ * extended worklog. Hex-decode when we see that shape and fall back to the
+ * Buffer path so the helper stays correct under any future driver/version
+ * combination that hands raw bytes through directly.
+ */
+export function bytesFromBytea(raw: unknown): Buffer {
+  if (Buffer.isBuffer(raw)) return raw
+  if (typeof raw === 'string' && raw.startsWith('\\x')) {
+    return Buffer.from(raw.slice(2), 'hex')
+  }
+  if (raw instanceof Uint8Array) return Buffer.from(raw)
+  if (raw instanceof ArrayBuffer) return Buffer.from(raw)
+  // Other shapes (e.g. number[] from a third-party JSON serializer) fall
+  // through to the array-like overload. Cast is necessary because TS cannot
+  // narrow `unknown` past the runtime guards without a discriminator.
+  return Buffer.from(raw as ArrayLike<number>)
+}
+
+/**
  * What the classifier produced for a single mail. The pipeline (and the
  * `reextract` CLI) consume this discriminated union and decide which DB
  * mutations to issue: insert/update a draft row, bump
@@ -105,7 +135,7 @@ export async function classifyMail(
       attachmentsForLlm.push({
         kind: 'pdf',
         filename: att.filename,
-        base64: Buffer.from(att.data).toString('base64'),
+        base64: bytesFromBytea(att.data).toString('base64'),
       })
     } else if (att.extractedText) {
       // DOCX (or future text-extracted formats) — forward the extracted text.
