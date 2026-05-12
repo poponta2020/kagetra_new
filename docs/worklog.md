@@ -1104,3 +1104,41 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-12 セッション 2（PR #24 ship: mail-worker bytea hex-decode、`/auto-review-loop` ドッグフード 2 回目）
+
+### 完了
+- **PR #24** (`fix/pdf-bytea-hex-decode` → main, merge `303527c`) ship — `apps/mail-worker/src/classify/classifier.ts` で Drizzle ネスト `with` query 経由の `bytea` が Postgres hex escape 文字列 (`"\x..."`) で返るケースを `bytesFromBytea()` ヘルパに集約して補正、PDF base64 破損 (ai_failed 多発) の根本原因を解消
+  - 主変更: `classifier.ts` で `Buffer.isBuffer / Uint8Array / "\\x" prefix string / その他` を分岐する `bytesFromBytea()` を export 化
+  - `apps/mail-worker/test/classify/bytes-from-bytea.test.ts` 新規 53 行 — Buffer / hex escape 両経路の単体テスト
+  - `apps/mail-worker/scripts/debug-pdf.ts` 新規 453 行 — 手動診断用 (運用コードではない、Codex も blocker 扱いせず)
+- **`/auto-review-loop 24` を実行** — R1 で verdict=pass、blockers/should_fix/nits **全部 0**、good_points 2、tokens 30,663 / 500,000 で 1 ラウンド break。**ドッグフード 2 連続成功**
+- **検証**: CI (Lint / Typecheck / Test) green、PR 上のチェックも pass
+- **後始末**: `gh pr merge --delete-branch` でリモート・ローカルブランチ同時削除、worktree `C:/Users/popon/AppData/Local/Temp/fix-pr24` を `git worktree remove` で物理削除 (今回は node_modules 由来の Windows 残存問題なし)、レビュー artifacts (`review-{prompt,result}-pr24-1.md`、`codex-result-pr24-r1.json`、ついでに前回未掃除の `codex-result-pr25-r1.json`) 削除
+
+### 学び
+- **`/ship` Step 8 に `codex-result-pr*.json` 削除を含めて正解だった** — PR #25 ship 時にはこの行がまだ main に乗っていなかったため `codex-result-pr25-r1.json` が untracked で残置していた。PR #24 ship で PR #25 の cleanup も併せて消すことで自然回収。今後はこの問題は出ない
+- **`/auto-review-loop` の worktree 流用導線が正しく機能** — Step 2 の「既存があれば再利用、なければ新規作成」で `/tmp/fix-pr24` を新規作成し、`/ship` Step 9 で worktree 削除まで一気通貫。スキル間の状態引き継ぎが想定どおりに動いた
+- **Codex の "debug script は blocker 扱いしない" 判断が妥当** — `apps/mail-worker/scripts/debug-pdf.ts` 453 行は単体で見れば大きな新規ファイルだが、目的が手動診断であり運用コードに混入していないので Codex は good_points にも blocker にも置かなかった。プロンプトの「分類ルール」が効いている
+- **main 直 push の deny ガードは ship でも発火する** — `/ship` Step 10 の worklog/memory 同期 commit を main に push する箇所で常にブロックされる。ガード自体は正しく機能しているので、push は (a) ユーザーが手動 (b) 各 ship を docs PR 化、の 2 択を選ぶ運用に固定化
+
+### 残存している git 状態
+- main: `303527c`（このセッション 2 の worklog 同期 commit がこれから乗る予定、main 直 push は手動 or PR 化）
+- worktree: なし
+- 開いている PR: なし（PR #24, #25 ともマージ済）
+- ローカルに残る古いブランチ: `feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`（次回掃除候補のまま）
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+
+### 次回 (carryover 持ち越し)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- 🟠 PDF base64 invalid bug の **再検証** — PR #24 で根本対応したので、ai_failed 29/49 件のうち bytea hex-string 起因がどれだけ救えるか reextract で確認
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 conf による 2 階層 sort UI (P3-A 改善)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (max-tokens / ping-pong / max-rounds どれかが効く PR で)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
