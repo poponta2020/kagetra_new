@@ -62,6 +62,7 @@ argument-hint: [PR番号（任意。省略時は現在のブランチのPRを検
 8. レビュー関連資料を削除する
    - `scripts/review/output/review-prompt-pr{番号}-*.md` を削除する
    - `scripts/review/output/review-result-pr{番号}-*.md` を削除する
+   - `scripts/review/output/codex-result-pr{番号}-r*.json` を削除する（`/auto-review-loop` が生成する構造化結果）
 
 9. Worktreeのクリーンアップ
    - `git worktree list` で一覧を取得する

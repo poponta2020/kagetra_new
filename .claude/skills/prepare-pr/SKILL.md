@@ -1,6 +1,6 @@
 ---
 name: prepare-pr
-description: 実装完了後にpush・PR作成を行い、/reviewスキルによるレビューへつなげるスキル。/implement、/quickfix、/bug-report の後に使用する。
+description: 実装完了後にpush・PR作成を行い、/auto-review-loop による自動レビュー&修正ループへつなげるスキル。/implement、/quickfix、/bug-report の後に使用する。
 user-invocable: true
 disable-model-invocation: true
 allowed-tools:
@@ -14,7 +14,7 @@ allowed-tools:
 # /prepare-pr - 実装完了後のPR作成
 
 `/implement`、`/quickfix`、`/bug-report` で実装・コミット済みの変更をpushし、PRを作成する。
-完了後は `/review` でクロスレビューに進む。
+完了後は `/auto-review-loop` で Codex 自動レビュー&修正ループへ進む（手動レビューに切り替えたい場合は `/review` を直接呼ぶ）。
 
 **前提**: 各スキルがworktree内でfeatureブランチ作成・コミット・push済みであること。
 各スキル（`/implement`, `/quickfix`, `/bug-report`）は実装完了時にpushまで行うため、このスキルは主に**PRがまだ作成されていない場合**に使用する。
@@ -68,9 +68,14 @@ EOF
 )"
 ```
 
-## Step 4: 完了報告とレビュー自動開始
+## Step 4: 完了報告と自動レビューループ開始
 
 以下を表示する:
-- 作成されたPRのURL
+- 作成された PR の URL
 
-表示後、**自動で `/review <PR番号>` スキルを呼び出し、クロスレビュープロンプトを生成する。**
+表示後、**自動で `/auto-review-loop <PR番号>` スキルを呼び出し、Codex によるレビュー→`/fix` 修正→再レビューのループに入る。**
+
+- 既定のラウンド上限・トークン上限を使用する（最大 3 ラウンド、トークン上限 500,000、`--auto-ship` なし）
+- ループ内でラウンド毎に進捗が表示される。最終的に pass で停止したら、ユーザーが `/ship <PR番号>` を手動実行
+- 別の挙動（`--auto-ship` を付ける、`--max-rounds` や `--max-tokens` を変える 等）が必要なら、ユーザーがこのスキル完了後に `/auto-review-loop` を直接呼び直す
+- 手動の Codex VS Code レビューを使いたい場合は、ユーザーが代わりに `/review <PR番号>` を実行する
