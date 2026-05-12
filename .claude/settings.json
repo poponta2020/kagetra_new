@@ -21,7 +21,9 @@
       "Edit(/.claude/skills/dod/**)",
       "Edit(/.claude/skills/auto-review-loop/**)",
       "Bash(codex exec:*)",
-      "Bash(codex --version)"
+      "Bash(codex --version)",
+      "Bash(git push origin main)",
+      "Bash(git push origin main:main)"
     ],
     "additionalDirectories": [
       ".claude",
