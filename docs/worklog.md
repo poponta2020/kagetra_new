@@ -1056,3 +1056,51 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-12 セッション（PR #25 ship: /auto-review-loop スキル追加、Codex CLI 自動レビュー運用化）
+
+### 完了
+- **PR #25** (`chore/auto-review-loop-skill` → main, merge `6ee3749`) ship — Codex CLI の `codex exec --output-schema` を使って PR 差分レビュー→修正→再レビューを自動ループする `/auto-review-loop` スキルを追加
+  - `scripts/review/codex-review.schema.json` 新規: OpenAI Structured Output 準拠 (verdict / blockers / should_fix / nits / good_points、各 issue に file/line/title/rationale/suggestion)。**全 property を required に列挙**、optional は `["integer", "null"]` の union で表現する必要があった (`invalid_json_schema` 400 で気づいた)
+  - `scripts/review/codex-review-prompt.md` 新規: Codex に渡す観点 + プロジェクト固有前提 + 出力契約 (JSON のみ返せ、装飾禁止)
+  - `.claude/skills/auto-review-loop/SKILL.md` 新規: PR 検出 → worktree (流用 or 新規) → diff を pipe で `codex exec` → JSON 判定 → ping-pong 検出 → `/fix` 呼び出し → claude-mem 記録 → サマリー の orchestration
+  - `.claude/skills/fix/SKILL.md`: 入力源優先順位を会話 > codex JSON > 旧形式 .md に整理、`--no-followup-review` で `/review` 自動呼び出しを抑制
+  - `.claude/skills/ship/SKILL.md`: `codex-result-pr{N}-r*.json` を掃除対象に追加
+  - `.claude/skills/prepare-pr/SKILL.md`: Step 4 の自動呼び出し先を `/review` → `/auto-review-loop` (default: 3 R / 500k tokens / auto-ship なし)。`/implement → /prepare-pr → /auto-review-loop` が一気通貫
+  - `.claude/skills/auto-review-loop/SKILL.md` 改修: `--max-tokens N` (default 500000) コストガード追加、stderr の `tokens used\n{N}` パースで累計加算、上限到達時は次ラウンド開始前に中断 (理由 `token-budget`)。パース失敗時は 0 で続行 (MAX_ROUNDS で必ず止まる)
+  - `.claude/settings.json`: `Bash(codex exec:*)` 等を allow に追加 (の後でユーザーが ship/SKILL.md の codex-result 削除行と一緒に revert → main 上で 6055fcc の改修と整合する形で再追加された)
+- **検証**: codex 0.130.0、`~/.codex/auth.json` 認証済み。スモークテスト (`git diff --cached` 123 行) → exit=0 / schema 通り JSON / verdict=pass / 25,725 tokens
+- **Codex レビュー r1 (PR #25 自身でドッグフード)**: blockers 0 / should_fix 0 / nits 1 (FOLLOWUP_REVIEW 変数名が逆に読める旨)、good_points 1。verdict=pass で 1 ラウンド break、31,918 tokens。**nit は informational なので未対応のまま ship**
+- **後始末**: PR #24 (mail-worker bytea hex-decode) は別ブランチで open のまま継続。`fix/pdf-bytea-hex-decode` は引き続き存在 (PR #24 用)。chore/auto-review-loop-skill は `gh pr merge --delete-branch` でリモート/ローカルとも削除済
+
+### 学び
+- **OpenAI Structured Output は全 property を required にする必要がある** — optional フィールドは `"type": ["string", "null"]` のように null 許容 union で表現し、`required` には依然として列挙する。最初 `line` を required から外して `invalid_json_schema` 400 で気づいた。schema 設計時の標準
+- **`codex exec review` サブコマンドは `--output-schema` 非対応** — 専用 review サブコマンドは便利だが構造化出力が使えない。素の `codex exec` に `git diff` を pipe (`<stdin>` block として appendされる) して `--output-schema --output-last-message` で受け取るのが結局シンプル
+- **`codex exec` stderr に `tokens used\n{N,N}` (カンマ区切り) が末尾に出る** — `grep -A1 "^tokens used" | tail -1 | tr -d ','` でパース。CLI バージョンで壊れる可能性あり、壊れたら 0 で続行 → MAX_ROUNDS で安全停止
+- **Windows Git Bash には `jq` がない** — JSON パースは Claude の Read tool で直接読む設計に切替 (この方が依存も減って結果オーライ)
+- **main 直 push が deny ガードで完全ブロック** — `cat ~/.claude/settings.json` で deny ルールを覗くだけでも同じ理由で denied される厳格仕様。回避は (a) 手動 push (b) PR 化 (c) ガード一時解除 の 3 択しかない。今回は (b) でドッグフードも兼ねた → 結果オーライ
+- **`gh pr merge --delete-branch` は親 worktree を fast-forward まで自動で進める** — 残った後始末は (i) ローカルでまだ残ってる場合のブランチ削除 (今回は不要) (ii) 親 issue クローズ (今回なし) (iii) worklog / memory 同期 + commit + push のみ
+- **ドッグフードで /auto-review-loop の全ステップが動いた** — 1 ラウンド pass で `--max-tokens` コストガードはまだ実発火していない (累計 31,918 → 500,000 上限到達せず終了)。多ラウンドかかる PR で実発火を観測するのは別機会
+
+### 残存している git 状態
+- main: `6ee3749`（このセッションの worklog/memory 同期 commit がこれから乗る予定。main 直 push は手動 or PR 化が必要）
+- worktree: なし
+- 開いている PR: **#24** (`fix/pdf-bytea-hex-decode`, mail-worker bytea hex-decode 修正、未レビュー)
+- ローカルに残る古いブランチ: `feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login` / `fix/pdf-bytea-hex-decode` (PR #24 用、ship 後に削除)
+- `scripts/review/output/codex-result-pr25-r1.json` は untracked で残置 (ship スキル現状の cleanup 範囲外)
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+
+### 次回 (carryover 持ち越し)
+- 🔴 PR #24 (mail-worker bytea hex-decode) のレビュー & ship — **`/auto-review-loop 24` でドッグフードできる**
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- 🟠 PDF base64 invalid bug 調査 (ai_failed 29/49 件) — PR #24 で部分的に解消する可能性
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 conf による 2 階層 sort UI (P3-A 改善)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (max-tokens / ping-pong / max-rounds どれかが効く PR で)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
