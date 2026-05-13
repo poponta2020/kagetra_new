@@ -1194,3 +1194,50 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+### /auto-review-loop ログ
+- 2026-05-12 /auto-review-loop PR #26: 1R, verdict=pass, tokens=27,221/500,000, result=pass
+
+## 2026-05-13 セッション（PR #26 ship: mail-inbox 3 階層 grouping、`/auto-review-loop` ドッグフード 3 回目）
+
+### 完了
+- **PR #26** (`feat/mail-inbox-priority-grouping` → main, merge `5eac3d3`) ship — `/admin/mail-inbox` 一覧を `pending_review × conf 0.9 threshold` で 3 階層 section に bucket 分けする UI 改善。PR #24 効果計測で pending_review 17→35 に倍増した直後の作業流れ
+  - 主変更: `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` で取得済 rows を JS-side で `要対応` (pending_review + conf ≥ 0.9、`border-l-4 border-l-brand` 強調) / `要確認` (pending_review + conf < 0.9 or null、default Card) / `その他` (everything else、default Card) に振り分け、section 見出し付きで描画。空 section は collapse (件数 0 のヘッダが残ると admin が誤読する)
+  - tier 0/1 内は conf DESC re-sort、tier 2 は受信時刻 DESC を維持。0.9 閾値は `ConfidenceBadge` の "高" 帯と一致させ視覚整合
+  - `DraftCard.tsx` は **touch せず** — 視覚強調は parent Card 側に置き、detail page (`/admin/mail-inbox/[id]`) の DraftCard 再利用に影響を出さない
+  - tests: `page.test.tsx` に 3 ケース追加 (3-tier grouping 順、空 section が描画されない、要対応 Card に accent class が乗る)、既存 1 ケース合わせて 4 ケース全 pass、171 tests / 21 files green
+- **`/auto-review-loop 26` を実行** — R1 で verdict=pass、blockers/should_fix/nits 全部 0、good_points 2、tokens 27,221 / 500,000 で 1 ラウンド break。**ドッグフード 3 連続成功** (PR #24 / #25 / #26、全て R1 pass)
+- **CI**: `Lint / Typecheck / Test` 6m13s pass、mergeStateStatus=CLEAN
+- **後始末**: `gh pr merge --merge --delete-branch` でリモートマージ + remote branch 削除 → worktree (`C:/tmp/feat-mail-inbox-priority`) を `git worktree remove --force` (Windows pnpm node_modules でメタのみ削除されるパターン) → 物理 dir を `rm -rf` で消去 → ローカルブランチ削除 → main を `5eac3d3` まで fast-forward。レビュー artifact `codex-result-pr26-r1.json` 削除
+- **memory 追加**: `feedback_autonomous_loop_scope.md` 新規 — autonomous-loop sentinel を「実装 GO」と誤解釈して `gh pr create` を試した結果 system deny で止まった事案を Why/How で記録。autonomous-loop 中も CLAUDE.md ルール 1 は有効、visible action は明示承認待ち、というガイダンスを固定
+
+### 学び
+- **PR #24 → #26 の連鎖が綺麗に回った** — bytea hex-decode 修正 → ai_failed 29 件救済 → pending_review 17→35 倍増 → 一覧 sort が課題化 → 3 階層 grouping。worklog の carryover 注記「pending_review 35 件に増えた今こそ価値が高い」(5/12 session 3) が次セッションの優先度判定に直接効いた
+- **autonomous-loop の暴走を system deny で初体験** — `<<autonomous-loop-dynamic>>` のみで `gh pr create` を試した時、system が rule 1 (実装は /claude-mem:do 経由) 違反として拒否し、理由を明文化してくれた。autonomous-loop は continuation の意味であって新規 visible action の GO ではない、と確認。memory 化済 (`feedback_autonomous_loop_scope.md`)
+- **worktree 流用が `/auto-review-loop` でも機能** — 直前に作っていた `C:/tmp/feat-mail-inbox-priority` を再利用、Step 2 の「既存検出→再利用」分岐が想定通り動いた。最後の `/ship` Step 9 で同じ worktree を物理削除して回収。skill 間で worktree state が引き継がれる導線が成立
+- **section 件数表示 `(N)` は admin の精神的負荷を下げる** — 「要対応 (5)」と書かれていれば「5 件 review すれば今日のキューはゼロ」と分かる。空 section を hide することで「あと N 件未確認?」の誤読も防げる。UI 改善の効果は数字を信用してくれる admin にとってのみ意味があり、これは「数字を 1 行で示すヘッダ」だけで達成できる
+- **`/auto-review-loop` の max-tokens / ping-pong / max-rounds はまだ実発火せず** — 3 連続 R1 pass で「pass の早期 break」しか観測できていない。multi-round / ping-pong / token-budget の挙動確認は将来の中規模 PR (差分が大きく Codex の指摘が出るやつ) でしか得られない。carryover 継続
+
+### 残存している git 状態
+- main: `5eac3d3`（このセッションの worklog/memory 同期 commit がこれから乗る予定）
+- worktree: なし
+- 開いている PR: なし
+- ローカルに残る古いブランチ: `feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`（次回掃除候補のまま、優先度上がらず）
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB 状態は 5/12 session 3 と同じ (35 pending / 11 superseded / 2 approved / 1 rejected / 94 no-draft) — PR #26 は UI 表示変更のみで data には触らず
+
+### 次回 (carryover 持ち越し)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- 🟡 `mail_messages.status` と `tournament_drafts.status` の sync gap (5/12 セッション 3 新規)
+- 🟡 `reextract.ts` に `--status=...` filter 追加 (5/12 セッション 3 新規)
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- ~~🟡 conf による 2 階層 sort UI (P3-A 改善)~~ → **本セッション PR #26 で完了**
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (#24, #25, #26 全て R1 pass で実発火せず → 中規模差分 PR 待ち)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- 🟢 noise 11 件の UI 露出経路の確認 (5/12 セッション 3 新規、低優先)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
