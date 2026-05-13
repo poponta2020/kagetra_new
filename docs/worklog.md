@@ -1197,6 +1197,7 @@
 
 ### /auto-review-loop ログ
 - 2026-05-12 /auto-review-loop PR #26: 1R, verdict=pass, tokens=27,221/500,000, result=pass
+- 2026-05-13 /auto-review-loop PR #27: 1R, verdict=pass, tokens=66,963/500,000, result=pass
 
 ## 2026-05-13 セッション（PR #26 ship: mail-inbox 3 階層 grouping、`/auto-review-loop` ドッグフード 3 回目）
 
@@ -1236,6 +1237,51 @@
 - 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
 - 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
 - 🟢 `/auto-review-loop` の multi-round 実発火観測 (#24, #25, #26 全て R1 pass で実発火せず → 中規模差分 PR 待ち)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- 🟢 noise 11 件の UI 露出経路の確認 (5/12 セッション 3 新規、低優先)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
+
+## 2026-05-13 セッション 2（PR #27 ship: mail_messages × tournament_drafts sync gap fix、`/auto-review-loop` ドッグフード 4 回目）
+
+### 完了
+- **PR #27** (`fix/archive-mail-on-draft-finalize` → main, merge `e0b11c8`) ship — `/admin/mail-inbox` の admin action (approveDraft / rejectDraft / linkDraftToEvent) で `tournament_drafts.status` だけ更新して `mail_messages.status` を放置していた sync gap を修正。worklog 5/12 session 3 で発見した carryover「mail_id=12 が orphan で残る」事案の対応
+  - 主変更: `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の 3 関数に `mail_messages.status='archived'` 更新をトランザクション内に追加
+    - approveDraft: 既存 transaction にもう 1 行 UPDATE を追加 (+15 行)
+    - rejectDraft / linkDraftToEvent: 単一 UPDATE をトランザクション化、`mailMessages.UPDATE` も同 tx で実行 (各 +9 行)
+  - `tournament_drafts.UPDATE().returning(...)` に `messageId` を 1 列追加して取得 — 余分な SELECT 不要、status-guard セマンティクス (guard 落ちれば returning が空 → throw → tx rollback) を維持
+  - 既存 orphan (mail_id=12 等) の backfill は本 PR の scope 外 — PR 本文に「別 PR で扱う方が安全」と注記
+  - tests: `actions.test.ts` に 3 ケース追加 (approve / reject / link それぞれで mail.status='archived' へ遷移を確認)、計 47 actions tests、合計 174 tests pass
+- **`/auto-review-loop 27` を実行** — R1 で verdict=pass、blockers/should_fix/nits 全部 0、good_points 2、tokens 66,963 / 500,000 で 1 ラウンド break。**ドッグフード 4 連続成功** (#24 / #25 / #26 / #27、全て R1 pass)
+- **CI**: `Lint / Typecheck / Test` 2m19s pass、mergeStateStatus=CLEAN
+- **後始末**: `gh pr merge --merge --delete-branch` でリモート削除 → worktree `C:/tmp/fix-archive-mail-on-draft-finalize` を `git worktree remove --force` + 物理 `rm -rf` (Windows pnpm node_modules パターン) → ローカルブランチ削除 → main を `e0b11c8` まで fast-forward → レビュー artifact `codex-result-pr27-r1.json` 削除
+- **Orchestration**: `/claude-mem:do` で general-purpose subagent に実装委任 → 構造化レポート取得 → orchestrator (main) が remote branch state を verify → PR 作成 → ユーザーが `/auto-review-loop` + `/ship`。subagent の duration 5 分、tool_uses 32
+
+### 学び
+- **`returning` 拡張で余分な SELECT を回避するパターンが綺麗** — 既存 `tournament_drafts.UPDATE().returning({ id })` を `.returning({ id, messageId })` に広げるだけで、追加 SELECT なし・追加 transaction round-trip なしで親 mail_messages の UPDATE が打てた。drizzle で「FK 親を子の UPDATE と同 tx で更新したい」ケースの定石として再利用可能
+- **`/auto-review-loop` の cost guard 系はまだ実発火しない** — 4 連続 R1 pass で max-rounds / ping-pong / max-tokens どれもトリガーしていない。Codex の review が「小規模で意図が明確な PR には short-circuit pass」する傾向で、cost guard は中規模 (差分 1000+ 行、設計判断が複数ある) PR でしか効かない見込み
+- **token 使用量は差分の文脈量に強く比例** — PR #26 (212 行差分、UI 改善) で 27k → PR #27 (138 行差分、bug fix) で 67k。行数だけ見ると後者は半分以下だが、PR description + コメント + テスト context の濃さで token はむしろ増えた。差分行数で予測すると外す
+- **gh pr merge の local branch 削除失敗は merge 自体には影響しない** — `gh pr merge` のローカル branch 削除が worktree に阻まれて exit 1 になるが、merge 自体は remote で成功している。エラーを見て「失敗した」と早合点せず、後続の `git worktree remove --force` + `rm -rf` + `git branch -d` + `git fetch + merge --ff-only` で finish させる運用が PR #26 / #27 で同一パターンとして確立
+
+### 残存している git 状態
+- main: `e0b11c8`（このセッションの worklog 同期 commit がこれから乗る）
+- worktree: なし
+- 開いている PR: なし
+- ローカルに残る古いブランチ: `feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`（次回掃除候補のまま）
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: orphan `mail_id=12` (tournament_drafts approved + mail_messages ai_failed) はまだ残置 (本 PR は新規 orphan を作らない側の対応のみ、既存 orphan は backfill 持ち越し)
+
+### 次回 (carryover 持ち越し)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- ~~🟡 `mail_messages.status` と `tournament_drafts.status` の sync gap~~ → **本セッション PR #27 で完了 (新規 orphan は出なくなる側)**
+- 🟡 既存 orphan の backfill (新規) — dev `mail_id=12` 1 件、prod は fresh で 0 件。`UPDATE mail_messages SET status='archived' WHERE id IN (SELECT message_id FROM tournament_drafts WHERE status IN ('approved','rejected'))` 相当の 1-shot SQL or migration script
+- 🟡 `reextract.ts` に `--status=...` filter 追加 (5/12 セッション 3 新規)
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟡 stale local branch (`feat/local-dev-handover` / `feat/phase-1-5-auth-pivot-line-login`) の掃除
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (4 連 R1 pass で未観測のまま → 中規模差分 PR 待ち)
 - 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
 - 🟢 noise 11 件の UI 露出経路の確認 (5/12 セッション 3 新規、低優先)
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
