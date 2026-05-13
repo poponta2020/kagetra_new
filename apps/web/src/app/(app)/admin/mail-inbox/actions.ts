@@ -8,6 +8,7 @@ import { db } from '@/lib/db'
 import {
   eventGroups,
   events,
+  mailMessages,
   mailWorkerJobs,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
@@ -92,11 +93,25 @@ export async function approveDraft(draftId: number, formData: FormData) {
           inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
         ),
       )
-      .returning({ id: tournamentDrafts.id })
+      .returning({
+        id: tournamentDrafts.id,
+        messageId: tournamentDrafts.messageId,
+      })
 
     if (updated.length === 0) {
       throw new Error('draft is not approvable')
     }
+
+    // Sync mail_messages.status when the draft is finalized so the inbox
+    // list filter and the mail-worker re-extract path can rely on a single
+    // source of truth for "operator-closed". Without this, drafts approved
+    // from an `ai_failed` mail leave the mail row stuck in `ai_failed` and
+    // the reextract CLI would (incorrectly) retarget it — see worklog
+    // 2026-05-12 session 3 (mail_id=12 orphan).
+    await tx
+      .update(mailMessages)
+      .set({ status: 'archived', updatedAt: sql`now()` })
+      .where(eq(mailMessages.id, updated[0]!.messageId))
   })
 
   revalidatePath('/admin/mail-inbox')
@@ -115,26 +130,37 @@ export async function rejectDraft(draftId: number, formData: FormData) {
   // event, and a previously linked draft being re-rejected keeps its history.
   // Status guard prevents flipping an already-finalized draft (approved /
   // rejected / superseded) via direct call.
-  const updated = await db
-    .update(tournamentDrafts)
-    .set({
-      status: 'rejected',
-      rejectedByUserId: session.user.id,
-      rejectedAt: sql`now()`,
-      rejectionReason: reason,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(tournamentDrafts.id, draftId),
-        inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-      ),
-    )
-    .returning({ id: tournamentDrafts.id })
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(tournamentDrafts)
+      .set({
+        status: 'rejected',
+        rejectedByUserId: session.user.id,
+        rejectedAt: sql`now()`,
+        rejectionReason: reason,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(tournamentDrafts.id, draftId),
+          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
+        ),
+      )
+      .returning({
+        id: tournamentDrafts.id,
+        messageId: tournamentDrafts.messageId,
+      })
 
-  if (updated.length === 0) {
-    throw new Error('draft is not rejectable')
-  }
+    if (updated.length === 0) {
+      throw new Error('draft is not rejectable')
+    }
+
+    // Sync mail_messages.status — see approveDraft for rationale.
+    await tx
+      .update(mailMessages)
+      .set({ status: 'archived', updatedAt: sql`now()` })
+      .where(eq(mailMessages.id, updated[0]!.messageId))
+  })
 
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
@@ -177,26 +203,37 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   })
   if (!target) throw new Error('Event not found')
 
-  const updated = await db
-    .update(tournamentDrafts)
-    .set({
-      status: 'approved',
-      eventId,
-      approvedByUserId: session.user.id,
-      approvedAt: sql`now()`,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(tournamentDrafts.id, draftId),
-        inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-      ),
-    )
-    .returning({ id: tournamentDrafts.id })
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(tournamentDrafts)
+      .set({
+        status: 'approved',
+        eventId,
+        approvedByUserId: session.user.id,
+        approvedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(tournamentDrafts.id, draftId),
+          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
+        ),
+      )
+      .returning({
+        id: tournamentDrafts.id,
+        messageId: tournamentDrafts.messageId,
+      })
 
-  if (updated.length === 0) {
-    throw new Error('draft is not linkable')
-  }
+    if (updated.length === 0) {
+      throw new Error('draft is not linkable')
+    }
+
+    // Sync mail_messages.status — see approveDraft for rationale.
+    await tx
+      .update(mailMessages)
+      .set({ status: 'archived', updatedAt: sql`now()` })
+      .where(eq(mailMessages.id, updated[0]!.messageId))
+  })
 
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)

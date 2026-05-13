@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import {
   eventGroups,
   events,
+  mailMessages,
   mailWorkerJobs,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
@@ -92,6 +93,12 @@ function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
 async function getDraft(id: number) {
   return testDb.query.tournamentDrafts.findFirst({
     where: eq(tournamentDrafts.id, id),
+  })
+}
+
+async function getMail(id: number) {
+  return testDb.query.mailMessages.findFirst({
+    where: eq(mailMessages.id, id),
   })
 }
 
@@ -322,6 +329,28 @@ describe('admin/mail-inbox actions', () => {
       })
       expect(inserted?.eventGroupId).toBe(group.id)
     })
+
+    it('承認後、対応する mail_messages.status が archived になる', async () => {
+      // Regression for worklog 2026-05-12 session 3: approveDraft only
+      // updated tournament_drafts.status, so an `ai_failed` mail rescued
+      // through manual approval stayed at status='ai_failed' on the mail
+      // row, fooling the reextract CLI's filter into retargeting it.
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ status: 'ai_failed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'ai_failed',
+      })
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({ title: '救済承認 + アーカイブ' }),
+      )
+
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+    })
   })
 
   describe('rejectDraft', () => {
@@ -399,6 +428,22 @@ describe('admin/mail-inbox actions', () => {
         expect(after?.status).toBe(status)
       },
     )
+
+    it('却下後、対応する mail_messages.status が archived になる', async () => {
+      // Companion to approveDraft's archive test — rejection is also an
+      // operator-closed terminal state and must sync the mail row.
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ status: 'ai_done' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      const fd = new FormData()
+      fd.set('rejection_reason', '対象外の通知')
+      await rejectDraft(draft.id, fd)
+
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+    })
   })
 
   describe('linkDraftToEvent', () => {
@@ -467,6 +512,21 @@ describe('admin/mail-inbox actions', () => {
         expect(after?.status).toBe(status)
       },
     )
+
+    it('既存 events 紐付け後、対応する mail_messages.status が archived になる', async () => {
+      // Companion to approveDraft's archive test — linking is also an
+      // operator-closed terminal state and must sync the mail row.
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ status: 'ai_done' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const target = await createEvent({ title: 'Link target' })
+
+      await linkDraftToEvent(draft.id, target.id)
+
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+    })
   })
 
   describe('reextractDraft', () => {
