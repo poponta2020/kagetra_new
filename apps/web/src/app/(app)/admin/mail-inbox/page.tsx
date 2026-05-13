@@ -137,6 +137,49 @@ export default async function MailInboxPage() {
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: 100,
   })
+  type Row = (typeof rows)[number]
+
+  // Priority grouping for the inbox queue. A single mail-worker run can push
+  // tens of pending_review drafts in (PR #24 verification on 2026-05-12 took
+  // pending from 17 → 35 at once, with confidence clustering at 0.97 / 0.82 /
+  // 0.72). With a flat received_at sort the high-confidence tournaments were
+  // hidden among reference rows. Bucketing by (status + confidence band) lets
+  // the operator triage from the top.
+  //
+  //   tier 0 ("要対応") — pending_review with confidence >= 0.9. Brand accent.
+  //   tier 1 ("要確認") — pending_review with confidence < 0.9 or null.
+  //   tier 2 ("その他") — everything else (approved / rejected / superseded /
+  //                       ai_failed / no draft). Kept visible for back-ref.
+  //
+  // Tier 0 and 1 are re-sorted by confidence DESC so the most confident draft
+  // floats to the top within each group; tier 2 keeps the received_at DESC
+  // order from the fetch, which is what admins expect for the reference
+  // bucket. The 0.9 threshold matches `ConfidenceBadge`'s "高" band so the
+  // visual emphasis is consistent with the per-row confidence pill.
+  const buckets: Record<0 | 1 | 2, Row[]> = { 0: [], 1: [], 2: [] }
+  for (const row of rows) {
+    let tier: 0 | 1 | 2 = 2
+    if (row.draft?.status === 'pending_review') {
+      const c = row.draft.confidence
+      const n = c == null || c === '' ? null : Number(c)
+      tier = n !== null && n >= 0.9 ? 0 : 1
+    }
+    buckets[tier].push(row)
+  }
+  const confNum = (row: Row): number => {
+    // -1 sorts null / missing conf to the bottom of tier 1 (tier 0 never
+    // sees these because the tier check already required >= 0.9).
+    const c = row.draft?.confidence
+    return c == null || c === '' ? -1 : Number(c)
+  }
+  buckets[0].sort((a, b) => confNum(b) - confNum(a))
+  buckets[1].sort((a, b) => confNum(b) - confNum(a))
+
+  const TIER_META: Record<0 | 1 | 2, { label: string; cardClassName: string }> = {
+    0: { label: '要対応', cardClassName: 'border-l-4 border-l-brand' },
+    1: { label: '要確認', cardClassName: '' },
+    2: { label: 'その他', cardClassName: '' },
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -219,50 +262,68 @@ export default async function MailInboxPage() {
           </div>
         </Card>
       ) : (
-        <div className="flex flex-col gap-2">
-          {rows.map((row) => {
-            const status = STATUS_LABEL[row.status] ?? {
-              label: row.status,
-              tone: 'neutral' as const,
-            }
-            const classification = row.classification
-              ? CLASSIFICATION_LABEL[row.classification]
-              : null
+        <div className="flex flex-col gap-4">
+          {([0, 1, 2] as const).map((tier) => {
+            const items = buckets[tier]
+            if (items.length === 0) return null
             return (
-              <Card key={row.id}>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-ink-meta">
-                      {formatJst(row.receivedAt)}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {classification && (
-                        <Pill tone={classification.tone} size="sm">
-                          {classification.label}
-                        </Pill>
-                      )}
-                      <Pill tone={status.tone} size="sm">
-                        {status.label}
-                      </Pill>
-                    </div>
-                  </div>
-                  <div className="font-medium text-ink truncate">
-                    {row.subject || '(件名なし)'}
-                  </div>
-                  <div className="text-xs text-ink-meta truncate">
-                    {row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress}
-                  </div>
-                  <AttachmentList items={row.attachments} />
-                  {row.draft && (
-                    <Link
-                      href={`/admin/mail-inbox/${row.draft.id}`}
-                      className="block"
-                    >
-                      <DraftCard draft={row.draft} />
-                    </Link>
-                  )}
+              <section key={tier} className="flex flex-col gap-2">
+                <h2 className="font-display text-sm font-semibold text-ink-2">
+                  {TIER_META[tier].label} ({items.length})
+                </h2>
+                <div className="flex flex-col gap-2">
+                  {items.map((row) => {
+                    const status = STATUS_LABEL[row.status] ?? {
+                      label: row.status,
+                      tone: 'neutral' as const,
+                    }
+                    const classification = row.classification
+                      ? CLASSIFICATION_LABEL[row.classification]
+                      : null
+                    return (
+                      <Card
+                        key={row.id}
+                        className={TIER_META[tier].cardClassName}
+                      >
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-ink-meta">
+                              {formatJst(row.receivedAt)}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {classification && (
+                                <Pill tone={classification.tone} size="sm">
+                                  {classification.label}
+                                </Pill>
+                              )}
+                              <Pill tone={status.tone} size="sm">
+                                {status.label}
+                              </Pill>
+                            </div>
+                          </div>
+                          <div className="font-medium text-ink truncate">
+                            {row.subject || '(件名なし)'}
+                          </div>
+                          <div className="text-xs text-ink-meta truncate">
+                            {row.fromName
+                              ? `${row.fromName} <${row.fromAddress}>`
+                              : row.fromAddress}
+                          </div>
+                          <AttachmentList items={row.attachments} />
+                          {row.draft && (
+                            <Link
+                              href={`/admin/mail-inbox/${row.draft.id}`}
+                              className="block"
+                            >
+                              <DraftCard draft={row.draft} />
+                            </Link>
+                          )}
+                        </div>
+                      </Card>
+                    )
+                  })}
                 </div>
-              </Card>
+              </section>
             )
           })}
         </div>
