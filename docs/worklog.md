@@ -1362,3 +1362,41 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-17 セッション 3 (🔴 mail-worker id=125 Windows native crash 調査 — PR #24 fix で解消確認)
+
+### 完了
+- 🔴 mail-worker Windows native crash 調査を完了 — `pnpm --filter @kagetra/mail-worker exec tsx scripts/debug-pdf.ts --mail 125` を 1 発打って **`classifyMail` が `kind=tournament`, `confidence=0.82` で完走**、Windows STATUS_ACCESS_VIOLATION (0xC0000005) は発生せず。worklog 5/9 で観測した crash は **PR #24 (`bytesFromBytea` helper, commit `f7ae5eb`) で根本解消** していたと確認
+- 投入詳細: tokens in=23,059 / out=764、cost **$0.118587** (大きめ PDF 919KB の cache miss)、exit 0。`is_tournament_announcement: true`、reason に「第1回Friendshipジュニア杯交流大会」「公式戦ではなく親睦的な位置づけ」等の妥当な抽出 (debug-pdf.ts は persistOutcome を呼ばないので DB write は発生せず)
+- **doc 追記**: `docs/dev/local-dev-setup.md` トラブルシュート section の Windows EPERM 項目 (L239) 直下に **新 sub-section「Windows で `mail-worker` が `STATUS_ACCESS_VIOLATION (0xC0000005)` で native crash」** を追加 (8 行、PR #24 fix の根拠 + debug-pdf.ts --mail での再現テスト手順 + cost ガイド)
+- `docs/deploy/mail-worker.md` には追記せず — 本番 (Linux) 運用 doc であり Windows ローカル開発トラブルは関心外と判断 (plan では 2 file 追記予定だったが doc 整合性優先で 1 file に集約)
+- 状態保留: id=125 は `ai_processing` のまま (debug-pdf.ts は read-only)、次回正規 pipeline で自然に `ai_done` に進む見込み。ただちに手動 UPDATE せず
+
+### 学び
+- **PR #24 の `debug-pdf.ts` 6 probe mode は調査資産として極めて有用** — 1 command (`--mail <id>`) で「`classifyMail` 完走 / 中断 / native crash」の三択即判定。`force: true` で persistOutcome 呼ばないので調査中 state pollute なし。今後 Anthropic 投入経路で類似事象が出たら最速で再現テスト可能
+- **`pnpm --filter @kagetra/mail-worker exec` の filter cwd 警告** — Windows path の case 違い (`c:` vs `C:`) で `No projects matched the filters` 警告が出るが、`exec` 自体は親 pnpm が `tsx` を実行して完走する。filter 警告は無視可能 (将来 lockfile / package.json 配置が正規化されると消える、今は実害なし)
+- **PDF cost 認識アップデート** — 919KB PDF 2 件で input tokens 23k / cost $0.12 は予想 ($0.02) の **6 倍**。worklog 5/12 の 50 通 $0.78 平均と比べて、**大きい PDF 1 通だけで $0.12** になる場合がある。将来 cost guard 入れるなら attachment size base が妥当 (1KB PDF ≈ 25 input tokens 相当の目安)
+- **本番 (Linux) で当該 crash 観測なしの理由** — drizzle nested `with` の bytea hex string 返却は driver / Node native binding 違いで起きていた可能性、本番 Linux ではそもそも Buffer で返ってきて crash しなかった。`bytesFromBytea` は両 path を等価にする defensive helper として正しい設計
+- **plan vs 実行の乖離は orchestrator 判断で吸収** — plan で「2 file 追記」と書いたが、deploy/mail-worker.md は本番運用 doc で Windows ローカルの話を入れるのは場違い → 1 file 集約に変更。doc 構造の整合性は subagent ではなく orchestrator (= 自分) が judge する境界線
+
+### 残存している git 状態
+- main: `42b6a6f`（本セッションの worklog + doc 同期 commit がこれから乗る）
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- dev DB: id=125 = `ai_processing` のまま保留 (`tournament_drafts` 0 行、次回正規 pipeline で ai_done になる想定)
+- 一時 file: `/tmp/crash-investigation-id125-stage1.log` 残置 (cleanup 対象)
+
+### 次回 (carryover)
+- ~~🔴 mail-worker Windows native crash 調査 (id=125 周辺の再現テスト)~~ → **本セッションで完了 (PR #24 fix で解消確認 + doc 追記)**
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟢 `/auto-review-loop` の multi-round 実発火観測
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理
+- 🟢 noise 11 件の UI 露出経路の確認
+- 🟢 `apps/mail-worker` 実 lint 配線
+- 🟢 大きい PDF mail の AI cost guard 検討 (本セッション学び)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定

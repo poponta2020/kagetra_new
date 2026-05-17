@@ -240,6 +240,10 @@ pnpm --filter @kagetra/mail-worker start --since=2026-04-01
 
 → standalone trace copy が symlink 権限で失敗する Windows 既知問題。CI (Linux) では起きないので動作確認用途では `next dev` で OK。本番 build は CI / docker に任せる。
 
+### Windows で `mail-worker` が `STATUS_ACCESS_VIOLATION (0xC0000005)` で native crash
+
+→ drizzle の nested `with` 経由の bytea 返却型が hex escape string (`"\x..."`) で `Buffer.from()` が UTF-8 として解釈して PDF base64 が壊れ、Anthropic SDK 内部で native crash していた既知問題。**PR #24 (`bytesFromBytea` helper, commit `f7ae5eb`) で根本解消**。2026-05-17 に mail_messages id=125 (PDF 添付 2 件 ~919KB) で再現テストして `classifyMail` 完走確認 (`kind=tournament`, `confidence=0.82`, tokens in=23k / out=764, cost ~$0.12)。再発時は repo root で `pnpm --filter @kagetra/mail-worker exec tsx scripts/debug-pdf.ts --mail <message-id>` を打てば実 `classifyMail` を `force=true` で直接呼べる (persistOutcome を skip するので DB state 不変、ANTHROPIC API call 1 回)。詳細経緯は worklog 2026-05-09 (発見) / 2026-05-17 (解消確認) を参照。
+
 ---
 
 ## 5. 現状 (2026-05-07) と次のアクション
