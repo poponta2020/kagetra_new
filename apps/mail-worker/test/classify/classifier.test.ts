@@ -32,7 +32,6 @@ const FIXTURES_DIR = fileURLToPath(new URL('../fixtures/llm/', import.meta.url))
 // are the convenience handles tests use to insert the right `mail_messages`
 // row before invoking the classifier.
 const TOURNAMENT_SUBJECT = '[taikai-ajka:828] 第65回全日本選手権大会/ご案内'
-const ML_TOURNAMENT_SUBJECT = '[taikai-ajka:829] 第66回標榜大会のご案内'
 const NEWSLETTER_SUBJECT = 'Weekly Update: New Features Available'
 const CORRECTION_SUBJECT = 'Re: 【訂正】第65回全日本選手権大会のご案内'
 

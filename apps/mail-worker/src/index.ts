@@ -76,7 +76,7 @@ function parseArgs(argv: readonly string[]): CliFlags {
 }
 
 function printUsage(): void {
-  // eslint-disable-next-line no-console
+   
   console.log(`Usage: mail-worker [flags]
 
   --once                 Run pipeline once and exit (P1 default; --watch is PR5).
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
   // so operators know why a manual `pnpm start` looks at the last 7 days.
   const cronSince = flags.since ?? defaultLiveSince()
   if (!flags.since && !flags.mockImap) {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${cronSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
     )
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
         logger: log,
         llmExtractor,
       })
-      // eslint-disable-next-line no-console
+       
       console.log('pipeline summary:', summary)
       return
     }
@@ -178,7 +178,7 @@ async function main(): Promise<void> {
         logger: log,
         llmExtractor,
       })
-      // eslint-disable-next-line no-console
+       
       console.log('pipeline summary:', summary)
       return
     }
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
           llmExtractor,
         })
         await markJobDone(db, job.id, summary.runId)
-        // eslint-disable-next-line no-console
+         
         console.log('pipeline summary:', summary)
       } catch (err) {
         // runOnce may throw on top-level IMAP failure; the run row is already
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
         logger: log,
         llmExtractor,
       })
-      // eslint-disable-next-line no-console
+       
       console.log('pipeline summary:', summary)
     }
   } finally {
@@ -318,19 +318,19 @@ function consoleLogger() {
   return {
     info: (msg: string, ctx?: Record<string, unknown>) => {
       if (LEVEL_RANK.info < minRank) return
-      // eslint-disable-next-line no-console
+       
       console.log(format(msg, ctx))
     },
     warn: (msg: string, ctx?: Record<string, unknown>) => {
       if (LEVEL_RANK.warn < minRank) return
-      // eslint-disable-next-line no-console
+       
       console.warn(format(msg, ctx))
     },
   }
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
+   
   console.error('[mail-worker] fatal:', err)
   process.exitCode = 1
 })
