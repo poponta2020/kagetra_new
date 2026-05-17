@@ -23,15 +23,17 @@ import { loadLlmConfig } from './config.js'
  *
  * Selection criteria:
  *   - `received_at >= --since` (a YYYY-MM-DD value resolves to JST 00:00)
- *   - `status IN ('ai_done', 'ai_failed', 'archived', 'ai_processing')` —
- *     terminal AI states (done/failed/archived) plus `ai_processing` to
- *     unstick rows whose worker crashed mid-call. The regular pipeline's
- *     duplicate path also retries `ai_processing` next run, so this is a
- *     belt-and-braces escape hatch for mails that won't be re-fetched
- *     (e.g. already deleted from IMAP). `'pending'` and `'fetched'` rows
- *     are owned by the regular pipeline EXCEPT when `--include-prefilter-noise`
- *     is set, which adds `(status='fetched' AND classification='noise')` to
- *     the WHERE clause.
+ *   - `status IN ('ai_done', 'ai_failed', 'archived', 'ai_processing',
+ *     'oversize_skipped')` — terminal AI states (done/failed/archived) plus
+ *     `ai_processing` to unstick rows whose worker crashed mid-call, plus
+ *     `oversize_skipped` so an operator who just raised
+ *     `MAIL_WORKER_PDF_SIZE_LIMIT_KB` can sweep up the previously-skipped
+ *     mails. The regular pipeline's duplicate path also retries
+ *     `ai_processing` next run, so this is a belt-and-braces escape hatch
+ *     for mails that won't be re-fetched (e.g. already deleted from IMAP).
+ *     `'pending'` and `'fetched'` rows are owned by the regular pipeline
+ *     EXCEPT when `--include-prefilter-noise` is set, which adds
+ *     `(status='fetched' AND classification='noise')` to the WHERE clause.
  *
  * Each mail is run through `classifyMail(... { force: true })` so the
  * pre-filter `classification === 'noise'` short-circuit is bypassed. Drafts
@@ -44,7 +46,13 @@ import { loadLlmConfig } from './config.js'
  * mail. The CLI exits with a non-zero code if any mail failed so cron-style
  * invocations can surface the partial failure.
  */
-const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived', 'ai_processing'] as const
+const VALID_STATUSES = [
+  'ai_done',
+  'ai_failed',
+  'archived',
+  'ai_processing',
+  'oversize_skipped',
+] as const
 
 interface ReextractArgs {
   since: Date | null
@@ -161,10 +169,11 @@ function printUsage(): void {
 
   console.log(`Usage: tsx apps/mail-worker/src/reextract.ts --since=YYYY-MM-DD [--include-prefilter-noise] [--status=ai_processing,ai_failed]
 
-Re-classifies all mails in (ai_done, ai_failed, archived, ai_processing) status
-with received_at >= --since. The pre-filter noise check is bypassed
-(force=true). Drafts are upserted (existing drafts get refreshed with the new
-model output); drafts already approved or rejected by an admin are preserved.
+Re-classifies all mails in (ai_done, ai_failed, archived, ai_processing,
+oversize_skipped) status with received_at >= --since. The pre-filter noise
+check is bypassed (force=true). Drafts are upserted (existing drafts get
+refreshed with the new model output); drafts already approved or rejected by
+an admin are preserved.
 
   --include-prefilter-noise
       Also re-classify mails the pre-filter dropped early
@@ -175,9 +184,12 @@ model output); drafts already approved or rejected by an admin are preserved.
 
   --status=STATUS1,STATUS2,...
       Restrict to a subset of mail_messages.status (CSV).
-      Valid values: ai_done, ai_failed, archived, ai_processing.
-      Default: all four. Combine with --since for narrow re-runs
-      (e.g. --status=ai_processing to retry crashed worker rows).
+      Valid values: ai_done, ai_failed, archived, ai_processing,
+      oversize_skipped.
+      Default: all five. Combine with --since for narrow re-runs
+      (e.g. --status=ai_processing to retry crashed worker rows, or
+      --status=oversize_skipped after raising MAIL_WORKER_PDF_SIZE_LIMIT_KB
+      to sweep up previously-skipped large-PDF mails).
       Note: --status only filters the AI-touched leg of the selection;
       --include-prefilter-noise still adds (fetched + noise) rows
       independently.
@@ -190,7 +202,7 @@ Requires ANTHROPIC_API_KEY in env (loaded via dotenv from repo root).
  * Pick the set of `mail_messages` rows the operator wants AI to (re-)evaluate.
  *
  * Default selection covers AI-touched terminal states (`ai_done` / `ai_failed`
- * / `archived` / `ai_processing`). When `includePrefilterNoise` is set we
+ * / `archived` / `ai_processing` / `oversize_skipped`). When `includePrefilterNoise` is set we
  * also fold in rows the PR1 pre-filter dropped — they sit at
  * `status='fetched'`, `classification='noise'` and the regular pipeline
  * intentionally never sends them to the LLM. After a venue allow-list or

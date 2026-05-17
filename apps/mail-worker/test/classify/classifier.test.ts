@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
+import { mailAttachments, mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import {
   classifyMail,
   persistOutcome,
@@ -22,6 +22,7 @@ import {
   type LLMExtractionResult,
   type LLMExtractor,
 } from '../../src/classify/llm/types.js'
+import { resetConfigForTests } from '../../src/config.js'
 import { closeTestDb, testDb, truncateMailTables } from '../test-db.js'
 import { closeDb, getDb } from '../../src/db.js'
 
@@ -70,6 +71,30 @@ async function insertTestMail(opts: InsertMailOpts): Promise<number> {
     })
     .returning({ id: mailMessages.id })
   return inserted[0]!.id
+}
+
+interface InsertPdfOpts {
+  mailMessageId: number
+  filename?: string
+  sizeBytes: number
+}
+
+// Minimal "is this a PDF" prefix so any downstream PDF parser sees something
+// vaguely real. The cost guard never reads the bytes — it short-circuits on
+// `sizeBytes` — so we don't bother filling the buffer with realistic content.
+async function insertTestPdf(opts: InsertPdfOpts): Promise<void> {
+  await testDb.insert(mailAttachments).values({
+    mailMessageId: opts.mailMessageId,
+    filename: opts.filename ?? '案内.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: opts.sizeBytes,
+    // bytea content is irrelevant for the size-guard path; a 1-byte buffer
+    // keeps the row small and the insert fast. The classifier never gets to
+    // base64-encode it because the guard fires first.
+    data: Buffer.from([0x25]),
+    extractedText: null,
+    extractionStatus: 'pending',
+  })
 }
 
 describe('classifier', () => {
@@ -233,6 +258,149 @@ describe('classifier', () => {
       await expect(classifyMail(getDb(), 9_999_999, llm)).rejects.toThrow(
         /not found/,
       )
+    })
+
+    describe('PDF cost guard', () => {
+      // Lives in its own describe so the env stub doesn't bleed into other
+      // tests in this file. Each `it` may set its own threshold; afterEach
+      // restores process.env and clears the cached config so the next test
+      // (here or elsewhere) sees the un-stubbed default.
+      afterEach(() => {
+        vi.unstubAllEnvs()
+        resetConfigForTests()
+      })
+
+      it('returns oversize_skipped when any PDF exceeds MAIL_WORKER_PDF_SIZE_LIMIT_KB and never calls the LLM', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'should-not-be-called',
+          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked under the cost guard')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<oversize-pdf@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 600 KB > 500 KB threshold.
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 600 * 1024 })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.filename).toBe('案内.pdf')
+          expect(outcome.sizeBytes).toBe(600 * 1024)
+          expect(outcome.limitBytes).toBe(500 * 1024)
+        }
+        // The most important assertion: AI was never called.
+        expect(calls).toBe(0)
+      })
+
+      it('classifies normally when all PDFs are within the limit', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+
+        const id = await insertTestMail({
+          messageId: '<under-limit-pdf@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 100 KB < 500 KB threshold.
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 100 * 1024 })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('treats MAIL_WORKER_PDF_SIZE_LIMIT_KB=0 as guard disabled', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '0')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+
+        const id = await insertTestMail({
+          messageId: '<guard-disabled-pdf@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // Even a hugely oversized attachment must flow through to the LLM
+        // when the operator has explicitly disabled the guard via env=0.
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 10 * 1024 * 1024 })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('skips at the FIRST oversized PDF and reports its filename', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        const llm: LLMExtractor = {
+          modelId: 'unused',
+          async extract(): Promise<LLMExtractionResult> {
+            throw new Error('LLM should not be invoked')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<multi-pdf-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // first attachment under the limit, second oversized; the guard
+        // reports the oversized one (not just "any oversized exists").
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: 'small.pdf',
+          sizeBytes: 100 * 1024,
+        })
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: 'large.pdf',
+          sizeBytes: 600 * 1024,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.filename).toBe('large.pdf')
+          expect(outcome.sizeBytes).toBe(600 * 1024)
+        }
+      })
+
+      it('still runs the guard even when force=true (operator must raise the env var, not the force flag)', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'unused',
+          async extract(): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<force-flag-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          classification: 'noise',
+        })
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 600 * 1024 })
+
+        // force=true bypasses the pre-filter noise short-circuit, but cost
+        // guard is a separate, orthogonal concern — the only way to disable
+        // it is via env. Same `oversize_skipped` outcome.
+        const outcome = await classifyMail(getDb(), id, llm, { force: true })
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        expect(calls).toBe(0)
+      })
     })
   })
 
@@ -664,6 +832,41 @@ describe('classifier', () => {
       expect(tally.draftsUpdated).toBe(0)
       expect(tally.aiSucceeded).toBe(0)
       expect(tally.aiFailed).toBe(0)
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts).toHaveLength(0)
+    })
+
+    it('flips mail.status to oversize_skipped and writes no draft on cost-guard outcome', async () => {
+      const id = await insertTestMail({
+        messageId: '<persist-oversize@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+      const outcome: ClassifyOutcome = {
+        kind: 'oversize_skipped',
+        filename: '案内.pdf',
+        sizeBytes: 900 * 1024,
+        limitBytes: 800 * 1024,
+      }
+
+      const tally = await persistOutcome(getDb(), id, outcome)
+
+      // aiSkipped covers both pre-filter noise and cost-guard skip — the
+      // distinction is exposed via mail.status, not the tally.
+      expect(tally.aiSkipped).toBe(1)
+      expect(tally.draftsInserted).toBe(0)
+      expect(tally.draftsUpdated).toBe(0)
+      expect(tally.aiSucceeded).toBe(0)
+      expect(tally.aiFailed).toBe(0)
+
+      const mail = await testDb
+        .select()
+        .from(mailMessages)
+        .where(eq(mailMessages.id, id))
+      expect(mail[0]!.status).toBe('oversize_skipped')
 
       const drafts = await testDb
         .select()

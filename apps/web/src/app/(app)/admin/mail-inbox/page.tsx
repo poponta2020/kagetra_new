@@ -32,6 +32,10 @@ const STATUS_LABEL: Record<string, { label: string; tone: PillTone }> = {
   ai_processing: { label: 'AI 処理中', tone: 'warn' },
   ai_done: { label: 'AI 完了', tone: 'success' },
   ai_failed: { label: 'AI 失敗', tone: 'danger' },
+  // PDF cost guard tripped (mail-worker MAIL_WORKER_PDF_SIZE_LIMIT_KB). The
+  // mail row sits here until an operator raises the limit and reextracts; no
+  // automatic retry, because retrying would defeat the guard.
+  oversize_skipped: { label: 'AI スキップ (PDF サイズ超過)', tone: 'warn' },
   archived: { label: 'アーカイブ', tone: 'neutral' },
 }
 

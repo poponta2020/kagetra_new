@@ -1,0 +1,1 @@
+ALTER TYPE "public"."mail_message_status" ADD VALUE 'oversize_skipped' BEFORE 'archived';

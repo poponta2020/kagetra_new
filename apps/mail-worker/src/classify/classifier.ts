@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
+import { loadCostGuardConfig } from '../config.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
 import {
@@ -58,6 +59,20 @@ export type ClassifyOutcome =
   /** Pre-filter (PR1) already classified the mail as noise; skip the LLM. */
   | { kind: 'skipped_noise' }
   /**
+   * Cost guard tripped: at least one PDF attachment exceeded
+   * `MAIL_WORKER_PDF_SIZE_LIMIT_KB` and the AI call was suppressed before
+   * sending. `filename` / `sizeBytes` describe the first offending attachment
+   * so the pipeline log and admin UI can name it; `limitBytes` echoes the
+   * configured threshold so a stale dev DB row can be audited even after the
+   * env var was raised.
+   */
+  | {
+      kind: 'oversize_skipped'
+      filename: string
+      sizeBytes: number
+      limitBytes: number
+    }
+  /**
    * LLM call or Zod validation failed twice; payload to persist comes from
    * caller. `rawResponse` carries the provider's actual response when the
    * thrown error was an `LLMExtractorError` subclass (e.g. content blocks
@@ -111,6 +126,7 @@ export async function classifyMail(
         columns: {
           filename: true,
           contentType: true,
+          sizeBytes: true,
           data: true,
           extractedText: true,
           extractionStatus: true,
@@ -124,6 +140,31 @@ export async function classifyMail(
 
   if (!opts.force && mail.classification === 'noise') {
     return { kind: 'skipped_noise' }
+  }
+
+  // PDF cost guard. Runs after the pre-filter short-circuit (pre-filter noise
+  // never reaches the AI call regardless of size) but before building the
+  // Anthropic input. We check `sizeBytes` from `mail_attachments` rather than
+  // re-measuring `att.data`, because the bytea round-trip can hand us a
+  // postgres hex-escape string (see `bytesFromBytea` doc) whose `.length`
+  // would over-report by ~2x. `sizeBytes` is populated upstream from the
+  // original parsed buffer length and is the canonical source of truth.
+  //
+  // Limit of 0 disables the guard — used by tests that exercise downstream
+  // behaviour without crafting an oversized attachment.
+  const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
+  if (limitKb > 0) {
+    const limitBytes = limitKb * 1024
+    for (const att of mail.attachments) {
+      if (att.contentType === 'application/pdf' && att.sizeBytes > limitBytes) {
+        return {
+          kind: 'oversize_skipped',
+          filename: att.filename,
+          sizeBytes: att.sizeBytes,
+          limitBytes,
+        }
+      }
+    }
   }
 
   const attachmentsForLlm: LLMExtractionInput['attachments'] = []
@@ -245,6 +286,19 @@ export async function persistOutcome(
   const tally = emptyOutcomeTally()
 
   if (outcome.kind === 'skipped_noise') {
+    tally.aiSkipped += 1
+    return tally
+  }
+
+  if (outcome.kind === 'oversize_skipped') {
+    // No draft is written — the AI never produced an extraction. We only flip
+    // the mail status so the inbox UI can surface "AI スキップ (PDF サイズ超過)"
+    // and the operator can decide whether to raise the limit and reextract.
+    // The classifier-level outcome.filename / sizeBytes are NOT persisted on
+    // the row today; the pipeline log line (pipeline.ts: ai oversize_skipped)
+    // is the single source of truth for which file tripped the guard, kept
+    // out of the DB so the schema stays unchanged.
+    await updateStatus(db, messageId, 'oversize_skipped')
     tally.aiSkipped += 1
     return tally
   }

@@ -21,6 +21,11 @@ export const mailMessageStatusEnum = pgEnum('mail_message_status', [
   'ai_processing',
   'ai_done',
   'ai_failed',
+  // PDF cost guard: any attachment exceeded MAIL_WORKER_PDF_SIZE_LIMIT_KB and
+  // the AI call was skipped pre-flight. Operator raises the env var and
+  // reextracts when intentionally accepting the cost — automatic retry would
+  // defeat the guard.
+  'oversize_skipped',
   'archived',
 ])
 export const mailClassificationEnum = pgEnum('mail_classification', [
