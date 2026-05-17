@@ -1400,3 +1400,44 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+- 2026-05-17 /auto-review-loop PR #29: 2R, verdict=pass, tokens=84911/500000, result=pass (multi-round 初発火)
+
+## 2026-05-17 セッション 4 (PR #29 ship: handover doc 訂正 3 本 + `/auto-review-loop` 初 multi-round 発火)
+
+### 完了
+- **PR #29** (`feat/handover-doc-corrections` → main, merge `c2d8cb3`) ship — `docs/dev/local-dev-setup.md` の 3 訂正 + 新 6 節「別環境引き継ぎ」を 1 PR で消化
+  - 主変更: 49+/4- on `docs/dev/local-dev-setup.md`、3 commits (`2481797` 初回 + `fe324f2` R1 fix + `5a144f6` R2 nit fix)
+  - **再抽出仕様 (L197)**: 「新規 draft + superseded リンク」→ 実装通り「既存 draft UPSERT 上書き」、approved/rejected 保護と `superseded_by_draft_id` の実 semantics (未配線、noise 反転時は status のみ flip) も明記
+  - **db:push --force (L89/L92)**: 「TTY 不要 / 破壊なし」→「確認 prompt skip だけで destructive change も silent に適用」と明示、安全な使い方と本番禁止を strong に
+  - **新 6 節「別環境引き継ぎ」**: DB 環境ごとローカル / 任意 pg_dump (空 DB → psql restore が clean、`db:push` 先打ちは `CREATE TABLE` 衝突) / mail-worker 再走 / PR #28 の `reextract --status` filter 言及
+- **`/auto-review-loop 29` で initial multi-round 発火** — R1 で should_fix 1 件 (`docker compose down -v` の compose file 指定不整合) → orchestrator 直接 Edit (1 行) → R2 で pass + nit 1 件 (env `packages/shared/.env` 追加) → orchestrator nit も即反映。R1 26k + R2 59k = 累計 **84,911 tokens**。5 連 R1 pass の後、ついに loop 機構が機能した実証
+- **後片付け**: gh pr merge --merge --delete-branch → main を `c2d8cb3` まで ff → worktree remove --force (メタ) + PowerShell `Remove-Item` (物理、Windows pnpm pattern 4 回目) → branch -d 成功 → review artifact 2 件 (r1.json + r2.json) 削除
+- **Orchestration**: `/claude-mem:make-plan` (2 回、初回 → refine 版) → `/claude-mem:do` で orchestrator 直接 Edit × 3 → 並列 3 subagent (Verification / Anti-pattern / Code Quality) → Code Quality が **2 SHOULD-FIX + 1 NIT 指摘** (`mail_worker_jobs.claimed_at` の列名誤参照、`superseded_by_draft_id` の direction 逆) → orchestrator 反映 → PR 作成 → `/auto-review-loop 29` で R2 pass
+
+### 学び
+- **multi-round 機構が初発火、1 ラウンドで収束** — R1 should_fix を 1 commit (`fe324f2`) で fix → R2 pass。doc PR でも整合性チェックで指摘が出る性質を確認 (compose file 指定の不整合は実装 grep では分からない、Codex の context-aware review が刺さった)。これまで R1 pass 連続だった理由は (a) 差分が小さく整合性問題が少ない、(b) Codex の閾値が conservative、両方推定。今回 doc PR で 80 行差分でも発火したのは **「複数 section 間の整合性」が doc 特有の review focus に乗った**ため
+- **subagent verify (orchestrator side) + Codex verify (PR review side) の二重 verification 効果** — Code Quality subagent が code 読んで `mail_worker_jobs.claimed_at` の table 名誤参照を指摘 → 反映 → Codex review が R2 で「実装と整合」と確認、good_points に明示。Subagent と Codex はそれぞれ独立した review eye で、補強し合うパターンが確立。今後の PR でも 2 stage review (`/claude-mem:do` 内の subagent + 後段の `/auto-review-loop`) を standard 化
+- **orchestrator が loop spec 外で nit 反映する判断** — R2 で pass + nit 1 件出た。spec は should_fix まで loop 対象、nit は終了後 judgment。今回は (a) 1 行修正で trivial、(b) handover doc の完成度に直接寄与、(c) R3 を走らせて新指摘の連鎖を避ける、で +1 commit (`5a144f6`) を入れて ship。**「ship 前に最終整合性まで詰める」vs「loop 仕様遵守で stop」のバランス判断**は今後も `/auto-review-loop` 完了時の orchestrator 判断 (defer or 反映の決定権)
+- **doc PR の token usage は code PR より多い傾向** — PR #29 (doc only 80 行) で 2R 累計 85k。比較: PR #28 (code 261 行) は R1 27k。Codex は doc を読むときに code grep して整合性 verify するため (今回 `STALE_CLAIM_RECOVERY_MS` の ripgrep が stderr に出ていた)、参照範囲が広い doc PR は token を多く使う。code PR (差分自体が明示的) より doc PR の方が 1 round 当たり token 多めの傾向あり
+
+### 残存している git 状態
+- main: `c2d8cb3`（本セッションの worklog + memory 同期 commit がこれから乗る）
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ、remote-tracking も `origin/main` のみ
+- 以前から: `<repo root>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: id=125 = `ai_processing` のまま保留 (本セッション 3 で確認、次回正規 pipeline で `ai_done` 化想定)
+
+### 次回 (carryover)
+- ~~🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)~~ → **本セッション PR #29 で完了**
+- ~~🟡 db:push --force 引き継ぎ書記述の正確化~~ → **本セッション PR #29 で完了**
+- ~~🟡 別環境引き継ぎ手順整理~~ → **本セッション PR #29 で完了**
+- ~~🟢 `/auto-review-loop` の multi-round 実発火観測~~ → **本セッション PR #29 で初観測 + 1 ラウンド収束**、引き続き観測継続 (収束パターンの統計取り)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- 🟢 noise 11 件の UI 露出経路の確認
+- 🟢 `apps/mail-worker` 実 lint 配線
+- 🟢 大きい PDF mail の AI cost guard 検討 (本日セッション 3 学び)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
