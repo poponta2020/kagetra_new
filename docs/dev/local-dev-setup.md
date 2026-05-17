@@ -316,7 +316,7 @@ docker exec -i kagetra-db psql -U kagetra kagetra < /tmp/dev-snapshot.sql
 - `bytea` 列 (`mail_attachments.data`) も含まれて転送される (1 mail あたり ~1MB、PDF 添付の多い数十通で数十 MB)
 - `mail_worker_jobs.claimed_at` は前環境のローカル時刻のまま残るが、`recoverStaleClaimedJobs` の 1h 閾値 (`apps/mail-worker/src/jobs.ts`) を過ぎていれば次回 dispatcher tick で `pending` に戻るので大抵問題なし (`mail_worker_runs` は履歴行で stale 回収対象外)
 - secret (`ANTHROPIC_API_KEY` / `YAHOO_IMAP_APP_PASSWORD` 等) は DB に格納されないので dump には含まれない — 新環境で別途 `<repo root>/.env` を作成
-- 復元手順は **空 DB から直接 psql restore** が一番 clean。pg_dump の default 出力は `CREATE TABLE` + `INSERT` 両方含むので、空 volume から `up -d db` した直後の DB に `psql ... < snapshot.sql` を打てば schema + data が一気に再構築される。`db:push --force` を先に打つと `CREATE TABLE` 衝突になるので **打たない**。volume が以前のもので残っていたら `docker compose down -v db` で消してから `up -d db`
+- 復元手順は **空 DB から直接 psql restore** が一番 clean。pg_dump の default 出力は `CREATE TABLE` + `INSERT` 両方含むので、空 volume から `up -d db` した直後の DB に `psql ... < snapshot.sql` を打てば schema + data が一気に再構築される。`db:push --force` を先に打つと `CREATE TABLE` 衝突になるので **打たない**。volume が以前のもので残っていたら `docker compose -f docker/docker-compose.yml down -v` で消してから `up -d db` (起動側 1-3 節と同じ compose file 指定、`down -v` はサービス引数を取らないので project 全体を down する)
 
 ### 6-3. mail-worker 再走で draft 再生成
 
