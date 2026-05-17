@@ -49,6 +49,55 @@ describe('parseReextractArgs', () => {
     expect(args.includePrefilterNoise).toBe(false)
     expect(args.help).toBe(false)
     expect(args.since?.toISOString()).toBe('2026-03-31T15:00:00.000Z')
+    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
+  })
+
+  it('defaults statuses to all VALID_STATUSES', () => {
+    const args = parseReextractArgs(['node', 'reextract.ts', '--since=2026-04-01'])
+    expect(args.statuses).toHaveLength(4)
+    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
+  })
+
+  it('parses --status=ai_processing as single-element array', () => {
+    const args = parseReextractArgs([
+      'node',
+      'reextract.ts',
+      '--since=2026-04-01',
+      '--status=ai_processing',
+    ])
+    expect(args.statuses).toEqual(['ai_processing'])
+  })
+
+  it('parses --status=ai_done,ai_failed as multi-element array (preserves order)', () => {
+    const args = parseReextractArgs([
+      'node',
+      'reextract.ts',
+      '--since=2026-04-01',
+      '--status=ai_done,ai_failed',
+    ])
+    expect(args.statuses).toEqual(['ai_done', 'ai_failed'])
+  })
+
+  it('throws on --status=invalid_status with the invalid name in the error message', () => {
+    expect(() =>
+      parseReextractArgs([
+        'node',
+        'reextract.ts',
+        '--since=2026-04-01',
+        '--status=invalid_status',
+      ]),
+    ).toThrow(/invalid_status/)
+  })
+
+  it('throws on empty --status= with a "non-empty CSV" message', () => {
+    expect(() =>
+      parseReextractArgs([
+        'node',
+        'reextract.ts',
+        '--since=2026-04-01',
+        '--status=',
+      ]),
+    ).toThrow(/non-empty CSV/)
   })
 
   it('sets includePrefilterNoise=true when --include-prefilter-noise is passed', () => {
@@ -65,6 +114,7 @@ describe('parseReextractArgs', () => {
     const args = parseReextractArgs(['node', 'reextract.ts', '--help'])
     expect(args.help).toBe(true)
     expect(args.includePrefilterNoise).toBe(false)
+    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
   })
 
   it('rejects calendar-day overflow like 2026-04-31 even though Date silently rolls it forward', () => {
@@ -140,6 +190,7 @@ describe('reextract CLI entrypoint', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('Usage:')
     expect(result.stdout).toContain('--include-prefilter-noise')
+    expect(result.stdout).toContain('--status=')
   }, 30_000)
 })
 
@@ -178,6 +229,7 @@ describe('selectReextractTargets', () => {
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: false,
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
     })
 
     expect(targets).toHaveLength(4)
@@ -205,6 +257,7 @@ describe('selectReextractTargets', () => {
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: false,
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
     })
     expect(targets).toHaveLength(0)
   })
@@ -224,6 +277,7 @@ describe('selectReextractTargets', () => {
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: true,
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
     })
     expect(new Set(targets.map((t) => t.messageId))).toEqual(
       new Set(['<prefilter-noise@example.com>', '<done-1@example.com>']),
@@ -244,6 +298,7 @@ describe('selectReextractTargets', () => {
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: true,
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
     })
     expect(targets).toHaveLength(0)
   })
@@ -265,8 +320,41 @@ describe('selectReextractTargets', () => {
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: false,
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
     })
     expect(targets).toHaveLength(1)
     expect(targets[0]!.messageId).toBe('<in-window@example.com>')
+  })
+
+  it('respects statuses subset (only ai_processing rows returned even when ai_done present)', async () => {
+    await seedMail({
+      messageId: '<done-1@example.com>',
+      status: 'ai_done',
+      classification: 'tournament',
+    })
+    await seedMail({
+      messageId: '<failed-1@example.com>',
+      status: 'ai_failed',
+      classification: null,
+    })
+    await seedMail({
+      messageId: '<processing-1@example.com>',
+      status: 'ai_processing',
+      classification: null,
+    })
+    await seedMail({
+      messageId: '<archived-1@example.com>',
+      status: 'archived',
+      classification: 'tournament',
+    })
+
+    const targets = await selectReextractTargets(testDb, {
+      since: SINCE,
+      includePrefilterNoise: false,
+      statuses: ['ai_processing'],
+    })
+
+    expect(targets).toHaveLength(1)
+    expect(targets[0]!.messageId).toBe('<processing-1@example.com>')
   })
 })

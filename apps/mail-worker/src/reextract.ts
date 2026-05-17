@@ -44,13 +44,14 @@ import { loadLlmConfig } from './config.js'
  * mail. The CLI exits with a non-zero code if any mail failed so cron-style
  * invocations can surface the partial failure.
  */
+const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived', 'ai_processing'] as const
+
 interface ReextractArgs {
   since: Date | null
   includePrefilterNoise: boolean
+  statuses: readonly (typeof VALID_STATUSES)[number][]
   help: boolean
 }
-
-const VALID_STATUSES = ['ai_done', 'ai_failed', 'archived', 'ai_processing'] as const
 
 // `^YYYY-MM-DD$`. The format check is shape-only; we still round-trip the
 // resulting Date back into JST y/m/d to catch values like `2026-04-31` that
@@ -64,6 +65,7 @@ function parseArgs(argv: readonly string[]): ReextractArgs {
   const args: ReextractArgs = {
     since: null,
     includePrefilterNoise: false,
+    statuses: [...VALID_STATUSES],
     help: false,
   }
   for (const a of argv.slice(2)) {
@@ -99,6 +101,22 @@ function parseArgs(argv: readonly string[]): ReextractArgs {
         throw new Error(`--since is not a valid calendar day: ${v}`)
       }
       args.since = date
+    } else if (a.startsWith('--status=')) {
+      const v = a.slice('--status='.length)
+      const parsed = v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (parsed.length === 0) {
+        throw new Error('--status must be a non-empty CSV')
+      }
+      for (const s of parsed) {
+        if (!(VALID_STATUSES as readonly string[]).includes(s)) {
+          throw new Error(`unknown status: ${s}`)
+        }
+      }
+      // Validated above — narrow string[] → typed status union array.
+      args.statuses = parsed as (typeof VALID_STATUSES)[number][]
     } else {
       // Unknown flag — fail loudly rather than silently no-op. Without this
       // a typo like `--include-prefiler-noise` would just be dropped and
@@ -141,7 +159,7 @@ function jstYearMonthDay(date: Date): {
 
 function printUsage(): void {
   // eslint-disable-next-line no-console
-  console.log(`Usage: tsx apps/mail-worker/src/reextract.ts --since=YYYY-MM-DD [--include-prefilter-noise]
+  console.log(`Usage: tsx apps/mail-worker/src/reextract.ts --since=YYYY-MM-DD [--include-prefilter-noise] [--status=ai_processing,ai_failed]
 
 Re-classifies all mails in (ai_done, ai_failed, archived, ai_processing) status
 with received_at >= --since. The pre-filter noise check is bypassed
@@ -154,6 +172,15 @@ model output); drafts already approved or rejected by an admin are preserved.
       change (venue allow-list, sender update, etc.) when previously-rejected
       mails should be evaluated by the AI. Default off — these rows are
       otherwise outside the selection.
+
+  --status=STATUS1,STATUS2,...
+      Restrict to a subset of mail_messages.status (CSV).
+      Valid values: ai_done, ai_failed, archived, ai_processing.
+      Default: all four. Combine with --since for narrow re-runs
+      (e.g. --status=ai_processing to retry crashed worker rows).
+      Note: --status only filters the AI-touched leg of the selection;
+      --include-prefilter-noise still adds (fetched + noise) rows
+      independently.
 
 Requires ANTHROPIC_API_KEY in env (loaded via dotenv from repo root).
 `)
@@ -175,17 +202,21 @@ Requires ANTHROPIC_API_KEY in env (loaded via dotenv from repo root).
  */
 export async function selectReextractTargets(
   db: Db,
-  args: { since: Date; includePrefilterNoise: boolean },
+  args: {
+    since: Date
+    includePrefilterNoise: boolean
+    statuses: readonly (typeof VALID_STATUSES)[number][]
+  },
 ): Promise<Array<{ id: number; messageId: string; subject: string | null }>> {
   const statusClause = args.includePrefilterNoise
     ? or(
-        inArray(mailMessages.status, [...VALID_STATUSES]),
+        inArray(mailMessages.status, [...args.statuses]),
         and(
           eq(mailMessages.status, 'fetched'),
           eq(mailMessages.classification, 'noise'),
         ),
       )
-    : inArray(mailMessages.status, [...VALID_STATUSES])
+    : inArray(mailMessages.status, [...args.statuses])
   return db
     .select({
       id: mailMessages.id,
@@ -216,6 +247,7 @@ async function main(): Promise<number> {
     const targets = await selectReextractTargets(db, {
       since: args.since,
       includePrefilterNoise: args.includePrefilterNoise,
+      statuses: args.statuses,
     })
 
     // eslint-disable-next-line no-console
