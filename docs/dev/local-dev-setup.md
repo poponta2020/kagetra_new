@@ -295,7 +295,7 @@ dev DB は各マシンで Docker Compose で独立に起動し、データは **
 
 - prod は別物 (Lightsail Postgres)、dev はあくまでローカル動作確認用で永続性が要らない
 - 各マシンで `pnpm --filter @kagetra/shared db:push --force` (1-3 節参照) でスキーマだけ揃え、mail / draft / event 等のデータは `mail-worker` を走らせて環境ごとに生成し直す方が単純
-- 環境差分 (Yahoo IMAP App Password、Anthropic API key、Cookie 等) も同様、`<repo root>/.env` と `apps/web/.env.local` は手動コピー
+- 環境差分 (Yahoo IMAP App Password、Anthropic API key、Cookie 等) も同様、1-2 節の env 3 ファイル (`<repo root>/.env` / `apps/web/.env.local` / `packages/shared/.env`) を手動コピー (`packages/shared/.env` は drizzle-kit の `db:push` / `db:generate` に必要、これがないと別環境で `DATABASE_URL` 未設定で詰まる)
 
 ### 6-2. (任意) pg_dump で前環境 DB を移植する場合
 
