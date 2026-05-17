@@ -51,7 +51,7 @@ interface RawArgs {
 }
 
 function printUsage(): void {
-   
+
   console.log(`Usage: tsx apps/mail-worker/scripts/seed-system-channel.ts [options]
 
 Seed or rotate the line_channels row with status='system'. Idempotent:
@@ -175,17 +175,17 @@ export async function runSeed(args: SeedArgs): Promise<'inserted' | 'updated' | 
 
     if (args.dryRun) {
       if (existing.length === 0) {
-         
+
         console.log('[dry-run] would INSERT new system channel:')
-         
+
         console.log(redactForLog(args))
         return 'dry-run-insert'
       }
-       
+
       console.log(
         `[dry-run] would UPDATE existing system channel id=${existing[0]?.id ?? '<unknown>'}:`,
       )
-       
+
       console.log(redactForLog(args))
       return 'dry-run-update'
     }
@@ -200,7 +200,7 @@ export async function runSeed(args: SeedArgs): Promise<'inserted' | 'updated' | 
         notificationLineUserId: args.notificationLineUserId,
         note: args.note,
       })
-       
+
       console.log('Inserted new system channel')
       return 'inserted'
     }
@@ -217,7 +217,7 @@ export async function runSeed(args: SeedArgs): Promise<'inserted' | 'updated' | 
         updatedAt: new Date(),
       })
       .where(eq(lineChannels.status, 'system'))
-     
+
     console.log(
       `Updated existing system channel id=${existing[0]?.id ?? '<unknown>'}`,
     )
@@ -271,7 +271,7 @@ if (
       process.exit(code)
     })
     .catch((err) => {
-       
+
       console.error('[seed-system-channel] fatal:', err)
       process.exit(1)
     })
