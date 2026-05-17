@@ -27,9 +27,7 @@ async function loadPayload(filename: string): Promise<ExtractionPayload> {
   return FixtureFileSchema.parse(JSON.parse(raw)).payload
 }
 
-const TOURNAMENT_SUBJECT = '[taikai-ajka:828] 第65回全日本選手権大会/ご案内'
 const ML_TOURNAMENT_SUBJECT = '[taikai-ajka:829] 第66回標榜大会のご案内'
-const NEWSLETTER_SUBJECT = 'Weekly Update: New Features Available'
 
 async function buildExtractor(): Promise<FixtureLLMExtractor> {
   return new FixtureLLMExtractor(await loadFixturesFromDir(LLM_FIXTURE_DIR))

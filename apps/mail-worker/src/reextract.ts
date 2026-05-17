@@ -158,7 +158,7 @@ function jstYearMonthDay(date: Date): {
 }
 
 function printUsage(): void {
-  // eslint-disable-next-line no-console
+
   console.log(`Usage: tsx apps/mail-worker/src/reextract.ts --since=YYYY-MM-DD [--include-prefilter-noise] [--status=ai_processing,ai_failed]
 
 Re-classifies all mails in (ai_done, ai_failed, archived, ai_processing) status
@@ -250,7 +250,7 @@ async function main(): Promise<number> {
       statuses: args.statuses,
     })
 
-    // eslint-disable-next-line no-console
+
     console.log(
       `[reextract] ${targets.length} mails since ${args.since.toISOString()}` +
         (args.includePrefilterNoise ? ' (incl. pre-filter noise)' : ''),
@@ -260,13 +260,13 @@ async function main(): Promise<number> {
       try {
         const outcome = await classifyMail(db, t.id, llm, { force: true })
         const tally = await persistOutcome(db, t.id, outcome)
-        // eslint-disable-next-line no-console
+
         console.log(
           `[reextract] [${t.id}] ${outcome.kind} (drafts: +${tally.draftsInserted} new, ${tally.draftsUpdated} updated, ${tally.draftsPreserved} preserved)`,
         )
       } catch (err) {
         failures += 1
-        // eslint-disable-next-line no-console
+
         console.error(
           `[reextract] [${t.id}] FAILED:`,
           err instanceof Error ? err.message : err,
@@ -298,7 +298,7 @@ if (
       process.exit(code)
     })
     .catch((err) => {
-      // eslint-disable-next-line no-console
+
       console.error('[reextract] fatal:', err)
       process.exit(1)
     })
