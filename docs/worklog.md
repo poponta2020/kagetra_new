@@ -1441,3 +1441,29 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-17 セッション 5 (🟢 小タスク 2 件消化: FOLLOWUP_REVIEW rename + noise UI 露出確認)
+
+### 完了
+- 🟢 **`/fix` の `FOLLOWUP_REVIEW` 変数名整理** — `.claude/skills/fix/SKILL.md` L19/L77 の `FOLLOWUP_REVIEW` を `RUN_FOLLOWUP_REVIEW` に rename。PR #25 r1 Codex nit「変数名が逆に読める」(positive な変数名なのに `--no-followup-review` の否定形を保持していて、bool flag であることが名前から明示されない) への対応。`RUN_` prefix で「実行するかどうかの bool」と明示、semantics 不変
+- 🟢 **noise 11 件の UI 露出経路の確認** — 既に PR #26 (3-tier priority grouping) の tier 2「その他」で表示されていることを確認 (`apps/web/src/app/(app)/admin/mail-inbox/page.tsx:151-152` のコメント `tier 2 ("その他") — everything else (approved / rejected / superseded / ai_failed / no draft). Kept visible for back-ref.` で superseded が tier 2 に含まれる明示あり)。Smoke test session の「その他 14 件」も superseded 11 + approved 2 + rejected 1 で整合。**新規対応不要、carryover 完了マーク**
+
+### 学び
+- **後付け carryover の中には「既に解決済み」のものがある** — noise 11 件の UI 露出は PR #26 (5/12 ship) の tier 2 で副次的に解決されていたが、carryover には残ったまま。本セッションで code 確認すれば 0 修正で完了マークできた。carryover review 時に「すでに解決済みか」を 1 階層 grep で先にチェックする習慣が efficient
+- **Bool flag 変数名のアンチパターン** — `FOLLOWUP_REVIEW` のような **名詞句単独** の変数名は「object か flag か」が曖昧。`RUN_FOLLOWUP_REVIEW` `IS_FOLLOWUP_REVIEW_ENABLED` `SHOULD_RUN_FOLLOWUP_REVIEW` のような **動詞 / 助動詞 prefix** で bool であることを明示する慣習が読みやすい。本 SKILL.md は CLI フラグの状態を保持する変数なので `RUN_` で「実行するか?」を直球で表現
+
+### 残存している git 状態
+- main: 本 commit がこれから乗る
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 残 carryover: 🟢 ESLint 配線 (mail-worker) と 🟢 PDF AI cost guard は本日 (3)(4) として続行
+
+### 次回 (carryover)
+- ~~🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理~~ → **本セッションで完了**
+- ~~🟢 noise 11 件の UI 露出経路の確認~~ → **本セッションで完了 (PR #26 で既に対応済みと判明)**
+- 🟢 `apps/mail-worker` 実 lint 配線 — 次着手
+- 🟢 大きい PDF mail の AI cost guard 検討 — 次着手
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定

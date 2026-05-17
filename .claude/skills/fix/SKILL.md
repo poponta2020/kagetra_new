@@ -16,7 +16,7 @@ argument-hint: "[PR番号(任意)] [--no-followup-review]"
 
 1. 引数をパースする
    - 数字単独 → PR 番号として扱う。なければ `gh pr view --json number -q '.number'` で現在のブランチの PR を検出
-   - `--no-followup-review` フラグの有無を `FOLLOWUP_REVIEW` 変数に記録する（`/auto-review-loop` から呼ばれた場合に渡される。指定があれば最終手順の `/review` 自動呼び出しをスキップ）
+   - `--no-followup-review` フラグの有無を `RUN_FOLLOWUP_REVIEW` 変数に記録する（`/auto-review-loop` から呼ばれた場合に渡される。指定があれば最終手順の `/review` 自動呼び出しをスキップ）
 
 2. 最新のレビュー結果ファイルを読み込む
    - **優先順位 1**: `scripts/review/output/codex-result-pr{番号}-r*.json` のうち最大ラウンド番号のファイル（`/auto-review-loop` が生成する構造化 JSON）
@@ -74,7 +74,7 @@ argument-hint: "[PR番号(任意)] [--no-followup-review]"
    ```
 
 9. 修正サマリーをユーザーに表示した後、「commit + push済みです」と伝える。
-   - **`FOLLOWUP_REVIEW` が false（`--no-followup-review` 指定あり）の場合**: ここで終了。`/review` の自動呼び出しはしない（呼び出し元の `/auto-review-loop` 側で次ラウンドのレビューが回るため）
+   - **`RUN_FOLLOWUP_REVIEW` が false（`--no-followup-review` 指定あり）の場合**: ここで終了。`/review` の自動呼び出しはしない（呼び出し元の `/auto-review-loop` 側で次ラウンドのレビューが回るため）
    - **指定なし（既定）**: 自動で `/review {PR番号}` スキルを呼び出して再レビュープロンプトを生成する
 
 10. **claude-memに修正記録を保存する**
