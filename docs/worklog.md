@@ -1287,3 +1287,36 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-17 PR #26 + #27 dev manual smoke test + 後片付け (orphan backfill / stale branch)
+
+### 完了
+- **PR #26** (3-tier priority grouping, merged 5/12) を `/admin/mail-inbox` で目視確認 — 高優先度 22 件 / 中優先度 13 件 / その他 14 件の 3 セクションが分割表示、高優先度カードに左罫線アクセント (border-l-brand)、各 tier 内 confidence 降順、その他は received_at 降順。すべて意図通りで dev 上 OK
+- **PR #27** (mail.status='archived' 同期, merged 5/13) を実操作で検証 — pending_review から 2 件 approve → DB で `tournament_drafts.approved` 2→4 / `mail_messages.archived` 0→2 と一致して同期。新規 orphan は出ない側の修正が dev 上で実証された
+- **既存 orphan backfill 完了** — smoke test で 3 件 (draft 4 approved/mail 12 ai_failed、draft 5 rejected/mail 14 ai_done、draft 6 approved/mail 17 ai_done) 確認 → 同セッション内で `UPDATE mail_messages SET status='archived' ... WHERE id IN (SELECT message_id FROM tournament_drafts WHERE status IN ('approved','rejected')) AND status != 'archived'` を transaction で実行 (idempotent 条件付き)、`RETURNING` 3 行 (mail 12/14/17 → archived)、post-check で orphan = 0 確認。prod は fresh で 0 件のため本番対応は不要
+- **stale ローカル branch 掃除** — `feat/local-dev-handover` (6fc56bf) と `feat/phase-1-5-auth-pivot-line-login` (f51decb) を `git branch -d` で削除 (両方 main にマージ済み確認後)、`git remote prune origin` で残っていた stale remote-tracking 17 件も一括削除。`git branch -vv` で local / remote-tracking とも `main` 1 本のみの clean state
+
+### 学び
+- 5/13 セッション 2 の carryover では「dev orphan `mail_id=12` 1 件」と把握していたが、smoke test で `mail_id=14, 17` も orphan 状態と判明 — backfill 対象は **dev 3 件** が正しい
+- 観測スナップショット (smoke test 後): `tournament_drafts` = pending_review 33 / superseded 11 / approved 4 / rejected 1、`mail_messages` = ai_done 121 / archived 2 / ai_processing 1 / ai_failed 1
+- dev server 起動から smoke test 完了まで `pnpm --filter=web dev` を 1 度起動するだけで完結。tier 内の confidence 並び順までブラウザで素早く確認できた
+
+### 残存している git 状態
+- main: clean、worklog + backfill + branch 掃除をまとめた更新 commit がこれから乗る
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ (handover / auth-pivot 両方削除済み)、remote-tracking も `origin/main` のみ
+- dev DB: orphan 0 件 (backfill 完了)
+
+### 次回 (carryover)
+- 🔴 mail-worker Windows native crash の調査 (id=125 周辺の再現テスト)
+- 🟡 `reextract.ts` に `--status=...` filter 追加
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟢 `/auto-review-loop` の multi-round 実発火観測
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理
+- 🟢 noise 11 件の UI 露出経路の確認
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
