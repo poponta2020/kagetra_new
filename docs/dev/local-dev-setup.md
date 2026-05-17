@@ -86,10 +86,10 @@ YAHOO_IMAP_APP_PASSWORD=...
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d db
-pnpm --filter @kagetra/shared db:push --force   # TTY 不要にするため --force 必須
+pnpm --filter @kagetra/shared db:push --force   # 確認 prompt を skip するため (= destructive change も silent に適用)
 ```
 
-`--force` は drizzle-kit が「変更を確認するか？」プロンプトを出すのを回避するためで、開発 DB のみで使う。dev DB が空 or 既知のスキーマなら破壊なしで適用される。
+`--force` は drizzle-kit の「destructive change を実施するか?」確認プロンプトを **skip する** flag。skip 対象は `DROP COLUMN` / `NOT NULL 変更` / `column type 変更` 等の破壊操作も含むため、知らない schema 差分があると **silent にデータが壊れる**。**dev DB かつゼロからセットアップ時 (= 全テーブル create) は安全**、既存 dev DB に打つときは `pnpm --filter @kagetra/shared db:generate` で diff SQL を事前確認するのが安全。本番 DB には絶対使わず、`packages/shared/drizzle/` の migration SQL を `psql` で適用する。
 
 ---
 
@@ -194,7 +194,7 @@ pnpm --filter @kagetra/mail-worker start --since=2026-04-01
 
 - **承認** → `events` に INSERT、draft.status を `approved` へ
 - **却下** → 理由付きで `rejected` へ
-- **再抽出** → 同じメールを Claude に再投入 (新規 draft 行を作って superseded リンク)
+- **再抽出** → 同じメールを Claude に再投入。実装は **既存 draft 行を `persistOutcome` で UPSERT 上書き** (`prompt_version` / `ai_model` / `ai_raw_response` 等が新値で更新)。approved / rejected 状態の draft は保護されて上書きされない。`superseded_by_draft_id` カラムは「ある draft を別 draft の訂正版として手動で紐付ける」用に設計されたが現状の UI からは設定されない (常に NULL)。再抽出で AI 判定が tournament → noise に反転した場合は、既存 draft の `status` だけが `superseded` に flip され、このカラム自体は触れられない (`apps/mail-worker/src/classify/classifier.ts` noise branch)。
 - **既存イベントに紐付ける** → `linked_event_id` を設定
 
 各操作は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の Server Action で実装。terminal status (approved/rejected/superseded) からの遷移は guard でブロック。
@@ -284,7 +284,52 @@ pnpm --filter @kagetra/mail-worker start --since=2026-04-01
 
 ---
 
-## 6. 関連ドキュメント
+## 6. 別環境引き継ぎ (家 ↔ 会社)
+
+家・会社の 2 マシン間でこのリポジトリを引き継ぐときの前提と手順。
+
+### 6-1. DB は環境ごとローカル
+
+dev DB は各マシンで Docker Compose で独立に起動し、データは **別環境間で共有しない** 前提。
+理由:
+
+- prod は別物 (Lightsail Postgres)、dev はあくまでローカル動作確認用で永続性が要らない
+- 各マシンで `pnpm --filter @kagetra/shared db:push --force` (1-3 節参照) でスキーマだけ揃え、mail / draft / event 等のデータは `mail-worker` を走らせて環境ごとに生成し直す方が単純
+- 環境差分 (Yahoo IMAP App Password、Anthropic API key、Cookie 等) も同様、1-2 節の env 3 ファイル (`<repo root>/.env` / `apps/web/.env.local` / `packages/shared/.env`) を手動コピー (`packages/shared/.env` は drizzle-kit の `db:push` / `db:generate` に必要、これがないと別環境で `DATABASE_URL` 未設定で詰まる)
+
+### 6-2. (任意) pg_dump で前環境 DB を移植する場合
+
+「直近 1 ヶ月の mail-worker プローブ結果をそのまま使いたい」「approved/rejected で運用した state を維持したい」などで前環境の dev DB を持っていくなら:
+
+```bash
+# 前環境で snapshot を取る
+docker exec kagetra-db pg_dump -U kagetra kagetra > /tmp/dev-snapshot.sql
+# scp /tmp/dev-snapshot.sql to new env
+
+# 新環境で復元
+docker compose -f docker/docker-compose.yml up -d db
+docker exec -i kagetra-db psql -U kagetra kagetra < /tmp/dev-snapshot.sql
+```
+
+注意点:
+
+- `bytea` 列 (`mail_attachments.data`) も含まれて転送される (1 mail あたり ~1MB、PDF 添付の多い数十通で数十 MB)
+- `mail_worker_jobs.claimed_at` は前環境のローカル時刻のまま残るが、`recoverStaleClaimedJobs` の 1h 閾値 (`apps/mail-worker/src/jobs.ts`) を過ぎていれば次回 dispatcher tick で `pending` に戻るので大抵問題なし (`mail_worker_runs` は履歴行で stale 回収対象外)
+- secret (`ANTHROPIC_API_KEY` / `YAHOO_IMAP_APP_PASSWORD` 等) は DB に格納されないので dump には含まれない — 新環境で別途 `<repo root>/.env` を作成
+- 復元手順は **空 DB から直接 psql restore** が一番 clean。pg_dump の default 出力は `CREATE TABLE` + `INSERT` 両方含むので、空 volume から `up -d db` した直後の DB に `psql ... < snapshot.sql` を打てば schema + data が一気に再構築される。`db:push --force` を先に打つと `CREATE TABLE` 衝突になるので **打たない**。volume が以前のもので残っていたら `docker compose -f docker/docker-compose.yml down -v` で消してから `up -d db` (起動側 1-3 節と同じ compose file 指定、`down -v` はサービス引数を取らないので project 全体を down する)
+
+### 6-3. mail-worker 再走で draft 再生成
+
+DB を共有しない場合、draft / mail データは:
+
+- 各環境で `pnpm --filter @kagetra/mail-worker start --since=YYYY-MM-DD` を打って自分の DB に作る
+- Anthropic API key と Yahoo IMAP App Password が両環境に揃っていれば、同じメール群から (確率的に同じ) draft が出る
+- 「家でだけ approved にした draft」を会社に持っていきたい場合は 6-2 の pg_dump 経路を選ぶ
+- 範囲を絞った再走には PR #28 で入った `reextract --status=...` filter が使える (例: `pnpm --filter @kagetra/mail-worker exec tsx src/reextract.ts --since=2026-04-30 --status=ai_processing` で stuck row だけ retry)
+
+---
+
+## 7. 関連ドキュメント
 
 - [docs/worklog.md](../worklog.md) — セッション間の作業ログ
 - [docs/features/mail-tournament-import/](../features/mail-tournament-import/) — PR1〜PR5 の plan / decision
