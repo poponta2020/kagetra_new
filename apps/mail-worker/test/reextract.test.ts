@@ -11,17 +11,15 @@ import { closeTestDb, testDb, truncateMailTables } from './test-db.js'
 
 const SINCE = new Date('2026-04-01T00:00:00+09:00')
 
+// Status union is derived from the schema's insert type so a new
+// mail_message_status enum value (oversize_skipped, etc.) is picked up
+// automatically. The previous hand-rolled union silently rotted whenever the
+// enum grew (review r1 blocker on PR #31).
+type SeedMailStatus = NonNullable<typeof mailMessages.$inferInsert.status>
+
 interface SeedRow {
   messageId: string
-  status:
-    | 'pending'
-    | 'fetched'
-    | 'parse_failed'
-    | 'fetch_failed'
-    | 'ai_processing'
-    | 'ai_done'
-    | 'ai_failed'
-    | 'archived'
+  status: SeedMailStatus
   classification: 'tournament' | 'noise' | 'unknown' | null
   receivedAt?: Date
 }

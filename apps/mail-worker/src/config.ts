@@ -91,9 +91,18 @@ const LlmConfigSchema = z.object({
  *
  * Set to 0 to disable the guard (used by tests that need to assert downstream
  * behaviour without crafting an oversized fixture).
+ *
+ * `z.preprocess` is required because `z.coerce.number()` accepts `''` as 0
+ * (review r1 should-fix on PR #31). An operator who writes
+ * `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` in .env would otherwise silently disable
+ * the guard. We normalise empty strings to undefined so the default kicks in
+ * instead, matching the "env var unset" semantics.
  */
 const CostGuardConfigSchema = z.object({
-  MAIL_WORKER_PDF_SIZE_LIMIT_KB: z.coerce.number().int().nonnegative().default(800),
+  MAIL_WORKER_PDF_SIZE_LIMIT_KB: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().nonnegative().default(800),
+  ),
 })
 
 export type LogConfig = z.infer<typeof LogConfigSchema>

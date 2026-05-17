@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  loadCostGuardConfig,
   loadDbConfig,
   loadImapConfig,
   loadLogConfig,
@@ -55,6 +56,35 @@ describe('config split (per-concern loaders)', () => {
     it('throws when DATABASE_URL is empty (required check now lives inside getDb path)', () => {
       vi.stubEnv('DATABASE_URL', '')
       expect(() => loadDbConfig()).toThrow(/db env/)
+    })
+  })
+
+  describe('loadCostGuardConfig', () => {
+    it('defaults to 800 when MAIL_WORKER_PDF_SIZE_LIMIT_KB is unset', () => {
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(800)
+    })
+
+    it('treats an empty string the same as unset and falls back to default 800', () => {
+      // Regression guard for r1 should-fix: `z.coerce.number()` would otherwise
+      // accept `''` as `0`, silently disabling the cost guard whenever an
+      // operator wrote `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` with no value in .env.
+      vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '')
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(800)
+    })
+
+    it('parses a non-empty numeric value', () => {
+      vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '1500')
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(1500)
+    })
+
+    it('accepts 0 as the explicit "guard disabled" sentinel', () => {
+      vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '0')
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(0)
+    })
+
+    it('rejects negative values with a clear error', () => {
+      vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '-1')
+      expect(() => loadCostGuardConfig()).toThrow(/cost-guard env/)
     })
   })
 })
