@@ -49,13 +49,25 @@ describe('parseReextractArgs', () => {
     expect(args.includePrefilterNoise).toBe(false)
     expect(args.help).toBe(false)
     expect(args.since?.toISOString()).toBe('2026-03-31T15:00:00.000Z')
-    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
+    expect(args.statuses).toEqual([
+      'ai_done',
+      'ai_failed',
+      'archived',
+      'ai_processing',
+      'oversize_skipped',
+    ])
   })
 
   it('defaults statuses to all VALID_STATUSES', () => {
     const args = parseReextractArgs(['node', 'reextract.ts', '--since=2026-04-01'])
-    expect(args.statuses).toHaveLength(4)
-    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
+    expect(args.statuses).toHaveLength(5)
+    expect(args.statuses).toEqual([
+      'ai_done',
+      'ai_failed',
+      'archived',
+      'ai_processing',
+      'oversize_skipped',
+    ])
   })
 
   it('parses --status=ai_processing as single-element array', () => {
@@ -114,7 +126,13 @@ describe('parseReextractArgs', () => {
     const args = parseReextractArgs(['node', 'reextract.ts', '--help'])
     expect(args.help).toBe(true)
     expect(args.includePrefilterNoise).toBe(false)
-    expect(args.statuses).toEqual(['ai_done', 'ai_failed', 'archived', 'ai_processing'])
+    expect(args.statuses).toEqual([
+      'ai_done',
+      'ai_failed',
+      'archived',
+      'ai_processing',
+      'oversize_skipped',
+    ])
   })
 
   it('rejects calendar-day overflow like 2026-04-31 even though Date silently rolls it forward', () => {
@@ -204,7 +222,7 @@ describe('selectReextractTargets', () => {
     await closeTestDb()
   })
 
-  it('picks up AI-touched terminal states by default (ai_done / ai_failed / archived / ai_processing)', async () => {
+  it('picks up AI-touched terminal states by default (ai_done / ai_failed / archived / ai_processing / oversize_skipped)', async () => {
     await seedMail({
       messageId: '<done-1@example.com>',
       status: 'ai_done',
@@ -225,20 +243,26 @@ describe('selectReextractTargets', () => {
       status: 'ai_processing',
       classification: null,
     })
+    await seedMail({
+      messageId: '<oversize-1@example.com>',
+      status: 'oversize_skipped',
+      classification: null,
+    })
 
     const targets = await selectReextractTargets(testDb, {
       since: SINCE,
       includePrefilterNoise: false,
-      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing'],
+      statuses: ['ai_done', 'ai_failed', 'archived', 'ai_processing', 'oversize_skipped'],
     })
 
-    expect(targets).toHaveLength(4)
+    expect(targets).toHaveLength(5)
     expect(new Set(targets.map((t) => t.messageId))).toEqual(
       new Set([
         '<done-1@example.com>',
         '<failed-1@example.com>',
         '<archived-1@example.com>',
         '<processing-1@example.com>',
+        '<oversize-1@example.com>',
       ]),
     )
   })

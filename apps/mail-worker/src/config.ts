@@ -76,9 +76,30 @@ const LlmConfigSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
 })
 
+/**
+ * Cost guard for the AI classify phase. A 919KB PDF in dev (mail id=125, May
+ * 2026) cost USD 0.12 against a pre-deployment estimate of ~USD 0.02 — Sonnet
+ * 4.6 charges native PDF document blocks as a fixed token-per-page envelope on
+ * top of the base prompt, so attachment size is the strongest pre-call
+ * predictor of spend. The guard short-circuits to `oversize_skipped` before
+ * the Anthropic call when any PDF exceeds the limit; the operator raises the
+ * env var and reextracts when intentionally accepting the cost.
+ *
+ * Default 800 KB is the dev-observed sweet spot: rejects the 919 KB outlier
+ * while clearing the empirically typical 100–500 KB tournament announcements
+ * (see worklog 2026-05-11 + 2026-05-17 cost guard discovery).
+ *
+ * Set to 0 to disable the guard (used by tests that need to assert downstream
+ * behaviour without crafting an oversized fixture).
+ */
+const CostGuardConfigSchema = z.object({
+  MAIL_WORKER_PDF_SIZE_LIMIT_KB: z.coerce.number().int().nonnegative().default(800),
+})
+
 export type LogConfig = z.infer<typeof LogConfigSchema>
 export type ImapConfig = z.infer<typeof ImapConfigSchema>
 export type DbConfig = z.infer<typeof DbConfigSchema>
+export type CostGuardConfig = z.infer<typeof CostGuardConfigSchema>
 
 export interface LlmConfig {
   anthropicApiKey: string
@@ -93,6 +114,7 @@ let cachedLog: LogConfig | null = null
 let cachedImap: ImapConfig | null = null
 let cachedDb: DbConfig | null = null
 let cachedLlm: LlmConfig | null = null
+let cachedCostGuard: CostGuardConfig | null = null
 
 function configError(name: string, issues: z.ZodIssue[]): Error {
   const lines = issues
@@ -144,11 +166,23 @@ export function loadLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
   return cachedLlm
 }
 
+export function loadCostGuardConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): CostGuardConfig {
+  if (cachedCostGuard) return cachedCostGuard
+  ensureDotenvLoaded()
+  const parsed = CostGuardConfigSchema.safeParse(env)
+  if (!parsed.success) throw configError('cost-guard', parsed.error.issues)
+  cachedCostGuard = parsed.data
+  return cachedCostGuard
+}
+
 export function resetConfigForTests(): void {
   cachedLog = null
   cachedImap = null
   cachedDb = null
   cachedLlm = null
+  cachedCostGuard = null
   // dotenvLoaded intentionally not reset: dotenv merges into process.env, so
   // re-running it has no value and would only re-trigger the webpack URL
   // analysis under bundlers.

@@ -216,6 +216,21 @@ pnpm --filter @kagetra/mail-worker start --since=2026-04-01
 
 過去 investigation で「2026-04 の 1 ヶ月で 22 通」だったので、**1000 円で 1 年分以上のテストが賄える** 計算。
 
+#### PDF cost guard (`MAIL_WORKER_PDF_SIZE_LIMIT_KB`)
+
+大型 PDF (Sonnet 4.6 の native document block 課金が page 数で線形に増える) は事前 size check で AI 呼び出しを skip する。2026-05-17 dev investigation で 919 KB PDF が **$0.12 / 通** (予測 $0.02 の 6 倍) と判明したのが導入動機。
+
+- **既定**: 800 KB。dev 観測で 919 KB は超過、典型的な大会案内 (100–500 KB) は通す sweet spot
+- **0 を指定すると guard 無効化** (テスト・一時 opt-out 用)
+- **超過時の挙動**: AI 呼ばず `mail_messages.status='oversize_skipped'` を立てる。`tournament_drafts` 行は作らない
+- **inbox UI**: 「AI スキップ (PDF サイズ超過)」pill (warn tone) で可視化
+- **再処理**: pre-filter noise と違い automatic retry は **しない** (retry すれば guard の意味が消える)。コストを許容するなら env を上げてから `reextract` CLI:
+  ```bash
+  MAIL_WORKER_PDF_SIZE_LIMIT_KB=2000 pnpm --filter @kagetra/mail-worker exec tsx \
+    apps/mail-worker/src/reextract.ts --since=2026-04-01 --status=oversize_skipped
+  ```
+- **ログ**: `pipeline.ts` で `warn` 'ai oversize_skipped' が出る (`filename`, `sizeBytes`, `limitBytes` 含む)
+
 ---
 
 ## 4. トラブルシュート

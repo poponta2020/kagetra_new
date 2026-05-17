@@ -462,6 +462,18 @@ async function runAiPhase(
       const detail = outcome.rawResponse ?? outcome.reason
       summary.aiErrors.push(truncateAiError(detail))
     }
+    // Cost-guard trips are warn-level: an operator-actionable event (raise
+    // the env var and reextract, or accept the skip) that shouldn't blend
+    // into the info stream alongside successful classifications.
+    if (outcome.kind === 'oversize_skipped') {
+      log.warn('ai oversize_skipped', {
+        messageId,
+        rowId,
+        filename: outcome.filename,
+        sizeBytes: outcome.sizeBytes,
+        limitBytes: outcome.limitBytes,
+      })
+    }
     log.info('ai outcome', {
       messageId,
       rowId,
