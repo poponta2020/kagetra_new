@@ -1502,3 +1502,42 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+- 2026-05-17 /auto-review-loop PR #31: 2R, verdict=pass, tokens=123028/500000, result=pass
+
+## 2026-05-17 セッション 7 (🟢 PR #31 PDF cost guard を ship)
+
+### 完了
+- **PR #31** (`feat/pdf-cost-guard` → main, merge `bbd8fb3`) ship — 919 KB PDF 添付 1 通が Sonnet 4.6 で **$0.12** (予測 $0.02 の 6 倍, mail id=125 investigation) と判明したのを受けて、AI 呼び出し前に attachment size で短絡する cost guard を導入
+  - **設定**: env `MAIL_WORKER_PDF_SIZE_LIMIT_KB` (default **800**、`0` で無効化、`''` も default に fallback)
+  - **挙動**: 単体 PDF が limit 超 → classifier 前段で short-circuit → 新 enum `mail_messages.status = 'oversize_skipped'` + draft 作成なし + pipeline warn ログ (`filename`, `sizeBytes`, `limitBytes`)
+  - **再処理**: pre-filter noise と違い automatic retry **しない**。env raise → `reextract --status=oversize_skipped` の operator 経路
+  - **UI**: inbox に「AI スキップ (PDF サイズ超過)」warn pill (page.tsx STATUS_LABEL)
+  - **scope 外 (carryover)**: `--bypass-oversize-guard` flag、二段警告 (warn → skip)、合算サイズ / トークン推定 metric
+- `/auto-review-loop` 2R で verdict=pass: R1 で SeedRow 手書き union TS2322 (blocker) + 空文字 env が 0 に coerce (should_fix) を検出 → fix commit `ef2dc87` → R2 pass
+- 後片付け: gh pr merge --merge --delete-branch → `bbd8fb3` まで ff → `git worktree remove --force` (メタ) → `rm -rf /tmp/feat-pdf-cost-guard` (Windows long path 対応) → branch -d → review artifact 削除
+
+### 学び
+- **`typeof xxx.$inferInsert.<col>` を seed 型に使う pattern** — `SeedRow.status` を手書き union ('pending' | 'fetched' | ...) で書いていたら enum 拡張 (`oversize_skipped` 追加) で TS2322。`NonNullable<typeof mailMessages.$inferInsert.status>` に置換すると以後 enum 追加に自動追従。**test seed helper の column 型は schema-derived を default にする**ルール化
+- **`z.coerce.number()` の空文字 → 0 落とし穴** — `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` (空文字) が `Number('') === 0` に coerce され、`0` を「guard 無効化」の sentinel として扱う設計だと意図せず無効化。**`z.preprocess((v) => v === '' ? undefined : v, ...)` で empty string → undefined → default を default pattern**
+- **typecheck cache の落とし穴** — 最初の `pnpm check-types` が「no output」で通って commit → R1 で TS2322 検出 → 再実行で再現。**コード変更後の typecheck は cache を疑う + 別 file 追加時は必ず再 typecheck**。Codex review は cache に依存せず実 source を読むので catch できた
+- **session 6 学びの実適用 — pre-existing flake を main HEAD で再現確認**してから PR description に書いた (今回 `pipeline-runs.test.ts` 2 件)。Codex R2 も flake に何も触れず → 正しい判断。**「pre-existing と書く前に main HEAD で再現」が定着**
+- **/auto-review-loop が 3 連続発火 (PR #29, #30, #31)** — 検出された common pattern:
+  - PR #29: doc 内 section 整合
+  - PR #30: dev deps の major version 整合
+  - PR #31: **型 vs 実装の乖離** (schema enum 拡張 vs 手書き union) + **env input edge case** (空文字)
+  - Codex の強みは「複数 file 整合」「型と実装の乖離」「edge-case input」。単一 file 内で完結する PR は R1 pass しやすい
+
+### 残存している git 状態
+- main: `bbd8fb3` (本セッションの worklog + memory 同期 commit がこれから乗る)
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- dev DB: id=125 = `ai_processing` のまま保留 (本日 session 3 で確認、次回正規 pipeline で `ai_done` 化想定)
+
+### 次回 (carryover)
+- ~~🟢 大きい PDF mail の AI cost guard 検討~~ → **本セッション PR #31 で完了**
+- 🟢 **apps/api / packages/shared 実 lint 配線** (mail-worker と同 pattern で適用可能)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag (env raise の代わり)、二段警告 (warn → skip)、合算サイズ / トークン推定 metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
