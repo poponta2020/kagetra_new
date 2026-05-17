@@ -1320,3 +1320,45 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+- 2026-05-17 /auto-review-loop PR #28: 1R, verdict=pass, tokens=26636/500000, result=pass
+
+## 2026-05-17 セッション 2 (PR #28 ship: reextract `--status=` CSV filter)
+
+### 完了
+- **PR #28** (`feat/reextract-status-filter` → main, merge `c730f61`) ship — 🔴 mail-worker Windows native crash 調査 (id=125, status=ai_processing) のために、`reextract.ts` CLI に `--status=ai_done,ai_failed` 形式の CSV フィルタを追加。`--since=2026-04-30 --status=ai_processing` で id=125 だけ pinpoint で再走可能になり、他 22 件 (ai_done 19 + archived 3) の巻き添え API call (~$0.35 分) を回避できる
+  - 主変更: `apps/mail-worker/src/reextract.ts` (+44 行) — `parseArgs` に `--status=` 分岐 (CSV 検証 + 不正 status throw + 空 throw、last-wins)、`selectReextractTargets` の args 型に `statuses` 追加、`inArray(mailMessages.status, [...args.statuses])` 化、`includePrefilterNoise` OR leg は不変
+  - tests: `apps/mail-worker/test/reextract.test.ts` (+88 行) — `parseReextractArgs` に 5 ケース (defaults / single / multi 順序 / invalid throw / empty throw) + `selectReextractTargets` に 1 ケース (subset filter) + 既存 6 ケースに defaults statuses regression guard。**12 → 18 tests pass**
+  - Usage 更新: `--status=` flag 説明 + `--include-prefilter-noise` との **non-interaction note** (Code Quality subagent の 🟠 SHOULD-FIX を反映、`--status` は AI-touched leg のみ filter する仕様を operator-facing で明示)
+- **`/auto-review-loop 28`** R1 で verdict=pass、blockers/should_fix/nits 全部 0、good_points 3 件 (後方互換 / バリデーション+テスト整合 / Usage の interaction note 一致)、tokens 26,636 / 500,000。**ドッグフード 5 連 R1 pass** (#24/#25/#26/#27/#28)
+- **後片付け**: `gh pr merge 28 --merge --delete-branch` (リモート delete 成功、ローカル branch 削除は worktree 占有で失敗) → main を `c730f61` まで ff → `git worktree remove --force` でメタ解放 → 物理 `rm -rf` は「Directory not empty」失敗 → **PowerShell `Remove-Item -Recurse -Force`** で完全削除 → `git branch -d feat/reextract-status-filter` 成功 → review artifact `codex-result-pr28-r1.json` 削除
+- **Orchestration**: `/claude-mem:make-plan` で Phase 0 (Documentation Discovery) + Phase 1 (実装 + tests + doc) + Phase 2 (PR & ship 委譲) の 3 phase plan を作成 → `/claude-mem:do` で Implementation subagent → 並列 3 subagent (Verification V1-V7 / Anti-pattern A1-A8 / Code Quality 8 観点) で確認 → orchestrator が Code Quality の 🟠 1 件を反映 → re-verify → commit + push + PR
+
+### 学び
+- **subagent 並列 review の有効性** — Implementation 自身が test/type check を済ませた後でも、独立 Verification / Anti-pattern / Code Quality を並列に走らせる価値あり。今回は Code Quality が `--status` × `--include-prefilter-noise` の非排他性 doc 不足を 🟠 SHOULD-FIX として拾い、Codex review でも「Usage に明記」が good_points として評価された。レビュー前修正が review pass を補強する好例
+- **V6 lint check は placeholder** — `apps/mail-worker` の `lint` script は `echo 'no lint configured yet'` で実 lint なし。本 PR では問題なかったが、将来的に ESLint 配線を検討するならカテゴリ別 carryover に挙げる価値あり (今は P3-B 等の優先度の方が高い)
+- **worktree 物理削除は Windows pnpm では PowerShell Remove-Item 必須** — `rm -rf` が `Directory not empty` で失敗するパターンが PR #26 / #27 / #28 で再現。`git worktree remove --force` はメタ削除のみ、物理は別途 `Remove-Item -Recurse -Force` (PowerShell) が確実。Git Bash の `rm -rf` はシンボリックリンク or 権限で詰まる。今後の ship 後始末ではこの 2 段構えで安定
+- **`--status` 後方互換は signature ではなく parseArgs の default で実現する設計** — `selectReextractTargets` 関数の args 型では `statuses` を required にした。これは「呼び出し側に明示的に選択を強要する API 設計」で、Code Quality subagent も spec の判断を支持。CLI 側で `parseArgs` が default `[...VALID_STATUSES]` を入れるので、operator 視点では完全後方互換
+- **token usage 推移** — PR #24 (43k) / #25 (?k) / #26 (27k) / #27 (67k) / #28 (27k)。差分行数だけでは予測できず、PR description + context の濃さで token 変動。今回 261 行差分で 27k は比較的軽め (テスト追加が主で description も簡潔だったため)
+
+### 残存している git 状態
+- main: `c730f61`（本セッションの worklog + memory 同期 commit がこれから乗る）
+- worktree: なし (PR #28 後の `Remove-Item` で完全削除)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ、remote-tracking も `origin/main` のみ
+- 以前から: `<repo>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: id=125 は `ai_processing` のまま (本 PR で再走の手段を整備、調査本体は次セッション)
+
+### 次回 (carryover)
+- 🔴 **mail-worker Windows native crash 調査** (id=125) — **次の最優先**、本 PR (#28) で `--status=ai_processing` 手段確保完了。`/c/tmp` で `--since=2026-04-30 --status=ai_processing` を打ち、PR #24 (bytea hex fix) で救済されるか / Windows 固有の native crash として再現するかを切り分け。結果に応じて Windows 警告 doc or fix PR
+- ~~🟡 `reextract.ts` に `--status=...` filter 追加~~ → **本セッション PR #28 で完了**
+- 🟡 reextract 仕様の doc 訂正 (worklog 5/8 + 引き継ぎ書 5/7)
+- 🟡 `db:push --force` 引き継ぎ書記述の正確化
+- 🟡 別環境引き継ぎ手順整理 (DB は環境ごとローカル / pg_dump オプション併記)
+- 🟢 `/auto-review-loop` の multi-round 実発火観測 (5 連 R1 pass で未観測のまま、中規模差分 PR 待ち)
+- 🟢 `/fix` の `FOLLOWUP_REVIEW` 変数名整理 (PR #25 r1 で出た nit、informational)
+- 🟢 noise 11 件の UI 露出経路の確認
+- 🟢 `apps/mail-worker` 実 lint 配線 (本 PR で placeholder 発覚、低優先)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
