@@ -1467,3 +1467,38 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+## 2026-05-17 セッション 6 (PR #30 ship: mail-worker 実 ESLint 配線 + worktree 削除 pattern 学び)
+
+### 完了
+- **PR #30** (`feat/mail-worker-eslint` → main, merge `022bfc7`) ship — `apps/mail-worker` の lint script placeholder (`echo 'no lint configured yet'`) を真の ESLint 実行に置き換え。carryover 🟢 mail-worker 実 lint 配線 を消化
+  - 主変更: 8 files (eslint.config.mjs 新規 / package.json + lint script + dev deps / 既存 code 微修正 / pnpm-lock.yaml)、3 commits (`73cb74c` 初回 + `c494f36` R1 fix + `022bfc7` merge)
+  - flat config: `@eslint/js` recommended + `typescript-eslint` recommended + node globals + `@typescript-eslint/no-unused-vars` の `_` prefix 例外 (TS 慣習)
+  - 既存 code 微修正: 22 件の Unused eslint-disable directive を `--fix` で削除、空白行を sed で整理、3 件の test dead-code (使われていない subject const) を削除
+  - **lint pass 確認**: lint exit 0 / check-types exit 0 / test **180/180 pass**
+- **`/auto-review-loop 30` で multi-round 2 連続発火** — R1 needs_changes (should_fix 1: `@eslint/js@^10` → `^9` 揃え + nit 3: 空白行残置) → R1 fix 反映 → R2 pass。累計 81,299 tokens / 500,000。PR #29 (doc) と PR #30 (infra) で **multi-round が連続観測** された
+- **後片付け**: gh pr merge --merge --delete-branch → main を `022bfc7` まで ff → `git worktree remove --force` でメタ解放 → **PowerShell `Remove-Item` が long path で失敗** → **`rm -rf` (Git Bash) に fallback で成功** → branch -d 成功 → review artifact 削除
+
+### 学び
+- **worktree 物理削除の 2 段 fallback pattern** — PR #26/27/28/29 では PowerShell `Remove-Item -Recurse -Force` で完了していたが、PR #30 で失敗 (`Directory not empty` not raised, but file 残置)。原因は Windows long path (260 char limit) — `node_modules/.pnpm/@typescript-eslint+eslint-plugin@...+eslint@9.39.4_jiti@2_taqaogyouzcfz7ntog4fzalzyq/...` の深 path で PowerShell が処理しきれず silent fail する。**Git Bash `rm -rf` は LongPath 対応**で成功。今後の worktree cleanup pattern: (1) `git worktree remove --force` (メタ) → (2) PowerShell `Remove-Item` 1st try → (3) 残ったら `rm -rf` 2nd try → (4) `git branch -d` (順序)
+- **`/auto-review-loop` multi-round が 2 連続発火** — PR #29 (doc) + PR #30 (infra config) で 2 連続。R1 で should_fix が出る PR の特徴:
+  - PR #29: doc 内 section 間の整合性 (`docker compose down -v` の compose file 指定不整合)
+  - PR #30: dev deps の major version 整合 (`@eslint/js@10` vs `eslint@9`)
+  - 共通点: **複数 file / 複数設定間の整合性チェック**で Codex は強い。前 5 連 R1 pass の PR は単一 file scope や明らかな単一 change で「整合性問題」が出にくかった
+- **「pre-existing fail」と即決しない** — worktree の test fail 2 件を「main HEAD でも fail」と確認したが、これは worktree の `pnpm install` 不完全状態での flaky だった (フル install 後は 180/180 pass)。**「pre-existing と言う前に worktree フル `pnpm install` で再現確認」をルール化**。早合点で PR description を「pre-existing fail あり」と書いて後で訂正したのは reviewer 信頼度を損ねる、次から避ける
+- **peer dep warning は実害ある場合とない場合の判断** — `@eslint/js@^10` と `eslint@^9` の組み合わせは PR #30 初版で「実害なし、機能上 OK」と書いたが、Codex R1 で「install / peer check / lint 実行で不安定になる」と指摘 → 揃えて R2 pass + good_point に評価。**peer warning は実害有無を主張せず、major 整合を default にする**
+
+### 残存している git 状態
+- main: `022bfc7` (本セッションの worklog + memory 同期 commit がこれから乗る)
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- dev DB: id=125 = `ai_processing` のまま保留 (本日セッション 3 で確認、次回正規 pipeline で `ai_done` 化想定)
+
+### 次回 (carryover)
+- ~~🟢 `apps/mail-worker` 実 lint 配線~~ → **本セッション PR #30 で完了**
+- 🟢 大きい PDF mail の AI cost guard 検討 (本日セッション 3 学び、本日中続行 or 翌セッション送り判断中)
+- 🟢 **apps/api / packages/shared 実 lint 配線** (本 PR scope outside、新規 carryover、mail-worker と同 pattern で適用可能)
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- 本番 Lightsail デプロイ (手動)
+- Phase P3-B / P3-C 優先度確定
