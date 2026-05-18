@@ -83,8 +83,10 @@ LTS aarch64 image を使う前提。
   sudo netfilter-persistent save
   ```
 
-- 検証: `sudo iptables -L INPUT --line-numbers` で INPUT 6 行目に ACCEPT
-  が挿入されていること
+- 検証: `sudo iptables -L INPUT --line-numbers` で **INPUT の REJECT より
+  前に 80 と 443 の ACCEPT 両方** が並んでいること (`-I INPUT 6` を 2 回
+  実行すると後から挿入した 443 が 6 行目に、80 は 7 行目に押し下がる。
+  どちらも REJECT より前にあれば OK)
 - ufw は使わない (iptables-persistent と競合、Oracle image にはデフォルト
   未インストール)
 

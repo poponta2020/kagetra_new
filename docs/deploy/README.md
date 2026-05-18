@@ -35,7 +35,8 @@ Phase A-D の段階構成で進める。
 | ドメイン | `new.hokudaicarta.com` (サブドメイン分離、root は旧 kagetra 並行稼働) |
 | DNS | お名前.com (移管しない) |
 | SSL | Let's Encrypt (certbot, 自動更新) |
-| reverse proxy | nginx (port 80/443 → web 3000 / api 3001) |
+| reverse proxy | nginx (port 80/443 → web 3000 デフォルト、Hono API は別 path prefix or 別サブドメインで分離 — Phase B で詳細設計) |
+| 認証経路の注意 | LINE Login の redirect URI は `/api/auth/callback/line` で Next.js (web 3000) の Auth.js App Router が処理する。Phase B で `/api/*` を Hono (api 3001) に全部流すと Auth.js callback が壊れるため、`/api/auth/*` は明示的に web 3000 にルートする (or Hono を `/hono-api/*` 等に分離) |
 | DB | PostgreSQL 16 (Docker 同居、localhost bind) |
 | バックアップ | Cloudflare R2 (10GB 無料 tier, 日次 03:00 JST + GFS rotation) |
 | LINE Login (production) | 新規取得 (redirect URI: `https://new.hokudaicarta.com/api/auth/callback/line`) |
