@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
@@ -9,6 +10,14 @@ const nextConfig: NextConfig = {
   // actions.ts → classifier.ts → ../persist/draft.js cannot be resolved.
   transpilePackages: ['@kagetra/shared', '@kagetra/mail-worker'],
   output: 'standalone',
+  // monorepo の root を明示。Next.js 15 は auto-detect するが、CI/prod 差異リスク回避のため明示 (Phase B Phase 0 Discovery 結果)。
+  outputFileTracingRoot: path.join(__dirname, '../../'),
+  // dev で Hono RPC client (apps/web/src/lib/api.ts) の相対 path '/hono-api/*' を http://localhost:3001 に転送する。本番は nginx が同じ path を api 3001 に proxy_pass するので、ここでは production=空配列。
+  async rewrites() {
+    return process.env.NODE_ENV === 'production'
+      ? []
+      : [{ source: '/hono-api/:path*', destination: 'http://localhost:3001/hono-api/:path*' }]
+  },
   webpack: (config) => {
     // Resolve `import './foo.js'` against `./foo.ts` so the `.js`-suffixed
     // relative imports inside @kagetra/mail-worker (NodeNext / TS bundler
