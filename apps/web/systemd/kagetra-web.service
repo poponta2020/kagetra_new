@@ -1,0 +1,41 @@
+[Unit]
+Description=Kagetra web (Next.js 15 standalone)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/web.md
+
+[Service]
+# Next.js standalone build は self-contained Node サーバー、常駐 simple service。
+# graceful shutdown は Next.js が SIGTERM を内部処理 (Node http.Server.close)。
+Type=simple
+
+# 専用 system user (root 回避、docs/deploy/oracle-setup.md §7 で作成済)。
+User=kagetra
+Group=kagetra
+
+# Next.js 15 monorepo standalone の出力先。`apps/web/server.js` を起動する。
+# `cp -r apps/web/public apps/web/.next/standalone/apps/web/` +
+# `cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/` を
+# 事前に deploy script で実施しておく必要あり (docs/deploy/web.md §4 参照)。
+WorkingDirectory=/opt/kagetra/apps/web/.next/standalone
+
+# DATABASE_URL, AUTH_SECRET, NEXTAUTH_URL, AUTH_LINE_*, NEXT_PUBLIC_API_URL 等
+# を含む。実体は .env.production (mode 0600, owner kagetra)、commit しない。
+EnvironmentFile=/opt/kagetra/.env.production
+
+# 個別環境変数 (EnvironmentFile に書かないもの)。
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+Environment=NODE_ENV=production
+
+# server.js は monorepo path として apps/web/server.js に配置される。
+ExecStart=/usr/bin/node apps/web/server.js
+
+# 異常終了時は自動再起動 (Next.js の例外で落ちた場合に備える)。
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

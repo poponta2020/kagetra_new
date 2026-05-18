@@ -1,0 +1,29 @@
+[Unit]
+Description=Kagetra api (Hono + @hono/node-server)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/api.md
+
+[Service]
+Type=simple
+
+User=kagetra
+Group=kagetra
+
+# tsup build 後の dist/ を直接起動。@kagetra/shared workspace 依存は
+# /opt/kagetra/node_modules で解決される前提。
+WorkingDirectory=/opt/kagetra/apps/api
+
+EnvironmentFile=/opt/kagetra/.env.production
+Environment=PORT=3001
+Environment=NODE_ENV=production
+
+ExecStart=/usr/bin/node dist/index.js
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

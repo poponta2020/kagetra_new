@@ -3,7 +3,8 @@ import { logger } from 'hono/logger'
 import { cors } from 'hono/cors'
 import { eventsRoute } from './routes/events'
 
-const app = new Hono().basePath('/api')
+// basePath は dev/prod 一貫で '/hono-api'。Next.js (apps/web) の Auth.js (/api/auth/*) や line-link (/api/line-link/*) との path 衝突を回避するため、Hono は別 prefix を持つ。本番 nginx は /hono-api/* を api 3001 に振り分ける (docker/nginx/kagetra.conf.example 参照)。
+const app = new Hono().basePath('/hono-api')
 
 app.use('*', logger())
 app.use('*', cors({

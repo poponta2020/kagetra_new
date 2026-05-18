@@ -1,0 +1,56 @@
+# kagetra_new 本番 nginx config テンプレート (sample)。
+# /etc/nginx/sites-available/kagetra に配置 → /etc/nginx/sites-enabled/ に symlink。
+# certbot --nginx で SSL 設定済 (`docs/deploy/dns-ssl.md` §5 完了) の上から
+# location ブロックだけ上書きする想定。
+#
+# 設定方針 (Phase B Option B):
+# - /hono-api/* は Hono API (port 3001) に proxy_pass
+# - それ以外 (Next.js web、Auth.js /api/auth/*、line-link /api/line-link/*、
+#   admin /api/admin/*、静的アセット 等) は全部 Next.js web (port 3000) に
+#
+# Hono の basePath は '/hono-api' なので nginx は prefix を剥がさず転送。
+
+server {
+    listen 443 ssl http2;
+    server_name new.hokudaicarta.com;
+
+    # certbot --nginx が生成した SSL 設定をそのまま使う。
+    ssl_certificate /etc/letsencrypt/live/new.hokudaicarta.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/new.hokudaicarta.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # アップロード上限 (mail-worker の PDF 添付や将来の Phase 4 アルバム用)
+    client_max_body_size 32M;
+
+    # Hono API: /hono-api/* → port 3001 に転送 (prefix 剥がさない)
+    location /hono-api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+    }
+
+    # それ以外 (Next.js web、Auth.js、line-link、静的アセット 等)
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        # WebSocket / SSE 用 (Next.js dev HMR は本番不要だが、将来の Phase で
+        # SSE 通知等を使う可能性に備えて)。
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+# HTTP -> HTTPS リダイレクト (certbot が生成した default を上書き)
+server {
+    listen 80;
+    server_name new.hokudaicarta.com;
+    return 301 https://$host$request_uri;
+}
