@@ -1541,3 +1541,44 @@
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - 本番 Lightsail デプロイ (手動)
 - Phase P3-B / P3-C 優先度確定
+
+- 2026-05-18 /auto-review-loop PR #32: 3R, verdict=needs_changes, tokens=89286/500000, result=max-reached (全 should_fix + nit 反映済で ship)
+
+## 2026-05-18 セッション 1 (本番デプロイ方針確定 + Phase A: PR #32 ship)
+
+### 完了
+- **本番デプロイ方針議論 → 確定** — ユーザー希望「Lightsail でなくとも安く」を受けて、Oracle Cloud Always Free 東京 (ARM Ampere A1 4 OCPU / 24GB RAM / 200GB SSD) を採用。リスク (アカウント突然停止) は Cloudflare R2 (10GB 無料) 日次バックアップ + 家 PC 月次副 copy で軽減。ドメインは既存 `hokudaicarta.com` を**サブドメイン分離** (`new.hokudaicarta.com`) で旧 kagetra と並行稼働、お名前.com DNS は移管しない (旧 kagetra 影響回避)。Cloudflare は R2 用途のみ
+- **Phase A-D 計画作成** — `/claude-mem:make-plan` で 4 Phase 構成 (A: インフラ doc / B: アプリ配線 / C: backup / D: 初回起動)。Phase 0 (Documentation Discovery) を 5 並列 subagent で実施: (1) 既存 mail-worker deploy pattern 抽出、(2) Auth.js v5 + LINE Login production env、(3) drizzle migration 本番適用、(4) R2 + rclone + GFS rotation、(5) Oracle Cloud + iptables 罠
+- **Phase A 実装** (PR #32 `feat/deploy-phase-a-infra-doc` → main, merge `362c1b3`) — doc-only PR で 3 ファイル新規追加:
+  - `docs/deploy/oracle-setup.md` (170 行) — アカウント作成 → Tokyo ARM A1 → Security List (80/443 別ルール) → **iptables 罠** (INPUT 末尾 REJECT を `-I INPUT 6` で先頭挿入) → swap 4GB → kagetra user (`-m` 罠) → Node 22 / corepack / Docker → Always Free 維持 (Pay-as-you-go 昇格で idle reclaim/容量逼迫を回避)
+  - `docs/deploy/dns-ssl.md` (140 行) — お名前.com で `new.hokudaicarta.com` A レコード追加 → DNS 反映待ち → nginx → certbot HTTP-01 challenge で Let's Encrypt
+  - `docs/deploy/README.md` (52 行 → 53 行) — deploy doc 群 index + Phase A-D 概要 + 確定済み構成表 (12 行) + **Auth.js callback routing 注意行** (Phase B nginx 設計指針)
+- **`/auto-review-loop 32` 3R 全反映 ship** — R1 (HSTS 期待ヘッダ削除 + HTTP-01 typo)、R2 (Security List `80,443` カンマ区切りを 2 ルールに分割)、R3 (Phase B nginx で `/api/auth/*` を Hono に流すと Auth.js callback が 404 する事前注意 + iptables 検証文の行番号ずれ訂正)。各 R で should_fix 1 件 + nit 0-1 件、累計 89,286 tokens / 500,000。max-rounds 到達したが全指摘反映済のため `gh pr merge --merge --delete-branch` で ship
+- **後片付け**: gh pr merge → main を `362c1b3` まで ff → `git worktree remove --force` (メタ) + `rm -rf` (物理、doc only で long path 問題なし) → `git branch -d` 成功 → review artifact 3 件 (r1/r2/r3.json) 削除
+
+### 学び
+- **Oracle Cloud Always Free の対費用効果は Phase 4 まで余裕** — ARM Ampere A1 の 24GB RAM/200GB SSD は本プロジェクトの Phase 4 アルバム本格運用後でも余裕。Pay-as-you-go 昇格でも Always Free 枠内なら課金 0 という設計が秀逸 (idle reclaim + 容量逼迫の二重リスク解消)。デメリットの「アカウント突然停止」は 1人趣味プロジェクトなら R2 backup + 家 PC 副 copy で十分軽減
+- **サブドメイン分離 + DNS 移管しない方式が並行稼働期の最適解** — お名前.com → Cloudflare DNS 移管を当初推奨していたが、旧 kagetra root も移管対象になるため却下。代わりに「お名前.com のまま `new` A レコードのみ追加」「Cloudflare は R2 用途だけアカウント作成」で旧への影響ゼロ。cutover は Phase 4 完了後の別 PR
+- **Codex が doc PR で Phase 横断の整合性指摘** — PR #32 R3 で「Phase A 単独では実害ゼロだが、Phase B nginx で `/api/*` を Hono に全部流すと Auth.js callback (`/api/auth/callback/line`) が 404 し本番ログイン不能」という Phase B 設計への事前警告。Phase A doc に注意行を追記して Phase B の make-plan/do で取りこぼし防止。worklog 5/17 で蓄積された「Codex は複数 file/複数 phase 整合性に強い」が再確認された
+- **OCI Security List のカンマ区切りポート指定は確実性が低い** — `80,443` を 1 ルールで開けようとして実は 443 が閉じたまま、後続の curl/certbot が失敗するパターン回避。2 ルール分割 (80, 443 を別々) が安全 (Codex R2 指摘)
+- **certbot --nginx 標準では HSTS なし** — `add_header Strict-Transport-Security ... always;` を nginx 設定に明示追加しない限り HSTS は付与されない。確認手順の curl 期待ヘッダから HSTS を外す訂正 (R1)
+- **max-rounds=3 到達後の orchestrator 判断** — Codex は毎ラウンド別観点を出す傾向で、R4 走らせれば更に新指摘が出る可能性高い。doc PR で実害影響範囲が限定的かつ Phase D で必ず実機検証する設計なので、R3 まで全反映済の段階で ship 判断 (worklog 5/17 PR #29 前例踏襲)
+
+### 残存している git 状態
+- main: `362c1b3` (本セッションの worklog + memory 同期 commit がこれから乗る)
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 以前から: `<repo root>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置 (gitignored)、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: id=125 = `ai_processing` のまま保留 (5/17 session 3 で PR #24 fix 確認済、次回正規 pipeline で `ai_done` 化想定)
+
+### 次回 (carryover)
+- ~~本番 Lightsail デプロイ (手動)~~ → **方針確定 (Oracle Cloud Always Free 東京 採用) + Phase A doc ship 完了。Phase B/C/D 進行中**
+- 🔴 **Phase B**: アプリケーションデプロイ配線 (apps/web / apps/api / postgres-docker / nginx / migration script / 初期 admin seed の systemd/docker-compose/script/doc) — **次の最優先タスク**
+- 🟡 **ユーザー手動セットアップ** (Phase A doc に従う): Oracle Cloud アカウント作成 + Pay-as-you-go 昇格 + ARM A1 起動 + iptables/swap/user/Node/Docker + お名前.com で `new` A レコード追加 + nginx + certbot SSL — **Phase B 着手と並行で進行可** (Phase D 実機検証時点で完了していれば OK)
+- 🟢 Phase C: バックアップ配線 (pg_dump → R2 + LINE 失敗通知 + 復元 doc) — Phase B 完了後
+- 🟢 Phase D: 本番初回起動 + 動作確認 + ship — Phase C 完了後
+- 🟢 **apps/api / packages/shared 実 lint 配線** (mail-worker と同 pattern、Phase B/C の間に挟める)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- Phase P3-B / P3-C 優先度確定 (本番安定後)
