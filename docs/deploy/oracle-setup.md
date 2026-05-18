@@ -53,11 +53,14 @@ LTS aarch64 image を使う前提。
 
 - Networking → Virtual Cloud Networks → 該当 VCN → Security Lists →
   Default Security List → Add Ingress Rules
-- 追加するルール 1 件:
-  - Source CIDR: `0.0.0.0/0`
-  - IP Protocol: TCP
-  - Destination Port Range: `80,443` (カンマ区切りで両ポート同時可)
-  - Stateless: OFF
+- 追加するルール 2 件 (80 と 443 を別々の Ingress Rule として 2 回追加。
+  OCI の Destination Port Range はコンソール仕様により単一ポートか範囲
+  (`8000-8999`) を前提とするため、`80,443` のカンマ区切りは確実に
+  受け付けられる保証がない):
+  - ルール 1: Source CIDR `0.0.0.0/0` / IP Protocol `TCP` /
+    Destination Port Range `80` / Stateless OFF
+  - ルール 2: Source CIDR `0.0.0.0/0` / IP Protocol `TCP` /
+    Destination Port Range `443` / Stateless OFF
 - SSH (22) はデフォルトで開いている (変更不要)
 - **PostgreSQL 5432 は絶対に外から開けない** (Phase B で Docker 同居、
   `127.0.0.1:5432` バインド厳守)
