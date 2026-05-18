@@ -41,8 +41,8 @@ kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
   ```
 
   → Oracle インスタンスの Public IP が返れば反映完了
-- 反映前は次の §5 certbot が DNS-01 challenge で失敗するので、必ず DNS
-  反映後に進む
+- 反映前は次の §5 certbot が HTTP-01 challenge (port 80 経由で `new.
+  hokudaicarta.com` への到達性検証) で失敗するので、必ず DNS 反映後に進む
 
 ## 3. nginx インストール
 
@@ -112,8 +112,10 @@ kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
   curl -I https://new.hokudaicarta.com
   ```
 
-  → `HTTP/2 200`, `server: nginx/...`, `strict-transport-security: ...`
-  が返れば OK
+  → `HTTP/2 200` と `server: nginx/...` が返れば OK (HSTS ヘッダー
+  `strict-transport-security` は certbot --nginx 標準では付与されない、
+  必要なら Phase B で nginx に `add_header Strict-Transport-Security ...
+  always;` を明示追加してから期待ヘッダに加える)
 - ブラウザで `https://new.hokudaicarta.com` を開き、鍵マーク + 「証明書:
   Let's Encrypt」確認
 - 証明書期限確認:
