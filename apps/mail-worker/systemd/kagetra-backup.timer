@@ -1,7 +1,6 @@
 [Unit]
 Description=Run kagetra PostgreSQL backup daily at 03:00 JST
 Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/backup.md
-Requires=kagetra-backup.service
 
 [Timer]
 # 03:00 JST = 18:00 UTC。inline timezone 指定 (systemd v249+ で対応、Ubuntu 22.04 OK)。
