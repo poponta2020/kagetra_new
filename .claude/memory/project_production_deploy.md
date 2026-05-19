@@ -38,9 +38,12 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
 - **Phase A**: インフラ準備 + 手動セットアップ doc 化 — **2026-05-18 PR #32 ship 完了**
   - 新規 doc 3 本: oracle-setup.md / dns-ssl.md / README.md
   - 実機セットアップ (Oracle アカウント作成、ARM A1 起動、DNS 設定、nginx + SSL) は **ユーザー手動実施待ち**、Phase D で動作確認
-- **Phase B**: アプリケーションデプロイ配線 — 未着手
-  - apps/web (Next.js standalone) + apps/api (Hono) + PostgreSQL Docker + nginx reverse proxy + migration script + 初期 admin seed の systemd/docker-compose/script/doc 配線
-  - 注意: nginx で `/api/auth/*` だけ web に流す経路設計が必要 (PR #32 R3 Codex 指摘)
+- **Phase B**: アプリケーションデプロイ配線 — **2026-05-19 PR #33 ship 完了** (Codex R1 一発 pass)
+  - Hono basePath を `/api` → `/hono-api` に変更 (Auth.js callback と path 衝突回避、Option B)
+  - 配線 4 本: kagetra-web.service / kagetra-api.service / docker-compose.prod.yml (postgres 127.0.0.1 bind) / nginx kagetra.conf.example
+  - Operation script 2 本: apply-migrations.sh (psql + SHA-256 hash + drizzle.__drizzle_migrations idempotent INSERT) / seed-initial-admin.ts (3 状態 idempotent + 5 ケース vitest)
+  - Env テンプレ 3 + doc 3 (postgres.md / web.md / api.md) + README.md 更新
+  - **罠系明示**: 静的アセット cp (.next/static + public/)、postgres localhost bind、drizzle-kit migrate が TTY 必須で本番不適
 - **Phase C**: バックアップ配線 — 未着手
   - pg_dump → R2 + LINE 失敗通知 + 家 PC 副 copy + 復元 doc
 - **Phase D**: 本番初回起動 + 動作確認 + ship — 未着手
@@ -49,6 +52,14 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
 ## ドメイン cutover (将来別 PR)
 
 Phase 4 完了 + データ移行完了後に `new.hokudaicarta.com` → root `hokudaicarta.com` に統一する cutover を別 PR で実施。LINE Login channel の redirect URI を段階移行 (`new.` と root 並行 → root のみ)。本デプロイ計画のスコープ外。
+
+## Phase B 学び
+
+- **Hono basePath が `/api` だと Auth.js の `/api/auth/*` と衝突** — nginx で `/api/* → Hono 3001` にすると Auth.js callback が 404 する。**Hono を `/hono-api/*` に分離** (Option B) で nginx config は 2 location でシンプルに済む (PR #33 で実装、PR #32 R3 Codex 警告を解消)
+- **Next.js 15 standalone monorepo は `outputFileTracingRoot` で監視 path を確定** — pnpm workspace + transpilePackages で `.next/standalone/apps/web/server.js` 構造になる
+- **静的アセット cp が最頻発罠** — `.next/static` と `public/` は standalone copy 対象外、別途 cp 必須、忘れると画面真っ白
+- **drizzle-kit migrate は本番不適** — TTY 必須なので CI/本番では使えない。psql + SHA-256 hash 計算 + `drizzle.__drizzle_migrations` 手動 INSERT で代替 (apply-migrations.sh)
+- **Codex R1 一発 pass は珍しい** — 通常は R2-R3 で nits 残るが、PR #33 は事前の subagent verification (17/17 仕様 + 35/35 anti-pattern) で密度が高かったため一発で済んだ
 
 ## Phase A 学び
 

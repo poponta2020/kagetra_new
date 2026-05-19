@@ -1582,3 +1582,33 @@
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
+
+---
+
+## 2026-05-19 セッション（Phase B PR #33 ship）
+
+### 完了
+- /auto-review-loop PR #33: 1R で Codex 一発 pass (tokens=37025/500000)
+- /ship PR #33 (merge commit 8a2e849): Phase B 配線完了
+  - Hono basePath `/api` → `/hono-api` (Auth.js callback path 衝突回避)
+  - apps/web + apps/api systemd unit、docker-compose.prod.yml (postgres 127.0.0.1 bind)、nginx kagetra.conf.example
+  - scripts/deploy/apply-migrations.sh (psql + SHA-256 hash + idempotent INSERT)、apps/web/scripts/seed-initial-admin.ts (3 状態 + 5 ケース vitest)
+  - env テンプレ 3 (.env.production.example / apps/api/.env.example / apps/web/.env.local.example) + .gitignore 例外
+  - docs/deploy/postgres.md / web.md / api.md (新規) + README.md 更新
+
+### 残存している git 状態
+- main: 8a2e849 (Phase B merge) → これから worklog/memory 同期 commit が乗る
+- worktree: なし (PR #33 worktree は ship 時に削除済)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 以前から: `<repo root>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置 (gitignored)、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: id=125 = `ai_processing` のまま保留 (5/17 session 3 で PR #24 fix 確認済、次回正規 pipeline で `ai_done` 化想定)
+
+### 次回 (carryover)
+- 🟡 **ユーザー手動セットアップ** (Phase A doc + Phase B doc に従う): Oracle Cloud アカウント作成 + ARM A1 起動 + DNS + nginx + SSL + アプリデプロイ実機作業 (build / 静的アセット cp / systemd / migration 適用 / admin seed)
+- 🔴 **Phase C**: バックアップ配線 (pg_dump → R2 + LINE 失敗通知 + 家 PC 副 copy + 復元 doc) — **次の最優先タスク**
+- 🟢 Phase D: 本番初回起動 + 動作確認 + ship — Phase C 完了後
+- 🟢 **apps/api / packages/shared 実 lint 配線** (mail-worker と同 pattern)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- Phase P3-B / P3-C 優先度確定 (本番安定後)
