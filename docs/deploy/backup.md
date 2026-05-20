@@ -99,7 +99,24 @@ R2_ACCOUNT_ID=<§1.3 で控えた Account ID>
 R2_ACCESS_KEY_ID=<§1.2 で控えた Access Key ID>
 R2_SECRET_ACCESS_KEY=<§1.2 で控えた Secret Access Key>
 R2_BUCKET=kagetra-backup
+
+# === LINE Fallback Notification (Phase C) ===
+LINE_FALLBACK_CHANNEL_ACCESS_TOKEN=<production LINE channel access token>
+LINE_FALLBACK_NOTIFY_USER_ID=<管理者 LINE userId>
 ```
+
+`LINE_FALLBACK_*` は postgres 障害時の通知経路 (§6.4 参照)。backup.sh の
+ERR trap は **まず notify-system.ts (DB 経由)** を試し、それが失敗した場合
+にのみ **notify-fallback.ts (env 経由、DB 非依存)** を呼び出す 2 段構え。
+通常の失敗 (rclone error / R2 auth / disk full 等) では primary だけで通り
+fallback は呼ばれないので、admin が同じ内容の通知を 2 通受け取ることは無い。
+
+postgres container が落ちている等で primary が DB 接続段階で詰まる場合に
+限って fallback が発火する。token/userId は production LINE channel +
+管理者 userId を流用して構わない (system_channel の値と同じでも、DB を
+介さない別 path として独立して機能する)。値が両方とも空なら fallback CLI は
+`[notify-fallback] skipped: env-not-configured` を journal に残して exit 0
+する (運用上致命ではない扱い: その場合は journal が最終の検知 channel)。
 
 Phase B で既に設定済の mode 0600 / owner kagetra を維持する (新規行を追加
 しても perm は変えない)。
@@ -205,7 +222,37 @@ sudo systemctl start kagetra-backup.service  # 正常系に戻ったことを確
 通知が届かない場合は `apps/mail-worker/scripts/seed-system-channel.ts` の
 実行漏れか token 失効を疑う (§10 トラブルシュート参照)。
 
-### 6.5 dry-run モードでの試運転
+### 6.5 fallback 通知テスト (DB 障害シナリオ)
+
+postgres 自体が落ちた場合に notify-fallback (env-backed、DB 非依存) が
+発火することを確認する。本テストは LINE_FALLBACK_* を `.env.production` に
+設定済の前提:
+
+```bash
+# 1. postgres container を意図的に停止 (notify-system.ts が getDb() で詰まる状況を作る)
+cd /opt/kagetra
+sudo docker compose -f docker/docker-compose.prod.yml stop postgres
+
+# 2. 手動 trigger (pre_check stage の pg_isready で失敗、ERR trap 発火想定)
+sudo systemctl start kagetra-backup.service
+sudo journalctl -u kagetra-backup.service -e --no-pager
+
+# 3. ログに以下のシーケンスが出ることを確認:
+#    [backup] ERROR: kagetra backup failed: stage=pre_check, ...
+#    [backup] WARNING: notify-system.ts failed; falling back to env-based notify
+#    [notify-fallback] pushed
+#    → fallback 側の LINE 通知が届くこと
+
+# 4. postgres を起動し直して正常系に戻す
+sudo docker compose -f docker/docker-compose.prod.yml start postgres
+sudo systemctl start kagetra-backup.service  # 正常終了することを確認
+```
+
+LINE_FALLBACK_* を未設定で運用する場合は手順 3 のログが
+`[notify-fallback] skipped: env-not-configured` になり、LINE には何も
+飛ばない (journalctl のみ)。
+
+### 6.6 dry-run モードでの試運転
 
 本番稼働を始める前に、通知だけ抑止して backup フローを流す期間を取りたい
 場合は `LINE_NOTIFY_DRY_RUN=1` を env に一時追加する:
@@ -323,11 +370,15 @@ sha256sum ~/backup/kagetra/monthly/*.dump  # 直近 dump の hash を控える
 | timer が発火しない | `systemctl list-timers --all \| grep kagetra-backup` で next firing を確認。`Persistent=true` のため reboot 後の catchup は自動だが、`systemctl status kagetra-backup.timer` で `Active: active (waiting)` か確認。`Active: inactive (dead)` なら `sudo systemctl enable --now kagetra-backup.timer` で再 enable |
 | local `/var/backups/kagetra` の容量増加 | `find -mtime` rotation の動作確認 (`ls -lh /var/backups/kagetra/daily/` で 8 ファイル以下か)、`du -sh /var/backups/kagetra/` で disk usage 確認。期待より多い場合は backup.sh の stage=rotation_local ログを `journalctl` で追う |
 | dry-run のまま稼働している | `.env.production` から `LINE_NOTIFY_DRY_RUN` 行を削除、または `=0` に変更して `sudo systemctl daemon-reload` (env 変更は次回 service 起動から反映)。本番では絶対に `=1` のままにしない |
+| postgres 停止に伴う backup 失敗で LINE 通知が来ない | `LINE_FALLBACK_CHANNEL_ACCESS_TOKEN` と `LINE_FALLBACK_NOTIFY_USER_ID` が未設定の可能性。`journalctl -u kagetra-backup.service` で `[notify-fallback] skipped: env-not-configured` が出ていれば該当。`.env.production` の §4 LINE Fallback セクションに値を入れて次回 backup から発火 |
+| `[notify-fallback] error: LINE pushMessage failed` | env-var で指定した token / userId が無効。token は production LINE channel から再発行、userId は LINE Login webhook で確定した管理者の `U...` 値を再確認 |
+| pg_isready が retry を繰り返したまま timeout する | 5 分 × 60 回の retry を超えて postgres container が起動しないケース。`docker compose -f docker/docker-compose.prod.yml ps postgres` と `docker compose -f docker/docker-compose.prod.yml logs postgres` で起動失敗原因を調査 (disk full / 認証 broken / volume corruption 等)。systemd unit の `OnFailure=` で notify-fallback が発火しているはず |
 
 ## 11. 関連 file
 
 - `scripts/deploy/backup.sh` — backup スクリプト本体 (pg_dump + R2 upload + GFS rotation)
-- `apps/mail-worker/scripts/notify-system.ts` — 失敗時 LINE 通知 CLI (ERR trap から呼ばれる)
+- `apps/mail-worker/scripts/notify-system.ts` — 失敗時 LINE 通知 CLI (DB 経由、ERR trap から 1 段目で呼ばれる)
+- `apps/mail-worker/scripts/notify-fallback.ts` — DB 非依存の fallback LINE 通知 CLI (env 経由、ERR trap から 2 段目で呼ばれる)
 - `apps/mail-worker/src/notify/line.ts` — `pushSystemNotification` 実装 (SDK ラッパー)
 - `apps/mail-worker/systemd/kagetra-backup.service` — systemd service unit
 - `apps/mail-worker/systemd/kagetra-backup.timer` — systemd timer unit (03:00 JST)

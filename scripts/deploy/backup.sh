@@ -108,11 +108,28 @@ notify_failure() {
   echo "[backup] ERROR: $msg" >&2
 
   # cwd 非依存にするため絶対 path から呼ぶ。
-  # notify-system.ts も内部で DATABASE_URL を要求するが、ここまでくれば既に export 済。
   # set -e は trap 内では一時的に無効 (関数 entry 時の状態を継承) なので、
-  # notify-system.ts が失敗しても元の exit_code を保てる。
+  # notify が失敗しても元の exit_code を保てる。
+  #
+  # 2 段構え:
+  #   1st: notify-system.ts (DB-backed)。getDb() で line_channels から
+  #        status='system' 行を読むため、postgres が動いている多くの失敗
+  #        (rclone error / R2 auth / disk full 等) ではこれで通る。
+  #   2nd: notify-fallback.ts (env-backed)。postgres 自体が落ちている時は
+  #        primary が getDb() で詰まるので、env-var (LINE_FALLBACK_*) から
+  #        token/userId を読む DB 非依存 CLI が頼り。
+  # primary 成功時は二重通知を避けるため fallback を skip する
+  # (admin が同じ内容の通知を 2 通受け取って混乱しないように)。
+  local primary_ok=1
   if ! ( cd "$KAGETRA_REPO_ROOT" && "$TSX_BIN" apps/mail-worker/scripts/notify-system.ts "$msg" ); then
-    echo "[backup] WARNING: notify-system.ts also failed; rely on journalctl" >&2
+    primary_ok=0
+    echo "[backup] WARNING: notify-system.ts failed; falling back to env-based notify" >&2
+  fi
+
+  if [ "$primary_ok" -eq 0 ]; then
+    if ! ( cd "$KAGETRA_REPO_ROOT" && "$TSX_BIN" apps/mail-worker/scripts/notify-fallback.ts "$msg" ); then
+      echo "[backup] WARNING: notify-fallback.ts also failed; rely on journalctl" >&2
+    fi
   fi
 
   # original exit code を保ったまま終了 (systemd timer が OnFailure= を発火する)
@@ -132,10 +149,24 @@ install -d -m 0700 "$BACKUP_LOCAL_DIR/daily" "$BACKUP_LOCAL_DIR/weekly" "$BACKUP
 # postgres container の readiness を pg_isready で確認 (-T で TTY 不在エラー回避)。
 # docker compose は repo root から呼ぶ前提 (compose file の相対 path 解決)。
 cd "$KAGETRA_REPO_ROOT"
-docker compose -f docker/docker-compose.prod.yml exec -T postgres \
-  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null \
-  || fail "postgres container is not ready (pg_isready failed)"
-echo "[backup] postgres ready"
+
+# Persistent=true の timer は host reboot 後に missed firing を catch-up する。
+# その瞬間は docker daemon は起動済でも postgres container がまだ初期化途中
+# (FATAL: the database system is starting up) の可能性があり、単発の
+# pg_isready だと丸 1 日分の backup が失敗する。5 秒間隔で最大 5 分 (60 回)
+# retry する。通常時は 1 回目で通るので overhead は実質 0。
+PG_READY=0
+for i in $(seq 1 60); do
+  if docker compose -f docker/docker-compose.prod.yml exec -T postgres \
+       pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+    PG_READY=1
+    echo "[backup] postgres ready (attempt $i)"
+    break
+  fi
+  echo "[backup] postgres not ready yet (attempt $i/60), sleeping 5s..."
+  sleep 5
+done
+[ "$PG_READY" -eq 1 ] || fail "postgres container did not become ready within 5 min (60 attempts)"
 
 # --- stage 2: pg_dump ---
 BACKUP_STAGE="pg_dump"
