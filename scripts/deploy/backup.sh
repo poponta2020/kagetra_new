@@ -19,6 +19,19 @@
 
 set -euo pipefail
 
+# Restrictive umask so any new files/dirs are owner-only.
+# Dumps may contain password hashes; rely on this for default-deny rather
+# than the operator remembering `chmod 0700` on the backup dir.
+umask 077
+
+# Common failure helper. echo to stderr + return 1 so set -e + ERR trap fire.
+# Direct `exit 1` does NOT trigger ERR (it's a normal exit), so manual failure
+# paths must return non-zero as a top-level command instead.
+fail() {
+  echo "ERROR: $*" >&2
+  return 1
+}
+
 # === env 必須チェック (apply-migrations.sh の ${VAR:?...} パターン) ===
 DATABASE_URL="${DATABASE_URL:?DATABASE_URL is required}"
 POSTGRES_USER="${POSTGRES_USER:?POSTGRES_USER is required}"
@@ -39,22 +52,15 @@ export DATABASE_URL
 # === 依存コマンドチェック ===
 # tsx は mail-worker の node_modules/.bin から絶対 path で呼ぶため、
 # ここでは外部 binary 群のみチェック (PATH 解決に任せる)。
-for cmd in docker rclone find date stat hostname cp mkdir; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "ERROR: '$cmd' not found in PATH" >&2
-    exit 1
-  fi
+for cmd in docker rclone find date stat hostname cp install chmod; do
+  command -v "$cmd" >/dev/null 2>&1 || fail "'$cmd' not found in PATH"
 done
 
 # tsx は絶対 path で固定 (本番 systemd の minimal PATH 環境でも確実に通すため、
 # PATH 解決を当てにしない。pnpm install 直後の node_modules/.bin/tsx は
 # launcher script として配置されており、systemd の Type=oneshot からも実行可)。
 TSX_BIN="${KAGETRA_REPO_ROOT}/apps/mail-worker/node_modules/.bin/tsx"
-if [ ! -x "$TSX_BIN" ]; then
-  echo "ERROR: tsx binary not executable: $TSX_BIN" >&2
-  echo "ERROR: run 'pnpm install --filter @kagetra/mail-worker' under $KAGETRA_REPO_ROOT first" >&2
-  exit 1
-fi
+[ -x "$TSX_BIN" ] || fail "tsx binary not executable: $TSX_BIN (run 'pnpm install --filter @kagetra/mail-worker' under $KAGETRA_REPO_ROOT first)"
 
 # === rclone env-var 注入 ===
 # rclone は ~/.config/rclone/rclone.conf を読まず、env-var の remote 設定のみで動作。
@@ -119,16 +125,16 @@ trap notify_failure ERR
 # --- stage 1: pre_check ---
 BACKUP_STAGE="pre_check"
 echo "[backup] stage=$BACKUP_STAGE: ensure local dirs and verify postgres reachable"
-mkdir -p "$BACKUP_LOCAL_DIR/daily" "$BACKUP_LOCAL_DIR/weekly" "$BACKUP_LOCAL_DIR/monthly"
+# install -d -m 0700: enforce 0700 even if dirs already exist with looser perms
+# (mkdir -p doesn't change mode of existing dirs).
+install -d -m 0700 "$BACKUP_LOCAL_DIR/daily" "$BACKUP_LOCAL_DIR/weekly" "$BACKUP_LOCAL_DIR/monthly"
 
 # postgres container の readiness を pg_isready で確認 (-T で TTY 不在エラー回避)。
 # docker compose は repo root から呼ぶ前提 (compose file の相対 path 解決)。
 cd "$KAGETRA_REPO_ROOT"
-if ! docker compose -f docker/docker-compose.prod.yml exec -T postgres \
-    pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null; then
-  echo "ERROR: postgres container is not ready (pg_isready failed)" >&2
-  exit 1
-fi
+docker compose -f docker/docker-compose.prod.yml exec -T postgres \
+  pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null \
+  || fail "postgres container is not ready (pg_isready failed)"
 echo "[backup] postgres ready"
 
 # --- stage 2: pg_dump ---
@@ -143,14 +149,12 @@ echo "[backup] stage=$BACKUP_STAGE: dumping to $DAILY_FILE"
 docker compose -f docker/docker-compose.prod.yml exec -T postgres \
   pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-acl \
   > "$DAILY_FILE"
+chmod 600 "$DAILY_FILE"
 
 # size check: 1KB 未満なら明らかに失敗 (pg_dump はエラーでも stdout を閉じるため
 # bash の pipe exit code だけでは検知漏れる)。
 SIZE=$(stat -c%s "$DAILY_FILE")
-if [ "$SIZE" -lt 1024 ]; then
-  echo "ERROR: pg_dump produced suspiciously small file: $DAILY_FILE ($SIZE bytes)" >&2
-  exit 1
-fi
+[ "$SIZE" -ge 1024 ] || fail "pg_dump produced suspiciously small file: $DAILY_FILE ($SIZE bytes)"
 echo "[backup] pg_dump complete: $DAILY_FILE ($SIZE bytes)"
 
 # --- stage 3: r2_upload_daily ---
@@ -169,6 +173,7 @@ if [ "$DOW" = "7" ]; then
   WEEKLY_R2_PATH="R2:${R2_BUCKET}/weekly/kagetra-${DATE_JST}.dump"
   echo "[backup] stage=$BACKUP_STAGE: DOW=7 (Sun), promoting to weekly"
   cp "$DAILY_FILE" "$WEEKLY_FILE"
+  chmod 600 "$WEEKLY_FILE"
   rclone copyto "${RCLONE_OPTS[@]}" "$WEEKLY_FILE" "$WEEKLY_R2_PATH"
   echo "[backup] weekly promote complete: $WEEKLY_FILE → $WEEKLY_R2_PATH"
 else
@@ -182,6 +187,7 @@ if [ "$DOM" = "01" ]; then
   MONTHLY_R2_PATH="R2:${R2_BUCKET}/monthly/kagetra-${DATE_JST}.dump"
   echo "[backup] stage=$BACKUP_STAGE: DOM=01, promoting to monthly"
   cp "$DAILY_FILE" "$MONTHLY_FILE"
+  chmod 600 "$MONTHLY_FILE"
   rclone copyto "${RCLONE_OPTS[@]}" "$MONTHLY_FILE" "$MONTHLY_R2_PATH"
   echo "[backup] monthly promote complete: $MONTHLY_FILE → $MONTHLY_R2_PATH"
 else
