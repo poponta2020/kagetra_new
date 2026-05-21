@@ -53,8 +53,14 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - GFS rotation: daily=7d / weekly=8w / monthly=12M, local find -mtime + R2 rclone delete --min-age
   - 罠系防御: umask 077 + chmod 600 (dump 漏洩防止)、pg_isready 5 分 retry (catch-up race 回避)、ERR trap 経由の通知 (`fail()` helper で `exit 1` の trap 無効化罠を回避)
   - 家 PC 副 copy 運用は doc のみ (月次手動)、自動化は将来別 PR
-- **Phase D**: 本番初回起動 + 動作確認 + ship — 未着手
-  - initial-launch-checklist.md で 10 項目消化
+- **Phase D**: 本番初回起動 + 動作確認 + ship — **2026-05-21 配線完了、popon admin login 成功**
+  - **本番稼働中**: `https://new.hokudaicarta.com` (Oracle Cloud / Ubuntu 22.04 aarch64 / `140.238.51.41`)
+  - 手動デプロイ中に発覚した 3 hot fix を ship:
+    - PR #35: `apply-migrations.sh` psql 14 stdin substitution (`-c "...:'VAR'..."` 不動作)
+    - PR #36: `apps/api` tsup config で `noExternal: ["@kagetra/shared"]` 追加 (workspace dep の bundle 化)
+    - PR #37: doc 4 件不整合 (Lightsail DNS / iptables 行番号 / public/ なし / AUTH_TRUST_HOST 不足)
+  - admin seed: `popon` <poponta2020@gmail.com> grade=A、LINE 紐付け済 (line_link_method=self_identify)
+  - **未完了**: Phase C backup の R2 token 設定 + 実起動 / initial-launch-checklist.md ベース動作確認 / ship 宣言
 
 ## ドメイン cutover (将来別 PR)
 
@@ -78,6 +84,16 @@ Phase 4 完了 + データ移行完了後に `new.hokudaicarta.com` → root `ho
 - **rclone R2 で Object Read & Write token は ListBuckets 不可** — `RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true` を export して HeadBucket を skip しないと bucket-exists check で失敗
 - **R2 endpoint は HTTP 不可、`endpoint=http://...` で 400** — `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` を明示
 - **dump ファイル permission は umask + chmod の二重防御** — umask 077 だけだと既存 dir の mode は変わらない。`install -d -m 0700` で dir 強制、`chmod 600 "$DAILY_FILE"` で file 強制 (PR #34 R2)
+
+## Phase D (本番初回デプロイ) 学び (2026-05-21)
+
+- **`hokudaicarta.com` の DNS は AWS Lightsail DNS zone** — 旧 kagetra が Lightsail 運用、お名前.com Navi の「DNS 設定/転送設定」では追加できない (NXDOMAIN で 30 分浪費)。詳細は [[reference_legacy_kagetra_infra]]
+- **psql 14 の `-c "SQL with :'VAR'"` substitution は動かない** — stdin 経由 (`<<'EOSQL'`) は動く。`postgresql-client-14` (Ubuntu 22.04 default) で踏む。PR #35 で apply-migrations.sh 修正済
+- **tsup default は workspace dep を external 扱い** — `@kagetra/shared` の exports が `.ts` を指していると本番 node が `.ts` を読みに行き、relative import の拡張子不足で ERR_MODULE_NOT_FOUND。`noExternal: ["@kagetra/shared"]` で bundle 化必須。PR #36 で修正済
+- **Auth.js v5 + nginx reverse proxy では `AUTH_TRUST_HOST=true` 必須** — 未設定だと `/` → `/auth/signin` → `/` 無限ループ (ブラウザに `ERR_TOO_MANY_REDIRECTS`)。dev (localhost) では auto-trust されるため発覚しない。PR #37 で `.env.production.example` に追記済
+- **Oracle Ubuntu 22.04 fresh image の REJECT は line 5、line 6 ではない** — `-I INPUT 6` だと挿入が REJECT より後ろになって弾かれる。`iptables -L INPUT --line-numbers` で REJECT 位置 N を事前確認し `-I INPUT N` で挿入。PR #37 で oracle-setup.md 修正済
+- **apps/web は public/ ディレクトリなし** (2026-05 時点) — favicon 等は `src/app` or `.next/static` 経由。web.md の `cp -r apps/web/public` ステップは現状不要。PR #37 で comment-out 化
+- **Codex R1 一発 pass は連続できる** — PR #33 + #35 + #36 + #37 で連続 R1 pass、合計 ~125k tokens。事前検証 + small scope + clear root cause description が効く
 
 ## Phase A 学び
 

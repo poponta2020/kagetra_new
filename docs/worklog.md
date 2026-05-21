@@ -1658,3 +1658,37 @@
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
+
+---
+
+## 2026-05-21 セッション（本番初回デプロイ完遂）
+
+### 完了 (Phase A + B 配線、本番稼働開始)
+- **本番稼働**: `https://new.hokudaicarta.com` で kagetra_new が動作中 (Oracle Cloud `140.238.51.41`)
+- popon admin login 成功 (LINE Login + self-identify、line_link_method=self_identify、2026-05-21 14:26 UTC)
+- Phase A 全工程 (Oracle Cloud account + Pay-as-you-go + ARM A1 4 OCPU/24GB/Ubuntu 22.04 aarch64 + Security List + iptables + swap + kagetra user + Node 22.22.2 + corepack + Docker 29.5.1)
+- DNS: AWS Lightsail DNS zone (旧 kagetra と同経路、お名前.com Navi 側では効かない発見)
+- nginx + Let's Encrypt SSL (auto-renew certbot.timer 確認)
+- Phase B 全工程 (docker postgres + 12 migrations + apps/web standalone + apps/api Hono + nginx reverse proxy /hono-api/* 分岐 + seed-initial-admin)
+
+### ship した PR
+- **PR #35** (`fix(deploy): use stdin for psql :'VAR' substitution (psql 14 quirk)`): psql 14 stdin substitution、R1 一発 pass
+- **PR #36** (`fix(api): bundle @kagetra/shared in tsup build (Node ESM .ts import fix)`): tsup config で noExternal、R1 一発 pass
+- **PR #37** (`fix(docs/deploy): align with Phase B real-world deploy findings`): doc 4 件不整合修正 (Lightsail DNS / iptables 行番号 / public/ なし / AUTH_TRUST_HOST 不足)、R1 一発 pass
+
+### 残存している git 状態
+- main: `a3737b6` (PR #37 merge) → これから worklog + memory 同期 commit が乗る
+- worktree: なし (PR #35/#36/#37 worktree なし、ローカル main 直作業)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- ローカル: `.env.production` (gitignored、本番 secrets 保持) + AUTH_TRUST_HOST 追記済
+- サーバ: `/opt/kagetra/.env.production` (mode 0600, owner kagetra)、AUTH_TRUST_HOST 追記済
+
+### 次回 (carryover)
+- 🔴 **R2 / mail-worker / LINE_FALLBACK_* secrets 設定**: `.env.production` の TODO_ プレースホルダー 7 件を実値に更新 + サーバ反映
+- 🟡 **Phase C backup の本番起動**: R2 credentials 入力後、`scripts/deploy/backup.sh` 試走 + `systemctl enable --now kagetra-backup.timer`
+- 🟢 **Phase D initial-launch-checklist.md 作成**: 10 項目 (LINE 通知 / mail-worker / 認証 / admin 機能 / モバイル等の動作確認 checklist) + 完了後 ship 宣言
+- 🟢 **apps/api / packages/shared 実 lint 配線** (mail-worker と同 pattern)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- Phase P3-B / P3-C 優先度確定 (本番安定後)
