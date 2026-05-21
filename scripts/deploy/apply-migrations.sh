@@ -72,9 +72,12 @@ while IFS=$'\t' read -r tag when; do
   hash=$(sha256sum "$sql_file" | awk '{print $1}')
 
   # 既適用 check (hash は psql 変数経由で渡して quote 注入を回避、`-v VAR=val`
-  # で psql 変数を設定 + SQL 中の `:'VAR'` で文字列 quote 込み展開)
-  is_applied=$(psql "$DATABASE_URL" -tA -v hash="$hash" -c \
-    "SELECT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = :'hash')")
+  # で psql 変数を設定 + SQL 中の `:'VAR'` で文字列 quote 込み展開)。
+  # psql 14 では `-c` モードで `:'VAR'` substitution が効かないため stdin 経由で渡す。
+  is_applied=$(psql "$DATABASE_URL" -tA -v hash="$hash" <<'EOSQL'
+SELECT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = :'hash')
+EOSQL
+)
 
   if [ "$is_applied" = "t" ]; then
     echo "SKIP: $tag (already applied, hash=$hash)"
@@ -86,9 +89,11 @@ while IFS=$'\t' read -r tag when; do
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$sql_file"
 
   # __drizzle_migrations への INSERT (drizzle-kit migrate と同じ挙動)
-  # hash は :'hash' で文字列 quote、when は :when で bigint (数値そのまま)
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v hash="$hash" -v when="$when" -c \
-    "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (:'hash', :when)"
+  # hash は :'hash' で文字列 quote、when は :when で bigint (数値そのまま)。
+  # psql 14 では `-c` モードで `:'VAR'` substitution が効かないため stdin 経由で渡す。
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v hash="$hash" -v when="$when" <<'EOSQL'
+INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (:'hash', :when)
+EOSQL
 
   applied_count=$((applied_count + 1))
 done < <(jq -r '.entries[] | "\(.tag)\t\(.when)"' "$JOURNAL_FILE")
