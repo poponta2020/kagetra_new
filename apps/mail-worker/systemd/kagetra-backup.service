@@ -1,0 +1,33 @@
+[Unit]
+Description=Kagetra PostgreSQL daily backup to Cloudflare R2
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/backup.md
+
+[Service]
+# Type=oneshot — backup.sh は dump → upload → rotation を 1 回流して終わる。
+# 失敗時は ERR trap で notify-system.ts を呼んで LINE 通知し、non-zero exit。
+# Restart= は付けない (timer-driven retry の哲学。rclone 自体が --retries 3 で
+# transient error をカバーする)。
+Type=oneshot
+
+User=kagetra
+Group=kagetra
+
+# backup.sh は cwd を /opt/kagetra に切り替えて docker compose -f docker/docker-compose.prod.yml
+# を呼ぶので、ここで cwd を合わせておくと docker-compose project name もリポジトリ準拠になる。
+WorkingDirectory=/opt/kagetra
+
+# DATABASE_URL, POSTGRES_USER, POSTGRES_DB, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
+# R2_SECRET_ACCESS_KEY, R2_BUCKET (optional: BACKUP_LOCAL_DIR, KAGETRA_REPO_ROOT) を含む。
+EnvironmentFile=/opt/kagetra/.env.production
+
+ExecStart=/opt/kagetra/scripts/deploy/backup.sh
+
+# journalctl -u kagetra-backup.service で実行ログを追える。
+StandardOutput=journal
+StandardError=journal
+
+# pg_dump + rclone upload + rotation の上限。10GB 級 DB を想定して 30 分。
+TimeoutStartSec=1800

@@ -13,17 +13,18 @@ Phase A-D の段階構成で進める。
 | B | [web.md](web.md) | apps/web (Next.js 15 standalone) を systemd service として起動 + 静的アセット cp + nginx 配線 |
 | B | [api.md](api.md) | apps/api (Hono) を systemd service として起動、basePath は /hono-api |
 | P3-A 既存 | `mail-worker.md` | apps/mail-worker (cron 30 分) を systemd timer で起動 (既存) |
-| C | `backup-restore.md` (今後追加) | pg_dump → Cloudflare R2 日次バックアップ + 復元手順 |
+| C | [backup.md](backup.md) | pg_dump → Cloudflare R2 日次バックアップ + GFS rotation + 失敗時 LINE 通知 + 復元手順 |
 | D | `initial-launch-checklist.md` (今後追加) | 全 Phase 揃った後の初回起動・動作確認チェックリスト |
 
 ## Phase 構成
 
 - **Phase A**: インフラ準備 + 手動セットアップ doc のみ (コード変更なし)
   — 完了 (PR #32)
-- **Phase B** (現在): アプリケーションデプロイ配線 (systemd unit /
+- **Phase B**: アプリケーションデプロイ配線 (systemd unit /
   docker-compose.prod.yml / nginx 設定 / migration script / 初期 admin
-  seed) — 実装中 (本 PR)
-- **Phase C**: バックアップ配線 (pg_dump → R2 + LINE 失敗通知 + 復元手順)
+  seed) — 完了 (PR #33)
+- **Phase C** (現在): バックアップ配線 (pg_dump → Cloudflare R2 + GFS
+  rotation + LINE 失敗通知 + 復元手順) — 配線完了 ([backup.md](backup.md))
 - **Phase D**: 本番初回起動 + 動作確認 + ship
 
 ## 確定済み構成
