@@ -44,8 +44,15 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - Operation script 2 本: apply-migrations.sh (psql + SHA-256 hash + drizzle.__drizzle_migrations idempotent INSERT) / seed-initial-admin.ts (3 状態 idempotent + 5 ケース vitest)
   - Env テンプレ 3 + doc 3 (postgres.md / web.md / api.md) + README.md 更新
   - **罠系明示**: 静的アセット cp (.next/static + public/)、postgres localhost bind、drizzle-kit migrate が TTY 必須で本番不適
-- **Phase C**: バックアップ配線 — 未着手
-  - pg_dump → R2 + LINE 失敗通知 + 家 PC 副 copy + 復元 doc
+- **Phase C**: バックアップ配線 — **2026-05-21 PR #34 ship 完了** (4R: 3 auto + 1 manual verify)
+  - `scripts/deploy/backup.sh` (7-stage: pre_check → pg_dump → r2_upload → weekly/monthly promote → rotation_local/r2)
+  - LINE 失敗通知 2 段構え:
+    - primary `notify-system.ts` (DB-backed system_channel、postgres 健全時)
+    - fallback `notify-fallback.ts` (env-backed `LINE_FALLBACK_*`、postgres 障害時の唯一の通知経路)
+  - systemd unit: `kagetra-backup.{service,timer}` (Type=oneshot, OnCalendar=*-*-* 03:00:00 Asia/Tokyo inline TZ, Persistent=true)
+  - GFS rotation: daily=7d / weekly=8w / monthly=12M, local find -mtime + R2 rclone delete --min-age
+  - 罠系防御: umask 077 + chmod 600 (dump 漏洩防止)、pg_isready 5 分 retry (catch-up race 回避)、ERR trap 経由の通知 (`fail()` helper で `exit 1` の trap 無効化罠を回避)
+  - 家 PC 副 copy 運用は doc のみ (月次手動)、自動化は将来別 PR
 - **Phase D**: 本番初回起動 + 動作確認 + ship — 未着手
   - initial-launch-checklist.md で 10 項目消化
 
@@ -60,6 +67,17 @@ Phase 4 完了 + データ移行完了後に `new.hokudaicarta.com` → root `ho
 - **静的アセット cp が最頻発罠** — `.next/static` と `public/` は standalone copy 対象外、別途 cp 必須、忘れると画面真っ白
 - **drizzle-kit migrate は本番不適** — TTY 必須なので CI/本番では使えない。psql + SHA-256 hash 計算 + `drizzle.__drizzle_migrations` 手動 INSERT で代替 (apply-migrations.sh)
 - **Codex R1 一発 pass は珍しい** — 通常は R2-R3 で nits 残るが、PR #33 は事前の subagent verification (17/17 仕様 + 35/35 anti-pattern) で密度が高かったため一発で済んだ
+
+## Phase C 学び
+
+- **bash `set -e` + `if !` + `exit 1` で ERR trap は発火しない** — 「`if !` で捕捉した失敗」も「明示 `exit 1`」も両方 set -e の対象外。`fail() { echo >&2; return 1; }` を定義して `cmd || fail "..."` パターンに統一すれば、`fail` の return 1 が top-level の simple command failure として ERR trap を発火させられる (PR #34 R2 で Codex 指摘 → R3 verify)
+- **DB-backed 失敗通知は postgres 障害時に機能しない** — `pushSystemNotification` 系は `line_channels` を DB から読むため、最も通知したい postgres down 時に通知不能。env-var fallback CLI (`notify-fallback.ts`) を別途用意して 2 段構えにする (PR #34 R3 指摘で追加)
+- **systemd `[Unit] Requires=service` を timer に付けると enable --now で即発火** — `systemctl enable --now <timer>` で `Requires=` の対象 unit も start され、`OnCalendar` 外で意図しない実行が走る。timer と service の関連付けは `[Timer] Unit=` だけで十分 (PR #34 R1 指摘で削除)
+- **`Persistent=true` の catch-up + 単発 pg_isready は race** — boot 後の missed firing catch-up で docker daemon は起動済でも postgres container がまだ初期化中。1 回の `pg_isready` で当日分が落ちる。`for i in $(seq 1 60); do pg_isready ... && break; sleep 5; done` で最大 5 分 retry (PR #34 R3 で追加)
+- **pg_dump `-Fc` は既に zlib 圧縮済** — `gzip` pipe や `-Z 9` で重複圧縮しない。output 拡張子は `.dump` (community 標準)
+- **rclone R2 で Object Read & Write token は ListBuckets 不可** — `RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true` を export して HeadBucket を skip しないと bucket-exists check で失敗
+- **R2 endpoint は HTTP 不可、`endpoint=http://...` で 400** — `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` を明示
+- **dump ファイル permission は umask + chmod の二重防御** — umask 077 だけだと既存 dir の mode は変わらない。`install -d -m 0700` で dir 強制、`chmod 600 "$DAILY_FILE"` で file 強制 (PR #34 R2)
 
 ## Phase A 学び
 

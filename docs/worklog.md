@@ -1612,3 +1612,49 @@
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
+
+- 2026-05-20 /auto-review-loop PR #34: 4R (3 auto + 1 manual verify), verdict=pass, tokens=350643/500000, result=pass
+
+---
+
+## 2026-05-21 セッション（Phase C PR #34 ship）
+
+### 完了
+- /auto-review-loop PR #34: 4R (3 auto + 1 manual verify), 累計 350,643 tokens, verdict=pass
+  - R1 (timer Requires= 即発火問題) → b4502b3
+  - R2 (ERR trap + umask/chmod 問題) → 06c7915
+  - R3 (DB-dep notify + readiness race) → 39a26e8
+  - R4 manual verify → pass
+- /ship PR #34 (merge commit e0102ce): Phase C 配線完了
+  - `scripts/deploy/backup.sh` (256行、7-stage、umask 077 + fail() helper + pg_isready 5分 retry)
+  - `apps/mail-worker/scripts/notify-system.ts` (178行) — DB-backed primary path (system_channel 経由)
+  - `apps/mail-worker/scripts/notify-fallback.ts` (179行) — env-backed fallback (LINE_FALLBACK_*、postgres 障害時)
+  - 計 9 vitest ケース (notify-system 5 + notify-fallback 4)、全 pass
+  - systemd unit 2 本: kagetra-backup.{service,timer} (Type=oneshot, OnCalendar=*-*-* 03:00:00 Asia/Tokyo inline TZ, Persistent=true)
+  - `.env.production.example` に R2 section + LINE_FALLBACK section 追加
+  - `docs/deploy/backup.md` (386行) + README.md 更新
+
+### 残存している git 状態
+- main: e0102ce (Phase C merge) → これから worklog/memory 同期 commit が乗る
+- worktree: なし (PR #34 worktree は ship 時に削除済)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 以前から: `<repo root>/.env` + `apps/web/.env.local` の `ANTHROPIC_API_KEY` 残置 (gitignored)、`.claude/settings.local.json` の `docker exec` 系 allow 残置 (gitignored)
+- dev DB: id=125 = `ai_processing` のまま保留 (5/17 session 3 で PR #24 fix 確認済、次回正規 pipeline で `ai_done` 化想定)
+- pipeline-runs.test.ts の preexisting failure 2 件 (PR #34 範囲外、別 issue 化候補)
+
+### 次回 (carryover)
+- 🟡 **ユーザー手動セットアップ** (Phase A/B/C doc に従う):
+  - Phase A: Oracle Cloud アカウント作成 + ARM A1 起動 + DNS + nginx + SSL
+  - Phase B: アプリデプロイ実機作業 (build / 静的アセット cp / systemd / migration 適用 / admin seed)
+  - Phase C: Cloudflare R2 bucket 作成 + token 発行 + rclone install + /var/backups/kagetra 作成 + .env.production に R2_* + LINE_FALLBACK_* 追記 + systemd timer enable
+- 🔴 **Phase D**: 本番初回起動 + 動作確認 + ship — **次の最優先タスク**
+  - `docs/deploy/initial-launch-checklist.md` 作成 (Phase A-C doc を順序通り実行するプレイブック)
+  - 実機で全 path 検証 (login / event / mail-worker / backup / notify primary + fallback)
+- 🟢 家 PC 副コピー自動化 (Phase C carryover、家 PC OS 確定後に別 PR)
+- 🟢 復元演習の自動 verify (将来別 PR、R2 → restore → smoke test)
+- 🟢 **apps/api / packages/shared 実 lint 配線** (mail-worker と同 pattern)
+- 🟢 pipeline-runs.test.ts preexisting failure 対応 (別 issue 化)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- Phase P3-B / P3-C 優先度確定 (本番安定後)
