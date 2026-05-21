@@ -1,4 +1,4 @@
-# DNS (お名前.com) + nginx + Let's Encrypt SSL
+# DNS (AWS Lightsail DNS zone) + nginx + Let's Encrypt SSL
 
 kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
 インスタンスに向け、nginx + Let's Encrypt で HTTPS 化するまでの手順。
@@ -10,39 +10,55 @@ kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
 - ドメイン: `hokudaicarta.com` (お名前.com 取得済)
 - 旧 kagetra: root `hokudaicarta.com` で稼働中 → **一切触らない**
 - 新システム: `new.hokudaicarta.com` でサブドメイン分離
-- DNS 管理: **お名前.com のまま** (移管しない、`new` の A レコードを
-  追加するだけ)
+- **DNS 解決の実態**: 旧 kagetra は **AWS Lightsail** で稼働しており、
+  お名前.com 側のネームサーバー設定で `awsdns-*` (Route 53) に委任済。
+  Lightsail コンソールの「**DNS ゾーン (DNS zones)**」機能で管理する形態
+  になっているため、お名前.com Navi の「DNS 設定/転送設定」で
+  レコード追加しても**反映されない**。
+- DNS 管理: **AWS Lightsail コンソール → ネットワーキング → DNS ゾーン**
+  で `new` の A レコードを追加する (Route 53 コンソールから直接でも可だが、
+  既存運用が Lightsail なら Lightsail UI が正)
 - 前提: Oracle インスタンス起動済 + 80/443 が外部から到達可能
   (`oracle-setup.md` §1-§5 完了)
 - インスタンス Public IP: Oracle Cloud Console → Instances → 詳細画面で
   確認
 
-## 1. お名前.com で A レコード追加
+## 1. Lightsail DNS ゾーンで A レコード追加
 
-1. お名前.com Navi にログイン
-2. ドメイン → DNS 関連機能 → DNS 設定/転送設定 → `hokudaicarta.com` 選択
-3. DNS レコード設定 → 追加で以下を入力:
-   - ホスト名: `new`
-   - TYPE: `A`
-   - VALUE: Oracle インスタンスの Public IP
-   - TTL: `3600` (1 時間、変更時の反映時間トレードオフ)
-   - 優先度: 空欄
-4. 確認画面で「DNS レコード設定用ネームサーバー変更不要」が選択されている
-   ことを確認 → 設定
-5. 旧 kagetra の root レコード (`hokudaicarta.com` の A) は触らない
+1. AWS Lightsail Console (`https://lightsail.aws.amazon.com/`) にログイン
+2. 上部メニュー **ネットワーキング (Networking)** タブ
+3. **DNS ゾーン (DNS zones)** リストに `hokudaicarta.com` があるはず → クリック
+4. **DNS レコード** タブ → **+ レコードを追加 (Add record)** ボタン
+5. 以下を入力:
+   - レコードタイプ: **A レコード**
+   - サブドメイン: `new` (右側に `.hokudaicarta.com` が自動表示)
+   - 解決先 (Resolves to): Oracle インスタンスの Public IP (例: `140.238.51.41`)
+   - TTL: `300` (5 分、セットアップ初期は短く iteration、安定後 3600 へ変更可)
+6. 右側の **✓ (緑のチェック)** または「保存」をクリック
+7. 一覧に `A new.hokudaicarta.com → <IP>` が追加表示されることを確認
+8. 旧 kagetra の root レコード (`hokudaicarta.com` の A) は触らない
 
 ## 2. DNS 反映待ち
 
-- お名前.com の DNS 反映は通常 5 分〜数時間、最大 24-48h
+- Lightsail DNS の反映は通常 **数十秒〜数分**で完了 (Route 53 経由のため
+  比較的速い。お名前.com Navi 直管理の typical 5 分〜24h より短い)
 - 確認 (ローカル PC から):
 
   ```bash
+  # dig がない Windows なら nslookup new.hokudaicarta.com 8.8.8.8 でも可
   dig new.hokudaicarta.com +short
   ```
 
   → Oracle インスタンスの Public IP が返れば反映完了
-- 反映前は次の §5 certbot が HTTP-01 challenge (port 80 経由で `new.
-  hokudaicarta.com` への到達性検証) で失敗するので、必ず DNS 反映後に進む
+- 反映前は次の §5 certbot が HTTP-01 challenge (port 80 経由で
+  `new.hokudaicarta.com` への到達性検証) で失敗するので、必ず DNS 反映後に
+  進む
+- 反映確認のもうひとつの方法 (権威 NS に直接問い合わせ):
+
+  ```bash
+  dig new.hokudaicarta.com @ns-643.awsdns-16.net +short
+  # ns-* のドメイン名は `dig -type=NS hokudaicarta.com` で確認できる
+  ```
 
 ## 3. nginx インストール
 
@@ -91,6 +107,11 @@ kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
   ping を受ける):
 
   ```bash
+  # 対話なし版 (一括):
+  sudo certbot --nginx -d new.hokudaicarta.com \
+    --non-interactive --agree-tos -m <あなたのメール> --redirect
+
+  # 対話版 (個別確認したい場合):
   # メールアドレス入力 (証明書失効通知用)、利用規約同意 (Y)、
   # HTTPS リダイレクト設定で `2` (Redirect, HTTP → HTTPS 自動) を選択。
   sudo certbot --nginx -d new.hokudaicarta.com
@@ -128,15 +149,16 @@ kagetra_new の本番ドメイン `new.hokudaicarta.com` を Oracle Cloud
 
 | 症状 | 原因と対応 |
 |---|---|
-| `dig` が IP を返さない | DNS 反映待ち (最大 24-48h)、お名前.com の DNS 設定画面で A レコード追加されていることを再確認 |
-| `curl http://new.hokudaicarta.com` connection refused | iptables で 80/443 が ACCEPT されていない、`sudo iptables -L INPUT --line-numbers` で INPUT 6 行目に 80/443 ACCEPT があることを確認 (`oracle-setup.md` §5) |
-| `curl` is timeout | Security List で 80/443 ingress が開いていない、Oracle Cloud Console で確認 (`oracle-setup.md` §4) |
+| `dig` が IP を返さない | DNS 反映待ち (Lightsail DNS なら通常数分以内)、Lightsail コンソールで A レコードが保存されていることを再確認。お名前.com Navi で追加していた場合は無効 (§1 参照、Lightsail で再登録) |
+| `curl http://new.hokudaicarta.com` connection refused | iptables で 80/443 が ACCEPT されていない、`sudo iptables -L INPUT --line-numbers` で INPUT の REJECT より前に 80/443 ACCEPT があることを確認 (`oracle-setup.md` §5) |
+| `curl` が timeout | Security List で 80/443 ingress が開いていない、Oracle Cloud Console で確認 (`oracle-setup.md` §4) |
 | certbot が `Connection refused` で失敗 | port 80 が外部から到達可能でない、§3 の `curl -I http://new.hokudaicarta.com` で 200 が返ることを先に確認 |
 | certbot が `DNS problem: NXDOMAIN` | DNS 反映完了前に certbot 実行、§2 の `dig` で IP が返ってから再実行 |
 | certbot 自動更新 timer が動かない | `sudo systemctl enable --now certbot.timer` で有効化、`sudo certbot renew --dry-run` で更新 simulation 実行 |
 
 ## 参考リンク
 
+- [AWS Lightsail DNS Zones (公式 doc)](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-dns.html)
 - [Let's Encrypt 公式](https://letsencrypt.org/)
 - [certbot User Guide (nginx)](https://eff-certbot.readthedocs.io/en/latest/using.html)
-- [お名前.com Navi (DNS 設定)](https://navi.onamae.com/)
+- [お名前.com Navi (DNS 設定)](https://navi.onamae.com/) — registrar のみ、DNS 解決は Lightsail/Route 53

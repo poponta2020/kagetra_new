@@ -73,20 +73,34 @@ LTS aarch64 image を使う前提。
   末尾に `REJECT all` が入っている** → Security List で 80/443 開けても
   弾かれる
 - 80/443 を INPUT の早い位置に挿入する必要あり
-- コマンド (順序重要、`-I INPUT 6` で REJECT より前に挿入):
+- 事前確認 (REJECT の行番号を特定):
 
   ```bash
-  # `-I INPUT 6` で 6 行目に挿入 (末尾の REJECT より前に来るのが肝)。
+  sudo iptables -L INPUT --line-numbers
+  # 例 (2026-05 時点の Ubuntu 22.04 aarch64 fresh image):
+  #   1  ACCEPT  all  -- ... state RELATED,ESTABLISHED
+  #   2  ACCEPT  icmp -- ...
+  #   3  ACCEPT  all  -- ...
+  #   4  ACCEPT  tcp  -- ... state NEW tcp dpt:22
+  #   5  REJECT  all  -- ... reject-with icmp-host-prohibited   ← この行番号 N を控える
+  ```
+
+- コマンド (順序重要、REJECT の行番号 `N` の **直前** に 80/443 を挿入):
+
+  ```bash
+  # `-I INPUT N` で N 行目に挿入 (REJECT を N+1, N+2 に押し下げる)。
+  # Ubuntu 22.04 fresh image なら N=5。doc の例は N=5 を想定するが、
+  # `iptables -L INPUT --line-numbers` で実際の N を確認すること。
   # `-A INPUT` (append) では REJECT に先に当たって弾かれる。
-  sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
-  sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+  sudo iptables -I INPUT 5 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  sudo iptables -I INPUT 5 -m state --state NEW -p tcp --dport 443 -j ACCEPT
   sudo netfilter-persistent save
   ```
 
 - 検証: `sudo iptables -L INPUT --line-numbers` で **INPUT の REJECT より
-  前に 80 と 443 の ACCEPT 両方** が並んでいること (`-I INPUT 6` を 2 回
-  実行すると後から挿入した 443 が 6 行目に、80 は 7 行目に押し下がる。
-  どちらも REJECT より前にあれば OK)
+  前に 80 と 443 の ACCEPT 両方** が並んでいること (`-I INPUT 5` を 2 回
+  実行すると後から挿入した 443 が 5 行目に、80 は 6 行目に押し下がる。
+  REJECT は元の 5 から 7 に押し下がる。どちらも REJECT より前にあれば OK)
 - ufw は使わない (iptables-persistent と競合、Oracle image にはデフォルト
   未インストール)
 
