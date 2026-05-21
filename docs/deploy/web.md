@@ -41,14 +41,21 @@ sudo -u kagetra corepack pnpm --filter @kagetra/web build
 
 ```bash
 # Next.js standalone は public/ と .next/static/ をコピーしない仕様。手動 cp 必須。
-# cp 先 path は monorepo path を踏襲: .next/standalone/apps/web/{public,.next/static}/
-sudo -u kagetra cp -r /opt/kagetra/apps/web/public /opt/kagetra/apps/web/.next/standalone/apps/web/
+# cp 先 path は monorepo path を踏襲: .next/standalone/apps/web/.next/static/
+# (apps/web に public/ ディレクトリが存在しない場合は public/ の cp は不要)
 sudo -u kagetra cp -r /opt/kagetra/apps/web/.next/static /opt/kagetra/apps/web/.next/standalone/apps/web/.next/
+
+# public/ がある場合は追加で:
+# sudo -u kagetra cp -r /opt/kagetra/apps/web/public /opt/kagetra/apps/web/.next/standalone/apps/web/
 ```
 
 **これを忘れると next start は起動するが画面が全部真っ白になる**
 (server.js は port 3000 で listen するが、`/_next/static/*` と `/public/*`
 の応答が全部 404 になり、HTML だけ返って CSS/JS が読み込まれない)。
+
+> 2026-05-21 初回デプロイ時点では `apps/web/public/` ディレクトリは存在しない
+> (favicon 等の静的ファイルは `src/app` 配下 or `.next/static` 経由で配信)。
+> 将来 public/ を追加した場合は上記コマンド行の comment-out を外す。
 
 ## 5. systemd unit 配置 + enable
 
@@ -89,4 +96,5 @@ sudo journalctl -u kagetra-web.service -n 50 --no-pager
 | 画面が真っ白、F12 で CSS/JS 404 | §4 静的アセット cp 忘れ、再度 cp して `sudo systemctl restart kagetra-web.service` |
 | `Cannot find module 'next'` | standalone build 失敗 or transpilePackages 設定不整合、build を pnpm clean 後やり直し |
 | nginx 502 Bad Gateway | apps/web (3000) が応答していない、`systemctl status kagetra-web.service` / `journalctl -u kagetra-web.service` で確認 |
-| Auth.js LINE Login で redirect URI mismatch | LINE Developers Console の callback URL が `https://new.hokudaicarta.com/api/auth/callback/line` 登録済か確認 |
+| Auth.js LINE Login で redirect URI mismatch | LINE Developers Console の callback URL が `https://new.hokudaicarta.com/api/auth/callback/line` (Auth.js login) + `https://new.hokudaicarta.com/api/line-link/callback` (self-identify) の **両方** 登録済か確認 |
+| `https://new.hokudaicarta.com/` → `/auth/signin` → `/` の無限 redirect ループ (ブラウザで `ERR_TOO_MANY_REDIRECTS`) | `.env.production` に `AUTH_TRUST_HOST=true` が設定されていない。Auth.js v5 は nginx 等の reverse proxy 配下では `AUTH_TRUST_HOST` を明示しないと `X-Forwarded-Proto` を信頼せず redirect logic が崩壊する。`.env.production.example` を参照し、追記後 `sudo systemctl restart kagetra-web.service` |
