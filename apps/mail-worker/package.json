@@ -16,7 +16,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm --outDir dist --clean",
+    "build": "tsup",
     "check-types": "tsc --noEmit",
     "lint": "eslint src test scripts",
     "test": "vitest run"
