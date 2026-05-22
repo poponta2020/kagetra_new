@@ -8,13 +8,13 @@ Phase A-D の段階構成で進める。
 | Phase | doc | 概要 |
 |---|---|---|
 | A | `oracle-setup.md` | Oracle Cloud アカウント作成 → Tokyo ARM A1 インスタンス起動 → iptables/swap/user/Node/Docker セットアップ |
-| A | `dns-ssl.md` | お名前.com で `new.hokudaicarta.com` A レコード追加 → nginx → Let's Encrypt SSL |
+| A | [dns-ssl.md](dns-ssl.md) | AWS Lightsail DNS ゾーンで `new.hokudaicarta.com` A レコード追加 → nginx → Let's Encrypt SSL |
 | B | [postgres.md](postgres.md) | Docker Compose で PostgreSQL 16 起動 + apply-migrations.sh で migration 適用 + 接続確認 |
 | B | [web.md](web.md) | apps/web (Next.js 15 standalone) を systemd service として起動 + 静的アセット cp + nginx 配線 |
 | B | [api.md](api.md) | apps/api (Hono) を systemd service として起動、basePath は /hono-api |
 | P3-A 既存 | `mail-worker.md` | apps/mail-worker (cron 30 分) を systemd timer で起動 (既存) |
 | C | [backup.md](backup.md) | pg_dump → Cloudflare R2 日次バックアップ + GFS rotation + 失敗時 LINE 通知 + 復元手順 |
-| D | `initial-launch-checklist.md` (今後追加) | 全 Phase 揃った後の初回起動・動作確認チェックリスト |
+| D | [initial-launch-checklist.md](initial-launch-checklist.md) | 全 Phase 揃った後の初回起動・動作確認チェックリスト + ship 宣言手順 |
 
 ## Phase 構成
 
@@ -23,9 +23,10 @@ Phase A-D の段階構成で進める。
 - **Phase B**: アプリケーションデプロイ配線 (systemd unit /
   docker-compose.prod.yml / nginx 設定 / migration script / 初期 admin
   seed) — 完了 (PR #33)
-- **Phase C** (現在): バックアップ配線 (pg_dump → Cloudflare R2 + GFS
-  rotation + LINE 失敗通知 + 復元手順) — 配線完了 ([backup.md](backup.md))
-- **Phase D**: 本番初回起動 + 動作確認 + ship
+- **Phase C**: バックアップ配線 (pg_dump → Cloudflare R2 + GFS
+  rotation + LINE 失敗通知 + 復元手順) — 完了 (PR #34、本番起動 2026-05-22)
+- **Phase D** (現在): 本番初回起動 + 動作確認 + ship —
+  [initial-launch-checklist.md](initial-launch-checklist.md) で進める
 
 ## 確定済み構成
 
