@@ -53,7 +53,7 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - GFS rotation: daily=7d / weekly=8w / monthly=12M, local find -mtime + R2 rclone delete --min-age
   - 罠系防御: umask 077 + chmod 600 (dump 漏洩防止)、pg_isready 5 分 retry (catch-up race 回避)、ERR trap 経由の通知 (`fail()` helper で `exit 1` の trap 無効化罠を回避)
   - 家 PC 副 copy 運用は doc のみ (月次手動)、自動化は将来別 PR
-- **Phase D**: 本番初回起動 + 動作確認 + ship — **2026-05-22 Phase A-C 全配線稼働中、Phase D checklist 残るのみ**
+- **Phase D**: 本番初回起動 + 動作確認 + ship — **2026-05-22 ship 完了 🎉**
   - **本番稼働中**: `https://new.hokudaicarta.com` (Oracle Cloud / Ubuntu 22.04 aarch64 / `140.238.51.41`)
   - **稼働中サービス**:
     - apps/web (Next.js standalone, port 3000): popon admin login 成功
@@ -73,7 +73,9 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - LINE Bot: kagetra-mail-worker-bot (Messaging API @947zwajm)、`line_channels` DB seed 済、notify-system push 実証済 (PR #40 前の失敗時)
   - R2: `kagetra-backup` bucket (APAC、Object R&W token、Account ID a6c7e76744c6d4a319a67a0fbbf4f8a7)
   - **doc 完成**: `docs/deploy/initial-launch-checklist.md` (PR #41 ship、286 行、10 section: 認証 / events / schedule / admin / mail-worker / backup / SSL / モバイル / パフォーマンス / ship 宣言)
-  - **残**: ユーザーが checklist を消化 (UI クリック確認 + DB 整合性 + 通知 drill + 復元 drill + モバイル実機) + ship 宣言
+  - **動作確認消化**: §0-9 全 ✅ (一部は 2nd account 待ちで deferred、§6.4 fallback drill は off-peak 推奨で deferred、削除 UI 未実装で Phase 1 carryover)
+  - **本番稼働開始 2026-05-22**: https://new.hokudaicarta.com (Oracle Cloud `140.238.51.41`、旧 kagetra と並行稼働)
+  - **残課題**: Phase 1 carryover (schedule 削除 UI)、2nd account 招待時の E2E (招待制 / 403 / line-link)、§6.4 fallback drill (off-peak)、§6.6 家 PC 月次副コピー (user offline)、R2 token 年次チェック
 
 ## ドメイン cutover (将来別 PR)
 

@@ -1729,3 +1729,54 @@
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
 
 - 2026-05-22 PR #41 ship: feat(deploy) Phase D — initial-launch-checklist.md (286 行、10 section) + README links/status 更新。動作確認消化は別途実施
+
+---
+
+## 2026-05-22 Phase D ship 宣言
+
+### kagetra_new 本番稼働開始 🎉
+
+**URL**: `https://new.hokudaicarta.com` (Oracle Cloud Always Free 東京 / Ubuntu 22.04 aarch64 / `140.238.51.41`)
+
+**初回 admin**: popon (poponta2020@gmail.com、grade A、LINE 紐付け済)
+
+### initial-launch-checklist.md 消化結果
+
+| § | 結果 | 備考 |
+|---|---|---|
+| §0 前提 | ✅ | Phase A-C 全 ship |
+| §1 認証 | ✅ | login/signout 実証、1.3/1.4 は 2nd account 招待時に E2E |
+| §2 events | ✅ | 一覧/作成/出欠/編集/アーカイブ動作、2.3 は code review で確認 (admin bypass 設計) |
+| §3 schedule | ✅ | 一覧/作成/編集動作、削除 UI 未実装 (Phase 1 carryover) |
+| §4 admin | ✅ | members/mail-inbox UI 動作、4.3 line-link は 2nd account 待ち |
+| §5 mail-worker | ✅ | timer 30 分毎、6 success run、mail=32、attach=41 (failed=0) |
+| §6 backup | ✅ | timer 03:00 JST、R2 daily 5.68MB、SHA-256 一致、失敗通知 LINE 着信、復元 drill 隔離 container で成功 |
+| §7 SSL | ✅ | cert 88 日有効、renew --dry-run success、Auth.js Secure cookies |
+| §8 モバイル | ✅ | スマホ実機確認済 |
+| §9 perf | ✅ | dashboard 100ms / api 107ms、Mem 2.5%、Disk 21% |
+
+### 並行稼働
+
+- 旧 kagetra (`hokudaicarta.com`) と当面継続
+- データ移行は Phase 4 完了後に別 PR
+- ドメイン cutover (`new.` → root) はデータ移行完了 + 本番安定確認後に別 PR
+
+### この session で ship した PR
+
+| PR | 内容 |
+|---|---|
+| #35 | apply-migrations.sh psql 14 stdin substitution fix |
+| #36 | apps/api tsup bundle @kagetra/shared (Node ESM .ts import) |
+| #37 | docs/deploy 4 件不整合 fix (Lightsail DNS / iptables / public/ / AUTH_TRUST_HOST) |
+| #38 | apps/mail-worker tsup bundle @kagetra/shared (#36 と対称) |
+| #39 | kagetra-mail-worker.service TimeoutStartSec 5min→25min |
+| #40 | backup.sh rclone --no-progress 削除 (v1.74+ 互換) |
+| #41 | Phase D initial-launch-checklist.md (286 行、10 section) |
+
+### 残課題 (本番稼働には影響なし)
+
+- Phase 1 carryover: schedule_items 削除 UI 追加
+- 2nd account 招待時に E2E: 招待制ガード / 403 ガード / line-link account switch
+- §6.4 fallback drill (postgres 停止) は off-peak 時間帯で実施推奨
+- §6.6 家 PC 副コピー: 月次手動 (オフライン作業)
+- R2 token 有効期限管理 (Forever 設定だが、年 1 回はチェック)
