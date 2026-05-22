@@ -31,9 +31,13 @@ ExecStart=/usr/bin/corepack pnpm --filter @kagetra/mail-worker exec node dist/in
 StandardOutput=journal
 StandardError=journal
 
-# 1 サイクル上限 5 分 (IMAP 取得 + AI 分類 + DB write の合計)。超えたら
-# kill して次回 timer 発火に任せる (途中まで処理した分は idempotent)。
-TimeoutStartSec=300
+# 1 サイクル上限 25 分 (IMAP 取得 + AI 分類 + DB write の合計)。
+# 初回デプロイ時のバックフィル (~数十-数百件) では 1 件あたり 7-15 秒
+# (IMAP fetch + AI 分類 + DB write) かかり 5 分上限を超えやすいため、
+# 30 分 timer 間隔の手前を上限とする (= timer 多重起動回避)。
+# 通常運用 (30 分毎 1-10 件) では 1-2 分で完了、上限到達はバックフィル時のみ。
+# 超えたら kill して次回 timer 発火に任せる (途中まで処理した分は idempotent)。
+TimeoutStartSec=1500
 
 # 安全ネット: 子プロセスが暴走したら 30 秒で SIGKILL。
 TimeoutStopSec=30
