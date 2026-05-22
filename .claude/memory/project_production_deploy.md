@@ -72,7 +72,8 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - admin seed: `popon` <poponta2020@gmail.com> grade=A、LINE 紐付け済 (line_link_method=self_identify)
   - LINE Bot: kagetra-mail-worker-bot (Messaging API @947zwajm)、`line_channels` DB seed 済、notify-system push 実証済 (PR #40 前の失敗時)
   - R2: `kagetra-backup` bucket (APAC、Object R&W token、Account ID a6c7e76744c6d4a319a67a0fbbf4f8a7)
-  - **残**: initial-launch-checklist.md 作成 + 全機能 (events / schedule / admin / mail-inbox / モバイル) 動作確認 + ship 宣言
+  - **doc 完成**: `docs/deploy/initial-launch-checklist.md` (PR #41 ship、286 行、10 section: 認証 / events / schedule / admin / mail-worker / backup / SSL / モバイル / パフォーマンス / ship 宣言)
+  - **残**: ユーザーが checklist を消化 (UI クリック確認 + DB 整合性 + 通知 drill + 復元 drill + モバイル実機) + ship 宣言
 
 ## ドメイン cutover (将来別 PR)
 

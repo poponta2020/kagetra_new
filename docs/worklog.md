@@ -1727,3 +1727,5 @@
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
+
+- 2026-05-22 PR #41 ship: feat(deploy) Phase D — initial-launch-checklist.md (286 行、10 section) + README links/status 更新。動作確認消化は別途実施
