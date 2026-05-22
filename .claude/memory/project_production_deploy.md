@@ -53,14 +53,26 @@ originSessionId: 3f76d005-46db-4156-9528-6f86bd7f4da1
   - GFS rotation: daily=7d / weekly=8w / monthly=12M, local find -mtime + R2 rclone delete --min-age
   - 罠系防御: umask 077 + chmod 600 (dump 漏洩防止)、pg_isready 5 分 retry (catch-up race 回避)、ERR trap 経由の通知 (`fail()` helper で `exit 1` の trap 無効化罠を回避)
   - 家 PC 副 copy 運用は doc のみ (月次手動)、自動化は将来別 PR
-- **Phase D**: 本番初回起動 + 動作確認 + ship — **2026-05-21 配線完了、popon admin login 成功**
+- **Phase D**: 本番初回起動 + 動作確認 + ship — **2026-05-22 Phase A-C 全配線稼働中、Phase D checklist 残るのみ**
   - **本番稼働中**: `https://new.hokudaicarta.com` (Oracle Cloud / Ubuntu 22.04 aarch64 / `140.238.51.41`)
-  - 手動デプロイ中に発覚した 3 hot fix を ship:
-    - PR #35: `apply-migrations.sh` psql 14 stdin substitution (`-c "...:'VAR'..."` 不動作)
-    - PR #36: `apps/api` tsup config で `noExternal: ["@kagetra/shared"]` 追加 (workspace dep の bundle 化)
-    - PR #37: doc 4 件不整合 (Lightsail DNS / iptables 行番号 / public/ なし / AUTH_TRUST_HOST 不足)
+  - **稼働中サービス**:
+    - apps/web (Next.js standalone, port 3000): popon admin login 成功
+    - apps/api (Hono, port 3001): `/hono-api/health` = ok
+    - postgres (docker, 127.0.0.1:5432): 14 tables / 12 migrations
+    - nginx (port 80/443, SSL by certbot): HTTP→HTTPS redirect
+    - mail-worker (systemd timer, 30 分毎): バックフィル 32 件処理済 (drafts inserted 2)
+    - backup (systemd timer, 03:00 JST 毎日): R2 daily/2026-05-22.dump 5.42 MiB uploaded
+  - 手動デプロイ中に発覚した 6 hot fix を ship:
+    - PR #35: `apply-migrations.sh` psql 14 stdin substitution
+    - PR #36: `apps/api` tsup config で `noExternal: ["@kagetra/shared"]`
+    - PR #37: doc 4 件不整合 (Lightsail DNS / iptables / public/ / AUTH_TRUST_HOST)
+    - PR #38: `apps/mail-worker` tsup config で `noExternal: ["@kagetra/shared"]` (#36 と対称)
+    - PR #39: `kagetra-mail-worker.service` TimeoutStartSec 5分→25分 (バックフィル対応)
+    - PR #40: `backup.sh` rclone `--no-progress` フラグ削除 (v1.74+ で廃止)
   - admin seed: `popon` <poponta2020@gmail.com> grade=A、LINE 紐付け済 (line_link_method=self_identify)
-  - **未完了**: Phase C backup の R2 token 設定 + 実起動 / initial-launch-checklist.md ベース動作確認 / ship 宣言
+  - LINE Bot: kagetra-mail-worker-bot (Messaging API @947zwajm)、`line_channels` DB seed 済、notify-system push 実証済 (PR #40 前の失敗時)
+  - R2: `kagetra-backup` bucket (APAC、Object R&W token、Account ID a6c7e76744c6d4a319a67a0fbbf4f8a7)
+  - **残**: initial-launch-checklist.md 作成 + 全機能 (events / schedule / admin / mail-inbox / モバイル) 動作確認 + ship 宣言
 
 ## ドメイン cutover (将来別 PR)
 
@@ -84,6 +96,15 @@ Phase 4 完了 + データ移行完了後に `new.hokudaicarta.com` → root `ho
 - **rclone R2 で Object Read & Write token は ListBuckets 不可** — `RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true` を export して HeadBucket を skip しないと bucket-exists check で失敗
 - **R2 endpoint は HTTP 不可、`endpoint=http://...` で 400** — `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` を明示
 - **dump ファイル permission は umask + chmod の二重防御** — umask 077 だけだと既存 dir の mode は変わらない。`install -d -m 0700` で dir 強制、`chmod 600 "$DAILY_FILE"` で file 強制 (PR #34 R2)
+
+## Phase D (本番初回デプロイ) 学び — Phase C 起動編 (2026-05-22)
+
+- **tsup default の external 扱いは workspace dep 全部に影響** — apps/api だけでなく apps/mail-worker でも同じ `ERR_MODULE_NOT_FOUND` で死ぬ。PR #36 と同形式の `tsup.config.ts` を作って `noExternal: ["@kagetra/shared"]` で fix (PR #38)。新 app 追加時の落とし穴
+- **systemd oneshot service の `TimeoutStartSec` は backfill を考えて設定** — mail-worker 初回起動で 27 件のバックログ処理に 5 分超え、`TimeoutStartSec=300` で SIGKILL されて起動失敗扱いに。1500s (25 分) にして次回 timer (30 分間隔) の手前で kill する設計 (PR #39)
+- **rclone v1.74+ で `--no-progress` フラグが廃止** — no-progress が default 挙動になったため明示フラグを削除。Ubuntu 22.04 でも公式 `.deb` (rclone-current-linux-arm64.deb) を入れると v1.74.1 が落ちてくる。`apt install rclone` は v1.53 で古すぎなので不可 (PR #40)
+- **LINE notify-system は失敗時 push が確実に動く** — PR #40 前の backup 失敗で `[notify-system] pushed` ログを確認、admin LINE に通知到達。primary (DB-backed) path が postgres 健全時の標準経路として実証済
+- **R2 endpoint URL は Account ID から組み立てる** — env には `R2_ACCOUNT_ID` のみ記録、backup.sh が `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` を構築。bucket 内 Settings の S3 API URL から Account ID を抽出可 (最初の 32 桁 hex)
+- **R2 Object Read & Write token は ListBuckets 不可** — `RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true` を export して HeadBucket を skip しないと bucket-exists check で失敗 (Phase C make-plan で既知、backup.sh で実装済)
 
 ## Phase D (本番初回デプロイ) 学び (2026-05-21)
 

@@ -7,7 +7,7 @@
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 - [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
-- [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。Phase A (PR #32) + B (PR #33) + C (PR #34) ship + Phase D 本番配線完了 (popon admin login 成功、2026-05-21)、R2 設定と動作確認継続中
+- [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。Phase A-C 全 ship + 本番配線完了 (popon admin login、mail-worker 30 分毎、backup 03:00 JST 毎日、R2 アップロード実証済、LINE 失敗通知実証済、2026-05-22)、残り Phase D initial-launch-checklist + ship 宣言
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス

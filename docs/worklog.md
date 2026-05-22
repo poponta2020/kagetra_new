@@ -1692,3 +1692,38 @@
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
 - Phase P3-B / P3-C 優先度確定 (本番安定後)
+
+---
+
+## 2026-05-22 セッション（Phase C 本番起動完遂）
+
+### 完了
+- **Phase C 全完了**: mail-worker + backup の本番稼働開始
+- LINE Bot (Messaging API @947zwajm) を `line_channels` テーブルに seed + `.env.production` の `LINE_FALLBACK_*` 設定
+- mail-worker secrets (Yahoo!Mail + Anthropic Claude API) を dev 流用で `.env.production` 反映
+- mail-worker systemd unit 配置 + 初回バックフィル 32 件処理 (drafts inserted 2 件) + timer enable
+- R2 (Cloudflare) `kagetra-backup` bucket 作成 + Object R&W token 発行 + `.env.production` 反映
+- rclone v1.74.1 install (.deb 経由) + `/var/backups/kagetra/{daily,weekly,monthly}` 作成
+- backup.sh 手動実行成功: pg_dump 5.4 MiB → R2 daily/2026-05-22.dump upload 完了 + rotation 全 stage 完走
+- backup timer enable (次回 18:00 UTC = 03:00 JST 毎日)
+- LINE 失敗通知 (notify-system) 実証済 (PR #40 前の失敗時に admin LINE へ push 確認)
+
+### ship した PR (本セッション 3 本)
+- **PR #38** (`fix(mail-worker): bundle @kagetra/shared in tsup build`): PR #36 と対称、apps/mail-worker の tsup config 化、R1 一発 pass
+- **PR #39** (`fix(mail-worker): bump TimeoutStartSec to 25min for backfill processing`): systemd timeout 5min→25min、R1 一発 pass
+- **PR #40** (`fix(deploy): drop --no-progress from rclone opts (removed in v1.74+)`): rclone v1.74 互換、R1 一発 pass
+
+### 残存している git 状態
+- main: `34cacd6` (PR #40 merge) → これから worklog + memory 同期 commit が乗る
+- worktree: なし
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- ローカル `.env.production`: 全 secrets 設定済 (TODO 0 件)
+- サーバ `/opt/kagetra/.env.production`: 同上反映済
+
+### 次回 (carryover)
+- 🔴 **Phase D**: `initial-launch-checklist.md` 作成 + 全機能動作確認 (events / schedule / admin / mail-inbox / モバイル等) + ship 宣言
+- 🟢 `apps/api` / `packages/shared` 実 lint 配線 (mail-worker と同 pattern)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+- Phase P3-B / P3-C 優先度確定 (本番安定後)
