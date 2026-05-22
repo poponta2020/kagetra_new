@@ -295,7 +295,7 @@ UPSERT: `ON CONFLICT (legacy_id) DO UPDATE SET ...`
 変換:
 - `legacyId` = 旧 id
 - `title` = 旧 name, `formalName` = 旧 formal_name
-- `eventDate` = 旧 date, `startTime` = 旧 start_at, `endTime` = 旧 end_at
+- `eventDate` = 旧 date（旧 start_at / end_at は廃止カラムなので破棄）
 - `location` = 旧 place, `description` = 旧 description
 - `official` = 旧 official
 - `kind` = 旧 kind=1→'individual', 2→'team'（3 は発生時 'individual' フォールバック）
@@ -333,7 +333,7 @@ UPSERT: `ON CONFLICT (event_id, user_id) DO UPDATE SET ...`（UNIQUE制約）
 
 #### migrate-schedule-items.ts
 変換:
-- `legacyId` = 旧 id, `date`, `name`, `startTime`, `endTime`, `location`（旧 place）
+- `legacyId` = 旧 id, `date`, `name`, `location`（旧 place）（旧 start_time / end_time は廃止カラムなので破棄）
 - `kind` = 旧 kind=1→'practice', 2→'social', 3→'other'
 - `ownerId` = legacyId 経由で users.id
 - `description` / `emphasis` / `public` は**破棄**

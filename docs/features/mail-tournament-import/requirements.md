@@ -342,7 +342,7 @@ status: completed
 | capacity_d | integer | nullable | D 級定員 |
 | capacity_e | integer | nullable | E 級定員 |
 
-**既存の `start_time` / `end_time` は活用継続（mail パイプラインからは抽出しない、手動入力可能性は残す）**。
+**`start_time` / `end_time` カラムは events / schedule_items から廃止済み**（mail パイプラインでも抽出対象外）。
 
 ### 4.3 フロントエンド設計
 

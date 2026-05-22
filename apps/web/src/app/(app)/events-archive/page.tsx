@@ -75,8 +75,6 @@ export default async function EventsArchivePage() {
                     </div>
                     <div className="mt-1 text-xs text-ink-meta">
                       {event.eventDate}
-                      {event.startTime && ` ${event.startTime}`}
-                      {event.endTime && `〜${event.endTime}`}
                     </div>
                     {event.location && (
                       <div className="mt-0.5 text-xs text-ink-meta">

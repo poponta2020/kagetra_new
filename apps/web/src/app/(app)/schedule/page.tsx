@@ -54,8 +54,6 @@ export default async function SchedulePage() {
                   <h3 className="font-medium">{item.name}</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     {item.date}
-                    {item.startTime && ` ${item.startTime}`}
-                    {item.endTime && `〜${item.endTime}`}
                   </p>
                   {item.location && (
                     <p className="text-sm text-gray-500">{item.location}</p>
