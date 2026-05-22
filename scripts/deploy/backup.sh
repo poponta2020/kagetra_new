@@ -76,7 +76,7 @@ export RCLONE_CONFIG_R2_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}"
 export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}"
 
 RCLONE_OPTS=(
-  --no-progress
+  # --no-progress は rclone v1.74+ で削除 (no-progress が default 挙動なので明示不要)
   --log-level INFO
   --retries 3
   --low-level-retries 10
