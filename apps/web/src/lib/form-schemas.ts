@@ -1,12 +1,8 @@
 import { z } from 'zod'
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付形式が不正です (YYYY-MM-DD)')
-const timeStr = z.string().regex(/^\d{2}:\d{2}$/, '時刻形式が不正です (HH:mm)')
 const optionalDateStr = z
   .union([dateStr, z.literal(''), z.null(), z.undefined()])
-  .transform((v) => (v ? v : null))
-const optionalTimeStr = z
-  .union([timeStr, z.literal(''), z.null(), z.undefined()])
   .transform((v) => (v ? v : null))
 const optionalStr = z
   .union([z.string(), z.null(), z.undefined()])
@@ -28,8 +24,6 @@ export const eventFormSchema = z.object({
   title: z.string().min(1, 'タイトルは必須').max(200, 'タイトルは200文字以内'),
   description: optionalStr,
   eventDate: dateStr,
-  startTime: optionalTimeStr,
-  endTime: optionalTimeStr,
   location: optionalStr,
   capacity: optionalPositiveInt,
   status: z.enum(['draft', 'published', 'cancelled', 'done']),
@@ -56,8 +50,6 @@ export const scheduleFormSchema = z.object({
   date: dateStr,
   name: z.string().min(1, '名前は必須').max(100, '名前は100文字以内'),
   kind: z.enum(['practice', 'meeting', 'social', 'other']),
-  startTime: optionalTimeStr,
-  endTime: optionalTimeStr,
   location: optionalStr,
   description: optionalStr,
 })
@@ -70,8 +62,6 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
     title: formData.get('title'),
     description: formData.get('description'),
     eventDate: formData.get('eventDate'),
-    startTime: formData.get('startTime'),
-    endTime: formData.get('endTime'),
     location: formData.get('location'),
     capacity: formData.get('capacity'),
     status: formData.get('status') || 'draft',
@@ -100,8 +90,6 @@ export function extractScheduleFormData(formData: FormData): Record<string, unkn
     date: formData.get('date'),
     name: formData.get('name'),
     kind: formData.get('kind') || 'other',
-    startTime: formData.get('startTime'),
-    endTime: formData.get('endTime'),
     location: formData.get('location'),
     description: formData.get('description'),
   }

@@ -13,8 +13,6 @@ export interface EventFormProps {
     official?: boolean
     kind?: EventKind
     eventDate?: string | null
-    startTime?: string | null
-    endTime?: string | null
     location?: string | null
     capacity?: number | null
     entryDeadline?: string | null
@@ -119,27 +117,6 @@ export function EventForm({
             defaultValue={defaultValues?.eventDate ?? ''}
             className={FIELD_CLASS}
           />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={LABEL_CLASS}>開始時間</label>
-            <input
-              name="startTime"
-              type="time"
-              defaultValue={defaultValues?.startTime ?? ''}
-              className={FIELD_CLASS}
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLASS}>終了時間</label>
-            <input
-              name="endTime"
-              type="time"
-              defaultValue={defaultValues?.endTime ?? ''}
-              className={FIELD_CLASS}
-            />
-          </div>
         </div>
 
         <div>

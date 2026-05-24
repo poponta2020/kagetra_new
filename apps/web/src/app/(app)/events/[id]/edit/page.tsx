@@ -80,8 +80,6 @@ export default async function EditEventPage({
           official: event.official,
           kind: event.kind,
           eventDate: event.eventDate,
-          startTime: event.startTime,
-          endTime: event.endTime,
           location: event.location,
           capacity: event.capacity,
           entryDeadline: event.entryDeadline,

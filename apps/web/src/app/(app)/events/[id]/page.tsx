@@ -130,13 +130,7 @@ export default async function EventDetailPage({
       : []),
     {
       label: '日付',
-      value: (
-        <>
-          {event.eventDate}
-          {event.startTime && ` ${event.startTime}`}
-          {event.endTime && `〜${event.endTime}`}
-        </>
-      ),
+      value: <>{event.eventDate}</>,
     },
     ...(event.location ? [{ label: '会場', value: event.location }] : []),
     ...(event.eligibleGrades?.length

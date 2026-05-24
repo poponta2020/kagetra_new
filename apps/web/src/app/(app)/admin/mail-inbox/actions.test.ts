@@ -65,8 +65,6 @@ function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
   fd.set('official', 'on')
   // Optional fields populated to exercise the full surface
   fd.set('description', '長文の説明')
-  fd.set('startTime', '09:30')
-  fd.set('endTime', '17:00')
   fd.set('location', '札幌市民会館')
   fd.set('capacity', '64')
   fd.set('formalName', '第10回テスト大会')

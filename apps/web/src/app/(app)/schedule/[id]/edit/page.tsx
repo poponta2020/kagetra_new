@@ -88,26 +88,6 @@ export default async function EditSchedulePage({
             <option value="other">その他</option>
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">開始時間</label>
-            <input
-              name="startTime"
-              type="time"
-              defaultValue={item.startTime ?? ''}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">終了時間</label>
-            <input
-              name="endTime"
-              type="time"
-              defaultValue={item.endTime ?? ''}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">場所</label>
           <input

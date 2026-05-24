@@ -9,8 +9,6 @@ const createEventSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
   eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   location: z.string().optional(),
   capacity: z.number().int().positive().optional(),
   status: z.enum(['draft', 'published', 'cancelled', 'done']).optional(),

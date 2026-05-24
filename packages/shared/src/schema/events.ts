@@ -8,8 +8,6 @@ export const events = pgTable('events', {
   title: text('title').notNull(),
   description: text('description'),
   eventDate: date('event_date', { mode: 'string' }).notNull(),
-  startTime: text('start_time'), // HH:mm format
-  endTime: text('end_time'),     // HH:mm format
   location: text('location'),
   capacity: integer('capacity'),
   status: eventStatusEnum('status').notNull().default('draft'),

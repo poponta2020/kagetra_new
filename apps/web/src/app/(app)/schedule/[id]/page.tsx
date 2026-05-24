@@ -51,15 +51,6 @@ export default async function ScheduleDetailPage({
           <dt className="text-sm text-gray-500">種別</dt>
           <dd>{kindLabels[item.kind] ?? 'その他'}</dd>
         </div>
-        {(item.startTime || item.endTime) && (
-          <div>
-            <dt className="text-sm text-gray-500">時間</dt>
-            <dd>
-              {item.startTime ?? ''}
-              {item.endTime ? `〜${item.endTime}` : ''}
-            </dd>
-          </div>
-        )}
         {item.location && (
           <div>
             <dt className="text-sm text-gray-500">場所</dt>
