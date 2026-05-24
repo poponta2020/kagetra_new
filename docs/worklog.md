@@ -1854,7 +1854,13 @@
 - 開いている PR: なし
 - ローカルブランチ: `main` のみ
 
-### 本番反映 (carryover)
-- 🟢 `git pull` → `pnpm install` → `pnpm build` → 静的アセット cp → `systemctl restart kagetra-web` で反映
+### 本番反映 (2026-05-24 完了)
+- ✅ `ssh ubuntu@140.238.51.41` → `sudo -u kagetra` で deploy
+- ✅ `git pull` (2083652 → a181eac、6 commit 進む、22 files changed)
+- ✅ `corepack pnpm install --frozen-lockfile` (Already up to date)
+- ✅ `corepack pnpm build` (3 packages 全 success、55.8s)
+- ✅ 静的アセット cp (`.next/static` → `.next/standalone/apps/web/.next/`) + **public/ → standalone/apps/web/** (PWA で初の public 追加)
+- ✅ `sudo systemctl restart kagetra-web` → active (PID 597025, 65.1M)
+- ✅ Health check: HTTPS 307 redirect (healthy)、`/manifest.webmanifest` 200 (612B)、icons 4 種すべて 200 配信、HTML head に PWA メタ全出力確認 (manifest/apple-touch-icon/theme-color/mobile-web-app-capable/apple-mobile-web-app-title/status-bar-style/icon 192,512)
 - 🟢 iPhone Safari で `https://new.hokudaicarta.com` → ホーム画面に追加 → standalone 起動 → LINE OAuth 動作確認 (#48)
 - 🟢 詰まれば fix PR (Auth.js v5 cookie 設定 / `apple-mobile-web-app-capable` 追加メタ等)
