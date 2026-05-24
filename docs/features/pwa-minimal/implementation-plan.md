@@ -32,7 +32,7 @@ status: completed
 - **依存タスク:** タスク1（アイコンパスを参照）
 
 ### タスク3: layout.tsx に Metadata 追加
-- [ ] 完了
+- [x] 完了
 - **対応 Issue:** #46
 - **概要:** Next.js 15 Metadata API で `manifest`/`appleWebApp`/`icons` を追加、Viewport API で `themeColor` を設定。`Viewport` 型 import 追加。
 - **変更対象ファイル:**
