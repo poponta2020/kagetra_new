@@ -1806,10 +1806,17 @@
 - 開いている PR: なし
 - ローカルブランチ: `main` のみ
 
-### 本番反映 (carryover、ユーザー手動)
-- 🔴 本番 SSH (`ssh kagetra@140.238.51.41`) → `cd /opt/kagetra && git pull && bash scripts/deploy/apply-migrations.sh` で 0012 を本番 DB に適用
-- 🔴 適用後 web/api 再起動: `sudo systemctl restart kagetra-web kagetra-api`
-- 🔴 スマホ実機 + dev 環境で events/schedule の作成・編集 golden path 確認
+### 本番反映 (2026-05-24 完了)
+- ✅ `ssh ubuntu@140.238.51.41` → `sudo -u kagetra` で deploy
+- ✅ `git pull` (34cacd6 → 2083652、4 commit 進む)
+- ✅ `corepack pnpm install --frozen-lockfile` (Already up to date)
+- ✅ `corepack pnpm build` (3 packages 全 success、54.6s)
+- ✅ 静的アセット cp (`.next/static` → `.next/standalone/apps/web/.next/`)
+- ✅ `bash scripts/deploy/apply-migrations.sh` で 0012 適用 (applied=1, skipped=12、DROP COLUMN x4)
+- ✅ `sudo systemctl restart kagetra-web kagetra-api kagetra-mail-worker` 全 active
+- ✅ Health check: web HTTPS 307 (redirect, healthy)、api `/hono-api/health` ok、DB schema 検証で `events` / `schedule_items` から `start_time` / `end_time` 完全消失確認
+- ✅ `drizzle.__drizzle_migrations` 最新 hash = `333536d5...` (= 0012_jazzy_james_howlett)
+- 🟢 スマホ実機での events/schedule 作成・編集 golden path 確認 (次回時間あるとき)
 
 ### 次回 (carryover)
 - 🟢 Phase 2 着手 or Phase 1-5 データ移行 (次のフェーズ確定)
