@@ -1780,3 +1780,42 @@
 - §6.4 fallback drill (postgres 停止) は off-peak 時間帯で実施推奨
 - §6.6 家 PC 副コピー: 月次手動 (オフライン作業)
 - R2 token 有効期限管理 (Forever 設定だが、年 1 回はチェック)
+
+---
+
+## 2026-05-24 セッション (PR #42 ship — start_time/end_time 削除リファクタ)
+
+### 完了
+- **PR #42** (`refactor: drop start_time/end_time from events and schedule_items`) merge 完了 (merge commit 47ba9a7)
+  - `events` / `schedule_items` の `start_time` / `end_time` カラムを完全削除
+  - migration `0012_jazzy_james_howlett.sql`: DROP COLUMN x4
+  - API (Zod) / form-schemas / UI 11 ファイル (events 5 + schedule 4 + form-schemas + actions.test) / docs 2 から関連参照を一括削除
+  - 連動して未使用化した `optionalTimeStr` / `timeStr` Zod helper も削除
+- Codex R1 一発 pass (Blocker/Should/Nits 全てなし)
+- ローカル検証: vitest 374/374, playwright e2e 11/11, check-types/lint clean
+- 設計判断を `project_kagetra_new_design.md` に項目 17 として記録
+
+### 設計判断 (2026-05-24 確定)
+- events / schedule_items は **日付のみ** で運用、時刻カラムは持たない
+- 時刻詳細が必要なら `location` / `description` テキストに含める
+- 理由: 実運用で `start_time` / `end_time` 欄が使われていなかった、入力フォーム省力化、本番既存値は DROP で破棄前提でユーザー承認済
+
+### 残存している git 状態
+- main: `47ba9a7` (PR #42 merge) → これから worklog + memory 同期 commit が乗る
+- worktree: なし (refactor worktree 削除済)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+
+### 本番反映 (carryover、ユーザー手動)
+- 🔴 本番 SSH (`ssh kagetra@140.238.51.41`) → `cd /opt/kagetra && git pull && bash scripts/deploy/apply-migrations.sh` で 0012 を本番 DB に適用
+- 🔴 適用後 web/api 再起動: `sudo systemctl restart kagetra-web kagetra-api`
+- 🔴 スマホ実機 + dev 環境で events/schedule の作成・編集 golden path 確認
+
+### 次回 (carryover)
+- 🟢 Phase 2 着手 or Phase 1-5 データ移行 (次のフェーズ確定)
+- 🟢 Phase 1 carryover: schedule_items 削除 UI 追加
+- 🟢 2nd account 招待時に E2E: 招待制ガード / 403 ガード / line-link account switch
+- 🟢 §6.4 fallback drill (postgres 停止) は off-peak 時間帯で実施推奨
+- 🟢 `apps/api` / `packages/shared` 実 lint 配線 (mail-worker と同 pattern)
+- 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
+- carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
