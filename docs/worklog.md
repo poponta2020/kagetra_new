@@ -1826,3 +1826,35 @@
 - 🟢 `apps/api` / `packages/shared` 実 lint 配線 (mail-worker と同 pattern)
 - 🟢 PR #31 scope 外: `reextract --bypass-oversize-guard` flag、二段警告、合算サイズ metric
 - carryover Nits (PR3 r4 / PR4 r4 / PR5 r3 各種)
+
+---
+
+## 2026-05-24 セッション (PR #49 ship — PWA minimal)
+
+### 完了
+- **PR #49** (`feat: add minimal PWA support (manifest + icons + metadata)`) merge 完了 (merge commit cb1bf45)
+  - SVG ロゴ (`apps/web/public/icons/icon.svg`, 512×512 白背景に「か」) + sharp 生成スクリプト + PNG 4 枚 (192/512/maskable-512/180)
+  - `apps/web/public/manifest.webmanifest`: display:standalone, orientation:portrait, アイコン3種 (192 any/512 any/512 maskable)
+  - `apps/web/src/app/layout.tsx`: Metadata API (manifest/appleWebApp/icons) + Viewport API (themeColor)
+  - `apps/web/src/middleware.ts`: matcher に PWA 静的ファイル除外を追加 (タスク4 ローカル動作確認で発見)
+  - `sharp` を `@kagetra/web` の devDependencies に追加
+- Codex R1 一発 pass (tokens=87021/500000)
+- ローカル検証: type-check / lint / vitest 174/174 全パス、dev server で HTML head に PWA メタタグ全出力、manifest/icons 200 配信を確認
+- 子 Issue #44 #45 #46 #47 自動クローズ、親 #43 自動クローズ
+- 残: #48 タスク5 実機検証 (本番反映後、必要なら fix PR)
+
+### 設計判断 / 知見
+- Next.js 15 Metadata API は `appleWebApp.capable: true` でも `mobile-web-app-capable` のみ出力 (`apple-mobile-web-app-capable` は出ない)。iOS Safari 旧バージョンで standalone モードが効かなければ #48 で追加メタタグ fix PR
+- アイコンは暫定文字ロゴ。SVG 差し替え + `pnpm --filter @kagetra/web exec tsx scripts/generate-pwa-icons.ts` で再生成
+- middleware matcher に静的アセット除外を追加するパターンが今後の PWA 系拡張のテンプレ
+
+### 残存している git 状態
+- main: `cb1bf45` (PR #49 merge) → これから worklog + memory 同期 commit が乗る
+- worktree: なし (ship 時に削除)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+
+### 本番反映 (carryover)
+- 🟢 `git pull` → `pnpm install` → `pnpm build` → 静的アセット cp → `systemctl restart kagetra-web` で反映
+- 🟢 iPhone Safari で `https://new.hokudaicarta.com` → ホーム画面に追加 → standalone 起動 → LINE OAuth 動作確認 (#48)
+- 🟢 詰まれば fix PR (Auth.js v5 cookie 設定 / `apple-mobile-web-app-capable` 追加メタ等)
