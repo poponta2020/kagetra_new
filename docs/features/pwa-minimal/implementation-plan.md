@@ -40,7 +40,7 @@ status: completed
 - **依存タスク:** タスク1, タスク2
 
 ### タスク4: ローカル動作確認
-- [ ] 完了
+- [x] 完了 (一部 Lighthouse/DevTools Installable はユーザー検証へ)
 - **対応 Issue:** #47
 - **概要:** Chrome DevTools と Lighthouse でインストール可能性を確認。問題があればタスク1〜3 に戻る。
 - **確認手順:**
