@@ -187,11 +187,13 @@ EOF
 **Worktreeは削除しない。** `/ship` でPRがマージされるまで `/tmp/fix-<summary>/` を保持する。
 後続の `/fix`（レビュー指摘修正）もこのworktree上で作業する。
 
-## Step 7: レビュープロンプト生成
+## Step 7: 自動レビューループ開始
 
-PR作成後、自動的に `/review` スキルを呼び出してレビュープロンプトを生成する。
+PR作成後、自動的に `/auto-review-loop` スキルを呼び出して Codex 自動レビュー&修正ループに入る。
 
-Skillツールで `review` スキルを呼び出す。引数にはPR番号を渡す。
+Skillツールで `auto-review-loop` スキルを呼び出す。引数にはPR番号を渡す。
+既定のラウンド上限（3）・トークン上限（500,000）を使用し、`--auto-ship` は付けない。
+別の挙動が必要なら、ユーザーがこのスキル完了後に `/auto-review-loop` を直接呼び直す。
 
 ## Step 8: 完了報告
 
@@ -201,8 +203,7 @@ Skillツールで `review` スキルを呼び出す。引数にはPR番号を渡
 - Issue URL
 - PR URL
 - Worktreeの場所（`/tmp/fix-<summary>/`）
-- 生成されたレビュープロンプトファイルのパス
-- 「このファイルの内容をレビュー担当AI（Codex or Claude Code）に貼り付けてください」
+- auto-review-loop が起動済みである旨（pass で停止したら `/ship <PR番号>` で出荷可能）
 
 ---
 

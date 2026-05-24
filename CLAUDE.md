@@ -14,7 +14,7 @@
 - Tailwind CSS + shadcn/ui / Vitest + Playwright
 - Turborepo + pnpm / Docker Compose on AWS Lightsail
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
-- レビュー: PR作成時にClaudeがレビュープロンプトを生成→ユーザーがVS Code上のCodexに依頼→結果を元に対応判断
+- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを最大3ラウンド回す（手動レビューを使いたい場合のみ `/review` で VS Code Codex に切替）
 
 ## 構成
 
@@ -39,7 +39,7 @@ scripts/migration/ → データ移行
 
 ## 開発ルール
 
-1. **実装前確認**: claude-mem検索→曖昧さは確認→make-plan→ユーザー承認。**計画承認後も /claude-mem:do の明示的な指示があるまで実装を開始しない**
+1. **実装前確認**: claude-mem検索→曖昧さは確認→make-plan→ユーザー承認。**計画承認後も /do-plan（または素の /claude-mem:do）の明示的な指示があるまで実装を開始しない**。/do-plan は worktree 隔離と並行作業の衝突検知込み（推奨）
 2. **テストファースト**: APIテスト→実装→フロントテスト→実装→E2E
 3. **1PR=1機能**: 小さく、混ぜない、description(何を・なぜ・テスト方法)必須
 4. **claude-mem記録**: 設計判断/バグ修正/完了/フィードバック時に必ず
@@ -53,4 +53,6 @@ scripts/migration/ → データ移行
 
 ## 開発フロー (1機能)
 
-grill-me(仕様確認) → define-feature(要件定義+計画+Issue) → ユーザー承認 → implement(worktreeで1タスクずつ実装) → prepare-pr(PR作成) → review(Codex用プロンプト生成) → ユーザーがCodex(VS Code)でレビュー → fix(指摘修正) → ship(マージ+memory同期+push)
+grill-me(仕様確認) → define-feature(要件定義+計画+Issue) → ユーザー承認 → implement(worktreeで1タスクずつ実装、全タスク完了時に自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex CLIで構造化レビュー→/fix修正→再レビュー、最大3ラウンド) → dod(DoDチェック) → ship(マージ+memory同期+push)
+
+実装系スキル（implement / do-plan / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、auto-review-loop まで自動で繋がる。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review` を呼ぶ。
