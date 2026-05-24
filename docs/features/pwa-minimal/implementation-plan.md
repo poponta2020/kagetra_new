@@ -24,7 +24,7 @@ status: completed
 - **依存タスク:** なし
 
 ### タスク2: manifest.webmanifest 作成
-- [ ] 完了
+- [x] 完了
 - **対応 Issue:** #45
 - **概要:** Web App Manifest を作成。display:standalone、orientation:portrait、白背景。アイコン 3 種（192 any / 512 any / 512 maskable）を登録。
 - **変更対象ファイル:**
