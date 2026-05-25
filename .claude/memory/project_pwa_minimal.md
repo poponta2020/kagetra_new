@@ -1,26 +1,27 @@
 ---
 name: project-pwa-minimal
-description: PWA 最小対応の要件定義完了状況。Issue
-metadata: 
+description: PWA 最小対応 ship 完了 (PR #49)、本番稼働中、Issue #43 + 子 #44-#48 全 close
+metadata:
   node_type: memory
   type: project
   originSessionId: d4a500a2-0f82-4650-9613-03a4a7fbea9f
 ---
 
-PWA 最小対応の要件定義 + 実装手順 + Issue 起票まで完了 (2026-05-24)。
+PWA 最小対応 ship + 本番反映 + 実機検証まで全完了 (2026-05-25)。
 
-- 親 Issue: #43 [Feature] PWA 対応（最小）
-- 子 Issue:
-  - #44 アイコンソース SVG + 生成スクリプト
-  - #45 manifest.webmanifest 作成
-  - #46 layout.tsx Metadata 追加
-  - #47 ローカル動作確認（DevTools + Lighthouse）
-  - #48 本番反映後 iOS/Android 実機検証（fix PR 想定）
-- 要件定義: `docs/features/pwa-minimal/requirements.md`
-- 実装手順: `docs/features/pwa-minimal/implementation-plan.md`
+- 親 Issue: #43 CLOSED
+- 子 Issue: #44 #45 #46 #47 #48 全 CLOSED
+- PR: #49 (`feat: add minimal PWA support`), merge commit `cb1bf45`
+- 本番反映: `new.hokudaicarta.com` で manifest/icons 200 配信、iPhone Safari でホーム画面追加 → standalone 起動 → LINE OAuth 完走を確認 (2026-05-25)
+- 実装: SVG ロゴ (中央「か」) + sharp 生成 PNG 4 枚 + manifest.webmanifest + layout.tsx Metadata/Viewport + middleware matcher で PWA 静的ファイル除外
+- アイコン再生成: `pnpm --filter @kagetra/web exec tsx scripts/generate-pwa-icons.ts`
 
-**Why:** スマホでホーム画面追加してもアドレスバー付きのブラウザ起動になっていた。最小コストで standalone 起動を実現する。
+**Why:** スマホでホーム画面追加してもアドレスバー付きのブラウザ起動になっていた。最小コストで standalone 起動を実現した。
 
-**How to apply:** `/implement pwa-minimal` で実装着手。タスク1〜4 は 1 PR、タスク5 は本番マージ後検証で詰まれば fix PR の二段構え。iOS Safari standalone での LINE OAuth は既知トラップ、Auth.js v5 cookie 設定 (`sameSite`/`secure`/`useSecureCookies`) を疑う。next-pwa は使わず Next.js 15 Metadata API + 静的アセットで完結。SW・Push は LINE 通知で代替済みなのでスコープ外。
+**How to apply:** 完了済み。次にロゴを差し替えたい場合は `apps/web/public/icons/icon.svg` を編集 → 生成スクリプト再実行 → 生成 PNG をコミット。本番反映時は **public/ → standalone/apps/web/ のコピー必須** (PR #42 までは public 不在で deploy script に未組込)。
 
-関連: [[project_production_deploy]]（Phase D 完了済み、本番 `new.hokudaicarta.com` で実機検証可能）
+**知見:**
+- Next.js 15 の Metadata API `appleWebApp.capable: true` は `mobile-web-app-capable` のみ出力するが、iOS Safari でも standalone モードは効いた (`apple-mobile-web-app-capable` 追加不要)
+- middleware matcher に静的アセット除外を追加するパターンが今後の PWA 系/公開静的アセット拡張のテンプレ
+
+関連: [[project_production_deploy]] (Phase D 完了済み)、[[feedback_windows_worktree_path]] (worktree 作成時の罠を本タスクで踏んだ)

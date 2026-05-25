@@ -1862,5 +1862,5 @@
 - ✅ 静的アセット cp (`.next/static` → `.next/standalone/apps/web/.next/`) + **public/ → standalone/apps/web/** (PWA で初の public 追加)
 - ✅ `sudo systemctl restart kagetra-web` → active (PID 597025, 65.1M)
 - ✅ Health check: HTTPS 307 redirect (healthy)、`/manifest.webmanifest` 200 (612B)、icons 4 種すべて 200 配信、HTML head に PWA メタ全出力確認 (manifest/apple-touch-icon/theme-color/mobile-web-app-capable/apple-mobile-web-app-title/status-bar-style/icon 192,512)
-- 🟢 iPhone Safari で `https://new.hokudaicarta.com` → ホーム画面に追加 → standalone 起動 → LINE OAuth 動作確認 (#48)
-- 🟢 詰まれば fix PR (Auth.js v5 cookie 設定 / `apple-mobile-web-app-capable` 追加メタ等)
+- ✅ **2026-05-25**: iPhone Safari でホーム画面追加 → standalone 起動 → LINE OAuth 完走を確認。#48 close、PWA 最小対応 (Issue #43) 全タスク完了
+- ✅ `apple-mobile-web-app-capable` 不在でも iOS で standalone 起動した (新標準 `mobile-web-app-capable` のみで OK)
