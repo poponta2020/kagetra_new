@@ -19,8 +19,11 @@ export interface MobileShellProps {
 }
 
 /**
- * Mobile-first application shell: sticky 44px top bar + scrollable main +
- * sticky 52px bottom tab bar. Matches the `MobileFrame` prototype in
+ * Mobile-first application shell. Fits the visible viewport via `h-dvh`
+ * (with `h-screen` fallback for older browsers) so AppBar and BottomNav
+ * stay pinned at the flex edges and only `<main>` scrolls — keeping the
+ * 44px top bar and 52px bottom tab bar visible regardless of page length
+ * or iOS Safari URL-bar collapse. Matches the `MobileFrame` prototype in
  * `docs/design/ui_kits/kagetra-mobile/primitives.jsx` and §3 of
  * `docs/design/design.md`.
  *
@@ -37,8 +40,10 @@ export function MobileShell({
   signOutAction,
   children,
 }: MobileShellProps) {
+  // `h-screen` first as a fallback for browsers without `dvh` support; the
+  // later `h-dvh` wins where supported (iOS Safari 15.4+, Chrome 108+).
   return (
-    <div className="flex min-h-screen flex-col bg-canvas text-ink font-sans">
+    <div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
       <main className="flex-1 overflow-y-auto">{children}</main>
       <BottomNav isAdmin={isAdmin} />

@@ -56,8 +56,11 @@ export interface BottomNavProps {
 }
 
 /**
- * Sticky mobile bottom tab bar (52px tall). Tabs per `docs/design/design.md`
- * §3 — ホーム / イベント / 予定 / 会員 (admin only until a member-facing list
+ * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
+ * uses `min-h-[52px]` plus `padding-bottom: env(safe-area-inset-bottom)`
+ * so the bg-surface fill extends into the iOS home-indicator area without
+ * shrinking the tap targets. Tabs per `docs/design/design.md` §3 —
+ * ホーム / イベント / 予定 / 会員 (admin only until a member-facing list
  * exists).
  *
  * Client component because it reads the current pathname via
@@ -67,7 +70,10 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
   const pathname = usePathname() ?? ''
   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
   return (
-    <nav className="h-[52px] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+    <nav
+      className="min-h-[52px] flex-shrink-0 flex items-stretch bg-surface border-t border-border"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       {visibleTabs.map((tab) => {
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),
@@ -77,7 +83,7 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
             key={tab.id}
             href={tab.href}
             className={cn(
-              'flex-1 flex items-center justify-center text-[11px] font-medium border-t-2 transition-colors',
+              'h-[52px] flex-1 flex items-center justify-center text-[11px] font-medium border-t-2 transition-colors',
               active
                 ? 'border-brand text-brand'
                 : 'border-transparent text-ink-meta',
