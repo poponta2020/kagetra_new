@@ -37,6 +37,12 @@ export const lineChannels = pgTable('line_channels', {
   assignedEventId: integer('assigned_event_id')
     .unique()
     .references(() => events.id, { onDelete: 'set null' }),
+  // LINE Messaging API webhooks send `destination` as the Bot's USER ID
+  // (`U` + 32 hex), which is different from the Basic ID (`@kagetra-event-bot-N`)
+  // used for friends-add URLs. Stored separately so the friends-add URL stays
+  // human-readable and webhook routing has an exact-match key. NULL while a
+  // pre-existing channel hasn't been re-seeded with its destination value.
+  webhookDestinationId: text('webhook_destination_id'),
   notificationLineUserId: text('notification_line_user_id'),
   note: text('note'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),

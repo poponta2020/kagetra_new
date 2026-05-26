@@ -1,0 +1,1 @@
+ALTER TABLE "line_channels" ADD COLUMN "webhook_destination_id" text;

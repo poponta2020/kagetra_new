@@ -42,6 +42,7 @@ async function insertChannel(overrides: Partial<{
   channelSecret: string
   channelAccessToken: string
   botId: string
+  webhookDestinationId: string | null
 }> = {}) {
   const inserted = await db
     .insert(lineChannels)
@@ -50,6 +51,12 @@ async function insertChannel(overrides: Partial<{
       channelSecret: overrides.channelSecret ?? CHANNEL_SECRET,
       channelAccessToken: overrides.channelAccessToken ?? 'token',
       botId: overrides.botId ?? '@kagetra-event-bot-test',
+      // Tests default to a deterministic user-id-shaped value so the
+      // destination-routing path is exercised, not the legacy fallback.
+      webhookDestinationId:
+        overrides.webhookDestinationId === undefined
+          ? `U${Math.random().toString(36).slice(2, 10).padEnd(32, '0')}`
+          : overrides.webhookDestinationId,
       purpose: 'event_broadcast',
       status: overrides.status ?? 'assigned',
       assignedEventId: overrides.assignedEventId ?? null,
@@ -152,25 +159,28 @@ describe('handleLineWebhook', () => {
 
   it('returns 401 on bad signature', async () => {
     const channel = await insertChannel()
-    const body = JSON.stringify({ destination: channel.botId, events: [] })
+    const body = JSON.stringify({
+      destination: channel.webhookDestinationId,
+      events: [],
+    })
     const res = await handleLineWebhook(db, body, 'wrong-sig')
     expect(res.status).toBe(401)
     expect(res.reason).toBe('bad_signature')
   })
 
   it('returns 404 when destination matches no channel', async () => {
-    const body = JSON.stringify({ destination: '@nope', events: [] })
+    const body = JSON.stringify({ destination: 'Uno-such-bot', events: [] })
     const res = await handleLineWebhook(db, body, signBody(body))
     expect(res.status).toBe(404)
   })
 
-  it('routes verified events to the handler', async () => {
+  it('routes verified events to the handler via webhookDestinationId', async () => {
     const channel = await insertChannel({ status: 'assigned' })
     const eventId = await insertEvent()
     await insertBroadcast(eventId, channel.id, { status: 'invite_pending' })
 
     const payload = {
-      destination: channel.botId,
+      destination: channel.webhookDestinationId,
       events: [
         {
           type: 'join',
@@ -191,6 +201,23 @@ describe('handleLineWebhook', () => {
     expect(broadcast?.lineGroupId).toBe('C123')
     expect(replyClient.captured).toHaveLength(1)
     expect(replyClient.captured[0]!.text).toMatch(/招待コード/)
+  })
+
+  it('falls back to botId when webhookDestinationId is NULL (legacy row)', async () => {
+    const channel = await insertChannel({
+      status: 'assigned',
+      webhookDestinationId: null,
+      botId: '@legacy-bot',
+    })
+    const eventId = await insertEvent()
+    await insertBroadcast(eventId, channel.id, { status: 'invite_pending' })
+
+    const body = JSON.stringify({
+      destination: '@legacy-bot',
+      events: [],
+    })
+    const res = await handleLineWebhook(db, body, signBody(body))
+    expect(res.status).toBe(200)
   })
 })
 
@@ -327,7 +354,7 @@ describe('applyWebhookEvents — invite code path', () => {
 })
 
 describe('applyWebhookEvents — leave path', () => {
-  it('marks broadcast revoked and returns the channel to the pool', async () => {
+  it('marks broadcast revoked, clears invite code, and returns the channel to the pool', async () => {
     await resetDb()
     const channel = await insertChannel({ status: 'active' })
     const eventId = await insertEvent()
@@ -335,10 +362,16 @@ describe('applyWebhookEvents — leave path', () => {
       .update(lineChannels)
       .set({ assignedEventId: eventId })
       .where(eq(lineChannels.id, channel.id))
-    await insertBroadcast(eventId, channel.id, { status: 'linked' })
+    // Leave a stale invite code on the row so we can prove handleLeave
+    // clears it — partial unique would otherwise block the next reissue.
+    await insertBroadcast(eventId, channel.id, {
+      status: 'linked',
+      inviteCode: '987654',
+      inviteCodeExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    })
 
     const payload: LineWebhookPayload = {
-      destination: channel.botId,
+      destination: channel.webhookDestinationId ?? channel.botId,
       events: [
         {
           type: 'leave',
@@ -354,6 +387,8 @@ describe('applyWebhookEvents — leave path', () => {
     })
     expect(broadcast?.status).toBe('revoked')
     expect(broadcast?.revokeReason).toBe('bot_kicked')
+    expect(broadcast?.inviteCode).toBeNull()
+    expect(broadcast?.inviteCodeExpiresAt).toBeNull()
 
     const after = await db.query.lineChannels.findFirst({
       where: eq(lineChannels.id, channel.id),

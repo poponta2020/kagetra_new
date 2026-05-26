@@ -10,14 +10,20 @@
  * Input JSON shape (array, one entry per Bot):
  *   [
  *     {
- *       "channelId":          "1234567890",
- *       "channelSecret":      "deadbeef...",
- *       "channelAccessToken": "...",
- *       "botId":              "@kagetra-event-bot-1",
- *       "note":               "kagetra-event-bot-1"   // optional
+ *       "channelId":             "1234567890",
+ *       "channelSecret":         "deadbeef...",
+ *       "channelAccessToken":    "...",
+ *       "botId":                 "@kagetra-event-bot-1",
+ *       "webhookDestinationId":  "U0123456789abcdef0123456789abcdef",
+ *       "note":                  "kagetra-event-bot-1"   // optional
  *     },
  *     ...
  *   ]
+ *
+ *   `webhookDestinationId` is the Bot's USER ID (the `destination` value
+ *   LINE puts in every webhook payload). It is REQUIRED for webhook routing
+ *   to work — without it the handler falls back to botId/channelId, which
+ *   only matches in legacy / pre-rollout test setups.
  *
  * Idempotency:
  *   - INSERT rows whose `channel_id` is not yet present, with
@@ -49,6 +55,8 @@ export interface BroadcastChannelInput {
   channelSecret: string
   channelAccessToken: string
   botId: string
+  /** LINE Bot user ID (`U` + 32 hex) — required for webhook routing. */
+  webhookDestinationId?: string
   note?: string
 }
 
@@ -106,6 +114,7 @@ export async function seedBroadcastChannels(
         channelSecret: input.channelSecret,
         channelAccessToken: input.channelAccessToken,
         botId: input.botId,
+        webhookDestinationId: input.webhookDestinationId ?? null,
         purpose: 'event_broadcast',
         status: 'available',
         note: input.note ?? `kagetra-event-bot-${index + 1}`,
@@ -163,6 +172,10 @@ function parseInputFile(filePath: string): BroadcastChannelInput[] {
       channelSecret: obj.channelSecret as string,
       channelAccessToken: obj.channelAccessToken as string,
       botId: obj.botId as string,
+      webhookDestinationId:
+        typeof obj.webhookDestinationId === 'string'
+          ? obj.webhookDestinationId
+          : undefined,
       note: typeof obj.note === 'string' ? obj.note : undefined,
     }
   })

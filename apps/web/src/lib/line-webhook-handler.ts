@@ -106,9 +106,13 @@ async function loadChannelByDestination(
   db: typeof appDb,
   destination: string,
 ): Promise<ChannelLookup | null> {
-  // `destination` in LINE webhook payloads is the Bot's userId, which we
-  // stored as `bot_id` at seed time. Some setups also use `channelId` —
-  // try both to keep this resilient.
+  // LINE Messaging API webhooks send `destination` as the Bot's USER ID
+  // (the `U` + 32-hex value), which is distinct from the Basic ID
+  // (`@kagetra-event-bot-N`) stored in `bot_id`. We persist the user ID
+  // separately in `webhook_destination_id` and route on it. The botId /
+  // channelId fallbacks are kept for backwards compatibility with rows
+  // seeded before this column existed (e.g. mid-rollout test fixtures);
+  // a fresh production seed always populates webhookDestinationId.
   const rows = await db
     .select({
       id: lineChannels.id,
@@ -116,12 +120,20 @@ async function loadChannelByDestination(
       channelAccessToken: lineChannels.channelAccessToken,
       botId: lineChannels.botId,
       channelId: lineChannels.channelId,
+      webhookDestinationId: lineChannels.webhookDestinationId,
     })
     .from(lineChannels)
     .where(eq(lineChannels.purpose, 'event_broadcast'))
-  const hit = rows.find(
-    (row) => row.botId === destination || row.channelId === destination,
-  )
+  const hit = rows.find((row) => {
+    if (row.webhookDestinationId === destination) return true
+    // Backward-compat fallback: only fires when webhookDestinationId is
+    // NULL on the row (i.e. legacy seed). Once the operator re-runs the
+    // seed script with the user ID populated, this branch becomes dead.
+    if (row.webhookDestinationId == null) {
+      return row.botId === destination || row.channelId === destination
+    }
+    return false
+  })
   return hit
     ? {
         id: hit.id,
@@ -270,6 +282,10 @@ async function handleLeave(
         status: 'revoked',
         revokedAt: sql`now()`,
         revokeReason: 'bot_kicked',
+        // 招待コードを残すと partial unique が後続発行を塞ぐので null 化
+        // (review r1 should_fix)。
+        inviteCode: null,
+        inviteCodeExpiresAt: null,
         updatedAt: sql`now()`,
       })
       .where(

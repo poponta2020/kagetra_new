@@ -61,11 +61,14 @@ sudo -u kagetra bash -c 'cd /opt/kagetra && corepack pnpm --filter @kagetra/shar
 - **Auto-reply messages**: OFF (アプリ側で reply を制御)
 - **Greeting messages**: OFF
 
-各 Bot から以下 3 つを控える:
+各 Bot から以下を控える:
 - Channel ID
 - Channel Secret
 - Channel Access Token (long-lived、`Issue` ボタンで発行)
-- Basic ID (`@kagetra-event-bot-N`)
+- Basic ID (`@kagetra-event-bot-N`) — friends-add URL 用
+- **Bot user ID** (`U` + 32 hex) — webhook routing 用。各 Bot Console
+  画面の「Basic settings」→「Your user ID」、もしくは webhook テスト
+  時の payload `destination` から取得
 
 これらを JSON 配列にまとめて `/etc/kagetra/broadcast-channels.json` に
 配置 (mode 0600, owner kagetra):
@@ -77,11 +80,17 @@ sudo -u kagetra bash -c 'cd /opt/kagetra && corepack pnpm --filter @kagetra/shar
     "channelSecret": "deadbeef...",
     "channelAccessToken": "...",
     "botId": "@kagetra-event-bot-1",
+    "webhookDestinationId": "U0123456789abcdef0123456789abcdef",
     "note": "kagetra-event-bot-1"
   },
   ...
 ]
 ```
+
+`webhookDestinationId` が無いと webhook handler は botId / channelId に
+フォールバックするが、LINE は実際には Bot user ID を送ってくるため、
+本番では必ず正しい値をセットすること。
+
 
 ## 4. 30 Bot を line_channels テーブルに投入
 

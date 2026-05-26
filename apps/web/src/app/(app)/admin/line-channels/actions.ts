@@ -33,13 +33,16 @@ export async function releaseChannel(channelId: number): Promise<void> {
   await db.transaction(async (tx) => {
     // Mark any active/joined-waiting broadcast for this channel as revoked.
     // We do NOT delete the row — the audit trail (linked_at, line_group_id)
-    // stays for operator review.
+    // stays for operator review. invite_code は null に戻して partial
+    // unique index が後続発行を塞がないようにする (review r1 should_fix)。
     await tx
       .update(eventLineBroadcasts)
       .set({
         status: 'revoked',
         revokedAt: sql`now()`,
         revokeReason: 'manual',
+        inviteCode: null,
+        inviteCodeExpiresAt: null,
         updatedAt: sql`now()`,
       })
       .where(

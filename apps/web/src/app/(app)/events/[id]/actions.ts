@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -78,24 +78,60 @@ export async function generateInviteCodeForEvent(
     let channelId: number
     if (existing) {
       channelId = existing.lineChannelId
+      // existing が available に戻っているケース (release 直後の再発行) を
+      // assigned に昇格。同じトランザクション内なので race は無い。
+      await tx
+        .update(lineChannels)
+        .set({
+          status: 'assigned',
+          assignedEventId: eventId,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(lineChannels.id, channelId))
     } else {
-      // Take the next available broadcast channel. ORDER BY id keeps the
-      // assignment deterministic for the operator following note order in
-      // the admin UI (kagetra-event-bot-1, -2, ...).
-      const candidate = await tx.query.lineChannels.findFirst({
-        where: and(
-          eq(lineChannels.purpose, 'event_broadcast'),
-          eq(lineChannels.status, 'available'),
-        ),
-        columns: { id: true },
-        orderBy: (lc, { asc }) => [asc(lc.id)],
-      })
-      if (!candidate) {
+      // Atomic reservation: SELECT で候補一覧を取り、UPDATE WHERE
+      // status='available' RETURNING で奪い合う。並行 generateInviteCode
+      // が同じ Bot を取り合った場合、敗者は RETURNING に行が出ないので
+      // 次の候補に進む。partial unique を増やすより、status を排他資源
+      // として使う方が既存制約 (assignedEventId UNIQUE) と整合する。
+      const candidates = await tx
+        .select({ id: lineChannels.id })
+        .from(lineChannels)
+        .where(
+          and(
+            eq(lineChannels.purpose, 'event_broadcast'),
+            eq(lineChannels.status, 'available'),
+          ),
+        )
+        .orderBy(asc(lineChannels.id))
+
+      let reservedId: number | null = null
+      for (const cand of candidates) {
+        const reserved = await tx
+          .update(lineChannels)
+          .set({
+            status: 'assigned',
+            assignedEventId: eventId,
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              eq(lineChannels.id, cand.id),
+              eq(lineChannels.status, 'available'),
+            ),
+          )
+          .returning({ id: lineChannels.id })
+        if (reserved[0]) {
+          reservedId = reserved[0].id
+          break
+        }
+      }
+      if (reservedId == null) {
         throw new Error(
           'Bot プールが枯渇しています。/admin/line-channels で過去の Bot を解放してください',
         )
       }
-      channelId = candidate.id
+      channelId = reservedId
     }
 
     const inviteCode = generateInviteCode()
@@ -126,15 +162,6 @@ export async function generateInviteCodeForEvent(
         status: 'invite_pending',
       })
     }
-
-    await tx
-      .update(lineChannels)
-      .set({
-        status: 'assigned',
-        assignedEventId: eventId,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(lineChannels.id, channelId))
 
     const channelRow = await tx.query.lineChannels.findFirst({
       where: eq(lineChannels.id, channelId),
@@ -179,6 +206,10 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
         status: 'revoked',
         revokedAt: sql`now()`,
         revokeReason: 'manual',
+        // invite_code を残すと partial unique が次回発行を塞ぐ
+        // (review r1 should_fix)。release / revoke 全パスで null 化する。
+        inviteCode: null,
+        inviteCodeExpiresAt: null,
         updatedAt: sql`now()`,
       })
       .where(eq(eventLineBroadcasts.id, current.id))
