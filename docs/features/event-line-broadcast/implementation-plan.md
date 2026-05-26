@@ -109,7 +109,7 @@ status: completed
 - **対応Issue:** #62
 
 ### タスク9: E2E テスト + 動作確認
-- [ ] 完了
+- [x] 完了
 - **概要:** Playwright で招待コード生成 UI と Bot 管理画面のハッピーパスをカバー、`LINE_NOTIFY_DRY_RUN=1` で配信モック確認。スマホ実機で 1 大会の通しテスト。
 - **変更対象ファイル:**
   - `apps/web/tests/e2e/event-line-broadcast.spec.ts` — 新規 (招待コード生成 → モーダル → 配信履歴表示)
