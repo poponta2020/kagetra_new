@@ -2,6 +2,7 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -13,6 +14,7 @@ import {
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
+import { broadcastMailToEvent } from '@/lib/line-broadcast'
 import {
   classifyMail,
   persistOutcome,
@@ -60,6 +62,13 @@ export async function approveDraft(draftId: number, formData: FormData) {
     (g) => formData.get(`grade_${g}`) === 'on',
   )
 
+  // Capture the post-commit state for the LINE broadcast trigger so we can
+  // schedule it AFTER the response is flushed — without round-tripping a
+  // second query.
+  let approvedEventId: number | null = null
+  let approvedMailMessageId: number | null = null
+  let approvedIsCorrection = false
+
   await db.transaction(async (tx) => {
     const inserted = await tx
       .insert(events)
@@ -96,11 +105,16 @@ export async function approveDraft(draftId: number, formData: FormData) {
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,
+        isCorrection: tournamentDrafts.isCorrection,
       })
 
     if (updated.length === 0) {
       throw new Error('draft is not approvable')
     }
+
+    approvedEventId = newEventId
+    approvedMailMessageId = updated[0]!.messageId
+    approvedIsCorrection = updated[0]!.isCorrection
 
     // Sync mail_messages.status when the draft is finalized so the inbox
     // list filter and the mail-worker re-extract path can rely on a single
@@ -117,6 +131,24 @@ export async function approveDraft(draftId: number, formData: FormData) {
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
   revalidatePath('/events')
+
+  // event-line-broadcast: trigger after the response is flushed so the
+  // operator's UI returns immediately — pdftoppm / libreoffice can take
+  // tens of seconds on a beefy mail and would otherwise block the redirect.
+  // `broadcastMailToEvent` is best-effort: failures are recorded into
+  // event_broadcast_messages without affecting the approval.
+  if (approvedEventId != null && approvedMailMessageId != null) {
+    const eventId = approvedEventId
+    const mailMessageId = approvedMailMessageId
+    const isCorrection = approvedIsCorrection
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+      } catch (err) {
+        console.error('[approveDraft] broadcastMailToEvent failed', err)
+      }
+    })
+  }
 }
 
 export async function rejectDraft(draftId: number, formData: FormData) {

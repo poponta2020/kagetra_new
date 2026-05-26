@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
+  eventBroadcastMessages,
   events,
   eventAttendances,
   eventLineBroadcasts,
@@ -15,6 +16,7 @@ import {
   generateInviteCode,
   inviteCodeExpiresAt,
 } from '@/lib/invite-code'
+import { broadcastMailToEvent } from '@/lib/line-broadcast'
 
 async function requireAdminSession() {
   const session = await auth()
@@ -213,6 +215,54 @@ export async function extendBroadcastLifetime(
     .update(eventLineBroadcasts)
     .set({ extendedUntil: newUntil, updatedAt: sql`now()` })
     .where(eq(eventLineBroadcasts.eventId, eventId))
+
+  revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * Re-broadcast a specific mail to the LINE group bound to this event.
+ *
+ * Use cases:
+ *   - The original auto-broadcast failed (event_broadcast_messages.status
+ *     = 'failed') and the operator wants to retry after fixing the cause.
+ *   - The operator wants to re-send a mail (e.g. the LINE group was
+ *     re-bound after the original send).
+ *
+ * Idempotent: line-broadcast.ts upserts the existing audit row, so the
+ * UNIQUE constraint on (event_line_broadcast_id, mail_message_id) is
+ * preserved.
+ */
+export async function manualBroadcast(
+  eventId: number,
+  mailMessageId: number,
+): Promise<void> {
+  await requireAdminSession()
+
+  // Look up the existing audit row (if any) to inherit the correction flag.
+  // Manual rebroadcast should preserve whether the underlying mail was a
+  // correction so the 【訂正】 prefix stays consistent across retries.
+  const existing = await db
+    .select({
+      isCorrection: eventBroadcastMessages.isCorrection,
+    })
+    .from(eventBroadcastMessages)
+    .innerJoin(
+      eventLineBroadcasts,
+      eq(eventLineBroadcasts.id, eventBroadcastMessages.eventLineBroadcastId),
+    )
+    .where(
+      and(
+        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventBroadcastMessages.mailMessageId, mailMessageId),
+      ),
+    )
+    .limit(1)
+
+  await broadcastMailToEvent(db, {
+    eventId,
+    mailMessageId,
+    isCorrection: existing[0]?.isCorrection ?? false,
+  })
 
   revalidatePath(`/events/${eventId}`)
 }

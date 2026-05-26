@@ -83,7 +83,7 @@ status: completed
 - **対応Issue:** #60
 
 ### タスク7: 配信ロジック本体 + approveDraft 連動
-- [ ] 完了
+- [x] 完了
 - **概要:** 本文分割・添付画像化・LINE batch push を組み合わせた配信処理を実装し、mail-inbox 承認フローに自動配信トリガーを差し込む。
 - **変更対象ファイル:**
   - `apps/web/src/lib/line-broadcast.ts` — 新規 (`broadcastMailToEvent()`, batch push、リトライ、エラー記録)
