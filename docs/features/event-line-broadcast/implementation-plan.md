@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #58
 
 ### タスク5: LINE Webhook + Bot 対話 (join/leave/code 認識)
-- [ ] 完了
+- [x] 完了
 - **概要:** `/api/webhook/line` で LINE Messaging API からの webhook を受信し、Bot 招待・コード認識・kick 処理を実装。
 - **変更対象ファイル:**
   - `apps/web/src/app/api/webhook/line/route.ts` — 新規 (POST handler、X-Line-Signature 検証、destination 別 routing)
