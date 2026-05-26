@@ -88,45 +88,69 @@ interface ChannelRow {
   channelAccessToken: string
 }
 
+interface PushMessagesResult {
+  /** Number of LINE messages that were successfully delivered. */
+  deliveredCount: number
+  /** Error from the first failed batch, or null when all batches succeeded. */
+  error: Error | null
+}
+
 /**
  * Push messages to a LINE group in <=5-message batches with a sleep between
  * batches. Implemented over `fetch` so we don't drag the LINE SDK into the
  * apps/web bundle — the SDK adds no real value over a 30-line wrapper here.
+ *
+ * r3 review should_fix: 途中で失敗した場合に「どこまで送れたか」を返す。
+ * 呼び出し側はその情報で event_broadcast_messages を `partial` に倒し、
+ * 再送時の重複配信を防ぐ判断に使う。
  */
 async function pushMessages(
   channelAccessToken: string,
   to: string,
   messages: LineMessage[],
   logger: NonNullable<BroadcastMailOptions['logger']>,
-): Promise<void> {
+): Promise<PushMessagesResult> {
   if (process.env.LINE_NOTIFY_DRY_RUN === '1') {
     logger.info('LINE_NOTIFY_DRY_RUN=1; skipping push', {
       to,
       count: messages.length,
     })
-    return
+    return { deliveredCount: messages.length, error: null }
   }
 
+  let delivered = 0
   for (let i = 0; i < messages.length; i += LINE_BATCH_SIZE) {
     const batch = messages.slice(i, i + LINE_BATCH_SIZE)
-    const res = await fetch(LINE_PUSH_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${channelAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ to, messages: batch }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(
-        `LINE push failed: ${res.status} ${body.slice(0, 200)}`,
-      )
+    try {
+      const res = await fetch(LINE_PUSH_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ to, messages: batch }),
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        return {
+          deliveredCount: delivered,
+          error: new Error(
+            `LINE push failed: ${res.status} ${body.slice(0, 200)}`,
+          ),
+        }
+      }
+      delivered += batch.length
+    } catch (err) {
+      return {
+        deliveredCount: delivered,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }
     }
     if (i + LINE_BATCH_SIZE < messages.length) {
       await new Promise<void>((resolve) => setTimeout(resolve, LINE_BATCH_SLEEP_MS))
     }
   }
+  return { deliveredCount: delivered, error: null }
 }
 
 function attachmentDownloadUrl(token: string, baseUrl: string): string {
@@ -428,35 +452,75 @@ export async function broadcastMailToEvent(
       messages.push({ type: 'text', text: '(本文・添付ともになし)' })
     }
 
-    await pushMessages(
+    const pushResult = await pushMessages(
       binding.channel.channelAccessToken,
       binding.lineGroupId,
       messages,
       logger,
     )
 
+    // r3 review should_fix: 部分配信を sent/failed と区別する。例えば
+    // 7 件中 5 件成功・後半 2 件失敗のときは status='partial' にして
+    // delivered counts を残し、再送ロジックが「全件再送」ではなく
+    // 「未送信分のみ」を再送する判断材料を持てるようにする。
+    const allFailed = pushResult.deliveredCount === 0 && pushResult.error
+    const someFailed = pushResult.error != null && pushResult.deliveredCount > 0
+    const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'sent'
+
+    // 配信済み件数を text / image / fallback に按分する。送信順は
+    // [text..., attachment-image..., attachment-fallback...] なので、
+    // 先頭から数えて配分すれば「どこまで届いたか」を再構成できる。
+    let remaining = pushResult.deliveredCount
+    const deliveredText = Math.min(remaining, textMessages.length)
+    remaining -= deliveredText
+    const attachmentImageMessages = attachmentMessages.filter(
+      (m) => m.type === 'image',
+    )
+    const attachmentFallbackMessages = attachmentMessages.filter(
+      (m) => m.type === 'text',
+    )
+    const deliveredImage = Math.min(remaining, attachmentImageMessages.length)
+    remaining -= deliveredImage
+    const deliveredFallback = Math.min(
+      remaining,
+      attachmentFallbackMessages.length,
+    )
+
     await db
       .update(eventBroadcastMessages)
       .set({
-        status: 'sent',
-        sentTextCount: textMessages.length,
-        sentImageCount: imageCount,
-        fallbackLinkCount: fallbackCount,
-        sentAt: sql`now()`,
-        errorMessage: null,
+        status: finalStatus,
+        sentTextCount: deliveredText,
+        sentImageCount: deliveredImage,
+        fallbackLinkCount: deliveredFallback,
+        sentAt: pushResult.deliveredCount > 0 ? sql`now()` : null,
+        errorMessage: pushResult.error ? pushResult.error.message : null,
         updatedAt: sql`now()`,
       })
       .where(eq(eventBroadcastMessages.id, broadcastMessageId))
 
+    if (pushResult.error) {
+      logger.warn('broadcastMailToEvent partial / failed', {
+        eventId: args.eventId,
+        mailMessageId: args.mailMessageId,
+        delivered: pushResult.deliveredCount,
+        total: messages.length,
+        error: pushResult.error.message,
+      })
+    }
+
     return {
-      status: 'sent',
-      sentTextCount: textMessages.length,
-      sentImageCount: imageCount,
-      fallbackLinkCount: fallbackCount,
+      status: finalStatus,
+      reason: pushResult.error?.message,
+      sentTextCount: deliveredText,
+      sentImageCount: deliveredImage,
+      fallbackLinkCount: deliveredFallback,
     }
   } catch (err) {
+    // 想定外の例外 (renderAttachment / DB エラー等)。pushMessages 自身は
+    // throw しないので、ここに来るのは配信前後の周辺処理が落ちたケース。
     const errorMessage = err instanceof Error ? err.message : String(err)
-    logger.warn('broadcastMailToEvent failed', {
+    logger.warn('broadcastMailToEvent failed (unexpected)', {
       eventId: args.eventId,
       mailMessageId: args.mailMessageId,
       error: errorMessage,

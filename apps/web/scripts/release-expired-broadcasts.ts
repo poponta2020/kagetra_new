@@ -53,14 +53,24 @@ export interface ReleaseExpiredResult {
 /**
  * Pure function — exported so unit tests can drive it with the test DB.
  */
+/**
+ * "Today" in JST. The systemd timer runs at 04:00 JST and event_date は
+ * 日本のカレンダー基準で著者付けされている。UTC 基準で計算すると 04:00 JST
+ * = 19:00 UTC (前日) になり、release 判定が 1 日遅れる (r3 review
+ * should_fix)。`sv-SE` ロケールは YYYY-MM-DD を生成する慣用テクニック。
+ */
+function todayInJst(now: Date = new Date()): string {
+  return now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
+}
+
 export async function releaseExpiredBroadcasts(
   db: ReturnType<typeof drizzle<typeof schema>>,
   options: { dryRun?: boolean; today?: string } = {},
 ): Promise<ReleaseExpiredResult> {
-  // Calendar comparison stays in the DB so we don't drift across timezones
-  // — the events.event_date column is plain date (YYYY-MM-DD) and we
-  // want "today in UTC" to match what the data was authored against.
-  const today = options.today ?? new Date().toISOString().slice(0, 10)
+  // events.event_date は JST カレンダーで著者付けされた YYYY-MM-DD なので、
+  // 比較対象の today も JST に揃える。テストは options.today で固定値を
+  // 注入できる (deterministic)。
+  const today = options.today ?? todayInJst()
 
   const expired = await db
     .select({

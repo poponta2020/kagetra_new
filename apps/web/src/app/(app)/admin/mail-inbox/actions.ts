@@ -235,6 +235,13 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   })
   if (!target) throw new Error('Event not found')
 
+  // r3 review blocker: 既存大会への紐付け経路でも broadcast を起動しないと、
+  // 追加メール / 訂正版が自動配信されない (approveDraft の連動だけでは、
+  // 新規大会の初回のみ配信されてしまう)。transaction commit 後の after()
+  // で発火させるため、必要な情報を取り出して保持する。
+  let linkedMailMessageId: number | null = null
+  let linkedIsCorrection = false
+
   await db.transaction(async (tx) => {
     const updated = await tx
       .update(tournamentDrafts)
@@ -254,11 +261,15 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,
+        isCorrection: tournamentDrafts.isCorrection,
       })
 
     if (updated.length === 0) {
       throw new Error('draft is not linkable')
     }
+
+    linkedMailMessageId = updated[0]!.messageId
+    linkedIsCorrection = updated[0]!.isCorrection
 
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
@@ -270,6 +281,21 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
   revalidatePath(`/events/${eventId}`)
+
+  // event-line-broadcast: 既存大会が既に LINE グループに紐付け済み (status=
+  // 'linked') なら、自動配信が走る。未紐付けの大会なら broadcastMailToEvent
+  // 内で skipped を返すだけ。承認操作には影響させない (best-effort)。
+  if (linkedMailMessageId != null) {
+    const mailMessageId = linkedMailMessageId
+    const isCorrection = linkedIsCorrection
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+      } catch (err) {
+        console.error('[linkDraftToEvent] broadcastMailToEvent failed', err)
+      }
+    })
+  }
 }
 
 // PR5 Phase 4a — manual mail-fetch job queue.
