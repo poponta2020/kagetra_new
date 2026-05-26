@@ -9,6 +9,9 @@
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
 - [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
 - [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
+- [モバイルシェル固定 実装中 (タスク1,2 完了, 残り実機)](project_sticky_mobile_shell.md) — `feature/sticky-mobile-shell` (08d2071+fdb2074)、Issue #50/#51✅/#52✅/#53、PR 未作成
+- [event-line-broadcast 要件定義済み](project_event_line_broadcast.md) — Issue 親#54/子#55-#63、`docs/features/event-line-broadcast/`、mail-tournament-import 下流、Bot プール 30 個 + 招待コード方式、`/implement event-line-broadcast` で着手可
+- [event-line-broadcast タスク1 完了 (#55)](impl_event_line_broadcast_task1.md) — feature/event-line-broadcast-schema (b6a11cc) push 済み、worktree C:/tmp/impl-event-line-broadcast、次は #56/#57 並行可
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
@@ -22,3 +25,4 @@
 - [/ship の main 直 push は事前承認済み](feedback_main_push_authorized_for_ship.md) — worklog/memory 同期 commit は確認なしで `git push origin main` 実行可。1人開発・身内プロジェクト前提
 - [autonomous-loop sentinel の解釈](feedback_autonomous_loop_scope.md) — `<<autonomous-loop-dynamic>>` は実装 GO ではない。CLAUDE.md ルール 1 は autonomous でも有効
 - [Windows worktree のパス罠](feedback_windows_worktree_path.md) — `/tmp` は git/pnpm が `%TEMP%`、Write/Read は `C:/tmp` を参照して別ディレクトリになる。worktree は最初から `C:/tmp/...` で明示作成
+- [jsdom が CSS env() inline style を捨てる](feedback_jsdom_css_env.md) — vitest 環境では `style={{ paddingBottom: 'env(...)' }}` は消える。Tailwind arbitrary value `pb-[env(...)]` で書け

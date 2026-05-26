@@ -1864,3 +1864,46 @@
 - ✅ Health check: HTTPS 307 redirect (healthy)、`/manifest.webmanifest` 200 (612B)、icons 4 種すべて 200 配信、HTML head に PWA メタ全出力確認 (manifest/apple-touch-icon/theme-color/mobile-web-app-capable/apple-mobile-web-app-title/status-bar-style/icon 192,512)
 - ✅ **2026-05-25**: iPhone Safari でホーム画面追加 → standalone 起動 → LINE OAuth 完走を確認。#48 close、PWA 最小対応 (Issue #43) 全タスク完了
 - ✅ `apple-mobile-web-app-capable` 不在でも iOS で standalone 起動した (新標準 `mobile-web-app-capable` のみで OK)
+
+---
+
+## 2026-05-26 セッション (sticky-mobile-shell タスク1+2 ship PR #64 + auto-review-loop R1 pass + スキル連鎖 enable)
+
+### 完了
+- **PR #64** (`feat(mobile-shell): モバイルシェル固定（h-dvh + safe-area padding）`) merge 完了 (merge commit `cdba79d`)
+- **sticky-mobile-shell タスク1** (`08d2071`): viewport-fit=cover + MobileShell を `h-screen h-dvh` ベース + BottomNav に safe-area padding
+  - `apps/web/src/app/layout.tsx`: `viewportFit: 'cover'` 追加
+  - `apps/web/src/components/layout/mobile-shell.tsx`: `min-h-screen` → `h-screen h-dvh`、JSDoc を実装一致に更新
+  - `apps/web/src/components/layout/bottom-nav.tsx`: `<nav>` を `min-h-[52px]` + 当初 inline style `paddingBottom: env(...)` (後にタスク2で arbitrary value に差し替え)、各 `<Link>` に `h-[52px]` 明示
+  - `docs/features/sticky-mobile-shell/{requirements,implementation-plan}.md` を repo 追加
+  - 既存 vitest 174/174 全 pass (bottom-nav 8 ケース含む) リグレッションなし確認
+- **sticky-mobile-shell タスク2** (`fdb2074`): MobileShell 構造テスト 5 ケース + bottom-nav に padding 検証 1 ケース追加 + BottomNav 実装を Tailwind arbitrary value に差し替え
+  - `apps/web/src/components/layout/mobile-shell.test.tsx` 新規: `vi.mock` で AppBarMain/BottomNav stub、`h-dvh`/`h-screen`/`flex-1`/`overflow-y-auto`/`user`/`isAdmin` 透過を 5 ケース検証
+  - `bottom-nav.tsx`: `style={{ paddingBottom: 'env(...)' }}` を `pb-[env(safe-area-inset-bottom)]` の Tailwind arbitrary value に差し替え (jsdom CSSOM が env() を弾く問題の回避、実機挙動は等価)
+  - `bottom-nav.test.tsx`: safe-area padding class 検証 1 ケース追加 → 全 9 ケース pass
+  - vitest 22 ファイル / 180/180 全 pass
+- **PR #64** 作成 (https://github.com/poponta2020/kagetra_new/pull/64): `feat(mobile-shell): モバイルシェル固定（h-dvh + safe-area padding）`
+- **`/auto-review-loop 64`** R1 で verdict=pass、blockers/should_fix 0、nits 1 件 (mobile-shell.tsx のコメント表現指摘)、good_points 2、tokens **35,387 / 500,000** で 1 ラウンド break。**ドッグフード R1 pass**
+- **nit 反映** (`bcd7f2c`): Codex 提案どおり mobile-shell.tsx のコメントを「`h-screen` is kept as a fallback; Tailwind's generated `h-dvh` utility overrides it in the cascade where supported」表現に変更（class 属性順依存に見える表現を是正）
+- **`/dod 64`** 全自動チェック PASS (test/check-types/lint/CI/レビュー/memory)、E1 実機確認のみ要確認 → ユーザー判断「本番反映後に確認する」(PR #49 と同じ運用)
+- **`/ship 64`** merge + worktree 削除 + ローカルブランチ削除 + review output 掃除完了。Fixes #51 / #52 自動クローズ。**親 #50 は #53 (実機確認) 残のため open のまま保持**
+- **スキル連鎖 enable**: `.claude/skills/` 配下の連鎖系 10 スキル (implement / do-plan / quickfix / bug-report / fix-feature / prepare-pr / auto-review-loop / fix / ship / dod) から `disable-model-invocation: true` を一括削除。これにより Skill ツール経由で `/implement → /prepare-pr → /auto-review-loop → /dod → /ship` の自動連鎖が本セッションでフル成立
+
+### 設計判断 / 知見
+- **jsdom CSSOM が `env()` inline style を捨てる罠**: React の `style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}` は jsdom で `getAttribute('style')` も `outerHTML` も style 自体が消える。今後 env() / 将来 var(--xxx) を inline style にしたくなったら、まず Tailwind arbitrary value (`pb-[env(...)]`) を検討 → [[feedback_jsdom_css_env]] に記録
+- **スキル連鎖の塞ぎ手は frontmatter の `disable-model-invocation: true`**: settings.json には設定なし、各 SKILL.md frontmatter で個別に塞がれていた。Skill ツールから呼べないとエラー "Skill X cannot be used with Skill tool due to disable-model-invocation"。連鎖対象でないスキル (grill-me / history / define-feature / updatefile / create-skill / audit-feature) は true のまま残置 (人が明示的に呼ぶ性質のため)
+
+### 残存している git 状態
+- main: `cdba79d` (PR #64 merge) → これから worklog + memory 同期 commit が乗る
+- worktree: なし (ship 時に削除、event-line-broadcast の worktree は別途継続)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映後にユーザー実機確認 → OK なら #53 close → 親 #50 close
+
+### 次回 (carryover)
+- 🔴 **PR #64 本番反映 (Oracle Cloud)**: ssh → git pull → `corepack pnpm install --frozen-lockfile` → `corepack pnpm build` → 静的アセット cp → `systemctl restart kagetra-web` (PR #49 と同じ手順)
+- 🔴 **iPhone 実機確認 (#53 タスク3 = DoD)**: Safari + PWA standalone で AppBar/BottomNav が画面端固定 + home indicator の bg-surface 継続 + 出欠ボタン sticky bottom-0 のリグレッションチェック → OK なら #53 + 親 #50 close
+- 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, 29239d1) で push 済、次は #56/#57 並行可
+
+### /auto-review-loop ログ
+- 2026-05-26 /auto-review-loop PR #64: 1R, verdict=pass, tokens=35387/500000, result=pass
