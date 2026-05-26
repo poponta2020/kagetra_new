@@ -1,0 +1,21 @@
+[Unit]
+Description=Run kagetra broadcast cleanup once daily
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/event-line-broadcast.md
+Requires=kagetra-broadcast-cleanup.service
+
+[Timer]
+# Run at 04:00 JST daily — after midnight rollover so `events.event_date
+# + 30 days < CURRENT_DATE` sees fresh dates, and well before the morning
+# admin activity. systemd treats OnCalendar in the host's local time, so
+# the deployment doc fixes the host timezone to Asia/Tokyo.
+OnCalendar=*-*-* 04:00:00
+AccuracySec=10min
+
+# Catch up after host downtime — releasing a Bot one day late is much
+# better than letting it sit in the pool indefinitely.
+Persistent=true
+
+Unit=kagetra-broadcast-cleanup.service
+
+[Install]
+WantedBy=timers.target

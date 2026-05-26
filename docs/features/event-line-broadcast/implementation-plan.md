@@ -96,7 +96,7 @@ status: completed
 - **対応Issue:** #61
 
 ### タスク8: 日次バッチ + systemd + 本番デプロイ
-- [ ] 完了
+- [x] 完了
 - **概要:** 大会終了 +30 日経過の自動解放、期限切れトークン削除を日次で実行。systemd timer 配置と本番手順整備。
 - **変更対象ファイル:**
   - `apps/web/scripts/release-expired-broadcasts.ts` — 新規 (events.event_date + 30 < today で `released` 化)

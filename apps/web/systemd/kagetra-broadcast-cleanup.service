@@ -1,0 +1,41 @@
+[Unit]
+Description=Kagetra event-line-broadcast daily cleanup (release expired Bots + prune share tokens)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/event-line-broadcast.md
+
+[Service]
+# Type=oneshot — both scripts are idempotent batch jobs that exit 0/1.
+# Multiple invocations within the same day are safe; the timer runs once
+# per day under the assumption that the broadcast pool has at most a
+# handful of expirations per week.
+Type=oneshot
+
+# Same dedicated system user as the other kagetra services
+# (docs/deploy/mail-worker.md §1).
+User=kagetra
+Group=kagetra
+
+WorkingDirectory=/opt/kagetra
+
+# DATABASE_URL is the only required env. PUBLIC_BASE_URL / LINE_NOTIFY_DRY_RUN
+# are read by the broadcast pipeline but not by these cleanup scripts.
+EnvironmentFile=/opt/kagetra/.env.production
+
+# Two scripts back-to-back. The order matters: releasing broadcasts first
+# means the daily run completes channel teardown before any operator
+# inspecting `/admin/line-channels` later in the day. cleanup-expired-tokens
+# touches an unrelated table so it never conflicts.
+#
+# ExecStart is repeatable in systemd — each line runs sequentially and the
+# unit fails fast if any line returns non-zero.
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/release-expired-broadcasts.ts
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/cleanup-expired-tokens.ts
+
+StandardOutput=journal
+StandardError=journal
+
+# Cleanup is bounded — even a worst-case run (30 Bots × release + thousand
+# token rows × delete) finishes well under a minute. Cap at 10 min to
+# catch a runaway query without letting it spin past the next day's run.
+TimeoutStartSec=600
+TimeoutStopSec=30
