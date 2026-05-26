@@ -22,7 +22,7 @@ status: completed
 - **対応Issue:** #55
 
 ### タスク2: 招待コード生成ロジック + ユーティリティ
-- [ ] 完了
+- [x] 完了
 - **概要:** 6 桁数字コード生成・検証・期限管理。UNIQUE partial index と連携。
 - **変更対象ファイル:**
   - `apps/web/src/lib/invite-code.ts` — 新規 (`generateInviteCode()`, `verifyInviteCode()`, `isExpired()` 等)
