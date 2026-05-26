@@ -41,6 +41,16 @@ const TABS: readonly Tab[] = [
     matches: ['/admin/mail-inbox'],
     adminOnly: true,
   },
+  // event-line-broadcast (PR2-r1): admin-only LINE Bot pool management.
+  // Shown alongside メール so admins can jump between the mail approval and
+  // the broadcast Bot pool with one tap.
+  {
+    id: 'line-channels',
+    label: 'Bot',
+    href: '/admin/line-channels',
+    matches: ['/admin/line-channels'],
+    adminOnly: true,
+  },
 ]
 
 function matchesPath(pathname: string, prefix: string): boolean {

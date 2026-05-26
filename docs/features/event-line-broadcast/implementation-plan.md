@@ -31,7 +31,7 @@ status: completed
 - **対応Issue:** #56
 
 ### タスク3: Bot プール管理画面 + 初期投入スクリプト
-- [ ] 完了
+- [x] 完了
 - **概要:** 30 Bot の状態を一覧・操作する管理者画面、初期投入 CLI。
 - **変更対象ファイル:**
   - `apps/web/scripts/seed-broadcast-channels.ts` — 新規 (JSON 受け取り → INSERT)
