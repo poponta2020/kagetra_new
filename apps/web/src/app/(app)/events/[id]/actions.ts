@@ -75,25 +75,21 @@ export async function generateInviteCodeForEvent(
       )
     }
 
-    let channelId: number
-    if (existing) {
-      channelId = existing.lineChannelId
-      // existing が available に戻っているケース (release 直後の再発行) を
-      // assigned に昇格。同じトランザクション内なので race は無い。
-      await tx
-        .update(lineChannels)
-        .set({
-          status: 'assigned',
-          assignedEventId: eventId,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(lineChannels.id, channelId))
-    } else {
-      // Atomic reservation: SELECT で候補一覧を取り、UPDATE WHERE
-      // status='available' RETURNING で奪い合う。並行 generateInviteCode
-      // が同じ Bot を取り合った場合、敗者は RETURNING に行が出ないので
-      // 次の候補に進む。partial unique を増やすより、status を排他資源
-      // として使う方が既存制約 (assignedEventId UNIQUE) と整合する。
+    // r2 review blocker: existing が revoked / released の場合、その
+    // lineChannelId は別 event に再割り当てされている可能性がある。再利用
+    // できるのは「同じ event に対して既に予約された Bot を取り戻す」場合
+    // のみで、これは status が invite_pending / joined_waiting_code のとき
+    // (= まだ Bot が他に流れていない状態) に限定する。
+    const REUSABLE_STATUSES = new Set(['invite_pending', 'joined_waiting_code'])
+    const canReuseExistingChannel =
+      existing != null && REUSABLE_STATUSES.has(existing.status)
+
+    /**
+     * Atomic reservation loop: SELECT 候補 → UPDATE WHERE status='available'
+     * RETURNING で奪い合う。並行 generateInviteCode が同じ Bot を取り合った
+     * 場合、敗者は RETURNING に行が出ないので次の候補に進む。
+     */
+    async function reserveAvailableChannel(): Promise<number | null> {
       const candidates = await tx
         .select({ id: lineChannels.id })
         .from(lineChannels)
@@ -105,7 +101,6 @@ export async function generateInviteCodeForEvent(
         )
         .orderBy(asc(lineChannels.id))
 
-      let reservedId: number | null = null
       for (const cand of candidates) {
         const reserved = await tx
           .update(lineChannels)
@@ -121,11 +116,46 @@ export async function generateInviteCodeForEvent(
             ),
           )
           .returning({ id: lineChannels.id })
-        if (reserved[0]) {
-          reservedId = reserved[0].id
-          break
-        }
+        if (reserved[0]) return reserved[0].id
       }
+      return null
+    }
+
+    let channelId: number
+    if (canReuseExistingChannel) {
+      // 同じ event に対して保留中の Bot を取り直す。既に assignedEventId=
+      // eventId のはずだが、release レースで一旦 available に戻されていた
+      // 可能性も含めて条件付き UPDATE で再 assign。失敗したら新規予約に
+      // フォールバック (Bot が他 event に流れた場合)。
+      const reclaimed = await tx
+        .update(lineChannels)
+        .set({
+          status: 'assigned',
+          assignedEventId: eventId,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(lineChannels.id, existing!.lineChannelId),
+            sql`(${lineChannels.assignedEventId} = ${eventId} OR ${lineChannels.status} = 'available')`,
+          ),
+        )
+        .returning({ id: lineChannels.id })
+
+      if (reclaimed[0]) {
+        channelId = reclaimed[0].id
+      } else {
+        const reservedId = await reserveAvailableChannel()
+        if (reservedId == null) {
+          throw new Error(
+            'Bot プールが枯渇しています。/admin/line-channels で過去の Bot を解放してください',
+          )
+        }
+        channelId = reservedId
+      }
+    } else {
+      // existing が無い、または revoked/released の場合は通常の新規予約。
+      const reservedId = await reserveAvailableChannel()
       if (reservedId == null) {
         throw new Error(
           'Bot プールが枯渇しています。/admin/line-channels で過去の Bot を解放してください',
@@ -134,33 +164,62 @@ export async function generateInviteCodeForEvent(
       channelId = reservedId
     }
 
-    const inviteCode = generateInviteCode()
-    const expiresAt = inviteCodeExpiresAt()
+    // r2 review should_fix: partial unique index に衝突した場合は新コードを
+    // 生成して数回リトライ。10^6 通り中 ~30 個同時 active なら衝突確率
+    // ~0.003% / 1 回。3 回リトライで実質ゼロ。
+    // ネステッド `tx.transaction` で SAVEPOINT を切ることで、unique
+    // violation 後の SQL ステートメントが ABORT 状態にならない。
+    const MAX_ATTEMPTS = 3
+    let inviteCode = ''
+    let expiresAt = new Date()
+    let lastError: unknown = null
 
-    if (existing) {
-      await tx
-        .update(eventLineBroadcasts)
-        .set({
-          lineChannelId: channelId,
-          inviteCode,
-          inviteCodeExpiresAt: expiresAt,
-          status: 'invite_pending',
-          lineGroupId: null,
-          linkedAt: null,
-          releasedAt: null,
-          revokedAt: null,
-          revokeReason: null,
-          updatedAt: sql`now()`,
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      inviteCode = generateInviteCode()
+      expiresAt = inviteCodeExpiresAt()
+      try {
+        await tx.transaction(async (sp) => {
+          if (existing) {
+            await sp
+              .update(eventLineBroadcasts)
+              .set({
+                lineChannelId: channelId,
+                inviteCode,
+                inviteCodeExpiresAt: expiresAt,
+                status: 'invite_pending',
+                lineGroupId: null,
+                linkedAt: null,
+                releasedAt: null,
+                revokedAt: null,
+                revokeReason: null,
+                updatedAt: sql`now()`,
+              })
+              .where(eq(eventLineBroadcasts.id, existing.id))
+          } else {
+            await sp.insert(eventLineBroadcasts).values({
+              eventId,
+              lineChannelId: channelId,
+              inviteCode,
+              inviteCodeExpiresAt: expiresAt,
+              status: 'invite_pending',
+            })
+          }
         })
-        .where(eq(eventLineBroadcasts.id, existing.id))
-    } else {
-      await tx.insert(eventLineBroadcasts).values({
-        eventId,
-        lineChannelId: channelId,
-        inviteCode,
-        inviteCodeExpiresAt: expiresAt,
-        status: 'invite_pending',
-      })
+        lastError = null
+        break
+      } catch (err) {
+        lastError = err
+        const code = (err as { code?: string }).code
+        // PostgreSQL の unique_violation は SQLSTATE 23505。これ以外は
+        // 即座に投げ直す (FK 違反等で再試行しても無駄)。
+        if (code !== '23505') throw err
+        if (attempt === MAX_ATTEMPTS) break
+      }
+    }
+    if (lastError) {
+      throw new Error(
+        `招待コードの発行に失敗しました (UNIQUE 衝突を ${MAX_ATTEMPTS} 回連続で踏みました)`,
+      )
     }
 
     const channelRow = await tx.query.lineChannels.findFirst({

@@ -195,8 +195,10 @@ export async function applyWebhookEvents(
           await handleJoin(db, channelId, event, channelAccessToken, replyClient)
           break
         }
-        case 'leave':
-        case 'memberLeft': {
+        case 'leave': {
+          // Bot 自身がグループから外された場合に発火する LINE 仕様。
+          // `memberLeft` は通常メンバーの退出でも届くため別物として扱い、
+          // ここでは処理しない (r2 review blocker)。
           await handleLeave(db, channelId, event)
           break
         }

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, notInArray, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { Btn, Card, DescList, Pill, type PillTone } from '@/components/ui'
@@ -121,31 +121,23 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
   const blockedIds = linkedEventIds
     .map((row) => row.id)
     .filter((id) => id !== currentBinding?.eventId)
-  const linkableEventsQuery = blockedIds.length > 0
-    ? db
-        .select({
-          id: events.id,
-          title: events.title,
-          eventDate: events.eventDate,
-        })
-        .from(events)
-        .where(
-          sql`${events.eventDate} >= ${today} AND ${events.id} NOT IN ${blockedIds}`,
-        )
-        .orderBy(asc(events.eventDate))
-        .limit(50)
-    : db
-        .select({
-          id: events.id,
-          title: events.title,
-          eventDate: events.eventDate,
-        })
-        .from(events)
-        .where(sql`${events.eventDate} >= ${today}`)
-        .orderBy(asc(events.eventDate))
-        .limit(50)
+  // r2 review blocker: 配列を sql テンプレートに直接埋め込むと PostgreSQL
+  // に渡る SQL が壊れる (`NOT IN $1` が型エラー)。drizzle の notInArray を
+  // 使い式組み立てで処理する。
+  const whereClause = blockedIds.length > 0
+    ? and(gte(events.eventDate, today), notInArray(events.id, blockedIds))
+    : gte(events.eventDate, today)
 
-  const linkableEvents: LinkableEventOption[] = await linkableEventsQuery
+  const linkableEvents: LinkableEventOption[] = await db
+    .select({
+      id: events.id,
+      title: events.title,
+      eventDate: events.eventDate,
+    })
+    .from(events)
+    .where(whereClause)
+    .orderBy(asc(events.eventDate))
+    .limit(50)
 
   const statusLabel = STATUS_LABEL[channel.status] ?? {
     label: channel.status,

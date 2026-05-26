@@ -38,8 +38,16 @@ import {
 import * as schema from '@kagetra/shared/schema'
 
 export interface ReleaseExpiredResult {
+  /** linked → released で解放した件数 (大会終了 +30 日経過分) */
   releasedCount: number
   releasedBroadcastIds: number[]
+  /**
+   * invite_pending / joined_waiting_code → revoked で解放した件数。
+   * r2 review should_fix: 招待コード期限切れ後も `assigned` のまま残る
+   * Bot をプールに返却する。
+   */
+  revokedExpiredInviteCount: number
+  revokedBroadcastIds: number[]
 }
 
 /**
@@ -70,10 +78,29 @@ export async function releaseExpiredBroadcasts(
       ),
     )
 
-  if (options.dryRun || expired.length === 0) {
+  // r2 review should_fix: 期限切れの invite_pending / joined_waiting_code
+  // も同じバッチで一掃する。30 分 TTL の招待コードが過ぎても放置されると
+  // line_channels.status='assigned' が永続化し、Bot プールが枯渇する。
+  const expiredInvites = await db
+    .select({
+      id: eventLineBroadcasts.id,
+      lineChannelId: eventLineBroadcasts.lineChannelId,
+    })
+    .from(eventLineBroadcasts)
+    .where(
+      and(
+        sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
+        sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
+        sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+      ),
+    )
+
+  if (options.dryRun || (expired.length === 0 && expiredInvites.length === 0)) {
     return {
       releasedCount: expired.length,
       releasedBroadcastIds: expired.map((row) => row.id),
+      revokedExpiredInviteCount: expiredInvites.length,
+      revokedBroadcastIds: expiredInvites.map((row) => row.id),
     }
   }
 
@@ -97,11 +124,36 @@ export async function releaseExpiredBroadcasts(
         })
         .where(eq(lineChannels.id, row.lineChannelId))
     }
+
+    for (const row of expiredInvites) {
+      await tx
+        .update(eventLineBroadcasts)
+        .set({
+          status: 'revoked',
+          revokedAt: sql`now()`,
+          revokeReason: 'invite_expired',
+          inviteCode: null,
+          inviteCodeExpiresAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(eventLineBroadcasts.id, row.id))
+
+      await tx
+        .update(lineChannels)
+        .set({
+          status: 'available',
+          assignedEventId: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(lineChannels.id, row.lineChannelId))
+    }
   })
 
   return {
     releasedCount: expired.length,
     releasedBroadcastIds: expired.map((row) => row.id),
+    revokedExpiredInviteCount: expiredInvites.length,
+    revokedBroadcastIds: expiredInvites.map((row) => row.id),
   }
 }
 
@@ -117,8 +169,11 @@ export async function main(
     const db = drizzle(pool, { schema })
     const result = await releaseExpiredBroadcasts(db, { dryRun })
     process.stdout.write(
-      `[release-expired-broadcasts] ${dryRun ? 'DRY RUN: ' : ''}released ${result.releasedCount} broadcasts ` +
-        `(ids: ${result.releasedBroadcastIds.join(',') || 'none'})\n`,
+      `[release-expired-broadcasts] ${dryRun ? 'DRY RUN: ' : ''}` +
+        `released ${result.releasedCount} broadcasts ` +
+        `(ids: ${result.releasedBroadcastIds.join(',') || 'none'}), ` +
+        `revoked ${result.revokedExpiredInviteCount} expired invites ` +
+        `(ids: ${result.revokedBroadcastIds.join(',') || 'none'})\n`,
     )
   } finally {
     await pool.end()
