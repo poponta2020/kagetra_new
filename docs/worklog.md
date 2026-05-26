@@ -1900,9 +1900,18 @@
 - ローカルブランチ: `main` のみ
 - 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映後にユーザー実機確認 → OK なら #53 close → 親 #50 close
 
+### 本番反映 (2026-05-26 完了)
+- ✅ `ssh -i ~/.ssh/id_ed25519_oracle ubuntu@140.238.51.41` → `sudo -u kagetra` で deploy
+- ✅ `git pull` (cb1bf45 → 04db536、8 commit 進む、24 files changed、564 insertions)
+- ✅ `corepack pnpm install --frozen-lockfile` (Done in 1.8s、変更なし)
+- ✅ `corepack pnpm build` (3 packages 全 success、54.3s、cache 2/3)
+- ✅ 静的アセット cp: `.next/static` → `.next/standalone/apps/web/.next/` + `public/` → `.next/standalone/apps/web/` (manifest.webmanifest / apple-touch-icon.png / icons/)
+- ✅ `sudo systemctl restart kagetra-web` → active (PID 954409, 85.7M)
+- ✅ Health check: HTTPS 307 redirect to /auth/signin (healthy)、/auth/signin 200、/manifest.webmanifest 200 (612B)、/hono-api/health = `{"status":"ok"}`
+- 🔴 **iPhone 実機確認 (#53 タスク3 = DoD)**: Safari + PWA standalone で AppBar/BottomNav が画面端固定 + home indicator の bg-surface 継続 + 出欠ボタン sticky bottom-0 のリグレッションチェック → OK なら `gh issue close 53 50`
+
 ### 次回 (carryover)
-- 🔴 **PR #64 本番反映 (Oracle Cloud)**: ssh → git pull → `corepack pnpm install --frozen-lockfile` → `corepack pnpm build` → 静的アセット cp → `systemctl restart kagetra-web` (PR #49 と同じ手順)
-- 🔴 **iPhone 実機確認 (#53 タスク3 = DoD)**: Safari + PWA standalone で AppBar/BottomNav が画面端固定 + home indicator の bg-surface 継続 + 出欠ボタン sticky bottom-0 のリグレッションチェック → OK なら #53 + 親 #50 close
+- 🔴 **iPhone 実機確認 (#53)** ← 本番反映済、ユーザー実機検証待ち
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, 29239d1) で push 済、次は #56/#57 並行可
 
 ### /auto-review-loop ログ
