@@ -1,7 +1,6 @@
 ---
 name: do-plan
 description: /claude-mem:make-plan で作成した計画を、worktree 隔離環境で /claude-mem:do を呼んで実行するスキル。並行作業の衝突を pre-flight で検出し、subagent には作業パスを強制する。計画を実装に移したいとき、/do-plan <plan-slug> で使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, Skill
 argument-hint: <plan-slug> — kebab-case 英語サマリー（例: phase-1v-attendance-api）

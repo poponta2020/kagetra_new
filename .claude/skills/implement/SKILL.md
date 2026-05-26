@@ -1,7 +1,6 @@
 ---
 name: implement
 description: /define-featureで作成した要件定義書・実装手順書を読み取り、タスクを1つずつ実装して進捗を記録するスキル。機能の実装を進めたいとき、実装タスクに着手したいときに使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, Skill
 argument-hint: [機能名（任意。省略時は一覧から選択）]

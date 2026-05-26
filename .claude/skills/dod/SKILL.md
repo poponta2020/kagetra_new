@@ -1,7 +1,6 @@
 ---
 name: dod
 description: Definition of Done チェックリスト。fix完了後、/ship前に全項目を確認する。DoD確認したいとき、/dodで使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Bash, Read, Glob, Grep
 argument-hint: [PR番号（任意。省略時は現在のブランチのPRを検出）]

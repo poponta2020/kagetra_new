@@ -2,7 +2,6 @@
 name: prepare-pr
 description: 実装完了後にpush・PR作成を行い、/auto-review-loop による自動レビュー&修正ループへつなげるスキル。/implement、/quickfix、/bug-report の後に使用する。
 user-invocable: true
-disable-model-invocation: true
 allowed-tools:
   - Bash
   - Read

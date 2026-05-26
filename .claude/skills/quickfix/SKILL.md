@@ -2,7 +2,6 @@
 name: quickfix
 description: 小さなバグ修正・軽微な変更を最初から最後まで一気通貫で行うスキル。原因調査 → 影響範囲調査 → 修正方針確認 → 実装 → テスト → コミット → PR作成まで面倒を見る。
 user-invocable: true
-disable-model-invocation: true
 argument-hint: 修正内容を自然言語で記述（例: ○○画面の△△ボタンが反応しない）
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, AskUserQuestion, Skill
 ---

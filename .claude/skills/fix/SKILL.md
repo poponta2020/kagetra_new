@@ -1,7 +1,6 @@
 ---
 name: fix
 description: レビュー結果ファイルを読み込み、指摘事項に基づいてコードを修正するスキル。CRITICAL/WARNING/INFOを分類して対応し、修正後に自動で/reviewを再呼び出しする。レビュー指摘の修正時に使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, Skill
 argument-hint: "[PR番号(任意)] [--no-followup-review]"

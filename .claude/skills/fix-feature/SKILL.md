@@ -1,7 +1,6 @@
 ---
 name: fix-feature
 description: /audit-featureの監査レポートを基に、既存機能の改修要件定義書・実装手順書・GitHub Issueを作成するスキル。監査レポートの推奨アクションからユーザーが選択した項目について改修方針を定義する。セッションをまたいだ途中保存・再開に対応。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent
 argument-hint: [機能名（任意。省略時は会話コンテキストから判断）]

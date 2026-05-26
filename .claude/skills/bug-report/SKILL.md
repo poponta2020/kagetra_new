@@ -1,7 +1,6 @@
 ---
 name: bug-report
 description: バグ発見時にGitHub Issueを作成し、原因調査・修正・記録までを一括で行うスキル。バグを見つけたとき、バグ対応を記録したいときに使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, Skill
 argument-hint: [バグの概要（任意）]

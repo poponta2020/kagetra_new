@@ -1,7 +1,6 @@
 ---
 name: auto-review-loop
 description: Codex CLI を使って PR の差分レビュー→/fix による修正→再レビュー…を自動ループするスキル。指摘がなくなったら停止（--auto-ship 指定時は /ship まで自動）。/auto-review-loop で使用する。
-disable-model-invocation: true
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill
 argument-hint: "[PR番号(任意)] [--max-rounds N(default 3)] [--max-tokens N(default 500000)] [--auto-ship]"
