@@ -40,8 +40,9 @@ export function MobileShell({
   signOutAction,
   children,
 }: MobileShellProps) {
-  // `h-screen` first as a fallback for browsers without `dvh` support; the
-  // later `h-dvh` wins where supported (iOS Safari 15.4+, Chrome 108+).
+  // `h-screen` is kept as a fallback for browsers without `dvh` support;
+  // Tailwind's generated `h-dvh` utility overrides it in the cascade where
+  // supported (iOS Safari 15.4+, Chrome 108+), not by class-attribute order.
   return (
     <div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
