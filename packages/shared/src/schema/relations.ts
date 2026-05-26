@@ -9,6 +9,9 @@ import { mailAttachments } from './mail-attachments'
 import { tournamentDrafts } from './tournament-drafts'
 import { lineChannels } from './line-channels'
 import { mailWorkerJobs, mailWorkerRuns } from './mail-worker'
+import { eventLineBroadcasts } from './event-line-broadcasts'
+import { eventBroadcastMessages } from './event-broadcast-messages'
+import { attachmentShareTokens } from './attachment-share-tokens'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -23,6 +26,11 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   creator: one(users, {
     fields: [events.createdBy],
     references: [users.id],
+  }),
+  // event-line-broadcast: 1:1 via event_line_broadcasts.event_id UNIQUE
+  lineBroadcast: one(eventLineBroadcasts, {
+    fields: [events.id],
+    references: [eventLineBroadcasts.eventId],
   }),
 }))
 
@@ -59,13 +67,15 @@ export const mailMessagesRelations = relations(mailMessages, ({ one, many }) => 
     fields: [mailMessages.id],
     references: [tournamentDrafts.messageId],
   }),
+  broadcastMessages: many(eventBroadcastMessages),
 }))
 
-export const mailAttachmentsRelations = relations(mailAttachments, ({ one }) => ({
+export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many }) => ({
   mail: one(mailMessages, {
     fields: [mailAttachments.mailMessageId],
     references: [mailMessages.id],
   }),
+  shareTokens: many(attachmentShareTokens),
 }))
 
 export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one }) => ({
@@ -79,11 +89,49 @@ export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one }) =
   }),
 }))
 
-// PR5 (mail-tournament-import)
+// PR5 (mail-tournament-import) + event-line-broadcast
 export const lineChannelsRelations = relations(lineChannels, ({ one }) => ({
   assignedUser: one(users, {
     fields: [lineChannels.assignedUserId],
     references: [users.id],
+  }),
+  assignedEvent: one(events, {
+    fields: [lineChannels.assignedEventId],
+    references: [events.id],
+  }),
+}))
+
+// event-line-broadcast
+export const eventLineBroadcastsRelations = relations(
+  eventLineBroadcasts,
+  ({ one, many }) => ({
+    event: one(events, {
+      fields: [eventLineBroadcasts.eventId],
+      references: [events.id],
+    }),
+    lineChannel: one(lineChannels, {
+      fields: [eventLineBroadcasts.lineChannelId],
+      references: [lineChannels.id],
+    }),
+    messages: many(eventBroadcastMessages),
+  }),
+)
+
+export const eventBroadcastMessagesRelations = relations(eventBroadcastMessages, ({ one }) => ({
+  broadcast: one(eventLineBroadcasts, {
+    fields: [eventBroadcastMessages.eventLineBroadcastId],
+    references: [eventLineBroadcasts.id],
+  }),
+  mail: one(mailMessages, {
+    fields: [eventBroadcastMessages.mailMessageId],
+    references: [mailMessages.id],
+  }),
+}))
+
+export const attachmentShareTokensRelations = relations(attachmentShareTokens, ({ one }) => ({
+  attachment: one(mailAttachments, {
+    fields: [attachmentShareTokens.mailAttachmentId],
+    references: [mailAttachments.id],
   }),
 }))
 
