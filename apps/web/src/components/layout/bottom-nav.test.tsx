@@ -79,4 +79,16 @@ describe('BottomNav', () => {
     const link = screen.getByText('会員').closest('a')
     expect(link?.className).toContain('border-brand')
   })
+
+  // sticky-mobile-shell: ensure the iOS home-indicator area gets bg-surface
+  // by extending the <nav> via padding-bottom; without env(safe-area-inset-
+  // bottom) the home indicator overlaps the bottom tab row. Implemented as a
+  // Tailwind arbitrary value (not inline style) so jsdom — which silently
+  // drops `env()` when round-tripping inline styles through the CSSOM — can
+  // still verify the intent at the class-name level.
+  it('<nav> に safe-area の padding-bottom が arbitrary value で適用される', () => {
+    render(<BottomNav isAdmin />)
+    const nav = screen.getByRole('navigation')
+    expect(nav.className).toContain('pb-[env(safe-area-inset-bottom)]')
+  })
 })

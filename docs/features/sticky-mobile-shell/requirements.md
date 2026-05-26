@@ -50,7 +50,7 @@ status: completed
 |---|---|
 | `apps/web/src/app/layout.tsx` | `viewport` export に `viewportFit: 'cover'` を追加（safe-area-inset-* を有効化するために必須） |
 | `apps/web/src/components/layout/mobile-shell.tsx` | shell コンテナを `min-h-screen` → `h-screen h-dvh` に変更、コメントを実装と一致させる |
-| `apps/web/src/components/layout/bottom-nav.tsx` | `<nav>` に `paddingBottom: env(safe-area-inset-bottom)` を inline style で追加、高さを `h-[52px]` から `min-h-[52px]` 系に調整しタブ自体は 52px を維持 |
+| `apps/web/src/components/layout/bottom-nav.tsx` | `<nav>` に Tailwind arbitrary value `pb-[env(safe-area-inset-bottom)]` を追加（jsdom CSSOM が inline `env()` を弾くため class 化）、高さを `h-[52px]` から `min-h-[52px]` 系に調整しタブ自体は 52px を維持 |
 | `apps/web/src/components/layout/mobile-shell.test.tsx` | **新規。** shell に `h-dvh` クラスが付くこと、main に `flex-1 overflow-y-auto` が付くこと、BottomNav が render されることを構造テスト |
 
 ### 4.2 実装詳細
@@ -80,10 +80,7 @@ export const viewport: Viewport = {
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 
 ```tsx
-<nav
-  className="min-h-[52px] flex-shrink-0 flex items-stretch bg-surface border-t border-border"
-  style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
->
+<nav className="min-h-[52px] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
   {visibleTabs.map((tab) => (
     <Link
       ...
@@ -98,7 +95,8 @@ export const viewport: Viewport = {
 </nav>
 ```
 
-- `<nav>` 高さは `min-h-[52px]` + `paddingBottom`（safe-area 込みで 52px + α）。
+- `<nav>` 高さは `min-h-[52px]` + Tailwind arbitrary value `pb-[env(safe-area-inset-bottom)]`（safe-area 込みで 52px + α）。
+- 当初は inline style で `paddingBottom: 'env(...)'` を当てる方針だったが、jsdom (vitest) の CSSOM が `env()` を invalid と判定して style attribute ごと捨てるためテスト不能。Tailwind arbitrary value に切り替えて class 名で検証可能にした（実機の挙動は等価）。
 - 各 `<Link>` のタップ可能領域は明示的に `h-[52px]` で 52px 固定。
 - safe-area 部分（home indicator 領域）は `<nav>` の padding 領域として bg-surface のまま描画される。
 

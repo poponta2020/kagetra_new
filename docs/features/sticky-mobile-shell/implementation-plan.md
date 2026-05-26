@@ -12,13 +12,13 @@ status: completed
 - **変更対象ファイル:**
   - `apps/web/src/app/layout.tsx` — `viewport` export に `viewportFit: 'cover'` を追加
   - `apps/web/src/components/layout/mobile-shell.tsx` — shell コンテナの `min-h-screen` を `h-screen h-dvh` に変更、コメントを実装一致に更新
-  - `apps/web/src/components/layout/bottom-nav.tsx` — `<nav>` を `min-h-[52px]` + inline style `paddingBottom: 'env(safe-area-inset-bottom)'` に変更し、各 `<Link>` に明示的に `h-[52px]` を付ける
+  - `apps/web/src/components/layout/bottom-nav.tsx` — `<nav>` を `min-h-[52px] pb-[env(safe-area-inset-bottom)]`（Tailwind arbitrary value）に変更し、各 `<Link>` に明示的に `h-[52px]` を付ける
 - **依存タスク:** なし
 - **対応Issue:** #51
 
 ### タスク2: MobileShell の構造テストを追加 + 既存テスト実行
 
-- [ ] 完了
+- [x] 完了
 - **概要:** shell の構造（`h-dvh`、main の `flex-1 overflow-y-auto`、AppBar/BottomNav の render）を Vitest で検証。既存の `bottom-nav.test.tsx` 8 ケースが壊れていないことも確認する。
 - **変更対象ファイル:**
   - `apps/web/src/components/layout/mobile-shell.test.tsx` — **新規。** AppBarMain / BottomNav を `vi.mock` で stub し、render 結果から shell コンテナ class / main 要素の class / children 描画を検証
