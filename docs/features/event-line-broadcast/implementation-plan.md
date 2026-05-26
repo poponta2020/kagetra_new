@@ -69,7 +69,7 @@ status: completed
 - **対応Issue:** #59
 
 ### タスク6: 画像化処理 + 署名 URL API
-- [ ] 完了
+- [x] 完了
 - **概要:** PDF/Word を画像化する処理、Excel 用 60 日署名 URL の発行 API を実装。libreoffice 導入。
 - **変更対象ファイル:**
   - `apps/web/src/lib/attachment-image-render.ts` — 新規 (`renderPdfToJpegs`, `renderDocxToJpegs`, `getOrCreateShareToken`)
