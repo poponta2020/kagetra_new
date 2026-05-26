@@ -37,6 +37,10 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#ffffff',
+  // Required for env(safe-area-inset-*) to be non-zero on iOS notch/home-
+  // indicator devices; MobileShell's BottomNav relies on it to extend its
+  // background into the home indicator area.
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
