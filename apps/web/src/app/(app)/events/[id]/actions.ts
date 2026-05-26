@@ -1,10 +1,221 @@
 'use server'
 
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { events, eventAttendances, users } from '@kagetra/shared/schema'
+import {
+  events,
+  eventAttendances,
+  eventLineBroadcasts,
+  lineChannels,
+  users,
+} from '@kagetra/shared/schema'
+import {
+  generateInviteCode,
+  inviteCodeExpiresAt,
+} from '@/lib/invite-code'
+
+async function requireAdminSession() {
+  const session = await auth()
+  if (!session?.user?.id) throw new Error('Unauthorized')
+  if (session.user.role !== 'admin' && session.user.role !== 'vice_admin') {
+    throw new Error('Forbidden')
+  }
+  return session
+}
+
+export interface GeneratedInviteCode {
+  inviteCode: string
+  expiresAt: Date
+  botId: string
+  botLabel: string
+  addFriendUrl: string
+}
+
+/**
+ * Reserve a `event_broadcast` channel from the pool and issue a fresh
+ * 6-digit invite code for this event.
+ *
+ * Idempotency:
+ *   - If the event already has an active broadcast row (status invite_pending
+ *     / joined_waiting_code / linked), the existing row is updated in place
+ *     so we never break the 1-event-1-binding UNIQUE constraint.
+ *   - If the event has no active row but reserved a channel previously that
+ *     is now expired, the same row is recycled (code overwritten, expiry
+ *     bumped). The channel keeps its `assigned` status.
+ *
+ * Failure modes surfaced to the operator:
+ *   - "Bot プールが枯渇しています" when no `available` channel is left and
+ *     the event has not already reserved one.
+ *   - "現在 LINE 配信中の大会です" when an active `linked` row exists —
+ *     a new code would tear down the live binding silently.
+ */
+export async function generateInviteCodeForEvent(
+  eventId: number,
+): Promise<GeneratedInviteCode> {
+  await requireAdminSession()
+
+  return await db.transaction(async (tx) => {
+    const targetEvent = await tx.query.events.findFirst({
+      where: eq(events.id, eventId),
+      columns: { id: true },
+    })
+    if (!targetEvent) throw new Error('大会が見つかりません')
+
+    const existing = await tx.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.eventId, eventId),
+    })
+
+    if (existing && existing.status === 'linked') {
+      throw new Error(
+        '現在 LINE 配信中の大会です。解放してから再発行してください',
+      )
+    }
+
+    let channelId: number
+    if (existing) {
+      channelId = existing.lineChannelId
+    } else {
+      // Take the next available broadcast channel. ORDER BY id keeps the
+      // assignment deterministic for the operator following note order in
+      // the admin UI (kagetra-event-bot-1, -2, ...).
+      const candidate = await tx.query.lineChannels.findFirst({
+        where: and(
+          eq(lineChannels.purpose, 'event_broadcast'),
+          eq(lineChannels.status, 'available'),
+        ),
+        columns: { id: true },
+        orderBy: (lc, { asc }) => [asc(lc.id)],
+      })
+      if (!candidate) {
+        throw new Error(
+          'Bot プールが枯渇しています。/admin/line-channels で過去の Bot を解放してください',
+        )
+      }
+      channelId = candidate.id
+    }
+
+    const inviteCode = generateInviteCode()
+    const expiresAt = inviteCodeExpiresAt()
+
+    if (existing) {
+      await tx
+        .update(eventLineBroadcasts)
+        .set({
+          lineChannelId: channelId,
+          inviteCode,
+          inviteCodeExpiresAt: expiresAt,
+          status: 'invite_pending',
+          lineGroupId: null,
+          linkedAt: null,
+          releasedAt: null,
+          revokedAt: null,
+          revokeReason: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(eventLineBroadcasts.id, existing.id))
+    } else {
+      await tx.insert(eventLineBroadcasts).values({
+        eventId,
+        lineChannelId: channelId,
+        inviteCode,
+        inviteCodeExpiresAt: expiresAt,
+        status: 'invite_pending',
+      })
+    }
+
+    await tx
+      .update(lineChannels)
+      .set({
+        status: 'assigned',
+        assignedEventId: eventId,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(lineChannels.id, channelId))
+
+    const channelRow = await tx.query.lineChannels.findFirst({
+      where: eq(lineChannels.id, channelId),
+      columns: { botId: true, note: true },
+    })
+    if (!channelRow) throw new Error('チャネル情報の取得に失敗しました')
+
+    revalidatePath(`/events/${eventId}`)
+    revalidatePath('/admin/line-channels')
+
+    return {
+      inviteCode,
+      expiresAt,
+      botId: channelRow.botId,
+      botLabel: channelRow.note ?? channelRow.botId,
+      // botId is the LINE basic ID (`@...`). The friends-add URL accepts it
+      // verbatim per the LINE Messaging API docs.
+      addFriendUrl: `https://line.me/R/ti/p/${encodeURIComponent(channelRow.botId)}`,
+    }
+  })
+}
+
+/**
+ * Tear down the LINE binding for an event without issuing a new code.
+ * Mirrors `releaseChannel` in admin/line-channels/actions.ts but is keyed
+ * by event rather than channel — the events screen doesn't know the
+ * channel id offhand.
+ */
+export async function revokeBroadcast(eventId: number): Promise<void> {
+  await requireAdminSession()
+
+  await db.transaction(async (tx) => {
+    const current = await tx.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.eventId, eventId),
+      columns: { id: true, lineChannelId: true },
+    })
+    if (!current) return
+
+    await tx
+      .update(eventLineBroadcasts)
+      .set({
+        status: 'revoked',
+        revokedAt: sql`now()`,
+        revokeReason: 'manual',
+        updatedAt: sql`now()`,
+      })
+      .where(eq(eventLineBroadcasts.id, current.id))
+
+    await tx
+      .update(lineChannels)
+      .set({
+        status: 'available',
+        assignedEventId: null,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(lineChannels.id, current.lineChannelId))
+  })
+
+  revalidatePath(`/events/${eventId}`)
+  revalidatePath('/admin/line-channels')
+}
+
+/**
+ * Override the auto-release date for a live binding. Used when the
+ * post-tournament打ち上げ chatter is expected to run past the default
+ * 30-day grace window.
+ */
+export async function extendBroadcastLifetime(
+  eventId: number,
+  newUntil: string,
+): Promise<void> {
+  await requireAdminSession()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newUntil)) {
+    throw new Error('日付の形式が不正です (YYYY-MM-DD)')
+  }
+
+  await db
+    .update(eventLineBroadcasts)
+    .set({ extendedUntil: newUntil, updatedAt: sql`now()` })
+    .where(eq(eventLineBroadcasts.eventId, eventId))
+
+  revalidatePath(`/events/${eventId}`)
+}
 
 export async function submitAttendance(eventId: number, formData: FormData) {
   const session = await auth()

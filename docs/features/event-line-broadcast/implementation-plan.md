@@ -46,7 +46,7 @@ status: completed
 - **対応Issue:** #57
 
 ### タスク4: 招待コード生成 UI + LineBroadcastSection
-- [ ] 完了
+- [x] 完了
 - **概要:** `/events/[id]` 詳細画面に「LINE 配信」セクションを追加、招待コード発行 UI を実装。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/page.tsx` — 既存に `LineBroadcastSection` を追加
