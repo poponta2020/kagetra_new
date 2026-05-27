@@ -405,6 +405,14 @@ export async function broadcastMailToEvent(
   // rr2 review should_fix: partial 行を再送するとき、前回成功した先頭分は
   // 重複配信される。再送前に既存 sentXxxCount を読んで、後段で送信時に
   // 先頭 N 件をスキップする。
+  //
+  // rr4 review should_fix への応答: 3 カラム (sentTextCount /
+  // sentImageCount / fallbackLinkCount) は role 別の排他カウンタで、
+  // 同じ LineMessage が 2 カラムに入ることはない (role アサインを参照)。
+  // 従って合計はそのまま「配信済みメッセージ件数」と等しい。
+  //   - sentTextCount: 本文 splitForLine の chunk (role='body_text')
+  //   - sentImageCount: 添付画像 (role='attachment_image')
+  //   - fallbackLinkCount: 添付の代替 text リンク (role='attachment_link')
   const existingAudit = await db
     .select({
       sentTextCount: eventBroadcastMessages.sentTextCount,

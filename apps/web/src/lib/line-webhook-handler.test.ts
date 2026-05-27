@@ -328,6 +328,71 @@ describe('applyWebhookEvents — invite code path', () => {
     expect(reply.captured[0]!.text).toMatch(/❌/)
   })
 
+  it('rejects redeem from a user/room source (no groupId)', async () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(eventId, channelId, {
+      status: 'invite_pending',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      // join 前なので lineGroupId は null。それでも group ではない
+      // source (DM 等) からの redeem は受け付けない。
+      lineGroupId: null,
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-dm',
+          source: { type: 'user', userId: 'Uxxxxxxx' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, channelId),
+    })
+    expect(broadcast?.status).toBe('invite_pending')
+    expect(broadcast?.lineGroupId).toBeNull()
+    expect(reply.captured[0]?.text).toMatch(/❌/)
+  })
+
+  it('rejects redeem from a different group than the one Bot joined', async () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(eventId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C-joined-group',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-other',
+          source: { type: 'group', groupId: 'C-other-group' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, channelId),
+    })
+    // stored lineGroupId は変わらず、status も上がらない。
+    expect(broadcast?.status).toBe('joined_waiting_code')
+    expect(broadcast?.lineGroupId).toBe('C-joined-group')
+    expect(reply.captured[0]?.text).toMatch(/❌/)
+  })
+
   it('ignores non-6-digit text without replying', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
     await insertBroadcast(eventId, channelId, {

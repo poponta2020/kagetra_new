@@ -357,15 +357,22 @@ async function handleInviteCode(
 
   const sourceGroupId = event.source?.groupId
 
+  // rr4 review blocker: 招待コードはグループ紐付け用なので、user/room
+  // (= groupId が無い source) からの redeem は拒否する。これを許すと
+  // event_line_broadcasts.lineGroupId が null のまま linked になり、
+  // 配信時に no_active_binding でスキップされるのに channel は active
+  // のままプールから失われる。
+  const groupIdMissing = !sourceGroupId
+
   // rr3 review blocker: 招待コードを別グループ (Bot が漏れて加入した
-  // 別グループ、操作者の DM、誤転送先 etc.) で redeem されないように、
-  // stored lineGroupId が既にある場合は source.groupId と一致するときだけ
+  // 別グループ、誤転送先 etc.) で redeem されないように、stored
+  // lineGroupId が既にある場合は source.groupId と一致するときだけ
   // 受け付ける。null (= join 前 / lineGroupId 未確定) のときだけ初回セット。
   const storedGroupId = candidate?.lineGroupId ?? null
   const groupMismatch =
     storedGroupId != null && storedGroupId !== sourceGroupId
 
-  if (!result.ok || !candidate || groupMismatch) {
+  if (!result.ok || !candidate || groupIdMissing || groupMismatch) {
     if (event.replyToken) {
       await replyClient.reply({
         replyToken: event.replyToken,
@@ -378,13 +385,14 @@ async function handleInviteCode(
 
   // Bind the channel + broadcast to the event. lineGroupId は stored 値が
   // あればそれを尊重、無ければ source.groupId で初回セット。
+  // groupIdMissing ガードを通過しているので sourceGroupId は string 確定。
   await db.transaction(async (tx) => {
     await tx
       .update(eventLineBroadcasts)
       .set({
         status: 'linked',
         linkedAt: sql`now()`,
-        lineGroupId: storedGroupId ?? sourceGroupId ?? sql`${eventLineBroadcasts.lineGroupId}`,
+        lineGroupId: storedGroupId ?? sourceGroupId,
         // Invalidate the consumed code so it can't be reused — even if the
         // partial UNIQUE allowed it, replay would be confusing in the UI.
         inviteCode: null,
