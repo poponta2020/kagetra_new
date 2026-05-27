@@ -215,14 +215,34 @@ export async function manualLinkGroup(input: {
       })
     }
 
-    await tx
+    // rr3 review blocker: 2 つの管理操作が並行実行されたとき、上の
+    // findFirst で両方が「未割当」と判断して event_line_broadcasts を
+    // 両方とも linked にしてしまうレースを潰す。line_channels UPDATE は
+    // 「現在も available か、または同じ event への assigned」のときだけ
+    // 成立する条件付きにし、0 行返却なら競合とみなしてトランザクションを
+    // ロールバックする。
+    const channelUpdate = await tx
       .update(lineChannels)
       .set({
         status: 'active',
         assignedEventId: input.eventId,
         updatedAt: sql`now()`,
       })
-      .where(eq(lineChannels.id, input.channelId))
+      .where(
+        and(
+          eq(lineChannels.id, input.channelId),
+          eq(lineChannels.purpose, 'event_broadcast'),
+          sql`${lineChannels.status} IN ('available','assigned','active')`,
+          sql`(${lineChannels.assignedEventId} IS NULL OR ${lineChannels.assignedEventId} = ${input.eventId})`,
+        ),
+      )
+      .returning({ id: lineChannels.id })
+
+    if (channelUpdate.length === 0) {
+      throw new Error(
+        'チャネル状態が変わっています。再度ご確認のうえやり直してください',
+      )
+    }
   })
 
   revalidatePath('/admin/line-channels')

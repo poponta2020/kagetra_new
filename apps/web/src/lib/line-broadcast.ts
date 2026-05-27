@@ -93,6 +93,14 @@ interface PushMessagesResult {
   deliveredCount: number
   /** Error from the first failed batch, or null when all batches succeeded. */
   error: Error | null
+  /**
+   * HTTP status from the first failed batch, when the failure came from
+   * the LINE API itself. NULL when the failure was a transport-level
+   * error (DNS / TLS / network), or when all batches succeeded.
+   * Caller uses this to drive recovery: 401 → disable token, other 4xx
+   * (groupId 不正 / Bot kick 済み) → revoke binding.
+   */
+  httpStatus: number | null
 }
 
 /**
@@ -115,7 +123,7 @@ async function pushMessages(
       to,
       count: messages.length,
     })
-    return { deliveredCount: messages.length, error: null }
+    return { deliveredCount: messages.length, error: null, httpStatus: null }
   }
 
   let delivered = 0
@@ -137,6 +145,7 @@ async function pushMessages(
           error: new Error(
             `LINE push failed: ${res.status} ${body.slice(0, 200)}`,
           ),
+          httpStatus: res.status,
         }
       }
       delivered += batch.length
@@ -144,13 +153,14 @@ async function pushMessages(
       return {
         deliveredCount: delivered,
         error: err instanceof Error ? err : new Error(String(err)),
+        httpStatus: null,
       }
     }
     if (i + LINE_BATCH_SIZE < messages.length) {
       await new Promise<void>((resolve) => setTimeout(resolve, LINE_BATCH_SLEEP_MS))
     }
   }
-  return { deliveredCount: delivered, error: null }
+  return { deliveredCount: delivered, error: null, httpStatus: null }
 }
 
 function attachmentDownloadUrl(token: string, baseUrl: string): string {
@@ -561,8 +571,64 @@ export async function broadcastMailToEvent(
         mailMessageId: args.mailMessageId,
         delivered: pushResult.deliveredCount,
         total: messages.length,
+        httpStatus: pushResult.httpStatus,
         error: pushResult.error.message,
       })
+
+      // rr3 review should_fix: LINE API のエラー status に応じて
+      // channel / broadcast 状態を遷移させ、運用復旧のフックを残す。
+      // 要件 §3.2.9 の表に対応。
+      if (pushResult.httpStatus === 401) {
+        // Access token 期限切れ / 無効。Bot 自体を disabled にして、
+        // 管理者が seed-broadcast-channels で再投入するまで pool から外す。
+        await db
+          .update(lineChannels)
+          .set({ status: 'disabled', updatedAt: sql`now()` })
+          .where(eq(lineChannels.id, binding.lineChannelId))
+        logger.warn('LINE channel disabled due to 401 (token expired)', {
+          channelId: binding.lineChannelId,
+        })
+      } else if (
+        pushResult.httpStatus != null &&
+        pushResult.httpStatus >= 400 &&
+        pushResult.httpStatus < 500 &&
+        pushResult.httpStatus !== 429 // rate limit はリトライ可能なので残す
+      ) {
+        // groupId 不正 / Bot kick 済み 等。binding を revoke して channel を
+        // プールに戻し、UI 側で再紐付けが必要なことを明示する。
+        await db.transaction(async (tx) => {
+          await tx
+            .update(eventLineBroadcasts)
+            .set({
+              status: 'revoked',
+              revokedAt: sql`now()`,
+              revokeReason: 'line_api_4xx',
+              inviteCode: null,
+              inviteCodeExpiresAt: null,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(eventLineBroadcasts.id, binding.id))
+
+          await tx
+            .update(lineChannels)
+            .set({
+              status: 'available',
+              assignedEventId: null,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(lineChannels.id, binding.lineChannelId),
+                eq(lineChannels.assignedEventId, args.eventId),
+              ),
+            )
+        })
+        logger.warn('LINE binding revoked due to 4xx (groupId invalid / Bot kicked)', {
+          eventId: args.eventId,
+          channelId: binding.lineChannelId,
+          httpStatus: pushResult.httpStatus,
+        })
+      }
     }
 
     return {

@@ -344,6 +344,7 @@ async function handleInviteCode(
       eventId: true,
       inviteCode: true,
       inviteCodeExpiresAt: true,
+      lineGroupId: true,
     },
   })
 
@@ -354,7 +355,17 @@ async function handleInviteCode(
     now,
   )
 
-  if (!result.ok || !candidate) {
+  const sourceGroupId = event.source?.groupId
+
+  // rr3 review blocker: 招待コードを別グループ (Bot が漏れて加入した
+  // 別グループ、操作者の DM、誤転送先 etc.) で redeem されないように、
+  // stored lineGroupId が既にある場合は source.groupId と一致するときだけ
+  // 受け付ける。null (= join 前 / lineGroupId 未確定) のときだけ初回セット。
+  const storedGroupId = candidate?.lineGroupId ?? null
+  const groupMismatch =
+    storedGroupId != null && storedGroupId !== sourceGroupId
+
+  if (!result.ok || !candidate || groupMismatch) {
     if (event.replyToken) {
       await replyClient.reply({
         replyToken: event.replyToken,
@@ -365,18 +376,15 @@ async function handleInviteCode(
     return
   }
 
-  // Bind the channel + broadcast to the event. The group ID may already be
-  // set from the prior `join` event, but we accept the late-arriving case
-  // where the operator invites the Bot via UI link and never triggers the
-  // explicit join (e.g. group already created).
-  const groupId = event.source.groupId
+  // Bind the channel + broadcast to the event. lineGroupId は stored 値が
+  // あればそれを尊重、無ければ source.groupId で初回セット。
   await db.transaction(async (tx) => {
     await tx
       .update(eventLineBroadcasts)
       .set({
         status: 'linked',
         linkedAt: sql`now()`,
-        lineGroupId: groupId ?? sql`${eventLineBroadcasts.lineGroupId}`,
+        lineGroupId: storedGroupId ?? sourceGroupId ?? sql`${eventLineBroadcasts.lineGroupId}`,
         // Invalidate the consumed code so it can't be reused — even if the
         // partial UNIQUE allowed it, replay would be confusing in the UI.
         inviteCode: null,
