@@ -81,7 +81,7 @@ export const viewport: Viewport = {
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 
 ```tsx
-<nav className="min-h-[52px] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+<nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
   {visibleTabs.map((tab) => (
     <Link
       ...
@@ -96,10 +96,11 @@ export const viewport: Viewport = {
 </nav>
 ```
 
-- `<nav>` 高さは `min-h-[52px]` + Tailwind arbitrary value `pb-[env(safe-area-inset-bottom)]`（safe-area 込みで 52px + α）。
+- `<nav>` 高さは `min-h-[calc(52px + env(safe-area-inset-bottom))]` + `pb-[env(safe-area-inset-bottom)]`（safe-area 込みで 52px + α）。
 - 当初は inline style で `paddingBottom: 'env(...)'` を当てる方針だったが、jsdom (vitest) の CSSOM が `env()` を invalid と判定して style attribute ごと捨てるためテスト不能。Tailwind arbitrary value に切り替えて class 名で検証可能にした（実機の挙動は等価）。
 - 各 `<Link>` のタップ可能領域は明示的に `h-[52px]` で 52px 固定。
 - safe-area 部分（home indicator 領域）は `<nav>` の padding 領域として bg-surface のまま描画される。
+- **min-h は `calc(52px + safe-area)` で確保必須**: Tailwind は default `box-sizing: border-box` なので `min-h-[52px]` だと padding-bottom (~34px) が min-h の中に含まれ、コンテンツ領域が 18px に圧縮されて `<Link h-[52px]>` がはみ出して画面外に切れる。PR #67 で `calc()` 版に修正（PR #66 後の実機でホームインジケータ近くまでタブが見切れる事象として発覚）。
 
 **`apps/web/src/components/layout/mobile-shell.test.tsx`**（新規）
 

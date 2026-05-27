@@ -57,11 +57,19 @@ export interface BottomNavProps {
 
 /**
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
- * uses `min-h-[52px]` plus `padding-bottom: env(safe-area-inset-bottom)`
- * so the bg-surface fill extends into the iOS home-indicator area without
- * shrinking the tap targets. Tabs per `docs/design/design.md` §3 —
- * ホーム / イベント / 予定 / 会員 (admin only until a member-facing list
- * exists).
+ * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
+ * extends into the iOS home-indicator area without compressing the tap
+ * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント /
+ * 予定 / 会員 (admin only until a member-facing list exists).
+ *
+ * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
+ * box`, so `min-h-[52px]` measures the **outer** box (border + padding +
+ * content). With `pb-[env(safe-area-inset-bottom)]` (~34px on iPhones
+ * with a home indicator) the content area collapses to ~18px and the
+ * 52px <Link> children overflow visibly below the viewport. We therefore
+ * size the min-height as `52px + env(safe-area-inset-bottom)` so the
+ * content area always has its full 52px after the safe-area padding is
+ * deducted.
  *
  * Client component because it reads the current pathname via
  * `usePathname()` to highlight the active tab.
@@ -70,7 +78,7 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
   const pathname = usePathname() ?? ''
   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
   return (
-    <nav className="min-h-[52px] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+    <nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
       {visibleTabs.map((tab) => {
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),
