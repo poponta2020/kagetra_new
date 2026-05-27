@@ -1917,6 +1917,7 @@
 ### /auto-review-loop ログ
 - 2026-05-26 /auto-review-loop PR #64: 1R, verdict=pass, tokens=35387/500000, result=pass
 - 2026-05-27 /auto-review-loop PR #66: 1R, verdict=pass, tokens=29539/500000, result=pass (sticky-mobile-shell flex min-h-0 fix)
+- 2026-05-27 /auto-review-loop PR #67: 2R, verdict=pass, tokens=61559/500000, result=pass (sticky-mobile-shell bottom-nav border-box height fix, R1 blocker: Tailwind calc() needs `_+_`)
 
 ---
 
@@ -1948,8 +1949,43 @@
 - ✅ `sudo systemctl restart kagetra-web` → active (PID 1057050, 85.8M)
 - ✅ Health check: HTTPS 307 → /auth/signin、signin 200、manifest 200 (612B)、`/hono-api/health` ok
 - ✅ ビルド成果物検証: `min-h-0` が `.next/standalone/.../chunks/365.js` に含まれていることを grep で確認 (実装が server bundle にバンドル済)
-- 🔴 **iPhone 実機再確認 (#53)**: ユーザー実機検証待ち。**PR #64 で残ったボトムナビ消失バグが解消したか**を Safari + PWA standalone で要確認
+- ⚠️ **PR #66 後の実機検証で「固定はされるようになったが BottomNav タブが画面下端からだいぶ下に見切れる」現象発覚** → 原因 border-box 罠で PR #67 へ追加 fix
+
+---
+
+## 2026-05-27 セッション 2 (PR #67 ship — BottomNav border-box 高さ罠 fix)
+
+### 完了
+- **PR #67** (`fix(bottom-nav): bake safe-area into min-h so border-box keeps content 52px`) merge 完了 (merge commit `69c64b0`)
+- **原因**: PR #66 後の実機で「BottomNav タブが画面下端からだいぶ下に見切れる」報告 → Tailwind default `box-sizing: border-box` で `min-h-[52px]` の中に `pb-[env(safe-area-inset-bottom)]` (~34px) が算入されてコンテンツ領域が 18px に圧縮、`<Link h-[52px]>` が viewport 外に overflow していた
+- **修正**: `<nav>` の `min-h-[52px]` を `min-h-[calc(52px_+_env(safe-area-inset-bottom))]` に変更（Tailwind は `_` を実 CSS の空白に展開）
+- `/auto-review-loop 67` で **2R 完走**:
+  - R1: blocker **1** (Codex 指摘「Tailwind arbitrary value 内 `+` 前後の `_` 不足で Safari が calc() を無効化する」) → /fix で `_+_` エスケープ
+  - R2: verdict=pass、全 0 件、good_points 2
+  - 累計 61,559 / 500,000 tokens
+- `/ship 67` で merge + worktree 削除 + ローカルブランチ削除 + review output 掃除
+
+### 設計判断 / 知見
+- **Tailwind border-box 罠**: `min-h-[N]` は外側ボックス基準のため padding が中に含まれる。`min-h-[calc(N + padding)]` で合算するパターンを定石化 → [[tailwind-min-h-includes-padding-border-box]]
+- **Tailwind arbitrary value のスペースは `_` 必須**: `calc(a+b)` だと Tailwind は空白を消すが、CSS spec は演算子周辺の空白を要求する → Safari は invalid 扱いで `min-height` 未設定になる。常に `_` を挟む → [[tailwind-arbitrary-needs-underscore-for-space]]
+- **Codex CLI の有用性が改めて実証**: R1 で「`+` の `_` エスケープ不足」を確実に捕捉、本番反映前にブロッカーを除去できた。実機で見えない罠を class 字面から推論で見抜く能力
+
+### 残存している git 状態
+- main: `69c64b0` (PR #67 merge) → これから worklog + memory 同期 commit + 本番反映待ち
+- worktree: なし (event-line-broadcast の worktree は別途継続)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機再々確認 → OK なら `gh issue close 53 50`
 
 ### 次回 (carryover)
-- 🔴 **iPhone 実機再確認 (#53)** ← 本番反映済、PR #66 で flex min-h-0 罠を修正済。ユーザー再検証で OK なら `gh issue close 53 50`
+- 🔴 **PR #67 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
+- 🔴 **iPhone 実機再々確認 (#53)**: PR #67 反映後に Safari + PWA standalone で BottomNav が画面下端ピッタリに表示され、タブの 52px がフル表示されることを確認 → OK なら `gh issue close 53 50`
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
+
+## 2026-05-27 セッション1（event-line-broadcast PR #65 再レビュー）
+
+- 2026-05-27 /auto-review-loop PR #65 (再): 2R 完了 + Round 3 codex-error で中断、tokens=462,203/500,000
+  - Round 1 (再) (154,609t): blockers 2 (revokeBroadcast 防御, handleLeave groupId 確認), should_fix 2 (送信順カウント, 期限切れコード null 化) → b64ff53
+  - Round 2 (再) (307,594t): blockers 2 (non-admin RSC 漏洩, 訂正プレフィックス長さ超過), should_fix 2 (partial 重複送信, release race) → be3ef38
+  - Round 3 (再): codex CLI が `pnpm build` で約 20 分スタック → 強制終了、結果ファイル未生成。次回手動で /review か /auto-review-loop 再実行が必要
+  - 累計対応指摘: r1-r3 + rr1-rr2 で **CRITICAL 11 件 + WARNING 9 件** に対応、Vitest 81 ケース pass

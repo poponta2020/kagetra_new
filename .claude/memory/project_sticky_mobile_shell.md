@@ -1,6 +1,6 @@
 ---
 name: sticky-mobile-shell-spec
-description: モバイルシェル固定（AppBar/BottomNav）。PR #64 + #66 (min-h-0 fix) ship + 本番反映、残り iPhone 実機再確認 #53 のみ
+description: モバイルシェル固定（AppBar/BottomNav）。PR #64 + #66 + #67 (border-box fix) ship、PR #67 本番反映待ち + 実機再々確認 #53 のみ
 metadata: 
   node_type: memory
   type: project
@@ -22,6 +22,7 @@ metadata:
 - [x] /ship 64 で merge + worktree 削除 + ローカルブランチ削除 + memory/worklog 同期 commit (030c7fa, 04db536)
 - [x] 本番反映 (2026-05-26): ssh → git pull → pnpm install → pnpm build → .next/static + public/ cp → systemctl restart → health check OK
 - [x] **PR #66 (min-h-0 fix, merge `6b980f2`)**: PR #64 後の実機検証で下スクロール時 BottomNav が画面外消失 → 原因は flex item デフォルト `min-height: auto` で `<main>` が shell 突き抜け、body スクロール化 → `<main>` を `flex-1 min-h-0 overflow-y-auto` に修正、テスト + requirements も同期。Codex R1 pass (29539 tokens)。汎用知見は [[flex-overflow-needs-min-h-0]] に切り出し
-- [ ] タスク3（#53）: PR #66 本番反映後に iPhone Safari + PWA standalone 実機再確認（Claude 側不能、ユーザー実施）— OK なら `gh issue close 53 50`
+- [x] **PR #67 (border-box height fix, merge `69c64b0`)**: PR #66 本番反映後の実機検証で「タブが画面下端からだいぶ下に見切れる」現象。原因は Tailwind default `box-sizing: border-box` で `min-h-[52px]` の中に `pb-[env(safe-area-inset-bottom)]` (~34px) が算入されてコンテンツ領域 18px に圧縮 → `<nav>` を `min-h-[calc(52px_+_env(safe-area-inset-bottom))]` に修正。Codex R1 で **blocker (Tailwind arbitrary value 内 `+` 周辺に `_` が必要)** を指摘 → /fix で R2 pass (累計 61559 tokens)。汎用知見は [[tailwind-min-h-includes-padding-border-box]] と [[tailwind-arbitrary-needs-underscore-for-space]] に切り出し
+- [ ] タスク3（#53）: PR #67 本番反映後に iPhone Safari + PWA standalone 実機再々確認（Claude 側不能、ユーザー実施）— OK なら `gh issue close 53 50`
 
 **注意点:** `apps/web/src/app/(app)/events/[id]/page.tsx:331` に `sticky bottom-0` の出欠トグルが既にある。今回の修正で body スクロール→main スクロールに変わるため、この sticky の文脈が変わる（むしろ BottomNav と重ならなくなる想定だが目視確認必須）。
