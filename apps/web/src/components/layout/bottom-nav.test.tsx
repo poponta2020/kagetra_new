@@ -91,4 +91,21 @@ describe('BottomNav', () => {
     const nav = screen.getByRole('navigation')
     expect(nav.className).toContain('pb-[env(safe-area-inset-bottom)]')
   })
+
+  // Regression guard for the iPhone home-indicator clipping bug (PR #67):
+  // Tailwind's default box-sizing: border-box meant `min-h-[52px]` plus
+  // `pb-[env(safe-area-inset-bottom)]` (~34px) collapsed the content area
+  // to ~18px, letting the 52px <Link> children overflow off-screen. The
+  // min-h MUST be `calc(52px + env(safe-area-inset-bottom))` so the
+  // content area stays a full 52px after the safe-area padding is removed.
+  it('<nav> の min-height が calc(52px + safe-area) で確保される', () => {
+    render(<BottomNav isAdmin />)
+    const nav = screen.getByRole('navigation')
+    expect(nav.className).toContain(
+      'min-h-[calc(52px+env(safe-area-inset-bottom))]',
+    )
+    // Plain `min-h-[52px]` reintroduces the clipping bug — guard against
+    // an accidental revert.
+    expect(nav.className).not.toMatch(/(?<!\+)min-h-\[52px\]/)
+  })
 })

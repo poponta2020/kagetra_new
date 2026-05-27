@@ -28,7 +28,7 @@ status: completed
   - `pnpm --filter web test` が全件 pass
   - 新規テストが pass し、`h-dvh` / `flex-1` / `overflow-y-auto` / `paddingBottom: env(safe-area-inset-bottom)` を検証している
 
-### タスク2b: flex `min-h-auto` 罠の事後修正（PR #65 で追加）
+### タスク2b: flex `min-h-auto` 罠の事後修正（PR #66）
 
 - [x] 完了
 - **概要:** PR #64 ship + 本番反映後、ユーザー実機検証で BottomNav が下スクロールで画面外に消える現象が判明。原因は flex item デフォルト `min-height: auto` で `<main>` が子コンテンツに押されて shell の h-dvh 境界を突き抜け、body スクロールが走っていたこと。
@@ -38,6 +38,17 @@ status: completed
   - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 mobile-shell.tsx のコード例と `min-h-0` 必須の注記
 - **依存タスク:** タスク1, タスク2
 - **対応Issue:** #53 (事後修正の一部、実機 NG → fix → 再実機)
+
+### タスク2c: BottomNav の border-box 高さ罠の事後修正（PR #67）
+
+- [x] 完了
+- **概要:** PR #66 ship + 本番反映後、固定挙動は OK になったがユーザー実機検証で「BottomNav タブが画面下端からだいぶ下に見切れる」現象が判明。原因は Tailwind default `box-sizing: border-box` で `min-h-[52px]` の中に `pb-[env(safe-area-inset-bottom)]` (~34px) が含まれ、コンテンツ領域が 18px に圧縮、`<Link h-[52px]>` が viewport 外にはみ出していたこと。
+- **変更対象ファイル:**
+  - `apps/web/src/components/layout/bottom-nav.tsx` — `<nav>` の `min-h-[52px]` を `min-h-[calc(52px+env(safe-area-inset-bottom))]` に修正、罠の解説コメント追加
+  - `apps/web/src/components/layout/bottom-nav.test.tsx` — `<nav>` の `min-h-[calc(52px+env(safe-area-inset-bottom))]` 検証 + 素の `min-h-[52px]` への退行ガード追加
+  - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 bottom-nav.tsx のコード例と border-box 罠の注記
+- **依存タスク:** タスク1, タスク2, タスク2b
+- **対応Issue:** #53 (事後修正の続き、PR #66 後の実機 NG → fix → 再実機)
 
 ### タスク3: 実機確認（iPhone Safari + iPhone PWA standalone）
 
