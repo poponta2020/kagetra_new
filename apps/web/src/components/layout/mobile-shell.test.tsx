@@ -34,7 +34,7 @@ describe('MobileShell', () => {
     expect(shell.className).toContain('flex-col')
   })
 
-  it('<main> が flex-1 overflow-y-auto を持ち、children を描画する', () => {
+  it('<main> が flex-1 min-h-0 overflow-y-auto を持ち、children を描画する', () => {
     render(
       <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
         <div data-testid="child">child-content</div>
@@ -42,6 +42,12 @@ describe('MobileShell', () => {
     )
     const main = screen.getByRole('main')
     expect(main.className).toContain('flex-1')
+    // Regression guard: without `min-h-0`, flex items default to
+    // `min-height: auto` which lets <main> grow past the shell, the shell
+    // exceeds h-dvh, and body scroll carries AppBar/BottomNav off-screen
+    // on iOS Safari. Removing this class re-introduces the PR #64 followup
+    // bug (BottomNav disappears while scrolling).
+    expect(main.className).toContain('min-h-0')
     expect(main.className).toContain('overflow-y-auto')
     expect(screen.getByTestId('child').textContent).toBe('child-content')
   })

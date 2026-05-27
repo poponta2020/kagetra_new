@@ -69,13 +69,14 @@ export const viewport: Viewport = {
 ```tsx
 <div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
   <AppBarMain ... />
-  <main className="flex-1 overflow-y-auto">{children}</main>
+  <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
   <BottomNav isAdmin={isAdmin} />
 </div>
 ```
 
 - `h-screen h-dvh` の順で書くことで、`h-dvh` 未サポートブラウザは `h-screen` (100vh) にフォールバック、サポートブラウザは後勝ちで `h-dvh` が適用される。
 - 既存コメントの「sticky 44px top bar + scrollable main + sticky 52px bottom tab bar」を「Fits viewport via h-dvh; AppBar/BottomNav stay at flex edges, main scrolls.」のような実装一致の記述に更新。
+- **`min-h-0` 必須**: flex item のデフォルト `min-height: auto` だと `<main>` が子コンテンツより縮めず、shell が h-dvh を突き抜けて body スクロールに化ける（PR #64 で抜けて実機 NG、別 PR で `min-h-0` 追加）。`overflow-y-auto` を flex item に当てるときは常に `min-h-0` を同時指定するのが定石。
 
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 

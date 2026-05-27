@@ -46,7 +46,15 @@ export function MobileShell({
   return (
     <div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      {/*
+        `min-h-0` is required: flex items default to `min-height: auto`,
+        which prevents <main> from shrinking below its content height even
+        with `overflow-y-auto`. Without it the inner content pushes <main>
+        past the shell, the shell bleeds past h-dvh, and body scroll
+        carries AppBar/BottomNav off-screen — exactly the bug we are trying
+        to fix. See https://developer.mozilla.org/en-US/docs/Web/CSS/min-height#values
+      */}
+      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
       <BottomNav isAdmin={isAdmin} />
     </div>
   )
