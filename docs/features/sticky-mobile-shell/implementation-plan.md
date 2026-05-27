@@ -28,6 +28,17 @@ status: completed
   - `pnpm --filter web test` が全件 pass
   - 新規テストが pass し、`h-dvh` / `flex-1` / `overflow-y-auto` / `paddingBottom: env(safe-area-inset-bottom)` を検証している
 
+### タスク2b: flex `min-h-auto` 罠の事後修正（PR #65 で追加）
+
+- [x] 完了
+- **概要:** PR #64 ship + 本番反映後、ユーザー実機検証で BottomNav が下スクロールで画面外に消える現象が判明。原因は flex item デフォルト `min-height: auto` で `<main>` が子コンテンツに押されて shell の h-dvh 境界を突き抜け、body スクロールが走っていたこと。
+- **変更対象ファイル:**
+  - `apps/web/src/components/layout/mobile-shell.tsx` — `<main>` を `flex-1 overflow-y-auto` → `flex-1 min-h-0 overflow-y-auto` に修正、罠の解説コメント追加
+  - `apps/web/src/components/layout/mobile-shell.test.tsx` — main の class アサーションに `min-h-0` を追加（リグレッションガード）
+  - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 mobile-shell.tsx のコード例と `min-h-0` 必須の注記
+- **依存タスク:** タスク1, タスク2
+- **対応Issue:** #53 (事後修正の一部、実機 NG → fix → 再実機)
+
 ### タスク3: 実機確認（iPhone Safari + iPhone PWA standalone）
 
 - [ ] 完了
