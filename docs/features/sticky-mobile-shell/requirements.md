@@ -81,7 +81,7 @@ export const viewport: Viewport = {
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 
 ```tsx
-<nav className="min-h-[calc(52px+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+<nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
   {visibleTabs.map((tab) => (
     <Link
       ...

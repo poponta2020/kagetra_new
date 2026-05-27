@@ -78,7 +78,7 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
   const pathname = usePathname() ?? ''
   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
   return (
-    <nav className="min-h-[calc(52px+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+    <nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
       {visibleTabs.map((tab) => {
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),

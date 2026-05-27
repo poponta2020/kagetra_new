@@ -102,7 +102,7 @@ describe('BottomNav', () => {
     render(<BottomNav isAdmin />)
     const nav = screen.getByRole('navigation')
     expect(nav.className).toContain(
-      'min-h-[calc(52px+env(safe-area-inset-bottom))]',
+      'min-h-[calc(52px_+_env(safe-area-inset-bottom))]',
     )
     // Plain `min-h-[52px]` reintroduces the clipping bug — guard against
     // an accidental revert.
