@@ -72,59 +72,84 @@ export async function releaseExpiredBroadcasts(
   // 注入できる (deterministic)。
   const today = options.today ?? todayInJst()
 
-  const expired = await db
-    .select({
-      id: eventLineBroadcasts.id,
-      lineChannelId: eventLineBroadcasts.lineChannelId,
-    })
-    .from(eventLineBroadcasts)
-    .innerJoin(events, eq(events.id, eventLineBroadcasts.eventId))
-    .where(
-      and(
-        eq(eventLineBroadcasts.status, 'linked'),
-        // `COALESCE(extended_until, event_date + 30) < today` — the
-        // standard 30-day grace, with operator override taking precedence.
-        sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
-      ),
-    )
+  // rr2 review should_fix: 候補取得から UPDATE までを単一トランザクション
+  // に入れて、間に別 tx が同じ channel を新 event に割当てるレースを防ぐ。
+  // UPDATE の WHERE には現在の status・期限条件・assignedEventId 一致を
+  // すべて含めて、選択時点と異なる行は更新しない (UPDATE が 0 行を返す)。
 
-  // r2 review should_fix: 期限切れの invite_pending / joined_waiting_code
-  // も同じバッチで一掃する。30 分 TTL の招待コードが過ぎても放置されると
-  // line_channels.status='assigned' が永続化し、Bot プールが枯渇する。
-  const expiredInvites = await db
-    .select({
-      id: eventLineBroadcasts.id,
-      lineChannelId: eventLineBroadcasts.lineChannelId,
-    })
-    .from(eventLineBroadcasts)
-    .where(
-      and(
-        sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
-        sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
-        sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
-      ),
-    )
+  const releasedBroadcastIds: number[] = []
+  const revokedBroadcastIds: number[] = []
 
-  if (options.dryRun || (expired.length === 0 && expiredInvites.length === 0)) {
+  // dry-run は副作用を起こさないので、これだけ DB トランザクション外で
+  // 件数 estimate を返す (read-only)。
+  if (options.dryRun) {
+    const expiredDry = await db
+      .select({ id: eventLineBroadcasts.id })
+      .from(eventLineBroadcasts)
+      .innerJoin(events, eq(events.id, eventLineBroadcasts.eventId))
+      .where(
+        and(
+          eq(eventLineBroadcasts.status, 'linked'),
+          sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
+        ),
+      )
+    const expiredInvitesDry = await db
+      .select({ id: eventLineBroadcasts.id })
+      .from(eventLineBroadcasts)
+      .where(
+        and(
+          sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+        ),
+      )
     return {
-      releasedCount: expired.length,
-      releasedBroadcastIds: expired.map((row) => row.id),
-      revokedExpiredInviteCount: expiredInvites.length,
-      revokedBroadcastIds: expiredInvites.map((row) => row.id),
+      releasedCount: expiredDry.length,
+      releasedBroadcastIds: expiredDry.map((row) => row.id),
+      revokedExpiredInviteCount: expiredInvitesDry.length,
+      revokedBroadcastIds: expiredInvitesDry.map((row) => row.id),
     }
   }
 
   await db.transaction(async (tx) => {
+    // 1) 大会終了 +30 日経過の linked 行
+    const expired = await tx
+      .select({
+        id: eventLineBroadcasts.id,
+        eventId: eventLineBroadcasts.eventId,
+        lineChannelId: eventLineBroadcasts.lineChannelId,
+      })
+      .from(eventLineBroadcasts)
+      .innerJoin(events, eq(events.id, eventLineBroadcasts.eventId))
+      .where(
+        and(
+          eq(eventLineBroadcasts.status, 'linked'),
+          sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
+        ),
+      )
+
     for (const row of expired) {
-      await tx
+      // status='linked' 条件を WHERE に再掲。同じ tx 内なので race は起き
+      // ないが、データ整合性のための defensive check (別 tx で revoke
+      // されていた等)。
+      const updated = await tx
         .update(eventLineBroadcasts)
         .set({
           status: 'released',
           releasedAt: sql`now()`,
           updatedAt: sql`now()`,
         })
-        .where(eq(eventLineBroadcasts.id, row.id))
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, row.id),
+            eq(eventLineBroadcasts.status, 'linked'),
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
+      if (updated.length === 0) continue
 
+      // channel は「現在この event に紐付いている」場合のみ available へ。
+      // 間に手動 revoke や再割当が走ったら、その channel は触らない。
       await tx
         .update(lineChannels)
         .set({
@@ -132,11 +157,33 @@ export async function releaseExpiredBroadcasts(
           assignedEventId: null,
           updatedAt: sql`now()`,
         })
-        .where(eq(lineChannels.id, row.lineChannelId))
+        .where(
+          and(
+            eq(lineChannels.id, row.lineChannelId),
+            eq(lineChannels.assignedEventId, row.eventId),
+          ),
+        )
+      releasedBroadcastIds.push(row.id)
     }
 
+    // 2) 期限切れ invite_pending / joined_waiting_code
+    const expiredInvites = await tx
+      .select({
+        id: eventLineBroadcasts.id,
+        eventId: eventLineBroadcasts.eventId,
+        lineChannelId: eventLineBroadcasts.lineChannelId,
+      })
+      .from(eventLineBroadcasts)
+      .where(
+        and(
+          sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+        ),
+      )
+
     for (const row of expiredInvites) {
-      await tx
+      const updated = await tx
         .update(eventLineBroadcasts)
         .set({
           status: 'revoked',
@@ -146,7 +193,15 @@ export async function releaseExpiredBroadcasts(
           inviteCodeExpiresAt: null,
           updatedAt: sql`now()`,
         })
-        .where(eq(eventLineBroadcasts.id, row.id))
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, row.id),
+            sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
+            sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
+      if (updated.length === 0) continue
 
       await tx
         .update(lineChannels)
@@ -155,15 +210,21 @@ export async function releaseExpiredBroadcasts(
           assignedEventId: null,
           updatedAt: sql`now()`,
         })
-        .where(eq(lineChannels.id, row.lineChannelId))
+        .where(
+          and(
+            eq(lineChannels.id, row.lineChannelId),
+            eq(lineChannels.assignedEventId, row.eventId),
+          ),
+        )
+      revokedBroadcastIds.push(row.id)
     }
   })
 
   return {
-    releasedCount: expired.length,
-    releasedBroadcastIds: expired.map((row) => row.id),
-    revokedExpiredInviteCount: expiredInvites.length,
-    revokedBroadcastIds: expiredInvites.map((row) => row.id),
+    releasedCount: releasedBroadcastIds.length,
+    releasedBroadcastIds,
+    revokedExpiredInviteCount: revokedBroadcastIds.length,
+    revokedBroadcastIds,
   }
 }
 

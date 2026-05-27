@@ -391,6 +391,32 @@ export async function broadcastMailToEvent(
   // Upsert the audit row up front so a crash mid-delivery leaves a
   // diagnostic trail. UNIQUE (broadcast, mail) means we touch the same
   // row on every retry, never inserting duplicates.
+  //
+  // rr2 review should_fix: partial 行を再送するとき、前回成功した先頭分は
+  // 重複配信される。再送前に既存 sentXxxCount を読んで、後段で送信時に
+  // 先頭 N 件をスキップする。
+  const existingAudit = await db
+    .select({
+      sentTextCount: eventBroadcastMessages.sentTextCount,
+      sentImageCount: eventBroadcastMessages.sentImageCount,
+      fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
+      status: eventBroadcastMessages.status,
+    })
+    .from(eventBroadcastMessages)
+    .where(
+      and(
+        eq(eventBroadcastMessages.eventLineBroadcastId, binding.id),
+        eq(eventBroadcastMessages.mailMessageId, args.mailMessageId),
+      ),
+    )
+    .limit(1)
+  const previouslyDelivered =
+    existingAudit[0]?.status === 'partial'
+      ? existingAudit[0].sentTextCount +
+        existingAudit[0].sentImageCount +
+        existingAudit[0].fallbackLinkCount
+      : 0
+
   const inserted = await db
     .insert(eventBroadcastMessages)
     .values({
@@ -416,18 +442,20 @@ export async function broadcastMailToEvent(
 
   try {
     // Build text messages: split the mail body at 5000-char boundaries.
-    // For corrections, prefix the first chunk with 「【訂正】」 and the
-    // referenced subject so the LINE recipient instantly knows what
-    // changed without scrolling.
-    const bodyText = mail.bodyText ?? '(本文なし)'
+    // For corrections, prefix the body with 「【訂正】「件名」\n」 BEFORE
+    // splitting so each resulting chunk is guaranteed to fit under the
+    // 5000-character LINE limit (rr2 review blocker: prefixing after split
+    // can push the first chunk over the limit).
+    const rawBody = mail.bodyText ?? '(本文なし)'
+    const prefix = args.isCorrection
+      ? `${CORRECTION_PREFIX}${mail.subject ? `「${mail.subject}」\n` : ''}`
+      : ''
+    const bodyText = prefix + rawBody
     const chunks = splitForLine(bodyText)
-    const textMessages: LineMessage[] = chunks.map((chunk, idx) => {
-      if (idx === 0 && args.isCorrection) {
-        const subjectLine = mail.subject ? `「${mail.subject}」\n` : ''
-        return { type: 'text', text: `${CORRECTION_PREFIX}${subjectLine}${chunk}` }
-      }
-      return { type: 'text', text: chunk }
-    })
+    const textMessages: LineMessage[] = chunks.map((chunk) => ({
+      type: 'text',
+      text: chunk,
+    }))
 
     // rr1 review should_fix: 添付の出力は image / fallback link が交互に
     // 並ぶことがある (Excel リンクの後に PDF 画像、など)。実際の送信順を
@@ -458,10 +486,16 @@ export async function broadcastMailToEvent(
       roles.push('body_text')
     }
 
+    // rr2 review should_fix: partial 再送のとき、既配信 prefix をスキップ。
+    // messages の構築順は決定的なので、前回の sentXxxCount 合計分を先頭
+    // から落とせば「未送信分の続き」を送れる。
+    const skipCount = Math.min(previouslyDelivered, messages.length)
+    const messagesToPush = messages.slice(skipCount)
+
     const pushResult = await pushMessages(
       binding.channel.channelAccessToken,
       binding.lineGroupId,
-      messages,
+      messagesToPush,
       logger,
     )
 
@@ -469,17 +503,30 @@ export async function broadcastMailToEvent(
     // 7 件中 5 件成功・後半 2 件失敗のときは status='partial' にして
     // delivered counts を残し、再送ロジックが「全件再送」ではなく
     // 「未送信分のみ」を再送する判断材料を持てるようにする。
-    const allFailed = pushResult.deliveredCount === 0 && pushResult.error
-    const someFailed = pushResult.error != null && pushResult.deliveredCount > 0
-    const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'sent'
+    // 再送ケースでは「今回送れた件数 + 前回送信済み件数」が累計の
+    // delivered になる。
+    const totalDelivered = skipCount + pushResult.deliveredCount
+    const allFailed = totalDelivered === 0 && pushResult.error
+    const someFailed =
+      pushResult.error != null && totalDelivered > 0 && totalDelivered < messages.length
+    const allSent =
+      pushResult.error == null && totalDelivered === messages.length
+    const finalStatus = allFailed
+      ? 'failed'
+      : allSent
+        ? 'sent'
+        : someFailed
+          ? 'partial'
+          : // 想定外の組み合わせ (skipCount = total かつ messagesToPush 空) は
+            // 既配信扱いで sent にする
+            'sent'
 
-    // 実際の送信順 (`roles`) に沿って先頭 deliveredCount 件を数えるので、
-    // image と fallback link が交互に並んでいても正しいカウントになる
-    // (rr1 review should_fix)。
+    // 実際の送信順 (`roles`) に沿って累計 deliveredCount 件を数える。
+    // image / fallback link が交互に並んでも正しいカウント (rr1 review)。
     let deliveredText = 0
     let deliveredImage = 0
     let deliveredFallback = 0
-    for (let i = 0; i < pushResult.deliveredCount && i < roles.length; i++) {
+    for (let i = 0; i < totalDelivered && i < roles.length; i++) {
       switch (roles[i]) {
         case 'body_text':
           deliveredText++
@@ -500,7 +547,9 @@ export async function broadcastMailToEvent(
         sentTextCount: deliveredText,
         sentImageCount: deliveredImage,
         fallbackLinkCount: deliveredFallback,
-        sentAt: pushResult.deliveredCount > 0 ? sql`now()` : null,
+        // sentAt は 1 件でも届いたタイミングを示す監査値。再送で完走した
+        // 場合も、新しい完走時刻に更新したいので totalDelivered で判定。
+        sentAt: totalDelivered > 0 ? sql`now()` : null,
         errorMessage: pushResult.error ? pushResult.error.message : null,
         updatedAt: sql`now()`,
       })

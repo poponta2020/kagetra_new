@@ -76,24 +76,16 @@ export default async function EventDetailPage({
 
   if (!event) notFound()
 
-  // event-line-broadcast: load the active binding (if any) and the latest
-  // delivery history. The history is rendered only for admin viewers — the
-  // section itself short-circuits on isAdmin=false — but it is cheap enough
-  // (~10 rows / event lifetime) to fetch unconditionally and keeps the
-  // component pure of further data fetching.
-  const broadcastRow = await db
-    .select({
-      status: eventLineBroadcasts.status,
-      lineGroupId: eventLineBroadcasts.lineGroupId,
-      linkedAt: eventLineBroadcasts.linkedAt,
-      botId: lineChannels.botId,
-      botLabel: lineChannels.note,
-    })
+  // event-line-broadcast: 紐付け状態と配信履歴を取得する。
+  //
+  // rr2 review blocker: LineBroadcastSection は `use client` なので、
+  // props は RSC payload としてブラウザに必ず届く。非管理者には Bot 名 /
+  // グループ ID 末尾 / 配信履歴 / エラーメッセージなど管理者専用情報を
+  // **そもそも送らない** こと。一般会員には「LINE 配信中かどうか」だけ
+  // 分かれば十分なので、status のみのスタブを返す。
+  const broadcastStatusRow = await db
+    .select({ status: eventLineBroadcasts.status })
     .from(eventLineBroadcasts)
-    .innerJoin(
-      lineChannels,
-      eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
-    )
     .where(
       and(
         eq(eventLineBroadcasts.eventId, idNum),
@@ -101,62 +93,108 @@ export default async function EventDetailPage({
       ),
     )
     .limit(1)
-  const activeBroadcast = broadcastRow[0] ?? null
+  const activeBroadcastStatus = broadcastStatusRow[0]?.status ?? null
 
-  const historyRows = activeBroadcast
-    ? await db
-        .select({
-          id: eventBroadcastMessages.id,
-          status: eventBroadcastMessages.status,
-          isCorrection: eventBroadcastMessages.isCorrection,
-          mailMessageId: eventBroadcastMessages.mailMessageId,
-          subject: mailMessages.subject,
-          receivedAt: mailMessages.receivedAt,
-          sentAt: eventBroadcastMessages.sentAt,
-          sentTextCount: eventBroadcastMessages.sentTextCount,
-          sentImageCount: eventBroadcastMessages.sentImageCount,
-          fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
-          errorMessage: eventBroadcastMessages.errorMessage,
-        })
-        .from(eventBroadcastMessages)
-        .innerJoin(
-          eventLineBroadcasts,
-          eq(eventLineBroadcasts.id, eventBroadcastMessages.eventLineBroadcastId),
-        )
-        .leftJoin(
-          mailMessages,
-          eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
-        )
-        .where(eq(eventLineBroadcasts.eventId, idNum))
-        .orderBy(desc(eventBroadcastMessages.createdAt))
-        .limit(20)
-    : []
-
-  const broadcastBinding = activeBroadcast
-    ? {
-        status: activeBroadcast.status as LineBroadcastBindingStatus,
-        botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
-        lineGroupIdTail: activeBroadcast.lineGroupId
-          ? activeBroadcast.lineGroupId.slice(-8)
-          : null,
-        linkedAt: activeBroadcast.linkedAt,
-        lastBroadcastAt: historyRows.find((row) => row.sentAt)?.sentAt ?? null,
+  let broadcastBinding:
+    | {
+        status: LineBroadcastBindingStatus
+        botLabel: string | null
+        lineGroupIdTail: string | null
+        linkedAt: Date | string | null
+        lastBroadcastAt: Date | string | null
       }
-    : null
+    | null = null
+  let broadcastHistory: BroadcastHistoryRow[] = []
 
-  const broadcastHistory: BroadcastHistoryRow[] = historyRows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    isCorrection: row.isCorrection,
-    mailMessageId: row.mailMessageId,
-    subject: row.subject,
-    receivedAt: row.receivedAt,
-    sentAt: row.sentAt,
-    sentTextCount: row.sentTextCount,
-    sentImageCount: row.sentImageCount,
-    fallbackLinkCount: row.fallbackLinkCount,
-    errorMessage: row.errorMessage,
-  }))
+  if (activeBroadcastStatus != null) {
+    if (isAdmin) {
+      // 管理者向け: フル情報を取得して RSC payload に乗せる。
+      const broadcastRow = await db
+        .select({
+          status: eventLineBroadcasts.status,
+          lineGroupId: eventLineBroadcasts.lineGroupId,
+          linkedAt: eventLineBroadcasts.linkedAt,
+          botId: lineChannels.botId,
+          botLabel: lineChannels.note,
+        })
+        .from(eventLineBroadcasts)
+        .innerJoin(
+          lineChannels,
+          eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
+        )
+        .where(
+          and(
+            eq(eventLineBroadcasts.eventId, idNum),
+            inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
+          ),
+        )
+        .limit(1)
+      const activeBroadcast = broadcastRow[0]
+      if (activeBroadcast) {
+        const historyRows = await db
+          .select({
+            id: eventBroadcastMessages.id,
+            status: eventBroadcastMessages.status,
+            isCorrection: eventBroadcastMessages.isCorrection,
+            mailMessageId: eventBroadcastMessages.mailMessageId,
+            subject: mailMessages.subject,
+            receivedAt: mailMessages.receivedAt,
+            sentAt: eventBroadcastMessages.sentAt,
+            sentTextCount: eventBroadcastMessages.sentTextCount,
+            sentImageCount: eventBroadcastMessages.sentImageCount,
+            fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
+            errorMessage: eventBroadcastMessages.errorMessage,
+          })
+          .from(eventBroadcastMessages)
+          .innerJoin(
+            eventLineBroadcasts,
+            eq(
+              eventLineBroadcasts.id,
+              eventBroadcastMessages.eventLineBroadcastId,
+            ),
+          )
+          .leftJoin(
+            mailMessages,
+            eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
+          )
+          .where(eq(eventLineBroadcasts.eventId, idNum))
+          .orderBy(desc(eventBroadcastMessages.createdAt))
+          .limit(20)
+
+        broadcastBinding = {
+          status: activeBroadcast.status as LineBroadcastBindingStatus,
+          botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
+          lineGroupIdTail: activeBroadcast.lineGroupId
+            ? activeBroadcast.lineGroupId.slice(-8)
+            : null,
+          linkedAt: activeBroadcast.linkedAt,
+          lastBroadcastAt: historyRows.find((row) => row.sentAt)?.sentAt ?? null,
+        }
+        broadcastHistory = historyRows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          isCorrection: row.isCorrection,
+          mailMessageId: row.mailMessageId,
+          subject: row.subject,
+          receivedAt: row.receivedAt,
+          sentAt: row.sentAt,
+          sentTextCount: row.sentTextCount,
+          sentImageCount: row.sentImageCount,
+          fallbackLinkCount: row.fallbackLinkCount,
+          errorMessage: row.errorMessage,
+        }))
+      }
+    } else {
+      // 一般会員向け: status だけのスタブ。Bot 名・履歴・エラーは含めない。
+      broadcastBinding = {
+        status: activeBroadcastStatus as LineBroadcastBindingStatus,
+        botLabel: null,
+        lineGroupIdTail: null,
+        linkedAt: null,
+        lastBroadcastAt: null,
+      }
+    }
+  }
 
   // Unanswered count must only consider invited users; the users table may contain
   // legacy/migration rows with isInvited=false that should not count toward the denominator.
