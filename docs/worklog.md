@@ -1940,7 +1940,16 @@
 - ローカルブランチ: `main` のみ
 - 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機再確認 → OK なら `gh issue close 53 50`
 
+### 本番反映 (2026-05-27 完了)
+- ✅ `git pull` (04db536 → 1d0bb8e、9 files / +177 -37)
+- ✅ `corepack pnpm install --frozen-lockfile` (Already up to date, 1.7s)
+- ✅ `corepack pnpm build` (3 packages success、52.2s、cache 2/3)
+- ✅ 静的アセット cp: `.next/static` + `public/` → `.next/standalone/apps/web/`
+- ✅ `sudo systemctl restart kagetra-web` → active (PID 1057050, 85.8M)
+- ✅ Health check: HTTPS 307 → /auth/signin、signin 200、manifest 200 (612B)、`/hono-api/health` ok
+- ✅ ビルド成果物検証: `min-h-0` が `.next/standalone/.../chunks/365.js` に含まれていることを grep で確認 (実装が server bundle にバンドル済)
+- 🔴 **iPhone 実機再確認 (#53)**: ユーザー実機検証待ち。**PR #64 で残ったボトムナビ消失バグが解消したか**を Safari + PWA standalone で要確認
+
 ### 次回 (carryover)
-- 🔴 **PR #66 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
-- 🔴 **iPhone 実機再確認 (#53)**: PR #66 反映後に Safari + PWA standalone で下スクロール時の AppBar/BottomNav 画面端固定 + home indicator bg-surface 継続 + 出欠ボタン sticky bottom-0
+- 🔴 **iPhone 実機再確認 (#53)** ← 本番反映済、PR #66 で flex min-h-0 罠を修正済。ユーザー再検証で OK なら `gh issue close 53 50`
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
