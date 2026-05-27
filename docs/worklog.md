@@ -1977,9 +1977,18 @@
 - ローカルブランチ: `main` のみ
 - 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機再々確認 → OK なら `gh issue close 53 50`
 
+### 本番反映 (2026-05-27 完了 — PR #67)
+- ✅ `git pull` (1d0bb8e → 3bc6af3、9 files / +159 -14)
+- ✅ `corepack pnpm install --frozen-lockfile` (1.8s)
+- ✅ `corepack pnpm build` (3 packages success、52.1s、cache 2/3)
+- ✅ 静的アセット cp: `.next/static` + `public/` → `.next/standalone/apps/web/`
+- ✅ `sudo systemctl restart kagetra-web` → active (PID 1138978, 86.4M)
+- ✅ Health check: HTTPS 307 → /auth/signin、signin 200、manifest 200、`/hono-api/health` ok
+- ✅ **生成 CSS 検証**: `/opt/kagetra/apps/web/.next/standalone/apps/web/.next/static/css/966ddf06a7ffc889.css` に `min-height:calc(52px + env(safe-area-inset-bottom))` が空白付きで出力されていることを確認 (Tailwind の `_+_` → 実 CSS の空白に正しく展開、Safari でも有効)
+- 🔴 **iPhone 実機再々確認 (#53)**: ユーザー実機検証待ち。**PR #66 で残った「タブが下に見切れる」現象が解消したか**を Safari + PWA standalone で要確認
+
 ### 次回 (carryover)
-- 🔴 **PR #67 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
-- 🔴 **iPhone 実機再々確認 (#53)**: PR #67 反映後に Safari + PWA standalone で BottomNav が画面下端ピッタリに表示され、タブの 52px がフル表示されることを確認 → OK なら `gh issue close 53 50`
+- 🔴 **iPhone 実機再々確認 (#53)** ← PR #67 本番反映済。OK なら `gh issue close 53 50`
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
 
 ## 2026-05-27 セッション1（event-line-broadcast PR #65 再レビュー）
