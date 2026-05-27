@@ -65,6 +65,27 @@ export async function generateInviteCodeForEvent(
     })
     if (!targetEvent) throw new Error('大会が見つかりません')
 
+    // rr1 review should_fix: partial unique は IMMUTABLE 制約で
+    // `expires_at > now()` を述語に入れられないので、期限切れコードも
+    // UNIQUE 名前空間を占有してしまう。発行直前に DB 全体から「期限切れ
+    // かつ invite_code IS NOT NULL」な行をクリアしておき、コード空間を
+    // 解放してから新規コードを発行する (release-expired-broadcasts.ts の
+    // 日次掃除より積極的に動く)。
+    await tx
+      .update(eventLineBroadcasts)
+      .set({
+        inviteCode: null,
+        inviteCodeExpiresAt: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          sql`${eventLineBroadcasts.inviteCode} IS NOT NULL`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
+          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+        ),
+      )
+
     const existing = await tx.query.eventLineBroadcasts.findFirst({
       where: eq(eventLineBroadcasts.eventId, eventId),
     })
@@ -253,8 +274,14 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
+    // rr1 review blocker: 古い released/revoked な行を引き当てると、
+    // その lineChannelId は既に別 event に再割当済みの可能性がある。
+    // active 系 (invite_pending / joined_waiting_code / linked) に限定。
     const current = await tx.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, eventId),
+      where: and(
+        eq(eventLineBroadcasts.eventId, eventId),
+        sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
+      ),
       columns: { id: true, lineChannelId: true },
     })
     if (!current) return
@@ -273,6 +300,9 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
       })
       .where(eq(eventLineBroadcasts.id, current.id))
 
+    // rr1 review blocker: 解放対象の channel は「現在この event に紐付いた
+    // 行」だけに限定。`assignedEventId === eventId` を WHERE に含めると、
+    // stale な action 呼び出しで他 event の channel を奪わない。
     await tx
       .update(lineChannels)
       .set({
@@ -280,7 +310,12 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
         assignedEventId: null,
         updatedAt: sql`now()`,
       })
-      .where(eq(lineChannels.id, current.lineChannelId))
+      .where(
+        and(
+          eq(lineChannels.id, current.lineChannelId),
+          eq(lineChannels.assignedEventId, eventId),
+        ),
+      )
   })
 
   revalidatePath(`/events/${eventId}`)

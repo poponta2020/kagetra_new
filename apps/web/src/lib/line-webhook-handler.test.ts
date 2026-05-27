@@ -364,10 +364,13 @@ describe('applyWebhookEvents — leave path', () => {
       .where(eq(lineChannels.id, channel.id))
     // Leave a stale invite code on the row so we can prove handleLeave
     // clears it — partial unique would otherwise block the next reissue.
+    // lineGroupId は payload.source.groupId と一致する必要がある
+    // (rr1 review blocker: 別グループの leave を取り違えないため)。
     await insertBroadcast(eventId, channel.id, {
       status: 'linked',
       inviteCode: '987654',
       inviteCodeExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      lineGroupId: 'C123',
     })
 
     const payload: LineWebhookPayload = {
@@ -395,5 +398,44 @@ describe('applyWebhookEvents — leave path', () => {
     })
     expect(after?.status).toBe('available')
     expect(after?.assignedEventId).toBeNull()
+  })
+
+  it('ignores leave from an unrelated group (different groupId)', async () => {
+    await resetDb()
+    const channel = await insertChannel({ status: 'active' })
+    const eventId = await insertEvent()
+    await db
+      .update(lineChannels)
+      .set({ assignedEventId: eventId })
+      .where(eq(lineChannels.id, channel.id))
+    await insertBroadcast(eventId, channel.id, {
+      status: 'linked',
+      lineGroupId: 'C-current-group',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: channel.webhookDestinationId ?? channel.botId,
+      events: [
+        {
+          type: 'leave',
+          // 違うグループから出た event。現在の紐付けには影響させない。
+          source: { type: 'group', groupId: 'C-other-group' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client)
+
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, channel.id),
+    })
+    expect(broadcast?.status).toBe('linked')
+    expect(broadcast?.lineGroupId).toBe('C-current-group')
+
+    const after = await db.query.lineChannels.findFirst({
+      where: eq(lineChannels.id, channel.id),
+    })
+    expect(after?.status).toBe('active')
+    expect(after?.assignedEventId).toBe(eventId)
   })
 })

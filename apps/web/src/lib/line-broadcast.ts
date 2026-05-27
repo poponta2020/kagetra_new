@@ -429,27 +429,33 @@ export async function broadcastMailToEvent(
       return { type: 'text', text: chunk }
     })
 
-    let imageCount = 0
-    let fallbackCount = 0
-    const attachmentMessages: LineMessage[] = []
-    for (const attachment of attachments) {
-      const result = await renderAttachment(db, attachment, baseUrl, logger)
-      if (result.usedFallback) {
-        // Even if attachment had image messages followed by a "see web" link,
-        // we count the message list's image count + 1 fallback link.
-        imageCount += result.messages.filter((m) => m.type === 'image').length
-        fallbackCount += result.messages.filter((m) => m.type === 'text').length
-      } else {
-        imageCount += result.messages.length
-      }
-      attachmentMessages.push(...result.messages)
+    // rr1 review should_fix: 添付の出力は image / fallback link が交互に
+    // 並ぶことがある (Excel リンクの後に PDF 画像、など)。実際の送信順を
+    // そのまま追える metadata を message と並走させ、deliveredCount に
+    // 対応する metadata だけを数えることで partial 行のカウントを正しく
+    // 残す。
+    type MessageRole = 'body_text' | 'attachment_image' | 'attachment_link'
+    const messages: LineMessage[] = []
+    const roles: MessageRole[] = []
+
+    for (const m of textMessages) {
+      messages.push(m)
+      roles.push('body_text')
     }
 
-    const messages = [...textMessages, ...attachmentMessages]
+    for (const attachment of attachments) {
+      const result = await renderAttachment(db, attachment, baseUrl, logger)
+      for (const m of result.messages) {
+        messages.push(m)
+        roles.push(m.type === 'image' ? 'attachment_image' : 'attachment_link')
+      }
+    }
+
     if (messages.length === 0) {
       // Empty mail with no attachments — nothing to send but still mark
       // as sent so the audit row is in a terminal state.
       messages.push({ type: 'text', text: '(本文・添付ともになし)' })
+      roles.push('body_text')
     }
 
     const pushResult = await pushMessages(
@@ -467,24 +473,25 @@ export async function broadcastMailToEvent(
     const someFailed = pushResult.error != null && pushResult.deliveredCount > 0
     const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'sent'
 
-    // 配信済み件数を text / image / fallback に按分する。送信順は
-    // [text..., attachment-image..., attachment-fallback...] なので、
-    // 先頭から数えて配分すれば「どこまで届いたか」を再構成できる。
-    let remaining = pushResult.deliveredCount
-    const deliveredText = Math.min(remaining, textMessages.length)
-    remaining -= deliveredText
-    const attachmentImageMessages = attachmentMessages.filter(
-      (m) => m.type === 'image',
-    )
-    const attachmentFallbackMessages = attachmentMessages.filter(
-      (m) => m.type === 'text',
-    )
-    const deliveredImage = Math.min(remaining, attachmentImageMessages.length)
-    remaining -= deliveredImage
-    const deliveredFallback = Math.min(
-      remaining,
-      attachmentFallbackMessages.length,
-    )
+    // 実際の送信順 (`roles`) に沿って先頭 deliveredCount 件を数えるので、
+    // image と fallback link が交互に並んでいても正しいカウントになる
+    // (rr1 review should_fix)。
+    let deliveredText = 0
+    let deliveredImage = 0
+    let deliveredFallback = 0
+    for (let i = 0; i < pushResult.deliveredCount && i < roles.length; i++) {
+      switch (roles[i]) {
+        case 'body_text':
+          deliveredText++
+          break
+        case 'attachment_image':
+          deliveredImage++
+          break
+        case 'attachment_link':
+          deliveredFallback++
+          break
+      }
+    }
 
     await db
       .update(eventBroadcastMessages)

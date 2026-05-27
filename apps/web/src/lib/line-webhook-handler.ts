@@ -275,10 +275,19 @@ async function handleJoin(
 async function handleLeave(
   db: typeof appDb,
   channelId: number,
-  _event: LineWebhookEvent,
+  event: LineWebhookEvent,
 ): Promise<void> {
+  // rr1 review blocker: 同じ Bot が誤って別グループに招待されて出た場合、
+  // 現在の大会グループの紐付けを壊さない。leave の source.groupId と
+  // event_line_broadcasts.line_group_id が一致するときだけ revoke する。
+  // groupId が無い leave (LINE 仕様上ほぼ無いが) は no-op + 警告ログ。
+  const sourceGroupId = event.source?.groupId
+  if (!sourceGroupId) {
+    return
+  }
+
   await db.transaction(async (tx) => {
-    await tx
+    const revoked = await tx
       .update(eventLineBroadcasts)
       .set({
         status: 'revoked',
@@ -293,9 +302,15 @@ async function handleLeave(
       .where(
         and(
           eq(eventLineBroadcasts.lineChannelId, channelId),
+          eq(eventLineBroadcasts.lineGroupId, sourceGroupId),
           sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
         ),
       )
+      .returning({ id: eventLineBroadcasts.id })
+
+    // 該当する active 行が無ければ channel もそのまま (別グループからの
+    // 退出など、現在の紐付けには関係ない leave)。
+    if (revoked.length === 0) return
 
     await tx
       .update(lineChannels)
