@@ -1916,3 +1916,31 @@
 
 ### /auto-review-loop ログ
 - 2026-05-26 /auto-review-loop PR #64: 1R, verdict=pass, tokens=35387/500000, result=pass
+- 2026-05-27 /auto-review-loop PR #66: 1R, verdict=pass, tokens=29539/500000, result=pass (sticky-mobile-shell flex min-h-0 fix)
+
+---
+
+## 2026-05-27 セッション (PR #66 ship — sticky-mobile-shell flex min-h-0 fix)
+
+### 完了
+- **PR #66** (`fix(mobile-shell): add min-h-0 to <main> so flex shell stays viewport-fit`) merge 完了 (merge commit `6b980f2`)
+- **原因**: PR #64 ship + 本番反映後にユーザー実機検証で「下スクロール時に AppBar/BottomNav が画面外消失」を報告 → flex item デフォルト `min-height: auto` で `<main>` が子コンテンツ高に押されて shell の h-dvh 境界を突き抜け、body スクロールが発生していた（`overflow-y-auto` を flex item に当てる定番罠）
+- **修正**: `apps/web/src/components/layout/mobile-shell.tsx` の `<main>` を `flex-1 overflow-y-auto` → `flex-1 min-h-0 overflow-y-auto` に変更。`mobile-shell.test.tsx` に min-h-0 リグレッションガード追加、`requirements.md` §4.2 と `implementation-plan.md` タスク2b に罠の解説を追記
+- `/auto-review-loop 66` R1 で verdict=pass、blockers/should_fix/nits 全 0、good_points 2、tokens **29,539 / 500,000**
+- `/ship 66` で merge + worktree 削除 + ローカルブランチ削除 + review output 掃除
+
+### 設計判断 / 知見
+- **flex `min-h-auto` 罠**: jsdom はレイアウト計算しないので vitest 構造テストでは検知不能、実機/Playwright headful でしか再現しない種類のバグ。class アサーション (`min-h-0` の有無) でリグレッションガードするのが現実解。汎用知見として [[flex-overflow-needs-min-h-0]] に切り出し
+- **body 二重防御は見送り**: body 側に `h-dvh overflow-hidden` を当てる選択肢もあったが、`(app)` 配下以外のページ (auth/signin / 403 / self-identify / settings/line-link) は `min-h-screen` で body スクロール許容前提のため副作用リスクあり。`min-h-0` だけで罠は解消するので最小限の修正
+
+### 残存している git 状態
+- main: `6b980f2` (PR #66 merge) → これから worklog + memory 同期 commit が乗る + 本番反映待ち
+- worktree: なし (event-line-broadcast の worktree は別途継続)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機再確認 → OK なら `gh issue close 53 50`
+
+### 次回 (carryover)
+- 🔴 **PR #66 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
+- 🔴 **iPhone 実機再確認 (#53)**: PR #66 反映後に Safari + PWA standalone で下スクロール時の AppBar/BottomNav 画面端固定 + home indicator bg-surface 継続 + 出欠ボタン sticky bottom-0
+- 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可

@@ -9,7 +9,7 @@
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
 - [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
 - [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
-- [モバイルシェル固定 ship + 本番反映完了 (残り実機 #53)](project_sticky_mobile_shell.md) — PR #64 merge `cdba79d` + 2026-05-26 14:05 UTC 本番反映 + health check OK、Issue #51✅/#52✅、#50/#53 は実機確認後にクローズ
+- [モバイルシェル固定 PR #64+#66 ship、本番反映 #66 待ち](project_sticky_mobile_shell.md) — PR #64 `cdba79d` + PR #66 `6b980f2` (min-h-0 fix)、Issue #51✅/#52✅、#50/#53 は #66 本番反映+実機 OK 後にクローズ
 - [event-line-broadcast 要件定義済み](project_event_line_broadcast.md) — Issue 親#54/子#55-#63、`docs/features/event-line-broadcast/`、mail-tournament-import 下流、Bot プール 30 個 + 招待コード方式、`/implement event-line-broadcast` で着手可
 - [event-line-broadcast 全 9 タスク完了 (#55-#63)](impl_event_line_broadcast_task1.md) — feature/event-line-broadcast-schema (b6a11cc..c47721d, 9 commits) push 済み、worktree C:/tmp/impl-event-line-broadcast、PR 作成・本番デプロイ未実施
 
@@ -26,3 +26,4 @@
 - [autonomous-loop sentinel の解釈](feedback_autonomous_loop_scope.md) — `<<autonomous-loop-dynamic>>` は実装 GO ではない。CLAUDE.md ルール 1 は autonomous でも有効
 - [Windows worktree のパス罠](feedback_windows_worktree_path.md) — `/tmp` は git/pnpm が `%TEMP%`、Write/Read は `C:/tmp` を参照して別ディレクトリになる。worktree は最初から `C:/tmp/...` で明示作成
 - [jsdom が CSS env() inline style を捨てる](feedback_jsdom_css_env.md) — vitest 環境では `style={{ paddingBottom: 'env(...)' }}` は消える。Tailwind arbitrary value `pb-[env(...)]` で書け
+- [flex + overflow-y-auto には min-h-0 が必須](feedback_flex_min_h_0_for_overflow.md) — `flex-1 overflow-y-auto` だけだと flex item デフォルト `min-height: auto` で親を突き抜けて body スクロール化。常に `min-h-0` を同時指定
