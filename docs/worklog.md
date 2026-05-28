@@ -2022,11 +2022,10 @@
 - ✅ 静的アセット cp + `sudo systemctl restart kagetra-web` → active
 - ✅ Health check: root=307 → /auth/signin、signin=200、`/hono-api/health` ok
 - ⚠️ **生成 CSS 検証で予想外の発見**: `.mobile-shell-h { height: 100svh; }` のみ出力。Tailwind v4.2.2 (lightningcss) が同一 property の連続 declaration を「最後だけ残す」と最適化したため `height: 100vh` と `height: 100dvh` の fallback が消えていた。iOS 17+ なら 100svh で動作するが、古い UA で height 無効化のリスク。本件の主目的 (BottomNav 固定) は 100svh 採用で達成されるはずなので継続観察。fallback 厳守が必要なら別 PR で `@supports` ベース cascade に切り替え
-- 🔴 **iPhone 実機 4 度目確認 (#53)**: ユーザー実機検証待ち。**PR #67 で残った「タブの下半分が見切れる」現象が解消したか**を Safari + PWA standalone で要確認
+- ✅ **2026-05-28: iPhone 実機 4 度目確認 OK**、ユーザーから「いけました」報告。`gh issue close 53 50` 実行で **sticky-mobile-shell 完全完了** 🎉
 
 ### 次回 (carryover)
-- 🔴 **iPhone 実機 4 度目確認 (#53)** ← PR #68 本番反映済。OK なら `gh issue close 53 50`
-- 🟡 lightningcss が `height: 100vh; height: 100dvh; height: 100svh;` を 100svh だけに縮める挙動 — fallback が必要なら別 PR で対処
+- 🟡 lightningcss が `height: 100vh; height: 100dvh; height: 100svh;` を 100svh だけに縮める挙動 — 古い UA fallback 厳守が必要になったら別 PR (`@supports` ベース)
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
 
 ## 2026-05-27 セッション1（event-line-broadcast PR #65 再レビュー）
