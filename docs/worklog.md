@@ -2015,9 +2015,18 @@
 - ローカルブランチ: `main` のみ
 - 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機 **4 度目** 確認 → OK なら `gh issue close 53 50`
 
+### 本番反映 (2026-05-28 完了 — PR #68)
+- ✅ `git pull` (a445ca7 → bab87bf、10 files / +228 -20)
+- ✅ `corepack pnpm install --frozen-lockfile` (1.7s)
+- ✅ `corepack pnpm build` (3 packages success、52.9s、cache 2/3)
+- ✅ 静的アセット cp + `sudo systemctl restart kagetra-web` → active
+- ✅ Health check: root=307 → /auth/signin、signin=200、`/hono-api/health` ok
+- ⚠️ **生成 CSS 検証で予想外の発見**: `.mobile-shell-h { height: 100svh; }` のみ出力。Tailwind v4.2.2 (lightningcss) が同一 property の連続 declaration を「最後だけ残す」と最適化したため `height: 100vh` と `height: 100dvh` の fallback が消えていた。iOS 17+ なら 100svh で動作するが、古い UA で height 無効化のリスク。本件の主目的 (BottomNav 固定) は 100svh 採用で達成されるはずなので継続観察。fallback 厳守が必要なら別 PR で `@supports` ベース cascade に切り替え
+- 🔴 **iPhone 実機 4 度目確認 (#53)**: ユーザー実機検証待ち。**PR #67 で残った「タブの下半分が見切れる」現象が解消したか**を Safari + PWA standalone で要確認
+
 ### 次回 (carryover)
-- 🔴 **PR #68 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
-- 🔴 **iPhone 実機 4 度目確認 (#53)**: PR #68 反映後に Safari で URL バー表示時でも BottomNav タブ全体が見えること、PWA standalone でも違和感ないことを確認 → OK なら `gh issue close 53 50`
+- 🔴 **iPhone 実機 4 度目確認 (#53)** ← PR #68 本番反映済。OK なら `gh issue close 53 50`
+- 🟡 lightningcss が `height: 100vh; height: 100dvh; height: 100svh;` を 100svh だけに縮める挙動 — fallback が必要なら別 PR で対処
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
 
 ## 2026-05-27 セッション1（event-line-broadcast PR #65 再レビュー）
