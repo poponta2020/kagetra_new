@@ -17,21 +17,30 @@ vi.mock('./bottom-nav', () => ({
 describe('MobileShell', () => {
   const noopSignOut = async () => {}
 
-  // Regression guard: keeps AppBar/BottomNav pinned to viewport edges by
-  // sizing the shell to the visible viewport (h-dvh with h-screen fallback)
-  // so only <main> scrolls. Reverting either class re-introduces the body-
-  // scroll bug where the bars vanish off-screen.
-  it('シェルが h-dvh + h-screen フォールバック + flex 縦並びで構成される', () => {
+  // Regression guard: shell uses the `.mobile-shell-h` rule from
+  // globals.css, which declares `height: 100vh; height: 100dvh; height:
+  // 100svh;` in that order inside a SINGLE CSS rule so the cascade is
+  // deterministic. Composing this via Tailwind utilities (`h-screen
+  // h-dvh h-svh`) is unsafe — Tailwind's utility output order is NOT
+  // controlled by className order, so the winning value can't be
+  // guaranteed (PR #68 R1 Codex blocker). Reverting to utilities
+  // re-introduces the iOS Safari BottomNav-under-URL-bar bug (#53).
+  it('シェルが mobile-shell-h クラス + flex 縦並びで構成される', () => {
     const { container } = render(
       <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
         <div>child</div>
       </MobileShell>,
     )
     const shell = container.firstChild as HTMLElement
-    expect(shell.className).toContain('h-dvh')
-    expect(shell.className).toContain('h-screen')
+    expect(shell.className).toContain('mobile-shell-h')
     expect(shell.className).toContain('flex')
     expect(shell.className).toContain('flex-col')
+    // Defensive: ensure no Tailwind height utility leaked back in. Any
+    // of these would compete with the deterministic cascade in
+    // globals.css and the winner becomes undefined.
+    expect(shell.className).not.toMatch(/\bh-screen\b/)
+    expect(shell.className).not.toMatch(/\bh-dvh\b/)
+    expect(shell.className).not.toMatch(/\bh-svh\b/)
   })
 
   it('<main> が flex-1 min-h-0 overflow-y-auto を持ち、children を描画する', () => {

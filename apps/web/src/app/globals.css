@@ -193,3 +193,29 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ---------- MobileShell viewport height cascade ----------
+   Used ONLY by `apps/web/src/components/layout/mobile-shell.tsx` to make
+   the shell exactly fill the visible viewport so BottomNav stays pinned
+   above the iOS Safari bottom URL bar.
+
+   The three `height` declarations are intentionally listed in this order
+   inside a single CSS rule. CSS cascade picks the *last* declaration the
+   browser understands, so newer UA → wins:
+
+     1. height: 100vh   — legacy fallback for browsers without dvh/svh
+     2. height: 100dvh  — modern dynamic viewport (overridden by next)
+     3. height: 100svh  — small viewport (UA chrome shown) — final winner
+
+   Authoring the cascade in CSS (not via Tailwind utility composition)
+   guarantees the order, because Tailwind's utility output order is NOT
+   controlled by the `className` string order — same-property utilities
+   may emerge in any order in the generated stylesheet (PR #68 R1 blocker
+   discovered this). See [[ios-safari-100dvh-includes-url-bar]] in
+   .claude/memory/ for the full root-cause writeup.
+   ---------- */
+.mobile-shell-h {
+  height: 100vh;
+  height: 100dvh;
+  height: 100svh;
+}

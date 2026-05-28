@@ -64,19 +64,30 @@ export const viewport: Viewport = {
 }
 ```
 
+**`apps/web/src/app/globals.css`**
+
+```css
+.mobile-shell-h {
+  height: 100vh;   /* fallback for browsers without dvh/svh */
+  height: 100dvh;  /* mid (overridden by next in modern UA) */
+  height: 100svh;  /* final winner — UA chrome 全表示時の高さ */
+}
+```
+
 **`apps/web/src/components/layout/mobile-shell.tsx`**
 
 ```tsx
-<div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
+<div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
   <AppBarMain ... />
   <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
   <BottomNav isAdmin={isAdmin} />
 </div>
 ```
 
-- `h-screen h-dvh` の順で書くことで、`h-dvh` 未サポートブラウザは `h-screen` (100vh) にフォールバック、サポートブラウザは後勝ちで `h-dvh` が適用される。
-- 既存コメントの「sticky 44px top bar + scrollable main + sticky 52px bottom tab bar」を「Fits viewport via h-dvh; AppBar/BottomNav stay at flex edges, main scrolls.」のような実装一致の記述に更新。
-- **`min-h-0` 必須**: flex item のデフォルト `min-height: auto` だと `<main>` が子コンテンツより縮めず、shell が h-dvh を突き抜けて body スクロールに化ける（PR #64 で抜けて実機 NG、別 PR で `min-h-0` 追加）。`overflow-y-auto` を flex item に当てるときは常に `min-h-0` を同時指定するのが定石。
+- 高さ cascade は **globals.css の `.mobile-shell-h` ルール内** で `100vh` → `100dvh` → `100svh` を順に declare して固定する。Tailwind utility (`h-screen h-dvh h-svh`) では出力順が制御できず最終勝ちが保証されないため CSS で固定する（PR #68 R1 Codex blocker、同じ property を複数 utility で重ねる際の一般的な罠）。
+- 既存コメントの「sticky 44px top bar + scrollable main + sticky 52px bottom tab bar」を「Fits viewport via .mobile-shell-h cascade; AppBar/BottomNav stay at flex edges, main scrolls.」のような実装一致の記述に更新。
+- **`min-h-0` 必須**: flex item のデフォルト `min-height: auto` だと `<main>` が子コンテンツより縮めず、shell が高さ制約を突き抜けて body スクロールに化ける（PR #64 で抜けて実機 NG、別 PR で `min-h-0` 追加）。`overflow-y-auto` を flex item に当てるときは常に `min-h-0` を同時指定するのが定石。
+- **`100svh` 必須**: iOS Safari (15.4+) で `viewport-fit=cover` を有効にすると `100dvh` が下部 URL バー overlay を含んだ高さを返し、shell が見えている viewport より大きくなって BottomNav が URL バーの裏に隠れる現象が発生する（PR #67 後の本番実機で観測）。`100svh` は「UA chrome 全部表示時の最小 viewport 高さ」で常に URL バーの上に収まる安全な値。URL バー collapse 時は下に余白ができる（許容トレードオフ）。
 
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 
