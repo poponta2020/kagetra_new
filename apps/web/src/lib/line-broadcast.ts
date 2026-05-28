@@ -606,14 +606,36 @@ export async function broadcastMailToEvent(
       // channel / broadcast 状態を遷移させ、運用復旧のフックを残す。
       // 要件 §3.2.9 の表に対応。
       if (pushResult.httpStatus === 401) {
-        // Access token 期限切れ / 無効。Bot 自体を disabled にして、
-        // 管理者が seed-broadcast-channels で再投入するまで pool から外す。
-        await db
-          .update(lineChannels)
-          .set({ status: 'disabled', updatedAt: sql`now()` })
-          .where(eq(lineChannels.id, binding.lineChannelId))
-        logger.warn('LINE channel disabled due to 401 (token expired)', {
+        // Access token 期限切れ / 無効。Bot を disabled にしつつ、
+        // r-final-2 should_fix: binding も revoked にして assignedEventId
+        // を解放しないと、次の承認メールでも同じ disabled channel に
+        // push し続け失敗ループになる。loadActiveBinding は status を
+        // 見ないので、binding 自体を terminal 状態にするのが安全。
+        await db.transaction(async (tx) => {
+          await tx
+            .update(eventLineBroadcasts)
+            .set({
+              status: 'revoked',
+              revokedAt: sql`now()`,
+              revokeReason: 'channel_disabled',
+              inviteCode: null,
+              inviteCodeExpiresAt: null,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(eventLineBroadcasts.id, binding.id))
+
+          await tx
+            .update(lineChannels)
+            .set({
+              status: 'disabled',
+              assignedEventId: null,
+              updatedAt: sql`now()`,
+            })
+            .where(eq(lineChannels.id, binding.lineChannelId))
+        })
+        logger.warn('LINE channel disabled + binding revoked due to 401', {
           channelId: binding.lineChannelId,
+          eventId: args.eventId,
         })
       } else if (
         pushResult.httpStatus != null &&

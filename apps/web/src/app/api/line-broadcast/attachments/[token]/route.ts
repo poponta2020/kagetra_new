@@ -13,6 +13,23 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
+ * Mail attachments are untrusted user input from the IMAP fetcher. A
+ * hostile sender can attach `text/html` or `image/svg+xml` and turn an
+ * inline preview into stored XSS on `new.hokudaicarta.com`. Mirror the
+ * admin attachment route policy: only PDF is allowed to render inline,
+ * everything else is forced to `application/octet-stream` + attachment
+ * with `X-Content-Type-Options: nosniff`.
+ *
+ * Refs:
+ *   - apps/web/src/app/api/admin/mail/attachments/[id]/route.ts
+ *   - https://datatracker.ietf.org/doc/html/rfc6266
+ */
+const INLINE_ALLOWED_CONTENT_TYPES = new Set<string>([
+  'application/pdf',
+  'application/x-pdf',
+])
+
+/**
  * GET /api/line-broadcast/attachments/[token]
  *
  * Public 60-day download endpoint for mail attachments that we forwarded to
@@ -70,17 +87,36 @@ export async function GET(
     .where(eq(attachmentShareTokens.id, hit.tokenId))
     .catch(() => {})
 
-  // RFC 6266 / RFC 5987 escaping for non-ASCII filenames. LINE renders the
-  // browser hint after a tap, so a Japanese .pdf filename should survive.
-  const safeFilename = encodeURIComponent(hit.filename)
-  const headers = new Headers({
-    'Content-Type': hit.contentType,
-    // `inline` so PDFs / images preview in the browser; the user can still
-    // save them. `attachment` would force a download for everything, less
-    // friendly for the supporters-following-along case.
-    'Content-Disposition': `inline; filename*=UTF-8''${safeFilename}`,
-    'Cache-Control': 'private, max-age=300',
+  // r-final-2 blocker: 任意 MIME を inline で同一オリジン配信すると、
+  // text/html や image/svg+xml が含まれるメール添付で stored XSS が成立する。
+  // admin の添付 route と同じ allowlist + nosniff + attachment fallback を
+  // 採用する。parameters (charset 等) を落としてから allowlist 比較。
+  const declaredContentType =
+    (hit.contentType ?? '').toLowerCase().split(';')[0]?.trim() ?? ''
+  const allowInline = INLINE_ALLOWED_CONTENT_TYPES.has(declaredContentType)
+  const responseContentType = allowInline
+    ? declaredContentType
+    : 'application/octet-stream'
+  const dispositionType = allowInline ? 'inline' : 'attachment'
+
+  // RFC 5987 escaping for non-ASCII filenames. legacy filename= も併記して
+  // 8-bit ヘッダを拒否するプロキシを通過させる。
+  const safeAscii = hit.filename
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/"/g, '')
+  const utf8Encoded = encodeURIComponent(hit.filename)
+  const disposition = `${dispositionType}; filename="${safeAscii}"; filename*=UTF-8''${utf8Encoded}`
+
+  return new NextResponse(new Uint8Array(hit.data), {
+    status: 200,
+    headers: {
+      'Content-Type': responseContentType,
+      'Content-Disposition': disposition,
+      'Content-Length': hit.data.length.toString(),
+      'X-Content-Type-Options': 'nosniff',
+      // LINE グループには非ログインゲストも居るので private は不適切。
+      // ただし機微情報なので長期キャッシュは避ける (5 分のみ)。
+      'Cache-Control': 'public, max-age=300',
+    },
   })
-  // Convert Node Buffer → Uint8Array for the Web Response stream.
-  return new NextResponse(new Uint8Array(hit.data), { status: 200, headers })
 }
