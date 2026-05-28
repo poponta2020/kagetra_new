@@ -3,7 +3,7 @@ import { readdir, readFile, rm, writeFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { desc, eq } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import {
   attachmentShareTokens,
   type mailAttachments,
@@ -212,36 +212,44 @@ export async function getOrCreateShareToken(
 ): Promise<{ token: string; expiresAt: Date }> {
   const ttlDays = options.ttlDays ?? SHARE_TOKEN_TTL_DAYS
   const now = options.now ?? new Date()
+  const candidateToken = randomBytes(24).toString('base64url')
+  const candidateExpiresAt = new Date(now.getTime() + ttlDays * 86_400_000)
 
-  // r-final-3 blocker: 同じ attachment_id に対して最新の 1 行だけを扱う。
-  // (有効・期限切れ問わず) 最新 row を読み、期限内ならそれを再利用、
-  // 期限切れなら新 token / 新 expiresAt で UPDATE する。
-  const existing = await db.query.attachmentShareTokens.findFirst({
-    where: eq(attachmentShareTokens.mailAttachmentId, mailAttachmentId),
-    orderBy: desc(attachmentShareTokens.createdAt),
-  })
-
-  if (existing && existing.expiresAt.getTime() > now.getTime()) {
-    return { token: existing.token, expiresAt: existing.expiresAt }
-  }
-
-  const token = randomBytes(24).toString('base64url')
-  const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000)
-
-  if (existing) {
-    // 期限切れ既存行を UPDATE で再生成。古い token は即座に失効する。
-    await db
-      .update(attachmentShareTokens)
-      .set({ token, expiresAt, accessCount: 0 })
-      .where(eq(attachmentShareTokens.id, existing.id))
-  } else {
-    await db.insert(attachmentShareTokens).values({
+  // r-final-6 should_fix: SELECT → INSERT/UPDATE が非原子的だと、並行
+  // 配信で両方が「未登録」と判断してから片方が 23505 (UNIQUE 違反) に
+  // 倒れて broadcast 全体を failed にしてしまう。INSERT ... ON CONFLICT
+  // で 1 statement にまとめる。
+  //
+  // SQL の動作:
+  //   - 行が無い → INSERT (token / expires_at / access_count=0 で着地)
+  //   - 行があって期限内 → 既存値を維持 (excluded を採用しない)
+  //   - 行があって期限切れ → token / expires_at / access_count=0 を更新
+  // RETURNING で確定値を取得し、API 呼び出しの戻り値とする。
+  const inserted = await db
+    .insert(attachmentShareTokens)
+    .values({
       mailAttachmentId,
-      token,
-      expiresAt,
+      token: candidateToken,
+      expiresAt: candidateExpiresAt,
     })
+    .onConflictDoUpdate({
+      target: attachmentShareTokens.mailAttachmentId,
+      set: {
+        token: sql`CASE WHEN ${attachmentShareTokens.expiresAt} > now() THEN ${attachmentShareTokens.token} ELSE EXCLUDED.token END`,
+        expiresAt: sql`CASE WHEN ${attachmentShareTokens.expiresAt} > now() THEN ${attachmentShareTokens.expiresAt} ELSE EXCLUDED.expires_at END`,
+        accessCount: sql`CASE WHEN ${attachmentShareTokens.expiresAt} > now() THEN ${attachmentShareTokens.accessCount} ELSE 0 END`,
+      },
+    })
+    .returning({
+      token: attachmentShareTokens.token,
+      expiresAt: attachmentShareTokens.expiresAt,
+    })
+
+  const row = inserted[0]
+  if (!row) {
+    throw new Error('getOrCreateShareToken: upsert returned no row')
   }
-  return { token, expiresAt }
+  return { token: row.token, expiresAt: row.expiresAt }
 }
 
 // Re-export the inferred row type so callers that touch the shareTokens

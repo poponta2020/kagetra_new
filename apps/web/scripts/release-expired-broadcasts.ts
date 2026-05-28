@@ -132,6 +132,11 @@ export async function releaseExpiredBroadcasts(
       // status='linked' 条件を WHERE に再掲。同じ tx 内なので race は起き
       // ないが、データ整合性のための defensive check (別 tx で revoke
       // されていた等)。
+      //
+      // r-final-6 should_fix: 期限条件 (COALESCE(extended_until, event_date
+      // + 30) < today) を UPDATE WHERE にも再掲。SELECT と UPDATE の間に
+      // 管理者が extended_until を延ばしていた場合でも、ここで再度判定し
+      // 不一致なら更新しない。EXISTS サブクエリで events を参照する。
       const updated = await tx
         .update(eventLineBroadcasts)
         .set({
@@ -143,6 +148,11 @@ export async function releaseExpiredBroadcasts(
           and(
             eq(eventLineBroadcasts.id, row.id),
             eq(eventLineBroadcasts.status, 'linked'),
+            sql`EXISTS (
+              SELECT 1 FROM events e
+              WHERE e.id = ${eventLineBroadcasts.eventId}
+                AND COALESCE(${eventLineBroadcasts.extendedUntil}, e.event_date + INTERVAL '30 days') < ${today}
+            )`,
           ),
         )
         .returning({ id: eventLineBroadcasts.id })

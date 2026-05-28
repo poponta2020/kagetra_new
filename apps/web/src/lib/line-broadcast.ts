@@ -129,33 +129,67 @@ async function pushMessages(
   let delivered = 0
   for (let i = 0; i < messages.length; i += LINE_BATCH_SIZE) {
     const batch = messages.slice(i, i + LINE_BATCH_SIZE)
-    try {
-      const res = await fetch(LINE_PUSH_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${channelAccessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ to, messages: batch }),
-      })
-      if (!res.ok) {
+    // r-final-6 should_fix: 429 (rate limit) は Retry-After を読んで
+    // 限定回数だけ待ってからリトライ。それ以外の non-2xx は即座に失敗を返す。
+    let attempt = 0
+    const MAX_RATE_LIMIT_RETRIES = 3
+    let batchSent = false
+    let lastFailure: PushMessagesResult | null = null
+
+    while (!batchSent) {
+      try {
+        const res = await fetch(LINE_PUSH_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${channelAccessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ to, messages: batch }),
+        })
+        if (res.ok) {
+          delivered += batch.length
+          batchSent = true
+          break
+        }
+
+        if (res.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+          const retryAfterRaw = res.headers.get('retry-after')
+          const retryAfterSec = Number(retryAfterRaw)
+          // Retry-After が秒指定でない or 解釈不能なときは 5 秒固定。
+          // 大きすぎる値 (>60s) も 60 秒で上限を切る。
+          const waitMs =
+            Number.isFinite(retryAfterSec) && retryAfterSec > 0
+              ? Math.min(retryAfterSec, 60) * 1000
+              : 5000
+          logger.warn('LINE push 429, retrying after Retry-After', {
+            attempt: attempt + 1,
+            waitMs,
+          })
+          await new Promise<void>((resolve) => setTimeout(resolve, waitMs))
+          attempt++
+          continue
+        }
+
         const body = await res.text().catch(() => '')
-        return {
+        lastFailure = {
           deliveredCount: delivered,
           error: new Error(
             `LINE push failed: ${res.status} ${body.slice(0, 200)}`,
           ),
           httpStatus: res.status,
         }
-      }
-      delivered += batch.length
-    } catch (err) {
-      return {
-        deliveredCount: delivered,
-        error: err instanceof Error ? err : new Error(String(err)),
-        httpStatus: null,
+        break
+      } catch (err) {
+        lastFailure = {
+          deliveredCount: delivered,
+          error: err instanceof Error ? err : new Error(String(err)),
+          httpStatus: null,
+        }
+        break
       }
     }
+
+    if (lastFailure) return lastFailure
     if (i + LINE_BATCH_SIZE < messages.length) {
       await new Promise<void>((resolve) => setTimeout(resolve, LINE_BATCH_SLEEP_MS))
     }
