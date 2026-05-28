@@ -50,6 +50,17 @@ status: completed
 - **依存タスク:** タスク1, タスク2, タスク2b
 - **対応Issue:** #53 (事後修正の続き、PR #66 後の実機 NG → fix → 再実機)
 
+### タスク2d: iOS Safari `100dvh` URL バー overlay 罠の事後修正（PR #68）
+
+- [x] 完了
+- **概要:** PR #67 ship + 本番反映後の実機検証で「タブの上半分しか見えず、下半分が画面下端を超えて見切れる」現象が継続。配信 HTML/CSS 検証で viewport meta も padding-bottom も min-height(calc) も正しく出力されていることを確認 → 残仮説は「shell 自体が viewport を超えている」だった。原因は iOS Safari (15.4+) で `viewport-fit=cover` を有効にすると `100dvh` が画面下部の URL バー overlay を含んだ高さを返し、shell が見えている viewport より大きくなって BottomNav が URL バーの裏側に隠れていたこと。
+- **変更対象ファイル:**
+  - `apps/web/src/components/layout/mobile-shell.tsx` — shell の `flex h-screen h-dvh flex-col` を `flex h-screen h-dvh h-svh flex-col` に変更、罠の解説コメント追加（cascade 順序の意味込み）
+  - `apps/web/src/components/layout/mobile-shell.test.tsx` — `h-svh` 検証 + `h-svh` が `h-dvh` の後に来ている事を class 名 indexOf で確認するリグレッションガード追加
+  - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 mobile-shell.tsx のコード例と `h-svh` 必須の注記
+- **依存タスク:** タスク1, タスク2, タスク2b, タスク2c
+- **対応Issue:** #53 (3 度目の事後修正、PR #67 後の実機 NG → fix → 再実機)
+
 ### タスク3: 実機確認（iPhone Safari + iPhone PWA standalone）
 
 - [ ] 完了

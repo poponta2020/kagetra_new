@@ -18,20 +18,30 @@ describe('MobileShell', () => {
   const noopSignOut = async () => {}
 
   // Regression guard: keeps AppBar/BottomNav pinned to viewport edges by
-  // sizing the shell to the visible viewport (h-dvh with h-screen fallback)
-  // so only <main> scrolls. Reverting either class re-introduces the body-
-  // scroll bug where the bars vanish off-screen.
-  it('シェルが h-dvh + h-screen フォールバック + flex 縦並びで構成される', () => {
+  // sizing the shell with the h-screen → h-dvh → h-svh cascade. iOS Safari
+  // (15.4+) with viewport-fit=cover returns a `100dvh` that includes the
+  // bottom URL bar overlay, so we end the cascade on h-svh (small viewport
+  // height) — guarantees BottomNav stays above the URL bar. Reverting any
+  // of the three classes re-introduces a known bug from PR #64/#67.
+  it('シェルが h-screen → h-dvh → h-svh の高さ cascade + flex 縦並びで構成される', () => {
     const { container } = render(
       <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
         <div>child</div>
       </MobileShell>,
     )
     const shell = container.firstChild as HTMLElement
-    expect(shell.className).toContain('h-dvh')
     expect(shell.className).toContain('h-screen')
+    expect(shell.className).toContain('h-dvh')
+    expect(shell.className).toContain('h-svh')
     expect(shell.className).toContain('flex')
     expect(shell.className).toContain('flex-col')
+    // Defensive: ensure h-svh appears AFTER h-dvh so the generated CSS
+    // order (Tailwind preserves authored order in arbitrary/utility class
+    // groups) keeps `100svh` as the winning declaration. If a future
+    // refactor reorders these, the BottomNav-under-URL-bar bug returns.
+    const dvhIndex = shell.className.indexOf('h-dvh')
+    const svhIndex = shell.className.indexOf('h-svh')
+    expect(svhIndex).toBeGreaterThan(dvhIndex)
   })
 
   it('<main> が flex-1 min-h-0 overflow-y-auto を持ち、children を描画する', () => {

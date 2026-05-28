@@ -67,16 +67,17 @@ export const viewport: Viewport = {
 **`apps/web/src/components/layout/mobile-shell.tsx`**
 
 ```tsx
-<div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
+<div className="flex h-screen h-dvh h-svh flex-col bg-canvas text-ink font-sans">
   <AppBarMain ... />
   <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
   <BottomNav isAdmin={isAdmin} />
 </div>
 ```
 
-- `h-screen h-dvh` の順で書くことで、`h-dvh` 未サポートブラウザは `h-screen` (100vh) にフォールバック、サポートブラウザは後勝ちで `h-dvh` が適用される。
+- 高さ cascade は `h-screen` → `h-dvh` → `h-svh` の 3 段。`h-screen` (100vh) を fallback、`h-dvh` (100dvh) を中間、`h-svh` (100svh) を最終勝ちにする。Tailwind は authoring 順に CSS を出力するので、上記順序で `h-svh` が後勝ちする。
 - 既存コメントの「sticky 44px top bar + scrollable main + sticky 52px bottom tab bar」を「Fits viewport via h-dvh; AppBar/BottomNav stay at flex edges, main scrolls.」のような実装一致の記述に更新。
 - **`min-h-0` 必須**: flex item のデフォルト `min-height: auto` だと `<main>` が子コンテンツより縮めず、shell が h-dvh を突き抜けて body スクロールに化ける（PR #64 で抜けて実機 NG、別 PR で `min-h-0` 追加）。`overflow-y-auto` を flex item に当てるときは常に `min-h-0` を同時指定するのが定石。
+- **`h-svh` 必須**: iOS Safari (15.4+) で `viewport-fit=cover` を有効にすると `100dvh` が下部 URL バー overlay を含んだ高さを返し、shell が見えている viewport より大きくなって BottomNav が URL バーの裏に隠れる現象が発生する（PR #67 後の本番実機で観測）。`100svh` は「UA chrome 全部表示時の最小 viewport 高さ」で常に URL バーの上に収まる安全な値。URL バー collapse 時は下に余白ができる（許容トレードオフ）。
 
 **`apps/web/src/components/layout/bottom-nav.tsx`**
 

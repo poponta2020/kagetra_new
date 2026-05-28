@@ -40,11 +40,21 @@ export function MobileShell({
   signOutAction,
   children,
 }: MobileShellProps) {
-  // `h-screen` is kept as a fallback for browsers without `dvh` support;
-  // Tailwind's generated `h-dvh` utility overrides it in the cascade where
-  // supported (iOS Safari 15.4+, Chrome 108+), not by class-attribute order.
+  // Height stack (cascade order matters — last valid utility wins):
+  //   h-screen → 100vh   (very old browsers; legacy fallback)
+  //   h-dvh    → 100dvh  (mid; reflects current visualViewport)
+  //   h-svh    → 100svh  (final; the SMALL viewport, i.e. the height
+  //                       assuming all UA chrome is shown — bottom URL
+  //                       bar included)
+  // We end on `h-svh` because iOS Safari (15.4+) with `viewport-fit=cover`
+  // returns a `100dvh` value that *includes* the bottom URL bar overlay,
+  // so the shell can be taller than the visible safe area and push
+  // BottomNav under the URL bar (observed on PR #67 production). `100svh`
+  // is the conservative "always visible" height that guarantees the
+  // BottomNav stays above the URL bar at the cost of an extra empty band
+  // when the URL bar later collapses on scroll.
   return (
-    <div className="flex h-screen h-dvh flex-col bg-canvas text-ink font-sans">
+    <div className="flex h-screen h-dvh h-svh flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
       {/*
         `min-h-0` is required: flex items default to `min-height: auto`,
