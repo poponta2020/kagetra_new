@@ -144,9 +144,12 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
     tone: 'neutral' as const,
   }
 
+  // r-final-4 blocker: 詳細画面が見ていた紐付け先 eventId を一緒に
+  // 渡すことで、stale な操作で別 event の Bot を誤って解放しないようにする。
+  const expectedReleaseEventId = currentBinding?.eventId ?? null
   async function handleReleaseAction() {
     'use server'
-    await releaseChannel(channelId)
+    await releaseChannel(channelId, expectedReleaseEventId)
   }
   async function handleDisableAction() {
     'use server'

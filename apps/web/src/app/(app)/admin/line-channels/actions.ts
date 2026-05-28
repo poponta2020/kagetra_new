@@ -26,8 +26,17 @@ async function requireAdminSession() {
  *
  * Always runs in a transaction so the channel and its broadcast row stay
  * consistent.
+ *
+ * r-final-4 blocker: stale な詳細画面操作で「別 event に再割当済みの
+ * Bot」を誤って解放しないよう、操作者が見ていた紐付け先 eventId を
+ * `expectedEventId` で渡し、現在の DB 状態と一致する場合のみ実行する。
+ * UI 経由でない直接呼出 (旧 action パス) では `expectedEventId` を
+ * 省略してこれまで通りの broad release が走る。
  */
-export async function releaseChannel(channelId: number): Promise<void> {
+export async function releaseChannel(
+  channelId: number,
+  expectedEventId?: number | null,
+): Promise<void> {
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
@@ -35,7 +44,20 @@ export async function releaseChannel(channelId: number): Promise<void> {
     // We do NOT delete the row — the audit trail (linked_at, line_group_id)
     // stays for operator review. invite_code は null に戻して partial
     // unique index が後続発行を塞がないようにする (review r1 should_fix)。
-    await tx
+    const broadcastWhere = expectedEventId != null
+      ? and(
+          eq(eventLineBroadcasts.lineChannelId, channelId),
+          eq(eventLineBroadcasts.eventId, expectedEventId),
+          sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
+        )
+      : and(
+          eq(eventLineBroadcasts.lineChannelId, channelId),
+          // A channel can have many historical (revoked/released) broadcasts;
+          // only the currently-active one matters here.
+          sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
+        )
+
+    const revoked = await tx
       .update(eventLineBroadcasts)
       .set({
         status: 'revoked',
@@ -45,14 +67,22 @@ export async function releaseChannel(channelId: number): Promise<void> {
         inviteCodeExpiresAt: null,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(eventLineBroadcasts.lineChannelId, channelId),
-          // A channel can have many historical (revoked/released) broadcasts;
-          // only the currently-active one matters here.
-          sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
-        ),
-      )
+      .where(broadcastWhere)
+      .returning({ id: eventLineBroadcasts.id })
+
+    // expectedEventId が指定されていて該当 broadcast が存在しなかった
+    // 場合は、画面の見ていた紐付けが既に変わっている。channel は触らず
+    // 何もせずに終了する (操作は no-op 扱い、UI 側で再ロードを促す)。
+    if (expectedEventId != null && revoked.length === 0) {
+      return
+    }
+
+    const channelWhere = expectedEventId != null
+      ? and(
+          eq(lineChannels.id, channelId),
+          eq(lineChannels.assignedEventId, expectedEventId),
+        )
+      : eq(lineChannels.id, channelId)
 
     await tx
       .update(lineChannels)
@@ -61,7 +91,7 @@ export async function releaseChannel(channelId: number): Promise<void> {
         assignedEventId: null,
         updatedAt: sql`now()`,
       })
-      .where(eq(lineChannels.id, channelId))
+      .where(channelWhere)
   })
 
   revalidatePath('/admin/line-channels')

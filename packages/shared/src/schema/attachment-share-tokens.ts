@@ -20,8 +20,14 @@ export const attachmentShareTokens = pgTable(
   'attachment_share_tokens',
   {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    // r-final-4 should_fix: 1 attachment に対して常に 1 行を維持するため
+    // DB 層で UNIQUE を保証。getOrCreateShareToken は最新行を UPDATE で
+    // 再生成するロジックを前提にしているが、過去データや並行発行で
+    // 複数行ができると古い token が残り「再発行時に前 token 即失効」が
+    // 成立しない。UNIQUE を入れて DB 制約で守る。
     mailAttachmentId: integer('mail_attachment_id')
       .notNull()
+      .unique()
       .references(() => mailAttachments.id, { onDelete: 'cascade' }),
     token: text('token').notNull().unique(),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),

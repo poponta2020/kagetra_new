@@ -386,34 +386,88 @@ async function handleInviteCode(
   // Bind the channel + broadcast to the event. lineGroupId は stored 値が
   // あればそれを尊重、無ければ source.groupId で初回セット。
   // groupIdMissing ガードを通過しているので sourceGroupId は string 確定。
-  await db.transaction(async (tx) => {
-    await tx
-      .update(eventLineBroadcasts)
-      .set({
-        status: 'linked',
-        linkedAt: sql`now()`,
-        lineGroupId: storedGroupId ?? sourceGroupId,
-        // Invalidate the consumed code so it can't be reused — even if the
-        // partial UNIQUE allowed it, replay would be confusing in the UI.
-        inviteCode: null,
-        inviteCodeExpiresAt: null,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(eventLineBroadcasts.id, candidate.id))
+  //
+  // r-final-4 blocker: candidate 取得から UPDATE までは tx 外なので、
+  // 管理者の revoke / reissue が同時に走ったり、複数コード発言が同じ
+  // candidate を狙うレースが起こり得る。UPDATE WHERE に「事前検証時と
+  // 同じ状態」を再掲して、stale な実行は RETURNING 0 件で弾く。
+  let appliedSuccessfully = false
+  try {
+    await db.transaction(async (tx) => {
+      const broadcastUpdate = await tx
+        .update(eventLineBroadcasts)
+        .set({
+          status: 'linked',
+          linkedAt: sql`now()`,
+          lineGroupId: storedGroupId ?? sourceGroupId,
+          // Invalidate the consumed code so it can't be reused — even if the
+          // partial UNIQUE allowed it, replay would be confusing in the UI.
+          inviteCode: null,
+          inviteCodeExpiresAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, candidate.id),
+            sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
+            eq(eventLineBroadcasts.inviteCode, text),
+            sql`${eventLineBroadcasts.inviteCodeExpiresAt} > now()`,
+            // lineGroupId は (a) NULL = まだ join 未確定 or (b) source と
+            // 完全一致 のどちらかでなければ拒否。実行中に別グループから
+            // 紐付けが進んでいたら整合性を保つ。
+            sql`(${eventLineBroadcasts.lineGroupId} IS NULL OR ${eventLineBroadcasts.lineGroupId} = ${sourceGroupId})`,
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
 
-    // r-final-1 blocker: assignedEventId を必ず再セット。reclaim 経路で
-     // status='available' のまま予約された channel が、ここで assignedEventId
-     // を欠落したまま active になると、解放バッチ (assignedEventId 一致条件)
-     // で復元できず Bot プール状態が壊れる。
-    await tx
-      .update(lineChannels)
-      .set({
-        status: 'active',
-        assignedEventId: candidate.eventId,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(lineChannels.id, channelId))
-  })
+      if (broadcastUpdate.length === 0) {
+        throw new Error('STALE_BROADCAST')
+      }
+
+      // r-final-1 blocker: assignedEventId を必ず再セット。
+      // r-final-4 blocker: channel が別 event に再割当済みでないこと、
+      // pool に戻っていない (disabled でない) ことを WHERE で再確認。
+      const channelUpdate = await tx
+        .update(lineChannels)
+        .set({
+          status: 'active',
+          assignedEventId: candidate.eventId,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(lineChannels.id, channelId),
+            sql`${lineChannels.status} IN ('available','assigned','active')`,
+            sql`(${lineChannels.assignedEventId} IS NULL OR ${lineChannels.assignedEventId} = ${candidate.eventId})`,
+          ),
+        )
+        .returning({ id: lineChannels.id })
+
+      if (channelUpdate.length === 0) {
+        throw new Error('STALE_CHANNEL')
+      }
+
+      appliedSuccessfully = true
+    })
+  } catch (err) {
+    // Stale 検出時は無効リプライを返してロールバック (tx 全体が revert)
+    if (
+      err instanceof Error &&
+      (err.message === 'STALE_BROADCAST' || err.message === 'STALE_CHANNEL')
+    ) {
+      if (event.replyToken) {
+        await replyClient.reply({
+          replyToken: event.replyToken,
+          text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+          channelAccessToken,
+        })
+      }
+      return
+    }
+    throw err
+  }
+
+  if (!appliedSuccessfully) return
 
   const ev = await db.query.events.findFirst({
     where: eq(events.id, candidate.eventId),
