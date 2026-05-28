@@ -1918,6 +1918,7 @@
 - 2026-05-26 /auto-review-loop PR #64: 1R, verdict=pass, tokens=35387/500000, result=pass
 - 2026-05-27 /auto-review-loop PR #66: 1R, verdict=pass, tokens=29539/500000, result=pass (sticky-mobile-shell flex min-h-0 fix)
 - 2026-05-27 /auto-review-loop PR #67: 2R, verdict=pass, tokens=61559/500000, result=pass (sticky-mobile-shell bottom-nav border-box height fix, R1 blocker: Tailwind calc() needs `_+_`)
+- 2026-05-28 /auto-review-loop PR #68: 2R, verdict=pass, tokens=38779/500000, result=pass (sticky-mobile-shell iOS Safari h-svh fix, R1 blocker: Tailwind utility output order not className order → globals.css に専用 class)
 
 ---
 
@@ -1986,9 +1987,37 @@
 - ✅ Health check: HTTPS 307 → /auth/signin、signin 200、manifest 200、`/hono-api/health` ok
 - ✅ **生成 CSS 検証**: `/opt/kagetra/apps/web/.next/standalone/apps/web/.next/static/css/966ddf06a7ffc889.css` に `min-height:calc(52px + env(safe-area-inset-bottom))` が空白付きで出力されていることを確認 (Tailwind の `_+_` → 実 CSS の空白に正しく展開、Safari でも有効)
 - 🔴 **iPhone 実機再々確認 (#53)**: ユーザー実機検証待ち。**PR #66 で残った「タブが下に見切れる」現象が解消したか**を Safari + PWA standalone で要確認
+- ⚠️ **PR #67 後の実機検証で「タブの下半分が画面下端で見切れる」現象が継続発覚** → 原因 iOS Safari `100dvh` URL バー込みで PR #68 へ追加 fix
+
+---
+
+## 2026-05-28 セッション (PR #68 ship — sticky-mobile-shell iOS Safari `100dvh` URL バー罠 fix)
+
+### 完了
+- **PR #68** (`fix(mobile-shell): add h-svh to height cascade so BottomNav escapes the iOS Safari URL bar overlay` → R1 後リネーム `... move height cascade to globals.css ...`) merge 完了 (merge commit `fdd3bec`)
+- **原因**: PR #67 後の本番実機でユーザーが「タブの上半分しか見えず下半分は画面外」を報告 + スクショ提供 → 配信 HTML/CSS 検証で viewport meta も padding も min-height も正しく出力済を確認 → 残仮説「shell が viewport を超えている」が正解。iOS Safari (15.4+) で `viewport-fit=cover` 有効時、`100dvh` が画面下部の URL バー overlay 込みの高さを返すため、shell が見えている viewport より大きくなって BottomNav が URL バー裏に隠れていた
+- **修正**: 当初 `flex h-screen h-dvh h-svh flex-col` (Tailwind utility) で済まそうとしたが **Codex R1 で blocker 指摘「Tailwind utility 出力順は className 順では制御されない、勝者保証ナシ」** → globals.css に `.mobile-shell-h { height: 100vh; height: 100dvh; height: 100svh; }` を新規定義し、cascade を CSS 側で固定。mobile-shell.tsx は `mobile-shell-h flex flex-col` に簡略化
+- `/auto-review-loop 68` で **2R 完走**:
+  - R1 (7,106 t): blocker 1 (Tailwind utility 順制御不能) + should_fix 1 (テストの indexOf 順序チェックも cascade を検証できていない) → /fix で globals.css 切り出し
+  - R2 (31,673 t): verdict=pass、blockers/should_fix/nits 全 0、good_points 2
+  - 累計 38,779 / 500,000 tokens
+- `/ship 68` で merge + worktree 削除 + ローカルブランチ削除 + review output 掃除
+
+### 設計判断 / 知見
+- **iOS Safari `100dvh` URL バー罠**: 同一 PR で 3 度の修正 (PR #66 flex min-h-0, PR #67 border-box height, PR #68 dvh→svh cascade) を経てようやく shell サイズ自体の問題に到達。実機テストの重要性 → [[ios-safari-100dvh-includes-url-bar]]
+- **Tailwind utility 出力順は className 順では制御不能**: PR #68 R1 で発覚。`h-screen h-dvh h-svh` のように同一 property を utility で重ねて cascade 期待するパターンは NG、globals.css に専用クラスを切るのが正解。Codex の指摘が本番事故を未然に防いだ → [[tailwind-utility-output-order-not-className]]
+- **本セッションの教訓**: 同じ機能で 4 回 fix が必要だった (PR #64 → #66 → #67 → #68)。各々別の root cause で、実機なしでは見えない罠 (jsdom はレイアウト計算しない)。今後 sticky 系の UI 変更は最初から実機 + Playwright headful で確認すべき
+
+### 残存している git 状態
+- main: `fdd3bec` (PR #68 merge) → これから worklog + memory 同期 commit + 本番反映待ち
+- worktree: なし (event-line-broadcast の worktree は別途継続)
+- 開いている PR: なし
+- ローカルブランチ: `main` のみ
+- 残: 親 Issue #50 + 子 #53 (実機確認) は open。本番反映 → ユーザー実機 **4 度目** 確認 → OK なら `gh issue close 53 50`
 
 ### 次回 (carryover)
-- 🔴 **iPhone 実機再々確認 (#53)** ← PR #67 本番反映済。OK なら `gh issue close 53 50`
+- 🔴 **PR #68 本番反映 (Oracle Cloud)**: ssh → git pull → install → build → 静的アセット cp → systemctl restart → health check
+- 🔴 **iPhone 実機 4 度目確認 (#53)**: PR #68 反映後に Safari で URL バー表示時でも BottomNav タブ全体が見えること、PWA standalone でも違和感ないことを確認 → OK なら `gh issue close 53 50`
 - 🟢 event-line-broadcast タスク1 (#55) は別 worktree (`C:/tmp/impl-event-line-broadcast`, be3ef38) で push 済、次は #56/#57 並行可
 
 ## 2026-05-27 セッション1（event-line-broadcast PR #65 再レビュー）
@@ -1998,3 +2027,14 @@
   - Round 2 (再) (307,594t): blockers 2 (non-admin RSC 漏洩, 訂正プレフィックス長さ超過), should_fix 2 (partial 重複送信, release race) → be3ef38
   - Round 3 (再): codex CLI が `pnpm build` で約 20 分スタック → 強制終了、結果ファイル未生成。次回手動で /review か /auto-review-loop 再実行が必要
   - 累計対応指摘: r1-r3 + rr1-rr2 で **CRITICAL 11 件 + WARNING 9 件** に対応、Vitest 81 ケース pass
+
+## 2026-05-27 セッション2（event-line-broadcast PR #65 再レビュー2回目）
+
+- 2026-05-27 /auto-review-loop PR #65 (再2): 2R 完了 + Round 3 codex-error で中断、tokens=299,924/500,000
+  - Round 1 (156,164t): blockers 2 (handleInviteCode groupId 検証, manualLinkGroup race), should_fix 1 (LINE API 4xx/401 状態遷移) → 8a235e0
+  - Round 2 (143,760t): blocker 1 (groupId 不在 redeem 拒否), should_fix 1 (カウンタ排他コメント) → a0c47a1
+  - Round 3: codex CLI が `pnpm build` で約 15 分スタック (前回同症状) → 強制終了、結果ファイル未生成
+  - 累計対応指摘 (今回): CRITICAL 3 件 + WARNING 2 件
+  - 累計対応指摘 (PR65 全体: r1-3 + rr1-2 + 今回 r1-2): **CRITICAL 14 件 + WARNING 11 件**
+  - Vitest: 17 ケース (line-webhook-handler) + 4 (line-broadcast) + 他 = 全 lib テスト pass
+  - Codex r3 ハング問題: 連続 2 回発生、環境依存の可能性高 (Windows PowerShell sandbox)。次回は WSL 内で codex 実行を検討

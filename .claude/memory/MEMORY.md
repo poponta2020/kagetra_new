@@ -9,7 +9,7 @@
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
 - [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
 - [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
-- [モバイルシェル固定 PR #64+#66+#67 ship、本番反映 #67 待ち](project_sticky_mobile_shell.md) — PR #64 `cdba79d` + PR #66 `6b980f2` + PR #67 `69c64b0` (border-box height fix)、Issue #51✅/#52✅、#50/#53 は #67 本番反映+実機 OK 後にクローズ
+- [モバイルシェル固定 PR #64+#66+#67+#68 ship、本番反映 #68 待ち](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 `fdd3bec` (iOS Safari h-svh fix via globals.css)、Issue #51✅/#52✅、#50/#53 は #68 本番反映+実機 OK 後にクローズ
 - [event-line-broadcast 要件定義済み](project_event_line_broadcast.md) — Issue 親#54/子#55-#63、`docs/features/event-line-broadcast/`、mail-tournament-import 下流、Bot プール 30 個 + 招待コード方式、`/implement event-line-broadcast` で着手可
 - [event-line-broadcast 全 9 タスク完了 (#55-#63)](impl_event_line_broadcast_task1.md) — feature/event-line-broadcast-schema (b6a11cc..c47721d, 9 commits) push 済み、worktree C:/tmp/impl-event-line-broadcast、PR 作成・本番デプロイ未実施
 
@@ -29,3 +29,5 @@
 - [flex + overflow-y-auto には min-h-0 が必須](feedback_flex_min_h_0_for_overflow.md) — `flex-1 overflow-y-auto` だけだと flex item デフォルト `min-height: auto` で親を突き抜けて body スクロール化。常に `min-h-0` を同時指定
 - [Tailwind min-h-* + p-* は border-box で padding が算入される](feedback_tailwind_min_h_border_box.md) — `min-h-[52px]` + `pb-[env(...)]` だとコンテンツ 18px に圧縮。`min-h-[calc(52px_+_env(...))]` で合算必須
 - [Tailwind arbitrary value 内のスペースは `_` でエスケープ](feedback_tailwind_arbitrary_underscore_space.md) — `calc(a+b)` のままだと CSS spec 違反で Safari が無効化。`calc(a_+_b)` で実 CSS の空白に展開
+- [iOS Safari `100dvh` が URL バー込みで viewport 超える](feedback_ios_safari_dvh_url_bar.md) — sticky bottom UI で `h-dvh` だけだと BottomNav が下部 URL バーの裏に隠れる。`100vh → 100dvh → 100svh` の cascade を globals.css の専用クラスで固定
+- [Tailwind の utility 出力順は className 順では制御できない](feedback_tailwind_utility_output_order_not_className.md) — 同一 property を複数 utility で重ねて cascade 期待するのは NG。CSS 側に専用クラスを切る

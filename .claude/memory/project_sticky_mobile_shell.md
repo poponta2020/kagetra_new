@@ -1,6 +1,6 @@
 ---
 name: sticky-mobile-shell-spec
-description: モバイルシェル固定（AppBar/BottomNav）。PR #64 + #66 + #67 (border-box fix) ship、PR #67 本番反映待ち + 実機再々確認 #53 のみ
+description: モバイルシェル固定（AppBar/BottomNav）。PR #64+#66+#67+#68 ship、PR #68 本番反映待ち + 実機 4 度目確認 #53 のみ
 metadata: 
   node_type: memory
   type: project
@@ -23,6 +23,7 @@ metadata:
 - [x] 本番反映 (2026-05-26): ssh → git pull → pnpm install → pnpm build → .next/static + public/ cp → systemctl restart → health check OK
 - [x] **PR #66 (min-h-0 fix, merge `6b980f2`)**: PR #64 後の実機検証で下スクロール時 BottomNav が画面外消失 → 原因は flex item デフォルト `min-height: auto` で `<main>` が shell 突き抜け、body スクロール化 → `<main>` を `flex-1 min-h-0 overflow-y-auto` に修正、テスト + requirements も同期。Codex R1 pass (29539 tokens)。汎用知見は [[flex-overflow-needs-min-h-0]] に切り出し
 - [x] **PR #67 (border-box height fix, merge `69c64b0`)**: PR #66 本番反映後の実機検証で「タブが画面下端からだいぶ下に見切れる」現象。原因は Tailwind default `box-sizing: border-box` で `min-h-[52px]` の中に `pb-[env(safe-area-inset-bottom)]` (~34px) が算入されてコンテンツ領域 18px に圧縮 → `<nav>` を `min-h-[calc(52px_+_env(safe-area-inset-bottom))]` に修正。Codex R1 で **blocker (Tailwind arbitrary value 内 `+` 周辺に `_` が必要)** を指摘 → /fix で R2 pass (累計 61559 tokens)。汎用知見は [[tailwind-min-h-includes-padding-border-box]] と [[tailwind-arbitrary-needs-underscore-for-space]] に切り出し
-- [ ] タスク3（#53）: PR #67 本番反映後に iPhone Safari + PWA standalone 実機再々確認（Claude 側不能、ユーザー実施）— OK なら `gh issue close 53 50`
+- [x] **PR #68 (iOS Safari h-svh fix, merge `fdd3bec`)**: PR #67 後の実機検証でも「タブの下半分が画面下端で見切れる」現象が継続。viewport meta も CSS も全部正しく出力済 → 残仮説は「shell が viewport を超えている」だった。原因は iOS Safari (15.4+) `viewport-fit=cover` で `100dvh` が下部 URL バー overlay 込みの高さを返し、shell が見えている viewport より大きくなって BottomNav が URL バー裏に隠れていたこと。修正は globals.css に `.mobile-shell-h { height: 100vh; height: 100dvh; height: 100svh; }` を新規定義 (cascade を CSS で固定) → mobile-shell.tsx は `mobile-shell-h flex flex-col` に簡略化。Codex R1 で **blocker (Tailwind utility 出力順は className 順では制御不能、`h-screen h-dvh h-svh` で勝者保証ナシ)** を指摘 → /fix で globals.css 切り出しに変更 → R2 pass (累計 38779 tokens)。汎用知見は [[ios-safari-100dvh-includes-url-bar]] と [[tailwind-utility-output-order-not-className]] に切り出し
+- [ ] タスク3（#53）: PR #68 本番反映後に iPhone Safari + PWA standalone 実機 **4 度目** 確認（Claude 側不能、ユーザー実施）— OK なら `gh issue close 53 50`
 
 **注意点:** `apps/web/src/app/(app)/events/[id]/page.tsx:331` に `sticky bottom-0` の出欠トグルが既にある。今回の修正で body スクロール→main スクロールに変わるため、この sticky の文脈が変わる（むしろ BottomNav と重ならなくなる想定だが目視確認必須）。
