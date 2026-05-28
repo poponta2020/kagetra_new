@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { Card, Pill } from '@/components/ui'
@@ -77,9 +77,17 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
     })
     .from(lineChannels)
     .leftJoin(events, eq(events.id, lineChannels.assignedEventId))
+    // r-final-5 should_fix: eventId だけで JOIN すると同じ event に対する
+    // 過去 revoked/released 行を一緒に拾い、Bot 一覧で同じ Bot が複数行に
+    // 表示される。lineChannelId + active 系 status まで条件に入れ、
+    // 「この Bot の現在 active な binding」だけを LEFT JOIN するように絞る。
     .leftJoin(
       eventLineBroadcasts,
-      eq(eventLineBroadcasts.eventId, lineChannels.assignedEventId),
+      and(
+        eq(eventLineBroadcasts.eventId, lineChannels.assignedEventId),
+        eq(eventLineBroadcasts.lineChannelId, lineChannels.id),
+        sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
+      ),
     )
     .where(eq(lineChannels.purpose, 'event_broadcast'))
     .orderBy(asc(lineChannels.note), asc(lineChannels.id))

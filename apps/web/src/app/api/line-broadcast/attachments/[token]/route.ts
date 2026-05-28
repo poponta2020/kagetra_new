@@ -44,12 +44,16 @@ const INLINE_ALLOWED_CONTENT_TYPES = new Set<string>([
  *   - access_count is incremented but advisory-only — no rate limiting yet.
  *     If we see abuse, we add a per-token rate limit before introducing auth.
  */
+// Token は randomBytes(24).toString('base64url') = 32 文字。許容幅は
+// 16-64 文字 + URL-safe base64 文字種に限定 (r-final-5 と同パターン)。
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/
+
 export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ token: string }> },
 ): Promise<NextResponse> {
   const { token } = await context.params
-  if (!token || token.length < 16 || token.length > 64) {
+  if (!token || !TOKEN_PATTERN.test(token)) {
     return new NextResponse('Not Found', { status: 404 })
   }
 

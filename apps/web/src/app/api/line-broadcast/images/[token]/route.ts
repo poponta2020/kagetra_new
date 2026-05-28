@@ -21,12 +21,22 @@ export const runtime = 'nodejs'
  * sweep stale entries on each request to avoid unbounded growth in case the
  * broadcast pipeline crashes before publishing.
  */
+/**
+ * r-final-5 blocker: トークン形式の事前検証。生成側は
+ * `randomBytes(16).toString('base64url')` で 22 文字の URL-safe base64
+ * を作るが、入口側で短い予測可能な値を弾かないと、cache key 空間で
+ * 任意 key の存在チェックや辞書攻撃の余地が残る。attachments route と
+ * 同等の防御を入れる。許容幅は 16-64 文字 (将来 token 長を伸ばしても
+ * 動くように広めに取る)。
+ */
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,64}$/
+
 export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ token: string }> },
 ): Promise<NextResponse> {
   const { token } = await context.params
-  if (!token) {
+  if (!token || !TOKEN_PATTERN.test(token)) {
     return new NextResponse('Not Found', { status: 404 })
   }
 
