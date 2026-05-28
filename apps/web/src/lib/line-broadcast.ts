@@ -428,6 +428,25 @@ export async function broadcastMailToEvent(
       ),
     )
     .limit(1)
+
+  // r-final-1 should_fix: status='sent' な mail を manualBroadcast で再度
+  // 流すと、previouslyDelivered=0 として全件再送され重複配信になる。
+  // 配信済みの mail は早期 return で skipped を返し、操作者が「もう一度
+  // 流したい」場合は別途強制再送 API を要求する設計に統一する。
+  if (existingAudit[0]?.status === 'sent') {
+    logger.info('mail already broadcast successfully; skipping re-send', {
+      eventId: args.eventId,
+      mailMessageId: args.mailMessageId,
+    })
+    return {
+      status: 'skipped',
+      reason: 'already_sent',
+      sentTextCount: existingAudit[0].sentTextCount,
+      sentImageCount: existingAudit[0].sentImageCount,
+      fallbackLinkCount: existingAudit[0].fallbackLinkCount,
+    }
+  }
+
   const previouslyDelivered =
     existingAudit[0]?.status === 'partial'
       ? existingAudit[0].sentTextCount +

@@ -190,6 +190,32 @@ describe('broadcastMailToEvent', () => {
     expect(rows).toHaveLength(1)
   })
 
+  it('skips re-broadcasting a mail that already finished as sent', async () => {
+    const fx = await buildLinkedFixture()
+    // 1 回目: 正常配信 → status='sent'
+    const first = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(first.status).toBe('sent')
+
+    // 2 回目: 同じ mail を再度ブロードキャストしても、status='sent' の
+    // 行があるので skipped を返して重複配信を防ぐ。
+    const second = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(second.status).toBe('skipped')
+    expect(second.reason).toBe('already_sent')
+
+    const row = await db.query.eventBroadcastMessages.findFirst({
+      where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+    })
+    expect(row?.status).toBe('sent')
+  })
+
   it('prefixes correction-mails with 【訂正】 + subject', async () => {
     const fx = await buildLinkedFixture()
     // Sanity: capture the mail subject so we can compare it back.

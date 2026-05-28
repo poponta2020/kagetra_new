@@ -401,9 +401,17 @@ async function handleInviteCode(
       })
       .where(eq(eventLineBroadcasts.id, candidate.id))
 
+    // r-final-1 blocker: assignedEventId を必ず再セット。reclaim 経路で
+     // status='available' のまま予約された channel が、ここで assignedEventId
+     // を欠落したまま active になると、解放バッチ (assignedEventId 一致条件)
+     // で復元できず Bot プール状態が壊れる。
     await tx
       .update(lineChannels)
-      .set({ status: 'active', updatedAt: sql`now()` })
+      .set({
+        status: 'active',
+        assignedEventId: candidate.eventId,
+        updatedAt: sql`now()`,
+      })
       .where(eq(lineChannels.id, channelId))
   })
 
