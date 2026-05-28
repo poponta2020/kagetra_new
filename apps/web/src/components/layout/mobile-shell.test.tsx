@@ -17,31 +17,30 @@ vi.mock('./bottom-nav', () => ({
 describe('MobileShell', () => {
   const noopSignOut = async () => {}
 
-  // Regression guard: keeps AppBar/BottomNav pinned to viewport edges by
-  // sizing the shell with the h-screen → h-dvh → h-svh cascade. iOS Safari
-  // (15.4+) with viewport-fit=cover returns a `100dvh` that includes the
-  // bottom URL bar overlay, so we end the cascade on h-svh (small viewport
-  // height) — guarantees BottomNav stays above the URL bar. Reverting any
-  // of the three classes re-introduces a known bug from PR #64/#67.
-  it('シェルが h-screen → h-dvh → h-svh の高さ cascade + flex 縦並びで構成される', () => {
+  // Regression guard: shell uses the `.mobile-shell-h` rule from
+  // globals.css, which declares `height: 100vh; height: 100dvh; height:
+  // 100svh;` in that order inside a SINGLE CSS rule so the cascade is
+  // deterministic. Composing this via Tailwind utilities (`h-screen
+  // h-dvh h-svh`) is unsafe — Tailwind's utility output order is NOT
+  // controlled by className order, so the winning value can't be
+  // guaranteed (PR #68 R1 Codex blocker). Reverting to utilities
+  // re-introduces the iOS Safari BottomNav-under-URL-bar bug (#53).
+  it('シェルが mobile-shell-h クラス + flex 縦並びで構成される', () => {
     const { container } = render(
       <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
         <div>child</div>
       </MobileShell>,
     )
     const shell = container.firstChild as HTMLElement
-    expect(shell.className).toContain('h-screen')
-    expect(shell.className).toContain('h-dvh')
-    expect(shell.className).toContain('h-svh')
+    expect(shell.className).toContain('mobile-shell-h')
     expect(shell.className).toContain('flex')
     expect(shell.className).toContain('flex-col')
-    // Defensive: ensure h-svh appears AFTER h-dvh so the generated CSS
-    // order (Tailwind preserves authored order in arbitrary/utility class
-    // groups) keeps `100svh` as the winning declaration. If a future
-    // refactor reorders these, the BottomNav-under-URL-bar bug returns.
-    const dvhIndex = shell.className.indexOf('h-dvh')
-    const svhIndex = shell.className.indexOf('h-svh')
-    expect(svhIndex).toBeGreaterThan(dvhIndex)
+    // Defensive: ensure no Tailwind height utility leaked back in. Any
+    // of these would compete with the deterministic cascade in
+    // globals.css and the winner becomes undefined.
+    expect(shell.className).not.toMatch(/\bh-screen\b/)
+    expect(shell.className).not.toMatch(/\bh-dvh\b/)
+    expect(shell.className).not.toMatch(/\bh-svh\b/)
   })
 
   it('<main> が flex-1 min-h-0 overflow-y-auto を持ち、children を描画する', () => {

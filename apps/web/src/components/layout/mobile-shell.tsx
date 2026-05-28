@@ -40,21 +40,25 @@ export function MobileShell({
   signOutAction,
   children,
 }: MobileShellProps) {
-  // Height stack (cascade order matters — last valid utility wins):
-  //   h-screen → 100vh   (very old browsers; legacy fallback)
-  //   h-dvh    → 100dvh  (mid; reflects current visualViewport)
-  //   h-svh    → 100svh  (final; the SMALL viewport, i.e. the height
-  //                       assuming all UA chrome is shown — bottom URL
-  //                       bar included)
-  // We end on `h-svh` because iOS Safari (15.4+) with `viewport-fit=cover`
-  // returns a `100dvh` value that *includes* the bottom URL bar overlay,
-  // so the shell can be taller than the visible safe area and push
-  // BottomNav under the URL bar (observed on PR #67 production). `100svh`
-  // is the conservative "always visible" height that guarantees the
-  // BottomNav stays above the URL bar at the cost of an extra empty band
-  // when the URL bar later collapses on scroll.
+  // Height is supplied by the `.mobile-shell-h` rule in globals.css, which
+  // declares `height: 100vh; height: 100dvh; height: 100svh;` in that
+  // order inside a single CSS rule. The cascade picks the last
+  // declaration the browser understands — modern UA → `100svh` wins,
+  // older UA fall back to dvh or vh. We can't compose this via Tailwind
+  // utilities (`h-screen h-dvh h-svh`) because Tailwind's utility output
+  // order is NOT controlled by className order — same-property utilities
+  // may emit in any order, so the winning value can't be guaranteed
+  // (PR #68 R1 Codex blocker).
+  //
+  // Why `100svh` is the final winner: iOS Safari (15.4+) with
+  // `viewport-fit=cover` returns a `100dvh` value that *includes* the
+  // bottom URL bar overlay, making the shell taller than the visible
+  // safe area and pushing BottomNav under the URL bar (PR #67 production
+  // bug). `100svh` is the conservative "always visible" height — UA
+  // chrome fully shown — that keeps BottomNav above the URL bar at the
+  // cost of an extra empty band when the URL bar later collapses.
   return (
-    <div className="flex h-screen h-dvh h-svh flex-col bg-canvas text-ink font-sans">
+    <div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
       <AppBarMain user={user} signOutAction={signOutAction} />
       {/*
         `min-h-0` is required: flex items default to `min-height: auto`,

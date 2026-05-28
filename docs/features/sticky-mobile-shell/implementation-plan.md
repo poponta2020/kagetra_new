@@ -55,11 +55,13 @@ status: completed
 - [x] 完了
 - **概要:** PR #67 ship + 本番反映後の実機検証で「タブの上半分しか見えず、下半分が画面下端を超えて見切れる」現象が継続。配信 HTML/CSS 検証で viewport meta も padding-bottom も min-height(calc) も正しく出力されていることを確認 → 残仮説は「shell 自体が viewport を超えている」だった。原因は iOS Safari (15.4+) で `viewport-fit=cover` を有効にすると `100dvh` が画面下部の URL バー overlay を含んだ高さを返し、shell が見えている viewport より大きくなって BottomNav が URL バーの裏側に隠れていたこと。
 - **変更対象ファイル:**
-  - `apps/web/src/components/layout/mobile-shell.tsx` — shell の `flex h-screen h-dvh flex-col` を `flex h-screen h-dvh h-svh flex-col` に変更、罠の解説コメント追加（cascade 順序の意味込み）
-  - `apps/web/src/components/layout/mobile-shell.test.tsx` — `h-svh` 検証 + `h-svh` が `h-dvh` の後に来ている事を class 名 indexOf で確認するリグレッションガード追加
-  - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 mobile-shell.tsx のコード例と `h-svh` 必須の注記
+  - `apps/web/src/app/globals.css` — `.mobile-shell-h` クラス新規定義 (`height: 100vh; height: 100dvh; height: 100svh;` を単一ルール内で順に declare して cascade を CSS 上で確定)
+  - `apps/web/src/components/layout/mobile-shell.tsx` — shell の `flex h-screen h-dvh flex-col` を `mobile-shell-h flex flex-col` に変更、Tailwind utility 出力順が制御不能であることと globals.css 側に委譲した理由をコメント追加
+  - `apps/web/src/components/layout/mobile-shell.test.tsx` — `mobile-shell-h` 検証 + Tailwind 高さ utility (`h-screen`/`h-dvh`/`h-svh`) が混入していないことを negative assert (cascade が壊れないようガード)
+  - `docs/features/sticky-mobile-shell/requirements.md` — §4.2 mobile-shell.tsx のコード例 + globals.css のルール例 + 罠の解説
 - **依存タスク:** タスク1, タスク2, タスク2b, タスク2c
 - **対応Issue:** #53 (3 度目の事後修正、PR #67 後の実機 NG → fix → 再実機)
+- **R1 Codex 指摘**: 当初 Tailwind utility (`h-screen h-dvh h-svh`) で済まそうとしたが「Tailwind の utility 出力順は className 順では制御されない」blocker → globals.css に専用 CSS クラスを切り出して cascade を確定する形に変更 (PR #68 R2 で pass)
 
 ### タスク3: 実機確認（iPhone Safari + iPhone PWA standalone）
 
