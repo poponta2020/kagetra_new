@@ -216,6 +216,34 @@ describe('broadcastMailToEvent', () => {
     expect(row?.status).toBe('sent')
   })
 
+  it('re-sends a sent mail when force=true (manualBroadcast)', async () => {
+    const fx = await buildLinkedFixture()
+    // 1 回目: 正常配信 → status='sent'
+    const first = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(first.status).toBe('sent')
+
+    // 2 回目: force=true で sent な mail も再配信 (manualBroadcast の UI
+    // 経路)。skip ではなく sent を返し、sent_at が更新される。
+    const second = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      force: true,
+    })
+    expect(second.status).toBe('sent')
+
+    // audit 行は依然として 1 つだけ (重複行は作られない)。
+    const rows = await db
+      .select({ id: eventBroadcastMessages.id })
+      .from(eventBroadcastMessages)
+      .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
+    expect(rows).toHaveLength(1)
+  })
+
   it('prefixes correction-mails with 【訂正】 + subject', async () => {
     const fx = await buildLinkedFixture()
     // Sanity: capture the mail subject so we can compare it back.

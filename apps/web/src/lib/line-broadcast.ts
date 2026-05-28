@@ -357,6 +357,13 @@ export async function broadcastMailToEvent(
     eventId: number
     mailMessageId: number
     isCorrection: boolean
+    /**
+     * 強制再送フラグ。manualBroadcast (UI からの再配信操作) で true を
+     * 渡すと、status='sent' な mail でも skip せず再送する。
+     * approveDraft / linkDraftToEvent / 自動配信トリガーでは false の
+     * ままで「成功済み mail を二重送信しない」既定挙動。
+     */
+    force?: boolean
   },
   options: BroadcastMailOptions = {},
 ): Promise<BroadcastResult> {
@@ -429,11 +436,11 @@ export async function broadcastMailToEvent(
     )
     .limit(1)
 
-  // r-final-1 should_fix: status='sent' な mail を manualBroadcast で再度
+  // r-final-1 should_fix: status='sent' な mail を自動配信ループで再度
   // 流すと、previouslyDelivered=0 として全件再送され重複配信になる。
-  // 配信済みの mail は早期 return で skipped を返し、操作者が「もう一度
-  // 流したい」場合は別途強制再送 API を要求する設計に統一する。
-  if (existingAudit[0]?.status === 'sent') {
+  // 既定は早期 return で skipped を返し、UI からの再配信操作 (force=true)
+  // でのみ再送を許可する (r-final-3 should_fix)。
+  if (existingAudit[0]?.status === 'sent' && !args.force) {
     logger.info('mail already broadcast successfully; skipping re-send', {
       eventId: args.eventId,
       mailMessageId: args.mailMessageId,

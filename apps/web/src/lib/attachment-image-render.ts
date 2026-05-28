@@ -3,7 +3,7 @@ import { readdir, readFile, rm, writeFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { and, desc, eq, gt } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import {
   attachmentShareTokens,
   type mailAttachments,
@@ -192,6 +192,18 @@ export const SHARE_TOKEN_TTL_DAYS = 60
  * attachment to LINE do not stamp the DB with one row per push. New
  * tokens are 32-character URL-safe base64 — collision probability is
  * effectively zero against any realistic token volume.
+ *
+ * Invariant: at most ONE attachment_share_tokens row per mail_attachment_id.
+ * Expired rows are mutated in place (token + expires_at refreshed) rather
+ * than inserting a new row, so:
+ *   - the route handler never has to disambiguate between multiple rows
+ *     for the same attachment
+ *   - the previous (leaked-via-LINE-link) token stops working immediately
+ *     once a refresh runs, instead of staying valid until cleanup deletes
+ *     it days later
+ * cleanup-expired-tokens.ts still operates on the same single row, so the
+ * 7-day grace continues to apply for rows whose attachment was never
+ * re-shared.
  */
 export async function getOrCreateShareToken(
   db: typeof appDb,
@@ -201,24 +213,34 @@ export async function getOrCreateShareToken(
   const ttlDays = options.ttlDays ?? SHARE_TOKEN_TTL_DAYS
   const now = options.now ?? new Date()
 
+  // r-final-3 blocker: 同じ attachment_id に対して最新の 1 行だけを扱う。
+  // (有効・期限切れ問わず) 最新 row を読み、期限内ならそれを再利用、
+  // 期限切れなら新 token / 新 expiresAt で UPDATE する。
   const existing = await db.query.attachmentShareTokens.findFirst({
-    where: and(
-      eq(attachmentShareTokens.mailAttachmentId, mailAttachmentId),
-      gt(attachmentShareTokens.expiresAt, now),
-    ),
+    where: eq(attachmentShareTokens.mailAttachmentId, mailAttachmentId),
     orderBy: desc(attachmentShareTokens.createdAt),
   })
-  if (existing) {
+
+  if (existing && existing.expiresAt.getTime() > now.getTime()) {
     return { token: existing.token, expiresAt: existing.expiresAt }
   }
 
   const token = randomBytes(24).toString('base64url')
   const expiresAt = new Date(now.getTime() + ttlDays * 86_400_000)
-  await db.insert(attachmentShareTokens).values({
-    mailAttachmentId,
-    token,
-    expiresAt,
-  })
+
+  if (existing) {
+    // 期限切れ既存行を UPDATE で再生成。古い token は即座に失効する。
+    await db
+      .update(attachmentShareTokens)
+      .set({ token, expiresAt, accessCount: 0 })
+      .where(eq(attachmentShareTokens.id, existing.id))
+  } else {
+    await db.insert(attachmentShareTokens).values({
+      mailAttachmentId,
+      token,
+      expiresAt,
+    })
+  }
   return { token, expiresAt }
 }
 

@@ -387,6 +387,11 @@ export async function manualBroadcast(
     eventId,
     mailMessageId,
     isCorrection: existing[0]?.isCorrection ?? false,
+    // r-final-3 should_fix: manualBroadcast は UI からの「再配信」操作な
+    // ので、status='sent' でも skip せず強制送信する。自動配信ループ
+    // (approveDraft / linkDraftToEvent) では force を立てないため、
+    // 二重送信は起きない。
+    force: true,
   })
 
   revalidatePath(`/events/${eventId}`)
