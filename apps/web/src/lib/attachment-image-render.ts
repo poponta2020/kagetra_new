@@ -121,14 +121,22 @@ export async function renderPdfToJpegs(
       join(workDir, 'page'),
     ])
 
-    const files = (await readdir(workDir))
-      .filter(
-        (f) =>
-          f.startsWith('page-') && (f.endsWith('.jpg') || f.endsWith('.jpeg')),
-      )
-      // pdftoppm pads page numbers consistently (page-001.jpg) so lexical
-      // sort matches natural order up to several thousand pages.
-      .sort()
+    // r-final-17 should_fix: pdftoppm のページ番号は環境・バージョンで
+     // ゼロ埋め幅が変わる (page-1.jpg / page-001.jpg / page-0001.jpg)。
+     // 辞書順だと 10 ページ目以降 (1, 10, 11, 2, 3, ...) で順序が崩れる
+     // ため、必ずファイル名から番号を抽出して数値比較でソートする。
+     const filenamePagePattern = /^page-(\d+)\.(jpe?g)$/i
+     const files = (await readdir(workDir))
+       .filter((f) => filenamePagePattern.test(f))
+       .map((f) => {
+         const m = filenamePagePattern.exec(f)
+         // filter で通過した時点で m は必ず非 null だが、TypeScript の
+         // 型推論を満たすため defensive に。
+         const pageNo = m ? Number.parseInt(m[1]!, 10) : Number.NaN
+         return { name: f, pageNo }
+       })
+       .sort((a, b) => a.pageNo - b.pageNo)
+       .map((entry) => entry.name)
 
     const truncated = files.length > maxPages
     const usedFiles = truncated ? files.slice(0, maxPages) : files
