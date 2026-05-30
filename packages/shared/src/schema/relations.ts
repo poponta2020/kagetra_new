@@ -28,10 +28,13 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
     references: [users.id],
   }),
   // event-line-broadcast: 1:1 via event_line_broadcasts.event_id UNIQUE
-  lineBroadcast: one(eventLineBroadcasts, {
-    fields: [events.id],
-    references: [eventLineBroadcasts.eventId],
-  }),
+  //
+  // r-final-8 should_fix: 逆参照 (FK は子側 = eventLineBroadcasts) の
+  // `one()` は fields/references を省略すると drizzle が自動で「対側の
+  // 該当 FK で繋ぐ」逆方向 relation として扱う。fields に events.id を
+  // 指定すると source 側に存在しない FK を持つ形になって不正な join に
+  // なるので、ここは省略形 (drizzle 標準パターン) に揃える。
+  lineBroadcast: one(eventLineBroadcasts),
 }))
 
 export const eventAttendancesRelations = relations(eventAttendances, ({ one }) => ({

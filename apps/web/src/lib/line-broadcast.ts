@@ -488,8 +488,12 @@ export async function broadcastMailToEvent(
     }
   }
 
+  // r-final-8 blocker: force 再送 (UI 経由の manualBroadcast) では
+  // 「LINE 側で前回成功分が消えていた」等で全件再送したいケースがある。
+  // previouslyDelivered=0 にして先頭 skip を無効化する。force でない
+  // (自動配信ループ) のときだけ partial の既配信分を skip して重複を防ぐ。
   const previouslyDelivered =
-    existingAudit[0]?.status === 'partial'
+    !args.force && existingAudit[0]?.status === 'partial'
       ? existingAudit[0].sentTextCount +
         existingAudit[0].sentImageCount +
         existingAudit[0].fallbackLinkCount

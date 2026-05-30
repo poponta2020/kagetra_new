@@ -101,14 +101,10 @@ export function ManualLinkModal({
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-ink-1">手動紐付け</h2>
-            <p className="text-xs text-ink-meta">
-              {channelLabel} を大会と LINE グループ ID で直接紐付けます。
-              通常は招待コード経由で自動紐付けされます。
-            </p>
 
             {candidateEvents.length === 0 ? (
               <p className="text-sm text-ink-2 py-4">
-                紐付け可能な大会がありません。先に大会を作成してください。
+                紐付け可能な大会がありません。
               </p>
             ) : (
               <form action={handleSubmit} className="flex flex-col gap-3">
@@ -143,9 +139,6 @@ export function ManualLinkModal({
                     required
                     disabled={pending}
                   />
-                  <span className="text-[10px] text-ink-meta">
-                    LINE アプリ→グループ情報からコピーした C で始まる ID
-                  </span>
                 </label>
 
                 {error ? (
