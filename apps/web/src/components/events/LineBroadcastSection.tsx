@@ -39,6 +39,14 @@ export interface LineBroadcastSectionProps {
   history: readonly BroadcastHistoryRow[]
   generateInviteCodeAction: (eventId: number) => Promise<InviteCodePayload>
   revokeBroadcastAction: (eventId: number) => Promise<void>
+  /**
+   * r-final-11 should_fix: failed / partial 行から再配信を呼べるように、
+   * manualBroadcast を BroadcastHistoryTable まで流す。
+   */
+  manualBroadcastAction?: (
+    eventId: number,
+    mailMessageId: number,
+  ) => Promise<void>
 }
 
 function formatDateTime(date: Date | string | null | undefined): string {
@@ -66,6 +74,7 @@ export function LineBroadcastSection({
   history,
   generateInviteCodeAction,
   revokeBroadcastAction,
+  manualBroadcastAction,
 }: LineBroadcastSectionProps) {
   const [pendingGenerate, startGenerate] = useTransition()
   const [pendingRevoke, startRevoke] = useTransition()
@@ -227,7 +236,11 @@ export function LineBroadcastSection({
 
       {status === 'linked' ? (
         <Card className="overflow-hidden">
-          <BroadcastHistoryTable rows={history} />
+          <BroadcastHistoryTable
+            rows={history}
+            eventId={eventId}
+            manualBroadcastAction={manualBroadcastAction}
+          />
         </Card>
       ) : null}
 

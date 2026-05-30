@@ -30,6 +30,7 @@ import {
 import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
 import {
   generateInviteCodeForEvent,
+  manualBroadcast,
   revokeBroadcast,
   submitAttendance,
 } from './actions'
@@ -405,6 +406,7 @@ export default async function EventDetailPage({
         history={broadcastHistory}
         generateInviteCodeAction={generateInviteCodeForEvent}
         revokeBroadcastAction={revokeBroadcast}
+        manualBroadcastAction={manualBroadcast}
       />
 
       {eligibleAttendingList.length > 0 && (

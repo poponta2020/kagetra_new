@@ -57,6 +57,11 @@ async function runCommand(
     const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderrChunks: Buffer[] = []
     proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
+    // r-final-11 should_fix: stdout を必ず drain する。pdftoppm /
+    // libreoffice が多めに stdout を吐いた場合、未消費だと OS パイプ
+    // バッファが埋まって子プロセスが書き込みでブロック → タイムアウト
+    // まで何もできない。内容は使わないので `resume()` で読み流す。
+    proc.stdout.resume()
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL')
       reject(new Error(`${cmd} timed out after ${timeoutMs}ms`))
