@@ -570,6 +570,45 @@ export async function broadcastMailToEvent(
     const skipCount = Math.min(previouslyDelivered, messages.length)
     const messagesToPush = messages.slice(skipCount)
 
+    // r-final-7 should_fix: pushMessages の直前に binding を再取得し、
+    // 最初に読んだ値と一致するか検証する。添付画像化が数十秒かかる
+    // 前提なので、その間に管理者が連携解除・再紐付けを行うと、すでに
+    // 失効した groupId / channelAccessToken へ送信してしまう。
+    const currentBinding = await loadActiveBinding(db, args.eventId)
+    const bindingChanged =
+      !currentBinding ||
+      currentBinding.id !== binding.id ||
+      currentBinding.lineChannelId !== binding.lineChannelId ||
+      currentBinding.lineGroupId !== binding.lineGroupId ||
+      currentBinding.channel.channelAccessToken !==
+        binding.channel.channelAccessToken
+
+    if (bindingChanged) {
+      logger.warn('binding changed during attachment processing; skipping push', {
+        eventId: args.eventId,
+        mailMessageId: args.mailMessageId,
+        originalChannelId: binding.lineChannelId,
+        currentChannelId: currentBinding?.lineChannelId ?? null,
+      })
+      // 取り消し: audit 行を skipped 相当 (revoked) にして失敗パスを残す。
+      // 後段の通常 finalize ロジックを通さないため、ここで terminal 更新。
+      await db
+        .update(eventBroadcastMessages)
+        .set({
+          status: 'failed',
+          errorMessage: 'binding_changed_during_processing',
+          updatedAt: sql`now()`,
+        })
+        .where(eq(eventBroadcastMessages.id, broadcastMessageId))
+      return {
+        status: 'skipped',
+        reason: 'binding_changed',
+        sentTextCount: 0,
+        sentImageCount: 0,
+        fallbackLinkCount: 0,
+      }
+    }
+
     const pushResult = await pushMessages(
       binding.channel.channelAccessToken,
       binding.lineGroupId,
@@ -652,6 +691,9 @@ export async function broadcastMailToEvent(
         // を解放しないと、次の承認メールでも同じ disabled channel に
         // push し続け失敗ループになる。loadActiveBinding は status を
         // 見ないので、binding 自体を terminal 状態にするのが安全。
+        //
+        // r-final-7 should_fix: revoke は「我々が送信を試みた時点の binding」
+        // が今も active な場合だけ。再紐付け済みの新 binding は壊さない。
         await db.transaction(async (tx) => {
           await tx
             .update(eventLineBroadcasts)
@@ -663,7 +705,12 @@ export async function broadcastMailToEvent(
               inviteCodeExpiresAt: null,
               updatedAt: sql`now()`,
             })
-            .where(eq(eventLineBroadcasts.id, binding.id))
+            .where(
+              and(
+                eq(eventLineBroadcasts.id, binding.id),
+                eq(eventLineBroadcasts.status, 'linked'),
+              ),
+            )
 
           await tx
             .update(lineChannels)
@@ -672,7 +719,12 @@ export async function broadcastMailToEvent(
               assignedEventId: null,
               updatedAt: sql`now()`,
             })
-            .where(eq(lineChannels.id, binding.lineChannelId))
+            .where(
+              and(
+                eq(lineChannels.id, binding.lineChannelId),
+                eq(lineChannels.assignedEventId, args.eventId),
+              ),
+            )
         })
         logger.warn('LINE channel disabled + binding revoked due to 401', {
           channelId: binding.lineChannelId,
@@ -686,6 +738,8 @@ export async function broadcastMailToEvent(
       ) {
         // groupId 不正 / Bot kick 済み 等。binding を revoke して channel を
         // プールに戻し、UI 側で再紐付けが必要なことを明示する。
+        // r-final-7: status='linked' を WHERE に追加して、再紐付け済みの
+        // 新 binding は壊さない。
         await db.transaction(async (tx) => {
           await tx
             .update(eventLineBroadcasts)
@@ -697,7 +751,12 @@ export async function broadcastMailToEvent(
               inviteCodeExpiresAt: null,
               updatedAt: sql`now()`,
             })
-            .where(eq(eventLineBroadcasts.id, binding.id))
+            .where(
+              and(
+                eq(eventLineBroadcasts.id, binding.id),
+                eq(eventLineBroadcasts.status, 'linked'),
+              ),
+            )
 
           await tx
             .update(lineChannels)

@@ -177,6 +177,12 @@ export async function releaseExpiredBroadcasts(
     }
 
     // 2) 期限切れ invite_pending / joined_waiting_code
+    //
+    // r-final-7 blocker: invite_code が NULL の異常行 (過去の発行ロジック
+    // が code だけ消して status / channel を放置したケース) も同時に
+    // 回収する。invite_pending / joined_waiting_code で code が NULL の
+    // 行は本来あり得ない状態 = 異常データなので、status='revoked' に
+    // 倒して channel を返却する。
     const expiredInvites = await tx
       .select({
         id: eventLineBroadcasts.id,
@@ -187,12 +193,16 @@ export async function releaseExpiredBroadcasts(
       .where(
         and(
           sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+          sql`(
+            (${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL AND ${eventLineBroadcasts.inviteCodeExpiresAt} < now())
+            OR ${eventLineBroadcasts.inviteCode} IS NULL
+          )`,
         ),
       )
 
     for (const row of expiredInvites) {
+      // r-final-7: SELECT 条件と同じく「期限切れ OR code が NULL の異常
+      // 行」を回収対象にする。UPDATE WHERE でも同じ条件を再評価。
       const updated = await tx
         .update(eventLineBroadcasts)
         .set({
@@ -207,7 +217,10 @@ export async function releaseExpiredBroadcasts(
           and(
             eq(eventLineBroadcasts.id, row.id),
             sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
-            sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+            sql`(
+              (${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL AND ${eventLineBroadcasts.inviteCodeExpiresAt} < now())
+              OR ${eventLineBroadcasts.inviteCode} IS NULL
+            )`,
           ),
         )
         .returning({ id: eventLineBroadcasts.id })

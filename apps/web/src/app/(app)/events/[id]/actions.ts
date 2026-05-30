@@ -65,26 +65,15 @@ export async function generateInviteCodeForEvent(
     })
     if (!targetEvent) throw new Error('大会が見つかりません')
 
-    // rr1 review should_fix: partial unique は IMMUTABLE 制約で
-    // `expires_at > now()` を述語に入れられないので、期限切れコードも
-    // UNIQUE 名前空間を占有してしまう。発行直前に DB 全体から「期限切れ
-    // かつ invite_code IS NOT NULL」な行をクリアしておき、コード空間を
-    // 解放してから新規コードを発行する (release-expired-broadcasts.ts の
-    // 日次掃除より積極的に動く)。
-    await tx
-      .update(eventLineBroadcasts)
-      .set({
-        inviteCode: null,
-        inviteCodeExpiresAt: null,
-        updatedAt: sql`now()`,
-      })
-      .where(
-        and(
-          sql`${eventLineBroadcasts.inviteCode} IS NOT NULL`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
-        ),
-      )
+    // r-final-7 blocker: 以前は DB 全体の期限切れ inviteCode を null 化
+    // していたが、他大会の invite_pending / joined_waiting_code 行に対して
+    // status を維持したまま code だけを消すと、line_channels.status=
+    // 'assigned' が固定化して日次 cron でも回収できなくなる (release-
+    // expired-broadcasts.ts は `inviteCodeExpiresAt IS NOT NULL` を要求)。
+    // 当面はここでの一括 null 化を廃止し、UNIQUE 衝突は下の MAX_ATTEMPTS=
+    // 3 のリトライで吸収する (10^6 通り中数十の active コードと衝突する
+    // 確率は実質ゼロ)。古い行の正規清掃は日次 release-expired ジョブに
+    // 任せる (異常行回収パスも追加予定)。
 
     const existing = await tx.query.eventLineBroadcasts.findFirst({
       where: eq(eventLineBroadcasts.eventId, eventId),
