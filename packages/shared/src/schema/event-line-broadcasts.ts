@@ -35,7 +35,13 @@ export const eventLineBroadcasts = pgTable(
     eventId: integer('event_id')
       .notNull()
       .unique()
-      .references(() => events.id, { onDelete: 'cascade' }),
+      // r-final-9 blocker: 元は ON DELETE CASCADE だったが、LINE 連携
+      // 中の event を直接 DELETE すると broadcast 行が消えて
+      // line_channels.assigned_event_id だけ NULL に戻り、channel が
+      // status='active'/'assigned' のまま「assignedEventId=NULL」の
+      // ゴミ状態になりプールから永久に外れる。RESTRICT に変えて、
+      // event 削除前に必ず revoke を経由させる (UI/Action 側で誘導)。
+      .references(() => events.id, { onDelete: 'restrict' }),
     lineChannelId: integer('line_channel_id')
       .notNull()
       .references(() => lineChannels.id, { onDelete: 'restrict' }),

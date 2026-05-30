@@ -161,21 +161,36 @@ function parseInputFile(filePath: string): BroadcastChannelInput[] {
       throw new Error(`Entry ${index} is not an object`)
     }
     const obj = row as Record<string, unknown>
-    const required = ['channelId', 'channelSecret', 'channelAccessToken', 'botId'] as const
+    // r-final-9 should_fix: webhookDestinationId は本番 routing に必須
+    // (= LINE webhook の destination として送られてくる Bot user ID)。
+    // null だと botId/channelId のフォールバックに頼ることになり、本番
+    // LINE は実際に user ID を送ってくるので routing が必ず外れる。
+    const required = [
+      'channelId',
+      'channelSecret',
+      'channelAccessToken',
+      'botId',
+      'webhookDestinationId',
+    ] as const
     for (const key of required) {
       if (typeof obj[key] !== 'string' || (obj[key] as string).length === 0) {
         throw new Error(`Entry ${index} missing required field "${key}"`)
       }
+    }
+    // LINE Bot user ID は `U` + 32 hex (公式仕様)。形式から外れていれば
+    // 入力ミスの可能性が高いので早期に拒否する。
+    const webhookDestinationId = obj.webhookDestinationId as string
+    if (!/^U[0-9a-fA-F]{32}$/.test(webhookDestinationId)) {
+      throw new Error(
+        `Entry ${index} webhookDestinationId "${webhookDestinationId}" is not a valid LINE Bot user ID (U + 32 hex)`,
+      )
     }
     return {
       channelId: obj.channelId as string,
       channelSecret: obj.channelSecret as string,
       channelAccessToken: obj.channelAccessToken as string,
       botId: obj.botId as string,
-      webhookDestinationId:
-        typeof obj.webhookDestinationId === 'string'
-          ? obj.webhookDestinationId
-          : undefined,
+      webhookDestinationId,
       note: typeof obj.note === 'string' ? obj.note : undefined,
     }
   })

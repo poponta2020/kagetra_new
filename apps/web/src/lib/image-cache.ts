@@ -35,11 +35,29 @@ export function setCachedImage(
   contentType: string,
   ttlMs: number = DEFAULT_TTL_MS,
 ): void {
+  // r-final-9 should_fix: 追加時に古いエントリも掃除し、未取得 buffer が
+  // 永続的にメモリを占有しないようにする。route GET 経由でしか evict
+  // が走らなかった元実装では、配信後 LINE が取得しなかった画像が再起動
+  // までメモリに残ってリークしていた。
+  evictExpiredImages()
   cache.set(token, {
     data,
     contentType,
     expiresAt: Date.now() + ttlMs,
   })
+  // TTL 経過時に強制 evict する timer も仕込む。setTimeout のコールバックは
+  // プロセスが生きている間だけ動作するので、再起動で失われるのは想定通り
+  // (LINE 側はその時点で既に画像取得済み)。`unref()` で Node.js プロセスの
+  // 終了を妨げないように。
+  const timer = setTimeout(() => {
+    const entry = cache.get(token)
+    if (entry && entry.expiresAt <= Date.now()) {
+      cache.delete(token)
+    }
+  }, ttlMs + 1000)
+  if (typeof timer.unref === 'function') {
+    timer.unref()
+  }
 }
 
 export function getCachedImage(

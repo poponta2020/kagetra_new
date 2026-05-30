@@ -42,7 +42,11 @@ export const lineChannels = pgTable('line_channels', {
   // used for friends-add URLs. Stored separately so the friends-add URL stays
   // human-readable and webhook routing has an exact-match key. NULL while a
   // pre-existing channel hasn't been re-seeded with its destination value.
-  webhookDestinationId: text('webhook_destination_id'),
+  //
+  // r-final-9 should_fix: UNIQUE で重複投入を DB 層で防ぐ。seed JSON の
+  // 重複や手動投入ミスを早期発見し、誤 routing を未然に潰す。NULL は
+  // 重複可 (legacy 行を共存させるため)。
+  webhookDestinationId: text('webhook_destination_id').unique(),
   notificationLineUserId: text('notification_line_user_id'),
   note: text('note'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
