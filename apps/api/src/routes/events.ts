@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { eq, desc } from 'drizzle-orm'
 import { db } from '../db'
-import { events } from '@kagetra/shared/schema'
+import { events, eventLineBroadcasts } from '@kagetra/shared/schema'
 
 const createEventSchema = z.object({
   title: z.string().min(1).max(200),
@@ -59,6 +59,27 @@ const route = new Hono()
   .delete('/:id', async (c) => {
     const id = Number(c.req.param('id'))
     if (isNaN(id)) return c.json({ error: 'Invalid id' }, 400)
+
+    // r-final-12 should_fix: event_line_broadcasts.event_id を ON DELETE
+    // RESTRICT にしているため、revoked/released 履歴行が残った event を
+    // DELETE すると FK 例外で 500 になる。アプリ層で先に検出し 409 を
+    // 返して運用上のメッセージを明確化する。
+    const linkedBroadcast = await db
+      .select({ id: eventLineBroadcasts.id, status: eventLineBroadcasts.status })
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.eventId, id))
+      .limit(1)
+    if (linkedBroadcast.length > 0) {
+      return c.json(
+        {
+          error:
+            'この大会には LINE 配信履歴が紐付いています。先に履歴を削除するか、削除を控えてください。',
+          broadcastStatus: linkedBroadcast[0]!.status,
+        },
+        409,
+      )
+    }
+
     const [deleted] = await db
       .delete(events)
       .where(eq(events.id, id))

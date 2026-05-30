@@ -488,6 +488,26 @@ export async function broadcastMailToEvent(
     }
   }
 
+  // r-final-12 should_fix: 同じ broadcast/mail の同時実行を弾く。
+  // 既に status='sending' な audit 行 = 他ワーカーが進行中なので、
+  // ここで送信を始めると外部 LINE API へ二重 push になる。upsert で
+  // 無条件に sending へ戻すと第二走者も走り始めるため、事前 SELECT で
+  // skipped を返す。完全な race condition 排除には advisory lock が
+  // 必要だが、現実的にはこの軽量チェックで実運用の二重送信を防げる。
+  if (existingAudit[0]?.status === 'sending') {
+    logger.warn('mail broadcast already in progress; skipping duplicate run', {
+      eventId: args.eventId,
+      mailMessageId: args.mailMessageId,
+    })
+    return {
+      status: 'skipped',
+      reason: 'already_in_progress',
+      sentTextCount: existingAudit[0].sentTextCount,
+      sentImageCount: existingAudit[0].sentImageCount,
+      fallbackLinkCount: existingAudit[0].fallbackLinkCount,
+    }
+  }
+
   // r-final-8 blocker: force 再送 (UI 経由の manualBroadcast) では
   // 「LINE 側で前回成功分が消えていた」等で全件再送したいケースがある。
   // previouslyDelivered=0 にして先頭 skip を無効化する。force でない
