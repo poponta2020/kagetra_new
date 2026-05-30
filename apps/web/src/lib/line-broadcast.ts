@@ -460,6 +460,7 @@ export async function broadcastMailToEvent(
       sentImageCount: eventBroadcastMessages.sentImageCount,
       fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
       status: eventBroadcastMessages.status,
+      updatedAt: eventBroadcastMessages.updatedAt,
     })
     .from(eventBroadcastMessages)
     .where(
@@ -489,23 +490,36 @@ export async function broadcastMailToEvent(
   }
 
   // r-final-12 should_fix: 同じ broadcast/mail の同時実行を弾く。
-  // 既に status='sending' な audit 行 = 他ワーカーが進行中なので、
-  // ここで送信を始めると外部 LINE API へ二重 push になる。upsert で
-  // 無条件に sending へ戻すと第二走者も走り始めるため、事前 SELECT で
-  // skipped を返す。完全な race condition 排除には advisory lock が
-  // 必要だが、現実的にはこの軽量チェックで実運用の二重送信を防げる。
+  // r-final-14 should_fix: ただし stale な sending (プロセス中断で
+  // terminal に遷移できなかった行) を永久ロックにしないため、最後の
+  // 更新から 15 分以上経った行は reclaim 候補として扱う (skip しない)。
+  // 最終的な原子性は下の upsert CAS で確保される。
+  // 事前 SELECT は早期 return で「明らかに進行中」の場合だけ DB 更新を
+  // 省くための軽量ガード。
   if (existingAudit[0]?.status === 'sending') {
-    logger.warn('mail broadcast already in progress; skipping duplicate run', {
+    const STALE_AFTER_MS = 15 * 60 * 1000
+    const updatedAtMs = existingAudit[0].updatedAt
+      ? new Date(existingAudit[0].updatedAt).getTime()
+      : 0
+    const isStale = Date.now() - updatedAtMs > STALE_AFTER_MS
+    if (!isStale) {
+      logger.warn('mail broadcast already in progress; skipping duplicate run', {
+        eventId: args.eventId,
+        mailMessageId: args.mailMessageId,
+      })
+      return {
+        status: 'skipped',
+        reason: 'already_in_progress',
+        sentTextCount: existingAudit[0].sentTextCount,
+        sentImageCount: existingAudit[0].sentImageCount,
+        fallbackLinkCount: existingAudit[0].fallbackLinkCount,
+      }
+    }
+    logger.warn('stale sending detected, will reclaim via CAS', {
       eventId: args.eventId,
       mailMessageId: args.mailMessageId,
+      lastUpdatedAt: existingAudit[0].updatedAt,
     })
-    return {
-      status: 'skipped',
-      reason: 'already_in_progress',
-      sentTextCount: existingAudit[0].sentTextCount,
-      sentImageCount: existingAudit[0].sentImageCount,
-      fallbackLinkCount: existingAudit[0].fallbackLinkCount,
-    }
   }
 
   // r-final-8 blocker: force 再送 (UI 経由の manualBroadcast) では
@@ -543,7 +557,13 @@ export async function broadcastMailToEvent(
       // 何もせず RETURNING が 0 件になるので、二重実行は send 開始でき
       // ない。force=true の連打や、複数管理者の同時操作でも push が
       // 1 回しか走らない原子性を確保する。
-      where: sql`${eventBroadcastMessages.status} <> 'sending'`,
+      //
+      // r-final-14 should_fix: stale sending (プロセス再起動・デプロイ
+      // 等で terminal 状態に遷移できなかった行) を 15 分経過したら
+      // 自動 reclaim 可能にする。pdftoppm/libreoffice 込みでも 15 分
+      // あれば終わるはずなので、それを過ぎたものは死んだセッションと
+      // 見なして上書きを許可する。
+      where: sql`${eventBroadcastMessages.status} <> 'sending' OR ${eventBroadcastMessages.updatedAt} < now() - INTERVAL '15 minutes'`,
     })
     .returning({ id: eventBroadcastMessages.id })
 

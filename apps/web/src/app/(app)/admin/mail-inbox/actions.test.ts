@@ -21,6 +21,28 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }))
+// r-final-14 blocker: next/server.after() は Next.js の request scope 外
+// (Vitest 直接呼出) で例外を投げる。approveDraft / linkDraftToEvent が
+// broadcastMailToEvent を fire-and-forget で呼ぶための after() を no-op
+// にモックして、本テストが既存の承認フロー検証だけを扱えるようにする。
+vi.mock('next/server', async () => {
+  const actual = await vi.importActual<typeof import('next/server')>('next/server')
+  return {
+    ...actual,
+    after: vi.fn(),
+  }
+})
+// broadcastMailToEvent の実呼び出しもテスト対象外。after が直接実行されても
+// LINE 連携ロジックを発火させないようスタブ化。
+vi.mock('@/lib/line-broadcast', () => ({
+  broadcastMailToEvent: vi.fn(async () => ({
+    status: 'skipped' as const,
+    reason: 'mocked',
+    sentTextCount: 0,
+    sentImageCount: 0,
+    fallbackLinkCount: 0,
+  })),
+}))
 
 // Stub the mail-worker classifier surface so reextractDraft does not actually
 // call Anthropic. The action only needs `classifyMail` + `persistOutcome` to
