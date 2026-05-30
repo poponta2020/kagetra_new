@@ -93,14 +93,19 @@ export async function releaseExpiredBroadcasts(
           sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
         ),
       )
+    // r-final-13 should_fix: 実処理の SELECT 条件と完全に揃える
+    // (「期限切れ OR invite_code IS NULL の異常行」)。dry-run の件数が
+    // 実際に解放される Bot 数と一致するように。
     const expiredInvitesDry = await db
       .select({ id: eventLineBroadcasts.id })
       .from(eventLineBroadcasts)
       .where(
         and(
           sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code')`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL`,
-          sql`${eventLineBroadcasts.inviteCodeExpiresAt} < now()`,
+          sql`(
+            (${eventLineBroadcasts.inviteCodeExpiresAt} IS NOT NULL AND ${eventLineBroadcasts.inviteCodeExpiresAt} < now())
+            OR ${eventLineBroadcasts.inviteCode} IS NULL
+          )`,
         ),
       )
     return {

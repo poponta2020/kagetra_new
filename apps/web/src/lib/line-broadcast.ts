@@ -538,9 +538,32 @@ export async function broadcastMailToEvent(
         errorMessage: null,
         updatedAt: sql`now()`,
       },
+      // r-final-13 blocker: CAS で「sending じゃない時だけ status を
+      // sending に上書き」する。既に sending な行に対しては upsert が
+      // 何もせず RETURNING が 0 件になるので、二重実行は send 開始でき
+      // ない。force=true の連打や、複数管理者の同時操作でも push が
+      // 1 回しか走らない原子性を確保する。
+      where: sql`${eventBroadcastMessages.status} <> 'sending'`,
     })
     .returning({ id: eventBroadcastMessages.id })
-  const broadcastMessageId = inserted[0]!.id
+
+  if (!inserted[0]) {
+    // CAS 失敗 = 別ワーカーが status='sending' を保持中。早期 return。
+    // 既存 audit の counts はそのまま戻して呼び出し元に既配信状況を
+    // 伝える (existingAudit を再利用)。
+    logger.warn('failed to claim broadcast slot (already sending); skipping', {
+      eventId: args.eventId,
+      mailMessageId: args.mailMessageId,
+    })
+    return {
+      status: 'skipped',
+      reason: 'already_in_progress',
+      sentTextCount: existingAudit[0]?.sentTextCount ?? 0,
+      sentImageCount: existingAudit[0]?.sentImageCount ?? 0,
+      fallbackLinkCount: existingAudit[0]?.fallbackLinkCount ?? 0,
+    }
+  }
+  const broadcastMessageId = inserted[0].id
 
   try {
     // Build text messages: split the mail body at 5000-char boundaries.
