@@ -28,8 +28,27 @@ const LINE_PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push'
 
 const CORRECTION_PREFIX = '【訂正】'
 
-const ATTACHMENT_BASE_URL =
-  process.env.PUBLIC_BASE_URL ?? 'https://new.hokudaicarta.com'
+/**
+ * r-final-15 should_fix: 公開 URL は LINE からアクセス可能な HTTPS で
+ * なければならない (本番必須)。env 未設定で固定ドメインへ静かに
+ * フォールバックすると、ステージング/プレビュー環境で実際の origin と
+ * 別ドメインの URL を LINE に渡してしまい原因追跡が難しい配信失敗に
+ * なる。明示的に検証して、無効なら起動時 (or 配信開始時) にエラー。
+ */
+function resolveBaseUrl(override?: string): string {
+  const candidate = override ?? process.env.PUBLIC_BASE_URL
+  if (!candidate) {
+    throw new Error(
+      'PUBLIC_BASE_URL is not configured. LINE broadcast requires an HTTPS origin reachable from LINE servers.',
+    )
+  }
+  if (!/^https:\/\//i.test(candidate)) {
+    throw new Error(
+      `PUBLIC_BASE_URL must use https:// (got "${candidate}"). LINE rejects http and bare hosts for image/attachment URLs.`,
+    )
+  }
+  return candidate.replace(/\/$/, '')
+}
 
 // LINE Image-message MIME constraints: jpeg only for the original/preview
 // URLs. We render everything to jpeg so the content-type is consistent.
@@ -205,23 +224,84 @@ function attachmentImageUrl(token: string, baseUrl: string): string {
   return `${baseUrl}/api/line-broadcast/images/${token}`
 }
 
-function buildRenderedImageMessages(
+/**
+ * LINE image message size limits (公式仕様):
+ *   - originalContentUrl: JPEG, max 10 MB, max 4096x4096
+ *   - previewImageUrl:    JPEG, max 1 MB,  max 240x240
+ *
+ * r-final-15 should_fix: 150 DPI で生成した本文画像をそのまま preview
+ * にも使うと、要項画像が大判のとき 1 MB を超えて LINE 側で preview 取得
+ * が失敗し、配信全体が partial / failed になる。preview は sharp で
+ * 240x240 上限に縮小して別 token で配信し、original は 10 MB 超過時のみ
+ * fallback link に倒す。
+ */
+const LINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const LINE_PREVIEW_MAX_DIMENSION = 240
+const LINE_PREVIEW_JPEG_QUALITY = 70
+
+async function buildRenderedImageMessages(
   pages: Buffer[],
   baseUrl: string,
-): LineMessage[] {
+  attachment: AttachmentRow,
+  db: typeof appDb,
+  logger: NonNullable<BroadcastMailOptions['logger']>,
+): Promise<{ messages: LineMessage[]; oversizeFallback: LineMessage | null }> {
   const messages: LineMessage[] = []
+  // Defer the sharp import to actual use — sharp is heavy (~30 MB native
+  // module) and not all broadcast paths take attachments.
+  const { default: sharp } = await import('sharp')
+
   for (const buffer of pages) {
-    const token = randomBytes(16).toString('base64url')
-    setCachedImage(token, buffer, RENDERED_IMAGE_CONTENT_TYPE)
-    const url = attachmentImageUrl(token, baseUrl)
+    // Original 側のサイズ上限を超えるページは画像化を諦め、ページ単位で
+    // fallback link 1 本に縮約する (LINE は 10 MB 超を 400 で返す)。
+    if (buffer.byteLength > LINE_IMAGE_MAX_BYTES) {
+      const fallback = await buildFallbackTextMessage(
+        db,
+        attachment,
+        baseUrl,
+        `📎 ${attachment.filename} (サイズ超過のため Web で閲覧)`,
+      )
+      logger.warn('attachment page exceeds LINE 10 MB limit; falling back to link', {
+        attachmentId: attachment.id,
+        filename: attachment.filename,
+        byteLength: buffer.byteLength,
+      })
+      return { messages: [], oversizeFallback: fallback }
+    }
+
+    let previewBuffer: Buffer
+    try {
+      previewBuffer = await sharp(buffer)
+        .resize({
+          width: LINE_PREVIEW_MAX_DIMENSION,
+          height: LINE_PREVIEW_MAX_DIMENSION,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: LINE_PREVIEW_JPEG_QUALITY })
+        .toBuffer()
+    } catch (err) {
+      // Preview 生成失敗時は original をそのまま preview にも使う
+      // (LINE 側で 1 MB を超えると失敗する可能性は残るが、画像表示
+      // 機能自体は維持できる)。
+      logger.warn('preview resize failed; reusing original buffer', {
+        attachmentId: attachment.id,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      previewBuffer = buffer
+    }
+
+    const originalToken = randomBytes(16).toString('base64url')
+    const previewToken = randomBytes(16).toString('base64url')
+    setCachedImage(originalToken, buffer, RENDERED_IMAGE_CONTENT_TYPE)
+    setCachedImage(previewToken, previewBuffer, RENDERED_IMAGE_CONTENT_TYPE)
     messages.push({
       type: 'image',
-      originalContentUrl: url,
-      // Preview can be the same URL — LINE clients downscale on the device.
-      previewImageUrl: url,
+      originalContentUrl: attachmentImageUrl(originalToken, baseUrl),
+      previewImageUrl: attachmentImageUrl(previewToken, baseUrl),
     })
   }
-  return messages
+  return { messages, oversizeFallback: null }
 }
 
 interface AttachmentRow {
@@ -291,7 +371,15 @@ async function renderAttachment(
     return { messages: [await buildFallbackTextMessage(db, attachment, baseUrl)], usedFallback: true }
   }
 
-  const imageMessages = buildRenderedImageMessages(rendered.pages, baseUrl)
+  const { messages: imageMessages, oversizeFallback } =
+    await buildRenderedImageMessages(rendered.pages, baseUrl, attachment, db, logger)
+
+  // r-final-15: LINE の 10 MB 上限を超えるページがあれば、その attachment
+  // 全体を画像化諦めて fallback link 1 本に縮約する。
+  if (oversizeFallback) {
+    return { messages: [oversizeFallback], usedFallback: true }
+  }
+
   if (rendered.truncated) {
     // Append a "see full file on web" link after the first N rendered pages.
     const link = await buildFallbackTextMessage(
@@ -401,7 +489,7 @@ export async function broadcastMailToEvent(
   },
   options: BroadcastMailOptions = {},
 ): Promise<BroadcastResult> {
-  const baseUrl = options.baseUrl ?? ATTACHMENT_BASE_URL
+  const baseUrl = resolveBaseUrl(options.baseUrl)
   const logger = options.logger ?? NOOP_LOGGER
 
   const binding = await loadActiveBinding(db, args.eventId)

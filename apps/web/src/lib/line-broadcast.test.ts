@@ -27,10 +27,15 @@ async function resetDb() {
 }
 
 let originalDryRun: string | undefined
+let originalBaseUrl: string | undefined
 
 beforeAll(() => {
   originalDryRun = process.env.LINE_NOTIFY_DRY_RUN
   process.env.LINE_NOTIFY_DRY_RUN = '1'
+  // r-final-15: resolveBaseUrl は PUBLIC_BASE_URL が必須なのでテスト
+  // 時にダミーをセット。実際の push は LINE_NOTIFY_DRY_RUN=1 で skip。
+  originalBaseUrl = process.env.PUBLIC_BASE_URL
+  process.env.PUBLIC_BASE_URL = 'https://test.example.com'
 })
 
 afterAll(() => {
@@ -38,6 +43,11 @@ afterAll(() => {
     delete process.env.LINE_NOTIFY_DRY_RUN
   } else {
     process.env.LINE_NOTIFY_DRY_RUN = originalDryRun
+  }
+  if (originalBaseUrl == null) {
+    delete process.env.PUBLIC_BASE_URL
+  } else {
+    process.env.PUBLIC_BASE_URL = originalBaseUrl
   }
 })
 
