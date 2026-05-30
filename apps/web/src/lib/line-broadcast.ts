@@ -489,7 +489,16 @@ export async function broadcastMailToEvent(
   },
   options: BroadcastMailOptions = {},
 ): Promise<BroadcastResult> {
-  const baseUrl = resolveBaseUrl(options.baseUrl)
+  // r-final-16 blocker: baseUrl は添付・画像 URL を作るときだけ必要。
+  // 本文のみメール (添付なし) で PUBLIC_BASE_URL 未設定でも配信は成功
+  // させる。lazy resolver にして添付処理が baseUrl を要求した時点で
+  // 初めて検証エラーを投げる。
+  let cachedBaseUrl: string | null = null
+  const getBaseUrl = (): string => {
+    if (cachedBaseUrl != null) return cachedBaseUrl
+    cachedBaseUrl = resolveBaseUrl(options.baseUrl)
+    return cachedBaseUrl
+  }
   const logger = options.logger ?? NOOP_LOGGER
 
   const binding = await loadActiveBinding(db, args.eventId)
@@ -705,7 +714,15 @@ export async function broadcastMailToEvent(
     }
 
     for (const attachment of attachments) {
-      const result = await renderAttachment(db, attachment, baseUrl, logger)
+      // r-final-16 blocker: 添付があるときだけ baseUrl が必要。lazy
+      // resolver で初回呼出時に検証する (PUBLIC_BASE_URL が未設定なら
+      // ここで例外 → 既存の catch (err) が failed audit に倒す)。
+      const result = await renderAttachment(
+        db,
+        attachment,
+        getBaseUrl(),
+        logger,
+      )
       for (const m of result.messages) {
         messages.push(m)
         roles.push(m.type === 'image' ? 'attachment_image' : 'attachment_link')
@@ -877,13 +894,15 @@ export async function broadcastMailToEvent(
         // Access token 期限切れ / 無効。Bot を disabled にしつつ、
         // r-final-2 should_fix: binding も revoked にして assignedEventId
         // を解放しないと、次の承認メールでも同じ disabled channel に
-        // push し続け失敗ループになる。loadActiveBinding は status を
-        // 見ないので、binding 自体を terminal 状態にするのが安全。
+        // push し続け失敗ループになる。
         //
-        // r-final-7 should_fix: revoke は「我々が送信を試みた時点の binding」
-        // が今も active な場合だけ。再紐付け済みの新 binding は壊さない。
+        // r-final-7 / r-final-16 blocker: revoke は「送信開始時に保持
+        // していた binding (lineChannelId + lineGroupId)」が今も active
+        // な場合だけ。送信中に管理者が連携解除・再紐付けを完了して新しい
+        // binding になっていたら、stale cleanup で新 binding を壊さない。
+        // UPDATE が 0 件なら何もしない (channel 解放も連動して skip)。
         await db.transaction(async (tx) => {
-          await tx
+          const revoked = await tx
             .update(eventLineBroadcasts)
             .set({
               status: 'revoked',
@@ -897,8 +916,19 @@ export async function broadcastMailToEvent(
               and(
                 eq(eventLineBroadcasts.id, binding.id),
                 eq(eventLineBroadcasts.status, 'linked'),
+                eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
+                eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
               ),
             )
+            .returning({ id: eventLineBroadcasts.id })
+
+          if (revoked.length === 0) {
+            logger.warn('stale 401 cleanup skipped (binding changed)', {
+              eventId: args.eventId,
+              originalChannelId: binding.lineChannelId,
+            })
+            return
+          }
 
           await tx
             .update(lineChannels)
@@ -926,10 +956,11 @@ export async function broadcastMailToEvent(
       ) {
         // groupId 不正 / Bot kick 済み 等。binding を revoke して channel を
         // プールに戻し、UI 側で再紐付けが必要なことを明示する。
-        // r-final-7: status='linked' を WHERE に追加して、再紐付け済みの
-        // 新 binding は壊さない。
+        // r-final-7 / r-final-16 blocker: 送信開始時の lineChannelId /
+        // lineGroupId が今も一致する場合だけ revoke。再紐付け済みの新
+        // binding は壊さない。UPDATE が 0 件なら channel も触らない。
         await db.transaction(async (tx) => {
-          await tx
+          const revoked = await tx
             .update(eventLineBroadcasts)
             .set({
               status: 'revoked',
@@ -943,8 +974,20 @@ export async function broadcastMailToEvent(
               and(
                 eq(eventLineBroadcasts.id, binding.id),
                 eq(eventLineBroadcasts.status, 'linked'),
+                eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
+                eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
               ),
             )
+            .returning({ id: eventLineBroadcasts.id })
+
+          if (revoked.length === 0) {
+            logger.warn('stale 4xx cleanup skipped (binding changed)', {
+              eventId: args.eventId,
+              originalChannelId: binding.lineChannelId,
+              httpStatus: pushResult.httpStatus,
+            })
+            return
+          }
 
           await tx
             .update(lineChannels)
