@@ -118,10 +118,27 @@ export async function disableChannel(channelId: number): Promise<void> {
     )
   }
 
-  await db
+  // r-final-10 blocker: 上の事前チェック後に generateInviteCodeForEvent /
+  // manualLinkGroup が同じ channel を予約するレースを潰す。UPDATE WHERE
+  // に「未割当 + status が active/disabled でない」条件を再掲し、
+  // returning() が 0 件なら競合エラーで返す。
+  const updated = await db
     .update(lineChannels)
     .set({ status: 'disabled', updatedAt: sql`now()` })
-    .where(eq(lineChannels.id, channelId))
+    .where(
+      and(
+        eq(lineChannels.id, channelId),
+        sql`${lineChannels.assignedEventId} IS NULL`,
+        sql`${lineChannels.status} NOT IN ('active','disabled')`,
+      ),
+    )
+    .returning({ id: lineChannels.id })
+
+  if (updated.length === 0) {
+    throw new Error(
+      'チャネル状態が変わっています。再度ご確認のうえやり直してください',
+    )
+  }
 
   revalidatePath('/admin/line-channels')
   revalidatePath(`/admin/line-channels/${channelId}`)

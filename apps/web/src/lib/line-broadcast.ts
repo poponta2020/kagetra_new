@@ -571,7 +571,40 @@ export async function broadcastMailToEvent(
     // rr2 review should_fix: partial 再送のとき、既配信 prefix をスキップ。
     // messages の構築順は決定的なので、前回の sentXxxCount 合計分を先頭
     // から落とせば「未送信分の続き」を送れる。
-    const skipCount = Math.min(previouslyDelivered, messages.length)
+    //
+    // r-final-10 should_fix: ただし添付レンダリングは外部プロセス依存で
+    // 再試行時に結果が変わる (前回 PDF 5 枚 → 今回失敗で fallback link
+    // 1 件等)。前回 audit の role 別 counts と今回 messages の role 別
+    // counts を比較し、いずれかが「前回より減っている」なら配信計画が
+    // 別物なので partial スキップを諦めて全件再送に切り替える。
+    let effectivePreviouslyDelivered = previouslyDelivered
+    if (previouslyDelivered > 0 && existingAudit[0]) {
+      const currentTextCount = roles.filter((r) => r === 'body_text').length
+      const currentImageCount = roles.filter(
+        (r) => r === 'attachment_image',
+      ).length
+      const currentLinkCount = roles.filter(
+        (r) => r === 'attachment_link',
+      ).length
+      const layoutShrunk =
+        existingAudit[0].sentTextCount > currentTextCount ||
+        existingAudit[0].sentImageCount > currentImageCount ||
+        existingAudit[0].fallbackLinkCount > currentLinkCount
+      if (layoutShrunk) {
+        logger.warn('partial layout shrunk between sends; falling back to full re-send', {
+          eventId: args.eventId,
+          mailMessageId: args.mailMessageId,
+          previousText: existingAudit[0].sentTextCount,
+          currentText: currentTextCount,
+          previousImage: existingAudit[0].sentImageCount,
+          currentImage: currentImageCount,
+          previousLink: existingAudit[0].fallbackLinkCount,
+          currentLink: currentLinkCount,
+        })
+        effectivePreviouslyDelivered = 0
+      }
+    }
+    const skipCount = Math.min(effectivePreviouslyDelivered, messages.length)
     const messagesToPush = messages.slice(skipCount)
 
     // r-final-7 should_fix: pushMessages の直前に binding を再取得し、
