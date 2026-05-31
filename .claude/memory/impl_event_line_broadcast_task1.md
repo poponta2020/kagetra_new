@@ -1,48 +1,49 @@
 ---
-name: impl-event-line-broadcast-ship
-description: event-line-broadcast 全機能 ship 完了 (2026-05-31)。PR
+name: impl-event-line-broadcast-deploy
+description: event-line-broadcast 本番デプロイ完了 (2026-05-31)。Oracle Cloud Always Free 東京、2 Bot で運用開始、1 大会通しテスト成功
 metadata: 
   node_type: memory
   type: project
   originSessionId: bdf544e9-cf0c-4681-90d4-e0b0d2b2c4aa
 ---
 
-# event-line-broadcast 全機能 ship 完了
+# event-line-broadcast 本番運用開始
 
 ## 状態 (2026-05-31)
-- **PR #65 merge 済み** (`50f4574`、main HEAD)
-- 親 Issue #54 + 子 #55-#63 すべて自動クローズ
-- ブランチ `feature/event-line-broadcast-schema` 削除済み (リモート + ローカル)
-- worktree 削除済み
+- **本番稼働中** (new.hokudaicarta.com)
+- **PR #65** (機能本体) + **PR #70** (XSS+MIME 修正) merge 済み (`d94199f`)
+- LINE Bot 2 個運用中 (id=2 `@656jpsvg` / id=3 `@375dnfvx`)
+- 親 Issue #54 + 子 #55-#63 全クローズ
+- 1 大会通しテスト成功 (invite code → group → 紐付け → 1 メール配信)
 
-## 実装サマリー
-- スキーマ: enum 3 + 新規 3 テーブル + line_channels 拡張、migration 0013-0015
-- Bot プール 30 個 + 招待コード方式 (6 桁数字 + 30 分 + 1 回限り) + 1 大会 1 グループ
-- 大会終了 +30 日経過で自動解放 (JST)、UI 上の expectedEventId による stale 防御
-- 訂正版【訂正】prefix を split 前に結合
-- LINE push: 5 件/batch + 1.5 秒間隔 + 429 Retry-After + 30s タイムアウト
-- sharp で original 4096px / preview 240x240 リサイズ
-- pdftoppm + libreoffice で PDF/Word 画像化、Excel は 60 日署名 URL
-- force=true 強制再送、partial/failed の skip prefix で重複配信防止
-- audit CAS + stale sending reclaim + binding 再検証
+## 本番環境構成
+- ホスト: Oracle Cloud Always Free 東京 (`140.238.51.41`、Ubuntu 22.04, kagetra-vnc)
+- timezone: **Asia/Tokyo** (broadcast cleanup timer の JST 04:00 発火のため)
+- OS パッケージ: `poppler-utils 22.02.0` + `LibreOffice 7.3.7.2` + `fonts-noto-cjk` + `fonts-ipafont`
+- DB: PostgreSQL 16 (`127.0.0.1:5432/kagetra`)
+- 環境変数: `.env.production` に `PUBLIC_BASE_URL=https://new.hokudaicarta.com`
+- systemd: `kagetra-web.service` + `kagetra-broadcast-cleanup.timer` (OnCalendar=*-*-* 04:00:00 JST)
+- Nginx: `/api/webhook/line` + `/api/line-broadcast/*` 透過確認済み
 
-## レビュー実績
-- Codex auto-review-loop を **22 ラウンド完走** (中断・再開混じり)
-- **blockers=0 達成 8 回** (R6/R11/R12/R15/R17/R18/R21/R22)
-- 累計 **CRITICAL 43+ + WARNING 64+** に対応
-- Vitest **85 ケース pass**、Playwright E2E **11 ケース pass**
-- CI 2 段階修正: lockfile + E2E spec の seedAdminSession 戻り値
+## LINE Bot 運用
+- Bot プール 30 個設計だが現状 2 個で運用開始
+- 追加手順: LINE Console で channel 作成 → 4 項目 (channelId/Secret/AccessToken/botId) を JSON 追記 → `C:/tmp/fetch-bot-user-ids.ts` で webhookDestinationId 一括取得 → scp + `seed-broadcast-channels.ts` で本番投入 (backfill 対応済み)
+- 年 10 大会・30 日縛りなら 2-5 個で十分の見込み
 
-## Why
-mail-tournament-import の下流として「メール承認 → events 登録 → LINE 自動配信」のラストワンマイルを完成させた。年 10 大会程度の利用を想定し、Lightsail / Oracle Cloud Always Free 環境で月数十通の push 配信を行う設計。
+## 教訓 (新規 feedback memory)
+- [[feedback-nextjs-standalone-static-cp]]: リビルド時 static cp 忘れない (画面真っ白)
+- [[feedback-libreoffice-ja-fonts]]: Noto CJK 必須 (□化け対策)
+- [[feedback-drizzle-kit-push-prompt]]: 本番は `db:migrate`、`db:push` は dev only
+- [[feedback-attachment-mime-blocklist]]: 公開添付 route は blocklist + attachment 固定
 
-## How to apply
-- 本番デプロイは [docs/deploy/event-line-broadcast.md](docs/deploy/event-line-broadcast.md) 通り (poppler-utils + libreoffice + LINE 30 Bot 作成 + seed + systemd timer + .env.production に PUBLIC_BASE_URL)
-- 本番運用開始後の追加機能 (例: 配信内容の AI 整形 / 既読確認) は v2 で別途
+## How to apply (今後の追加 Bot)
+1. LINE Console で Bot 作成 (channelId/Secret/AccessToken/botId の 4 項目控える)
+2. `C:/tmp/broadcast-channels-template.json` に追記
+3. `pnpm exec tsx C:/tmp/fetch-bot-user-ids.ts <path>` で webhookDestinationId 自動取得
+4. `scp` で本番 `/etc/kagetra/broadcast-channels.json` に上書き
+5. ssh から `seed-broadcast-channels.ts --file=...` を実行 (既存は backfill or skipped)
 
 ## 関連
-- PR: https://github.com/poponta2020/kagetra_new/pull/65
-- 要件定義書: docs/features/event-line-broadcast/requirements.md
-- 実装手順書: docs/features/event-line-broadcast/implementation-plan.md
+- PR #65: https://github.com/poponta2020/kagetra_new/pull/65
+- PR #70: https://github.com/poponta2020/kagetra_new/pull/70
 - デプロイ手順書: docs/deploy/event-line-broadcast.md
-- [[project-event-line-broadcast]] — 要件定義段階のメモ

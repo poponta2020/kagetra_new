@@ -10,7 +10,7 @@
 - [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
 - [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
 - [モバイルシェル固定 完全完了](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 ship + 本番反映 + 実機 OK (2026-05-28)、Issue #50/#51/#52/#53 全 close、教訓は 4 つの feedback memory に切り出し済
-- [event-line-broadcast ship 完了](impl_event_line_broadcast_task1.md) — PR #65 merge `50f4574` (2026-05-31)、Issue #54+#55-#63 全クローズ。Codex 22 ラウンド (CRITICAL 43+/WARNING 64+ 対応)、本番デプロイ未実施 (docs/deploy/event-line-broadcast.md)
+- [event-line-broadcast 本番運用開始](impl_event_line_broadcast_task1.md) — PR #65 + PR #70 (xlsx MIME fix) merge `d94199f` (2026-05-31)。Oracle Cloud 東京で稼働、2 Bot 運用、1 大会通しテスト成功
 - [Codex review effort 自動判定](project_codex_review_effort.md) — PR #69 merge (647aa62)。/auto-review-loop が差分内容で medium/high を auto 判定。~/.codex/config.toml は medium 既定（git 管理外）
 
 ## Reference
@@ -31,3 +31,7 @@
 - [Tailwind arbitrary value 内のスペースは `_` でエスケープ](feedback_tailwind_arbitrary_underscore_space.md) — `calc(a+b)` のままだと CSS spec 違反で Safari が無効化。`calc(a_+_b)` で実 CSS の空白に展開
 - [iOS Safari `100dvh` が URL バー込みで viewport 超える](feedback_ios_safari_dvh_url_bar.md) — sticky bottom UI で `h-dvh` だけだと BottomNav が下部 URL バーの裏に隠れる。`100vh → 100dvh → 100svh` の cascade を globals.css の専用クラスで固定
 - [Tailwind の utility 出力順は className 順では制御できない](feedback_tailwind_utility_output_order_not_className.md) — 同一 property を複数 utility で重ねて cascade 期待するのは NG。CSS 側に専用クラスを切る
+- [Next.js standalone リビルド時の static cp](feedback_nextjs_standalone_static_cp.md) — build 後に `.next/static` と `public` を `.next/standalone/apps/web/` 配下にコピーし忘れると CSS/JS 全部 404 で画面真っ白
+- [本番ホストに Noto CJK 必須](feedback_libreoffice_ja_fonts.md) — `poppler-utils` + `libreoffice` で PDF/Word 画像化するなら日本語フォントを必ず apt install。デフォルトの Ubuntu Server は `fc-list :lang=ja` が 0 件で文字化け
+- [本番 migration は `db:migrate` 使う](feedback_drizzle_kit_push_prompt.md) — `db:push` は既存データありで UNIQUE 制約追加時に interactive prompt 要求 → TTY なしで詰む。`db:migrate` は journal ベースで非 interactive
+- [公開添付 route は blocklist + attachment 固定](feedback_attachment_mime_blocklist.md) — allowlist 方式は xlsx 等をモバイルアプリで開けなくする副作用。`Content-Disposition: attachment` 固定 + 危険 MIME blocklist + token 検証の三重防御

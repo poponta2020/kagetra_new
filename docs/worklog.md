@@ -2073,5 +2073,37 @@
   - 機能: Bot プール 30 個 + 招待コード方式 + 1 大会 1 グループ + 30 日自動解放 + 訂正版【訂正】prefix + LINE push 5件/batch + sharp で preview 縮小 + pdftoppm/libreoffice で添付画像化 + force=true 強制再送 + partial skip prefix + audit CAS + stale binding 再検証
 
 ### 次回 (carryover)
-- 🔴 本番デプロイ ([docs/deploy/event-line-broadcast.md](docs/deploy/event-line-broadcast.md)) は未実施: OS パッケージ (poppler-utils + libreoffice) + .env.production に PUBLIC_BASE_URL=https://new.hokudaicarta.com 追加 + LINE Developers Console で 30 Bot 作成 + seed-broadcast-channels.ts 実行 + systemd timer 配置 → 1 大会通しの実機確認
 - 🟡 worktree ディレクトリ `C:/tmp/impl-event-line-broadcast/` は git 上は削除済みだが Windows のファイルロックでディレクトリ残骸あり (apps/web)。次回手動削除
+
+## 2026-05-31 セッション3（event-line-broadcast 本番デプロイ + 運用バグ修正）
+
+### 完了
+- **本番デプロイ実施** (Oracle Cloud Always Free 東京、`new.hokudaicarta.com`):
+  - OS パッケージ `poppler-utils 22.02.0` + `LibreOffice 7.3.7.2` インストール
+  - **`fonts-noto-cjk` + `fonts-noto-cjk-extra` + `fonts-ipafont` 追加インストール** (日本語フォント 0 個 → 86 個。PDF/Word 画像化の文字化け対応)
+  - migration 0013-0015 を `drizzle-kit migrate` で適用
+  - `.env.production` に `PUBLIC_BASE_URL=https://new.hokudaicarta.com` 追記
+  - `apps/web` リビルド + 静的アセット cp (`.next/static`/`public` → `.next/standalone/apps/web/`) + restart
+  - **ホスト timezone を `UTC` → `Asia/Tokyo` 変更** (broadcast cleanup timer が JST 04:00 発火するため)
+  - `kagetra-broadcast-cleanup.service/.timer` を `/etc/systemd/system/` 配置 + enable
+  - Nginx 透過確認 (`POST /api/webhook/line` → 401 malformed_payload OK、`GET /api/line-broadcast/attachments/[token]` → 404 OK)
+- **LINE Bot 初期 2 個作成 + seed**:
+  - `kagetra-event-bot-1` (`@656jpsvg`, U42de9e9...) と `bot-2` (`@375dnfvx`, Uf8a2f9e1...)
+  - `webhookDestinationId` は LINE API `/v2/bot/info` 経由で取得する自動化スクリプト `C:/tmp/fetch-bot-user-ids.ts` 作成
+  - `seed-broadcast-channels.ts --file=/etc/kagetra/broadcast-channels.json` で本番 DB に投入 (id=2,3)
+- **1 大会通しテスト成功**: invite code 発行 → グループ作成 → Bot 招待 → コード発言 → `status='linked'` 遷移 → 1 メール配信完走
+- **PR #70** (`fix/line-broadcast-attachment-mime` → main, merge `d94199f`) ship — 本番運用で発覚した Excel 添付 URL が LINE で開けない問題を修正
+  - 旧実装: PDF のみ inline 許可、それ以外を全部 `application/octet-stream` に書き換え → LINE モバイル内蔵ブラウザが xlsx を開けず白画面
+  - 新実装: allowlist → 危険 MIME blocklist 方式に転換。`Content-Disposition: attachment` 固定で XSS 完全遮断、危険 MIME (html/svg/xhtml/xml/js) のみ octet-stream、それ以外 (xlsx/docx/pdf/jpeg 等) は元 MIME 保持。さらに RFC 6838 token 正規表現で不正トークン (制御文字等) を弾いて 500 リスクも閉じる
+  - Codex auto-review-loop R1 (high) で should_fix 1 (untrusted MIME 検証漏れ) を指摘 → 修正 → R2 で pass
+  - CI pass (2m50s)、本番反映後 `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` を確認
+
+### 教訓 (feedback memory に転写予定)
+- **Next.js standalone リビルド時の static cp 忘れ**: `pnpm build` 後に必ず `cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/` + `cp -r apps/web/public apps/web/.next/standalone/apps/web/` をセットでやる。忘れると CSS/JS 全部 404 で画面真っ白
+- **本番ホストの日本語フォント**: PDF/Word を画像化する系統 (poppler-utils + libreoffice) は OS インストール時に `fonts-noto-cjk` も同時に入れる。これを忘れると LibreOffice が□に化ける
+- **drizzle-kit `db:push` は interactive プロンプトを要求**: 既存データありで UNIQUE 制約追加すると truncate 確認プロンプトが出て TTY なしで詰む。本番では `db:migrate` を使う方が安全
+- **公開添付 route の MIME ポリシー**: allowlist (inline 許可) 方式は副作用 (非インライン化された xlsx をモバイル端末が開けない) を持つ。XSS は `Content-Disposition: attachment` 固定で防御し、Content-Type は危険 MIME blocklist + token 検証で十分
+
+### 次回 (carryover)
+- 🟢 LINE Bot は現状 2 個。年 10 大会想定で 5-10 個まで増やすかどうかは運用次第。`fetch-bot-user-ids.ts` + `seed-broadcast-channels.ts` で随時追加可能
+- 🟢 残った機能 (Phase 2 大会運営) は別 PR で着手
