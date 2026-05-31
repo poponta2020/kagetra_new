@@ -69,16 +69,16 @@ describe('stripMailFooter', () => {
 })
 
 describe('buildBroadcastBody', () => {
-  it('prepends 【メール件名】 prefix when subject is present', () => {
+  it('wraps subject in 【】 brackets when subject is present', () => {
     const result = buildBroadcastBody({
       rawBody: '本文です',
       subject: '第48回大会のお知らせ',
       isCorrection: false,
     })
-    expect(result).toBe('【メール件名】第48回大会のお知らせ\n\n本文です')
+    expect(result).toBe('【第48回大会のお知らせ】\n\n本文です')
   })
 
-  it('omits subject prefix when subject is empty/null', () => {
+  it('omits subject bracket when subject is empty/null', () => {
     expect(
       buildBroadcastBody({ rawBody: '本文だけ', subject: '', isCorrection: false }),
     ).toBe('本文だけ')
@@ -87,14 +87,14 @@ describe('buildBroadcastBody', () => {
     ).toBe('本文だけ')
   })
 
-  it('prepends 【訂正】「<件名>」 + subject prefix for corrections', () => {
+  it('prepends 【訂正】 + 【件名】 for corrections', () => {
     const result = buildBroadcastBody({
       rawBody: '訂正後本文',
       subject: '第48回大会のお知らせ(訂正版)',
       isCorrection: true,
     })
     expect(result).toBe(
-      '【訂正】「第48回大会のお知らせ(訂正版)」\n【メール件名】第48回大会のお知らせ(訂正版)\n\n訂正後本文',
+      '【訂正】【第48回大会のお知らせ(訂正版)】\n\n訂正後本文',
     )
   })
 
@@ -110,7 +110,7 @@ describe('buildBroadcastBody', () => {
       subject: 'テスト',
       isCorrection: false,
     })
-    expect(result).toBe('【メール件名】テスト\n\n本文')
+    expect(result).toBe('【テスト】\n\n本文')
   })
 
   it('falls back to placeholder body when rawBody is empty', () => {
@@ -119,7 +119,7 @@ describe('buildBroadcastBody', () => {
       subject: 'タイトル',
       isCorrection: false,
     })
-    expect(result).toBe('【メール件名】タイトル\n\n(本文なし)')
+    expect(result).toBe('【タイトル】\n\n(本文なし)')
   })
 
   it('trims surrounding whitespace from subject', () => {
@@ -128,6 +128,6 @@ describe('buildBroadcastBody', () => {
       subject: '  前後空白  ',
       isCorrection: false,
     })
-    expect(result).toBe('【メール件名】前後空白\n\n本文')
+    expect(result).toBe('【前後空白】\n\n本文')
   })
 })
