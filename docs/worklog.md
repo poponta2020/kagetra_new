@@ -2118,3 +2118,9 @@
   - prefix 結合は splitForLine 前に実施して 5000 字制限を担保
   - Vitest 14 ケース追加 (mail-body-cleaner.test.ts)、既存 line-broadcast.test.ts 6 ケース pass
   - Codex auto-review-loop R1 (high) で blockers=0 一発 pass、CI pass (2m53s)、本番反映完了 (build + static cp + restart)
+
+### 完了 (続き)
+- **PR #72** (`fix/line-broadcast-subject-format` → main, merge `a75d963`) ship — 件名フォーマット修正
+  - 仕様誤解の即修正: `【メール件名】<件名>` → `【<件名>】` (件名そのものを括弧で囲む)
+  - 訂正版: `【訂正】「<件名>」\n【メール件名】<件名>` → `【訂正】【<件名>】`
+  - mail-body-cleaner.test.ts 14 ケース更新、Codex R1 (high) blockers=0 一発 pass、CI pass (2m55s)、本番反映完了
