@@ -46,6 +46,14 @@ const DANGEROUS_CONTENT_TYPES = new Set<string>([
 ])
 
 /**
+ * RFC 6838 token grammar に沿った `type/subtype` 形式の MIME 判定。
+ * 制御文字 / 空白 / カンマ / `;` 以降のパラメータが混入すると
+ * `Response.Headers` 側で例外になり 500 を返してしまうため、
+ * Content-Type ヘッダに使う前に必ず通す (pr70 r1 should_fix)。
+ */
+const SAFE_MIME_RE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i
+
+/**
  * GET /api/line-broadcast/attachments/[token]
  *
  * Public 60-day download endpoint for mail attachments that we forwarded to
@@ -116,9 +124,14 @@ export async function GET(
   const declaredContentType =
     (hit.contentType ?? '').toLowerCase().split(';')[0]?.trim() ?? ''
   const isDangerous = DANGEROUS_CONTENT_TYPES.has(declaredContentType)
-  const responseContentType = isDangerous
+  // pr70 r1 should_fix: untrusted な MIME 文字列をそのままヘッダに乗せると、
+  // 不正トークン (制御文字 / 空白 / カンマ等) を含む値で
+  // `new NextResponse(..., { headers })` が例外になり 500 になる。
+  // RFC 6838 token grammar に通った値だけを採用、ダメなら octet-stream に落とす。
+  const isValidMime = SAFE_MIME_RE.test(declaredContentType)
+  const responseContentType = isDangerous || !isValidMime
     ? 'application/octet-stream'
-    : declaredContentType || 'application/octet-stream'
+    : declaredContentType
   // attachment 固定 = ブラウザ内 inline 表示を禁止する (XSS 完全遮断)
   const dispositionType = 'attachment'
 
