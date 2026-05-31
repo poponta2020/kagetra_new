@@ -175,4 +175,43 @@ describe('event lifecycle actions', () => {
     expect((await getEvent(event.id))?.paymentStatus).toBe('unpaid')
     expect(await notifications(event.id)).toHaveLength(0)
   })
+
+  it('cancelled 大会は申込済にしても完了通知を送らない（状態は記録する）', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent({ status: 'cancelled' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await setEntryApplied(event.id, true)
+
+    expect((await getEvent(event.id))?.entryStatus).toBe('applied')
+    expect(await notifications(event.id)).toHaveLength(0)
+  })
+
+  it('cancelled 大会は支払済にしても完了通知を送らない', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent({ status: 'cancelled' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await setPaymentType(event.id, 'advance')
+
+    await setPaymentPaid(event.id, true)
+
+    expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
+    expect(await notifications(event.id)).toHaveLength(0)
+  })
+
+  it('setPaymentType: advance 以外へ変更すると支払状態をリセットする', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await setPaymentType(event.id, 'advance')
+    await setPaymentPaid(event.id, true)
+    expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
+
+    // onsite へ変更 → 古い paid をリセット（advance に戻したとき支払済が残らない）
+    await setPaymentType(event.id, 'onsite')
+    const row = await getEvent(event.id)
+    expect(row?.paymentType).toBe('onsite')
+    expect(row?.paymentStatus).toBe('unpaid')
+    expect(row?.paymentPaidAt).toBeNull()
+  })
 })

@@ -482,8 +482,13 @@ export async function setEntryApplied(
       .update(events)
       .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
       .where(and(eq(events.id, eventId), eq(events.entryStatus, 'not_applied')))
-      .returning({ id: events.id, title: events.title })
+      .returning({ id: events.id, title: events.title, status: events.status })
     if (!flipped[0]) return { notificationId: null as number | null, title: '' }
+    // cancelled 大会には通知しない（要件 §3.2.2 #2、日次バッチ側の除外と対称）。
+    // 状態変更そのものは記録する。
+    if (flipped[0].status === 'cancelled') {
+      return { notificationId: null as number | null, title: '' }
+    }
     // once-ever claim（再トグルしても UNIQUE で 2 回目以降は claim されない）
     const claim = await claimLifecycleNotification(tx, eventId, 'entry_applied')
     return { notificationId: claim.id ?? null, title: flipped[0].title }
@@ -512,9 +517,17 @@ export async function setPaymentType(
   type: 'advance' | 'onsite' | null,
 ): Promise<void> {
   await requireAdminSession()
+  // 事前払い以外へ変えるときは支払状態をリセットする。advance で支払済にした後に
+  // 別タイプへ→再び advance に戻したとき、古い paid が残って支払済表示・支払締切
+  // リマインド抑止・完了通知の再送抑止につながるのを防ぐ（review should_fix）。
+  const leavingAdvance = type !== 'advance'
   await db
     .update(events)
-    .set({ paymentType: type, updatedAt: sql`now()` })
+    .set({
+      paymentType: type,
+      ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
+      updatedAt: sql`now()`,
+    })
     .where(eq(events.id, eventId))
   revalidatePath(`/events/${eventId}`)
 }
@@ -549,8 +562,17 @@ export async function setPaymentPaid(
           eq(events.paymentStatus, 'unpaid'),
         ),
       )
-      .returning({ id: events.id, title: events.title, feeJpy: events.feeJpy })
+      .returning({
+        id: events.id,
+        title: events.title,
+        feeJpy: events.feeJpy,
+        status: events.status,
+      })
     if (!flipped[0]) {
+      return { notificationId: null as number | null, title: '', feeJpy: null as number | null }
+    }
+    // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録する。
+    if (flipped[0].status === 'cancelled') {
       return { notificationId: null as number | null, title: '', feeJpy: null as number | null }
     }
     const claim = await claimLifecycleNotification(tx, eventId, 'payment_paid')
