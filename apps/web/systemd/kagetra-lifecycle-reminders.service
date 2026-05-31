@@ -19,6 +19,11 @@ WorkingDirectory=/opt/kagetra
 # LINE_NOTIFY_DRY_RUN unset in production; set it to 1 only for verification.
 EnvironmentFile=/opt/kagetra/.env.production
 
+# NOTE: `pnpm --filter @kagetra/web exec` runs the command with cwd set to the
+# package directory (apps/web), NOT WorkingDirectory. So `tsx scripts/...`
+# resolves to apps/web/scripts/send-lifecycle-reminders.ts. WorkingDirectory is
+# only the repo root from which pnpm discovers the workspace. This mirrors the
+# production-running kagetra-broadcast-cleanup.service.
 ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/send-lifecycle-reminders.ts
 
 StandardOutput=journal
