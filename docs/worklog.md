@@ -2107,3 +2107,14 @@
 ### 次回 (carryover)
 - 🟢 LINE Bot は現状 2 個。年 10 大会想定で 5-10 個まで増やすかどうかは運用次第。`fetch-bot-user-ids.ts` + `seed-broadcast-channels.ts` で随時追加可能
 - 🟢 残った機能 (Phase 2 大会運営) は別 PR で着手
+
+## 2026-05-31 セッション4（event-line-broadcast 本文整形改善）
+
+### 完了
+- **PR #71** (`feat/line-broadcast-strip-footer-add-subject` → main, merge `8fb5203`) ship — 本番運用フィードバック対応
+  - `apps/web/src/lib/mail-body-cleaner.ts` 新規: `stripMailFooter` + `buildBroadcastBody`
+  - Google Groups 自動付与フッター (日英) を保守的なパターン (`-- \n` or 空行直後 + 「このメールは Google グループ」/「You received this message because you are subscribed to the Google Groups」) で除去。主催者の手書き署名は残す
+  - 件名 prefix `【メール件名】<subject>` を常時付与、訂正版は `【訂正】「<subject>」` を前置で 2 行構成
+  - prefix 結合は splitForLine 前に実施して 5000 字制限を担保
+  - Vitest 14 ケース追加 (mail-body-cleaner.test.ts)、既存 line-broadcast.test.ts 6 ケース pass
+  - Codex auto-review-loop R1 (high) で blockers=0 一発 pass、CI pass (2m53s)、本番反映完了 (build + static cp + restart)
