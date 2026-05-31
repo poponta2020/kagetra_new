@@ -648,12 +648,23 @@ export async function broadcastMailToEvent(
   // r-final-8 blocker: force 再送 (UI 経由の manualBroadcast) では
   // 「LINE 側で前回成功分が消えていた」等で全件再送したいケースがある。
   // previouslyDelivered=0 にして先頭 skip を無効化する。force でない
-  // (自動配信ループ) のときだけ partial の既配信分を skip して重複を防ぐ。
+  // (自動配信ループ) のときだけ既配信分を skip して重複を防ぐ。
+  //
+  // r-final-20 blocker: partial だけでなく、partial 再試行が push 前に
+  // 例外で failed に倒れたケースでも既配信カウントが残っている。failed
+  // でも sent*Count があれば skip prefix として使う。さもないと次の自動
+  // 配信が先頭から再送して LINE に重複配信になる。
+  const deliveredCount = existingAudit[0]
+    ? existingAudit[0].sentTextCount +
+      existingAudit[0].sentImageCount +
+      existingAudit[0].fallbackLinkCount
+    : 0
   const previouslyDelivered =
-    !args.force && existingAudit[0]?.status === 'partial'
-      ? existingAudit[0].sentTextCount +
-        existingAudit[0].sentImageCount +
-        existingAudit[0].fallbackLinkCount
+    !args.force &&
+    deliveredCount > 0 &&
+    (existingAudit[0]?.status === 'partial' ||
+      existingAudit[0]?.status === 'failed')
+      ? deliveredCount
       : 0
 
   const inserted = await db
