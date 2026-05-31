@@ -2046,3 +2046,32 @@
   - 累計対応指摘 (PR65 全体: r1-3 + rr1-2 + 今回 r1-2): **CRITICAL 14 件 + WARNING 11 件**
   - Vitest: 17 ケース (line-webhook-handler) + 4 (line-broadcast) + 他 = 全 lib テスト pass
   - Codex r3 ハング問題: 連続 2 回発生、環境依存の可能性高 (Windows PowerShell sandbox)。次回は WSL 内で codex 実行を検討
+
+## 2026-05-31 セッション1（auto-review-loop の effort 自動判定追加）
+
+### 完了
+- **PR #69** (`fix/auto-review-effort-select` → main, merge `647aa62`) ship — `/auto-review-loop` に差分内容ベースの Codex reasoning effort 自動判定を追加
+  - `--effort auto|medium|high|xhigh` 引数（既定 auto、後方互換）。3-a.5 にルーブリック明文化: auth/permission/middleware・LINE一斉配信・mail-worker・schema/migration・P3課金・規模大(>400行 or >8ファイル)→high、それ以外→medium、境界は安全側 high
+  - ラウンド内エスカレーション: medium が blockers 検出 or ping-pong 膠着 → 残ラウンド high。xhigh は手動オプトインのみ
+  - `codex exec` に `-c model_reasoning_effort=$ROUND_EFFORT` 明示指定（global config 依存を解消）。各ラウンドの effort をサマリー/記録に可視化
+  - 2026-05-31 /auto-review-loop PR #69: 1R, verdict=pass, effort=medium(旧スキルで実行), tokens=32,258/500,000, result=pass。CI (Lint/Typecheck/Test) pass
+- **`~/.codex/config.toml` を `model_reasoning_effort = "high"` → `"medium"` に変更**（git 管理外）。サブスク認証(auth_mode=chatgpt)でコスト=クォータ消費のため global 一律 high をやめ、review はスキルが明示 effort を渡す設計に。interactive Codex のみ medium 化（クォータ温存）
+
+### 次回 (carryover)
+- 🟢 effort 自動判定は #69 マージ後の次回 /auto-review-loop から有効。実運用で medium/high の判定揺れ・閾値(400行/8ファイル)を観察し調整
+
+## 2026-05-31 セッション2（event-line-broadcast ship）
+
+### 完了
+- **PR #65** (`feature/event-line-broadcast-schema` → main, merge `50f4574`) ship — event-line-broadcast 全機能
+  - 9 子 Issue (#55-#63) + 親 #54 すべて自動クローズ
+  - Codex auto-review-loop を **22 ラウンド完走**: blockers=0 達成 8 回 (R6/R11/R12/R15/R17/R18/R21/R22)
+  - 累計 CRITICAL 43+ + WARNING 64+ 件 対応
+  - CI pass まで 2 段階修正: lockfile (`7a8ee3f` sharp dependencies 移動の取り込み漏れ) + E2E spec (`c2bd836` seedAdminSession() 戻り値が object なので `.sessionToken` を取り出す)
+  - Vitest 85 ケース pass、Playwright E2E 11 ケース pass
+  - スキーマ: enum 3 + 新規 3 テーブル (event_line_broadcasts, event_broadcast_messages, attachment_share_tokens) + line_channels 拡張、migration 0013-0015
+  - 機能: Bot プール 30 個 + 招待コード方式 + 1 大会 1 グループ + 30 日自動解放 + 訂正版【訂正】prefix + LINE push 5件/batch + sharp で preview 縮小 + pdftoppm/libreoffice で添付画像化 + force=true 強制再送 + partial skip prefix + audit CAS + stale binding 再検証
+
+### 次回 (carryover)
+- 🔴 本番デプロイ ([docs/deploy/event-line-broadcast.md](docs/deploy/event-line-broadcast.md)) は未実施: OS パッケージ (poppler-utils + libreoffice) + .env.production に PUBLIC_BASE_URL=https://new.hokudaicarta.com 追加 + LINE Developers Console で 30 Bot 作成 + seed-broadcast-channels.ts 実行 + systemd timer 配置 → 1 大会通しの実機確認
+- 🟡 worktree ディレクトリ `C:/tmp/impl-event-line-broadcast/` は git 上は削除済みだが Windows のファイルロックでディレクトリ残骸あり (apps/web)。次回手動削除

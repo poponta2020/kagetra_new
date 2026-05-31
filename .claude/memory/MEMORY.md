@@ -10,8 +10,8 @@
 - [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
 - [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
 - [モバイルシェル固定 完全完了](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 ship + 本番反映 + 実機 OK (2026-05-28)、Issue #50/#51/#52/#53 全 close、教訓は 4 つの feedback memory に切り出し済
-- [event-line-broadcast 要件定義済み](project_event_line_broadcast.md) — Issue 親#54/子#55-#63、`docs/features/event-line-broadcast/`、mail-tournament-import 下流、Bot プール 30 個 + 招待コード方式、`/implement event-line-broadcast` で着手可
-- [event-line-broadcast 全 9 タスク完了 (#55-#63)](impl_event_line_broadcast_task1.md) — feature/event-line-broadcast-schema (b6a11cc..c47721d, 9 commits) push 済み、worktree C:/tmp/impl-event-line-broadcast、PR 作成・本番デプロイ未実施
+- [event-line-broadcast ship 完了](impl_event_line_broadcast_task1.md) — PR #65 merge `50f4574` (2026-05-31)、Issue #54+#55-#63 全クローズ。Codex 22 ラウンド (CRITICAL 43+/WARNING 64+ 対応)、本番デプロイ未実施 (docs/deploy/event-line-broadcast.md)
+- [Codex review effort 自動判定](project_codex_review_effort.md) — PR #69 merge (647aa62)。/auto-review-loop が差分内容で medium/high を auto 判定。~/.codex/config.toml は medium 既定（git 管理外）
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
