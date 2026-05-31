@@ -2149,3 +2149,6 @@
 - 🟡 **PR 作成 → Codex auto-review-loop → ship**（`/prepare-pr` で着手）
 - 🔴 **本番デプロイ後に実機 LINE グループで本文画像表示を目視確認**（DoD 完了条件、Windows ローカルに libreoffice 無く画像描画はローカル未検証。CI/本番 Linux で実描画）
 - 🟢 並行定義の `event-lifecycle-notify`（#79-83 未実装）とは現状ファイル衝突なし
+
+### レビュー
+- 2026-06-01 /auto-review-loop PR #84: 1R, verdict=pass, effort=high, tokens=47353/500000, result=pass（blockers=0/should_fix=0/nits=0 一発 pass）
