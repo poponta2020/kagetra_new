@@ -10,7 +10,6 @@
  */
 
 const CORRECTION_PREFIX = '【訂正】'
-const SUBJECT_PREFIX = '【メール件名】'
 
 /**
  * Google Groups の典型フッター検出パターン。
@@ -52,9 +51,13 @@ export interface BuildBroadcastBodyInput {
  * LINE に push する最終的なテキストを組み立てる。
  *
  * 構成:
- *   1. (訂正版のみ) `【訂正】「<元件名>」\n`
- *   2. `【メール件名】<件名>\n\n`  (件名が空のときはスキップ)
+ *   1. (訂正版のみ) `【訂正】`
+ *   2. `【<件名>】\n\n` (件名が空のときはスキップ)
  *   3. footer を除去した本文
+ *
+ * 例:
+ *   通常配信: 「【第48回大会のお知らせ】\n\n本文...」
+ *   訂正版:   「【訂正】【第48回大会のお知らせ(訂正版)】\n\n本文...」
  *
  * 全部結合した文字列は呼び出し側で `splitForLine` に渡して 5000 字
  * 上限に分割する前提なので、ここでは結合だけ。
@@ -65,11 +68,17 @@ export function buildBroadcastBody(input: BuildBroadcastBodyInput): string {
   const parts: string[] = []
 
   if (input.isCorrection) {
-    // 元件名を「」で囲むことで、LINE で太字/装飾できない環境でも視覚的に区切れる。
-    parts.push(subject ? `${CORRECTION_PREFIX}「${subject}」\n` : `${CORRECTION_PREFIX}\n`)
+    // 訂正版マーカー。件名がある場合は次の `【件名】` と並んで `【訂正】【...】`
+    // という二重括弧表記になる (視認性最優先)。
+    parts.push(CORRECTION_PREFIX)
   }
   if (subject) {
-    parts.push(`${SUBJECT_PREFIX}${subject}\n\n`)
+    // 件名そのものを `【...】` で囲んで本文と視覚的に分離する。
+    // ラベル文字 (例:「メール件名」) は付けない。
+    parts.push(`【${subject}】\n\n`)
+  } else if (input.isCorrection) {
+    // 訂正版で件名が空の場合は `【訂正】` 単独でその後に改行を入れる。
+    parts.push('\n')
   }
   parts.push(cleanedBody)
   return parts.join('')
@@ -77,6 +86,5 @@ export function buildBroadcastBody(input: BuildBroadcastBodyInput): string {
 
 export const _internal = {
   CORRECTION_PREFIX,
-  SUBJECT_PREFIX,
   GOOGLE_GROUPS_FOOTER_PATTERNS,
 }
