@@ -41,6 +41,8 @@ export default defineConfig({
       // Phase 1-5 PR-B: bypass real LINE OAuth in the callback route.
       // Only honored when NODE_ENV !== 'production' (see lib/line-oauth.ts).
       LINE_OAUTH_TEST_MODE: 'true',
+      // Never hit the real LINE push API from E2E (lifecycle completion pushes).
+      LINE_NOTIFY_DRY_RUN: '1',
       LINE_LOGIN_CHANNEL_ID: 'test-channel-id',
       LINE_LOGIN_CHANNEL_SECRET: 'test-channel-secret',
       LINE_LOGIN_CALLBACK_URL: `${E2E_BASE_URL}/api/line-link/callback`,

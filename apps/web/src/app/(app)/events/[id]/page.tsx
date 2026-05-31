@@ -28,10 +28,15 @@ import {
   type LineBroadcastBindingStatus,
 } from '@/components/events/LineBroadcastSection'
 import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
+import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
+import { LifecycleStatusBadge } from '@/components/events/LifecycleStatusBadge'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
   revokeBroadcast,
+  setEntryApplied,
+  setPaymentPaid,
+  setPaymentType,
   submitAttendance,
 } from './actions'
 
@@ -95,6 +100,9 @@ export default async function EventDetailPage({
     )
     .limit(1)
   const activeBroadcastStatus = broadcastStatusRow[0]?.status ?? null
+  // Lifecycle notifications only fire on a live (linked) group. Drives the
+  // confirm prompt + no-binding notice in the 進行管理 section.
+  const isLineLinked = activeBroadcastStatus === 'linked'
 
   let broadcastBinding:
     | {
@@ -397,6 +405,35 @@ export default async function EventDetailPage({
           variant="cards"
         />
       </Card>
+
+      {isAdmin ? (
+        <EventLifecycleSection
+          eventId={event.id}
+          entryStatus={event.entryStatus}
+          entryAppliedAt={event.entryAppliedAt}
+          paymentType={event.paymentType}
+          paymentStatus={event.paymentStatus}
+          paymentPaidAt={event.paymentPaidAt}
+          feeJpy={event.feeJpy}
+          entryDeadline={event.entryDeadline}
+          paymentDeadline={event.paymentDeadline}
+          isLineLinked={isLineLinked}
+          setEntryAppliedAction={setEntryApplied}
+          setPaymentTypeAction={setPaymentType}
+          setPaymentPaidAction={setPaymentPaid}
+        />
+      ) : (
+        <Card>
+          <SectionLabel>進行状況</SectionLabel>
+          <div className="mt-1">
+            <LifecycleStatusBadge
+              entryStatus={event.entryStatus}
+              paymentType={event.paymentType}
+              paymentStatus={event.paymentStatus}
+            />
+          </div>
+        </Card>
+      )}
 
       <LineBroadcastSection
         eventId={event.id}

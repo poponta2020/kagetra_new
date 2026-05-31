@@ -30,7 +30,7 @@ status: completed
 - **対応Issue:** #81
 
 ### タスク3: 進行管理 UI と完了通知（申込/支払トグル）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/events/[id]` に進行管理セクションを追加。申込状態・支払いタイプ・支払状態のトグルと、紐付けありの場合の確認モーダル。トグルの server action で状態更新＋完了通知（初回遷移のみ、`event_lifecycle_notifications` 経由で once-ever）。一般会員には参照バッジのみ。API テスト→実装→フロントテスト→実装→E2E の順。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/actions.ts` — `setEntryApplied` / `setPaymentType` / `setPaymentPaid` を追加（`requireAdminSession` → tx 内で状態更新＋ログ INSERT ON CONFLICT DO NOTHING → コミット後 fire-and-forget で push → revalidatePath）

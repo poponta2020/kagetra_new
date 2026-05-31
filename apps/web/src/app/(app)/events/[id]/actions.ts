@@ -17,6 +17,11 @@ import {
   inviteCodeExpiresAt,
 } from '@/lib/invite-code'
 import { broadcastMailToEvent } from '@/lib/line-broadcast'
+import {
+  buildLifecycleMessage,
+  claimLifecycleNotification,
+  sendClaimedNotification,
+} from '@/lib/event-lifecycle-notify'
 
 async function requireAdminSession() {
   const session = await auth()
@@ -440,5 +445,132 @@ export async function submitAttendance(eventId: number, formData: FormData) {
       set: updateSet,
     })
 
+  revalidatePath(`/events/${eventId}`)
+}
+
+// ---------------------------------------------------------------------------
+// event-lifecycle-notify: 進行管理（申込/支払い状態のトグル + 完了通知）
+//
+// 完了通知は「未申込→申込済」「未払→支払済」の初回遷移のみ（once-ever）。
+// 状態更新とログ claim を同一 tx で原子化し、コミット後に push する。push 失敗
+// や LINE 未紐付けは状態変更を巻き戻さない（best-effort、要件 §3.2.3）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 申込状態をトグルする（admin/vice_admin のみ）。`applied=true` の初回遷移時
+ * だけ完了通知を 1 回送る。`applied=false` は誤操作の戻し用で通知しない。
+ */
+export async function setEntryApplied(
+  eventId: number,
+  applied: boolean,
+): Promise<void> {
+  await requireAdminSession()
+
+  if (!applied) {
+    await db
+      .update(events)
+      .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
+      .where(eq(events.id, eventId))
+    revalidatePath(`/events/${eventId}`)
+    return
+  }
+
+  const result = await db.transaction(async (tx) => {
+    // 未申込→申込済 の初回遷移だけ通す（ガード）。既に applied なら 0 件で
+    // 通知しない。
+    const flipped = await tx
+      .update(events)
+      .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(eq(events.id, eventId), eq(events.entryStatus, 'not_applied')))
+      .returning({ id: events.id, title: events.title })
+    if (!flipped[0]) return { notificationId: null as number | null, title: '' }
+    // once-ever claim（再トグルしても UNIQUE で 2 回目以降は claim されない）
+    const claim = await claimLifecycleNotification(tx, eventId, 'entry_applied')
+    return { notificationId: claim.id ?? null, title: flipped[0].title }
+  })
+
+  if (result.notificationId != null) {
+    const message = buildLifecycleMessage('entry_applied', { title: result.title })
+    try {
+      await sendClaimedNotification(db, {
+        notificationId: result.notificationId,
+        eventId,
+        message,
+      })
+    } catch {
+      // best-effort: 状態変更はコミット済み。push 失敗で巻き戻さない。
+    }
+  }
+  revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * 支払いタイプを設定する（事前払い/現地払い/未設定）。通知は送らない。
+ */
+export async function setPaymentType(
+  eventId: number,
+  type: 'advance' | 'onsite' | null,
+): Promise<void> {
+  await requireAdminSession()
+  await db
+    .update(events)
+    .set({ paymentType: type, updatedAt: sql`now()` })
+    .where(eq(events.id, eventId))
+  revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * 事前払いの支払状態をトグルする。`paid=true` の初回遷移時だけ完了通知を送る。
+ * payment_type='advance' のときのみ有効（現地払い/未設定では行を更新しない）。
+ */
+export async function setPaymentPaid(
+  eventId: number,
+  paid: boolean,
+): Promise<void> {
+  await requireAdminSession()
+
+  if (!paid) {
+    await db
+      .update(events)
+      .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
+      .where(and(eq(events.id, eventId), eq(events.paymentType, 'advance')))
+    revalidatePath(`/events/${eventId}`)
+    return
+  }
+
+  const result = await db.transaction(async (tx) => {
+    const flipped = await tx
+      .update(events)
+      .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(events.id, eventId),
+          eq(events.paymentType, 'advance'),
+          eq(events.paymentStatus, 'unpaid'),
+        ),
+      )
+      .returning({ id: events.id, title: events.title, feeJpy: events.feeJpy })
+    if (!flipped[0]) {
+      return { notificationId: null as number | null, title: '', feeJpy: null as number | null }
+    }
+    const claim = await claimLifecycleNotification(tx, eventId, 'payment_paid')
+    return { notificationId: claim.id ?? null, title: flipped[0].title, feeJpy: flipped[0].feeJpy }
+  })
+
+  if (result.notificationId != null) {
+    const message = buildLifecycleMessage('payment_paid', {
+      title: result.title,
+      feeJpy: result.feeJpy,
+    })
+    try {
+      await sendClaimedNotification(db, {
+        notificationId: result.notificationId,
+        eventId,
+        message,
+      })
+    } catch {
+      // best-effort
+    }
+  }
   revalidatePath(`/events/${eventId}`)
 }
