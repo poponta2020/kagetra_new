@@ -20,7 +20,7 @@ status: completed
 - **対応Issue:** #80
 
 ### タスク2: 通知ライブラリ（文面テンプレ + push ヘルパ）
-- [ ] 完了
+- [x] 完了
 - **概要:** 8 種の通知文面テンプレートと、紐付け済みグループへ単一 text を送る `pushTextToEventGroup` を実装。**line-broadcast.ts は触らず**、新規ファイル内に単一テキスト用の軽量 push を自前で持つ（並行作業 mail-body-as-image との衝突回避）。once-ever ログの INSERT・前提条件判定（linked / cancelled 除外 / 締切 NULL 除外 / payment_type 分岐）もここに集約。テストファースト（ユニット）。
 - **変更対象ファイル:**
   - `apps/web/src/lib/event-lifecycle-notify.ts` — 新規。文面テンプレ（`{title}`/`{MM/DD}`/`{fee}` 差し込み・絵文字プレフィックス）、単一テキスト用の軽量 push ヘルパ（fetch + `LINE_NOTIFY_DRY_RUN` 対応）、`pushTextToEventGroup`、各通知の送信関数（前提条件チェック＋ログ claim＋送信＋成否記録）、JST 今日算出
