@@ -1,5 +1,12 @@
 import { integer, pgTable, text, timestamp, date, boolean } from 'drizzle-orm/pg-core'
-import { eventStatusEnum, eventKindEnum, gradeEnum } from './enums'
+import {
+  eventStatusEnum,
+  eventKindEnum,
+  gradeEnum,
+  eventEntryStatusEnum,
+  eventPaymentTypeEnum,
+  eventPaymentStatusEnum,
+} from './enums'
 import { users } from './auth'
 import { eventGroups } from './event-groups'
 
@@ -30,6 +37,15 @@ export const events = pgTable('events', {
   capacityC: integer('capacity_c'),
   capacityD: integer('capacity_d'),
   capacityE: integer('capacity_e'),
+  // event-lifecycle-notify: 会レベルの申込/支払い状態（会員ごとではなく「会が主催者に対して」行う 1 アクション）。
+  // 状態変化の初回遷移を LINE 通知トリガーにする。詳細は docs/features/event-lifecycle-notify。
+  entryStatus: eventEntryStatusEnum('entry_status').notNull().default('not_applied'),
+  entryAppliedAt: timestamp('entry_applied_at', { mode: 'date', withTimezone: true }),
+  // payment_type=NULL は「支払い通知なし」。advance=事前払い（締切までに振込）/ onsite=現地払い（当日各自）。
+  paymentType: eventPaymentTypeEnum('payment_type'),
+  // payment_status / payment_paid_at は payment_type='advance' のときのみ意味を持つ。
+  paymentStatus: eventPaymentStatusEnum('payment_status').notNull().default('unpaid'),
+  paymentPaidAt: timestamp('payment_paid_at', { mode: 'date', withTimezone: true }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 })

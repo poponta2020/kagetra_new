@@ -12,6 +12,7 @@ import { mailWorkerJobs, mailWorkerRuns } from './mail-worker'
 import { eventLineBroadcasts } from './event-line-broadcasts'
 import { eventBroadcastMessages } from './event-broadcast-messages'
 import { attachmentShareTokens } from './attachment-share-tokens'
+import { eventLifecycleNotifications } from './event-lifecycle-notifications'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -35,6 +36,8 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   // 指定すると source 側に存在しない FK を持つ形になって不正な join に
   // なるので、ここは省略形 (drizzle 標準パターン) に揃える。
   lineBroadcast: one(eventLineBroadcasts),
+  // event-lifecycle-notify: once-ever 通知ログ（1 event = N 種別）
+  lifecycleNotifications: many(eventLifecycleNotifications),
 }))
 
 export const eventAttendancesRelations = relations(eventAttendances, ({ one }) => ({
@@ -156,3 +159,14 @@ export const mailWorkerJobsRelations = relations(mailWorkerJobs, ({ one }) => ({
     references: [mailWorkerRuns.id],
   }),
 }))
+
+// event-lifecycle-notify
+export const eventLifecycleNotificationsRelations = relations(
+  eventLifecycleNotifications,
+  ({ one }) => ({
+    event: one(events, {
+      fields: [eventLifecycleNotifications.eventId],
+      references: [events.id],
+    }),
+  }),
+)
