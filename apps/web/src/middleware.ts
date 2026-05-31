@@ -63,6 +63,10 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    '/((?!api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png).*)',
+    // event-line-broadcast (r3 review blocker): LINE Webhook と公開
+    // attachment / image 配信エンドポイントは未認証アクセスが前提
+    // (LINE グループの非ログインゲスト含む)。middleware を通すと
+    // /auth/signin にリダイレクトされて到達不能になる。
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png).*)',
   ],
 }

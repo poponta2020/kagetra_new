@@ -42,6 +42,18 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
 
+      # event-line-broadcast (r-final-8 blocker):
+      # apps/web/src/lib/attachment-image-render.ts は本番で `pdftoppm`
+      # (poppler-utils) と `libreoffice` を spawn する。CI でも同じ
+      # OS パッケージを入れておかないと、画像化テストがあれば全滅する
+      # (現状は実プロセス起動を伴う Vitest は無いが、将来的に追加して
+      # 動かせるよう前もって整える)。
+      - name: Install poppler-utils + libreoffice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            poppler-utils libreoffice-core libreoffice-writer libreoffice-calc
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

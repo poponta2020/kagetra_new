@@ -1,0 +1,1 @@
+ALTER TABLE "attachment_share_tokens" ADD CONSTRAINT "attachment_share_tokens_mail_attachment_id_unique" UNIQUE("mail_attachment_id");

@@ -2,6 +2,7 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -13,6 +14,7 @@ import {
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
+import { broadcastMailToEvent } from '@/lib/line-broadcast'
 import {
   classifyMail,
   persistOutcome,
@@ -60,6 +62,13 @@ export async function approveDraft(draftId: number, formData: FormData) {
     (g) => formData.get(`grade_${g}`) === 'on',
   )
 
+  // Capture the post-commit state for the LINE broadcast trigger so we can
+  // schedule it AFTER the response is flushed — without round-tripping a
+  // second query.
+  let approvedEventId: number | null = null
+  let approvedMailMessageId: number | null = null
+  let approvedIsCorrection = false
+
   await db.transaction(async (tx) => {
     const inserted = await tx
       .insert(events)
@@ -96,11 +105,16 @@ export async function approveDraft(draftId: number, formData: FormData) {
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,
+        isCorrection: tournamentDrafts.isCorrection,
       })
 
     if (updated.length === 0) {
       throw new Error('draft is not approvable')
     }
+
+    approvedEventId = newEventId
+    approvedMailMessageId = updated[0]!.messageId
+    approvedIsCorrection = updated[0]!.isCorrection
 
     // Sync mail_messages.status when the draft is finalized so the inbox
     // list filter and the mail-worker re-extract path can rely on a single
@@ -117,6 +131,24 @@ export async function approveDraft(draftId: number, formData: FormData) {
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
   revalidatePath('/events')
+
+  // event-line-broadcast: trigger after the response is flushed so the
+  // operator's UI returns immediately — pdftoppm / libreoffice can take
+  // tens of seconds on a beefy mail and would otherwise block the redirect.
+  // `broadcastMailToEvent` is best-effort: failures are recorded into
+  // event_broadcast_messages without affecting the approval.
+  if (approvedEventId != null && approvedMailMessageId != null) {
+    const eventId = approvedEventId
+    const mailMessageId = approvedMailMessageId
+    const isCorrection = approvedIsCorrection
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+      } catch (err) {
+        console.error('[approveDraft] broadcastMailToEvent failed', err)
+      }
+    })
+  }
 }
 
 export async function rejectDraft(draftId: number, formData: FormData) {
@@ -203,6 +235,13 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   })
   if (!target) throw new Error('Event not found')
 
+  // r3 review blocker: 既存大会への紐付け経路でも broadcast を起動しないと、
+  // 追加メール / 訂正版が自動配信されない (approveDraft の連動だけでは、
+  // 新規大会の初回のみ配信されてしまう)。transaction commit 後の after()
+  // で発火させるため、必要な情報を取り出して保持する。
+  let linkedMailMessageId: number | null = null
+  let linkedIsCorrection = false
+
   await db.transaction(async (tx) => {
     const updated = await tx
       .update(tournamentDrafts)
@@ -222,11 +261,15 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,
+        isCorrection: tournamentDrafts.isCorrection,
       })
 
     if (updated.length === 0) {
       throw new Error('draft is not linkable')
     }
+
+    linkedMailMessageId = updated[0]!.messageId
+    linkedIsCorrection = updated[0]!.isCorrection
 
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
@@ -238,6 +281,21 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
   revalidatePath(`/events/${eventId}`)
+
+  // event-line-broadcast: 既存大会が既に LINE グループに紐付け済み (status=
+  // 'linked') なら、自動配信が走る。未紐付けの大会なら broadcastMailToEvent
+  // 内で skipped を返すだけ。承認操作には影響させない (best-effort)。
+  if (linkedMailMessageId != null) {
+    const mailMessageId = linkedMailMessageId
+    const isCorrection = linkedIsCorrection
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+      } catch (err) {
+        console.error('[linkDraftToEvent] broadcastMailToEvent failed', err)
+      }
+    })
+  }
 }
 
 // PR5 Phase 4a — manual mail-fetch job queue.

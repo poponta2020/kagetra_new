@@ -73,3 +73,23 @@ export const mailWorkerJobStatusEnum = pgEnum('mail_worker_job_status', [
   'done',
   'failed',
 ])
+
+// event-line-broadcast
+export const lineChannelPurposeEnum = pgEnum('line_channel_purpose', [
+  'system_notify',
+  'event_broadcast',
+])
+export const eventLineBroadcastStatusEnum = pgEnum('event_line_broadcast_status', [
+  'invite_pending',
+  'joined_waiting_code',
+  'linked',
+  'revoked',
+  'released',
+])
+export const eventBroadcastMessageStatusEnum = pgEnum('event_broadcast_message_status', [
+  'pending',
+  'sending',
+  'sent',
+  'partial',
+  'failed',
+])

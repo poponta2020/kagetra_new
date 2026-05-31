@@ -1,9 +1,16 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events, users } from '@kagetra/shared/schema'
+import {
+  eventBroadcastMessages,
+  eventLineBroadcasts,
+  events,
+  lineChannels,
+  mailMessages,
+  users,
+} from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
 import {
   AttendanceCounts,
@@ -16,7 +23,23 @@ import {
   SectionLabel,
   StatusPill,
 } from '@/components/ui'
-import { submitAttendance } from './actions'
+import {
+  LineBroadcastSection,
+  type LineBroadcastBindingStatus,
+} from '@/components/events/LineBroadcastSection'
+import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
+import {
+  generateInviteCodeForEvent,
+  manualBroadcast,
+  revokeBroadcast,
+  submitAttendance,
+} from './actions'
+
+const ACTIVE_BROADCAST_STATUSES = [
+  'invite_pending',
+  'joined_waiting_code',
+  'linked',
+] as const
 
 // Mirrors EventForm's CANCEL_LINK_CLASS but at size sm so the edit affordance
 // matches the back link's visual weight in the in-page header bar.
@@ -53,6 +76,126 @@ export default async function EventDetailPage({
   })
 
   if (!event) notFound()
+
+  // event-line-broadcast: 紐付け状態と配信履歴を取得する。
+  //
+  // rr2 review blocker: LineBroadcastSection は `use client` なので、
+  // props は RSC payload としてブラウザに必ず届く。非管理者には Bot 名 /
+  // グループ ID 末尾 / 配信履歴 / エラーメッセージなど管理者専用情報を
+  // **そもそも送らない** こと。一般会員には「LINE 配信中かどうか」だけ
+  // 分かれば十分なので、status のみのスタブを返す。
+  const broadcastStatusRow = await db
+    .select({ status: eventLineBroadcasts.status })
+    .from(eventLineBroadcasts)
+    .where(
+      and(
+        eq(eventLineBroadcasts.eventId, idNum),
+        inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
+      ),
+    )
+    .limit(1)
+  const activeBroadcastStatus = broadcastStatusRow[0]?.status ?? null
+
+  let broadcastBinding:
+    | {
+        status: LineBroadcastBindingStatus
+        botLabel: string | null
+        lineGroupIdTail: string | null
+        linkedAt: Date | string | null
+        lastBroadcastAt: Date | string | null
+      }
+    | null = null
+  let broadcastHistory: BroadcastHistoryRow[] = []
+
+  if (activeBroadcastStatus != null) {
+    if (isAdmin) {
+      // 管理者向け: フル情報を取得して RSC payload に乗せる。
+      const broadcastRow = await db
+        .select({
+          status: eventLineBroadcasts.status,
+          lineGroupId: eventLineBroadcasts.lineGroupId,
+          linkedAt: eventLineBroadcasts.linkedAt,
+          botId: lineChannels.botId,
+          botLabel: lineChannels.note,
+        })
+        .from(eventLineBroadcasts)
+        .innerJoin(
+          lineChannels,
+          eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
+        )
+        .where(
+          and(
+            eq(eventLineBroadcasts.eventId, idNum),
+            inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
+          ),
+        )
+        .limit(1)
+      const activeBroadcast = broadcastRow[0]
+      if (activeBroadcast) {
+        const historyRows = await db
+          .select({
+            id: eventBroadcastMessages.id,
+            status: eventBroadcastMessages.status,
+            isCorrection: eventBroadcastMessages.isCorrection,
+            mailMessageId: eventBroadcastMessages.mailMessageId,
+            subject: mailMessages.subject,
+            receivedAt: mailMessages.receivedAt,
+            sentAt: eventBroadcastMessages.sentAt,
+            sentTextCount: eventBroadcastMessages.sentTextCount,
+            sentImageCount: eventBroadcastMessages.sentImageCount,
+            fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
+            errorMessage: eventBroadcastMessages.errorMessage,
+          })
+          .from(eventBroadcastMessages)
+          .innerJoin(
+            eventLineBroadcasts,
+            eq(
+              eventLineBroadcasts.id,
+              eventBroadcastMessages.eventLineBroadcastId,
+            ),
+          )
+          .leftJoin(
+            mailMessages,
+            eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
+          )
+          .where(eq(eventLineBroadcasts.eventId, idNum))
+          .orderBy(desc(eventBroadcastMessages.createdAt))
+          .limit(20)
+
+        broadcastBinding = {
+          status: activeBroadcast.status as LineBroadcastBindingStatus,
+          botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
+          lineGroupIdTail: activeBroadcast.lineGroupId
+            ? activeBroadcast.lineGroupId.slice(-8)
+            : null,
+          linkedAt: activeBroadcast.linkedAt,
+          lastBroadcastAt: historyRows.find((row) => row.sentAt)?.sentAt ?? null,
+        }
+        broadcastHistory = historyRows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          isCorrection: row.isCorrection,
+          mailMessageId: row.mailMessageId,
+          subject: row.subject,
+          receivedAt: row.receivedAt,
+          sentAt: row.sentAt,
+          sentTextCount: row.sentTextCount,
+          sentImageCount: row.sentImageCount,
+          fallbackLinkCount: row.fallbackLinkCount,
+          errorMessage: row.errorMessage,
+        }))
+      }
+    } else {
+      // 一般会員向け: status だけのスタブ。Bot 名・履歴・エラーは含めない。
+      broadcastBinding = {
+        status: activeBroadcastStatus as LineBroadcastBindingStatus,
+        botLabel: null,
+        lineGroupIdTail: null,
+        linkedAt: null,
+        lastBroadcastAt: null,
+      }
+    }
+  }
 
   // Unanswered count must only consider invited users; the users table may contain
   // legacy/migration rows with isInvited=false that should not count toward the denominator.
@@ -254,6 +397,17 @@ export default async function EventDetailPage({
           variant="cards"
         />
       </Card>
+
+      <LineBroadcastSection
+        eventId={event.id}
+        eventTitle={event.title}
+        isAdmin={isAdmin}
+        binding={broadcastBinding}
+        history={broadcastHistory}
+        generateInviteCodeAction={generateInviteCodeForEvent}
+        revokeBroadcastAction={revokeBroadcast}
+        manualBroadcastAction={manualBroadcast}
+      />
 
       {eligibleAttendingList.length > 0 && (
         <Card>
