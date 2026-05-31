@@ -8,12 +8,8 @@ import {
   mailMessages,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
-import {
-  RENDER_PAGE_LIMIT,
-  getOrCreateShareToken,
-  renderDocxToJpegs,
-  renderPdfToJpegs,
-} from '@/lib/attachment-image-render'
+import { getOrCreateShareToken } from '@/lib/attachment-image-render'
+import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import { setCachedImage } from '@/lib/image-cache'
 import { splitForLine } from '@/lib/text-splitter'
 import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
@@ -257,24 +253,31 @@ const LINE_IMAGE_JPEG_QUALITY = 85
 const LINE_PREVIEW_MAX_DIMENSION = 240
 const LINE_PREVIEW_JPEG_QUALITY = 70
 
-async function buildRenderedImageMessages(
+/**
+ * 本文画像 (renderBodyImageToJpegs の JPEG ページ群) を LINE image message に
+ * 変換する。各ページを sharp で 4096px 上限に正規化し、preview を別 token で
+ * 配信する。本文画像は専用 share token を持たない (添付と違いダウンロード経路が
+ * 無い) ため、10 MB 超のページが出たら `oversize: true` を返し、呼び出し側で
+ * text fallback に倒す (要件 §3.5)。
+ *
+ * NOTE: 添付は全て URL リンク化された (要件 §3.4) ので、image message を作るのは
+ * 本文だけになった。旧 buildRenderedImageMessages から attachment / db / 署名 URL
+ * fallback への依存を落とした軽量版。
+ */
+async function buildBodyImageMessages(
   pages: Buffer[],
   baseUrl: string,
-  attachment: AttachmentRow,
-  db: typeof appDb,
   logger: NonNullable<BroadcastMailOptions['logger']>,
-): Promise<{ messages: LineMessage[]; oversizeFallback: LineMessage | null }> {
+): Promise<{ messages: LineMessage[]; oversize: boolean }> {
   const messages: LineMessage[] = []
   // Defer the sharp import to actual use — sharp is heavy (~30 MB native
-  // module) and not all broadcast paths take attachments.
+  // module) and the text-fallback path never touches it.
   const { default: sharp } = await import('sharp')
 
   for (const buffer of pages) {
-    // r-final-19 should_fix: LINE image は 4096x4096 上限もある。
-    // 150 DPI の大判ページ (A2 / 横長) は寸法超過で 400 を返す。
-    // original を sharp で 4096px 上限にリサイズしてから byteLength と
-    // 寸法を判定する。リサイズ失敗時は元 buffer に fallback (logger 警告
-    // 付き)。
+    // LINE image は 4096x4096 上限もある。A4 150 DPI の本文は収まるが、
+    // 念のため original を 4096px 上限に正規化してから byteLength を判定する。
+    // リサイズ失敗時は元 buffer に fallback (logger 警告付き)。
     let normalizedOriginal: Buffer = buffer
     try {
       normalizedOriginal = await sharp(buffer)
@@ -287,28 +290,19 @@ async function buildRenderedImageMessages(
         .jpeg({ quality: LINE_IMAGE_JPEG_QUALITY })
         .toBuffer()
     } catch (err) {
-      logger.warn('original resize failed; using raw buffer', {
-        attachmentId: attachment.id,
+      logger.warn('body image original resize failed; using raw buffer', {
         message: err instanceof Error ? err.message : String(err),
       })
       normalizedOriginal = buffer
     }
 
-    // 正規化後でも 10 MB を超えるページは画像化を諦め、ページ単位で
-    // fallback link 1 本に縮約する。
+    // 正規化後でも 10 MB を超えるページが出たら、本文画像化を諦めて text
+    // fallback に倒す (本文には署名 URL ダウンロード経路が無いため)。
     if (normalizedOriginal.byteLength > LINE_IMAGE_MAX_BYTES) {
-      const fallback = await buildFallbackTextMessage(
-        db,
-        attachment,
-        baseUrl,
-        `📎 ${attachment.filename} (サイズ超過のため Web で閲覧)`,
-      )
-      logger.warn('attachment page exceeds LINE 10 MB limit; falling back to link', {
-        attachmentId: attachment.id,
-        filename: attachment.filename,
+      logger.warn('body image page exceeds LINE 10 MB limit; falling back to text', {
         byteLength: normalizedOriginal.byteLength,
       })
-      return { messages: [], oversizeFallback: fallback }
+      return { messages: [], oversize: true }
     }
 
     let previewBuffer: Buffer
@@ -326,8 +320,7 @@ async function buildRenderedImageMessages(
       // Preview 生成失敗時は original をそのまま preview にも使う
       // (LINE 側で 1 MB を超えると失敗する可能性は残るが、画像表示
       // 機能自体は維持できる)。
-      logger.warn('preview resize failed; reusing original buffer', {
-        attachmentId: attachment.id,
+      logger.warn('body image preview resize failed; reusing original buffer', {
         message: err instanceof Error ? err.message : String(err),
       })
       previewBuffer = normalizedOriginal
@@ -343,7 +336,7 @@ async function buildRenderedImageMessages(
       previewImageUrl: attachmentImageUrl(previewToken, baseUrl),
     })
   }
-  return { messages, oversizeFallback: null }
+  return { messages, oversize: false }
 }
 
 interface AttachmentRow {
@@ -354,85 +347,19 @@ interface AttachmentRow {
 }
 
 /**
- * Convert one attachment into the LINE messages we'll send. Returns either
- * a list of `image` messages (PDF / DOCX successfully rendered) or a
- * `text` message linking to the signed-URL download (Excel, render failure,
- * 30+ page cap).
+ * 1 添付を LINE メッセージに変換する。
  *
- * The "fallback" boolean accompanying the message list lets the caller
- * track `fallback_link_count` on `event_broadcast_messages`.
+ * 要件 §3.4: PDF / Word / Excel / その他を問わず **全形式を署名 URL リンクに
+ * 統一** する。以前あった PDF/Word の画像化分岐は撤廃し、添付は常に
+ * 「📎 filename + ダウンロード URL」の text 1 本になった。本文だけが画像化
+ * 対象 (buildBodyImageMessages) で、添付は明示的に開く運用に整えた。
  */
 async function renderAttachment(
   db: typeof appDb,
   attachment: AttachmentRow,
   baseUrl: string,
-  logger: NonNullable<BroadcastMailOptions['logger']>,
-): Promise<{ messages: LineMessage[]; usedFallback: boolean }> {
-  const mime = attachment.contentType.toLowerCase()
-  // Excel-by-design: image rendering of a spreadsheet is unusable on a
-  // phone (horizontal scrolling, tiny cells); always link.
-  if (
-    mime.includes('spreadsheet') ||
-    mime === 'application/vnd.ms-excel' ||
-    attachment.filename.toLowerCase().endsWith('.xlsx') ||
-    attachment.filename.toLowerCase().endsWith('.xls')
-  ) {
-    return {
-      messages: [await buildFallbackTextMessage(db, attachment, baseUrl)],
-      usedFallback: true,
-    }
-  }
-
-  let rendered: { pages: Buffer[]; truncated: boolean } | null = null
-  try {
-    if (mime === 'application/pdf' || attachment.filename.toLowerCase().endsWith('.pdf')) {
-      rendered = await renderPdfToJpegs(attachment.data)
-    } else if (
-      mime.includes('officedocument.wordprocessingml.document') ||
-      attachment.filename.toLowerCase().endsWith('.docx') ||
-      mime === 'application/msword'
-    ) {
-      rendered = await renderDocxToJpegs(attachment.data)
-    } else {
-      // Unknown type — surface as a link rather than guess.
-      return {
-        messages: [await buildFallbackTextMessage(db, attachment, baseUrl)],
-        usedFallback: true,
-      }
-    }
-  } catch (err) {
-    logger.warn('attachment render failed; falling back to link', {
-      attachmentId: attachment.id,
-      filename: attachment.filename,
-      message: err instanceof Error ? err.message : String(err),
-    })
-    return { messages: [await buildFallbackTextMessage(db, attachment, baseUrl)], usedFallback: true }
-  }
-
-  if (rendered.pages.length === 0) {
-    return { messages: [await buildFallbackTextMessage(db, attachment, baseUrl)], usedFallback: true }
-  }
-
-  const { messages: imageMessages, oversizeFallback } =
-    await buildRenderedImageMessages(rendered.pages, baseUrl, attachment, db, logger)
-
-  // r-final-15: LINE の 10 MB 上限を超えるページがあれば、その attachment
-  // 全体を画像化諦めて fallback link 1 本に縮約する。
-  if (oversizeFallback) {
-    return { messages: [oversizeFallback], usedFallback: true }
-  }
-
-  if (rendered.truncated) {
-    // Append a "see full file on web" link after the first N rendered pages.
-    const link = await buildFallbackTextMessage(
-      db,
-      attachment,
-      baseUrl,
-      `📎 ${attachment.filename} は ${RENDER_PAGE_LIMIT} ページ以降を省略しました。Web で全体を見る`,
-    )
-    return { messages: [...imageMessages, link], usedFallback: true }
-  }
-  return { messages: imageMessages, usedFallback: false }
+): Promise<LineMessage> {
+  return await buildFallbackTextMessage(db, attachment, baseUrl)
 }
 
 async function buildFallbackTextMessage(
@@ -595,9 +522,9 @@ export async function broadcastMailToEvent(
   // sentImageCount / fallbackLinkCount) は role 別の排他カウンタで、
   // 同じ LineMessage が 2 カラムに入ることはない (role アサインを参照)。
   // 従って合計はそのまま「配信済みメッセージ件数」と等しい。
-  //   - sentTextCount: 本文 splitForLine の chunk (role='body_text')
-  //   - sentImageCount: 添付画像 (role='attachment_image')
-  //   - fallbackLinkCount: 添付の代替 text リンク (role='attachment_link')
+  //   - sentTextCount: 本文 text fallback の chunk (role='body_text')
+  //   - sentImageCount: 本文画像のページ (role='body_image')
+  //   - fallbackLinkCount: 添付の URL リンク (role='attachment_link')
   const existingAudit = await db
     .select({
       sentTextCount: eventBroadcastMessages.sentTextCount,
@@ -741,52 +668,84 @@ export async function broadcastMailToEvent(
   const broadcastMessageId = inserted[0].id
 
   try {
-    // Build text messages: split the mail body at 5000-char boundaries.
-    // buildBroadcastBody が
-    //   - Google Groups footer の除去
-    //   - 件名 prefix `【メール件名】<subject>` の付与
-    //   - 訂正版なら `【訂正】「<subject>」` の前置
-    // をまとめて行う。prefix を結合してから splitForLine に渡すことで、
-    // 5000 字制限を超えるリスクを完全に消す (rr2 review blocker)。
-    const bodyText = buildBroadcastBody({
-      rawBody: mail.bodyText,
-      subject: mail.subject,
-      isCorrection: args.isCorrection,
-    })
-    const chunks = splitForLine(bodyText)
-    const textMessages: LineMessage[] = chunks.map((chunk) => ({
-      type: 'text',
-      text: chunk,
-    }))
-
-    // rr1 review should_fix: 添付の出力は image / fallback link が交互に
-    // 並ぶことがある (Excel リンクの後に PDF 画像、など)。実際の送信順を
-    // そのまま追える metadata を message と並走させ、deliveredCount に
-    // 対応する metadata だけを数えることで partial 行のカウントを正しく
-    // 残す。
-    type MessageRole = 'body_text' | 'attachment_image' | 'attachment_link'
+    // mail-body-as-image: 本文は text ではなく画像で配信する (要件 §3.1)。
+    // renderBodyImageToJpegs が件名・本文・訂正フラグを A4 縦 JPEG に描画する。
+    // 以下のいずれかで text fallback (splitForLine) に倒す:
+    //   - 画像化が throw (libreoffice クラッシュ / フォント欠落等, §3.5)
+    //   - 30 ページ超 (truncated=true, §3.5)
+    //   - ページ 0 枚 (異常な空 PDF)
+    //   - 10 MB 超のページ (oversize, 本文には DL 経路が無いため)
+    //   - baseUrl 未設定 (画像 URL を組めない → getBaseUrl が throw)
+    // text fallback でも buildBroadcastBody が footer 除去 + 件名/訂正 prefix
+    // を行うので、可読性は劣るが連絡内容は届く。
+    //
+    // roles は実際の送信順 metadata。partial 再送時に deliveredCount 分だけ
+    // role 別カウントを正しく残すために message と並走させる (rr1 review)。
+    type MessageRole = 'body_image' | 'body_text' | 'attachment_link'
     const messages: LineMessage[] = []
     const roles: MessageRole[] = []
 
-    for (const m of textMessages) {
-      messages.push(m)
-      roles.push('body_text')
+    let bodyImageMessages: LineMessage[] = []
+    try {
+      const rendered = await renderBodyImageToJpegs({
+        subject: mail.subject,
+        rawBody: mail.bodyText,
+        isCorrection: args.isCorrection,
+      })
+      if (rendered.truncated) {
+        logger.warn('mail body exceeds render page limit; falling back to text', {
+          eventId: args.eventId,
+          mailMessageId: args.mailMessageId,
+        })
+      } else if (rendered.pages.length === 0) {
+        logger.warn('mail body rendered to 0 pages; falling back to text', {
+          eventId: args.eventId,
+          mailMessageId: args.mailMessageId,
+        })
+      } else {
+        // 本文画像は image URL が必要 → ここで baseUrl を検証する (未設定なら
+        // throw → 下の catch で text fallback に倒れる)。
+        const built = await buildBodyImageMessages(
+          rendered.pages,
+          getBaseUrl(),
+          logger,
+        )
+        if (!built.oversize) bodyImageMessages = built.messages
+      }
+    } catch (err) {
+      logger.warn('mail body image render failed; falling back to text', {
+        eventId: args.eventId,
+        mailMessageId: args.mailMessageId,
+        message: err instanceof Error ? err.message : String(err),
+      })
     }
 
-    for (const attachment of attachments) {
-      // r-final-16 blocker: 添付があるときだけ baseUrl が必要。lazy
-      // resolver で初回呼出時に検証する (PUBLIC_BASE_URL が未設定なら
-      // ここで例外 → 既存の catch (err) が failed audit に倒す)。
-      const result = await renderAttachment(
-        db,
-        attachment,
-        getBaseUrl(),
-        logger,
-      )
-      for (const m of result.messages) {
+    if (bodyImageMessages.length > 0) {
+      for (const m of bodyImageMessages) {
         messages.push(m)
-        roles.push(m.type === 'image' ? 'attachment_image' : 'attachment_link')
+        roles.push('body_image')
       }
+    } else {
+      const bodyText = buildBroadcastBody({
+        rawBody: mail.bodyText,
+        subject: mail.subject,
+        isCorrection: args.isCorrection,
+      })
+      for (const chunk of splitForLine(bodyText)) {
+        messages.push({ type: 'text', text: chunk })
+        roles.push('body_text')
+      }
+    }
+
+    // 添付は全形式 (PDF / Word / Excel / その他) を署名 URL リンクに統一する
+    // (要件 §3.4)。
+    for (const attachment of attachments) {
+      // r-final-16 blocker: baseUrl は添付/画像で必要。lazy resolver が初回
+      // 呼出で検証する (PUBLIC_BASE_URL 未設定ならここで例外 → 下の catch が
+      // failed audit に倒す)。
+      const message = await renderAttachment(db, attachment, getBaseUrl())
+      messages.push(message)
+      roles.push('attachment_link')
     }
 
     if (messages.length === 0) {
@@ -809,7 +768,7 @@ export async function broadcastMailToEvent(
     if (previouslyDelivered > 0 && existingAudit[0]) {
       const currentTextCount = roles.filter((r) => r === 'body_text').length
       const currentImageCount = roles.filter(
-        (r) => r === 'attachment_image',
+        (r) => r === 'body_image',
       ).length
       const currentLinkCount = roles.filter(
         (r) => r === 'attachment_link',
@@ -913,7 +872,7 @@ export async function broadcastMailToEvent(
         case 'body_text':
           deliveredText++
           break
-        case 'attachment_image':
+        case 'body_image':
           deliveredImage++
           break
         case 'attachment_link':
