@@ -1,6 +1,6 @@
 ---
 name: impl-event-line-broadcast-deploy
-description: event-line-broadcast 本番デプロイ完了 (2026-05-31)。Oracle Cloud Always Free 東京、2 Bot で運用開始、1 大会通しテスト成功
+description: event-line-broadcast 本番デプロイ完了 (2026-05-31)。Oracle Cloud Always Free 東京、2 Bot で運用開始→2026-06-01 に Bot プール 30 個 全 seed 完了、1 大会通しテスト成功
 metadata: 
   node_type: memory
   type: project
@@ -8,6 +8,12 @@ metadata:
 ---
 
 # event-line-broadcast 本番運用開始
+
+## 状態更新 (2026-06-01) — Bot プール 30 個 全 seed 完了
+- 本番 `line_channels`: event_broadcast **30 行** (29 available + 1 active)。当初 2 → 21 → 30 と増設し、これで設計通りの満タン。
+- 増設フロー (実行済み): ローカル `C:/tmp/broadcast-channels-template.json` に bot 22-30 の 4 項目 (channelId/Secret/AccessToken/botId) を手入力 → `C:/tmp/fetch-bot-user-ids.ts <file>` で webhookDestinationId 取得 → scp で `/etc/kagetra/broadcast-channels.json` に配置 → `seed-broadcast-channels.ts --file=...`。結果 21 skipped / 9 inserted (row id 23-31)。
+- **教訓: 手入力 botId は LINE API の basicId と必ず照合する**。bot-28 で `@952ijomk8` と末尾に余計な `8` を打鍵 → fetch スクリプトのログ `[ok] @952ijomk8: ... basicId=@952ijomk` で発覚 → 修正後に投入。LINE basic ID は `@` + 英数 8 文字固定。seed スクリプトは basicId 不一致は検出できない (botId はそのまま INSERT する) ので、fetch ログ照合が唯一の検出点。
+- 本番ホストは seed 後 `/etc/kagetra/broadcast-channels.json` を**残さない運用** (今回 deploy 時に存在せず = 前回 operator が削除済み)。再 seed 時は再 scp が必要。secret-at-rest を最小化する意図。
 
 ## 状態 (2026-05-31)
 - **本番稼働中** (new.hokudaicarta.com)

@@ -2152,3 +2152,7 @@
 
 ### レビュー
 - 2026-06-01 /auto-review-loop PR #84: 1R, verdict=pass, effort=high, tokens=47353/500000, result=pass（blockers=0/should_fix=0/nits=0 一発 pass）
+
+### Ship
+- **PR #84 merge 完了**（merge commit `cc6c765`, 2026-06-01）。子 Issue #74-#78 自動クローズ、親 #73 クローズ、worktree 削除・ローカルブランチ削除済み
+- **残 DoD（carryover）**: 本番デプロイ後に実機 LINE グループで本文画像表示を目視確認。本番ホストの `libreoffice` + `poppler-utils` + `fonts-noto-cjk` は event-line-broadcast で導入済み。画像化失敗時は text fallback に自動降格するため最悪でも連絡到達は担保
