@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripMailFooter } from '@/lib/mail-body-cleaner'
 import {
   renderPdfToJpegs,
+  runLibreofficeConvertToPdf,
   type ImageRenderResult,
 } from '@/lib/attachment-image-render'
 
@@ -29,12 +29,6 @@ const CORRECTION_MARKER = '【訂正】'
 
 /** 本文が空 (null / 空文字 / footer のみ) のときに描画するプレースホルダ (要件 §3.7)。 */
 const EMPTY_BODY_PLACEHOLDER = '(本文なし)'
-
-/**
- * libreoffice cold-start は本番 ARM 機で ~6s 観測。120s で十分な headroom を
- * 取る。attachment-image-render.ts の renderDocxToJpegs と同じ値。
- */
-const LIBREOFFICE_TIMEOUT_MS = 120_000
 
 export interface BuildBodyImageInput {
   /** メール件名 (`mail_messages.subject`)。空ならヘッダーを出さない。 */
@@ -100,58 +94,6 @@ ${headerHtml}  <pre>${escapeHtml(body)}</pre>
 </body>
 </html>
 `
-}
-
-/**
- * 生成 HTML を libreoffice で PDF 化し `outDir` に同名 (basename) で書き出す。
- * `--headless --convert-to pdf` は 1 回ごとに soffice を起動して終了する
- * one-shot 変換なので、常駐 daemon の管理は不要。
- *
- * NOTE(task3 / #76): attachment-image-render.ts の renderDocxToJpegs にほぼ
- * 同じ libreoffice 呼び出しがある。cleanup タスクで共通 helper
- * (`runLibreofficeConvertToPdf`) に集約する予定。それまでは本文画像化パスを
- * cross-file 依存なしで自己完結させるため、意図的にローカルに置く。
- */
-async function runLibreofficeConvertToPdf(
-  inputPath: string,
-  outDir: string,
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(
-      'libreoffice',
-      ['--headless', '--convert-to', 'pdf', '--outdir', outDir, inputPath],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    )
-    const stderrChunks: Buffer[] = []
-    proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
-    // stdout を drain しないと、libreoffice が多めに吐いたとき OS パイプ
-    // バッファが埋まって子プロセスが write でブロック → timeout まで
-    // 進まなくなる (attachment-image-render.ts と同じ対策)。内容は使わない。
-    proc.stdout.resume()
-    const timeout = setTimeout(() => {
-      proc.kill('SIGKILL')
-      reject(
-        new Error(`libreoffice timed out after ${LIBREOFFICE_TIMEOUT_MS}ms`),
-      )
-    }, LIBREOFFICE_TIMEOUT_MS)
-    proc.on('error', (err) => {
-      clearTimeout(timeout)
-      reject(err)
-    })
-    proc.on('exit', (code) => {
-      clearTimeout(timeout)
-      if (code === 0) {
-        resolve()
-        return
-      }
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').trim()
-      reject(
-        new Error(
-          `libreoffice exited with code ${code}${stderr ? `: ${stderr.slice(0, 500)}` : ''}`,
-        ),
-      )
-    })
-  })
 }
 
 /**
