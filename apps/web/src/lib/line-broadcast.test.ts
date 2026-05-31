@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  beforeAll,
+  afterAll,
+  vi,
+} from 'vitest'
 import { eq } from 'drizzle-orm'
 import { broadcastMailToEvent } from './line-broadcast'
+import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import {
   attachmentShareTokens,
   eventBroadcastMessages,
@@ -13,6 +22,17 @@ import {
   users,
 } from '@kagetra/shared/schema'
 import { db } from './db'
+
+// 本文画像化 (libreoffice spawn) はこのユニットテストの対象外。配信
+// オーケストレーション (本文 image / 添付 link / text fallback の role 別
+// カウント) を環境非依存で検証するため、renderBodyImageToJpegs をモジュール
+// レベルでモックする。実際の libreoffice 描画は mail-body-image-render.test.ts
+// の統合テストが (libreoffice 搭載環境でのみ) カバーする。
+vi.mock('@/lib/mail-body-image-render', () => ({
+  renderBodyImageToJpegs: vi.fn(),
+}))
+
+const renderBodyImageMock = vi.mocked(renderBodyImageToJpegs)
 
 async function resetDb() {
   await db.delete(eventBroadcastMessages)
@@ -28,14 +48,29 @@ async function resetDb() {
 
 let originalDryRun: string | undefined
 let originalBaseUrl: string | undefined
+// 本文画像化の成功ケースで使う有効な JPEG。buildBodyImageMessages は sharp で
+// リサイズするので、実バイト列でないと happy path を通らない。
+let jpegFixture: Buffer
 
-beforeAll(() => {
+beforeAll(async () => {
   originalDryRun = process.env.LINE_NOTIFY_DRY_RUN
   process.env.LINE_NOTIFY_DRY_RUN = '1'
   // r-final-15: resolveBaseUrl は PUBLIC_BASE_URL が必須なのでテスト
   // 時にダミーをセット。実際の push は LINE_NOTIFY_DRY_RUN=1 で skip。
   originalBaseUrl = process.env.PUBLIC_BASE_URL
   process.env.PUBLIC_BASE_URL = 'https://test.example.com'
+
+  const { default: sharp } = await import('sharp')
+  jpegFixture = await sharp({
+    create: {
+      width: 120,
+      height: 160,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 },
+    },
+  })
+    .jpeg()
+    .toBuffer()
 })
 
 afterAll(() => {
@@ -112,9 +147,31 @@ async function buildLinkedFixture(): Promise<Fixtures> {
   return { eventId, channelId: channel.id, broadcastId, mailMessageId }
 }
 
+async function addAttachment(
+  mailMessageId: number,
+  filename: string,
+  contentType: string,
+): Promise<number> {
+  const data = Buffer.from('fake-attachment-bytes')
+  const inserted = await db
+    .insert(mailAttachments)
+    .values({
+      mailMessageId,
+      filename,
+      contentType,
+      sizeBytes: data.length,
+      data,
+    })
+    .returning({ id: mailAttachments.id })
+  return inserted[0]!.id
+}
+
 describe('broadcastMailToEvent', () => {
   beforeEach(async () => {
     await resetDb()
+    // 既定は本文画像化成功 (1 ページ)。各テストで Once override する。
+    renderBodyImageMock.mockReset()
+    renderBodyImageMock.mockResolvedValue({ pages: [jpegFixture], truncated: false })
   })
 
   it('returns skipped when there is no linked binding', async () => {
@@ -161,8 +218,51 @@ describe('broadcastMailToEvent', () => {
     expect(result.reason).toBe('no_active_binding')
   })
 
-  it('marks broadcast row sent for an attachment-less mail', async () => {
+  it('renders the mail body as image messages for an attachment-less mail', async () => {
     const fx = await buildLinkedFixture()
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(result.status).toBe('sent')
+    // 本文 1 ページが image として配信され、text / link は 0。
+    expect(result.sentImageCount).toBe(1)
+    expect(result.sentTextCount).toBe(0)
+    expect(result.fallbackLinkCount).toBe(0)
+    expect(renderBodyImageMock).toHaveBeenCalledTimes(1)
+
+    const row = await db.query.eventBroadcastMessages.findFirst({
+      where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+    })
+    expect(row?.status).toBe('sent')
+    expect(row?.isCorrection).toBe(false)
+    expect(row?.sentAt).not.toBeNull()
+  })
+
+  it('falls back to text messages when body image rendering fails', async () => {
+    const fx = await buildLinkedFixture()
+    renderBodyImageMock.mockRejectedValueOnce(new Error('libreoffice crashed'))
+
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(result.status).toBe('sent')
+    // 画像化失敗 → buildBroadcastBody + splitForLine の text に降格。
+    expect(result.sentTextCount).toBe(1)
+    expect(result.sentImageCount).toBe(0)
+    expect(result.fallbackLinkCount).toBe(0)
+  })
+
+  it('falls back to text messages when the body exceeds the render page limit', async () => {
+    const fx = await buildLinkedFixture()
+    renderBodyImageMock.mockResolvedValueOnce({
+      pages: [jpegFixture, jpegFixture],
+      truncated: true,
+    })
+
     const result = await broadcastMailToEvent(db, {
       eventId: fx.eventId,
       mailMessageId: fx.mailMessageId,
@@ -171,14 +271,26 @@ describe('broadcastMailToEvent', () => {
     expect(result.status).toBe('sent')
     expect(result.sentTextCount).toBe(1)
     expect(result.sentImageCount).toBe(0)
-    expect(result.fallbackLinkCount).toBe(0)
+  })
 
-    const row = await db.query.eventBroadcastMessages.findFirst({
-      where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+  it('sends every attachment as a fallback link (no image rendering)', async () => {
+    const fx = await buildLinkedFixture()
+    await addAttachment(fx.mailMessageId, 'shiori.pdf', 'application/pdf')
+
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
     })
-    expect(row?.status).toBe('sent')
-    expect(row?.isCorrection).toBe(false)
-    expect(row?.sentAt).not.toBeNull()
+    expect(result.status).toBe('sent')
+    // 本文画像 1 + 添付リンク 1。添付は形式問わず image にはならない。
+    expect(result.sentImageCount).toBe(1)
+    expect(result.fallbackLinkCount).toBe(1)
+    expect(result.sentTextCount).toBe(0)
+
+    // 添付の署名 URL token が 1 件発行されている。
+    const tokens = await db.select().from(attachmentShareTokens)
+    expect(tokens).toHaveLength(1)
   })
 
   it('does not create duplicate rows on retry', async () => {
@@ -254,20 +366,24 @@ describe('broadcastMailToEvent', () => {
     expect(rows).toHaveLength(1)
   })
 
-  it('prefixes correction-mails with 【訂正】 + subject', async () => {
+  it('passes subject + correction flag through to the body image renderer', async () => {
     const fx = await buildLinkedFixture()
-    // Sanity: capture the mail subject so we can compare it back.
-    const mail = await db.query.mailMessages.findFirst({
-      where: eq(mailMessages.id, fx.mailMessageId),
-    })
-    expect(mail?.subject).toBe('〇〇杯 大会案内')
-
     const result = await broadcastMailToEvent(db, {
       eventId: fx.eventId,
       mailMessageId: fx.mailMessageId,
       isCorrection: true,
     })
     expect(result.status).toBe('sent')
+    // 訂正フラグ・件名・本文が renderBodyImageToJpegs に渡る (画像ヘッダーで
+    // 【訂正】【件名】を描画する素材になる)。
+    expect(renderBodyImageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: '〇〇杯 大会案内',
+        rawBody: '大会案内本文 本文 本文。',
+        isCorrection: true,
+      }),
+    )
+
     const row = await db.query.eventBroadcastMessages.findFirst({
       where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
     })
