@@ -43,7 +43,7 @@ status: completed
 - **対応Issue:** #82
 
 ### タスク4: 日次リマインドバッチと systemd timer
-- [ ] 完了
+- [x] 完了
 - **概要:** 締切/当日リマインド（申込締切・事前支払締切・現地払い当日持参の各 事前/当日、計 6 種別）を 00:00 JST に処理する日次スクリプトと systemd ユニットを追加。前提条件を満たす event のみ once-ever で送信。リードタイムは `EVENT_LIFECYCLE_REMINDER_LEAD_DAYS`（既定 3）。統合テストでは `LINE_NOTIFY_DRY_RUN=1`。
 - **変更対象ファイル:**
   - `apps/web/scripts/send-lifecycle-reminders.ts` — 新規（JST 今日算出 → 条件抽出 → タスク2 の送信関数で送信）

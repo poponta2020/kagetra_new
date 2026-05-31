@@ -9,7 +9,7 @@ export default defineProject({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     passWithNoTests: true,
     globalSetup: ['./vitest.global-setup.ts'],
     // Test files share one test DB (truncate/insert per test). Running them in
