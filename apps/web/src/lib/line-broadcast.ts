@@ -236,6 +236,8 @@ function attachmentImageUrl(token: string, baseUrl: string): string {
  * fallback link に倒す。
  */
 const LINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+const LINE_IMAGE_MAX_DIMENSION = 4096
+const LINE_IMAGE_JPEG_QUALITY = 85
 const LINE_PREVIEW_MAX_DIMENSION = 240
 const LINE_PREVIEW_JPEG_QUALITY = 70
 
@@ -252,9 +254,33 @@ async function buildRenderedImageMessages(
   const { default: sharp } = await import('sharp')
 
   for (const buffer of pages) {
-    // Original 側のサイズ上限を超えるページは画像化を諦め、ページ単位で
-    // fallback link 1 本に縮約する (LINE は 10 MB 超を 400 で返す)。
-    if (buffer.byteLength > LINE_IMAGE_MAX_BYTES) {
+    // r-final-19 should_fix: LINE image は 4096x4096 上限もある。
+    // 150 DPI の大判ページ (A2 / 横長) は寸法超過で 400 を返す。
+    // original を sharp で 4096px 上限にリサイズしてから byteLength と
+    // 寸法を判定する。リサイズ失敗時は元 buffer に fallback (logger 警告
+    // 付き)。
+    let normalizedOriginal: Buffer = buffer
+    try {
+      normalizedOriginal = await sharp(buffer)
+        .resize({
+          width: LINE_IMAGE_MAX_DIMENSION,
+          height: LINE_IMAGE_MAX_DIMENSION,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: LINE_IMAGE_JPEG_QUALITY })
+        .toBuffer()
+    } catch (err) {
+      logger.warn('original resize failed; using raw buffer', {
+        attachmentId: attachment.id,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      normalizedOriginal = buffer
+    }
+
+    // 正規化後でも 10 MB を超えるページは画像化を諦め、ページ単位で
+    // fallback link 1 本に縮約する。
+    if (normalizedOriginal.byteLength > LINE_IMAGE_MAX_BYTES) {
       const fallback = await buildFallbackTextMessage(
         db,
         attachment,
@@ -264,14 +290,14 @@ async function buildRenderedImageMessages(
       logger.warn('attachment page exceeds LINE 10 MB limit; falling back to link', {
         attachmentId: attachment.id,
         filename: attachment.filename,
-        byteLength: buffer.byteLength,
+        byteLength: normalizedOriginal.byteLength,
       })
       return { messages: [], oversizeFallback: fallback }
     }
 
     let previewBuffer: Buffer
     try {
-      previewBuffer = await sharp(buffer)
+      previewBuffer = await sharp(normalizedOriginal)
         .resize({
           width: LINE_PREVIEW_MAX_DIMENSION,
           height: LINE_PREVIEW_MAX_DIMENSION,
@@ -288,12 +314,12 @@ async function buildRenderedImageMessages(
         attachmentId: attachment.id,
         message: err instanceof Error ? err.message : String(err),
       })
-      previewBuffer = buffer
+      previewBuffer = normalizedOriginal
     }
 
     const originalToken = randomBytes(16).toString('base64url')
     const previewToken = randomBytes(16).toString('base64url')
-    setCachedImage(originalToken, buffer, RENDERED_IMAGE_CONTENT_TYPE)
+    setCachedImage(originalToken, normalizedOriginal, RENDERED_IMAGE_CONTENT_TYPE)
     setCachedImage(previewToken, previewBuffer, RENDERED_IMAGE_CONTENT_TYPE)
     messages.push({
       type: 'image',

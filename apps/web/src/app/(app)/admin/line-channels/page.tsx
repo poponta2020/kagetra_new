@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { addDays, diffDays, todayInJst } from '@/lib/jst-date'
 import { Card, Pill } from '@/components/ui'
 import {
   LineChannelTable,
@@ -40,16 +41,16 @@ function computeReleaseInDays(
   extendedUntil: string | null,
 ): number | null {
   if (!eventDate) return null
-  // `extended_until` overrides the default `event_date + 30` formula. Both
-  // columns are stored as date-mode strings (YYYY-MM-DD) so the math stays
-  // in UTC-naïve calendar days, matching what the daily release job uses.
-  const cutoff = extendedUntil ?? eventDate
-  const cutoffMs = Date.parse(cutoff)
-  if (Number.isNaN(cutoffMs)) return null
-  const days = extendedUntil
-    ? Math.ceil((cutoffMs - Date.now()) / 86_400_000)
-    : Math.ceil((cutoffMs + 30 * 86_400_000 - Date.now()) / 86_400_000)
-  return days
+  // r-final-19 should_fix: release-expired ジョブは JST `YYYY-MM-DD` で
+  // 判定するため、画面の残日数も同じ基準で算出する。`Date.now()` /
+  // UTC ベースだと JST 深夜帯で 1 日ズレる。`diffDays` は JST 日付
+  // 文字列同士の差分をそのまま日数で返す。
+  // - extendedUntil があれば: その日付 - 今日 (JST)
+  // - なければ: event_date + 30 - 今日 (JST)
+  const today = todayInJst()
+  const cutoff = extendedUntil ?? addDays(eventDate, 30)
+  const days = diffDays(today, cutoff)
+  return Number.isNaN(days) ? null : days
 }
 
 export default async function LineChannelsAdminPage({ searchParams }: PageProps) {

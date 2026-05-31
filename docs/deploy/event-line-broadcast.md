@@ -14,6 +14,27 @@
   ベースで host 時刻を読むため、ここを変えるとリリース判定が UTC ベースに
   ずれる)
 
+### 環境変数 (`.env.production`)
+
+`apps/web` の broadcast パイプラインに以下を **必ず** 追加する。1 つでも
+欠けると添付付きメールの自動配信が `event_broadcast_messages.status=
+'failed'` に倒れるので、本番反映前に確認すること。
+
+| 変数 | 値 | 役割 |
+|---|---|---|
+| `DATABASE_URL` | `postgres://kagetra:...@127.0.0.1:5432/kagetra` | 既存 (mail-worker と共用) |
+| `PUBLIC_BASE_URL` | `https://new.hokudaicarta.com` | LINE から fetch できる HTTPS origin。`/api/line-broadcast/attachments/[token]` と `/api/line-broadcast/images/[token]` URL の生成に使う。**必須**: 未設定 / `http://` 始まりだと添付付き配信は起動時に例外で失敗する (`apps/web/src/lib/line-broadcast.ts` の `resolveBaseUrl()`)。本文のみメールは PUBLIC_BASE_URL なしでも配信成功するが、本番ではほぼ常に添付付きなので必須扱い |
+| `LINE_NOTIFY_DRY_RUN` | (未設定) | `=1` を設定すると LINE API 呼び出しを skip。本番では空のまま |
+
+`/opt/kagetra/.env.production` への追記例:
+
+```
+DATABASE_URL=postgres://kagetra:...@127.0.0.1:5432/kagetra
+PUBLIC_BASE_URL=https://new.hokudaicarta.com
+```
+
+追記後は `sudo systemctl restart kagetra-web.service` で反映する。
+
 ## 1. OS パッケージのインストール (poppler-utils + libreoffice)
 
 PDF 画像化 (pdftoppm) と Word→PDF 変換 (libreoffice) で外部プロセスを

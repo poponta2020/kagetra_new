@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gte, notInArray, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { Btn, Card, DescList, Pill, type PillTone } from '@/components/ui'
+import { todayInJst } from '@/lib/jst-date'
 import {
   ManualLinkModal,
   type LinkableEventOption,
@@ -111,7 +112,11 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
   // have a non-terminal broadcast binding. Operators rarely retro-link an
   // event whose date has passed, and limiting the list keeps the modal
   // snappy.
-  const today = new Date().toISOString().slice(0, 10)
+  //
+  // r-final-19 should_fix: events.event_date は JST カレンダーで著者付け
+  // されているので、比較する today も JST 基準に揃える (UTC ベースの
+  // toISOString だと JST 深夜帯で 1 日ずれる)。
+  const today = todayInJst()
   const linkedEventIds = await db
     .select({ id: eventLineBroadcasts.eventId })
     .from(eventLineBroadcasts)
