@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventBroadcastMessages,
   eventLineBroadcasts,
@@ -578,6 +578,11 @@ export async function broadcastMailToEvent(
     })
     .from(mailAttachments)
     .where(eq(mailAttachments.mailMessageId, args.mailMessageId))
+    // r-final-22 should_fix: 添付取得順を id 昇順で安定化させる。
+    // PostgreSQL は orderBy なしだと返却順を保証しないため、初回送信
+    // と再試行で順序が変わると previouslyDelivered ベースの skip が
+    // 誤った添付をスキップ/重複送信する。
+    .orderBy(asc(mailAttachments.id))
 
   // Upsert the audit row up front so a crash mid-delivery leaves a
   // diagnostic trail. UNIQUE (broadcast, mail) means we touch the same
