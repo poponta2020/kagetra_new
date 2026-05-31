@@ -156,6 +156,13 @@ async function pushMessages(
     let lastFailure: PushMessagesResult | null = null
 
     while (!batchSent) {
+      // r-final-21 should_fix: stale reclaim (15 分超 sending を別実行が
+      // 再 push) との重複配信を防ぐため、各 push に明示的なタイムアウトを
+      // 設定する。30 秒で AbortController が abort し、catch 側で
+      // lastFailure に倒れる。reclaim の 15 分閾値より十分短いので、
+      // 「タイムアウト → reclaim → 元 fetch も完走」の窓は実質ゼロ。
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 30_000)
       try {
         const res = await fetch(LINE_PUSH_ENDPOINT, {
           method: 'POST',
@@ -164,6 +171,7 @@ async function pushMessages(
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ to, messages: batch }),
+          signal: controller.signal,
         })
         if (res.ok) {
           delivered += batch.length
@@ -199,12 +207,21 @@ async function pushMessages(
         }
         break
       } catch (err) {
+        // AbortError は timeout 由来。"LINE push timed out" として明示。
+        const isAbort =
+          err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message))
         lastFailure = {
           deliveredCount: delivered,
-          error: err instanceof Error ? err : new Error(String(err)),
+          error: isAbort
+            ? new Error('LINE push timed out after 30s')
+            : err instanceof Error
+              ? err
+              : new Error(String(err)),
           httpStatus: null,
         }
         break
+      } finally {
+        clearTimeout(timer)
       }
     }
 

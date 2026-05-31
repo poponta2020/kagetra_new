@@ -80,12 +80,29 @@ const route = new Hono()
       )
     }
 
-    const [deleted] = await db
-      .delete(events)
-      .where(eq(events.id, id))
-      .returning()
-    if (!deleted) return c.json({ error: 'Not found' }, 404)
-    return c.json({ success: true })
+    // r-final-21 should_fix: 上の事前チェックと DELETE の間に別 tx が
+    // broadcast 行を作るとここで FK 違反 (SQLSTATE 23503) になる。
+    // catch して 409 に変換し、500 を露出しない。
+    try {
+      const [deleted] = await db
+        .delete(events)
+        .where(eq(events.id, id))
+        .returning()
+      if (!deleted) return c.json({ error: 'Not found' }, 404)
+      return c.json({ success: true })
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === '23503') {
+        return c.json(
+          {
+            error:
+              'この大会には LINE 配信履歴が紐付いています。先に履歴を削除するか、削除を控えてください。',
+          },
+          409,
+        )
+      }
+      throw err
+    }
   })
 
 export { route as eventsRoute }
