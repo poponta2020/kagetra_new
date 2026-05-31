@@ -15,19 +15,43 @@ export const runtime = 'nodejs'
 /**
  * Mail attachments are untrusted user input from the IMAP fetcher. A
  * hostile sender can attach `text/html` or `image/svg+xml` and turn an
- * inline preview into stored XSS on `new.hokudaicarta.com`. Mirror the
- * admin attachment route policy: only PDF is allowed to render inline,
- * everything else is forced to `application/octet-stream` + attachment
- * with `X-Content-Type-Options: nosniff`.
+ * inline preview into stored XSS on `new.hokudaicarta.com`.
+ *
+ * Policy:
+ *   - Disposition は常に `attachment` (inline 表示を完全に禁止)。これで
+ *     active content (html/svg) もブラウザは「ダウンロードして開く」扱い
+ *     になり、同一オリジンでのスクリプト実行は起きない。
+ *   - 既知の active content MIME (html/svg/xhtml/xml) は
+ *     `application/octet-stream` に書き換えて、ブラウザの helper apps が
+ *     スクリプト実行可能な形で開くのも防ぐ。
+ *   - 上記以外 (xlsx/docx/pdf/jpeg/png 等) は元 MIME のまま返す。LINE 内
+ *     ブラウザや OS の関連付け (Excel.app / Numbers / Adobe Reader) が
+ *     正しく動作する。
+ *   - `X-Content-Type-Options: nosniff` は常に付与。MIME を見ずに body
+ *     からタイプを推測する誤動作を遮断。
  *
  * Refs:
- *   - apps/web/src/app/api/admin/mail/attachments/[id]/route.ts
  *   - https://datatracker.ietf.org/doc/html/rfc6266
  */
-const INLINE_ALLOWED_CONTENT_TYPES = new Set<string>([
-  'application/pdf',
-  'application/x-pdf',
+const DANGEROUS_CONTENT_TYPES = new Set<string>([
+  'text/html',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'application/svg+xml',
+  'text/xml',
+  'application/xml',
+  // application/javascript / text/javascript も念のため
+  'application/javascript',
+  'text/javascript',
 ])
+
+/**
+ * RFC 6838 token grammar に沿った `type/subtype` 形式の MIME 判定。
+ * 制御文字 / 空白 / カンマ / `;` 以降のパラメータが混入すると
+ * `Response.Headers` 側で例外になり 500 を返してしまうため、
+ * Content-Type ヘッダに使う前に必ず通す (pr70 r1 should_fix)。
+ */
+const SAFE_MIME_RE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i
 
 /**
  * GET /api/line-broadcast/attachments/[token]
@@ -91,17 +115,25 @@ export async function GET(
     .where(eq(attachmentShareTokens.id, hit.tokenId))
     .catch(() => {})
 
-  // r-final-2 blocker: 任意 MIME を inline で同一オリジン配信すると、
-  // text/html や image/svg+xml が含まれるメール添付で stored XSS が成立する。
-  // admin の添付 route と同じ allowlist + nosniff + attachment fallback を
-  // 採用する。parameters (charset 等) を落としてから allowlist 比較。
+  // r-final-2 blocker: text/html / image/svg+xml の inline 配信は同一
+  // オリジン XSS になる。disposition は常に attachment で防御し、active
+  // content MIME のみ octet-stream に書き換える。それ以外 (xlsx/docx/
+  // pdf/jpeg 等) は元 MIME を保持して、LINE 内ブラウザや OS の関連付け
+  // が正しく動作するようにする (旧実装は xlsx も octet-stream にして
+  // しまい、LINE モバイル端末で「ダウンロード後に開けない」になっていた)。
   const declaredContentType =
     (hit.contentType ?? '').toLowerCase().split(';')[0]?.trim() ?? ''
-  const allowInline = INLINE_ALLOWED_CONTENT_TYPES.has(declaredContentType)
-  const responseContentType = allowInline
-    ? declaredContentType
-    : 'application/octet-stream'
-  const dispositionType = allowInline ? 'inline' : 'attachment'
+  const isDangerous = DANGEROUS_CONTENT_TYPES.has(declaredContentType)
+  // pr70 r1 should_fix: untrusted な MIME 文字列をそのままヘッダに乗せると、
+  // 不正トークン (制御文字 / 空白 / カンマ等) を含む値で
+  // `new NextResponse(..., { headers })` が例外になり 500 になる。
+  // RFC 6838 token grammar に通った値だけを採用、ダメなら octet-stream に落とす。
+  const isValidMime = SAFE_MIME_RE.test(declaredContentType)
+  const responseContentType = isDangerous || !isValidMime
+    ? 'application/octet-stream'
+    : declaredContentType
+  // attachment 固定 = ブラウザ内 inline 表示を禁止する (XSS 完全遮断)
+  const dispositionType = 'attachment'
 
   // RFC 5987 escaping for non-ASCII filenames. legacy filename= も併記して
   // 8-bit ヘッダを拒否するプロキシを通過させる。
