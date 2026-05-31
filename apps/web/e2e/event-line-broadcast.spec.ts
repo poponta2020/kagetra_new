@@ -52,8 +52,8 @@ test.describe('/events/[id] LINE 配信セクション', () => {
   test('admin が「LINE 配信を有効化」を押すと invite_pending 行が作られて招待コードモーダルが表示される', async ({ context, page }) => {
     await seedEventBroadcastChannel('available')
     const event = await createEvent({ title: 'E2Eテスト大会', eventDate: '2026-12-01' })
-    const token = await seedAdminSession()
-    await addSessionCookie(context, token)
+    const session = await seedAdminSession()
+    await addSessionCookie(context, session.sessionToken)
 
     await page.goto(`/events/${event.id}`)
     await expect(page.getByRole('heading', { name: 'E2Eテスト大会' })).toBeVisible()
@@ -75,8 +75,8 @@ test.describe('/events/[id] LINE 配信セクション', () => {
   test('Bot プールが空のときはエラーメッセージが出る', async ({ context, page }) => {
     // No event_broadcast channels seeded → generation should fail.
     const event = await createEvent({ title: '枯渇テスト', eventDate: '2026-12-15' })
-    const token = await seedAdminSession()
-    await addSessionCookie(context, token)
+    const session = await seedAdminSession()
+    await addSessionCookie(context, session.sessionToken)
 
     await page.goto(`/events/${event.id}`)
     await page.getByRole('button', { name: 'LINE 配信を有効化' }).click()

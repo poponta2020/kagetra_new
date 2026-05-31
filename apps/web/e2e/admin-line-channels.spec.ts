@@ -53,8 +53,8 @@ test.describe('/admin/line-channels Bot プール管理', () => {
       { note: 'kagetra-event-bot-3', status: 'active' },
       { note: 'kagetra-event-bot-4', status: 'disabled' },
     ])
-    const token = await seedAdminSession()
-    await addSessionCookie(context, token)
+    const session = await seedAdminSession()
+    await addSessionCookie(context, session.sessionToken)
 
     await page.goto('/admin/line-channels')
     await expect(page.getByRole('heading', { name: 'LINE 配信 Bot 管理' })).toBeVisible()
@@ -73,8 +73,8 @@ test.describe('/admin/line-channels Bot プール管理', () => {
 
   test('一般会員は /admin/line-channels にアクセスできず /403 にリダイレクトされる', async ({ context, page }) => {
     await seedBots([{ note: 'kagetra-event-bot-1', status: 'available' }])
-    const token = await seedMemberSession()
-    await addSessionCookie(context, token)
+    const session = await seedMemberSession()
+    await addSessionCookie(context, session.sessionToken)
 
     await page.goto('/admin/line-channels')
     await expect(page).toHaveURL(/\/403/)
@@ -82,8 +82,8 @@ test.describe('/admin/line-channels Bot プール管理', () => {
 
   test('Bot 詳細ページが開ける', async ({ context, page }) => {
     await seedBots([{ note: 'kagetra-event-bot-99', status: 'available' }])
-    const token = await seedAdminSession()
-    await addSessionCookie(context, token)
+    const session = await seedAdminSession()
+    await addSessionCookie(context, session.sessionToken)
 
     await page.goto('/admin/line-channels')
     await page.getByRole('link', { name: '詳細' }).first().click()
