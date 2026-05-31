@@ -16,6 +16,7 @@ import {
 } from '@/lib/attachment-image-render'
 import { setCachedImage } from '@/lib/image-cache'
 import { splitForLine } from '@/lib/text-splitter'
+import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
 
 /**
  * 5-message LINE batch limit + 1.5s sleep between batches (requirements
@@ -25,8 +26,6 @@ const LINE_BATCH_SIZE = 5
 const LINE_BATCH_SLEEP_MS = Number(process.env.LINE_BROADCAST_BATCH_SLEEP_MS ?? 1500)
 
 const LINE_PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push'
-
-const CORRECTION_PREFIX = '【訂正】'
 
 /**
  * r-final-15 should_fix: 公開 URL は LINE からアクセス可能な HTTPS で
@@ -743,15 +742,17 @@ export async function broadcastMailToEvent(
 
   try {
     // Build text messages: split the mail body at 5000-char boundaries.
-    // For corrections, prefix the body with 「【訂正】「件名」\n」 BEFORE
-    // splitting so each resulting chunk is guaranteed to fit under the
-    // 5000-character LINE limit (rr2 review blocker: prefixing after split
-    // can push the first chunk over the limit).
-    const rawBody = mail.bodyText ?? '(本文なし)'
-    const prefix = args.isCorrection
-      ? `${CORRECTION_PREFIX}${mail.subject ? `「${mail.subject}」\n` : ''}`
-      : ''
-    const bodyText = prefix + rawBody
+    // buildBroadcastBody が
+    //   - Google Groups footer の除去
+    //   - 件名 prefix `【メール件名】<subject>` の付与
+    //   - 訂正版なら `【訂正】「<subject>」` の前置
+    // をまとめて行う。prefix を結合してから splitForLine に渡すことで、
+    // 5000 字制限を超えるリスクを完全に消す (rr2 review blocker)。
+    const bodyText = buildBroadcastBody({
+      rawBody: mail.bodyText,
+      subject: mail.subject,
+      isCorrection: args.isCorrection,
+    })
     const chunks = splitForLine(bodyText)
     const textMessages: LineMessage[] = chunks.map((chunk) => ({
       type: 'text',
