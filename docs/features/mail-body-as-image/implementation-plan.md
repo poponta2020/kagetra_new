@@ -30,7 +30,7 @@ status: completed
 
 ### タスク2: line-broadcast.ts の本文画像化 + 添付リンク統一
 
-- [ ] 完了
+- [x] 完了
 - **概要:** `broadcastMailToEvent` 内の本文構築を text → image に切り替え、`renderAttachment` の PDF/Word 画像化分岐を削除して全添付 URL リンク統一にする。画像化失敗時の text fallback パスを追加。
 - **変更対象ファイル:**
   - `apps/web/src/lib/line-broadcast.ts`:
@@ -51,7 +51,7 @@ status: completed
 
 ### タスク3: attachment-image-render.ts の整理
 
-- [ ] 完了
+- [x] 完了
 - **概要:** 本文画像化から内部呼び出しする `renderPdfToJpegs` はそのまま残す。添付経路で唯一使われていた `renderDocxToJpegs` は外部から不要になるが、本文画像化が libreoffice → renderPdfToJpegs 経由なので **export は維持** (PDF 化 helper として再利用)。
 - **変更対象ファイル:**
   - `apps/web/src/lib/attachment-image-render.ts`:
@@ -63,7 +63,7 @@ status: completed
 
 ### タスク4: テスト更新
 
-- [ ] 完了
+- [x] 完了
 - **概要:** `line-broadcast.test.ts` を本文 image / 添付 link の新挙動に合わせて更新。
 - **変更対象ファイル:**
   - `apps/web/src/lib/line-broadcast.test.ts`:
@@ -77,7 +77,7 @@ status: completed
 
 ### タスク5: ローカル検証 + worklog 記入 + PR 作成準備
 
-- [ ] 完了
+- [x] 完了
 - **概要:** worktree でユニットテスト・型チェック・lint を通し、worklog.md に進捗を追記、`/prepare-pr` で PR を作る準備をする。
 - **検証コマンド:**
   - `pnpm --filter @kagetra/web vitest run src/lib/mail-body-image-render.test.ts`
