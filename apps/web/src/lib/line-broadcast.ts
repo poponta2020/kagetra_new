@@ -1027,20 +1027,25 @@ export async function broadcastMailToEvent(
       mailMessageId: args.mailMessageId,
       error: errorMessage,
     })
+    // r-final-18 should_fix: partial 再試行が push 前に例外で落ちた場合
+    // でも、既存の sent*Count を保持する。0 に戻すと「前回どこまで届い
+    // たか」を失い、次の retry が先頭から再送して重複配信になる。
+    // existingAudit の値を維持する形で UPDATE する。
     await db
       .update(eventBroadcastMessages)
       .set({
         status: 'failed',
         errorMessage,
         updatedAt: sql`now()`,
+        // sent*Count は明示的に渡さない = 既存値維持
       })
       .where(eq(eventBroadcastMessages.id, broadcastMessageId))
     return {
       status: 'failed',
       reason: errorMessage,
-      sentTextCount: 0,
-      sentImageCount: 0,
-      fallbackLinkCount: 0,
+      sentTextCount: existingAudit[0]?.sentTextCount ?? 0,
+      sentImageCount: existingAudit[0]?.sentImageCount ?? 0,
+      fallbackLinkCount: existingAudit[0]?.fallbackLinkCount ?? 0,
     }
   }
 }

@@ -47,7 +47,7 @@ loadEnv({ path: resolve(here, '..', '.env.local') })
 
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { lineChannels } from '@kagetra/shared/schema'
 
 export interface BroadcastChannelInput {
@@ -63,11 +63,17 @@ export interface BroadcastChannelInput {
 export type SeedBroadcastChannelOutcome =
   | { kind: 'inserted'; channelId: string; rowId: number }
   | { kind: 'skipped'; channelId: string; reason: 'already_exists' }
+  | {
+      kind: 'backfilled'
+      channelId: string
+      backfilled: readonly ('webhookDestinationId')[]
+    }
 
 export interface SeedBroadcastChannelsResult {
   outcomes: SeedBroadcastChannelOutcome[]
   insertedCount: number
   skippedCount: number
+  backfilledCount: number
 }
 
 /**
@@ -80,14 +86,16 @@ export async function seedBroadcastChannels(
   inputs: readonly BroadcastChannelInput[],
 ): Promise<SeedBroadcastChannelsResult> {
   if (inputs.length === 0) {
-    return { outcomes: [], insertedCount: 0, skippedCount: 0 }
+    return { outcomes: [], insertedCount: 0, skippedCount: 0, backfilledCount: 0 }
   }
 
-  // Pre-fetch existing channel_ids in a single query — cheaper than per-row
-  // ON CONFLICT for a one-shot bootstrap, and gives us a clean "skipped"
-  // signal for the operator log.
+  // Pre-fetch existing channel_ids + 既存 webhookDestinationId を取得して、
+  // backfill 判定 (r-final-18 should_fix) に使う。
   const existing = await db
-    .select({ channelId: lineChannels.channelId })
+    .select({
+      channelId: lineChannels.channelId,
+      webhookDestinationId: lineChannels.webhookDestinationId,
+    })
     .from(lineChannels)
     .where(
       inArray(
@@ -95,11 +103,46 @@ export async function seedBroadcastChannels(
         inputs.map((row) => row.channelId),
       ),
     )
-  const existingSet = new Set(existing.map((row) => row.channelId))
+  const existingMap = new Map(
+    existing.map((row) => [row.channelId, row.webhookDestinationId]),
+  )
 
   const outcomes: SeedBroadcastChannelOutcome[] = []
   for (const [index, input] of inputs.entries()) {
-    if (existingSet.has(input.channelId)) {
+    if (existingMap.has(input.channelId)) {
+      // r-final-18 should_fix: credential は触らないが、webhookDestinationId
+      // が NULL の行に対しては input 値で backfill する。0014 追加前に投入
+      // 済みの Bot や、運用初期に user ID が分からなかった Bot を、ドキュ
+      // メント通りの seed 再実行で復旧できるようにする。
+      const currentDestination = existingMap.get(input.channelId) ?? null
+      const needsBackfill =
+        currentDestination == null &&
+        input.webhookDestinationId != null &&
+        input.webhookDestinationId.length > 0
+
+      if (needsBackfill) {
+        const updated = await db
+          .update(lineChannels)
+          .set({
+            webhookDestinationId: input.webhookDestinationId ?? null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(lineChannels.channelId, input.channelId),
+              isNull(lineChannels.webhookDestinationId),
+            ),
+          )
+          .returning({ id: lineChannels.id })
+        if (updated.length > 0) {
+          outcomes.push({
+            kind: 'backfilled',
+            channelId: input.channelId,
+            backfilled: ['webhookDestinationId'],
+          })
+          continue
+        }
+      }
       outcomes.push({
         kind: 'skipped',
         channelId: input.channelId,
@@ -129,6 +172,7 @@ export async function seedBroadcastChannels(
     outcomes,
     insertedCount: outcomes.filter((o) => o.kind === 'inserted').length,
     skippedCount: outcomes.filter((o) => o.kind === 'skipped').length,
+    backfilledCount: outcomes.filter((o) => o.kind === 'backfilled').length,
   }
 }
 
@@ -210,11 +254,16 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const pool = new Pool({ connectionString: databaseUrl })
   try {
     const db = drizzle(pool)
-    const { outcomes, insertedCount, skippedCount } = await seedBroadcastChannels(db, inputs)
+    const { outcomes, insertedCount, skippedCount, backfilledCount } =
+      await seedBroadcastChannels(db, inputs)
     for (const outcome of outcomes) {
       if (outcome.kind === 'inserted') {
         process.stdout.write(
           `[seed-broadcast-channels] inserted ${outcome.channelId} (row id=${outcome.rowId})\n`,
+        )
+      } else if (outcome.kind === 'backfilled') {
+        process.stdout.write(
+          `[seed-broadcast-channels] backfilled ${outcome.channelId} (${outcome.backfilled.join(',')})\n`,
         )
       } else {
         process.stdout.write(
@@ -223,7 +272,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       }
     }
     process.stdout.write(
-      `[seed-broadcast-channels] done: ${insertedCount} inserted, ${skippedCount} skipped\n`,
+      `[seed-broadcast-channels] done: ${insertedCount} inserted, ${backfilledCount} backfilled, ${skippedCount} skipped\n`,
     )
   } finally {
     await pool.end()
