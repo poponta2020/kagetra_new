@@ -2124,3 +2124,31 @@
   - 仕様誤解の即修正: `【メール件名】<件名>` → `【<件名>】` (件名そのものを括弧で囲む)
   - 訂正版: `【訂正】「<件名>」\n【メール件名】<件名>` → `【訂正】【<件名>】`
   - mail-body-cleaner.test.ts 14 ケース更新、Codex R1 (high) blockers=0 一発 pass、CI pass (2m55s)、本番反映完了
+
+## 2026-06-01 セッション1（mail-body-as-image: メール本文の画像配信）
+
+### 完了（実装、PR 作成前）
+- **機能 `mail-body-as-image`**（親 Issue #73、子 #74-#78）を `feat/mail-body-as-image` で全 5 タスク実装。1 PR 予定。worktree `C:/tmp/impl-mail-body-as-image`
+  - **目的**: LINE 配信メール本文を A4 縦 JPEG 画像で送り、スマホ LINE の縦長スクロール可読性問題を解消。あわせて添付を全形式 URL リンクに統一
+- **タスク1 (#74)** `f68e918`: `apps/web/src/lib/mail-body-image-render.ts` 新規
+  - `buildBodyImageHtml()`: 件名・本文・訂正フラグを A4 縦 HTML に。`stripMailFooter` 再利用で footer 除去、HTML エスケープ、ヘッダー 4 ケース分岐（件名/訂正の有無）、空本文は `(本文なし)`
+  - `renderBodyImageToJpegs()`: HTML→libreoffice→PDF→`renderPdfToJpegs` で JPEG 化。30 ページ超 `truncated`、失敗時 throw
+  - unit test（スナップショット + 各ケース）。libreoffice 統合テストは未搭載環境では skip
+- **タスク2 (#75)** `f994a18`: `line-broadcast.ts` の `broadcastMailToEvent` 本文を text→画像化。失敗/30 ページ超/0 枚/10 MB 超/baseUrl 未設定は text fallback に降格。`renderAttachment` は全形式 URL リンク統一（PDF/Word 画像化撤廃）。`MessageRole` を `body_image`/`body_text`/`attachment_link` に再編
+- **タスク3 (#76)** `1518d67`: 共通 `runLibreofficeConvertToPdf` を `attachment-image-render.ts` に抽出 export（`runCommand` 再利用）。未使用化した `renderDocxToJpegs` 削除、`mail-body-image-render.ts` のローカル libreoffice 実装も共通化に置換
+- **タスク4 (#77)** `0cb2764`: `line-broadcast.test.ts` を更新。`renderBodyImageToJpegs` をモジュールモック（決定化）し、本文 image / 添付 link / 画像化失敗 text fallback / 30 ページ超 fallback / 訂正フラグ伝播を検証。成功ケースは sharp 生成の有効 JPEG を使用
+- **タスク5 (#78)**: ローカル検証 + worklog + PR 準備
+  - **検証**: apps/web 全ユニット 263 passed / 1 skipped（skip=libreoffice 統合テスト, Windows ローカル未搭載）、`check-types` clean、`lint` clean
+
+### 設計判断・注意点
+- **line-broadcast.test.ts は `renderBodyImageToJpegs` をモック**: libreoffice spawn を mock しない統合テストは `mail-body-image-render.test.ts` 側に隔離（要件 §4.4）。配信オーケストレーションの環境非依存検証のためこちらはモック
+- **30 ページ超は text fallback のみ**（本文専用 share token テーブルは作らない、要件 §4.3）
+- **手順書 Task 5 の `typecheck` は誤記** → 実スクリプトは `check-types`（plan は据え置き、memory に記録）
+
+### 次回 (carryover)
+- 🟡 **PR 作成 → Codex auto-review-loop → ship**（`/prepare-pr` で着手）
+- 🔴 **本番デプロイ後に実機 LINE グループで本文画像表示を目視確認**（DoD 完了条件、Windows ローカルに libreoffice 無く画像描画はローカル未検証。CI/本番 Linux で実描画）
+- 🟢 並行定義の `event-lifecycle-notify`（#79-83 未実装）とは現状ファイル衝突なし
+
+### レビュー
+- 2026-06-01 /auto-review-loop PR #84: 1R, verdict=pass, effort=high, tokens=47353/500000, result=pass（blockers=0/should_fix=0/nits=0 一発 pass）

@@ -154,40 +154,27 @@ export async function renderPdfToJpegs(
 }
 
 /**
- * Render a `.docx` (or anything libreoffice can read) to JPEG pages by
- * converting through PDF. The intermediate PDF lives only in the tmpdir.
+ * Convert any libreoffice-readable input file (`.docx`, `.html`, `.odt`, …)
+ * to a PDF written into `outDir` with the same basename (e.g. `body.html` →
+ * `body.pdf`). `libreoffice --headless --convert-to pdf` is the documented
+ * one-shot conversion; it spawns a fresh `soffice` process per call and exits
+ * when done, so we don't manage a long-running daemon.
  *
- * `libreoffice --headless --convert-to pdf` is the documented one-shot
- * conversion; it spawns a fresh `soffice` process per call and exits when
- * done, so we don't need to manage a long-running daemon.
+ * Shared by the mail-body image-render path (mail-body-image-render.ts) so the
+ * libreoffice invocation — flags, timeout, stdout-drain, stderr surfacing —
+ * lives in one place. libreoffice cold-start on the production ARM box has
+ * been observed up to ~6s; the 120s timeout gives ample headroom for a chunky
+ * multi-page document.
  */
-export async function renderDocxToJpegs(
-  docxBuffer: Buffer,
-  options: { maxPages?: number } = {},
-): Promise<ImageRenderResult> {
-  const workDir = await mkdtemp(join(tmpdir(), 'kagetra-docx-'))
-  try {
-    const inputPath = join(workDir, 'input.docx')
-    await writeFile(inputPath, docxBuffer)
-    await runCommand(
-      'libreoffice',
-      [
-        '--headless',
-        '--convert-to',
-        'pdf',
-        '--outdir',
-        workDir,
-        inputPath,
-      ],
-      // libreoffice cold-start can be slow; give it more headroom than
-      // pdftoppm which usually runs in milliseconds.
-      { timeoutMs: 120_000 },
-    )
-    const pdfBuffer = await readFile(join(workDir, 'input.pdf'))
-    return await renderPdfToJpegs(pdfBuffer, options)
-  } finally {
-    await rm(workDir, { recursive: true, force: true }).catch(() => {})
-  }
+export async function runLibreofficeConvertToPdf(
+  inputPath: string,
+  outDir: string,
+): Promise<void> {
+  await runCommand(
+    'libreoffice',
+    ['--headless', '--convert-to', 'pdf', '--outdir', outDir, inputPath],
+    { timeoutMs: 120_000 },
+  )
 }
 
 /**
