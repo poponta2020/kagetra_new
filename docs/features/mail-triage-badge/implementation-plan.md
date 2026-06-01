@@ -31,7 +31,7 @@ status: completed
 - **完了条件:** 各アクションで triage_status が正しく遷移、count API が未処理＋保留を返す、権限ガード（member→403）。
 
 ### タスク3: mail-inbox UI 再構成（全メール処理導線）
-- [ ] 完了
+- [x] 完了
 - **概要:** mail id ベースの詳細ページを作り4アクションのボタンを設置。一覧を未処理/保留/処理済みで区分。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` — 未処理/保留/処理済みの区分表示（未処理を上部、既存 tier を未処理内の整理として活用）
