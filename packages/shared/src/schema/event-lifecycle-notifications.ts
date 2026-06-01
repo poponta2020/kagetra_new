@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { integer, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 import { eventLifecycleNotificationStatusEnum, eventLifecycleNotificationTypeEnum } from './enums'
 import { events } from './events'
 

@@ -199,19 +199,32 @@ describe('event lifecycle actions', () => {
     expect(await notifications(event.id)).toHaveLength(0)
   })
 
-  it('setPaymentType: advance 以外へ変更すると支払状態をリセットする', async () => {
+  it('setPaymentType: advance 以外への変更で支払状態と payment_paid ログを完全リセットし、再支払いで再通知できる', async () => {
     const admin = await createAdmin()
     const event = await seedLinkedEvent()
     await setAuthSession({ id: admin.id, role: 'admin' })
+    const paidLogs = async () =>
+      (await notifications(event.id)).filter((r) => r.type === 'payment_paid')
+
     await setPaymentType(event.id, 'advance')
     await setPaymentPaid(event.id, true)
     expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
+    expect(await paidLogs()).toHaveLength(1)
 
-    // onsite へ変更 → 古い paid をリセット（advance に戻したとき支払済が残らない）
+    // onsite へ変更 → 支払状態 + payment_paid once-ever ログをリセット
     await setPaymentType(event.id, 'onsite')
-    const row = await getEvent(event.id)
-    expect(row?.paymentType).toBe('onsite')
-    expect(row?.paymentStatus).toBe('unpaid')
-    expect(row?.paymentPaidAt).toBeNull()
+    const reset = await getEvent(event.id)
+    expect(reset?.paymentType).toBe('onsite')
+    expect(reset?.paymentStatus).toBe('unpaid')
+    expect(reset?.paymentPaidAt).toBeNull()
+    expect(await paidLogs()).toHaveLength(0)
+
+    // 再び advance に戻して支払済 → 新規操作として完了通知が再送される
+    await setPaymentType(event.id, 'advance')
+    await setPaymentPaid(event.id, true)
+    expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
+    const logs = await paidLogs()
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({ status: 'sent' })
   })
 })

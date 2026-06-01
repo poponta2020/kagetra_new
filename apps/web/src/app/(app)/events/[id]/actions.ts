@@ -8,6 +8,7 @@ import {
   eventBroadcastMessages,
   events,
   eventAttendances,
+  eventLifecycleNotifications,
   eventLineBroadcasts,
   lineChannels,
   users,
@@ -517,17 +518,39 @@ export async function setPaymentType(
   type: 'advance' | 'onsite' | null,
 ): Promise<void> {
   await requireAdminSession()
-  // 事前払い以外へ変えるときは支払状態をリセットする。advance で支払済にした後に
-  // 別タイプへ→再び advance に戻したとき、古い paid が残って支払済表示・支払締切
-  // リマインド抑止・完了通知の再送抑止につながるのを防ぐ（review should_fix）。
-  const leavingAdvance = type !== 'advance'
+
+  // advance 以外へ変えるときは支払いライフサイクルを完全リセットする:
+  // paymentStatus/paymentPaidAt を未払へ戻し、payment_paid の once-ever ログも
+  // 同一 tx で削除する。ログを残すと、後で advance に戻して支払済にしても
+  // UNIQUE(event_id,type) に当たって claim できず完了通知が送られない
+  // （状態リセットと矛盾する。review should_fix）。
+  if (type !== 'advance') {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(events)
+        .set({
+          paymentType: type,
+          paymentStatus: 'unpaid',
+          paymentPaidAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(events.id, eventId))
+      await tx
+        .delete(eventLifecycleNotifications)
+        .where(
+          and(
+            eq(eventLifecycleNotifications.eventId, eventId),
+            eq(eventLifecycleNotifications.type, 'payment_paid'),
+          ),
+        )
+    })
+    revalidatePath(`/events/${eventId}`)
+    return
+  }
+
   await db
     .update(events)
-    .set({
-      paymentType: type,
-      ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
-      updatedAt: sql`now()`,
-    })
+    .set({ paymentType: type, updatedAt: sql`now()` })
     .where(eq(events.id, eventId))
   revalidatePath(`/events/${eventId}`)
 }
