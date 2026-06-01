@@ -1,6 +1,6 @@
 ---
 name: project-mail-triage-badge
-description: mail-triage-badge 全5タスク(#88-92)実装+テスト完了push済。feature/mail-triage-badge、PR作成待ち。残DoD=本番VAPID鍵設定+iOS実機バッジ確認
+description: mail-triage-badge SHIPPED。PR #95 merge 2ca9af2 (2026-06-01) 本番反映 success、Issue #87-92 全クローズ。残DoD=本番VAPID鍵設定+iOS実機バッジ確認
 metadata: 
   node_type: memory
   type: project
@@ -37,5 +37,5 @@ metadata:
 - **タスク3 (#90) 完了・push 済** (commit `8940062`): 一覧を triage 区分(未処理/保留/処理済み、未処理優先取得+処理済み折りたたみ)、TriageActions(client) クイックアクション、mail/[id] 詳細ページ新規。mail-inbox テスト 82 passed、型チェック通過。
 - **タスク4 (#91) 完了・push 済** (commit `9471870`): public/sw.js(push→通知+setAppBadge)、ServiceWorkerRegister(SW登録+前景バッジ同期 count API→setAppBadge)、/settings/notifications 購読UI、savePushSubscription/deletePushSubscription(endpoint upsert)、middleware /sw.js 除外、VAPID env(.env.example/.production)。web テスト 89 passed、型チェック通過。**iOS 実機での通知許可+バッジ確認は DoD（後日）**。
 - **タスク5 (#92) 完了・push 済** (commit `a1df834`): notify/web-push.ts(admin/vice_admin の購読へ配信、badge=未処理数、HTTP 410/404 で失効削除)、pipeline onMailInserted フック、config loadWebPushConfig、index 注入、web-push 依存。mail-worker テスト 53 passed、型チェック通過。
-- **全5タスク完了。feature/mail-triage-badge に5コミット (27d009b/87484a6/8940062/9471870/a1df834)。次=prepare-pr → auto-review-loop。**
+- **全5タスク完了 → PR #95 → auto-review-loop 3R(r1=処理後バッジ再同期 / r2=詳細パス再検証+unsubscribe順序 を修正、r3=runPipeline型エラーは Codex 誤検出と確定し却下) → CI green → ship。merge `2ca9af2` (2026-06-01)、本番 auto-deploy success(migration 0018 適用=既存メール processed 化)、Issue #87-92 全クローズ、ローカル/リモートブランチ+worktree 削除済。**
 - **残 DoD: ①本番に VAPID 鍵生成・設定 (npx web-push generate-vapid-keys → NEXT_PUBLIC_VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT)。未設定でも triage UI は動き Web Push のみ無効。②iOS 実機でホーム画面 PWA→通知許可→新着でバッジ増加を目視。**
