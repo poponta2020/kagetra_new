@@ -13,6 +13,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "lint": "echo 'no lint configured yet'",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts"
@@ -27,6 +28,7 @@
     "@kagetra/typescript-config": "workspace:*",
     "@types/pg": "^8.11.0",
     "drizzle-kit": "^0.31.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
   }
 }

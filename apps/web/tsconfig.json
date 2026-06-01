@@ -16,6 +16,7 @@
   "include": [
     "next-env.d.ts",
     "src",
+    "scripts",
     "../../packages/shared/src",
     "../../apps/mail-worker/src",
     ".next/types/**/*.ts"

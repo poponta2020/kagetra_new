@@ -1,0 +1,35 @@
+[Unit]
+Description=Kagetra event-lifecycle-notify daily reminders (entry/payment deadline + onsite payment)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/event-lifecycle-notify.md
+
+[Service]
+# Type=oneshot — idempotent batch job. The (event_id, type) UNIQUE makes a
+# same-day re-run a no-op, so multiple invocations are safe.
+Type=oneshot
+
+# Same dedicated system user as the other kagetra services.
+User=kagetra
+Group=kagetra
+
+WorkingDirectory=/opt/kagetra
+
+# DATABASE_URL is the only required env (channel access tokens live in the DB,
+# and the lifecycle push is text-only so PUBLIC_BASE_URL is NOT needed). Leave
+# LINE_NOTIFY_DRY_RUN unset in production; set it to 1 only for verification.
+EnvironmentFile=/opt/kagetra/.env.production
+
+# NOTE: `pnpm --filter @kagetra/web exec` runs the command with cwd set to the
+# package directory (apps/web), NOT WorkingDirectory. So `tsx scripts/...`
+# resolves to apps/web/scripts/send-lifecycle-reminders.ts. WorkingDirectory is
+# only the repo root from which pnpm discovers the workspace. This mirrors the
+# production-running kagetra-broadcast-cleanup.service.
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/send-lifecycle-reminders.ts
+
+StandardOutput=journal
+StandardError=journal
+
+# Bounded: at most a handful of linked events with a deadline on any given day,
+# one text push each. Cap at 10 min to catch a runaway query.
+TimeoutStartSec=600
+TimeoutStopSec=30

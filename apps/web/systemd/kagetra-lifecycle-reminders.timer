@@ -1,0 +1,20 @@
+[Unit]
+Description=Run kagetra lifecycle reminders once daily at 00:00 JST
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/event-lifecycle-notify.md
+Requires=kagetra-lifecycle-reminders.service
+
+[Timer]
+# Run at 00:00 JST daily — requirements specify reminders fire at 当日 0:00 and
+# 3 日前 0:00. systemd treats OnCalendar in the host's local time, so the
+# deploy doc fixes the host timezone to Asia/Tokyo. Distinct from the 04:00
+# broadcast-cleanup timer (separate responsibility, separate unit).
+OnCalendar=*-*-* 00:00:00
+AccuracySec=5min
+
+# Catch up after host downtime — a late reminder is better than a missed one.
+Persistent=true
+
+Unit=kagetra-lifecycle-reminders.service
+
+[Install]
+WantedBy=timers.target

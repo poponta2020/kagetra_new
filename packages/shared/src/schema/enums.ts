@@ -93,3 +93,25 @@ export const eventBroadcastMessageStatusEnum = pgEnum('event_broadcast_message_s
   'partial',
   'failed',
 ])
+
+// event-lifecycle-notify: 会レベルの申込/支払い状態 + ライフサイクル通知ログ
+export const eventEntryStatusEnum = pgEnum('event_entry_status', ['not_applied', 'applied'])
+// payment_type は nullable カラム（未設定 = 支払い通知なし）。事前払い/現地払いで挙動が分岐する。
+export const eventPaymentTypeEnum = pgEnum('event_payment_type', ['advance', 'onsite'])
+// payment_status は payment_type='advance'（事前払い）のときのみ意味を持つ。
+export const eventPaymentStatusEnum = pgEnum('event_payment_status', ['unpaid', 'paid'])
+export const eventLifecycleNotificationTypeEnum = pgEnum('event_lifecycle_notification_type', [
+  'entry_applied',
+  'entry_deadline_advance',
+  'entry_deadline_day',
+  'payment_paid',
+  'payment_deadline_advance',
+  'payment_deadline_day',
+  'onsite_payment_advance',
+  'onsite_payment_day',
+])
+export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_notification_status', [
+  'sent',
+  'failed',
+  'skipped',
+])
