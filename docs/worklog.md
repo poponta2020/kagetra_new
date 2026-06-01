@@ -2177,3 +2177,16 @@
 ### 次回 (carryover)
 - 🔴 **実機 LINE 目視**: mail-body の本文画像（今すぐ可）/ event-lifecycle 通知（次回 00:00 JST 発火 or テスト大会で確認）
 - 🟢 auto-deploy: docs/memory のみの main push でも CI+no-op deploy が走る。気になるなら ci.yml に `paths-ignore` 追加で最適化可（今回は未対応）
+
+## 2026-06-01 セッション3（バグ修正: mail-body 本文画像の先頭空白ページ）
+
+### バグ修正 + ship（PR #94 / Issue #93）
+- **症状**: LINE 配信のメール本文画像で 1 枚目が真っ白、2 枚目に本文（短い本文でも 2 枚送信）
+- **根本原因**: LibreOffice の既知バグ。`libreoffice --headless --convert-to pdf body.html` で Writer コンポーネントを明示しないと HTML が「Web レイアウト」で開かれ、先頭に空白ページが挿入される（本文は 2 ページ目から）。`renderPdfToJpegs` が PDF 全ページを JPEG 化するため、空白ページがそのまま 1 枚目の画像に
+- **修正**: `runLibreofficeConvertToPdf`（`attachment-image-render.ts`）の libreoffice 呼び出しに `--writer` を追加。HTML を Writer 文書として開かせ先頭空白ページを回避。唯一の呼び出し元は本文画像化（HTML 入力）のみなので他フォーマットへの影響なし。etherpad-lite も同症状を `--writer` で修正
+- **テスト**: libreoffice 統合テストを「短い本文 → ちょうど 1 ページ」(`toBe(1)`) に強化（空白ページ復活で 2 ページになり落ちるリグレッションガード）。Windows ローカルは libreoffice 無しで再現不可のため CI（Linux 実描画）で検証
+- **フロー**: bug-report → PR #94 → auto-review-loop R1 PASS（effort=medium、blockers/should_fix=0、tokens=28,976/500,000）→ CI green（実 libreoffice で 1 ページ確認）→ ship。merge commit `c6a4be6`、Issue #93 自動クローズ、worktree/ローカル+リモートブランチ削除済。auto-deploy は main push で起動（c6a4be6 の CI run success）
+- **session sync の注意**: 共有 main 作業ディレクトリに無関係の未コミット変更（`.claude/skills/*`, `CLAUDE.md`）+ 未追跡 `docs/features/*`（incoming の追跡版と衝突）があったため、本 sync は `origin/main` から切ったクリーン worktree で実施し、**ユーザーの main 作業ディレクトリには未接触**。教訓は [[feedback_no_shared_maindir_for_branch_work]] 通り
+
+### 残 DoD（carryover）
+- 🔴 **実機 LINE 目視**: 本番反映後、本文画像が 1 枚目から表示される（先頭の真っ白ページが消えた）ことを確認

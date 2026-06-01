@@ -12,7 +12,7 @@
 - [モバイルシェル固定 完全完了](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 ship + 本番反映 + 実機 OK (2026-05-28)、Issue #50/#51/#52/#53 全 close、教訓は 4 つの feedback memory に切り出し済
 - [event-line-broadcast 本番運用開始](impl_event_line_broadcast_task1.md) — PR #65 + PR #70 (xlsx MIME fix) merge `d94199f` (2026-05-31)。Oracle Cloud 東京で稼働、2 Bot 運用、1 大会通しテスト成功
 - [Codex review effort 自動判定](project_codex_review_effort.md) — PR #69 merge (647aa62)。/auto-review-loop が差分内容で medium/high を auto 判定。~/.codex/config.toml は medium 既定（git 管理外）
-- [mail-body-as-image SHIPPED+本番反映](impl_mail_body_as_image.md) — 本文を A4 JPEG 画像で LINE 配信、添付全リンク統一。PR #84 merge `cc6c765`、**本番 `322b3b7` 手動デプロイ済** (2026-06-01)。Issue #73-#78 全クローズ。残 DoD=実機 LINE で本文画像目視のみ
+- [mail-body-as-image SHIPPED+本番反映](impl_mail_body_as_image.md) — 本文を A4 JPEG 画像で LINE 配信、添付全リンク統一。PR #84 merge `cc6c765`、**本番 `322b3b7` 手動デプロイ済** (2026-06-01)。Issue #73-#78 全クローズ。**後日 PR #94 (`c6a4be6`) で先頭空白ページ修正（libreoffice `--writer`、Issue #93）**。残 DoD=実機 LINE 目視のみ
 - [event-lifecycle-notify 機能定義](project_event_lifecycle_notify.md) — Bot を大会ライフサイクル（申込/締切/支払い）通知役に拡張。要件+計画+Issue #79-83。支払いは事前/現地で分岐、通知は紐付け済み参加者グループに集約、once-ever ログで重複防止
 - [event-lifecycle-notify SHIPPED](impl_event_lifecycle_notify.md) — PR #85 merge `42e1cef` (2026-06-01)、子#80-83+親#79クローズ。非自明: 自前push・同一tx で状態flip+once-ever claim・scripts を type/test 編入・未紐付けでも slot 消費・payment型変更は状態リセットするが once-ever ログ保持。**本番反映済 (migration 0017 適用 + reminder timer enable, 2026-06-01、auto-deploy 有効化の前提として実施)**。残=実機LINE目視のみ
 - [本番自動デプロイ (Actions+SSH) 稼働中](project_auto_deploy.md) — PR #86 merge `7d15042` (2026-06-01)、初回 run 成功(SKIPPED_NOCODE 疎通確認)。main の code 変更 push で自動 build→migration(冪等)→restart、docs のみ skip。kagetra(scoped sudo)へ deploy 鍵で SSH。host 鍵/sudoers/secrets 設定済
@@ -38,5 +38,6 @@
 - [Tailwind の utility 出力順は className 順では制御できない](feedback_tailwind_utility_output_order_not_className.md) — 同一 property を複数 utility で重ねて cascade 期待するのは NG。CSS 側に専用クラスを切る
 - [Next.js standalone リビルド時の static cp](feedback_nextjs_standalone_static_cp.md) — build 後に `.next/static` と `public` を `.next/standalone/apps/web/` 配下にコピーし忘れると CSS/JS 全部 404 で画面真っ白
 - [本番ホストに Noto CJK 必須](feedback_libreoffice_ja_fonts.md) — `poppler-utils` + `libreoffice` で PDF/Word 画像化するなら日本語フォントを必ず apt install。デフォルトの Ubuntu Server は `fc-list :lang=ja` が 0 件で文字化け
+- [libreoffice HTML→PDF は --writer 必須](feedback_libreoffice_writer_blank_page.md) — 無いと先頭に真っ白ページが入り本文が2ページ目にずれる(LibreOffice 既知バグ)。Issue #93/PR #94。HTML 変換は `--writer` で Writer 文書として開く
 - [本番 migration は `db:migrate` 使う](feedback_drizzle_kit_push_prompt.md) — `db:push` は既存データありで UNIQUE 制約追加時に interactive prompt 要求 → TTY なしで詰む。`db:migrate` は journal ベースで非 interactive
 - [公開添付 route は blocklist + attachment 固定](feedback_attachment_mime_blocklist.md) — allowlist 方式は xlsx 等をモバイルアプリで開けなくする副作用。`Content-Disposition: attachment` 固定 + 危険 MIME blocklist + token 検証の三重防御
