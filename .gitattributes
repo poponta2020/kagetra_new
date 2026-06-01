@@ -1,0 +1,4 @@
+# Shell scripts are piped to bash on Linux hosts (e.g. scripts/deploy/*.sh via
+# GitHub Actions deploy). CRLF would break them with `$'\r': command not found`,
+# so force LF regardless of the committer's platform / autocrlf setting.
+*.sh text eol=lf
