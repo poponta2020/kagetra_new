@@ -10,7 +10,7 @@ metadata:
 LINE 配信メール本文を A4 縦 JPEG 画像で送る機能。添付は全形式 URL リンク統一（Excel と同じ）。要件/手順は `docs/features/mail-body-as-image/`（親 Issue #73、子 #74-#78）。**1 PR で全 5 タスク**。
 
 - ブランチ `feat/mail-body-as-image`（merge 済・削除）/ worktree も削除済
-- **SHIPPED (2026-06-01)**: 全 5 タスク → PR #84 → auto-review-loop R1 PASS（effort=high, 47k tokens, 指摘0）→ merge `cc6c765`。子 #74-#78 + 親 #73 全クローズ。CI pass。**残 DoD = 本番デプロイ後に実機 LINE で本文画像目視**
+- **SHIPPED + 本番反映済 (2026-06-01)**: 全 5 タスク → PR #84 → auto-review R1 PASS → merge `cc6c765`。子 #74-#78 + 親 #73 全クローズ。**本番 `322b3b7` に手動デプロイ済**（ホスト上で build→静的cp→`systemctl restart kagetra-web`、libreoffice/pdftoppm/日本語フォント86 揃い確認）。手順は [[project_auto_deploy]] のデタッチ実行方式で実証。**残 DoD = 実機 LINE で本文画像目視のみ**
   - Task1 #74 `f68e918`: `mail-body-image-render.ts` 新規（`buildBodyImageHtml` + `renderBodyImageToJpegs`）
   - Task2 #75 `f994a18`: `line-broadcast.ts` 本文 text→画像化、`renderAttachment` 全添付リンク統一、`MessageRole` を body_image/body_text/attachment_link に再編
   - Task3 #76 `1518d67`: 共通 `runLibreofficeConvertToPdf` を `attachment-image-render.ts` に抽出 export、未使用 `renderDocxToJpegs` 削除

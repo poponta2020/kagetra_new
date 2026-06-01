@@ -2156,3 +2156,24 @@
 ### Ship
 - **PR #84 merge 完了**（merge commit `cc6c765`, 2026-06-01）。子 Issue #74-#78 自動クローズ、親 #73 クローズ、worktree 削除・ローカルブランチ削除済み
 - **残 DoD（carryover）**: 本番デプロイ後に実機 LINE グループで本文画像表示を目視確認。本番ホストの `libreoffice` + `poppler-utils` + `fonts-noto-cjk` は event-line-broadcast で導入済み。画像化失敗時は text fallback に自動降格するため最悪でも連絡到達は担保
+
+## 2026-06-01 セッション2（本番デプロイ + auto-deploy 構築）
+
+### 本番デプロイ（手動・検証済）
+- **mail-body-as-image を本番反映**: ホスト上で build→静的cp→`systemctl restart kagetra-web`。libreoffice/pdftoppm/日本語フォント86 揃い確認、外部 307。途中切断対策で「ホスト側デタッチ実行＋ポーリング」方式
+- **event-lifecycle-notify (#85) を本番反映**（auto-deploy 有効化の前提として）: migration 0017 を冪等 `apply-migrations.sh` で適用（applied=1/skipped=17、追加系で後方互換）→ web rebuild/restart → `kagetra-lifecycle-reminders.timer` を **`enable` のみ**で設置（`--now` は `[Unit] Requires=` 経由で即リマインド発火する罠を回避、次回 00:00 JST）→ `--dry-run` 検証 0 candidates。doc の `pnpm db:migrate` ではなく established な apply-migrations.sh を使用
+
+### auto-deploy 構築（PR #86、稼働中）
+- **方式**: repo が public のため self-hosted runner（fork PR 任意コード実行リスクで非推奨）は不採用 → **GitHub Actions + SSH**。CI 通過後・main push 限定で `kagetra`（scoped sudo: `systemctl restart kagetra-web/api` のみ）へ deploy 専用鍵で SSH し `scripts/deploy/auto-deploy.sh` を流し込む
+- **auto-deploy.sh**: 変更パス検知（web/api/worker/shared）→ build → **drizzle 変更時は apply-migrations.sh で migration 適用（冪等・restart 前）** → 静的cp → restart → healthcheck。docs/.claude のみは SKIPPED_NOCODE。build/migration 失敗時は restart せず旧コード継続
+- **`.gitattributes`** で `*.sh` を LF 固定（CRLF だと bash 流し込みで壊れる）
+- ホスト側: CI 公開鍵を `/opt/kagetra/.ssh/authorized_keys`（接続制限付）、`/etc/sudoers.d/kagetra-deploy`、Secrets `DEPLOY_SSH_KEY`/`DEPLOY_SSH_KNOWN_HOSTS`。SSH(22) は既に key-only で 0.0.0.0/0 公開（firewall 変更不要）
+- **初回自動デプロイ run 成功**（merge `7d15042`、.github/scripts のみ → SKIPPED_NOCODE で疎通確認）。以後 main の code 変更 push で自動デプロイ
+
+### 教訓・反省
+- **並行作業の衝突（私の落ち度）**: auto-deploy 作業を隔離 worktree でなく共有 main 作業ディレクトリで行い、並行セッション（#85 の ship）とブランチが揺れて衝突。以降は全て隔離 worktree に。教訓を feedback memory 化（[[feedback_no_shared_maindir_for_branch_work]]）
+- **接続の罠**: 開発環境（IPv6/NAT64）から IPv4 リテラル `140.238.51.41` は不達、ホスト名 `new.hokudaicarta.com` 経由なら可（初回 cold は timeout 多発→リトライ）。GitHub Actions は通常 IPv4 で直接到達可
+
+### 次回 (carryover)
+- 🔴 **実機 LINE 目視**: mail-body の本文画像（今すぐ可）/ event-lifecycle 通知（次回 00:00 JST 発火 or テスト大会で確認）
+- 🟢 auto-deploy: docs/memory のみの main push でも CI+no-op deploy が走る。気になるなら ci.yml に `paths-ignore` 追加で最適化可（今回は未対応）
