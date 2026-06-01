@@ -154,11 +154,21 @@ export async function renderPdfToJpegs(
 }
 
 /**
- * Convert any libreoffice-readable input file (`.docx`, `.html`, `.odt`, …)
+ * Convert any libreoffice-readable *text* document (`.html`, `.docx`, `.odt`, …)
  * to a PDF written into `outDir` with the same basename (e.g. `body.html` →
  * `body.pdf`). `libreoffice --headless --convert-to pdf` is the documented
  * one-shot conversion; it spawns a fresh `soffice` process per call and exits
  * when done, so we don't manage a long-running daemon.
+ *
+ * `--writer` forces the input to load in the Writer (text) component. Without
+ * it, libreoffice opens HTML in its "Web" layout, which has a long-standing
+ * bug that prepends a blank first page — the real content then starts on
+ * page 2, and renderPdfToJpegs faithfully turns that blank page into a white
+ * first JPEG (issue #93: LINE showed a blank image before the body). The
+ * Writer text layout has no such page, so a one-screen body renders to a
+ * single page. etherpad-lite fixed the identical symptom the same way. The
+ * only caller renders HTML (mail body) and `--writer` is correct for any text
+ * document, so it is safe for every input that flows through here.
  *
  * Shared by the mail-body image-render path (mail-body-image-render.ts) so the
  * libreoffice invocation — flags, timeout, stdout-drain, stderr surfacing —
@@ -172,7 +182,9 @@ export async function runLibreofficeConvertToPdf(
 ): Promise<void> {
   await runCommand(
     'libreoffice',
-    ['--headless', '--convert-to', 'pdf', '--outdir', outDir, inputPath],
+    // --writer: see docstring — load HTML as a Writer text document to avoid
+    // the "Web" layout's spurious blank first page.
+    ['--headless', '--writer', '--convert-to', 'pdf', '--outdir', outDir, inputPath],
     { timeoutMs: 120_000 },
   )
 }

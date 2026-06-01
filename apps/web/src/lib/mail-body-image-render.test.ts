@@ -127,13 +127,18 @@ const describeIfLibreoffice = libreofficeAvailable() ? describe : describe.skip
 describeIfLibreoffice(
   'renderBodyImageToJpegs (integration: requires libreoffice)',
   () => {
-    it('renders a short body to at least one JPEG page', async () => {
+    it('renders a short body to exactly one JPEG page (no blank first page)', async () => {
       const result = await renderBodyImageToJpegs({
         subject: 'スモークテスト',
         rawBody: 'これは本文画像化のスモークテストです。',
         isCorrection: false,
       })
-      expect(result.pages.length).toBeGreaterThanOrEqual(1)
+      // Regression guard for issue #93: a one-screen body must render to a
+      // single page. The libreoffice HTML "Web" layout used to prepend a
+      // blank first page (content on page 2), which surfaced as a white
+      // first image on LINE; --writer (runLibreofficeConvertToPdf) avoids it.
+      // A spurious blank page would make this 2, so assert exactly 1.
+      expect(result.pages.length).toBe(1)
       expect(result.truncated).toBe(false)
       // JPEG magic bytes: FF D8 FF
       const first = result.pages[0]!
