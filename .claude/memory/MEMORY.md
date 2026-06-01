@@ -12,8 +12,9 @@
 - [モバイルシェル固定 完全完了](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 ship + 本番反映 + 実機 OK (2026-05-28)、Issue #50/#51/#52/#53 全 close、教訓は 4 つの feedback memory に切り出し済
 - [event-line-broadcast 本番運用開始](impl_event_line_broadcast_task1.md) — PR #65 + PR #70 (xlsx MIME fix) merge `d94199f` (2026-05-31)。Oracle Cloud 東京で稼働、2 Bot 運用、1 大会通しテスト成功
 - [Codex review effort 自動判定](project_codex_review_effort.md) — PR #69 merge (647aa62)。/auto-review-loop が差分内容で medium/high を auto 判定。~/.codex/config.toml は medium 既定（git 管理外）
-- [mail-body-as-image PR#84 review pass](impl_mail_body_as_image.md) — 本文を A4 JPEG 画像で LINE 配信、添付全リンク統一。`feat/mail-body-as-image` / worktree `C:/tmp/impl-mail-body-as-image`。#73 配下 5 タスク完了、PR #84 auto-review R1 pass、263 passed。次は CI green→/ship。残 DoD=本番実機で本文画像目視
-- [event-lifecycle-notify 機能定義完了](project_event_lifecycle_notify.md) — Bot を大会ライフサイクル（申込/締切/支払い）通知役に拡張。要件+計画+Issue #79-83 作成済・未実装、`/implement event-lifecycle-notify` で着手。支払いは事前/現地で分岐、通知は紐付け済み参加者グループに集約、once-ever ログで重複防止
+- [mail-body-as-image SHIPPED](impl_mail_body_as_image.md) — 本文を A4 JPEG 画像で LINE 配信、添付全リンク統一。PR #84 merge `cc6c765` (2026-06-01)、Issue #73-#78 全クローズ、worktree 削除済。残 DoD=本番デプロイ後に実機 LINE で本文画像目視
+- [event-lifecycle-notify 機能定義](project_event_lifecycle_notify.md) — Bot を大会ライフサイクル（申込/締切/支払い）通知役に拡張。要件+計画+Issue #79-83。支払いは事前/現地で分岐、通知は紐付け済み参加者グループに集約、once-ever ログで重複防止
+- [event-lifecycle-notify 実装完了](impl_event_lifecycle_notify.md) — 全4タスク実装+テスト+push 済 (2026-06-01)、1PR・worktree `C:/tmp/impl-event-lifecycle-notify`、PR作成→review待ち。非自明: 自前push・同一tx で状態flip+once-ever claim・scripts を type/test 編入・未紐付けでも slot 消費
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス

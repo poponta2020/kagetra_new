@@ -9,8 +9,8 @@ metadata:
 
 LINE 配信メール本文を A4 縦 JPEG 画像で送る機能。添付は全形式 URL リンク統一（Excel と同じ）。要件/手順は `docs/features/mail-body-as-image/`（親 Issue #73、子 #74-#78）。**1 PR で全 5 タスク**。
 
-- ブランチ `feat/mail-body-as-image` / worktree `C:/tmp/impl-mail-body-as-image`（origin/main 派生）
-- **全 5 タスク実装完了。PR #84 作成済。auto-review-loop R1 で PASS（effort=high, 47k tokens, blockers/should_fix/nits=0）。次は CI green 確認 → /dod → /ship（未マージ）**
+- ブランチ `feat/mail-body-as-image`（merge 済・削除）/ worktree も削除済
+- **SHIPPED (2026-06-01)**: 全 5 タスク → PR #84 → auto-review-loop R1 PASS（effort=high, 47k tokens, 指摘0）→ merge `cc6c765`。子 #74-#78 + 親 #73 全クローズ。CI pass。**残 DoD = 本番デプロイ後に実機 LINE で本文画像目視**
   - Task1 #74 `f68e918`: `mail-body-image-render.ts` 新規（`buildBodyImageHtml` + `renderBodyImageToJpegs`）
   - Task2 #75 `f994a18`: `line-broadcast.ts` 本文 text→画像化、`renderAttachment` 全添付リンク統一、`MessageRole` を body_image/body_text/attachment_link に再編
   - Task3 #76 `1518d67`: 共通 `runLibreofficeConvertToPdf` を `attachment-image-render.ts` に抽出 export、未使用 `renderDocxToJpegs` 削除
