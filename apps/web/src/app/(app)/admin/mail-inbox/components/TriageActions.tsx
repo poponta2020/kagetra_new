@@ -33,6 +33,12 @@ export function TriageActions({
   const run = (fn: (id: number) => Promise<void>) => () => {
     startTransition(async () => {
       await fn(mailId)
+      // mail-triage-badge: 処理後に前景バッジを即再同期（経路③）。
+      // ServiceWorkerRegister が 'mail-triage-badge:sync' を購読して count API →
+      // setAppBadge を呼ぶ。リスナー未登録（バッジ非対応端末）でも no-op。
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('mail-triage-badge:sync'))
+      }
     })
   }
 

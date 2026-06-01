@@ -45,10 +45,17 @@ export function ServiceWorkerRegister() {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void syncBadge()
     }
+    // mail-triage-badge: 処理アクション後に TriageActions が dispatch する同期
+    // イベント（経路③）。これで自端末で処理した直後にバッジが即減る。
+    const onManualSync = () => {
+      void syncBadge()
+    }
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('mail-triage-badge:sync', onManualSync)
     return () => {
       cancelled = true
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('mail-triage-badge:sync', onManualSync)
     }
   }, [])
 
