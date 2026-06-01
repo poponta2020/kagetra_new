@@ -80,3 +80,56 @@ jobs:
         run: pnpm test:e2e
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+  deploy:
+    name: Deploy to production
+    needs: [ci]
+    # main への push のみ。PR (pull_request) や他ブランチでは走らない。
+    # fork PR には secrets が渡らないので deploy 鍵は露出しない。
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 同時デプロイを直列化し、走行中のデプロイは中断しない。
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH (deploy key + pinned host key)
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy to Oracle host
+        run: |
+          set -uo pipefail
+          # auto-deploy.sh を kagetra として host に流し込む (最小権限:
+          # git/build/cp は kagetra 所有、systemctl restart のみ scoped sudo)。
+          # 接続失敗のみ最大3回リトライ。build 失敗 (FAILED) は即座に失敗扱い。
+          attempt=0
+          while :; do
+            attempt=$((attempt + 1))
+            out=$(ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=30 \
+              kagetra@new.hokudaicarta.com 'bash -s' < scripts/deploy/auto-deploy.sh 2>&1) || true
+            echo "$out"
+            if echo "$out" | grep -qE 'DEPLOY_RESULT=(SUCCESS|NOOP|SKIPPED_NOCODE)'; then
+              echo "deploy ok"; exit 0
+            fi
+            if echo "$out" | grep -q 'DEPLOY_RESULT=FAILED'; then
+              echo "::error::deploy script reported FAILED"; exit 1
+            fi
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::host unreachable / no result after $attempt attempts"; exit 1
+            fi
+            echo "connection issue, retrying ($attempt)..."; sleep 10
+          done
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
