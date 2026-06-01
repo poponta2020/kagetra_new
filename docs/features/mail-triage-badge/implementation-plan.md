@@ -59,7 +59,7 @@ status: completed
 - **完了条件:** PWA で通知許可→購読が DB 保存され、アプリ起動時/処理後にバッジが正しい未処理数になる（実機 iPhone 確認は DoD）。
 
 ### タスク5: mail-worker からの Push 配信
-- [ ] 完了
+- [x] 完了
 - **概要:** 新着メール取り込み時に、管理者・副管理者の全購読へ Web Push を送る（1メール1通知＋未処理数バッジ）。
 - **変更対象ファイル:**
   - `apps/mail-worker/src/notify/web-push.ts` — 新規。`web-push` で VAPID 送信、HTTP 410/404 の subscription 削除

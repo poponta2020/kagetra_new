@@ -13,6 +13,8 @@ import {
   type MailWorkerRunSummary,
   type Notifier,
 } from './notify/orchestrator.js'
+import { notifyNewMailPush, type NewMailInfo } from './notify/web-push.js'
+import type { WebPushConfig } from './config.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -87,6 +89,12 @@ export interface RunPipelineOptions {
    * `classifyMail` + `persistOutcome` in its own try/catch.
    */
   llmExtractor?: LLMExtractor
+  /**
+   * mail-triage-badge: 新規 inserted メール1件ごとに呼ばれる best-effort フック。
+   * runOnce が webPushConfig から構築して渡す（配信失敗は pipeline を止めない）。
+   * テストは vi.fn() を直接渡してフック発火を検証できる。
+   */
+  onMailInserted?: (mail: NewMailInfo) => Promise<void>
 }
 
 export interface PipelineLogger {
@@ -322,6 +330,24 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         noise,
       })
 
+      // mail-triage-badge: 新規 inserted メールごとに Web Push 配信（best-effort）。
+      // AI phase の前に呼ぶので、バッジの未処理数には今 insert した行が含まれる。
+      // 配信失敗で取り込みを止めない（既存 LINE 通知と独立）。
+      if (!parentResult.duplicated && opts.onMailInserted) {
+        try {
+          await opts.onMailInserted({
+            subject: meta.subject,
+            fromName: meta.fromName,
+            fromAddress: meta.fromAddress,
+          })
+        } catch (err) {
+          log.warn('onMailInserted hook failed', {
+            messageId: meta.messageId,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+
       // AI phase. Only runs for freshly inserted mails (parent row id known)
       // when an extractor was wired; duplicates and missing extractor short
       // circuit. AI calls are deliberately OUTSIDE the mail+attachments txn
@@ -552,6 +578,11 @@ export interface RunOnceOptions extends RunPipelineOptions {
    * the real `pushSystemNotification`.
    */
   notifier?: Notifier
+  /**
+   * mail-triage-badge: VAPID 設定。あれば新着メール Web Push 配信フックを組む。
+   * null/未設定なら配信は無効（鍵未設定でも取り込みは動く）。
+   */
+  webPushConfig?: WebPushConfig | null
 }
 
 export interface RunOnceResult extends PipelineSummary {
@@ -601,8 +632,13 @@ export async function runOnce(opts: RunOnceOptions = {}): Promise<RunOnceResult>
   // runPipeline.
   let summary: PipelineSummary = emptySummary()
   let topLevelError: Error | null = null
+  // mail-triage-badge: webPushConfig があれば新着メール Push 配信フックを組む。
+  // 未設定（null）ならテスト DI 用の opts.onMailInserted をそのまま使う。
+  const onMailInserted = opts.webPushConfig
+    ? (mail: NewMailInfo) => notifyNewMailPush(db, opts.webPushConfig!, mail, log)
+    : opts.onMailInserted
   try {
-    summary = await runPipeline(opts)
+    summary = await runPipeline({ ...opts, onMailInserted })
   } catch (err) {
     topLevelError = err instanceof Error ? err : new Error(String(err))
     log.warn('pipeline top-level error', {
