@@ -61,8 +61,11 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     await page.getByRole('button', { name: 'LINE 配信を有効化' }).click()
     // Modal heading "招待コード"
     await expect(page.getByRole('heading', { name: '招待コード' })).toBeVisible()
-    // 6-digit code rendered with letter-spacing-heavy class — match any 6 digit run.
-    await expect(page.getByText(/\d{6}/)).toBeVisible()
+    // 6-digit code rendered with letter-spacing-heavy class. Anchor to an exact
+    // 6-digit text node: a bare /\d{6}/ also matched the app-bar username
+    // (test-user-<uuid>さん) whenever the seeded UUID held a 6-digit run, causing
+    // a flaky strict-mode violation (resolved to 2 elements).
+    await expect(page.getByText(/^\d{6}$/)).toBeVisible()
 
     const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
       where: eq(eventLineBroadcasts.eventId, event.id),
