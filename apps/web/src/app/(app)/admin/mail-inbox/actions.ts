@@ -353,6 +353,9 @@ async function setTriage(
     .returning({ id: mailMessages.id })
   if (updated.length === 0) throw new Error('mail not found')
   revalidatePath('/admin/mail-inbox')
+  // mail-triage-badge: 詳細ページ (mail/[id]) にも同じ TriageActions があるので、
+  // 詳細パスも再検証して処理後に Server Component の triageStatus を最新化する。
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
 /** 対応不要として片付ける（→ processed、未処理バッジから除外）。 */

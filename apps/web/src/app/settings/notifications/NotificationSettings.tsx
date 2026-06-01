@@ -102,8 +102,13 @@ export function NotificationSettings() {
       const reg = await navigator.serviceWorker.ready
       const sub = await reg.pushManager.getSubscription()
       if (sub) {
-        await deletePushSubscription(sub.endpoint)
+        // ローカル購読を先に解除してからサーバ行を削除する。逆順だと DB 削除成功
+        // 後に unsubscribe が失敗した場合、ブラウザに購読が残って getSubscription()
+        // は「有効」と判定する一方、サーバには配信先が無く通知が届かない不整合に
+        // なる。先に unsubscribe しておけば、サーバ削除が失敗しても次回配信時の
+        // 410/404 クリーンアップで回収できる。
         await sub.unsubscribe()
+        await deletePushSubscription(sub.endpoint)
       }
       setState('unsubscribed')
     } catch (e) {
