@@ -1,5 +1,6 @@
 import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import { mailMessageStatusEnum, mailClassificationEnum } from './enums'
+import { mailMessageStatusEnum, mailClassificationEnum, mailTriageStatusEnum } from './enums'
+import { users } from './auth'
 
 /**
  * mail_messages: 1 received e-mail = 1 row.
@@ -32,11 +33,21 @@ export const mailMessages = pgTable(
     imapBox: text('imap_box'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+    // mail-triage-badge: 人手の処理状態。AI/技術状態の `status` とは直交する
+    // （status='ai_done' でも未処理＝管理者が未対応、はあり得る）。未処理バッジ
+    // 件数は triageStatus != 'processed'（unprocessed + deferred）で算出。
+    triageStatus: mailTriageStatusEnum('triage_status').notNull().default('unprocessed'),
+    triagedAt: timestamp('triaged_at', { mode: 'date', withTimezone: true }),
+    // 処理者。ユーザー削除でもメール履歴は残すので onDelete: set null。
+    triagedByUserId: text('triaged_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => [
     // Inbox UI lists newest-first; without this index the sort scans the full
     // table once mail volume grows. Status / classification filters added in
     // later PRs will also benefit from the receivedAt order being indexed.
     index('mail_messages_received_at_desc_idx').on(t.receivedAt.desc()),
+    // mail-triage-badge: 未処理カウント / 区分フィルタ用。inbox の未処理バッジは
+    // triageStatus で絞り込むので件数クエリが全表スキャンにならないよう index。
+    index('mail_messages_triage_status_idx').on(t.triageStatus),
   ],
 )

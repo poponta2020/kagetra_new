@@ -115,3 +115,12 @@ export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_noti
   'failed',
   'skipped',
 ])
+
+// mail-triage-badge: 受信メールの人手処理状態。AI/技術状態の mailMessageStatusEnum
+// とは独立（status='ai_done' でも未処理＝管理者が未対応、はあり得る）。未処理バッジは
+// triage_status != 'processed'（unprocessed + deferred）で算出する。
+export const mailTriageStatusEnum = pgEnum('mail_triage_status', [
+  'unprocessed',
+  'processed',
+  'deferred',
+])
