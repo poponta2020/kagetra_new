@@ -2190,3 +2190,17 @@
 
 ### 残 DoD（carryover）
 - 🔴 **実機 LINE 目視**: 本番反映後、本文画像が 1 枚目から表示される（先頭の真っ白ページが消えた）ことを確認
+
+## 2026-06-01 セッション4（新機能: メール全件トリアージ + PWA 未処理バッジ）
+
+### 機能定義 → 実装 → ship（PR #95 / 親 Issue #87・子 #88-92）
+- **発端**: 「メール受信時の管理者 LINE 通知は全メール対象か？」という質問 → 実際は大会案内ドラフト化時のみ通知でノイズ/非大会は無通知と判明。AI ノイズ判定の見落とし懸念から、全メールに目を通し処理 + 未処理数を PWA アプリアイコンのバッジ表示する機能を define-feature
+- **要件**: 全メール(ノイズ含む)に処理状態 `triage_status`(unprocessed/processed/deferred)。未処理バッジ = processed 以外。4処理アクション(大会取込/既存紐付け/対応不要/保留)を draft 有無に関わらず全メールに。通知は Web Push 1メール1通知。対象=管理者+副管理者(処理は基本管理者→他端末同期は準リアルタイムで十分)。既存メールは migration で processed ベースライン化(初期バッジ0)
+- **実装(5タスク, 1ブランチ集約)**: #88 DBスキーマ+migration0018 / #89 処理アクション+未処理数API(GET /api/admin/mail/unprocessed-count) / #90 inbox UI再構成(未処理/保留/処理済み区分+クイックアクション+mail/[id]詳細) / #91 Web Push基盤(public/sw.js / 購読UI /settings/notifications / 前景バッジ同期 / VAPID env) / #92 mail-worker配信(admin/vice_admin購読へ送信、badge=未処理数、HTTP 410/404失効削除)
+- **テスト**: web 89 passed + mail-worker 53 passed(test DB 統合)、型チェック全通過
+- **フロー**: define-feature → implement(タスク1-5、worktree `C:/tmp/impl-mail-triage-badge`) → prepare-pr(PR #95) → auto-review-loop 3R → CI green → ship。merge commit `2ca9af2`、Issue #87-92 全クローズ、ローカル/リモートブランチ削除・worktree 登録解除済
+- **auto-review-loop メモ**: R1 blocker=処理後の前景バッジ再同期漏れ(経路③)を修正、R2 should_fix=詳細パス再検証 + unsubscribe 順序を修正、R3 blocker=「runPipeline に webPushConfig で型エラー」は **Codex(high) の誤検出**。mail-worker 型チェック green + `grep webPushConfig`(runPipeline 直呼びは dry-run の1箇所のみ・webPushConfig は runOnce 3箇所のみ)で反証 → ユーザー承認の上で却下し ship。各 R effort=high、累計 ~283k tokens
+
+### 残 DoD（carryover）
+- 🔴 **VAPID 鍵生成・本番設定**: `npx web-push generate-vapid-keys` → 本番 .env に `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`。未設定でも triage UI は動作し Web Push のみ無効で安全
+- 🔴 **iOS 実機**: ホーム画面 PWA → 通知許可 → 新着メールでアプリアイコンのバッジ増加を目視
