@@ -74,7 +74,7 @@ EOF
 
 表示後、**自動で `/auto-review-loop <PR番号>` スキルを呼び出し、Codex によるレビュー→`/fix` 修正→再レビューのループに入る。**
 
-- 既定のラウンド上限・トークン上限を使用する（最大 3 ラウンド、トークン上限 500,000、`--auto-ship` なし）
-- ループ内でラウンド毎に進捗が表示される。最終的に pass で停止したら、ユーザーが `/ship <PR番号>` を手動実行
-- 別の挙動（`--auto-ship` を付ける、`--max-rounds` や `--max-tokens` を変える 等）が必要なら、ユーザーがこのスキル完了後に `/auto-review-loop` を直接呼び直す
+- 既定のラウンド上限・トークン上限を使用する（最大 10 ラウンド、トークン上限 500,000、**auto-ship 既定 ON**）
+- ループ内でラウンド毎に進捗が表示される。verdict=pass かつ CI green なら `/auto-review-loop` が `/ship <PR番号>` まで自動実行する
+- 別の挙動（auto-ship を止める `--no-auto-ship`、`--max-rounds` や `--max-tokens` を変える 等）が必要なら、ユーザーがこのスキル完了後に `/auto-review-loop` を直接呼び直す
 - 手動の Codex VS Code レビューを使いたい場合は、ユーザーが代わりに `/review <PR番号>` を実行する

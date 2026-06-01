@@ -14,7 +14,7 @@
 - Tailwind CSS + shadcn/ui / Vitest + Playwright
 - Turborepo + pnpm / Docker Compose on AWS Lightsail
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
-- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを最大3ラウンド回す（手動レビューを使いたい場合のみ `/review` で VS Code Codex に切替）
+- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを最大10ラウンド回し、pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で pass 時点停止／手動レビューは `/review` で VS Code Codex に切替）
 
 ## 構成
 
@@ -53,6 +53,6 @@ scripts/migration/ → データ移行
 
 ## 開発フロー (1機能)
 
-grill-me(仕様確認) → define-feature(要件定義+計画+Issue) → ユーザー承認 → implement(worktreeで1タスクずつ実装、全タスク完了時に自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex CLIで構造化レビュー→/fix修正→再レビュー、最大3ラウンド) → dod(DoDチェック) → ship(マージ+memory同期+push)
+grill-me(仕様確認) → define-feature(要件定義+計画+Issue) → ユーザー承認 → implement(worktreeで1タスクずつ実装、全タスク完了時に自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex CLIで構造化レビュー→/fix修正→再レビュー、最大10ラウンド、pass+CI green で ship まで自動) → ship(マージ+memory同期+push)。DoD チェック(/dod)を ship 前に挟みたい場合は `--no-auto-ship` で停止してから手動実行
 
-実装系スキル（implement / do-plan / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、auto-review-loop まで自動で繋がる。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review` を呼ぶ。
+実装系スキル（implement / do-plan / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、**pass かつ CI green なら ship まで自動で繋がる**（auto-ship 既定 ON、`--no-auto-ship` で auto-review-loop の pass 時点で停止）。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review` を呼ぶ。

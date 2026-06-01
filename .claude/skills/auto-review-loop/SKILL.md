@@ -1,9 +1,9 @@
 ---
 name: auto-review-loop
-description: Codex CLI を使って PR の差分レビュー→/fix による修正→再レビュー…を自動ループするスキル。指摘がなくなったら停止（--auto-ship 指定時は /ship まで自動）。/auto-review-loop で使用する。
+description: Codex CLI を使って PR の差分レビュー→/fix による修正→再レビュー…を自動ループするスキル。指摘がなくなったら停止し、既定で /ship まで自動（--no-auto-ship で抑制）。/auto-review-loop で使用する。
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Skill
-argument-hint: "[PR番号(任意)] [--max-rounds N(default 3)] [--max-tokens N(default 500000)] [--effort auto|medium|high|xhigh(default auto)] [--auto-ship]"
+argument-hint: "[PR番号(任意)] [--max-rounds N(default 10)] [--max-tokens N(default 500000)] [--effort auto|medium|high|xhigh(default auto)] [--no-auto-ship]"
 ---
 
 # /auto-review-loop - Codex 自動レビュー&修正ループ
@@ -16,17 +16,17 @@ PR の差分を `codex exec` で構造化レビュー(JSON)し、blockers/should
 ## 引数のパース
 
 - 数字単独 → PR 番号
-- `--max-rounds N` → 最大ラウンド数（未指定なら **3**）
+- `--max-rounds N` → 最大ラウンド数（未指定なら **10**）
 - `--max-tokens N` → 累計トークン上限（未指定なら **500000**）。ラウンド完了時点で累計がこの値以上になっていたら次ラウンドを開始せずに中断する。サブスククォータ保護用のソフトキャップ
 - `--effort auto|medium|high|xhigh` → Codex の reasoning effort（未指定なら **auto**）。`auto` は差分内容からオーケストレーター（Claude）が medium/high を自動判定する（3-a.5 のルーブリック）。medium/high/xhigh を明示指定するとルーブリックを無視してそれを全ラウンド固定で使う。`xhigh` は手動指定時のみ（auto では選ばれない）
-- `--auto-ship` → 成功時に `/ship` を自動呼び出し（未指定なら成功報告のみ）
+- `--no-auto-ship` → 成功しても `/ship` を自動呼び出ししない（成功報告のみで停止）。**既定では auto-ship が ON** で、verdict=pass かつ CI green なら `/ship` を自動実行する
 
 変数名:
 - `MAX_ROUNDS`: 最大ラウンド数
 - `MAX_TOKENS`: トークン上限
 - `EFFORT_MODE`: `auto`|`medium`|`high`|`xhigh`（既定 `auto`）
 - `ESCALATED`: auto 時のエスカレーション状態（初期値 false）。true になると以降の auto ラウンドは high 固定
-- `AUTO_SHIP`: true/false
+- `AUTO_SHIP`: true/false（**既定 true**。`--no-auto-ship` 指定時のみ false）
 - `CUMULATIVE_TOKENS`: ラウンド毎の使用トークンを加算（初期値 0）
 
 ## Step 1: PR 番号とブランチを特定
@@ -194,11 +194,11 @@ claude-mem に observation を 1 件記録:
    - 累計トークン: {CUMULATIVE_TOKENS} / {MAX_TOKENS}
    - 最終サマリー（最新 JSON の summary フィールドを表示）
    ```
-2. **`--auto-ship` 指定時**:
-   - `gh pr checks {PR番号}` を実行
-   - 全て成功（`PASS`）なら `/ship {PR番号}` を呼ぶ
-   - 失敗ありなら ship せず、「CI が green ではないため ship を中断しました」と報告
-3. **`--auto-ship` 未指定時**: 「pass を確認しました。マージは `/ship {PR番号}` を手動で実行してください」と案内
+2. **auto-ship 有効時（既定。`--no-auto-ship` 未指定）**:
+   - `gh pr checks {PR番号} --watch` で CI の完了を待つ（最終ラウンドの `/fix` push 直後は CI が実行中のことが多いため、単発チェックではなく完了待ちにする）
+   - 全チェック成功（exit 0）なら `/ship {PR番号}` を呼ぶ
+   - 失敗・キャンセルあり（exit 非 0）なら ship せず、「CI が green ではないため ship を中断しました（手動で確認してください）」と報告
+3. **`--no-auto-ship` 指定時**: 「pass を確認しました。マージは `/ship {PR番号}` を手動で実行してください」と案内
 
 ### 失敗（max-rounds 到達 / ping-pong / token-budget / codex error）
 
@@ -233,7 +233,7 @@ claude-mem に observation を 1 件記録:
 
 ## 注意点
 
-- **コスト**: 1 ラウンドあたり 20k〜50k トークン消費する想定（差分サイズ・effort 次第）。reasoning effort は medium を基準に high で概ね 3〜5x のトークンを使うため、effort を上げると線形以上にコストが増える。`MAX_ROUNDS=3` で最大 150k 程度（medium 基準）。既定 `MAX_TOKENS=500000` は余裕を持たせたソフトキャップ（暴走防止用）。タイトに絞りたければ `--max-tokens 100000` 等を指定。
+- **コスト**: 1 ラウンドあたり 20k〜50k トークン消費する想定（差分サイズ・effort 次第）。reasoning effort は medium を基準に high で概ね 3〜5x のトークンを使うため、effort を上げると線形以上にコストが増える。`MAX_ROUNDS=10` だと medium 基準でも累計 200k〜500k に達し得るため、実際には既定 `MAX_TOKENS=500000`（暴走防止用のソフトキャップ）が先に効いて止まることが多い。タイトに絞りたければ `--max-tokens 100000` 等を指定。
 - **reasoning effort**: 3-a.5 で差分内容から auto 判定（既定）。サブスク認証（`auth_mode=chatgpt`）ではコスト=クォータ消費なので、グローバル `config.toml` を一律 high にせず medium 既定にしておき、このスキルが必要なラウンドだけ `-c model_reasoning_effort=high` を明示する設計。手動で固定したいときは `--effort high` 等。モデル自体を変えたいときは同様に `-c model="..."` または `-m <model>` を 3-b の codex exec に足せる。
 - **シェル**: Windows (Git Bash) 環境で動かす想定。JSON のパースは Claude が Read ツール経由で直接行う（`jq` 依存なし）。
 - **`/fix` のフォロー up**: 現状 `/fix` は最後に `/review` を呼ぼうとする。`/fix` 側に **「JSON 結果ファイルを使った場合は /review の自動呼び出しをスキップする」** という分岐を追加すること（このスキルとセットで /fix を改修する）。
