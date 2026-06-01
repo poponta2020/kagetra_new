@@ -72,6 +72,22 @@ if [ "$WEB" = 1 ]; then
   log "web static assets copied"
 fi
 
+# --- DB migration (drizzle の SQL が変わったときのみ、restart 前に適用) ---
+# 既存の冪等 apply-migrations.sh (journal+hash で適用済みは skip)。追加系
+# migration は restart 前適用で「新コードが新 schema に出会える」順序になる。
+# 失敗時は restart せず中断 → 旧コード+旧 schema のまま整合が保たれる。
+if echo "$CHANGED" | grep -qE '^packages/shared/drizzle/[0-9].*\.sql$'; then
+  log "DB migration(s) changed — applying via apply-migrations.sh (idempotent)"
+  ENVFILE=/opt/kagetra/.env.production
+  [ -f "$ENVFILE" ] || fail "env file not found: $ENVFILE"
+  # DATABASE_URL を抽出 (前後の引用符は除去)。env ファイル全体は source しない
+  # (systemd EnvironmentFile 形式は bash の . で壊れ得るため)。
+  DB_URL=$(grep -E '^DATABASE_URL=' "$ENVFILE" | head -1 | sed -E "s/^DATABASE_URL=//; s/^\"(.*)\"$/\1/; s/^'(.*)'$/\1/")
+  [ -n "$DB_URL" ] || fail "DATABASE_URL not found in $ENVFILE"
+  DATABASE_URL="$DB_URL" bash "$REPO/scripts/deploy/apply-migrations.sh" || fail "migration apply failed (no restart performed)"
+  log "migrations applied"
+fi
+
 # --- restart (build 成功後のみ到達)。mail-worker は oneshot+timer なので
 #     次回 timer 発火で新バンドルが走る → restart 不要 ---
 if [ "$WEB" = 1 ]; then sudo -n systemctl restart kagetra-web.service || fail "web restart failed"; fi
