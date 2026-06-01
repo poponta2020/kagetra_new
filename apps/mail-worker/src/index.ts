@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { runOnce, RunOnceError, runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb, getDb } from './db.js'
-import { loadLogConfig, loadLlmConfig } from './config.js'
+import { loadLogConfig, loadLlmConfig, loadWebPushConfig } from './config.js'
 import { parseSinceArg } from './cli-args.js'
 import {
   claimNextJob,
@@ -141,6 +141,9 @@ async function main(): Promise<void> {
   }
 
   const log = consoleLogger()
+  // mail-triage-badge: VAPID 設定（3つ揃わなければ null = Push 配信無効）。
+  // dry-run は DB も配信もしないので runPipeline 直叩きパスでは使わない。
+  const webPushConfig = loadWebPushConfig()
 
   // The whole dispatcher runs inside try/finally so the pg pool is always
   // closed — including on top-level throw. Pre-fix, IMAP failures in
@@ -177,6 +180,7 @@ async function main(): Promise<void> {
         source,
         logger: log,
         llmExtractor,
+        webPushConfig,
       })
 
       console.log('pipeline summary:', summary)
@@ -223,6 +227,7 @@ async function main(): Promise<void> {
           source,
           logger: log,
           llmExtractor,
+          webPushConfig,
         })
         await markJobDone(db, job.id, summary.runId)
 
@@ -250,6 +255,7 @@ async function main(): Promise<void> {
         source,
         logger: log,
         llmExtractor,
+        webPushConfig,
       })
 
       console.log('pipeline summary:', summary)

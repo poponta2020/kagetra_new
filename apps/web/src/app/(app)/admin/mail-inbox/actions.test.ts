@@ -74,6 +74,9 @@ const {
   linkDraftToEvent,
   reextractDraft,
   triggerMailFetch,
+  dismissMail,
+  deferMail,
+  undoTriage,
 } = await import('./actions')
 
 function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
@@ -818,6 +821,105 @@ describe('admin/mail-inbox actions', () => {
       expect(jobs).toHaveLength(1)
       expect(jobs[0]?.id).toBe(result.jobId)
       expect(jobs[0]?.status).toBe('pending')
+    })
+  })
+
+  describe('triage actions (mail-triage-badge)', () => {
+    it('dismissMail: メールを processed にし triaged_at/by を記録する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      await dismissMail(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
+      expect(after?.triagedAt).toBeInstanceOf(Date)
+      expect(after?.triagedByUserId).toBe(admin.id)
+    })
+
+    it('deferMail: メールを deferred にする（未処理バッジには残る）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      await deferMail(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('deferred')
+      expect(after?.triagedByUserId).toBe(admin.id)
+    })
+
+    it('undoTriage: unprocessed に戻し triaged_at/by をクリアする', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'deferred' })
+
+      await undoTriage(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('unprocessed')
+      expect(after?.triagedAt).toBeNull()
+      expect(after?.triagedByUserId).toBeNull()
+    })
+
+    it('存在しない mail は mail not found を投げる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await expect(dismissMail(999999)).rejects.toThrow('mail not found')
+      await expect(deferMail(999999)).rejects.toThrow('mail not found')
+      await expect(undoTriage(999999)).rejects.toThrow('mail not found')
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+
+      await setAuthSession(null)
+      await expect(dismissMail(mail.id)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(deferMail(mail.id)).rejects.toThrow('Forbidden')
+    })
+
+    it('approveDraft はメールを triage_status=processed にする', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await approveDraft(draft.id, buildApproveFormData({ title: 'triage 承認検証' }))
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
+      expect(after?.triagedByUserId).toBe(admin.id)
+    })
+
+    it('rejectDraft はメールを triage_status=processed にする', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      const fd = new FormData()
+      fd.set('rejection_reason', 'triage 却下検証')
+      await rejectDraft(draft.id, fd)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
+    })
+
+    it('linkDraftToEvent はメールを triage_status=processed にする', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const event = await createEvent({ title: 'triage link 検証' })
+
+      await linkDraftToEvent(draft.id, event.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
     })
   })
 })

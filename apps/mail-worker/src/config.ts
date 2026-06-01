@@ -196,3 +196,35 @@ export function resetConfigForTests(): void {
   // re-running it has no value and would only re-trigger the webpack URL
   // analysis under bundlers.
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// mail-triage-badge: Web Push (VAPID) config。
+//
+// 3つ全部揃わなければ null を返す（鍵未設定でも pipeline は動かし、配信だけ無効化）。
+// 公開鍵は apps/web と共有（NEXT_PUBLIC_ 接頭辞だが Node からは通常の env として読む）。
+// loadLlmConfig 等と違い throw しないのは、配信が best-effort の付加機能だから。
+// ─────────────────────────────────────────────────────────────────────────
+const WebPushConfigSchema = z.object({
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
+})
+
+export interface WebPushConfig {
+  publicKey: string
+  privateKey: string
+  subject: string
+}
+
+export function loadWebPushConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): WebPushConfig | null {
+  ensureDotenvLoaded()
+  const parsed = WebPushConfigSchema.safeParse(env)
+  if (!parsed.success) return null
+  const publicKey = parsed.data.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const privateKey = parsed.data.VAPID_PRIVATE_KEY
+  const subject = parsed.data.VAPID_SUBJECT
+  if (!publicKey || !privateKey || !subject) return null
+  return { publicKey, privateKey, subject }
+}

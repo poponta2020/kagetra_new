@@ -13,6 +13,7 @@ import { eventLineBroadcasts } from './event-line-broadcasts'
 import { eventBroadcastMessages } from './event-broadcast-messages'
 import { attachmentShareTokens } from './attachment-share-tokens'
 import { eventLifecycleNotifications } from './event-lifecycle-notifications'
+import { pushSubscriptions } from './push-subscriptions'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -53,6 +54,8 @@ export const eventAttendancesRelations = relations(eventAttendances, ({ one }) =
 
 export const usersRelations = relations(users, ({ many }) => ({
   attendances: many(eventAttendances),
+  // mail-triage-badge: Web Push 購読は 1 ユーザー複数端末（many）。
+  pushSubscriptions: many(pushSubscriptions),
   // PR5: the user → LINE channel relation is one-to-one but its sole FK is
   // `line_channels.assigned_user_id` → `users.id`. Look up a user's channel
   // by querying line_channels with `assignedUserId = users.id`. Pre-fix we
@@ -74,6 +77,11 @@ export const mailMessagesRelations = relations(mailMessages, ({ one, many }) => 
     references: [tournamentDrafts.messageId],
   }),
   broadcastMessages: many(eventBroadcastMessages),
+  // mail-triage-badge: 処理者（nullable, set null）。
+  triagedBy: one(users, {
+    fields: [mailMessages.triagedByUserId],
+    references: [users.id],
+  }),
 }))
 
 export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many }) => ({
@@ -170,3 +178,11 @@ export const eventLifecycleNotificationsRelations = relations(
     }),
   }),
 )
+
+// mail-triage-badge
+export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one }) => ({
+  user: one(users, {
+    fields: [pushSubscriptions.userId],
+    references: [users.id],
+  }),
+}))

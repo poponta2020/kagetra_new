@@ -124,7 +124,15 @@ export async function approveDraft(draftId: number, formData: FormData) {
     // 2026-05-12 session 3 (mail_id=12 orphan).
     await tx
       .update(mailMessages)
-      .set({ status: 'archived', updatedAt: sql`now()` })
+      .set({
+        status: 'archived',
+        // mail-triage-badge: ドラフト処理（承認/却下/紐付け）も「処理済み」の
+        // 一形態。未処理バッジから外すため triage_status も同時に閉じる。
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
       .where(eq(mailMessages.id, updated[0]!.messageId))
   })
 
@@ -190,7 +198,15 @@ export async function rejectDraft(draftId: number, formData: FormData) {
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
       .update(mailMessages)
-      .set({ status: 'archived', updatedAt: sql`now()` })
+      .set({
+        status: 'archived',
+        // mail-triage-badge: ドラフト処理（承認/却下/紐付け）も「処理済み」の
+        // 一形態。未処理バッジから外すため triage_status も同時に閉じる。
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
       .where(eq(mailMessages.id, updated[0]!.messageId))
   })
 
@@ -274,7 +290,15 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
       .update(mailMessages)
-      .set({ status: 'archived', updatedAt: sql`now()` })
+      .set({
+        status: 'archived',
+        // mail-triage-badge: ドラフト処理（承認/却下/紐付け）も「処理済み」の
+        // 一形態。未処理バッジから外すため triage_status も同時に閉じる。
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
       .where(eq(mailMessages.id, updated[0]!.messageId))
   })
 
@@ -296,6 +320,60 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
       }
     })
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// mail-triage-badge: 全メールの手動トリアージ。
+//
+// ドラフトの有無に関わらず任意の mail_messages 行を processed / deferred /
+// unprocessed に遷移させる。未処理バッジ件数は `triage_status != 'processed'`
+// (unprocessed + deferred) で数えるので、deferMail は意図的にバッジに残す。
+//
+// approve/reject/link は status='archived' も伴う「ドラフト処理」だが、以下は
+// triage_status だけを動かす軽量操作で status(AI/技術状態)は保持する。
+// undoTriage はどの processed でも素直に unprocessed へ戻す（承認済みメールを
+// 戻すかは呼び出し側 UI が出すアクションで制御する想定）。
+// ─────────────────────────────────────────────────────────────────────────
+
+async function setTriage(
+  mailId: number,
+  triageStatus: 'processed' | 'deferred' | 'unprocessed',
+  triagedByUserId: string | null,
+) {
+  const updated = await db
+    .update(mailMessages)
+    .set({
+      triageStatus,
+      // 未処理に戻すときは処理者・処理時刻もクリアして履歴の意味を保つ。
+      triagedAt: triageStatus === 'unprocessed' ? null : sql`now()`,
+      triagedByUserId,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(mailMessages.id, mailId))
+    .returning({ id: mailMessages.id })
+  if (updated.length === 0) throw new Error('mail not found')
+  revalidatePath('/admin/mail-inbox')
+  // mail-triage-badge: 詳細ページ (mail/[id]) にも同じ TriageActions があるので、
+  // 詳細パスも再検証して処理後に Server Component の triageStatus を最新化する。
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+}
+
+/** 対応不要として片付ける（→ processed、未処理バッジから除外）。 */
+export async function dismissMail(mailId: number) {
+  const session = await requireAdminSession()
+  await setTriage(mailId, 'processed', session.user.id)
+}
+
+/** 保留（→ deferred、未処理バッジには残す）。 */
+export async function deferMail(mailId: number) {
+  const session = await requireAdminSession()
+  await setTriage(mailId, 'deferred', session.user.id)
+}
+
+/** 処理取り消し / 保留解除（→ unprocessed、処理者をクリア）。 */
+export async function undoTriage(mailId: number) {
+  await requireAdminSession()
+  await setTriage(mailId, 'unprocessed', null)
 }
 
 // PR5 Phase 4a — manual mail-fetch job queue.

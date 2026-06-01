@@ -67,6 +67,6 @@ export const config = {
     // attachment / image 配信エンドポイントは未認証アクセスが前提
     // (LINE グループの非ログインゲスト含む)。middleware を通すと
     // /auth/signin にリダイレクトされて到達不能になる。
-    '/((?!api/auth|api/webhook/line|api/line-broadcast|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png).*)',
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
   ],
 }
