@@ -43,7 +43,7 @@ status: completed
 - **完了条件:** 全メールが詳細を開け、4アクションが実行でき、一覧の区分が処理状態を反映する。
 
 ### タスク4: Web Push 基盤（VAPID + Service Worker + 購読 UI + 前景バッジ）
-- [ ] 完了
+- [x] 完了
 - **概要:** ブラウザ Web Push の購読・保存と、Service Worker でのバッジ更新（背景）＋前景バッジ同期を実装。
 - **変更対象ファイル:**
   - `apps/web/public/sw.js` — 新規。`push`→`showNotification` + `setAppBadge`、`notificationclick`→`/admin/mail-inbox`
