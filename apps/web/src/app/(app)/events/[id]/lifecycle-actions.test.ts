@@ -199,7 +199,7 @@ describe('event lifecycle actions', () => {
     expect(await notifications(event.id)).toHaveLength(0)
   })
 
-  it('setPaymentType: advance 以外への変更で支払状態と payment_paid ログを完全リセットし、再支払いで再通知できる', async () => {
+  it('setPaymentType: advance 以外への変更で支払状態はリセットするが payment_paid の once-ever は保持（再支払いで再通知しない）', async () => {
     const admin = await createAdmin()
     const event = await seedLinkedEvent()
     await setAuthSession({ id: admin.id, role: 'admin' })
@@ -210,21 +210,22 @@ describe('event lifecycle actions', () => {
     await setPaymentPaid(event.id, true)
     expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
     expect(await paidLogs()).toHaveLength(1)
+    const originalLogId = (await paidLogs())[0]!.id
 
-    // onsite へ変更 → 支払状態 + payment_paid once-ever ログをリセット
+    // onsite へ変更 → advance 専用の支払状態はリセット、ただし once-ever ログは保持
     await setPaymentType(event.id, 'onsite')
     const reset = await getEvent(event.id)
     expect(reset?.paymentType).toBe('onsite')
     expect(reset?.paymentStatus).toBe('unpaid')
     expect(reset?.paymentPaidAt).toBeNull()
-    expect(await paidLogs()).toHaveLength(0)
+    expect(await paidLogs()).toHaveLength(1) // ログは消さない（once-ever 永続）
 
-    // 再び advance に戻して支払済 → 新規操作として完了通知が再送される
+    // 再び advance に戻して支払済 → 表示は paid に戻るが UNIQUE で再通知しない
     await setPaymentType(event.id, 'advance')
     await setPaymentPaid(event.id, true)
     expect((await getEvent(event.id))?.paymentStatus).toBe('paid')
     const logs = await paidLogs()
-    expect(logs).toHaveLength(1)
-    expect(logs[0]).toMatchObject({ status: 'sent' })
+    expect(logs).toHaveLength(1) // 重複通知なし
+    expect(logs[0]!.id).toBe(originalLogId) // 同一ログ行＝新規 INSERT されていない
   })
 })

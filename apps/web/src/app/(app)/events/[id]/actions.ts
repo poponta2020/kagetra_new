@@ -8,7 +8,6 @@ import {
   eventBroadcastMessages,
   events,
   eventAttendances,
-  eventLifecycleNotifications,
   eventLineBroadcasts,
   lineChannels,
   users,
@@ -519,38 +518,22 @@ export async function setPaymentType(
 ): Promise<void> {
   await requireAdminSession()
 
-  // advance 以外へ変えるときは支払いライフサイクルを完全リセットする:
-  // paymentStatus/paymentPaidAt を未払へ戻し、payment_paid の once-ever ログも
-  // 同一 tx で削除する。ログを残すと、後で advance に戻して支払済にしても
-  // UNIQUE(event_id,type) に当たって claim できず完了通知が送られない
-  // （状態リセットと矛盾する。review should_fix）。
-  if (type !== 'advance') {
-    await db.transaction(async (tx) => {
-      await tx
-        .update(events)
-        .set({
-          paymentType: type,
-          paymentStatus: 'unpaid',
-          paymentPaidAt: null,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(events.id, eventId))
-      await tx
-        .delete(eventLifecycleNotifications)
-        .where(
-          and(
-            eq(eventLifecycleNotifications.eventId, eventId),
-            eq(eventLifecycleNotifications.type, 'payment_paid'),
-          ),
-        )
-    })
-    revalidatePath(`/events/${eventId}`)
-    return
-  }
-
+  // advance 以外へ変えるときは「advance のときだけ意味を持つ」支払状態
+  // (paymentStatus/paymentPaidAt) を未払へ戻し、再び advance に戻したとき古い
+  // 支払済表示が残らないようにする。
+  //
+  // ただし payment_paid の once-ever ログは **削除しない**（要件 §6.4: 完了通知は
+  // 同一 (event,type) で永久に一度きり）。結果として、支払いタイプを往復して再度
+  // 支払済にすると表示は支払済へ戻るが、UNIQUE(event_id,type) により LINE 完了通知は
+  // 再送されない（参加者への重複通知を防ぐ）。完了通知をやり直したい運用は想定しない。
+  const leavingAdvance = type !== 'advance'
   await db
     .update(events)
-    .set({ paymentType: type, updatedAt: sql`now()` })
+    .set({
+      paymentType: type,
+      ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
+      updatedAt: sql`now()`,
+    })
     .where(eq(events.id, eventId))
   revalidatePath(`/events/${eventId}`)
 }
