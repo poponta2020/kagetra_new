@@ -20,7 +20,7 @@ status: completed
 - **完了条件:** 型チェック通過、migration がローカル DB に適用でき既存行が `processed` になる、push_subscriptions に CRUD できる。
 
 ### タスク2: 処理状態の Server Actions + 未処理数 API
-- [ ] 完了
+- [x] 完了
 - **概要:** 全メールに対する4処理アクションと、未処理件数を返す API を実装。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — `dismissMail` / `deferMail` / `undoTriage` 新規。既存 `approveDraft` / `rejectDraft` / `linkDraftToEvent` に `triage_status='processed'` + `triaged_at` / `triaged_by` 更新を追加
