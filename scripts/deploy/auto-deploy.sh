@@ -54,6 +54,16 @@ log "targets: web=$WEB api=$API worker=$WORKER (shared=$SHARED)"
 
 corepack pnpm install --frozen-lockfile || fail "pnpm install failed"
 
+# NEXT_PUBLIC_* は Next.js の build 時にクライアントバンドルへ inline される。
+# .env.production は systemd EnvironmentFile (実行時) なので build には自動で渡らない。
+# VAPID 公開鍵 (NEXT_PUBLIC_VAPID_PUBLIC_KEY) などデフォルト値の無い公開 env を
+# クライアントへ焼き込むため、NEXT_PUBLIC_ 行だけ抽出して export してから build する。
+# (NEXT_PUBLIC_API_URL は api.ts 側に `?? '/hono-api'` デフォルトがあり従来 inline
+#  されていなくても動作したが、VAPID 公開鍵はデフォルトが無く inline 必須。)
+if [ -f /opt/kagetra/.env.production ]; then
+  set -a; . <(grep -E '^NEXT_PUBLIC_[A-Za-z0-9_]+=' /opt/kagetra/.env.production); set +a
+fi
+
 # --- build (失敗時は restart 前に中断 → 全サービス旧コード継続) ---
 if [ "$WEB" = 1 ];    then log "build apps/web";         corepack pnpm --filter @kagetra/web build         || fail "web build failed (no restart performed)"; fi
 if [ "$API" = 1 ];    then log "build apps/api";         corepack pnpm --filter @kagetra/api build         || fail "api build failed (no restart performed)"; fi
