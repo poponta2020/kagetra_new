@@ -61,7 +61,17 @@ corepack pnpm install --frozen-lockfile || fail "pnpm install failed"
 # (NEXT_PUBLIC_API_URL は api.ts 側に `?? '/hono-api'` デフォルトがあり従来 inline
 #  されていなくても動作したが、VAPID 公開鍵はデフォルトが無く inline 必須。)
 if [ -f /opt/kagetra/.env.production ]; then
-  set -a; . <(grep -E '^NEXT_PUBLIC_[A-Za-z0-9_]+=' /opt/kagetra/.env.production); set +a
+  # source せず key=value として読み取って export する（右辺を shell 評価しない）。
+  # `NEXT_PUBLIC_FOO=$(...)` や `;` を含む値が混ざっても deploy 権限でコマンド実行
+  # されないよう、設定ファイルはデータとして扱う（下部の DATABASE_URL 抽出と同方針）。
+  while IFS= read -r np_line; do
+    np_key=${np_line%%=*}
+    np_val=${np_line#*=}
+    np_val=${np_val%$'\r'}                     # 末尾 CR 除去
+    np_val=${np_val%\"}; np_val=${np_val#\"}   # 両端のダブルクォート除去
+    np_val=${np_val%\'}; np_val=${np_val#\'}   # 両端のシングルクォート除去
+    export "$np_key=$np_val"
+  done < <(grep -E '^NEXT_PUBLIC_[A-Za-z0-9_]+=' /opt/kagetra/.env.production)
 fi
 
 # --- build (失敗時は restart 前に中断 → 全サービス旧コード継続) ---
