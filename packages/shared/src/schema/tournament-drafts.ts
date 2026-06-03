@@ -58,6 +58,10 @@ export const tournamentDrafts = pgTable(
     aiTokensInput: integer('ai_tokens_input'),
     aiTokensOutput: integer('ai_tokens_output'),
     aiCostUsd: numeric('ai_cost_usd', { precision: 10, scale: 6 }),
+    // `event_id` は「訂正版ドラフトが既存の単一イベントを指す」紐付け (linkDraftToEvent) 専用。
+    // tournament-title-grade-split 以降の 1 ドラフト:N イベント分割承認ではこの列は使わず
+    // (null のまま)、実体側の `events.tournament_draft_id` を正とする。AI 由来イベントの
+    // 逆引きは必ず events.tournament_draft_id を辿ること (意味の二重化に注意)。
     eventId: integer('event_id').references(() => events.id, { onDelete: 'set null' }),
     approvedByUserId: text('approved_by_user_id').references(() => users.id, {
       onDelete: 'set null',

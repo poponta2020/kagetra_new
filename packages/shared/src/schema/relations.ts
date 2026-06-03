@@ -39,6 +39,14 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   lineBroadcast: one(eventLineBroadcasts),
   // event-lifecycle-notify: once-ever 通知ログ（1 event = N 種別）
   lifecycleNotifications: many(eventLifecycleNotifications),
+  // tournament-title-grade-split: AI 取り込み由来イベントの元ドラフト（1 ドラフト:N イベント）。
+  // events.tournament_draft_id → tournament_drafts.id。tournament_drafts.event_id（訂正紐付け）
+  // 経由の関係と同一テーブルペアで競合するため relationName で区別する。
+  sourceDraft: one(tournamentDrafts, {
+    fields: [events.tournamentDraftId],
+    references: [tournamentDrafts.id],
+    relationName: 'eventSourceDraft',
+  }),
 }))
 
 export const eventAttendancesRelations = relations(eventAttendances, ({ one }) => ({
@@ -92,15 +100,20 @@ export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many 
   shareTokens: many(attachmentShareTokens),
 }))
 
-export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one }) => ({
+export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one, many }) => ({
   mail: one(mailMessages, {
     fields: [tournamentDrafts.messageId],
     references: [mailMessages.id],
   }),
+  // event_id 経由: 訂正版ドラフトが指す既存の単一イベント（linkDraftToEvent 専用）。
   event: one(events, {
     fields: [tournamentDrafts.eventId],
     references: [events.id],
+    relationName: 'draftCorrectionEvent',
   }),
+  // tournament-title-grade-split: この AI 抽出ドラフトから materialize されたイベント群
+  // （開催日ごとに分割、events.tournament_draft_id 経由）。
+  materializedEvents: many(events, { relationName: 'eventSourceDraft' }),
 }))
 
 // PR5 (mail-tournament-import) + event-line-broadcast

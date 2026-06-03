@@ -46,6 +46,14 @@ export const events = pgTable('events', {
   // payment_status / payment_paid_at は payment_type='advance' のときのみ意味を持つ。
   paymentStatus: eventPaymentStatusEnum('payment_status').notNull().default('unpaid'),
   paymentPaidAt: timestamp('payment_paid_at', { mode: 'date', withTimezone: true }),
+  // tournament-title-grade-split: AI メール取り込み由来イベントの元ドラフトへのリンク。
+  // 1 ドラフト(=1 メール) : N イベント(開催日ごとに分割) を表現する実体側の参照。手動作成・
+  // 旧移行イベントでは null。FK (→ tournament_drafts.id, ON DELETE SET NULL) は
+  // events↔tournament_drafts の相互参照による TypeScript 型循環を避けるため、migration の
+  // raw ALTER で張る (tournament_drafts.superseded_by_draft_id と同じ方針)。
+  tournamentDraftId: integer('tournament_draft_id'),
+  // 元ドラフト payload 内の該当イベント単位 (unit_key)。部分承認済み単位の突合に使う。
+  tournamentDraftUnitKey: text('tournament_draft_unit_key'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 })
