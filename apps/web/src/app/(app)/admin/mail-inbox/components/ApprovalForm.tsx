@@ -1,58 +1,240 @@
-import type { ExtractionPayload } from '@kagetra/mail-worker/classify/schema'
+import type {
+  EventUnit,
+  ExtractionPayload,
+} from '@kagetra/mail-worker/classify/schema'
+import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
+import { Card } from '@/components/ui'
+
+/**
+ * tournament-title-grade-split: one event unit ready for the approval form.
+ * Always the new `EventUnit` shape — old single-`extracted` payloads are
+ * normalized into a one-element array (`unit_key='u1'`) by {@link normalizeUnits}.
+ */
+export type NormalizedUnit = EventUnit
 
 export interface ApprovalFormProps {
-  extractedPayload: ExtractionPayload | null
+  /** Raw payload (new or old format). null for ai_failed / empty drafts. */
+  payload: ExtractionPayload | null
+  /** Announcement-wide place stem used to compose each unit's title. */
+  shortNameStem: string | null
+  /** Already-materialized units (event already created). Rendered read-only. */
+  registeredUnitKeys: { unitKey: string; eventId: number }[]
   groups: { id: number; name: string }[]
   action: (formData: FormData) => void | Promise<void>
 }
 
 /**
- * Pre-fills {@link EventForm} with the AI's extracted_payload so an admin
- * can review and submit the row as a real `events` insert. Pure mapping +
- * passthrough — submission goes to the parent-supplied `action`
- * (`approveDraft.bind(null, draftId)` in Phase 5).
+ * Old-format ExtractionPayload carried a single `extracted` object. The web
+ * layer still has to render pending drafts persisted before the 2.0.0 bump,
+ * so map that object into one `EventUnit` (requirements §3.4 後方互換).
+ */
+interface LegacyExtracted {
+  title?: string | null
+  formal_name?: string | null
+  event_date?: string | null
+  venue?: string | null
+  fee_jpy?: number | null
+  payment_deadline?: string | null
+  payment_info_text?: string | null
+  payment_method?: string | null
+  entry_method?: string | null
+  organizer_text?: string | null
+  entry_deadline?: string | null
+  eligible_grades?: ('A' | 'B' | 'C' | 'D' | 'E')[] | null
+  kind?: 'individual' | 'team' | null
+  capacity_a?: number | null
+  capacity_b?: number | null
+  capacity_c?: number | null
+  capacity_d?: number | null
+  capacity_e?: number | null
+  official?: boolean | null
+}
+
+/**
+ * Normalize a payload (new `events[]` or legacy `extracted`) into a list of
+ * `EventUnit`. Returns a single empty-ish unit for a null/ai_failed payload so
+ * the operator still gets a blank form to fill in (mirrors the old behavior
+ * where ApprovalForm always rendered one EventForm).
+ */
+export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUnit[] {
+  if (payload && Array.isArray(payload.events) && payload.events.length > 0) {
+    return payload.events
+  }
+  // Legacy single-object payload (or null). Build one synthetic unit.
+  const legacy =
+    payload && 'extracted' in payload
+      ? ((payload as { extracted?: LegacyExtracted }).extracted ?? null)
+      : null
+  return [
+    {
+      unit_key: 'u1',
+      event_date: legacy?.event_date ?? null,
+      eligible_grades: legacy?.eligible_grades ?? null,
+      formal_name: legacy?.formal_name ?? null,
+      venue: legacy?.venue ?? null,
+      fee_jpy: legacy?.fee_jpy ?? null,
+      payment_deadline: legacy?.payment_deadline ?? null,
+      payment_info_text: legacy?.payment_info_text ?? null,
+      payment_method: legacy?.payment_method ?? null,
+      entry_method: legacy?.entry_method ?? null,
+      organizer_text: legacy?.organizer_text ?? null,
+      entry_deadline: legacy?.entry_deadline ?? null,
+      kind: legacy?.kind ?? null,
+      capacity_a: legacy?.capacity_a ?? null,
+      capacity_b: legacy?.capacity_b ?? null,
+      capacity_c: legacy?.capacity_c ?? null,
+      capacity_d: legacy?.capacity_d ?? null,
+      capacity_e: legacy?.capacity_e ?? null,
+      official: legacy?.official ?? null,
+      // legacy.title (the AI's full name) becomes the displayed title fallback
+      // when there is no stem to compose from — surfaced via `legacyTitle`.
+    },
+  ]
+}
+
+/**
+ * Renders one {@link EventForm} per AI-extracted event unit inside a single
+ * `<form action={action}>` so all selected units submit together. Each unit
+ * carries a hidden `unit_key` input + a "このイベントを登録する" checkbox
+ * (default ON). Already-materialized units render as read-only summaries.
  *
- * `null`-safe: every field is forwarded as `null` when the AI returned no
- * value, which {@link EventForm} already coalesces to `''` for the input
- * `defaultValue`. `kind`/`official` get the EventForm defaults so a missing
- * AI value doesn't render an empty hidden input or unchecked box surprise.
+ * title pre-fill = `composeTitle(shortNameStem, unit.eligible_grades)`; for a
+ * legacy payload with no stem we fall back to the legacy `extracted.title`.
  */
 export function ApprovalForm({
-  extractedPayload,
+  payload,
+  shortNameStem,
+  registeredUnitKeys,
   groups,
   action,
 }: ApprovalFormProps) {
-  const extracted = extractedPayload?.extracted ?? null
+  const units = normalizeUnits(payload)
+  const registeredMap = new Map(
+    registeredUnitKeys.map((r) => [r.unitKey, r.eventId]),
+  )
+
+  // Legacy title fallback: when there's no stem (old payload), use the AI's
+  // full `extracted.title` so the form isn't blank.
+  const legacyTitle =
+    payload && 'extracted' in payload
+      ? ((payload as { extracted?: LegacyExtracted }).extracted?.title ?? null)
+      : null
+
+  const total = units.length
+  const registeredCount = units.filter((u) =>
+    registeredMap.has(u.unit_key),
+  ).length
 
   return (
-    <EventForm
-      mode="create"
-      action={action}
-      groups={groups}
-      cancelHref="/admin/mail-inbox"
-      defaultValues={{
-        title: extracted?.title ?? null,
-        formalName: extracted?.formal_name ?? null,
-        eventDate: extracted?.event_date ?? null,
-        location: extracted?.venue ?? null,
-        feeJpy: extracted?.fee_jpy ?? null,
-        paymentDeadline: extracted?.payment_deadline ?? null,
-        paymentInfo: extracted?.payment_info_text ?? null,
-        paymentMethod: extracted?.payment_method ?? null,
-        entryMethod: extracted?.entry_method ?? null,
-        organizer: extracted?.organizer_text ?? null,
-        entryDeadline: extracted?.entry_deadline ?? null,
-        eligibleGrades: extracted?.eligible_grades ?? null,
-        kind: extracted?.kind ?? 'individual',
-        capacity: extracted?.capacity_total ?? null,
-        capacityA: extracted?.capacity_a ?? null,
-        capacityB: extracted?.capacity_b ?? null,
-        capacityC: extracted?.capacity_c ?? null,
-        capacityD: extracted?.capacity_d ?? null,
-        capacityE: extracted?.capacity_e ?? null,
-        official: extracted?.official ?? true,
-      }}
-    />
+    <div className="flex flex-col gap-3">
+      <div className="text-sm text-ink-2">
+        この案内から {total} 件のイベントを作成します
+        {registeredCount > 0 && `（うち登録済み ${registeredCount} 件）`}
+      </div>
+
+      <form action={action} className="flex flex-col gap-4">
+        {units.map((unit) => {
+          const registeredEventId = registeredMap.get(unit.unit_key)
+          // New short-name = stem(場所) + grades. Only compose when a stem
+          // exists (new-format payloads always carry one). For a legacy payload
+          // with no stem, composeTitle(null, ['A']) would yield a bare 'A', so
+          // prefer the AI's full title there instead.
+          const stem = (shortNameStem ?? '').trim()
+          const composedTitle =
+            stem !== ''
+              ? composeTitle(shortNameStem, unit.eligible_grades)
+              : (legacyTitle ?? composeTitle(shortNameStem, unit.eligible_grades))
+
+          if (registeredEventId != null) {
+            // Already materialized: read-only, no editable form. We still
+            // forward the unit_key so the server action can recount, and pin
+            // its register checkbox ON (hidden) for completeness.
+            return (
+              <Card key={unit.unit_key}>
+                <input type="hidden" name="unit_key" value={unit.unit_key} />
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-semibold text-success-fg">
+                    登録済み
+                  </span>
+                  <span className="font-medium text-ink">
+                    {composedTitle || '(無題)'}
+                  </span>
+                  <span className="text-ink-meta">
+                    （events #{registeredEventId}）
+                  </span>
+                  {unit.event_date && (
+                    <span className="text-ink-meta">{unit.event_date}</span>
+                  )}
+                </div>
+              </Card>
+            )
+          }
+
+          const prefix = `${unit.unit_key}__`
+          return (
+            <Card key={unit.unit_key}>
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <input
+                    type="checkbox"
+                    name={`${prefix}register`}
+                    defaultChecked
+                    className="rounded border-border"
+                  />
+                  このイベントを登録する
+                  {unit.event_date && (
+                    <span className="ml-1 text-xs font-normal text-ink-meta">
+                      ({unit.event_date})
+                    </span>
+                  )}
+                </label>
+                {/* unit_key marker for extractEventUnitsFormData. */}
+                <input type="hidden" name="unit_key" value={unit.unit_key} />
+                <EventForm
+                  mode="create"
+                  action={action}
+                  groups={groups}
+                  cancelHref="/admin/mail-inbox"
+                  fieldPrefix={prefix}
+                  defaultValues={{
+                    title: composedTitle,
+                    formalName: unit.formal_name ?? null,
+                    eventDate: unit.event_date ?? null,
+                    location: unit.venue ?? null,
+                    feeJpy: unit.fee_jpy ?? null,
+                    paymentDeadline: unit.payment_deadline ?? null,
+                    paymentInfo: unit.payment_info_text ?? null,
+                    paymentMethod: unit.payment_method ?? null,
+                    entryMethod: unit.entry_method ?? null,
+                    organizer: unit.organizer_text ?? null,
+                    entryDeadline: unit.entry_deadline ?? null,
+                    eligibleGrades: unit.eligible_grades ?? null,
+                    kind: unit.kind ?? 'individual',
+                    // EventUnit has no announcement-wide capacity; per-grade only.
+                    capacity: null,
+                    capacityA: unit.capacity_a ?? null,
+                    capacityB: unit.capacity_b ?? null,
+                    capacityC: unit.capacity_c ?? null,
+                    capacityD: unit.capacity_d ?? null,
+                    capacityE: unit.capacity_e ?? null,
+                    official: unit.official ?? true,
+                  }}
+                />
+              </div>
+            </Card>
+          )
+        })}
+
+        <div className="flex justify-end pt-1">
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-hover"
+          >
+            選択したイベントを登録
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }

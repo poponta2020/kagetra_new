@@ -85,6 +85,85 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
   }
 }
 
+/**
+ * tournament-title-grade-split: parse a multi-unit approval form.
+ *
+ * The ApprovalForm renders one {@link EventForm} per AI-extracted event unit,
+ * namespacing every field as `${unitKey}__<field>`. Each unit also emits a
+ * hidden `unit_key` input (so the full set of keys is `formData.getAll('unit_key')`)
+ * and a `${unitKey}__register` checkbox; only checked units are returned.
+ *
+ * For each registered unit the `data` map is built with the exact same key
+ * shape as {@link extractEventFormData}, so callers can feed it straight into
+ * `eventFormSchema.parse`. Grades are collected from `${unitKey}__grade_A..E`
+ * (mirroring how events/new and the single-unit approveDraft collect them).
+ */
+export function extractEventUnitsFormData(
+  formData: FormData,
+): Array<{
+  unitKey: string
+  eligibleGrades: ('A' | 'B' | 'C' | 'D' | 'E')[]
+  data: Record<string, unknown>
+}> {
+  // getAll → may contain duplicates if the same key somehow rendered twice;
+  // de-dup so we never build two records for one unit (defensive — the form
+  // emits one hidden input per unit).
+  const unitKeys = Array.from(
+    new Set(
+      formData
+        .getAll('unit_key')
+        .filter((v): v is string => typeof v === 'string' && v !== ''),
+    ),
+  )
+
+  const result: Array<{
+    unitKey: string
+    eligibleGrades: ('A' | 'B' | 'C' | 'D' | 'E')[]
+    data: Record<string, unknown>
+  }> = []
+
+  for (const unitKey of unitKeys) {
+    if (formData.get(`${unitKey}__register`) !== 'on') continue
+
+    const p = (field: string) => formData.get(`${unitKey}__${field}`)
+    const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(
+      (g) => formData.get(`${unitKey}__grade_${g}`) === 'on',
+    )
+
+    result.push({
+      unitKey,
+      eligibleGrades,
+      data: {
+        title: p('title'),
+        description: p('description'),
+        eventDate: p('eventDate'),
+        location: p('location'),
+        capacity: p('capacity'),
+        status: p('status') || 'draft',
+        formalName: p('formalName'),
+        official: p('official') === 'on',
+        kind: p('kind') || 'individual',
+        entryDeadline: p('entryDeadline'),
+        internalDeadline: p('internalDeadline'),
+        eventGroupId: p('eventGroupId'),
+        feeJpy: p('feeJpy'),
+        paymentDeadline: p('paymentDeadline'),
+        paymentInfo: p('paymentInfo'),
+        paymentMethod: p('paymentMethod'),
+        entryMethod: p('entryMethod'),
+        organizer: p('organizer'),
+        capacityA: p('capacityA'),
+        capacityB: p('capacityB'),
+        capacityC: p('capacityC'),
+        capacityD: p('capacityD'),
+        capacityE: p('capacityE'),
+      },
+    })
+  }
+
+  return result
+}
+
 export function extractScheduleFormData(formData: FormData): Record<string, unknown> {
   return {
     date: formData.get('date'),

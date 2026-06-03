@@ -9,10 +9,12 @@ export interface ExtractedPayloadViewProps {
   aiCostUsd: string | null
 }
 
+// tournament-title-grade-split: labels keyed to EventUnit fields. `unit_key`
+// is internal plumbing (not surfaced); `capacity_total` was dropped in 2.0.0.
 const EXTRACTED_LABELS: Record<string, string> = {
-  title: 'タイトル',
-  formal_name: '正式名称',
   event_date: '開催日',
+  eligible_grades: '対象級',
+  formal_name: '正式名称',
   venue: '会場',
   fee_jpy: '参加費 (円)',
   payment_deadline: '支払締切',
@@ -21,15 +23,15 @@ const EXTRACTED_LABELS: Record<string, string> = {
   entry_method: '申込方法',
   organizer_text: '主催',
   entry_deadline: '申込締切',
-  eligible_grades: '対象級',
   kind: '種別',
-  capacity_total: '定員',
   capacity_a: 'A 級定員',
   capacity_b: 'B 級定員',
   capacity_c: 'C 級定員',
   capacity_d: 'D 級定員',
   capacity_e: 'E 級定員',
   official: '公認大会',
+  // legacy-only field (old single `extracted` payload):
+  title: 'タイトル',
 }
 
 const EXTRAS_LABELS: Record<string, string> = {
@@ -74,7 +76,17 @@ export function ExtractedPayloadView({
     )
   }
 
-  const extracted = payload.extracted
+  // tournament-title-grade-split: new payloads carry `short_name_stem` +
+  // `events[]`; old payloads carry a single `extracted` object. Normalize to a
+  // list of {key,value} record tables so both render through one loop.
+  const legacy = (payload as { extracted?: Record<string, unknown> }).extracted
+  const units: Record<string, unknown>[] =
+    Array.isArray(payload.events) && payload.events.length > 0
+      ? (payload.events as unknown as Record<string, unknown>[])
+      : legacy != null
+        ? [legacy]
+        : []
+  const stem = payload.short_name_stem ?? null
   const extras = payload.extras ?? null
   const confidenceLabel = confidence ?? '—'
   const costLabel = aiCostUsd ? `$${aiCostUsd}` : '—'
@@ -92,20 +104,38 @@ export function ExtractedPayloadView({
             {confidenceLabel} / コスト: {costLabel}
           </div>
 
-          <table className="w-full text-xs">
-            <tbody>
-              {Object.entries(extracted).map(([key, value]) => (
-                <tr key={key} className="border-t border-border-soft">
-                  <th className="w-1/3 py-1.5 pr-3 text-left font-medium text-ink-meta align-top">
-                    {EXTRACTED_LABELS[key] ?? key}
-                  </th>
-                  <td className="py-1.5 text-ink align-top break-words">
-                    {formatValue(value)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {stem != null && (
+            <div className="text-xs text-ink-2">
+              <span className="font-medium text-ink-meta">大会名 stem:</span>{' '}
+              {stem}
+            </div>
+          )}
+
+          {units.map((unit, idx) => (
+            <div key={(unit.unit_key as string) ?? idx} className="space-y-1">
+              {units.length > 1 && (
+                <div className="text-xs font-semibold text-ink-meta">
+                  イベント {idx + 1}
+                </div>
+              )}
+              <table className="w-full text-xs">
+                <tbody>
+                  {Object.entries(unit)
+                    .filter(([key]) => key !== 'unit_key')
+                    .map(([key, value]) => (
+                      <tr key={key} className="border-t border-border-soft">
+                        <th className="w-1/3 py-1.5 pr-3 text-left font-medium text-ink-meta align-top">
+                          {EXTRACTED_LABELS[key] ?? key}
+                        </th>
+                        <td className="py-1.5 text-ink align-top break-words">
+                          {formatValue(value)}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
 
           {extras && Object.values(extras).some((v) => v != null) && (
             <div className="border-t border-border-soft pt-3">

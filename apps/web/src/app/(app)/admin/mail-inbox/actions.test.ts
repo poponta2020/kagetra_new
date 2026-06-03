@@ -25,23 +25,35 @@ vi.mock('next/cache', () => ({
 // (Vitest 直接呼出) で例外を投げる。approveDraft / linkDraftToEvent が
 // broadcastMailToEvent を fire-and-forget で呼ぶための after() を no-op
 // にモックして、本テストが既存の承認フロー検証だけを扱えるようにする。
+//
+// tournament-title-grade-split: broadcast の dedup 検証では after() の中身を
+// 実行する必要があるので、afterMock を切り替え可能にして既定は no-op、dedup
+// テストだけ即時実行に差し替える。
+const afterMock = vi.fn((_cb: () => void | Promise<void>) => {})
 vi.mock('next/server', async () => {
   const actual = await vi.importActual<typeof import('next/server')>('next/server')
   return {
     ...actual,
-    after: vi.fn(),
+    after: (cb: () => void | Promise<void>) => afterMock(cb),
   }
 })
-// broadcastMailToEvent の実呼び出しもテスト対象外。after が直接実行されても
-// LINE 連携ロジックを発火させないようスタブ化。
+// broadcastMailToEvent / loadActiveBinding の実呼び出しはテスト対象外。
+// after が直接実行されても LINE 連携ロジックを発火させないようスタブ化する。
+// loadActiveBinding は approveDraftUnits の broadcast dedup が呼ぶので、
+// 既定は「紐付けなし(null)」を返し、dedup テストで eventId→group を差し替える。
+const broadcastMailToEventMock = vi.fn(async () => ({
+  status: 'skipped' as const,
+  reason: 'mocked',
+  sentTextCount: 0,
+  sentImageCount: 0,
+  fallbackLinkCount: 0,
+}))
+const loadActiveBindingMock = vi.fn(async (_db: unknown, _eventId: number) => null as
+  | { lineGroupId: string }
+  | null)
 vi.mock('@/lib/line-broadcast', () => ({
-  broadcastMailToEvent: vi.fn(async () => ({
-    status: 'skipped' as const,
-    reason: 'mocked',
-    sentTextCount: 0,
-    sentImageCount: 0,
-    fallbackLinkCount: 0,
-  })),
+  broadcastMailToEvent: broadcastMailToEventMock,
+  loadActiveBinding: loadActiveBindingMock,
 }))
 
 // Stub the mail-worker classifier surface so reextractDraft does not actually
@@ -70,6 +82,8 @@ vi.mock('@kagetra/mail-worker/config', () => ({
 // mocked modules.
 const {
   approveDraft,
+  approveDraftUnits,
+  completeDraft,
   rejectDraft,
   linkDraftToEvent,
   reextractDraft,
@@ -125,11 +139,91 @@ async function getMail(id: number) {
   })
 }
 
+// ── tournament-title-grade-split helpers ─────────────────────────────────
+
+/** Minimal EventUnit-shaped object for new-format extracted_payload. */
+function unit(
+  unitKey: string,
+  grades: ('A' | 'B' | 'C' | 'D' | 'E')[] | null,
+  eventDate: string | null,
+) {
+  return {
+    unit_key: unitKey,
+    event_date: eventDate,
+    eligible_grades: grades,
+    formal_name: null,
+    venue: null,
+    fee_jpy: null,
+    payment_deadline: null,
+    payment_info_text: null,
+    payment_method: null,
+    entry_method: null,
+    organizer_text: null,
+    entry_deadline: null,
+    kind: null,
+    capacity_a: null,
+    capacity_b: null,
+    capacity_c: null,
+    capacity_d: null,
+    capacity_e: null,
+    official: null,
+  }
+}
+
+function newPayload(units: ReturnType<typeof unit>[], shortNameStem = '大阪') {
+  return {
+    is_tournament_announcement: true,
+    confidence: 0.9,
+    reason: 'split',
+    short_name_stem: shortNameStem,
+    events: units,
+  }
+}
+
+/**
+ * Build the multi-unit approval FormData the ApprovalForm would submit. Each
+ * spec entry seeds one unit's title/eventDate/grades, namespaced as
+ * `${unitKey}__<field>`, plus a hidden `unit_key` and (when register=true) the
+ * register checkbox.
+ */
+function buildUnitsFormData(
+  specs: Array<{
+    unitKey: string
+    register?: boolean
+    title?: string
+    eventDate?: string
+    grades?: ('A' | 'B' | 'C' | 'D' | 'E')[]
+    extra?: Record<string, string>
+  }>,
+) {
+  const fd = new FormData()
+  for (const s of specs) {
+    fd.append('unit_key', s.unitKey)
+    if (s.register !== false) fd.set(`${s.unitKey}__register`, 'on')
+    fd.set(`${s.unitKey}__title`, s.title ?? `大会-${s.unitKey}`)
+    fd.set(`${s.unitKey}__eventDate`, s.eventDate ?? '2031-01-11')
+    fd.set(`${s.unitKey}__status`, 'draft')
+    fd.set(`${s.unitKey}__kind`, 'individual')
+    fd.set(`${s.unitKey}__official`, 'on')
+    for (const g of s.grades ?? []) fd.set(`${s.unitKey}__grade_${g}`, 'on')
+    for (const [k, v] of Object.entries(s.extra ?? {})) {
+      fd.set(`${s.unitKey}__${k}`, v)
+    }
+  }
+  return fd
+}
+
 describe('admin/mail-inbox actions', () => {
   beforeEach(async () => {
     await truncateAll()
     classifyMailMock.mockClear()
     persistOutcomeMock.mockClear()
+    broadcastMailToEventMock.mockClear()
+    loadActiveBindingMock.mockClear()
+    loadActiveBindingMock.mockResolvedValue(null)
+    // 既定は no-op (after は実行しない)。dedup テストだけ即時実行に切り替える。
+    afterMock.mockReset()
+    afterMock.mockImplementation(() => {})
   })
   afterAll(async () => {
     await closeTestDb()
@@ -626,6 +720,441 @@ describe('admin/mail-inbox actions', () => {
 
       await reextractDraft(draft.id)
       expect(classifyMailMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('materialize 済みイベントがある draft は再抽出できない (新ガード)', async () => {
+      // tournament-title-grade-split: re-extraction rewrites the payload and
+      // would orphan events already created from this draft.
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'pending_review',
+      })
+      await createEvent({
+        title: '大阪B',
+        tournamentDraftId: draft.id,
+        tournamentDraftUnitKey: 'u1',
+      })
+
+      await expect(reextractDraft(draft.id)).rejects.toThrow(
+        '既にイベントが作成済みのため再抽出できません',
+      )
+      expect(classifyMailMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('approveDraftUnits (複数イベント承認)', () => {
+    it('全単位 register → 全 events 作成 + draft approved + mail archived/processed', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', eventDate: '2031-01-11', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', eventDate: '2031-01-12', grades: ['C'] },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      const byKey = new Map(rows.map((r) => [r.tournamentDraftUnitKey, r]))
+      expect(byKey.get('u1')?.title).toBe('大阪B')
+      expect(byKey.get('u1')?.eligibleGrades).toEqual(['B'])
+      expect(byKey.get('u1')?.createdBy).toBe(admin.id)
+      expect(byKey.get('u2')?.title).toBe('大阪C')
+      expect(byKey.get('u2')?.eligibleGrades).toEqual(['C'])
+
+      const after = await getDraft(draft.id)
+      expect(after?.status).toBe('approved')
+      expect(after?.approvedByUserId).toBe(admin.id)
+      // 分割承認では eventId は使わない (events.tournament_draft_id が正)。
+      expect(after?.eventId).toBeNull()
+
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+      expect(afterMail?.triageStatus).toBe('processed')
+    })
+
+    it('一部 register (2 中 1) → 1 event 作成・draft pending・mail 据え置き、残りを後から承認すると approved に遷移', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // u2 のチェックを外して u1 だけ登録。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', register: false, title: '大阪C', grades: ['C'] },
+        ]),
+      )
+
+      let rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.tournamentDraftUnitKey).toBe('u1')
+
+      let after = await getDraft(draft.id)
+      expect(after?.status).toBe('pending_review')
+      let afterMail = await getMail(mail.id)
+      // 据え置き: archived にしない、triage も unprocessed のまま。
+      expect(afterMail?.status).not.toBe('archived')
+      expect(afterMail?.triageStatus).toBe('unprocessed')
+
+      // 残りの u2 を後から登録 → 全 materialize で approved に遷移。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+
+      rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+
+      after = await getDraft(draft.id)
+      expect(after?.status).toBe('approved')
+      afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+      expect(afterMail?.triageStatus).toBe('processed')
+    })
+
+    it('同一単位を二重 approveDraftUnits してもイベントが重複作成されない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      const fd1 = buildUnitsFormData([{ unitKey: 'u1', title: '大阪B', grades: ['B'] }])
+      await approveDraftUnits(draft.id, fd1)
+      // 全単位 materialize → draft は approved になるので、二度目は status guard で
+      // 弾かれる (draft is not approvable)。重複 INSERT が起きないことを確認する。
+      await expect(
+        approveDraftUnits(
+          draft.id,
+          buildUnitsFormData([{ unitKey: 'u1', title: '大阪B', grades: ['B'] }]),
+        ),
+      ).rejects.toThrow('draft is not approvable')
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+    })
+
+    it('部分承認後の同一単位再送はイベントを重複作成しない (idempotency)', async () => {
+      // pending のまま残る部分承認で、同じ単位を 2 回登録しても 1 行だけ。
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // 1 回目: u1 のみ。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([{ unitKey: 'u1', title: '大阪B', grades: ['B'] }]),
+      )
+      // 2 回目: u1 を再送 (誤操作)。重複しないこと。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([{ unitKey: 'u1', title: '大阪B(再)', grades: ['B'] }]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      // 最初の値が保持される (重複 INSERT もスキップも上書きしない)。
+      expect(rows[0]?.title).toBe('大阪B')
+      // draft はまだ pending (u2 未登録)。
+      expect((await getDraft(draft.id))?.status).toBe('pending_review')
+    })
+
+    it('register が 0 件なら throw (登録するイベントが選択されていません)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      await expect(
+        approveDraftUnits(
+          draft.id,
+          buildUnitsFormData([{ unitKey: 'u1', register: false }]),
+        ),
+      ).rejects.toThrow('登録するイベントが選択されていません')
+      const rows = await testDb.select().from(events)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['B'] }])
+
+      await setAuthSession(null)
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow('Forbidden')
+    })
+
+    it.each([['approved'], ['rejected'], ['superseded']] as const)(
+      '%s な draft は承認できない',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage()
+        const draft = await createTournamentDraft({
+          messageId: mail.id,
+          status,
+          extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+        })
+
+        await expect(
+          approveDraftUnits(
+            draft.id,
+            buildUnitsFormData([{ unitKey: 'u1', grades: ['B'] }]),
+          ),
+        ).rejects.toThrow('draft is not approvable')
+        const rows = await testDb.select().from(events)
+        expect(rows).toHaveLength(0)
+      },
+    )
+
+    it('存在しない eventGroupId はトランザクション前に弾く', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      await expect(
+        approveDraftUnits(
+          draft.id,
+          buildUnitsFormData([
+            { unitKey: 'u1', grades: ['B'], extra: { eventGroupId: '999999' } },
+          ]),
+        ),
+      ).rejects.toThrow(/大会グループ/)
+      const rows = await testDb.select().from(events)
+      expect(rows).toHaveLength(0)
+      expect((await getDraft(draft.id))?.status).toBe('pending_review')
+    })
+
+    it('旧形式 payload (extracted) を 1 単位 u1 として承認できる (後方互換)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: {
+          is_tournament_announcement: true,
+          confidence: 0.8,
+          reason: 'legacy',
+          extracted: { title: '旧形式大会', event_date: '2031-02-02' },
+        },
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '旧形式大会', eventDate: '2031-02-02' },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.tournamentDraftUnitKey).toBe('u1')
+      // 旧形式は u1 のみなので 1 単位 materialize で approved に遷移する。
+      expect((await getDraft(draft.id))?.status).toBe('approved')
+    })
+  })
+
+  describe('completeDraft (残りは作らず完了)', () => {
+    it('残単位を作らず draft approved + mail processed にする', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // u1 だけ登録 (pending のまま)。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([{ unitKey: 'u1', title: '大阪B', grades: ['B'] }]),
+      )
+      expect((await getDraft(draft.id))?.status).toBe('pending_review')
+
+      // 残り (u2) を作らず完了。
+      await completeDraft(draft.id)
+
+      const after = await getDraft(draft.id)
+      expect(after?.status).toBe('approved')
+      expect(after?.approvedByUserId).toBe(admin.id)
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.status).toBe('archived')
+      expect(afterMail?.triageStatus).toBe('processed')
+      // u2 は作られないまま。
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await setAuthSession(null)
+      await expect(completeDraft(draft.id)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(completeDraft(draft.id)).rejects.toThrow('Forbidden')
+    })
+
+    it.each([['approved'], ['rejected'], ['superseded']] as const)(
+      '%s な draft は完了できない',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage()
+        const draft = await createTournamentDraft({ messageId: mail.id, status })
+
+        await expect(completeDraft(draft.id)).rejects.toThrow(
+          'draft is not approvable',
+        )
+        expect((await getDraft(draft.id))?.status).toBe(status)
+      },
+    )
+  })
+
+  describe('approveDraftUnits — LINE 配信の重複排除', () => {
+    it('同一 lineGroupId に紐づく 2 イベントで broadcast は 1 回だけ', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // 両イベントとも同じ大阪グループに紐付くと仮定する。
+      loadActiveBindingMock.mockResolvedValue({ lineGroupId: 'G_OSAKA' })
+      // after() の callback は fire-and-forget。テストでは捕捉して明示的に
+      // await し、broadcast 完了後に発火回数を検証する (microtask 競合回避)。
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+      expect(afterCb).not.toBeNull()
+      await afterCb!()
+
+      // 2 イベント作成・同一グループ → broadcastMailToEvent は 1 回だけ。
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('異なる lineGroupId なら 2 イベントで broadcast 2 回', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // eventId ごとに別グループを返す。
+      let call = 0
+      loadActiveBindingMock.mockImplementation(async () => {
+        call += 1
+        return { lineGroupId: `G_${call}` }
+      })
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+      expect(afterCb).not.toBeNull()
+      await afterCb!()
+
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(2)
     })
   })
 

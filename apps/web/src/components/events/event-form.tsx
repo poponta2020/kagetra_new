@@ -7,6 +7,13 @@ export interface EventFormProps {
   action: (formData: FormData) => void | Promise<void>
   groups: { id: number; name: string }[]
   cancelHref: string
+  /**
+   * tournament-title-grade-split: namespace every field `name` with this
+   * prefix so multiple EventForms can be submitted from one parent `<form>`
+   * (the multi-unit approval screen renders one form per event unit). Defaults
+   * to '' so events/new and events/[id]/edit keep their bare field names.
+   */
+  fieldPrefix?: string
   defaultValues?: {
     title?: string | null
     formalName?: string | null
@@ -57,20 +64,25 @@ export function EventForm({
   action,
   groups,
   cancelHref,
+  fieldPrefix = '',
   defaultValues,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
+  // tournament-title-grade-split: in multi-unit mode the parent supplies the
+  // outer <form>/submit, so EventForm only emits the namespaced fields (no
+  // Card / form / action / buttons here).
+  const embedded = fieldPrefix !== ''
+  const n = (name: string) => `${fieldPrefix}${name}`
 
-  return (
-    <Card>
-      <form action={action} className="space-y-4">
+  const fields = (
+    <>
         <div>
           <label className={LABEL_CLASS}>
             タイトル{REQUIRED_MARK}
           </label>
           <input
-            name="title"
+            name={n('title')}
             type="text"
             required
             defaultValue={defaultValues?.title ?? ''}
@@ -81,7 +93,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>正式名称</label>
           <input
-            name="formalName"
+            name={n('formalName')}
             type="text"
             defaultValue={defaultValues?.formalName ?? ''}
             className={FIELD_CLASS}
@@ -91,7 +103,7 @@ export function EventForm({
         <div>
           <label className="flex items-center gap-2 text-xs font-semibold text-ink-meta tracking-[0.02em]">
             <input
-              name="official"
+              name={n('official')}
               type="checkbox"
               defaultChecked={defaultValues?.official ?? true}
               className="rounded border-border"
@@ -102,7 +114,7 @@ export function EventForm({
 
         <input
           type="hidden"
-          name="kind"
+          name={n('kind')}
           value={defaultValues?.kind ?? 'individual'}
         />
 
@@ -111,7 +123,7 @@ export function EventForm({
             日付{REQUIRED_MARK}
           </label>
           <input
-            name="eventDate"
+            name={n('eventDate')}
             type="date"
             required
             defaultValue={defaultValues?.eventDate ?? ''}
@@ -122,7 +134,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>場所</label>
           <input
-            name="location"
+            name={n('location')}
             type="text"
             defaultValue={defaultValues?.location ?? ''}
             className={FIELD_CLASS}
@@ -132,7 +144,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>定員</label>
           <input
-            name="capacity"
+            name={n('capacity')}
             type="number"
             min="1"
             defaultValue={defaultValues?.capacity ?? ''}
@@ -144,7 +156,7 @@ export function EventForm({
           <div>
             <label className={LABEL_CLASS}>大会申込締切</label>
             <input
-              name="entryDeadline"
+              name={n('entryDeadline')}
               type="date"
               defaultValue={defaultValues?.entryDeadline ?? ''}
               className={FIELD_CLASS}
@@ -153,7 +165,7 @@ export function EventForm({
           <div>
             <label className={LABEL_CLASS}>会内締切</label>
             <input
-              name="internalDeadline"
+              name={n('internalDeadline')}
               type="date"
               defaultValue={defaultValues?.internalDeadline ?? ''}
               className={FIELD_CLASS}
@@ -164,7 +176,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>大会グループ</label>
           <select
-            name="eventGroupId"
+            name={n('eventGroupId')}
             defaultValue={defaultValues?.eventGroupId ?? ''}
             className={FIELD_CLASS}
           >
@@ -186,7 +198,7 @@ export function EventForm({
                 className="flex items-center gap-1 text-sm text-ink"
               >
                 <input
-                  name={`grade_${g}`}
+                  name={n(`grade_${g}`)}
                   type="checkbox"
                   defaultChecked={eligibleGrades?.includes(g) ?? false}
                   className="rounded border-border"
@@ -201,7 +213,7 @@ export function EventForm({
           <div>
             <label className={LABEL_CLASS}>参加費 (円)</label>
             <input
-              name="feeJpy"
+              name={n('feeJpy')}
               type="number"
               min="0"
               step="100"
@@ -212,7 +224,7 @@ export function EventForm({
           <div>
             <label className={LABEL_CLASS}>支払締切</label>
             <input
-              name="paymentDeadline"
+              name={n('paymentDeadline')}
               type="date"
               defaultValue={defaultValues?.paymentDeadline ?? ''}
               className={FIELD_CLASS}
@@ -223,7 +235,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>支払方法</label>
           <input
-            name="paymentMethod"
+            name={n('paymentMethod')}
             type="text"
             defaultValue={defaultValues?.paymentMethod ?? ''}
             className={FIELD_CLASS}
@@ -233,7 +245,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>支払情報</label>
           <textarea
-            name="paymentInfo"
+            name={n('paymentInfo')}
             rows={2}
             defaultValue={defaultValues?.paymentInfo ?? ''}
             className={FIELD_CLASS}
@@ -243,7 +255,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>申込方法</label>
           <input
-            name="entryMethod"
+            name={n('entryMethod')}
             type="text"
             defaultValue={defaultValues?.entryMethod ?? ''}
             className={FIELD_CLASS}
@@ -253,7 +265,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>主催</label>
           <input
-            name="organizer"
+            name={n('organizer')}
             type="text"
             defaultValue={defaultValues?.organizer ?? ''}
             className={FIELD_CLASS}
@@ -266,7 +278,7 @@ export function EventForm({
             <div>
               <label className={LABEL_CLASS}>A 級</label>
               <input
-                name="capacityA"
+                name={n('capacityA')}
                 type="number"
                 min="1"
                 defaultValue={defaultValues?.capacityA ?? ''}
@@ -276,7 +288,7 @@ export function EventForm({
             <div>
               <label className={LABEL_CLASS}>B 級</label>
               <input
-                name="capacityB"
+                name={n('capacityB')}
                 type="number"
                 min="1"
                 defaultValue={defaultValues?.capacityB ?? ''}
@@ -286,7 +298,7 @@ export function EventForm({
             <div>
               <label className={LABEL_CLASS}>C 級</label>
               <input
-                name="capacityC"
+                name={n('capacityC')}
                 type="number"
                 min="1"
                 defaultValue={defaultValues?.capacityC ?? ''}
@@ -296,7 +308,7 @@ export function EventForm({
             <div>
               <label className={LABEL_CLASS}>D 級</label>
               <input
-                name="capacityD"
+                name={n('capacityD')}
                 type="number"
                 min="1"
                 defaultValue={defaultValues?.capacityD ?? ''}
@@ -306,7 +318,7 @@ export function EventForm({
             <div>
               <label className={LABEL_CLASS}>E 級</label>
               <input
-                name="capacityE"
+                name={n('capacityE')}
                 type="number"
                 min="1"
                 defaultValue={defaultValues?.capacityE ?? ''}
@@ -319,7 +331,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>説明</label>
           <textarea
-            name="description"
+            name={n('description')}
             rows={3}
             defaultValue={defaultValues?.description ?? ''}
             className={FIELD_CLASS}
@@ -329,7 +341,7 @@ export function EventForm({
         <div>
           <label className={LABEL_CLASS}>ステータス</label>
           <select
-            name="status"
+            name={n('status')}
             defaultValue={defaultValues?.status ?? 'draft'}
             className={FIELD_CLASS}
           >
@@ -339,6 +351,18 @@ export function EventForm({
             {mode === 'edit' && <option value="done">終了</option>}
           </select>
         </div>
+    </>
+  )
+
+  // Embedded (multi-unit) mode: emit fields only; parent owns <form>/submit.
+  if (embedded) {
+    return <div className="space-y-4">{fields}</div>
+  }
+
+  return (
+    <Card>
+      <form action={action} className="space-y-4">
+        {fields}
 
         <div className="flex justify-end gap-2 pt-2">
           <Link href={cancelHref} className={CANCEL_LINK_CLASS}>

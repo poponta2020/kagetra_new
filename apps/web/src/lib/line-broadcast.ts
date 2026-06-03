@@ -382,7 +382,7 @@ async function buildFallbackTextMessage(
  * access-token info. Returns null when there is no live binding (the
  * common case for events approved before the LINE group was set up).
  */
-async function loadActiveBinding(
+export async function loadActiveBinding(
   db: typeof appDb,
   eventId: number,
 ): Promise<

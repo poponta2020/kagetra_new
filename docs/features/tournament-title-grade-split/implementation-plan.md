@@ -55,7 +55,7 @@ status: completed
 - **完了条件:** worker のユニット/統合テスト green、`reextractDraft` 経由でも新形式が保存されること（タスク5のガードと整合）。
 
 ### タスク5: 承認 Server Actions（複数イベント承認）
-- [ ] 完了
+- [x] 完了
 - **概要:** 単一イベント承認を複数単位承認に拡張。部分承認・完了・再抽出ガード・LINE 配信重複排除を実装。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — `approveDraftUnits(draftId, units)`（選択単位を1txで INSERT、`tournamentDraftId`/`unitKey`/`createdBy` 付与、全単位完了で draft=approved + mail archived/processed、残あれば pending 維持）、`completeDraft(draftId)`、`reextractDraft` に「materialize 済みイベントあれば拒否」ガード追加、承認後 broadcast を**紐付け LINE グループ単位で重複排除**して発火
@@ -66,7 +66,7 @@ status: completed
 - **完了条件:** actions テスト green、テスト DB で複数イベント INSERT と draft 状態遷移・mail processed 連動・broadcast 1グループ1回を検証。
 
 ### タスク6: 承認画面 UI（複数単位フォーム）
-- [ ] 完了
+- [x] 完了
 - **概要:** 承認画面を `events[]` 単位のフォームリストに拡張。旧形式 payload を正規化表示。
 - **変更対象ファイル:**
   - `apps/web/.../mail-inbox/components/ApprovalForm.tsx` — `payload.events[]` をループし単位ごとに `EventForm` + 登録チェックボックス、title 合成値で pre-fill、登録済み単位は無効表示。旧形式（`extracted`）を 1 単位配列へ正規化

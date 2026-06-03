@@ -16,7 +16,8 @@ import { ApprovalForm } from '../components/ApprovalForm'
 import { ExtractedPayloadView } from '../components/ExtractedPayloadView'
 import { CorrectionHint } from '../components/CorrectionHint'
 import {
-  approveDraft,
+  approveDraftUnits,
+  completeDraft,
   linkDraftToEvent,
   reextractDraft,
   rejectDraft,
@@ -103,16 +104,24 @@ export default async function MailDraftDetailPage({
   // insert, so the web layer trusts it without re-running Zod (avoids pulling
   // mail-worker's Zod schema into the Next bundle for a read-only consumer).
   // ai_failed drafts persist `extractedPayload: {}` (see classifier.ts), so a
-  // raw cast leaves `extracted` undefined and crashes ExtractedPayloadView.
-  // Any payload missing the `extracted` block collapses to `null` and renders
-  // the same failure fallback as a literal-null payload — keeping the recovery
-  // / re-extract surface reachable for ai_failed drafts.
-  const rawPayload = draft.extractedPayload as Partial<ExtractionPayload> | null
+  // raw cast leaves both `events` and `extracted` undefined and crashes the
+  // downstream views. tournament-title-grade-split: accept the new
+  // `events[]` form AND the legacy `extracted` form; any payload with neither
+  // collapses to `null` (same failure fallback as a literal-null payload),
+  // keeping the recovery / re-extract surface reachable for ai_failed drafts.
+  const rawPayload = draft.extractedPayload as
+    | (Partial<ExtractionPayload> & { extracted?: unknown })
+    | null
+  const hasNewFormat =
+    rawPayload != null &&
+    Array.isArray(rawPayload.events) &&
+    rawPayload.events.length > 0
+  const hasLegacyFormat =
+    rawPayload != null && rawPayload.extracted != null
   const extractedPayload: ExtractionPayload | null =
-    rawPayload && rawPayload.extracted
-      ? (rawPayload as ExtractionPayload)
-      : null
+    hasNewFormat || hasLegacyFormat ? (rawPayload as ExtractionPayload) : null
   const referencesSubject = extractedPayload?.references_subject ?? null
+  const shortNameStem = extractedPayload?.short_name_stem ?? null
 
   // Correction lookups — only run when the AI surfaced a referenced subject.
   // 12 mo window, top 3, ILIKE-substring; cheap enough that we can let the
@@ -213,6 +222,25 @@ export default async function MailDraftDetailPage({
         .limit(100)
     : []
 
+  // tournament-title-grade-split: events already materialized from this draft
+  // (1 draft : N events). Used to mark registered units read-only in the form
+  // and to surface "created events" links on an approved draft. Always queried
+  // (cheap, indexed-ish on a small table) — both the approval form and the
+  // approved-view need it.
+  const materializedEvents = await db
+    .select({
+      id: events.id,
+      title: events.title,
+      eventDate: events.eventDate,
+      unitKey: events.tournamentDraftUnitKey,
+    })
+    .from(events)
+    .where(eq(events.tournamentDraftId, draftId))
+    .orderBy(events.eventDate)
+  const registeredUnitKeys = materializedEvents
+    .filter((e): e is typeof e & { unitKey: string } => e.unitKey != null)
+    .map((e) => ({ unitKey: e.unitKey, eventId: e.id }))
+
   const status = STATUS_LABEL[draft.status] ?? {
     label: draft.status,
     tone: 'neutral' as const,
@@ -223,6 +251,10 @@ export default async function MailDraftDetailPage({
   const reextractAction = async () => {
     'use server'
     await reextractDraft(draftId)
+  }
+  const completeAction = async () => {
+    'use server'
+    await completeDraft(draftId)
   }
   const linkAction = async (formData: FormData) => {
     'use server'
@@ -275,16 +307,30 @@ export default async function MailDraftDetailPage({
         </div>
       </Card>
 
-      {isApproved && draft.eventId !== null && (
+      {isApproved && (draft.eventId !== null || materializedEvents.length > 0) && (
         <Card className="border-success-fg/30 bg-success-bg">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex flex-col gap-1.5 text-sm">
             <span className="font-semibold text-success-fg">承認済み</span>
-            <Link
-              href={`/events/${draft.eventId}`}
-              className="text-brand-fg underline"
-            >
-              events #{draft.eventId} を開く →
-            </Link>
+            {/* linkDraftToEvent path: single linked event. */}
+            {draft.eventId !== null && (
+              <Link
+                href={`/events/${draft.eventId}`}
+                className="text-brand-fg underline"
+              >
+                events #{draft.eventId} を開く →
+              </Link>
+            )}
+            {/* tournament-title-grade-split: events created from this draft. */}
+            {materializedEvents.map((e) => (
+              <Link
+                key={e.id}
+                href={`/events/${e.id}`}
+                className="text-brand-fg underline"
+              >
+                {e.title}（events #{e.id}
+                {e.eventDate ? ` / ${e.eventDate}` : ''}） を開く →
+              </Link>
+            ))}
           </div>
         </Card>
       )}
@@ -332,10 +378,28 @@ export default async function MailDraftDetailPage({
             承認フォーム
           </h2>
           <ApprovalForm
-            extractedPayload={extractedPayload}
+            payload={extractedPayload}
+            shortNameStem={shortNameStem}
+            registeredUnitKeys={registeredUnitKeys}
             groups={groups}
-            action={approveDraft.bind(null, draftId)}
+            action={approveDraftUnits.bind(null, draftId)}
           />
+          <Card>
+            <form
+              action={completeAction}
+              className="flex items-center justify-between gap-2"
+            >
+              <span className="text-xs text-ink-meta">
+                残りの未登録イベントを作成せず、このドラフトを完了します。
+              </span>
+              <button
+                type="submit"
+                className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-ink-2 hover:bg-surface-alt"
+              >
+                残りは作らず完了
+              </button>
+            </form>
+          </Card>
         </section>
       )}
 

@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { closeTestDb, truncateAll } from '@/test-utils/db'
+import { eq } from 'drizzle-orm'
+import { events } from '@kagetra/shared/schema'
+import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
   createMailMessage,
@@ -85,28 +87,30 @@ describe('admin/mail-inbox/[id] page', () => {
         reason: 'looks like a correction notice',
         is_correction: true,
         references_subject: null,
-        extracted: {
-          title: '訂正版',
-          formal_name: null,
-          event_date: null,
-          venue: null,
-          fee_jpy: null,
-          payment_deadline: null,
-          payment_info_text: null,
-          payment_method: null,
-          entry_method: null,
-          organizer_text: null,
-          entry_deadline: null,
-          eligible_grades: null,
-          kind: null,
-          capacity_total: null,
-          capacity_a: null,
-          capacity_b: null,
-          capacity_c: null,
-          capacity_d: null,
-          capacity_e: null,
-          official: null,
-        },
+        short_name_stem: '訂正',
+        events: [
+          {
+            unit_key: 'u1',
+            event_date: null,
+            eligible_grades: null,
+            formal_name: null,
+            venue: null,
+            fee_jpy: null,
+            payment_deadline: null,
+            payment_info_text: null,
+            payment_method: null,
+            entry_method: null,
+            organizer_text: null,
+            entry_deadline: null,
+            kind: null,
+            capacity_a: null,
+            capacity_b: null,
+            capacity_c: null,
+            capacity_d: null,
+            capacity_e: null,
+            official: null,
+          },
+        ],
       },
     })
 
@@ -119,4 +123,147 @@ describe('admin/mail-inbox/[id] page', () => {
       ),
     ).toBeDefined()
   })
+
+  it('新形式 events[] の分割案内を N フォームで描画し「残りは作らず完了」ボタンを出す', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'split announcement' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        is_tournament_announcement: true,
+        confidence: 0.9,
+        reason: 'split',
+        short_name_stem: '大阪',
+        events: [
+          buildUnit('u1', ['B'], '2031-01-11'),
+          buildUnit('u2', ['C'], '2031-01-12'),
+        ],
+      },
+    })
+
+    const { container } = await renderPage(draft.id)
+
+    // Two namespaced title inputs, pre-filled via composeTitle.
+    const t1 = container.querySelector(
+      'input[name="u1__title"]',
+    ) as HTMLInputElement
+    const t2 = container.querySelector(
+      'input[name="u2__title"]',
+    ) as HTMLInputElement
+    expect(t1.value).toBe('大阪B')
+    expect(t2.value).toBe('大阪C')
+
+    expect(screen.getByText('承認フォーム')).toBeDefined()
+    expect(
+      screen.getByText('この案内から 2 件のイベントを作成します'),
+    ).toBeDefined()
+    expect(screen.getByText('残りは作らず完了')).toBeDefined()
+  })
+
+  it('materialize 済み単位は登録済み表示・編集フォームを出さない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'partly materialized' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        is_tournament_announcement: true,
+        confidence: 0.9,
+        reason: 'split',
+        short_name_stem: '大阪',
+        events: [
+          buildUnit('u1', ['B'], '2031-01-11'),
+          buildUnit('u2', ['C'], '2031-01-12'),
+        ],
+      },
+    })
+    // Materialize u1 as an existing event linked to this draft.
+    const [ev] = await testDb
+      .insert(events)
+      .values({
+        title: '大阪B',
+        eventDate: '2031-01-11',
+        tournamentDraftId: draft.id,
+        tournamentDraftUnitKey: 'u1',
+      })
+      .returning()
+    if (!ev) throw new Error('event insert failed')
+
+    const { container } = await renderPage(draft.id)
+
+    // u1 registered → no editable title input; u2 still editable.
+    expect(container.querySelector('input[name="u1__title"]')).toBeNull()
+    expect(container.querySelector('input[name="u2__title"]')).not.toBeNull()
+    expect(
+      screen.getByText(
+        'この案内から 2 件のイベントを作成します（うち登録済み 1 件）',
+      ),
+    ).toBeDefined()
+  })
+
+  it('approved draft は tournament_draft 由来の作成済みイベント一覧をリンク表示する', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'approved with events' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'approved',
+      extractedPayload: {
+        is_tournament_announcement: true,
+        confidence: 0.9,
+        reason: 'split',
+        short_name_stem: '大阪',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+    const [ev] = await testDb
+      .insert(events)
+      .values({
+        title: '大阪B',
+        eventDate: '2031-01-11',
+        tournamentDraftId: draft.id,
+        tournamentDraftUnitKey: 'u1',
+      })
+      .returning()
+    if (!ev) throw new Error('event insert failed')
+
+    await renderPage(draft.id)
+
+    // approved view: no approval form, but a link to the created event.
+    expect(screen.queryByText('承認フォーム')).toBeNull()
+    const link = screen.getByText(new RegExp(`events #${ev.id}`))
+    expect(link.closest('a')?.getAttribute('href')).toBe(`/events/${ev.id}`)
+  })
 })
+
+/** Minimal EventUnit-shaped object for new-format payload fixtures. */
+function buildUnit(
+  unitKey: string,
+  grades: ('A' | 'B' | 'C' | 'D' | 'E')[] | null,
+  eventDate: string | null,
+) {
+  return {
+    unit_key: unitKey,
+    event_date: eventDate,
+    eligible_grades: grades,
+    formal_name: null,
+    venue: null,
+    fee_jpy: null,
+    payment_deadline: null,
+    payment_info_text: null,
+    payment_method: null,
+    entry_method: null,
+    organizer_text: null,
+    entry_deadline: null,
+    kind: null,
+    capacity_a: null,
+    capacity_b: null,
+    capacity_c: null,
+    capacity_d: null,
+    capacity_e: null,
+    official: null,
+  }
+}

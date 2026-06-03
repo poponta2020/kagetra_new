@@ -13,8 +13,12 @@ import {
   mailWorkerJobs,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
-import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
-import { broadcastMailToEvent } from '@/lib/line-broadcast'
+import {
+  eventFormSchema,
+  extractEventFormData,
+  extractEventUnitsFormData,
+} from '@/lib/form-schemas'
+import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import {
   classifyMail,
   persistOutcome,
@@ -159,6 +163,289 @@ export async function approveDraft(draftId: number, formData: FormData) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// tournament-title-grade-split: 1 ドラフト : N イベントの複数単位承認。
+//
+// approveDraft は「1 draft = 1 event」の旧経路 (後方互換のため残置)。
+// approveDraftUnits は payload.events[] の各単位を個別フォームで受け取り、
+// チェックされた未登録単位を 1 tx で events に INSERT する。全単位が
+// materialize 済みになって初めて draft=approved + mail processed に倒す
+// (部分承認中は pending_review 維持 = メールも未処理のまま受信箱に残す)。
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Collect the `unit_key` set present in a draft's extracted_payload.
+ *
+ * New format (2.0.0): `payload.events[]` → each `unit_key`. Old format
+ * (single `extracted` object) normalizes to a single synthetic unit `['u1']`,
+ * matching ApprovalForm's normalization so an old-format draft is considered
+ * "fully materialized" once that one synthetic unit has an event row.
+ */
+function extractPayloadUnitKeys(payload: unknown): string[] {
+  if (payload && typeof payload === 'object') {
+    const p = payload as {
+      events?: unknown
+      extracted?: unknown
+    }
+    if (Array.isArray(p.events) && p.events.length > 0) {
+      return p.events
+        .map((e) =>
+          e && typeof e === 'object'
+            ? (e as { unit_key?: unknown }).unit_key
+            : undefined,
+        )
+        .filter((k): k is string => typeof k === 'string')
+    }
+    if (p.extracted != null) {
+      return ['u1']
+    }
+  }
+  return []
+}
+
+/**
+ * Fire the LINE auto-broadcast for newly-created events, de-duplicated by the
+ * bound LINE group (requirements §3.4): when B級 and C級 of the same
+ * announcement are both bound to the same 大阪 group, the mail must be pushed
+ * exactly once. Best-effort — a failed push is logged and never blocks the
+ * approval.
+ */
+async function broadcastApprovedUnits(
+  eventIds: number[],
+  mailMessageId: number,
+  isCorrection: boolean,
+): Promise<void> {
+  const sentGroups = new Set<string>()
+  for (const eventId of eventIds) {
+    try {
+      const binding = await loadActiveBinding(db, eventId)
+      if (!binding) continue
+      if (sentGroups.has(binding.lineGroupId)) continue
+      sentGroups.add(binding.lineGroupId)
+      await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+    } catch (err) {
+      console.error('[approveDraftUnits] broadcastMailToEvent failed', err)
+    }
+  }
+}
+
+export async function approveDraftUnits(draftId: number, formData: FormData) {
+  const session = await requireAdminSession()
+
+  const units = extractEventUnitsFormData(formData)
+  if (units.length === 0) {
+    throw new Error('登録するイベントが選択されていません')
+  }
+
+  const draft = await db.query.tournamentDrafts.findFirst({
+    where: eq(tournamentDrafts.id, draftId),
+    columns: {
+      status: true,
+      messageId: true,
+      isCorrection: true,
+      extractedPayload: true,
+    },
+  })
+  if (!draft) throw new Error('draft not found')
+  if (!APPROVABLE_STATUSES.includes(draft.status as (typeof APPROVABLE_STATUSES)[number])) {
+    throw new Error('draft is not approvable')
+  }
+
+  // Validate every selected unit BEFORE opening the transaction so a bad unit
+  // aborts the whole batch without a partial INSERT — same FK-validation as
+  // events/new / approveDraft, applied per unit.
+  const parsedUnits = units.map((unit) => ({
+    unitKey: unit.unitKey,
+    eligibleGrades: unit.eligibleGrades,
+    parsed: eventFormSchema.parse(unit.data),
+  }))
+  for (const { parsed } of parsedUnits) {
+    if (parsed.eventGroupId != null) {
+      const group = await db.query.eventGroups.findFirst({
+        where: eq(eventGroups.id, parsed.eventGroupId),
+        columns: { id: true },
+      })
+      if (!group) {
+        throw new Error('入力が不正です: 指定された大会グループが存在しません')
+      }
+    }
+  }
+
+  const createdEventIds: number[] = []
+  let approvedMailMessageId: number | null = null
+  let approvedIsCorrection = false
+  let didFinalize = false
+
+  await db.transaction(async (tx) => {
+    for (const { unitKey, eligibleGrades, parsed } of parsedUnits) {
+      // Idempotency: a unit already materialized for this draft (e.g. a
+      // double-submit, or the operator re-opening the page and re-registering
+      // an already-created unit) must not insert a second event row.
+      const existing = await tx
+        .select({ id: events.id })
+        .from(events)
+        .where(
+          and(
+            eq(events.tournamentDraftId, draftId),
+            eq(events.tournamentDraftUnitKey, unitKey),
+          ),
+        )
+        .limit(1)
+      if (existing.length > 0) continue
+
+      const inserted = await tx
+        .insert(events)
+        .values({
+          ...parsed,
+          eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
+          createdBy: session.user.id,
+          tournamentDraftId: draftId,
+          tournamentDraftUnitKey: unitKey,
+        })
+        .returning({ id: events.id })
+      const newEventId = inserted[0]?.id
+      if (newEventId == null) throw new Error('event insert failed')
+      createdEventIds.push(newEventId)
+    }
+
+    // Decide whether the draft is now fully materialized: every unit_key in the
+    // payload must have a corresponding events row (tournament_draft_id =
+    // draftId). Read the materialized set inside the tx so the units we just
+    // inserted are counted.
+    const payloadUnitKeys = extractPayloadUnitKeys(draft.extractedPayload)
+    const materializedRows = await tx
+      .select({ unitKey: events.tournamentDraftUnitKey })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+    const materialized = new Set(
+      materializedRows
+        .map((r) => r.unitKey)
+        .filter((k): k is string => typeof k === 'string'),
+    )
+    const allMaterialized =
+      payloadUnitKeys.length > 0 &&
+      payloadUnitKeys.every((k) => materialized.has(k))
+
+    if (allMaterialized) {
+      // Status-gated finalize, mirroring approveDraft. event_id stays null —
+      // for split approvals events.tournament_draft_id is the source of truth
+      // (tournament_drafts.event_id is reserved for linkDraftToEvent).
+      const updated = await tx
+        .update(tournamentDrafts)
+        .set({
+          status: 'approved',
+          approvedByUserId: session.user.id,
+          approvedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(tournamentDrafts.id, draftId),
+            inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
+          ),
+        )
+        .returning({
+          id: tournamentDrafts.id,
+          messageId: tournamentDrafts.messageId,
+          isCorrection: tournamentDrafts.isCorrection,
+        })
+      if (updated.length === 0) {
+        throw new Error('draft is not approvable')
+      }
+
+      await tx
+        .update(mailMessages)
+        .set({
+          status: 'archived',
+          // mail-triage-badge: 承認完了は「処理済み」。未処理バッジから外す。
+          triageStatus: 'processed',
+          triagedAt: sql`now()`,
+          triagedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(mailMessages.id, updated[0]!.messageId))
+
+      approvedMailMessageId = updated[0]!.messageId
+      approvedIsCorrection = updated[0]!.isCorrection
+      didFinalize = true
+    }
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/${draftId}`)
+  revalidatePath('/events')
+
+  // event-line-broadcast: 承認で作成したイベントの分だけ、応答 flush 後に
+  // 配信を起こす。グループ重複は broadcastApprovedUnits 内で排除する。
+  // mailMessageId は finalize した場合のみ updated から取れるが、部分承認でも
+  // 配信はしたいので draft.messageId を使う (常に同一メールを指す)。
+  if (createdEventIds.length > 0) {
+    const eventIds = createdEventIds
+    const mailMessageId = approvedMailMessageId ?? draft.messageId
+    const isCorrection = didFinalize ? approvedIsCorrection : draft.isCorrection
+    after(async () => {
+      await broadcastApprovedUnits(eventIds, mailMessageId, isCorrection)
+    })
+  }
+}
+
+/**
+ * Close a draft without creating the remaining (unregistered) units —
+ * requirements シナリオ C「残りは作らず完了」. Flips the draft to approved and
+ * the mail to archived/processed, leaving any already-materialized events in
+ * place. No broadcast (nothing new is created).
+ */
+export async function completeDraft(draftId: number) {
+  const session = await requireAdminSession()
+
+  const draft = await db.query.tournamentDrafts.findFirst({
+    where: eq(tournamentDrafts.id, draftId),
+    columns: { status: true, messageId: true },
+  })
+  if (!draft) throw new Error('draft not found')
+  if (!APPROVABLE_STATUSES.includes(draft.status as (typeof APPROVABLE_STATUSES)[number])) {
+    throw new Error('draft is not approvable')
+  }
+
+  await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(tournamentDrafts)
+      .set({
+        status: 'approved',
+        approvedByUserId: session.user.id,
+        approvedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(tournamentDrafts.id, draftId),
+          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
+        ),
+      )
+      .returning({
+        id: tournamentDrafts.id,
+        messageId: tournamentDrafts.messageId,
+      })
+    if (updated.length === 0) {
+      throw new Error('draft is not approvable')
+    }
+
+    await tx
+      .update(mailMessages)
+      .set({
+        status: 'archived',
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, updated[0]!.messageId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/${draftId}`)
+}
+
 export async function rejectDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
@@ -231,6 +518,19 @@ export async function reextractDraft(draftId: number) {
     draft.status !== 'ai_failed'
   ) {
     throw new Error('draft is not reextractable')
+  }
+
+  // tournament-title-grade-split: re-extraction rewrites the payload (and its
+  // unit_key set), so any unit already materialized as an `events` row would
+  // be orphaned / mismatched. Refuse once a single event references this draft
+  // (requirements §3.4 再 AI 抽出のガード).
+  const materialized = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.tournamentDraftId, draftId))
+    .limit(1)
+  if (materialized.length > 0) {
+    throw new Error('既にイベントが作成済みのため再抽出できません')
   }
 
   const cfg = loadLlmConfig()
