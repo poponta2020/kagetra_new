@@ -2204,3 +2204,32 @@
 ### 残 DoD（carryover）
 - 🔴 **VAPID 鍵生成・本番設定**: `npx web-push generate-vapid-keys` → 本番 .env に `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`。未設定でも triage UI は動作し Web Push のみ無効で安全
 - 🔴 **iOS 実機**: ホーム画面 PWA → 通知許可 → 新着メールでアプリアイコンのバッジ増加を目視
+
+---
+
+## 2026-06-03 セッション（settings-sheet ship）
+
+### 完了
+- **PR #110 マージ完了** (feat: 設定画面への導線（ヘッダ→設定シート）): 2026-06-03
+  - URL: https://github.com/poponta2020/kagetra_new/pull/110
+  - Merge commit: `4857787`、親 Issue #97 + 子 #98/#99/#100/#101 全クローズ
+- 背景: design.md §3 の未実装仕様「設定は `{name}さん` をタップしてシート」を実装。設定ページ2つ（/settings/notifications, /settings/line-link）が UI 上どこからもリンクされず URL 直打ちのみ到達可能な孤立状態だった（特に shipped 済み mail-triage-badge の Web Push 購読ページが到達不能）。ユーザー指摘「設定画面への導線あります？」起点
+- 実装:
+  - `AccountMenu`（手書きボトムシート、新規依存なし。InviteCodeModal/ManualLinkModal と同パターン）をヘッダ {name}さん タップで開く
+  - シート内リンクはロール出し分け（メール通知=admin/vice_admin のみ→/settings/notifications、LINE アカウント切替=全員→/settings/line-link）、ログアウトをヘッダ独立ボタンからシート内へ集約
+  - `/settings/notifications` を `(app)` ルートグループ配下へ移動（URL 不変・認可不変、アプリシェル内で戻る導線を獲得）。line-link は独立フローとして据え置き
+- テスト: Vitest 層コンポーネント 26件（account-menu 10 新規 / mobile-shell 6 / bottom-nav 10）+ 移動後 notifications/actions 7件、E2E settings-entry 1件（chromium）、tsc / CI green
+- Codex auto-review: Round 1 のみ（high で起動したが UI/docs/rename 主体で過剰と判断し medium へ是正、verdict=pass / blockers 0 / should_fix 0 / nits 1（コメント長）, tokens 37,181）
+
+### auto-review-loop ログ
+- 2026-06-03 /auto-review-loop PR #110: 1R, verdict=pass, effort=high→medium(是正), tokens=37181/500000, result=pass
+
+### 並行作業
+- 別 worktree で feature/tournament-title-split 進行中（tournament-title-grade-split、タスク1完了・残6/7）。本 PR はフロント＋ファイル移動のみで shared/・migration に非接触のため独立、衝突なし
+
+### 残 DoD
+- スマホ実機目視（PWA/iOS、シート開閉・セーフエリア・遷移）
+
+### 備考
+- 本番反映は auto-deploy（main push で自動 build→restart）に委ねる。本 PR は migration なし
+- worktree C:/tmp/impl-settings-sheet は git 登録解除済みだが物理ディレクトリにロックファイル残存（temp ゴミ、次回掃除可）
