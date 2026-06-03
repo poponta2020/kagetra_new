@@ -3,8 +3,17 @@ import { render, screen } from '@testing-library/react'
 import { MobileShell } from './mobile-shell'
 
 vi.mock('./app-bar-main', () => ({
-  AppBarMain: ({ user }: { user: string; signOutAction: () => Promise<void> }) => (
-    <div data-testid="app-bar-main">app-bar:{user}</div>
+  AppBarMain: ({
+    user,
+    isAdmin,
+  }: {
+    user: string
+    isAdmin: boolean
+    signOutAction: () => Promise<void>
+  }) => (
+    <div data-testid="app-bar-main">
+      app-bar:{user}:{String(isAdmin)}
+    </div>
   ),
 }))
 
@@ -67,7 +76,22 @@ describe('MobileShell', () => {
         <div>child</div>
       </MobileShell>,
     )
-    expect(screen.getByTestId('app-bar-main').textContent).toBe('app-bar:山田さん')
+    expect(screen.getByTestId('app-bar-main').textContent).toContain('app-bar:山田さん')
+  })
+
+  it('AppBarMain に isAdmin が透過される（設定シートのメール通知出し分け用）', () => {
+    const { rerender } = render(
+      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+        <div>child</div>
+      </MobileShell>,
+    )
+    expect(screen.getByTestId('app-bar-main').textContent).toContain(':true')
+    rerender(
+      <MobileShell user="山田さん" isAdmin={false} signOutAction={noopSignOut}>
+        <div>child</div>
+      </MobileShell>,
+    )
+    expect(screen.getByTestId('app-bar-main').textContent).toContain(':false')
   })
 
   it('BottomNav に isAdmin=false が透過される', () => {

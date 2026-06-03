@@ -59,7 +59,7 @@ export function MobileShell({
   // cost of an extra empty band when the URL bar later collapses.
   return (
     <div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
-      <AppBarMain user={user} signOutAction={signOutAction} />
+      <AppBarMain user={user} isAdmin={isAdmin} signOutAction={signOutAction} />
       {/*
         `min-h-0` is required: flex items default to `min-height: auto`,
         which prevents <main> from shrinking below its content height even
