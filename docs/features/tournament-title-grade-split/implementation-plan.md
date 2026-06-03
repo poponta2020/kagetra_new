@@ -23,7 +23,7 @@ status: completed
 - **完了条件:** `db:generate` で migration 生成、ローカル & テスト DB に `db:migrate` 適用成功、型チェック通過、既存テスト green。
 
 ### タスク2: AI 抽出スキーマの配列化
-- [ ] 完了
+- [x] 完了
 - **概要:** `ExtractionPayloadSchema` を「案内全体 + イベント単位配列」形へ変更（破壊的）。`short_name_stem` と `events[]`（`EventUnitSchema`）を導入。
 - **変更対象ファイル:**
   - `apps/mail-worker/src/classify/schema.ts` — `EventUnitSchema`（unit_key/event_date/eligible_grades/formal_name/venue/fee_jpy/payment_*/entry_*/organizer_text/kind/capacity_a..e/official）、top-level に `short_name_stem` + `events: z.array(...)`、`extracted` を削除
@@ -34,7 +34,7 @@ status: completed
 - **完了条件:** Zod スキーマテスト green、`@kagetra/mail-worker` の型チェック通過。
 
 ### タスク3: プロンプト刷新 + title 合成ロジック
-- [ ] 完了
+- [x] 完了
 - **概要:** プロンプトを配列出力 + 短縮命名ルールに刷新し、PROMPT_VERSION を 2.0.0 に上げる。級サフィックスは決定論合成。
 - **変更対象ファイル:**
   - `apps/mail-worker/src/classify/prompt.ts` — `PROMPT_VERSION='2.0.0'`、`short_name_stem`/`events[]`/分割ルール/級別・共通フィールドのガイダンス、few-shot 4 例（単一複数級=東大阪ABC / 開催日分割=大阪B・C / noise / 訂正）。cache 2048 token 維持を確認
@@ -44,7 +44,7 @@ status: completed
 - **完了条件:** `composeTitle` のユニットテスト green（ABC連結・全級ABCDE・stemのみ・順序非依存）、プロンプト変更後の smoke（`--dry-run --mock-llm` 等）で例が新形式を返すこと。
 
 ### タスク4: classifier / persistOutcome 追従 + fixtures
-- [ ] 完了
+- [x] 完了
 - **概要:** 新 payload を `tournament_drafts.extracted_payload` に保存する経路を新形式に追従させ、fixture / 期待 JSON を更新。
 - **変更対象ファイル:**
   - `apps/mail-worker/src/classify/classifier.ts` — `persistOutcome` の参照を新形式へ（top-level の confidence/is_correction/references_subject は不変、`is_tournament_announcement` + `events:[]` で noise 判定）。title 合成の適用箇所（pipeline 保存時 or フォーム初期化時）を確定して実装

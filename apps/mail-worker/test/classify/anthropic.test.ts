@@ -34,28 +34,30 @@ const VALID_PAYLOAD = {
   reason: 'unit-test fixture',
   is_correction: false,
   references_subject: null,
-  extracted: {
-    title: 'Test Tournament',
-    formal_name: null,
-    event_date: '2026-05-30',
-    venue: 'Tokyo',
-    fee_jpy: 5000,
-    payment_deadline: null,
-    payment_info_text: null,
-    payment_method: null,
-    entry_method: null,
-    organizer_text: null,
-    entry_deadline: null,
-    eligible_grades: null,
-    kind: null,
-    capacity_total: null,
-    capacity_a: null,
-    capacity_b: null,
-    capacity_c: null,
-    capacity_d: null,
-    capacity_e: null,
-    official: null,
-  },
+  short_name_stem: 'Test',
+  events: [
+    {
+      unit_key: 'u1',
+      event_date: '2026-05-30',
+      eligible_grades: null,
+      formal_name: 'Test Tournament',
+      venue: 'Tokyo',
+      fee_jpy: 5000,
+      payment_deadline: null,
+      payment_info_text: null,
+      payment_method: null,
+      entry_method: null,
+      organizer_text: null,
+      entry_deadline: null,
+      kind: null,
+      capacity_a: null,
+      capacity_b: null,
+      capacity_c: null,
+      capacity_d: null,
+      capacity_e: null,
+      official: null,
+    },
+  ],
 }
 
 function buildInput(
@@ -170,7 +172,8 @@ describe('AnthropicSonnet46Extractor', () => {
         'is_tournament_announcement',
         'confidence',
         'reason',
-        'extracted',
+        'short_name_stem',
+        'events',
       ]),
     )
     expect(schema.required).toEqual(
@@ -178,7 +181,8 @@ describe('AnthropicSonnet46Extractor', () => {
         'is_tournament_announcement',
         'confidence',
         'reason',
-        'extracted',
+        'short_name_stem',
+        'events',
       ]),
     )
     // `$schema` is metadata Anthropic warns on; we strip it before sending.
@@ -227,10 +231,9 @@ describe('AnthropicSonnet46Extractor', () => {
   it('rejects (Zod) when the tool input fails schema validation', async () => {
     messagesCreate.mockResolvedValue(
       buildSuccessResponse({
-        // Missing required field `confidence` and bad type on `extracted`.
+        // Missing required fields (confidence, short_name_stem, events).
         is_tournament_announcement: true,
         reason: 'oops',
-        extracted: 'this should be an object',
       }),
     )
     const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })

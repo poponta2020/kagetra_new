@@ -23,7 +23,8 @@ describe('loadFixturesFromDir', () => {
       '[taikai-ajka:828] 第65回全日本選手権大会/ご案内',
     )
     expect(tournament?.is_tournament_announcement).toBe(true)
-    expect(tournament?.extracted.title).toBe('第65回全日本選手権大会')
+    expect(tournament?.short_name_stem).toBe('全日本')
+    expect(tournament?.events[0]?.formal_name).toBe('第65回全日本選手権大会')
 
     const mlTournament = fixtures.get(
       '[taikai-ajka:829] 第66回標榜大会のご案内',
