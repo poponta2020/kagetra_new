@@ -64,7 +64,8 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
     // Payload round-trips intact through jsonb.
     const payload = drafts[0]!.extractedPayload as ExtractionPayload
     expect(payload.is_tournament_announcement).toBe(true)
-    expect(payload.extracted.title).toBe('第65回全日本選手権大会')
+    expect(payload.short_name_stem).toBe('全日本')
+    expect(payload.events[0]?.formal_name).toBe('第65回全日本選手権大会')
 
     // Mail status follows the AI verdict.
     const mail = await testDb.select().from(mailMessages)

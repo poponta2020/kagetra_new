@@ -1,17 +1,45 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { ExtractionPayload } from '@kagetra/mail-worker/classify/schema'
+import type {
+  EventUnit,
+  ExtractionPayload,
+} from '@kagetra/mail-worker/classify/schema'
 import { ApprovalForm } from './ApprovalForm'
 
 const noop = () => {}
 
 /**
- * Build an `ExtractionPayload` whose `extracted` block has every field
- * populated. Defaults below are picked so the displayed values are easy to
- * spot in assertions (e.g. unique title, distinct numeric values).
+ * Build a fully-populated EventUnit. Defaults are picked so displayed values
+ * are easy to spot in assertions (unique title-able grades, distinct numbers).
  */
+function buildUnit(overrides: Partial<EventUnit> = {}): EventUnit {
+  return {
+    unit_key: 'u1',
+    event_date: '2030-12-01',
+    eligible_grades: ['A', 'B'],
+    formal_name: '第10回テスト大会A・B級',
+    venue: 'AI 会場',
+    fee_jpy: 4500,
+    payment_deadline: '2030-11-25',
+    payment_info_text: '○○銀行 普通 1234567',
+    payment_method: '事前振込',
+    entry_method: 'メール申込',
+    organizer_text: '主催 X',
+    entry_deadline: '2030-11-30',
+    kind: 'team',
+    capacity_a: 32,
+    capacity_b: 16,
+    capacity_c: null,
+    capacity_d: null,
+    capacity_e: null,
+    official: true,
+    ...overrides,
+  }
+}
+
 function buildPayload(
-  overrides: Partial<ExtractionPayload['extracted']> = {},
+  events: EventUnit[],
+  shortNameStem: string | null = '大阪',
 ): ExtractionPayload {
   return {
     is_tournament_announcement: true,
@@ -19,152 +47,270 @@ function buildPayload(
     reason: 'fixture',
     is_correction: false,
     references_subject: null,
-    extracted: {
-      title: 'AI-extracted title',
-      formal_name: '正式名称',
-      event_date: '2030-12-01',
-      venue: 'AI 会場',
-      fee_jpy: 4500,
-      payment_deadline: '2030-11-25',
-      payment_info_text: '○○銀行 普通 1234567',
-      payment_method: '事前振込',
-      entry_method: 'メール申込',
-      organizer_text: '主催 X',
-      entry_deadline: '2030-11-30',
-      eligible_grades: ['A', 'B'],
-      kind: 'team',
-      capacity_total: 64,
-      capacity_a: 32,
-      capacity_b: 16,
-      capacity_c: 8,
-      capacity_d: 4,
-      capacity_e: 4,
-      official: true,
-      ...overrides,
-    },
+    short_name_stem: shortNameStem,
+    events,
   }
 }
 
-describe('ApprovalForm — extracted_payload プリフィル', () => {
-  it('extracted の値を EventForm の各フィールドに 1:1 マッピングする', () => {
-    const payload = buildPayload()
+describe('ApprovalForm — 複数単位フォーム', () => {
+  it('単一単位: stem+級から title を合成し各フィールドにマッピングする', () => {
+    const payload = buildPayload([buildUnit()])
     const { container } = render(
-      <ApprovalForm extractedPayload={payload} groups={[]} action={noop} />,
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
     )
 
-    // title
-    const titleInput = screen.getByDisplayValue(
-      'AI-extracted title',
+    // title = composeTitle('大阪', ['A','B']) = '大阪AB'
+    const titleInput = container.querySelector(
+      'input[name="u1__title"]',
     ) as HTMLInputElement
-    expect(titleInput.name).toBe('title')
+    expect(titleInput.value).toBe('大阪AB')
 
-    // eventDate (mapped from extracted.event_date)
     const dateInput = container.querySelector(
-      'input[name="eventDate"]',
+      'input[name="u1__eventDate"]',
     ) as HTMLInputElement
     expect(dateInput.value).toBe('2030-12-01')
 
-    // location (mapped from extracted.venue)
     const locationInput = container.querySelector(
-      'input[name="location"]',
+      'input[name="u1__location"]',
     ) as HTMLInputElement
     expect(locationInput.value).toBe('AI 会場')
 
-    // feeJpy (mapped from extracted.fee_jpy)
     const feeInput = container.querySelector(
-      'input[name="feeJpy"]',
+      'input[name="u1__feeJpy"]',
     ) as HTMLInputElement
     expect(feeInput.value).toBe('4500')
 
-    // capacityA (mapped from extracted.capacity_a)
     const capAInput = container.querySelector(
-      'input[name="capacityA"]',
+      'input[name="u1__capacityA"]',
     ) as HTMLInputElement
     expect(capAInput.value).toBe('32')
 
-    // formalName / paymentInfo for breadth
     const formalNameInput = container.querySelector(
-      'input[name="formalName"]',
+      'input[name="u1__formalName"]',
     ) as HTMLInputElement
-    expect(formalNameInput.value).toBe('正式名称')
-    const paymentInfo = container.querySelector(
-      'textarea[name="paymentInfo"]',
-    ) as HTMLTextAreaElement
-    expect(paymentInfo.value).toBe('○○銀行 普通 1234567')
+    expect(formalNameInput.value).toBe('第10回テスト大会A・B級')
+
+    // register checkbox is present and checked by default
+    const register = container.querySelector(
+      'input[name="u1__register"]',
+    ) as HTMLInputElement
+    expect(register).not.toBeNull()
+    expect(register.checked).toBe(true)
+
+    // hidden unit_key marker
+    const unitKey = container.querySelector(
+      'input[name="unit_key"]',
+    ) as HTMLInputElement
+    expect(unitKey.value).toBe('u1')
   })
 
-  it('AI が null を返した値は入力にも空文字 (defaultValue → "") として渡される', () => {
-    // Each AI-nullable field is null; EventForm coalesces null → '' for inputs.
-    const payload: ExtractionPayload = {
+  it('開催日分割: 2 単位を別フォームとして描画し title を級ごとに合成する', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', eligible_grades: ['B'], event_date: '2031-01-11' }),
+      buildUnit({ unit_key: 'u2', eligible_grades: ['C'], event_date: '2031-01-12' }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+
+    const title1 = container.querySelector(
+      'input[name="u1__title"]',
+    ) as HTMLInputElement
+    expect(title1.value).toBe('大阪B')
+    const date1 = container.querySelector(
+      'input[name="u1__eventDate"]',
+    ) as HTMLInputElement
+    expect(date1.value).toBe('2031-01-11')
+
+    const title2 = container.querySelector(
+      'input[name="u2__title"]',
+    ) as HTMLInputElement
+    expect(title2.value).toBe('大阪C')
+    const date2 = container.querySelector(
+      'input[name="u2__eventDate"]',
+    ) as HTMLInputElement
+    expect(date2.value).toBe('2031-01-12')
+
+    // both register checkboxes default ON
+    const reg1 = container.querySelector(
+      'input[name="u1__register"]',
+    ) as HTMLInputElement
+    const reg2 = container.querySelector(
+      'input[name="u2__register"]',
+    ) as HTMLInputElement
+    expect(reg1.checked).toBe(true)
+    expect(reg2.checked).toBe(true)
+
+    // two unit_key hidden inputs
+    const unitKeys = Array.from(
+      container.querySelectorAll('input[name="unit_key"]'),
+    ) as HTMLInputElement[]
+    expect(unitKeys.map((i) => i.value).sort()).toEqual(['u1', 'u2'])
+
+    // heading reflects N=2
+    expect(
+      screen.getByText('この案内から 2 件のイベントを作成します'),
+    ).toBeDefined()
+  })
+
+  it('登録済み単位はフォームを出さず読み取り表示（events #N）になる', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', eligible_grades: ['B'] }),
+      buildUnit({ unit_key: 'u2', eligible_grades: ['C'] }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[{ unitKey: 'u1', eventId: 42 }]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+
+    // u1 is registered → no editable title input, shows events #42
+    expect(
+      container.querySelector('input[name="u1__title"]'),
+    ).toBeNull()
+    expect(screen.getByText(/events #42/)).toBeDefined()
+    // heading shows registered count
+    expect(
+      screen.getByText('この案内から 2 件のイベントを作成します（うち登録済み 1 件）'),
+    ).toBeDefined()
+
+    // u2 still editable
+    expect(
+      container.querySelector('input[name="u2__title"]'),
+    ).not.toBeNull()
+  })
+
+  it('級が null の単位は title を stem のみにする', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', eligible_grades: null }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="酒田"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+    const title = container.querySelector(
+      'input[name="u1__title"]',
+    ) as HTMLInputElement
+    expect(title.value).toBe('酒田')
+  })
+
+  it('旧形式 payload (extracted のみ) を 1 単位に正規化して描画する', () => {
+    // Legacy ExtractionPayload shape from before the 2.0.0 bump.
+    const legacyPayload = {
       is_tournament_announcement: true,
-      confidence: 0.5,
-      reason: 'partial',
+      confidence: 0.7,
+      reason: 'legacy',
       extracted: {
-        title: null,
-        formal_name: null,
-        event_date: null,
-        venue: null,
-        fee_jpy: null,
+        title: '第65回全日本かるた選手権大会',
+        formal_name: '第65回全日本かるた選手権大会',
+        event_date: '2030-05-10',
+        venue: '近江神宮',
+        fee_jpy: 3000,
         payment_deadline: null,
         payment_info_text: null,
         payment_method: null,
         entry_method: null,
         organizer_text: null,
         entry_deadline: null,
-        eligible_grades: null,
-        kind: null,
-        capacity_total: null,
-        capacity_a: null,
+        eligible_grades: ['A'],
+        kind: 'individual',
+        capacity_total: 100,
+        capacity_a: 100,
         capacity_b: null,
         capacity_c: null,
         capacity_d: null,
         capacity_e: null,
-        official: null,
+        official: true,
       },
-    }
+    } as unknown as ExtractionPayload
+
     const { container } = render(
-      <ApprovalForm extractedPayload={payload} groups={[]} action={noop} />,
+      <ApprovalForm
+        payload={legacyPayload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
     )
 
-    const titleInput = container.querySelector(
-      'input[name="title"]',
+    // No stem → title falls back to the legacy full title.
+    const title = container.querySelector(
+      'input[name="u1__title"]',
     ) as HTMLInputElement
-    expect(titleInput.value).toBe('')
-    const feeInput = container.querySelector(
-      'input[name="feeJpy"]',
+    expect(title.value).toBe('第65回全日本かるた選手権大会')
+    const venue = container.querySelector(
+      'input[name="u1__location"]',
     ) as HTMLInputElement
-    expect(feeInput.value).toBe('')
-    const venueInput = container.querySelector(
-      'input[name="location"]',
+    expect(venue.value).toBe('近江神宮')
+    const capA = container.querySelector(
+      'input[name="u1__capacityA"]',
     ) as HTMLInputElement
-    expect(venueInput.value).toBe('')
+    expect(capA.value).toBe('100')
+
+    // single synthetic unit
+    expect(
+      screen.getByText('この案内から 1 件のイベントを作成します'),
+    ).toBeDefined()
   })
 
-  it("AI が kind=null を返した場合は EventForm のデフォルト 'individual' に倒す", () => {
-    const payload = buildPayload({ kind: null })
+  it('payload=null (ai_failed) でも 1 つの空フォームを描画する', () => {
     const { container } = render(
-      <ApprovalForm extractedPayload={payload} groups={[]} action={noop} />,
+      <ApprovalForm
+        payload={null}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
     )
-    const kindInput = container.querySelector(
-      'input[name="kind"]',
+    const title = container.querySelector(
+      'input[name="u1__title"]',
     ) as HTMLInputElement
-    expect(kindInput).not.toBeNull()
-    expect(kindInput.value).toBe('individual')
+    expect(title).not.toBeNull()
+    expect(title.value).toBe('')
+    // kind hidden falls back to EventForm default
+    const kind = container.querySelector(
+      'input[name="u1__kind"]',
+    ) as HTMLInputElement
+    expect(kind.value).toBe('individual')
   })
 
-  it('extractedPayload=null (ai_failed draft 等) でもフォームはレンダリングされる', () => {
+  it('AI が kind=null を返した単位は EventForm デフォルト individual に倒す', () => {
+    const payload = buildPayload([buildUnit({ kind: null })])
     const { container } = render(
-      <ApprovalForm extractedPayload={null} groups={[]} action={noop} />,
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
     )
-    const titleInput = container.querySelector(
-      'input[name="title"]',
+    const kind = container.querySelector(
+      'input[name="u1__kind"]',
     ) as HTMLInputElement
-    expect(titleInput).not.toBeNull()
-    expect(titleInput.value).toBe('')
-    // kind hidden input falls back to EventForm's default.
-    const kindInput = container.querySelector(
-      'input[name="kind"]',
-    ) as HTMLInputElement
-    expect(kindInput.value).toBe('individual')
+    expect(kind.value).toBe('individual')
   })
 })

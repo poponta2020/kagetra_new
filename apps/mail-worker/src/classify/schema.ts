@@ -10,12 +10,16 @@ import { z } from 'zod'
  * the classifier's Zod parse step is the single point at which malformed AI
  * output is rejected and the retry path is taken.
  *
- * Source of truth: `docs/features/mail-tournament-import/requirements.md` §4.1
- * (the `ExtractionPayloadSchema` block). The grade enum is intentionally
- * declared locally with the same value tuple as `gradeEnum` in
- * `packages/shared/src/schema/enums.ts` — drizzle's pgEnum is a column-type
- * generator, not a value list, so reusing it from a Zod schema would couple
- * the worker to drizzle internals for no payoff.
+ * Source of truth: `docs/features/tournament-title-grade-split/requirements.md`
+ * §4.1. **PROMPT_VERSION 2.0.0 breaking change**: the old single `extracted`
+ * object was replaced by `short_name_stem` + an `events[]` array of
+ * `EventUnitSchema`. One announcement = 1 draft : N events (split per event
+ * date). See `composeTitle()` for how the displayed `events.title` is derived.
+ *
+ * The grade enum is intentionally declared locally with the same value tuple
+ * as `gradeEnum` in `packages/shared/src/schema/enums.ts` — drizzle's pgEnum is
+ * a column-type generator, not a value list, so reusing it from a Zod schema
+ * would couple the worker to drizzle internals for no payoff.
  *
  * Date fields stay as `string + regex(YYYY-MM-DD)` rather than `z.date()` to
  * keep the LLM tool-call payload trivially round-trippable as JSON, and to
@@ -28,47 +32,128 @@ const IsoDateSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'expected ISO date YYYY-MM-DD')
   .nullable()
 
-export const ExtractionPayloadSchema = z.object({
-  is_tournament_announcement: z.boolean(),
-  confidence: z.number().min(0).max(1),
-  reason: z.string(),
-  is_correction: z.boolean().optional(),
-  references_subject: z.string().nullable().optional(),
-
-  extracted: z.object({
-    title: z.string().nullable(),
-    formal_name: z.string().nullable(),
-    event_date: IsoDateSchema,
-    venue: z.string().nullable(),
-    fee_jpy: z.number().int().nullable(),
-    payment_deadline: IsoDateSchema,
-    payment_info_text: z.string().nullable(),
-    payment_method: z.string().nullable(),
-    entry_method: z.string().nullable(),
-    organizer_text: z.string().nullable(),
-    entry_deadline: IsoDateSchema,
-    eligible_grades: z.array(GradeSchema).nullable(),
-    kind: z.enum(['individual', 'team']).nullable(),
-    capacity_total: z.number().int().nullable(),
-    capacity_a: z.number().int().nullable(),
-    capacity_b: z.number().int().nullable(),
-    capacity_c: z.number().int().nullable(),
-    capacity_d: z.number().int().nullable(),
-    capacity_e: z.number().int().nullable(),
-    official: z.boolean().nullable(),
-  }),
-
-  // Auxiliary raw text the AI surfaced. Not promoted to `events` rows on
-  // approval — kept here for review-time context and future re-extraction.
-  extras: z
-    .object({
-      fee_raw_text: z.string().nullable().optional(),
-      eligible_grades_raw: z.string().nullable().optional(),
-      target_grades_raw: z.string().nullable().optional(),
-      local_rules_summary: z.string().nullable().optional(),
-      timetable_summary: z.string().nullable().optional(),
-    })
-    .optional(),
+/**
+ * One event date = one event unit. Announcements that run different grades on
+ * different dates are split into separate units; multiple grades on the SAME
+ * date stay in one unit (their grades are joined in `eligible_grades`).
+ *
+ * The displayed tournament name (`events.title`) is NOT stored here — it is
+ * derived deterministically from the announcement-wide `short_name_stem` and
+ * this unit's `eligible_grades` via `composeTitle()`, so the grade-suffix order
+ * never depends on the AI's output order and the title can be re-composed /
+ * edited downstream.
+ */
+export const EventUnitSchema = z.object({
+  /**
+   * Stable id ("u1","u2"…). Used to reconcile units across re-render and
+   * partial approval, and as the web form field namespace (`${unit_key}__*`).
+   * review r2 should_fix: pin the format the prompt asks for so an empty or
+   * exotic string can't break the form namespace / materialize matching.
+   */
+  unit_key: z.string().regex(/^u[1-9]\d*$/, 'unit_key must be "u1", "u2", …'),
+  /** This unit's event date (the split key). null when unparseable (range-only text, etc.). */
+  event_date: IsoDateSchema,
+  /** Grades held on this date. Multiple same-day grades are merged here. null when absent/unknown. */
+  eligible_grades: z.array(GradeSchema).nullable(),
+  /** Formal name corresponding to this unit's grade(s) (→ `events.formal_name`). */
+  formal_name: z.string().nullable(),
+  venue: z.string().nullable(),
+  fee_jpy: z.number().int().nullable(),
+  payment_deadline: IsoDateSchema,
+  payment_info_text: z.string().nullable(),
+  payment_method: z.string().nullable(),
+  entry_method: z.string().nullable(),
+  organizer_text: z.string().nullable(),
+  entry_deadline: IsoDateSchema,
+  kind: z.enum(['individual', 'team']).nullable(),
+  // Per-grade capacity only. The old announcement-wide `capacity_total` is
+  // dropped — capacity is a per-grade value in practice.
+  capacity_a: z.number().int().nullable(),
+  capacity_b: z.number().int().nullable(),
+  capacity_c: z.number().int().nullable(),
+  capacity_d: z.number().int().nullable(),
+  capacity_e: z.number().int().nullable(),
+  official: z.boolean().nullable(),
 })
+
+export type EventUnit = z.infer<typeof EventUnitSchema>
+
+export const ExtractionPayloadSchema = z
+  .object({
+    is_tournament_announcement: z.boolean(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string(),
+    is_correction: z.boolean().optional(),
+    references_subject: z.string().nullable().optional(),
+
+    // Place-specific stem of "○○大会" (shared across the whole announcement),
+    // with generic words stripped (第N回 / 全国 / 競技かるた / 選手権 …). The base
+    // for title composition. null when no grade/place can be determined.
+    short_name_stem: z.string().nullable(),
+
+    // One or more units for a tournament announcement, `[]` for noise. One unit
+    // per event date.
+    events: z.array(EventUnitSchema),
+
+    // Auxiliary raw text the AI surfaced. Not promoted to `events` rows on
+    // approval — kept here for review-time context and future re-extraction.
+    extras: z
+      .object({
+        fee_raw_text: z.string().nullable().optional(),
+        eligible_grades_raw: z.string().nullable().optional(),
+        target_grades_raw: z.string().nullable().optional(),
+        local_rules_summary: z.string().nullable().optional(),
+        timetable_summary: z.string().nullable().optional(),
+      })
+      .optional(),
+  })
+  // Cross-field invariants that a flat object schema can't express
+  // (tournament-title-grade-split review CRITICAL-2):
+  //
+  //   1. A tournament announcement must carry at least one event unit. An
+  //      empty `events` for `is_tournament_announcement: true` would render a
+  //      synthetic blank form downstream and silently drop the AI's split —
+  //      better to fail Zod and take the retry path. Noise (false + []) is
+  //      fine and intentionally allowed.
+  //   2. `unit_key` must be unique across `events`. The web approval form keys
+  //      its per-unit fields by `unit_key` (`${unit_key}__title`, …) and the
+  //      server de-dupes via a Set, so a duplicate key collides form values and
+  //      drops one unit. Reject duplicates here so a bad AI payload retries
+  //      instead of producing a one-event-short approval.
+  .superRefine((val, ctx) => {
+    if (val.is_tournament_announcement && val.events.length < 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'is_tournament_announcement is true but events[] is empty (expected at least one unit)',
+        path: ['events'],
+      })
+    }
+    // review r2 should_fix: the inverse must also hold — noise (false) must
+    // carry events:[]. A false verdict WITH events is a self-contradiction (the
+    // prompt requires events:[] for noise); the classifier treats
+    // is_tournament_announcement as authoritative and would drop those events
+    // silently. Fail Zod so the retry path runs instead of losing the split.
+    if (!val.is_tournament_announcement && val.events.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'is_tournament_announcement is false but events[] is non-empty (noise must carry events:[])',
+        path: ['events'],
+      })
+    }
+
+    const seen = new Set<string>()
+    val.events.forEach((unit, i) => {
+      if (seen.has(unit.unit_key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `duplicate unit_key "${unit.unit_key}" in events[] (unit_key must be unique)`,
+          path: ['events', i, 'unit_key'],
+        })
+      }
+      seen.add(unit.unit_key)
+    })
+  })
 
 export type ExtractionPayload = z.infer<typeof ExtractionPayloadSchema>

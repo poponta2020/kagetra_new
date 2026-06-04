@@ -121,7 +121,8 @@ describe('classifier', () => {
       expect(outcome.kind).toBe('tournament')
       if (outcome.kind === 'tournament') {
         expect(outcome.result.parsed.is_tournament_announcement).toBe(true)
-        expect(outcome.result.parsed.extracted.title).toBe('第65回全日本選手権大会')
+        expect(outcome.result.parsed.short_name_stem).toBe('全日本')
+        expect(outcome.result.parsed.events[0]?.formal_name).toBe('第65回全日本選手権大会')
       }
     })
 

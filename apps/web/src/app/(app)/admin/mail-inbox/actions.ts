@@ -13,8 +13,12 @@ import {
   mailWorkerJobs,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
-import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
-import { broadcastMailToEvent } from '@/lib/line-broadcast'
+import {
+  eventFormSchema,
+  extractEventFormData,
+  extractEventUnitsFormData,
+} from '@/lib/form-schemas'
+import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import {
   classifyMail,
   persistOutcome,
@@ -159,6 +163,369 @@ export async function approveDraft(draftId: number, formData: FormData) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// tournament-title-grade-split: 1 ドラフト : N イベントの複数単位承認。
+//
+// approveDraft は「1 draft = 1 event」の旧経路 (後方互換のため残置)。
+// approveDraftUnits は payload.events[] の各単位を個別フォームで受け取り、
+// チェックされた未登録単位を 1 tx で events に INSERT する。全単位が
+// materialize 済みになって初めて draft=approved + mail processed に倒す
+// (部分承認中は pending_review 維持 = メールも未処理のまま受信箱に残す)。
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Collect the `unit_key` set present in a draft's extracted_payload.
+ *
+ * New format (2.0.0): `payload.events[]` → each `unit_key`. Old format
+ * (single `extracted` object) normalizes to a single synthetic unit `['u1']`,
+ * matching ApprovalForm's normalization so an old-format draft is considered
+ * "fully materialized" once that one synthetic unit has an event row.
+ */
+function extractPayloadUnitKeys(payload: unknown): string[] {
+  if (payload && typeof payload === 'object') {
+    const p = payload as {
+      events?: unknown
+      extracted?: unknown
+    }
+    if (Array.isArray(p.events) && p.events.length > 0) {
+      return p.events
+        .map((e) =>
+          e && typeof e === 'object'
+            ? (e as { unit_key?: unknown }).unit_key
+            : undefined,
+        )
+        .filter((k): k is string => typeof k === 'string')
+    }
+  }
+  // SHOULD_FIX-1: null / 空 events / 旧 `extracted` のいずれも、ApprovalForm の
+  // normalizeUnits は synthetic 'u1' を 1 件描画する。ここも 'u1' を返して突合
+  // させないと、手動で 1 件作成しても allMaterialized が常に false となり、
+  // draft/mail が pending に取り残される。
+  return ['u1']
+}
+
+/**
+ * Fire the LINE auto-broadcast for newly-created events, de-duplicated by the
+ * bound LINE group (requirements §3.4): when B級 and C級 of the same
+ * announcement are both bound to the same 大阪 group, the mail must be pushed
+ * exactly once. Best-effort — a failed push is logged and never blocks the
+ * approval.
+ */
+async function broadcastApprovedUnits(
+  eventIds: number[],
+  mailMessageId: number,
+  isCorrection: boolean,
+): Promise<void> {
+  const sentGroups = new Set<string>()
+  for (const eventId of eventIds) {
+    try {
+      const binding = await loadActiveBinding(db, eventId)
+      if (!binding) continue
+      if (sentGroups.has(binding.lineGroupId)) continue
+      sentGroups.add(binding.lineGroupId)
+      await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
+    } catch (err) {
+      console.error('[approveDraftUnits] broadcastMailToEvent failed', err)
+    }
+  }
+}
+
+export async function approveDraftUnits(draftId: number, formData: FormData) {
+  const session = await requireAdminSession()
+
+  const units = extractEventUnitsFormData(formData)
+  if (units.length === 0) {
+    throw new Error('登録するイベントが選択されていません')
+  }
+
+  // r5 blocker: status / payload に依存する判定（approvable・allowedUnitKeys・
+  // allMaterialized）はすべて tx 内の FOR UPDATE ロック済み行を使う（下記）。
+  // pre-lock read を信用すると、並行 reextractDraft が LLM 実行後に payload
+  // （= unit_key 集合）を書き換えたとき、古い unit_key で events を作るレースが残る。
+  // ここでは payload に依存しない parse + FK 検証だけを tx 前に済ませる。
+
+  // Validate every selected unit BEFORE opening the transaction so a bad unit
+  // aborts the whole batch without a partial INSERT — same FK-validation as
+  // events/new / approveDraft, applied per unit.
+  const parsedUnits = units.map((unit) => ({
+    unitKey: unit.unitKey,
+    eligibleGrades: unit.eligibleGrades,
+    parsed: eventFormSchema.parse(unit.data),
+  }))
+  for (const { parsed } of parsedUnits) {
+    if (parsed.eventGroupId != null) {
+      const group = await db.query.eventGroups.findFirst({
+        where: eq(eventGroups.id, parsed.eventGroupId),
+        columns: { id: true },
+      })
+      if (!group) {
+        throw new Error('入力が不正です: 指定された大会グループが存在しません')
+      }
+    }
+  }
+
+  const createdEventIds: number[] = []
+  let approvedMailMessageId: number | null = null
+  let approvedIsCorrection = false
+  let didFinalize = false
+  // r5 blocker: 部分承認時の broadcast に使う messageId / isCorrection も
+  // ロック済み行から採取する（pre-lock read を使うと、並行 reextract 後の古い
+  // isCorrection を配信に使う恐れがある）。
+  let lockedMessageId: number | null = null
+  let lockedIsCorrection = false
+
+  await db.transaction(async (tx) => {
+    // r4 blocker: 並行する reject / linkDraftToEvent / completeDraft が draft を
+    // terminal 状態へ更新した後でも、このトランザクションが events を INSERT でき
+    // ると「作成済みイベントのある rejected / linked draft」という矛盾が生じる。
+    // tx の最初に draft 行を FOR UPDATE でロックして APPROVABLE_STATUSES を再確認
+    // する。全ての mutating action（approve/reject/link/complete）が同じ draft 行を
+    // 最初にロックするので、相互の race が直列化されて閉じる。
+    //
+    // r5 blocker: status だけでなく messageId / isCorrection / extractedPayload も
+    // ロック済み行から取得する。allowedUnitKeys（未知単位の拒否）と allMaterialized
+    // （完了判定）の突合は、この FOR UPDATE 配下の payload だけで行う。こうすると
+    // 並行 reextractDraft（同じく draft 行を先頭で FOR UPDATE する）と直列化され、
+    // 「古い payload の unit_key で events を作る」「作成済み event のある draft の
+    // payload が後から書き換わる」という 1:N 突合崩れのレースが閉じる。
+    const locked = await tx
+      .select({
+        status: tournamentDrafts.status,
+        messageId: tournamentDrafts.messageId,
+        isCorrection: tournamentDrafts.isCorrection,
+        extractedPayload: tournamentDrafts.extractedPayload,
+      })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    const lockedRow = locked[0]!
+    if (
+      !APPROVABLE_STATUSES.includes(
+        lockedRow.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not approvable')
+    }
+    lockedMessageId = lockedRow.messageId
+    lockedIsCorrection = lockedRow.isCorrection
+
+    // payload の unit_key 集合はロック済み行から一度だけ計算し、allowedUnitKeys
+    // と allMaterialized の両方で使う（同じ payload を参照することで突合が崩れない）。
+    const payloadUnitKeys = extractPayloadUnitKeys(lockedRow.extractedPayload)
+    const allowedUnitKeys = new Set(payloadUnitKeys)
+    // r3 should_fix: only accept unit_keys that actually belong to this draft's
+    // payload. A tampered / stale client form could otherwise POST an arbitrary
+    // unit_key and create an `events` row whose tournament_draft_unit_key has no
+    // counterpart in the draft — polluting the materialize/complete reconciliation.
+    // extractPayloadUnitKeys mirrors ApprovalForm.normalizeUnits (legacy/null → 'u1').
+    for (const { unitKey } of parsedUnits) {
+      if (!allowedUnitKeys.has(unitKey)) {
+        throw new Error(`入力が不正です: 未知のイベント単位 (${unitKey})`)
+      }
+    }
+
+    for (const { unitKey, eligibleGrades, parsed } of parsedUnits) {
+      // Idempotency: a unit already materialized for this draft (e.g. a
+      // double-submit, or the operator re-opening the page and re-registering
+      // an already-created unit) must not insert a second event row.
+      const existing = await tx
+        .select({ id: events.id })
+        .from(events)
+        .where(
+          and(
+            eq(events.tournamentDraftId, draftId),
+            eq(events.tournamentDraftUnitKey, unitKey),
+          ),
+        )
+        .limit(1)
+      if (existing.length > 0) continue
+
+      // CRITICAL-4: the SELECT above is best-effort de-dup, but a concurrent
+      // approval / double-submit can slip a second INSERT past it. The DB-side
+      // partial unique index (events_tournament_draft_unit_key_uniq) is the
+      // hard guarantee; onConflictDoNothing makes the race lose silently. On a
+      // conflict `returning` is empty → this unit was already materialized by
+      // the other writer, so skip it (do NOT count it as newly created).
+      const inserted = await tx
+        .insert(events)
+        .values({
+          ...parsed,
+          eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
+          createdBy: session.user.id,
+          tournamentDraftId: draftId,
+          tournamentDraftUnitKey: unitKey,
+        })
+        // `where` is REQUIRED here: the unique index is PARTIAL (WHERE both
+        // columns NOT NULL), and Postgres only treats a partial index as the
+        // conflict arbiter when ON CONFLICT repeats its predicate — otherwise
+        // it raises "no unique or exclusion constraint matching the ON CONFLICT
+        // specification". Mirror events_tournament_draft_unit_key_uniq. (drizzle
+        // 0.45 exposes this arbiter predicate as `where`, not `targetWhere`.)
+        .onConflictDoNothing({
+          target: [events.tournamentDraftId, events.tournamentDraftUnitKey],
+          where: sql`${events.tournamentDraftId} IS NOT NULL AND ${events.tournamentDraftUnitKey} IS NOT NULL`,
+        })
+        .returning({ id: events.id })
+      const newEventId = inserted[0]?.id
+      // Empty returning here means the unique index rejected the row (a
+      // concurrent insert won the race). Not an error — just skip.
+      if (newEventId == null) continue
+      createdEventIds.push(newEventId)
+    }
+
+    // Decide whether the draft is now fully materialized: every unit_key in the
+    // payload must have a corresponding events row (tournament_draft_id =
+    // draftId). `payloadUnitKeys` was computed above from the FOR UPDATE locked
+    // row, so it is consistent with the allowedUnitKeys gate and immune to a
+    // concurrent reextract. Read the materialized set inside the tx so the units
+    // we just inserted are counted.
+    const materializedRows = await tx
+      .select({ unitKey: events.tournamentDraftUnitKey })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+    const materialized = new Set(
+      materializedRows
+        .map((r) => r.unitKey)
+        .filter((k): k is string => typeof k === 'string'),
+    )
+    const allMaterialized =
+      payloadUnitKeys.length > 0 &&
+      payloadUnitKeys.every((k) => materialized.has(k))
+
+    if (allMaterialized) {
+      // Status-gated finalize, mirroring approveDraft. event_id stays null —
+      // for split approvals events.tournament_draft_id is the source of truth
+      // (tournament_drafts.event_id is reserved for linkDraftToEvent).
+      const updated = await tx
+        .update(tournamentDrafts)
+        .set({
+          status: 'approved',
+          approvedByUserId: session.user.id,
+          approvedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(tournamentDrafts.id, draftId),
+            inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
+          ),
+        )
+        .returning({
+          id: tournamentDrafts.id,
+          messageId: tournamentDrafts.messageId,
+          isCorrection: tournamentDrafts.isCorrection,
+        })
+      if (updated.length === 0) {
+        throw new Error('draft is not approvable')
+      }
+
+      await tx
+        .update(mailMessages)
+        .set({
+          status: 'archived',
+          // mail-triage-badge: 承認完了は「処理済み」。未処理バッジから外す。
+          triageStatus: 'processed',
+          triagedAt: sql`now()`,
+          triagedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(mailMessages.id, updated[0]!.messageId))
+
+      approvedMailMessageId = updated[0]!.messageId
+      approvedIsCorrection = updated[0]!.isCorrection
+      didFinalize = true
+    }
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/${draftId}`)
+  revalidatePath('/events')
+
+  // event-line-broadcast: 承認で作成したイベントの分だけ、応答 flush 後に
+  // 配信を起こす。グループ重複は broadcastApprovedUnits 内で排除する。
+  // mailMessageId は finalize した場合のみ updated から取れるが、部分承認でも
+  // 配信はしたいので lockedMessageId を使う (常に同一メールを指す)。
+  // createdEventIds.length > 0 は tx が lock を取って commit した証なので
+  // lockedMessageId は必ず非 null（型のため明示ガード）。
+  if (createdEventIds.length > 0 && lockedMessageId != null) {
+    const eventIds = createdEventIds
+    const mailMessageId = approvedMailMessageId ?? lockedMessageId
+    const isCorrection = didFinalize ? approvedIsCorrection : lockedIsCorrection
+    after(async () => {
+      await broadcastApprovedUnits(eventIds, mailMessageId, isCorrection)
+    })
+  }
+}
+
+/**
+ * Close a draft without creating the remaining (unregistered) units —
+ * requirements シナリオ C「残りは作らず完了」. Flips the draft to approved and
+ * the mail to archived/processed, leaving any already-materialized events in
+ * place. No broadcast (nothing new is created).
+ */
+export async function completeDraft(draftId: number) {
+  const session = await requireAdminSession()
+
+  await db.transaction(async (tx) => {
+    // r4 blocker: draft 行を FOR UPDATE でロックして approve/reject/link と直列化。
+    const locked = await tx
+      .select({
+        status: tournamentDrafts.status,
+        messageId: tournamentDrafts.messageId,
+      })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not approvable')
+    }
+
+    // r3 blocker: 1 件も materialize していない draft を完了にすると 0 イベントで
+    // processed になり大会案内を取りこぼす。ロック内で確認するので並行 approve の
+    // INSERT とも整合する（0 件で閉じたいケースは reject に誘導、UI もボタン非表示）。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length === 0) {
+      throw new Error(
+        '作成済みイベントがありません。先にイベントを登録するか、却下してください',
+      )
+    }
+
+    await tx
+      .update(tournamentDrafts)
+      .set({
+        status: 'approved',
+        approvedByUserId: session.user.id,
+        approvedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(tournamentDrafts.id, draftId))
+
+    await tx
+      .update(mailMessages)
+      .set({
+        status: 'archived',
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, locked[0]!.messageId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/${draftId}`)
+}
+
 export async function rejectDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
@@ -166,12 +533,40 @@ export async function rejectDraft(draftId: number, formData: FormData) {
   const reason = typeof reasonRaw === 'string' ? reasonRaw.trim() : ''
   if (!reason) throw new Error('却下理由は必須です')
 
-  // event_id is intentionally not touched here: rejection doesn't link to an
-  // event, and a previously linked draft being re-rejected keeps its history.
-  // Status guard prevents flipping an already-finalized draft (approved /
-  // rejected / superseded) via direct call.
   await db.transaction(async (tx) => {
-    const updated = await tx
+    // r4 blocker: draft 行を FOR UPDATE でロックして approve/complete/link と
+    // 直列化し、materialized 確認と terminal 更新を同一 tx に入れる。これで
+    // 「作成済みイベントのある draft の却下」(CRITICAL-3) が race-free になる。
+    const locked = await tx
+      .select({
+        status: tournamentDrafts.status,
+        messageId: tournamentDrafts.messageId,
+      })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not rejectable')
+    }
+    // CRITICAL-3: 作成済みイベントを残したまま rejected にすると矛盾。ロック内で
+    // 確認するので並行 approve の INSERT とも整合する。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length > 0) {
+      throw new Error('作成済みイベントがあるため却下できません')
+    }
+
+    // event_id is intentionally not touched here: rejection doesn't link to an
+    // event, and a previously linked draft being re-rejected keeps its history.
+    await tx
       .update(tournamentDrafts)
       .set({
         status: 'rejected',
@@ -180,20 +575,7 @@ export async function rejectDraft(draftId: number, formData: FormData) {
         rejectionReason: reason,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(tournamentDrafts.id, draftId),
-          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-        ),
-      )
-      .returning({
-        id: tournamentDrafts.id,
-        messageId: tournamentDrafts.messageId,
-      })
-
-    if (updated.length === 0) {
-      throw new Error('draft is not rejectable')
-    }
+      .where(eq(tournamentDrafts.id, draftId))
 
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
@@ -207,7 +589,7 @@ export async function rejectDraft(draftId: number, formData: FormData) {
         triagedByUserId: session.user.id,
         updatedAt: sql`now()`,
       })
-      .where(eq(mailMessages.id, updated[0]!.messageId))
+      .where(eq(mailMessages.id, locked[0]!.messageId))
   })
 
   revalidatePath('/admin/mail-inbox')
@@ -233,10 +615,56 @@ export async function reextractDraft(draftId: number) {
     throw new Error('draft is not reextractable')
   }
 
+  // tournament-title-grade-split: re-extraction rewrites the payload (and its
+  // unit_key set), so any unit already materialized as an `events` row would
+  // be orphaned / mismatched. Refuse once a single event references this draft
+  // (requirements §3.4 再 AI 抽出のガード). This pre-LLM check is a fail-fast so
+  // we don't burn an Anthropic call on an already-materialized draft; the
+  // authoritative, race-free re-check happens under FOR UPDATE below.
+  const materialized = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.tournamentDraftId, draftId))
+    .limit(1)
+  if (materialized.length > 0) {
+    throw new Error('既にイベントが作成済みのため再抽出できません')
+  }
+
   const cfg = loadLlmConfig()
   const llm = new AnthropicSonnet46Extractor({ apiKey: cfg.anthropicApiKey })
   const outcome = await classifyMail(db, draft.messageId, llm, { force: true })
-  await persistOutcome(db, draft.messageId, outcome)
+
+  // r5 blocker: classifyMail の LLM ラウンドトリップはロックなしで走るため、その間に
+  // 並行 approveDraftUnits が events を materialize（場合により draft を finalize）し得る。
+  // persistOutcome は message_id 上の UPSERT で extracted_payload（= unit_key 集合）を
+  // 書き換えるので、events 作成後にそれをやると作成済み event の
+  // tournament_draft_unit_key が payload と突き合わなくなる。draft 行を FOR UPDATE で
+  // 取り直し、まだ再抽出可能 かつ materialized event がゼロ であることを再確認したうえで、
+  // 同じロック下で payload を更新する。これで approveDraftUnits 側（同じく draft 行を
+  // 先頭で FOR UPDATE する）と相互に直列化される。
+  await db.transaction(async (tx) => {
+    const locked = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      locked[0]!.status !== 'pending_review' &&
+      locked[0]!.status !== 'ai_failed'
+    ) {
+      throw new Error('draft is not reextractable')
+    }
+    const materializedLocked = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materializedLocked.length > 0) {
+      throw new Error('既にイベントが作成済みのため再抽出できません')
+    }
+    await persistOutcome(tx, draft.messageId, outcome)
+  })
 
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
@@ -259,6 +687,32 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   let linkedIsCorrection = false
 
   await db.transaction(async (tx) => {
+    // r4 blocker: FOR UPDATE で approve/reject/complete と直列化。
+    const locked = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not linkable')
+    }
+    // CRITICAL-3 二重防御: 分割で自前イベントを作成済みの draft を単一の既存
+    // イベントへ紐付けると矛盾（作成済みイベントが孤児化する）。ロック内で確認する
+    // ので並行 approve の INSERT とも整合する。UI も materialize 後は link を隠す。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length > 0) {
+      throw new Error('作成済みイベントがあるため紐付けできません')
+    }
+
     const updated = await tx
       .update(tournamentDrafts)
       .set({
@@ -268,12 +722,7 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
         approvedAt: sql`now()`,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(tournamentDrafts.id, draftId),
-          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-        ),
-      )
+      .where(eq(tournamentDrafts.id, draftId))
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,

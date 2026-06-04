@@ -1,3 +1,4 @@
+import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { Pill } from '@/components/ui'
 import { ConfidenceBadge } from './ConfidenceBadge'
 
@@ -29,13 +30,44 @@ export interface DraftCardProps {
 export function DraftCard({ draft }: DraftCardProps) {
   // Defensive narrowing: extracted_payload jsonb is `unknown` until we trust
   // the row. Read top-level fields without re-running the Zod schema (would
-  // pull mail-worker into the web bundle); the admin UI already trusts the
-  // worker's output since the row only exists if extraction completed.
+  // pull mail-worker's Zod into the web bundle); the admin UI already trusts
+  // the worker's output since the row only exists if extraction completed.
+  //
+  // tournament-title-grade-split: new payloads carry `short_name_stem` +
+  // `events[]`; compose each unit's short name (場所+級) and join them, e.g.
+  // 「大阪B, 大阪C（2件）」. Old payloads (single `extracted.title`) fall back to
+  // that full title.
   const payload = (draft.extractedPayload ?? {}) as {
+    short_name_stem?: string | null
+    events?: {
+      event_date?: string | null
+      eligible_grades?: ('A' | 'B' | 'C' | 'D' | 'E')[] | null
+    }[]
     extracted?: { title?: string | null; event_date?: string | null }
   }
-  const title = payload?.extracted?.title ?? null
-  const eventDate = payload?.extracted?.event_date ?? null
+
+  let title: string | null = null
+  let eventDate: string | null = null
+  if (Array.isArray(payload.events) && payload.events.length > 0) {
+    const stem = payload.short_name_stem ?? null
+    const names = payload.events.map(
+      (u) => composeTitle(stem, u.eligible_grades ?? null) || '(無題)',
+    )
+    title =
+      names.length > 1
+        ? `${names.join(', ')}（${names.length}件）`
+        : (names[0] ?? null)
+    // Single-unit drafts show the date; multi-date splits omit it (each unit
+    // has its own date, shown on the detail page).
+    eventDate =
+      payload.events.length === 1
+        ? (payload.events[0]?.event_date ?? null)
+        : null
+  } else {
+    title = payload?.extracted?.title ?? null
+    eventDate = payload?.extracted?.event_date ?? null
+  }
+
   const confidenceNum =
     draft.confidence === null || draft.confidence === ''
       ? null

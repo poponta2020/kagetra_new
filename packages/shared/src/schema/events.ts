@@ -1,4 +1,13 @@
-import { integer, pgTable, text, timestamp, date, boolean } from 'drizzle-orm/pg-core'
+import {
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  date,
+  boolean,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import {
   eventStatusEnum,
   eventKindEnum,
@@ -46,6 +55,28 @@ export const events = pgTable('events', {
   // payment_status / payment_paid_at は payment_type='advance' のときのみ意味を持つ。
   paymentStatus: eventPaymentStatusEnum('payment_status').notNull().default('unpaid'),
   paymentPaidAt: timestamp('payment_paid_at', { mode: 'date', withTimezone: true }),
+  // tournament-title-grade-split: AI メール取り込み由来イベントの元ドラフトへのリンク。
+  // 1 ドラフト(=1 メール) : N イベント(開催日ごとに分割) を表現する実体側の参照。手動作成・
+  // 旧移行イベントでは null。FK (→ tournament_drafts.id, ON DELETE SET NULL) は
+  // events↔tournament_drafts の相互参照による TypeScript 型循環を避けるため、migration の
+  // raw ALTER で張る (tournament_drafts.superseded_by_draft_id と同じ方針)。
+  tournamentDraftId: integer('tournament_draft_id'),
+  // 元ドラフト payload 内の該当イベント単位 (unit_key)。部分承認済み単位の突合に使う。
+  tournamentDraftUnitKey: text('tournament_draft_unit_key'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => [
+  // tournament-title-grade-split (review CRITICAL-4): a draft unit (unit_key)
+  // materializes into exactly one events row. SELECT-then-INSERT in
+  // approveDraftUnits is not concurrency-safe on its own (a double-submit or
+  // two parallel approvals could both pass the existence check and insert two
+  // rows for the same unit). This partial unique index makes the DB the final
+  // arbiter; approveDraftUnits pairs it with onConflictDoNothing on the same
+  // target. Partial (WHERE both columns NOT NULL) so manually-created / legacy
+  // events with NULL draft links are unaffected.
+  uniqueIndex('events_tournament_draft_unit_key_uniq')
+    .on(table.tournamentDraftId, table.tournamentDraftUnitKey)
+    .where(
+      sql`${table.tournamentDraftId} IS NOT NULL AND ${table.tournamentDraftUnitKey} IS NOT NULL`,
+    ),
+])

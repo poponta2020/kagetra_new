@@ -11,7 +11,8 @@
     "./classify/classifier": "./src/classify/classifier.ts",
     "./classify/llm/anthropic": "./src/classify/llm/anthropic.ts",
     "./classify/llm/types": "./src/classify/llm/types.ts",
-    "./classify/schema": "./src/classify/schema.ts"
+    "./classify/schema": "./src/classify/schema.ts",
+    "./classify/title": "./src/classify/title.ts"
   },
   "scripts": {
     "start": "tsx src/index.ts",
