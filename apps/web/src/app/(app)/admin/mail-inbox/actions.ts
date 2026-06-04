@@ -290,6 +290,26 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
   let didFinalize = false
 
   await db.transaction(async (tx) => {
+    // r4 blocker: 並行する reject / linkDraftToEvent / completeDraft が draft を
+    // terminal 状態へ更新した後でも、このトランザクションが events を INSERT でき
+    // ると「作成済みイベントのある rejected / linked draft」という矛盾が生じる。
+    // tx の最初に draft 行を FOR UPDATE でロックして APPROVABLE_STATUSES を再確認
+    // する。全ての mutating action（approve/reject/link/complete）が同じ draft 行を
+    // 最初にロックするので、相互の race が直列化されて閉じる。
+    const locked = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not approvable')
+    }
+
     for (const { unitKey, eligibleGrades, parsed } of parsedUnits) {
       // Idempotency: a unit already materialized for this draft (e.g. a
       // double-submit, or the operator re-opening the page and re-registering
@@ -429,32 +449,40 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
 export async function completeDraft(draftId: number) {
   const session = await requireAdminSession()
 
-  const draft = await db.query.tournamentDrafts.findFirst({
-    where: eq(tournamentDrafts.id, draftId),
-    columns: { status: true, messageId: true },
-  })
-  if (!draft) throw new Error('draft not found')
-  if (!APPROVABLE_STATUSES.includes(draft.status as (typeof APPROVABLE_STATUSES)[number])) {
-    throw new Error('draft is not approvable')
-  }
-
-  // r3 blocker: completeDraft は「一部登録した後、残りの単位を作らずに閉じる」
-  // 導線。1 件も materialize していない draft をこれで閉じると、大会案内メールを
-  // 0 イベントのまま processed にして取りこぼす。1 件以上の作成を必須にし、0 件で
-  // 閉じたいケースは reject に誘導する（UI 側もボタンを出さない）。
-  const materialized = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(eq(events.tournamentDraftId, draftId))
-    .limit(1)
-  if (materialized.length === 0) {
-    throw new Error(
-      '作成済みイベントがありません。先にイベントを登録するか、却下してください',
-    )
-  }
-
   await db.transaction(async (tx) => {
-    const updated = await tx
+    // r4 blocker: draft 行を FOR UPDATE でロックして approve/reject/link と直列化。
+    const locked = await tx
+      .select({
+        status: tournamentDrafts.status,
+        messageId: tournamentDrafts.messageId,
+      })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not approvable')
+    }
+
+    // r3 blocker: 1 件も materialize していない draft を完了にすると 0 イベントで
+    // processed になり大会案内を取りこぼす。ロック内で確認するので並行 approve の
+    // INSERT とも整合する（0 件で閉じたいケースは reject に誘導、UI もボタン非表示）。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length === 0) {
+      throw new Error(
+        '作成済みイベントがありません。先にイベントを登録するか、却下してください',
+      )
+    }
+
+    await tx
       .update(tournamentDrafts)
       .set({
         status: 'approved',
@@ -462,19 +490,7 @@ export async function completeDraft(draftId: number) {
         approvedAt: sql`now()`,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(tournamentDrafts.id, draftId),
-          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-        ),
-      )
-      .returning({
-        id: tournamentDrafts.id,
-        messageId: tournamentDrafts.messageId,
-      })
-    if (updated.length === 0) {
-      throw new Error('draft is not approvable')
-    }
+      .where(eq(tournamentDrafts.id, draftId))
 
     await tx
       .update(mailMessages)
@@ -485,32 +501,11 @@ export async function completeDraft(draftId: number) {
         triagedByUserId: session.user.id,
         updatedAt: sql`now()`,
       })
-      .where(eq(mailMessages.id, updated[0]!.messageId))
+      .where(eq(mailMessages.id, locked[0]!.messageId))
   })
 
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/${draftId}`)
-}
-
-/**
- * Throw if any events row was already materialized from this draft
- * (tournament_title-grade-split review CRITICAL-3). Once a unit has been
- * approved into an event, the draft is mid-flight: rejecting it (→ rejected)
- * or re-pointing it at a single existing event (linkDraftToEvent) would leave
- * orphaned created events behind while the draft claims a contradictory
- * terminal state. The only valid close path for a partially-approved draft is
- * completeDraft (approve the rest, or finish without them).
- */
-async function assertNoMaterializedEvents(
-  draftId: number,
-  message: string,
-): Promise<void> {
-  const materialized = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(eq(events.tournamentDraftId, draftId))
-    .limit(1)
-  if (materialized.length > 0) throw new Error(message)
 }
 
 export async function rejectDraft(draftId: number, formData: FormData) {
@@ -520,20 +515,40 @@ export async function rejectDraft(draftId: number, formData: FormData) {
   const reason = typeof reasonRaw === 'string' ? reasonRaw.trim() : ''
   if (!reason) throw new Error('却下理由は必須です')
 
-  // CRITICAL-3 二重防御: a draft with already-created events must not be
-  // rejected (the UI hides the reject form in this case, but guard the action
-  // too). Run before the transaction so nothing mutates on the bad path.
-  await assertNoMaterializedEvents(
-    draftId,
-    '作成済みイベントがあるため却下できません',
-  )
-
-  // event_id is intentionally not touched here: rejection doesn't link to an
-  // event, and a previously linked draft being re-rejected keeps its history.
-  // Status guard prevents flipping an already-finalized draft (approved /
-  // rejected / superseded) via direct call.
   await db.transaction(async (tx) => {
-    const updated = await tx
+    // r4 blocker: draft 行を FOR UPDATE でロックして approve/complete/link と
+    // 直列化し、materialized 確認と terminal 更新を同一 tx に入れる。これで
+    // 「作成済みイベントのある draft の却下」(CRITICAL-3) が race-free になる。
+    const locked = await tx
+      .select({
+        status: tournamentDrafts.status,
+        messageId: tournamentDrafts.messageId,
+      })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not rejectable')
+    }
+    // CRITICAL-3: 作成済みイベントを残したまま rejected にすると矛盾。ロック内で
+    // 確認するので並行 approve の INSERT とも整合する。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length > 0) {
+      throw new Error('作成済みイベントがあるため却下できません')
+    }
+
+    // event_id is intentionally not touched here: rejection doesn't link to an
+    // event, and a previously linked draft being re-rejected keeps its history.
+    await tx
       .update(tournamentDrafts)
       .set({
         status: 'rejected',
@@ -542,20 +557,7 @@ export async function rejectDraft(draftId: number, formData: FormData) {
         rejectionReason: reason,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(tournamentDrafts.id, draftId),
-          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-        ),
-      )
-      .returning({
-        id: tournamentDrafts.id,
-        messageId: tournamentDrafts.messageId,
-      })
-
-    if (updated.length === 0) {
-      throw new Error('draft is not rejectable')
-    }
+      .where(eq(tournamentDrafts.id, draftId))
 
     // Sync mail_messages.status — see approveDraft for rationale.
     await tx
@@ -569,7 +571,7 @@ export async function rejectDraft(draftId: number, formData: FormData) {
         triagedByUserId: session.user.id,
         updatedAt: sql`now()`,
       })
-      .where(eq(mailMessages.id, updated[0]!.messageId))
+      .where(eq(mailMessages.id, locked[0]!.messageId))
   })
 
   revalidatePath('/admin/mail-inbox')
@@ -620,15 +622,6 @@ export async function reextractDraft(draftId: number) {
 export async function linkDraftToEvent(draftId: number, eventId: number) {
   const session = await requireAdminSession()
 
-  // CRITICAL-3 二重防御: linking points the draft at a single existing event,
-  // which contradicts a draft that already split into its own created events.
-  // Refuse so the partial-approval state can't be silently overwritten. The UI
-  // also hides the link form once any unit is materialized.
-  await assertNoMaterializedEvents(
-    draftId,
-    '作成済みイベントがあるため紐付けできません',
-  )
-
   const target = await db.query.events.findFirst({
     where: eq(events.id, eventId),
     columns: { id: true },
@@ -643,6 +636,32 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
   let linkedIsCorrection = false
 
   await db.transaction(async (tx) => {
+    // r4 blocker: FOR UPDATE で approve/reject/complete と直列化。
+    const locked = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .for('update')
+    if (locked.length === 0) throw new Error('draft not found')
+    if (
+      !APPROVABLE_STATUSES.includes(
+        locked[0]!.status as (typeof APPROVABLE_STATUSES)[number],
+      )
+    ) {
+      throw new Error('draft is not linkable')
+    }
+    // CRITICAL-3 二重防御: 分割で自前イベントを作成済みの draft を単一の既存
+    // イベントへ紐付けると矛盾（作成済みイベントが孤児化する）。ロック内で確認する
+    // ので並行 approve の INSERT とも整合する。UI も materialize 後は link を隠す。
+    const materialized = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+      .limit(1)
+    if (materialized.length > 0) {
+      throw new Error('作成済みイベントがあるため紐付けできません')
+    }
+
     const updated = await tx
       .update(tournamentDrafts)
       .set({
@@ -652,12 +671,7 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
         approvedAt: sql`now()`,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(
-          eq(tournamentDrafts.id, draftId),
-          inArray(tournamentDrafts.status, APPROVABLE_STATUSES),
-        ),
-      )
+      .where(eq(tournamentDrafts.id, draftId))
       .returning({
         id: tournamentDrafts.id,
         messageId: tournamentDrafts.messageId,
