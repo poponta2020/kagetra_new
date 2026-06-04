@@ -17,6 +17,33 @@ import {
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
+// review r2 blocker: vi.mock factory は hoist されるため、factory 内で参照する
+// mock は通常の top-level const ではなく vi.hoisted で生成する（hoist 前参照=
+// TDZ を避ける。anthropic.test.ts と同じパターン）。
+const {
+  afterMock,
+  broadcastMailToEventMock,
+  loadActiveBindingMock,
+  classifyMailMock,
+  persistOutcomeMock,
+} = vi.hoisted(() => ({
+  // dedup テストで即時実行に差し替えるため切り替え可能（既定 no-op）。
+  afterMock: vi.fn((_cb: () => void | Promise<void>) => {}),
+  broadcastMailToEventMock: vi.fn(async () => ({
+    status: 'skipped' as const,
+    reason: 'mocked',
+    sentTextCount: 0,
+    sentImageCount: 0,
+    fallbackLinkCount: 0,
+  })),
+  loadActiveBindingMock: vi.fn(
+    async (_db: unknown, _eventId: number) =>
+      null as { lineGroupId: string } | null,
+  ),
+  classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
+  persistOutcomeMock: vi.fn(async () => ({})),
+}))
+
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
@@ -28,8 +55,7 @@ vi.mock('next/cache', () => ({
 //
 // tournament-title-grade-split: broadcast の dedup 検証では after() の中身を
 // 実行する必要があるので、afterMock を切り替え可能にして既定は no-op、dedup
-// テストだけ即時実行に差し替える。
-const afterMock = vi.fn((_cb: () => void | Promise<void>) => {})
+// テストだけ即時実行に差し替える（afterMock は上の vi.hoisted で生成）。
 vi.mock('next/server', async () => {
   const actual = await vi.importActual<typeof import('next/server')>('next/server')
   return {
@@ -41,16 +67,6 @@ vi.mock('next/server', async () => {
 // after が直接実行されても LINE 連携ロジックを発火させないようスタブ化する。
 // loadActiveBinding は approveDraftUnits の broadcast dedup が呼ぶので、
 // 既定は「紐付けなし(null)」を返し、dedup テストで eventId→group を差し替える。
-const broadcastMailToEventMock = vi.fn(async () => ({
-  status: 'skipped' as const,
-  reason: 'mocked',
-  sentTextCount: 0,
-  sentImageCount: 0,
-  fallbackLinkCount: 0,
-}))
-const loadActiveBindingMock = vi.fn(async (_db: unknown, _eventId: number) => null as
-  | { lineGroupId: string }
-  | null)
 vi.mock('@/lib/line-broadcast', () => ({
   broadcastMailToEvent: broadcastMailToEventMock,
   loadActiveBinding: loadActiveBindingMock,
@@ -59,8 +75,6 @@ vi.mock('@/lib/line-broadcast', () => ({
 // Stub the mail-worker classifier surface so reextractDraft does not actually
 // call Anthropic. The action only needs `classifyMail` + `persistOutcome` to
 // resolve; we capture the call shape for assertions.
-const classifyMailMock = vi.fn(async () => ({ kind: 'noise' as const, result: {} }))
-const persistOutcomeMock = vi.fn(async () => ({}))
 vi.mock('@kagetra/mail-worker/classify/classifier', () => ({
   classifyMail: classifyMailMock,
   persistOutcome: persistOutcomeMock,

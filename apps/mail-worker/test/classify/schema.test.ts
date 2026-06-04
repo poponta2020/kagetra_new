@@ -193,4 +193,27 @@ describe('ExtractionPayloadSchema (2.0.0 events[] shape)', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('rejects a noise verdict that still carries events (review r2 should_fix)', () => {
+    // is_tournament_announcement=false but events present → self-contradiction.
+    // The classifier treats the boolean as authoritative and would drop these
+    // events silently, so Zod must fail and take the retry path.
+    const result = ExtractionPayloadSchema.safeParse({
+      is_tournament_announcement: false,
+      confidence: 0.9,
+      reason: 'contradiction',
+      short_name_stem: '大阪',
+      events: [
+        { ...baseUnit, unit_key: 'u1', event_date: '2026-01-11' },
+      ],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) =>
+          /events\[\] is non-empty/.test(i.message),
+        ),
+      ).toBe(true)
+    }
+  })
 })

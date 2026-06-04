@@ -124,6 +124,19 @@ export const ExtractionPayloadSchema = z
         path: ['events'],
       })
     }
+    // review r2 should_fix: the inverse must also hold — noise (false) must
+    // carry events:[]. A false verdict WITH events is a self-contradiction (the
+    // prompt requires events:[] for noise); the classifier treats
+    // is_tournament_announcement as authoritative and would drop those events
+    // silently. Fail Zod so the retry path runs instead of losing the split.
+    if (!val.is_tournament_announcement && val.events.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'is_tournament_announcement is false but events[] is non-empty (noise must carry events:[])',
+        path: ['events'],
+      })
+    }
 
     const seen = new Set<string>()
     val.events.forEach((unit, i) => {
