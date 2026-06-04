@@ -252,6 +252,18 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     throw new Error('draft is not approvable')
   }
 
+  // r3 should_fix: only accept unit_keys that actually belong to this draft's
+  // payload. A tampered / stale client form could otherwise POST an arbitrary
+  // unit_key and create an `events` row whose tournament_draft_unit_key has no
+  // counterpart in the draft — polluting the materialize/complete reconciliation.
+  // extractPayloadUnitKeys mirrors ApprovalForm.normalizeUnits (legacy/null → 'u1').
+  const allowedUnitKeys = new Set(extractPayloadUnitKeys(draft.extractedPayload))
+  for (const unit of units) {
+    if (!allowedUnitKeys.has(unit.unitKey)) {
+      throw new Error(`入力が不正です: 未知のイベント単位 (${unit.unitKey})`)
+    }
+  }
+
   // Validate every selected unit BEFORE opening the transaction so a bad unit
   // aborts the whole batch without a partial INSERT — same FK-validation as
   // events/new / approveDraft, applied per unit.
@@ -424,6 +436,21 @@ export async function completeDraft(draftId: number) {
   if (!draft) throw new Error('draft not found')
   if (!APPROVABLE_STATUSES.includes(draft.status as (typeof APPROVABLE_STATUSES)[number])) {
     throw new Error('draft is not approvable')
+  }
+
+  // r3 blocker: completeDraft は「一部登録した後、残りの単位を作らずに閉じる」
+  // 導線。1 件も materialize していない draft をこれで閉じると、大会案内メールを
+  // 0 イベントのまま processed にして取りこぼす。1 件以上の作成を必須にし、0 件で
+  // 閉じたいケースは reject に誘導する（UI 側もボタンを出さない）。
+  const materialized = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.tournamentDraftId, draftId))
+    .limit(1)
+  if (materialized.length === 0) {
+    throw new Error(
+      '作成済みイベントがありません。先にイベントを登録するか、却下してください',
+    )
   }
 
   await db.transaction(async (tx) => {

@@ -44,8 +44,13 @@ const IsoDateSchema = z
  * edited downstream.
  */
 export const EventUnitSchema = z.object({
-  /** Stable id ("u1","u2"…). Used to reconcile units across re-render and partial approval. */
-  unit_key: z.string(),
+  /**
+   * Stable id ("u1","u2"…). Used to reconcile units across re-render and
+   * partial approval, and as the web form field namespace (`${unit_key}__*`).
+   * review r2 should_fix: pin the format the prompt asks for so an empty or
+   * exotic string can't break the form namespace / materialize matching.
+   */
+  unit_key: z.string().regex(/^u[1-9]\d*$/, 'unit_key must be "u1", "u2", …'),
   /** This unit's event date (the split key). null when unparseable (range-only text, etc.). */
   event_date: IsoDateSchema,
   /** Grades held on this date. Multiple same-day grades are merged here. null when absent/unknown. */

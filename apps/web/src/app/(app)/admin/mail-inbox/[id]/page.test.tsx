@@ -124,7 +124,7 @@ describe('admin/mail-inbox/[id] page', () => {
     ).toBeDefined()
   })
 
-  it('新形式 events[] の分割案内を N フォームで描画し「残りは作らず完了」ボタンを出す', async () => {
+  it('新形式 events[] の分割案内を N フォームで描画する（未登録のみなら完了ボタンは出さない: r3 blocker）', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     const mail = await createMailMessage({ subject: 'split announcement' })
@@ -159,7 +159,9 @@ describe('admin/mail-inbox/[id] page', () => {
     expect(
       screen.getByText('この案内から 2 件のイベントを作成します'),
     ).toBeDefined()
-    expect(screen.getByText('残りは作らず完了')).toBeDefined()
+    // r3 blocker: materialize 済みが 0 件のうちは「残りは作らず完了」を出さない
+    // （0 イベントで draft を processed にして大会案内を取りこぼすのを防ぐ）。
+    expect(screen.queryByText('残りは作らず完了')).toBeNull()
   })
 
   it('materialize 済み単位は登録済み表示・編集フォームを出さない', async () => {
@@ -202,6 +204,8 @@ describe('admin/mail-inbox/[id] page', () => {
         'この案内から 2 件のイベントを作成します（うち登録済み 1 件）',
       ),
     ).toBeDefined()
+    // r3 blocker: 1 件以上 materialize 済みなら「残りは作らず完了」が出る。
+    expect(screen.getByText('残りは作らず完了')).toBeDefined()
   })
 
   it('approved draft は tournament_draft 由来の作成済みイベント一覧をリンク表示する', async () => {

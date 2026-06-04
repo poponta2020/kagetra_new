@@ -389,22 +389,28 @@ export default async function MailDraftDetailPage({
             groups={groups}
             action={approveDraftUnits.bind(null, draftId)}
           />
-          <Card>
-            <form
-              action={completeAction}
-              className="flex items-center justify-between gap-2"
-            >
-              <span className="text-xs text-ink-meta">
-                残りの未登録イベントを作成せず、このドラフトを完了します。
-              </span>
-              <button
-                type="submit"
-                className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-ink-2 hover:bg-surface-alt"
+          {/* r3 blocker: 「残りは作らず完了」は一部登録後の残単位を閉じる導線。
+              1 件も作成していない draft で押すと 0 イベントで処理済みになり大会
+              案内を取りこぼすため、materialize 済みが 1 件以上のときだけ表示する
+              （completeDraft 側でも同条件を検証）。0 件のまま閉じたいなら却下を使う。 */}
+          {hasMaterializedEvents && (
+            <Card>
+              <form
+                action={completeAction}
+                className="flex items-center justify-between gap-2"
               >
-                残りは作らず完了
-              </button>
-            </form>
-          </Card>
+                <span className="text-xs text-ink-meta">
+                  残りの未登録イベントを作成せず、このドラフトを完了します。
+                </span>
+                <button
+                  type="submit"
+                  className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-ink-2 hover:bg-surface-alt"
+                >
+                  残りは作らず完了
+                </button>
+              </form>
+            </Card>
+          )}
         </section>
       )}
 
