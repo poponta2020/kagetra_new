@@ -126,4 +126,71 @@ describe('ExtractionPayloadSchema (2.0.0 events[] shape)', () => {
   it('EventUnitSchema validates a well-formed unit directly', () => {
     expect(EventUnitSchema.parse(baseUnit).unit_key).toBe('u1')
   })
+
+  it('rejects duplicate unit_key across events (review CRITICAL-2)', () => {
+    // Two units sharing unit_key='u1' would collide the web form's
+    // `${unit_key}__*` field namespaces and get Set-deduped server-side,
+    // silently dropping one event.
+    const result = ExtractionPayloadSchema.safeParse({
+      is_tournament_announcement: true,
+      confidence: 0.9,
+      reason: 'dup key',
+      short_name_stem: '大阪',
+      events: [
+        { ...baseUnit, unit_key: 'u1', event_date: '2026-01-11' },
+        { ...baseUnit, unit_key: 'u1', event_date: '2026-01-12' },
+      ],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => /duplicate unit_key/.test(i.message))).toBe(
+        true,
+      )
+    }
+  })
+
+  it('accepts distinct unit_keys across events', () => {
+    const result = ExtractionPayloadSchema.safeParse({
+      is_tournament_announcement: true,
+      confidence: 0.9,
+      reason: 'distinct keys',
+      short_name_stem: '大阪',
+      events: [
+        { ...baseUnit, unit_key: 'u1', event_date: '2026-01-11' },
+        { ...baseUnit, unit_key: 'u2', event_date: '2026-01-12' },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a tournament announcement with an empty events array (review CRITICAL-2)', () => {
+    // is_tournament_announcement=true but no units → downstream would render a
+    // blank synthetic form and lose the AI's intent. Force the retry path.
+    const result = ExtractionPayloadSchema.safeParse({
+      is_tournament_announcement: true,
+      confidence: 0.9,
+      reason: 'tournament but no units',
+      short_name_stem: '大阪',
+      events: [],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => /events\[\] is empty/.test(i.message)),
+      ).toBe(true)
+    }
+  })
+
+  it('still accepts noise (is_tournament_announcement=false + empty events)', () => {
+    // The empty-events guard only applies to tournament announcements; noise
+    // payloads legitimately carry `events: []`.
+    const result = ExtractionPayloadSchema.safeParse({
+      is_tournament_announcement: false,
+      confidence: 0.9,
+      reason: 'noise',
+      short_name_stem: null,
+      events: [],
+    })
+    expect(result.success).toBe(true)
+  })
 })

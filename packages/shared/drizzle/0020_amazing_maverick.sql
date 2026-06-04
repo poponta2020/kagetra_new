@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "events_tournament_draft_unit_key_uniq" ON "events" USING btree ("tournament_draft_id","tournament_draft_unit_key") WHERE "events"."tournament_draft_id" IS NOT NULL AND "events"."tournament_draft_unit_key" IS NOT NULL;

@@ -240,6 +240,11 @@ export default async function MailDraftDetailPage({
   const registeredUnitKeys = materializedEvents
     .filter((e): e is typeof e & { unitKey: string } => e.unitKey != null)
     .map((e) => ({ unitKey: e.unitKey, eventId: e.id }))
+  // CRITICAL-3: 1 件でもイベントを materialize 済みの draft は reject /
+  // linkDraftToEvent を出さない（作成済みイベントを残したまま矛盾した terminal
+  // 状態にできてしまうため）。残単位の close は completeDraft に限定する。
+  // server 側 (assertNoMaterializedEvents) でも二重に拒否している。
+  const hasMaterializedEvents = materializedEvents.length > 0
 
   const status = STATUS_LABEL[draft.status] ?? {
     label: draft.status,
@@ -403,7 +408,7 @@ export default async function MailDraftDetailPage({
         </section>
       )}
 
-      {showReject && (
+      {showReject && !hasMaterializedEvents && (
         <section className="flex flex-col gap-2">
           <h2 className="font-display text-base font-bold text-ink">却下</h2>
           <Card>
@@ -447,7 +452,7 @@ export default async function MailDraftDetailPage({
         </section>
       )}
 
-      {showLink && (
+      {showLink && !hasMaterializedEvents && (
         <section className="flex flex-col gap-2">
           <h2 className="font-display text-base font-bold text-ink">
             既存 events に紐付ける

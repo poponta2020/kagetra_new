@@ -1,3 +1,6 @@
+'use client'
+
+import { useState } from 'react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -87,8 +90,6 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
       capacity_d: legacy?.capacity_d ?? null,
       capacity_e: legacy?.capacity_e ?? null,
       official: legacy?.official ?? null,
-      // legacy.title (the AI's full name) becomes the displayed title fallback
-      // when there is no stem to compose from — surfaced via `legacyTitle`.
     },
   ]
 }
@@ -101,6 +102,15 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
  *
  * title pre-fill = `composeTitle(shortNameStem, unit.eligible_grades)`; for a
  * legacy payload with no stem we fall back to the legacy `extracted.title`.
+ *
+ * Client component (review CRITICAL-1): the per-unit register checkbox is
+ * controlled, and an unchecked unit's `EventForm` is wrapped in a
+ * `<fieldset disabled>`. A disabled fieldset removes its inner inputs from the
+ * submitted FormData AND from HTML constraint validation, so an unselected
+ * unit whose `eventDate`/`title` the AI couldn't fill never blocks the submit
+ * (the partial-approval / シナリオ C path). The server action
+ * (`extractEventUnitsFormData`) already keys off `${unit_key}__register`, so a
+ * deselected unit is ignored end-to-end.
  */
 export function ApprovalForm({
   payload,
@@ -112,6 +122,16 @@ export function ApprovalForm({
   const units = normalizeUnits(payload)
   const registeredMap = new Map(
     registeredUnitKeys.map((r) => [r.unitKey, r.eventId]),
+  )
+
+  // register state for the not-yet-materialized units only (registered units
+  // render read-only and don't participate in the submit).
+  const [registered, setRegistered] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      units
+        .filter((u) => !registeredMap.has(u.unit_key))
+        .map((u) => [u.unit_key, true]),
+    ),
   )
 
   // Legacy title fallback: when there's no stem (old payload), use the AI's
@@ -148,8 +168,7 @@ export function ApprovalForm({
 
           if (registeredEventId != null) {
             // Already materialized: read-only, no editable form. We still
-            // forward the unit_key so the server action can recount, and pin
-            // its register checkbox ON (hidden) for completeness.
+            // forward the unit_key so the server action can recount.
             return (
               <Card key={unit.unit_key}>
                 <input type="hidden" name="unit_key" value={unit.unit_key} />
@@ -172,6 +191,7 @@ export function ApprovalForm({
           }
 
           const prefix = `${unit.unit_key}__`
+          const isChecked = registered[unit.unit_key] ?? true
           return (
             <Card key={unit.unit_key}>
               <div className="flex flex-col gap-3">
@@ -179,7 +199,13 @@ export function ApprovalForm({
                   <input
                     type="checkbox"
                     name={`${prefix}register`}
-                    defaultChecked
+                    checked={isChecked}
+                    onChange={(e) =>
+                      setRegistered((s) => ({
+                        ...s,
+                        [unit.unit_key]: e.target.checked,
+                      }))
+                    }
                     className="rounded border-border"
                   />
                   このイベントを登録する
@@ -189,38 +215,48 @@ export function ApprovalForm({
                     </span>
                   )}
                 </label>
-                {/* unit_key marker for extractEventUnitsFormData. */}
+                {/* unit_key marker for extractEventUnitsFormData — kept OUTSIDE
+                    the disabled fieldset so it is always submitted (the server
+                    counts it for materialize tracking; register gating happens
+                    via the `${prefix}register` checkbox above). */}
                 <input type="hidden" name="unit_key" value={unit.unit_key} />
-                <EventForm
-                  mode="create"
-                  action={action}
-                  groups={groups}
-                  cancelHref="/admin/mail-inbox"
-                  fieldPrefix={prefix}
-                  defaultValues={{
-                    title: composedTitle,
-                    formalName: unit.formal_name ?? null,
-                    eventDate: unit.event_date ?? null,
-                    location: unit.venue ?? null,
-                    feeJpy: unit.fee_jpy ?? null,
-                    paymentDeadline: unit.payment_deadline ?? null,
-                    paymentInfo: unit.payment_info_text ?? null,
-                    paymentMethod: unit.payment_method ?? null,
-                    entryMethod: unit.entry_method ?? null,
-                    organizer: unit.organizer_text ?? null,
-                    entryDeadline: unit.entry_deadline ?? null,
-                    eligibleGrades: unit.eligible_grades ?? null,
-                    kind: unit.kind ?? 'individual',
-                    // EventUnit has no announcement-wide capacity; per-grade only.
-                    capacity: null,
-                    capacityA: unit.capacity_a ?? null,
-                    capacityB: unit.capacity_b ?? null,
-                    capacityC: unit.capacity_c ?? null,
-                    capacityD: unit.capacity_d ?? null,
-                    capacityE: unit.capacity_e ?? null,
-                    official: unit.official ?? true,
-                  }}
-                />
+                {/* Unchecked → disabled fieldset → inner inputs skip submit and
+                    HTML required validation (review CRITICAL-1). */}
+                <fieldset
+                  disabled={!isChecked}
+                  className="m-0 border-0 p-0 disabled:opacity-50"
+                >
+                  <EventForm
+                    mode="create"
+                    action={action}
+                    groups={groups}
+                    cancelHref="/admin/mail-inbox"
+                    fieldPrefix={prefix}
+                    defaultValues={{
+                      title: composedTitle,
+                      formalName: unit.formal_name ?? null,
+                      eventDate: unit.event_date ?? null,
+                      location: unit.venue ?? null,
+                      feeJpy: unit.fee_jpy ?? null,
+                      paymentDeadline: unit.payment_deadline ?? null,
+                      paymentInfo: unit.payment_info_text ?? null,
+                      paymentMethod: unit.payment_method ?? null,
+                      entryMethod: unit.entry_method ?? null,
+                      organizer: unit.organizer_text ?? null,
+                      entryDeadline: unit.entry_deadline ?? null,
+                      eligibleGrades: unit.eligible_grades ?? null,
+                      kind: unit.kind ?? 'individual',
+                      // EventUnit has no announcement-wide capacity; per-grade only.
+                      capacity: null,
+                      capacityA: unit.capacity_a ?? null,
+                      capacityB: unit.capacity_b ?? null,
+                      capacityC: unit.capacity_c ?? null,
+                      capacityD: unit.capacity_d ?? null,
+                      capacityE: unit.capacity_e ?? null,
+                      official: unit.official ?? true,
+                    }}
+                  />
+                </fieldset>
               </div>
             </Card>
           )

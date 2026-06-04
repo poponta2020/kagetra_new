@@ -196,11 +196,12 @@ function extractPayloadUnitKeys(payload: unknown): string[] {
         )
         .filter((k): k is string => typeof k === 'string')
     }
-    if (p.extracted != null) {
-      return ['u1']
-    }
   }
-  return []
+  // SHOULD_FIX-1: null / 空 events / 旧 `extracted` のいずれも、ApprovalForm の
+  // normalizeUnits は synthetic 'u1' を 1 件描画する。ここも 'u1' を返して突合
+  // させないと、手動で 1 件作成しても allMaterialized が常に false となり、
+  // draft/mail が pending に取り残される。
+  return ['u1']
 }
 
 /**
@@ -293,6 +294,12 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
         .limit(1)
       if (existing.length > 0) continue
 
+      // CRITICAL-4: the SELECT above is best-effort de-dup, but a concurrent
+      // approval / double-submit can slip a second INSERT past it. The DB-side
+      // partial unique index (events_tournament_draft_unit_key_uniq) is the
+      // hard guarantee; onConflictDoNothing makes the race lose silently. On a
+      // conflict `returning` is empty → this unit was already materialized by
+      // the other writer, so skip it (do NOT count it as newly created).
       const inserted = await tx
         .insert(events)
         .values({
@@ -302,9 +309,21 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
           tournamentDraftId: draftId,
           tournamentDraftUnitKey: unitKey,
         })
+        // `where` is REQUIRED here: the unique index is PARTIAL (WHERE both
+        // columns NOT NULL), and Postgres only treats a partial index as the
+        // conflict arbiter when ON CONFLICT repeats its predicate — otherwise
+        // it raises "no unique or exclusion constraint matching the ON CONFLICT
+        // specification". Mirror events_tournament_draft_unit_key_uniq. (drizzle
+        // 0.45 exposes this arbiter predicate as `where`, not `targetWhere`.)
+        .onConflictDoNothing({
+          target: [events.tournamentDraftId, events.tournamentDraftUnitKey],
+          where: sql`${events.tournamentDraftId} IS NOT NULL AND ${events.tournamentDraftUnitKey} IS NOT NULL`,
+        })
         .returning({ id: events.id })
       const newEventId = inserted[0]?.id
-      if (newEventId == null) throw new Error('event insert failed')
+      // Empty returning here means the unique index rejected the row (a
+      // concurrent insert won the race). Not an error — just skip.
+      if (newEventId == null) continue
       createdEventIds.push(newEventId)
     }
 
@@ -446,12 +465,41 @@ export async function completeDraft(draftId: number) {
   revalidatePath(`/admin/mail-inbox/${draftId}`)
 }
 
+/**
+ * Throw if any events row was already materialized from this draft
+ * (tournament_title-grade-split review CRITICAL-3). Once a unit has been
+ * approved into an event, the draft is mid-flight: rejecting it (→ rejected)
+ * or re-pointing it at a single existing event (linkDraftToEvent) would leave
+ * orphaned created events behind while the draft claims a contradictory
+ * terminal state. The only valid close path for a partially-approved draft is
+ * completeDraft (approve the rest, or finish without them).
+ */
+async function assertNoMaterializedEvents(
+  draftId: number,
+  message: string,
+): Promise<void> {
+  const materialized = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.tournamentDraftId, draftId))
+    .limit(1)
+  if (materialized.length > 0) throw new Error(message)
+}
+
 export async function rejectDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
   const reasonRaw = formData.get('rejection_reason')
   const reason = typeof reasonRaw === 'string' ? reasonRaw.trim() : ''
   if (!reason) throw new Error('却下理由は必須です')
+
+  // CRITICAL-3 二重防御: a draft with already-created events must not be
+  // rejected (the UI hides the reject form in this case, but guard the action
+  // too). Run before the transaction so nothing mutates on the bad path.
+  await assertNoMaterializedEvents(
+    draftId,
+    '作成済みイベントがあるため却下できません',
+  )
 
   // event_id is intentionally not touched here: rejection doesn't link to an
   // event, and a previously linked draft being re-rejected keeps its history.
@@ -544,6 +592,15 @@ export async function reextractDraft(draftId: number) {
 
 export async function linkDraftToEvent(draftId: number, eventId: number) {
   const session = await requireAdminSession()
+
+  // CRITICAL-3 二重防御: linking points the draft at a single existing event,
+  // which contradicts a draft that already split into its own created events.
+  // Refuse so the partial-approval state can't be silently overwritten. The UI
+  // also hides the link form once any unit is materialized.
+  await assertNoMaterializedEvents(
+    draftId,
+    '作成済みイベントがあるため紐付けできません',
+  )
 
   const target = await db.query.events.findFirst({
     where: eq(events.id, eventId),

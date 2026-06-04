@@ -73,33 +73,69 @@ export const EventUnitSchema = z.object({
 
 export type EventUnit = z.infer<typeof EventUnitSchema>
 
-export const ExtractionPayloadSchema = z.object({
-  is_tournament_announcement: z.boolean(),
-  confidence: z.number().min(0).max(1),
-  reason: z.string(),
-  is_correction: z.boolean().optional(),
-  references_subject: z.string().nullable().optional(),
+export const ExtractionPayloadSchema = z
+  .object({
+    is_tournament_announcement: z.boolean(),
+    confidence: z.number().min(0).max(1),
+    reason: z.string(),
+    is_correction: z.boolean().optional(),
+    references_subject: z.string().nullable().optional(),
 
-  // Place-specific stem of "○○大会" (shared across the whole announcement),
-  // with generic words stripped (第N回 / 全国 / 競技かるた / 選手権 …). The base
-  // for title composition. null when no grade/place can be determined.
-  short_name_stem: z.string().nullable(),
+    // Place-specific stem of "○○大会" (shared across the whole announcement),
+    // with generic words stripped (第N回 / 全国 / 競技かるた / 選手権 …). The base
+    // for title composition. null when no grade/place can be determined.
+    short_name_stem: z.string().nullable(),
 
-  // One or more units for a tournament announcement, `[]` for noise. One unit
-  // per event date.
-  events: z.array(EventUnitSchema),
+    // One or more units for a tournament announcement, `[]` for noise. One unit
+    // per event date.
+    events: z.array(EventUnitSchema),
 
-  // Auxiliary raw text the AI surfaced. Not promoted to `events` rows on
-  // approval — kept here for review-time context and future re-extraction.
-  extras: z
-    .object({
-      fee_raw_text: z.string().nullable().optional(),
-      eligible_grades_raw: z.string().nullable().optional(),
-      target_grades_raw: z.string().nullable().optional(),
-      local_rules_summary: z.string().nullable().optional(),
-      timetable_summary: z.string().nullable().optional(),
+    // Auxiliary raw text the AI surfaced. Not promoted to `events` rows on
+    // approval — kept here for review-time context and future re-extraction.
+    extras: z
+      .object({
+        fee_raw_text: z.string().nullable().optional(),
+        eligible_grades_raw: z.string().nullable().optional(),
+        target_grades_raw: z.string().nullable().optional(),
+        local_rules_summary: z.string().nullable().optional(),
+        timetable_summary: z.string().nullable().optional(),
+      })
+      .optional(),
+  })
+  // Cross-field invariants that a flat object schema can't express
+  // (tournament-title-grade-split review CRITICAL-2):
+  //
+  //   1. A tournament announcement must carry at least one event unit. An
+  //      empty `events` for `is_tournament_announcement: true` would render a
+  //      synthetic blank form downstream and silently drop the AI's split —
+  //      better to fail Zod and take the retry path. Noise (false + []) is
+  //      fine and intentionally allowed.
+  //   2. `unit_key` must be unique across `events`. The web approval form keys
+  //      its per-unit fields by `unit_key` (`${unit_key}__title`, …) and the
+  //      server de-dupes via a Set, so a duplicate key collides form values and
+  //      drops one unit. Reject duplicates here so a bad AI payload retries
+  //      instead of producing a one-event-short approval.
+  .superRefine((val, ctx) => {
+    if (val.is_tournament_announcement && val.events.length < 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'is_tournament_announcement is true but events[] is empty (expected at least one unit)',
+        path: ['events'],
+      })
+    }
+
+    const seen = new Set<string>()
+    val.events.forEach((unit, i) => {
+      if (seen.has(unit.unit_key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `duplicate unit_key "${unit.unit_key}" in events[] (unit_key must be unique)`,
+          path: ['events', i, 'unit_key'],
+        })
+      }
+      seen.add(unit.unit_key)
     })
-    .optional(),
-})
+  })
 
 export type ExtractionPayload = z.infer<typeof ExtractionPayloadSchema>

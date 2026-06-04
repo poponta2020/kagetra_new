@@ -1,4 +1,13 @@
-import { integer, pgTable, text, timestamp, date, boolean } from 'drizzle-orm/pg-core'
+import {
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  date,
+  boolean,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import {
   eventStatusEnum,
   eventKindEnum,
@@ -56,4 +65,18 @@ export const events = pgTable('events', {
   tournamentDraftUnitKey: text('tournament_draft_unit_key'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => [
+  // tournament-title-grade-split (review CRITICAL-4): a draft unit (unit_key)
+  // materializes into exactly one events row. SELECT-then-INSERT in
+  // approveDraftUnits is not concurrency-safe on its own (a double-submit or
+  // two parallel approvals could both pass the existence check and insert two
+  // rows for the same unit). This partial unique index makes the DB the final
+  // arbiter; approveDraftUnits pairs it with onConflictDoNothing on the same
+  // target. Partial (WHERE both columns NOT NULL) so manually-created / legacy
+  // events with NULL draft links are unaffected.
+  uniqueIndex('events_tournament_draft_unit_key_uniq')
+    .on(table.tournamentDraftId, table.tournamentDraftUnitKey)
+    .where(
+      sql`${table.tournamentDraftId} IS NOT NULL AND ${table.tournamentDraftUnitKey} IS NOT NULL`,
+    ),
+])
