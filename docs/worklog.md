@@ -2233,3 +2233,32 @@
 ### 備考
 - 本番反映は auto-deploy（main push で自動 build→restart）に委ねる。本 PR は migration なし
 - worktree C:/tmp/impl-settings-sheet は git 登録解除済みだが物理ディレクトリにロックファイル残存（temp ゴミ、次回掃除可）
+
+## 2026-06-04 セッション（tournament-title-grade-split ship）
+
+### 完了
+- **PR #111 マージ完了** (feat: 大会名の短縮命名と開催日ごとのイベント分割): 2026-06-04
+  - URL: https://github.com/poponta2020/kagetra_new/pull/111
+  - Merge commit: `e664b3d`、親 Issue #102 + 子 #103-109 全クローズ
+  - **本番反映 success**（auto-deploy: migration 0020 適用 + restart, Oracle 東京、Deploy to production 1m32s）
+- 前セッションからの引き継ぎ（実装7タスク完了済・Codex R1-R5 修正済、R5 blocker 1件のみ残）からの再開
+- **R5 blocker 修正（`9c120b1`）**: 再抽出と承認の並行実行で draft payload と作成済み event が食い違う race を FOR UPDATE で直列化
+  - `approveDraftUnits`: status/messageId/isCorrection/extractedPayload を tx 内の FOR UPDATE ロック済み行から取得し、allowedUnitKeys（未知単位拒否）と allMaterialized（完了判定）の突合を locked payload だけで実施。pre-lock read の判定を排除
+  - `reextractDraft`: LLM 実行後・persistOutcome 直前に draft 行を FOR UPDATE して status と materialized event 不在を再確認し、同一ロック下で `persistOutcome(tx, ...)` で payload 更新
+- 検証: web 型チェック green、web vitest 365 green（逐次 `--no-file-parallelism`、mail-inbox/actions 74 件含む）、PR CI（lint/typecheck/vitest/E2E）green
+
+### auto-review-loop ログ
+- 2026-06-04 /auto-review-loop PR #111: 1R（通算 R6）, verdict=pass, effort=high, tokens=30414/800000, result=pass
+  - 前セッションで累計 ~544k（R1-R5）が既定上限 500k を超えていたため `--max-tokens 800000` で再開。R6 は r5-fix 差分（`cbcb4e5..HEAD` 188行/1ファイル）のみ high で静的レビュー → blockers 0 / should_fix 0 / nits 0
+
+### 学び
+- R5 blocker の本質: `upsertDraft` は message_id UPSERT で `approved`/`rejected` のみ preserve ガード。部分承認中（status=pending_review + materialized events あり）は守られないため、reextract の payload 書換を tx 内 materialize 不在チェックで止める必要があった
+- codex exec は Windows で `next build` を実行して固まるため `-c sandbox_mode="read-only"` + プロンプトに「シェルコマンド禁止・差分のみ静的レビュー」を付与（前セッション引き継ぎの罠、今回も適用して回避）
+- 検証 flaky 罠を feedback memory に切り出し（feedback_vitest_no_file_parallelism）
+
+### 残 DoD
+- スマホ実機目視（承認画面の複数イベント単位フォーム、分割承認→完了フロー、LINE 配信の単位ごと/グループ重複排除）
+
+### 備考
+- worktree C:/tmp/impl-tournament-title-split は git 登録解除済みだが物理ディレクトリにロック残存（Device or resource busy、temp ゴミ、次回掃除可）
+- 次の機能候補: entry-notify-lottery-treasurer（親#112/子#113-117、実装未着手）

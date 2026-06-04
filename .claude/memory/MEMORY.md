@@ -17,8 +17,9 @@
 - [event-lifecycle-notify SHIPPED](impl_event_lifecycle_notify.md) — PR #85 merge `42e1cef` (2026-06-01)、子#80-83+親#79クローズ。非自明: 自前push・同一tx で状態flip+once-ever claim・scripts を type/test 編入・未紐付けでも slot 消費・payment型変更は状態リセットするが once-ever ログ保持。**本番反映済 (migration 0017 適用 + reminder timer enable, 2026-06-01、auto-deploy 有効化の前提として実施)**。残=実機LINE目視のみ
 - [本番自動デプロイ (Actions+SSH) 稼働中](project_auto_deploy.md) — PR #86 merge `7d15042` (2026-06-01)、初回 run 成功(SKIPPED_NOCODE 疎通確認)。main の code 変更 push で自動 build→migration(冪等)→restart、docs のみ skip。kagetra(scoped sudo)へ deploy 鍵で SSH。host 鍵/sudoers/secrets 設定済
 - [mail-triage-badge SHIPPED](project_mail_triage_badge.md) — 全メールトリアージ＋PWA未処理バッジ(Web Push)。PR #95 merge `2ca9af2` (2026-06-01)、本番反映 success、Issue #87-92 全クローズ。triage_status 3状態・処理4アクション・既存メール processed 化・準リアルタイム同期。残 DoD=本番 VAPID 鍵設定+iOS 実機バッジ目視
-- [tournament-title-grade-split 機能定義](project_tournament_title_grade_split.md) — 大会名を「場所+級」短縮通称化＋開催日ごとイベント分割（mail-tournament-import 拡張）。Issue #102-109、**タスク1(#103 DB+migration)完了・残6/7** (2026-06-03、ブランチ feature/tournament-title-split)。1ドラフト:Nイベント・title合成(stem AI/級A→E連結)・AI抽出2.0.0・再抽出ガード・LINE配信グループ重複排除
+- [tournament-title-grade-split SHIPPED+本番反映](project_tournament_title_grade_split.md) — 大会名を「場所+級」短縮通称化＋開催日ごとイベント分割（mail-tournament-import 拡張）。PR #111 merge `e664b3d` (2026-06-04)、本番反映 success(migration 0020)、親#102+子#103-109 全クローズ。1ドラフト:Nイベント・title合成(stem AI/級A→E連結)・AI抽出2.0.0・FOR UPDATE で承認/再抽出の payload race 直列化(R1-R6)・LINE配信グループ重複排除。残 DoD=実機目視のみ
 - [settings-sheet SHIPPED](project_settings_sheet.md) — 設定画面への導線（ヘッダ {name}さん タップ→設定シート AccountMenu）。PR #110 merge `4857787` (2026-06-03)、親#97+子#98-101 全クローズ。design.md §3 未実装仕様の実装、ロール出し分け、ログアウト集約、/settings/notifications を (app) 配下へ移動(URL不変)・line-link は据え置き。残 DoD=実機目視
+- [entry-notify-lottery-treasurer 機能定義](project_entry_notify_lottery_treasurer.md) — 申込完了通知を2通化: 参加者へ抽選日追記＋会計へ振込方法/期限(2通目)。同じ参加者グループへ同送・会計は常時/金額なし。抽選日=lottery_date手動入力(AI抽出はtitle-split後の別follow-up)。親#112/子#113-117、実装未着手 (2026-06-04)
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
@@ -44,3 +45,4 @@
 - [libreoffice HTML→PDF は --writer 必須](feedback_libreoffice_writer_blank_page.md) — 無いと先頭に真っ白ページが入り本文が2ページ目にずれる(LibreOffice 既知バグ)。Issue #93/PR #94。HTML 変換は `--writer` で Writer 文書として開く
 - [本番 migration は `db:migrate` 使う](feedback_drizzle_kit_push_prompt.md) — `db:push` は既存データありで UNIQUE 制約追加時に interactive prompt 要求 → TTY なしで詰む。`db:migrate` は journal ベースで非 interactive
 - [公開添付 route は blocklist + attachment 固定](feedback_attachment_mime_blocklist.md) — allowlist 方式は xlsx 等をモバイルアプリで開けなくする副作用。`Content-Disposition: attachment` 固定 + 危険 MIME blocklist + token 検証の三重防御
+- [vitest は --no-file-parallelism で逐次実行](feedback_vitest_no_file_parallelism.md) — WSL2 Docker test DB(5434) のクロックドリフトで時刻境界テスト(pipeline-runs/reextract)が並行実行で flaky。ローカルは常に `--no-file-parallelism`
