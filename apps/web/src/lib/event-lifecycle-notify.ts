@@ -94,6 +94,15 @@ export interface LifecycleMessageContext {
   dateIso?: string
   /** Lead days for `*_advance` reminders. Defaults to `reminderLeadDays()`. */
   leadDays?: number
+  // entry-notify-lottery-treasurer ------------------------------------------
+  /** 抽選日 'YYYY-MM-DD'。entry_applied で非 null のとき「抽選日は M/D です」を追記（§3.2.2）。 */
+  lotteryDateIso?: string | null
+  /** 振込期限 'YYYY-MM-DD'。entry_applied_treasurer の「振込期限：M/D」に使う（§3.2.3）。 */
+  paymentDeadlineIso?: string | null
+  /** 振込方法（自由記述）。entry_applied_treasurer の「振込方法：…」に使う。 */
+  paymentMethod?: string | null
+  /** 振込先などの支払情報詳細（自由記述）。entry_applied_treasurer にそのまま載せる。 */
+  paymentInfo?: string | null
 }
 
 /**
@@ -111,8 +120,28 @@ export function buildLifecycleMessage(
   const fee = formatFeeAmount(ctx.feeJpy)
 
   switch (type) {
-    case 'entry_applied':
-      return `✅【${title}】への参加申込が完了しました。`
+    case 'entry_applied': {
+      const applied = `✅【${title}】への参加申込が完了しました。`
+      // §3.2.2: 抽選日が設定されていれば末尾に追記。NULL のときは従来どおり追記なし。
+      return ctx.lotteryDateIso
+        ? `${applied}\n抽選日は ${formatMMDD(ctx.lotteryDateIso)} です。`
+        : applied
+    }
+    case 'entry_applied_treasurer': {
+      // §3.2.3: 申込完了の 2 通目（会計向け）。値があるものだけ行連結、全空なら最小文面。
+      // 金額（feeJpy）は載せない／支払いタイプでは出し分けない（現地払い・未設定でも常に送る）。
+      const lines: string[] = []
+      if (ctx.paymentDeadlineIso) lines.push(`振込期限：${formatMMDD(ctx.paymentDeadlineIso)}`)
+      const method = ctx.paymentMethod?.trim()
+      if (method) lines.push(`振込方法：${method}`)
+      const info = ctx.paymentInfo?.trim()
+      if (info) lines.push(info)
+      const body =
+        lines.length > 0
+          ? lines.join('\n')
+          : '参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。'
+      return `💴【${title}】会計の方へ\n${body}`
+    }
     case 'entry_deadline_advance':
       return `⏰【${title}】の申込締切は ${date}（あと ${lead} 日）です。まだ申込が完了していません。`
     case 'entry_deadline_day':

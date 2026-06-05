@@ -330,6 +330,8 @@ export default async function EventDetailPage({
     ...(event.internalDeadline
       ? [{ label: '会内締切', value: event.internalDeadline }]
       : []),
+    // entry-notify-lottery-treasurer: 抽選日（NULL=抽選なし）。会員にも参照のみ表示する（要件 §3.1.2）。
+    ...(event.lotteryDate ? [{ label: '抽選日', value: event.lotteryDate }] : []),
     ...(event.organizer ? [{ label: '主催', value: event.organizer }] : []),
     ...(event.entryMethod
       ? [{ label: '申込方法', value: event.entryMethod }]

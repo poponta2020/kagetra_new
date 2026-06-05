@@ -109,6 +109,9 @@ export const eventLifecycleNotificationTypeEnum = pgEnum('event_lifecycle_notifi
   'payment_deadline_day',
   'onsite_payment_advance',
   'onsite_payment_day',
+  // entry-notify-lottery-treasurer: 申込完了時に参加者グループへ送る 2 通目（会計向け振込案内）。
+  // entry_applied と別スロットで once-ever 管理する（(event_id, type) UNIQUE）。
+  'entry_applied_treasurer',
 ])
 export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_notification_status', [
   'sent',

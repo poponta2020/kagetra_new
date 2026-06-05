@@ -24,6 +24,9 @@ describe('event-lifecycle-notify schema', () => {
       'payment_deadline_day',
       'onsite_payment_advance',
       'onsite_payment_day',
+      // entry-notify-lottery-treasurer: 申込完了時の 2 通目（会計向け振込案内）。完了トリガー
+      // 由来で daily batch は走査しない（reminder batch は type を明示指定するため、末尾追加は安全）。
+      'entry_applied_treasurer',
     ])
     expect(eventLifecycleNotificationStatusEnum.enumValues).toEqual(['sent', 'failed', 'skipped'])
   })

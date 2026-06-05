@@ -84,6 +84,7 @@ export default async function EditEventPage({
           capacity: event.capacity,
           entryDeadline: event.entryDeadline,
           internalDeadline: event.internalDeadline,
+          lotteryDate: event.lotteryDate,
           eventGroupId: event.eventGroupId,
           eligibleGrades: event.eligibleGrades,
           description: event.description,

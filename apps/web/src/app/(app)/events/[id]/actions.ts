@@ -475,35 +475,98 @@ export async function setEntryApplied(
     return
   }
 
+  // entry-notify-lottery-treasurer: 申込完了で 2 通送る（参加者向け＋会計向け）。
+  // 両 claim は同一 tx で UNIQUE が判定するので、再トグルや並行呼び出しでも
+  // それぞれ 1 回限り。コミット後の push は独立 try/catch (best-effort)。
   const result = await db.transaction(async (tx) => {
     // 未申込→申込済 の初回遷移だけ通す（ガード）。既に applied なら 0 件で
-    // 通知しない。
+    // 通知しない。会計向け文面に必要なフィールド (lotteryDate / payment*) も
+    // 同時に取り出す（コミット後の文面組立に使う）。
     const flipped = await tx
       .update(events)
       .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
       .where(and(eq(events.id, eventId), eq(events.entryStatus, 'not_applied')))
-      .returning({ id: events.id, title: events.title, status: events.status })
-    if (!flipped[0]) return { notificationId: null as number | null, title: '' }
-    // cancelled 大会には通知しない（要件 §3.2.2 #2、日次バッチ側の除外と対称）。
-    // 状態変更そのものは記録する。
-    if (flipped[0].status === 'cancelled') {
-      return { notificationId: null as number | null, title: '' }
+      .returning({
+        id: events.id,
+        title: events.title,
+        status: events.status,
+        lotteryDate: events.lotteryDate,
+        paymentDeadline: events.paymentDeadline,
+        paymentMethod: events.paymentMethod,
+        paymentInfo: events.paymentInfo,
+      })
+    const row = flipped[0]
+    type PendingNotification = {
+      participantNotificationId: number | null
+      treasurerNotificationId: number | null
+      title: string
+      lotteryDate: string | null
+      paymentDeadline: string | null
+      paymentMethod: string | null
+      paymentInfo: string | null
     }
-    // once-ever claim（再トグルしても UNIQUE で 2 回目以降は claim されない）
-    const claim = await claimLifecycleNotification(tx, eventId, 'entry_applied')
-    return { notificationId: claim.id ?? null, title: flipped[0].title }
+    const empty: PendingNotification = {
+      participantNotificationId: null,
+      treasurerNotificationId: null,
+      title: '',
+      lotteryDate: null,
+      paymentDeadline: null,
+      paymentMethod: null,
+      paymentInfo: null,
+    }
+    if (!row) return empty
+    // cancelled 大会には 2 通とも通知しない（要件 §3.2.2 #2、既存 entry_applied と対称）。
+    // 状態変更そのものは記録する（once-ever スロットは消費しない＝後で復帰しても通知しない方針は既存と一貫）。
+    if (row.status === 'cancelled') return empty
+    // 種別ごとに独立 claim（UNIQUE(event_id,type) で 2 回目以降は claim 失敗）。
+    // 同一 tx 内で両方走らせるので、片方の claim 結果がもう片方を阻害することはない。
+    const participantClaim = await claimLifecycleNotification(tx, eventId, 'entry_applied')
+    const treasurerClaim = await claimLifecycleNotification(tx, eventId, 'entry_applied_treasurer')
+    return {
+      participantNotificationId: participantClaim.id ?? null,
+      treasurerNotificationId: treasurerClaim.id ?? null,
+      title: row.title,
+      lotteryDate: row.lotteryDate,
+      paymentDeadline: row.paymentDeadline,
+      paymentMethod: row.paymentMethod,
+      paymentInfo: row.paymentInfo,
+    }
   })
 
-  if (result.notificationId != null) {
-    const message = buildLifecycleMessage('entry_applied', { title: result.title })
+  // 参加者向け（抽選日があれば追記）。
+  if (result.participantNotificationId != null) {
+    const message = buildLifecycleMessage('entry_applied', {
+      title: result.title,
+      lotteryDateIso: result.lotteryDate,
+    })
     try {
       await sendClaimedNotification(db, {
-        notificationId: result.notificationId,
+        notificationId: result.participantNotificationId,
         eventId,
         message,
       })
     } catch {
       // best-effort: 状態変更はコミット済み。push 失敗で巻き戻さない。
+    }
+  }
+
+  // 会計向け 2 通目（振込方法/期限/詳細、全空なら最小文面）。
+  // 参加者向けの push 失敗ともう片方の送信成否は独立（要件 §3.2.5）。
+  if (result.treasurerNotificationId != null) {
+    const message = buildLifecycleMessage('entry_applied_treasurer', {
+      title: result.title,
+      paymentDeadlineIso: result.paymentDeadline,
+      paymentMethod: result.paymentMethod,
+      paymentInfo: result.paymentInfo,
+    })
+    try {
+      await sendClaimedNotification(db, {
+        notificationId: result.treasurerNotificationId,
+        eventId,
+        message,
+      })
+    } catch {
+      // best-effort
     }
   }
   revalidatePath(`/events/${eventId}`)

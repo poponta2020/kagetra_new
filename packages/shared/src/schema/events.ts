@@ -37,6 +37,9 @@ export const events = pgTable('events', {
   eligibleGrades: gradeEnum('eligible_grades').array(),
   feeJpy: integer('fee_jpy'),
   paymentDeadline: date('payment_deadline', { mode: 'string' }),
+  // entry-notify-lottery-treasurer: 抽選日。NULL=抽選なし（先着・全員参加）。申込完了通知の
+  // 参加者向け文面に「抽選日は M/D です」を差し込む。手動入力（AI 抽出は別 follow-up）。
+  lotteryDate: date('lottery_date', { mode: 'string' }),
   paymentInfo: text('payment_info'),
   paymentMethod: text('payment_method'),
   entryMethod: text('entry_method'),

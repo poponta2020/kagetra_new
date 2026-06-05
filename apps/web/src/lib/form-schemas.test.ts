@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { eventFormSchema } from './form-schemas'
+import { eventFormSchema, extractEventFormData, extractEventUnitsFormData } from './form-schemas'
 
 const baseInput = {
   title: '基本',
@@ -35,5 +35,69 @@ describe('eventFormSchema', () => {
   it('eventGroupId=0 は positive 制約で弾く', () => {
     const result = eventFormSchema.safeParse({ ...baseInput, eventGroupId: '0' })
     expect(result.success).toBe(false)
+  })
+
+  // entry-notify-lottery-treasurer -----------------------------------------
+  it('lotteryDate=YYYY-MM-DD は受理する', () => {
+    const result = eventFormSchema.safeParse({ ...baseInput, lotteryDate: '2026-01-20' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.lotteryDate).toBe('2026-01-20')
+  })
+
+  it('lotteryDate=空文字 は null に変換される（=抽選なし）', () => {
+    const result = eventFormSchema.safeParse({ ...baseInput, lotteryDate: '' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.lotteryDate).toBeNull()
+  })
+
+  it('lotteryDate=undefined（フィールド未送信）も null に変換される', () => {
+    const result = eventFormSchema.safeParse(baseInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.lotteryDate).toBeNull()
+  })
+
+  it('lotteryDate=不正形式は弾く', () => {
+    const result = eventFormSchema.safeParse({ ...baseInput, lotteryDate: '2026/01/20' })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('extractEventFormData', () => {
+  it('lotteryDate を formData から拾い、空文字なら null にパースされる', () => {
+    const fd = new FormData()
+    fd.set('title', 'X')
+    fd.set('eventDate', '2030-06-15')
+    fd.set('status', 'draft')
+    fd.set('lotteryDate', '2026-01-20')
+    const parsed = eventFormSchema.parse(extractEventFormData(fd))
+    expect(parsed.lotteryDate).toBe('2026-01-20')
+
+    const fd2 = new FormData()
+    fd2.set('title', 'X')
+    fd2.set('eventDate', '2030-06-15')
+    fd2.set('status', 'draft')
+    fd2.set('lotteryDate', '')
+    const parsed2 = eventFormSchema.parse(extractEventFormData(fd2))
+    expect(parsed2.lotteryDate).toBeNull()
+  })
+})
+
+describe('extractEventUnitsFormData (承認画面)', () => {
+  it('承認画面では lotteryDate を渡さない → zod パース後は null（要件 §5.2: 承認直後は NULL）', () => {
+    const fd = new FormData()
+    fd.append('unit_key', 'u1')
+    fd.set('u1__register', 'on')
+    fd.set('u1__title', '春の大会')
+    fd.set('u1__eventDate', '2030-06-15')
+    fd.set('u1__status', 'draft')
+    // 仮に承認画面 form 側に lotteryDate を出してしまっても、extract が読まないので無視される。
+    fd.set('u1__lotteryDate', '2026-01-20')
+
+    const units = extractEventUnitsFormData(fd)
+    expect(units).toHaveLength(1)
+    expect(units[0]!.data).not.toHaveProperty('lotteryDate')
+
+    const parsed = eventFormSchema.parse(units[0]!.data)
+    expect(parsed.lotteryDate).toBeNull()
   })
 })
