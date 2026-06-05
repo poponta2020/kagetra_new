@@ -33,7 +33,7 @@ status: completed
 - **完了条件:** 上記ユニットテストが green、`buildLifecycleMessage` の戻り文字列が要件 §3.2.2 / §3.2.3 と一致。
 
 ### タスク3: 申込完了 server action の 2通送信化
-- [ ] 完了
+- [x] 完了
 - **概要:** `setEntryApplied(true)` の初回遷移で、参加者向け（抽選日追記）と会計向け（2通目）を once-ever で送る。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/actions.ts` — `setEntryApplied`：flip の `returning` に `lotteryDate` / `paymentMethod` / `paymentInfo` / `paymentDeadline` を追加。同一 tx で `entry_applied` と `entry_applied_treasurer` を claim。コミット後に 2 通 push（各 try/catch、best-effort）。cancelled は 2 通とも claim しない

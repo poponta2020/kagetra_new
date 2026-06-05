@@ -64,7 +64,7 @@ describe('event lifecycle actions', () => {
     await closeTestDb()
   })
 
-  it('setEntryApplied(true): linked 大会で申込済 + 完了通知を 1 回送る', async () => {
+  it('setEntryApplied(true): linked 大会で申込済 + 参加者向け/会計向けの 2 通とも sent', async () => {
     const admin = await createAdmin()
     const event = await seedLinkedEvent()
     await setAuthSession({ id: admin.id, role: 'admin' })
@@ -76,15 +76,20 @@ describe('event lifecycle actions', () => {
     expect(row?.entryAppliedAt).not.toBeNull()
 
     const logs = await notifications(event.id)
-    expect(logs).toHaveLength(1)
-    expect(logs[0]).toMatchObject({
-      type: 'entry_applied',
+    // entry-notify-lottery-treasurer: 申込完了で 2 種別とも once-ever claim + push。
+    const byType = new Map(logs.map((l) => [l.type, l]))
+    expect(byType.size).toBe(2)
+    expect(byType.get('entry_applied')).toMatchObject({
+      status: 'sent',
+      lineGroupId: 'Glifecycle',
+    })
+    expect(byType.get('entry_applied_treasurer')).toMatchObject({
       status: 'sent',
       lineGroupId: 'Glifecycle',
     })
   })
 
-  it('setEntryApplied: 再トグル（戻して再申込）でも再通知しない（once-ever）', async () => {
+  it('setEntryApplied: 再トグル（戻して再申込）でも 2 種別とも 1 回限り', async () => {
     const admin = await createAdmin()
     const event = await seedLinkedEvent()
     await setAuthSession({ id: admin.id, role: 'admin' })
@@ -94,11 +99,15 @@ describe('event lifecycle actions', () => {
     await setEntryApplied(event.id, true)
 
     expect((await getEvent(event.id))?.entryStatus).toBe('applied')
-    // 通知ログは初回 claim の 1 行のみ
-    expect(await notifications(event.id)).toHaveLength(1)
+    // 通知ログは entry_applied + entry_applied_treasurer の 2 行のみ（種別ごとに once-ever）
+    const logs = await notifications(event.id)
+    expect(logs).toHaveLength(2)
+    expect(new Set(logs.map((l) => l.type))).toEqual(
+      new Set(['entry_applied', 'entry_applied_treasurer']),
+    )
   })
 
-  it('setEntryApplied(true): 未紐付けは申込済にするが通知は飛ばさず skipped を記録', async () => {
+  it('setEntryApplied(true): 未紐付けは申込済にするが 2 種別とも skipped を記録（スロット消費）', async () => {
     const admin = await createAdmin()
     const event = await createEvent({ title: 'Unlinked' })
     await setAuthSession({ id: admin.id, role: 'admin' })
@@ -107,8 +116,32 @@ describe('event lifecycle actions', () => {
 
     expect((await getEvent(event.id))?.entryStatus).toBe('applied')
     const logs = await notifications(event.id)
-    expect(logs).toHaveLength(1)
-    expect(logs[0]).toMatchObject({ type: 'entry_applied', status: 'skipped' })
+    expect(logs).toHaveLength(2)
+    // バックフィル防止: 後から linked になっても 2 通とも再送しない（既存方針と一貫）
+    expect(logs.every((l) => l.status === 'skipped')).toBe(true)
+    expect(new Set(logs.map((l) => l.type))).toEqual(
+      new Set(['entry_applied', 'entry_applied_treasurer']),
+    )
+  })
+
+  it('setEntryApplied(true): lottery_date / payment 情報を持つ大会でも 2 通とも sent（文面は lib テストで検証）', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent({
+      title: '新春かるた大会',
+      lotteryDate: '2026-01-20',
+      paymentDeadline: '2026-01-25',
+      paymentMethod: '北洋銀行',
+      paymentInfo: '普通 1234567 北大かるた会',
+    })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await setEntryApplied(event.id, true)
+
+    const logs = await notifications(event.id)
+    expect(logs).toHaveLength(2)
+    expect(logs.every((l) => l.status === 'sent')).toBe(true)
+    // 文面そのものは buildLifecycleMessage の純粋関数テストで網羅 (event-lifecycle-notify.test.ts)。
+    // ここでは「会計向け 2 通目の slot 消費＋送信成功」だけ担保する。
   })
 
   it('setEntryApplied(false): 申込日時を null に戻し通知しない', async () => {
