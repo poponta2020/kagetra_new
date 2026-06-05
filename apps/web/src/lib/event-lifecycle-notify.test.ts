@@ -29,10 +29,85 @@ import {
 describe('buildLifecycleMessage', () => {
   const title = '春の大会'
 
-  it('申込完了 (✅)', () => {
+  it('申込完了 (✅) — 抽選日なしは従来どおり', () => {
     expect(buildLifecycleMessage('entry_applied', { title })).toBe(
       '✅【春の大会】への参加申込が完了しました。',
     )
+  })
+
+  it('申込完了 (✅) — lotteryDateIso 非 null で末尾に「抽選日は M/D です」を追記', () => {
+    expect(
+      buildLifecycleMessage('entry_applied', { title, lotteryDateIso: '2026-01-20' }),
+    ).toBe('✅【春の大会】への参加申込が完了しました。\n抽選日は 1/20 です。')
+  })
+
+  it('申込完了 (✅) — lotteryDateIso が null/空文字なら追記なし', () => {
+    expect(buildLifecycleMessage('entry_applied', { title, lotteryDateIso: null })).toBe(
+      '✅【春の大会】への参加申込が完了しました。',
+    )
+    expect(buildLifecycleMessage('entry_applied', { title, lotteryDateIso: '' })).toBe(
+      '✅【春の大会】への参加申込が完了しました。',
+    )
+  })
+
+  it('会計向け (💴) — 期限のみ', () => {
+    expect(
+      buildLifecycleMessage('entry_applied_treasurer', {
+        title,
+        paymentDeadlineIso: '2026-01-25',
+      }),
+    ).toBe('💴【春の大会】会計の方へ\n振込期限：1/25')
+  })
+
+  it('会計向け (💴) — 方法のみ', () => {
+    expect(
+      buildLifecycleMessage('entry_applied_treasurer', {
+        title,
+        paymentMethod: '銀行振込',
+      }),
+    ).toBe('💴【春の大会】会計の方へ\n振込方法：銀行振込')
+  })
+
+  it('会計向け (💴) — 期限・方法・詳細すべてあり', () => {
+    expect(
+      buildLifecycleMessage('entry_applied_treasurer', {
+        title,
+        paymentDeadlineIso: '2026-01-25',
+        paymentMethod: '銀行振込',
+        paymentInfo: '◯◯銀行 △△支店 普通 1234567',
+      }),
+    ).toBe(
+      '💴【春の大会】会計の方へ\n振込期限：1/25\n振込方法：銀行振込\n◯◯銀行 △△支店 普通 1234567',
+    )
+  })
+
+  it('会計向け (💴) — 全項目空なら最小文面', () => {
+    expect(buildLifecycleMessage('entry_applied_treasurer', { title })).toBe(
+      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
+    )
+  })
+
+  it('会計向け (💴) — 空白のみの method/info は無視（最小文面に落ちる）', () => {
+    expect(
+      buildLifecycleMessage('entry_applied_treasurer', {
+        title,
+        paymentMethod: '   ',
+        paymentInfo: '\n  \t',
+      }),
+    ).toBe(
+      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
+    )
+  })
+
+  it('会計向け (💴) — feeJpy を渡しても金額は文面に出ない（会計は合計振込のため）', () => {
+    const msg = buildLifecycleMessage('entry_applied_treasurer', {
+      title,
+      feeJpy: 1500,
+      paymentDeadlineIso: '2026-01-25',
+    })
+    expect(msg).not.toContain('1,500')
+    expect(msg).not.toContain('1500')
+    expect(msg).not.toContain('円')
   })
 
   it('申込締切・事前 (⏰) は MM/DD とリードタイムを差し込む', () => {
@@ -107,7 +182,9 @@ describe('buildLifecycleMessage', () => {
     )
   })
 
-  it('全 8 種別が title を含む非空メッセージを返す（branch 漏れ検出）', () => {
+  it('全 9 種別が title を含む非空メッセージを返す（branch 漏れ検出）', () => {
+    // entry_applied_treasurer も title 行を含む（最小文面に落ちても見出しの【title】会計の方へ が出る）。
+    expect(eventLifecycleNotificationTypeEnum.enumValues.length).toBe(9)
     for (const type of eventLifecycleNotificationTypeEnum.enumValues) {
       const msg = buildLifecycleMessage(type, { title, feeJpy: 800, dateIso: '2026-06-05' })
       expect(msg).toContain('春の大会')

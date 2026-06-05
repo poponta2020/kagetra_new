@@ -23,7 +23,7 @@ status: completed
 - **完了条件:** `pnpm --filter @kagetra/shared check-types` green、migration が `lottery_date` 追加と `ADD VALUE 'entry_applied_treasurer'` を含む、shared の vitest が green。
 
 ### タスク2: 通知文面テンプレの拡張（lib）
-- [ ] 完了
+- [x] 完了
 - **概要:** 参加者向け（抽選日追記）と会計向け（振込方法・期限）の文面生成を追加する。push / claim / finalize は既存ヘルパーをそのまま使う。
 - **変更対象ファイル:**
   - `apps/web/src/lib/event-lifecycle-notify.ts` — `LifecycleMessageContext` に `lotteryDateIso?` / `paymentMethod?` / `paymentInfo?` / `paymentDeadlineIso?`（or 既存 `dateIso` 流用）を追加。`buildLifecycleMessage` に `entry_applied` の抽選日追記と `entry_applied_treasurer` の文面（期限/方法/詳細、全空なら最小文面、金額は載せない）を実装。exhaustiveness guard に新ケース追加
