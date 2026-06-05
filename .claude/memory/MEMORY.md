@@ -19,12 +19,13 @@
 - [mail-triage-badge SHIPPED](project_mail_triage_badge.md) — 全メールトリアージ＋PWA未処理バッジ(Web Push)。PR #95 merge `2ca9af2` (2026-06-01)、本番反映 success、Issue #87-92 全クローズ。triage_status 3状態・処理4アクション・既存メール processed 化・準リアルタイム同期。残 DoD=本番 VAPID 鍵設定+iOS 実機バッジ目視
 - [tournament-title-grade-split SHIPPED+本番反映](project_tournament_title_grade_split.md) — 大会名を「場所+級」短縮通称化＋開催日ごとイベント分割（mail-tournament-import 拡張）。PR #111 merge `e664b3d` (2026-06-04)、本番反映 success(migration 0020)、親#102+子#103-109 全クローズ。1ドラフト:Nイベント・title合成(stem AI/級A→E連結)・AI抽出2.0.0・FOR UPDATE で承認/再抽出の payload race 直列化(R1-R6)・LINE配信グループ重複排除。残 DoD=実機目視のみ
 - [settings-sheet SHIPPED](project_settings_sheet.md) — 設定画面への導線（ヘッダ {name}さん タップ→設定シート AccountMenu）。PR #110 merge `4857787` (2026-06-03)、親#97+子#98-101 全クローズ。design.md §3 未実装仕様の実装、ロール出し分け、ログアウト集約、/settings/notifications を (app) 配下へ移動(URL不変)・line-link は据え置き。残 DoD=実機目視
-- [entry-notify-lottery-treasurer 機能定義](project_entry_notify_lottery_treasurer.md) — 申込完了通知を2通化: 参加者へ抽選日追記＋会計へ振込方法/期限(2通目)。同じ参加者グループへ同送・会計は常時/金額なし。抽選日=lottery_date手動入力(AI抽出はtitle-split後の別follow-up)。親#112/子#113-117、実装未着手 (2026-06-04)
+- [entry-notify-lottery-treasurer SHIPPED](impl_entry_notify_lottery_treasurer.md) — 申込完了通知を2通化（参加者へ抽選日追記＋会計へ振込方法/期限）。PR #118 merge `b64f291` (2026-06-06)、親#112+子#113-117 全クローズ。Codex R1 で pass/0指摘・CI green。同一tx で 2 claim + コミット後独立 try/catch push、cancelled/未紐付けでも対称、金額非表示・payment_type で出し分けず常時送信、承認画面は embedded で抽選日非表示。残 DoD=本番反映後の実機 LINE 目視（migration 0021）
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
 - [ローカル動作確認セットアップ](reference_local_dev_setup.md) — docs/dev/local-dev-setup.md がエントリーポイント、env 配置・Cookie 注入 vs 実 LINE・mail-worker 実 API テスト・コスト目安
 - [旧 kagetra インフラ構成 (Lightsail + Route 53)](reference_legacy_kagetra_infra.md) — `hokudaicarta.com` の DNS は Lightsail DNS ゾーン (裏で Route 53)、お名前.com Navi の DNS 設定では効かない
+- [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
 
 ## Feedback
 - [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等

@@ -2262,3 +2262,9 @@
 ### 備考
 - worktree C:/tmp/impl-tournament-title-split は git 登録解除済みだが物理ディレクトリにロック残存（Device or resource busy、temp ゴミ、次回掃除可）
 - 次の機能候補: entry-notify-lottery-treasurer（親#112/子#113-117、実装未着手）
+
+## 2026-06-06 /auto-review-loop PR #118 entry-notify-lottery-treasurer
+- 1R, verdict=pass, effort=high, tokens=76,005/500,000, result=pass
+- 全 5 タスク (#113-#117) 単一 PR 化、Round 1 で blockers=0/should_fix=0/nits=0 の一発 PASS。
+- CI Lint/Typecheck/Test pass (4m13s)。auto-ship 経由で /ship へ遷移。
+- 2026-06-06 /ship PR #118 entry-notify-lottery-treasurer マージ完了 (merge `b64f291`)、親#112+子#113-117 全クローズ、worktree クリーンアップ済。残 DoD=本番反映後の実機 LINE 目視 (migration 0021 適用待ち)。
