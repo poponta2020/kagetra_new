@@ -58,7 +58,7 @@ status: completed
 - **注意（並行作業）:** `form-schemas.ts` は title-split も改修するため、マージ時に rebase で吸収（追加的変更）。`event-form.tsx` は title-split 側で「据え置き」想定だが、フィールド追加は additive に留める。
 
 ### タスク5: E2E
-- [ ] 完了
+- [x] 完了
 - **概要:** 抽選日入力 → 申込済トグル（DRY_RUN）→ 会員の参照のみ、までのハッピーパス。
 - **変更対象ファイル:**
   - `apps/web/e2e/` — `/events/[id]/edit` で抽選日入力→保存、`/events/[id]` で申込済トグルが例外なく完了、会員には抽選日が参照のみ表示されること（既存の lifecycle / events E2E に追記 or 新規 spec）
