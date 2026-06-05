@@ -24,6 +24,8 @@ export interface EventFormProps {
     capacity?: number | null
     entryDeadline?: string | null
     internalDeadline?: string | null
+    // entry-notify-lottery-treasurer: 抽選日（NULL=抽選なし）。承認画面 (embedded) では描画しない。
+    lotteryDate?: string | null
     eventGroupId?: number | null
     eligibleGrades?: string[] | null
     description?: string | null
@@ -172,6 +174,24 @@ export function EventForm({
             />
           </div>
         </div>
+
+        {/* entry-notify-lottery-treasurer: 抽選日は単体行で締切群の直下に置く。
+            承認画面 (embedded) では描画しない（要件 §5.2: 承認直後は NULL、編集画面で後入力）。
+            申込完了通知の参加者向け文面に「抽選日は M/D です」を差し込むため手動入力。 */}
+        {!embedded && (
+          <div>
+            <label className={LABEL_CLASS}>抽選日</label>
+            <input
+              name={n('lotteryDate')}
+              type="date"
+              defaultValue={defaultValues?.lotteryDate ?? ''}
+              className={FIELD_CLASS}
+            />
+            <p className="mt-1 text-xs text-ink-meta">
+              指定すると申込完了の LINE 通知に「抽選日は M/D です」が追記されます。
+            </p>
+          </div>
+        )}
 
         <div>
           <label className={LABEL_CLASS}>大会グループ</label>

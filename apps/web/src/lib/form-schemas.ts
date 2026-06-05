@@ -32,6 +32,9 @@ export const eventFormSchema = z.object({
   kind: z.enum(['individual', 'team']),
   entryDeadline: optionalDateStr,
   internalDeadline: optionalDateStr,
+  // entry-notify-lottery-treasurer: 抽選日（任意・NULL=抽選なし）。申込完了通知に差し込む。
+  // 承認画面 (extractEventUnitsFormData) では受け取らない＝NULL のまま、編集画面で後入力。
+  lotteryDate: optionalDateStr,
   eventGroupId: optionalPositiveInt,
   feeJpy: optionalNonNegativeInt,
   paymentDeadline: optionalDateStr,
@@ -70,6 +73,7 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
     kind: formData.get('kind') || 'individual',
     entryDeadline: formData.get('entryDeadline'),
     internalDeadline: formData.get('internalDeadline'),
+    lotteryDate: formData.get('lotteryDate'),
     eventGroupId: formData.get('eventGroupId'),
     feeJpy: formData.get('feeJpy'),
     paymentDeadline: formData.get('paymentDeadline'),

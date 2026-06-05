@@ -43,7 +43,7 @@ status: completed
 - **完了条件:** 統合テスト green（`LINE_NOTIFY_DRY_RUN=1`）、`apps/web` check-types green。
 
 ### タスク4: 抽選日の入力（フォーム + スキーマ + 作成/編集保存 + 参照表示）
-- [ ] 完了
+- [x] 完了
 - **概要:** 抽選日を手動入力・保存できるようにする。詳細画面に参照表示（任意）。
 - **変更対象ファイル:**
   - `apps/web/src/lib/form-schemas.ts` — `eventFormSchema` に `lotteryDate: optionalDateStr`、`extractEventFormData` に `lotteryDate: formData.get('lotteryDate')`
