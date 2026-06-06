@@ -824,6 +824,249 @@ export async function undoTriage(mailId: number) {
   await setTriage(mailId, 'unprocessed', null)
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// mail-inbox-mailer タスク3: 3 アクション Server Actions
+//
+// (a) triggerExtractDraft  — 「会で流す（AI 抽出）」: draft 行 INSERT (ai_processing)
+//                            + manual_extract ジョブ enqueue。30 秒 timer が拾う。
+// (b) linkMailToEvent      — 「既存イベントに紐付ける」: linked_event_id 更新 +
+//                            triage processed + broadcastMailToEvent (after)。
+// (c) unlinkMailFromEvent  — 処理済画面 undo の補助: linked_event_id を NULL に
+//                            戻す。LINE 配信済メッセージの取り消しは不可。
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * 「会で流す（AI 抽出）」ボタンの本体。
+ *
+ * tournament_drafts.message_id は UNIQUE なので、既存 draft の有無で分岐する:
+ *   - draft 無し                  → INSERT (status='ai_processing')
+ *   - draft.status='ai_failed'    → UPDATE で status='ai_processing' に戻し
+ *                                   prompt_version / ai_model / payload をクリア
+ *   - draft.status='ai_processing' → 同上（前回ジョブが落ちた等の再起動）
+ *   - その他 (pending_review/approved/rejected/superseded) → エラー
+ *
+ * UNIQUE 制約と draft の status 更新を **同一トランザクション** で行うので、
+ * 並行押下も最後の UPDATE 勝ち（draft 行は 1 つ、job は複数キューされる可能性
+ * があるが dispatcher が順に処理しても classifyMail + persistOutcome が冪等な
+ * ので outcome は同じ）。クライアントは確認ダイアログ＋ボタン disable で
+ * 二重起動を抑止する（要件 §3.2.5）。
+ */
+export async function triggerExtractDraft(
+  mailId: number,
+): Promise<
+  | { ok: true; draftId: number; jobId: number }
+  | { ok: false; error: string }
+> {
+  const session = await requireAdminSession()
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const mail = await tx.query.mailMessages.findFirst({
+        where: eq(mailMessages.id, mailId),
+        columns: { id: true },
+      })
+      if (!mail) throw new Error('mail not found')
+
+      // FOR UPDATE で並行 trigger と直列化（実害は少ないが UPSERT 競合を避ける）。
+      const existing = await tx
+        .select({
+          id: tournamentDrafts.id,
+          status: tournamentDrafts.status,
+        })
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mailId))
+        .for('update')
+
+      let draftId: number
+      if (existing.length === 0) {
+        const inserted = await tx
+          .insert(tournamentDrafts)
+          .values({
+            messageId: mailId,
+            status: 'ai_processing',
+            extractedPayload: sql`'{}'::jsonb`,
+            promptVersion: '',
+            aiModel: '',
+          })
+          .returning({ id: tournamentDrafts.id })
+        draftId = inserted[0]!.id
+      } else {
+        const cur = existing[0]!
+        if (cur.status !== 'ai_processing' && cur.status !== 'ai_failed') {
+          // pending_review / approved / rejected / superseded: 既に状態が確定
+          // しているので無条件再抽出は危険。タスク4 で reextract 経路を別 UI に
+          // 出す想定。
+          throw new Error('既に AI 抽出済みです')
+        }
+        await tx
+          .update(tournamentDrafts)
+          .set({
+            status: 'ai_processing',
+            extractedPayload: sql`'{}'::jsonb`,
+            promptVersion: '',
+            aiModel: '',
+            confidence: null,
+            aiRawResponse: null,
+            aiTokensInput: null,
+            aiTokensOutput: null,
+            aiCostUsd: null,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(tournamentDrafts.id, cur.id))
+        draftId = cur.id
+      }
+
+      const insertedJob = await tx
+        .insert(mailWorkerJobs)
+        .values({
+          requestedByUserId: session.user.id,
+          status: 'pending',
+          kind: 'manual_extract',
+          payload: { mail_message_id: mailId },
+        })
+        .returning({ id: mailWorkerJobs.id })
+      const jobId = insertedJob[0]!.id
+
+      return { draftId, jobId }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+    return { ok: true, draftId: result.draftId, jobId: result.jobId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+}
+
+/**
+ * 「組合せ表」「会場案内」「訂正版」などを既存大会に紐付ける。
+ *
+ * 1 メール = 1 イベントの単純 FK。紐付け確定で:
+ *   - mail_messages.linked_event_id = eventId
+ *   - triage_status='processed', triaged_at, triaged_by_user_id
+ *   - after() で broadcastMailToEvent（既存イベントが LINE グループ linked
+ *     済なら LINE 配信、未紐付なら no-op）
+ *
+ * 紐付け済 mail に対する二重操作は禁止（一度 unlinkMailFromEvent で外してから）。
+ * UI 側でもボタンを出さない想定だが、サーバー側でも検証する。
+ */
+export async function linkMailToEvent(
+  mailId: number,
+  eventId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  let linkedMailMessageId: number | null = null
+
+  try {
+    await db.transaction(async (tx) => {
+      const event = await tx
+        .select({ id: events.id })
+        .from(events)
+        .where(eq(events.id, eventId))
+        .limit(1)
+      if (event.length === 0) throw new Error('Event not found')
+
+      const mail = await tx
+        .select({
+          id: mailMessages.id,
+          linkedEventId: mailMessages.linkedEventId,
+        })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, mailId))
+        .for('update')
+      if (mail.length === 0) throw new Error('mail not found')
+      if (mail[0]!.linkedEventId !== null) {
+        throw new Error('既に別イベントに紐付け済みです')
+      }
+
+      await tx
+        .update(mailMessages)
+        .set({
+          linkedEventId: eventId,
+          triageStatus: 'processed',
+          triagedAt: sql`now()`,
+          triagedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(mailMessages.id, mailId))
+
+      linkedMailMessageId = mailId
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  revalidatePath(`/events/${eventId}`)
+
+  // 既存 broadcastMailToEvent をそのまま再利用（linkDraftToEvent と同じ流れ）。
+  // 「訂正版」フラグは tournament_drafts.is_correction の話で、linked_event_id
+  // 経由の補足メールは常に isCorrection=false 扱い（通常の補足配信）。
+  if (linkedMailMessageId != null) {
+    const messageId = linkedMailMessageId
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, {
+          eventId,
+          mailMessageId: messageId,
+          isCorrection: false,
+        })
+      } catch (err) {
+        console.error('[linkMailToEvent] broadcastMailToEvent failed', err)
+      }
+    })
+  }
+
+  return { ok: true }
+}
+
+/**
+ * 既存イベント結びつけの取り消し（処理済画面の undo から呼ばれる）。
+ *
+ * LINE 配信済メッセージは LINE Messaging API 仕様上取り消せないので、
+ * 「紐付けだけ外す」操作（要件 §3.1.8）。triage_status も unprocessed に戻すので、
+ * 未処理バッジに再度カウントされる。
+ */
+export async function unlinkMailFromEvent(mailId: number) {
+  await requireAdminSession()
+
+  let previousEventId: number | null = null
+
+  await db.transaction(async (tx) => {
+    const mail = await tx
+      .select({
+        id: mailMessages.id,
+        linkedEventId: mailMessages.linkedEventId,
+      })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, mailId))
+      .for('update')
+    if (mail.length === 0) throw new Error('mail not found')
+    previousEventId = mail[0]!.linkedEventId
+
+    await tx
+      .update(mailMessages)
+      .set({
+        linkedEventId: null,
+        triageStatus: 'unprocessed',
+        triagedAt: null,
+        triagedByUserId: null,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, mailId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  if (previousEventId != null) {
+    revalidatePath(`/events/${previousEventId}`)
+  }
+}
+
 // PR5 Phase 4a — manual mail-fetch job queue.
 //
 // The Server Action is INSERT-only into `mail_worker_jobs`; the systemd-timer

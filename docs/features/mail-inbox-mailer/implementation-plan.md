@@ -39,7 +39,7 @@ status: completed
   - cron 既定で AI 抽出が動かない（mock test）
 
 ### タスク3: Server Actions の追加・修正
-- [ ] 完了
+- [x] 完了
 - **概要:** 新規 `triggerExtractDraft` / `linkMailToEvent` / `unlinkMailFromEvent` を追加。既存 `undoTriage` から deferred 経路を削除
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — 上記 3 アクション追加 + undoTriage 修正

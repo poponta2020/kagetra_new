@@ -104,6 +104,9 @@ const {
   triggerMailFetch,
   dismissMail,
   undoTriage,
+  triggerExtractDraft,
+  linkMailToEvent,
+  unlinkMailFromEvent,
 } = await import('./actions')
 
 function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
@@ -1452,6 +1455,220 @@ describe('admin/mail-inbox actions', () => {
 
       const after = await getMail(mail.id)
       expect(after?.triageStatus).toBe('processed')
+    })
+  })
+
+  // ── mail-inbox-mailer task3: triggerExtractDraft / linkMailToEvent / unlinkMailFromEvent ──
+  describe('triggerExtractDraft (mail-inbox-mailer)', () => {
+    it('draft なし: 新規 tournament_drafts(status=ai_processing) + manual_extract job を作る', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const draft = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, result.draftId))
+      expect(draft).toHaveLength(1)
+      expect(draft[0]!.status).toBe('ai_processing')
+      expect(draft[0]!.messageId).toBe(mail.id)
+      expect(draft[0]!.promptVersion).toBe('')
+      expect(draft[0]!.aiModel).toBe('')
+      expect(draft[0]!.extractedPayload).toEqual({})
+
+      const job = await testDb
+        .select()
+        .from(mailWorkerJobs)
+        .where(eq(mailWorkerJobs.id, result.jobId))
+      expect(job).toHaveLength(1)
+      expect(job[0]!.kind).toBe('manual_extract')
+      expect(job[0]!.status).toBe('pending')
+      expect(job[0]!.payload).toEqual({ mail_message_id: mail.id })
+      expect(job[0]!.requestedByUserId).toBe(admin.id)
+
+      // 未処理バッジには残す（draft 作成だけで processed にはしない）。
+      const afterMail = await getMail(mail.id)
+      expect(afterMail?.triageStatus).toBe('unprocessed')
+    })
+
+    it('既存 ai_failed draft: status=ai_processing にリセット + 新ジョブ enqueue', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const existing = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'ai_failed',
+        promptVersion: '1.0.0',
+        aiModel: 'claude-sonnet-4-5',
+        extractedPayload: { dummy: true },
+      })
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      // 同じ draft 行が UPDATE される (UNIQUE 制約より)。
+      expect(result.draftId).toBe(existing.id)
+
+      const after = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, existing.id))
+      expect(after[0]!.status).toBe('ai_processing')
+      expect(after[0]!.promptVersion).toBe('')
+      expect(after[0]!.aiModel).toBe('')
+      expect(after[0]!.extractedPayload).toEqual({})
+    })
+
+    it('pending_review draft が既にある場合は error を返す（再抽出は別経路）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      await createTournamentDraft({
+        messageId: mail.id,
+        status: 'pending_review',
+      })
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既に AI 抽出済み/)
+    })
+
+    it('存在しない mail は error を返す', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await triggerExtractDraft(999_999)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/mail not found/)
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+      await setAuthSession(null)
+      await expect(triggerExtractDraft(mail.id)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(triggerExtractDraft(mail.id)).rejects.toThrow('Forbidden')
+    })
+  })
+
+  describe('linkMailToEvent (mail-inbox-mailer)', () => {
+    it('linked_event_id を立て、triage processed、after() で broadcastMailToEvent を起動', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: '結びつけ先大会' })
+
+      afterMock.mockImplementationOnce((cb) => {
+        return cb()
+      })
+      broadcastMailToEventMock.mockClear()
+
+      const result = await linkMailToEvent(mail.id, event.id)
+      expect(result.ok).toBe(true)
+
+      const after = await getMail(mail.id)
+      expect(after?.linkedEventId).toBe(event.id)
+      expect(after?.triageStatus).toBe('processed')
+      expect(after?.triagedByUserId).toBe(admin.id)
+      expect(after?.triagedAt).toBeInstanceOf(Date)
+
+      // broadcastMailToEvent が isCorrection=false で呼ばれる。
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+      // hoisted mock の signature は引数なしだが、実引数は (db, { eventId, ... })。
+      // 型を緩めて payload オブジェクトを直接検証する。
+      const callArgs = (
+        broadcastMailToEventMock.mock.calls[0] as unknown as [
+          unknown,
+          { eventId: number; mailMessageId: number; isCorrection: boolean },
+        ]
+      )
+      expect(callArgs[1]).toEqual({
+        eventId: event.id,
+        mailMessageId: mail.id,
+        isCorrection: false,
+      })
+    })
+
+    it('既に紐付け済みの mail は二重紐付け不可', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'A' })
+      const event2 = await createEvent({ title: 'B' })
+      const mail = await createMailMessage()
+      await linkMailToEvent(mail.id, event.id)
+
+      const result = await linkMailToEvent(mail.id, event2.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既に別イベントに紐付け済/)
+    })
+
+    it('存在しない event は error を返す（mail は変更しない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await linkMailToEvent(mail.id, 999_999)
+      expect(result.ok).toBe(false)
+
+      const after = await getMail(mail.id)
+      expect(after?.linkedEventId).toBeNull()
+      expect(after?.triageStatus).toBe('unprocessed')
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+      const event = await createEvent({ title: 'E' })
+
+      await setAuthSession(null)
+      await expect(linkMailToEvent(mail.id, event.id)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(linkMailToEvent(mail.id, event.id)).rejects.toThrow('Forbidden')
+    })
+  })
+
+  describe('unlinkMailFromEvent (mail-inbox-mailer)', () => {
+    it('linked_event_id を NULL に戻し triage_status を unprocessed に戻す', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: '解除元' })
+      const mail = await createMailMessage()
+      await linkMailToEvent(mail.id, event.id)
+
+      await unlinkMailFromEvent(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.linkedEventId).toBeNull()
+      expect(after?.triageStatus).toBe('unprocessed')
+      expect(after?.triagedAt).toBeNull()
+      expect(after?.triagedByUserId).toBeNull()
+    })
+
+    it('存在しない mail は throw する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await expect(unlinkMailFromEvent(999_999)).rejects.toThrow('mail not found')
+    })
+
+    it('未認証 / member は呼べない', async () => {
+      const mail = await createMailMessage()
+
+      await setAuthSession(null)
+      await expect(unlinkMailFromEvent(mail.id)).rejects.toThrow('Unauthorized')
+
+      const member = await createUser()
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(unlinkMailFromEvent(mail.id)).rejects.toThrow('Forbidden')
     })
   })
 })

@@ -33,7 +33,8 @@ export async function notifyNewMailPush(
 ): Promise<void> {
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
 
-  // バッジは未処理総数（unprocessed + deferred）。count API と同じ条件。
+  // バッジは未処理総数（= unprocessed）。count API と同じ条件。
+  // mail-inbox-mailer: 2 状態化により deferred は廃止。
   const [row] = await db
     .select({ value: count() })
     .from(mailMessages)

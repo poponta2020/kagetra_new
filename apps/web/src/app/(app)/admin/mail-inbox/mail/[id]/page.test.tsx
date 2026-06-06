@@ -56,7 +56,7 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     expect(screen.getByText('detail subject')).toBeTruthy()
     expect(screen.getByText('未処理')).toBeTruthy()
     expect(screen.getByText('対応不要')).toBeTruthy()
-    expect(screen.getByText('保留')).toBeTruthy()
+    // mail-inbox-mailer: 「保留」ボタンは廃止（処理せず放置 = 暗黙の保留）。
   })
 
   it('draft があれば承認動線 [id] へのリンクを出す', async () => {
