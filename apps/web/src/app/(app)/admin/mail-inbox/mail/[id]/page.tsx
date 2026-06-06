@@ -24,9 +24,9 @@ const CLASSIFICATION_LABEL: Record<string, { label: string; tone: PillTone }> = 
   unknown: { label: '不明', tone: 'neutral' },
 }
 
+// mail-inbox-mailer: triage 2 状態化（unprocessed / processed）。「保留」廃止。
 const TRIAGE_LABEL: Record<TriageStatus, { label: string; tone: PillTone }> = {
   unprocessed: { label: '未処理', tone: 'warn' },
-  deferred: { label: '保留', tone: 'info' },
   processed: { label: '処理済み', tone: 'success' },
 }
 

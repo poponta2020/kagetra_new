@@ -774,9 +774,14 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 // ─────────────────────────────────────────────────────────────────────────
 // mail-triage-badge: 全メールの手動トリアージ。
 //
-// ドラフトの有無に関わらず任意の mail_messages 行を processed / deferred /
-// unprocessed に遷移させる。未処理バッジ件数は `triage_status != 'processed'`
-// (unprocessed + deferred) で数えるので、deferMail は意図的にバッジに残す。
+// ドラフトの有無に関わらず任意の mail_messages 行を processed / unprocessed に
+// 遷移させる。未処理バッジ件数は `triage_status != 'processed'`（= unprocessed）
+// で数える。
+//
+// mail-inbox-mailer (2026-06-07): 「保留 (deferred)」状態は廃止し 2 状態化。
+// 処理せず放置することが暗黙の保留である、というモデルに統合した。`deferMail`
+// は削除済み。3 アクション（AI 抽出 / 既存イベント結びつけ / 対応不要）の
+// 実体は後続タスク（タスク3 で triggerExtractDraft / linkMailToEvent 等を追加）。
 //
 // approve/reject/link は status='archived' も伴う「ドラフト処理」だが、以下は
 // triage_status だけを動かす軽量操作で status(AI/技術状態)は保持する。
@@ -786,7 +791,7 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 
 async function setTriage(
   mailId: number,
-  triageStatus: 'processed' | 'deferred' | 'unprocessed',
+  triageStatus: 'processed' | 'unprocessed',
   triagedByUserId: string | null,
 ) {
   const updated = await db
@@ -813,13 +818,7 @@ export async function dismissMail(mailId: number) {
   await setTriage(mailId, 'processed', session.user.id)
 }
 
-/** 保留（→ deferred、未処理バッジには残す）。 */
-export async function deferMail(mailId: number) {
-  const session = await requireAdminSession()
-  await setTriage(mailId, 'deferred', session.user.id)
-}
-
-/** 処理取り消し / 保留解除（→ unprocessed、処理者をクリア）。 */
+/** 処理取り消し（→ unprocessed、処理者をクリア）。 */
 export async function undoTriage(mailId: number) {
   await requireAdminSession()
   await setTriage(mailId, 'unprocessed', null)

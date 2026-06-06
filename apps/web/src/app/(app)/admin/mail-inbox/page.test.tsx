@@ -121,13 +121,11 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
     expect(screen.getByText('その他 (1)')).toBeTruthy()
   })
 
-  it('deferred は「保留」、processed は「処理済み」セクションに入る', async () => {
+  // mail-inbox-mailer: 保留 (deferred) セクションは廃止（2 状態化に伴い）。
+
+  it('processed は「処理済み」セクションに入る', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
-    await createMailMessage({
-      subject: 'DEFERRED_MAIL',
-      triageStatus: 'deferred',
-    })
     await createMailMessage({
       subject: 'PROCESSED_MAIL',
       triageStatus: 'processed',
@@ -135,13 +133,11 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
 
     await renderPage()
 
-    expect(screen.getByText(/^保留 \(1\)$/)).toBeTruthy()
-    expect(screen.getByText('DEFERRED_MAIL')).toBeTruthy()
     expect(screen.getByText(/処理済み（最新 1 件）/)).toBeTruthy()
     expect(screen.getByText('PROCESSED_MAIL')).toBeTruthy()
   })
 
-  it('未処理カードに triage クイックアクション（対応不要/保留）が出る', async () => {
+  it('未処理カードに triage クイックアクション（対応不要）が出る', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     await createMailMessage({
@@ -151,8 +147,8 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
 
     await renderPage()
 
+    // mail-inbox-mailer: 「保留」ボタンは廃止（処理せず放置 = 暗黙の保留）。
     expect(screen.getByText('対応不要')).toBeTruthy()
-    expect(screen.getByText('保留')).toBeTruthy()
   })
 
   it('未処理が 0 件なら「未処理のメールはありません」を表示する', async () => {

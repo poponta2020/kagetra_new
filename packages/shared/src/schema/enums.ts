@@ -43,12 +43,16 @@ export const attachmentExtractionStatusEnum = pgEnum('attachment_extraction_stat
 ])
 
 // mail-tournament-import (PR3)
+// mail-inbox-mailer: AI 抽出を手動起動化したことで、起動〜完了の間だけ表示する
+// 中間状態 `ai_processing` を追加。状態遷移は `ai_processing` → `pending_review`
+// （成功）または `ai_failed`（失敗）。
 export const tournamentDraftStatusEnum = pgEnum('tournament_draft_status', [
   'pending_review',
   'approved',
   'rejected',
   'ai_failed',
   'superseded',
+  'ai_processing',
 ])
 
 // PR5 (mail-tournament-import)
@@ -73,6 +77,10 @@ export const mailWorkerJobStatusEnum = pgEnum('mail_worker_job_status', [
   'done',
   'failed',
 ])
+// mail-inbox-mailer: mail_worker_jobs.kind で fetch / manual_extract を識別する。
+// fetch は cron/手動の IMAP 取得、manual_extract は inbox 詳細から起動する
+// 個別メール抽出ジョブ（payload.mail_message_id 必須）。
+export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', ['fetch', 'manual_extract'])
 
 // event-line-broadcast
 export const lineChannelPurposeEnum = pgEnum('line_channel_purpose', [
@@ -121,9 +129,7 @@ export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_noti
 
 // mail-triage-badge: 受信メールの人手処理状態。AI/技術状態の mailMessageStatusEnum
 // とは独立（status='ai_done' でも未処理＝管理者が未対応、はあり得る）。未処理バッジは
-// triage_status != 'processed'（unprocessed + deferred）で算出する。
-export const mailTriageStatusEnum = pgEnum('mail_triage_status', [
-  'unprocessed',
-  'processed',
-  'deferred',
-])
+// triage_status != 'processed'（= unprocessed）で算出する。
+// mail-inbox-mailer (2026-06-07): `deferred` を廃止して 2 状態化。「保留」は
+// 処理せず放置することが暗黙の保留である、というモデルに統合。
+export const mailTriageStatusEnum = pgEnum('mail_triage_status', ['unprocessed', 'processed'])

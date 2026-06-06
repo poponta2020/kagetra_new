@@ -2,22 +2,26 @@
 
 import { useTransition } from 'react'
 import { Btn } from '@/components/ui'
-import { deferMail, dismissMail, undoTriage } from '../actions'
+import { dismissMail, undoTriage } from '../actions'
 
-export type TriageStatus = 'unprocessed' | 'processed' | 'deferred'
+// mail-inbox-mailer: triage 2 状態化（unprocessed / processed）に伴い deferred 廃止。
+export type TriageStatus = 'unprocessed' | 'processed'
 
 /**
  * mail-triage-badge: メール1件のトリアージ操作ボタン群（client）。
  *
  * 一覧カード・詳細ページの双方から使う。triage_status に応じて出すボタンを
  * 切り替える:
- *   - unprocessed → [対応不要][保留]
- *   - deferred    → [対応不要][未処理に戻す]
+ *   - unprocessed → [対応不要]
  *   - processed   → [未処理に戻す]
  *
  * Server Action 実行中は useTransition で二度押しを防ぐ。Server Action 側で
  * revalidatePath('/admin/mail-inbox') を呼ぶので、完了後に一覧/詳細が再検証され
  * バッジ（フォアグラウンド更新）もタスク4 のクライアントが拾い直す。
+ *
+ * mail-inbox-mailer: 「保留」ボタンは廃止（処理せず放置 = 暗黙の保留）。
+ * 詳細画面の 3 アクション（AI 抽出 / 既存イベント結びつけ / 対応不要）は
+ * タスク4 で MailDetailActions に再構成する予定。
  */
 export function TriageActions({
   mailId,
@@ -47,11 +51,6 @@ export function TriageActions({
       {triageStatus !== 'processed' && (
         <Btn kind="secondary" size={size} disabled={pending} onClick={run(dismissMail)}>
           対応不要
-        </Btn>
-      )}
-      {triageStatus === 'unprocessed' && (
-        <Btn kind="secondary" size={size} disabled={pending} onClick={run(deferMail)}>
-          保留
         </Btn>
       )}
       {triageStatus !== 'unprocessed' && (

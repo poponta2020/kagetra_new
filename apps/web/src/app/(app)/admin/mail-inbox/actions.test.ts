@@ -103,7 +103,6 @@ const {
   reextractDraft,
   triggerMailFetch,
   dismissMail,
-  deferMail,
   undoTriage,
 } = await import('./actions')
 
@@ -1381,22 +1380,13 @@ describe('admin/mail-inbox actions', () => {
       expect(after?.triagedByUserId).toBe(admin.id)
     })
 
-    it('deferMail: メールを deferred にする（未処理バッジには残る）', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-
-      await deferMail(mail.id)
-
-      const after = await getMail(mail.id)
-      expect(after?.triageStatus).toBe('deferred')
-      expect(after?.triagedByUserId).toBe(admin.id)
-    })
+    // mail-inbox-mailer: deferMail / deferred 状態は廃止。
+    // 「保留」は処理せず放置することが暗黙の保留である、というモデルに統合。
 
     it('undoTriage: unprocessed に戻し triaged_at/by をクリアする', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ triageStatus: 'deferred' })
+      const mail = await createMailMessage({ triageStatus: 'processed' })
 
       await undoTriage(mail.id)
 
@@ -1410,7 +1400,6 @@ describe('admin/mail-inbox actions', () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       await expect(dismissMail(999999)).rejects.toThrow('mail not found')
-      await expect(deferMail(999999)).rejects.toThrow('mail not found')
       await expect(undoTriage(999999)).rejects.toThrow('mail not found')
     })
 
@@ -1422,7 +1411,7 @@ describe('admin/mail-inbox actions', () => {
 
       const member = await createUser()
       await setAuthSession({ id: member.id, role: 'member' })
-      await expect(deferMail(mail.id)).rejects.toThrow('Forbidden')
+      await expect(dismissMail(mail.id)).rejects.toThrow('Forbidden')
     })
 
     it('approveDraft はメールを triage_status=processed にする', async () => {

@@ -1,5 +1,6 @@
 import { index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import {
+  mailWorkerJobKindEnum,
   mailWorkerJobStatusEnum,
   mailWorkerRunKindEnum,
   mailWorkerRunStatusEnum,
@@ -32,12 +33,19 @@ export const mailWorkerRuns = pgTable('mail_worker_runs', {
 })
 
 /**
- * mail_worker_jobs: queue of admin-requested mail fetch invocations.
+ * mail_worker_jobs: queue of admin-requested mail-worker invocations.
  *
  * Server Action inserts a row with `status='pending'`; the mail-worker
- * dispatcher claims it via `FOR UPDATE SKIP LOCKED`, executes a manual
- * `runOnce`, then UPDATEs the job to `done`/`failed` with `run_id` set to the
+ * dispatcher claims it via `FOR UPDATE SKIP LOCKED`, executes the job per
+ * `kind`, then UPDATEs the job to `done`/`failed` with `run_id` set to the
  * created `mail_worker_runs.id`.
+ *
+ * `kind` identifies what to execute (mail-inbox-mailer):
+ *   - 'fetch'           : IMAP fetch round (existing behaviour, default)
+ *   - 'manual_extract'  : extract a specific mail with AI; payload required
+ *
+ * `payload` carries kind-specific arguments. For `manual_extract` it must be
+ * `{ mail_message_id: number }`; for `fetch` it is unused (null).
  *
  * The `(status, requested_at)` index supports the dispatcher's "oldest pending
  * job first" claim query.
@@ -54,6 +62,11 @@ export const mailWorkerJobs = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     since: timestamp('since', { mode: 'date', withTimezone: true }),
     status: mailWorkerJobStatusEnum('status').notNull().default('pending'),
+    // mail-inbox-mailer: DEFAULT 'fetch' で既存行/既存 INSERT は無変更。
+    kind: mailWorkerJobKindEnum('kind').notNull().default('fetch'),
+    // mail-inbox-mailer: manual_extract 用 `{ mail_message_id: number }`。
+    // fetch ジョブでは null。
+    payload: jsonb('payload'),
     claimedAt: timestamp('claimed_at', { mode: 'date', withTimezone: true }),
     runId: integer('run_id').references(() => mailWorkerRuns.id, { onDelete: 'set null' }),
     error: text('error'),

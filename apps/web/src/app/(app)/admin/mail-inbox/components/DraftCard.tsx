@@ -4,12 +4,17 @@ import { ConfidenceBadge } from './ConfidenceBadge'
 
 export interface DraftCardProps {
   draft: {
+    // mail-inbox-mailer: 'ai_processing' は AI 抽出ジョブ起動〜完了の間だけ
+    // 立つ中間状態。一覧 (page.tsx) で DraftCard を表示する場面ではほぼ
+    // 出現しないが、ジョブ実行中に一覧を開けば見える可能性があるため型に含める。
+    // 表示は StatusPill 側で「AI 抽出中」として扱う。
     status:
       | 'pending_review'
       | 'approved'
       | 'rejected'
       | 'ai_failed'
       | 'superseded'
+      | 'ai_processing'
     confidence: string | null // numeric(3,2) → string from drizzle
     isCorrection: boolean
     referencesSubject: string | null
@@ -134,6 +139,15 @@ function StatusPill({
       return (
         <Pill tone="neutral" size="sm">
           差替済
+        </Pill>
+      )
+    case 'ai_processing':
+      // mail-inbox-mailer: AI 抽出ジョブ起動〜完了の中間状態。
+      // 詳細画面側 (タスク4) で本格的な進捗カード（ExtractionInProgressCard）
+      // に切り替える。一覧では汎用ピルで状態だけ伝える。
+      return (
+        <Pill tone="info" size="sm">
+          AI 抽出中
         </Pill>
       )
   }

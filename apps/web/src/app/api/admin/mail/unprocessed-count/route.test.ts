@@ -15,12 +15,13 @@ describe('GET /api/admin/mail/unprocessed-count', () => {
     await closeTestDb()
   })
 
-  it('未処理(unprocessed)+保留(deferred)を数え processed は除外する', async () => {
+  // mail-inbox-mailer: deferred 廃止。未処理は unprocessed のみで数える。
+  it('未処理(unprocessed)を数え processed は除外する', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     await createMailMessage({ triageStatus: 'unprocessed' })
     await createMailMessage({ triageStatus: 'unprocessed' })
-    await createMailMessage({ triageStatus: 'deferred' })
+    await createMailMessage({ triageStatus: 'unprocessed' })
     await createMailMessage({ triageStatus: 'processed' })
 
     const res = await GET()

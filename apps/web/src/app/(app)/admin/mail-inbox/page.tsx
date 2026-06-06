@@ -143,8 +143,10 @@ export default async function MailInboxPage() {
   })
   type Row = (typeof activeRows)[number]
 
+  // mail-inbox-mailer: triage 2 状態化（unprocessed / processed）。activeRows は
+  // `ne(triageStatus, 'processed')` フィルタなので全て unprocessed と等価だが、
+  // 既存のコードフローを保ったまま明示的に絞り込んでおく。
   const unprocessed = activeRows.filter((r) => r.triageStatus === 'unprocessed')
-  const deferred = activeRows.filter((r) => r.triageStatus === 'deferred')
 
   // 未処理グループ内の tier 分け（従来ロジック）。
   //   tier 0「要対応」: pending_review かつ confidence >= 0.9
@@ -222,7 +224,7 @@ export default async function MailInboxPage() {
     )
   }
 
-  const hasAnyActive = unprocessed.length > 0 || deferred.length > 0
+  const hasAnyActive = unprocessed.length > 0
 
   return (
     <div className="flex flex-col gap-4">
@@ -325,17 +327,7 @@ export default async function MailInboxPage() {
         )}
       </section>
 
-      {/* 保留 */}
-      {deferred.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-sm font-semibold text-ink-2">
-            保留 ({deferred.length})
-          </h2>
-          <div className="flex flex-col gap-2">
-            {deferred.map((row) => renderRow(row))}
-          </div>
-        </section>
-      )}
+      {/* mail-inbox-mailer: 保留セクション廃止（deferred 状態自体を削除）。 */}
 
       {/* 処理済み（参考・折りたたみ） */}
       {processedRows.length > 0 && (
