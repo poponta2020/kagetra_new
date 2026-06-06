@@ -20,6 +20,10 @@ import {
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import {
+  linkableEventCutoffStr,
+  validateLinkableEvent,
+} from './linkable-events'
+import {
   classifyMail,
   persistOutcome,
 } from '@kagetra/mail-worker/classify/classifier'
@@ -774,9 +778,14 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 // ─────────────────────────────────────────────────────────────────────────
 // mail-triage-badge: 全メールの手動トリアージ。
 //
-// ドラフトの有無に関わらず任意の mail_messages 行を processed / deferred /
-// unprocessed に遷移させる。未処理バッジ件数は `triage_status != 'processed'`
-// (unprocessed + deferred) で数えるので、deferMail は意図的にバッジに残す。
+// ドラフトの有無に関わらず任意の mail_messages 行を processed / unprocessed に
+// 遷移させる。未処理バッジ件数は `triage_status != 'processed'`（= unprocessed）
+// で数える。
+//
+// mail-inbox-mailer (2026-06-07): 「保留 (deferred)」状態は廃止し 2 状態化。
+// 処理せず放置することが暗黙の保留である、というモデルに統合した。`deferMail`
+// は削除済み。3 アクション（AI 抽出 / 既存イベント結びつけ / 対応不要）の
+// 実体は後続タスク（タスク3 で triggerExtractDraft / linkMailToEvent 等を追加）。
 //
 // approve/reject/link は status='archived' も伴う「ドラフト処理」だが、以下は
 // triage_status だけを動かす軽量操作で status(AI/技術状態)は保持する。
@@ -786,7 +795,7 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 
 async function setTriage(
   mailId: number,
-  triageStatus: 'processed' | 'deferred' | 'unprocessed',
+  triageStatus: 'processed' | 'unprocessed',
   triagedByUserId: string | null,
 ) {
   const updated = await db
@@ -807,22 +816,369 @@ async function setTriage(
   revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
-/** 対応不要として片付ける（→ processed、未処理バッジから除外）。 */
+/**
+ * 対応不要として片付ける（→ processed、未処理バッジから除外）。
+ *
+ * Codex r4 blocker: 未完了 draft (ai_processing / pending_review / ai_failed)
+ * があるメールを processed にすると、AI 抽出中またはレビュー待ちの draft が
+ * 未処理キューから消えて見落とされる。transaction 化して FOR UPDATE で
+ * 拒否する。draft が無いか、terminal status (approved / rejected / superseded)
+ * のメールのみ「対応不要」可能。
+ */
 export async function dismissMail(mailId: number) {
   const session = await requireAdminSession()
-  await setTriage(mailId, 'processed', session.user.id)
+
+  await db.transaction(async (tx) => {
+    const mailRows = await tx
+      .select({
+        id: mailMessages.id,
+        triageStatus: mailMessages.triageStatus,
+      })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, mailId))
+      .for('update')
+    if (mailRows.length === 0) throw new Error('mail not found')
+
+    const draftRows = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.messageId, mailId))
+      .for('update')
+    if (draftRows.length > 0) {
+      const ds = draftRows[0]!.status
+      if (ds === 'ai_processing' || ds === 'pending_review' || ds === 'ai_failed') {
+        throw new Error('未完了の AI 抽出 draft があるため対応不要にできません')
+      }
+    }
+
+    await tx
+      .update(mailMessages)
+      .set({
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, mailId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
-/** 保留（→ deferred、未処理バッジには残す）。 */
-export async function deferMail(mailId: number) {
-  const session = await requireAdminSession()
-  await setTriage(mailId, 'deferred', session.user.id)
-}
-
-/** 処理取り消し / 保留解除（→ unprocessed、処理者をクリア）。 */
+/** 処理取り消し（→ unprocessed、処理者をクリア）。 */
 export async function undoTriage(mailId: number) {
   await requireAdminSession()
   await setTriage(mailId, 'unprocessed', null)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// mail-inbox-mailer タスク3: 3 アクション Server Actions
+//
+// (a) triggerExtractDraft  — 「会で流す（AI 抽出）」: draft 行 INSERT (ai_processing)
+//                            + manual_extract ジョブ enqueue。30 秒 timer が拾う。
+// (b) linkMailToEvent      — 「既存イベントに紐付ける」: linked_event_id 更新 +
+//                            triage processed + broadcastMailToEvent (after)。
+// (c) unlinkMailFromEvent  — 処理済画面 undo の補助: linked_event_id を NULL に
+//                            戻す。LINE 配信済メッセージの取り消しは不可。
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * 「会で流す（AI 抽出）」ボタンの本体。
+ *
+ * tournament_drafts.message_id は UNIQUE なので、既存 draft の有無で分岐する:
+ *   - draft 無し                  → INSERT (status='ai_processing')
+ *   - draft.status='ai_failed'    → UPDATE で status='ai_processing' に戻し
+ *                                   prompt_version / ai_model / payload をクリア
+ *   - draft.status='ai_processing' → エラー「既に AI 抽出中」(Codex r2
+ *                                   should-fix: 二重クリック / 複数タブで重複
+ *                                   ジョブが入るのを防ぐ。極めて稀な「ジョブが
+ *                                   落ちた」復旧経路は stale-claim recovery
+ *                                   (jobs.ts) と manual_extract の終端強制で
+ *                                   別途カバー)
+ *   - その他 (pending_review/approved/rejected/superseded) → エラー
+ *
+ * UNIQUE 制約と draft の status 更新を **同一トランザクション** で行うので、
+ * 並行押下も SELECT FOR UPDATE で直列化される。クライアントは確認ダイアログ＋
+ * ボタン disable で二重起動を抑止する（要件 §3.2.5）。
+ */
+export async function triggerExtractDraft(
+  mailId: number,
+): Promise<
+  | { ok: true; draftId: number; jobId: number }
+  | { ok: false; error: string }
+> {
+  const session = await requireAdminSession()
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Codex r3 blocker: 詳細画面は「unprocessed + draft なし」のときだけ
+      // AI 抽出ボタンを出すが、複数タブ / 別管理者操作で stale 状態のまま
+      // ボタンが効くと、processed/linked 済 mail にもジョブを積めてしまう。
+      // mail を FOR UPDATE で取り、triage と linked_event_id を tx 内で
+      // verify する。
+      const mailRows = await tx
+        .select({
+          id: mailMessages.id,
+          triageStatus: mailMessages.triageStatus,
+          linkedEventId: mailMessages.linkedEventId,
+        })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, mailId))
+        .for('update')
+      if (mailRows.length === 0) throw new Error('mail not found')
+      const mail = mailRows[0]!
+      if (mail.triageStatus !== 'unprocessed') {
+        throw new Error('既に処理済みのメールです')
+      }
+      if (mail.linkedEventId !== null) {
+        throw new Error('既存イベントに紐付け済みのメールです')
+      }
+
+      // FOR UPDATE で並行 trigger と直列化（実害は少ないが UPSERT 競合を避ける）。
+      const existing = await tx
+        .select({
+          id: tournamentDrafts.id,
+          status: tournamentDrafts.status,
+        })
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mailId))
+        .for('update')
+
+      let draftId: number
+      if (existing.length === 0) {
+        const inserted = await tx
+          .insert(tournamentDrafts)
+          .values({
+            messageId: mailId,
+            status: 'ai_processing',
+            extractedPayload: sql`'{}'::jsonb`,
+            promptVersion: '',
+            aiModel: '',
+          })
+          .returning({ id: tournamentDrafts.id })
+        draftId = inserted[0]!.id
+      } else {
+        const cur = existing[0]!
+        if (cur.status === 'ai_processing') {
+          // Codex r2 should-fix: ai_processing 中の再 trigger は重複ジョブを
+          // 生むので拒否。クライアント側でも ExtractionInProgressCard が出る
+          // 間は AIExtractConfirmDialog ボタンを出さないので、二重押下や複数
+          // タブからの直叩きを防ぐサーバー側ガード。
+          throw new Error('既に AI 抽出中です')
+        }
+        if (cur.status !== 'ai_failed') {
+          // pending_review / approved / rejected / superseded: 既に状態が確定
+          // しているので無条件再抽出は危険。タスク4 で reextract 経路を別 UI に
+          // 出す想定。
+          throw new Error('既に AI 抽出済みです')
+        }
+        await tx
+          .update(tournamentDrafts)
+          .set({
+            status: 'ai_processing',
+            extractedPayload: sql`'{}'::jsonb`,
+            promptVersion: '',
+            aiModel: '',
+            confidence: null,
+            aiRawResponse: null,
+            aiTokensInput: null,
+            aiTokensOutput: null,
+            aiCostUsd: null,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(tournamentDrafts.id, cur.id))
+        draftId = cur.id
+      }
+
+      const insertedJob = await tx
+        .insert(mailWorkerJobs)
+        .values({
+          requestedByUserId: session.user.id,
+          status: 'pending',
+          kind: 'manual_extract',
+          payload: { mail_message_id: mailId },
+        })
+        .returning({ id: mailWorkerJobs.id })
+      const jobId = insertedJob[0]!.id
+
+      return { draftId, jobId }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+    return { ok: true, draftId: result.draftId, jobId: result.jobId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+}
+
+/**
+ * 「組合せ表」「会場案内」「訂正版」などを既存大会に紐付ける。
+ *
+ * 1 メール = 1 イベントの単純 FK。紐付け確定で:
+ *   - mail_messages.linked_event_id = eventId
+ *   - triage_status='processed', triaged_at, triaged_by_user_id
+ *   - after() で broadcastMailToEvent（既存イベントが LINE グループ linked
+ *     済なら LINE 配信、未紐付なら no-op）
+ *
+ * 紐付け済 mail に対する二重操作は禁止（一度 unlinkMailFromEvent で外してから）。
+ * UI 側でもボタンを出さない想定だが、サーバー側でも検証する。
+ */
+export async function linkMailToEvent(
+  mailId: number,
+  eventId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  let linkedMailMessageId: number | null = null
+
+  try {
+    await db.transaction(async (tx) => {
+      // Codex r5 should-fix: UI 側 loadLinkableEvents は status='cancelled' を
+      // 除外し、開催日が過去 30 日以内であることを要求する。Server Action 側
+      // でも同じ条件を verify しないと、画面表示後に event が cancelled へ
+      // 変わった or Server Action を直接叩かれたケースで許容範囲外の event に
+      // 紐付けて broadcastMailToEvent まで起動できてしまう。
+      const eventRows = await tx
+        .select({
+          id: events.id,
+          status: events.status,
+          eventDate: events.eventDate,
+        })
+        .from(events)
+        .where(eq(events.id, eventId))
+        .limit(1)
+      if (eventRows.length === 0) throw new Error('Event not found')
+      const eventRow = eventRows[0]!
+      const eventInvalid = validateLinkableEvent(
+        { status: eventRow.status, eventDate: eventRow.eventDate },
+        linkableEventCutoffStr(),
+      )
+      if (eventInvalid) throw new Error(eventInvalid)
+
+      const mail = await tx
+        .select({
+          id: mailMessages.id,
+          triageStatus: mailMessages.triageStatus,
+          linkedEventId: mailMessages.linkedEventId,
+        })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, mailId))
+        .for('update')
+      if (mail.length === 0) throw new Error('mail not found')
+      // Codex r3 blocker: 詳細画面は「unprocessed + draft なし」のときだけ
+      // 結びつけボタンを出すが、画面表示後に worker が pending_review を作る
+      // 可能性があるので transaction 内で再 verify する。
+      if (mail[0]!.triageStatus !== 'unprocessed') {
+        throw new Error('既に処理済みのメールです')
+      }
+      if (mail[0]!.linkedEventId !== null) {
+        throw new Error('既に別イベントに紐付け済みです')
+      }
+
+      // 未完了 draft (ai_processing / pending_review / ai_failed) があるメール
+      // を既存イベントに紐付けると、後で承認操作が走った時に二重配信や状態
+      // 矛盾を起こす。AI 抽出フローと既存結びつけは互いに排他にする。
+      const conflictingDraft = await tx
+        .select({ status: tournamentDrafts.status })
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mailId))
+        .for('update')
+      if (
+        conflictingDraft.length > 0 &&
+        (conflictingDraft[0]!.status === 'ai_processing' ||
+          conflictingDraft[0]!.status === 'pending_review' ||
+          conflictingDraft[0]!.status === 'ai_failed')
+      ) {
+        throw new Error('AI 抽出フロー中のメールは結びつけできません')
+      }
+
+      await tx
+        .update(mailMessages)
+        .set({
+          linkedEventId: eventId,
+          triageStatus: 'processed',
+          triagedAt: sql`now()`,
+          triagedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(mailMessages.id, mailId))
+
+      linkedMailMessageId = mailId
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  revalidatePath(`/events/${eventId}`)
+
+  // 既存 broadcastMailToEvent をそのまま再利用（linkDraftToEvent と同じ流れ）。
+  // 「訂正版」フラグは tournament_drafts.is_correction の話で、linked_event_id
+  // 経由の補足メールは常に isCorrection=false 扱い（通常の補足配信）。
+  if (linkedMailMessageId != null) {
+    const messageId = linkedMailMessageId
+    after(async () => {
+      try {
+        await broadcastMailToEvent(db, {
+          eventId,
+          mailMessageId: messageId,
+          isCorrection: false,
+        })
+      } catch (err) {
+        console.error('[linkMailToEvent] broadcastMailToEvent failed', err)
+      }
+    })
+  }
+
+  return { ok: true }
+}
+
+/**
+ * 既存イベント結びつけの取り消し（処理済画面の undo から呼ばれる）。
+ *
+ * LINE 配信済メッセージは LINE Messaging API 仕様上取り消せないので、
+ * 「紐付けだけ外す」操作（要件 §3.1.8）。triage_status も unprocessed に戻すので、
+ * 未処理バッジに再度カウントされる。
+ */
+export async function unlinkMailFromEvent(mailId: number) {
+  await requireAdminSession()
+
+  let previousEventId: number | null = null
+
+  await db.transaction(async (tx) => {
+    const mail = await tx
+      .select({
+        id: mailMessages.id,
+        linkedEventId: mailMessages.linkedEventId,
+      })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, mailId))
+      .for('update')
+    if (mail.length === 0) throw new Error('mail not found')
+    previousEventId = mail[0]!.linkedEventId
+
+    await tx
+      .update(mailMessages)
+      .set({
+        linkedEventId: null,
+        triageStatus: 'unprocessed',
+        triagedAt: null,
+        triagedByUserId: null,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, mailId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  if (previousEventId != null) {
+    revalidatePath(`/events/${previousEventId}`)
+  }
 }
 
 // PR5 Phase 4a — manual mail-fetch job queue.

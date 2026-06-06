@@ -39,6 +39,7 @@ import {
   setPaymentType,
   submitAttendance,
 } from './actions'
+import { EventRelatedMails } from './components/EventRelatedMails'
 
 const ACTIVE_BROADCAST_STATUSES = [
   'invite_pending',
@@ -447,6 +448,11 @@ export default async function EventDetailPage({
         revokeBroadcastAction={revokeBroadcast}
         manualBroadcastAction={manualBroadcast}
       />
+
+      {/* mail-inbox-mailer タスク5: 関連メール（AI 抽出経由 + 既存イベント結びつけ
+          経由）。リンク先が /admin/mail-inbox/mail/[id] (管理者専用) なので、
+          一般会員には表示しない。 */}
+      {isAdmin && <EventRelatedMails eventId={idNum} />}
 
       {eligibleAttendingList.length > 0 && (
         <Card>

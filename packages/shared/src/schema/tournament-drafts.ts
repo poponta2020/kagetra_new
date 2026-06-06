@@ -89,5 +89,12 @@ export const tournamentDrafts = pgTable(
     // The inbox queue lists pending drafts newest-first; this composite index
     // keeps the listing fast as volume grows.
     index('idx_drafts_status_created').on(table.status, table.createdAt.desc()),
+    // mail-inbox-mailer (Codex r8 should-fix): events 詳細「関連メール」セク
+    // ションは admin 表示ごとに `event_id = :eventId` で逆引きする。partial
+    // index で NULL 行を除外（event_id が立つのは linkDraftToEvent 経由の
+    // 一部のみで NULL の方が圧倒的に多い）。
+    index('idx_drafts_event_id')
+      .on(table.eventId)
+      .where(sql`${table.eventId} IS NOT NULL`),
   ],
 )

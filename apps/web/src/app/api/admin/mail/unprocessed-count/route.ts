@@ -9,9 +9,10 @@ export const dynamic = 'force-dynamic'
 /**
  * GET /api/admin/mail/unprocessed-count
  *
- * 未処理メール件数（`triage_status != 'processed'` = unprocessed + deferred）を返す。
+ * 未処理メール件数（`triage_status != 'processed'` = unprocessed）を返す。
  * PWA のフォアグラウンドバッジ同期（アプリ起動/可視化時、処理操作後の再取得）に使う。
  * admin / vice_admin のみ。
+ * mail-inbox-mailer: 2 状態化（unprocessed / processed）に伴い、deferred は廃止。
  */
 export async function GET(): Promise<Response> {
   const session = await auth()

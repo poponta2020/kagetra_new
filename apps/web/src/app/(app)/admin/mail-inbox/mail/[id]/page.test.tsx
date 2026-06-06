@@ -56,7 +56,7 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     expect(screen.getByText('detail subject')).toBeTruthy()
     expect(screen.getByText('未処理')).toBeTruthy()
     expect(screen.getByText('対応不要')).toBeTruthy()
-    expect(screen.getByText('保留')).toBeTruthy()
+    // mail-inbox-mailer: 「保留」ボタンは廃止（処理せず放置 = 暗黙の保留）。
   })
 
   it('draft があれば承認動線 [id] へのリンクを出す', async () => {
@@ -92,6 +92,64 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     expect(screen.getByText('未処理に戻す')).toBeTruthy()
     expect(screen.queryByText('保留')).toBeNull()
     expect(screen.queryByText('対応不要')).toBeNull()
+  })
+
+  it('mail-inbox-mailer: 未処理＋draft なしは 3 アクションエリアを表示', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'fresh mail',
+      bodyText: '本文サンプル',
+      triageStatus: 'unprocessed',
+    })
+
+    await renderDetail(mail.id)
+
+    expect(screen.getByText('会で流す（AI 抽出）')).toBeTruthy()
+    expect(screen.getByText('既存イベントに紐付ける')).toBeTruthy()
+    expect(screen.getByText('対応不要')).toBeTruthy()
+    // 本文は details トグルではなく即時表示。
+    expect(screen.getByText('本文サンプル')).toBeTruthy()
+  })
+
+  it('mail-inbox-mailer: draft.status=ai_processing で進行中カードを表示', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'extracting',
+      triageStatus: 'unprocessed',
+    })
+    await createTournamentDraft({
+      messageId: mail.id,
+      status: 'ai_processing',
+    })
+
+    await renderDetail(mail.id)
+
+    expect(screen.getByText('AI 抽出中…')).toBeTruthy()
+    // 3 ボタン MailDetailActions は出ない（draft があるので分岐済み）。
+    expect(screen.queryByText('会で流す（AI 抽出）')).toBeNull()
+  })
+
+  it('mail-inbox-mailer: draft.status=ai_failed で再試行ボタンを表示', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'failed',
+      triageStatus: 'unprocessed',
+    })
+    await createTournamentDraft({
+      messageId: mail.id,
+      status: 'ai_failed',
+    })
+
+    await renderDetail(mail.id)
+
+    expect(screen.getByText('AI 抽出に失敗しました')).toBeTruthy()
+    expect(screen.getByText('AI 抽出を再試行')).toBeTruthy()
+    // Codex r6 blocker: 「手動でイベントを作成」リンクは /admin/events/new
+    // 不在のため撤去。専用フロー実装まで非表示。
+    expect(screen.queryByText('手動でイベントを作成')).toBeNull()
   })
 
   it('存在しない mail は notFound', async () => {

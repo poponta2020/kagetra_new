@@ -1,0 +1,30 @@
+[Unit]
+Description=Run kagetra mail-worker (manual_extract) every 30 seconds
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/mail-worker.md
+Requires=kagetra-mail-worker-extract.service
+
+# mail-inbox-mailer (タスク6): manual_extract ジョブ専用の高頻度 timer。
+# UI の「会で流す（AI 抽出）」ボタンを押してから抽出完了通知（Web Push）
+# までの体感を 30 秒以内に収めるのが目的。
+
+[Timer]
+# 起動直後の二重起動を避けるため少しだけ待つ（fetch timer と同じ慣行）。
+OnBootSec=1min
+
+# 30 秒間隔。前回 active になった時点から数えるので、長時間 AI 抽出が走った
+# 場合は次の発火がその分後ろにずれる（Type=oneshot との組み合わせで多重起動
+# しない）。pending ジョブがなければ即 exit する軽量処理なので、30 秒ごとに
+# 起動するコスト感は許容範囲。
+OnUnitActiveSec=30s
+
+# 高精度。30 秒間隔なので AccuracySec=1min は実質「次回まで最大 90 秒」に
+# なって UX を悪化させる。5 秒に絞る。
+AccuracySec=5s
+
+# 起動時 catch-up は不要（30 秒間隔で十分追いつく）。
+Persistent=false
+
+Unit=kagetra-mail-worker-extract.service
+
+[Install]
+WantedBy=timers.target

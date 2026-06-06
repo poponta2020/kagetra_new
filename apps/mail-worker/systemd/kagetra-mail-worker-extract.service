@@ -1,0 +1,36 @@
+[Unit]
+Description=Kagetra mail-worker (manual AI extract jobs)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/mail-worker.md
+
+# mail-inbox-mailer (タスク6): 「会で流す（AI 抽出）」ボタン押下で生成される
+# `mail_worker_jobs.kind='manual_extract'` ジョブだけを処理する extract-only
+# モードの専用ユニット。30 秒間隔の kagetra-mail-worker-extract.timer から
+# 起動される。
+#
+# 既存の kagetra-mail-worker.service とは:
+#   - cron AI 廃止により、IMAP fetch とは分離（fetch は 30 分 timer のまま）
+#   - 1 tick につき 1 ジョブのみ pick (FIFO で順次処理)
+#   - ANTHROPIC_API_KEY が必須 (loadLlmConfig が起動時に validate)
+
+[Service]
+Type=oneshot
+User=kagetra
+Group=kagetra
+WorkingDirectory=/opt/kagetra
+EnvironmentFile=/opt/kagetra/.env.production
+
+# `--mode=extract-only`: IMAP fetch を完全スキップ。
+# `manual_extract` ジョブ 1 件 pick → runManualExtract → exit。
+# 失敗時は exit 1。journalctl で確認できる。
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/mail-worker exec node dist/index.js --mode=extract-only
+
+StandardOutput=journal
+StandardError=journal
+
+# 1 AI 抽出のタイムアウト目安: Sonnet 4.6 + PDF/画像で 5-30 秒。
+# 余裕を持って 5 分上限 (前段の dispatch + DB write 含めても十分)。
+# これを超えるなら本物のハング / 詰まりなので kill して次 timer に任せる。
+TimeoutStartSec=300
+
+TimeoutStopSec=30

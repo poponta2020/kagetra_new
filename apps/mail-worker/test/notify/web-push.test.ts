@@ -48,7 +48,7 @@ async function seedSub(userId: string, endpoint: string) {
   })
 }
 
-async function seedMail(triageStatus: 'unprocessed' | 'processed' | 'deferred') {
+async function seedMail(triageStatus: 'unprocessed' | 'processed') {
   await testDb.insert(mailMessages).values({
     messageId: `<${crypto.randomUUID()}@test>`,
     fromAddress: 'organizer@example.com',
@@ -76,8 +76,9 @@ describe('notifyNewMailPush (mail-triage-badge)', () => {
     await seedSub(admin.id, 'https://push.example/admin')
     await seedSub(vice.id, 'https://push.example/vice')
     await seedSub(member.id, 'https://push.example/member') // 対象外
+    // mail-inbox-mailer: deferred 廃止。未処理 2 件 + processed 1 件で badge=2。
     await seedMail('unprocessed')
-    await seedMail('deferred')
+    await seedMail('unprocessed')
     await seedMail('processed') // バッジに含めない
 
     await notifyNewMailPush(testDb, CONFIG, {
@@ -89,7 +90,7 @@ describe('notifyNewMailPush (mail-triage-badge)', () => {
     // admin + vice の 2 件のみ（member は除外）
     expect(mocks.send).toHaveBeenCalledTimes(2)
     const payload = JSON.parse(mocks.send.mock.calls[0]![1] as string)
-    expect(payload.badge).toBe(2) // unprocessed + deferred
+    expect(payload.badge).toBe(2) // unprocessed × 2
     expect(payload.url).toBe('/admin/mail-inbox')
     expect(payload.body).toContain('テスト大会のご案内')
     expect(payload.body).toContain('主催者')

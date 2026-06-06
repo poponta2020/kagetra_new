@@ -9,6 +9,7 @@ import { AttachmentList } from './components/AttachmentList'
 import { DraftCard } from './components/DraftCard'
 import { TriggerFetchButton } from './components/TriggerFetchButton'
 import { TriageActions } from './components/TriageActions'
+import { UndoTriageButton } from './components/UndoTriageButton'
 
 /**
  * /admin/mail-inbox — 受信メール一覧（mail-triage-badge で再構成）。
@@ -68,6 +69,11 @@ const LIST_COLUMNS = {
   status: true,
   classification: true,
   triageStatus: true,
+  // mail-inbox-mailer (Codex r3 blocker): 処理済セクションの「未処理に戻す」が
+  // linked_event_id を解除しないと、紐付け先イベントの関連メールに残り続けて
+  // 不整合になる。UndoTriageButton に linkedEventId の有無を伝えるため、
+  // 一覧クエリでも列を引いておく。
+  linkedEventId: true,
 } as const
 
 const LIST_WITH = {
@@ -143,8 +149,10 @@ export default async function MailInboxPage() {
   })
   type Row = (typeof activeRows)[number]
 
+  // mail-inbox-mailer: triage 2 状態化（unprocessed / processed）。activeRows は
+  // `ne(triageStatus, 'processed')` フィルタなので全て unprocessed と等価だが、
+  // 既存のコードフローを保ったまま明示的に絞り込んでおく。
   const unprocessed = activeRows.filter((r) => r.triageStatus === 'unprocessed')
-  const deferred = activeRows.filter((r) => r.triageStatus === 'deferred')
 
   // 未処理グループ内の tier 分け（従来ロジック）。
   //   tier 0「要対応」: pending_review かつ confidence >= 0.9
@@ -215,14 +223,32 @@ export default async function MailInboxPage() {
             </Link>
           )}
           <div className="mt-1">
-            <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
+            {/* mail-inbox-mailer (Codex r3 blocker): processed 行の
+                「未処理に戻す」が undoTriage 単独だと linked_event_id を解除
+                しない。UndoTriageButton に振り替えて、linkedEventId がある場合は
+                unlinkMailFromEvent を呼ぶ動線にする。unprocessed 行はそのまま
+                TriageActions（対応不要のクイックアクション）を維持。
+                Codex r6 should-fix: dismissMail はサーバー側で未完了 draft
+                (ai_processing/pending_review/ai_failed) があるメールを拒否する
+                ので、一覧でも該当 draft があれば「対応不要」を出さない。
+                draft 詳細 / 再試行は DraftCard リンク or 詳細画面に集約する。 */}
+            {row.triageStatus === 'processed' ? (
+              <UndoTriageButton
+                mailId={row.id}
+                hasLinkedEvent={row.linkedEventId != null}
+              />
+            ) : row.draft?.status === 'ai_processing' ||
+              row.draft?.status === 'pending_review' ||
+              row.draft?.status === 'ai_failed' ? null : (
+              <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
+            )}
           </div>
         </div>
       </Card>
     )
   }
 
-  const hasAnyActive = unprocessed.length > 0 || deferred.length > 0
+  const hasAnyActive = unprocessed.length > 0
 
   return (
     <div className="flex flex-col gap-4">
@@ -325,17 +351,7 @@ export default async function MailInboxPage() {
         )}
       </section>
 
-      {/* 保留 */}
-      {deferred.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-sm font-semibold text-ink-2">
-            保留 ({deferred.length})
-          </h2>
-          <div className="flex flex-col gap-2">
-            {deferred.map((row) => renderRow(row))}
-          </div>
-        </section>
-      )}
+      {/* mail-inbox-mailer: 保留セクション廃止（deferred 状態自体を削除）。 */}
 
       {/* 処理済み（参考・折りたたみ） */}
       {processedRows.length > 0 && (

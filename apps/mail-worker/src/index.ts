@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runOnce, RunOnceError, runPipeline } from './pipeline.js'
+import { runManualExtract, runOnce, RunOnceError, runPipeline } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb, getDb } from './db.js'
 import { loadLogConfig, loadLlmConfig, loadWebPushConfig } from './config.js'
@@ -10,12 +10,24 @@ import {
   claimNextJob,
   markJobDone,
   markJobFailed,
+  parseManualExtractPayload,
   recoverStaleClaimedJobs,
+  STALE_CLAIM_RECOVERY_MS_EXTRACT,
 } from './jobs.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
 import type { ExtractionPayload } from './classify/schema.js'
+
+/**
+ * mail-inbox-mailer: dispatcher の動作 mode。
+ * - 'fetch': 既存 cron。IMAP fetch + persist のみ実行。**AI 抽出は呼ばない**。
+ *            `fetch` ジョブの claim も受ける（既存の手動 fetch 操作）。
+ * - 'extract': mail-inbox-mailer タスク2 の新規モード。IMAP fetch をスキップ
+ *              して `manual_extract` ジョブのみ pick → `runManualExtract`。
+ *              30 秒間隔の systemd timer から起動される想定。
+ */
+type DispatcherMode = 'fetch' | 'extract'
 
 interface CliFlags {
   /**
@@ -34,6 +46,8 @@ interface CliFlags {
    */
   noClaim: boolean
   fixtureDir: string | undefined
+  /** mail-inbox-mailer: dispatcher mode (default: 'fetch'). */
+  mode: DispatcherMode
 }
 
 /**
@@ -53,6 +67,7 @@ function parseArgs(argv: readonly string[]): CliFlags {
     dryRun: false,
     noClaim: false,
     fixtureDir: undefined,
+    mode: 'fetch',
   }
   for (const arg of argv) {
     if (arg === '--once') flags.once = true
@@ -65,6 +80,11 @@ function parseArgs(argv: readonly string[]): CliFlags {
       flags.since = parseSinceArg(value)
     } else if (arg.startsWith('--fixture-dir=')) {
       flags.fixtureDir = arg.slice('--fixture-dir='.length)
+    } else if (arg.startsWith('--mode=')) {
+      const value = arg.slice('--mode='.length)
+      if (value === 'extract-only') flags.mode = 'extract'
+      else if (value === 'fetch-only' || value === 'fetch') flags.mode = 'fetch'
+      else throw new Error(`unknown --mode value: ${value} (expected fetch-only or extract-only)`)
     } else if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -93,6 +113,10 @@ function printUsage(): void {
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
   --dry-run              Parse only; do not write to DB or call the LLM.
   --no-claim             Skip mail_worker_jobs claim and run a pure cron tick (test/debug).
+  --mode=fetch-only      (default) IMAP fetch + 'fetch' job dispatch. AI extraction
+                         is NOT invoked (mail-inbox-mailer: cron AI 廃止)。
+  --mode=extract-only    Skip IMAP fetch entirely; only claim 'manual_extract'
+                         jobs and run runManualExtract on each.
   --help, -h             Show this help.
 `)
 }
@@ -114,11 +138,16 @@ async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2))
 
-  // Build the LLM extractor. Three branches:
-  //   --dry-run    → no extractor (AI phase is skipped entirely)
-  //   --mock-llm   → FixtureLLMExtractor (no ANTHROPIC_API_KEY required)
-  //   default      → AnthropicSonnet46Extractor (loadLlmConfig validates env)
-  const llmExtractor = await buildLlmExtractor(flags)
+  // mail-inbox-mailer: AI 抽出は extract-only mode のみで使う。fetch mode は
+  // cron AI 廃止により llmExtractor を渡さない運用に変更（cron が
+  // ANTHROPIC_API_KEY なしで動くようになる）。
+  //
+  // build branches:
+  //   --dry-run                 → undefined (AI phase skipped entirely)
+  //   --mode=fetch-only (def)   → undefined (cron AI 廃止)
+  //   --mode=extract-only       → FixtureLLMExtractor or AnthropicSonnet46Extractor
+  const llmExtractor =
+    flags.mode === 'extract' ? await buildLlmExtractor(flags) : undefined
 
   // Build the IMAP source: `--mock-imap` reads fixture eml files; otherwise
   // we let `runPipeline` instantiate a `LiveMailSource` (via the default).
@@ -133,7 +162,7 @@ async function main(): Promise<void> {
   // Default lookback for cron / live IMAP. Logged the first time we apply it
   // so operators know why a manual `pnpm start` looks at the last 7 days.
   const cronSince = flags.since ?? defaultLiveSince()
-  if (!flags.since && !flags.mockImap) {
+  if (!flags.since && !flags.mockImap && flags.mode === 'fetch') {
 
     console.log(
       `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${cronSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
@@ -167,6 +196,17 @@ async function main(): Promise<void> {
       })
 
       console.log('pipeline summary:', summary)
+      return
+    }
+
+    // mail-inbox-mailer: extract-only mode は IMAP fetch せず、manual_extract
+    // ジョブだけを 1 件 pick して runManualExtract を回す。
+    if (flags.mode === 'extract') {
+      await runExtractOnlyDispatcher({
+        llmExtractor: llmExtractor!,
+        webPushConfig,
+        log,
+      })
       return
     }
 
@@ -206,7 +246,9 @@ async function main(): Promise<void> {
       },
     )
 
-    const job = await claimNextJob(db).catch((err) => {
+    // mail-inbox-mailer: fetch mode は 'fetch' ジョブだけ拾う。
+    // 'manual_extract' は 30 秒間隔の extract-only timer に任せる。
+    const job = await claimNextJob(db, { kinds: ['fetch'] }).catch((err) => {
       log.warn('claimNextJob failed; falling back to cron tick', {
         err: err instanceof Error ? err.message : String(err),
       })
@@ -216,6 +258,7 @@ async function main(): Promise<void> {
     if (job) {
       log.info('claimed mail_worker_jobs row', {
         jobId: job.id,
+        kind: job.kind,
         requestedByUserId: job.requestedByUserId,
         since: job.since?.toISOString() ?? null,
       })
@@ -262,6 +305,84 @@ async function main(): Promise<void> {
     }
   } finally {
     await closeDb()
+  }
+}
+
+/**
+ * mail-inbox-mailer タスク2: extract-only dispatcher。
+ *
+ * 30 秒間隔の systemd timer から呼ばれる想定。1 tick で manual_extract ジョブを
+ * 1 件だけ pick して runManualExtract を回す（次の tick で次の 1 件、という
+ * sequential 動作）。pick できなければ no-op で抜ける。
+ *
+ * IMAP fetch を一切呼ばないので、ANTHROPIC_API_KEY だけあれば動く。
+ */
+async function runExtractOnlyDispatcher(opts: {
+  llmExtractor: LLMExtractor
+  webPushConfig: ReturnType<typeof loadWebPushConfig>
+  log: ReturnType<typeof consoleLogger>
+}): Promise<void> {
+  const db = getDb()
+
+  // mail-inbox-mailer (Codex r8 should-fix): manual_extract は systemd 側で
+  // TimeoutStartSec=300 (5 分) で kill されるので、fetch と同じ 1 時間閾値だと
+  // LLM/API ハングで kill されたジョブが ai_processing のまま最大 1 時間
+  // 残ってしまい polling 画面が進まない。manual_extract だけ 10 分閾値で
+  // 専用復旧し、他 kind (fetch) は fetch dispatcher 側に任せる。
+  await recoverStaleClaimedJobs(db, {
+    staleAfterMs: STALE_CLAIM_RECOVERY_MS_EXTRACT,
+    kinds: ['manual_extract'],
+  }).then(
+    (recovered) => {
+      if (recovered > 0) {
+        opts.log.warn('recovered stale claimed manual_extract jobs', { recovered })
+      }
+    },
+    (err) => {
+      opts.log.warn('recoverStaleClaimedJobs failed; continuing', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+    },
+  )
+
+  const job = await claimNextJob(db, { kinds: ['manual_extract'] }).catch((err) => {
+    opts.log.warn('claimNextJob (extract-only) failed', {
+      err: err instanceof Error ? err.message : String(err),
+    })
+    return null
+  })
+
+  if (!job) {
+    opts.log.info('extract-only: no pending manual_extract jobs')
+    return
+  }
+
+  opts.log.info('claimed manual_extract job', {
+    jobId: job.id,
+    requestedByUserId: job.requestedByUserId,
+  })
+
+  try {
+    const { mail_message_id: mailMessageId } = parseManualExtractPayload(job.payload)
+    const result = await runManualExtract({
+      mailMessageId,
+      llmExtractor: opts.llmExtractor,
+      triggeredByUserId: job.requestedByUserId,
+      webPushConfig: opts.webPushConfig,
+      logger: opts.log,
+    })
+    await markJobDone(db, job.id, result.runId)
+
+    console.log('manual_extract result:', result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await markJobFailed(db, job.id, message, null).catch((markErr) => {
+      opts.log.warn('markJobFailed (manual_extract) also failed', {
+        jobId: job.id,
+        err: markErr instanceof Error ? markErr.message : String(markErr),
+      })
+    })
+    throw err
   }
 }
 

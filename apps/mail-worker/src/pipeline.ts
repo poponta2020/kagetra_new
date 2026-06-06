@@ -13,7 +13,11 @@ import {
   type MailWorkerRunSummary,
   type Notifier,
 } from './notify/orchestrator.js'
-import { notifyNewMailPush, type NewMailInfo } from './notify/web-push.js'
+import {
+  notifyExtractCompleted,
+  notifyNewMailPush,
+  type NewMailInfo,
+} from './notify/web-push.js'
 import type { WebPushConfig } from './config.js'
 
 export interface PipelineSummary {
@@ -727,6 +731,329 @@ export class RunOnceError extends Error {
     super(message, options)
     this.name = 'RunOnceError'
     this.runId = runId
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runManualExtract: mail-inbox-mailer タスク2
+//
+// 管理者が inbox 詳細で「会で流す（AI 抽出）」ボタンを押すと、Server Action が
+// `mail_worker_jobs` に kind='manual_extract', payload={mail_message_id} を
+// INSERT する。`--mode=extract-only` で起動した mail-worker は 30 秒間隔で
+// このジョブを claim し、本関数を呼ぶ。
+//
+// 既存の `runOnce` (IMAP fetch + AI) と意図的に別関数として切り出した理由:
+//   - IMAP fetch を skip するので runPipeline の流れを使わない
+//   - cron AI 廃止に伴い、AI 抽出はこの経路に集約される
+//   - 失敗時のステータス計算 ('ai_failed') がシンプル
+//
+// 流れ:
+//   1. mail_worker_runs (kind='manual', status='running') を INSERT
+//   2. classifyMail + persistOutcome を per-mail try/catch で実行
+//   3. **persistOutcome が ai_processing draft を更新しない kind**
+//      (noise / oversize_skipped / skipped_noise) では、Server Action が事前に
+//      作った draft が永遠に ai_processing で残り UI polling が停止しない
+//      問題があるため、明示的に ai_failed へ終端させる (Codex r1 blocker)。
+//   4. terminal status を計算して mail_worker_runs を UPDATE
+//   5. Web Push で完了通知を送る（success / failed）。UI 表記
+//      「完了したら通知します」の裏付け (Codex r1 should-fix)。
+//
+// 注: classifyMail 自体が draft 行を `status='ai_processing'` でマークする前に
+// 走るが、Server Action が draft を INSERT 済みなので redundant ではない。
+// classifyMail 内の updateStatus は mail_messages.status を更新するもの。
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RunManualExtractOptions {
+  /** 対象の mail_messages.id。Server Action が payload に乗せて渡した値。 */
+  mailMessageId: number
+  /** AI 抽出器。`buildLlmExtractor` から渡される。 */
+  llmExtractor: LLMExtractor
+  /** 起動者 (mail_worker_jobs.requested_by_user_id)。run 行の triggered_by に乗る。 */
+  triggeredByUserId: string
+  /**
+   * Web Push 完了通知用 VAPID 設定。null/未設定なら配信スキップ（鍵未設定
+   * 環境でも extract 自体は動く）。Codex r1 should-fix 対応。
+   */
+  webPushConfig?: WebPushConfig | null
+  logger?: PipelineLogger
+}
+
+export interface RunManualExtractResult {
+  /** mail_worker_runs.id */
+  runId: number
+  /** terminal status */
+  status: 'success' | 'ai_failed'
+  /** classifyMail/persistOutcome が回せた件数 */
+  draftsInserted: number
+  draftsUpdated: number
+  draftsPreserved: number
+  aiSucceeded: number
+  aiFailed: number
+  aiSkipped: number
+  aiErrors: string[]
+}
+
+export async function runManualExtract(
+  opts: RunManualExtractOptions,
+): Promise<RunManualExtractResult> {
+  const log = opts.logger ?? NOOP_LOGGER
+  const db = getDb()
+
+  const inserted = await db
+    .insert(mailWorkerRuns)
+    .values({
+      startedAt: sql`now()`,
+      kind: 'manual',
+      status: 'running',
+      triggeredByUserId: opts.triggeredByUserId,
+      since: null,
+    })
+    .returning({ id: mailWorkerRuns.id })
+  const runId = inserted[0]!.id
+
+  // 個別 mail への classify を per-mail try/catch で。pipeline.ts の runAiPhase
+  // と同じ構造（mail_messages.status を `ai_processing` でマーク → classifyMail
+  // → persistOutcome → tally 加算）。再利用したいが runAiPhase は private 関数
+  // なので、ここで簡潔に inline する。
+  const tally = {
+    draftsInserted: 0,
+    draftsUpdated: 0,
+    draftsPreserved: 0,
+    aiSucceeded: 0,
+    aiFailed: 0,
+    aiSkipped: 0,
+    aiErrors: [] as string[],
+  }
+  let topLevelError: Error | null = null
+
+  try {
+    // Best-effort marker。crash recovery のため。
+    try {
+      await updateStatus(db, opts.mailMessageId, 'ai_processing')
+    } catch (err) {
+      log.warn('manual_extract ai status marker failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    try {
+      // force:true で classification='noise' でも AI を呼ぶ（管理者が明示的に
+      // AI 抽出を要求したケース。pre-filter が noise と判定したメールでも
+      // 「会で流す」と判断した時点で AI 抽出すべき）。
+      const outcome = await classifyMail(db, opts.mailMessageId, opts.llmExtractor, {
+        force: true,
+      })
+      const t = await persistOutcome(db, opts.mailMessageId, outcome)
+      tally.draftsInserted += t.draftsInserted
+      tally.draftsUpdated += t.draftsUpdated
+      tally.draftsPreserved += t.draftsPreserved
+      tally.aiSucceeded += t.aiSucceeded
+      tally.aiFailed += t.aiFailed
+      tally.aiSkipped += t.aiSkipped
+      if (
+        outcome.kind === 'failed' &&
+        tally.aiErrors.length < MAX_ERRORS_IN_SUMMARY
+      ) {
+        const detail = outcome.rawResponse ?? outcome.reason
+        tally.aiErrors.push(truncateAiError(detail))
+      }
+      if (outcome.kind === 'oversize_skipped') {
+        log.warn('manual_extract oversize_skipped', {
+          runId,
+          mailMessageId: opts.mailMessageId,
+          filename: outcome.filename,
+          sizeBytes: outcome.sizeBytes,
+          limitBytes: outcome.limitBytes,
+        })
+      }
+
+      // Codex r1 blocker: persistOutcome は noise / oversize_skipped /
+      // skipped_noise の場合 tournament_drafts を触らない。Server Action
+      // (triggerExtractDraft) が事前に作った draft が `ai_processing` のまま
+      // 永遠に残り、UI polling が止まらない。
+      //
+      // - failed   → persistOutcome が upsertDraft で ai_failed に上書き済 (OK)
+      // - tournament → upsertDraft で pending_review に上書き済 (OK)
+      // - noise    → mail_messages.classification='noise' に倒すが draft は
+      //              「pending_review/ai_failed のみ superseded」なので
+      //              ai_processing は対象外。ai_failed へ強制終端する。
+      // - oversize_skipped → draft は触られない。同じく強制終端。
+      // - skipped_noise   → force:true で来ないはずだが防御的に同じ扱い。
+      //
+      // tally への影響: 既存の aiSucceeded（noise）はそのまま残しつつ、UI 観点で
+      // draft を「再試行可能な ai_failed」へ寄せる（UI は ai_failed で
+      // 「再試行」「手動でイベントを作成」を出す）。
+      if (
+        outcome.kind === 'noise' ||
+        outcome.kind === 'oversize_skipped' ||
+        outcome.kind === 'skipped_noise'
+      ) {
+        const closed = await db
+          .update(tournamentDrafts)
+          .set({ status: 'ai_failed', updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(tournamentDrafts.messageId, opts.mailMessageId),
+              eq(tournamentDrafts.status, 'ai_processing'),
+            ),
+          )
+          .returning({ id: tournamentDrafts.id })
+        if (closed.length > 0) {
+          log.info('manual_extract forced ai_processing draft to ai_failed', {
+            runId,
+            mailMessageId: opts.mailMessageId,
+            kind: outcome.kind,
+          })
+          // 実害は無いが UI 表記との整合のため aiFailed もカウント。
+          // （tally.aiSucceeded は noise 経由で既に +1 されているが、aiFailed
+          // をインクリメントすることで run.status='ai_failed' に倒れて Web Push
+          // が「失敗」として通知される）
+          tally.aiFailed += 1
+        }
+      }
+
+      log.info('manual_extract outcome', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        kind: outcome.kind,
+        draftsInserted: t.draftsInserted,
+        draftsUpdated: t.draftsUpdated,
+      })
+    } catch (err) {
+      tally.aiFailed += 1
+      const message = err instanceof Error ? err.message : String(err)
+      if (tally.aiErrors.length < MAX_ERRORS_IN_SUMMARY) {
+        tally.aiErrors.push(truncateAiError(message))
+      }
+      log.warn('manual_extract phase failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: message,
+      })
+
+      // Codex r2 blocker: classifyMail / persistOutcome が例外を投げた場合、
+      // 事前作成された ai_processing draft が更新されないまま dispatcher が
+      // markJobDone するため、UI polling が永遠に止まらない。catch 内でも
+      // best-effort で draft を ai_failed に倒す（失敗してもこの try は
+      // 既に上位 catch で扱われているので run 自体は続行）。
+      try {
+        await db
+          .update(tournamentDrafts)
+          .set({ status: 'ai_failed', updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(tournamentDrafts.messageId, opts.mailMessageId),
+              eq(tournamentDrafts.status, 'ai_processing'),
+            ),
+          )
+      } catch (closeErr) {
+        log.warn('manual_extract draft close after error failed', {
+          runId,
+          mailMessageId: opts.mailMessageId,
+          err: closeErr instanceof Error ? closeErr.message : String(closeErr),
+        })
+      }
+    }
+  } catch (err) {
+    // outer catch は classifyMail の外（DB connection 切断など）。tally に乗ら
+    // ない致命的失敗。
+    topLevelError = err instanceof Error ? err : new Error(String(err))
+    log.warn('manual_extract top-level error', {
+      runId,
+      err: topLevelError.message,
+    })
+
+    // Codex r2 blocker (outer 経路): inner middle catch を経由できない致命的
+    // 失敗でも draft が ai_processing で残ると UI が止まらないため、防御的に
+    // 強制終端する。失敗しても run 行更新は続行。
+    try {
+      await db
+        .update(tournamentDrafts)
+        .set({ status: 'ai_failed', updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(tournamentDrafts.messageId, opts.mailMessageId),
+            eq(tournamentDrafts.status, 'ai_processing'),
+          ),
+        )
+    } catch (closeErr) {
+      log.warn('manual_extract draft close after top-level error failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: closeErr instanceof Error ? closeErr.message : String(closeErr),
+      })
+    }
+  }
+
+  const status: 'success' | 'ai_failed' =
+    topLevelError !== null || tally.aiFailed > 0 ? 'ai_failed' : 'success'
+
+  const errors: string[] = []
+  if (topLevelError) errors.push(topLevelError.message)
+  for (const e of tally.aiErrors) errors.push(e)
+
+  const summaryJson: MailWorkerRunSummary = {
+    fetched: 0,
+    classified: tally.aiSucceeded + tally.aiFailed + tally.aiSkipped,
+    drafts_created: tally.draftsInserted,
+    ai_failed: tally.aiFailed,
+    imap_error: false,
+    errors: errors.slice(0, MAX_ERRORS_IN_SUMMARY),
+    new_draft_subjects: [],
+  }
+
+  await db
+    .update(mailWorkerRuns)
+    .set({
+      finishedAt: sql`now()`,
+      status,
+      summary: summaryJson,
+      error: topLevelError ? topLevelError.message : null,
+    })
+    .where(eq(mailWorkerRuns.id, runId))
+
+  // Codex r1 should-fix: 完了通知 (Web Push)。詳細画面の
+  // 「完了したら通知します」表記の裏付け。鍵未設定 (config が null) なら
+  // skip（既存 cron と同じ慣行）。配信失敗は best-effort で run 自体は止めない。
+  if (opts.webPushConfig) {
+    try {
+      const subjectRow = await db
+        .select({ subject: mailMessages.subject })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, opts.mailMessageId))
+        .limit(1)
+      const subject = subjectRow[0]?.subject ?? null
+      await notifyExtractCompleted(
+        db,
+        opts.webPushConfig,
+        {
+          mailMessageId: opts.mailMessageId,
+          subject,
+          result: status === 'success' ? 'success' : 'failed',
+        },
+        log,
+      )
+    } catch (err) {
+      log.warn('manual_extract completion notify failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return {
+    runId,
+    status,
+    draftsInserted: tally.draftsInserted,
+    draftsUpdated: tally.draftsUpdated,
+    draftsPreserved: tally.draftsPreserved,
+    aiSucceeded: tally.aiSucceeded,
+    aiFailed: tally.aiFailed,
+    aiSkipped: tally.aiSkipped,
+    aiErrors: tally.aiErrors,
   }
 }
 
