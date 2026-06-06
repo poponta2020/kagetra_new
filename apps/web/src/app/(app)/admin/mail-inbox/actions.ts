@@ -812,10 +812,54 @@ async function setTriage(
   revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
-/** 対応不要として片付ける（→ processed、未処理バッジから除外）。 */
+/**
+ * 対応不要として片付ける（→ processed、未処理バッジから除外）。
+ *
+ * Codex r4 blocker: 未完了 draft (ai_processing / pending_review / ai_failed)
+ * があるメールを processed にすると、AI 抽出中またはレビュー待ちの draft が
+ * 未処理キューから消えて見落とされる。transaction 化して FOR UPDATE で
+ * 拒否する。draft が無いか、terminal status (approved / rejected / superseded)
+ * のメールのみ「対応不要」可能。
+ */
 export async function dismissMail(mailId: number) {
   const session = await requireAdminSession()
-  await setTriage(mailId, 'processed', session.user.id)
+
+  await db.transaction(async (tx) => {
+    const mailRows = await tx
+      .select({
+        id: mailMessages.id,
+        triageStatus: mailMessages.triageStatus,
+      })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, mailId))
+      .for('update')
+    if (mailRows.length === 0) throw new Error('mail not found')
+
+    const draftRows = await tx
+      .select({ status: tournamentDrafts.status })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.messageId, mailId))
+      .for('update')
+    if (draftRows.length > 0) {
+      const ds = draftRows[0]!.status
+      if (ds === 'ai_processing' || ds === 'pending_review' || ds === 'ai_failed') {
+        throw new Error('未完了の AI 抽出 draft があるため対応不要にできません')
+      }
+    }
+
+    await tx
+      .update(mailMessages)
+      .set({
+        triageStatus: 'processed',
+        triagedAt: sql`now()`,
+        triagedByUserId: session.user.id,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, mailId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
 /** 処理取り消し（→ unprocessed、処理者をクリア）。 */

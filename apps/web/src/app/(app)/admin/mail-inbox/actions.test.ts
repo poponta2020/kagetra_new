@@ -1386,6 +1386,48 @@ describe('admin/mail-inbox actions', () => {
     // mail-inbox-mailer: deferMail / deferred 状態は廃止。
     // 「保留」は処理せず放置することが暗黙の保留である、というモデルに統合。
 
+    // Codex r4 blocker: dismissMail は未完了 draft があるメールを processed に
+    // しない (AI 抽出中 / レビュー待ち draft を未処理キューから隠さない)。
+    it.each([
+      ['ai_processing'],
+      ['pending_review'],
+      ['ai_failed'],
+    ] as const)(
+      'dismissMail は %s draft があるメールでは拒否される',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        await createTournamentDraft({
+          messageId: mail.id,
+          status,
+        })
+
+        await expect(dismissMail(mail.id)).rejects.toThrow(
+          /未完了の AI 抽出 draft/,
+        )
+
+        // triage は unprocessed のまま。
+        const after = await getMail(mail.id)
+        expect(after?.triageStatus).toBe('unprocessed')
+      },
+    )
+
+    it('dismissMail は terminal draft (approved/rejected/superseded) なら通る', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createTournamentDraft({
+        messageId: mail.id,
+        status: 'rejected',
+      })
+
+      await dismissMail(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
+    })
+
     it('undoTriage: unprocessed に戻し triaged_at/by をクリアする', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
