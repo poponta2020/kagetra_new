@@ -1,6 +1,21 @@
-import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm'
 import { mailWorkerJobs } from '@kagetra/shared/schema'
 import type { Db } from './db.js'
+
+/**
+ * `mail_worker_jobs.kind` の TS リテラル型。enum は drizzle スキーマ側で
+ * 'fetch' | 'manual_extract' を定義しており、dispatcher 分岐の identity と
+ * して使う。
+ *
+ * - 'fetch'         : IMAP 取得 + persist のみ。AI 抽出は呼ばない（既存 cron）。
+ * - 'manual_extract': inbox 詳細から「会で流す（AI 抽出）」を押した時の手動
+ *                    AI ジョブ。`payload.mail_message_id` で対象を指定する。
+ */
+export type MailWorkerJobKind = 'fetch' | 'manual_extract'
+
+export interface ManualExtractPayload {
+  mail_message_id: number
+}
 
 /**
  * How long a `claimed` row may sit before the dispatcher recovers it back to
@@ -34,6 +49,23 @@ export type ClaimedJob = {
   /** `--since` cutoff requested by the admin, or null for default lookback. */
   since: Date | null
   requestedAt: Date
+  /** mail-inbox-mailer: ジョブ種別。`'fetch'` (IMAP) と `'manual_extract'` (AI 抽出) を識別。 */
+  kind: MailWorkerJobKind
+  /**
+   * mail-inbox-mailer: kind 固有引数。`manual_extract` の場合は
+   * `{ mail_message_id }` を含む。JSON 由来なので型は jsonb→unknown、
+   * 呼び出し側で narrow する。
+   */
+  payload: unknown
+}
+
+export interface ClaimNextJobOptions {
+  /**
+   * mail-inbox-mailer: pick できるジョブ種別を絞る。指定しない場合は全種別を
+   * 対象とする（既存呼び出しの互換）。dispatcher の mode (`--mode=extract-only`)
+   * から `['manual_extract']` を渡して IMAP fetch ジョブを取らない。
+   */
+  kinds?: MailWorkerJobKind[]
 }
 
 /**
@@ -46,8 +78,15 @@ export type ClaimedJob = {
  * non-blocking queue claim. The SELECT and UPDATE both live inside the same
  * transaction so the row's lock is released only after the status flip
  * commits — no other worker can see it as pending.
+ *
+ * mail-inbox-mailer: 第 2 引数 `opts.kinds` で kind フィルタを掛けられる。
+ * 未指定なら全種別。fetch mode は `['fetch']`、extract-only mode は
+ * `['manual_extract']` を渡す想定。
  */
-export async function claimNextJob(db: Db): Promise<ClaimedJob | null> {
+export async function claimNextJob(
+  db: Db,
+  opts: ClaimNextJobOptions = {},
+): Promise<ClaimedJob | null> {
   return db.transaction(async (tx) => {
     const candidates = await tx
       .select({
@@ -55,9 +94,18 @@ export async function claimNextJob(db: Db): Promise<ClaimedJob | null> {
         requestedByUserId: mailWorkerJobs.requestedByUserId,
         since: mailWorkerJobs.since,
         requestedAt: mailWorkerJobs.requestedAt,
+        kind: mailWorkerJobs.kind,
+        payload: mailWorkerJobs.payload,
       })
       .from(mailWorkerJobs)
-      .where(eq(mailWorkerJobs.status, 'pending'))
+      .where(
+        opts.kinds && opts.kinds.length > 0
+          ? and(
+              eq(mailWorkerJobs.status, 'pending'),
+              inArray(mailWorkerJobs.kind, opts.kinds),
+            )
+          : eq(mailWorkerJobs.status, 'pending'),
+      )
       .orderBy(asc(mailWorkerJobs.requestedAt))
       .limit(1)
       .for('update', { skipLocked: true })
@@ -73,6 +121,8 @@ export async function claimNextJob(db: Db): Promise<ClaimedJob | null> {
         requestedByUserId: mailWorkerJobs.requestedByUserId,
         since: mailWorkerJobs.since,
         requestedAt: mailWorkerJobs.requestedAt,
+        kind: mailWorkerJobs.kind,
+        payload: mailWorkerJobs.payload,
       })
     if (updated.length === 0) {
       // Should be impossible while we hold the row lock, but stay defensive
@@ -85,8 +135,29 @@ export async function claimNextJob(db: Db): Promise<ClaimedJob | null> {
       requestedByUserId: row.requestedByUserId,
       since: row.since,
       requestedAt: row.requestedAt,
+      kind: row.kind,
+      payload: row.payload,
     }
   })
+}
+
+/**
+ * mail-inbox-mailer: `manual_extract` ジョブの payload を narrow する。
+ * jsonb から `mail_message_id: number` が取り出せなければ throw する。
+ * dispatcher が claim 直後に呼ぶ薄いガード。
+ */
+export function parseManualExtractPayload(payload: unknown): ManualExtractPayload {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'mail_message_id' in payload &&
+    typeof (payload as { mail_message_id: unknown }).mail_message_id === 'number'
+  ) {
+    return { mail_message_id: (payload as { mail_message_id: number }).mail_message_id }
+  }
+  throw new Error(
+    `manual_extract job payload missing mail_message_id (got ${JSON.stringify(payload)})`,
+  )
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   claimNextJob,
   markJobDone,
   markJobFailed,
+  parseManualExtractPayload,
   recoverStaleClaimedJobs,
   STALE_CLAIM_RECOVERY_MS,
 } from '../src/jobs.js'
@@ -30,13 +31,21 @@ async function seedAdmin() {
   })
 }
 
-async function seedJob(opts: { since?: Date | null } = {}): Promise<number> {
+async function seedJob(
+  opts: {
+    since?: Date | null
+    kind?: 'fetch' | 'manual_extract'
+    payload?: Record<string, unknown> | null
+  } = {},
+): Promise<number> {
   const inserted = await testDb
     .insert(mailWorkerJobs)
     .values({
       requestedByUserId: ADMIN_USER_ID,
       since: opts.since ?? null,
       status: 'pending',
+      kind: opts.kind ?? 'fetch',
+      payload: opts.payload ?? null,
     })
     .returning({ id: mailWorkerJobs.id })
   return inserted[0]!.id
@@ -63,11 +72,63 @@ describe('jobs queue', () => {
     expect(claimed!.id).toBe(id)
     expect(claimed!.requestedByUserId).toBe(ADMIN_USER_ID)
     expect(claimed!.since?.toISOString()).toBe(since.toISOString())
+    // mail-inbox-mailer: 既定 kind は 'fetch'、payload は null。
+    expect(claimed!.kind).toBe('fetch')
+    expect(claimed!.payload).toBeNull()
 
     // DB state: status=claimed, claimed_at populated.
     const row = (await testDb.select().from(mailWorkerJobs))[0]!
     expect(row.status).toBe('claimed')
     expect(row.claimedAt).not.toBeNull()
+  })
+
+  // mail-inbox-mailer: kind フィルタ動作。fetch mode の dispatcher は
+  // `['fetch']` で claim し、extract-only mode の dispatcher は
+  // `['manual_extract']` で claim する想定。
+  it('claimNextJob with kinds=["fetch"] skips manual_extract jobs', async () => {
+    // manual_extract を先に積み（古い）、fetch を後に積む。kinds=['fetch'] は
+    // 順序を無視して fetch を取り、manual_extract は pending のまま残る。
+    const meId = await seedJob({
+      kind: 'manual_extract',
+      payload: { mail_message_id: 123 },
+    })
+    const fetchId = await seedJob({ kind: 'fetch' })
+
+    const claimed = await claimNextJob(getDb(), { kinds: ['fetch'] })
+    expect(claimed?.id).toBe(fetchId)
+    expect(claimed?.kind).toBe('fetch')
+
+    // manual_extract は pending のまま。
+    const rows = await testDb.select().from(mailWorkerJobs)
+    const me = rows.find((r) => r.id === meId)!
+    expect(me.status).toBe('pending')
+  })
+
+  it('claimNextJob with kinds=["manual_extract"] only picks manual_extract jobs and returns its payload', async () => {
+    const fetchId = await seedJob({ kind: 'fetch' })
+    const meId = await seedJob({
+      kind: 'manual_extract',
+      payload: { mail_message_id: 42 },
+    })
+
+    const claimed = await claimNextJob(getDb(), { kinds: ['manual_extract'] })
+    expect(claimed?.id).toBe(meId)
+    expect(claimed?.kind).toBe('manual_extract')
+    // payload は jsonb→unknown。helper で narrow できることを確認。
+    expect(parseManualExtractPayload(claimed!.payload).mail_message_id).toBe(42)
+
+    // fetch は pending のまま。
+    const rows = await testDb.select().from(mailWorkerJobs)
+    const fetch = rows.find((r) => r.id === fetchId)!
+    expect(fetch.status).toBe('pending')
+  })
+
+  it('parseManualExtractPayload throws on missing mail_message_id', () => {
+    expect(() => parseManualExtractPayload(null)).toThrow(/missing mail_message_id/)
+    expect(() => parseManualExtractPayload({})).toThrow(/missing mail_message_id/)
+    expect(() => parseManualExtractPayload({ mail_message_id: '42' })).toThrow(
+      /missing mail_message_id/,
+    )
   })
 
   it('returns null when no pending jobs are available', async () => {

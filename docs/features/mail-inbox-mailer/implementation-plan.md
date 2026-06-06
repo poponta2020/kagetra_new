@@ -23,7 +23,7 @@ status: completed
   - `pnpm typecheck` 通過
 
 ### タスク2: mail-worker の cron AI 廃止 + manual_extract dispatcher
-- [ ] 完了
+- [x] 完了
 - **概要:** cron 動作（kind='fetch'）では llmExtractor を渡さない運用に変更し、manual_extract ジョブを処理する dispatcher 分岐を追加。CLI に `--mode=extract-only` フラグも追加
 - **変更対象ファイル:**
   - `apps/mail-worker/src/pipeline.ts` — `RunPipelineOptions.llmExtractor` を呼び出し側で制御
