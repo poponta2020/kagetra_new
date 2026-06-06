@@ -52,7 +52,7 @@ status: completed
   - linked_event_id 更新と triage_status='processed' が同一 tx 内
 
 ### タスク4: mail-inbox UI 改修（一覧 + 詳細 + polling）
-- [ ] 完了
+- [x] 完了
 - **概要:** 一覧画面の noise/deferred フィルタ削除、詳細画面の本文即時表示・3 ボタンアクション・AI 抽出中カード・polling 接続。新規コンポーネント 5 つを追加
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` — noise/deferred フィルタ削除
