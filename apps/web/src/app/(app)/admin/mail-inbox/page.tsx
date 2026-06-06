@@ -227,13 +227,19 @@ export default async function MailInboxPage() {
                 「未処理に戻す」が undoTriage 単独だと linked_event_id を解除
                 しない。UndoTriageButton に振り替えて、linkedEventId がある場合は
                 unlinkMailFromEvent を呼ぶ動線にする。unprocessed 行はそのまま
-                TriageActions（対応不要のクイックアクション）を維持。 */}
+                TriageActions（対応不要のクイックアクション）を維持。
+                Codex r6 should-fix: dismissMail はサーバー側で未完了 draft
+                (ai_processing/pending_review/ai_failed) があるメールを拒否する
+                ので、一覧でも該当 draft があれば「対応不要」を出さない。
+                draft 詳細 / 再試行は DraftCard リンク or 詳細画面に集約する。 */}
             {row.triageStatus === 'processed' ? (
               <UndoTriageButton
                 mailId={row.id}
                 hasLinkedEvent={row.linkedEventId != null}
               />
-            ) : (
+            ) : row.draft?.status === 'ai_processing' ||
+              row.draft?.status === 'pending_review' ||
+              row.draft?.status === 'ai_failed' ? null : (
               <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
             )}
           </div>

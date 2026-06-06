@@ -131,7 +131,7 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     expect(screen.queryByText('会で流す（AI 抽出）')).toBeNull()
   })
 
-  it('mail-inbox-mailer: draft.status=ai_failed で再試行と手動作成ボタンを表示', async () => {
+  it('mail-inbox-mailer: draft.status=ai_failed で再試行ボタンを表示', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     const mail = await createMailMessage({
@@ -147,7 +147,9 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
 
     expect(screen.getByText('AI 抽出に失敗しました')).toBeTruthy()
     expect(screen.getByText('AI 抽出を再試行')).toBeTruthy()
-    expect(screen.getByText('手動でイベントを作成')).toBeTruthy()
+    // Codex r6 blocker: 「手動でイベントを作成」リンクは /admin/events/new
+    // 不在のため撤去。専用フロー実装まで非表示。
+    expect(screen.queryByText('手動でイベントを作成')).toBeNull()
   })
 
   it('存在しない mail は notFound', async () => {

@@ -235,7 +235,9 @@ export default async function MailDetailPage({
               AI 抽出に失敗しました
             </h2>
             <p className="text-xs text-ink-meta">
-              再試行するか、手動でイベントを作成してください。
+              再試行してください。手動でイベント作成する場合は
+              この画面から AI 抽出を諦めた上で、メニューから新規イベント作成へ
+              進んでください（mail との自動紐付けは将来対応）。
             </p>
             <div className="flex flex-col gap-2">
               <AIExtractConfirmDialog
@@ -243,15 +245,11 @@ export default async function MailDetailPage({
                 buttonLabel="AI 抽出を再試行"
                 buttonKind="primary"
               />
-              {/* 手動イベント作成は既存 /admin/events/new に mailMessageId を渡す
-                  形が筋。実画面は別 PR（タスク7 までに整備予定）。今は placeholder
-                  リンクで導線だけ示す。 */}
-              <Link
-                href={`/admin/events/new?mailMessageId=${mail.id}`}
-                className="inline-flex items-center justify-center rounded border border-border-soft bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-alt"
-              >
-                手動でイベントを作成
-              </Link>
+              {/* mail-inbox-mailer (Codex r6 blocker): /admin/events/new は実在
+                  しないため 404 を回避するためリンクを撤去。要件 §3.1.5 の
+                  「手動でイベント作成」フロー (空 EventForm を mail 詳細に展開
+                  + draft.status='approved' で締める) は専用 Server Action +
+                  画面を別 PR で実装してから再度有効化する想定。 */}
             </div>
           </div>
         </Card>
