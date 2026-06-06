@@ -100,7 +100,7 @@ status: completed
   - 既存 fetch timer は 30 分のまま、AI を呼ばない設定が反映されている
 
 ### タスク7: E2E テスト + 既存テスト修正 + DoD
-- [ ] 完了
+- [x] 完了
 - **概要:** AI 抽出→承認→LINE 配信の通し E2E、既存イベント結びつけ→LINE 配信の E2E、その他既存テストの修正。DoD チェックリスト消化
 - **変更対象ファイル:**
   - `apps/web/test/e2e/mail-inbox-ai-extract.spec.ts` — 新規 E2E
