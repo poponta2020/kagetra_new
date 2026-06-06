@@ -81,15 +81,24 @@ async function collectRelatedMailIds(eventId: number): Promise<number[]> {
 
   // (C) events.tournament_draft_id → drafts.message_id → mail_messages.id
   //     （tournament-title-grade-split 経路: 1 draft : N events、events 側に
-  //     tournament_draft_id が立つ）。
-  const synthRows = await db
-    .select({ id: tournamentDrafts.messageId })
+  //     tournament_draft_id が立つ）。Codex r7 blocker: 対象 event の
+  //     tournamentDraftId を先に取得し、それが non-null のときに draft を
+  //     直接 SELECT して messageId を取り出す形に書き換え。意図が明確になる
+  //     のと、JOIN ベースより index 利用が素直になる。
+  const eventDraftRows = await db
+    .select({ draftId: events.tournamentDraftId })
     .from(events)
-    .innerJoin(
-      tournamentDrafts,
-      eq(events.tournamentDraftId, tournamentDrafts.id),
-    )
     .where(eq(events.id, eventId))
+    .limit(1)
+  const targetDraftId = eventDraftRows[0]?.draftId ?? null
+  const synthRows: { id: number }[] = []
+  if (targetDraftId !== null) {
+    const rows = await db
+      .select({ id: tournamentDrafts.messageId })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, targetDraftId))
+    for (const r of rows) synthRows.push(r)
+  }
 
   const set = new Set<number>()
   for (const r of linkedRows) set.add(r.id)
