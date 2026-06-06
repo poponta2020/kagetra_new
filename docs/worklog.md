@@ -2268,3 +2268,21 @@
 - 全 5 タスク (#113-#117) 単一 PR 化、Round 1 で blockers=0/should_fix=0/nits=0 の一発 PASS。
 - CI Lint/Typecheck/Test pass (4m13s)。auto-ship 経由で /ship へ遷移。
 - 2026-06-06 /ship PR #118 entry-notify-lottery-treasurer マージ完了 (merge `b64f291`)、親#112+子#113-117 全クローズ、worktree クリーンアップ済。残 DoD=本番反映後の実機 LINE 目視 (migration 0021 適用待ち)。
+
+## 2026-06-07 /implement → /auto-review-loop → /ship PR #127 mail-inbox-mailer
+- 機能: メーラー化＋AI 手動起動の大規模改修（親#119 / 子#120-126、計 7 タスク）
+- /implement: タスク1-7 を順次実装、全タスクを 1 PR にまとめて push
+- /auto-review-loop: 全 9 ラウンド、累計 1,551,084 tokens、最終 R9 で verdict=pass
+  - R1: blockers 2 + should_fix 2 (manual_extract noise/oversize draft 残留、bodyHtml フォールバック、候補範囲、完了通知)
+  - R2: blocker 1 + should_fix 1 (catch 経路 draft 終端、重複 enqueue)
+  - R3: blockers 2 (一覧 undo linked_event_id、Server Action 状態検証)
+  - R4: blocker 1 (dismissMail draft 検証)
+  - R5: should_fix 2 (linkable event validation、kind index)
+  - R6: blocker 1 + should_fix 1 (404 リンク撤去、未完了 draft 行で TriageActions 非表示)
+  - R7: blocker 1 + should_fix 1 (EventRelatedMails 書き換え、snapshot 整合)
+  - R8: should_fix 2 + nit 1 (event_id 部分 index、stale recovery options、シート文言)
+  - R9: PASS（nit=末尾空行のみ → cleanup commit）
+  - CI 失敗 1 回: E2E spec の `admin.user.id` 誤参照 → `admin.userId` 修正で green
+- /ship: PR #127 merge (`4e7c47d`)、親#119+子#120-126 全クローズ、worktree クリーンアップ済
+- 残 DoD: 本番反映後の実機目視（systemd extract timer + ANTHROPIC_API_KEY 設定、AI 抽出 → LINE 配信フロー、紐付け→配信フロー）
+- migration: 0022 (mail_inbox_mailer)、0023 (mail_worker_jobs status+kind+requested_at)、0024 (tournament_drafts event_id partial)
