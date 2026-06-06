@@ -93,7 +93,7 @@ test.describe('mail-inbox-mailer: link mail to existing event', () => {
     expect(after).toHaveLength(1)
     expect(after[0]!.linkedEventId).toBe(event.id)
     expect(after[0]!.triageStatus).toBe('processed')
-    expect(after[0]!.triagedByUserId).toBe(admin.user.id)
+    expect(after[0]!.triagedByUserId).toBe(admin.userId)
     expect(after[0]!.triagedAt).not.toBeNull()
 
     await context.close()

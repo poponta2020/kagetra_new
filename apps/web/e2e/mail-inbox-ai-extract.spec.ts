@@ -92,7 +92,7 @@ test.describe('mail-inbox-mailer: AI extract trigger', () => {
       .where(eq(mailWorkerJobs.kind, 'manual_extract'))
     expect(jobs).toHaveLength(1)
     expect(jobs[0]!.payload).toEqual({ mail_message_id: mail.id })
-    expect(jobs[0]!.requestedByUserId).toBe(admin.user.id)
+    expect(jobs[0]!.requestedByUserId).toBe(admin.userId)
 
     await context.close()
   })
