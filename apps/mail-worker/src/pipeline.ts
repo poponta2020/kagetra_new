@@ -932,6 +932,29 @@ export async function runManualExtract(
         mailMessageId: opts.mailMessageId,
         err: message,
       })
+
+      // Codex r2 blocker: classifyMail / persistOutcome が例外を投げた場合、
+      // 事前作成された ai_processing draft が更新されないまま dispatcher が
+      // markJobDone するため、UI polling が永遠に止まらない。catch 内でも
+      // best-effort で draft を ai_failed に倒す（失敗してもこの try は
+      // 既に上位 catch で扱われているので run 自体は続行）。
+      try {
+        await db
+          .update(tournamentDrafts)
+          .set({ status: 'ai_failed', updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(tournamentDrafts.messageId, opts.mailMessageId),
+              eq(tournamentDrafts.status, 'ai_processing'),
+            ),
+          )
+      } catch (closeErr) {
+        log.warn('manual_extract draft close after error failed', {
+          runId,
+          mailMessageId: opts.mailMessageId,
+          err: closeErr instanceof Error ? closeErr.message : String(closeErr),
+        })
+      }
     }
   } catch (err) {
     // outer catch は classifyMail の外（DB connection 切断など）。tally に乗ら
@@ -941,6 +964,27 @@ export async function runManualExtract(
       runId,
       err: topLevelError.message,
     })
+
+    // Codex r2 blocker (outer 経路): inner middle catch を経由できない致命的
+    // 失敗でも draft が ai_processing で残ると UI が止まらないため、防御的に
+    // 強制終端する。失敗しても run 行更新は続行。
+    try {
+      await db
+        .update(tournamentDrafts)
+        .set({ status: 'ai_failed', updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(tournamentDrafts.messageId, opts.mailMessageId),
+            eq(tournamentDrafts.status, 'ai_processing'),
+          ),
+        )
+    } catch (closeErr) {
+      log.warn('manual_extract draft close after top-level error failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: closeErr instanceof Error ? closeErr.message : String(closeErr),
+      })
+    }
   }
 
   const status: 'success' | 'ai_failed' =

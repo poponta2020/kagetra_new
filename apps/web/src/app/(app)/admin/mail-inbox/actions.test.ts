@@ -1538,6 +1538,26 @@ describe('admin/mail-inbox actions', () => {
       expect(result.error).toMatch(/既に AI 抽出済み/)
     })
 
+    // Codex r2 should-fix: ai_processing 中の再 trigger は重複ジョブを生むので拒否する。
+    it('ai_processing draft がある場合は重複ジョブを enqueue しない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      await createTournamentDraft({
+        messageId: mail.id,
+        status: 'ai_processing',
+      })
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既に AI 抽出中/)
+
+      // 新規 job は作られない（pending な manual_extract が積まれていない）。
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
     it('存在しない mail は error を返す', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

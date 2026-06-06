@@ -216,7 +216,11 @@ describe('runManualExtract (mail-inbox-mailer task2)', () => {
     })
 
     // 例外を投げず ai_failed として記録する（dispatcher 側で 1 ジョブごとに
-    // try/catch する設計と整合）。
+    // try/catch する設計と整合）。Codex r2 blocker: catch 経路でも draft を
+    // 強制終端するコードを追加したが、本テストでは対象 mail が存在せず、
+    // 同 mail_id にぶら下がる draft も無いので catch 内 UPDATE は no-op になる
+    // のみ。catch 経路の draft 強制終端は、実運用時にエラーログを介して
+    // 確認する（直接 verify する unit test は CASCADE FK の制約上困難）。
     expect(result.status).toBe('ai_failed')
     expect(result.aiFailed).toBe(1)
     expect(result.aiErrors[0]).toMatch(/not found/)

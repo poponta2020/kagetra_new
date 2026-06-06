@@ -842,14 +842,17 @@ export async function undoTriage(mailId: number) {
  *   - draft 無し                  → INSERT (status='ai_processing')
  *   - draft.status='ai_failed'    → UPDATE で status='ai_processing' に戻し
  *                                   prompt_version / ai_model / payload をクリア
- *   - draft.status='ai_processing' → 同上（前回ジョブが落ちた等の再起動）
+ *   - draft.status='ai_processing' → エラー「既に AI 抽出中」(Codex r2
+ *                                   should-fix: 二重クリック / 複数タブで重複
+ *                                   ジョブが入るのを防ぐ。極めて稀な「ジョブが
+ *                                   落ちた」復旧経路は stale-claim recovery
+ *                                   (jobs.ts) と manual_extract の終端強制で
+ *                                   別途カバー)
  *   - その他 (pending_review/approved/rejected/superseded) → エラー
  *
  * UNIQUE 制約と draft の status 更新を **同一トランザクション** で行うので、
- * 並行押下も最後の UPDATE 勝ち（draft 行は 1 つ、job は複数キューされる可能性
- * があるが dispatcher が順に処理しても classifyMail + persistOutcome が冪等な
- * ので outcome は同じ）。クライアントは確認ダイアログ＋ボタン disable で
- * 二重起動を抑止する（要件 §3.2.5）。
+ * 並行押下も SELECT FOR UPDATE で直列化される。クライアントは確認ダイアログ＋
+ * ボタン disable で二重起動を抑止する（要件 §3.2.5）。
  */
 export async function triggerExtractDraft(
   mailId: number,
@@ -892,7 +895,14 @@ export async function triggerExtractDraft(
         draftId = inserted[0]!.id
       } else {
         const cur = existing[0]!
-        if (cur.status !== 'ai_processing' && cur.status !== 'ai_failed') {
+        if (cur.status === 'ai_processing') {
+          // Codex r2 should-fix: ai_processing 中の再 trigger は重複ジョブを
+          // 生むので拒否。クライアント側でも ExtractionInProgressCard が出る
+          // 間は AIExtractConfirmDialog ボタンを出さないので、二重押下や複数
+          // タブからの直叩きを防ぐサーバー側ガード。
+          throw new Error('既に AI 抽出中です')
+        }
+        if (cur.status !== 'ai_failed') {
           // pending_review / approved / rejected / superseded: 既に状態が確定
           // しているので無条件再抽出は危険。タスク4 で reextract 経路を別 UI に
           // 出す想定。
