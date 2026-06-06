@@ -201,7 +201,11 @@ async function main(): Promise<void> {
     // mail-inbox-mailer: extract-only mode は IMAP fetch せず、manual_extract
     // ジョブだけを 1 件 pick して runManualExtract を回す。
     if (flags.mode === 'extract') {
-      await runExtractOnlyDispatcher({ llmExtractor: llmExtractor!, log })
+      await runExtractOnlyDispatcher({
+        llmExtractor: llmExtractor!,
+        webPushConfig,
+        log,
+      })
       return
     }
 
@@ -314,6 +318,7 @@ async function main(): Promise<void> {
  */
 async function runExtractOnlyDispatcher(opts: {
   llmExtractor: LLMExtractor
+  webPushConfig: ReturnType<typeof loadWebPushConfig>
   log: ReturnType<typeof consoleLogger>
 }): Promise<void> {
   const db = getDb()
@@ -356,6 +361,7 @@ async function runExtractOnlyDispatcher(opts: {
       mailMessageId,
       llmExtractor: opts.llmExtractor,
       triggeredByUserId: job.requestedByUserId,
+      webPushConfig: opts.webPushConfig,
       logger: opts.log,
     })
     await markJobDone(db, job.id, result.runId)

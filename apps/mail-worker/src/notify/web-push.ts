@@ -92,3 +92,89 @@ export async function notifyNewMailPush(
     }
   }
 }
+
+/**
+ * mail-inbox-mailer タスク7 (Codex r1 should-fix): 手動 AI 抽出 (runManualExtract)
+ * の完了通知。詳細画面の「完了したら通知します」表記の裏付け。
+ *
+ * runManualExtract は `--mode=extract-only` の dispatcher が起動し、Sonnet で
+ * 5〜30 秒走るので、抽出中にユーザーが画面を閉じる可能性がある。完了 / 失敗を
+ * Web Push でプッシュして気づけるようにする。
+ */
+export interface ExtractCompletedInfo {
+  mailMessageId: number
+  subject: string | null
+  /**
+   * 'success' = AI が大会案内として抽出に成功 (draft pending_review)。
+   * 'failed'  = AI 抽出失敗 / noise 判定 / oversize 等で draft が ai_failed
+   *            に倒れたケース。ユーザーが手動でリトライ or 手動作成へ流れる
+   *            想定。
+   */
+  result: 'success' | 'failed'
+}
+
+export async function notifyExtractCompleted(
+  db: Db,
+  config: WebPushConfig,
+  info: ExtractCompletedInfo,
+  logger: NotifyLogger = NOOP_LOGGER,
+): Promise<void> {
+  webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
+
+  const [row] = await db
+    .select({ value: count() })
+    .from(mailMessages)
+    .where(ne(mailMessages.triageStatus, 'processed'))
+  const badge = row?.value ?? 0
+
+  const subs = await db
+    .select({
+      endpoint: pushSubscriptions.endpoint,
+      p256dh: pushSubscriptions.p256dh,
+      auth: pushSubscriptions.auth,
+    })
+    .from(pushSubscriptions)
+    .innerJoin(users, eq(pushSubscriptions.userId, users.id))
+    .where(inArray(users.role, ['admin', 'vice_admin']))
+  if (subs.length === 0) return
+
+  const subject = info.subject ?? '(件名なし)'
+  const title = info.result === 'success' ? 'AI 抽出完了' : 'AI 抽出に失敗'
+  const payload = JSON.stringify({
+    title,
+    body: subject.slice(0, 200),
+    // 詳細画面に直接飛ばす（polling で開いていれば router.refresh が拾うが、
+    // 別端末から開く動線をこちらで担保する）。
+    url: `/admin/mail-inbox/mail/${info.mailMessageId}`,
+    badge,
+  })
+
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth },
+        },
+        payload,
+      )
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode
+      if (statusCode === 404 || statusCode === 410) {
+        await db
+          .delete(pushSubscriptions)
+          .where(eq(pushSubscriptions.endpoint, sub.endpoint))
+          .catch(() => undefined)
+        logger.info('removed expired push subscription', {
+          endpoint: sub.endpoint,
+        })
+      } else {
+        logger.warn('web push send failed (extract completed)', {
+          endpoint: sub.endpoint,
+          statusCode,
+          err: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+  }
+}

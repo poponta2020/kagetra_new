@@ -144,6 +144,48 @@ describe('runManualExtract (mail-inbox-mailer task2)', () => {
     expect(result.draftsInserted).toBe(1)
   })
 
+  // Codex r1 blocker: persistOutcome は noise/oversize_skipped/skipped_noise で
+  // tournament_drafts を触らないため、triggerExtractDraft が先に作った
+  // ai_processing draft が永遠に残り polling が停止しない。runManualExtract で
+  // 強制終端ロジック (ai_failed へ倒す) を追加したので、その動作を verify する。
+  it('AI が noise 判定の場合、事前作成 ai_processing draft を ai_failed に強制終端する', async () => {
+    // fixture map にマッチしない subject の mail を渡す → FixtureLLMExtractor は
+    // noise を返す（fallback FIXTURE_NOISE_PAYLOAD）。
+    const mailId = await seedMailMessage({
+      subject: '完全に大会と関係ない件名',
+    })
+    const llm = await buildExtractor()
+
+    // 事前に triggerExtractDraft が作るのと同じ shape で ai_processing draft を作る。
+    await testDb.insert(tournamentDrafts).values({
+      messageId: mailId,
+      status: 'ai_processing',
+      extractedPayload: {},
+      promptVersion: '',
+      aiModel: '',
+    })
+
+    const result = await runManualExtract({
+      mailMessageId: mailId,
+      llmExtractor: llm,
+      triggeredByUserId: ADMIN_USER_ID,
+    })
+
+    // tally: noise 判定で aiSucceeded=1 / 強制終端で aiFailed=1。
+    expect(result.aiSucceeded).toBe(1)
+    expect(result.aiFailed).toBe(1)
+    // run.status は ai_failed に倒れる（UI が「失敗」として扱う）。
+    expect(result.status).toBe('ai_failed')
+
+    // draft は ai_failed に倒れている（polling が停止する）。
+    const drafts = await testDb
+      .select()
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.messageId, mailId))
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]!.status).toBe('ai_failed')
+  })
+
   it('LLM が二回失敗すると run.status=ai_failed + ai_failed draft が作られる', async () => {
     const mailId = await seedMailMessage({})
     const result = await runManualExtract({

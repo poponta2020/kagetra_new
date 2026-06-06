@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { and, eq, gte, or } from 'drizzle-orm'
+import { and, desc, eq, gte, ne } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { events, mailMessages } from '@kagetra/shared/schema'
@@ -53,9 +53,16 @@ function formatJst(date: Date): string {
 }
 
 /**
- * 既存イベント結びつけシートの候補: 未開催 (event_date >= 今日) + 過去 30 日。
- * 受信日降順ではなく event_date 降順で並べる（候補ソートとしては開催日順が
- * 直感的。シート内検索でタイトル絞り込みもできる）。
+ * 既存イベント結びつけシートの候補。
+ *
+ * 要件 §3.1.6: 「未開催（=今日以降）+ 過去 30 日以内」を受信日降順ではなく
+ * 開催日降順で表示（候補一覧としては開催日順の方が直感的、シート内検索で
+ * タイトル絞り込みも可能）。
+ *
+ * Codex r1 should-fix: 旧実装は「過去 30 日側を status='done' に限定」して
+ * いたが、開催日が過ぎても status が published のままの大会は運用上ありえる
+ * ので領収書/事後連絡が拾えなくなっていた。status は cancelled だけ除外して
+ * 残りは全部候補に出す（並び順も降順に修正）。
  */
 async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
   const todayJst = new Date(
@@ -63,7 +70,6 @@ async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
   )
   const cutoff = new Date(todayJst.getTime() - 30 * 24 * 3600 * 1000)
   const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
-  const todayStr = `${todayJst.getFullYear()}-${String(todayJst.getMonth() + 1).padStart(2, '0')}-${String(todayJst.getDate()).padStart(2, '0')}`
 
   const rows = await db
     .select({
@@ -74,12 +80,12 @@ async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
     })
     .from(events)
     .where(
-      or(
-        gte(events.eventDate, todayStr),
-        and(gte(events.eventDate, cutoffStr), eq(events.status, 'done')),
+      and(
+        gte(events.eventDate, cutoffStr),
+        ne(events.status, 'cancelled'),
       ),
     )
-    .orderBy(events.eventDate)
+    .orderBy(desc(events.eventDate))
   return rows
 }
 
@@ -175,12 +181,21 @@ export default async function MailDetailPage({
           </div>
           <AttachmentList items={mail.attachments} />
 
-          {/* mail-inbox-mailer: 本文は details トグルではなく即時表示。 */}
-          {mail.bodyText && (
-            <pre className="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border-soft bg-surface-alt p-2 text-xs text-ink">
-              {mail.bodyText}
-            </pre>
-          )}
+          {/* mail-inbox-mailer: 本文は details トグルではなく即時表示。
+              Codex r1 blocker: bodyText のみだと HTML-only メール (text/plain
+              代替を持たない) の本文が表示されない。bodyText が無ければ bodyHtml
+              にフォールバックする。HTML は dangerouslySetInnerHTML せず、
+              <pre> 内に生テキストとして見せる（タグも一緒に見えるが、
+              本文を取りこぼさない方が要件「全件確認」上は重要）。 */}
+          {(() => {
+            const body = mail.bodyText ?? mail.bodyHtml
+            if (!body) return null
+            return (
+              <pre className="mt-2 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border-soft bg-surface-alt p-2 text-xs text-ink">
+                {body}
+              </pre>
+            )
+          })()}
         </div>
       </Card>
 

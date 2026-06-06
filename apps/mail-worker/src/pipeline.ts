@@ -13,7 +13,11 @@ import {
   type MailWorkerRunSummary,
   type Notifier,
 } from './notify/orchestrator.js'
-import { notifyNewMailPush, type NewMailInfo } from './notify/web-push.js'
+import {
+  notifyExtractCompleted,
+  notifyNewMailPush,
+  type NewMailInfo,
+} from './notify/web-push.js'
 import type { WebPushConfig } from './config.js'
 
 export interface PipelineSummary {
@@ -746,9 +750,13 @@ export class RunOnceError extends Error {
 // 流れ:
 //   1. mail_worker_runs (kind='manual', status='running') を INSERT
 //   2. classifyMail + persistOutcome を per-mail try/catch で実行
-//   3. terminal status を計算して mail_worker_runs を UPDATE
-//   4. (ai_failed の) 通知は今回スコープ外（既存 evaluateAndNotify は cron 流れ
-//      に紐付き、AI 失敗の連続検知は cron AI 廃止により意味を失う）
+//   3. **persistOutcome が ai_processing draft を更新しない kind**
+//      (noise / oversize_skipped / skipped_noise) では、Server Action が事前に
+//      作った draft が永遠に ai_processing で残り UI polling が停止しない
+//      問題があるため、明示的に ai_failed へ終端させる (Codex r1 blocker)。
+//   4. terminal status を計算して mail_worker_runs を UPDATE
+//   5. Web Push で完了通知を送る（success / failed）。UI 表記
+//      「完了したら通知します」の裏付け (Codex r1 should-fix)。
 //
 // 注: classifyMail 自体が draft 行を `status='ai_processing'` でマークする前に
 // 走るが、Server Action が draft を INSERT 済みなので redundant ではない。
@@ -762,6 +770,11 @@ export interface RunManualExtractOptions {
   llmExtractor: LLMExtractor
   /** 起動者 (mail_worker_jobs.requested_by_user_id)。run 行の triggered_by に乗る。 */
   triggeredByUserId: string
+  /**
+   * Web Push 完了通知用 VAPID 設定。null/未設定なら配信スキップ（鍵未設定
+   * 環境でも extract 自体は動く）。Codex r1 should-fix 対応。
+   */
+  webPushConfig?: WebPushConfig | null
   logger?: PipelineLogger
 }
 
@@ -855,6 +868,52 @@ export async function runManualExtract(
           limitBytes: outcome.limitBytes,
         })
       }
+
+      // Codex r1 blocker: persistOutcome は noise / oversize_skipped /
+      // skipped_noise の場合 tournament_drafts を触らない。Server Action
+      // (triggerExtractDraft) が事前に作った draft が `ai_processing` のまま
+      // 永遠に残り、UI polling が止まらない。
+      //
+      // - failed   → persistOutcome が upsertDraft で ai_failed に上書き済 (OK)
+      // - tournament → upsertDraft で pending_review に上書き済 (OK)
+      // - noise    → mail_messages.classification='noise' に倒すが draft は
+      //              「pending_review/ai_failed のみ superseded」なので
+      //              ai_processing は対象外。ai_failed へ強制終端する。
+      // - oversize_skipped → draft は触られない。同じく強制終端。
+      // - skipped_noise   → force:true で来ないはずだが防御的に同じ扱い。
+      //
+      // tally への影響: 既存の aiSucceeded（noise）はそのまま残しつつ、UI 観点で
+      // draft を「再試行可能な ai_failed」へ寄せる（UI は ai_failed で
+      // 「再試行」「手動でイベントを作成」を出す）。
+      if (
+        outcome.kind === 'noise' ||
+        outcome.kind === 'oversize_skipped' ||
+        outcome.kind === 'skipped_noise'
+      ) {
+        const closed = await db
+          .update(tournamentDrafts)
+          .set({ status: 'ai_failed', updatedAt: sql`now()` })
+          .where(
+            and(
+              eq(tournamentDrafts.messageId, opts.mailMessageId),
+              eq(tournamentDrafts.status, 'ai_processing'),
+            ),
+          )
+          .returning({ id: tournamentDrafts.id })
+        if (closed.length > 0) {
+          log.info('manual_extract forced ai_processing draft to ai_failed', {
+            runId,
+            mailMessageId: opts.mailMessageId,
+            kind: outcome.kind,
+          })
+          // 実害は無いが UI 表記との整合のため aiFailed もカウント。
+          // （tally.aiSucceeded は noise 経由で既に +1 されているが、aiFailed
+          // をインクリメントすることで run.status='ai_failed' に倒れて Web Push
+          // が「失敗」として通知される）
+          tally.aiFailed += 1
+        }
+      }
+
       log.info('manual_extract outcome', {
         runId,
         mailMessageId: opts.mailMessageId,
@@ -910,6 +969,36 @@ export async function runManualExtract(
       error: topLevelError ? topLevelError.message : null,
     })
     .where(eq(mailWorkerRuns.id, runId))
+
+  // Codex r1 should-fix: 完了通知 (Web Push)。詳細画面の
+  // 「完了したら通知します」表記の裏付け。鍵未設定 (config が null) なら
+  // skip（既存 cron と同じ慣行）。配信失敗は best-effort で run 自体は止めない。
+  if (opts.webPushConfig) {
+    try {
+      const subjectRow = await db
+        .select({ subject: mailMessages.subject })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, opts.mailMessageId))
+        .limit(1)
+      const subject = subjectRow[0]?.subject ?? null
+      await notifyExtractCompleted(
+        db,
+        opts.webPushConfig,
+        {
+          mailMessageId: opts.mailMessageId,
+          subject,
+          result: status === 'success' ? 'success' : 'failed',
+        },
+        log,
+      )
+    } catch (err) {
+      log.warn('manual_extract completion notify failed', {
+        runId,
+        mailMessageId: opts.mailMessageId,
+        err: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
 
   return {
     runId,
