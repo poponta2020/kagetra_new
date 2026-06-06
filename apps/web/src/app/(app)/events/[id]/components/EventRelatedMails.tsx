@@ -116,4 +116,3 @@ function formatJstShort(date: Date): string {
     minute: '2-digit',
   })
 }
-
