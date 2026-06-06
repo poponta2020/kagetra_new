@@ -1,0 +1,1 @@
+CREATE INDEX "idx_drafts_event_id" ON "tournament_drafts" USING btree ("event_id") WHERE "tournament_drafts"."event_id" IS NOT NULL;

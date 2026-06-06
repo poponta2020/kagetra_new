@@ -12,6 +12,7 @@ import {
   markJobFailed,
   parseManualExtractPayload,
   recoverStaleClaimedJobs,
+  STALE_CLAIM_RECOVERY_MS_EXTRACT,
 } from './jobs.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
@@ -323,12 +324,18 @@ async function runExtractOnlyDispatcher(opts: {
 }): Promise<void> {
   const db = getDb()
 
-  // 既存 fetch mode と同じ stale recovery を流す。manual_extract ジョブが
-  // claimed のまま死んだ場合も同じ仕組みで回復させる。
-  await recoverStaleClaimedJobs(db).then(
+  // mail-inbox-mailer (Codex r8 should-fix): manual_extract は systemd 側で
+  // TimeoutStartSec=300 (5 分) で kill されるので、fetch と同じ 1 時間閾値だと
+  // LLM/API ハングで kill されたジョブが ai_processing のまま最大 1 時間
+  // 残ってしまい polling 画面が進まない。manual_extract だけ 10 分閾値で
+  // 専用復旧し、他 kind (fetch) は fetch dispatcher 側に任せる。
+  await recoverStaleClaimedJobs(db, {
+    staleAfterMs: STALE_CLAIM_RECOVERY_MS_EXTRACT,
+    kinds: ['manual_extract'],
+  }).then(
     (recovered) => {
       if (recovered > 0) {
-        opts.log.warn('recovered stale claimed mail_worker_jobs rows', { recovered })
+        opts.log.warn('recovered stale claimed manual_extract jobs', { recovered })
       }
     },
     (err) => {

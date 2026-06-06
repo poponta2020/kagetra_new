@@ -161,6 +161,21 @@ export function parseManualExtractPayload(payload: unknown): ManualExtractPayloa
 }
 
 /**
+ * mail-inbox-mailer (Codex r8 should-fix): manual_extract は systemd 側の
+ * TimeoutStartSec=300 (5 分) で SIGKILL されるので、fetch と同じ 1 時間閾値で
+ * recover していると LLM/API ハング → kill 後に最大 1 時間 ai_processing が
+ * 残ってしまう。extract-only mode 用に短い閾値（10 分）を別に用意する。
+ */
+export const STALE_CLAIM_RECOVERY_MS_EXTRACT = 10 * 60 * 1000 // 10 min
+
+export interface RecoverStaleClaimedJobsOptions {
+  /** stale 判定する経過 ms。未指定なら STALE_CLAIM_RECOVERY_MS（1 時間）。 */
+  staleAfterMs?: number
+  /** 復旧対象 kind を絞る。未指定なら全 kind を対象。 */
+  kinds?: MailWorkerJobKind[]
+}
+
+/**
  * Reset rows stuck in `claimed` past the stale threshold back to `pending`
  * so the dispatcher can re-claim them. Returns the number of rows recovered.
  *
@@ -173,21 +188,34 @@ export function parseManualExtractPayload(payload: unknown): ManualExtractPayloa
  * `claimedAt` is set back to NULL on recovery so the next claim attempt
  * stamps it fresh — without this, the row's claimedAt would carry the dead
  * worker's timestamp into the new run and confuse troubleshooting.
+ *
+ * mail-inbox-mailer: 引数を options 化し kind フィルタと閾値を渡せるように
+ * 拡張した。extract-only dispatcher は manual_extract だけを 10 分閾値で
+ * 復旧し、fetch dispatcher は既定 1 時間 + 全 kind で復旧する。
  */
 export async function recoverStaleClaimedJobs(
   db: Db,
-  staleAfterMs: number = STALE_CLAIM_RECOVERY_MS,
+  opts: RecoverStaleClaimedJobsOptions = {},
 ): Promise<number> {
+  const staleAfterMs = opts.staleAfterMs ?? STALE_CLAIM_RECOVERY_MS
   const cutoff = new Date(Date.now() - staleAfterMs)
+  const kinds = opts.kinds
   const recovered = await db
     .update(mailWorkerJobs)
     .set({ status: 'pending', claimedAt: null })
     .where(
-      and(
-        eq(mailWorkerJobs.status, 'claimed'),
-        isNotNull(mailWorkerJobs.claimedAt),
-        lt(mailWorkerJobs.claimedAt, cutoff),
-      ),
+      kinds && kinds.length > 0
+        ? and(
+            eq(mailWorkerJobs.status, 'claimed'),
+            isNotNull(mailWorkerJobs.claimedAt),
+            lt(mailWorkerJobs.claimedAt, cutoff),
+            inArray(mailWorkerJobs.kind, kinds),
+          )
+        : and(
+            eq(mailWorkerJobs.status, 'claimed'),
+            isNotNull(mailWorkerJobs.claimedAt),
+            lt(mailWorkerJobs.claimedAt, cutoff),
+          ),
     )
     .returning({ id: mailWorkerJobs.id })
   return recovered.length

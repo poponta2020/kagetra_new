@@ -169,6 +169,13 @@
       "when": 1780769011703,
       "tag": "0023_mail_worker_jobs_kind_index",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1780773748148,
+      "tag": "0024_tournament_drafts_event_id_index",
+      "breakpoints": true
     }
   ]
 }

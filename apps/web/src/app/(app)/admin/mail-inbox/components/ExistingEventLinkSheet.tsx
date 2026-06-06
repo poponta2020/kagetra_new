@@ -92,8 +92,11 @@ export function ExistingEventLinkSheet({
             <h2 id="link-event-sheet-title" className="font-display text-base font-bold text-ink">
               既存イベントに紐付ける
             </h2>
+            {/* Codex r8 nit: 旧文言「受信日降順」は実装の event_date desc と
+                ずれていたため修正。候補は loadLinkableEvents が開催日降順で
+                返す（コード上もコメントもこちらが正）。 */}
             <p className="mt-1 text-xs text-ink-meta">
-              未開催のイベント + 過去 30 日以内を受信日降順で表示します。
+              未開催のイベント + 過去 30 日以内を開催日の新しい順で表示します。
             </p>
 
             <input
