@@ -1538,6 +1538,39 @@ describe('admin/mail-inbox actions', () => {
       expect(result.error).toMatch(/既に AI 抽出済み/)
     })
 
+    // Codex r3 blocker: 状態検証ガードのテスト。詳細画面は unprocessed のときだけ
+    // ボタンを出すが、別タブ / 別管理者で stale 状態のまま呼び出されるケースを
+    // サーバー側でも拒否する。
+    it('既に processed のメールは triggerExtractDraft できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'processed' })
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既に処理済み/)
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('linked_event_id がある mail は triggerExtractDraft できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'evt' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await testDb
+        .update(mailMessages)
+        .set({ linkedEventId: event.id })
+        .where(eq(mailMessages.id, mail.id))
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既存イベントに紐付け済み/)
+    })
+
     // Codex r2 should-fix: ai_processing 中の再 trigger は重複ジョブを生むので拒否する。
     it('ai_processing draft がある場合は重複ジョブを enqueue しない', async () => {
       const admin = await createAdmin()
@@ -1617,6 +1650,35 @@ describe('admin/mail-inbox actions', () => {
       })
     })
 
+    // Codex r3 blocker: 状態検証ガード。
+    it('既に processed のメールは linkMailToEvent できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E' })
+      const mail = await createMailMessage({ triageStatus: 'processed' })
+
+      const result = await linkMailToEvent(mail.id, event.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/既に処理済み/)
+    })
+
+    it('ai_processing draft があるメールは linkMailToEvent できない (AI 抽出と排他)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createTournamentDraft({
+        messageId: mail.id,
+        status: 'ai_processing',
+      })
+
+      const result = await linkMailToEvent(mail.id, event.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/AI 抽出フロー中/)
+    })
+
     it('既に紐付け済みの mail は二重紐付け不可', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
@@ -1625,10 +1687,13 @@ describe('admin/mail-inbox actions', () => {
       const mail = await createMailMessage()
       await linkMailToEvent(mail.id, event.id)
 
+      // Codex r3 blocker: 状態検証ガード追加で、2 回目は triage=processed のため
+      // 「既に処理済み」エラーで先に弾かれる（旧仕様: 「既に別イベントに紐付け済」）。
+      // どちらにせよ二重紐付け不可という不変条件は満たされる。
       const result = await linkMailToEvent(mail.id, event2.id)
       expect(result.ok).toBe(false)
       if (result.ok) return
-      expect(result.error).toMatch(/既に別イベントに紐付け済/)
+      expect(result.error).toMatch(/既に処理済み/)
     })
 
     it('存在しない event は error を返す（mail は変更しない）', async () => {

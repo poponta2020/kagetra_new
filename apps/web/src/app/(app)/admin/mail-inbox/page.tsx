@@ -9,6 +9,7 @@ import { AttachmentList } from './components/AttachmentList'
 import { DraftCard } from './components/DraftCard'
 import { TriggerFetchButton } from './components/TriggerFetchButton'
 import { TriageActions } from './components/TriageActions'
+import { UndoTriageButton } from './components/UndoTriageButton'
 
 /**
  * /admin/mail-inbox — 受信メール一覧（mail-triage-badge で再構成）。
@@ -68,6 +69,11 @@ const LIST_COLUMNS = {
   status: true,
   classification: true,
   triageStatus: true,
+  // mail-inbox-mailer (Codex r3 blocker): 処理済セクションの「未処理に戻す」が
+  // linked_event_id を解除しないと、紐付け先イベントの関連メールに残り続けて
+  // 不整合になる。UndoTriageButton に linkedEventId の有無を伝えるため、
+  // 一覧クエリでも列を引いておく。
+  linkedEventId: true,
 } as const
 
 const LIST_WITH = {
@@ -217,7 +223,19 @@ export default async function MailInboxPage() {
             </Link>
           )}
           <div className="mt-1">
-            <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
+            {/* mail-inbox-mailer (Codex r3 blocker): processed 行の
+                「未処理に戻す」が undoTriage 単独だと linked_event_id を解除
+                しない。UndoTriageButton に振り替えて、linkedEventId がある場合は
+                unlinkMailFromEvent を呼ぶ動線にする。unprocessed 行はそのまま
+                TriageActions（対応不要のクイックアクション）を維持。 */}
+            {row.triageStatus === 'processed' ? (
+              <UndoTriageButton
+                mailId={row.id}
+                hasLinkedEvent={row.linkedEventId != null}
+              />
+            ) : (
+              <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
+            )}
           </div>
         </div>
       </Card>

@@ -864,11 +864,28 @@ export async function triggerExtractDraft(
 
   try {
     const result = await db.transaction(async (tx) => {
-      const mail = await tx.query.mailMessages.findFirst({
-        where: eq(mailMessages.id, mailId),
-        columns: { id: true },
-      })
-      if (!mail) throw new Error('mail not found')
+      // Codex r3 blocker: 詳細画面は「unprocessed + draft なし」のときだけ
+      // AI 抽出ボタンを出すが、複数タブ / 別管理者操作で stale 状態のまま
+      // ボタンが効くと、processed/linked 済 mail にもジョブを積めてしまう。
+      // mail を FOR UPDATE で取り、triage と linked_event_id を tx 内で
+      // verify する。
+      const mailRows = await tx
+        .select({
+          id: mailMessages.id,
+          triageStatus: mailMessages.triageStatus,
+          linkedEventId: mailMessages.linkedEventId,
+        })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, mailId))
+        .for('update')
+      if (mailRows.length === 0) throw new Error('mail not found')
+      const mail = mailRows[0]!
+      if (mail.triageStatus !== 'unprocessed') {
+        throw new Error('既に処理済みのメールです')
+      }
+      if (mail.linkedEventId !== null) {
+        throw new Error('既存イベントに紐付け済みのメールです')
+      }
 
       // FOR UPDATE で並行 trigger と直列化（実害は少ないが UPSERT 競合を避ける）。
       const existing = await tx
@@ -981,14 +998,38 @@ export async function linkMailToEvent(
       const mail = await tx
         .select({
           id: mailMessages.id,
+          triageStatus: mailMessages.triageStatus,
           linkedEventId: mailMessages.linkedEventId,
         })
         .from(mailMessages)
         .where(eq(mailMessages.id, mailId))
         .for('update')
       if (mail.length === 0) throw new Error('mail not found')
+      // Codex r3 blocker: 詳細画面は「unprocessed + draft なし」のときだけ
+      // 結びつけボタンを出すが、画面表示後に worker が pending_review を作る
+      // 可能性があるので transaction 内で再 verify する。
+      if (mail[0]!.triageStatus !== 'unprocessed') {
+        throw new Error('既に処理済みのメールです')
+      }
       if (mail[0]!.linkedEventId !== null) {
         throw new Error('既に別イベントに紐付け済みです')
+      }
+
+      // 未完了 draft (ai_processing / pending_review / ai_failed) があるメール
+      // を既存イベントに紐付けると、後で承認操作が走った時に二重配信や状態
+      // 矛盾を起こす。AI 抽出フローと既存結びつけは互いに排他にする。
+      const conflictingDraft = await tx
+        .select({ status: tournamentDrafts.status })
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mailId))
+        .for('update')
+      if (
+        conflictingDraft.length > 0 &&
+        (conflictingDraft[0]!.status === 'ai_processing' ||
+          conflictingDraft[0]!.status === 'pending_review' ||
+          conflictingDraft[0]!.status === 'ai_failed')
+      ) {
+        throw new Error('AI 抽出フロー中のメールは結びつけできません')
       }
 
       await tx
