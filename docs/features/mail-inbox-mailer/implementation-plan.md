@@ -71,7 +71,7 @@ status: completed
   - スマホ実機（iPhone PWA）で UI 確認
 
 ### タスク5: events 詳細「関連メール」セクション
-- [ ] 完了
+- [x] 完了
 - **概要:** events 詳細ページに「関連メール」セクションを追加。3 経路 UNION で紐付いた mail を抽出して受信日降順表示
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/page.tsx` — 関連メールセクション追加
