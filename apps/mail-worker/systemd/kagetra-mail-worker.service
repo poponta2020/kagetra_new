@@ -25,7 +25,11 @@ EnvironmentFile=/opt/kagetra/.env.production
 
 # corepack 経由で pnpm を呼ぶことで Node 同梱版を使う (グローバル pnpm
 # 不要)。--filter で workspace を限定し、build 済みの dist/index.js を実行。
-ExecStart=/usr/bin/corepack pnpm --filter @kagetra/mail-worker exec node dist/index.js
+# mail-inbox-mailer (タスク6): cron AI 廃止に伴い --mode=fetch-only を明示。
+# 既定値も 'fetch' なのでフラグなしと等価だが、設定ファイル側で意図を表す。
+# AI 抽出ジョブ (manual_extract) は別ユニット kagetra-mail-worker-extract.timer
+# が 30 秒間隔で処理する。
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/mail-worker exec node dist/index.js --mode=fetch-only
 
 # journalctl -u kagetra-mail-worker.service で運用ログを追える。
 StandardOutput=journal

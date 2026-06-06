@@ -81,10 +81,18 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
 7. systemd unit 配置 + 有効化:
 
    ```bash
+   # IMAP fetch 用 (30 分間隔)。mail-inbox-mailer 以降は --mode=fetch-only で AI を呼ばない。
    sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.service /etc/systemd/system/
    sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.timer /etc/systemd/system/
+
+   # mail-inbox-mailer (タスク6): AI 抽出専用 (30 秒間隔、--mode=extract-only)。
+   # 「会で流す（AI 抽出）」ボタンから生成される manual_extract ジョブを処理する。
+   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.service /etc/systemd/system/
+   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.timer /etc/systemd/system/
+
    sudo systemctl daemon-reload
    sudo systemctl enable --now kagetra-mail-worker.timer
+   sudo systemctl enable --now kagetra-mail-worker-extract.timer
    ```
 
 ## 2. LINE Bot 初期登録

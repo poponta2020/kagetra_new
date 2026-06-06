@@ -85,7 +85,7 @@ status: completed
   - 受信日降順、クリックで mail 詳細に遷移
 
 ### タスク6: systemd timer + 運用設定
-- [ ] 完了
+- [x] 完了
 - **概要:** 30 秒間隔の manual_extract 専用 systemd timer を追加。本番デプロイ手順に組み込む
 - **変更対象ファイル:**
   - `infra/systemd/kagetra-mail-worker-extract.service` — 新規 unit file
