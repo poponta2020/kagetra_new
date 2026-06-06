@@ -1692,6 +1692,42 @@ describe('admin/mail-inbox actions', () => {
       })
     })
 
+    // Codex r5 should-fix: UI 候補条件 (cancelled 除外 / 過去 30 日以内) を
+    // Server Action 側でも verify する。
+    it('cancelled イベントへの linkMailToEvent は拒否される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({
+        title: 'キャンセル済',
+        status: 'cancelled',
+      })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await linkMailToEvent(mail.id, event.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/キャンセル済み/)
+    })
+
+    it('過去 31 日より古いイベントへの linkMailToEvent は拒否される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      // 60 日前の日付。
+      const old = new Date(Date.now() - 60 * 24 * 3600 * 1000)
+      const oldStr = `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`
+      const event = await createEvent({
+        title: '過去のイベント',
+        status: 'done',
+        eventDate: oldStr,
+      })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await linkMailToEvent(mail.id, event.id)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/過去 30 日/)
+    })
+
     // Codex r3 blocker: 状態検証ガード。
     it('既に processed のメールは linkMailToEvent できない', async () => {
       const admin = await createAdmin()

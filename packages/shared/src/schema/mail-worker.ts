@@ -73,5 +73,15 @@ export const mailWorkerJobs = pgTable(
   },
   (table) => [
     index('idx_mail_worker_jobs_status_requested_at').on(table.status, table.requestedAt),
+    // mail-inbox-mailer (Codex r5 should-fix): claimNextJob は status + kind で
+    // pending job を絞るようになった。extract-only timer は 30 秒間隔でこの
+    // クエリを叩くので、pending fetch ジョブが溜まると manual_extract の claim
+    // が全表スキャンに近い実行計画になり、UI の体感速度を直接損なう。
+    // status + kind + requested_at の複合 index を追加する。
+    index('idx_mail_worker_jobs_status_kind_requested_at').on(
+      table.status,
+      table.kind,
+      table.requestedAt,
+    ),
   ],
 )

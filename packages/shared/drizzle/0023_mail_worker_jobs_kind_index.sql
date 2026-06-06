@@ -1,0 +1,1 @@
+CREATE INDEX "idx_mail_worker_jobs_status_kind_requested_at" ON "mail_worker_jobs" USING btree ("status","kind","requested_at");

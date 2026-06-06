@@ -20,6 +20,10 @@ import {
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import {
+  linkableEventCutoffStr,
+  validateLinkableEvent,
+} from './linkable-events'
+import {
   classifyMail,
   persistOutcome,
 } from '@kagetra/mail-worker/classify/classifier'
@@ -1032,12 +1036,27 @@ export async function linkMailToEvent(
 
   try {
     await db.transaction(async (tx) => {
-      const event = await tx
-        .select({ id: events.id })
+      // Codex r5 should-fix: UI 側 loadLinkableEvents は status='cancelled' を
+      // 除外し、開催日が過去 30 日以内であることを要求する。Server Action 側
+      // でも同じ条件を verify しないと、画面表示後に event が cancelled へ
+      // 変わった or Server Action を直接叩かれたケースで許容範囲外の event に
+      // 紐付けて broadcastMailToEvent まで起動できてしまう。
+      const eventRows = await tx
+        .select({
+          id: events.id,
+          status: events.status,
+          eventDate: events.eventDate,
+        })
         .from(events)
         .where(eq(events.id, eventId))
         .limit(1)
-      if (event.length === 0) throw new Error('Event not found')
+      if (eventRows.length === 0) throw new Error('Event not found')
+      const eventRow = eventRows[0]!
+      const eventInvalid = validateLinkableEvent(
+        { status: eventRow.status, eventDate: eventRow.eventDate },
+        linkableEventCutoffStr(),
+      )
+      if (eventInvalid) throw new Error(eventInvalid)
 
       const mail = await tx
         .select({

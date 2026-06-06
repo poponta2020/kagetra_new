@@ -13,6 +13,7 @@ import { DraftCard } from '../../components/DraftCard'
 import { UndoTriageButton } from '../../components/UndoTriageButton'
 import { AIExtractConfirmDialog } from '../../components/AIExtractConfirmDialog'
 import type { LinkableEventOption } from '../../components/ExistingEventLinkSheet'
+import { linkableEventCutoffStr } from '../../linkable-events'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -65,11 +66,9 @@ function formatJst(date: Date): string {
  * 残りは全部候補に出す（並び順も降順に修正）。
  */
 async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
-  const todayJst = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }),
-  )
-  const cutoff = new Date(todayJst.getTime() - 30 * 24 * 3600 * 1000)
-  const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
+  // mail-inbox-mailer (Codex r5 should-fix): cutoff 算出は linkable-events.ts
+  // に集約し、Server Action 側 (linkMailToEvent) と完全同期させる。
+  const cutoffStr = linkableEventCutoffStr()
 
   const rows = await db
     .select({

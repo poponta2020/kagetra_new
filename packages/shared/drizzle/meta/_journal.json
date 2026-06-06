@@ -162,6 +162,13 @@
       "when": 1780758760007,
       "tag": "0022_mail_inbox_mailer",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1780769011703,
+      "tag": "0023_mail_worker_jobs_kind_index",
+      "breakpoints": true
     }
   ]
 }
