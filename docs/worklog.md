@@ -2286,3 +2286,18 @@
 - /ship: PR #127 merge (`4e7c47d`)、親#119+子#120-126 全クローズ、worktree クリーンアップ済
 - 残 DoD: 本番反映後の実機目視（systemd extract timer + ANTHROPIC_API_KEY 設定、AI 抽出 → LINE 配信フロー、紐付け→配信フロー）
 - migration: 0022 (mail_inbox_mailer)、0023 (mail_worker_jobs status+kind+requested_at)、0024 (tournament_drafts event_id partial)
+
+## 2026-06-07 /bug-report → /auto-review-loop → /ship PR #129 image-cache module instance 分離 fix
+- 起点: ユーザーバグ報告「メールを既存大会に結びつけると添付は届くが本文画像の中身が空」（2026-06-07 15:43、宮崎大会 link）
+- 本番 SSH 経由で原因確定:
+  - `event_broadcast_messages` id=8 (mail=93, event=1 宮崎): status=`sent` / sent_image_count=2 / error_message=NULL → broadcastMailToEvent は完走
+  - nginx access.log (15:43+): `/api/line-broadcast/images/<token>` 4 token × 複数アクセスが**全て 404**、`/api/line-broadcast/attachments/<token>` は 200 OK
+  - 退行ポイント: id 1-7 (05-31〜06-02) は image URL 200 OK、id 8 (06-07 宮崎) のみ 404
+  - `image-cache.ts` / `line-broadcast.ts` / image route のコードは 06-02 以降無変更。06-07 PR #127 で**新 Route Handler 2 本**（`api/admin/mail-inbox/[id]/draft-status`, `api/admin/mail/unprocessed-count`）と**新 Server Action 群**（`triggerExtractDraft`, `linkMailToEvent`, `unlinkMailFromEvent`）を追加 → Next.js webpack chunk splitting が再評価されて `image-cache.ts` モジュールが Server Action 側 chunk と Route Handler 側 chunk で**別々に bundle**され、**別の `Map` instance** を持つ状態に退行
+  - 結論: `setCachedImage` を呼んだ Map と `getCachedImage` が見る Map が別 instance → 常に miss → 404
+- 修正: `apps/web/src/lib/image-cache.ts` の `cache` と `totalBytes` を `globalThis.__kagetraImageCacheState` に集約する Next.js 標準パターンに変更（1ファイル変更、36+/18-）。挙動（24h TTL / LRU evict / 200MB & 500entry 上限）は無変更
+- /auto-review-loop: 1R, verdict=pass, effort=medium, tokens=29,054/500,000, result=pass（一発 PASS）
+- CI Lint/Typecheck/Test pass (3m57s)、auto-ship 経由で /ship
+- /ship: PR #129 merge (`57ceadc`)、Issue #128 自動クローズ、worktree クリーンアップ
+- 学び: Next.js の Route Handler / Server Action / Server Component を跨いで共有する module-level state は globalThis pin が必須。chunk splitting は新 route や新 server action の追加で再評価されるため、「動いてたから大丈夫」は通用しない（[[feedback_nextjs_module_state_globalthis_pin]]）
+- 残 DoD: 本番反映後（auto-deploy）に mail-inbox から既存大会への結びつけ or 新規承認を実行し、LINE 本文画像が中身込みで表示されることを実機目視 + nginx ログで `/api/line-broadcast/images/<token>` が 200 OK で返ることを確認
