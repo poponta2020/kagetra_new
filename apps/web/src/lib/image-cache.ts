@@ -8,15 +8,23 @@
  * push, then LINE caches the bitmap on the device for ~the lifetime of the
  * conversation.
  *
- * We instead hold the bytes in this module-level Map keyed by an opaque
+ * We instead hold the bytes in a `globalThis`-pinned Map keyed by an opaque
  * token, serve them from `/api/line-broadcast/images/[token]`, and let
  * stale entries expire after 24 h. A process restart drops the cache —
  * by then the push has long since completed, and LINE has already fetched
  * what it needs.
  *
  * NOT for cross-process / multi-instance deployments. The current
- * single-VM (Lightsail) topology is fine; a future move to multiple
+ * single-VM (Oracle Cloud) topology is fine; a future move to multiple
  * apps/web instances would need a shared backend (Redis or signed S3).
+ *
+ * Why `globalThis`-pinned (Issue #128): Next.js can bundle this module into
+ * multiple webpack chunks (Server Action side vs Route Handler side). Each
+ * chunk would otherwise instantiate its own `Map`, so `setCachedImage` from
+ * the broadcast pipeline and `getCachedImage` from the public route would
+ * see different stores → every image fetch 404s. Pinning the state to
+ * `globalThis` gives a single instance per Node.js process regardless of how
+ * many chunks import this file.
  *
  * r-final-17 should_fix: 上限なし Map だと 1 添付 30 ページ × 10MB の
  * ような実データで OOM し得る。total bytes と entry count に上限を
@@ -40,14 +48,24 @@ interface CacheEntry {
   byteLength: number
 }
 
-const cache = new Map<string, CacheEntry>()
-let totalBytes = 0
+interface ImageCacheState {
+  cache: Map<string, CacheEntry>
+  totalBytes: number
+}
+
+const globalRef = globalThis as unknown as {
+  __kagetraImageCacheState?: ImageCacheState
+}
+const state: ImageCacheState = (globalRef.__kagetraImageCacheState ??= {
+  cache: new Map<string, CacheEntry>(),
+  totalBytes: 0,
+})
 
 function deleteEntry(key: string): void {
-  const entry = cache.get(key)
+  const entry = state.cache.get(key)
   if (!entry) return
-  totalBytes -= entry.byteLength
-  cache.delete(key)
+  state.totalBytes -= entry.byteLength
+  state.cache.delete(key)
 }
 
 /**
@@ -55,10 +73,10 @@ function deleteEntry(key: string): void {
  * 保持するので、`cache.keys()` を最古から舐めれば LRU 近似になる。
  */
 function evictUntilUnderLimit(): void {
-  const it = cache.keys()
+  const it = state.cache.keys()
   while (
-    (totalBytes > MAX_TOTAL_BYTES || cache.size > MAX_ENTRIES) &&
-    cache.size > 0
+    (state.totalBytes > MAX_TOTAL_BYTES || state.cache.size > MAX_ENTRIES) &&
+    state.cache.size > 0
   ) {
     const next = it.next()
     if (next.done) break
@@ -82,13 +100,13 @@ export function setCachedImage(
   // (totalBytes の二重計上を防ぐ)。
   deleteEntry(token)
 
-  cache.set(token, {
+  state.cache.set(token, {
     data,
     contentType,
     expiresAt: Date.now() + ttlMs,
     byteLength: data.byteLength,
   })
-  totalBytes += data.byteLength
+  state.totalBytes += data.byteLength
 
   // r-final-17 should_fix: 容量超過していたら最古から evict。
   evictUntilUnderLimit()
@@ -98,7 +116,7 @@ export function setCachedImage(
   // (LINE 側はその時点で既に画像取得済み)。`unref()` で Node.js プロセスの
   // 終了を妨げないように。
   const timer = setTimeout(() => {
-    const entry = cache.get(token)
+    const entry = state.cache.get(token)
     if (entry && entry.expiresAt <= Date.now()) {
       deleteEntry(token)
     }
@@ -112,7 +130,7 @@ export function getCachedImage(
   token: string,
   now: number = Date.now(),
 ): { data: Buffer; contentType: string } | null {
-  const entry = cache.get(token)
+  const entry = state.cache.get(token)
   if (!entry) return null
   if (entry.expiresAt <= now) {
     deleteEntry(token)
@@ -128,7 +146,7 @@ export function getCachedImage(
  */
 export function evictExpiredImages(now: number = Date.now()): number {
   let evicted = 0
-  for (const [key, entry] of cache.entries()) {
+  for (const [key, entry] of state.cache.entries()) {
     if (entry.expiresAt <= now) {
       deleteEntry(key)
       evicted++
@@ -138,8 +156,8 @@ export function evictExpiredImages(now: number = Date.now()): number {
 }
 
 export function _resetImageCacheForTests(): void {
-  cache.clear()
-  totalBytes = 0
+  state.cache.clear()
+  state.totalBytes = 0
 }
 
 /**
@@ -149,5 +167,5 @@ export function _getImageCacheStats(): {
   entries: number
   totalBytes: number
 } {
-  return { entries: cache.size, totalBytes }
+  return { entries: state.cache.size, totalBytes: state.totalBytes }
 }
