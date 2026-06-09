@@ -64,8 +64,6 @@ const LIST_COLUMNS = {
   id: true,
   receivedAt: true,
   subject: true,
-  fromName: true,
-  fromAddress: true,
   status: true,
   classification: true,
   triageStatus: true,
@@ -207,15 +205,10 @@ export default async function MailInboxPage() {
           </div>
           <Link
             href={`/admin/mail-inbox/mail/${row.id}`}
-            className="truncate font-medium text-ink hover:underline"
+            className="break-words font-medium text-ink hover:underline"
           >
             {row.subject || '(件名なし)'}
           </Link>
-          <div className="truncate text-xs text-ink-meta">
-            {row.fromName
-              ? `${row.fromName} <${row.fromAddress}>`
-              : row.fromAddress}
-          </div>
           <AttachmentList items={row.attachments} />
           {row.draft && (
             <Link href={`/admin/mail-inbox/${row.draft.id}`} className="block">
