@@ -2301,3 +2301,16 @@
 - /ship: PR #129 merge (`57ceadc`)、Issue #128 自動クローズ、worktree クリーンアップ
 - 学び: Next.js の Route Handler / Server Action / Server Component を跨いで共有する module-level state は globalThis pin が必須。chunk splitting は新 route や新 server action の追加で再評価されるため、「動いてたから大丈夫」は通用しない（[[feedback_nextjs_module_state_globalthis_pin]]）
 - 残 DoD: 本番反映後（auto-deploy）に mail-inbox から既存大会への結びつけ or 新規承認を実行し、LINE 本文画像が中身込みで表示されることを実機目視 + nginx ログで `/api/line-broadcast/images/<token>` が 200 OK で返ることを確認
+
+## 2026-06-09 /quickfix → /auto-review-loop → /ship PR #130 mail-inbox 件名全文表示 + 送信者行削除
+- 起点: ユーザー指示「メールタブのレイアウトを変えたい。送信者や送信元のメールアドレスは見えなくてよい。代わりに件名は全文表示」
+- 修正: `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`
+  - 件名 Link の `truncate` → `break-words` で全文折り返し表示
+  - 件名直下の「送信者名 <送信元アドレス>」`<div>` を丸ごと削除
+  - `LIST_COLUMNS` から `fromName` / `fromAddress` projection を削除（参照箇所がなくなったため）
+  - 詳細画面（`mail/[id]` および `[id]`）の送信元表示は据え置き
+- ローカル検証: lint pass、check-types pass、`mail-inbox/**` vitest 127 件 pass。build はローカル Windows worktree の symlink 権限エラーで `.next/standalone` trace copy が失敗するが、コンパイル自体は成功（CI 側 Linux で確認）
+- /auto-review-loop: 1R, verdict=pass, effort=medium, tokens=27,894/500,000, result=pass（一発 PASS、blockers/should_fix/nits すべて 0）
+- CI Lint/Typecheck/Test pass (3m55s)、auto-ship 経由で /ship
+- /ship: PR #130 merge (`1f89432`)、worktree クリーンアップ（`C:/tmp/fix-mail-inbox-list-layout` は pnpm node_modules の長いパスで物理削除失敗、git worktree メタデータのみ prune）
+- 残 DoD: 本番反映後の実機目視（件名が折り返し全文表示されているか、カードから送信者情報が消えているか）
