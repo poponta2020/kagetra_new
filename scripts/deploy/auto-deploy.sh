@@ -143,33 +143,33 @@ if [ -n "$SYSTEMD_CHANGES" ]; then
       || fail "install $name failed (sudoers /etc/sudoers.d/kagetra-deploy 未配置?)"
     case "$name" in *.timer) CHANGED_TIMERS="$CHANGED_TIMERS $name" ;; esac
   done <<< "$SYSTEMD_CHANGES"
-  sudo -n systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  sudo -n /usr/bin/systemctl daemon-reload || fail "systemctl daemon-reload failed"
   for t in $CHANGED_TIMERS; do
     # enable --now: 新規 timer なら有効化+起動。既に有効なら no-op (idempotent)。
-    sudo -n systemctl enable --now "$t" || fail "enable --now $t failed"
+    sudo -n /usr/bin/systemctl enable --now "$t" || fail "enable --now $t failed"
     # restart: 既存 timer のスケジュール変更を即時反映 (enable --now だけだと
     # 既に active な timer は再起動されないので OnUnitActiveSec= 等の変更が
     # 次回 active 化まで反映されない)。新規 timer に対しては no-op。
-    sudo -n systemctl restart "$t" || fail "restart $t failed"
-    [ "$(sudo -n systemctl is-active "$t")" = active ] || fail "$t not active after restart"
+    sudo -n /usr/bin/systemctl restart "$t" || fail "restart $t failed"
+    [ "$(sudo -n /usr/bin/systemctl is-active "$t")" = active ] || fail "$t not active after restart"
     log "timer active: $t"
   done
 fi
 
 # --- restart (build 成功後のみ到達)。mail-worker は oneshot+timer なので
 #     次回 timer 発火で新バンドルが走る → restart 不要 ---
-if [ "$WEB" = 1 ]; then sudo -n systemctl restart kagetra-web.service || fail "web restart failed"; fi
-if [ "$API" = 1 ]; then sudo -n systemctl restart kagetra-api.service || fail "api restart failed"; fi
+if [ "$WEB" = 1 ]; then sudo -n /usr/bin/systemctl restart kagetra-web.service || fail "web restart failed"; fi
+if [ "$API" = 1 ]; then sudo -n /usr/bin/systemctl restart kagetra-api.service || fail "api restart failed"; fi
 
 sleep 4
 if [ "$WEB" = 1 ]; then
-  [ "$(sudo -n systemctl is-active kagetra-web.service)" = active ] || fail "web service not active after restart"
+  [ "$(sudo -n /usr/bin/systemctl is-active kagetra-web.service)" = active ] || fail "web service not active after restart"
   CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:3000 || echo "000")
   log "web healthcheck http://127.0.0.1:3000 -> $CODE"
   case "$CODE" in 2*|3*) ;; *) fail "web healthcheck got HTTP $CODE" ;; esac
 fi
 if [ "$API" = 1 ]; then
-  [ "$(sudo -n systemctl is-active kagetra-api.service)" = active ] || fail "api service not active after restart"
+  [ "$(sudo -n /usr/bin/systemctl is-active kagetra-api.service)" = active ] || fail "api service not active after restart"
 fi
 
 log "deployed HEAD: $(git rev-parse --short HEAD)"
