@@ -2314,3 +2314,31 @@
 - CI Lint/Typecheck/Test pass (3m55s)、auto-ship 経由で /ship
 - /ship: PR #130 merge (`1f89432`)、worktree クリーンアップ（`C:/tmp/fix-mail-inbox-list-layout` は pnpm node_modules の長いパスで物理削除失敗、git worktree メタデータのみ prune）
 - 残 DoD: 本番反映後の実機目視（件名が折り返し全文表示されているか、カードから送信者情報が消えているか）
+
+## 2026-06-10 /bug-report → /auto-review-loop → /ship PR #132 mail-worker-extract timer 自動配置
+- 起点: ユーザーバグ報告「多摩大会を AI 抽出しようとしたが、いつまでたっても完了しない」（mail id=98 第33回全国競技かるた多摩大会案内、AI 抽出ボタンを 2026-06-08 11:32 JST に押下）
+- 本番 SSH 経由で原因確定:
+  - `mail_worker_jobs.id=1 (kind=manual_extract, status=pending)` が ~26h 滞留 / `tournament_drafts.id=29 (status=ai_processing)` も同様に停滞
+  - PR #127 で導入された `kagetra-mail-worker-extract.{service,timer}` (30秒間隔の `--mode=extract-only`) が **本番に未配置**
+  - 既存 `kagetra-mail-worker.timer` (30分) は `--mode=fetch-only` で `kinds: ['fetch']` のみ claim → manual_extract を永遠にスルー
+  - `scripts/deploy/auto-deploy.sh` は systemd unit を一切配置/更新しない設計 → 手動配置手順 (`docs/deploy/mail-worker.md:90-95`) が PR #127 ship 時にスキップされた
+- オペレーション対応 (即時):
+  - 本番に extract timer を `install`+`daemon-reload`+`enable --now` → 配置直後の初回発火で滞留ジョブが拾われ、18 秒で AI 抽出完了 → tournament_drafts.id=29 が pending_review (confidence=0.82) に遷移
+- 修正 (PR #132):
+  - `scripts/deploy/auto-deploy.sh` に `apps/*/systemd/kagetra-*.{service,timer}` 差分検出 + `install` → `daemon-reload` → timer なら `enable --now` + `restart` + `is-active` を追加
+  - `infra/sudoers/kagetra-deploy` (新規) で kagetra アカウントに scoped sudo を追加 (固定 unit 名のみ列挙、`kagetra-*` ワイルドカードは privilege escalation の元なので使わない)
+  - `.gitattributes` に sudoers / systemd unit の eol=lf を追加 (CRLF で visudo / systemctl が parse error になるため)
+  - auto-deploy.sh に `.service` の `User=kagetra` / `Group=kagetra` 必須 defensive check を追加
+  - 本番 sudoers も新版に置換 (visudo -c OK + kagetra ユーザーでスモーク済)
+- /auto-review-loop: 4R, verdict=needs_changes (R4 で打ち切り), effort=high (全 R), tokens=137,728/500,000
+  - R1 blocker: sudoers の `kagetra-*` ワイルドカード → 12 unit を固定列挙
+  - R2 blocker: `sudo -n systemctl` のパス mismatch → `/usr/bin/systemctl` に統一
+  - R3 blocker: source が kagetra writable → User=kagetra check + trust model docs
+  - R4 blocker: R3 と同テーマ (sudoers が install そのものを bypass 許可) → 1人開発 trust model で許容、ユーザー判断で ship
+- CI Lint/Typecheck/Test pass (2m28s)
+- /ship: PR #132 merge (`057bf3f`)、Issue #131 自動クローズ、worktree (`C:/tmp/fix-mail-worker-extract-timer`) 削除済
+- 学び:
+  - PR #127 の DoD 「systemd extract timer + ANTHROPIC_API_KEY 設定」が ship 時に未消化のまま残っていた → DoD の本番反映チェックを ship に組み込むべきか要検討
+  - auto-deploy.sh が systemd unit を扱わない設計だったため、unit 追加の PR が ship されても本番に反映されない盲点が露呈 → 今回の修正で吸収
+  - Codex の review は理論上 100% 正しい (kagetra writable source → root install は実際に privilege escalation 経路) が、1人開発 + main push = deploy 認可の信頼モデルでは追加リスクが限定的。multi-developer 環境に拡張する場合は root 所有 wrapper script + allowlist/checksum 検証への置き換えを再検討
+- 残 DoD: 本番反映後の実機目視 (mail-inbox で多摩大会の pending_review draft を確認、auto-deploy がこの PR 自体の systemd 変更を扱う場合は次回の systemd unit 変更 PR で動作確認)
