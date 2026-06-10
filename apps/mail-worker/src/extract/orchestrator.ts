@@ -1,3 +1,4 @@
+import { extractDocText } from './doc.js'
 import { extractDocxText } from './docx.js'
 import { extractPdfText } from './pdf.js'
 
@@ -16,12 +17,13 @@ export interface ExtractionInput {
   data: Buffer
 }
 
-type ExtractorKind = 'pdf' | 'docx'
+type ExtractorKind = 'pdf' | 'docx' | 'doc'
 
 const PDF_TYPES = new Set(['application/pdf', 'application/x-pdf'])
 const DOCX_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ])
+const DOC_TYPES = new Set(['application/msword'])
 
 /**
  * content-type → extractor routing with a filename-extension tiebreaker for
@@ -36,30 +38,43 @@ const DOCX_TYPES = new Set([
  * through to `unsupported`; the binary is still persisted so an admin can
  * download and inspect locally.
  *
+ * Legacy Word (.doc / application/msword) IS routed (Issue #133): real
+ * announcements still ship as Word 97-2003 binaries, and treating them as
+ * `unsupported` starved the AI of the only document carrying the entry
+ * deadline (多摩大会). word-extractor parses the OLE container in-process,
+ * same trust profile as mammoth/pdfjs and none of xlsx's advisories.
+ *
  * Returns `null` when no extractor applies — the orchestrator turns this into
  * `{ status: 'unsupported' }`.
  */
 function pickExtractor(contentType: string, filename: string): ExtractorKind | null {
   const ct = contentType.toLowerCase()
+  const lower = filename.toLowerCase()
   if (PDF_TYPES.has(ct)) return 'pdf'
   if (DOCX_TYPES.has(ct)) return 'docx'
+  if (DOC_TYPES.has(ct)) {
+    // Some senders label modern OOXML files as application/msword. The OLE
+    // parser would reject the ZIP container, so an explicit .docx extension
+    // wins over the legacy MIME type.
+    return lower.endsWith('.docx') ? 'docx' : 'doc'
+  }
 
   // Fall through to filename suffix only when the Content-Type is unspecific.
   // This avoids overriding e.g. `image/png` just because the sender named it
   // foo.pdf.
   const generic = ct === '' || ct === 'application/octet-stream' || ct === 'binary/octet-stream'
   if (!generic) return null
-  const lower = filename.toLowerCase()
   if (lower.endsWith('.pdf')) return 'pdf'
   if (lower.endsWith('.docx')) return 'docx'
+  if (lower.endsWith('.doc')) return 'doc'
   return null
 }
 
 /**
  * Extract plain text from a single attachment.
  *
- * Each underlying extractor isolates its own failure: a corrupt PDF / DOCX
- * surfaces as `{ status: 'failed', reason }` rather than propagating an
+ * Each underlying extractor isolates its own failure: a corrupt PDF / DOCX /
+ * DOC surfaces as `{ status: 'failed', reason }` rather than propagating an
  * exception, so the worker pipeline can persist the binary + the failure
  * marker and keep moving through the rest of the batch.
  *
@@ -74,7 +89,9 @@ export async function extractAttachment(input: ExtractionInput): Promise<Extract
     const text =
       kind === 'pdf'
         ? await extractPdfText(input.data)
-        : await extractDocxText(input.data)
+        : kind === 'docx'
+          ? await extractDocxText(input.data)
+          : await extractDocText(input.data)
     return { status: 'extracted', text }
   } catch (err) {
     return {

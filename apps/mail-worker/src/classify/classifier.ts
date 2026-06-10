@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { loadCostGuardConfig } from '../config.js'
+import { extractAttachment } from '../extract/orchestrator.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
 import {
@@ -179,16 +180,40 @@ export async function classifyMail(
         base64: bytesFromBytea(att.data).toString('base64'),
       })
     } else if (att.extractedText) {
-      // DOCX (or future text-extracted formats) — forward the extracted text.
+      // DOCX/DOC (or future text-extracted formats) — forward the extracted text.
       attachmentsForLlm.push({
         kind: 'text',
         filename: att.filename,
         text: att.extractedText,
       })
+    } else if (
+      att.extractionStatus === 'unsupported' ||
+      att.extractionStatus === 'pending'
+    ) {
+      // Lazy in-memory fallback (Issue #133): rows ingested before a format
+      // became supported sit at `unsupported` with NULL text forever — the
+      // 多摩大会 .doc was invisible to the AI even after re-extraction. Re-run
+      // the extractor on the stored bytes for THIS call only; the row is NOT
+      // updated (classifyMail stays pure-read+LLM, see the type doc above),
+      // so the admin-facing extraction_status keeps reflecting ingest time.
+      // Still-unsupported formats (XLSX) and corrupt files return
+      // unsupported/failed here and stay skipped, same as before.
+      const fallback = await extractAttachment({
+        contentType: att.contentType,
+        filename: att.filename,
+        data: bytesFromBytea(att.data),
+      })
+      if (fallback.status === 'extracted' && fallback.text) {
+        attachmentsForLlm.push({
+          kind: 'text',
+          filename: att.filename,
+          text: fallback.text,
+        })
+      }
     }
-    // XLSX / failed extractions: skipped. PR2 disabled the XLSX extractor
-    // for security, and a failed PDF has no usable text anyway. Better to let
-    // the LLM judge from headers + body than to feed it noise.
+    // `failed` extractions: skipped — a corrupt file has no usable text and
+    // retrying it on every classify would just burn CPU. Better to let the
+    // LLM judge from headers + body than to feed it noise.
   }
 
   const input: LLMExtractionInput = {
