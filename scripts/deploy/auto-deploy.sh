@@ -115,7 +115,15 @@ fi
 # --now / restart) するよう、deploy script 側で吸収する。
 #
 # 配置は `install -m 644 -o root -g root` で行う (cp+chown+chmod を 1 コマンドで原子化)。
-# scoped sudo は infra/sudoers/kagetra-deploy で `kagetra-*.{service,timer}` のみ許可。
+# scoped sudo は infra/sudoers/kagetra-deploy で **固定 unit 名のみ** 列挙する (Codex
+# r1 blocker: ワイルドカード `kagetra-*` だと kagetra アカウントが任意 unit を root
+# 実行できる privilege escalation を生む)。
+#
+# 新規 unit を追加する場合は infra/sudoers/kagetra-deploy にも対応エントリを追記し、
+# 本番に sudoers を再配置 (docs/deploy/mail-worker.md §1 step 7 参照) してから
+# その unit を含む PR をマージする。sudoers 未登録の unit を deploy しても、auto-deploy
+# の `install` が sudo に蹴られて即 fail するため安全側に倒れる。
+#
 # daemon-reload は新規 unit を systemd に認識させるのに必須。
 # timer は enable で `WantedBy=timers.target` symlink を張り --now で即起動、変更後は
 # restart で新スケジュールを再読込する (oneshot service 側は次回発火で新ファイルを読む)。

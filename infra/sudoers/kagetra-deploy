@@ -12,35 +12,72 @@
 #   - kagetra ユーザー (= GitHub Actions deploy 鍵で SSH するアカウント) には
 #     /opt/kagetra 配下のファイル所有権 + 限定的な systemctl 操作のみ NOPASSWD
 #     で許可する。root シェル / 全 systemctl は不可。
-#   - sudoers ワイルドカード `*` は `/` にマッチしないので、source/dest とも
-#     `/opt/kagetra/apps/<APP>/systemd/` / `/etc/systemd/system/` 直下に限定される。
+#   - **unit 名は固定列挙** (ワイルドカード `kagetra-*` を使わない)。
+#     kagetra は /opt/kagetra/apps/*/systemd/ に任意ファイルを置けるため、
+#     ワイルドカードを許すと `kagetra-evil.service` を追加して
+#     `sudo systemctl restart kagetra-evil.service` で root コード実行できる
+#     (PR #132 Codex r1 blocker 指摘)。
+#   - **新規 unit を追加する場合**: (1) apps/<APP>/systemd/<NAME>.{service,timer}
+#     を追加 + (2) このファイルに install / systemctl エントリを追記 +
+#     (3) 本番に /etc/sudoers.d/kagetra-deploy を再配置 (上記手順)。
+#     auto-deploy.sh は sudoers を更新しないので、未登録 unit を deploy しても
+#     `install` の段階で sudo に蹴られて fail する (= 攻撃ベクトル無し)。
 #   - `install` を使う理由: 1 コマンドで cp + chown + chmod が原子的に済み、
 #     中途半端なファイルが置かれない。
-#
-# 何を許可するか:
-#   - kagetra-*.service / kagetra-*.timer の install
-#     (source: /opt/kagetra/apps/*/systemd/、dest: /etc/systemd/system/)
-#   - daemon-reload
-#   - kagetra-* の enable / restart / is-active
-#
-# 何を許可しないか:
-#   - 任意のファイルの install (dest pattern が kagetra-*.{service,timer} に限定)
-#   - kagetra-* 以外のユニット操作
-#   - stop / disable / mask (誤操作で本番が止まるリスク回避)
 
-# ---- systemd unit ファイル配置 (apps/*/systemd → /etc/systemd/system) ----
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/api/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/api/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
-kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
+# ============================================================================
+# systemd unit ファイル配置 (apps/*/systemd → /etc/systemd/system)
+# 各 unit ごとに固定の source + dest を明示する。
+# ============================================================================
 
-# ---- systemctl 操作 (kagetra-* に限定) ----
+# --- apps/api ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/api/systemd/kagetra-api.service /etc/systemd/system/kagetra-api.service
+
+# --- apps/web ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-web.service /etc/systemd/system/kagetra-web.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-broadcast-cleanup.service /etc/systemd/system/kagetra-broadcast-cleanup.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-broadcast-cleanup.timer /etc/systemd/system/kagetra-broadcast-cleanup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-lifecycle-reminders.service /etc/systemd/system/kagetra-lifecycle-reminders.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-lifecycle-reminders.timer /etc/systemd/system/kagetra-lifecycle-reminders.timer
+
+# --- apps/mail-worker ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.service /etc/systemd/system/kagetra-mail-worker.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.timer /etc/systemd/system/kagetra-mail-worker.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.service /etc/systemd/system/kagetra-mail-worker-extract.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.timer /etc/systemd/system/kagetra-mail-worker-extract.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-backup.service /etc/systemd/system/kagetra-backup.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-backup.timer /etc/systemd/system/kagetra-backup.timer
+
+# ============================================================================
+# systemctl 操作 (各 unit 名を固定列挙)
+# ============================================================================
+
+# --- daemon-reload (unit ファイル更新後に必要、unit 名を取らないので 1 行) ---
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable kagetra-*.timer
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-*.timer
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-*.service
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-*.timer
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-*.service
-kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-*.timer
+
+# --- timer enable --now (新規 timer の有効化+即起動) ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-mail-worker.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-mail-worker-extract.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-backup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-broadcast-cleanup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-lifecycle-reminders.timer
+
+# --- restart (service: deploy 時のコード反映用) ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-web.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-api.service
+
+# --- restart (timer: スケジュール変更の即時反映用) ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-mail-worker.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-mail-worker-extract.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-backup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-broadcast-cleanup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-lifecycle-reminders.timer
+
+# --- is-active (deploy 後の healthcheck 用) ---
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-web.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-api.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-mail-worker.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-mail-worker-extract.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-backup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-broadcast-cleanup.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-lifecycle-reminders.timer

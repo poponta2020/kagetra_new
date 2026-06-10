@@ -90,6 +90,13 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
    ファイルを更新したら本番側もこの手順で再配置する (auto-deploy では更新
    しない — 失敗時のロールバックが難しいため)。
 
+   **新規 systemd unit を追加する場合**: 必ず同 PR で `infra/sudoers/kagetra-deploy`
+   にも対応エントリ (`install ...` / `systemctl restart ...` / `is-active ...`) を
+   追記する。sudoers は **固定 unit 名のみ** 列挙し、`kagetra-*` のワイルドカードは
+   使わない (kagetra アカウントから任意 unit を root 実行できる privilege escalation
+   を防ぐため)。sudoers 更新後の本番反映 (再 install) を忘れると、auto-deploy が
+   新 unit の `install` で sudo に蹴られて fail するので即座に気付ける。
+
 8. systemd unit 配置 + 有効化:
 
    ```bash
