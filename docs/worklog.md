@@ -2342,3 +2342,21 @@
   - auto-deploy.sh が systemd unit を扱わない設計だったため、unit 追加の PR が ship されても本番に反映されない盲点が露呈 → 今回の修正で吸収
   - Codex の review は理論上 100% 正しい (kagetra writable source → root install は実際に privilege escalation 経路) が、1人開発 + main push = deploy 認可の信頼モデルでは追加リスクが限定的。multi-developer 環境に拡張する場合は root 所有 wrapper script + allowlist/checksum 検証への置き換えを再検討
 - 残 DoD: 本番反映後の実機目視 (mail-inbox で多摩大会の pending_review draft を確認、auto-deploy がこの PR 自体の systemd 変更を扱う場合は次回の systemd unit 変更 PR で動作確認)
+
+## 2026-06-10 /bug-report → /auto-review-loop → /ship PR #134 旧形式Word(.doc)抽出対応 + プロンプト2.1.0
+- 起点: ユーザーバグ報告「多摩大会を AI 抽出したが申込締切が入ってこない」（初報は「会内締切」表現 → ヒアリングで entry_deadline と確定。会内締切・抽選日は案内文書に無い会内運用値のため AI 抽出対象外が仕様＝承認フォーム/編集画面で手入力）
+- 本番 SSH (read-only、ユーザー承認済) で原因確定 (Issue #133):
+  - draft #29 / mail #98 の唯一の添付 `32rd(A-E)多摩大会案内.doc` が `application/msword` → extraction unsupported / extracted_text NULL → classifyMail の LLM 入力（PDF=document block / その他=extracted_text 必須）から完全除外。AI の reason にも「添付PDF無し。参加費・申込締切・定員等の詳細情報が不明」
+  - 実 .doc (60,928 bytes) を取得し word-extractor で検証 → 本文 4,029 字抽出 OK。締切記載は「申込期間　令和８年６月１７日　〜　７月１１日」(和暦・全角・期間表記・級グループ別) → prompt 2.0.0 の「期間表記→null」全日付ルールが終了日を破棄する二重要因と判明
+- 修正 (PR #134, merge `c208b66`):
+  - `extract/doc.ts` 新設: word-extractor (pure JS/MIT、依存 saxes+yauzl) で OLE .doc 抽出、本文+本文テキストボックス結合
+  - orchestrator: `application/msword` ルーティング + octet-stream の `.doc` 拡張子 fallback + msword ラベルの `.docx` は拡張子優先で mammoth へ
+  - classifier: unsupported/pending 行への in-memory lazy fallback（DB 非更新、classifyMail の pure-read+LLM 不変条件維持）→ 過去取り込み済みメールも UI「再抽出」だけで回復、バックフィル不要
+  - prompt 2.1.0: 申込/振込の期間表記は終了日を締切に採用（開催日の期間→null は event_date 限定）、和暦 (令和N=2018+N)・全角数字換算を明文化、Example 2 を和暦+全角+期間表記に変更
+  - テスト fixture: ローカル Docker + LibreOffice 生成の合成 .doc 9KB をコミット（実メール非コミット方針維持、in-memory builders の例外として provenance 明記）
+- テスト: mail-worker 245/245 (新規 8 ケース) / mail-worker tsc+eslint / web tsc / mail-inbox actions 96/96。pipeline-runs の 2 失敗はフルスイート時のみの既知 flaky（単体 15/15 で確認、差分無関係）
+- /auto-review-loop PR #134: 1R, verdict=pass (blockers/should_fix/nits 全0), effort=high (mail-worker パス+681行で auto 判定), tokens=117466/500000, result=pass
+  - 障害 1 件: Git for Windows の astextplain textconv が .doc 入り diff を非 UTF-8 化し codex が stdin 拒否 (exit 1、トークン消費ゼロ) → `git diff --no-textconv` で再生成して解消 (feedback memory 化)
+- CI Lint/Typecheck/Test pass (4m26s) → auto-ship 実行
+- /ship: PR #134 merge、Issue #133 自動クローズ (Fixes キーワード)、worktree (`C:/tmp/fix-doc-attachment-extraction`) 削除、本番実データ (`C:/tmp/docfix`) も削除済
+- 残 DoD: **本番 auto-deploy 反映後、mail-inbox で多摩大会 draft #29 を「再抽出」→ 申込締切 (A/B級 2026-07-11、C/D/E級 2026-07-05)・参加費・級別定員が prefill されるか実機確認 → 承認**。会内締切は承認時に手入力
