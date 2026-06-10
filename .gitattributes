@@ -2,3 +2,10 @@
 # GitHub Actions deploy). CRLF would break them with `$'\r': command not found`,
 # so force LF regardless of the committer's platform / autocrlf setting.
 *.sh text eol=lf
+
+# systemd unit files and sudoers fragments are parsed by Linux daemons that
+# reject CRLF (sudoers では visudo -c が `>>> syntax error` で蹴る、systemd
+# は `Failed to parse` で start に失敗する)。LF を強制。
+infra/sudoers/* text eol=lf
+apps/*/systemd/*.service text eol=lf
+apps/*/systemd/*.timer text eol=lf

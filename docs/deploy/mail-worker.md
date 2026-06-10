@@ -78,22 +78,50 @@ Lightsail 上に systemd timer で 30 分ごとに動かすまでの一通り。
    sudo -u kagetra bash -c 'cd /opt/kagetra && corepack pnpm --filter @kagetra/shared db:migrate'
    ```
 
-7. systemd unit 配置 + 有効化:
+7. scoped sudoers 配置 (auto-deploy が systemd unit を更新できるようにする):
+
+   ```bash
+   sudo install -m 0440 -o root -g root \
+     /opt/kagetra/infra/sudoers/kagetra-deploy /etc/sudoers.d/kagetra-deploy
+   sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
+   ```
+
+   この sudoers は repo `infra/sudoers/kagetra-deploy` で版管理されている。
+   ファイルを更新したら本番側もこの手順で再配置する (auto-deploy では更新
+   しない — 失敗時のロールバックが難しいため)。
+
+   **新規 systemd unit を追加する場合**: 必ず同 PR で `infra/sudoers/kagetra-deploy`
+   にも対応エントリ (`install ...` / `systemctl restart ...` / `is-active ...`) を
+   追記する。sudoers は **固定 unit 名のみ** 列挙し、`kagetra-*` のワイルドカードは
+   使わない (kagetra アカウントから任意 unit を root 実行できる privilege escalation
+   を防ぐため)。sudoers 更新後の本番反映 (再 install) を忘れると、auto-deploy が
+   新 unit の `install` で sudo に蹴られて fail するので即座に気付ける。
+
+8. systemd unit 配置 + 有効化:
 
    ```bash
    # IMAP fetch 用 (30 分間隔)。mail-inbox-mailer 以降は --mode=fetch-only で AI を呼ばない。
-   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.service /etc/systemd/system/
-   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.timer /etc/systemd/system/
+   sudo install -m 644 -o root -g root \
+     /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.service /etc/systemd/system/kagetra-mail-worker.service
+   sudo install -m 644 -o root -g root \
+     /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.timer /etc/systemd/system/kagetra-mail-worker.timer
 
    # mail-inbox-mailer (タスク6): AI 抽出専用 (30 秒間隔、--mode=extract-only)。
    # 「会で流す（AI 抽出）」ボタンから生成される manual_extract ジョブを処理する。
-   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.service /etc/systemd/system/
-   sudo cp /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.timer /etc/systemd/system/
+   sudo install -m 644 -o root -g root \
+     /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.service /etc/systemd/system/kagetra-mail-worker-extract.service
+   sudo install -m 644 -o root -g root \
+     /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker-extract.timer /etc/systemd/system/kagetra-mail-worker-extract.timer
 
    sudo systemctl daemon-reload
    sudo systemctl enable --now kagetra-mail-worker.timer
    sudo systemctl enable --now kagetra-mail-worker-extract.timer
    ```
+
+   **2回目以降のデプロイ**: 上記 sudoers が配置済みなら
+   `scripts/deploy/auto-deploy.sh` が `apps/*/systemd/kagetra-*.{service,timer}`
+   の差分を検知して自動で `install` + `daemon-reload` + (timer なら `enable
+   --now` + `restart`) を実行する。手動オペは初回 / sudoers 自体の更新時のみ。
 
 ## 2. LINE Bot 初期登録
 

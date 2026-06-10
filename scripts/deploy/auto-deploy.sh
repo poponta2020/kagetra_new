@@ -108,20 +108,93 @@ if echo "$CHANGED" | grep -qE '^packages/shared/drizzle/[0-9].*\.sql$'; then
   log "migrations applied"
 fi
 
+# --- systemd unit ファイル配置 (kagetra-* の .service/.timer が変わったとき) ---
+# Issue #131: PR #127 で新規追加された kagetra-mail-worker-extract.{service,timer}
+# が本番に未配置のまま AI 抽出が永遠に待たされた。以降は repo の systemd ユニットが
+# 変わったら自動で /etc/systemd/system/ にコピー + daemon-reload + (timer なら enable
+# --now / restart) するよう、deploy script 側で吸収する。
+#
+# 配置は `install -m 644 -o root -g root` で行う (cp+chown+chmod を 1 コマンドで原子化)。
+# scoped sudo は infra/sudoers/kagetra-deploy で **固定 unit 名のみ** 列挙する (Codex
+# r1 blocker: ワイルドカード `kagetra-*` だと kagetra アカウントが任意 unit を root
+# 実行できる privilege escalation を生む)。
+#
+# 新規 unit を追加する場合は infra/sudoers/kagetra-deploy にも対応エントリを追記し、
+# 本番に sudoers を再配置 (docs/deploy/mail-worker.md §1 step 7 参照) してから
+# その unit を含む PR をマージする。sudoers 未登録の unit を deploy しても、auto-deploy
+# の `install` が sudo に蹴られて即 fail するため安全側に倒れる。
+#
+# --- Trust model (Codex r3 blocker への明示的な応答) ---
+# kagetra ユーザーは /opt/kagetra 配下の unit ファイルに書き込み可能。そのため
+# 理論上は「kagetra デプロイ鍵を奪取した攻撃者が unit 内容を改ざんしてから sudo
+# install + restart で root 権限の任意コード実行を成立させる」経路が存在する。
+# 本リポジトリの信頼境界では:
+#   1. main への push 権が = 本番への deploy 認可。1 人開発でその person が
+#      root SSH 鍵も保有しているため、escalation の追加リスクは限定的
+#   2. それでも下記の defensive check で「典型的な User= 改ざん攻撃」は塞ぐ:
+#      .service には `User=kagetra` と `Group=kagetra` が必須。欠落していたら
+#      install を拒否する (NoNewPrivileges, Capabilities 等の高度な迂回は防げ
+#      ないが、低コスト/低保守で実用的な閾値)
+#   3. multi-developer 環境に拡張する場合は root 所有 staging dir + 検収手順
+#      (allowlist / sha256 照合) への置き換えを再検討する
+#
+# daemon-reload は新規 unit を systemd に認識させるのに必須。
+# timer は enable で `WantedBy=timers.target` symlink を張り --now で即起動、変更後は
+# restart で新スケジュールを再読込する (oneshot service 側は次回発火で新ファイルを読む)。
+SYSTEMD_CHANGES=$(echo "$CHANGED" | grep -E '^apps/[^/]+/systemd/kagetra-[^/]+\.(service|timer)$' || true)
+if [ -n "$SYSTEMD_CHANGES" ]; then
+  log "systemd unit changes detected:"
+  echo "$SYSTEMD_CHANGES" | sed 's/^/    /'
+  CHANGED_TIMERS=""
+  while IFS= read -r unit_path; do
+    [ -z "$unit_path" ] && continue
+    src="$REPO/$unit_path"
+    [ -f "$src" ] || fail "unit source missing after checkout: $src"
+    name=$(basename "$unit_path")
+    dest="/etc/systemd/system/$name"
+    # Defensive check (trust model 2): .service は User=kagetra + Group=kagetra
+    # を必須にする。.timer は実行ユーザを持たないので check 不要。改ざんで User=
+    # を root に書き換えるタイプの escalation を低コストで弾く。
+    case "$name" in
+      *.service)
+        grep -qE '^User=kagetra$' "$src" \
+          || fail "$name does not declare 'User=kagetra' — refusing to install (privilege escalation guard)"
+        grep -qE '^Group=kagetra$' "$src" \
+          || fail "$name does not declare 'Group=kagetra' — refusing to install"
+        ;;
+    esac
+    log "installing unit: $name"
+    sudo -n /usr/bin/install -m 644 -o root -g root "$src" "$dest" \
+      || fail "install $name failed (sudoers /etc/sudoers.d/kagetra-deploy 未配置?)"
+    case "$name" in *.timer) CHANGED_TIMERS="$CHANGED_TIMERS $name" ;; esac
+  done <<< "$SYSTEMD_CHANGES"
+  sudo -n /usr/bin/systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  for t in $CHANGED_TIMERS; do
+    # enable --now: 新規 timer なら有効化+起動。既に有効なら no-op (idempotent)。
+    sudo -n /usr/bin/systemctl enable --now "$t" || fail "enable --now $t failed"
+    # restart: 既存 timer のスケジュール変更を即時反映 (enable --now だけだと
+    # 既に active な timer は再起動されないので OnUnitActiveSec= 等の変更が
+    # 次回 active 化まで反映されない)。新規 timer に対しては no-op。
+    sudo -n /usr/bin/systemctl restart "$t" || fail "restart $t failed"
+    [ "$(sudo -n /usr/bin/systemctl is-active "$t")" = active ] || fail "$t not active after restart"
+    log "timer active: $t"
+  done
+fi
+
 # --- restart (build 成功後のみ到達)。mail-worker は oneshot+timer なので
 #     次回 timer 発火で新バンドルが走る → restart 不要 ---
-if [ "$WEB" = 1 ]; then sudo -n systemctl restart kagetra-web.service || fail "web restart failed"; fi
-if [ "$API" = 1 ]; then sudo -n systemctl restart kagetra-api.service || fail "api restart failed"; fi
+if [ "$WEB" = 1 ]; then sudo -n /usr/bin/systemctl restart kagetra-web.service || fail "web restart failed"; fi
+if [ "$API" = 1 ]; then sudo -n /usr/bin/systemctl restart kagetra-api.service || fail "api restart failed"; fi
 
 sleep 4
 if [ "$WEB" = 1 ]; then
-  [ "$(sudo -n systemctl is-active kagetra-web.service)" = active ] || fail "web service not active after restart"
+  [ "$(sudo -n /usr/bin/systemctl is-active kagetra-web.service)" = active ] || fail "web service not active after restart"
   CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:3000 || echo "000")
   log "web healthcheck http://127.0.0.1:3000 -> $CODE"
   case "$CODE" in 2*|3*) ;; *) fail "web healthcheck got HTTP $CODE" ;; esac
 fi
 if [ "$API" = 1 ]; then
-  [ "$(sudo -n systemctl is-active kagetra-api.service)" = active ] || fail "api service not active after restart"
+  [ "$(sudo -n /usr/bin/systemctl is-active kagetra-api.service)" = active ] || fail "api service not active after restart"
 fi
 
 log "deployed HEAD: $(git rev-parse --short HEAD)"
