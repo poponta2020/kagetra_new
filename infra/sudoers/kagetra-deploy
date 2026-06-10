@@ -1,0 +1,46 @@
+# kagetra デプロイアカウント用 scoped sudo 設定。
+#
+# 配置先:
+#   /etc/sudoers.d/kagetra-deploy (mode 0440, owner root:root)
+#
+# 適用手順:
+#   sudo install -m 0440 -o root -g root \
+#     /opt/kagetra/infra/sudoers/kagetra-deploy /etc/sudoers.d/kagetra-deploy
+#   sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
+#
+# 設計方針:
+#   - kagetra ユーザー (= GitHub Actions deploy 鍵で SSH するアカウント) には
+#     /opt/kagetra 配下のファイル所有権 + 限定的な systemctl 操作のみ NOPASSWD
+#     で許可する。root シェル / 全 systemctl は不可。
+#   - sudoers ワイルドカード `*` は `/` にマッチしないので、source/dest とも
+#     `/opt/kagetra/apps/<APP>/systemd/` / `/etc/systemd/system/` 直下に限定される。
+#   - `install` を使う理由: 1 コマンドで cp + chown + chmod が原子的に済み、
+#     中途半端なファイルが置かれない。
+#
+# 何を許可するか:
+#   - kagetra-*.service / kagetra-*.timer の install
+#     (source: /opt/kagetra/apps/*/systemd/、dest: /etc/systemd/system/)
+#   - daemon-reload
+#   - kagetra-* の enable / restart / is-active
+#
+# 何を許可しないか:
+#   - 任意のファイルの install (dest pattern が kagetra-*.{service,timer} に限定)
+#   - kagetra-* 以外のユニット操作
+#   - stop / disable / mask (誤操作で本番が止まるリスク回避)
+
+# ---- systemd unit ファイル配置 (apps/*/systemd → /etc/systemd/system) ----
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/api/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/api/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-*.service /etc/systemd/system/kagetra-*.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-*.timer /etc/systemd/system/kagetra-*.timer
+
+# ---- systemctl 操作 (kagetra-* に限定) ----
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable kagetra-*.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-*.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-*.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-*.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-*.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-*.timer

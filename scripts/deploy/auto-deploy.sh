@@ -108,6 +108,46 @@ if echo "$CHANGED" | grep -qE '^packages/shared/drizzle/[0-9].*\.sql$'; then
   log "migrations applied"
 fi
 
+# --- systemd unit ファイル配置 (kagetra-* の .service/.timer が変わったとき) ---
+# Issue #131: PR #127 で新規追加された kagetra-mail-worker-extract.{service,timer}
+# が本番に未配置のまま AI 抽出が永遠に待たされた。以降は repo の systemd ユニットが
+# 変わったら自動で /etc/systemd/system/ にコピー + daemon-reload + (timer なら enable
+# --now / restart) するよう、deploy script 側で吸収する。
+#
+# 配置は `install -m 644 -o root -g root` で行う (cp+chown+chmod を 1 コマンドで原子化)。
+# scoped sudo は infra/sudoers/kagetra-deploy で `kagetra-*.{service,timer}` のみ許可。
+# daemon-reload は新規 unit を systemd に認識させるのに必須。
+# timer は enable で `WantedBy=timers.target` symlink を張り --now で即起動、変更後は
+# restart で新スケジュールを再読込する (oneshot service 側は次回発火で新ファイルを読む)。
+SYSTEMD_CHANGES=$(echo "$CHANGED" | grep -E '^apps/[^/]+/systemd/kagetra-[^/]+\.(service|timer)$' || true)
+if [ -n "$SYSTEMD_CHANGES" ]; then
+  log "systemd unit changes detected:"
+  echo "$SYSTEMD_CHANGES" | sed 's/^/    /'
+  CHANGED_TIMERS=""
+  while IFS= read -r unit_path; do
+    [ -z "$unit_path" ] && continue
+    src="$REPO/$unit_path"
+    [ -f "$src" ] || fail "unit source missing after checkout: $src"
+    name=$(basename "$unit_path")
+    dest="/etc/systemd/system/$name"
+    log "installing unit: $name"
+    sudo -n /usr/bin/install -m 644 -o root -g root "$src" "$dest" \
+      || fail "install $name failed (sudoers /etc/sudoers.d/kagetra-deploy 未配置?)"
+    case "$name" in *.timer) CHANGED_TIMERS="$CHANGED_TIMERS $name" ;; esac
+  done <<< "$SYSTEMD_CHANGES"
+  sudo -n systemctl daemon-reload || fail "systemctl daemon-reload failed"
+  for t in $CHANGED_TIMERS; do
+    # enable --now: 新規 timer なら有効化+起動。既に有効なら no-op (idempotent)。
+    sudo -n systemctl enable --now "$t" || fail "enable --now $t failed"
+    # restart: 既存 timer のスケジュール変更を即時反映 (enable --now だけだと
+    # 既に active な timer は再起動されないので OnUnitActiveSec= 等の変更が
+    # 次回 active 化まで反映されない)。新規 timer に対しては no-op。
+    sudo -n systemctl restart "$t" || fail "restart $t failed"
+    [ "$(sudo -n systemctl is-active "$t")" = active ] || fail "$t not active after restart"
+    log "timer active: $t"
+  done
+fi
+
 # --- restart (build 成功後のみ到達)。mail-worker は oneshot+timer なので
 #     次回 timer 発火で新バンドルが走る → restart 不要 ---
 if [ "$WEB" = 1 ]; then sudo -n systemctl restart kagetra-web.service || fail "web restart failed"; fi
