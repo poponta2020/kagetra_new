@@ -124,6 +124,20 @@ fi
 # その unit を含む PR をマージする。sudoers 未登録の unit を deploy しても、auto-deploy
 # の `install` が sudo に蹴られて即 fail するため安全側に倒れる。
 #
+# --- Trust model (Codex r3 blocker への明示的な応答) ---
+# kagetra ユーザーは /opt/kagetra 配下の unit ファイルに書き込み可能。そのため
+# 理論上は「kagetra デプロイ鍵を奪取した攻撃者が unit 内容を改ざんしてから sudo
+# install + restart で root 権限の任意コード実行を成立させる」経路が存在する。
+# 本リポジトリの信頼境界では:
+#   1. main への push 権が = 本番への deploy 認可。1 人開発でその person が
+#      root SSH 鍵も保有しているため、escalation の追加リスクは限定的
+#   2. それでも下記の defensive check で「典型的な User= 改ざん攻撃」は塞ぐ:
+#      .service には `User=kagetra` と `Group=kagetra` が必須。欠落していたら
+#      install を拒否する (NoNewPrivileges, Capabilities 等の高度な迂回は防げ
+#      ないが、低コスト/低保守で実用的な閾値)
+#   3. multi-developer 環境に拡張する場合は root 所有 staging dir + 検収手順
+#      (allowlist / sha256 照合) への置き換えを再検討する
+#
 # daemon-reload は新規 unit を systemd に認識させるのに必須。
 # timer は enable で `WantedBy=timers.target` symlink を張り --now で即起動、変更後は
 # restart で新スケジュールを再読込する (oneshot service 側は次回発火で新ファイルを読む)。
@@ -138,6 +152,17 @@ if [ -n "$SYSTEMD_CHANGES" ]; then
     [ -f "$src" ] || fail "unit source missing after checkout: $src"
     name=$(basename "$unit_path")
     dest="/etc/systemd/system/$name"
+    # Defensive check (trust model 2): .service は User=kagetra + Group=kagetra
+    # を必須にする。.timer は実行ユーザを持たないので check 不要。改ざんで User=
+    # を root に書き換えるタイプの escalation を低コストで弾く。
+    case "$name" in
+      *.service)
+        grep -qE '^User=kagetra$' "$src" \
+          || fail "$name does not declare 'User=kagetra' — refusing to install (privilege escalation guard)"
+        grep -qE '^Group=kagetra$' "$src" \
+          || fail "$name does not declare 'Group=kagetra' — refusing to install"
+        ;;
+    esac
     log "installing unit: $name"
     sudo -n /usr/bin/install -m 644 -o root -g root "$src" "$dest" \
       || fail "install $name failed (sudoers /etc/sudoers.d/kagetra-deploy 未配置?)"

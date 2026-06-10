@@ -24,6 +24,20 @@
 #     `install` の段階で sudo に蹴られて fail する (= 攻撃ベクトル無し)。
 #   - `install` を使う理由: 1 コマンドで cp + chown + chmod が原子的に済み、
 #     中途半端なファイルが置かれない。
+#
+# 信頼境界 (Codex r3 blocker への明示的な応答):
+#   - kagetra ユーザーは source ファイルを書き換えてから install できるため、
+#     固定 unit 名でも「許可済 unit 内容の改ざんによる privilege escalation」
+#     経路は理論上存在する (例: kagetra-web.service の User= を root に書き換え)。
+#   - 本プロジェクトでは以下の信頼モデルでこのリスクを許容する:
+#       1. main への push 権 = 本番への deploy 認可 (1 人開発)
+#       2. main 取得者は SSH/root 鍵も既に保有 (escalation の追加リスクが
+#          限定的)
+#       3. auto-deploy.sh 側で .service の `User=kagetra` / `Group=kagetra`
+#          を必須にする defensive check を行い、典型的な改ざん攻撃を弾く
+#          (NoNewPrivileges / Capabilities 系の高度な迂回までは防がない)
+#   - multi-developer 環境に拡張する場合は root 所有 staging dir + 検収手順
+#     (allowlist / sha256 照合) への置き換えを再検討する。
 
 # ============================================================================
 # systemd unit ファイル配置 (apps/*/systemd → /etc/systemd/system)
