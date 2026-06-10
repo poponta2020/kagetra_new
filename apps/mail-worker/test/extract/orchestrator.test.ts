@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { extractAttachment } from '../../src/extract/orchestrator.js'
 import {
@@ -6,6 +8,11 @@ import {
   buildMinimalPdf,
   buildMinimalXlsx,
 } from '../fixtures/attachments/builders.js'
+
+// Committed binary fixture — see the provenance note in doc.test.ts.
+const DOC_FIXTURE_PATH = fileURLToPath(
+  new URL('../fixtures/attachments/legacy-word-announcement.doc', import.meta.url),
+)
 
 describe('extractAttachment (orchestrator)', () => {
   it('routes application/pdf to the PDF extractor and returns extracted', async () => {
@@ -95,6 +102,52 @@ describe('extractAttachment (orchestrator)', () => {
       contentType: 'application/pdf',
       filename: 'broken.pdf',
       data: buildCorruptPdf(),
+    })
+    expect(result.status).toBe('failed')
+    expect(result.text).toBeNull()
+    expect(result.reason).toBeTypeOf('string')
+  })
+
+  // ── Legacy Word .doc routing (Issue #133) ─────────────────────────────────
+
+  it('routes application/msword to the legacy DOC extractor', async () => {
+    const data = await readFile(DOC_FIXTURE_PATH)
+    const result = await extractAttachment({
+      contentType: 'application/msword',
+      filename: '大会案内.doc',
+      data,
+    })
+    expect(result.status).toBe('extracted')
+    expect(result.text).toContain('申込締切: 2026年7月31日（金）必着')
+  })
+
+  it('routes application/msword + .docx filename to the DOCX extractor (mislabeled OOXML)', async () => {
+    const data = await buildMinimalDocx('mislabeled modern docx')
+    const result = await extractAttachment({
+      contentType: 'application/msword',
+      filename: 'guide.docx',
+      data,
+    })
+    expect(result.status).toBe('extracted')
+    expect(result.text).toBe('mislabeled modern docx')
+  })
+
+  it('falls back to filename suffix .doc for application/octet-stream', async () => {
+    const data = await readFile(DOC_FIXTURE_PATH)
+    const result = await extractAttachment({
+      contentType: 'application/octet-stream',
+      filename: 'annai.doc',
+      data,
+    })
+    expect(result.status).toBe('extracted')
+    expect(result.text).toContain('第12回むさしの競技かるた大会のご案内')
+  })
+
+  it('returns failed (not unsupported) for a corrupt application/msword buffer', async () => {
+    const result = await extractAttachment({
+      contentType: 'application/msword',
+      filename: 'broken.doc',
+      data: Buffer.alloc(1024, 0x42),
     })
     expect(result.status).toBe('failed')
     expect(result.text).toBeNull()

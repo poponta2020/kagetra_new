@@ -261,6 +261,97 @@ describe('classifier', () => {
       )
     })
 
+    describe('lazy in-memory extraction fallback (Issue #133)', () => {
+      // Rows ingested BEFORE a format became supported sit at `unsupported`
+      // with NULL extracted_text — the 多摩大会 .doc was invisible to the AI
+      // even via the reextract path. The classifier now re-runs the extractor
+      // in memory for such rows, without persisting anything (pure-read+LLM).
+      const DOC_FIXTURE_PATH = fileURLToPath(
+        new URL('../fixtures/attachments/legacy-word-announcement.doc', import.meta.url),
+      )
+
+      async function insertDocAttachment(
+        mailMessageId: number,
+        extractionStatus: 'unsupported' | 'failed',
+      ): Promise<void> {
+        const docBytes = await readFile(DOC_FIXTURE_PATH)
+        await testDb.insert(mailAttachments).values({
+          mailMessageId,
+          filename: '案内.doc',
+          contentType: 'application/msword',
+          sizeBytes: docBytes.length,
+          data: docBytes,
+          extractedText: null,
+          extractionStatus,
+        })
+      }
+
+      function capturingLlm(
+        inner: LLMExtractor,
+        captured: LLMExtractionInput[],
+      ): LLMExtractor {
+        return {
+          modelId: inner.modelId,
+          async extract(input) {
+            captured.push(input)
+            return inner.extract(input)
+          },
+        }
+      }
+
+      it('re-extracts an unsupported-at-ingest .doc and forwards its text to the LLM', async () => {
+        const fixtures = await buildFixtureMap()
+        const captured: LLMExtractionInput[] = []
+        const llm = capturingLlm(new FixtureLLMExtractor(fixtures), captured)
+        const id = await insertTestMail({
+          messageId: '<doc-fallback-1@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        await insertDocAttachment(id, 'unsupported')
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        expect(captured).toHaveLength(1)
+        const sent = captured[0]!.attachments
+        expect(sent).toHaveLength(1)
+        expect(sent[0]).toMatchObject({ kind: 'text', filename: '案内.doc' })
+        expect((sent[0] as { kind: 'text'; text: string }).text).toContain(
+          '申込締切: 2026年7月31日（金）必着',
+        )
+
+        // classifyMail stays pure-read+LLM: the fallback must NOT update the
+        // row — extraction_status keeps reflecting what ingest saw.
+        const rows = await testDb
+          .select({
+            extractedText: mailAttachments.extractedText,
+            extractionStatus: mailAttachments.extractionStatus,
+          })
+          .from(mailAttachments)
+          .where(eq(mailAttachments.mailMessageId, id))
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.extractedText).toBeNull()
+        expect(rows[0]!.extractionStatus).toBe('unsupported')
+      })
+
+      it('does not retry failed-at-ingest attachments', async () => {
+        const fixtures = await buildFixtureMap()
+        const captured: LLMExtractionInput[] = []
+        const llm = capturingLlm(new FixtureLLMExtractor(fixtures), captured)
+        const id = await insertTestMail({
+          messageId: '<doc-fallback-2@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        await insertDocAttachment(id, 'failed')
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        expect(captured).toHaveLength(1)
+        expect(captured[0]!.attachments).toHaveLength(0)
+      })
+    })
+
     describe('PDF cost guard', () => {
       // Lives in its own describe so the env stub doesn't bleed into other
       // tests in this file. Each `it` may set its own threshold; afterEach
