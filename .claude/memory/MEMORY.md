@@ -53,3 +53,4 @@
 - [Next.js の module-level state は globalThis pin が必須](feedback_nextjs_module_state_globalthis_pin.md) — Server Action / Route Handler / Server Component を跨いで共有する `Map`/`Set`/`let` は globalThis pin しないと chunk splitting で別 instance になりうる。2026-06-07 [[impl_fix_image_cache_module_instance]] で実害（LINE 本文画像 全 404）
 - [git textconv が .doc 入り diff を非UTF-8 化](feedback_git_textconv_doc_no_utf8_diff.md) — codex 等へパイプする diff は `--no-textconv` で生成（PR #134 R1 で実害）
 - [ship 後の残 DoD は本番未反映で実害化する](feedback_ship_dod_residual_check.md) — systemd / sudoers / env / VAPID key 等の本番手作業 DoD は worklog に書くだけで放置すると後で機能停止に直結（PR #127→Issue #131 で実害）。ship 完了時に消化手順併記+ユーザー口頭確認+可能なら auto-deploy 取り込み
+- [worktree cwd から長寿命プロセスを起動しない](feedback_no_longlived_process_from_worktree_cwd.md) — Docker Desktop 等を worktree 内 cwd で Start-Process すると cwd 継承でハンドル保持、worktree 削除が Device busy で失敗（PR #136 ship で実害）。起動前に cwd を worktree 外へ

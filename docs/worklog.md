@@ -2360,3 +2360,16 @@
 - CI Lint/Typecheck/Test pass (4m26s) → auto-ship 実行
 - /ship: PR #134 merge、Issue #133 自動クローズ (Fixes キーワード)、worktree (`C:/tmp/fix-doc-attachment-extraction`) 削除、本番実データ (`C:/tmp/docfix`) も削除済
 - 残 DoD: **本番 auto-deploy 反映後、mail-inbox で多摩大会 draft #29 を「再抽出」→ 申込締切 (A/B級 2026-07-11、C/D/E級 2026-07-05)・参加費・級別定員が prefill されるか実機確認 → 承認**。会内締切は承認時に手入力
+
+## 2026-06-11 /quickfix → /auto-review-loop → /ship PR #136 承認画面の会内締切デフォルト値 (大会申込締切−6日)
+- 起点: ユーザー要望「会内締切のデフォルト値を、AI 抽出で算出した大会の申込締切の6日前にしてほしい」
+- 調査: ApprovalForm が EventForm に渡す defaultValues に internalDeadline が無く常に空欄 (entry_deadline は prefill 済み)。EventForm の internalDeadline フィールドと server action 側のパース (extractEventUnitsFormData) は実装済みのため、修正は承認画面の prefill 1 箇所のみ
+- 修正 (PR #136, merge `eaf933f`):
+  - ApprovalForm.tsx: `internalDeadline: entry_deadline ? addDays(entry_deadline, -INTERNAL_DEADLINE_LEAD_DAYS) : null`（リードタイム 6 日は会内取りまとめ→主催者申込の運用ルール、既存 `@/lib/jst-date` の addDays を使用。'use client' だが pure な文字列演算なので import 可）
+  - entry_deadline=null の単位は従来どおり空欄。prefill 専用で、登録後の編集画面では entry_deadline 変更に連動しない
+  - ApprovalForm.test.tsx: 3 件追加（6日前計算 / 月・年跨ぎ / null→空欄）
+- テスト: ApprovalForm 10/10、web 全 428 pass / typecheck / lint pass。next build はコンパイル成功・standalone symlink copy のみ Windows EPERM で失敗（環境要因: 非昇格プロセスは symlink 不可。本番ビルドは Linux/Docker なので影響なし）
+- /auto-review-loop PR #136: 1R, verdict=pass (blockers/should_fix/nits 全0), effort=medium (UI コンポーネント+テストのみ 96行/2ファイルで auto 判定), tokens=28732/500000, result=pass
+- CI Lint/Typecheck/Test pass (3m52s) → auto-ship 実行
+- /ship: PR #136 merge、親 Issue なし（quickfix 直行）。worktree 削除で 1 件残骸: Docker Desktop を worktree 内 cwd の PowerShell から起動したため cwd 継承でハンドル保持 → 空ディレクトリ `C:/tmp/fix-internal-deadline-default` のみ削除不能で残存（git worktree は unregister 済み・ブランチ削除済み。Docker Desktop 再起動か OS 再起動後に手動削除可）→ feedback memory 化
+- 残 DoD: 本番 auto-deploy 反映後、大会メール承認画面で会内締切が「申込締切−6日」で prefill されることを実機確認（多摩 draft #29 の再抽出→承認の際に併せて確認可能）
