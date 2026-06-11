@@ -144,7 +144,31 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
   })
 
-  it('forces DOCX attachments to octet-stream + attachment', async () => {
+  it.each(['application/rss+xml', 'application/atom+xml'])(
+    'forces %s (RFC 6839 +xml suffix) to octet-stream + attachment',
+    async (xmlType) => {
+      // Sender-controlled +xml types reach the browser's XML/XSLT pipeline
+      // and can carry active content; they must stay outside the inline
+      // allowlist (pr139 r1 blocker).
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const data = Buffer.from('<rss version="2.0"/>')
+      mockFindFirst.mockResolvedValue({
+        data,
+        filename: 'feed.xml',
+        contentType: xmlType,
+        sizeBytes: data.length,
+      })
+      const res = await GET(makeRequest(), mkParams('1'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/octet-stream')
+      expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    },
+  )
+
+  it('serves DOCX inline with its declared MIME (iOS PWA QuickLook preview)', async () => {
+    // Issue #138: attachment+octet-stream dies on a blank page in the iOS
+    // home-screen PWA in-app browser. Non-active-content types are served
+    // inline so WebKit can hand them to the QuickLook previewer.
     await setAuthSession({ id: 'u1', role: 'admin' })
     const data = Buffer.from([0x50, 0x4b, 0x03, 0x04])
     mockFindFirst.mockResolvedValue({
@@ -156,14 +180,68 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     })
     const res = await GET(makeRequest(), mkParams('1'))
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toBe('application/octet-stream')
-    expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    expect(res.headers.get('content-type')).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+    expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
   })
 
+  it('serves legacy .doc (application/msword) inline', async () => {
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    const data = Buffer.from([0xd0, 0xcf, 0x11, 0xe0])
+    mockFindFirst.mockResolvedValue({
+      data,
+      filename: '32rd(A-E)多摩大会案内.doc',
+      contentType: 'application/msword',
+      sizeBytes: data.length,
+    })
+    const res = await GET(makeRequest(), mkParams('1'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/msword')
+    expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
+  })
+
+  it('serves raster images (image/png) inline', async () => {
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    const data = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    mockFindFirst.mockResolvedValue({
+      data,
+      filename: '会場地図.png',
+      contentType: 'image/png',
+      sizeBytes: data.length,
+    })
+    const res = await GET(makeRequest(), mkParams('1'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
+  })
+
+  it.each(['application/zip', 'application/ecmascript', 'text/vtt'])(
+    'fails closed to octet-stream + attachment for %s (outside the allowlist)',
+    async (outsideType) => {
+      // The allowlist is the security boundary: well-formed but unlisted
+      // types — including active-content variants we never enumerated —
+      // must degrade to a plain download (pr139 r2 blocker).
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const data = Buffer.from('payload')
+      mockFindFirst.mockResolvedValue({
+        data,
+        filename: 'other.bin',
+        contentType: outsideType,
+        sizeBytes: data.length,
+      })
+      const res = await GET(makeRequest(), mkParams('1'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/octet-stream')
+      expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    },
+  )
+
   it('rejects header-injection attempts in stored Content-Type', async () => {
-    // A hostile sender could try to smuggle "application/pdf" via the
-    // allowlist by appending parameters; the route strips parameters before
-    // checking and never echoes the raw value back.
+    // A hostile sender could try to smuggle parameters into the response
+    // header; the route strips them before the blocklist check and never
+    // echoes the raw value back.
     await setAuthSession({ id: 'u1', role: 'admin' })
     const data = Buffer.from('<svg/>')
     mockFindFirst.mockResolvedValue({
@@ -180,6 +258,32 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     // Whatever the stored value, the response carries no `; bogus=1`.
     expect(res.headers.get('content-type')).not.toContain('bogus')
   })
+
+  it.each([
+    'not a mime',
+    'application/we"ird',
+    'application/pdf,text/html',
+    '',
+  ])(
+    'falls back to octet-stream + attachment for malformed stored Content-Type %p',
+    async (badType) => {
+      // Malformed values must never reach the response headers (they would
+      // throw inside `new NextResponse(..., { headers })` and surface as a
+      // 500); with the allowlist they degrade to a plain download.
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const data = Buffer.from('payload')
+      mockFindFirst.mockResolvedValue({
+        data,
+        filename: 'weird.bin',
+        contentType: badType,
+        sizeBytes: data.length,
+      })
+      const res = await GET(makeRequest(), mkParams('1'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/octet-stream')
+      expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    },
+  )
 
   it('uses data.length for body + Content-Length even when sizeBytes column disagrees', async () => {
     // Writer (imap-client) falls back to `data.length` when mailparser
