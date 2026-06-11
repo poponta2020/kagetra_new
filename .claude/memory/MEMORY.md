@@ -23,6 +23,7 @@
 - [mail-inbox-mailer 機能定義](project_mail_inbox_mailer.md) — メール処理を「アプリ＝メーラー」モデルに作り替え。AI 自動分類廃止＋ボタン起動化、triage 2 状態、3 アクション（AI抽出/既存イベント結びつけ/対応不要）。親#119+子#120-126（2026-06-06 定義、実装未着手）
 - [旧形式Word(.doc)抽出対応 SHIPPED](impl_fix_doc_attachment_extraction.md) — PR #134 merge `c208b66` (2026-06-10)、Issue #133 クローズ。word-extractor で .doc 抽出 + classifier lazy fallback (DB非更新) + prompt 2.1.0 (申込期間→終了日採用・和暦換算)。**残DoD=本番で多摩 draft #29 を再抽出→締切 prefill 確認→承認**（PR #137 デプロイ後に消化可能）
 - [deploy: mail-worker変更でweb再ビルド fix](impl_fix_deploy_web_rebuild_on_worker_change.md) — PR #137 merge `f6da7a1` (2026-06-11)、Issue #135 クローズ。web は transpilePackages で mail-worker ソースをバンドル → mail-worker のみの PR #134 デプロイが web=0 となり本番の「再抽出」が旧 classifier のまま（=処理が走らないように見えた）。WEB 判定を apps/(web|mail-worker) に拡張 + lockfile→SHARED + next.config.ts コメント変更で即時 web 再ビルドを同梱
+- [メール添付 inline allowlist 拡張 SHIPPED](impl_fix_mail_attachment_pwa_inline.md) — PR #139 merge `d84ae90` (2026-06-11)、Issue #138 クローズ。iPhone PWA で添付チップ白画面死 → PDF/Office/画像/text を fail-closed allowlist で inline 化。残 DoD=本番反映後に多摩 .doc チップの QuickLook プレビュー実機確認
 - [image-cache module instance 分離 fix](impl_fix_image_cache_module_instance.md) — PR #129 merge `57ceadc` (2026-06-07)、Issue #128 自動クローズ。PR #127 deploy 後に Next.js chunk splitting が再評価され Server Action 側と Route Handler 側で `image-cache.ts` が別 Map instance に分離 → LINE 本文画像 URL が全て 404 退行。`globalThis` pin で修正。残 DoD=本番反映後の実機目視+nginx ログ 200 OK 確認
 
 ## Reference
@@ -53,5 +54,6 @@
 - [vitest は --no-file-parallelism で逐次実行](feedback_vitest_no_file_parallelism.md) — WSL2 Docker test DB(5434) のクロックドリフトで時刻境界テスト(pipeline-runs/reextract)が並行実行で flaky。ローカルは常に `--no-file-parallelism`
 - [Next.js の module-level state は globalThis pin が必須](feedback_nextjs_module_state_globalthis_pin.md) — Server Action / Route Handler / Server Component を跨いで共有する `Map`/`Set`/`let` は globalThis pin しないと chunk splitting で別 instance になりうる。2026-06-07 [[impl_fix_image_cache_module_instance]] で実害（LINE 本文画像 全 404）
 - [git textconv が .doc 入り diff を非UTF-8 化](feedback_git_textconv_doc_no_utf8_diff.md) — codex 等へパイプする diff は `--no-textconv` で生成（PR #134 R1 で実害）
+- [iOS PWA は attachment disposition で白画面死](feedback_ios_pwa_attachment_disposition.md) — 管理画面の配信 route は inert type を実 MIME + inline の fail-closed allowlist で。送信者制御 Content-Type に blocklist inline は fail-open で NG
 - [ship 後の残 DoD は本番未反映で実害化する](feedback_ship_dod_residual_check.md) — systemd / sudoers / env / VAPID key 等の本番手作業 DoD は worklog に書くだけで放置すると後で機能停止に直結（PR #127→Issue #131 で実害）。ship 完了時に消化手順併記+ユーザー口頭確認+可能なら auto-deploy 取り込み
 - [worktree cwd から長寿命プロセスを起動しない](feedback_no_longlived_process_from_worktree_cwd.md) — Docker Desktop 等を worktree 内 cwd で Start-Process すると cwd 継承でハンドル保持、worktree 削除が Device busy で失敗（PR #136 ship で実害）。起動前に cwd を worktree 外へ

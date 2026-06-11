@@ -2388,3 +2388,18 @@
 - CI pass (3m54s) → auto-ship: PR #137 merge、Issue #135 自動クローズ、worktree 削除 (rmdir \\?\ long-path で node_modules 掃除)
 - 本番反映で一波乱: merge push の CI が Docker Hub pull timeout で flake (コード無関係) → `gh run rerun --failed`。並行 merge の PR #136 (apps/web 変更) の deploy が先に走り、origin/main HEAD を fetch する設計のため **`before: 20023fd → after: f6da7a1` / `targets: web=1` / DEPLOY_RESULT=SUCCESS で #134+#136+#137 込みの web 再ビルド完了**。rerun も green、main 全 green
 - 残 DoD: **本番 mail-inbox で多摩 draft #29 を「再抽出」→ 申込締切 (A/B級 2026-07-11、C/D/E級 2026-07-05)・参加費・級別定員の prefill を実機確認 → 承認**（#134 の残 DoD と #136 の会内締切−6日 prefill 確認もこの 1 操作で同時消化可能）
+
+## 2026-06-11 /bug-report → /auto-review-loop → /ship PR #139 iPhone PWA でメール添付リンクが開けない
+- 起点: ユーザーバグ報告「メール取り込み時の添付ファイルのリンクが死んでいる。押下してもファイルが開けない」→ ヒアリングで「アプリ内の添付チップ / iPhone ホーム画面 PWA / 白い画面がすぐ閉じる」と確定 (Issue #138)
+- 原因: `/api/admin/mail/attachments/[id]` が PDF のみ inline の allowlist で、それ以外を `Content-Disposition: attachment` + `application/octet-stream` の強制ダウンロードで返却。iOS standalone PWA の in-app ブラウザ (`target="_blank"` で開くオーバーレイ) はダウンロードを処理できず白画面のまま死ぬ (WebKit 既知挙動)。多摩大会の .doc (`application/msword`) が直撃。PDF だけ inline で開けていたため発覚が遅れた
+- 修正 (PR #139):
+  - 初版: 公開 route (PR #70) と同型の blocklist + inline 化
+  - Codex R1 blocker: RFC 6839 `*+xml` suffix (rss+xml 等) が exact-match blocklist をすり抜け inline → `endsWith('+xml')` 遮断を追加
+  - Codex R2 blocker: 送信者制御 Content-Type への blocklist inline は未列挙 active content を網羅できず fail-open (allowlist からのセキュリティ回帰) → **fail-closed allowlist 拡張に転換**: PDF / Office 文書 (doc/docx/xls/xlsx/ppt/pptx) / ラスタ画像 (jpeg/png/gif/webp/heic/heif) / text (plain/csv) のみ inline、それ以外は octet-stream + attachment。応答 Content-Type は allowlist 定数か octet-stream のみで stored 値を不エコー → SAFE_MIME_RE 検証自体が不要化
+  - Codex R3: pass (blockers/should_fix/nits 全 0)
+- テスト: route.test.ts 21→31 ケース (doc/docx/png inline、+xml suffix・zip/ecmascript/vtt・malformed 4 種の fail-closed degrade、html/svg XSS 防御継続)
+- /auto-review-loop PR #139: 3R, verdict=pass, effort=high 固定 (パスルーブリック上は medium だが非信頼入力の XSS 防御ポリシー変更なので安全側), tokens=104,245/500,000, result=pass
+- CI Lint/Typecheck/Test pass (4m2s) → auto-ship 実行
+- /ship: PR #139 merge (`d84ae90`)、Issue #138 自動クローズ、worktree (`C:/tmp/fix-mail-attachment-pwa-inline`) 削除済
+- 学び: (1) iOS standalone PWA の in-app ブラウザは attachment disposition を白画面死させる → 管理画面の配信 route は inert type を inline allowlist で QuickLook に渡す。(2) 送信者制御の Content-Type に blocklist で inline を許すのは fail-open。inline 許可は必ず fail-closed allowlist で
+- 残 DoD: 本番 auto-deploy 反映後、iPhone ホーム画面 PWA で多摩大会 .doc 添付チップ → QuickLook プレビュー表示を実機確認 (多摩 draft #29 再抽出→承認の既存残 DoD と同じ画面で確認可能)
