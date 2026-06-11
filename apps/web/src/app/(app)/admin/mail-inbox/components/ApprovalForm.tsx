@@ -8,6 +8,14 @@ import type {
 import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
+import { addDays } from '@/lib/jst-date'
+
+/**
+ * 会内締切デフォルト = 大会申込締切の 6 日前。会内で参加者を取りまとめて
+ * 主催者へ申し込むためのリードタイム（運用ルール）。承認画面の prefill
+ * 専用で、登録後の編集画面では連動しない。
+ */
+const INTERNAL_DEADLINE_LEAD_DAYS = 6
 
 /**
  * tournament-title-grade-split: one event unit ready for the approval form.
@@ -244,6 +252,9 @@ export function ApprovalForm({
                       entryMethod: unit.entry_method ?? null,
                       organizer: unit.organizer_text ?? null,
                       entryDeadline: unit.entry_deadline ?? null,
+                      internalDeadline: unit.entry_deadline
+                        ? addDays(unit.entry_deadline, -INTERNAL_DEADLINE_LEAD_DAYS)
+                        : null,
                       eligibleGrades: unit.eligible_grades ?? null,
                       kind: unit.kind ?? 'individual',
                       // EventUnit has no announcement-wide capacity; per-grade only.

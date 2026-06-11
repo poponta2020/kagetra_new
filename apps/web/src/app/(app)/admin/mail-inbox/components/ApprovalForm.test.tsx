@@ -313,4 +313,62 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     ) as HTMLInputElement
     expect(kind.value).toBe('individual')
   })
+
+  it('会内締切を大会申込締切の 6 日前で prefill する', () => {
+    // buildUnit デフォルトの entry_deadline = 2030-11-30 → 6 日前 = 2030-11-24
+    const payload = buildPayload([buildUnit()])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+    const entryDeadline = container.querySelector(
+      'input[name="u1__entryDeadline"]',
+    ) as HTMLInputElement
+    expect(entryDeadline.value).toBe('2030-11-30')
+    const internalDeadline = container.querySelector(
+      'input[name="u1__internalDeadline"]',
+    ) as HTMLInputElement
+    expect(internalDeadline.value).toBe('2030-11-24')
+  })
+
+  it('会内締切の 6 日前計算は月・年跨ぎでも正しい', () => {
+    const payload = buildPayload([
+      buildUnit({ entry_deadline: '2031-01-03' }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+    const internalDeadline = container.querySelector(
+      'input[name="u1__internalDeadline"]',
+    ) as HTMLInputElement
+    expect(internalDeadline.value).toBe('2030-12-28')
+  })
+
+  it('entry_deadline が null の単位は会内締切を prefill しない', () => {
+    const payload = buildPayload([buildUnit({ entry_deadline: null })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        groups={[]}
+        action={noop}
+      />,
+    )
+    const internalDeadline = container.querySelector(
+      'input[name="u1__internalDeadline"]',
+    ) as HTMLInputElement
+    expect(internalDeadline.value).toBe('')
+  })
 })
