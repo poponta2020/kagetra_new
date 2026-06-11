@@ -144,6 +144,27 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
   })
 
+  it.each(['application/rss+xml', 'application/atom+xml'])(
+    'forces %s (RFC 6839 +xml suffix) to octet-stream + attachment',
+    async (xmlType) => {
+      // Sender-controlled +xml types reach the browser's XML/XSLT pipeline
+      // and can carry active content; the exact-match blocklist alone would
+      // let them render inline (pr139 r1 blocker).
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const data = Buffer.from('<rss version="2.0"/>')
+      mockFindFirst.mockResolvedValue({
+        data,
+        filename: 'feed.xml',
+        contentType: xmlType,
+        sizeBytes: data.length,
+      })
+      const res = await GET(makeRequest(), mkParams('1'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/octet-stream')
+      expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    },
+  )
+
   it('serves DOCX inline with its declared MIME (iOS PWA QuickLook preview)', async () => {
     // Issue #138: attachment+octet-stream dies on a blank page in the iOS
     // home-screen PWA in-app browser. Non-active-content types are served

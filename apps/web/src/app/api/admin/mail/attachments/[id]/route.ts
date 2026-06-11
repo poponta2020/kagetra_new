@@ -111,7 +111,13 @@ export async function GET(
     .toLowerCase()
     .split(';')[0]
     ?.trim() ?? ''
-  const isDangerous = DANGEROUS_CONTENT_TYPES.has(declaredContentType)
+  // RFC 6839 structured-syntax suffix: `*/*+xml` (rss+xml / atom+xml /
+  // xslt+xml …) は exact match の Set に居なくてもブラウザの XML/XSLT
+  // パイプラインに到達し active content を運べる。Content-Type は送信者
+  // 制御なので、suffix 一致でまとめて強制ダウンロードに落とす (pr139 r1)。
+  const isDangerous =
+    DANGEROUS_CONTENT_TYPES.has(declaredContentType) ||
+    declaredContentType.endsWith('+xml')
   const isValidMime = SAFE_MIME_RE.test(declaredContentType)
   const forceDownload = isDangerous || !isValidMime
   const responseContentType = forceDownload
