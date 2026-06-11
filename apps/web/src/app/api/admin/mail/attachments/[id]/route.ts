@@ -13,25 +13,31 @@ export const dynamic = 'force-dynamic'
  *
  * Mail attachments are UNTRUSTED user input from the IMAP fetcher: a hostile
  * sender can attach `text/html` or `image/svg+xml` and turn an inline preview
- * into stored XSS on the same origin as the admin UI. Policy (blocklist):
- *   - Known active-content MIMEs (html/xhtml/svg/xml/js) are rewritten to
- *     `application/octet-stream` and forced to `Content-Disposition: attachment`
- *     so the browser downloads instead of executing.
- *   - Everything else (pdf / doc / docx / xlsx / images …) is served INLINE
- *     with its declared MIME. None of these are active content, and inline is
- *     what lets the iOS home-screen PWA preview them via QuickLook: the
- *     standalone in-app browser cannot hand `Content-Disposition: attachment`
- *     to a download manager and dies on a blank page instead (Issue #138).
- *     Desktop browsers download types they cannot render inline, so nothing
- *     regresses there.
+ * into stored XSS on the same origin as the admin UI. Policy (fail-closed
+ * allowlist):
+ *   - Only the inert preview types below (PDF / Office documents / raster
+ *     images / plain text) are served inline with their declared MIME.
+ *     Inline is what lets the iOS home-screen PWA preview them via QuickLook:
+ *     the standalone in-app browser cannot hand
+ *     `Content-Disposition: attachment` to a download manager and dies on a
+ *     blank page instead (Issue #138). Desktop browsers download types they
+ *     cannot render inline, so nothing regresses there.
+ *   - Everything else — active content (html / svg / xml / js …), unknown or
+ *     malformed types — is rewritten to `application/octet-stream` and forced
+ *     to `Content-Disposition: attachment`. Sender-controlled input cannot be
+ *     made safe by enumerating known-bad types, so anything outside the
+ *     allowlist fails closed to a download (codex pr139 r2).
+ *   - The response Content-Type is therefore always either an allowlist
+ *     constant or `application/octet-stream`; the stored value is never
+ *     echoed back, so a malformed string can neither break response headers
+ *     nor smuggle parameters.
  *   - `X-Content-Type-Options: nosniff` is always set so the browser cannot
  *     override the declared type by sniffing the body.
  *
- * This mirrors the blocklist of the public
- * `/api/line-broadcast/attachments/[token]` route (PR #70) with one deliberate
- * difference: that route pins `attachment` for ALL types because it is
- * unauthenticated and must never render anything same-origin, while this route
- * is admin/vice_admin-gated and prioritizes in-PWA preview.
+ * The public `/api/line-broadcast/attachments/[token]` route (PR #70) is
+ * stricter still: it pins `attachment` for ALL types because it is
+ * unauthenticated and must never render anything same-origin, while this
+ * route is admin/vice_admin-gated and prioritizes in-PWA preview.
  *
  * Filenames are RFC 5987-encoded (`filename*=UTF-8''…`) alongside a legacy
  * `filename="…"` so non-ASCII names like "大会要項.pdf" survive proxies that
@@ -42,26 +48,29 @@ export const dynamic = 'force-dynamic'
  *   - https://datatracker.ietf.org/doc/html/rfc5987
  *   - https://datatracker.ietf.org/doc/html/rfc6266
  */
-const DANGEROUS_CONTENT_TYPES = new Set<string>([
-  'text/html',
-  'application/xhtml+xml',
-  'image/svg+xml',
-  'application/svg+xml',
-  'text/xml',
-  'application/xml',
-  // application/javascript / text/javascript も念のため
-  'application/javascript',
-  'text/javascript',
+const INLINE_ALLOWED_CONTENT_TYPES = new Set<string>([
+  // PDF — ブラウザ内蔵ビューア / QuickLook
+  'application/pdf',
+  'application/x-pdf',
+  // Office 文書 — 大会要項・申込書・名簿で実際に届く型。active content では
+  // なく、iOS QuickLook がプレビューできる (Issue #138 の本命は .doc/.docx)
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // ラスタ画像のみ (image/svg+xml は active content なので絶対に入れない)
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  // プレーンテキスト — nosniff 前提でテキストとして描画される
+  'text/plain',
+  'text/csv',
 ])
-
-/**
- * RFC 6838 token grammar に沿った `type/subtype` 形式の MIME 判定。
- * 制御文字 / 空白 / カンマが混入した stored Content-Type をそのまま
- * ヘッダに乗せると `new NextResponse(..., { headers })` が例外になり
- * 500 を返してしまうため、通らない値は octet-stream + attachment に
- * 落とす (public token route と同じパターン、pr70 r1 should_fix)。
- */
-const SAFE_MIME_RE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i
 
 export async function GET(
   _req: Request,
@@ -104,26 +113,19 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  // Strip parameters (e.g. `; charset=utf-8`) before blocklist comparison so a
-  // hostile `text/html; charset=utf-8\r\n…` header can't dodge the rewrite and
-  // also can't header-inject — we never echo the raw value back.
+  // Strip parameters (e.g. `; charset=utf-8`) before the allowlist check so
+  // `application/pdf; charset=utf-8` still previews. The stored value is
+  // never echoed into a response header (the response type is an allowlist
+  // constant or octet-stream), so header injection is structurally impossible.
   const declaredContentType = (row.contentType ?? '')
     .toLowerCase()
     .split(';')[0]
     ?.trim() ?? ''
-  // RFC 6839 structured-syntax suffix: `*/*+xml` (rss+xml / atom+xml /
-  // xslt+xml …) は exact match の Set に居なくてもブラウザの XML/XSLT
-  // パイプラインに到達し active content を運べる。Content-Type は送信者
-  // 制御なので、suffix 一致でまとめて強制ダウンロードに落とす (pr139 r1)。
-  const isDangerous =
-    DANGEROUS_CONTENT_TYPES.has(declaredContentType) ||
-    declaredContentType.endsWith('+xml')
-  const isValidMime = SAFE_MIME_RE.test(declaredContentType)
-  const forceDownload = isDangerous || !isValidMime
-  const responseContentType = forceDownload
-    ? 'application/octet-stream'
-    : declaredContentType
-  const dispositionType = forceDownload ? 'attachment' : 'inline'
+  const allowInline = INLINE_ALLOWED_CONTENT_TYPES.has(declaredContentType)
+  const responseContentType = allowInline
+    ? declaredContentType
+    : 'application/octet-stream'
+  const dispositionType = allowInline ? 'inline' : 'attachment'
 
   const safeAscii = row.filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '')
   const utf8Encoded = encodeURIComponent(row.filename)

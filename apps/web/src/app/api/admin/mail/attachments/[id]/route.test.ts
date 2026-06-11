@@ -148,8 +148,8 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     'forces %s (RFC 6839 +xml suffix) to octet-stream + attachment',
     async (xmlType) => {
       // Sender-controlled +xml types reach the browser's XML/XSLT pipeline
-      // and can carry active content; the exact-match blocklist alone would
-      // let them render inline (pr139 r1 blocker).
+      // and can carry active content; they must stay outside the inline
+      // allowlist (pr139 r1 blocker).
       await setAuthSession({ id: 'u1', role: 'admin' })
       const data = Buffer.from('<rss version="2.0"/>')
       mockFindFirst.mockResolvedValue({
@@ -202,6 +202,42 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
   })
 
+  it('serves raster images (image/png) inline', async () => {
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    const data = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+    mockFindFirst.mockResolvedValue({
+      data,
+      filename: '会場地図.png',
+      contentType: 'image/png',
+      sizeBytes: data.length,
+    })
+    const res = await GET(makeRequest(), mkParams('1'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
+  })
+
+  it.each(['application/zip', 'application/ecmascript', 'text/vtt'])(
+    'fails closed to octet-stream + attachment for %s (outside the allowlist)',
+    async (outsideType) => {
+      // The allowlist is the security boundary: well-formed but unlisted
+      // types — including active-content variants we never enumerated —
+      // must degrade to a plain download (pr139 r2 blocker).
+      await setAuthSession({ id: 'u1', role: 'admin' })
+      const data = Buffer.from('payload')
+      mockFindFirst.mockResolvedValue({
+        data,
+        filename: 'other.bin',
+        contentType: outsideType,
+        sizeBytes: data.length,
+      })
+      const res = await GET(makeRequest(), mkParams('1'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/octet-stream')
+      expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
+    },
+  )
+
   it('rejects header-injection attempts in stored Content-Type', async () => {
     // A hostile sender could try to smuggle parameters into the response
     // header; the route strips them before the blocklist check and never
@@ -216,7 +252,7 @@ describe('GET /api/admin/mail/attachments/:id', () => {
     })
     const res = await GET(makeRequest(), mkParams('1'))
     expect(res.status).toBe(200)
-    // Parameter stripped → not in the blocklist → inline + application/pdf.
+    // Parameter stripped → matches the allowlist → inline + application/pdf.
     expect(res.headers.get('content-type')).toBe('application/pdf')
     expect(res.headers.get('content-disposition')).toMatch(/^inline;/)
     // Whatever the stored value, the response carries no `; bogus=1`.
@@ -231,9 +267,9 @@ describe('GET /api/admin/mail/attachments/:id', () => {
   ])(
     'falls back to octet-stream + attachment for malformed stored Content-Type %p',
     async (badType) => {
-      // Values outside the RFC 6838 token grammar would throw inside
-      // `new NextResponse(..., { headers })` and surface as a 500; they must
-      // degrade to a plain download instead.
+      // Malformed values must never reach the response headers (they would
+      // throw inside `new NextResponse(..., { headers })` and surface as a
+      // 500); with the allowlist they degrade to a plain download.
       await setAuthSession({ id: 'u1', role: 'admin' })
       const data = Buffer.from('payload')
       mockFindFirst.mockResolvedValue({
