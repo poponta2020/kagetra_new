@@ -2373,3 +2373,18 @@
 - CI Lint/Typecheck/Test pass (3m52s) → auto-ship 実行
 - /ship: PR #136 merge、親 Issue なし（quickfix 直行）。worktree 削除で 1 件残骸: Docker Desktop を worktree 内 cwd の PowerShell から起動したため cwd 継承でハンドル保持 → 空ディレクトリ `C:/tmp/fix-internal-deadline-default` のみ削除不能で残存（git worktree は unregister 済み・ブランチ削除済み。Docker Desktop 再起動か OS 再起動後に手動削除可）→ feedback memory 化
 - 残 DoD: 本番 auto-deploy 反映後、大会メール承認画面で会内締切が「申込締切−6日」で prefill されることを実機確認（多摩 draft #29 の再抽出→承認の際に併せて確認可能）
+
+## 2026-06-11 /bug-report → /auto-review-loop → /ship PR #137 deploy判定修正 (AI再抽出が旧コードで走る)
+- 起点: ユーザーバグ報告「AI再抽出を押下しても処理が走りません」（多摩 draft #29 で PR #134 の残 DoD 消化を試みた文脈）
+- 原因特定 (Issue #135、コード調査+デプロイログで確証、本番 SSH 不要):
+  - 「再抽出」(`reextractDraft` Server Action) は `@kagetra/mail-worker` の classifier/prompt を **transpilePackages で web の Next.js バンドルにビルド時に焼き込み**、web プロセス内で同期実行する
+  - PR #134 は `apps/mail-worker/**` + `pnpm-lock.yaml` のみの変更 → auto-deploy.sh の判定が `targets: web=0 api=0 worker=1` (デプロイログ確認) → **web 未再ビルド・未再起動**
+  - 結果、worker timer 経路=新コード / web 内再抽出経路=旧 classifier (prompt 2.0.0、.doc は unsupported でスキップ) の非対称。再抽出は走るが結果が変わらず「処理が走らない」ように見えた
+- 修正 (PR #137, merge `f6da7a1`):
+  - auto-deploy.sh: WEB 判定を `^apps/(web|mail-worker)/` に拡張 + `pnpm-lock.yaml` 変更は SHARED=1 (依存追加はアプリのファイルを変えずにバンドルを変える)
+  - next.config.ts: transpilePackages ⇔ deploy 判定の連動制約をコメント明文化。**この apps/web 配下の変更自体が今回のデプロイで WEB=1 を誘発し、マージだけで本番修復が完了する設計**（deploy script のみの PR は SKIPPED_NOCODE で本番修復されない罠を回避）
+- 検証: bash -n / 判定ロジック 5 ケースシミュレート / worktree で web 本番ビルド → `word-extractor` 参照が `admin/mail-inbox/[id]/page.js` に、prompt 2.1.0 文言が server chunk に入ることを確認 (standalone symlink EPERM は Windows 固有、#136 と同事象)
+- /auto-review-loop PR #137: 1R, verdict=pass (blockers/should_fix/nits 全0), effort=high (本番デプロイ経路のため境界ケースを安全側判定), tokens=28914/500000, result=pass
+- CI pass (3m54s) → auto-ship: PR #137 merge、Issue #135 自動クローズ、worktree 削除 (rmdir \\?\ long-path で node_modules 掃除)
+- 本番反映で一波乱: merge push の CI が Docker Hub pull timeout で flake (コード無関係) → `gh run rerun --failed`。並行 merge の PR #136 (apps/web 変更) の deploy が先に走り、origin/main HEAD を fetch する設計のため **`before: 20023fd → after: f6da7a1` / `targets: web=1` / DEPLOY_RESULT=SUCCESS で #134+#136+#137 込みの web 再ビルド完了**。rerun も green、main 全 green
+- 残 DoD: **本番 mail-inbox で多摩 draft #29 を「再抽出」→ 申込締切 (A/B級 2026-07-11、C/D/E級 2026-07-05)・参加費・級別定員の prefill を実機確認 → 承認**（#134 の残 DoD と #136 の会内締切−6日 prefill 確認もこの 1 操作で同時消化可能）

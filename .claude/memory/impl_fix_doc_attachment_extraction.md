@@ -21,3 +21,5 @@ PR #134 merge `c208b66` (2026-06-10)、Issue #133 自動クローズ。多摩大
 - テスト fixture はローカル Docker + LibreOffice で生成した合成 .doc 9KB をコミット（実メールは含めない方針維持。builders.ts の in-memory 主義の例外として provenance コメント付き）
 
 **残 DoD: 本番 auto-deploy 反映後、mail-inbox で多摩大会 draft #29 を「再抽出」→ 申込締切 (A/B級 2026-07-11、C/D/E級 2026-07-05)・参加費 (A/B 2,500、C/D 2,000、E 1,500)・定員が prefill されるか実機確認 → 承認**。[[feedback_git_textconv_doc_no_utf8_diff]] [[feedback_ship_dod_residual_check]]
+
+⚠️ 2026-06-11 追記: この PR のデプロイは `targets: web=0` で **web が再ビルドされず**、再抽出 Server Action（web バンドル内で classifier を実行）には新ロジックが載っていなかった（Issue #135、ユーザーが再抽出を押しても結果が変わらない実害）。[[impl_fix_deploy_web_rebuild_on_worker_change]] (PR #137) で deploy 判定を修正し web 再ビルドを実施済み。上記 DoD は #137 デプロイ後に消化可能。
