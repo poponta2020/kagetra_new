@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
   // package is in `transpilePackages`. Mirrors the existing @kagetra/shared
   // entry; without it, /admin/mail-inbox/[id] fails to compile because
   // actions.ts → classifier.ts → ../persist/draft.js cannot be resolved.
+  //
+  // Deploy coupling (Issue #135): everything listed here is compiled INTO the
+  // web bundle at build time, so a source change in these packages requires a
+  // web rebuild + restart even when apps/web/ itself is untouched.
+  // scripts/deploy/auto-deploy.sh's WEB target detection must cover each
+  // bundled package's directory — keep the two in sync when adding entries.
   transpilePackages: ['@kagetra/shared', '@kagetra/mail-worker'],
   output: 'standalone',
   // monorepo の root を明示。Next.js 15 は auto-detect するが、CI/prod 差異リスク回避のため明示 (Phase B Phase 0 Discovery 結果)。
