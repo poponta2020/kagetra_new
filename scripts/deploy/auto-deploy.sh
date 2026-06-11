@@ -40,9 +40,15 @@ CHANGED=$(git diff --name-only "$OLD" "$NEW")
 git checkout -B main origin/main -q || fail "git checkout failed"
 log "after: $(git rev-parse --short HEAD)"
 
-# 変更パスから対象アプリを判定 (packages/ 変更は全アプリに波及)
-if echo "$CHANGED" | grep -qE '^packages/'; then SHARED=1; else SHARED=0; fi
-if [ "$SHARED" = 1 ] || echo "$CHANGED" | grep -qE '^apps/web/';         then WEB=1;    else WEB=0;    fi
+# 変更パスから対象アプリを判定 (packages/ と pnpm-lock.yaml の変更は全アプリに波及)。
+# pnpm-lock.yaml: 依存の追加/更新はアプリのファイルを変えずに各バンドルの内容を
+# 変える (例: PR #134 の word-extractor 追加) ため、安全側で全アプリ再ビルドに倒す。
+if echo "$CHANGED" | grep -qE '^(packages/|pnpm-lock\.yaml$)'; then SHARED=1; else SHARED=0; fi
+# web は @kagetra/mail-worker の TS ソースを transpilePackages で Next.js バンドルに
+# 焼き込む (apps/web/next.config.ts)。mail-worker のみの変更でも web の再ビルド+
+# 再起動が必須 — Issue #135: PR #134 (mail-worker only) のデプロイが web=0 と判定
+# され、本番の再抽出 Server Action が旧 classifier (prompt 2.0.0) のまま残留した。
+if [ "$SHARED" = 1 ] || echo "$CHANGED" | grep -qE '^apps/(web|mail-worker)/'; then WEB=1; else WEB=0; fi
 if [ "$SHARED" = 1 ] || echo "$CHANGED" | grep -qE '^apps/api/';         then API=1;    else API=0;    fi
 if [ "$SHARED" = 1 ] || echo "$CHANGED" | grep -qE '^apps/mail-worker/'; then WORKER=1; else WORKER=0; fi
 
