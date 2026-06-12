@@ -7,6 +7,7 @@ import type { Grade } from '@kagetra/shared/types'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { formatLinkedAt, formatLinkMethod } from './_line-link-format'
+import { NewMemberForm } from './new-member-form'
 
 const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E'] as const
 
@@ -66,6 +67,7 @@ export default async function MembersPage() {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold">会員管理</h2>
+      <NewMemberForm />
       <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">

@@ -21,7 +21,7 @@ status: draft
 - **対応Issue:** #141
 
 ### タスク2: 新規会員追加フォーム UI
-- [ ] 完了
+- [x] 完了
 - **概要:** /admin/members 一覧上部に「新規会員追加」ボタン＋折りたたみインラインフォームを設置。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/members/new-member-form.tsx` — 新規 client component。useState で開閉、useActionState で createMember を呼びエラー/成功表示、成功時にフォームリセット。名前 input + 級 select（未設定/A〜E）+ 登録ボタン
