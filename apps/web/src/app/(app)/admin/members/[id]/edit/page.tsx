@@ -6,6 +6,7 @@ import { users } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 import type { Grade, Gender } from '@kagetra/shared/types'
 import { EditMemberForm } from './edit-member-form'
+import { DeleteMemberSection } from './delete-member-section'
 import { toggleMemberDeactivation, unlinkLine } from './actions'
 import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
@@ -68,6 +69,7 @@ export default async function EditMemberPage({
       <EditMemberForm
         userId={member.id}
         name={member.name ?? ''}
+        lineLinked={member.lineUserId != null}
         grade={member.grade ?? null}
         gender={member.gender ?? null}
         affiliation={member.affiliation ?? ''}
@@ -128,6 +130,13 @@ export default async function EditMemberPage({
           </button>
         </form>
       </section>
+
+      {!member.lineUserId && member.role === 'member' && (
+        <DeleteMemberSection
+          userId={member.id}
+          memberName={member.name ?? '未設定'}
+        />
+      )}
     </div>
   )
 }
