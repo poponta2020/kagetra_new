@@ -206,6 +206,27 @@ export async function deleteMember(
   const targetId = parsed.data.userId
 
   const failure = await db.transaction(async (tx) => {
+    // 対象行を先に FOR UPDATE でロックする。子テーブルへの FK 挿入は親行の
+    // FOR KEY SHARE を取るためこのロックと競合し、本 tx の DELETE 完了まで
+    // 待機 → コミット後は FK 違反になる。これで「参照チェック後〜DELETE 前」
+    // に参照が増えて CASCADE / SET NULL で静かに消える race を塞ぐ
+    // (READ COMMITTED ではチェックの再読み込みだけでは防げない)。
+    const locked = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.id, targetId),
+          isNull(users.lineUserId),
+          eq(users.role, 'member'),
+        ),
+      )
+      .for('update')
+    if (locked.length === 0) {
+      // 紐付け済み (race 含む) / admin・vice_admin / 不在。
+      return { error: DELETE_BLOCKED_ERROR }
+    }
+
     // users.id を FK 参照する全テーブル (12 カラム / 11 テーブル) の存在チェック。
     // 参照列そのものを select するので各テーブルの PK 形状に依存しない。
     const referenceChecks = [
@@ -289,6 +310,7 @@ export async function deleteMember(
       }
     }
 
+    // 行はロック済みなので条件は変化しないが、防御的に WHERE にも残す。
     const deleted = await tx
       .delete(users)
       .where(
@@ -300,7 +322,6 @@ export async function deleteMember(
       )
       .returning({ id: users.id })
     if (deleted.length === 0) {
-      // 紐付け済み (race 含む) / admin・vice_admin / 不在。
       return { error: DELETE_BLOCKED_ERROR }
     }
     return null
