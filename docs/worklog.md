@@ -2403,3 +2403,18 @@
 - /ship: PR #139 merge (`d84ae90`)、Issue #138 自動クローズ、worktree (`C:/tmp/fix-mail-attachment-pwa-inline`) 削除済
 - 学び: (1) iOS standalone PWA の in-app ブラウザは attachment disposition を白画面死させる → 管理画面の配信 route は inert type を inline allowlist で QuickLook に渡す。(2) 送信者制御の Content-Type に blocklist で inline を許すのは fail-open。inline 許可は必ず fail-closed allowlist で
 - 残 DoD: 本番 auto-deploy 反映後、iPhone ホーム画面 PWA で多摩大会 .doc 添付チップ → QuickLook プレビュー表示を実機確認 (多摩 draft #29 再抽出→承認の既存残 DoD と同じ画面で確認可能)
+
+## 2026-06-12 /quickfix → /auto-review-loop → /ship PR #146 添付アプリ内ビューア（✕で元画面に戻れる）
+- 起点: ユーザー要望「アプリ内のリンクから添付ファイルを開いた後、元の画面に戻れる×ボタンみたいなやつが欲しい」（PR #139 で QuickLook 表示は開けるようになったが戻る手段がない）
+- 原因: iOS standalone PWA では same-origin（manifest scope `/` 内）URL は `target="_blank"` でも同一 WebView を直接遷移する（「完了」付き in-app browser overlay が出るのは out-of-scope/cross-origin のみ）。QuickLook 表示に戻る UI はなくアプリ再起動しかない。#138 の白画面死も同一 WebView 遷移だったことの傍証。iframe ビューア案は iOS Safari の「iframe 内 PDF は1ページ目しか描画しない」既知制限で不採用
+- 修正 (PR #146): 添付チップ → アプリ内ビューア `/admin/mail-inbox/attachments/[id]`（同一ウィンドウ遷移）
+  - PDF/Office: 本文画像化 (PR #84) と同じ libreoffice+pdftoppm でページ JPEG 化（`attachment-preview.ts` 新設、image-cache `attpv:` キー + in-flight dedup (globalThis pin) + 30ページ cap）。`runLibreofficeConvertToPdf` に `forceWriter` オプション（`--writer` は HTML 本文専用、Office は auto-detect。xlsx/pptx を Writer で開くと壊れるため）
+  - 画像=バイナリルート直 `<img>` / text・csv=`<pre>`(100k cap) / その他=プレビュー不可カード+DLリンク
+  - 配信ルート `/api/admin/mail/attachments/[id]/preview/[page]` 新設（admin/vice_admin、出力は常に pdftoppm 産 JPEG で inert）。初回変換中は loading.tsx スピナー
+- Codex R1 (high): blocker=キャッシュヒット時に削除済み添付の旧バイトを配信可能 → ヒット時も id-only 投影で存在確認し親ルートと同じ 404 / should_fix=✕の `window.history.length` 推測は deep link で誤動作 → チップが `?from=` で戻り先明示（`/admin/mail-inbox` prefix のみ許可）+ `Link replace`、クライアントコンポーネント削除
+- Codex R2 (high): pass (blockers/should_fix/nits 全 0)
+- /auto-review-loop PR #146: 2R, verdict=pass, effort=h→h（規模トリガ 1288 行 > 400）, tokens=110,541/500,000, result=pass
+- テスト: attachment-preview 23 + preview route 20 + AttachmentList 4 / web 全体 green / CI Lint/Typecheck/Test pass (3m44s) → auto-ship
+- /ship: PR #146 merge (`c99b2ea`)、Issue なし（quickfix 直）、リモート+ローカルブランチ・worktree (`C:/tmp/fix-attachment-inapp-viewer`) 削除済
+- 学び: (1) iOS PWA の in-scope URL 遷移は脱出不可 → 戻る UI 付き文書プレビューは「サーバーでページ画像化 + 自前ヘッダ」一択（feedback memory 化）。(2) `gh pr merge --delete-branch` を worktree cwd から実行すると main checkout 衝突で branch 削除が失敗する → main 側 cwd で実行する
+- 残 DoD: 本番 auto-deploy 反映後、iPhone 実機 PWA で .doc/PDF チップ → ページ画像ビューア表示 → ✕ で元画面復帰を確認（多摩 draft #29 の残 DoD と同一画面で消化可能）
