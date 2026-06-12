@@ -557,6 +557,40 @@ describe('Admin member profile edit actions', () => {
       expect(result?.error).toBe(BLOCKED)
     })
 
+    it('vice_admin は未紐付け・参照ゼロでも admin 行を削除できない', async () => {
+      const vice = await createViceAdmin({ name: 'vice-del-rbac' })
+      const targetAdmin = await createAdmin({
+        name: '削除されない管理者',
+        lineUserId: null,
+      })
+      await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+      const result = await deleteMember({}, formOf({ userId: targetAdmin.id }))
+      expect(result?.error).toBe(BLOCKED)
+
+      const still = await testDb.query.users.findFirst({
+        where: eq(users.id, targetAdmin.id),
+      })
+      expect(still?.role).toBe('admin')
+    })
+
+    it('admin でも vice_admin 行は削除できない（member 限定）', async () => {
+      const admin = await createAdmin({ name: 'admin-del-rbac' })
+      const targetVice = await createViceAdmin({
+        name: '削除されない副管理者',
+        lineUserId: null,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await deleteMember({}, formOf({ userId: targetVice.id }))
+      expect(result?.error).toBe(BLOCKED)
+
+      const still = await testDb.query.users.findFirst({
+        where: eq(users.id, targetVice.id),
+      })
+      expect(still?.role).toBe('vice_admin')
+    })
+
     it('vice_admin も削除できる', async () => {
       const vice = await createViceAdmin({ name: 'vice-del-1' })
       const target = await createUser({ name: '副管理者削除対象', lineUserId: null })

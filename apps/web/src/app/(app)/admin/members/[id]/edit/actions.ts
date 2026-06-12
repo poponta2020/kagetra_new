@@ -177,15 +177,19 @@ const DELETE_BLOCKED_ERROR =
   'この会員には関連データがあるか LINE 紐付け済みのため削除できません。退会切替を使ってください'
 
 /**
- * Hard-delete a member row (誤登録リカバリ②) — allowed only when the member
- * has no LINE binding AND no other table references the row.
+ * Hard-delete a member row (誤登録リカバリ②) — allowed only when the target
+ * is a plain `member`, has no LINE binding, AND no other table references
+ * the row.
  *
- * The reference check refuses on ANY referencing row instead of trusting the
- * FK actions: `unlinkLine` clears `lineLinkedAt`, so "unlinked" does not
- * imply "never used", and the CASCADE on event_attendances would otherwise
- * silently erase attendance history. The unlinked precondition also sits in
- * the DELETE's WHERE clause so a concurrent /self-identify claim loses the
- * race cleanly (same single-statement guard as updateMemberName).
+ * The role restriction keeps this within its "undo a mistaken registration"
+ * scope: without it a vice_admin could hard-delete an unlinked admin /
+ * vice_admin row and break RBAC. The reference check refuses on ANY
+ * referencing row instead of trusting the FK actions: `unlinkLine` clears
+ * `lineLinkedAt`, so "unlinked" does not imply "never used", and the CASCADE
+ * on event_attendances would otherwise silently erase attendance history.
+ * Both preconditions (role + unlinked) sit in the DELETE's WHERE clause so a
+ * concurrent /self-identify claim or role change loses the race cleanly
+ * (same single-statement guard as updateMemberName).
  */
 export async function deleteMember(
   _prev: DeleteMemberState,
@@ -287,10 +291,16 @@ export async function deleteMember(
 
     const deleted = await tx
       .delete(users)
-      .where(and(eq(users.id, targetId), isNull(users.lineUserId)))
+      .where(
+        and(
+          eq(users.id, targetId),
+          isNull(users.lineUserId),
+          eq(users.role, 'member'),
+        ),
+      )
       .returning({ id: users.id })
     if (deleted.length === 0) {
-      // 紐付け済み (race 含む) or 不在。
+      // 紐付け済み (race 含む) / admin・vice_admin / 不在。
       return { error: DELETE_BLOCKED_ERROR }
     }
     return null

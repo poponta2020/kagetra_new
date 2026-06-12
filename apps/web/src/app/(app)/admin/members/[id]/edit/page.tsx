@@ -131,7 +131,7 @@ export default async function EditMemberPage({
         </form>
       </section>
 
-      {!member.lineUserId && (
+      {!member.lineUserId && member.role === 'member' && (
         <DeleteMemberSection
           userId={member.id}
           memberName={member.name ?? '未設定'}
