@@ -31,7 +31,7 @@ status: draft
 - **対応Issue:** #142
 
 ### タスク3: updateMemberName + 名前編集の条件付き解禁
-- [ ] 完了
+- [x] 完了
 - **概要:** LINE 未紐付け会員に限り編集ページで名前を修正できるようにする（誤登録リカバリ①）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts` — `updateMemberName(prevState, formData)` 追記: admin/vice_admin チェック → zod 検証（タスク1と同じ name ルール）→ `UPDATE ... SET name WHERE id = ? AND line_user_id IS NULL`（単文 race-safe）→ 0行は「LINE 紐付け済みのため変更できません」エラー、23505 は重複エラー → revalidatePath（一覧+編集ページ）

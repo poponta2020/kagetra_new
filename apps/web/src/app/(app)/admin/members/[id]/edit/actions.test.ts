@@ -2,14 +2,15 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createUser } from '@/test-utils/seed'
+import { createAdmin, createUser, createViceAdmin } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
-const { updateMemberProfile, toggleMemberDeactivation, unlinkLine } = await import('./actions')
+const { updateMemberProfile, toggleMemberDeactivation, unlinkLine, updateMemberName } =
+  await import('./actions')
 
 function formOf(data: Record<string, string>) {
   const fd = new FormData()
@@ -254,6 +255,140 @@ describe('Admin member profile edit actions', () => {
 
       await expect(
         toggleMemberDeactivation(formOf({ userId: target.id })),
+      ).rejects.toThrow(/Unauthorized/)
+    })
+  })
+
+  describe('updateMemberName', () => {
+    it('未紐付け会員の名前を変更できる（trim 済みで保存）', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-1' })
+      const target = await createUser({ name: '旧名前', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: '  新名前  ' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+
+      const updated = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(updated?.name).toBe('新名前')
+    })
+
+    it('LINE 紐付け済み会員は変更できずエラー、DB 不変', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-2' })
+      const target = await createUser({
+        name: '紐付け済み会員',
+        lineUserId: 'Ulinked-rename',
+        lineLinkedAt: new Date(),
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: '変更後' }),
+      )
+      expect(result.error).toBe('LINE 紐付け済みのため変更できません')
+      expect(result.success).toBeUndefined()
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.name).toBe('紐付け済み会員')
+    })
+
+    it('存在しない userId は 0 行更新でエラーになる', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-3' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: 'no-such-id', name: '誰でもない' }),
+      )
+      expect(result.error).toBeDefined()
+    })
+
+    it('別会員と同名に変更すると重複エラー、DB 不変', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-4' })
+      await createUser({ name: '既存会員' })
+      const target = await createUser({ name: '変更対象', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: '既存会員' }),
+      )
+      expect(result.error).toBe('同名の会員が既に存在します（退会済み会員を含む）')
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.name).toBe('変更対象')
+    })
+
+    it('空白のみの名前は入力エラー', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-5' })
+      const target = await createUser({ name: '空白対象', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: '   ' }),
+      )
+      expect(result.error).toBeDefined()
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.name).toBe('空白対象')
+    })
+
+    it('51文字の名前は入力エラー', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-6' })
+      const target = await createUser({ name: '長さ対象', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: 'あ'.repeat(51) }),
+      )
+      expect(result.error).toBeDefined()
+    })
+
+    it('vice_admin も変更できる', async () => {
+      const vice = await createViceAdmin({ name: 'vice-rename-1' })
+      const target = await createUser({ name: '副管理者対象', lineUserId: null })
+      await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: target.id, name: '副管理者変更後' }),
+      )
+      expect(result.success).toBe(true)
+    })
+
+    it('一般会員は拒否される', async () => {
+      const member = await createUser({ name: 'member-rename-1', role: 'member' })
+      const target = await createUser({ name: '一般対象', lineUserId: null })
+      await setAuthSession({ id: member.id, role: 'member' })
+
+      await expect(
+        updateMemberName({}, formOf({ userId: target.id, name: '不正変更' })),
+      ).rejects.toThrow(/Unauthorized/)
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.name).toBe('一般対象')
+    })
+
+    it('未認証は拒否される', async () => {
+      await setAuthSession(null)
+      await expect(
+        updateMemberName({}, formOf({ userId: 'x', name: '未認証変更' })),
       ).rejects.toThrow(/Unauthorized/)
     })
   })

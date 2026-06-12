@@ -1,11 +1,12 @@
 'use server'
 
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isUniqueViolation } from '@/lib/db-errors'
 import { users } from '@kagetra/shared/schema'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
@@ -90,6 +91,66 @@ export async function updateMemberProfile(
 
   revalidatePath('/admin/members')
   revalidatePath(`/admin/members/${data.userId}/edit`)
+  return { success: true }
+}
+
+const updateNameSchema = z.object({
+  userId: z.string().min(1),
+  name: z
+    .string()
+    .trim()
+    .min(1, '名前を入力してください')
+    .max(50, '名前は50文字以内で入力してください'),
+})
+
+export type UpdateNameState = {
+  error?: string
+  success?: boolean
+}
+
+/**
+ * Rename a member who has NOT linked LINE yet (誤登録リカバリ①).
+ *
+ * The unlinked precondition lives in the UPDATE's WHERE clause, so a
+ * concurrent /self-identify claim can't slip through between a check and the
+ * write — same single-statement race guard as the claim itself. Zero rows
+ * means the member got linked (or doesn't exist) and we refuse.
+ */
+export async function updateMemberName(
+  _prev: UpdateNameState,
+  formData: FormData,
+): Promise<UpdateNameState> {
+  await assertAdminSession()
+
+  const rawName = formData.get('name')
+  const parsed = updateNameSchema.safeParse({
+    userId: formData.get('userId'),
+    name: typeof rawName === 'string' ? rawName : '',
+  })
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? '入力が不正です' }
+  }
+
+  try {
+    const updated = await db
+      .update(users)
+      .set({ name: parsed.data.name, updatedAt: new Date() })
+      .where(
+        and(eq(users.id, parsed.data.userId), isNull(users.lineUserId)),
+      )
+      .returning({ id: users.id })
+    if (updated.length === 0) {
+      return { error: 'LINE 紐付け済みのため変更できません' }
+    }
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return { error: '同名の会員が既に存在します（退会済み会員を含む）' }
+    }
+    throw err
+  }
+
+  revalidatePath('/admin/members')
+  revalidatePath(`/admin/members/${parsed.data.userId}/edit`)
   return { success: true }
 }
 
