@@ -1,13 +1,26 @@
 'use server'
 
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db-errors'
-import { users } from '@kagetra/shared/schema'
+import {
+  accounts,
+  eventAttendances,
+  events,
+  lineChannels,
+  mailMessages,
+  mailWorkerJobs,
+  mailWorkerRuns,
+  pushSubscriptions,
+  scheduleItems,
+  sessions,
+  tournamentDrafts,
+  users,
+} from '@kagetra/shared/schema'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
@@ -152,6 +165,141 @@ export async function updateMemberName(
   revalidatePath('/admin/members')
   revalidatePath(`/admin/members/${parsed.data.userId}/edit`)
   return { success: true }
+}
+
+const deleteMemberInputSchema = z.object({ userId: z.string().min(1) })
+
+export type DeleteMemberState = {
+  error?: string
+}
+
+const DELETE_BLOCKED_ERROR =
+  'この会員には関連データがあるか LINE 紐付け済みのため削除できません。退会切替を使ってください'
+
+/**
+ * Hard-delete a member row (誤登録リカバリ②) — allowed only when the member
+ * has no LINE binding AND no other table references the row.
+ *
+ * The reference check refuses on ANY referencing row instead of trusting the
+ * FK actions: `unlinkLine` clears `lineLinkedAt`, so "unlinked" does not
+ * imply "never used", and the CASCADE on event_attendances would otherwise
+ * silently erase attendance history. The unlinked precondition also sits in
+ * the DELETE's WHERE clause so a concurrent /self-identify claim loses the
+ * race cleanly (same single-statement guard as updateMemberName).
+ */
+export async function deleteMember(
+  _prev: DeleteMemberState,
+  formData: FormData,
+): Promise<DeleteMemberState> {
+  await assertAdminSession()
+
+  const parsed = deleteMemberInputSchema.safeParse({
+    userId: formData.get('userId'),
+  })
+  if (!parsed.success) {
+    return { error: '入力が不正です' }
+  }
+  const targetId = parsed.data.userId
+
+  const failure = await db.transaction(async (tx) => {
+    // users.id を FK 参照する全テーブル (12 カラム / 11 テーブル) の存在チェック。
+    // 参照列そのものを select するので各テーブルの PK 形状に依存しない。
+    const referenceChecks = [
+      () =>
+        tx
+          .select({ ref: eventAttendances.userId })
+          .from(eventAttendances)
+          .where(eq(eventAttendances.userId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: events.createdBy })
+          .from(events)
+          .where(eq(events.createdBy, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: scheduleItems.ownerId })
+          .from(scheduleItems)
+          .where(eq(scheduleItems.ownerId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: lineChannels.assignedUserId })
+          .from(lineChannels)
+          .where(eq(lineChannels.assignedUserId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: mailMessages.triagedByUserId })
+          .from(mailMessages)
+          .where(eq(mailMessages.triagedByUserId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: mailWorkerRuns.triggeredByUserId })
+          .from(mailWorkerRuns)
+          .where(eq(mailWorkerRuns.triggeredByUserId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: mailWorkerJobs.requestedByUserId })
+          .from(mailWorkerJobs)
+          .where(eq(mailWorkerJobs.requestedByUserId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: tournamentDrafts.id })
+          .from(tournamentDrafts)
+          .where(
+            or(
+              eq(tournamentDrafts.approvedByUserId, targetId),
+              eq(tournamentDrafts.rejectedByUserId, targetId),
+            ),
+          )
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: pushSubscriptions.userId })
+          .from(pushSubscriptions)
+          .where(eq(pushSubscriptions.userId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: accounts.userId })
+          .from(accounts)
+          .where(eq(accounts.userId, targetId))
+          .limit(1),
+      () =>
+        tx
+          .select({ ref: sessions.userId })
+          .from(sessions)
+          .where(eq(sessions.userId, targetId))
+          .limit(1),
+    ]
+
+    for (const check of referenceChecks) {
+      const rows = await check()
+      if (rows.length > 0) {
+        return { error: DELETE_BLOCKED_ERROR }
+      }
+    }
+
+    const deleted = await tx
+      .delete(users)
+      .where(and(eq(users.id, targetId), isNull(users.lineUserId)))
+      .returning({ id: users.id })
+    if (deleted.length === 0) {
+      // 紐付け済み (race 含む) or 不在。
+      return { error: DELETE_BLOCKED_ERROR }
+    }
+    return null
+  })
+
+  if (failure) return failure
+
+  revalidatePath('/admin/members')
+  redirect('/admin/members')
 }
 
 /**

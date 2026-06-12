@@ -43,7 +43,7 @@ status: draft
 - **対応Issue:** #143
 
 ### タスク4: deleteMember + 削除セクション UI
-- [ ] 完了
+- [x] 完了
 - **概要:** 参照ゼロの未紐付け会員のみ hard delete できるようにする（誤登録リカバリ②）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts` — `deleteMember(formData)` 追記: admin/vice_admin チェック → トランザクション内で users.id を FK 参照する全テーブル（event_attendances / events.createdBy / schedule_items.ownerId / line_channels.assignedUserId / mail_messages.triagedByUserId / mail_worker_runs.triggeredByUserId / mail_worker_jobs.requestedByUserId / tournament_drafts.approvedByUserId・rejectedByUserId / push_subscriptions / accounts / sessions）の存在チェック → 1件でもあれば「関連データがあるか LINE 紐付け済みのため削除できません。退会切替を使ってください」エラー → `DELETE WHERE id = ? AND line_user_id IS NULL`（0行もエラー）→ 成功時 redirect('/admin/members')
