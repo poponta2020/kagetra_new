@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { Pill } from '@/components/ui'
 
 export interface AttachmentChip {
@@ -20,7 +21,10 @@ const ICON_BY_TYPE: Record<string, string> = {
   default: '📎',
 }
 
-function pickIcon(contentType: string, filename: string): string {
+export function pickAttachmentIcon(
+  contentType: string,
+  filename: string,
+): string {
   const ct = contentType.toLowerCase()
   if (ct.includes('pdf')) return ICON_BY_TYPE.pdf!
   if (ct.includes('wordprocessingml')) return ICON_BY_TYPE.docx!
@@ -40,9 +44,14 @@ function pickIcon(contentType: string, filename: string): string {
  * nothing when the mail has no attachments, so callers can drop it
  * unconditionally into a row without an outer guard.
  *
- * Each chip links to the binary route; failed/unsupported chips still render
- * (the operator may want to download the original to inspect by hand) but
- * are tinted via Pill tone.
+ * Each chip opens the in-app viewer page (same-window navigation, so the ✕
+ * there can history-back to this screen). Linking the binary route directly
+ * — even with target="_blank" — dead-ends on the iOS home-screen PWA:
+ * same-origin URLs are inside the manifest scope, so the standalone WebView
+ * navigates itself onto the document and offers no UI to come back.
+ *
+ * failed/unsupported chips still render (the operator may want to inspect
+ * the original by hand) but are tinted via Pill tone.
  */
 export function AttachmentList({ items }: AttachmentListProps) {
   if (items.length === 0) return null
@@ -55,20 +64,18 @@ export function AttachmentList({ items }: AttachmentListProps) {
             : item.extractionStatus === 'unsupported'
               ? 'neutral'
               : 'info'
-        const icon = pickIcon(item.contentType, item.filename)
+        const icon = pickAttachmentIcon(item.contentType, item.filename)
         return (
-          <a
+          <Link
             key={item.id}
-            href={`/api/admin/mail/attachments/${item.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={`/admin/mail-inbox/attachments/${item.id}`}
             className="inline-flex"
           >
             <Pill tone={tone} size="sm">
               <span className="mr-1">{icon}</span>
               <span className="max-w-[14rem] truncate align-middle">{item.filename}</span>
             </Pill>
-          </a>
+          </Link>
         )
       })}
     </div>
