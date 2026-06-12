@@ -10,6 +10,13 @@ export interface AttachmentChip {
 
 export interface AttachmentListProps {
   items: readonly AttachmentChip[]
+  /**
+   * ビューアの ✕ の戻り先としてチップ URL に付与する現在画面のパス
+   * (例: `/admin/mail-inbox/mail/12`)。省略時のビューアは受信箱一覧に戻る。
+   * window.history.length での推測は deep link で誤動作するため、戻り先は
+   * 常に明示的に渡す (codex pr146 r1 should_fix)。
+   */
+  from?: string
 }
 
 const ICON_BY_TYPE: Record<string, string> = {
@@ -53,8 +60,9 @@ export function pickAttachmentIcon(
  * failed/unsupported chips still render (the operator may want to inspect
  * the original by hand) but are tinted via Pill tone.
  */
-export function AttachmentList({ items }: AttachmentListProps) {
+export function AttachmentList({ items, from }: AttachmentListProps) {
   if (items.length === 0) return null
+  const fromQuery = from ? `?from=${encodeURIComponent(from)}` : ''
   return (
     <div className="flex flex-wrap items-center gap-1.5 pt-1">
       {items.map((item) => {
@@ -68,7 +76,7 @@ export function AttachmentList({ items }: AttachmentListProps) {
         return (
           <Link
             key={item.id}
-            href={`/admin/mail-inbox/attachments/${item.id}`}
+            href={`/admin/mail-inbox/attachments/${item.id}${fromQuery}`}
             className="inline-flex"
           >
             <Pill tone={tone} size="sm">

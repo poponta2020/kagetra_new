@@ -19,11 +19,14 @@ export const dynamic = 'force-dynamic'
  * numbers). admin / vice_admin only, mirroring the parent binary route.
  *
  * The viewer page (/admin/mail-inbox/attachments/[id]) renders the pages
- * during its own server render, so the common case here is a cache hit. On a
- * miss (process restart, LRU eviction between page load and <img> fetch) the
- * route re-renders from the stored bytea — `force: true` skips the cached
- * meta, because a surviving meta with evicted pages must not short-circuit
- * the re-render. Parallel <img> fetches on a cold cache collapse into one
+ * during its own server render, so the common case here is a cache hit. Even
+ * then the row's existence is re-checked (id-only projection): the cache
+ * outlives a deleted attachment, and this route must 404 in lockstep with
+ * the parent binary route instead of leaking stale bytes. On a miss (process
+ * restart, LRU eviction between page load and <img> fetch) the route
+ * re-renders from the stored bytea — `force: true` skips the cached meta,
+ * because a surviving meta with evicted pages must not short-circuit the
+ * re-render. Parallel <img> fetches on a cold cache collapse into one
  * conversion via the in-flight registry in attachment-preview.ts.
  *
  * Output is always pdftoppm-generated JPEG — inert bytes regardless of how
@@ -60,7 +63,18 @@ export async function GET(
   }
 
   let cached = getCachedPreviewPage(attachmentId, pageNo)
-  if (!cached) {
+  if (cached) {
+    // codex pr146 r1 blocker: キャッシュは添付削除を知らない。行が消えた後も
+    // TTL/再起動までは旧バイトが残るので、ヒット時も bytea を読まない軽量
+    // 投影で存在確認し、親バイナリルートと同じく 404 に揃える。
+    const exists = await db.query.mailAttachments.findFirst({
+      where: eq(mailAttachments.id, attachmentId),
+      columns: { id: true },
+    })
+    if (!exists) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  } else {
     const row = await db.query.mailAttachments.findFirst({
       where: eq(mailAttachments.id, attachmentId),
       columns: {

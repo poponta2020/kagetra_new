@@ -298,7 +298,10 @@ export default async function MailDraftDetailPage({
               ? `${mail.fromName} <${mail.fromAddress}>`
               : mail.fromAddress}
           </div>
-          <AttachmentList items={mail.attachments} />
+          <AttachmentList
+            items={mail.attachments}
+            from={`/admin/mail-inbox/${draftId}`}
+          />
           {mail.bodyText && (
             <details className="mt-1">
               <summary className="cursor-pointer text-xs font-medium text-ink-meta">

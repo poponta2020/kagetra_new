@@ -79,6 +79,7 @@ describe('GET /api/admin/mail/attachments/:id/preview/:page', () => {
       data: JPEG,
       contentType: 'image/jpeg',
     })
+    mockFindFirst.mockResolvedValue({ id: 1 })
     const res = await GET(makeRequest(), mkParams('1', '1'))
     expect(res.status).toBe(200)
   })
@@ -111,12 +112,13 @@ describe('GET /api/admin/mail/attachments/:id/preview/:page', () => {
     expect(mockFindFirst).not.toHaveBeenCalled()
   })
 
-  it('serves a cached page without touching the DB', async () => {
+  it('serves a cached page without re-rendering (existence check only)', async () => {
     await setAuthSession({ id: 'u1', role: 'admin' })
     mockGetCachedPreviewPage.mockReturnValue({
       data: JPEG,
       contentType: 'image/jpeg',
     })
+    mockFindFirst.mockResolvedValue({ id: 1 })
     const res = await GET(makeRequest(), mkParams('1', '2'))
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('image/jpeg')
@@ -124,10 +126,27 @@ describe('GET /api/admin/mail/attachments/:id/preview/:page', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff')
     expect(res.headers.get('cache-control')).toBe('no-store')
     expect(res.headers.get('content-length')).toBe(String(JPEG.length))
-    expect(mockFindFirst).not.toHaveBeenCalled()
+    // The hit path verifies the row still exists (lightweight projection)
+    // but never converts.
+    expect(mockFindFirst).toHaveBeenCalledTimes(1)
     expect(mockRenderAttachmentPreview).not.toHaveBeenCalled()
     const body = new Uint8Array(await res.arrayBuffer())
     expect(Array.from(body)).toEqual(Array.from(new Uint8Array(JPEG)))
+  })
+
+  it('returns 404 on a cache hit for a deleted attachment (no stale leak)', async () => {
+    // codex pr146 r1 blocker: the in-memory cache outlives a deleted row;
+    // the route must 404 in lockstep with the parent binary route instead
+    // of serving the stale bytes for up to a TTL.
+    await setAuthSession({ id: 'u1', role: 'admin' })
+    mockGetCachedPreviewPage.mockReturnValue({
+      data: JPEG,
+      contentType: 'image/jpeg',
+    })
+    mockFindFirst.mockResolvedValue(undefined)
+    const res = await GET(makeRequest(), mkParams('1', '1'))
+    expect(res.status).toBe(404)
+    expect(mockRenderAttachmentPreview).not.toHaveBeenCalled()
   })
 
   it('returns 404 on cache miss when the attachment row is missing', async () => {

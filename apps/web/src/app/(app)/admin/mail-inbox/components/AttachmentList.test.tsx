@@ -36,6 +36,18 @@ describe('AttachmentList', () => {
     expect(link!.getAttribute('target')).toBeNull()
   })
 
+  it('appends the explicit return path as ?from= when provided', () => {
+    // The viewer's ✕ navigates to this value (validated server-side);
+    // guessing via window.history.length misbehaves on deep links.
+    render(
+      <AttachmentList items={[PDF]} from="/admin/mail-inbox/mail/12" />,
+    )
+    const link = screen.getByText('大会要項.pdf').closest('a')
+    expect(link!.getAttribute('href')).toBe(
+      '/admin/mail-inbox/attachments/1?from=%2Fadmin%2Fmail-inbox%2Fmail%2F12',
+    )
+  })
+
   it('uses danger tone for extraction_status=failed (operator can spot bad files)', () => {
     render(<AttachmentList items={[BROKEN]} />)
     // Pill renders the outer <span> with bg-{tone}-bg; it's the link's first

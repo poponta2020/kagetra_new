@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 import { auth } from '@/auth'
@@ -10,7 +11,6 @@ import {
   renderAttachmentPreview,
   type AttachmentPreviewMeta,
 } from '@/lib/attachment-preview'
-import { AttachmentViewerClose } from '../../components/AttachmentViewerClose'
 import { pickAttachmentIcon } from '../../components/AttachmentList'
 
 /**
@@ -19,8 +19,10 @@ import { pickAttachmentIcon } from '../../components/AttachmentList'
  * 添付チップから同一ウィンドウで遷移してくる。バイナリルートへ直接遷移する
  * 旧動線は iOS ホーム画面 PWA で「QuickLook 表示 → 戻る UI が一切ない」
  * 行き止まりになる (same-origin は manifest scope 内なので target="_blank"
- * でも同一 WebView を遷移する)。このページはアプリの履歴に乗るので、ヘッダの
- * ✕ で元の画面 (受信箱一覧 / メール詳細 / draft 詳細) に戻れる。
+ * でも同一 WebView を遷移する)。ヘッダの ✕ はチップが `?from=` で明示した
+ * 元の画面 (受信箱一覧 / メール詳細 / draft 詳細) へ Link replace で戻る。
+ * history back / window.history.length での推測は deep link やコールド
+ * スタートで誤動作するため使わない (codex pr146 r1 should_fix)。
  *
  * 表示方式は contentType + 拡張子で振り分け:
  *   - PDF / Office → libreoffice + pdftoppm でページ JPEG 化して <img> 縦積み
@@ -39,12 +41,23 @@ const TEXT_PREVIEW_CHAR_LIMIT = 100_000
 
 export default async function AttachmentViewerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
   const { id } = await params
   const attachmentId = Number(id)
   if (!Number.isInteger(attachmentId) || attachmentId <= 0) notFound()
+
+  // ✕ の戻り先。チップ (AttachmentList) が付与した from を使うが、URL は
+  // 共有・改変できるので受信箱配下のパスだけ許可し、それ以外は一覧に倒す
+  // (先頭 `/admin/mail-inbox` 必須なので `//evil.example` も弾ける)。
+  const { from } = await searchParams
+  const fromParam = typeof from === 'string' ? from : undefined
+  const closeHref = fromParam?.startsWith('/admin/mail-inbox')
+    ? fromParam
+    : '/admin/mail-inbox'
 
   const session = await auth()
   if (
@@ -182,7 +195,16 @@ export default async function AttachmentViewerPage({
   return (
     <div className="flex flex-col gap-3">
       <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-surface px-2 py-1.5">
-        <AttachmentViewerClose />
+        {/* replace: ビューアを履歴に残さないので、戻り先画面からの戻る操作が
+            ビューアに巻き戻らない。 */}
+        <Link
+          replace
+          href={closeHref}
+          aria-label="閉じる"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl leading-none text-ink-2 hover:bg-surface-alt"
+        >
+          ✕
+        </Link>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
           <span className="mr-1">{icon}</span>
           {row.filename}
