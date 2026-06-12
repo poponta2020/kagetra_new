@@ -22,16 +22,30 @@ describe('AttachmentList', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders a chip per attachment with a download link to the binary route', () => {
+  it('renders a chip per attachment linking to the in-app viewer page', () => {
     render(<AttachmentList items={[PDF]} />)
     // The chip splits "📄" + filename across two spans, so we anchor on the
     // filename text and walk up to the wrapping <a>.
     const filenameSpan = screen.getByText('大会要項.pdf')
     const link = filenameSpan.closest('a')
     expect(link).not.toBeNull()
-    expect(link!.getAttribute('href')).toBe('/api/admin/mail/attachments/1')
-    expect(link!.getAttribute('target')).toBe('_blank')
-    expect(link!.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link!.getAttribute('href')).toBe('/admin/mail-inbox/attachments/1')
+    // Same-window navigation is load-bearing: the viewer's ✕ relies on
+    // history back, and a target="_blank" binary link dead-ends on the iOS
+    // home-screen PWA (no chrome on a navigated-to document).
+    expect(link!.getAttribute('target')).toBeNull()
+  })
+
+  it('appends the explicit return path as ?from= when provided', () => {
+    // The viewer's ✕ navigates to this value (validated server-side);
+    // guessing via window.history.length misbehaves on deep links.
+    render(
+      <AttachmentList items={[PDF]} from="/admin/mail-inbox/mail/12" />,
+    )
+    const link = screen.getByText('大会要項.pdf').closest('a')
+    expect(link!.getAttribute('href')).toBe(
+      '/admin/mail-inbox/attachments/1?from=%2Fadmin%2Fmail-inbox%2Fmail%2F12',
+    )
   })
 
   it('uses danger tone for extraction_status=failed (operator can spot bad files)', () => {

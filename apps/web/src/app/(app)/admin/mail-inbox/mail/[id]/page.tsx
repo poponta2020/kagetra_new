@@ -178,7 +178,10 @@ export default async function MailDetailPage({
               ? `${mail.fromName} <${mail.fromAddress}>`
               : mail.fromAddress}
           </div>
-          <AttachmentList items={mail.attachments} />
+          <AttachmentList
+            items={mail.attachments}
+            from={`/admin/mail-inbox/mail/${mailId}`}
+          />
 
           {/* mail-inbox-mailer: 本文は details トグルではなく即時表示。
               Codex r1 blocker: bodyText のみだと HTML-only メール (text/plain
