@@ -1,5 +1,5 @@
 ---
-status: draft
+status: completed
 ---
 # admin-member-create 実装手順書
 
@@ -54,7 +54,7 @@ status: draft
 - **対応Issue:** #144
 
 ### タスク5: E2E テスト
-- [ ] 完了
+- [x] 完了
 - **概要:** 登録→反映→リカバリ→self-identify 候補の一連フローを Playwright で検証。
 - **変更対象ファイル:**
   - `apps/web/e2e/admin-member-create.spec.ts` — 新規。①管理者が新規会員追加→一覧に表示される ②名前を修正できる ③self-identify 候補に表示される ④削除すると一覧・self-identify 候補から消える（既存 self-identify-flow.spec.ts / grade-update.spec.ts の認証・seed パターンに準拠）
