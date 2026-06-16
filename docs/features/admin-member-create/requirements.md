@@ -34,9 +34,9 @@ status: completed
   - 級: A〜E の enum 値または未設定のみ受理（不正値は拒否）
 
 ### 3.2 誤登録リカバリ① 未紐付け会員の名前編集
-- 既存の編集ページ（`/admin/members/[id]/edit`）の名前欄を、**LINE 未紐付け（lineUserId が NULL）の会員に限り編集可能**にする
-- 紐付け済み会員は従来通り readOnly（「ユーザー名はログインに使われるため変更不可」の現行仕様を維持）
-- サーバー側でも未紐付け条件を UPDATE の WHERE に含めて二重防御（claim との race 対策）
+- 既存の編集ページ（`/admin/members/[id]/edit`）の名前欄を、**LINE 未紐付け（lineUserId が NULL）かつ role=member の会員に限り編集可能**にする
+- 紐付け済み会員・admin/vice_admin 行は従来通り readOnly（「ユーザー名はログインに使われるため変更不可」の現行仕様を維持）。admin/vice_admin の本人識別ラベルを副管理者が書き換えられないよう role でも制限（Codex R3 指摘で追加）
+- サーバー側でも `lineUserId IS NULL` + `role='member'` を UPDATE の WHERE に含めて二重防御（claim との race 対策 + RBAC 破壊防止）
 - 名前重複時は 3.1 と同様のエラー表示
 
 ### 3.3 誤登録リカバリ② 未紐付け会員の削除

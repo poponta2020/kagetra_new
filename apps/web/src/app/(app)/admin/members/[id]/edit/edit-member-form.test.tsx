@@ -22,12 +22,12 @@ const { EditMemberForm } = await import('./edit-member-form')
 const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS: readonly Gender[] = ['male', 'female'] as const
 
-function renderForm(lineLinked: boolean) {
+function renderForm(nameEditable: boolean) {
   return render(
     <EditMemberForm
       userId="user-1"
       name="現在の名前"
-      lineLinked={lineLinked}
+      nameEditable={nameEditable}
       grade={null}
       gender={null}
       affiliation=""
@@ -39,14 +39,14 @@ function renderForm(lineLinked: boolean) {
   )
 }
 
-describe('EditMemberForm — lineLinked による名前編集の出し分け', () => {
+describe('EditMemberForm — nameEditable による名前編集の出し分け', () => {
   beforeEach(() => {
     updateMemberProfileMock.mockReset()
     updateMemberNameMock.mockReset()
   })
 
-  it('紐付け済み: 名前は readOnly + 変更不可の注記、名前保存ボタンなし', () => {
-    renderForm(true)
+  it('編集不可 (紐付け済み or admin/vice_admin): readOnly + 変更不可の注記、保存ボタンなし', () => {
+    renderForm(false)
 
     const nameInput = screen.getByDisplayValue('現在の名前') as HTMLInputElement
     expect(nameInput.readOnly).toBe(true)
@@ -58,8 +58,8 @@ describe('EditMemberForm — lineLinked による名前編集の出し分け', (
     expect(screen.queryByRole('button', { name: '名前を保存' })).toBeNull()
   })
 
-  it('未紐付け: 編集可能な独立フォーム + 修正可の注記が出る', () => {
-    const { container } = renderForm(false)
+  it('編集可 (未紐付け member): 編集可能な独立フォーム + 修正可の注記が出る', () => {
+    const { container } = renderForm(true)
 
     const nameInput = screen.getByLabelText('名前') as HTMLInputElement
     expect(nameInput.readOnly).toBe(false)
@@ -77,9 +77,9 @@ describe('EditMemberForm — lineLinked による名前編集の出し分け', (
     expect(nameForm?.querySelector('select')).toBeNull()
   })
 
-  it('未紐付け: 名前フォーム送信で updateMemberName に userId と名前が渡る', async () => {
+  it('編集可: 名前フォーム送信で updateMemberName に userId と名前が渡る', async () => {
     updateMemberNameMock.mockResolvedValue({ success: true })
-    const { container } = renderForm(false)
+    const { container } = renderForm(true)
 
     fireEvent.change(screen.getByLabelText('名前'), {
       target: { value: '修正後の名前' },
@@ -98,11 +98,11 @@ describe('EditMemberForm — lineLinked による名前編集の出し分け', (
     expect(status.textContent).toBe('名前を変更しました。')
   })
 
-  it('未紐付け: エラー時は role=alert で表示され入力値は保持される', async () => {
+  it('編集可: エラー時は role=alert で表示され入力値は保持される', async () => {
     updateMemberNameMock.mockResolvedValue({
       error: 'LINE 紐付け済みのため変更できません',
     })
-    const { container } = renderForm(false)
+    const { container } = renderForm(true)
 
     fireEvent.change(screen.getByLabelText('名前'), {
       target: { value: '保持される名前' },

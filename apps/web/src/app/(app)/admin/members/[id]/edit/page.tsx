@@ -69,7 +69,7 @@ export default async function EditMemberPage({
       <EditMemberForm
         userId={member.id}
         name={member.name ?? ''}
-        lineLinked={member.lineUserId != null}
+        nameEditable={member.lineUserId == null && member.role === 'member'}
         grade={member.grade ?? null}
         gender={member.gender ?? null}
         affiliation={member.affiliation ?? ''}

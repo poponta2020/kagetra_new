@@ -83,7 +83,7 @@ function NameEditForm({ userId, name }: { userId: string; name: string }) {
 export function EditMemberForm({
   userId,
   name,
-  lineLinked,
+  nameEditable,
   grade,
   gender,
   affiliation,
@@ -94,7 +94,9 @@ export function EditMemberForm({
 }: {
   userId: string
   name: string
-  lineLinked: boolean
+  // 名前編集を解禁するのは「LINE 未紐付け かつ role=member」のときだけ。
+  // 紐付け済み or admin/vice_admin 行は readOnly（page.tsx 側で算出）。
+  nameEditable: boolean
   grade: Grade | null
   gender: Gender | null
   affiliation: string
@@ -110,11 +112,11 @@ export function EditMemberForm({
 
   return (
     <>
-      {!lineLinked && <NameEditForm userId={userId} name={name} />}
+      {nameEditable && <NameEditForm userId={userId} name={name} />}
       <form action={formAction} className="space-y-4 rounded-lg bg-white p-4 shadow-sm">
         <input type="hidden" name="userId" value={userId} />
 
-        {lineLinked && (
+        {!nameEditable && (
           <div>
             <label className="block text-sm font-medium text-gray-700">名前</label>
             <input

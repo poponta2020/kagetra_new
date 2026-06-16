@@ -322,6 +322,46 @@ describe('Admin member profile edit actions', () => {
       expect(result.error).toBeDefined()
     })
 
+    it('vice_admin は未紐付けの admin 行をリネームできない（DB 不変）', async () => {
+      const vice = await createViceAdmin({ name: 'vice-rename-rbac' })
+      const targetAdmin = await createAdmin({
+        name: 'リネームされない管理者',
+        lineUserId: null,
+      })
+      await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: targetAdmin.id, name: '改ざん名' }),
+      )
+      expect(result.error).toBe('LINE 紐付け済みのため変更できません')
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, targetAdmin.id),
+      })
+      expect(unchanged?.name).toBe('リネームされない管理者')
+    })
+
+    it('admin でも未紐付けの vice_admin 行はリネームできない（member 限定）', async () => {
+      const admin = await createAdmin({ name: 'admin-rename-rbac' })
+      const targetVice = await createViceAdmin({
+        name: 'リネームされない副管理者',
+        lineUserId: null,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberName(
+        {},
+        formOf({ userId: targetVice.id, name: '改ざん名2' }),
+      )
+      expect(result.error).toBe('LINE 紐付け済みのため変更できません')
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, targetVice.id),
+      })
+      expect(unchanged?.name).toBe('リネームされない副管理者')
+    })
+
     it('別会員と同名に変更すると重複エラー、DB 不変', async () => {
       const admin = await createAdmin({ name: 'admin-rename-4' })
       await createUser({ name: '既存会員' })

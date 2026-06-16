@@ -124,10 +124,14 @@ export type UpdateNameState = {
 /**
  * Rename a member who has NOT linked LINE yet (誤登録リカバリ①).
  *
- * The unlinked precondition lives in the UPDATE's WHERE clause, so a
- * concurrent /self-identify claim can't slip through between a check and the
- * write — same single-statement race guard as the claim itself. Zero rows
- * means the member got linked (or doesn't exist) and we refuse.
+ * Targets are restricted to plain `member` rows — without that, a vice_admin
+ * could relabel an unlinked admin / vice_admin row (users.name is the
+ * identity label shown in /self-identify), which is outside this feature's
+ * "fix a mistaken registration" scope. The preconditions live in the
+ * UPDATE's WHERE clause, so a concurrent /self-identify claim can't slip
+ * through between a check and the write — same single-statement race guard
+ * as the claim itself. Zero rows means the member got linked, is a
+ * privileged role, or doesn't exist, and we refuse.
  */
 export async function updateMemberName(
   _prev: UpdateNameState,
@@ -149,7 +153,11 @@ export async function updateMemberName(
       .update(users)
       .set({ name: parsed.data.name, updatedAt: new Date() })
       .where(
-        and(eq(users.id, parsed.data.userId), isNull(users.lineUserId)),
+        and(
+          eq(users.id, parsed.data.userId),
+          isNull(users.lineUserId),
+          eq(users.role, 'member'),
+        ),
       )
       .returning({ id: users.id })
     if (updated.length === 0) {
