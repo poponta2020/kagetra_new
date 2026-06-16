@@ -26,6 +26,7 @@
 - [メール添付 inline allowlist 拡張 SHIPPED](impl_fix_mail_attachment_pwa_inline.md) — PR #139 merge `d84ae90` (2026-06-11)、Issue #138 クローズ。iPhone PWA で添付チップ白画面死 → PDF/Office/画像/text を fail-closed allowlist で inline 化。チップ遷移は PR #146 でアプリ内ビューアに置換済（ルート自体は元ファイルリンク/画像直表示で継続使用）
 - [添付アプリ内ビューア SHIPPED](impl_fix_attachment_inapp_viewer.md) — PR #146 merge `c99b2ea` (2026-06-12)。チップ→`/admin/mail-inbox/attachments/[id]`、PDF/Office をページ JPEG 化（libreoffice forceWriter:false + pdftoppm + image-cache `attpv:`）、✕ は `?from=` 明示 + Link replace。preview ルートはキャッシュヒット時も行存在確認。残 DoD=iPhone 実機で表示と✕復帰確認
 - [image-cache module instance 分離 fix](impl_fix_image_cache_module_instance.md) — PR #129 merge `57ceadc` (2026-06-07)、Issue #128 自動クローズ。PR #127 deploy 後に Next.js chunk splitting が再評価され Server Action 側と Route Handler 側で `image-cache.ts` が別 Map instance に分離 → LINE 本文画像 URL が全て 404 退行。`globalThis` pin で修正。残 DoD=本番反映後の実機目視+nginx ログ 200 OK 確認
+- [admin-member-create SHIPPED](impl_admin_member_create.md) — 管理画面からの新規会員手動追加＋誤登録リカバリ(名前編集/削除)。PR #147 merge `27d6727` (2026-06-16)、親#140+子#141-145 全クローズ。createMember は role=member/招待済/未紐付け強制で即 self-identify 候補化、updateMemberName/deleteMember は未紐付け+role=member 限定、削除は FOR UPDATE+FK 参照チェックで履歴保護。Codex 4R 収束。残 DoD=実機通し確認
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
@@ -59,3 +60,4 @@
 - [iOS PWA in-scope 遷移は脱出不可・iframe PDF は1ページのみ](feedback_ios_pwa_inscope_doc_preview.md) — same-origin は target=_blank でも同一 WebView（overlay は out-of-scope のみ）、iframe 内 PDF は iOS で1ページ目だけ。戻る UI 付き文書プレビューはサーバーでページ画像化一択
 - [ship 後の残 DoD は本番未反映で実害化する](feedback_ship_dod_residual_check.md) — systemd / sudoers / env / VAPID key 等の本番手作業 DoD は worklog に書くだけで放置すると後で機能停止に直結（PR #127→Issue #131 で実害）。ship 完了時に消化手順併記+ユーザー口頭確認+可能なら auto-deploy 取り込み
 - [worktree cwd から長寿命プロセスを起動しない](feedback_no_longlived_process_from_worktree_cwd.md) — Docker Desktop 等を worktree 内 cwd で Start-Process すると cwd 継承でハンドル保持、worktree 削除が Device busy で失敗（PR #136 ship で実害）。起動前に cwd を worktree 外へ
+- [参照ゼロ確認→削除は FOR UPDATE で直列化](feedback_admin_delete_for_update_race.md) — 「子に参照が無いことを確認してから親を hard delete」は READ COMMITTED ではチェックとDELETEの間に参照挿入が割り込み履歴が静かに消える。親行を FOR UPDATE ロックしてから確認→削除（PR #147 R2 で実害指摘）

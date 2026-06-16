@@ -2418,3 +2418,16 @@
 - /ship: PR #146 merge (`c99b2ea`)、Issue なし（quickfix 直）、リモート+ローカルブランチ・worktree (`C:/tmp/fix-attachment-inapp-viewer`) 削除済
 - 学び: (1) iOS PWA の in-scope URL 遷移は脱出不可 → 戻る UI 付き文書プレビューは「サーバーでページ画像化 + 自前ヘッダ」一択（feedback memory 化）。(2) `gh pr merge --delete-branch` を worktree cwd から実行すると main checkout 衝突で branch 削除が失敗する → main 側 cwd で実行する
 - 残 DoD: 本番 auto-deploy 反映後、iPhone 実機 PWA で .doc/PDF チップ → ページ画像ビューア表示 → ✕ で元画面復帰を確認（多摩 draft #29 の残 DoD と同一画面で消化可能）
+
+- 2026-06-16 /auto-review-loop PR #147: 4R, verdict=pass, effort=h→h→h→h, tokens=547086/500000, result=pass（R1 deleteMember role制限・R2 FOR UPDATE race・R3 updateMemberName role制限を順次修正→R4 で0指摘収束）
+
+## 2026-06-16 admin-member-create SHIPPED
+
+### 完了
+- 管理画面からの新規会員登録（手動追加）+ 誤登録リカバリ（名前編集/削除）を実装、PR #147 merge `27d6727`
+- 親 #140 + 子 #141-145 全クローズ。タスク1-5（createMember / フォーム UI / updateMemberName / deleteMember / E2E）をテストファーストで実装
+- Codex auto-review 4R で収束（R1 deleteMember role=member 限定 / R2 FOR UPDATE で参照チェック race 直列化 / R3 updateMemberName role 限定 / R4 pass）
+- DB スキーマ変更なし・migration なし。unit 全 pass + E2E 31 + 型/lint green、CI green
+
+### 残 DoD
+- 本番反映後にスマホ実機で「登録→本人 LINE ログイン→self-identify で自分を選択」の通し確認（auto-deploy で本番反映済みのはず、要確認）
