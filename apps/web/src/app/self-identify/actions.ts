@@ -6,6 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { auth, unstable_update } from '@/auth'
 import { db } from '@/lib/db'
+import { isUniqueViolation } from '@/lib/db-errors'
 import { users } from '@kagetra/shared/schema'
 
 const inputSchema = z.object({ userId: z.string().min(1) })
@@ -85,19 +86,4 @@ function isRedirectError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false
   const digest = (err as { digest?: unknown }).digest
   return typeof digest === 'string' && digest.includes('NEXT_REDIRECT')
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null) return false
-  const code = (err as { code?: unknown }).code
-  if (code === '23505') return true
-  const cause = (err as { cause?: unknown }).cause
-  if (
-    typeof cause === 'object' &&
-    cause !== null &&
-    (cause as { code?: unknown }).code === '23505'
-  ) {
-    return true
-  }
-  return false
 }
