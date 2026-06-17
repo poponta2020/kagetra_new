@@ -56,7 +56,7 @@ status: completed
 - **対応Issue:** #151
 
 ### タスク4: linkMailToEvent に leadText を通す＋バリデート
-- [ ] 完了
+- [x] 完了
 - **概要:** 手動紐付け配信の入口に `leadText` 引数を追加し、trim/長さ検証して broadcast に渡す。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — `linkMailToEvent(mailId, eventId, leadText?: string | null)`。

@@ -19,6 +19,7 @@ import {
   extractEventUnitsFormData,
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
+import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
   validateLinkableEvent,
@@ -1029,8 +1030,16 @@ export async function triggerExtractDraft(
 export async function linkMailToEvent(
   mailId: number,
   eventId: number,
+  leadText?: string | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await requireAdminSession()
+
+  // 冒頭メッセージ (任意)。trim 後空なら null、200 字超は紐付け前に弾く
+  // (紐付け・配信とも実行しない)。
+  const normalizedLeadText = leadText?.trim() || null
+  if (normalizedLeadText && normalizedLeadText.length > LEAD_TEXT_MAX_LENGTH) {
+    return { ok: false, error: '冒頭メッセージは200文字以内で入力してください' }
+  }
 
   let linkedMailMessageId: number | null = null
 
@@ -1128,6 +1137,7 @@ export async function linkMailToEvent(
           eventId,
           mailMessageId: messageId,
           isCorrection: false,
+          leadText: normalizedLeadText,
         })
       } catch (err) {
         console.error('[linkMailToEvent] broadcastMailToEvent failed', err)

@@ -1682,14 +1682,80 @@ describe('admin/mail-inbox actions', () => {
       const callArgs = (
         broadcastMailToEventMock.mock.calls[0] as unknown as [
           unknown,
-          { eventId: number; mailMessageId: number; isCorrection: boolean },
+          {
+            eventId: number
+            mailMessageId: number
+            isCorrection: boolean
+            leadText: string | null
+          },
         ]
       )
       expect(callArgs[1]).toEqual({
         eventId: event.id,
         mailMessageId: mail.id,
         isCorrection: false,
+        leadText: null,
       })
+    })
+
+    it('leadText を渡すと trim して broadcastMailToEvent に渡す', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: '冒頭メッセージ大会' })
+
+      afterMock.mockImplementationOnce((cb) => cb())
+      broadcastMailToEventMock.mockClear()
+
+      const result = await linkMailToEvent(mail.id, event.id, '  抽選結果が出ました！  ')
+      expect(result.ok).toBe(true)
+
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+      const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
+        unknown,
+        { leadText: string | null },
+      ]
+      // 前後空白は trim される。
+      expect(callArgs[1].leadText).toBe('抽選結果が出ました！')
+    })
+
+    it('201 文字以上の leadText はエラーを返し、紐付け・配信を行わない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: 'E' })
+
+      broadcastMailToEventMock.mockClear()
+
+      const result = await linkMailToEvent(mail.id, event.id, 'あ'.repeat(201))
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/200文字以内/)
+
+      // 紐付け・triage 更新・配信のいずれも起きない。
+      const after = await getMail(mail.id)
+      expect(after?.linkedEventId).toBeNull()
+      expect(after?.triageStatus).toBe('unprocessed')
+      expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+    })
+
+    it('空白のみの leadText は null 扱いで配信される (冒頭なし)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: 'E' })
+
+      afterMock.mockImplementationOnce((cb) => cb())
+      broadcastMailToEventMock.mockClear()
+
+      const result = await linkMailToEvent(mail.id, event.id, '   ')
+      expect(result.ok).toBe(true)
+
+      const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
+        unknown,
+        { leadText: string | null },
+      ]
+      expect(callArgs[1].leadText).toBeNull()
     })
 
     // Codex r5 should-fix: UI 候補条件 (cancelled 除外 / 過去 30 日以内) を
