@@ -389,4 +389,112 @@ describe('broadcastMailToEvent', () => {
     })
     expect(row?.isCorrection).toBe(true)
   })
+
+  // --- 冒頭メッセージ (lead text, broadcast-lead-message) ---
+
+  it('saves leadText and counts it as sent_lead_count=1', async () => {
+    const fx = await buildLinkedFixture()
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      leadText: '組合せ（対戦表）が出ました！',
+    })
+    expect(result.status).toBe('sent')
+    expect(result.sentLeadCount).toBe(1)
+    // 本文画像 1 ページはそのまま配信される。
+    expect(result.sentImageCount).toBe(1)
+
+    const row = await db.query.eventBroadcastMessages.findFirst({
+      where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+    })
+    expect(row?.leadText).toBe('組合せ（対戦表）が出ました！')
+    expect(row?.sentLeadCount).toBe(1)
+  })
+
+  it('adds no lead message when leadText is empty or whitespace-only', async () => {
+    const fx = await buildLinkedFixture()
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      leadText: '   ',
+    })
+    expect(result.status).toBe('sent')
+    expect(result.sentLeadCount).toBe(0)
+    expect(result.sentImageCount).toBe(1)
+
+    const row = await db.query.eventBroadcastMessages.findFirst({
+      where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+    })
+    // trim 後空なので保存もしない (従来挙動を完全維持)。
+    expect(row?.leadText).toBeNull()
+    expect(row?.sentLeadCount).toBe(0)
+  })
+
+  it('prepends leadText and sends in lead → body image → attachment link order', async () => {
+    const fx = await buildLinkedFixture()
+    await addAttachment(fx.mailMessageId, 'shiori.pdf', 'application/pdf')
+
+    // 送信順を検証するため DRY_RUN を一時解除し、fetch ペイロードを捕捉する。
+    const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      const result = await broadcastMailToEvent(db, {
+        eventId: fx.eventId,
+        mailMessageId: fx.mailMessageId,
+        isCorrection: false,
+        leadText: '抽選結果が出ました！',
+      })
+      expect(result.status).toBe('sent')
+      expect(result.sentLeadCount).toBe(1)
+      expect(result.sentImageCount).toBe(1)
+      expect(result.fallbackLinkCount).toBe(1)
+      expect(result.sentTextCount).toBe(0)
+
+      const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages: Array<{ type: string; text?: string }>
+        }
+        return body.messages
+      })
+      expect(sentMessages).toHaveLength(3)
+      // 先頭は冒頭テキスト、続いて本文画像、最後に添付リンク。
+      expect(sentMessages[0]).toEqual({ type: 'text', text: '抽選結果が出ました！' })
+      expect(sentMessages[1]?.type).toBe('image')
+      expect(sentMessages[2]?.type).toBe('text')
+      expect(sentMessages[2]?.text).toContain('📎 shiori.pdf')
+    } finally {
+      fetchSpy.mockRestore()
+      if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
+    }
+  })
+
+  it('sends only the lead message when body and attachments are empty (no placeholder)', async () => {
+    const fx = await buildLinkedFixture()
+    // 件名・本文を空にし、本文画像も 0 ページ → text fallback も空配列 →
+    // body メッセージ 0 件。添付も無い。
+    await db
+      .update(mailMessages)
+      .set({ subject: '', bodyText: '' })
+      .where(eq(mailMessages.id, fx.mailMessageId))
+    renderBodyImageMock.mockResolvedValueOnce({ pages: [], truncated: false })
+
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      leadText: 'タイムテーブル・進行のご案内',
+    })
+    expect(result.status).toBe('sent')
+    expect(result.sentLeadCount).toBe(1)
+    // lead が messages を非空にするので '(本文・添付ともになし)' プレース
+    // ホルダ (body_text) は出ない。本文・画像・添付はいずれも 0。
+    expect(result.sentTextCount).toBe(0)
+    expect(result.sentImageCount).toBe(0)
+    expect(result.fallbackLinkCount).toBe(0)
+  })
 })

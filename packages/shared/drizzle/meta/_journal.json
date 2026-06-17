@@ -176,6 +176,13 @@
       "when": 1780773748148,
       "tag": "0024_tournament_drafts_event_id_index",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781702201439,
+      "tag": "0025_broadcast_lead_message",
+      "breakpoints": true
     }
   ]
 }

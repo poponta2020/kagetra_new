@@ -357,12 +357,14 @@ export async function manualBroadcast(
 ): Promise<void> {
   await requireAdminSession()
 
-  // Look up the existing audit row (if any) to inherit the correction flag.
-  // Manual rebroadcast should preserve whether the underlying mail was a
-  // correction so the 【訂正】 prefix stays consistent across retries.
+  // Look up the existing audit row (if any) to inherit the correction flag
+  // and the saved lead heading. Manual rebroadcast should preserve whether
+  // the underlying mail was a correction (so the 【訂正】 prefix stays
+  // consistent) and re-send the original 冒頭メッセージ verbatim.
   const existing = await db
     .select({
       isCorrection: eventBroadcastMessages.isCorrection,
+      leadText: eventBroadcastMessages.leadText,
     })
     .from(eventBroadcastMessages)
     .innerJoin(
@@ -381,6 +383,8 @@ export async function manualBroadcast(
     eventId,
     mailMessageId,
     isCorrection: existing[0]?.isCorrection ?? false,
+    // 保存済み冒頭メッセージを継承して再送する (isCorrection 継承と同じパターン)。
+    leadText: existing[0]?.leadText ?? null,
     // r-final-3 should_fix: manualBroadcast は UI からの「再配信」操作な
     // ので、status='sent' でも skip せず強制送信する。自動配信ループ
     // (approveDraft / linkDraftToEvent) では force を立てないため、
