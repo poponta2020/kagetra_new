@@ -2431,3 +2431,23 @@
 
 ### 残 DoD
 - 本番反映後にスマホ実機で「登録→本人 LINE ログイン→self-identify で自分を選択」の通し確認（auto-deploy で本番反映済みのはず、要確認）
+
+- 2026-06-17 /auto-review-loop PR #155: 1R, verdict=pass, effort=high, tokens=69268/500000, result=pass（即 pass・指摘ゼロ。LINE一斉配信+DBスキーマの高リスク2領域を high で確認）
+
+## 2026-06-17 broadcast-lead-message SHIPPED
+
+### 完了
+- 既存大会へメールを紐付けて LINE 配信する際、冒頭の見出しテキスト（例「抽選結果が出ました！」）を任意で先頭1通付けられるようにした。PR #155 merge `4ff8d8f`
+- 親 #148 + 子 #149-154（schema/presets/broadcast中核/linkMailToEvent/manualBroadcast/UI）全クローズ
+- migration 0025 で `event_broadcast_messages` に `lead_text`(text/null)・`sent_lead_count`(int default 0) 追加（既存行 NULL/0 で後方互換）。プリセット定数 + 200字上限。broadcastMailToEvent は lead を先頭固定（lead→body→attachment）、空はスキップで既存挙動維持。linkMailToEvent 第3引数 leadText（trim/200字 validate）、manualBroadcast は保存済 lead_text を継承再送。UI は ExistingEventLinkSheet に「冒頭メッセージ（任意）」欄
+- Codex auto-review-loop: **1R で即 pass**（effort=high、blockers/should_fix/nits 全 0、tokens=69,268）。CI Lint/Typecheck/Test pass (4m40s) → auto-ship
+- web vitest 541 passed・shared 4 passed・型/lint green
+
+### ship 時の対応メモ
+- `gh pr merge --delete-branch` がローカルブランチ削除で失敗（worktree がブランチ使用中）→ worktree 登録解除後にリモート/ローカルブランチを個別削除
+- local main の ff-merge が main 作業ディレクトリの未追跡 docs 2ファイルと衝突 → うち implementation-plan.md はマージ版が `[x]` 完了済の正版・ローカル版が古い未チェック版だったため未追跡コピーを削除して ff-merge で正版復元
+- 孤児化した worktree ディレクトリ `C:/tmp/impl-broadcast-lead-message` は物理削除が「Directory not empty」で失敗（登録は解除済）→ 別途掃除
+
+### 残 DoD
+- 本番 migration 0025 適用（auto-deploy が SHARED 変更を拾う想定、要確認）
+- iPhone 実機 LINE 目視（冒頭→本文画像→添付リンクの順・再配信での冒頭継承）
