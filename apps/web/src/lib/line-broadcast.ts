@@ -76,6 +76,7 @@ const NOOP_LOGGER = { info: () => undefined, warn: () => undefined }
 export interface BroadcastResult {
   status: 'sent' | 'partial' | 'failed' | 'skipped'
   reason?: string
+  sentLeadCount: number
   sentTextCount: number
   sentImageCount: number
   fallbackLinkCount: number
@@ -449,6 +450,14 @@ export async function broadcastMailToEvent(
     mailMessageId: number
     isCorrection: boolean
     /**
+     * 任意の冒頭見出しテキスト (broadcast-lead-message)。手動の
+     * linkMailToEvent / manualBroadcast 経由でのみ渡る。trim 後非空なら
+     * LINE メッセージ列の先頭に text 1 通として差し込み、監査行 (lead_text)
+     * に保存する。AI 下書き自動配信・訂正下書き紐付けでは undefined/null で
+     * 挙動不変。空・空白のみは null 扱い (付けない)。
+     */
+    leadText?: string | null
+    /**
      * 強制再送フラグ。manualBroadcast (UI からの再配信操作) で true を
      * 渡すと、status='sent' な mail でも skip せず再送する。
      * approveDraft / linkDraftToEvent / 自動配信トリガーでは false の
@@ -470,11 +479,16 @@ export async function broadcastMailToEvent(
   }
   const logger = options.logger ?? NOOP_LOGGER
 
+  // 冒頭見出しテキスト (任意)。trim 後空なら null = 保存も配信もしない。
+  // 差し込むのは手動の linkMailToEvent / manualBroadcast 経由のみ。
+  const leadText = args.leadText?.trim() || null
+
   const binding = await loadActiveBinding(db, args.eventId)
   if (!binding) {
     return {
       status: 'skipped',
       reason: 'no_active_binding',
+      sentLeadCount: 0,
       sentTextCount: 0,
       sentImageCount: 0,
       fallbackLinkCount: 0,
@@ -489,6 +503,7 @@ export async function broadcastMailToEvent(
     return {
       status: 'failed',
       reason: 'mail_not_found',
+      sentLeadCount: 0,
       sentTextCount: 0,
       sentImageCount: 0,
       fallbackLinkCount: 0,
@@ -527,6 +542,7 @@ export async function broadcastMailToEvent(
   //   - fallbackLinkCount: 添付の URL リンク (role='attachment_link')
   const existingAudit = await db
     .select({
+      sentLeadCount: eventBroadcastMessages.sentLeadCount,
       sentTextCount: eventBroadcastMessages.sentTextCount,
       sentImageCount: eventBroadcastMessages.sentImageCount,
       fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
@@ -554,6 +570,7 @@ export async function broadcastMailToEvent(
     return {
       status: 'skipped',
       reason: 'already_sent',
+      sentLeadCount: existingAudit[0].sentLeadCount,
       sentTextCount: existingAudit[0].sentTextCount,
       sentImageCount: existingAudit[0].sentImageCount,
       fallbackLinkCount: existingAudit[0].fallbackLinkCount,
@@ -581,6 +598,7 @@ export async function broadcastMailToEvent(
       return {
         status: 'skipped',
         reason: 'already_in_progress',
+        sentLeadCount: existingAudit[0].sentLeadCount,
         sentTextCount: existingAudit[0].sentTextCount,
         sentImageCount: existingAudit[0].sentImageCount,
         fallbackLinkCount: existingAudit[0].fallbackLinkCount,
@@ -603,7 +621,8 @@ export async function broadcastMailToEvent(
   // でも sent*Count があれば skip prefix として使う。さもないと次の自動
   // 配信が先頭から再送して LINE に重複配信になる。
   const deliveredCount = existingAudit[0]
-    ? existingAudit[0].sentTextCount +
+    ? existingAudit[0].sentLeadCount +
+      existingAudit[0].sentTextCount +
       existingAudit[0].sentImageCount +
       existingAudit[0].fallbackLinkCount
     : 0
@@ -622,6 +641,7 @@ export async function broadcastMailToEvent(
       mailMessageId: args.mailMessageId,
       status: 'sending',
       isCorrection: args.isCorrection,
+      leadText,
     })
     .onConflictDoUpdate({
       target: [
@@ -631,6 +651,7 @@ export async function broadcastMailToEvent(
       set: {
         status: 'sending',
         isCorrection: args.isCorrection,
+        leadText,
         errorMessage: null,
         updatedAt: sql`now()`,
       },
@@ -660,6 +681,7 @@ export async function broadcastMailToEvent(
     return {
       status: 'skipped',
       reason: 'already_in_progress',
+      sentLeadCount: existingAudit[0]?.sentLeadCount ?? 0,
       sentTextCount: existingAudit[0]?.sentTextCount ?? 0,
       sentImageCount: existingAudit[0]?.sentImageCount ?? 0,
       fallbackLinkCount: existingAudit[0]?.fallbackLinkCount ?? 0,
@@ -681,9 +703,16 @@ export async function broadcastMailToEvent(
     //
     // roles は実際の送信順 metadata。partial 再送時に deliveredCount 分だけ
     // role 別カウントを正しく残すために message と並走させる (rr1 review)。
-    type MessageRole = 'body_image' | 'body_text' | 'attachment_link'
+    type MessageRole = 'lead_text' | 'body_image' | 'body_text' | 'attachment_link'
     const messages: LineMessage[] = []
     const roles: MessageRole[] = []
+
+    // 冒頭見出し (任意) を最優先で先頭に積む。ビルド順を lead → body →
+    // attachment に固定するため body/attachment 構築より前で push する。
+    if (leadText) {
+      messages.push({ type: 'text', text: leadText })
+      roles.push('lead_text')
+    }
 
     let bodyImageMessages: LineMessage[] = []
     try {
@@ -766,6 +795,7 @@ export async function broadcastMailToEvent(
     // 別物なので partial スキップを諦めて全件再送に切り替える。
     let effectivePreviouslyDelivered = previouslyDelivered
     if (previouslyDelivered > 0 && existingAudit[0]) {
+      const currentLeadCount = roles.filter((r) => r === 'lead_text').length
       const currentTextCount = roles.filter((r) => r === 'body_text').length
       const currentImageCount = roles.filter(
         (r) => r === 'body_image',
@@ -774,6 +804,7 @@ export async function broadcastMailToEvent(
         (r) => r === 'attachment_link',
       ).length
       const layoutShrunk =
+        existingAudit[0].sentLeadCount > currentLeadCount ||
         existingAudit[0].sentTextCount > currentTextCount ||
         existingAudit[0].sentImageCount > currentImageCount ||
         existingAudit[0].fallbackLinkCount > currentLinkCount
@@ -781,6 +812,8 @@ export async function broadcastMailToEvent(
         logger.warn('partial layout shrunk between sends; falling back to full re-send', {
           eventId: args.eventId,
           mailMessageId: args.mailMessageId,
+          previousLead: existingAudit[0].sentLeadCount,
+          currentLead: currentLeadCount,
           previousText: existingAudit[0].sentTextCount,
           currentText: currentTextCount,
           previousImage: existingAudit[0].sentImageCount,
@@ -827,6 +860,7 @@ export async function broadcastMailToEvent(
       return {
         status: 'skipped',
         reason: 'binding_changed',
+        sentLeadCount: 0,
         sentTextCount: 0,
         sentImageCount: 0,
         fallbackLinkCount: 0,
@@ -864,11 +898,15 @@ export async function broadcastMailToEvent(
 
     // 実際の送信順 (`roles`) に沿って累計 deliveredCount 件を数える。
     // image / fallback link が交互に並んでも正しいカウント (rr1 review)。
+    let deliveredLead = 0
     let deliveredText = 0
     let deliveredImage = 0
     let deliveredFallback = 0
     for (let i = 0; i < totalDelivered && i < roles.length; i++) {
       switch (roles[i]) {
+        case 'lead_text':
+          deliveredLead++
+          break
         case 'body_text':
           deliveredText++
           break
@@ -885,6 +923,7 @@ export async function broadcastMailToEvent(
       .update(eventBroadcastMessages)
       .set({
         status: finalStatus,
+        sentLeadCount: deliveredLead,
         sentTextCount: deliveredText,
         sentImageCount: deliveredImage,
         fallbackLinkCount: deliveredFallback,
@@ -1033,6 +1072,7 @@ export async function broadcastMailToEvent(
     return {
       status: finalStatus,
       reason: pushResult.error?.message,
+      sentLeadCount: deliveredLead,
       sentTextCount: deliveredText,
       sentImageCount: deliveredImage,
       fallbackLinkCount: deliveredFallback,
@@ -1062,6 +1102,7 @@ export async function broadcastMailToEvent(
     return {
       status: 'failed',
       reason: errorMessage,
+      sentLeadCount: existingAudit[0]?.sentLeadCount ?? 0,
       sentTextCount: existingAudit[0]?.sentTextCount ?? 0,
       sentImageCount: existingAudit[0]?.sentImageCount ?? 0,
       fallbackLinkCount: existingAudit[0]?.fallbackLinkCount ?? 0,

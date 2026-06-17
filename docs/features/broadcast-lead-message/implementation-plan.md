@@ -33,7 +33,7 @@ status: completed
 - **対応Issue:** #150
 
 ### タスク3: broadcastMailToEvent に冒頭テキスト対応（バックエンド中核）
-- [ ] 完了
+- [x] 完了
 - **概要:** 配信オーケストレーションに `leadText` を導入。先頭に text メッセージを 1 通追加し、保存・role別カウント・partial 再送 skip を lead 対応にする。
 - **変更対象ファイル:**
   - `apps/web/src/lib/line-broadcast.ts`
