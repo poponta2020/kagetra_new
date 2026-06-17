@@ -71,7 +71,7 @@ status: completed
 - **対応Issue:** #152
 
 ### タスク5: manualBroadcast で leadText を継承
-- [ ] 完了
+- [x] 完了
 - **概要:** イベント画面からの再配信で、保存済み `lead_text` を監査行から継承して再送する（isCorrection 継承と同じ）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/actions.ts` — `manualBroadcast` の既存監査行 SELECT に `leadText` を追加し、
