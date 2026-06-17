@@ -22,6 +22,6 @@ metadata:
 - 検証: web vitest 541 passed(1 skip)・shared 4 passed・型 green・lint green。Issue #149-154 は commit Fixes で main マージ時に close（確認済）
 - Codex auto-review-loop: **1R で即 pass**（effort=high、blockers/should_fix/nits 全 0、tokens=69,268）。LINE一斉配信+DBスキーマの高リスク2領域を high で見て指摘ゼロ
 - 非自明: BroadcastResult/早期return 全てに sentLeadCount 追加・lead は body/attachment 構築前に push して順序固定・空本文+lead は splitForLine('')=[] でプレースホルダ抑制・events/[id]/actions.test の closeTestDb は describe 間二重 end 回避でトップレベル afterAll 化
-- **残 DoD**=本番 migration 0025 適用（auto-deploy が SHARED 変更を拾う想定、要確認）+ iPhone 実機 LINE 目視（冒頭→本文画像→添付リンクの順・再配信での冒頭継承）
+- **DoD 完了（2026-06-17）**: 本番 migration 0025 適用済（auto-deploy が PR #156 と同時マージで #156 run 側に集約され `APPLY: 0025_broadcast_lead_message` → SUCCESS、web healthcheck 307）。iPhone 実機 LINE 目視もユーザー確認済。**=> 機能完全完了、残作業なし**
 
 関連: LINE配信系の [[impl_event_line_broadcast_task1]] / [[impl_mail_body_as_image]]、抽選日まわりの entry-notify-lottery-treasurer

@@ -2448,6 +2448,7 @@
 - local main の ff-merge が main 作業ディレクトリの未追跡 docs 2ファイルと衝突 → うち implementation-plan.md はマージ版が `[x]` 完了済の正版・ローカル版が古い未チェック版だったため未追跡コピーを削除して ff-merge で正版復元
 - 孤児化した worktree ディレクトリ `C:/tmp/impl-broadcast-lead-message` は物理削除が「Directory not empty」で失敗（登録は解除済）→ 別途掃除
 
-### 残 DoD
-- 本番 migration 0025 適用（auto-deploy が SHARED 変更を拾う想定、要確認）
-- iPhone 実機 LINE 目視（冒頭→本文画像→添付リンクの順・再配信での冒頭継承）
+### 残 DoD → 完了 (2026-06-17)
+- 本番 migration 0025 **適用済**: PR #156 (mail-body-line-height) と 14 秒差で同時マージされ、deploy concurrency により先行した #156 run が origin/main 最新（`4ff8d8f`＝#155 マージ commit、0025 含む）を checkout → `APPLY: 0025_broadcast_lead_message` → migrations applied → web healthcheck 307 → DEPLOY_RESULT=SUCCESS。#155 自身の deploy run は NOOP（既に up to date）。手動適用不要
+- iPhone 実機 LINE 目視: ユーザー確認済
+- **=> broadcast-lead-message 機能 完全完了、残作業なし**
