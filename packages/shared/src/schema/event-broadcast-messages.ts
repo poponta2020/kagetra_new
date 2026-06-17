@@ -15,9 +15,11 @@ import { mailMessages } from './mail-messages'
  * binding is fine — if the event itself is gone, the per-mail audit goes
  * with it.
  *
- * The counters (`sent_text_count`, `sent_image_count`, `fallback_link_count`)
- * record what actually went out so a `partial` row can be triaged without
- * replaying the original mail.
+ * The counters (`sent_lead_count`, `sent_text_count`, `sent_image_count`,
+ * `fallback_link_count`) record what actually went out so a `partial` row can
+ * be triaged without replaying the original mail. `lead_text` stores the
+ * optional heading prepended to a manual existing-event link so a re-broadcast
+ * can resend it verbatim.
  */
 export const eventBroadcastMessages = pgTable(
   'event_broadcast_messages',
@@ -31,6 +33,10 @@ export const eventBroadcastMessages = pgTable(
       .references(() => mailMessages.id, { onDelete: 'restrict' }),
     status: eventBroadcastMessageStatusEnum('status').notNull().default('pending'),
     isCorrection: boolean('is_correction').notNull().default(false),
+    // Optional heading prepended to a manual existing-event link broadcast
+    // (lead → body → attachment). Saved so manualBroadcast can resend it.
+    leadText: text('lead_text'),
+    sentLeadCount: integer('sent_lead_count').notNull().default(0),
     sentTextCount: integer('sent_text_count').notNull().default(0),
     sentImageCount: integer('sent_image_count').notNull().default(0),
     // Attachments that fell back to a signed-URL link (libreoffice/pdfjs
