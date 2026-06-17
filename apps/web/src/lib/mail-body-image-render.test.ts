@@ -19,7 +19,7 @@ describe('buildBodyImageHtml', () => {
         <meta charset="UTF-8">
         <style>
           @page { size: A4 portrait; margin: 25mm 20mm; }
-          body { font-family: 'Noto Sans CJK JP', sans-serif; font-size: 11pt; line-height: 1.7; color: #000; }
+          body { font-family: 'Noto Sans CJK JP', sans-serif; font-size: 11pt; line-height: 1.3; color: #000; }
           h1 { font-size: 14pt; font-weight: bold; margin: 0 0 1em 0; border-bottom: 1px solid #888; padding-bottom: 0.5em; }
           pre { font-family: 'Noto Sans CJK JP', sans-serif; white-space: pre-wrap; word-break: break-word; margin: 0; }
         </style>
