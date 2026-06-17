@@ -23,7 +23,7 @@ status: completed
 - **対応Issue:** #149
 
 ### タスク2: プリセット定数ファイル
-- [ ] 完了
+- [x] 完了
 - **概要:** 冒頭テキストのプリセットと最大長を定数化（コード固定）。client/server 双方から import 可能にする。
 - **変更対象ファイル:**
   - `apps/web/src/lib/broadcast-lead-presets.ts`（新規）— `export const BROADCAST_LEAD_PRESETS = [...] as const`
