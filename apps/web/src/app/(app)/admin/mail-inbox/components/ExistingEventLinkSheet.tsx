@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Btn, Card } from '@/components/ui'
 import { linkMailToEvent } from '../actions'
+import { BROADCAST_LEAD_PRESETS, LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 
 /**
  * mail-inbox-mailer タスク4: 既存イベント結びつけ用のボトムシート。
@@ -38,6 +39,7 @@ export function ExistingEventLinkSheet({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [leadText, setLeadText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const router = useRouter()
@@ -48,6 +50,7 @@ export function ExistingEventLinkSheet({
       setQuery('')
       setSelectedId(null)
       setError(null)
+      setLeadText('')
     }
   }, [open])
 
@@ -62,7 +65,7 @@ export function ExistingEventLinkSheet({
     const eventId = selectedId
     setError(null)
     startTransition(async () => {
-      const result = await linkMailToEvent(mailId, eventId)
+      const result = await linkMailToEvent(mailId, eventId, leadText.trim() || null)
       if (!result.ok) {
         setError(result.error)
         return
@@ -145,6 +148,36 @@ export function ExistingEventLinkSheet({
                   )
                 })
               )}
+            </div>
+
+            {/* 冒頭メッセージ（任意）: LINE 配信の先頭に付ける見出し。
+                プリセットチップはタップで textarea に流し込む（上書き）。 */}
+            <div className="mt-3 flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-ink">
+                冒頭メッセージ（任意）
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {BROADCAST_LEAD_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setLeadText(preset)}
+                    disabled={pending}
+                    className="rounded-full border border-border-soft bg-surface px-2 py-0.5 text-xs text-ink-meta hover:bg-brand-bg hover:text-ink disabled:opacity-50"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={leadText}
+                onChange={(e) => setLeadText(e.target.value)}
+                maxLength={LEAD_TEXT_MAX_LENGTH}
+                rows={2}
+                placeholder="例: 抽選結果が出ました！"
+                disabled={pending}
+                className="rounded border border-border-soft bg-surface px-2 py-1.5 text-sm text-ink placeholder:text-ink-meta"
+              />
             </div>
 
             {error && (

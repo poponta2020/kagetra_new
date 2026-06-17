@@ -84,7 +84,7 @@ status: completed
 - **対応Issue:** #153
 
 ### タスク6: ExistingEventLinkSheet に冒頭メッセージ欄
-- [ ] 完了
+- [x] 完了
 - **概要:** 紐付けシートに「冒頭メッセージ（任意）」UI（プリセットチップ＋編集可能欄）を追加し、leadText を action に渡す。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/mail-inbox/components/ExistingEventLinkSheet.tsx` —
