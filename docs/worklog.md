@@ -2452,3 +2452,18 @@
 - 本番 migration 0025 **適用済**: PR #156 (mail-body-line-height) と 14 秒差で同時マージされ、deploy concurrency により先行した #156 run が origin/main 最新（`4ff8d8f`＝#155 マージ commit、0025 含む）を checkout → `APPLY: 0025_broadcast_lead_message` → migrations applied → web healthcheck 307 → DEPLOY_RESULT=SUCCESS。#155 自身の deploy run は NOOP（既に up to date）。手動適用不要
 - iPhone 実機 LINE 目視: ユーザー確認済
 - **=> broadcast-lead-message 機能 完全完了、残作業なし**
+
+## 2026-06-17 mail-body-line-height SHIPPED
+
+### 完了
+- メール本文画像（A4縦JPEG, LINE配信）の `line-height` を 1.7→1.3 に詰めて可読性改善。PR #156 merge `4fc7732`（commit `4eb909f`、#155 の約14秒前にマージ）
+- `apps/web/src/lib/mail-body-image-render.ts` の `<style>`（実レンダリング）と `.test.ts` のインラインスナップショットを同値更新（HTML全文比較スナップショットのため両方必須）
+- Codex auto-review-loop: **1R で即 pass**（effort=medium、blockers/should_fix/nits 全 0、tokens=30,564）。CI Lint/Typecheck/Test pass (4m8s) → auto-ship
+- 本番デプロイ: #156 run が **DEPLOY_RESULT=SUCCESS**（上記 broadcast §残DoD 参照。`4ff8d8f` checkout で行間変更＋migration 0025 を同時反映済）
+
+### ship 時メモ
+- worktree cwd から `gh pr merge --delete-branch` を実行 → remote マージは成立するがローカル後処理が "main is already used by worktree" で exit 1、リモートブランチ削除も不発 → state 確認後に remote/worktree/local ブランチを手動削除。教訓を memory [[feedback_gh_pr_merge_from_worktree]] に記録
+- worklog/memory 同期は並行 #155 ship との push 競合回避のため一旦保留 → #155 完了後に本追記（私の feedback memory は #155 の memory 同期が共有ローカルメモリ経由で既に取り込み済、diff ゼロ）
+
+### 残 DoD
+- 実機 LINE で本文画像の行間が詰まり読みやすくなったか目視確認（本番反映済のため確認のみ・軽微）
