@@ -6,8 +6,11 @@ import {
   mailAttachments,
   mailMessages,
   mailWorkerJobs,
+  matches,
+  players,
   resultDrafts,
   tournamentDrafts,
+  tournaments,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
@@ -110,6 +113,8 @@ const {
   linkMailToEvent,
   unlinkMailFromEvent,
   triggerResultParse,
+  approveResultDraft,
+  rejectResultDraft,
 } = await import('./actions')
 
 function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
@@ -1924,18 +1929,79 @@ describe('admin/mail-inbox actions', () => {
   return att
 }
 
-async function createResultDraft(mailId: number, status: 'pending_review' | 'parse_failed' | 'approved' | 'rejected' = 'pending_review') {
+async function createResultDraft(
+  mailId: number,
+  status: 'pending_review' | 'parse_failed' | 'approved' | 'rejected' = 'pending_review',
+  extractedPayload: Record<string, unknown> = {},
+) {
   const [draft] = await testDb
     .insert(resultDrafts)
     .values({
       messageId: mailId,
       status,
       parserVersion: '1.0.0',
-      extractedPayload: {},
+      extractedPayload,
     })
     .returning()
   if (!draft) throw new Error('Failed to insert test result draft')
   return draft
+}
+
+// A minimal valid ParsedResultPayload for approve tests: one class, two players
+// who play each other (so opponent resolution runs).
+function buildResultPayload(): Record<string, unknown> {
+  return {
+    parserVersion: '1.0.0',
+    classes: [
+      {
+        className: 'D1級',
+        grade: 'D',
+        sheetName: '対戦結果表_D1級',
+        participants: [
+          {
+            seqNo: 1,
+            name: '田中太郎',
+            nameKana: null,
+            affiliation: '札幌',
+            prefecture: null,
+            dan: null,
+            memberNo: null,
+            finalRank: '優勝',
+            matches: [
+              {
+                round: 1,
+                roundLabel: '1回戦',
+                opponentName: '佐藤花子',
+                scoreDiff: 5,
+                result: 'win',
+                status: 'normal',
+              },
+            ],
+          },
+          {
+            seqNo: 2,
+            name: '佐藤花子',
+            nameKana: null,
+            affiliation: '東京',
+            prefecture: null,
+            dan: null,
+            memberNo: null,
+            finalRank: '準優勝',
+            matches: [
+              {
+                round: 1,
+                roundLabel: '1回戦',
+                opponentName: '田中太郎',
+                scoreDiff: 5,
+                result: 'lose',
+                status: 'normal',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
 }
 
 describe('triggerResultParse', () => {
@@ -2059,6 +2125,198 @@ describe('triggerResultParse', () => {
     const member = await createUser()
     await setAuthSession({ id: member.id, role: 'member' })
     await expect(triggerResultParse(mail.id, att.id)).rejects.toThrow('Forbidden')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────
+// approveResultDraft / rejectResultDraft — tournament-results Task4
+// ───────────────────────────────────────────────────────────────────────
+
+describe('approveResultDraft', () => {
+  it('pending_review を承認して大会を確定保存し、メールを processed にする', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+    const draft = await createResultDraft(mail.id, 'pending_review', buildResultPayload())
+
+    const fd = new FormData()
+    fd.set('tournamentName', '第5回テスト大会')
+    fd.set('eventDate', '2026-05-01')
+    fd.set('venue', '札幌市民会館')
+
+    const result = await approveResultDraft(draft.id, fd)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // tournament row created
+    const t = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, result.tournamentId),
+    })
+    expect(t?.name).toBe('第5回テスト大会')
+
+    // draft → approved with tournamentId
+    const updated = await testDb.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, draft.id),
+    })
+    expect(updated?.status).toBe('approved')
+    expect(updated?.tournamentId).toBe(result.tournamentId)
+    expect(updated?.approvedByUserId).toBe(admin.id)
+
+    // mail → processed
+    const m = await testDb.query.mailMessages.findFirst({
+      where: eq(mailMessages.id, mail.id),
+    })
+    expect(m?.triageStatus).toBe('processed')
+
+    // players + matches materialized
+    const playerRows = await testDb.select().from(players)
+    expect(playerRows).toHaveLength(2)
+    const matchRows = await testDb.select().from(matches)
+    expect(matchRows).toHaveLength(2)
+  })
+
+  it('大会名が空だとエラー', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review', buildResultPayload())
+
+    const fd = new FormData()
+    fd.set('tournamentName', '   ')
+
+    const result = await approveResultDraft(draft.id, fd)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/大会名/)
+
+    // No tournament created
+    const ts = await testDb.select().from(tournaments)
+    expect(ts).toHaveLength(0)
+  })
+
+  it('eventDate/venue は空なら null で保存される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review', buildResultPayload())
+
+    const fd = new FormData()
+    fd.set('tournamentName', '日付なし大会')
+    fd.set('eventDate', '')
+    fd.set('venue', '')
+
+    const result = await approveResultDraft(draft.id, fd)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const t = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, result.tournamentId),
+    })
+    expect(t?.eventDate).toBeNull()
+    expect(t?.venue).toBeNull()
+  })
+
+  it('pending_review でない draft は承認できない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'parse_failed', buildResultPayload())
+
+    const fd = new FormData()
+    fd.set('tournamentName', 'failした大会')
+
+    const result = await approveResultDraft(draft.id, fd)
+    expect(result.ok).toBe(false)
+  })
+
+  it('未認証 / member は呼べない', async () => {
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review', buildResultPayload())
+    const fd = new FormData()
+    fd.set('tournamentName', 'x')
+
+    await setAuthSession(null)
+    await expect(approveResultDraft(draft.id, fd)).rejects.toThrow('Unauthorized')
+
+    const member = await createUser()
+    await setAuthSession({ id: member.id, role: 'member' })
+    await expect(approveResultDraft(draft.id, fd)).rejects.toThrow('Forbidden')
+  })
+})
+
+describe('rejectResultDraft', () => {
+  it('pending_review を却下できる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review', buildResultPayload())
+
+    const result = await rejectResultDraft(draft.id, '誤った大会の結果のため')
+    expect(result.ok).toBe(true)
+
+    const updated = await testDb.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, draft.id),
+    })
+    expect(updated?.status).toBe('rejected')
+    expect(updated?.rejectionReason).toBe('誤った大会の結果のため')
+    expect(updated?.rejectedByUserId).toBe(admin.id)
+  })
+
+  it('parse_failed も却下できる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'parse_failed')
+
+    const result = await rejectResultDraft(draft.id, '読み取り不能')
+    expect(result.ok).toBe(true)
+
+    const updated = await testDb.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, draft.id),
+    })
+    expect(updated?.status).toBe('rejected')
+  })
+
+  it('理由が空だとエラー', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review')
+
+    const result = await rejectResultDraft(draft.id, '   ')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/却下理由/)
+  })
+
+  it('approved な draft は却下できない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'approved')
+
+    const result = await rejectResultDraft(draft.id, '却下したい')
+    expect(result.ok).toBe(false)
+  })
+
+  it('未認証 / member は呼べない', async () => {
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(mail.id, 'pending_review')
+
+    await setAuthSession(null)
+    await expect(rejectResultDraft(draft.id, 'x')).rejects.toThrow('Unauthorized')
+
+    const member = await createUser()
+    await setAuthSession({ id: member.id, role: 'member' })
+    await expect(rejectResultDraft(draft.id, 'x')).rejects.toThrow('Forbidden')
   })
 })
 })

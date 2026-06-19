@@ -15,6 +15,7 @@ import {
   resultDrafts,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
+import { materializeResultDraft } from '@/lib/result-import/materialize'
 import {
   eventFormSchema,
   extractEventFormData,
@@ -1381,5 +1382,117 @@ export async function triggerResultParse(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tournament-results Task4: レビュー承認/却下
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function approveResultDraft(
+  draftId: number,
+  formData: FormData,
+): Promise<{ ok: true; tournamentId: number } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  const tournamentName = (formData.get('tournamentName') as string | null)?.trim()
+  if (!tournamentName) return { ok: false, error: '大会名を入力してください' }
+
+  const eventDateRaw = ((formData.get('eventDate') as string | null) ?? '').trim() || null
+  const venue = ((formData.get('venue') as string | null) ?? '').trim() || null
+
+  try {
+    const draft = await db.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, draftId),
+    })
+    if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
+    if (draft.status !== 'pending_review') {
+      return { ok: false, error: `このドラフトは承認できない状態です (${draft.status})` }
+    }
+
+    const { ParsedResultPayloadSchema } = await import(
+      '@kagetra/mail-worker/result-import/schema'
+    )
+    const parsed = ParsedResultPayloadSchema.safeParse(draft.extractedPayload)
+    if (!parsed.success) {
+      return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const { tournamentId } = await materializeResultDraft(tx, parsed.data, {
+        tournamentName,
+        eventDate: eventDateRaw,
+        venue,
+        sourceResultDraftId: draftId,
+      })
+
+      await tx
+        .update(resultDrafts)
+        .set({
+          status: 'approved',
+          tournamentId,
+          approvedByUserId: session.user.id,
+          approvedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(resultDrafts.id, draftId))
+
+      await tx
+        .update(mailMessages)
+        .set({
+          triageStatus: 'processed',
+          triagedAt: sql`now()`,
+          triagedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(mailMessages.id, draft.messageId))
+
+      return { tournamentId }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${draft.messageId}`)
+    return { ok: true, tournamentId: result.tournamentId }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function rejectResultDraft(
+  draftId: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return { ok: false, error: '却下理由を入力してください' }
+
+  try {
+    const draft = await db.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, draftId),
+    })
+    if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
+    if (draft.status !== 'pending_review' && draft.status !== 'parse_failed') {
+      return { ok: false, error: `このドラフトは却下できない状態です (${draft.status})` }
+    }
+
+    await db
+      .update(resultDrafts)
+      .set({
+        status: 'rejected',
+        rejectedByUserId: session.user.id,
+        rejectedAt: sql`now()`,
+        rejectionReason: trimmedReason,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(resultDrafts.id, draftId))
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${draft.messageId}`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
