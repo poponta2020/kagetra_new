@@ -14,25 +14,44 @@ describe('BottomNav', () => {
     mockUsePathname.mockReturnValue('/dashboard')
   })
 
-  it('isAdmin=true のとき 5 タブすべてを表示する', () => {
+  it('isAdmin=true のとき 全タブ（共有 + 管理者）を表示する', () => {
     render(<BottomNav isAdmin />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
+    // tournament-results Task5: 戦績 は全ユーザー共有タブ。
+    expect(screen.getByText('戦績')).toBeTruthy()
     expect(screen.getByText('会員')).toBeTruthy()
     expect(screen.getByText('メール')).toBeTruthy()
+    expect(screen.getByText('Bot')).toBeTruthy()
   })
 
   // Regression: non-admins previously saw 会員 tab and were bounced to /403
   // by the admin-only page guard — breaking their bottom-nav UX. メール
   // (mail-inbox) follows the same admin-only convention.
-  it('isAdmin=false のとき 会員 / メール タブを表示しない', () => {
+  it('isAdmin=false のとき 共有タブ（戦績含む）のみ表示し 会員 / メール は出さない', () => {
     render(<BottomNav isAdmin={false} />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
+    // tournament-results Task5: 戦績 は会員でも見える初の専用タブ。
+    expect(screen.getByText('戦績')).toBeTruthy()
     expect(screen.queryByText('会員')).toBeNull()
     expect(screen.queryByText('メール')).toBeNull()
+  })
+
+  it('pathname=/players で 戦績 タブが active になる', () => {
+    mockUsePathname.mockReturnValue('/players')
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('戦績').closest('a')
+    expect(link?.className).toContain('border-brand')
+  })
+
+  it('pathname=/players/42 のような詳細パスでも 戦績 タブが active', () => {
+    mockUsePathname.mockReturnValue('/players/42')
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('戦績').closest('a')
+    expect(link?.className).toContain('border-brand')
   })
 
   it('pathname=/admin/mail-inbox で メール タブが active', () => {

@@ -74,7 +74,7 @@ status: completed
 - **対応Issue:** #161
 
 ### タスク5: 選手戦績ページ（会員向け）
-- [ ] 完了
+- [x] 完了
 - **概要:** 会員向け。選手名検索→players引当→全出場（大会/級/順位/各試合）表示。勝敗は status=normal 集計。
 - **詳細:**
   - 検索（`players.normalized_name`）→ `participant.player_id` で全出場 → 大会/級/順位/各試合（相手/枚数/勝敗）。
