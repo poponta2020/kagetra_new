@@ -28,6 +28,8 @@
 - [image-cache module instance 分離 fix](impl_fix_image_cache_module_instance.md) — PR #129 merge `57ceadc` (2026-06-07)、Issue #128 自動クローズ。PR #127 deploy 後に Next.js chunk splitting が再評価され Server Action 側と Route Handler 側で `image-cache.ts` が別 Map instance に分離 → LINE 本文画像 URL が全て 404 退行。`globalThis` pin で修正。残 DoD=本番反映後の実機目視+nginx ログ 200 OK 確認
 - [admin-member-create SHIPPED](impl_admin_member_create.md) — 管理画面からの新規会員手動追加＋誤登録リカバリ(名前編集/削除)。PR #147 merge `27d6727` (2026-06-16)、親#140+子#141-145 全クローズ。createMember は role=member/招待済/未紐付け強制で即 self-identify 候補化、updateMemberName/deleteMember は未紐付け+role=member 限定、削除は FOR UPDATE+FK 参照チェックで履歴保護。Codex 4R 収束。残 DoD=実機通し確認
 - [broadcast-lead-message SHIPPED](project_broadcast_lead_message.md) — 既存大会LINE配信に冒頭テキスト(見出し「抽選結果が出ました！」等)を任意で先頭追加。プリセット＋自由入力(コード固定)、linkMailToEvent のみ対象、event_broadcast_messages に lead_text/sent_lead_count 追加し manualBroadcast 再送で継承。PR #155 merge `4ff8d8f` (2026-06-17)、親#148+子#149-154 全クローズ、Codex 1R 即pass。本番 migration 0025 適用済(auto-deploy #156 run に集約)+実機 LINE 目視済=**完全完了**
+- [tournament-results 機能定義 完了](project_tournament_results_def.md) — 全国大会結果Excel取込→全選手勝敗をDB保存。実データ42件解析で標準ツール定型と判明→**ヘッダ署名駆動の決定的パーサで AI不要・$0**。旧contest_*踏襲＋選手マスタ。大会報告非取込・試合は選手視点2行・勝敗はstatus=normal導出。**要件/計画/Issue(#157,子#158-162)作成済・実装未着手（/implement待ち）**
+- [tournament-results 実装進捗](impl_tournament_results.md) — 5PR分割で実装中。**Task1(#158 schema+migration 0026)SHIPPED PR#163 `f3d2b4b`**(Codex 3R pass)、Task2-5未着手(次=Task2 #159 パーサ)。schema契約の非自明点(players UNIQUE=NULLS NOT DISTINCT/matches (participant_id,class_id) composite FKで級整合・opponentは不可/message_id UNIQUE=1メール1ドラフト§4.1/循環FKはraw ALTER/push は composite FK 取りこぼすが CI fresh は無問題/dan等text/result_parse dispatch=Task3)を記録
 
 ## Reference
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
@@ -64,3 +66,4 @@
 - [参照ゼロ確認→削除は FOR UPDATE で直列化](feedback_admin_delete_for_update_race.md) — 「子に参照が無いことを確認してから親を hard delete」は READ COMMITTED ではチェックとDELETEの間に参照挿入が割り込み履歴が静かに消える。親行を FOR UPDATE ロックしてから確認→削除（PR #147 R2 で実害指摘）
 - [/implement タスク進行は都度承認不要](feedback_implement_task_progression.md) — 承認済み plan のタスクは連続実装してよい。確認は計画外の設計分岐・破壊的変更・想定外時のみ（2026-06-17 明言）
 - [gh pr merge を worktree から実行するとローカル後処理が失敗](feedback_gh_pr_merge_from_worktree.md) — リモートのマージは成立するが "main is already used by worktree" で exit 1、--delete-branch も効かない。state 確認→手動で remote/worktree/local 削除（PR #156 で実害）
+- [要件定義は急がない・データファースト](feedback_dont_rush_requirements_data_first.md) — 結論/実装計画へ急がず実データを集めて見てから設計。AskUserQuestionで早期closeしない。サンプル収集中はIssue作成へ進まない（2026-06-18 tournament-results で明言）

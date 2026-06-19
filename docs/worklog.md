@@ -2467,3 +2467,25 @@
 
 ### 残 DoD
 - 実機 LINE で本文画像の行間が詰まり読みやすくなったか目視確認（本番反映済のため確認のみ・軽微）
+
+## 2026-06-20 tournament-results Task1 (shared schema + migration 0026) SHIPPED
+
+### 完了
+- tournament-results（全国大会結果取込）の DB 基盤 = 要件§8 の 5 PR 分割のうち Task1 (#158)。PR #163 merge `f3d2b4b`、#158 クローズ・親#157 チェック更新
+- 追加: 6 テーブル（players / tournaments / tournament_classes / tournament_participants / matches / result_drafts）＋ enum 3（result_draft_status / match_result / match_status）＋ `mail_worker_job_kind` に `result_parse`、relations、migration `0026_third_charles_xavier.sql`
+- 設計判断: players UNIQUE は **NULLS NOT DISTINCT**（所属 null 選手の get-or-create 重複防止）／循環 FK・自己 FK は plain integer + migration raw ALTER（tournament_drafts 踏襲）／participants は生スナップショット（dan/member_no/final_rank は text）／`MailWorkerJobKind` を enum 同期（result_parse の dispatch 配線は Task3）
+- Codex auto-review-loop: **3R で pass**（effort=high 固定、累計 184,067 tokens）
+  - R1 should_fix: `matches.class_id` が participant の所属級と不整合になり得る → `(participant_id, class_id)` composite FK ＋ `tournament_participants` に UNIQUE(id, class_id) を追加し「試合の級＝参加者の所属級」を DB 保証（opponent は SET NULL × NOT NULL の class_id で composite 不可 → materialize で同一級解決）。migration 0026 再生成
+  - R2 should_fix: ①matches.participant relation を composite 列集合に整合 ②message_id UNIQUE の粒度 → **ユーザー確認で §4.1（1 メール 1 ドラフト）維持**を選択し意図をコード comment に明記
+  - R3: pass（0/0/0）
+- CI Lint/Typecheck/Test pass (5m20s) → auto-ship
+- 検証: 型チェック 4/4・shared introspection 8・web DB-backed FK/cascade 8（composite FK 拒否含む）・migration 0000→0026 を fresh DB 適用し 4 制約着地確認
+- `/auto-review-loop PR #163: 3R, verdict=pass, effort=h→h→h, tokens=184067/500000, result=pass`
+
+### ship 時メモ
+- 既知の worktree 問題（[[feedback_gh_pr_merge_from_worktree]]）: `gh pr merge --delete-branch` は remote マージ成立も exit 1（"main is already used by worktree"）→ state=MERGED 確認後に remote/worktree/local を手動削除。local main は untracked な `docs/features/tournament-results/*.md`（define-feature 時の旧コピー）が ff を阻害 → 旧コピー削除後に ff（canonical は PR で main に取込済）
+- 局所トラブル: `drizzle-kit push`（test DB global-setup）が単独→composite FK の変更を取りこぼしローカル test DB が stale 化 → composite FK テストが落ちる → `kagetra_test` を drop+再作成で解決（**CI は毎回 fresh test DB なので無影響**）
+
+### 残 DoD
+- 本番 auto-deploy が migration 0026 を適用したことの確認（PR #163 merge で deploy 起動。新規テーブルのみ・既存無破壊）
+- 次タスク: Task2 (#159 Excel パーサ中核＋fixture テスト)
