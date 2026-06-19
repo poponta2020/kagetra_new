@@ -67,12 +67,26 @@ export async function materializeResultDraft(
       .returning({ id: tournamentClasses.id })
     const classId = tClass!.id
 
-    // Pass 1: Insert all participants for this class, collecting name→participantId.
-    const nameToParticipantId = new Map<string, number>()
+    // Pass 1: Insert all participants for this class.
+    //
+    // Each participant's id is tracked by ARRAY INDEX (participantIds[i]), NOT
+    // by name, so two same-name participants in one class don't clobber each
+    // other (Codex R1 blocker: a name-keyed map made a player's own matches
+    // attach to the last同名 participant). The name→ids[] map is kept ONLY for
+    // opponent resolution, where an ambiguous (>1) or unknown name resolves to
+    // null — opponent_name stays as the soft textual reference.
+    const participantIds: number[] = new Array(cls.participants.length)
+    const nameToIds = new Map<string, number[]>()
 
-    for (const p of cls.participants) {
+    for (let i = 0; i < cls.participants.length; i++) {
+      const p = cls.participants[i]!
       // Player get-or-create — normalized key: (normalized_name, affiliation).
       const normalizedName = normalizePlayerName(p.name)
+      // players is the grouping layer: the affiliation is normalized for BOTH
+      // the lookup and the stored value so they match the (normalized_name,
+      // affiliation) UNIQUE key (Codex R1 should_fix: looking up normalized but
+      // storing raw missed existing rows → UNIQUE violation). The raw
+      // affiliation is preserved on the participant snapshot below.
       const normalizedAffiliation = p.affiliation ? normalizePlayerName(p.affiliation) : null
 
       const existingRows = await tx
@@ -98,7 +112,8 @@ export async function materializeResultDraft(
             displayName: p.name,
             normalizedName,
             nameKana: p.nameKana,
-            affiliation: p.affiliation,
+            // store the normalized affiliation so it matches the lookup/UNIQUE key
+            affiliation: normalizedAffiliation,
             prefecture: p.prefecture,
           })
           .returning({ id: players.id })
@@ -113,6 +128,7 @@ export async function materializeResultDraft(
           seqNo: p.seqNo,
           name: p.name,
           nameKana: p.nameKana,
+          // raw affiliation snapshot stays on the participant (生データが常に正)
           affiliation: p.affiliation,
           prefecture: p.prefecture,
           dan: p.dan,
@@ -120,15 +136,26 @@ export async function materializeResultDraft(
           finalRank: p.finalRank,
         })
         .returning({ id: tournamentParticipants.id })
-      nameToParticipantId.set(p.name, participant!.id)
+      participantIds[i] = participant!.id
+      const ids = nameToIds.get(p.name)
+      if (ids) ids.push(participant!.id)
+      else nameToIds.set(p.name, [participant!.id])
     }
 
-    // Pass 2: Insert all matches, resolving opponents by name within this class.
-    for (const p of cls.participants) {
-      const participantId = nameToParticipantId.get(p.name)!
+    // Pass 2: Insert all matches. The participant's OWN id comes from the index
+    // (unambiguous); the opponent is resolved by name only when that name is
+    // unique within the class.
+    for (let i = 0; i < cls.participants.length; i++) {
+      const p = cls.participants[i]!
+      const participantId = participantIds[i]!
       for (const m of p.matches) {
-        const opponentParticipantId =
-          m.opponentName != null ? (nameToParticipantId.get(m.opponentName) ?? null) : null
+        let opponentParticipantId: number | null = null
+        if (m.opponentName != null) {
+          const ids = nameToIds.get(m.opponentName)
+          // Only resolve when exactly one participant carries that name;
+          // duplicates (>1) or unknown → null (ambiguity made explicit).
+          if (ids && ids.length === 1) opponentParticipantId = ids[0]!
+        }
 
         await tx.insert(matches).values({
           classId,

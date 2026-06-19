@@ -1401,58 +1401,82 @@ export async function approveResultDraft(
   const eventDateRaw = ((formData.get('eventDate') as string | null) ?? '').trim() || null
   const venue = ((formData.get('venue') as string | null) ?? '').trim() || null
 
+  const { ParsedResultPayloadSchema } = await import(
+    '@kagetra/mail-worker/result-import/schema'
+  )
+
   try {
-    const draft = await db.query.resultDrafts.findFirst({
-      where: eq(resultDrafts.id, draftId),
-    })
-    if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
-    if (draft.status !== 'pending_review') {
-      return { ok: false, error: `このドラフトは承認できない状態です (${draft.status})` }
-    }
+    // Fetch + status-check + state transition must be atomic. Two concurrent
+    // approvals could otherwise both read pending_review outside the tx and both
+    // materialize, duplicating tournaments/classes/participants/matches and
+    // orphaning the first tournament (Codex R1 blocker). We lock the draft row
+    // with FOR UPDATE and re-check status inside the tx, so only the first
+    // request claims it; the second sees the transitioned status and bails.
+    const result = await db.transaction(
+      async (
+        tx,
+      ): Promise<
+        | { ok: false; error: string }
+        | { ok: true; tournamentId: number; messageId: number }
+      > => {
+        const lockedRows = await tx
+          .select({
+            id: resultDrafts.id,
+            status: resultDrafts.status,
+            messageId: resultDrafts.messageId,
+            extractedPayload: resultDrafts.extractedPayload,
+          })
+          .from(resultDrafts)
+          .where(eq(resultDrafts.id, draftId))
+          .for('update')
+        const draft = lockedRows[0]
+        if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
+        if (draft.status !== 'pending_review') {
+          return { ok: false, error: `このドラフトは承認できない状態です (${draft.status})` }
+        }
 
-    const { ParsedResultPayloadSchema } = await import(
-      '@kagetra/mail-worker/result-import/schema'
+        const parsed = ParsedResultPayloadSchema.safeParse(draft.extractedPayload)
+        if (!parsed.success) {
+          return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
+        }
+
+        const { tournamentId } = await materializeResultDraft(tx, parsed.data, {
+          tournamentName,
+          eventDate: eventDateRaw,
+          venue,
+          sourceResultDraftId: draftId,
+        })
+
+        await tx
+          .update(resultDrafts)
+          .set({
+            status: 'approved',
+            tournamentId,
+            approvedByUserId: session.user.id,
+            approvedAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(resultDrafts.id, draftId))
+
+        await tx
+          .update(mailMessages)
+          .set({
+            triageStatus: 'processed',
+            triagedAt: sql`now()`,
+            triagedByUserId: session.user.id,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(mailMessages.id, draft.messageId))
+
+        return { ok: true, tournamentId, messageId: draft.messageId }
+      },
     )
-    const parsed = ParsedResultPayloadSchema.safeParse(draft.extractedPayload)
-    if (!parsed.success) {
-      return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
-    }
 
-    const result = await db.transaction(async (tx) => {
-      const { tournamentId } = await materializeResultDraft(tx, parsed.data, {
-        tournamentName,
-        eventDate: eventDateRaw,
-        venue,
-        sourceResultDraftId: draftId,
-      })
-
-      await tx
-        .update(resultDrafts)
-        .set({
-          status: 'approved',
-          tournamentId,
-          approvedByUserId: session.user.id,
-          approvedAt: sql`now()`,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(resultDrafts.id, draftId))
-
-      await tx
-        .update(mailMessages)
-        .set({
-          triageStatus: 'processed',
-          triagedAt: sql`now()`,
-          triagedByUserId: session.user.id,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(mailMessages.id, draft.messageId))
-
-      return { tournamentId }
-    })
+    if (!result.ok) return { ok: false, error: result.error }
 
     revalidatePath('/admin/mail-inbox')
     revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
-    revalidatePath(`/admin/mail-inbox/mail/${draft.messageId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${result.messageId}`)
     return { ok: true, tournamentId: result.tournamentId }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

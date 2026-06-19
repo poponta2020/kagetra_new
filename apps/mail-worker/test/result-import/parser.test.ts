@@ -124,7 +124,7 @@ describe('parseResultExcel — standard per-class sheet', () => {
   })
 
   it('player 1 has 2 wins (normal status)', () => {
-    const p1 = classes[0]?.participants.find((p) => p.name === 'テスト一郎')!
+    const p1 = classes[0]!.participants.find((p) => p.name === 'テスト一郎')!
     expect(p1).toBeDefined()
     expect(p1.matches).toHaveLength(2)
     expect(p1.matches.every((m) => m.result === 'win' && m.status === 'normal')).toBe(true)
@@ -132,14 +132,14 @@ describe('parseResultExcel — standard per-class sheet', () => {
   })
 
   it('player 2 has 1 win then 1 lose', () => {
-    const p2 = classes[0]?.participants.find((p) => p.name === 'テスト二郎')!
+    const p2 = classes[0]!.participants.find((p) => p.name === 'テスト二郎')!
     expect(p2.matches).toHaveLength(2)
     expect(p2.matches[0]?.result).toBe('win')
     expect(p2.matches[1]?.result).toBe('lose')
   })
 
   it('player 3: round 1 is walkover (不戦勝)', () => {
-    const p3 = classes[0]?.participants.find((p) => p.name === 'テスト三郎')!
+    const p3 = classes[0]!.participants.find((p) => p.name === 'テスト三郎')!
     expect(p3.matches).toHaveLength(2)
     const m1 = p3.matches[0]!
     expect(m1.status).toBe('walkover')
@@ -149,7 +149,7 @@ describe('parseResultExcel — standard per-class sheet', () => {
   })
 
   it('player 4: round 1 is forfeit (棄権)', () => {
-    const p4 = classes[0]?.participants.find((p) => p.name === 'テスト四郎')!
+    const p4 = classes[0]!.participants.find((p) => p.name === 'テスト四郎')!
     expect(p4.matches).toHaveLength(1)
     const m1 = p4.matches[0]!
     expect(m1.status).toBe('forfeit')
@@ -158,13 +158,13 @@ describe('parseResultExcel — standard per-class sheet', () => {
   })
 
   it('round labels are extracted', () => {
-    const p1 = classes[0]?.participants.find((p) => p.name === 'テスト一郎')!
+    const p1 = classes[0]!.participants.find((p) => p.name === 'テスト一郎')!
     expect(p1.matches[0]?.roundLabel).toBe('1回戦')
     expect(p1.matches[1]?.roundLabel).toBe('2回戦')
   })
 
   it('round numbers are 1-based', () => {
-    const p1 = classes[0]?.participants.find((p) => p.name === 'テスト一郎')!
+    const p1 = classes[0]!.participants.find((p) => p.name === 'テスト一郎')!
     expect(p1.matches[0]?.round).toBe(1)
     expect(p1.matches[1]?.round).toBe(2)
   })
@@ -208,7 +208,7 @@ describe('parseResultExcel — A級結果 (single grade, no 対戦結果表 pref
   })
 
   it('player 1 wins round 1', () => {
-    const p = classes[0]?.participants.find((p) => p.name === 'A級選手甲')!
+    const p = classes[0]!.participants.find((p) => p.name === 'A級選手甲')!
     expect(p.matches[0]?.result).toBe('win')
     expect(p.finalRank).toBe('優勝')
   })
@@ -218,7 +218,7 @@ describe('parseResultExcel — 〇 (U+3007) treated as win', () => {
   const classes = parseResultExcel([MARU_VARIANT_SHEET])
 
   it('parses 〇 as win', () => {
-    const winner = classes[0]?.participants.find((p) => p.name === '丸記号選手')!
+    const winner = classes[0]!.participants.find((p) => p.name === '丸記号選手')!
     expect(winner.matches[0]?.result).toBe('win')
   })
 })

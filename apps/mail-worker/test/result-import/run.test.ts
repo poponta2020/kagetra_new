@@ -19,16 +19,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-const mockInsertRunRow = vi.fn()
-const mockUpdateRunRow = vi.fn()
-const mockSelectAttachment = vi.fn()
-const mockSelectExistingDraft = vi.fn()
-const mockInsertDraft = vi.fn()
-const mockUpdateDraft = vi.fn()
-const mockSelectMailSubject = vi.fn()
-const mockSelectBadge = vi.fn()
-const mockSelectSubs = vi.fn()
-
 // Minimal Drizzle-like mock: fluent builder collapses to terminal call.
 function makeSelectChain(impl: () => unknown[]) {
   const chain = {
@@ -232,8 +222,8 @@ describe('runResultParse — attachment not found', () => {
   })
 })
 
-describe('runResultParse — approved draft protection', () => {
-  it('returns parse_failed and does not overwrite approved draft', async () => {
+describe('runResultParse — draft-state policy (matches triggerResultParse)', () => {
+  it('does not overwrite an approved draft (skips; run still success)', async () => {
     // Run row insert
     dbMock.insert.mockReturnValueOnce({
       values: () => ({ returning: () => Promise.resolve([{ id: 102 }]) }),
@@ -246,11 +236,7 @@ describe('runResultParse — approved draft protection', () => {
     dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
       { id: 50, status: 'approved' },
     ]))
-    // Fallback: existing draft check again for the catch block
-    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
-      { id: 50, status: 'approved' },
-    ]))
-    // Run row update
+    // Run row update (finalize) — the ONLY update expected
     dbMock.update.mockReturnValueOnce({
       set: () => ({ where: () => Promise.resolve() }),
     })
@@ -262,8 +248,66 @@ describe('runResultParse — approved draft protection', () => {
       webPushConfig: null,
     })
 
-    expect(result.status).toBe('parse_failed')
-    // Draft update should NOT have been called (approved draft is protected).
-    expect(dbMock.update).toHaveBeenCalledTimes(1) // only run row update
+    // Parse succeeded but the approved draft is left intact (no overwrite).
+    expect(result.status).toBe('success')
+    expect(result.draftId).toBe(50)
+    expect(dbMock.update).toHaveBeenCalledTimes(1) // run-row finalize only
+  })
+
+  it('does not overwrite a pending_review draft (skips)', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 103 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.xlsx', data: Buffer.alloc(0) },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: 60, status: 'pending_review' },
+    ]))
+    dbMock.update.mockReturnValueOnce({
+      set: () => ({ where: () => Promise.resolve() }),
+    })
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+    })
+
+    expect(result.status).toBe('success')
+    expect(result.draftId).toBe(60)
+    expect(dbMock.update).toHaveBeenCalledTimes(1) // finalize only, no overwrite
+  })
+
+  it('overwrites a rejected draft on re-import (→ pending_review)', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 104 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.xlsx', data: Buffer.alloc(0) },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: 70, status: 'rejected' },
+    ]))
+    // Guarded draft overwrite UPDATE (has .returning())
+    dbMock.update.mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 70 }]) }) }),
+    })
+    // Run row finalize UPDATE
+    dbMock.update.mockReturnValueOnce({
+      set: () => ({ where: () => Promise.resolve() }),
+    })
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+    })
+
+    expect(result.status).toBe('success')
+    expect(result.draftId).toBe(70)
+    expect(dbMock.update).toHaveBeenCalledTimes(2) // draft overwrite + finalize
   })
 })

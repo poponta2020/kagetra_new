@@ -17,6 +17,12 @@ import type { ParsedResultPayload } from './schema.js'
 
 const NOOP_LOGGER: PipelineLogger = { info: () => undefined, warn: () => undefined }
 
+/**
+ * Draft statuses a result_parse run may overwrite. Mirrors triggerResultParse:
+ * approved / pending_review are protected, everything else is re-importable.
+ */
+const OVERWRITABLE_DRAFT_STATUSES = ['parse_failed', 'rejected', 'superseded'] as const
+
 export interface ResultParseResult {
   runId: number
   status: 'success' | 'parse_failed'
@@ -111,9 +117,15 @@ export async function runResultParse(opts: {
       })
     }
 
-    // 3. Upsert result_draft. ON CONFLICT (message_id):
-    //    - If existing draft is approved/rejected → block re-parse (terminal state).
-    //    - Otherwise → overwrite status/payload.
+    // 3. Upsert result_draft by message_id. The draft-state policy MUST match
+    //    triggerResultParse (Codex R1 blocker: worker and Server Action
+    //    disagreed). The Server Action blocks queueing when a draft is approved
+    //    or pending_review and allows re-import for parse_failed / rejected /
+    //    superseded. The worker mirrors that and additionally guards races /
+    //    stale jobs:
+    //      - approved / pending_review        → never overwrite (skip, keep existing)
+    //      - parse_failed/rejected/superseded → overwrite in place (status-guarded)
+    //      - none                             → insert
     const existingRows = await db
       .select({ id: resultDrafts.id, status: resultDrafts.status })
       .from(resultDrafts)
@@ -122,15 +134,20 @@ export async function runResultParse(opts: {
 
     const existing = existingRows[0] ?? null
 
-    if (existing && (existing.status === 'approved' || existing.status === 'rejected')) {
-      // Protect terminal-state drafts from accidental overwrite.
-      throw new Error(
-        `result_draft for mail ${opts.mailMessageId} is already ${existing.status}`,
-      )
-    }
-
-    if (existing) {
-      // Overwrite non-terminal draft in-place (pending_review, parse_failed, superseded).
+    if (existing && (existing.status === 'approved' || existing.status === 'pending_review')) {
+      // A draft is already finalized or awaiting operator review — do not
+      // clobber it. triggerResultParse blocks queueing in these states; this
+      // covers a race (two jobs queued before either ran) or a stale job.
+      log.info('result_parse: existing draft is approved/pending_review — skipping overwrite', {
+        mailMessageId: opts.mailMessageId,
+        draftId: existing.id,
+        status: existing.status,
+      })
+      draftId = existing.id
+    } else if (existing) {
+      // Re-import overwrites a re-importable draft in place. The status guard in
+      // WHERE prevents a stale job from clobbering a draft that raced into
+      // pending_review/approved between our SELECT and this UPDATE.
       const updated = await db
         .update(resultDrafts)
         .set({
@@ -142,9 +159,23 @@ export async function runResultParse(opts: {
           parseError,
           updatedAt: sql`now()`,
         })
-        .where(eq(resultDrafts.id, existing.id))
+        .where(
+          and(
+            eq(resultDrafts.id, existing.id),
+            inArray(resultDrafts.status, [...OVERWRITABLE_DRAFT_STATUSES]),
+          ),
+        )
         .returning({ id: resultDrafts.id })
-      draftId = updated[0]!.id
+      if (updated.length === 0) {
+        // Status changed under us (race) — leave the winner's draft intact.
+        log.warn('result_parse: draft status changed before overwrite — skipping', {
+          mailMessageId: opts.mailMessageId,
+          draftId: existing.id,
+        })
+        draftId = existing.id
+      } else {
+        draftId = updated[0]!.id
+      }
     } else {
       // Fresh insert.
       const inserted = await db
@@ -178,7 +209,9 @@ export async function runResultParse(opts: {
       })
     }
 
-    // If we haven't written a draft yet, create a parse_failed one.
+    // If we haven't written a draft yet, create a parse_failed one — but honor
+    // the same state policy as the success path: never clobber an approved or
+    // pending_review draft, only overwrite a re-importable one (status-guarded).
     if (draftId === 0) {
       try {
         const existingRows2 = await db
@@ -188,19 +221,7 @@ export async function runResultParse(opts: {
           .limit(1)
         const existing2 = existingRows2[0] ?? null
 
-        if (existing2 && existing2.status !== 'approved' && existing2.status !== 'rejected') {
-          const upd = await db
-            .update(resultDrafts)
-            .set({
-              status: 'parse_failed',
-              parseError,
-              parserVersion: PARSER_VERSION,
-              updatedAt: sql`now()`,
-            })
-            .where(eq(resultDrafts.id, existing2.id))
-            .returning({ id: resultDrafts.id })
-          draftId = upd[0]?.id ?? 0
-        } else if (!existing2) {
+        if (!existing2) {
           const ins = await db
             .insert(resultDrafts)
             .values({
@@ -211,6 +232,25 @@ export async function runResultParse(opts: {
             })
             .returning({ id: resultDrafts.id })
           draftId = ins[0]?.id ?? 0
+        } else {
+          // Overwrite only a re-importable draft to parse_failed; leave
+          // approved/pending_review intact.
+          const upd = await db
+            .update(resultDrafts)
+            .set({
+              status: 'parse_failed',
+              parseError,
+              parserVersion: PARSER_VERSION,
+              updatedAt: sql`now()`,
+            })
+            .where(
+              and(
+                eq(resultDrafts.id, existing2.id),
+                inArray(resultDrafts.status, [...OVERWRITABLE_DRAFT_STATUSES]),
+              ),
+            )
+            .returning({ id: resultDrafts.id })
+          draftId = upd[0]?.id ?? existing2.id
         }
       } catch (draftErr) {
         log.warn('result_parse: fallback draft write failed', {

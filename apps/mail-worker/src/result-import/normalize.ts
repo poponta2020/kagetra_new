@@ -56,8 +56,10 @@ export function normalizePlayerName(name: string): string {
   return (
     name
       .normalize('NFKC')
-      // strip all spaces (全角・半角)
-      .replace(/[\s　]+/g, '')
+      // strip all spaces. NFKC above already folds 全角 space (U+3000) to a
+      // regular space, so \s covers both 全角・半角 (and avoids a literal
+      // irregular-whitespace char in the source).
+      .replace(/\s+/g, '')
       // common kanji variant pairs that appear in real data
       .replace(/髙/g, '高')
       .replace(/﨑/g, '崎')

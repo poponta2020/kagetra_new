@@ -284,6 +284,110 @@ describe('materializeResultDraft', () => {
     expect(allPlayers).toHaveLength(3)
   })
 
+  it('同一級内の同姓同名: 各自の試合は自分に紐付き、相手解決は曖昧→null', async () => {
+    // 2 人の「田中太郎」が同じ級にいる。それぞれ別の試合を持つ。
+    // - 各 participant の試合は「自分」に紐付く（index ベース）
+    // - 相手名「田中太郎」は曖昧（2 人いる）なので opponentParticipantId は null
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        {
+          className: 'A級',
+          grade: 'A',
+          sheetName: null,
+          participants: [
+          {
+            seqNo: 1,
+            name: '田中太郎',
+            nameKana: null,
+            affiliation: '札幌', // 別所属 → players は別行
+            prefecture: null,
+            dan: null,
+            memberNo: null,
+            finalRank: null,
+            matches: [
+              { round: 1, roundLabel: null, opponentName: '佐藤花子', scoreDiff: 2, result: 'win', status: 'normal' },
+            ],
+          },
+          {
+            seqNo: 2,
+            name: '田中太郎',
+            nameKana: null,
+            affiliation: '東京',
+            prefecture: null,
+            dan: null,
+            memberNo: null,
+            finalRank: null,
+            matches: [
+              { round: 1, roundLabel: null, opponentName: '鈴木一郎', scoreDiff: 3, result: 'lose', status: 'normal' },
+            ],
+          },
+          {
+            seqNo: 3,
+            name: '佐藤花子',
+            nameKana: null,
+            affiliation: null,
+            prefecture: null,
+            dan: null,
+            memberNo: null,
+            finalRank: null,
+            // 相手名が「田中太郎」= 同名2人 → 解決不可で null になるべき
+            matches: [
+              { round: 1, roundLabel: null, opponentName: '田中太郎', scoreDiff: 2, result: 'lose', status: 'normal' },
+            ],
+          },
+          ],
+        },
+      ],
+    }
+
+    const { tournamentId } = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: '同名大会',
+        eventDate: '2026-04-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, tournamentId))
+    const classId = classRows[0]!.id
+
+    const partRows = await testDb
+      .select()
+      .from(tournamentParticipants)
+      .where(eq(tournamentParticipants.classId, classId))
+    // 田中太郎×2（別所属）+ 佐藤花子 = 3 participants
+    expect(partRows).toHaveLength(3)
+    const tanakaSapporo = partRows.find((p) => p.name === '田中太郎' && p.affiliation === '札幌')!
+    const tanakaTokyo = partRows.find((p) => p.name === '田中太郎' && p.affiliation === '東京')!
+    const sato = partRows.find((p) => p.name === '佐藤花子')!
+
+    const matchRows = await testDb
+      .select()
+      .from(matches)
+      .where(eq(matches.classId, classId))
+    expect(matchRows).toHaveLength(3)
+
+    // 札幌田中の試合は札幌田中に紐付く（自分の試合が別同名に化けない）
+    const sapporoMatch = matchRows.find((m) => m.participantId === tanakaSapporo.id)!
+    expect(sapporoMatch.result).toBe('win')
+    expect(sapporoMatch.opponentName).toBe('佐藤花子')
+    expect(sapporoMatch.opponentParticipantId).toBe(sato.id)
+
+    // 東京田中の試合は東京田中に紐付く
+    const tokyoMatch = matchRows.find((m) => m.participantId === tanakaTokyo.id)!
+    expect(tokyoMatch.result).toBe('lose')
+
+    // 佐藤の試合：相手「田中太郎」は2人いて曖昧 → opponentParticipantId は null
+    const satoMatch = matchRows.find((m) => m.participantId === sato.id)!
+    expect(satoMatch.opponentName).toBe('田中太郎')
+    expect(satoMatch.opponentParticipantId).toBeNull()
+  })
+
   it('null-affiliation same name across classes collapses to one player (NULLS NOT DISTINCT)', async () => {
     const payload: ParsedResultPayload = {
       parserVersion: '1.0.0',
