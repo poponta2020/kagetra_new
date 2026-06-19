@@ -2486,6 +2486,6 @@
 - 既知の worktree 問題（[[feedback_gh_pr_merge_from_worktree]]）: `gh pr merge --delete-branch` は remote マージ成立も exit 1（"main is already used by worktree"）→ state=MERGED 確認後に remote/worktree/local を手動削除。local main は untracked な `docs/features/tournament-results/*.md`（define-feature 時の旧コピー）が ff を阻害 → 旧コピー削除後に ff（canonical は PR で main に取込済）
 - 局所トラブル: `drizzle-kit push`（test DB global-setup）が単独→composite FK の変更を取りこぼしローカル test DB が stale 化 → composite FK テストが落ちる → `kagetra_test` を drop+再作成で解決（**CI は毎回 fresh test DB なので無影響**）
 
-### 残 DoD
-- 本番 auto-deploy が migration 0026 を適用したことの確認（PR #163 merge で deploy 起動。新規テーブルのみ・既存無破壊）
-- 次タスク: Task2 (#159 Excel パーサ中核＋fixture テスト)
+### 残 DoD → 完了 (2026-06-20)
+- 本番 migration 0026 **適用済**: PR #163 merge（`f3d2b4b`）の deploy run（id 27833734166）が `APPLY: 0026_third_charles_xavier` → `migrations applied` → `DEPLOY_RESULT=SUCCESS`。新規 6 テーブル＋enum が本番反映（UI 無しのため実機目視は不要、Task2-5 で使用）
+- **=> Task1 残作業なし**。次タスク: Task2 (#159 Excel パーサ中核＋fixture テスト)
