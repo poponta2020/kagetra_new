@@ -1,5 +1,5 @@
 {
-  "id": "8a992f06-9bea-4fe2-98ca-3d835c2f981b",
+  "id": "039213c8-8ea6-425e-a543-2294c2ea12f8",
   "prevId": "855af693-ced2-43e1-9550-927ebb30084d",
   "version": "7",
   "dialect": "postgresql",
@@ -3042,7 +3042,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "tournament_participants_id_class_id_uq": {
+          "name": "tournament_participants_id_class_id_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "class_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -3172,19 +3181,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "matches_participant_id_tournament_participants_id_fk": {
-          "name": "matches_participant_id_tournament_participants_id_fk",
-          "tableFrom": "matches",
-          "tableTo": "tournament_participants",
-          "columnsFrom": [
-            "participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "matches_opponent_participant_id_tournament_participants_id_fk": {
           "name": "matches_opponent_participant_id_tournament_participants_id_fk",
           "tableFrom": "matches",
@@ -3196,6 +3192,21 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "matches_participant_id_class_id_fk": {
+          "name": "matches_participant_id_class_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "tournament_participants",
+          "columnsFrom": [
+            "participant_id",
+            "class_id"
+          ],
+          "columnsTo": [
+            "id",
+            "class_id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

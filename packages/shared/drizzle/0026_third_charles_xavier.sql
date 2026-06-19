@@ -46,7 +46,8 @@ CREATE TABLE "tournament_participants" (
 	"prefecture" text,
 	"dan" text,
 	"member_no" text,
-	"final_rank" text
+	"final_rank" text,
+	CONSTRAINT "tournament_participants_id_class_id_uq" UNIQUE("id","class_id")
 );
 --> statement-breakpoint
 CREATE TABLE "matches" (
@@ -86,8 +87,8 @@ ALTER TABLE "tournament_classes" ADD CONSTRAINT "tournament_classes_tournament_i
 ALTER TABLE "tournament_participants" ADD CONSTRAINT "tournament_participants_class_id_tournament_classes_id_fk" FOREIGN KEY ("class_id") REFERENCES "public"."tournament_classes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "tournament_participants" ADD CONSTRAINT "tournament_participants_player_id_players_id_fk" FOREIGN KEY ("player_id") REFERENCES "public"."players"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "matches" ADD CONSTRAINT "matches_class_id_tournament_classes_id_fk" FOREIGN KEY ("class_id") REFERENCES "public"."tournament_classes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "matches" ADD CONSTRAINT "matches_participant_id_tournament_participants_id_fk" FOREIGN KEY ("participant_id") REFERENCES "public"."tournament_participants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "matches" ADD CONSTRAINT "matches_opponent_participant_id_tournament_participants_id_fk" FOREIGN KEY ("opponent_participant_id") REFERENCES "public"."tournament_participants"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "matches" ADD CONSTRAINT "matches_participant_id_class_id_fk" FOREIGN KEY ("participant_id","class_id") REFERENCES "public"."tournament_participants"("id","class_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "result_drafts" ADD CONSTRAINT "result_drafts_message_id_mail_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."mail_messages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "result_drafts" ADD CONSTRAINT "result_drafts_tournament_id_tournaments_id_fk" FOREIGN KEY ("tournament_id") REFERENCES "public"."tournaments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "result_drafts" ADD CONSTRAINT "result_drafts_approved_by_user_id_users_id_fk" FOREIGN KEY ("approved_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint

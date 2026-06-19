@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { foreignKey, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
 import { tournamentClasses } from './tournament-classes'
 import { tournamentParticipants } from './tournament-participants'
 import { matchResultEnum, matchStatusEnum } from './enums'
@@ -17,6 +17,14 @@ import { matchResultEnum, matchStatusEnum } from './enums'
  * なければ null のまま `opponent_name` の生テキストを保持）。相手参加者が消えた
  * ときは紐付けだけ外す（ON DELETE SET NULL）。`class_id` は participant 経由で
  * 辿れるが「級内の全試合」クエリ用に冗長保持（matches(class_id) index）。
+ *
+ * 整合性 (Codex R1 should_fix): `(participant_id, class_id)` は
+ * tournament_participants(id, class_id) への composite FK で「試合の級＝参加者の
+ * 所属級」を DB レベルで保証する（下記 table 配列）。これにより冗長な class_id を
+ * 級別集計/一覧で安全に信頼できる（別級の参加者を指す不整合な試合行を弾く）。
+ * opponent 側は同じ保証を composite FK にできない（ON DELETE SET NULL が NOT NULL
+ * の class_id を co-null できず削除が失敗する）。opponent の同一級は materialize 時
+ * に同一級の participant のみ解決することで担保する（opponent_name を正とする soft 参照）。
  */
 export const matches = pgTable(
   'matches',
@@ -27,9 +35,9 @@ export const matches = pgTable(
       .references(() => tournamentClasses.id, { onDelete: 'cascade' }),
     round: integer('round').notNull(),
     roundLabel: text('round_label'),
-    participantId: integer('participant_id')
-      .notNull()
-      .references(() => tournamentParticipants.id, { onDelete: 'cascade' }),
+    // FK は (participant_id, class_id) の composite FK で張る（下記 table 配列）。
+    // 単独 FK にすると class_id と参加者の所属級の整合が DB で保証されない。
+    participantId: integer('participant_id').notNull(),
     opponentParticipantId: integer('opponent_participant_id').references(
       () => tournamentParticipants.id,
       { onDelete: 'set null' },
@@ -42,5 +50,13 @@ export const matches = pgTable(
   (table) => [
     index('idx_matches_class_id').on(table.classId),
     index('idx_matches_participant_id').on(table.participantId),
+    // (participant_id, class_id) → tournament_participants(id, class_id)。
+    // 「試合の級＝参加者の所属級」を保証。ON DELETE CASCADE は単独 FK 時と同じく
+    // 参加者削除で試合行を消す。
+    foreignKey({
+      columns: [table.participantId, table.classId],
+      foreignColumns: [tournamentParticipants.id, tournamentParticipants.classId],
+      name: 'matches_participant_id_class_id_fk',
+    }).onDelete('cascade'),
   ],
 )

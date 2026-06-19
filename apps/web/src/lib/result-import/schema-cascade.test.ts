@@ -172,4 +172,32 @@ describe('tournament-results schema (DB-backed FK/cascade)', () => {
     expect(after?.memberNo).toBe('A-123')
     expect(after?.finalRank).toBe('優勝')
   })
+
+  it('composite FK rejects a match whose class_id differs from the participant class', async () => {
+    const t = await insertTournament()
+    const classA = await insertClass(t.id, { className: 'A級' })
+    const classB = await insertClass(t.id, { className: 'B級' })
+    const pInA = await insertParticipant(classA.id, { name: 'A級選手' })
+    // class_id=B but participant belongs to A → (participant_id, class_id) composite FK
+    // has no matching (id, class_id) row, so the insert must fail. Guards against a
+    // materialize bug attributing a match to the wrong class.
+    await expect(
+      testDb.insert(matches).values({
+        classId: classB.id,
+        round: 1,
+        participantId: pInA.id,
+        result: 'win',
+        status: 'normal',
+      }),
+    ).rejects.toThrow()
+    // Same participant + its own class succeeds.
+    await testDb.insert(matches).values({
+      classId: classA.id,
+      round: 1,
+      participantId: pInA.id,
+      result: 'win',
+      status: 'normal',
+    })
+    expect(await testDb.select().from(matches)).toHaveLength(1)
+  })
 })

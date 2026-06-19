@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
 import { tournamentClasses } from './tournament-classes'
 import { players } from './players'
 
@@ -34,5 +34,10 @@ export const tournamentParticipants = pgTable(
   (table) => [
     index('idx_participants_player_id').on(table.playerId),
     index('idx_participants_class_id').on(table.classId),
+    // matches の composite FK (participant_id, class_id) → (id, class_id) のターゲット。
+    // id は単独で PK だが、composite FK は参照先の同一列集合に UNIQUE/PK 制約を要求する
+    // ため明示的に張る。これにより「試合の class_id が参加者の所属級と一致する」ことを
+    // DB が保証する（matches.class_id の冗長保持が壊れない）。
+    unique('tournament_participants_id_class_id_uq').on(table.id, table.classId),
   ],
 )
