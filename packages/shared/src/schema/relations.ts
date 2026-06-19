@@ -14,6 +14,12 @@ import { eventBroadcastMessages } from './event-broadcast-messages'
 import { attachmentShareTokens } from './attachment-share-tokens'
 import { eventLifecycleNotifications } from './event-lifecycle-notifications'
 import { pushSubscriptions } from './push-subscriptions'
+import { players } from './players'
+import { tournaments } from './tournaments'
+import { tournamentClasses } from './tournament-classes'
+import { tournamentParticipants } from './tournament-participants'
+import { matches } from './matches'
+import { resultDrafts } from './result-drafts'
 
 export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
   events: many(events),
@@ -69,6 +75,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   // by querying line_channels with `assignedUserId = users.id`. Pre-fix we
   // also carried `users.line_channel_id` as a reverse pointer, but it had no
   // SQL FK / UNIQUE so the two sides could disagree (review r1).
+  // tournament-results: 会員に同定された選手（players.user_id、v1 では基本未紐付け）。
+  players: many(players),
 }))
 
 export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
@@ -89,6 +97,11 @@ export const mailMessagesRelations = relations(mailMessages, ({ one, many }) => 
   triagedBy: one(users, {
     fields: [mailMessages.triagedByUserId],
     references: [users.id],
+  }),
+  // tournament-results: 結果 Excel 取込ドラフト（1 メール = 最大 1、message_id UNIQUE）。
+  resultDraft: one(resultDrafts, {
+    fields: [mailMessages.id],
+    references: [resultDrafts.messageId],
   }),
 }))
 
@@ -197,5 +210,68 @@ export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one })
   user: one(users, {
     fields: [pushSubscriptions.userId],
     references: [users.id],
+  }),
+}))
+
+// tournament-results
+// 最小限の relations のみ定義する。tournaments.source_result_draft_id（プロビ
+// ナンス）と matches.opponent_participant_id は列/FK は保持するが ORM relation
+// は張らない（同一テーブルペアの relationName 重複を避けるため。必要になった
+// 後続タスクで追加する）。
+export const playersRelations = relations(players, ({ one, many }) => ({
+  user: one(users, {
+    fields: [players.userId],
+    references: [users.id],
+  }),
+  participants: many(tournamentParticipants),
+}))
+
+export const tournamentsRelations = relations(tournaments, ({ many }) => ({
+  classes: many(tournamentClasses),
+}))
+
+export const tournamentClassesRelations = relations(tournamentClasses, ({ one, many }) => ({
+  tournament: one(tournaments, {
+    fields: [tournamentClasses.tournamentId],
+    references: [tournaments.id],
+  }),
+  participants: many(tournamentParticipants),
+  matches: many(matches),
+}))
+
+export const tournamentParticipantsRelations = relations(
+  tournamentParticipants,
+  ({ one, many }) => ({
+    class: one(tournamentClasses, {
+      fields: [tournamentParticipants.classId],
+      references: [tournamentClasses.id],
+    }),
+    player: one(players, {
+      fields: [tournamentParticipants.playerId],
+      references: [players.id],
+    }),
+    matches: many(matches),
+  }),
+)
+
+export const matchesRelations = relations(matches, ({ one }) => ({
+  class: one(tournamentClasses, {
+    fields: [matches.classId],
+    references: [tournamentClasses.id],
+  }),
+  participant: one(tournamentParticipants, {
+    fields: [matches.participantId],
+    references: [tournamentParticipants.id],
+  }),
+}))
+
+export const resultDraftsRelations = relations(resultDrafts, ({ one }) => ({
+  mail: one(mailMessages, {
+    fields: [resultDrafts.messageId],
+    references: [mailMessages.id],
+  }),
+  tournament: one(tournaments, {
+    fields: [resultDrafts.tournamentId],
+    references: [tournaments.id],
   }),
 }))

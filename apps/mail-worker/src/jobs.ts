@@ -3,15 +3,18 @@ import { mailWorkerJobs } from '@kagetra/shared/schema'
 import type { Db } from './db.js'
 
 /**
- * `mail_worker_jobs.kind` の TS リテラル型。enum は drizzle スキーマ側で
- * 'fetch' | 'manual_extract' を定義しており、dispatcher 分岐の identity と
- * して使う。
+ * `mail_worker_jobs.kind` の TS リテラル型。drizzle の `mailWorkerJobKindEnum`
+ * と一致させる（dispatcher 分岐の identity として使う）。
  *
  * - 'fetch'         : IMAP 取得 + persist のみ。AI 抽出は呼ばない（既存 cron）。
  * - 'manual_extract': inbox 詳細から「会で流す（AI 抽出）」を押した時の手動
  *                    AI ジョブ。`payload.mail_message_id` で対象を指定する。
+ * - 'result_parse'  : tournament-results。結果 Excel を決定的パース（AI 不使用）
+ *                    して result_drafts へ格納するジョブ。enum 値は本 PR (schema)
+ *                    で追加。実際の claim/dispatch 配線とハンドラは後続 PR
+ *                    (tournament-results Task 3) で追加する。
  */
-export type MailWorkerJobKind = 'fetch' | 'manual_extract'
+export type MailWorkerJobKind = 'fetch' | 'manual_extract' | 'result_parse'
 
 export interface ManualExtractPayload {
   mail_message_id: number
