@@ -44,7 +44,7 @@ status: completed
 - **対応Issue:** #159
 
 ### タスク3: result_parse ジョブ＋取込トリガ＋ボタン
-- [ ] 完了
+- [x] 完了
 - **概要:** mail-worker に取込ジョブ、web に「結果として取り込む」導線を追加。
 - **詳細:**
   - mail-worker：job kind `result_parse`（payload=`{mail_message_id, attachment_id}`）、`runResultParse`（reader+parser→`result_drafts` 格納 pending_review/parse_failed→Web Push）。既存 extract-only timer に相乗り。
