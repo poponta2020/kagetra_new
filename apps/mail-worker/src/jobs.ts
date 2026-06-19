@@ -144,6 +144,11 @@ export async function claimNextJob(
   })
 }
 
+export interface ResultParsePayload {
+  mail_message_id: number
+  attachment_id: number
+}
+
 /**
  * mail-inbox-mailer: `manual_extract` ジョブの payload を narrow する。
  * jsonb から `mail_message_id: number` が取り出せなければ throw する。
@@ -222,6 +227,29 @@ export async function recoverStaleClaimedJobs(
     )
     .returning({ id: mailWorkerJobs.id })
   return recovered.length
+}
+
+/**
+ * tournament-results: `result_parse` ジョブの payload を narrow する。
+ * jsonb から `mail_message_id` + `attachment_id` が取り出せなければ throw する。
+ */
+export function parseResultParsePayload(payload: unknown): ResultParsePayload {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'mail_message_id' in payload &&
+    typeof (payload as { mail_message_id: unknown }).mail_message_id === 'number' &&
+    'attachment_id' in payload &&
+    typeof (payload as { attachment_id: unknown }).attachment_id === 'number'
+  ) {
+    return {
+      mail_message_id: (payload as { mail_message_id: number }).mail_message_id,
+      attachment_id: (payload as { attachment_id: number }).attachment_id,
+    }
+  }
+  throw new Error(
+    `result_parse job payload missing mail_message_id or attachment_id (got ${JSON.stringify(payload)})`,
+  )
 }
 
 /**

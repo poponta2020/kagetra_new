@@ -14,6 +14,10 @@ import { UndoTriageButton } from '../../components/UndoTriageButton'
 import { AIExtractConfirmDialog } from '../../components/AIExtractConfirmDialog'
 import type { LinkableEventOption } from '../../components/ExistingEventLinkSheet'
 import { linkableEventCutoffStr } from '../../linkable-events'
+import {
+  ResultParseButton,
+  type ExcelAttachment,
+} from '../../components/ResultParseButton'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -130,9 +134,25 @@ export default async function MailDetailPage({
           extractedPayload: true,
         },
       },
+      // tournament-results: 結果取込ドラフト（message_id UNIQUE = 0..1）。
+      resultDraft: {
+        columns: {
+          id: true,
+          status: true,
+          parseError: true,
+        },
+      },
     },
   })
   if (!mail) notFound()
+
+  // tournament-results: .xls/.xlsx 添付のみ「結果として取り込む」対象。
+  const excelAttachments: ExcelAttachment[] = mail.attachments
+    .filter((a) => {
+      const lower = a.filename.toLowerCase()
+      return lower.endsWith('.xls') || lower.endsWith('.xlsx')
+    })
+    .map((a) => ({ id: a.id, filename: a.filename }))
 
   const triage = TRIAGE_LABEL[mail.triageStatus] ?? {
     label: mail.triageStatus,
@@ -280,6 +300,78 @@ export default async function MailDetailPage({
             </Link>
           </div>
         </Card>
+      )}
+
+      {/* tournament-results Task3: 結果 Excel 取込エリア。
+          AI 取込フロー（tournament_drafts）とは独立した別セクション。
+          .xls/.xlsx 添付があるときだけ表示する。 */}
+      {excelAttachments.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-base font-bold text-ink">
+            試合結果の取込
+          </h2>
+          {mail.resultDraft == null ? (
+            <Card>
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-ink-meta">
+                  Excel から試合結果を取り込みます。取込後にレビュー・承認画面で
+                  内容を確認してから確定できます。
+                </p>
+                <ResultParseButton
+                  mailId={mail.id}
+                  excelAttachments={excelAttachments}
+                />
+              </div>
+            </Card>
+          ) : mail.resultDraft.status === 'pending_review' ? (
+            <Card className="border-info-fg/30 bg-info-bg">
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-semibold text-info-fg">取込完了 — 承認待ち</span>
+                <Link
+                  href={`/admin/mail-inbox/result-drafts/${mail.resultDraft.id}`}
+                  className="text-brand-fg underline"
+                >
+                  結果ドラフト #{mail.resultDraft.id} を確認 →
+                </Link>
+              </div>
+            </Card>
+          ) : mail.resultDraft.status === 'approved' ? (
+            <Card className="border-success-fg/30 bg-success-bg">
+              <span className="text-sm font-semibold text-success-fg">
+                試合結果 承認済み
+              </span>
+            </Card>
+          ) : mail.resultDraft.status === 'parse_failed' ? (
+            <Card className="border-danger-fg/30 bg-danger-bg">
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-semibold text-danger-fg">
+                  取込に失敗しました
+                </span>
+                {mail.resultDraft.parseError && (
+                  <p className="text-xs text-danger-fg opacity-80">
+                    {mail.resultDraft.parseError}
+                  </p>
+                )}
+                <ResultParseButton
+                  mailId={mail.id}
+                  excelAttachments={excelAttachments}
+                />
+              </div>
+            </Card>
+          ) : (
+            <Card>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="text-ink-2">
+                  結果ドラフト #{mail.resultDraft.id}（{mail.resultDraft.status}）
+                </span>
+                <ResultParseButton
+                  mailId={mail.id}
+                  excelAttachments={excelAttachments}
+                />
+              </div>
+            </Card>
+          )}
+        </section>
       )}
     </div>
   )

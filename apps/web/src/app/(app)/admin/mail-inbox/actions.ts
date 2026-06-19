@@ -9,8 +9,10 @@ import { db } from '@/lib/db'
 import {
   eventGroups,
   events,
+  mailAttachments,
   mailMessages,
   mailWorkerJobs,
+  resultDrafts,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import {
@@ -1299,4 +1301,85 @@ export async function triggerMailFetch(
 
   revalidatePath('/admin/mail-inbox')
   return { ok: true, jobId: job.id }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// tournament-results Task3: 結果 Excel 取込トリガ
+//
+// mail-inbox 詳細の「結果として取り込む」ボタンから呼ばれる。
+// .xls/.xlsx 添付を指定して result_parse ジョブをキューに積む。
+// mail-worker の extract-only timer（30 秒間隔）が拾って runResultParse を実行。
+//
+// 既存 result_draft の状態によるガード:
+//   pending_review → エラー「承認待ちのドラフトがあります」
+//   approved       → エラー「承認済みです」
+//   parse_failed   → 再試行可（再キュー可）
+//   rejected       → 再試行可（再キュー可）
+//   superseded     → 再試行可（再キュー可）
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function triggerResultParse(
+  mailId: number,
+  attachmentId: number,
+): Promise<{ ok: true; jobId: number } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Verify attachment belongs to this mail and is an Excel file.
+      const attRows = await tx
+        .select({
+          id: mailAttachments.id,
+          mailMessageId: mailAttachments.mailMessageId,
+          filename: mailAttachments.filename,
+        })
+        .from(mailAttachments)
+        .where(eq(mailAttachments.id, attachmentId))
+        .limit(1)
+      if (attRows.length === 0) throw new Error('添付ファイルが見つかりません')
+      const att = attRows[0]!
+      if (att.mailMessageId !== mailId) {
+        throw new Error('指定された添付ファイルはこのメールに属していません')
+      }
+      const lower = att.filename.toLowerCase()
+      if (!lower.endsWith('.xls') && !lower.endsWith('.xlsx')) {
+        throw new Error('Excel ファイル (.xls/.xlsx) のみ取り込めます')
+      }
+
+      // Check existing result_draft state.
+      const existingDraft = await tx
+        .select({ id: resultDrafts.id, status: resultDrafts.status })
+        .from(resultDrafts)
+        .where(eq(resultDrafts.messageId, mailId))
+        .limit(1)
+      if (existingDraft.length > 0) {
+        const ds = existingDraft[0]!.status
+        if (ds === 'pending_review') {
+          throw new Error('既に承認待ちの結果ドラフトがあります')
+        }
+        if (ds === 'approved') {
+          throw new Error('既に承認済みの結果ドラフトがあります')
+        }
+        // parse_failed / rejected / superseded → allow re-queue
+      }
+
+      const insertedJob = await tx
+        .insert(mailWorkerJobs)
+        .values({
+          requestedByUserId: session.user.id,
+          status: 'pending',
+          kind: 'result_parse',
+          payload: { mail_message_id: mailId, attachment_id: attachmentId },
+        })
+        .returning({ id: mailWorkerJobs.id })
+      return { jobId: insertedJob[0]!.id }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+    return { ok: true, jobId: result.jobId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
 }

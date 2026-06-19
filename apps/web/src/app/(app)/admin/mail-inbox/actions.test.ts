@@ -3,8 +3,10 @@ import { eq } from 'drizzle-orm'
 import {
   eventGroups,
   events,
+  mailAttachments,
   mailMessages,
   mailWorkerJobs,
+  resultDrafts,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
@@ -107,6 +109,7 @@ const {
   triggerExtractDraft,
   linkMailToEvent,
   unlinkMailFromEvent,
+  triggerResultParse,
 } = await import('./actions')
 
 function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
@@ -1900,4 +1903,162 @@ describe('admin/mail-inbox actions', () => {
       await expect(unlinkMailFromEvent(mail.id)).rejects.toThrow('Forbidden')
     })
   })
+
+  // ───────────────────────────────────────────────────────────────────────
+  // triggerResultParse — tournament-results Task3
+  // ───────────────────────────────────────────────────────────────────────
+
+  async function createMailAttachment(mailId: number, overrides: { filename?: string } = {}) {
+  const [att] = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: mailId,
+      filename: overrides.filename ?? 'result.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      sizeBytes: 1024,
+      data: Buffer.from('dummy'),
+      extractionStatus: 'pending',
+    })
+    .returning()
+  if (!att) throw new Error('Failed to insert test mail attachment')
+  return att
+}
+
+async function createResultDraft(mailId: number, status: 'pending_review' | 'parse_failed' | 'approved' | 'rejected' = 'pending_review') {
+  const [draft] = await testDb
+    .insert(resultDrafts)
+    .values({
+      messageId: mailId,
+      status,
+      parserVersion: '1.0.0',
+      extractedPayload: {},
+    })
+    .returning()
+  if (!draft) throw new Error('Failed to insert test result draft')
+  return draft
+}
+
+describe('triggerResultParse', () => {
+  it('Excel 添付があるとき result_parse ジョブを作成する', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id)
+
+    const result = await triggerResultParse(mail.id, att.id)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const job = await testDb.query.mailWorkerJobs.findFirst({
+      where: eq(mailWorkerJobs.id, result.jobId),
+    })
+    expect(job).toBeDefined()
+    expect(job?.kind).toBe('result_parse')
+    expect(job?.payload).toEqual({
+      mail_message_id: mail.id,
+      attachment_id: att.id,
+    })
+    expect(job?.status).toBe('pending')
+  })
+
+  it('.xls ファイルも受け付ける', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id, { filename: 'result.xls' })
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('Excel でない添付はエラー', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const [att] = await testDb
+      .insert(mailAttachments)
+      .values({
+        mailMessageId: mail.id,
+        filename: 'document.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 512,
+        data: Buffer.from('pdf'),
+        extractionStatus: 'pending',
+      })
+      .returning()
+
+    const result = await triggerResultParse(mail.id, att!.id)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/Excel/)
+  })
+
+  it('別 mail の添付は拒否', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail1 = await createMailMessage()
+    const mail2 = await createMailMessage()
+    const att = await createMailAttachment(mail2.id) // belongs to mail2
+
+    const result = await triggerResultParse(mail1.id, att.id) // but called with mail1
+    expect(result.ok).toBe(false)
+  })
+
+  it('pending_review ドラフトがある場合はエラー', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id)
+    await createResultDraft(mail.id, 'pending_review')
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/承認待ち/)
+  })
+
+  it('approved ドラフトがある場合はエラー', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id)
+    await createResultDraft(mail.id, 'approved')
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/承認済み/)
+  })
+
+  it('parse_failed ドラフトがあっても再キューできる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id)
+    await createResultDraft(mail.id, 'parse_failed')
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('未認証 / member は呼べない', async () => {
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id)
+
+    await setAuthSession(null)
+    await expect(triggerResultParse(mail.id, att.id)).rejects.toThrow('Unauthorized')
+
+    const member = await createUser()
+    await setAuthSession({ id: member.id, role: 'member' })
+    await expect(triggerResultParse(mail.id, att.id)).rejects.toThrow('Forbidden')
+  })
+})
 })
