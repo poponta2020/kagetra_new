@@ -10,9 +10,15 @@ import { resultDraftStatusEnum } from './enums'
  *
  * mail-inbox で「結果として取り込む」を押すと `result_parse` ジョブが投入され、
  * mail-worker が Excel を**決定的にパース**（AI 不使用）して 1 行を格納する
- * （成功=`pending_review` / 署名不一致・失敗=`parse_failed`）。1 メール = 最大
- * 1 ドラフト（`message_id` UNIQUE）。tournament_drafts（AI 案内取込）の兄弟だが
- * AI 関連列（confidence/ai_*）は持たず `parser_version` のみ。
+ * （成功=`pending_review` / 署名不一致・失敗=`parse_failed`）。tournament_drafts
+ * （AI 案内取込）の兄弟だが AI 関連列（confidence/ai_*）は持たず `parser_version` のみ。
+ *
+ * **1 メール = 最大 1 ドラフト（`message_id` UNIQUE、要件§4.1）**：複数 Excel 添付の
+ * あるメールは取込時に 1 つを「対象選択」し、その 1 通だけをドラフト化する（v1 の
+ * 意図的な設計。`result_parse` payload の attachment_id は「どの添付をパースするか」の
+ * 指定であって、添付ごとに別ドラフトは作らない）。複数大会同梱メールの添付別ドラフト
+ * 化・マージは後続フェーズ。訂正版・再取込は同一 message_id への UPSERT ＋
+ * `superseded_by_draft_id` で履歴化する（同一大会が複数ファイルでも各 1 行）。
  *
  * `extracted_payload` はパーサが生成した級/参加者/試合の構造化 JSON。承認 (Task 4)
  * で tournaments/classes/participants/matches へ materialize し `tournament_id`

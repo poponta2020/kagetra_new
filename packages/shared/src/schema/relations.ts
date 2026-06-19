@@ -259,9 +259,12 @@ export const matchesRelations = relations(matches, ({ one }) => ({
     fields: [matches.classId],
     references: [tournamentClasses.id],
   }),
+  // composite FK (participant_id, class_id) → tournament_participants(id, class_id)
+  // と同じ列集合で結合し、ORM relation を DB 制約に一致させる（Codex R2 should_fix）。
+  // id は単独 PK なので結果は同一だが、整合ルールを relation 定義でも表現する。
   participant: one(tournamentParticipants, {
-    fields: [matches.participantId],
-    references: [tournamentParticipants.id],
+    fields: [matches.participantId, matches.classId],
+    references: [tournamentParticipants.id, tournamentParticipants.classId],
   }),
 }))
 
