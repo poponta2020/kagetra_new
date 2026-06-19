@@ -159,6 +159,74 @@ describe('materializeResultDraft', () => {
     expect(walkoverMatch.scoreDiff).toBeNull()
   })
 
+  it('相手解決は正規化キーで行う（空白・字体揺れを吸収）', async () => {
+    // 参加者は「田中太郎」、相手欄は「田中 太郎」(空白入り)。正規化キーで
+    // 解決するので opponentParticipantId が張られる（Codex R3 should_fix）。
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        {
+          className: 'D級',
+          grade: 'D',
+          sheetName: null,
+          participants: [
+            {
+              seqNo: 1,
+              name: '田中太郎',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              matches: [],
+            },
+            {
+              seqNo: 2,
+              name: '佐藤花子',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              // raw な相手名は空白入り。正規化すれば「田中太郎」に一致する。
+              matches: [
+                { round: 1, roundLabel: null, opponentName: '田中 太郎', scoreDiff: 4, result: 'win', status: 'normal' },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    const { tournamentId } = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: '正規化相手大会',
+        eventDate: null,
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, tournamentId))
+    const classId = classRows[0]!.id
+    const partRows = await testDb
+      .select()
+      .from(tournamentParticipants)
+      .where(eq(tournamentParticipants.classId, classId))
+    const tanaka = partRows.find((p) => p.name === '田中太郎')!
+    const sato = partRows.find((p) => p.name === '佐藤花子')!
+
+    const matchRows = await testDb.select().from(matches).where(eq(matches.classId, classId))
+    const satoMatch = matchRows.find((m) => m.participantId === sato.id)!
+    expect(satoMatch.opponentName).toBe('田中 太郎') // raw は保持
+    expect(satoMatch.opponentParticipantId).toBe(tanaka.id) // 正規化で解決
+  })
+
   it('get-or-create players: same (normalized_name, affiliation) reuses one player row', async () => {
     // Two classes, same person 田中太郎/札幌 plays in both → exactly 1 player row.
     const payload: ParsedResultPayload = {

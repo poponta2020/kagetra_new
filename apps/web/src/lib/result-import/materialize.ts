@@ -153,21 +153,25 @@ export async function materializeResultDraft(
         })
         .returning({ id: tournamentParticipants.id })
       participantIds[i] = participant!.id
-      const ids = nameToIds.get(p.name)
+      // Key the opponent-resolution map on the NORMALIZED name (same rule as
+      // player dedup) so "田中 太郎" vs "田中太郎" / 髙橋 vs 高橋 resolve to the
+      // same participant (Codex R3 should_fix: raw-name keys missed real-data
+      // spacing/字体 variants — opponent resolution is a core requirement).
+      const ids = nameToIds.get(normalizedName)
       if (ids) ids.push(participant!.id)
-      else nameToIds.set(p.name, [participant!.id])
+      else nameToIds.set(normalizedName, [participant!.id])
     }
 
     // Pass 2: Insert all matches. The participant's OWN id comes from the index
-    // (unambiguous); the opponent is resolved by name only when that name is
-    // unique within the class.
+    // (unambiguous); the opponent is resolved by NORMALIZED name only when that
+    // name is unique within the class.
     for (let i = 0; i < cls.participants.length; i++) {
       const p = cls.participants[i]!
       const participantId = participantIds[i]!
       for (const m of p.matches) {
         let opponentParticipantId: number | null = null
         if (m.opponentName != null) {
-          const ids = nameToIds.get(m.opponentName)
+          const ids = nameToIds.get(normalizePlayerName(m.opponentName))
           // Only resolve when exactly one participant carries that name;
           // duplicates (>1) or unknown → null (ambiguity made explicit).
           if (ids && ids.length === 1) opponentParticipantId = ids[0]!

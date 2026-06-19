@@ -239,6 +239,10 @@ export async function runResultParse(opts: {
             .update(resultDrafts)
             .set({
               status: 'parse_failed',
+              // Reset payload so a fatal re-import (e.g. attachment missing /
+              // cross-mail) doesn't leave a stale preview on a parse_failed
+              // draft — mirrors the normal parse_failed path (Codex R3 should_fix).
+              extractedPayload: sql`'{}'::jsonb`,
               parseError,
               parserVersion: PARSER_VERSION,
               updatedAt: sql`now()`,
