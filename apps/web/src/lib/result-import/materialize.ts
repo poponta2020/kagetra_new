@@ -89,24 +89,30 @@ export async function materializeResultDraft(
       // affiliation is preserved on the participant snapshot below.
       const normalizedAffiliation = p.affiliation ? normalizePlayerName(p.affiliation) : null
 
+      const playerWhere = and(
+        eq(players.normalizedName, normalizedName),
+        normalizedAffiliation === null
+          ? isNull(players.affiliation)
+          : eq(players.affiliation, normalizedAffiliation),
+      )
+
       const existingRows = await tx
         .select({ id: players.id })
         .from(players)
-        .where(
-          and(
-            eq(players.normalizedName, normalizedName),
-            normalizedAffiliation === null
-              ? isNull(players.affiliation)
-              : eq(players.affiliation, normalizedAffiliation),
-          ),
-        )
+        .where(playerWhere)
         .limit(1)
 
       let playerId: number
       if (existingRows.length > 0) {
         playerId = existingRows[0]!.id
       } else {
-        const [newPlayer] = await tx
+        // INSERT ... ON CONFLICT DO NOTHING so that a concurrent approval of a
+        // DIFFERENT draft sharing this player can't fail this tx with a UNIQUE
+        // violation on (normalized_name, affiliation) (Codex R2 should_fix —
+        // approveResultDraft's FOR UPDATE only serializes same-draft approvals,
+        // not two drafts that happen to share a player). On conflict we re-SELECT
+        // to pick up the row the other transaction committed.
+        const inserted = await tx
           .insert(players)
           .values({
             displayName: p.name,
@@ -116,8 +122,18 @@ export async function materializeResultDraft(
             affiliation: normalizedAffiliation,
             prefecture: p.prefecture,
           })
+          .onConflictDoNothing({ target: [players.normalizedName, players.affiliation] })
           .returning({ id: players.id })
-        playerId = newPlayer!.id
+        if (inserted.length > 0) {
+          playerId = inserted[0]!.id
+        } else {
+          const reselect = await tx
+            .select({ id: players.id })
+            .from(players)
+            .where(playerWhere)
+            .limit(1)
+          playerId = reselect[0]!.id
+        }
       }
 
       const [participant] = await tx

@@ -1493,15 +1493,12 @@ export async function rejectResultDraft(
   if (!trimmedReason) return { ok: false, error: '却下理由を入力してください' }
 
   try {
-    const draft = await db.query.resultDrafts.findFirst({
-      where: eq(resultDrafts.id, draftId),
-    })
-    if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
-    if (draft.status !== 'pending_review' && draft.status !== 'parse_failed') {
-      return { ok: false, error: `このドラフトは却下できない状態です (${draft.status})` }
-    }
-
-    await db
+    // Status-guarded atomic transition (Codex R2 blocker: an unguarded reject
+    // racing an approve could flip an already-approved draft to rejected while
+    // its tournaments/classes/participants/matches + mail=processed remain). The
+    // UPDATE only fires when the draft is still rejectable; the returning-row
+    // count tells us whether we won the transition.
+    const updated = await db
       .update(resultDrafts)
       .set({
         status: 'rejected',
@@ -1510,11 +1507,29 @@ export async function rejectResultDraft(
         rejectionReason: trimmedReason,
         updatedAt: sql`now()`,
       })
-      .where(eq(resultDrafts.id, draftId))
+      .where(
+        and(
+          eq(resultDrafts.id, draftId),
+          inArray(resultDrafts.status, ['pending_review', 'parse_failed']),
+        ),
+      )
+      .returning({ id: resultDrafts.id, messageId: resultDrafts.messageId })
+
+    if (updated.length === 0) {
+      // Nothing transitioned: either the draft doesn't exist or it already
+      // moved out of a rejectable state (e.g. approved by a concurrent request).
+      // Disambiguate with a follow-up read for a friendly message.
+      const current = await db.query.resultDrafts.findFirst({
+        where: eq(resultDrafts.id, draftId),
+        columns: { status: true },
+      })
+      if (!current) return { ok: false, error: '結果ドラフトが見つかりません' }
+      return { ok: false, error: `このドラフトは却下できない状態です (${current.status})` }
+    }
 
     revalidatePath('/admin/mail-inbox')
     revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
-    revalidatePath(`/admin/mail-inbox/mail/${draft.messageId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${updated[0]!.messageId}`)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
