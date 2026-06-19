@@ -80,7 +80,13 @@ export const mailWorkerJobStatusEnum = pgEnum('mail_worker_job_status', [
 // mail-inbox-mailer: mail_worker_jobs.kind で fetch / manual_extract を識別する。
 // fetch は cron/手動の IMAP 取得、manual_extract は inbox 詳細から起動する
 // 個別メール抽出ジョブ（payload.mail_message_id 必須）。
-export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', ['fetch', 'manual_extract'])
+// tournament-results: `result_parse` は結果 Excel を決定的パース（AI 不使用）して
+// result_drafts へ格納するジョブ（payload.mail_message_id / attachment_id 必須）。
+export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', [
+  'fetch',
+  'manual_extract',
+  'result_parse',
+])
 
 // event-line-broadcast
 export const lineChannelPurposeEnum = pgEnum('line_channel_purpose', [
@@ -133,3 +139,18 @@ export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_noti
 // mail-inbox-mailer (2026-06-07): `deferred` を廃止して 2 状態化。「保留」は
 // 処理せず放置することが暗黙の保留である、というモデルに統合。
 export const mailTriageStatusEnum = pgEnum('mail_triage_status', ['unprocessed', 'processed'])
+
+// tournament-results: 全国大会結果の取込ドラフト・試合勝敗。
+// result_draft_status: 結果 Excel 取込ドラフトの状態。tournament_draft_status の
+// 兄弟だが AI 状態がない代わりに決定的パース失敗の `parse_failed` を持つ。
+export const resultDraftStatusEnum = pgEnum('result_draft_status', [
+  'pending_review',
+  'approved',
+  'rejected',
+  'parse_failed',
+  'superseded',
+])
+// 1 試合 = 選手視点 1 行の勝敗。不戦勝も勝者視点では win。
+export const matchResultEnum = pgEnum('match_result', ['win', 'lose'])
+// normal=実戦（勝敗数に算入）/ walkover=不戦勝 / forfeit=棄権。集計は normal のみ。
+export const matchStatusEnum = pgEnum('match_status', ['normal', 'walkover', 'forfeit'])

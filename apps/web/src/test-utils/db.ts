@@ -18,10 +18,20 @@ export const testDb = drizzle(testPool, { schema })
 // ON DELETE SET NULL — would survive as orphaned rows). Listing both
 // explicitly + RESTART IDENTITY keeps inserted ids deterministic across tests
 // and isolates the trigger/run history between specs.
+//
+// tournament-results added the players/tournaments/result-drafts cluster. CASCADE
+// already follows their FKs (e.g. result_drafts via mail_messages), but list each
+// explicitly so RESTART IDENTITY resets their identity sequences too.
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
       tournament_drafts,
+      matches,
+      tournament_participants,
+      tournament_classes,
+      tournaments,
+      result_drafts,
+      players,
       mail_attachments,
       mail_messages,
       mail_worker_jobs,
