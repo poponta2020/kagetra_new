@@ -2489,3 +2489,14 @@
 ### 残 DoD → 完了 (2026-06-20)
 - 本番 migration 0026 **適用済**: PR #163 merge（`f3d2b4b`）の deploy run（id 27833734166）が `APPLY: 0026_third_charles_xavier` → `migrations applied` → `DEPLOY_RESULT=SUCCESS`。新規 6 テーブル＋enum が本番反映（UI 無しのため実機目視は不要、Task2-5 で使用）
 - **=> Task1 残作業なし**。次タスク: Task2 (#159 Excel パーサ中核＋fixture テスト)
+
+## 2026-06-20 tournament-results Task2-5 実装＋ship（PR #164）
+
+- **全5タスク完了**。Task2-5 を 1 ブランチ `feature/tournament-results-parser` にまとめ **PR #164 → merge `8e3ad35`**。親#157＋子#158-162 全クローズ。
+  - Task2 (#159) パーサ中核：`reader`(xlsx=exceljs / xls=libreoffice)＋ヘッダ署名駆動 `parser`＋`normalize`＋Zod `schema`。
+  - Task3 (#160) `result_parse` ジョブ＋`runResultParse`＋`triggerResultParse`＋mail 詳細「結果として取り込む」。既存 extract-only timer に相乗り。
+  - Task4 (#161) `/admin/mail-inbox/result-drafts/[id]` レビュー＋`approveResultDraft`/`rejectResultDraft`＋`lib/result-import/materialize.ts`（players get-or-create・opponent 解決の 1 tx 確定保存）。
+  - Task5 (#162) `/players` 検索＋`/players/[id]` 戦績＋BottomNav `戦績` タブ（会員共有）。勝敗は status=normal のみ集計。
+- **Codex auto-review-loop 5 ラウンド（全 high）で pass**：R1 3 blockers（worker↔UI 状態ポリシー不一致／approve check-then-act 競合／同名 participant 破損）＋1sf（affiliation lookup/save 不一致）→ R2 1 blocker（reject 競合）＋1sf（player upsert UNIQUE）→ R3 2sf（opponent raw 名解決／fatal 再取込 stale payload）→ R4 2 blockers（parser 同名 className データ欠落／onConflict target が NULLS NOT DISTINCT 非対応）＋1sf（round ブロック列探索）→ **R5 pass**。累計 ~790k tokens（500k cap 超過はユーザー承認の上で確認レビュー継続）。CI green。
+- 修正の要点：worker/Server Action の draft 状態ポリシー一致＋status ガード UPDATE、approve は `FOR UPDATE`、reject も原子 UPDATE、materialize は participant id を index 管理・opponent は正規化キー・player は `onConflictDoNothing()`+再 SELECT、parser は同名 className を MERGE・列探索を round ブロック内に限定。lint（unused mock／非 null 断言 optional chain／全角空白）も解消。
+- **残 DoD**：本番 auto-deploy 反映後の実機通し（取込→レビュー→承認→`/players` 戦績、iPhone 実機表示）。Task2-5 は新規 migration なし（0026 のみ）。
