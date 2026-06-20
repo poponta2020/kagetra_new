@@ -228,3 +228,47 @@ describe('parseResultExcel — all non-signature sheets', () => {
     expect(parseResultExcel([REPORT_SHEET])).toEqual([])
   })
 })
+
+// Codex R4 blocker: a class split across two sheets (same derived className)
+// must MERGE participants, not silently drop the second sheet.
+describe('parseResultExcel — duplicate className across sheets is merged', () => {
+  it('merges participants from both sheets (no data loss)', () => {
+    const sheetA = makeSheet('D1級その1', [
+      ['選手名', '相手', '枚数', '勝敗'],
+      ['選手A', '選手B', '5', '○'],
+      ['選手B', '選手A', '5', '×'],
+    ])
+    const sheetB = makeSheet('D1級その2', [
+      ['選手名', '相手', '枚数', '勝敗'],
+      ['選手C', '選手D', '3', '○'],
+      ['選手D', '選手C', '3', '×'],
+    ])
+    const classes = parseResultExcel([sheetA, sheetB])
+    expect(classes).toHaveLength(1)
+    expect(classes[0]!.className).toBe('D1')
+    expect(classes[0]!.participants.map((p) => p.name)).toEqual([
+      '選手A',
+      '選手B',
+      '選手C',
+      '選手D',
+    ])
+  })
+})
+
+// Codex R4 should_fix: a round block wider than 相手/枚数/勝敗 (here with a
+// 備考 column) must still read 勝敗 from its explicit header, not a fixed offset.
+describe('parseResultExcel — 4-column round block (相手/枚数/備考/勝敗)', () => {
+  it('reads 勝敗 from the header, not opCol+2 (備考)', () => {
+    const sheet = makeSheet('対戦結果表_E1級', [
+      ['選手名', '相手', '枚数', '備考', '勝敗'],
+      ['選手甲', '選手乙', '8', 'メモ', '○'],
+    ])
+    const classes = parseResultExcel([sheet])
+    expect(classes).toHaveLength(1)
+    const p = classes[0]!.participants.find((x) => x.name === '選手甲')!
+    expect(p.matches).toHaveLength(1)
+    expect(p.matches[0]?.result).toBe('win')
+    expect(p.matches[0]?.scoreDiff).toBe(8)
+    expect(p.matches[0]?.opponentName).toBe('選手乙')
+  })
+})

@@ -86,20 +86,27 @@ function detectSignatureRow(
     // Signature: ≥1 player name col, ≥1 opponent col, ≥1 result col
     if (playerNameCol < 0 || opponentCols.length < 1 || resultCols.length < 1) continue
 
-    // Build round triplets: for each opponentCol, find the next scoreCol and resultCol
+    // Build round triplets: for each opponentCol, find its scoreCol and resultCol
+    // WITHIN this round's column block only — i.e. up to the next opponentCol
+    // (Codex R4 should_fix: a whole-row scan could pick up the next round's
+    // 勝敗 header, and a fixed opCol+2 fallback misread layouts wider than
+    // 相手/枚数/勝敗 such as 相手/枚数/備考/勝敗). Explicit headers within the
+    // block win; fixed offsets are only a last-resort fallback.
     const rounds: RoundCols[] = []
     for (let i = 0; i < opponentCols.length; i++) {
       const opCol = opponentCols[i]!
-      // score col: either an explicit "枚数" header or opCol+1
-      const scoreCol =
-        cells
-          .slice(opCol + 1, opCol + 3)
-          .findIndex((s) => isScoreHeader(s)) >= 0
-          ? cells.slice(opCol + 1, opCol + 3).findIndex((s) => isScoreHeader(s)) + opCol + 1
-          : opCol + 1
-      // result col: either explicit "勝敗" header or opCol+2
-      const resultIdx = cells.findIndex((s, ci) => ci > opCol && isResultHeader(s))
-      const resultCol = resultIdx >= 0 && resultIdx <= opCol + 3 ? resultIdx : opCol + 2
+      const blockEnd = i + 1 < opponentCols.length ? opponentCols[i + 1]! : cells.length
+
+      let scoreCol = -1
+      let resultCol = -1
+      for (let c = opCol + 1; c < blockEnd; c++) {
+        const s = cells[c]!
+        if (scoreCol < 0 && isScoreHeader(s)) scoreCol = c
+        if (resultCol < 0 && isResultHeader(s)) resultCol = c
+      }
+      // Fallback to the conventional 相手/枚数/勝敗 offsets when a header is absent.
+      if (scoreCol < 0) scoreCol = opCol + 1
+      if (resultCol < 0) resultCol = opCol + 2
 
       // Extract round label from the row above (if any), nearest non-null before opCol
       let roundLabel: string | null = null
@@ -335,20 +342,26 @@ function deriveClassNameFromSheet(sheet: SheetData): string | null {
  * Skips sheets without the universal signature (大会報告, 入賞者, etc.).
  */
 export function parseResultExcel(sheets: SheetData[]): ParsedClass[] {
-  const classes: ParsedClass[] = []
-  const seenClassNames = new Set<string>()
+  // Same className across multiple sheets = one class split across sheets — MERGE
+  // its participants rather than dropping the later sheet (Codex R4 blocker: a
+  // className-keyed Set silently discarded the second sheet's participants/
+  // matches, which would then be lost in the materialized tournament). grade /
+  // sheetName keep the first sheet's values; insertion order is preserved.
+  const byClassName = new Map<string, ParsedClass>()
+  const order: string[] = []
 
   for (const sheet of sheets) {
     const parsed = parseSheet(sheet)
     for (const cls of parsed) {
-      // De-duplicate by className in case the same class appears in multiple sheets
-      const key = cls.className
-      if (!seenClassNames.has(key)) {
-        seenClassNames.add(key)
-        classes.push(cls)
+      const existing = byClassName.get(cls.className)
+      if (existing) {
+        existing.participants.push(...cls.participants)
+      } else {
+        byClassName.set(cls.className, cls)
+        order.push(cls.className)
       }
     }
   }
 
-  return classes
+  return order.map((name) => byClassName.get(name)!)
 }

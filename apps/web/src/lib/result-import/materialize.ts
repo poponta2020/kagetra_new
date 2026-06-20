@@ -122,7 +122,13 @@ export async function materializeResultDraft(
             affiliation: normalizedAffiliation,
             prefecture: p.prefecture,
           })
-          .onConflictDoNothing({ target: [players.normalizedName, players.affiliation] })
+          // No target: a column-list arbiter doesn't reliably resolve a
+          // NULLS NOT DISTINCT unique index (so a null-affiliation player created
+          // concurrently by another draft could still UNIQUE-violate). Bare
+          // ON CONFLICT DO NOTHING catches any unique conflict — players has only
+          // the (normalized_name, affiliation) unique constraint for inserts (id
+          // is generated) — and the re-SELECT below picks up the winner's row.
+          .onConflictDoNothing()
           .returning({ id: players.id })
         if (inserted.length > 0) {
           playerId = inserted[0]!.id
