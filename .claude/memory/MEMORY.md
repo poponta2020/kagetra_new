@@ -4,6 +4,8 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [過去結果 一括投入の設計方針](project_bulk_result_import_design.md) — 開催(名+日付)×級でidentity・人確定manifest・訂正版優先dedup・コピーDBリハーサル+冪等+read-back。年2回同級は1大会に束ねるとMERGEで消えるので開催単位行。実装未着手(2026-06-21)
+- [同姓同名リスク受容の確定](project_homonym_risk_accepted.md) — 同姓同名は区別しない/所属会も使わない(変わるため)。区別の悪影響>同一視の影響。participant生データ残るので可逆
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 - [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
@@ -33,12 +35,14 @@
 - [tournament-results 実装 全完了](impl_tournament_results.md) — **全5タスク SHIPPED**。Task1 PR#163(`f3d2b4b`)、**Task2-5 PR#164 merge `8e3ad35`(2026-06-20)**、親#157＋子#158-162 全クローズ。Codex auto-review **5R で pass**(~790k tokens)。取込/承認/却下/materialize/パーサの並行・整合性決定を記録(worker↔UI 状態ポリシー一致+status ガード/approve は FOR UPDATE/reject も原子 UPDATE/participant id は index・opponent は正規化キー/player upsert は onConflictDoNothing()+再SELECT/parser は同名 className MERGE・round ブロック内列探索)。残=本番実機通し
 
 ## Reference
+- [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
 - [ローカル動作確認セットアップ](reference_local_dev_setup.md) — docs/dev/local-dev-setup.md がエントリーポイント、env 配置・Cookie 注入 vs 実 LINE・mail-worker 実 API テスト・コスト目安
 - [旧 kagetra インフラ構成 (Lightsail + Route 53)](reference_legacy_kagetra_infra.md) — `hokudaicarta.com` の DNS は Lightsail DNS ゾーン (裏で Route 53)、お名前.com Navi の DNS 設定では効かない
 - [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
 
 ## Feedback
+- [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中、周辺整備に勝手に逸れない。2026-06-21に2回実害(scripts移植/DB閲覧環境)
 - [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等
 - [メモリ運用ルール](feedback_memory_management.md) — 何を書く/書かない、セッション終了時の同期手順、肥大化防止
 - [Auth.js v5 JWT strategy の user.id 罠](feedback_auth_js_jwt_strategy_user_id.md) — adapter なしだと毎回ランダム UUID。OAuth sub は account.providerAccountId から
