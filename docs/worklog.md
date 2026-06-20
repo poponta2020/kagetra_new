@@ -2500,3 +2500,10 @@
 - **Codex auto-review-loop 5 ラウンド（全 high）で pass**：R1 3 blockers（worker↔UI 状態ポリシー不一致／approve check-then-act 競合／同名 participant 破損）＋1sf（affiliation lookup/save 不一致）→ R2 1 blocker（reject 競合）＋1sf（player upsert UNIQUE）→ R3 2sf（opponent raw 名解決／fatal 再取込 stale payload）→ R4 2 blockers（parser 同名 className データ欠落／onConflict target が NULLS NOT DISTINCT 非対応）＋1sf（round ブロック列探索）→ **R5 pass**。累計 ~790k tokens（500k cap 超過はユーザー承認の上で確認レビュー継続）。CI green。
 - 修正の要点：worker/Server Action の draft 状態ポリシー一致＋status ガード UPDATE、approve は `FOR UPDATE`、reject も原子 UPDATE、materialize は participant id を index 管理・opponent は正規化キー・player は `onConflictDoNothing()`+再 SELECT、parser は同名 className を MERGE・列探索を round ブロック内に限定。lint（unused mock／非 null 断言 optional chain／全角空白）も解消。
 - **残 DoD**：本番 auto-deploy 反映後の実機通し（取込→レビュー→承認→`/players` 戦績、iPhone 実機表示）。Task2-5 は新規 migration なし（0026 のみ）。
+
+## 2026-06-20 大会結果パーサ 出場者DB形式バグ修正（PR #165）
+- **症状**：愛知大会取込で結果承認画面が全員ひらがな・所属ほぼ空（ユーザー報告）。
+- **原因**：出場者DB形式（伊助）は `選手名`+`選手名ふりがな`・`所属会`+`所属会2`(空) と同種ヘッダ2列併存。parser のヘッダ検出が last-match-wins で後者採用 → 氏名=ふりがな・所属=空・相手解決0%（自分ひらがな vs 相手漢字で normalizePlayerName 不一致）。docs/調査用 実票42件中**13件**（全日本選手権/大阪/静岡/広島/桑名/信州/富山/奈良/酒田 等）で発生、正常28件は単一列形式で無影響。
+- **修正**：`isPlayerNameHeader` をふりがな列除外＋`playerNameCol`/補助列を first-match-wins（apps/mail-worker/src/result-import/parser.ts）。出場者DB 重複列の回帰テスト4本追加（parser.test.ts）。既存フィクスチャは重複列が無くバグを取り逃していた。
+- **検証**：実票42件を実 parser に通す before/after ハーネス（Python+Node type-strip, c:\tmp 内・git外）で 異常13→0・正常不変・相手解決0→100%。result-import 53テスト通過・型チェック OK。Codex auto-review **1R pass**（high, 43k tokens）。CI green。**PR #165 merge `cb8589f`**、Issue 未起票（ユーザー指示）。
+- **残**：①本番反映後に愛知ドラフト却下→再取込で正データ化（DB無傷）。②**熊本票（大会報告/詳報シート）は署名検出されず0件取込の別バグ＝未対応**（別 issue 候補）。
