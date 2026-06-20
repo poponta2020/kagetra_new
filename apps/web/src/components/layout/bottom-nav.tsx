@@ -22,6 +22,9 @@ const TABS: readonly Tab[] = [
   { id: 'home', label: 'ホーム', href: '/dashboard', matches: ['/dashboard'] },
   { id: 'events', label: 'イベント', href: '/events', matches: ['/events'] },
   { id: 'schedule', label: '予定', href: '/schedule', matches: ['/schedule'] },
+  // tournament-results (Task5): 選手戦績の検索・閲覧。全ログインユーザー向け
+  // （会員でも見える初の専用タブ）。/players 配下を active 判定。
+  { id: 'players', label: '戦績', href: '/players', matches: ['/players'] },
   {
     id: 'members',
     label: '会員',

@@ -9,10 +9,13 @@ import { db } from '@/lib/db'
 import {
   eventGroups,
   events,
+  mailAttachments,
   mailMessages,
   mailWorkerJobs,
+  resultDrafts,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
+import { materializeResultDraft } from '@/lib/result-import/materialize'
 import {
   eventFormSchema,
   extractEventFormData,
@@ -1299,4 +1302,236 @@ export async function triggerMailFetch(
 
   revalidatePath('/admin/mail-inbox')
   return { ok: true, jobId: job.id }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// tournament-results Task3: 結果 Excel 取込トリガ
+//
+// mail-inbox 詳細の「結果として取り込む」ボタンから呼ばれる。
+// .xls/.xlsx 添付を指定して result_parse ジョブをキューに積む。
+// mail-worker の extract-only timer（30 秒間隔）が拾って runResultParse を実行。
+//
+// 既存 result_draft の状態によるガード:
+//   pending_review → エラー「承認待ちのドラフトがあります」
+//   approved       → エラー「承認済みです」
+//   parse_failed   → 再試行可（再キュー可）
+//   rejected       → 再試行可（再キュー可）
+//   superseded     → 再試行可（再キュー可）
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function triggerResultParse(
+  mailId: number,
+  attachmentId: number,
+): Promise<{ ok: true; jobId: number } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Verify attachment belongs to this mail and is an Excel file.
+      const attRows = await tx
+        .select({
+          id: mailAttachments.id,
+          mailMessageId: mailAttachments.mailMessageId,
+          filename: mailAttachments.filename,
+        })
+        .from(mailAttachments)
+        .where(eq(mailAttachments.id, attachmentId))
+        .limit(1)
+      if (attRows.length === 0) throw new Error('添付ファイルが見つかりません')
+      const att = attRows[0]!
+      if (att.mailMessageId !== mailId) {
+        throw new Error('指定された添付ファイルはこのメールに属していません')
+      }
+      const lower = att.filename.toLowerCase()
+      if (!lower.endsWith('.xls') && !lower.endsWith('.xlsx')) {
+        throw new Error('Excel ファイル (.xls/.xlsx) のみ取り込めます')
+      }
+
+      // Check existing result_draft state.
+      const existingDraft = await tx
+        .select({ id: resultDrafts.id, status: resultDrafts.status })
+        .from(resultDrafts)
+        .where(eq(resultDrafts.messageId, mailId))
+        .limit(1)
+      if (existingDraft.length > 0) {
+        const ds = existingDraft[0]!.status
+        if (ds === 'pending_review') {
+          throw new Error('既に承認待ちの結果ドラフトがあります')
+        }
+        if (ds === 'approved') {
+          throw new Error('既に承認済みの結果ドラフトがあります')
+        }
+        // parse_failed / rejected / superseded → allow re-queue
+      }
+
+      const insertedJob = await tx
+        .insert(mailWorkerJobs)
+        .values({
+          requestedByUserId: session.user.id,
+          status: 'pending',
+          kind: 'result_parse',
+          payload: { mail_message_id: mailId, attachment_id: attachmentId },
+        })
+        .returning({ id: mailWorkerJobs.id })
+      return { jobId: insertedJob[0]!.id }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+    return { ok: true, jobId: result.jobId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tournament-results Task4: レビュー承認/却下
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function approveResultDraft(
+  draftId: number,
+  formData: FormData,
+): Promise<{ ok: true; tournamentId: number } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  const tournamentName = (formData.get('tournamentName') as string | null)?.trim()
+  if (!tournamentName) return { ok: false, error: '大会名を入力してください' }
+
+  const eventDateRaw = ((formData.get('eventDate') as string | null) ?? '').trim() || null
+  const venue = ((formData.get('venue') as string | null) ?? '').trim() || null
+
+  const { ParsedResultPayloadSchema } = await import(
+    '@kagetra/mail-worker/result-import/schema'
+  )
+
+  try {
+    // Fetch + status-check + state transition must be atomic. Two concurrent
+    // approvals could otherwise both read pending_review outside the tx and both
+    // materialize, duplicating tournaments/classes/participants/matches and
+    // orphaning the first tournament (Codex R1 blocker). We lock the draft row
+    // with FOR UPDATE and re-check status inside the tx, so only the first
+    // request claims it; the second sees the transitioned status and bails.
+    const result = await db.transaction(
+      async (
+        tx,
+      ): Promise<
+        | { ok: false; error: string }
+        | { ok: true; tournamentId: number; messageId: number }
+      > => {
+        const lockedRows = await tx
+          .select({
+            id: resultDrafts.id,
+            status: resultDrafts.status,
+            messageId: resultDrafts.messageId,
+            extractedPayload: resultDrafts.extractedPayload,
+          })
+          .from(resultDrafts)
+          .where(eq(resultDrafts.id, draftId))
+          .for('update')
+        const draft = lockedRows[0]
+        if (!draft) return { ok: false, error: '結果ドラフトが見つかりません' }
+        if (draft.status !== 'pending_review') {
+          return { ok: false, error: `このドラフトは承認できない状態です (${draft.status})` }
+        }
+
+        const parsed = ParsedResultPayloadSchema.safeParse(draft.extractedPayload)
+        if (!parsed.success) {
+          return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
+        }
+
+        const { tournamentId } = await materializeResultDraft(tx, parsed.data, {
+          tournamentName,
+          eventDate: eventDateRaw,
+          venue,
+          sourceResultDraftId: draftId,
+        })
+
+        await tx
+          .update(resultDrafts)
+          .set({
+            status: 'approved',
+            tournamentId,
+            approvedByUserId: session.user.id,
+            approvedAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(resultDrafts.id, draftId))
+
+        await tx
+          .update(mailMessages)
+          .set({
+            triageStatus: 'processed',
+            triagedAt: sql`now()`,
+            triagedByUserId: session.user.id,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(mailMessages.id, draft.messageId))
+
+        return { ok: true, tournamentId, messageId: draft.messageId }
+      },
+    )
+
+    if (!result.ok) return { ok: false, error: result.error }
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${result.messageId}`)
+    return { ok: true, tournamentId: result.tournamentId }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function rejectResultDraft(
+  draftId: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  const trimmedReason = reason.trim()
+  if (!trimmedReason) return { ok: false, error: '却下理由を入力してください' }
+
+  try {
+    // Status-guarded atomic transition (Codex R2 blocker: an unguarded reject
+    // racing an approve could flip an already-approved draft to rejected while
+    // its tournaments/classes/participants/matches + mail=processed remain). The
+    // UPDATE only fires when the draft is still rejectable; the returning-row
+    // count tells us whether we won the transition.
+    const updated = await db
+      .update(resultDrafts)
+      .set({
+        status: 'rejected',
+        rejectedByUserId: session.user.id,
+        rejectedAt: sql`now()`,
+        rejectionReason: trimmedReason,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(resultDrafts.id, draftId),
+          inArray(resultDrafts.status, ['pending_review', 'parse_failed']),
+        ),
+      )
+      .returning({ id: resultDrafts.id, messageId: resultDrafts.messageId })
+
+    if (updated.length === 0) {
+      // Nothing transitioned: either the draft doesn't exist or it already
+      // moved out of a rejectable state (e.g. approved by a concurrent request).
+      // Disambiguate with a follow-up read for a friendly message.
+      const current = await db.query.resultDrafts.findFirst({
+        where: eq(resultDrafts.id, draftId),
+        columns: { status: true },
+      })
+      if (!current) return { ok: false, error: '結果ドラフトが見つかりません' }
+      return { ok: false, error: `このドラフトは却下できない状態です (${current.status})` }
+    }
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${updated[0]!.messageId}`)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }

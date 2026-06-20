@@ -12,7 +12,9 @@
     "./classify/llm/anthropic": "./src/classify/llm/anthropic.ts",
     "./classify/llm/types": "./src/classify/llm/types.ts",
     "./classify/schema": "./src/classify/schema.ts",
-    "./classify/title": "./src/classify/title.ts"
+    "./classify/title": "./src/classify/title.ts",
+    "./result-import/schema": "./src/result-import/schema.ts",
+    "./result-import/normalize": "./src/result-import/normalize.ts"
   },
   "scripts": {
     "start": "tsx src/index.ts",
@@ -35,6 +37,7 @@
     "pdfjs-dist": "^5.6.205",
     "pg": "^8.13.0",
     "web-push": "^3.6.7",
+    "exceljs": "^4.4.0",
     "word-extractor": "^1.0.4",
     "zod": "^4.3.6"
   },

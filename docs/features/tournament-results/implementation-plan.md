@@ -29,7 +29,7 @@ status: completed
 - **対応Issue:** #158
 
 ### タスク2: パーサ中核＋fixtureテスト（最重要・最難）
-- [ ] 完了
+- [x] 完了
 - **概要:** Excel リーダー＋ヘッダ署名駆動パーサ＋正規化を純関数で実装し、42 サンプルで検証。
 - **詳細:**
   - リーダー：`.xlsx`=`exceljs`、`.xls`=libreoffice で `.xlsx` 変換後に読む（脆弱な `xlsx` lib 不使用。fods 経由も可・PR 内で最終選定）。出力＝シート→セルグリッド。
@@ -44,7 +44,7 @@ status: completed
 - **対応Issue:** #159
 
 ### タスク3: result_parse ジョブ＋取込トリガ＋ボタン
-- [ ] 完了
+- [x] 完了
 - **概要:** mail-worker に取込ジョブ、web に「結果として取り込む」導線を追加。
 - **詳細:**
   - mail-worker：job kind `result_parse`（payload=`{mail_message_id, attachment_id}`）、`runResultParse`（reader+parser→`result_drafts` 格納 pending_review/parse_failed→Web Push）。既存 extract-only timer に相乗り。
@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #160
 
 ### タスク4: レビューUI＋承認/却下＋確定保存
-- [ ] 完了
+- [x] 完了
 - **概要:** 結果ドラフトのレビュー画面と、承認時の確定保存（名寄せ・相手解決込み）。
 - **詳細:**
   - レビュー UI：大会名編集（件名/ファイル名プリフィル）・開催日/会場任意・級/選手/試合プレビュー・承認/却下。
@@ -74,7 +74,7 @@ status: completed
 - **対応Issue:** #161
 
 ### タスク5: 選手戦績ページ（会員向け）
-- [ ] 完了
+- [x] 完了
 - **概要:** 会員向け。選手名検索→players引当→全出場（大会/級/順位/各試合）表示。勝敗は status=normal 集計。
 - **詳細:**
   - 検索（`players.normalized_name`）→ `participant.player_id` で全出場 → 大会/級/順位/各試合（相手/枚数/勝敗）。

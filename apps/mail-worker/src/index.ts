@@ -11,9 +11,11 @@ import {
   markJobDone,
   markJobFailed,
   parseManualExtractPayload,
+  parseResultParsePayload,
   recoverStaleClaimedJobs,
   STALE_CLAIM_RECOVERY_MS_EXTRACT,
 } from './jobs.js'
+import { runResultParse } from './result-import/run.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
@@ -331,11 +333,11 @@ async function runExtractOnlyDispatcher(opts: {
   // 専用復旧し、他 kind (fetch) は fetch dispatcher 側に任せる。
   await recoverStaleClaimedJobs(db, {
     staleAfterMs: STALE_CLAIM_RECOVERY_MS_EXTRACT,
-    kinds: ['manual_extract'],
+    kinds: ['manual_extract', 'result_parse'],
   }).then(
     (recovered) => {
       if (recovered > 0) {
-        opts.log.warn('recovered stale claimed manual_extract jobs', { recovered })
+        opts.log.warn('recovered stale claimed extract/result_parse jobs', { recovered })
       }
     },
     (err) => {
@@ -345,7 +347,7 @@ async function runExtractOnlyDispatcher(opts: {
     },
   )
 
-  const job = await claimNextJob(db, { kinds: ['manual_extract'] }).catch((err) => {
+  const job = await claimNextJob(db, { kinds: ['manual_extract', 'result_parse'] }).catch((err) => {
     opts.log.warn('claimNextJob (extract-only) failed', {
       err: err instanceof Error ? err.message : String(err),
     })
@@ -353,31 +355,48 @@ async function runExtractOnlyDispatcher(opts: {
   })
 
   if (!job) {
-    opts.log.info('extract-only: no pending manual_extract jobs')
+    opts.log.info('extract-only: no pending manual_extract/result_parse jobs')
     return
   }
 
-  opts.log.info('claimed manual_extract job', {
+  opts.log.info('claimed extract-only job', {
     jobId: job.id,
+    kind: job.kind,
     requestedByUserId: job.requestedByUserId,
   })
 
   try {
-    const { mail_message_id: mailMessageId } = parseManualExtractPayload(job.payload)
-    const result = await runManualExtract({
-      mailMessageId,
-      llmExtractor: opts.llmExtractor,
-      triggeredByUserId: job.requestedByUserId,
-      webPushConfig: opts.webPushConfig,
-      logger: opts.log,
-    })
-    await markJobDone(db, job.id, result.runId)
+    if (job.kind === 'result_parse') {
+      const { mail_message_id: mailMessageId, attachment_id: attachmentId } =
+        parseResultParsePayload(job.payload)
+      const result = await runResultParse({
+        mailMessageId,
+        attachmentId,
+        triggeredByUserId: job.requestedByUserId,
+        webPushConfig: opts.webPushConfig,
+        logger: opts.log,
+      })
+      await markJobDone(db, job.id, result.runId)
 
-    console.log('manual_extract result:', result)
+      console.log('result_parse result:', result)
+    } else {
+      // 'manual_extract'
+      const { mail_message_id: mailMessageId } = parseManualExtractPayload(job.payload)
+      const result = await runManualExtract({
+        mailMessageId,
+        llmExtractor: opts.llmExtractor,
+        triggeredByUserId: job.requestedByUserId,
+        webPushConfig: opts.webPushConfig,
+        logger: opts.log,
+      })
+      await markJobDone(db, job.id, result.runId)
+
+      console.log('manual_extract result:', result)
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await markJobFailed(db, job.id, message, null).catch((markErr) => {
-      opts.log.warn('markJobFailed (manual_extract) also failed', {
+      opts.log.warn('markJobFailed (extract-only) also failed', {
         jobId: job.id,
         err: markErr instanceof Error ? markErr.message : String(markErr),
       })
