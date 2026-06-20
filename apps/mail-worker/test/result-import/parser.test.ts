@@ -272,3 +272,46 @@ describe('parseResultExcel — 4-column round block (相手/枚数/備考/勝敗
     expect(p.matches[0]?.opponentName).toBe('選手乙')
   })
 })
+
+/**
+ * 伊助 出場者DB — REAL layout carrying BOTH 選手名 + 選手名ふりがな AND 所属会 + 所属会2.
+ * Regression for the duplicate-column bug: last-match-wins picked 選手名ふりがな (→ every
+ * name imported as hiragana) and 所属会2 (usually blank → empty affiliation), which ALSO
+ * broke opponent resolution downstream (hiragana own-name vs kanji opponent-name never
+ * matched). 13 of 42 surveyed workbooks hit this. 所属会2 is intentionally blank to match
+ * real files. The pre-fix MULTI_CLASS_SHEET fixture lacked these duplicate columns, so it
+ * never caught the bug.
+ */
+const SHUSSHA_DB_DUP_COLS_SHEET: SheetData = makeSheet('出場者DB', [
+  ['出場者DB', null, null, null, null, null, null, null, null, null, null, null, null, null],
+  [null, null, null, null, null, null, null, null, '1回戦', null, null, '2回戦', null, null],
+  ['No.', '級', 'クラス', '段位', '選手名', '選手名ふりがな', '所属会', '所属会2', '相手', '枚数', '勝敗', '相手', '枚数', '勝敗'],
+  ['1', 'A級', 'A1', '5段', '漢字太郎', 'かんじたろう', '東京会', null, '漢字次郎', '7', '○', '漢字三郎', '3', '×'],
+  ['2', 'A級', 'A2', '4段', '漢字次郎', 'かんじじろう', '大阪会', null, '漢字太郎', '9', '×', null, null, null],
+])
+
+describe('parseResultExcel — 出場者DB with 選手名ふりがな + 所属会2 (regression)', () => {
+  const classes = parseResultExcel([SHUSSHA_DB_DUP_COLS_SHEET])
+  const p1 = classes[0]!.participants[0]!
+
+  it('uses the kanji 選手名 column, NOT 選手名ふりがな', () => {
+    expect(p1.name).toBe('漢字太郎')
+    expect(p1.name).not.toBe('かんじたろう')
+  })
+
+  it('captures 選手名ふりがな as nameKana (no longer dropped)', () => {
+    expect(p1.nameKana).toBe('かんじたろう')
+  })
+
+  it('uses 所属会 (primary), NOT the blank 所属会2', () => {
+    expect(p1.affiliation).toBe('東京会')
+  })
+
+  it('keeps opponent names as kanji that match participant names (resolvable downstream)', () => {
+    const p2 = classes[1]!.participants[0]!
+    expect(p2.name).toBe('漢字次郎')
+    // own name (kanji) and opponent name (kanji) are in the same script → materialize
+    // can normalize-match them; pre-fix the own name was hiragana and never matched.
+    expect(p1.matches[0]?.opponentName).toBe('漢字次郎')
+  })
+})

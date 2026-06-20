@@ -45,7 +45,10 @@ interface ColMap {
  * Handles: 「選手名」「氏名」「名前」「参加者」.
  */
 function isPlayerNameHeader(v: string): boolean {
-  return /選手名|氏名|名前/.test(v)
+  // Exclude furigana/reading columns (e.g.「選手名ふりがな」「氏名カナ」) which also contain
+  // 選手名/氏名: the 出場者DB layout places 選手名 and 選手名ふりがな side by side, and
+  // last-match-wins otherwise picked the kana column → every name imported as hiragana.
+  return /選手名|氏名|名前/.test(v) && !/ふりがな|フリガナ|カナ|読み|かな/.test(v)
 }
 
 function isOpponentHeader(v: string): boolean {
@@ -78,7 +81,8 @@ function detectSignatureRow(
 
     for (let c = 0; c < cells.length; c++) {
       const s = cells[c]!
-      if (isPlayerNameHeader(s)) playerNameCol = c
+      // First-match-wins: keep the first 選手名/氏名 column (kanji), not a later duplicate.
+      if (playerNameCol < 0 && isPlayerNameHeader(s)) playerNameCol = c
       else if (isOpponentHeader(s)) opponentCols.push(c)
       else if (isResultHeader(s)) resultCols.push(c)
     }
@@ -154,18 +158,22 @@ function detectSignatureRow(
       rounds,
     }
 
+    // Auxiliary columns. Each detector takes the FIRST matching column (guarded by
+    // `=== null`). Some 出場者DB layouts carry duplicate columns such as 所属会 + 所属会2,
+    // where 所属会2 is usually blank — last-match-wins picked the blank one and dropped
+    // every affiliation. First-match-wins keeps the primary column.
     for (let c = 0; c < cells.length; c++) {
       const s = cells[c]!
       if (c === playerNameCol) continue
-      if (/^no\.?$/i.test(s) || s === '番号' || s === 'No') colMap.seqNoCol = c
-      else if (/ふりがな|フリガナ|読み|かな/.test(s)) colMap.kanaCol = c
-      else if (/所属/.test(s)) colMap.affiliationCol = c
-      else if (/都道府県/.test(s)) colMap.prefectureCol = c
-      else if (/段位|段(?!位)/.test(s)) colMap.danCol = c
-      else if (/会員番号/.test(s)) colMap.memberNoCol = c
-      else if (/順位/.test(s)) colMap.rankCol = c
-      else if (/^[A-E]?級$/.test(s) || s === '級') colMap.gradeCol = c
-      else if (/^クラス$|^class$/i.test(s)) colMap.classCol = c
+      if (colMap.seqNoCol === null && (/^no\.?$/i.test(s) || s === '番号' || s === 'No')) colMap.seqNoCol = c
+      else if (colMap.kanaCol === null && /ふりがな|フリガナ|読み|かな/.test(s)) colMap.kanaCol = c
+      else if (colMap.affiliationCol === null && /所属/.test(s)) colMap.affiliationCol = c
+      else if (colMap.prefectureCol === null && /都道府県/.test(s)) colMap.prefectureCol = c
+      else if (colMap.danCol === null && /段位|段(?!位)/.test(s)) colMap.danCol = c
+      else if (colMap.memberNoCol === null && /会員番号/.test(s)) colMap.memberNoCol = c
+      else if (colMap.rankCol === null && /順位/.test(s)) colMap.rankCol = c
+      else if (colMap.gradeCol === null && (/^[A-E]?級$/.test(s) || s === '級')) colMap.gradeCol = c
+      else if (colMap.classCol === null && /^クラス$|^class$/i.test(s)) colMap.classCol = c
     }
 
     return { headerRowIdx: rowIdx, colMap }
