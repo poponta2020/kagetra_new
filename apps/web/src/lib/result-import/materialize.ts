@@ -18,7 +18,9 @@ export interface MaterializeOpts {
   tournamentName: string
   eventDate: string | null
   venue: string | null
-  sourceResultDraftId: number
+  // null when materialized outside the mail-draft flow (e.g. the bulk past-results
+  // import script): there is no source result_draft row. The DB column is nullable.
+  sourceResultDraftId: number | null
 }
 
 export interface MaterializeResult {
