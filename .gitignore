@@ -13,3 +13,5 @@ test-results/
 playwright-report/
 playwright/.auth/
 .claude/settings.local.json
+docs/調査用/
+scripts/大会結果取り込み/
