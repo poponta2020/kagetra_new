@@ -5,6 +5,8 @@
 
 ## Project
 - [過去結果 一括投入の設計方針](project_bulk_result_import_design.md) — 開催(名+日付)×級でidentity・人確定manifest・訂正版優先dedup・コピーDBリハーサル+冪等+read-back。年2回同級は1大会に束ねるとMERGEで消えるので開催単位行。実装未着手(2026-06-21)
+- [かるた協会 会員ページ=結果の正統ソース(Excel/HTML2形式)](project_karuta_member_result_source.md) — 結果は会員ページのみ。各大会 **Excelか HTMLテーブルの排他2形式で両方とも全対戦データ**(HTMLは級タブ→tournaments/{id}.html、入賞者のみではない=前回の誤りを訂正)。**全期間2010-2026 harvest完了**(c:\tmp、git外)。静的2010-2021=**Excel375＋HTML4510ページ(641大会)**(harvest.py/harvest_html.py、漏れ3件監査回収)。新WP2022-2026=**member-download585**(xlsx434/xls127/pdf24、harvest_new*.py、開催日100%)。整合性検証済(normalizePlayerNameが空白/異体字差吸収・二重取込なし)。**残=W2 Excel署名拡張・6414.xls修復・全コーパスparse→manifest**(HTML表パーサは W1 ship済 [[impl_result_html_parser]])。開催日はExcel「大会報告」シート/HTML見出し/新WP要項表
+- [HTML結果パーサ(parseResultHtml) W1 SHIPPED](impl_result_html_parser.md) — static HTML 4510ページを既存ParsedClass[]契約へ正規化。PR#167 merge `8c3ed1e`。round-cell共通化(W2再利用)・不戦壊れHTMLは全td走査で列ずれ防止・相手名はスコアtokenのみ除去。実回帰=例外0/大会名・開催日100%/相手解決99.9%。Codex3R(R3 pass)・CI green
 - [同姓同名リスク受容の確定](project_homonym_risk_accepted.md) — 同姓同名は区別しない/所属会も使わない(変わるため)。区別の悪影響>同一視の影響。participant生データ残るので可逆
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 - [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
@@ -42,6 +44,7 @@
 - [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
 
 ## Feedback
+- [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
 - [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中、周辺整備に勝手に逸れない。2026-06-21に2回実害(scripts移植/DB閲覧環境)
 - [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等
 - [メモリ運用ルール](feedback_memory_management.md) — 何を書く/書かない、セッション終了時の同期手順、肥大化防止

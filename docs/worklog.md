@@ -2507,3 +2507,15 @@
 - **修正**：`isPlayerNameHeader` をふりがな列除外＋`playerNameCol`/補助列を first-match-wins（apps/mail-worker/src/result-import/parser.ts）。出場者DB 重複列の回帰テスト4本追加（parser.test.ts）。既存フィクスチャは重複列が無くバグを取り逃していた。
 - **検証**：実票42件を実 parser に通す before/after ハーネス（Python+Node type-strip, c:\tmp 内・git外）で 異常13→0・正常不変・相手解決0→100%。result-import 53テスト通過・型チェック OK。Codex auto-review **1R pass**（high, 43k tokens）。CI green。**PR #165 merge `cb8589f`**、Issue 未起票（ユーザー指示）。
 - **残**：①本番反映後に愛知ドラフト却下→再取込で正データ化（DB無傷）。②**熊本票（大会報告/詳報シート）は署名検出されず0件取込の別バグ＝未対応**（別 issue 候補）。
+
+## 2026-06-23 bulk-result-import W1: HTML結果パーサ実装＋ship（PR #167）
+
+- **過去結果一括投入の取込フェーズ W1 = HTML結果パーサ** を実装・ship。計画書 `docs/features/bulk-result-import/parser-implementation-plan.md`（W1/W2/W3/Phase3 の phased plan、Phase0 Documentation Discovery 込み）。
+- **新規 `apps/mail-worker/src/result-import/html-parser.ts`**：`parseResultHtml(html) → {tournamentName, eventDate('YYYY-MM-DD'), classes: ParsedClass[]}`。node-html-parser で `table.tournament_tree` 解析。級=`li.TabbedPanelsTabSelected` / 大会名=`h2` / 開催日=見出し`(YYYY年MM月DD日)`。既存 `parseResultExcel` と同一 `ParsedClass[]` 契約。
+- **新規 `round-cell.ts`**：共通 `parseRoundCellText`（マーク/枚数/相手を種別抽出・位置非依存）。**W2(positional Excel)で再利用予定**。
+- 不変：`normalize.ts`/`materialize.ts`/`run.ts`/`schema.ts`/既存`parser.ts`（新規ファイルのみ追加）。`node-html-parser@8.0.3` を mail-worker dependencies に追加。
+- **非自明（実データ駆動）**：不戦(bye)は壊れHTML（`<td class="result_cell">不戦</td><td>○ 1 相手</td>`）→ **名前セル以降の全td走査**で列ずれ防止（td.result_cell 限定だと post-bye match を落とす）。不戦=その回戦の walkover win。相手名のスコア除去は **standalone 整数 token のみ**（名前内数字を保護）。級名は NFKC 畳み込み。空ページ→`classes:[]`。
+- **検証**：ユニット30ケース green、型チェック・lint OK。**実コーパス回帰(git外, 4510ページ)= 例外0 / 大会名・開催日100%抽出 / 参加者184,305人全員に試合 / 相手解決99.9%(359,361/359,622) / 空16ページのみ classes:[]**。
+- **Codex auto-review-loop 3R(全high, 累計243k tokens)**：R1 1sf(数字入り相手名破損)→R2 1sf(複合不戦/棄権セルの score leak)→**R3 pass**。CI green。**PR #167 merge `8c3ed1e`**。
+- **残**：W2(Excel署名検出拡張・既存75%回帰固定) / W3(団体戦等異形) / Phase3(xls抽出不能7件・全コーパス健全性) / manifest→DB materialize(別フェーズ、investment スクリプトは並行 `feature/import-past-results`＝stage④でファイル非衝突)。
+- 補足：worktree `C:/tmp/impl-result-html-parser` は git 登録解除済だが node_modules handle で物理dir削除が "Device busy"＝残置（git無害、後日掃除）。
