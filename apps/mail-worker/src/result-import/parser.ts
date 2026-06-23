@@ -516,12 +516,14 @@ function parseRoundLayoutRow(
 
   const matches: ParsedMatch[] = []
   for (const block of layout.blocks) {
-    // Sub-header identified the roles → read only 相手/○×/枚数 (ignore №/級/所属/勝/負).
-    // Otherwise (pure positional, no sub-header) join the whole block.
-    const identified = block.opponentCol !== null || block.markCol !== null || block.scoreCol !== null
-    const cols = identified
-      ? [block.opponentCol, block.markCol, block.scoreCol].filter((c): c is number => c !== null)
-      : Array.from({ length: block.end - block.start }, (_, i) => block.start + i)
+    // The 勝敗 column is what carries the result. When the sub-header identified it,
+    // read only 相手/○×/枚数 (skipping №/級/所属/勝/負). Otherwise — no sub-header, or a
+    // ragged sub-header missing the LAST round's 勝敗 label — join the whole block
+    // positionally so the result cell still in the data row is not dropped.
+    const cols =
+      block.markCol !== null
+        ? [block.opponentCol, block.markCol, block.scoreCol].filter((c): c is number => c !== null)
+        : Array.from({ length: block.end - block.start }, (_, i) => block.start + i)
     const parts: string[] = []
     for (const c of cols) {
       const v = row[c]

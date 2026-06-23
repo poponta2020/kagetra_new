@@ -62,12 +62,12 @@ describe('parseResultExcel — positional 回戦 layout (chiba: per-round triple
 
 // ── kuwana: split header (氏名 row, then 相手/勝敗 row); 勝敗 cell packs score "○11" ──
 const KUWANA_SHEET: SheetData = makeSheet('Ａ級成績表', [
-  ['第69回テスト大会結果表', null, null, null, null, null, null, null],
-  [null, 'Ａ級', null, null, null, null, null, null],
-  ['No', '氏名', '所属', '1回戦', null, '2回戦', null, '3回戦'],
-  [null, null, null, '相手', '勝敗', '相手', '勝敗', '相手'],
-  ['1', '甲野選手', '甲会', '乙野選手', '○11', '丙野選手', '○16', '丁野選手'],
-  ['2', '乙野選手', '乙会', '甲野選手', '×11', null, null, null],
+  ['第69回テスト大会結果表', null, null, null, null, null, null, null, null],
+  [null, 'Ａ級', null, null, null, null, null, null, null],
+  ['No', '氏名', '所属', '1回戦', null, '2回戦', null, '3回戦', null],
+  [null, null, null, '相手', '勝敗', '相手', '勝敗', '相手', '勝敗'],
+  ['1', '甲野選手', '甲会', '乙野選手', '○11', '丙野選手', '○16', '丁野選手', '×5'],
+  ['2', '乙野選手', '乙会', '甲野選手', '×11', null, null, null, null],
 ])
 
 describe('parseResultExcel — split header with score packed in 勝敗 (kuwana)', () => {
@@ -78,11 +78,28 @@ describe('parseResultExcel — split header with score packed in 勝敗 (kuwana)
     expect(classes[0]!.grade).toBe('A')
   })
 
-  it('splits "○11" into result + score, opponent from the 相手 column', () => {
+  it('splits "○11" into result + score across all rounds incl. the last', () => {
     const kou = classes[0]!.participants.find((p) => p.name === '甲野選手')!
-    expect(kou.matches).toHaveLength(2)
+    expect(kou.matches).toHaveLength(3)
     expect(kou.matches[0]).toMatchObject({ round: 1, result: 'win', scoreDiff: 11, opponentName: '乙野選手' })
     expect(kou.matches[1]).toMatchObject({ round: 2, result: 'win', scoreDiff: 16, opponentName: '丙野選手' })
+    expect(kou.matches[2]).toMatchObject({ round: 3, result: 'lose', scoreDiff: 5, opponentName: '丁野選手' })
+  })
+})
+
+// ── ragged sub-header: the LAST round's 勝敗 label is missing, but the data has it ──
+const RAGGED_SHEET: SheetData = makeSheet('Ｂ級成績表', [
+  ['No', '氏名', '所属', '1回戦', null, '2回戦', null],
+  [null, null, null, '相手', '勝敗', '相手'], // truncated: no 2回戦 勝敗 label
+  ['1', '甲選手', '甲会', '乙選手', '○8', '丙選手', '○12'],
+])
+
+describe('parseResultExcel — ragged sub-header (last round 勝敗 label missing)', () => {
+  it('reads the last round result via the positional fallback for that block', () => {
+    const classes = parseResultExcel([RAGGED_SHEET])
+    const kou = classes[0]!.participants.find((p) => p.name === '甲選手')!
+    expect(kou.matches).toHaveLength(2)
+    expect(kou.matches[1]).toMatchObject({ round: 2, result: 'win', scoreDiff: 12, opponentName: '丙選手' })
   })
 })
 
