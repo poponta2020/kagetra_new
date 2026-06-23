@@ -10,8 +10,9 @@ import type {
   ParsedMatch,
   ParsedParticipant,
 } from './schema.js'
+import { parseRoundCellText } from './round-cell.js'
 
-export const PARSER_VERSION = '1.0.0'
+export const PARSER_VERSION = '1.1.0'
 
 // ── Column map discovered from the signature header row ──────────────────────
 
@@ -255,7 +256,14 @@ function parseDataRow(
  */
 function parseSheet(sheet: SheetData): ParsedClass[] {
   const result = detectSignatureRow(sheet.grid)
-  if (!result) return []
+  if (!result) {
+    // W2 fallback: positional 「N回戦」 layouts the primary signature can't see
+    // (相手/勝敗 split across rows, no sub-header, or newline-split header cells).
+    // Only reached when the primary returns null, so it cannot regress any sheet
+    // the primary already handles.
+    const layout = detectRoundLayoutSignature(sheet.grid)
+    return layout ? parseRoundLayoutSheet(sheet, layout) : []
+  }
   const { headerRowIdx, colMap } = result
 
   const isMultiClass = colMap.gradeCol != null
@@ -341,6 +349,272 @@ function deriveClassNameFromSheet(sheet: SheetData): string | null {
   }
 
   return null
+}
+
+// ── W2: positional 「N回戦」 fallback ─────────────────────────────────────────────
+
+interface RoundBlock {
+  round: number
+  roundLabel: string | null
+  start: number // inclusive column
+  end: number // exclusive column
+  // When a sub-header identifies the roles inside the block, only these columns
+  // are read (ignoring №/級/所属/勝/負 noise). All null → positional whole-block join.
+  opponentCol: number | null
+  markCol: number | null
+  scoreCol: number | null
+}
+
+interface RoundLayout {
+  /** first data row (after the 回戦 row and any 相手/勝敗 sub-header) */
+  dataStartIdx: number
+  nameRowIdx: number
+  seqNoCol: number | null
+  nameCol: number
+  kanaCol: number | null
+  affiliationCol: number | null
+  gradeCol: number | null
+  classCol: number | null
+  rankCol: number | null
+  blocks: RoundBlock[]
+}
+
+/** Strip ALL whitespace for header keyword matching (handles 相\n手 / 勝\n敗 cells). */
+function headerKey(v: CellValue): string {
+  return v != null ? normalizeText(v).replace(/\s+/g, '') : ''
+}
+
+/**
+ * Fallback detector for positional 「N回戦」 layouts: a 回戦-labelled header row
+ * with a 氏名/選手名 column, where each round packs 相手・○/×・枚数 by position
+ * (with or without a 相手/勝敗 sub-header, and possibly with the score fused into
+ * the mark cell e.g. "○11"). Returns null for anything that is not clearly a
+ * per-player match table — team tables (no 氏名 header), ranking summaries (no
+ * 回戦) and report sheets all fall through to [] / W3.
+ */
+function detectRoundLayoutSignature(
+  grid: readonly (readonly CellValue[])[],
+): RoundLayout | null {
+  for (let rowIdx = 0; rowIdx < Math.min(grid.length, 20); rowIdx++) {
+    const row = grid[rowIdx] ?? []
+    const keys = row.map(headerKey)
+
+    const kaisenCols: number[] = []
+    for (let c = 0; c < keys.length; c++) {
+      if (/回戦/.test(keys[c]!)) kaisenCols.push(c)
+    }
+    if (kaisenCols.length < 1) continue
+    const firstK = kaisenCols[0]!
+
+    // Name column: in this row or the row above/below, left of the first 回戦 block.
+    let nameCol = -1
+    let nameRowIdx = rowIdx
+    for (const r of [rowIdx, rowIdx - 1, rowIdx + 1]) {
+      if (r < 0 || r >= grid.length) continue
+      const rk = (grid[r] ?? []).map(headerKey)
+      for (let c = 0; c < Math.min(rk.length, firstK); c++) {
+        if (isPlayerNameHeader(rk[c]!)) {
+          nameCol = c
+          nameRowIdx = r
+          break
+        }
+      }
+      if (nameCol >= 0) break
+    }
+    if (nameCol < 0) continue // no player-name header → not a per-player match table
+
+    // A 相手/勝敗 sub-header row directly under the 回戦 row identifies, per block,
+    // which columns hold 相手・○/×・枚数 (the rest — №/級/所属/勝/負 — is noise).
+    const subRow = (grid[rowIdx + 1] ?? []).map(headerKey)
+    const isOppHdr = (s: string) => /相手|対戦/.test(s) && !/(no|番号|所属|級|会|ふりがな|フリガナ|カナ)/i.test(s)
+    // Header label, NOT a data mark: 勝敗 / 結果 / a combined "○✕" label (2+ mark
+    // chars) / 勝 / 敗. A bare ○ or × is a data value, so must not match.
+    const isMarkHdr = (s: string) => /勝敗|結果/.test(s) || /^[○×✕●]{2,}$/.test(s) || s === '勝' || s === '敗'
+    // 枚数差: 枚数 / 枚差 / 点数 / lone 差 or 数 (abbreviated 枚数). Kept in sync with
+    // the subHits 数/差 set below so a column counted as a sub-header is also read.
+    const isScoreHdr = (s: string) => /枚数|枚差|点数|^差$|^数$/.test(s)
+    const subHits = subRow.filter((s) => isOppHdr(s) || isMarkHdr(s) || isScoreHdr(s)).length
+    const hasSub = subHits >= 2
+    // Always start below the 氏名 header row — even when it sits under the 回戦 row
+    // with no sub-header — so the header row is never parsed as a "氏名" participant.
+    const dataStartIdx = Math.max(hasSub ? rowIdx + 2 : rowIdx + 1, nameRowIdx + 1)
+
+    // Uniform block width from the first gap; cap each block at the next 回戦 col.
+    const width = (kaisenCols[1] ?? firstK + 3) - firstK
+    const blocks: RoundBlock[] = kaisenCols.map((k, i) => {
+      const start = k
+      const end = i + 1 < kaisenCols.length ? kaisenCols[i + 1]! : k + width
+      let opponentCol: number | null = null
+      let markCol: number | null = null
+      let scoreCol: number | null = null
+      if (hasSub) {
+        for (let c = start; c < Math.min(end, subRow.length); c++) {
+          const s = subRow[c]!
+          if (opponentCol === null && isOppHdr(s)) opponentCol = c
+          else if (markCol === null && isMarkHdr(s)) markCol = c
+          else if (scoreCol === null && isScoreHdr(s)) scoreCol = c
+        }
+      }
+      return {
+        round: i + 1,
+        roundLabel: normalizeText(String(row[k] ?? '')) || `${i + 1}回戦`,
+        start,
+        end,
+        opponentCol,
+        markCol,
+        scoreCol,
+      }
+    })
+
+    // Auxiliary columns from the name row, left of the first 回戦 block.
+    const nameKeys = (grid[nameRowIdx] ?? []).map(headerKey)
+    let seqNoCol: number | null = null
+    let kanaCol: number | null = null
+    let affiliationCol: number | null = null
+    let gradeCol: number | null = null
+    let classCol: number | null = null
+    let rankCol: number | null = null
+    for (let c = 0; c < Math.min(nameKeys.length, firstK); c++) {
+      if (c === nameCol) continue
+      const s = nameKeys[c]!
+      if (seqNoCol === null && (/^no\.?$/i.test(s) || s === '番号')) seqNoCol = c
+      else if (kanaCol === null && /ふりがな|フリガナ|読み|かな/.test(s)) kanaCol = c
+      else if (affiliationCol === null && /所属/.test(s)) affiliationCol = c
+      else if (rankCol === null && /順位/.test(s)) rankCol = c
+      else if (classCol === null && /^クラス$|^class$/i.test(s)) classCol = c
+      else if (gradeCol === null && (/^[A-E]?級$/.test(s) || s === '級')) gradeCol = c
+    }
+
+    return {
+      dataStartIdx,
+      nameRowIdx,
+      seqNoCol,
+      nameCol,
+      kanaCol,
+      affiliationCol,
+      gradeCol,
+      classCol,
+      rankCol,
+      blocks,
+    }
+  }
+  return null
+}
+
+/**
+ * Parse one data row by joining each round block's cells and reusing
+ * parseRoundCellText — order-independent, so [相手, ○, 枚数] / [相手, ○11] /
+ * [○ 21 相手] all normalize to the same match.
+ */
+function parseRoundLayoutRow(
+  row: readonly CellValue[],
+  layout: RoundLayout,
+): ParsedParticipant | null {
+  const name = cellStr(row, layout.nameCol)
+  if (!name) return null
+
+  const seqRaw = cellStr(row, layout.seqNoCol)
+  const seqNo = seqRaw != null && /^\d+$/.test(seqRaw) ? parseInt(seqRaw, 10) : null
+
+  const matches: ParsedMatch[] = []
+  for (const block of layout.blocks) {
+    // The 勝敗 column is what carries the result. When the sub-header identified it,
+    // read only 相手/○×/枚数 (skipping №/級/所属/勝/負). Otherwise — no sub-header, or a
+    // ragged sub-header missing the LAST round's 勝敗 label — join the whole block
+    // positionally so the result cell still in the data row is not dropped.
+    const cols =
+      block.markCol !== null
+        ? [block.opponentCol, block.markCol, block.scoreCol].filter((c): c is number => c !== null)
+        : Array.from({ length: block.end - block.start }, (_, i) => block.start + i)
+    const parts: string[] = []
+    for (const c of cols) {
+      const v = row[c]
+      if (v != null) {
+        const s = normalizeText(v)
+        if (s) parts.push(s)
+      }
+    }
+    const joined = parts.join(' ')
+    if (!joined) continue
+    const cell = parseRoundCellText(joined)
+    if (cell.empty || cell.result === null) continue
+    matches.push({
+      round: block.round,
+      roundLabel: block.roundLabel,
+      opponentName: cell.opponentName,
+      scoreDiff: cell.scoreDiff,
+      result: cell.result,
+      status: cell.status,
+    })
+  }
+
+  return {
+    seqNo,
+    name,
+    nameKana: cellStr(row, layout.kanaCol),
+    affiliation: cellStr(row, layout.affiliationCol),
+    prefecture: null,
+    dan: null,
+    memberNo: null,
+    finalRank: cellStr(row, layout.rankCol),
+    matches,
+  }
+}
+
+/** Parse a positional 回戦-layout sheet (single- or multi-class) into ParsedClass[]. */
+function parseRoundLayoutSheet(sheet: SheetData, layout: RoundLayout): ParsedClass[] {
+  const isMultiClass = layout.gradeCol != null
+  const classMap = new Map<string, ParsedParticipant[]>()
+  const order: string[] = []
+  let anyMatch = false
+  let oppTotal = 0
+  let oppNameLike = 0
+
+  for (let r = layout.dataStartIdx; r < sheet.grid.length; r++) {
+    const row = sheet.grid[r] ?? []
+    const p = parseRoundLayoutRow(row, layout)
+    if (!p) continue
+    if (p.matches.length > 0) anyMatch = true
+    for (const m of p.matches) {
+      if (m.opponentName) {
+        oppTotal++
+        if (!/^\d+$/.test(m.opponentName)) oppNameLike++
+      }
+    }
+
+    let className: string
+    if (isMultiClass) {
+      const gradeStr = cellStr(row, layout.gradeCol) ?? ''
+      const classStr = layout.classCol != null ? (cellStr(row, layout.classCol) ?? '') : ''
+      className = classStr || gradeStr
+      if (!className) continue
+    } else {
+      className = deriveClassNameFromSheet(sheet) ?? sheet.name
+    }
+
+    if (!classMap.has(className)) {
+      classMap.set(className, [])
+      order.push(className)
+    }
+    classMap.get(className)!.push(p)
+  }
+
+  // Guard: a 回戦-labelled sheet that produced no ○/× results at all is a team
+  // score / ranking table that slipped the header guards — not a match table.
+  if (!anyMatch) return []
+
+  // Guard: if most non-null opponents are pure numbers, the round columns were
+  // misread (a №/score matrix, not a 相手 table) — reject rather than emit junk.
+  if (oppTotal >= 4 && oppNameLike / oppTotal < 0.5) return []
+
+  return order
+    .map((name) => ({
+      className: name,
+      grade: deriveGrade(name),
+      sheetName: sheet.name,
+      participants: classMap.get(name)!,
+    }))
+    .filter((c) => c.participants.length > 0)
 }
 
 // ── Top-level entry ───────────────────────────────────────────────────────────

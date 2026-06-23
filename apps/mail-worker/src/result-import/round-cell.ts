@@ -13,7 +13,7 @@ export interface ParsedRoundCell {
 }
 
 const WIN_MARK = /[○〇]/ // ○ U+25CB, 〇 U+3007
-const LOSE_MARK = /[×✕]/ // × U+00D7, ✕ U+2715
+const LOSE_MARK = /[×✕●]/ // × U+00D7, ✕ U+2715, ● U+25CF (used as 負 in some 成績表)
 
 /**
  * Parse the text content of one "round" cell into a structured match.
@@ -57,7 +57,7 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   // to contain a digit (e.g. "山田2郎") is preserved — opponentName is handed to
   // materialize raw for normalizePlayerName-based opponent resolution.
   const tokens = text
-    .replace(/[○〇×✕]/g, ' ')
+    .replace(/[○〇×✕●]/g, ' ')
     .replace(/不戦勝?|棄権/g, ' ')
     .split(/\s+/)
     .filter((t) => t.length > 0)
@@ -65,10 +65,13 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   // Always lift the first standalone integer token (枚数) out of the name — even
   // for walkover/forfeit compound cells like "不戦 ○ 1 相手" / "棄権 × 4 相手" — so the
   // digit never leaks into opponentName; only count it as a score for normal matches.
+  // The token may carry a sign「＋／－」(NFKC → "+"/"-") from Excel cells like
+  // "○＋５" (win by 5) / "×－16" (lose by 16). Store the absolute 枚数 margin —
+  // win/lose is already on `result`, matching parseScoreCell's positive convention.
   let scoreDiff: number | null = null
-  const scoreIdx = tokens.findIndex((t) => /^\d+$/.test(t))
+  const scoreIdx = tokens.findIndex((t) => /^[+-]?\d+$/.test(t))
   if (scoreIdx >= 0) {
-    const parsed = parseInt(tokens[scoreIdx]!, 10)
+    const parsed = Math.abs(parseInt(tokens[scoreIdx]!, 10))
     tokens.splice(scoreIdx, 1)
     if (!isWalkover && !isForfeit) scoreDiff = parsed
   }

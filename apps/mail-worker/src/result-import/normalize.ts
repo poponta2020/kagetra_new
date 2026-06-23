@@ -23,13 +23,13 @@ export function deriveGrade(name: string): 'A' | 'B' | 'C' | 'D' | 'E' | null {
 
 /**
  * Parse a win/lose indicator cell value.
- * Accepts ○ (U+25CB), 〇 (U+3007), × (U+00D7 / U+00D7 lookalike).
- * Returns null if unrecognized (row should be skipped or end-of-data).
+ * Accepts ○ (U+25CB), 〇 (U+3007), × (U+00D7 / U+00D7 lookalike), ● (U+25CF, used
+ * as 負 in some 成績表). Returns null if unrecognized (row skipped / end-of-data).
  */
 export function parseResultChar(s: string): 'win' | 'lose' | null {
   const n = normalizeText(s)
   if (n === '○' || n === '〇') return 'win'
-  if (n === '×' || n === '✕' || n === '×') return 'lose'
+  if (n === '×' || n === '✕' || n === '×' || n === '●') return 'lose'
   return null
 }
 

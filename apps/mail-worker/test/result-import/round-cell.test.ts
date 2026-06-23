@@ -38,6 +38,14 @@ describe('parseRoundCellText', () => {
     expect(parseRoundCellText('✕ 5 相手').result).toBe('lose')
   })
 
+  it('treats ● (U+25CF, used as 負 in some 成績表) as lose and strips it from the name', () => {
+    expect(parseRoundCellText('● 5 相手')).toMatchObject({
+      result: 'lose',
+      scoreDiff: 5,
+      opponentName: '相手',
+    })
+  })
+
   it('collapses heavy whitespace/newlines (HTML cell shape)', () => {
     expect(parseRoundCellText('\n\t\t○\n\t\t4\n\t\t相手花子\n')).toEqual({
       result: 'win',
@@ -136,6 +144,25 @@ describe('parseRoundCellText', () => {
       result: 'lose',
       status: 'forfeit',
       scoreDiff: null,
+      opponentName: '相手太郎',
+    })
+  })
+
+  it('parses a full-width-plus score "○＋５" (Excel 勝敗 cell) as win by 5', () => {
+    // NFKC folds ＋→+ and ５→5; the score token is then "+5".
+    expect(parseRoundCellText('相手花子 ○＋５')).toMatchObject({
+      result: 'win',
+      scoreDiff: 5,
+      status: 'normal',
+      opponentName: '相手花子',
+    })
+  })
+
+  it('parses a minus-margin loser cell "×－16" as lose by 16 (absolute, no leak)', () => {
+    expect(parseRoundCellText('相手太郎 ×－16')).toMatchObject({
+      result: 'lose',
+      scoreDiff: 16,
+      status: 'normal',
       opponentName: '相手太郎',
     })
   })
