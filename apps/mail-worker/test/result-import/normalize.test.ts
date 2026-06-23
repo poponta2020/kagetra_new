@@ -40,6 +40,7 @@ describe('parseResultChar', () => {
   it('parses ○ (U+25CB) as win', () => expect(parseResultChar('○')).toBe('win'))
   it('parses 〇 (U+3007) as win', () => expect(parseResultChar('〇')).toBe('win'))
   it('parses × as lose', () => expect(parseResultChar('×')).toBe('lose'))
+  it('parses ● (U+25CF, 負 in some 成績表) as lose', () => expect(parseResultChar('●')).toBe('lose'))
   it('returns null for empty/unknown', () => {
     expect(parseResultChar('')).toBeNull()
     expect(parseResultChar('-')).toBeNull()
