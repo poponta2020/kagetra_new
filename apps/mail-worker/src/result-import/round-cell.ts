@@ -57,7 +57,7 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   // to contain a digit (e.g. "山田2郎") is preserved — opponentName is handed to
   // materialize raw for normalizePlayerName-based opponent resolution.
   const tokens = text
-    .replace(/[○〇×✕]/g, ' ')
+    .replace(/[○〇×✕●]/g, ' ')
     .replace(/不戦勝?|棄権/g, ' ')
     .split(/\s+/)
     .filter((t) => t.length > 0)

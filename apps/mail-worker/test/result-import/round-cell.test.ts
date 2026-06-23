@@ -38,8 +38,12 @@ describe('parseRoundCellText', () => {
     expect(parseRoundCellText('✕ 5 相手').result).toBe('lose')
   })
 
-  it('treats ● (U+25CF, used as 負 in some 成績表) as lose', () => {
-    expect(parseRoundCellText('● 5 相手').result).toBe('lose')
+  it('treats ● (U+25CF, used as 負 in some 成績表) as lose and strips it from the name', () => {
+    expect(parseRoundCellText('● 5 相手')).toMatchObject({
+      result: 'lose',
+      scoreDiff: 5,
+      opponentName: '相手',
+    })
   })
 
   it('collapses heavy whitespace/newlines (HTML cell shape)', () => {
