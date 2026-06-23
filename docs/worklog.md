@@ -2519,3 +2519,14 @@
 - **Codex auto-review-loop 3R(全high, 累計243k tokens)**：R1 1sf(数字入り相手名破損)→R2 1sf(複合不戦/棄権セルの score leak)→**R3 pass**。CI green。**PR #167 merge `8c3ed1e`**。
 - **残**：W2(Excel署名検出拡張・既存75%回帰固定) / W3(団体戦等異形) / Phase3(xls抽出不能7件・全コーパス健全性) / manifest→DB materialize(別フェーズ、investment スクリプトは並行 `feature/import-past-results`＝stage④でファイル非衝突)。
 - 補足：worktree `C:/tmp/impl-result-html-parser` は git 登録解除済だが node_modules handle で物理dir削除が "Device busy"＝残置（git無害、後日掃除）。
+
+## 2026-06-23 bulk-result-import W2: Excel positional「N回戦」署名検出＋ship（PR #168）
+
+- **取込フェーズ W2 = Excel positional「N回戦」レイアウトの署名検出**を実装・ship。primary `detectSignatureRow`（相手 AND 勝敗が同一行）が検出できない static xls を、**primary が null の時のみ起動するフォールバック** `detectRoundLayoutSignature` で回収。primary 経路無変更＝構造的に回帰ゼロ。
+- **`parser.ts`**: `回戦`ラベル行＋`氏名`列必須。サブ見出し（相手/対戦相手/結果/○✕/勝敗/枚数/点数/差/数）で各ブロックの相手/マーク/枚数列を識別し №/級/所属/勝/負 を無視、無ければ位置ベース連結。抽出は W1 の `parseRoundCellText` 再利用。`PARSER_VERSION` 1.1.0。
+- **`round-cell.ts`**: 符号付きスコア（○＋５/×－16→絶対値）、● を負けマーク追加。**`normalize.ts`**（W2 唯一の最小変更）: `parseResultChar` も ● を lose に（primary 整合）。
+- **誤検出4重ガード**: 氏名見出し必須(チーム名除外)・回戦≥1・○×結果ゼロ却下(点数表)・相手が数値ばかり却下(№/マトリクス)。**markCol 基準 join**（識別 join で補助列スキップ／無ければ positional）。`dataStartIdx=max(...,nameRowIdx+1)` で氏名ヘッダ行を必ずスキップ。
+- **検証**: ユニット96 green（既存 parser.test.ts 26 無改変=primary 回帰固定）。**実コーパス回帰(git外,936Excel): before-ok 702→after-ok 824（+122回収）/ REGRESSIONS=0 / garbage 0.06%**。自見↔原の勝敗・枚数が双方向一致でクロス検証。
+- **Codex auto-review 6R(全 high, 累計~386k tokens)→R6 pass**。5修正(●strip / 氏名ヘッダ+単一回戦 / ●primary 経路 / ragged 最終回戦 / 数列)。CI green。**PR #168 merge `1ac583e`**。
+- **残**: W3 少数異形(団体/順位/挑戦者/報告=ガードで除外済) / Phase3(xls抽出不能7件・全コーパス健全性) / manifest→DB投入(別フェーズ)。
+- 補足: worktree `C:/tmp/impl-result-excel-positional` は git 登録解除済だが node_modules handle で物理 dir 残置（無害）。
