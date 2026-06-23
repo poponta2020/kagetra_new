@@ -62,13 +62,15 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
     .split(/\s+/)
     .filter((t) => t.length > 0)
 
+  // Always lift the first standalone integer token (枚数) out of the name — even
+  // for walkover/forfeit compound cells like "不戦 ○ 1 相手" / "棄権 × 4 相手" — so the
+  // digit never leaks into opponentName; only count it as a score for normal matches.
   let scoreDiff: number | null = null
-  if (!isWalkover && !isForfeit) {
-    const scoreIdx = tokens.findIndex((t) => /^\d+$/.test(t))
-    if (scoreIdx >= 0) {
-      scoreDiff = parseInt(tokens[scoreIdx]!, 10)
-      tokens.splice(scoreIdx, 1)
-    }
+  const scoreIdx = tokens.findIndex((t) => /^\d+$/.test(t))
+  if (scoreIdx >= 0) {
+    const parsed = parseInt(tokens[scoreIdx]!, 10)
+    tokens.splice(scoreIdx, 1)
+    if (!isWalkover && !isForfeit) scoreDiff = parsed
   }
 
   const opponentName = tokens.join(' ') || null

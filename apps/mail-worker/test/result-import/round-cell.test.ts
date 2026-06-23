@@ -121,4 +121,22 @@ describe('parseRoundCellText', () => {
       opponentName: '山田2郎',
     })
   })
+
+  it('lifts a stray score token out of a compound 不戦 cell (no leak into opponent)', () => {
+    expect(parseRoundCellText('不戦 ○ 1 相手太郎')).toMatchObject({
+      result: 'win',
+      status: 'walkover',
+      scoreDiff: null,
+      opponentName: '相手太郎',
+    })
+  })
+
+  it('lifts the score token out of a compound 棄権 cell', () => {
+    expect(parseRoundCellText('棄権 × 4 相手太郎')).toMatchObject({
+      result: 'lose',
+      status: 'forfeit',
+      scoreDiff: null,
+      opponentName: '相手太郎',
+    })
+  })
 })
