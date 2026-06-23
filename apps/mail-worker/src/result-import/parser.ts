@@ -430,8 +430,10 @@ function detectRoundLayoutSignature(
     // Header label, NOT a data mark: 勝敗 / 結果 / a combined "○✕" label (2+ mark
     // chars) / 勝 / 敗. A bare ○ or × is a data value, so must not match.
     const isMarkHdr = (s: string) => /勝敗|結果/.test(s) || /^[○×✕●]{2,}$/.test(s) || s === '勝' || s === '敗'
-    const isScoreHdr = (s: string) => /枚数|枚差|点数|^差$/.test(s)
-    const subHits = subRow.filter((s) => isOppHdr(s) || isMarkHdr(s) || /^(勝敗|枚数|枚差|差|数)$/.test(s)).length
+    // 枚数差: 枚数 / 枚差 / 点数 / lone 差 or 数 (abbreviated 枚数). Kept in sync with
+    // the subHits 数/差 set below so a column counted as a sub-header is also read.
+    const isScoreHdr = (s: string) => /枚数|枚差|点数|^差$|^数$/.test(s)
+    const subHits = subRow.filter((s) => isOppHdr(s) || isMarkHdr(s) || isScoreHdr(s)).length
     const hasSub = subHits >= 2
     // Always start below the 氏名 header row — even when it sits under the 回戦 row
     // with no sub-header — so the header row is never parsed as a "氏名" participant.

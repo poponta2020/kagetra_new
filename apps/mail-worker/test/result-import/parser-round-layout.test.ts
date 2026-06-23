@@ -194,6 +194,20 @@ describe('parseResultExcel — single-round positional layout', () => {
   })
 })
 
+// ── sub-header abbreviates 枚数 as 「数」 — scoreDiff must still be read ──
+describe('parseResultExcel — 「数」 abbreviated 枚数 header', () => {
+  const sheet = makeSheet('C級', [
+    [null, '氏名', '所属', '1回戦', null, null, '2回戦', null, null],
+    [null, null, null, '相手', '勝敗', '数', '相手', '勝敗', '数'],
+    [null, '甲選手', '甲会', '乙選手', '○', '7', '丙選手', '×', '3'],
+  ])
+  it('reads scoreDiff from a 「数」 column (kept in sync with the sub-header test)', () => {
+    const p = parseResultExcel([sheet])[0]!.participants.find((x) => x.name === '甲選手')!
+    expect(p.matches[0]).toMatchObject({ round: 1, result: 'win', scoreDiff: 7, opponentName: '乙選手' })
+    expect(p.matches[1]).toMatchObject({ round: 2, result: 'lose', scoreDiff: 3, opponentName: '丙選手' })
+  })
+})
+
 // ── GUARDS: these must NOT be parsed by the fallback ──
 describe('parseResultExcel — fallback guards (no false positives)', () => {
   it('does not parse a team-score table (チーム名, 回戦 numbers, no 氏名)', () => {
