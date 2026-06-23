@@ -51,19 +51,27 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   if (result === null && isWalkover) result = 'win' // 不戦勝 = 進出 = win
   if (result === null && isForfeit) result = 'lose' // 棄権 = the withdrawing player loses
 
-  // 枚数: first run of digits. Walkover/forfeit carry no score.
-  const scoreMatch = text.match(/\d+/)
-  const scoreDiff = !isWalkover && !isForfeit && scoreMatch ? parseInt(scoreMatch[0], 10) : null
+  // Tokenize after stripping marks + status keywords. The 枚数 score is the FIRST
+  // standalone integer token; the remaining tokens form the opponent name. Only
+  // that one token is dropped (not every digit), so an opponent name that happens
+  // to contain a digit (e.g. "山田2郎") is preserved — opponentName is handed to
+  // materialize raw for normalizePlayerName-based opponent resolution.
+  const tokens = text
+    .replace(/[○〇×✕]/g, ' ')
+    .replace(/不戦勝?|棄権/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
 
-  // Opponent = residual after removing marks, status keywords, and digits.
-  const opponent = text
-    .replace(/[○〇×✕]/g, '')
-    .replace(/不戦勝?|棄権/g, '')
-    .replace(/\d+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  const opponentName = opponent || null
+  let scoreDiff: number | null = null
+  if (!isWalkover && !isForfeit) {
+    const scoreIdx = tokens.findIndex((t) => /^\d+$/.test(t))
+    if (scoreIdx >= 0) {
+      scoreDiff = parseInt(tokens[scoreIdx]!, 10)
+      tokens.splice(scoreIdx, 1)
+    }
+  }
 
+  const opponentName = tokens.join(' ') || null
   const empty = result === null && scoreDiff === null && opponentName === null
   return { result, scoreDiff, status, opponentName, empty }
 }

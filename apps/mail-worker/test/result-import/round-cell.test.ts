@@ -102,4 +102,23 @@ describe('parseRoundCellText', () => {
   it('preserves an internal space in the opponent name', () => {
     expect(parseRoundCellText('○ 5 山田 太郎').opponentName).toBe('山田 太郎')
   })
+
+  it('preserves a digit inside the opponent name (only the score token is dropped)', () => {
+    expect(parseRoundCellText('○ 4 山田2郎')).toEqual({
+      result: 'win',
+      scoreDiff: 4,
+      status: 'normal',
+      opponentName: '山田2郎',
+      empty: false,
+    })
+  })
+
+  it('does not strip digits from a forfeit opponent name (no score consumed)', () => {
+    expect(parseRoundCellText('棄権 × 山田2郎')).toMatchObject({
+      result: 'lose',
+      status: 'forfeit',
+      scoreDiff: null,
+      opponentName: '山田2郎',
+    })
+  })
 })
