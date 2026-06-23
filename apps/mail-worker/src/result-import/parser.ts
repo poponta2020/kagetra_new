@@ -403,7 +403,7 @@ function detectRoundLayoutSignature(
     for (let c = 0; c < keys.length; c++) {
       if (/回戦/.test(keys[c]!)) kaisenCols.push(c)
     }
-    if (kaisenCols.length < 2) continue
+    if (kaisenCols.length < 1) continue
     const firstK = kaisenCols[0]!
 
     // Name column: in this row or the row above/below, left of the first 回戦 block.
@@ -433,7 +433,9 @@ function detectRoundLayoutSignature(
     const isScoreHdr = (s: string) => /枚数|枚差|点数|^差$/.test(s)
     const subHits = subRow.filter((s) => isOppHdr(s) || isMarkHdr(s) || /^(勝敗|枚数|枚差|差|数)$/.test(s)).length
     const hasSub = subHits >= 2
-    const dataStartIdx = hasSub ? rowIdx + 2 : rowIdx + 1
+    // Always start below the 氏名 header row — even when it sits under the 回戦 row
+    // with no sub-header — so the header row is never parsed as a "氏名" participant.
+    const dataStartIdx = Math.max(hasSub ? rowIdx + 2 : rowIdx + 1, nameRowIdx + 1)
 
     // Uniform block width from the first gap; cap each block at the next 回戦 col.
     const width = (kaisenCols[1] ?? firstK + 3) - firstK

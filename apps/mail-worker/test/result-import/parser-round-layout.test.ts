@@ -142,6 +142,41 @@ describe('parseResultExcel — newline-split sub-header cells', () => {
   })
 })
 
+// ── name header on a row BELOW the 回戦 row (no sub-header) must not become a participant ──
+describe('parseResultExcel — name-header row is not parsed as a participant', () => {
+  const sheet = makeSheet('結果', [
+    [null, null, null, '1回戦', null, null, '2回戦', null, null],
+    ['No', '氏名', '所属', null, null, null, null, null, null],
+    [null, '選手甲', '甲会', '選手乙', '○', '5', '選手丙', '○', '7'],
+    [null, '選手乙', '乙会', '選手甲', '×', '5', null, null, null],
+  ])
+  const classes = parseResultExcel([sheet])
+
+  it('skips the 氏名 header row and parses only real participants', () => {
+    const names = classes.flatMap((c) => c.participants.map((p) => p.name))
+    expect(names).not.toContain('氏名')
+    expect(names).toContain('選手甲')
+    const kou = classes[0]!.participants.find((p) => p.name === '選手甲')!
+    expect(kou.matches[0]).toMatchObject({ round: 1, result: 'win', scoreDiff: 5, opponentName: '選手乙' })
+  })
+})
+
+// ── single 回戦 positional layout (relaxed from the former ≥2 guard) ──
+describe('parseResultExcel — single-round positional layout', () => {
+  const sheet = makeSheet('E級結果', [
+    [null, '氏名', '所属', '1回戦', null, null],
+    [null, '単発甲', '甲会', '単発乙', '○', '8'],
+    [null, '単発乙', '乙会', '単発甲', '×', '8'],
+  ])
+  it('parses a lone 1回戦 triplet', () => {
+    const classes = parseResultExcel([sheet])
+    expect(classes).toHaveLength(1)
+    const kou = classes[0]!.participants.find((p) => p.name === '単発甲')!
+    expect(kou.matches).toHaveLength(1)
+    expect(kou.matches[0]).toMatchObject({ round: 1, result: 'win', scoreDiff: 8, opponentName: '単発乙' })
+  })
+})
+
 // ── GUARDS: these must NOT be parsed by the fallback ──
 describe('parseResultExcel — fallback guards (no false positives)', () => {
   it('does not parse a team-score table (チーム名, 回戦 numbers, no 氏名)', () => {
