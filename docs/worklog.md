@@ -2541,3 +2541,5 @@
 - **残（別作業）**: 救済 positional 'classes' 経路（兵庫全国10-12 等 ~1,361人 + 北國83/札幌/東京都高校）は Python `positional.py` 生成物で本PR対象外＝段位未回収。やるなら positional.py に段位検出追加＋`recovery.jsonl` 再生成。Excel 残りは 683(5件・summaryのみ)＋8764(部分) のみで軽微
 - **flaky テスト** `new-member-form.test.tsx` は要対応（members/players 領域＝並行セッションと近い。別 quickfix 候補）
 - 2026-06-25 /auto-review-loop PR #169: 1R, verdict=pass, effort=high, tokens=60,693/500,000, result=pass→ship
+- 2026-06-25 /auto-review-loop PR #170: 1R, verdict=pass, effort=high, tokens=41389/500000, result=pass
+- 2026-06-25 player-display-name-mode **SHIPPED**: /do-plan→4フェーズ実装(worktree C:/tmp/impl-player-display-name-mode)→PR#170(Codex 1R即pass/CI green)→merge `4a843fa`。display_name=participants最頻の生表記(recompute ranked CTE+materialize末尾配線+backfill --dry-run)。正規化/同定キー不変=migrationなし。リハDB﨑mismatch140→78(残留は崎が真の最頻)・冪等・web592tests green。PR#166と materialize.ts 領域分離。残DoD=本番反映後にメール承認由来playerが居れば backfill検討(tournament系が空なら不要)

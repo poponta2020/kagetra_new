@@ -10,7 +10,7 @@
 - [HTML結果パーサ(parseResultHtml) W1 SHIPPED](impl_result_html_parser.md) — static HTML 4510ページを既存ParsedClass[]契約へ正規化。PR#167 merge `8c3ed1e`。round-cell共通化(W2再利用)・不戦壊れHTMLは全td走査で列ずれ防止・相手名はスコアtokenのみ除去。実回帰=例外0/大会名・開催日100%/相手解決99.9%。Codex3R(R3 pass)・CI green
 - [Excel positional「N回戦」署名検出 W2 SHIPPED](impl_result_excel_positional.md) — primary null時のみ起動するfallbackで未検出234中+122回収。PR#168 merge `1ac583e`。サブ見出しで相手/マーク/枚数列を識別し№/級/所属を無視・markCol無ければpositional・誤検出4重ガード(氏名必須/回戦≥1/○×ゼロ却下/数値相手却下)。回帰0/garbage0.06%。Codex6R(5修正,R6 pass)・CI green
 - [同姓同名リスク受容の確定](project_homonym_risk_accepted.md) — 同姓同名は区別しない/所属会も使わない(変わるため)。区別の悪影響>同一視の影響。participant生データ残るので可逆
-- [選手名 正規化維持＋display代表表記(方針②)](project_player_name_display_mode.md) — 正規化は実利~1,000件で維持・display_nameをfirst-wins→participants最頻の生表記に。山﨑→崎化け140件は別レイヤで修正。同定キー不変=migration不要。計画承認済み(plan.md・4フェーズ)・/do-plan待ち
+- [選手名 正規化維持＋display代表表記(方針②) SHIPPED](project_player_name_display_mode.md) — display_name=participants最頻の生表記(方針②)。**PR#170 merge 4a843fa(2026-06-25)**=recompute関数(ranked CTE/mode()不使用)+materialize末尾配線(MaterializeOpts非変更でPR#166と分離)+backfill(--dry-run/sentinel rollback)。リハDB﨑mismatch140→78(残留は崎が真の最頻)・冪等・592tests green。drizzle 0.45は`ANY(ARRAY[...]::int[])`要素展開必須。bulk(#166)より先にマージ済
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 - [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
@@ -66,6 +66,7 @@
 - [本番ホストに Noto CJK 必須](feedback_libreoffice_ja_fonts.md) — `poppler-utils` + `libreoffice` で PDF/Word 画像化するなら日本語フォントを必ず apt install。デフォルトの Ubuntu Server は `fc-list :lang=ja` が 0 件で文字化け
 - [libreoffice HTML→PDF は --writer 必須](feedback_libreoffice_writer_blank_page.md) — 無いと先頭に真っ白ページが入り本文が2ページ目にずれる(LibreOffice 既知バグ)。Issue #93/PR #94。HTML 変換は `--writer` で Writer 文書として開く
 - [本番 migration は `db:migrate` 使う](feedback_drizzle_kit_push_prompt.md) — `db:push` は既存データありで UNIQUE 制約追加時に interactive prompt 要求 → TTY なしで詰む。`db:migrate` は journal ベースで非 interactive
+- [drizzle raw SQL の int[] バインドは ANY(ARRAY[...])](feedback_drizzle_sql_int_array_binding.md) — `sql` 補間に JS 配列を直接渡すと malformed array literal で落ちる。要素展開 `ANY(ARRAY[${sql.join(...)}]::int[])` か inArray()。空配列は early-return
 - [公開添付 route は blocklist + attachment 固定](feedback_attachment_mime_blocklist.md) — allowlist 方式は xlsx 等をモバイルアプリで開けなくする副作用。`Content-Disposition: attachment` 固定 + 危険 MIME blocklist + token 検証の三重防御
 - [vitest は --no-file-parallelism で逐次実行](feedback_vitest_no_file_parallelism.md) — WSL2 Docker test DB(5434) のクロックドリフトで時刻境界テスト(pipeline-runs/reextract)が並行実行で flaky。ローカルは常に `--no-file-parallelism`
 - [Next.js の module-level state は globalThis pin が必須](feedback_nextjs_module_state_globalthis_pin.md) — Server Action / Route Handler / Server Component を跨いで共有する `Map`/`Set`/`let` は globalThis pin しないと chunk splitting で別 instance になりうる。2026-06-07 [[impl_fix_image_cache_module_instance]] で実害（LINE 本文画像 全 404）
