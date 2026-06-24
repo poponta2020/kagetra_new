@@ -10,6 +10,7 @@ import {
 } from '@kagetra/shared/schema'
 import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
+import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
 
 // Works for both NodePgDatabase (main db) and NodePgTransaction (inside tx callback).
 type DbLike = NodePgDatabase<typeof schema>
@@ -52,6 +53,10 @@ export async function materializeResultDraft(
     })
     .returning({ id: tournaments.id })
   const tournamentId = tournament!.id
+
+  // この tournament で作成/参照した player を集め、末尾でまとめて全 participation
+  // 横断の display_name を再計算する（first-wins ではなく最頻表記に寄せ直す）。
+  const touched = new Set<number>()
 
   // 2. Process each parsed class.
   for (const cls of payload.classes) {
@@ -141,6 +146,8 @@ export async function materializeResultDraft(
           playerId = reselect[0]!.id
         }
       }
+      // player 確定（get-or-create 完了）。末尾の display_name 再計算対象に加える。
+      touched.add(playerId)
 
       const [participant] = await tx
         .insert(tournamentParticipants)
@@ -197,6 +204,10 @@ export async function materializeResultDraft(
       }
     }
   }
+
+  // この tournament で触れた player の display_name を全 participation 横断で再計算
+  // （bulk/live 共通。caller の tx 内で実行。空 set なら関数側が 0 を返す）。
+  await recomputePlayerDisplayNames(tx, [...touched])
 
   return { tournamentId }
 }

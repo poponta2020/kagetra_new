@@ -512,3 +512,102 @@ describe('materializeResultDraft', () => {
     expect(allPlayers).toHaveLength(1)
   })
 })
+
+describe('materializeResultDraft — display_name 再計算配線 (Phase 2)', () => {
+  // bare な単一名 participant（affiliation=null で全表記揺れが 1 player に名寄せ）。
+  function bare(
+    seqNo: number,
+    name: string,
+  ): ParsedResultPayload['classes'][number]['participants'][number] {
+    return {
+      seqNo,
+      name,
+      nameKana: null,
+      affiliation: null,
+      prefecture: null,
+      dan: null,
+      memberNo: null,
+      finalRank: null,
+      matches: [],
+    }
+  }
+
+  // 1 大会を本番同様に「独立した tx」で materialize する（draft 承認ごとに別 tx）。
+  async function materializeTournament(opts: {
+    name: string
+    eventDate: string | null
+    classes: { className: string; participants: string[] }[]
+  }) {
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: opts.classes.map((c) => ({
+        className: c.className,
+        grade: null,
+        sheetName: null,
+        participants: c.participants.map((n, i) => bare(i + 1, n)),
+      })),
+    }
+    return testDb.transaction((tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: opts.name,
+        eventDate: opts.eventDate,
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+  }
+
+  it('複数大会を別 tx で materialize → display_name が全期間の最頻表記になる（first-wins を是正）', async () => {
+    // 大会1（最初）: 少数派の「山崎」が先に入る → first-wins なら「山崎」固定。
+    await materializeTournament({
+      name: '大会1',
+      eventDate: '2026-01-01',
+      classes: [{ className: 'D級', participants: ['山崎'] }],
+    })
+    // 大会2: 「山﨑」を 2 回。ここまでの全 participation の最頻は「山﨑」。
+    await materializeTournament({
+      name: '大会2',
+      eventDate: '2026-02-01',
+      classes: [
+        { className: 'D級', participants: ['山﨑'] },
+        { className: 'E級', participants: ['山﨑'] },
+      ],
+    })
+    // 大会3: さらに「山﨑」を 1 回（最頻を確定）。
+    await materializeTournament({
+      name: '大会3',
+      eventDate: '2026-03-01',
+      classes: [{ className: 'D級', participants: ['山﨑'] }],
+    })
+
+    // 山崎/山﨑 は normalizePlayerName で同一キー → player は 1 行に名寄せ。
+    const allPlayers = await testDb.select().from(players)
+    expect(allPlayers).toHaveLength(1)
+    const player = allPlayers[0]!
+
+    // 全 participation の最頻表記「山﨑」が採用されている（first-wins の「山崎」ではない）。
+    // 配線が無ければ first-wins のまま「山崎」固定になるケース。
+    expect(player.displayName).toBe('山﨑')
+
+    // 生データは各表記のままロスレスで残る（participants.name は不変）。
+    // JS デフォルトソートは符号位置順（崎 U+5D0E < 﨑 U+FA11）で「山崎」が先頭。
+    const partNames = (await testDb.select().from(tournamentParticipants))
+      .map((p) => p.name)
+      .sort()
+    expect(partNames).toEqual(['山崎', '山﨑', '山﨑', '山﨑'])
+  })
+
+  it('単一大会でも touched 経由で recompute が走り display_name がその大会の最頻になる', async () => {
+    // 1 大会内に「山崎」1 回・「山﨑」2 回。first-wins(seqNo 順)では「山崎」だが、
+    // 末尾 recompute でその大会の最頻「山﨑」へ補正される。
+    await materializeTournament({
+      name: '単一大会',
+      eventDate: '2026-04-01',
+      classes: [{ className: 'D級', participants: ['山崎', '山﨑', '山﨑'] }],
+    })
+
+    const allPlayers = await testDb.select().from(players)
+    expect(allPlayers).toHaveLength(1)
+    expect(allPlayers[0]!.displayName).toBe('山﨑')
+  })
+})
