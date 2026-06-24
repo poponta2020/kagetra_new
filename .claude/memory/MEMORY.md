@@ -4,11 +4,13 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [⭐過去結果 本番投入 引き継ぎ](project_bulk_load_handover.md) — 個人戦パース完了(1453大会/371,070人/824,064対戦)・救済19大会・**本番投入のみ残(GO待ち)**。詳細=c:/tmp/HANDOVER_bulk_load.md。団体/PDF/暗号化は別スコープ見送り確定(2026-06-24)。リハfail2はゾンビloaderの並行デッドロックが原因=解決済(クリーンランfail0実証)。**段位パーサ修正 ship済(PR#169 `78e4b51`,2026-06-25)→投入時段位22,383件/128大会、残=救済'classes'(兵庫全国)はpositional.py未対応**
 - [過去結果 一括投入の設計方針](project_bulk_result_import_design.md) — 開催(名+日付)×級でidentity・人確定manifest・訂正版優先dedup・コピーDBリハーサル+冪等+read-back。年2回同級は1大会に束ねるとMERGEで消えるので開催単位行。実装未着手(2026-06-21)
 - [かるた協会 会員ページ=結果の正統ソース(Excel/HTML2形式)](project_karuta_member_result_source.md) — 結果は会員ページのみ。各大会 **Excelか HTMLテーブルの排他2形式で両方とも全対戦データ**(HTMLは級タブ→tournaments/{id}.html、入賞者のみではない=前回の誤りを訂正)。**全期間2010-2026 harvest完了**(c:\tmp、git外)。静的2010-2021=**Excel375＋HTML4510ページ(641大会)**(harvest.py/harvest_html.py、漏れ3件監査回収)。新WP2022-2026=**member-download585**(xlsx434/xls127/pdf24、harvest_new*.py、開催日100%)。整合性検証済(normalizePlayerNameが空白/異体字差吸収・二重取込なし)。**残=W2 Excel署名拡張・6414.xls修復・全コーパスparse→manifest**(HTML表パーサは W1 ship済 [[impl_result_html_parser]])。開催日はExcel「大会報告」シート/HTML見出し/新WP要項表
 - [HTML結果パーサ(parseResultHtml) W1 SHIPPED](impl_result_html_parser.md) — static HTML 4510ページを既存ParsedClass[]契約へ正規化。PR#167 merge `8c3ed1e`。round-cell共通化(W2再利用)・不戦壊れHTMLは全td走査で列ずれ防止・相手名はスコアtokenのみ除去。実回帰=例外0/大会名・開催日100%/相手解決99.9%。Codex3R(R3 pass)・CI green
 - [Excel positional「N回戦」署名検出 W2 SHIPPED](impl_result_excel_positional.md) — primary null時のみ起動するfallbackで未検出234中+122回収。PR#168 merge `1ac583e`。サブ見出しで相手/マーク/枚数列を識別し№/級/所属を無視・markCol無ければpositional・誤検出4重ガード(氏名必須/回戦≥1/○×ゼロ却下/数値相手却下)。回帰0/garbage0.06%。Codex6R(5修正,R6 pass)・CI green
 - [同姓同名リスク受容の確定](project_homonym_risk_accepted.md) — 同姓同名は区別しない/所属会も使わない(変わるため)。区別の悪影響>同一視の影響。participant生データ残るので可逆
+- [選手名 正規化維持＋display代表表記(方針②)](project_player_name_display_mode.md) — 正規化は実利~1,000件で維持・display_nameをfirst-wins→participants最頻の生表記に。山﨑→崎化け140件は別レイヤで修正。同定キー不変=migration不要。計画承認済み(plan.md・4フェーズ)・/do-plan待ち
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
 - [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
 - [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false

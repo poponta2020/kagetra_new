@@ -2530,3 +2530,14 @@
 - **Codex auto-review 6R(全 high, 累計~386k tokens)→R6 pass**。5修正(●strip / 氏名ヘッダ+単一回戦 / ●primary 経路 / ragged 最終回戦 / 数列)。CI green。**PR #168 merge `1ac583e`**。
 - **残**: W3 少数異形(団体/順位/挑戦者/報告=ガードで除外済) / Phase3(xls抽出不能7件・全コーパス健全性) / manifest→DB投入(別フェーズ)。
 - 補足: worktree `C:/tmp/impl-result-excel-positional` は git 登録解除済だが node_modules handle で物理 dir 残置（無害）。
+
+## 2026-06-25 段位(dan)取りこぼし修正＋ship（PR #169）
+
+- 過去結果パーサ `parseResultExcel` が一部レイアウトで選手の **段位** を落としていた問題を修正・ship。**段位列のみ追加・他フィールドの解析は不変**（実コーパス933ファイルで prod vs fix の非dan出力がバイト一致を実証）。**PR #169 merge `78e4b51`**。
+  - 原因3種（実測）: ①positional フォールバック `parseRoundLayoutRow` が `dan:null` ハードコード ②結果見出しが「勝/敗」分割・全角空白 `氏　名` で primary 署名を外れフォールバック行き（例: 8532 第11回奥の細道むすび 760件） ③名人位/クイーン位/選抜は段位列に**ヘッダ無し**→primary でも `danCol=null`
+  - 修正: フォールバック aux 走査に 段位列検出を追加＋`findDanColByContent`（見出し無し段位列を「初段〜十段が過半」で内容回収。`danCol` が null の時のみ primary/fallback 双方で起動、未割当列のみ対象＝段位列以外の列割当は不変）
+  - 検証: mail-worker vitest **107 passed**（新規 dan テスト4本: ラベル有り/内容ベース×2/段位無しnull維持）/ lint/check-types clean。実コーパス回帰: 段位抽出 **17,692 → 20,762**。本番投入時の段位投影 **19,313 → 22,383（6.0%）/ 107 → 128 大会**
+  - Codex auto-review 1R(high)=pass/0指摘。CI は**無関係の flaky テスト** `apps/web/.../new-member-form.test.tsx`（フォームreset非同期 act タイミング, ローカルでも2回中1回再現）で1回赤→再実行で green。段位修正とは別パッケージ・別ドメイン
+- **残（別作業）**: 救済 positional 'classes' 経路（兵庫全国10-12 等 ~1,361人 + 北國83/札幌/東京都高校）は Python `positional.py` 生成物で本PR対象外＝段位未回収。やるなら positional.py に段位検出追加＋`recovery.jsonl` 再生成。Excel 残りは 683(5件・summaryのみ)＋8764(部分) のみで軽微
+- **flaky テスト** `new-member-form.test.tsx` は要対応（members/players 領域＝並行セッションと近い。別 quickfix 候補）
+- 2026-06-25 /auto-review-loop PR #169: 1R, verdict=pass, effort=high, tokens=60,693/500,000, result=pass→ship
