@@ -177,6 +177,27 @@ function detectSignatureRow(
       else if (colMap.classCol === null && /^クラス$|^class$/i.test(s)) colMap.classCol = c
     }
 
+    // Content fallback for an unlabeled 段位 column (dan ranks with no 段位 header).
+    // Only fills danCol when the header scan missed it, from an otherwise-unassigned
+    // column whose data is predominantly dan ranks — cannot alter any other column.
+    if (colMap.danCol === null) {
+      const danLimit = colMap.rounds[0]?.opponentCol ?? cells.length
+      const assigned = new Set<number>(
+        [
+          colMap.playerNameCol,
+          colMap.seqNoCol,
+          colMap.kanaCol,
+          colMap.affiliationCol,
+          colMap.prefectureCol,
+          colMap.memberNoCol,
+          colMap.rankCol,
+          colMap.gradeCol,
+          colMap.classCol,
+        ].filter((x): x is number => x != null),
+      )
+      colMap.danCol = findDanColByContent(grid, rowIdx + 1, danLimit, assigned)
+    }
+
     return { headerRowIdx: rowIdx, colMap }
   }
   return null
@@ -190,6 +211,37 @@ function cellStr(row: readonly CellValue[], col: number | null): string | null {
   if (v == null) return null
   const s = normalizeText(v)
   return s || null
+}
+
+// ── 段位 (dan) recovery: content-based unlabeled-column detector ───────────────
+// Some sheets carry dan ranks (初段〜十段) in a column with NO 段位 header — e.g.
+// 名人位/クイーン位 qualifier sheets place 六段/五段 in a header-less column between
+// 選手名 and the first round. This finds such a column by CONTENT (the first
+// otherwise-unassigned column, left of the rounds, whose data cells are
+// predominantly dan ranks) and is only consulted when the header scan found no 段位
+// column. It only ever yields a danCol — no other field's column is affected.
+const DAN_VALUE_RE = /^(初|壱|弐|二|参|三|四|五|六|七|八|九|十)段$/
+function findDanColByContent(
+  grid: readonly (readonly CellValue[])[],
+  dataStartRow: number,
+  limitCol: number,
+  assigned: ReadonlySet<number>,
+): number | null {
+  for (let c = 0; c < limitCol; c++) {
+    if (assigned.has(c)) continue
+    let danLike = 0
+    let nonEmpty = 0
+    for (let r = dataStartRow; r < Math.min(grid.length, dataStartRow + 60); r++) {
+      const v = (grid[r] ?? [])[c]
+      if (v == null) continue
+      const s = normalizeText(v)
+      if (!s) continue
+      nonEmpty++
+      if (DAN_VALUE_RE.test(s)) danLike++
+    }
+    if (nonEmpty >= 3 && danLike / nonEmpty >= 0.5) return c
+  }
+  return null
 }
 
 function parseDataRow(
@@ -376,6 +428,7 @@ interface RoundLayout {
   gradeCol: number | null
   classCol: number | null
   rankCol: number | null
+  danCol: number | null
   blocks: RoundBlock[]
 }
 
@@ -474,6 +527,7 @@ function detectRoundLayoutSignature(
     let gradeCol: number | null = null
     let classCol: number | null = null
     let rankCol: number | null = null
+    let danCol: number | null = null
     for (let c = 0; c < Math.min(nameKeys.length, firstK); c++) {
       if (c === nameCol) continue
       const s = nameKeys[c]!
@@ -483,6 +537,16 @@ function detectRoundLayoutSignature(
       else if (rankCol === null && /順位/.test(s)) rankCol = c
       else if (classCol === null && /^クラス$|^class$/i.test(s)) classCol = c
       else if (gradeCol === null && (/^[A-E]?級$/.test(s) || s === '級')) gradeCol = c
+      else if (danCol === null && /段位|段(?!位)/.test(s)) danCol = c
+    }
+    // Unlabeled 段位 column (dan ranks with no header) — content fallback, danCol only.
+    if (danCol === null) {
+      const assigned = new Set<number>(
+        [nameCol, seqNoCol, kanaCol, affiliationCol, gradeCol, classCol, rankCol].filter(
+          (x): x is number => x != null,
+        ),
+      )
+      danCol = findDanColByContent(grid, dataStartIdx, firstK, assigned)
     }
 
     return {
@@ -495,6 +559,7 @@ function detectRoundLayoutSignature(
       gradeCol,
       classCol,
       rankCol,
+      danCol,
       blocks,
     }
   }
@@ -554,7 +619,7 @@ function parseRoundLayoutRow(
     nameKana: cellStr(row, layout.kanaCol),
     affiliation: cellStr(row, layout.affiliationCol),
     prefecture: null,
-    dan: null,
+    dan: cellStr(row, layout.danCol),
     memberNo: null,
     finalRank: cellStr(row, layout.rankCol),
     matches,

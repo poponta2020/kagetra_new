@@ -241,3 +241,61 @@ describe('parseResultExcel — fallback guards (no false positives)', () => {
     expect(classes[0]!.participants.find((p) => p.name === '主選手')!.matches[0]).toMatchObject({ result: 'win', scoreDiff: 8, opponentName: '相手選手' })
   })
 })
+
+// ── 段位 (dan) capture: labeled (fallback), content-based (fallback & primary), none ──
+describe('parseResultExcel — 段位 (dan) capture', () => {
+  // Labeled 段位 column in a fallback sheet (primary fails: 勝/敗 split, not 勝敗).
+  it('reads a labeled 段位 column via the positional fallback', () => {
+    const sheet = makeSheet('Ａ級', [
+      [null, null, null, null, '1回戦', null, null, '2回戦', null, null],
+      ['No', '氏名', '所属', '段位', '相手', '勝', '敗', '相手', '勝', '敗'],
+      ['1', '段持選手', '甲会', '六段', '乙野選手', '○', '5', '丙野選手', '○', '7'],
+      ['2', '乙野選手', '乙会', '四段', '段持選手', '×', '5', null, null, null],
+    ])
+    const cls = parseResultExcel([sheet])
+    expect(cls[0]!.participants.find((p) => p.name === '段持選手')!.dan).toBe('六段')
+    expect(cls[0]!.participants.find((p) => p.name === '乙野選手')!.dan).toBe('四段')
+  })
+
+  // Header-less dan column recovered by content (predominantly dan ranks) — fallback path.
+  it('recovers an unlabeled dan column by content in the fallback path', () => {
+    const sheet = makeSheet('Ｂ級', [
+      [null, null, null, '1回戦', null, null, '2回戦', null, null],
+      ['No', '氏名', null, '相手', '勝', '敗', '相手', '勝', '敗'],
+      ['1', '甲野選手', '五段', '乙野選手', '○', '5', '丙野選手', '○', '7'],
+      ['2', '乙野選手', '六段', '甲野選手', '×', '5', null, null, null],
+      ['3', '丙野選手', '初段', '甲野選手', '×', '7', null, null, null],
+    ])
+    const cls = parseResultExcel([sheet])
+    expect(cls[0]!.participants.find((p) => p.name === '甲野選手')!.dan).toBe('五段')
+  })
+
+  // Header-less dan column in a PRIMARY-detected sheet (名人位/クイーン位 style: dan
+  // sits in a label-less column between 選手名 and the first 相手).
+  it('recovers an unlabeled dan column by content in the primary path', () => {
+    const sheet = makeSheet('対戦結果表_名人位級', [
+      [null, null, null, '1回戦', null, null, '2回戦', null, null],
+      ['No', '選手名', null, '相手', '枚数', '勝敗', '相手', '枚数', '勝敗'],
+      ['1', '高段選手', '六段', '乙野選手', '5', '○', '丙野選手', '7', '○'],
+      ['2', '乙野選手', '五段', '高段選手', '5', '×', null, null, null],
+      ['3', '丙野選手', '四段', '高段選手', '7', '×', null, null, null],
+    ])
+    const cls = parseResultExcel([sheet])
+    expect(cls[0]!.participants.find((p) => p.name === '高段選手')!.dan).toBe('六段')
+    // the same row's match data must be unaffected by the dan recovery
+    expect(cls[0]!.participants.find((p) => p.name === '高段選手')!.matches[0]).toMatchObject({
+      result: 'win', scoreDiff: 5, opponentName: '乙野選手',
+    })
+  })
+
+  // No 段位 anywhere → the content scan must not invent dan (no false positives).
+  it('leaves dan null when there is no 段位 column', () => {
+    const sheet = makeSheet('C級', [
+      [null, '氏名', '所属', '1回戦', null, null],
+      [null, '甲野選手', '甲会', '乙野選手', '○', '8'],
+      [null, '乙野選手', '乙会', '甲野選手', '×', '8'],
+    ])
+    const cls = parseResultExcel([sheet])
+    expect(cls[0]!.participants.every((p) => p.dan === null)).toBe(true)
+  })
+})
