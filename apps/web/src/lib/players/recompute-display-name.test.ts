@@ -101,14 +101,14 @@ describe('recomputePlayerDisplayNames', () => {
     expect((await getPlayer(id)).displayName).toBe('山﨑')
   })
 
-  it('A1b: first-wins が少数派なら最頻表記へ更新する（山崎が先勝→山﨑が最頻）', async () => {
-    // 大会1: 「山崎」が先に1回入り display_name = 「山崎」(first-wins・少数派)
+  it('A1b: 少数派の stale な display_name を最頻表記へ更新する（山崎→山﨑）', async () => {
+    // 大会1: 「山崎」が先に1回（少数派の表記）
     await seedTournament({
       name: '大会1',
       eventDate: '2026-01-01',
       classes: [{ className: 'D級', participants: ['山崎'] }],
     })
-    // 大会2: 「山﨑」を2回 → 最頻は「山﨑」
+    // 大会2: 「山﨑」を2回 → 全 participation の最頻は「山﨑」
     await seedTournament({
       name: '大会2',
       eventDate: '2026-02-01',
@@ -119,7 +119,10 @@ describe('recomputePlayerDisplayNames', () => {
     })
 
     const id = (await testDb.select().from(players))[0]!.id
-    expect((await getPlayer(id)).displayName).toBe('山崎') // first-wins
+    // materialize は末尾で recompute するため既に「山﨑」に補正済み。これを backfill
+    // 対象の「first-wins で stale な少数派表記」へ意図的に戻し、recompute の是正を検証する。
+    await testDb.update(players).set({ displayName: '山崎' }).where(eq(players.id, id))
+    expect((await getPlayer(id)).displayName).toBe('山崎') // stale な少数派表記
 
     const updated = await recomputePlayerDisplayNames(testDb, [id])
     expect(updated).toBe(1)
@@ -127,7 +130,7 @@ describe('recomputePlayerDisplayNames', () => {
   })
 
   it('A2: 同数なら旧字/異体字を優先する（髙橋×1 / 高橋×1 → 髙橋）', async () => {
-    // 大会1: 「高橋」が先勝 → first-wins display_name = 「高橋」(plain)
+    // 大会1: 「高橋」(plain) を1回
     await seedTournament({
       name: '大会1',
       eventDate: '2026-01-01',
@@ -141,7 +144,10 @@ describe('recomputePlayerDisplayNames', () => {
     })
 
     const id = (await testDb.select().from(players))[0]!.id
-    expect((await getPlayer(id)).displayName).toBe('高橋') // first-wins(plain)
+    // materialize の末尾 recompute で既に「髙橋」に補正済み。tiebreak 検証のため
+    // stale な plain 表記「高橋」へ戻し、is_variant DESC が variant を選ぶことを見る。
+    await testDb.update(players).set({ displayName: '高橋' }).where(eq(players.id, id))
+    expect((await getPlayer(id)).displayName).toBe('高橋') // stale(plain)
 
     const updated = await recomputePlayerDisplayNames(testDb, [id])
     expect(updated).toBe(1)
@@ -165,7 +171,10 @@ describe('recomputePlayerDisplayNames', () => {
     })
 
     const id = (await testDb.select().from(players))[0]!.id
-    expect((await getPlayer(id)).displayName).toBe('渡邉') // first-wins(古い)
+    // materialize の末尾 recompute で既に latest の「渡邊」に補正済み。二重 tie の
+    // latest DESC を検証するため、stale な古い表記「渡邉」へ戻す。
+    await testDb.update(players).set({ displayName: '渡邉' }).where(eq(players.id, id))
+    expect((await getPlayer(id)).displayName).toBe('渡邉') // stale(古い)
 
     const updated = await recomputePlayerDisplayNames(testDb, [id])
     expect(updated).toBe(1)
@@ -215,13 +224,13 @@ describe('recomputePlayerDisplayNames', () => {
   })
 
   it('playerIds 無指定なら全 player を backfill する', async () => {
-    // 別所属で2人の player を作り、両方 first-wins が少数派になるよう仕込む。
+    // 別所属で2人の player を作る（既存ロード済みデータの backfill シナリオ）。
     await seedTournament({
       name: '大会A',
       eventDate: '2026-01-01',
       classes: [
-        { className: 'D級', participants: ['山崎'] }, // player1 first-wins=山崎
-        { className: 'E級', participants: ['髙橋'] }, // player2 first-wins=髙橋
+        { className: 'D級', participants: ['山崎'] }, // player1 (norm=山崎)
+        { className: 'E級', participants: ['髙橋'] }, // player2 (norm=高橋)
       ],
     })
     await seedTournament({
@@ -232,6 +241,11 @@ describe('recomputePlayerDisplayNames', () => {
         { className: 'E級', participants: ['高橋', '高橋'] }, // 高橋が最頻
       ],
     })
+
+    // materialize の末尾 recompute で両者とも最頻表記に補正済み。backfill 検証の
+    // ため、両 player を stale な少数派表記に意図的に戻す（= 旧データの状態を再現）。
+    await testDb.update(players).set({ displayName: '山崎' }).where(eq(players.normalizedName, '山崎'))
+    await testDb.update(players).set({ displayName: '髙橋' }).where(eq(players.normalizedName, '高橋'))
 
     const updated = await recomputePlayerDisplayNames(testDb) // 無指定=全件
     expect(updated).toBe(2)
