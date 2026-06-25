@@ -1,4 +1,5 @@
-import { index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, pgTable, smallint, text, unique } from 'drizzle-orm/pg-core'
 import { tournamentClasses } from './tournament-classes'
 import { players } from './players'
 
@@ -28,6 +29,10 @@ export const tournamentParticipants = pgTable(
     prefecture: text('prefecture'),
     // 生スナップショットのため text（"五段"/"5" 等の揺れをロスレス保持）。
     dan: text('dan'),
+    // 正規化段位ランク 1–10（生 dan から normalizeDan で導出。段位なし(無/無段)・
+    // 記号(●/★)・空は null）。生 dan は正データとして保持し、こちらは段位別検索／
+    // 順序付け（「五段以上」「最高段位 = max(dan_rank)」）用の派生列。
+    danRank: smallint('dan_rank'),
     memberNo: text('member_no'),
     finalRank: text('final_rank'),
   },
@@ -39,5 +44,12 @@ export const tournamentParticipants = pgTable(
     // ため明示的に張る。これにより「試合の class_id が参加者の所属級と一致する」ことを
     // DB が保証する（matches.class_id の冗長保持が壊れない）。
     unique('tournament_participants_id_class_id_uq').on(table.id, table.classId),
+    // dan_rank は normalizeDan 由来の 1–10 または null（段位なし）。backfill や将来の
+    // 直接 SQL 更新がアプリ側バリデーションを迂回して不正値（0/11 等）を入れても DB が
+    // 弾くよう、値域を DB レイヤでも担保する。
+    check(
+      'tournament_participants_dan_rank_range',
+      sql`${table.danRank} BETWEEN 1 AND 10 OR ${table.danRank} IS NULL`,
+    ),
   ],
 )

@@ -1,0 +1,1 @@
+ALTER TABLE "tournament_participants" ADD CONSTRAINT "tournament_participants_dan_rank_range" CHECK ("tournament_participants"."dan_rank" BETWEEN 1 AND 10 OR "tournament_participants"."dan_rank" IS NULL);

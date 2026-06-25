@@ -5,6 +5,7 @@ import {
   parseResultChar,
   parseScoreCell,
   normalizePlayerName,
+  normalizeDan,
 } from '../../src/result-import/normalize.js'
 
 describe('normalizeText', () => {
@@ -70,5 +71,31 @@ describe('normalizePlayerName', () => {
   it('normalizes kanji variants', () => {
     expect(normalizePlayerName('髙橋')).toBe('高橋')
     expect(normalizePlayerName('渡邉')).toBe('渡辺')
+  })
+})
+
+describe('normalizeDan', () => {
+  // The raw 段位 column is heterogeneous across formats: 初段 / 初 / 1段 / １段 / 壱 / 一,
+  // 二段 / 2段 / 弐 / 二, … — all must fold to the same orderable rank 1–10.
+  it.each([
+    ['初段', 1], ['初', 1], ['1段', 1], ['１段', 1], ['壱', 1], ['一', 1],
+    ['二段', 2], ['2段', 2], ['２段', 2], ['弐段', 2], ['弐', 2], ['二', 2], ['弍', 2], ['ニ', 2],
+    ['三段', 3], ['3段', 3], ['参段', 3], ['参', 3], ['三', 3],
+    ['四段', 4], ['四', 4], ['4段', 4],
+    ['五段', 5], ['五', 5],
+    ['六段', 6], ['六', 6],
+    ['七段', 7],
+    ['八段', 8], ['八', 8],
+    ['九段', 9], ['九', 9],
+    ['十段', 10], ['10段', 10], ['十', 10],
+  ])('folds %s → rank %i', (input, rank) => {
+    expect(normalizeDan(input as string)).toBe(rank)
+  })
+
+  it.each([
+    [null], [undefined], [''], ['.'], ['無'], ['無段'], ['無級'],
+    ['●'], ['★'], ['-'], ['A級'], ['初級'], ['13'], ['100'], ['だん'],
+  ])('returns null for non-dan / no-dan value: %s', (input) => {
+    expect(normalizeDan(input as string | null | undefined)).toBeNull()
   })
 })
