@@ -2553,3 +2553,10 @@
   - リハDB実証: 生 dan 39異形→rank、**dan_rank 19,794行 / 実人数 7,855人**、無/記号 null。test 154 / check-types 4/4 / lint green。**最高段位=max(dan_rank)・「五段以上」=dan_rank>=5 が可能に**。
 - 2026-06-25 /auto-review-loop PR #171: 2R（R1 should_fix=1→fix / R2 codex psql ハング→kill）, effort=high, result=shipped（R1 fixed+verified+CI green; R2=codex-error）
 - 注: 並行 `feature/player-identity-name-only` 着手中（player同定キーを名前のみ化＝[[project_homonym_risk_accepted]]）。materialize 隣接だが dan_rank は加算的で衝突なし見込み。**codex exec が review 中にコマンド実行(psql等)を試み非対話ハングする挙動は再発しうる**
+- 2026-06-25 player 同定キー 姓名のみ化 ship。players UNIQUE を (normalized_name,affiliation)→(normalized_name) のみに、materialize get-or-create を姓名のみ照合・player.affiliation=null、戦績に per-大会所属表示、冗長 idx 削除。migration 0029（本番 players 0件＝bare 制約張替え・データ移行不要）。**PR #172 merge `9fbea13`**。
+  - 発端: bulk 投入前確認で players が (姓名+所属) キー＝確定判断 [[project_homonym_risk_accepted]] と矛盾。所属表記ゆれで同一人物が最大16行分裂（リハ320大会で参加記録71%が分裂姓名）。報告書 c:/tmp/REPORT_players_identity.md。
+  - affiliation は「人×大会」属性で player に持たせず null。所属は participant 生値を戦績の各大会行に表示。同姓同名(別人)統合は受容（participant 生データで可逆）。
+  - 並行 dan-rank PR #171 が作業中に main マージ→最新 main へリベース。materialize は danRank と非衝突で自動マージ、migration は 0028 baseline 再生成（snapshot に dan_rank）、0029 で番号衝突なし。
+  - Codex auto-review 1R(high): blocker(既存重複で制約追加失敗)=本番0件で該当せず・should_fix(snapshot欠落)=レビュー diff 除外による誤検知＝実欠陥なし。typecheck 4/4 / web 592 / shared 12 / mail-worker 352 / lint green。
+  - 残: 本番反映(auto-deploy で migration 0029)後に戦績の所属表示を実機目視。[[project_bulk_load_handover]] の bulk 投入は前提クリア（投入は別途 GO 制）。
+- 2026-06-25 /ship PR #172: CI green(Lint/Typecheck/Test pass 5m)→merge `9fbea13`。worktree 残骸は git レジストリ除外済(node_modules ロックで dir 残存=無害スクラッチ)。
