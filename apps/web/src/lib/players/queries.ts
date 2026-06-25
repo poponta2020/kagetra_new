@@ -31,6 +31,8 @@ export interface PlayerParticipationView {
   eventDate: string | null
   className: string
   grade: 'A' | 'B' | 'C' | 'D' | 'E' | null
+  /** その大会での所属（participant の生スナップショット）。player は所属を持たないのでここが正。 */
+  affiliation: string | null
   finalRank: string | null
   matches: PlayerMatchView[]
 }
@@ -100,6 +102,7 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
     where: eq(tournamentParticipants.playerId, playerId),
     columns: {
       id: true,
+      affiliation: true,
       finalRank: true,
     },
     with: {
@@ -131,6 +134,7 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
     eventDate: p.class.tournament.eventDate,
     className: p.class.className,
     grade: p.class.grade,
+    affiliation: p.affiliation,
     finalRank: p.finalRank,
     matches: [...p.matches]
       .sort((a, b) => a.round - b.round)

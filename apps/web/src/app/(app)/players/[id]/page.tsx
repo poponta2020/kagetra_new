@@ -83,7 +83,9 @@ export default async function PlayerDetailPage({
                     )}
                   </div>
                 </div>
-                <div className="text-xs text-ink-meta">{part.className}</div>
+                <div className="text-xs text-ink-meta">
+                  {[part.className, part.affiliation].filter(Boolean).join(' ・ ')}
+                </div>
 
                 {part.matches.length > 0 && (
                   <table className="w-full text-xs text-ink">

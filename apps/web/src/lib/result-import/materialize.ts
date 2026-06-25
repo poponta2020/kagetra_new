@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import * as schema from '@kagetra/shared/schema'
 import {
@@ -30,9 +30,10 @@ export interface MaterializeResult {
  * Materialize a ParsedResultPayload into the tournaments/classes/participants/matches tables.
  * Runs inside the caller's transaction.
  *
- * Player get-or-create is keyed on (normalized_name, affiliation) with NULLS NOT DISTINCT,
- * matching the UNIQUE constraint on `players`. The SELECT-then-INSERT pattern is safe
- * inside a transaction (single-admin operation, no high concurrency).
+ * Player get-or-create is keyed on `normalized_name` only (所属会は同定に使わない＝
+ * homonym-risk-accepted), matching the UNIQUE(normalized_name) constraint on `players`.
+ * The SELECT-then-INSERT pattern is safe inside a transaction (single-admin operation,
+ * no high concurrency).
  *
  * Opponent resolution is done in a second pass over each class's participants, after
  * all participant IDs in that class are known.
@@ -85,21 +86,13 @@ export async function materializeResultDraft(
 
     for (let i = 0; i < cls.participants.length; i++) {
       const p = cls.participants[i]!
-      // Player get-or-create — normalized key: (normalized_name, affiliation).
+      // Player get-or-create — 同定キーは正規化姓名のみ（所属会は使わない＝
+      // homonym-risk-accepted）。所属表記ゆれで同一人物が別 player に分裂するのを
+      // 防ぐ。所属は「人 × 大会」の属性で生涯変わるため player 行には持たせず
+      // (affiliation=null)、生の所属は下の participant スナップショットに残す。
       const normalizedName = normalizePlayerName(p.name)
-      // players is the grouping layer: the affiliation is normalized for BOTH
-      // the lookup and the stored value so they match the (normalized_name,
-      // affiliation) UNIQUE key (Codex R1 should_fix: looking up normalized but
-      // storing raw missed existing rows → UNIQUE violation). The raw
-      // affiliation is preserved on the participant snapshot below.
-      const normalizedAffiliation = p.affiliation ? normalizePlayerName(p.affiliation) : null
 
-      const playerWhere = and(
-        eq(players.normalizedName, normalizedName),
-        normalizedAffiliation === null
-          ? isNull(players.affiliation)
-          : eq(players.affiliation, normalizedAffiliation),
-      )
+      const playerWhere = eq(players.normalizedName, normalizedName)
 
       const existingRows = await tx
         .select({ id: players.id })
@@ -113,26 +106,24 @@ export async function materializeResultDraft(
       } else {
         // INSERT ... ON CONFLICT DO NOTHING so that a concurrent approval of a
         // DIFFERENT draft sharing this player can't fail this tx with a UNIQUE
-        // violation on (normalized_name, affiliation) (Codex R2 should_fix —
-        // approveResultDraft's FOR UPDATE only serializes same-draft approvals,
-        // not two drafts that happen to share a player). On conflict we re-SELECT
-        // to pick up the row the other transaction committed.
+        // violation on (normalized_name) (Codex R2 should_fix — approveResultDraft's
+        // FOR UPDATE only serializes same-draft approvals, not two drafts that
+        // happen to share a player). On conflict we re-SELECT to pick up the row
+        // the other transaction committed.
         const inserted = await tx
           .insert(players)
           .values({
             displayName: p.name,
             normalizedName,
             nameKana: p.nameKana,
-            // store the normalized affiliation so it matches the lookup/UNIQUE key
-            affiliation: normalizedAffiliation,
+            // affiliation は player 行に持たない（人ではなく「人 × 大会」の属性）。
+            // 生の所属は participant スナップショット（下）が正。
+            affiliation: null,
             prefecture: p.prefecture,
           })
-          // No target: a column-list arbiter doesn't reliably resolve a
-          // NULLS NOT DISTINCT unique index (so a null-affiliation player created
-          // concurrently by another draft could still UNIQUE-violate). Bare
-          // ON CONFLICT DO NOTHING catches any unique conflict — players has only
-          // the (normalized_name, affiliation) unique constraint for inserts (id
-          // is generated) — and the re-SELECT below picks up the winner's row.
+          // Bare ON CONFLICT DO NOTHING catches the (normalized_name) unique
+          // conflict (id is generated); the re-SELECT below picks up the winner's
+          // row created by a concurrent transaction.
           .onConflictDoNothing()
           .returning({ id: players.id })
         if (inserted.length > 0) {
