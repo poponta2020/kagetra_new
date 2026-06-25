@@ -148,16 +148,18 @@ describe('tournament-results schema (DB-backed FK/cascade)', () => {
     expect(after?.tournamentId).toBeNull()
   })
 
-  it('UNIQUE(normalized_name, affiliation) is NULLS NOT DISTINCT (null-affiliation dedupes)', async () => {
+  it('UNIQUE(normalized_name) collapses same-name players regardless of affiliation', async () => {
     await insertPlayer({ normalizedName: 'tanaka', affiliation: null })
-    // Same normalized name + null affiliation must collide (NULLS NOT DISTINCT),
-    // otherwise Task 4 get-or-create would create duplicate players.
+    // Same normalized name must collide — get-or-create relies on this to dedupe
+    // a person to one row (所属会は同定に使わない＝homonym-risk-accepted).
     await expect(
       insertPlayer({ normalizedName: 'tanaka', affiliation: null }),
     ).rejects.toThrow()
-    // Different affiliation is a distinct player (no collision).
-    await insertPlayer({ normalizedName: 'tanaka', affiliation: '札幌かるた会' })
-    expect(await testDb.select().from(players)).toHaveLength(2)
+    // Even a different affiliation string is the SAME player now (name-only key).
+    await expect(
+      insertPlayer({ normalizedName: 'tanaka', affiliation: '札幌かるた会' }),
+    ).rejects.toThrow()
+    expect(await testDb.select().from(players)).toHaveLength(1)
   })
 
   it('participant.dan is free text (accepts non-numeric ranks)', async () => {

@@ -227,8 +227,9 @@ describe('materializeResultDraft', () => {
     expect(satoMatch.opponentParticipantId).toBe(tanaka.id) // 正規化で解決
   })
 
-  it('get-or-create players: same (normalized_name, affiliation) reuses one player row', async () => {
-    // Two classes, same person 田中太郎/札幌 plays in both → exactly 1 player row.
+  it('get-or-create players: same normalized name reuses one player row (affiliation ignored)', async () => {
+    // Two classes, same person 田中太郎 (space variant) plays in both → exactly 1 player
+    // row. 同定は姓名のみで、所属は無視する。
     const payload: ParsedResultPayload = {
       parserVersion: '1.0.0',
       classes: [
@@ -291,7 +292,7 @@ describe('materializeResultDraft', () => {
     expect(allParticipants[1]!.playerId).toBe(allPlayers[0]!.id)
   })
 
-  it('different affiliation → different players (NULLS NOT DISTINCT only collapses null)', async () => {
+  it('same name, different affiliation → one player (name-only key; raw affiliation kept on participants)', async () => {
     const payload: ParsedResultPayload = {
       parserVersion: '1.0.0',
       classes: [
@@ -347,9 +348,23 @@ describe('materializeResultDraft', () => {
       }),
     )
 
-    // 札幌 / 東京 / null → 3 distinct players.
+    // 札幌 / 東京 / null すべて同じ姓名 → player は 1 行に名寄せ。
     const allPlayers = await testDb.select().from(players)
-    expect(allPlayers).toHaveLength(3)
+    expect(allPlayers).toHaveLength(1)
+    // player 行は所属を持たない（人ではなく「人 × 大会」の属性）。
+    expect(allPlayers[0]!.affiliation).toBeNull()
+
+    // participant は 3 行（生スナップショット）。全員が同じ player を指す。
+    const allParticipants = await testDb.select().from(tournamentParticipants)
+    expect(allParticipants).toHaveLength(3)
+    for (const part of allParticipants) {
+      expect(part.playerId).toBe(allPlayers[0]!.id)
+    }
+    // 生の所属は participant 側にロスレスで残る。
+    const affs = allParticipants.map((p) => p.affiliation)
+    expect(affs).toContain('札幌')
+    expect(affs).toContain('東京')
+    expect(affs).toContain(null)
   })
 
   it('同一級内の同姓同名: 各自の試合は自分に紐付き、相手解決は曖昧→null', async () => {
@@ -368,7 +383,7 @@ describe('materializeResultDraft', () => {
             seqNo: 1,
             name: '田中太郎',
             nameKana: null,
-            affiliation: '札幌', // 別所属 → players は別行
+            affiliation: '札幌', // raw 所属は participant に残る（同定は姓名のみ＝同一 player）
             prefecture: null,
             dan: null,
             memberNo: null,
@@ -456,7 +471,7 @@ describe('materializeResultDraft', () => {
     expect(satoMatch.opponentParticipantId).toBeNull()
   })
 
-  it('null-affiliation same name across classes collapses to one player (NULLS NOT DISTINCT)', async () => {
+  it('same name across classes collapses to one player (name-only key)', async () => {
     const payload: ParsedResultPayload = {
       parserVersion: '1.0.0',
       classes: [

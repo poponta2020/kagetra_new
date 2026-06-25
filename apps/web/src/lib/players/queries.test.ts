@@ -66,7 +66,8 @@ describe('searchPlayers', () => {
     const results = await searchPlayers('山田 太郎')
     expect(results).toHaveLength(1)
     expect(results[0]!.displayName).toBe('山田太郎')
-    expect(results[0]!.affiliation).toBe('札幌')
+    // player は所属を持たない（同定は姓名のみ・所属は per-大会）。
+    expect(results[0]!.affiliation).toBeNull()
     expect(results[0]!.participationCount).toBe(1)
   })
 
@@ -176,7 +177,8 @@ describe('getPlayerRecord', () => {
     const record = await getPlayerRecord(tanaka.id)
     expect(record).not.toBeNull()
     expect(record!.player.displayName).toBe('田中太郎')
-    expect(record!.player.affiliation).toBe('札幌')
+    // player 行は所属を持たない（常に null）。所属は participation 側に出る。
+    expect(record!.player.affiliation).toBeNull()
 
     // 通算は status=normal のみ：1勝1敗
     expect(record!.totalWins).toBe(1)
@@ -189,6 +191,7 @@ describe('getPlayerRecord', () => {
     expect(part.eventDate).toBe('2026-03-01')
     expect(part.className).toBe('D1級')
     expect(part.grade).toBe('D')
+    expect(part.affiliation).toBe('札幌') // その大会での所属（生スナップショット）
     expect(part.finalRank).toBe('優勝')
     expect(part.matches).toHaveLength(4)
     // round 昇順

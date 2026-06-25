@@ -15,10 +15,10 @@ afterAll(async () => {
 })
 
 /**
- * A bare participant with a single name. affiliation is left null so that every
- * spelling variant of the same name resolves to ONE player via the
- * (normalized_name, affiliation) get-or-create key (normalizePlayerName folds
- * 山﨑→山崎 / 髙橋→高橋, so the variant and plain forms share a normalized key).
+ * A bare participant with a single name. affiliation is left null; every spelling
+ * variant of the same name resolves to ONE player via the normalized_name
+ * get-or-create key (normalizePlayerName folds 山﨑→山崎 / 髙橋→高橋, so the variant
+ * and plain forms share a normalized key).
  */
 function participant(
   seqNo: number,
