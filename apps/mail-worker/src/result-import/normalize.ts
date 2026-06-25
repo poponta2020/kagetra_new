@@ -22,6 +22,34 @@ export function deriveGrade(name: string): 'A' | 'B' | 'C' | 'D' | 'E' | null {
 }
 
 /**
+ * Map a raw 段位 cell value to a numeric dan rank 1–10, or null when there is no
+ * dan (無 / 無段, blank, "."), the value is a stray mark (● / ★), or it is otherwise
+ * not a dan. The raw 段位 column is highly heterogeneous across source formats — the
+ * same rank appears as 初段 / 初 / 1段 / １段 / 壱 / 一, 二段 / 2段 / 弐 / 二, … — so this
+ * folds them all to an orderable rank. The raw value stays on the participant
+ * snapshot (生データが常に正); this is the derived, searchable form.
+ */
+const DAN_KANJI: Record<string, number> = {
+  初: 1, 壱: 1, 一: 1,
+  // 弍 = 弐 の異体字、ニ = カタカナ誤記（段位欄では二段の意）。実データに各数行あり。
+  弐: 2, 弍: 2, 二: 2, ニ: 2,
+  参: 3, 三: 3,
+  四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10,
+}
+export function normalizeDan(raw: string | null | undefined): number | null {
+  if (raw == null) return null
+  // NFKC (full-width digits/spaces → half-width), drop all whitespace, strip a
+  // trailing 段 / 段位 so "初段" / "初" / "1段" all reduce to the rank token.
+  const s = normalizeText(String(raw)).replace(/\s+/g, '').replace(/段位?$/, '')
+  if (!s) return null
+  if (/^\d{1,2}$/.test(s)) {
+    const n = parseInt(s, 10)
+    return n >= 1 && n <= 10 ? n : null
+  }
+  return DAN_KANJI[s] ?? null
+}
+
+/**
  * Parse a win/lose indicator cell value.
  * Accepts ○ (U+25CB), 〇 (U+3007), × (U+00D7 / U+00D7 lookalike), ● (U+25CF, used
  * as 負 in some 成績表). Returns null if unrecognized (row skipped / end-of-data).

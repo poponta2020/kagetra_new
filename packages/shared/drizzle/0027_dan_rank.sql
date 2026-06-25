@@ -1,0 +1,1 @@
+ALTER TABLE "tournament_participants" ADD COLUMN "dan_rank" smallint;

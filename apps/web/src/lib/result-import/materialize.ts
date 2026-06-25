@@ -8,7 +8,7 @@ import {
   tournamentClasses,
   tournamentParticipants,
 } from '@kagetra/shared/schema'
-import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
+import { normalizeDan, normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
 
@@ -161,6 +161,8 @@ export async function materializeResultDraft(
           affiliation: p.affiliation,
           prefecture: p.prefecture,
           dan: p.dan,
+          // 派生: 正規化段位ランク(1-10)。生 dan は上で保持。段位なし/記号は null。
+          danRank: normalizeDan(p.dan),
           memberNo: p.memberNo,
           finalRank: p.finalRank,
         })

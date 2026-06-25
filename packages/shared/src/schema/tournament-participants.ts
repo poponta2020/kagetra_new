@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, unique } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, smallint, text, unique } from 'drizzle-orm/pg-core'
 import { tournamentClasses } from './tournament-classes'
 import { players } from './players'
 
@@ -28,6 +28,10 @@ export const tournamentParticipants = pgTable(
     prefecture: text('prefecture'),
     // 生スナップショットのため text（"五段"/"5" 等の揺れをロスレス保持）。
     dan: text('dan'),
+    // 正規化段位ランク 1–10（生 dan から normalizeDan で導出。段位なし(無/無段)・
+    // 記号(●/★)・空は null）。生 dan は正データとして保持し、こちらは段位別検索／
+    // 順序付け（「五段以上」「最高段位 = max(dan_rank)」）用の派生列。
+    danRank: smallint('dan_rank'),
     memberNo: text('member_no'),
     finalRank: text('final_rank'),
   },
