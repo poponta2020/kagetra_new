@@ -2543,3 +2543,13 @@
 - 2026-06-25 /auto-review-loop PR #169: 1R, verdict=pass, effort=high, tokens=60,693/500,000, result=pass→ship
 - 2026-06-25 /auto-review-loop PR #170: 1R, verdict=pass, effort=high, tokens=41389/500000, result=pass
 - 2026-06-25 player-display-name-mode **SHIPPED**: /do-plan→4フェーズ実装(worktree C:/tmp/impl-player-display-name-mode)→PR#170(Codex 1R即pass/CI green)→merge `4a843fa`。display_name=participants最頻の生表記(recompute ranked CTE+materialize末尾配線+backfill --dry-run)。正規化/同定キー不変=migrationなし。リハDB﨑mismatch140→78(残留は崎が真の最頻)・冪等・web592tests green。PR#166と materialize.ts 領域分離。残DoD=本番反映後にメール承認由来playerが居れば backfill検討(tournament系が空なら不要)
+
+## 2026-06-25 段位正規化 dan_rank 派生＋ship（PR #171）
+
+- 段位別検索を実用化する派生 canonical 段位 `dan_rank`(1-10, nullable) を実装・ship。生 dan は不変＝検索/順序付け用の正規化列。**PR #171 merge `a2a10bf`**。
+  - `normalizeDan(raw)→1-10|null`（初段/初/1段/弐/二/弍/ニ/全角 → rank、無/無段/●/★/〇/. → null）。`tournament_participants.dan_rank smallint`（migration 0027）＋ materialize 配線（新規ロード自動）＋ backfill（distinct dan ごと1 UPDATE・冪等・`--dry-run`）。
+  - Codex R1(high) should_fix 1=「dan_rank の DB 値域 CHECK 欠如」→ CHECK 制約追加（migration 0028, `dan_rank BETWEEN 1 AND 10 OR IS NULL`）。リハ19,794値で通過確認。
+  - **R2 は codex が自前で psql を起動して CHECK を検証しようとし非対話ハング（承認/接続待ち）→ kill。コードでなく codex のツール実行バグ**（38h前の stale codex ゾンビも混在＝掃除済）。R1 対応済＋実データ検証済＋CI green(5m8s)＋mergeable clean のため ship（R2 formal verdict はハングで取得不可）。
+  - リハDB実証: 生 dan 39異形→rank、**dan_rank 19,794行 / 実人数 7,855人**、無/記号 null。test 154 / check-types 4/4 / lint green。**最高段位=max(dan_rank)・「五段以上」=dan_rank>=5 が可能に**。
+- 2026-06-25 /auto-review-loop PR #171: 2R（R1 should_fix=1→fix / R2 codex psql ハング→kill）, effort=high, result=shipped（R1 fixed+verified+CI green; R2=codex-error）
+- 注: 並行 `feature/player-identity-name-only` 着手中（player同定キーを名前のみ化＝[[project_homonym_risk_accepted]]）。materialize 隣接だが dan_rank は加算的で衝突なし見込み。**codex exec が review 中にコマンド実行(psql等)を試み非対話ハングする挙動は再発しうる**
