@@ -10,7 +10,7 @@ declare module 'next-auth' {
       role: 'admin' | 'vice_admin' | 'member'
       lineUserId: string | null
       lineLinkedAt: string | null
-      lineLinkedMethod: 'self_identify' | 'admin_link' | 'account_switch' | null
+      lineLinkedMethod: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null
       name?: string | null
       email?: string | null
       image?: string | null
@@ -22,7 +22,7 @@ declare module 'next-auth' {
     isInvited?: boolean
     lineUserId?: string | null
     lineLinkedAt?: string | null
-    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null
   }
 }
 
@@ -32,7 +32,7 @@ declare module 'next-auth/jwt' {
     role?: 'admin' | 'vice_admin' | 'member'
     lineUserId?: string | null
     lineLinkedAt?: string | null
-    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null
   }
 }
 
@@ -42,7 +42,7 @@ declare module '@auth/core/types' {
     isInvited?: boolean
     lineUserId?: string | null
     lineLinkedAt?: string | null
-    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null
   }
 }
 
@@ -52,6 +52,6 @@ declare module '@auth/core/adapters' {
     isInvited?: boolean
     lineUserId?: string | null
     lineLinkedAt?: string | null
-    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
+    lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null
   }
 }

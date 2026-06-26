@@ -11,7 +11,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: DB スキーマ（registration_invites）＋ enum invite_link ＋ 型横断更新 ＋ マイグレーション
-- [ ] 完了
+- [x] 完了
 - **概要:** 招待トークンを保持する新規テーブルを追加し、`line_link_method` enum に `invite_link` を追加。enum 追加に伴う TS 文字列リテラル型を横断更新する。
 - **変更対象ファイル:**
   - `packages/shared/src/schema/registration-invites.ts`（新規）— `id` / `token`(UNIQUE) / `expires_at` / `created_by`(FK→users.id) / `created_at` / `revoked_at`。[attachment-share-tokens.ts](packages/shared/src/schema/attachment-share-tokens.ts) のパターンを踏襲

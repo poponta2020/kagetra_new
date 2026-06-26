@@ -10,6 +10,9 @@ export const lineLinkMethodEnum = pgEnum('line_link_method', [
   'self_identify',
   'admin_link',
   'account_switch',
+  // invite-link-registration: member self-registered via an admin-issued
+  // /register/<token> link (the LINE binding happens at row creation time).
+  'invite_link',
 ])
 
 // mail-tournament-import (PR1)
