@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #178
 
 ### タスク5: middleware の /register/* ルーティング拡張
-- [ ] 完了
+- [x] 完了
 - **概要:** `/register/*` を新カテゴリとして扱い、未ログイン通過・未紐付け時の self-identify 例外・紐付け済みは `/` へ、を実装。
 - **変更対象ファイル:**
   - [apps/web/src/middleware.ts](apps/web/src/middleware.ts) — `REGISTER_PREFIX = '/register'` を追加し、(1) `!session` かつ register → 通す、(2) `session && !user.id` かつ register → 通す（self-identify 強制の例外）、(3) `session && user.id` かつ register → `/` へ

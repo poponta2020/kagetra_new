@@ -14,11 +14,19 @@ import { authConfig } from './auth.config'
  *   - token.id unset  → LINE login succeeded but no matching internal user row
  *                        yet; force /self-identify so the user can claim
  *   - no session      → force /auth/signin
+ *
+ * `/register/*` (invite-link self-registration) is a special category:
+ *   - no session            → allow through (welcome + "LINEで登録" button)
+ *   - session, id unset      → allow through (the deliberate exception to the
+ *                              /self-identify force — the registrant fills the
+ *                              name/grade form here after LINE OAuth)
+ *   - session, id set (bound) → redirect to / (already a member, nothing to do)
  */
 const { auth } = NextAuth(authConfig)
 
 const PUBLIC_PATHS = ['/auth/signin', '/auth/error']
 const SELF_IDENTIFY_PATHS = ['/self-identify']
+const REGISTER_PATHS = ['/register']
 
 function startsWithAny(pathname: string, prefixes: string[]): boolean {
   return prefixes.some(
@@ -30,29 +38,38 @@ export default auth((req) => {
   const { nextUrl } = req
   const session = req.auth
   const pathname = nextUrl.pathname
+  const isRegister = startsWithAny(pathname, REGISTER_PATHS)
 
-  // Unauthenticated: only /auth/signin is reachable; /auth/error too for LINE errors.
+  // Unauthenticated: /auth/signin (+ /auth/error for LINE errors) and the
+  // public /register/* welcome screen are reachable; everything else → signin.
   if (!session) {
-    if (startsWithAny(pathname, PUBLIC_PATHS)) return NextResponse.next()
+    if (startsWithAny(pathname, PUBLIC_PATHS) || isRegister) return NextResponse.next()
     const url = nextUrl.clone()
     url.pathname = '/auth/signin'
     return NextResponse.redirect(url)
   }
 
   // Authenticated but no internal id yet → /self-identify (LINE user ID is set,
-  // but the user hasn't claimed an invited member row).
+  // but the user hasn't claimed an invited member row). /register/* is exempt:
+  // an invite-link registrant is unbound by design and fills the form there.
   if (
     !session.user?.id &&
     !startsWithAny(pathname, SELF_IDENTIFY_PATHS) &&
-    !startsWithAny(pathname, PUBLIC_PATHS)
+    !startsWithAny(pathname, PUBLIC_PATHS) &&
+    !isRegister
   ) {
     const url = nextUrl.clone()
     url.pathname = '/self-identify'
     return NextResponse.redirect(url)
   }
 
-  // Authenticated + bound user visiting /auth/signin → dashboard.
-  if (startsWithAny(pathname, PUBLIC_PATHS)) {
+  // Bound user (id set) visiting /auth/signin, or any bound user landing on
+  // /register/* (registration already done) → dashboard. The `id` guard keeps
+  // an unbound registrant on /register/* instead of bouncing them here.
+  if (
+    startsWithAny(pathname, PUBLIC_PATHS) ||
+    (isRegister && !!session.user?.id)
+  ) {
     const url = nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
