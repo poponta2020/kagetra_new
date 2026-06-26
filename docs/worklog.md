@@ -2560,3 +2560,58 @@
   - Codex auto-review 1R(high): blocker(既存重複で制約追加失敗)=本番0件で該当せず・should_fix(snapshot欠落)=レビュー diff 除外による誤検知＝実欠陥なし。typecheck 4/4 / web 592 / shared 12 / mail-worker 352 / lint green。
   - 残: 本番反映(auto-deploy で migration 0029)後に戦績の所属表示を実機目視。[[project_bulk_load_handover]] の bulk 投入は前提クリア（投入は別途 GO 制）。
 - 2026-06-25 /ship PR #172: CI green(Lint/Typecheck/Test pass 5m)→merge `9fbea13`。worktree 残骸は git レジストリ除外済(node_modules ロックで dir 残存=無害スクラッチ)。
+
+## 2026-06-26 リハDB是正（HANDOVER_rehearsal_unified A2/B1/B5/B4）
+
+`kagetra_rehearsal`(port5433) を read-only 点検から**是正フェーズ**へ。本番未変更・dump方式で後日本番反映。是正前 dump `c:/tmp/rehearsal_backup_2026-06-26.sql`(84MB)・是正後 `rehearsal_corrected_2026-06-26.sql`(83.8MB)。全クエリ/スクリプトは git外 C:/tmp。
+
+### A2（ゴミ名16件/null の同定→リネーム）= 13/16適用・4保留
+- **NEW 6件**（重複なし・空edition充填／級相補）: 961/1082/1197→第39/40/41回全国選抜かるた大会(ed119/120/121、参加者検証=実票・川瀬/粂原/嵓田ら実在トップ32・1回戦から実ブラケット)、1161/1166/1171→第75回高松宮記念杯近江神宮全国競技かるた大会(E/D/C)(ed1117、既存A=1174/B=1180と級相補)
+- **DUP-FULL 5件**（⚠️handover未把握の隠れ重複を発見）: 668/712/729/748=桑名70/72/73/74、790=香川14。**いずれも全級+入賞順位ありの全級フル再取込で、クリーンの A,B(,D)(,香川D,E) 部分集合6件(t#85/162/225/287/299/397, 入賞順位ゼロ)を100%内包**。もみじ級はクリーンで桑名のみ所有=同定の決め手。**ユーザー承認→フル版保持・クリーン6件削除**(冗長除去、二重計上回避、null日付はクリーン由来で補完)
+- **768**=熊本復興支援シャリテ大会(D)(名前既知、null維持)
+- **保留 4件**: 706/727/746/765（関西/関東のD/E実大会・final_rank有だが、小学生選手権とoverlap 0・大阪大会とも包含せず＝確信ある同定不可。山口の教訓で推測リネーム回避）。スコープ確認: garbage56件中フル再取込dupは**この5件のみ**、A1の46件([file]名)はクリーン非包含=各々唯一データ
+
+### B1（徳島1457 完全破損）= 正データへ置換完了
+- 原本 `karuta_results/new/8670.pdf`(第3回競技かるた初段認定徳島大会, 2023-06-04, 鳴門・大塚スポーツパーク)を**視覚読み**(PyMuPDFはCID文字化け)。**参加者49名**(DBは25名のみ＝24名欠落)、3回戦固定形式・勝ち数で優勝6/準優勝19/1勝18/0勝5
+- Python `gen_1457.py` で49名×3試合のJSONL生成（**対称性検証=各対戦が両選手視点で結果反転・枚数一致=エラー0**、勝ち数分布PDF一致）。`_add_load.mts`(materialize)で新tournament 1512作成→旧1457削除(CASCADE)→1512をedition213(第3回)へ付替+会場設定→孤児player(偽「準優勝」master 47668)除去
+- 検証: 49名/147試合・final_rank(優勝6/準優勝19)・opponent解決144/147(残3=不戦勝walkover)・**自己対戦0/score_diff>25が0/round最大3**(旧:72)・優勝者と各対戦がPDF完全一致
+
+### B5（matches外れ値）= 調査+是正
+- **round>20=0**(B1で旧1457起源の52件解消済)
+- **score_diff>25=1306件**(かるた最大25・物理不可、max60、1503山口初段認定PDF+高校選手権個人戦に集中)→**>25をnull化**(result/opponent_name保持)
+- **自己対戦54件/17大会**→opponent_participant_idをnull化(opponent_name保持)
+- 検証後 score_diff最大=25・自己対戦0。※1503山口(初段認定PDF・相手名切詰め・スコア消失)は1457型の再パース候補(別途)
+
+### B4（handover「総当たり」= 実は重複取込バグと判明）= dedupで正常化
+- ⚠️**ユーザー指摘で精査→これらは総当たりではなく重複取込**。当初「除外(unlink)」予定を撤回。4型: ①丸ごとN倍(北國84=5倍/隅谷一平5行が完全同一・愛知B/秋田6=2倍) ②統合+分割の二重(多摩31: A=A1/A2/A3, 全体=B1-4) ③中間シート重複(滋賀35/初段認定滋賀/関東初心者1: 並び替え前/非表示/所属会順/対戦結果) ④エントリー行重複(選抜29)。初心者大会=3回戦固定はユーザー記憶通り正常(重複はシート二重取込)
+- **統合dedup** `dedup_internal.sql`(keeper=各級×選手の最小id、対戦をkeeperへ再割当→重複対戦畳む→重複参加者削除→**対戦相手リンク再解決**(級内一意化後)→num_players同期)。同一コピーも1ラウンド1行も正しく畳む。重複シート系は**スーパーセット保持で冗長級を包含確認のうえ削除**(995は別人同名でなく行分割と確認/包含は INTERSECT で検証)
+- 10件全て**級内重複0**達成(北國84: 2470→494行/5500→1100対戦)。同姓同名(別人同名・[[project_homonym_risk_accepted]])103件995行は除外=非対象
+
+### 全体整合（A2+B1+B5+B4後・全GREEN）
+- tournaments 1502 / participants 368,176 / matches 818,595 / players 47,794 = distinct_norm / 孤児player 0 / 孤児edition_link 0 / 名前回次≠edition 0 / score_diff>25 0 / 自己対戦 0
+- 全変更後 display_name 全件 recompute(`_recompute_all.mts`、129件更新、最頻表記へ)
+
+### A1（46件 edition紐付ゴミ名のリネーム）= 完了
+- 対象=`[file]static/…`+『…』結果報告 かつ edition_id紐付の46件。**identity確定済（editionが正しく紐付き）でデータ本物・名前だけ破損**。`tournaments.name` のみ UPDATE（参加者/対戦不変）
+- 命名=**各大会の最寄りクリーン兄弟を基に回次差し替え**（`gen_a1.py`: ★◎接頭辞除去→`第N回`差替→末尾級サフィックス除去→分割editionのみ自級付与）。時代別の「小倉百人一首」接頭辞有無も兄弟で自動追従。注意2の級相補分割は級サフィックスで区別、同名(935/951=東京東会77 A級2日)は日付で区別。1174/1180→高松宮75(A)/(B)＝A2の(C/D/E)を完成
+- 検証: [file]/『』残存0・名前回次≠edition回次0。例外1=edition77(東京東会77)に**クリーン側の同名3件(1399=B/1400=C/1418=E が級サフィックス無で「第77回全国競技かるた東京東会大会」)** が既存（私のA1対象外・935/951/957とは級も日付も別＝重複でない）。級付与で揃えるかは要判断(別スコープ)
+
+### 同名区別（edition内 同名大会の級サフィックス付与）= 完了
+- edition77クリーン3件の修正をきっかけに、**同一edition内で同名(級サフィックス無)の大会が116 edition/310件**存在する既存コーパスパターンを発見（級分割大会が同じ素名を共有・UI上は同名が並ぶ）。ユーザー承認(全部やる)で体系的に区別
+- **真の重複(同edition+同級+同日)は0**＝純粋な命名タスク(dedup不要)。`gen_dupname.py`: 級が一意なら`(級)`、同級衝突は`(級・MM/DD)`、無級は`(MM/DD)`、無級無日付は整形類名/`(他)`。既存名は制御文字除去＋サフィックス付与・名前のみ・可逆。`dupname_apply.sql`/`dupname_review.txt`
+- 検証: **同edition同名=0達成**・tournaments1502不変・名前回次≠edition0・participants/matches/players不変(name-only)
+- ⚠️**別途残る素名ゆれ(今回対象外)**: ed892「第 104 回」スペース・ed965「第２９回」全角・ed750「第43回東京吉野会大会」(全国競技かるた欠)・ed814「第二十五回…成績発表」・ed661「…大会報告書」・ed479「…結果報告」等の接頭辞/接尾辞/桁ゆれ。同名重複ではなく素名正規化の別案件
+
+### 残作業（GO待ち/別スコープ）
+- A2保留 4件(706/727/746/765)の同定（source forensics 要 or ユーザー知識）。1503山口の1457型再パース。ユーザー判断=「下位級D/E・初段認定で頑張りに見合わない可能性」→保留継続
+- 素名ゆれ正規化（上記ed892等、任意）
+- 未着手(ユーザー未依頼): A3-A(名人/クイーン30、ユーザー保留)・B2(多摩1473/1474のラベル行103件・偽player 47667)・B3(affiliation再パース8件)・B6(整形)
+- **本番投入は GO待ちのまま**（是正はリハ完結、dump で本番反映は後日ユーザー）
+
+## 2026-06-26 invite-link-registration SHIPPED (PR #182, merge 62e9da9)
+- 招待リンクによる会員セルフ登録を実装・ship。管理者発行URL→「LINEで登録」→LINE OAuth→氏名+級入力→role=member 作成+LINE紐付け→dashboard。既存 admin createMember＋/self-identify は置き換えず併存。
+- 8タスク（子 #174-181）＋親 #173 全クローズ。migration 0030（registration_invites テーブル＋ line_link_method enum に invite_link 追加）。
+- 非自明: generateRegistrationToken は Web Crypto グローバル（node:crypto は client component 経由でブラウザバンドルを壊す・E2E が検出）/ registerViaInvite は self-identify 同型（unstable_update に id を渡さず nodeJwtCallback が lineUserId から解決）/ 同名衝突→文言エラー・同一 line_user_id 二重→/ へ誘導 / middleware /register/* は未ログイン通過・未紐付け時 self-identify 例外・紐付け済み→/。
+- 検証: lib26 / 発行系actions10 / registerViaInvite10 / E2E6 ・ web unit638 ・ shared12 ・ mail-worker401 ・ check-types/lint green。
+- /auto-review-loop PR #182: 1R, effort=high, verdict=needs_changes → **blocker は検証済み false positive（E2E が登録→dashboard 到達を実証・auth.config の update 分岐は id パッチ無視で提案は dead code）→ ユーザー承認で override**, result=pass(override)。CI green。
+- 残DoD: 本番実機目視（migration 0030 は code 変更ありのため auto-deploy が main push で自動適用）。
