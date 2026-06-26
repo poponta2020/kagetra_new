@@ -67,7 +67,7 @@ status: completed
 - **備考:** middleware の単体テストは無いため、ルーティング挙動は タスク8 の E2E で担保する。
 
 ### タスク6: 登録ページ /register/[token] UI ＋ フォーム
-- [ ] 完了
+- [x] 完了
 - **概要:** トークン状態に応じて出し分ける登録ページ。signin / self-identify と同じ独立レイアウト（`(app)` 外）。
 - **変更対象ファイル:**
   - `apps/web/src/app/register/[token]/page.tsx`（新規, Server Component）— トークン検証 → 無効/期限切れ=エラー表示、未ログイン=ウェルカム＋「LINEで登録」（server action `signIn('line', { redirectTo: '/register/<token>' })`）、未紐付け=登録フォーム、紐付け済み=`/` へ
