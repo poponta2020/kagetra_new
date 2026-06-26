@@ -35,7 +35,7 @@ status: completed
 - **対応Issue:** #175
 
 ### タスク3: 発行／無効化 Server Actions ＋ テスト
-- [ ] 完了
+- [x] 完了
 - **概要:** 管理者が招待リンクを発行・無効化するアクション。authz は `admin`/`vice_admin`（createMember と同一）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/members/actions.ts`（拡張）— `createRegistrationInvite(preset)`（authz → INSERT → 完全URL を返す。`NEXT_PUBLIC_APP_URL` 等のベースURL利用）／`revokeRegistrationInvite(id)`（authz → `revoked_at=now` UPDATE）／有効リンク取得用クエリ
