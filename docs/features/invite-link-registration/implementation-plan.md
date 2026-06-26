@@ -77,7 +77,7 @@ status: completed
 - **対応Issue:** #180
 
 ### タスク7: 会員管理画面に招待リンク発行セクション ＋ モーダル ＋ 有効リンク一覧
-- [ ] 完了
+- [x] 完了
 - **概要:** 管理画面に発行UIを追加。発行後モーダルでURL/期限/コピーを表示し、有効リンク一覧と無効化ボタンを出す。
 - **変更対象ファイル:**
   - [apps/web/src/app/(app)/admin/members/page.tsx](apps/web/src/app/(app)/admin/members/page.tsx)（拡張）— 「招待リンク」セクション（期限プリセット選択＋発行ボタン＋有効リンク一覧＋無効化）
