@@ -20,3 +20,24 @@ export function isUniqueViolation(err: unknown): boolean {
   }
   return false
 }
+
+/**
+ * Name of the violated constraint for a unique_violation, or null.
+ *
+ * Lets a caller branch on WHICH unique constraint fired when a table has more
+ * than one (e.g. users.name vs users.line_user_id during invite registration).
+ * Checks the error itself and the wrapped `cause`, mirroring isUniqueViolation.
+ * Returns null when it is not a unique violation or the driver did not surface
+ * a constraint name.
+ */
+export function uniqueViolationConstraint(err: unknown): string | null {
+  if (!isUniqueViolation(err)) return null
+  const direct = (err as { constraint?: unknown }).constraint
+  if (typeof direct === 'string') return direct
+  const cause = (err as { cause?: unknown }).cause
+  if (typeof cause === 'object' && cause !== null) {
+    const c = (cause as { constraint?: unknown }).constraint
+    if (typeof c === 'string') return c
+  }
+  return null
+}

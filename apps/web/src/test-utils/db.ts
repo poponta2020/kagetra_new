@@ -22,6 +22,9 @@ export const testDb = drizzle(testPool, { schema })
 // tournament-results added the players/tournaments/result-drafts cluster. CASCADE
 // already follows their FKs (e.g. result_drafts via mail_messages), but list each
 // explicitly so RESTART IDENTITY resets their identity sequences too.
+//
+// invite-link-registration added `registration_invites` (created_by ON DELETE
+// CASCADE — cleared with users anyway, but listed explicitly per convention).
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
@@ -41,6 +44,7 @@ export async function truncateAll() {
       schedule_items,
       events,
       event_groups,
+      registration_invites,
       sessions,
       accounts,
       verification_tokens,

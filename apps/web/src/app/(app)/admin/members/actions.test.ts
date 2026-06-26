@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { users } from '@kagetra/shared/schema'
+import { registrationInvites, users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createAdmin, createUser, createViceAdmin } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -8,7 +8,18 @@ import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-const { createMember } = await import('./actions')
+const {
+  createMember,
+  createRegistrationInvite,
+  revokeRegistrationInvite,
+  listActiveRegistrationInvites,
+} = await import('./actions')
+
+// Shared pool: close once after every describe in this file finishes (the
+// individual describes only truncate between tests).
+afterAll(async () => {
+  await closeTestDb()
+})
 
 function formOf(data: Record<string, string>) {
   const fd = new FormData()
@@ -23,9 +34,6 @@ async function findByName(name: string) {
 describe('createMember', () => {
   beforeEach(async () => {
     await truncateAll()
-  })
-  afterAll(async () => {
-    await closeTestDb()
   })
 
   it('管理者が名前のみで作成できる（grade=null, role=member, isInvited=true, 未紐付け）', async () => {
@@ -152,5 +160,205 @@ describe('createMember', () => {
 
     // 行は増えていない
     expect(await findByName('重複会員')).toHaveLength(1)
+  })
+})
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+
+describe('createRegistrationInvite', () => {
+  const ORIGINAL_BASE_URL = process.env.PUBLIC_BASE_URL
+
+  beforeEach(async () => {
+    await truncateAll()
+    // Pin the origin so the action returns a deterministic URL without needing
+    // a request context (resolveRegistrationBaseUrl checks env before headers()).
+    process.env.PUBLIC_BASE_URL = 'https://test.example.com'
+  })
+  afterAll(() => {
+    if (ORIGINAL_BASE_URL === undefined) delete process.env.PUBLIC_BASE_URL
+    else process.env.PUBLIC_BASE_URL = ORIGINAL_BASE_URL
+  })
+
+  it('管理者が発行すると行が作成され、完全URLと失効日時を返す', async () => {
+    const admin = await createAdmin({ name: 'inv-admin-1' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const before = Date.now()
+    const result = await createRegistrationInvite('7d')
+    const after = Date.now()
+
+    expect(result.error).toBeUndefined()
+    expect(result.url).toMatch(/^https:\/\/test\.example\.com\/register\/[A-Za-z0-9_-]{43}$/)
+    expect(result.expiresAt).toBeDefined()
+
+    const rows = await testDb.select().from(registrationInvites)
+    expect(rows).toHaveLength(1)
+    const row = rows[0]
+    expect(row?.createdBy).toBe(admin.id)
+    expect(row?.revokedAt).toBeNull()
+    // The returned URL ends with the stored token.
+    expect(result.url?.endsWith(row!.token)).toBe(true)
+    // Expiry ≈ now + 7d.
+    const exp = row!.expiresAt.getTime()
+    expect(exp).toBeGreaterThanOrEqual(before + SEVEN_DAYS_MS - 1000)
+    expect(exp).toBeLessThanOrEqual(after + SEVEN_DAYS_MS + 1000)
+  })
+
+  it('vice_admin も発行できる', async () => {
+    const vice = await createViceAdmin({ name: 'inv-vice-1' })
+    await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+    const result = await createRegistrationInvite('1d')
+    expect(result.url).toBeDefined()
+    expect(await testDb.select().from(registrationInvites)).toHaveLength(1)
+  })
+
+  it('一般会員が呼ぶと拒否され、行は作成されない', async () => {
+    const member = await createUser({ name: 'inv-member-1', role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+
+    await expect(createRegistrationInvite('7d')).rejects.toThrow(/Unauthorized/)
+    expect(await testDb.select().from(registrationInvites)).toHaveLength(0)
+  })
+
+  it('未認証なら拒否される', async () => {
+    await setAuthSession(null)
+    await expect(createRegistrationInvite('7d')).rejects.toThrow(/Unauthorized/)
+    expect(await testDb.select().from(registrationInvites)).toHaveLength(0)
+  })
+
+  it('不正なプリセットはエラー、行は作成されない', async () => {
+    const admin = await createAdmin({ name: 'inv-admin-2' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await createRegistrationInvite('999d')
+    expect(result.error).toBeDefined()
+    expect(result.url).toBeUndefined()
+    expect(await testDb.select().from(registrationInvites)).toHaveLength(0)
+  })
+})
+
+describe('revokeRegistrationInvite', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+
+  it('管理者が無効化すると revoked_at がセットされる', async () => {
+    const admin = await createAdmin({ name: 'rev-admin-1' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const [row] = await testDb
+      .insert(registrationInvites)
+      .values({
+        token: 'token-to-revoke',
+        expiresAt: new Date(Date.now() + SEVEN_DAYS_MS),
+        createdBy: admin.id,
+      })
+      .returning()
+
+    const before = Date.now()
+    const result = await revokeRegistrationInvite(row!.id)
+    expect(result.success).toBe(true)
+
+    const [after] = await testDb
+      .select()
+      .from(registrationInvites)
+      .where(eq(registrationInvites.id, row!.id))
+    expect(after?.revokedAt).toBeInstanceOf(Date)
+    expect(after!.revokedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000)
+  })
+
+  it('一般会員が呼ぶと拒否され、revoked_at は変わらない', async () => {
+    const admin = await createAdmin({ name: 'rev-admin-2' })
+    const [row] = await testDb
+      .insert(registrationInvites)
+      .values({
+        token: 'token-stays',
+        expiresAt: new Date(Date.now() + SEVEN_DAYS_MS),
+        createdBy: admin.id,
+      })
+      .returning()
+    const member = await createUser({ name: 'rev-member-1', role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+
+    await expect(revokeRegistrationInvite(row!.id)).rejects.toThrow(/Unauthorized/)
+    const [unchanged] = await testDb
+      .select()
+      .from(registrationInvites)
+      .where(eq(registrationInvites.id, row!.id))
+    expect(unchanged?.revokedAt).toBeNull()
+  })
+
+  it('二重無効化は最初の revoked_at を保持する（冪等）', async () => {
+    const admin = await createAdmin({ name: 'rev-admin-3' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const firstRevoked = new Date('2026-06-01T00:00:00Z')
+    const [row] = await testDb
+      .insert(registrationInvites)
+      .values({
+        token: 'token-already-revoked',
+        expiresAt: new Date(Date.now() + SEVEN_DAYS_MS),
+        createdBy: admin.id,
+        revokedAt: firstRevoked,
+      })
+      .returning()
+
+    const result = await revokeRegistrationInvite(row!.id)
+    expect(result.success).toBe(true)
+    const [after] = await testDb
+      .select()
+      .from(registrationInvites)
+      .where(eq(registrationInvites.id, row!.id))
+    expect(after?.revokedAt?.toISOString()).toBe(firstRevoked.toISOString())
+  })
+})
+
+describe('listActiveRegistrationInvites', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+
+  it('未失効・未無効化のリンクのみを新しい順で返す', async () => {
+    const admin = await createAdmin({ name: 'list-admin-1' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const now = new Date('2026-06-26T00:00:00Z')
+    const future = new Date(now.getTime() + 86_400_000)
+    const past = new Date(now.getTime() - 86_400_000)
+
+    await testDb.insert(registrationInvites).values([
+      {
+        token: 'active-old',
+        expiresAt: future,
+        createdBy: admin.id,
+        createdAt: new Date('2026-06-20T00:00:00Z'),
+      },
+      {
+        token: 'active-new',
+        expiresAt: future,
+        createdBy: admin.id,
+        createdAt: new Date('2026-06-25T00:00:00Z'),
+      },
+      {
+        token: 'expired',
+        expiresAt: past,
+        createdBy: admin.id,
+        createdAt: new Date('2026-06-24T00:00:00Z'),
+      },
+      {
+        token: 'revoked',
+        expiresAt: future,
+        createdBy: admin.id,
+        createdAt: new Date('2026-06-24T00:00:00Z'),
+        revokedAt: now,
+      },
+    ])
+
+    const list = await listActiveRegistrationInvites(now)
+    expect(list.map((l) => l.token)).toEqual(['active-new', 'active-old'])
+  })
+
+  it('一般会員が呼ぶと拒否される', async () => {
+    const member = await createUser({ name: 'list-member-1', role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    await expect(listActiveRegistrationInvites()).rejects.toThrow(/Unauthorized/)
   })
 })

@@ -4,7 +4,11 @@
  * per-member edit page so the two views stay consistent.
  */
 
-export type LineLinkMethod = 'self_identify' | 'admin_link' | 'account_switch'
+export type LineLinkMethod =
+  | 'self_identify'
+  | 'admin_link'
+  | 'account_switch'
+  | 'invite_link'
 
 /**
  * Format `line_linked_at` as `YYYY-MM-DD HH:mm` in the server's local time
@@ -19,12 +23,13 @@ export function formatLinkedAt(d: Date | null): string {
 }
 
 /**
- * Render the three enum values as short Japanese labels. Returns `'—'` for
+ * Render the enum values as short Japanese labels. Returns `'—'` for
  * null (not yet linked) so the column never shows an empty cell.
  */
 export function formatLinkMethod(m: LineLinkMethod | null): string {
   if (m === 'self_identify') return '自己申告'
   if (m === 'admin_link') return '管理者'
   if (m === 'account_switch') return '切替'
+  if (m === 'invite_link') return '招待リンク'
   return '—'
 }

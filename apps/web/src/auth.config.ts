@@ -11,8 +11,8 @@ import Line from 'next-auth/providers/line'
  * (deactivation check + LINE user ID → internal user id resolution) is added in
  * auth.ts via a wrapper over this jwt callback.
  *
- * `line_link_method` enum values (self_identify / admin_link / account_switch) are
- * written by Server Actions (not here).
+ * `line_link_method` enum values (self_identify / admin_link / account_switch /
+ * invite_link) are written by Server Actions (not here).
  */
 export const authConfig = {
   providers: [
@@ -51,7 +51,12 @@ export const authConfig = {
         type Patch = {
           lineUserId?: string | null
           lineLinkedAt?: string | null
-          lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | null
+          lineLinkedMethod?:
+            | 'self_identify'
+            | 'admin_link'
+            | 'account_switch'
+            | 'invite_link'
+            | null
         }
         const s = session as Patch & { user?: Patch }
         const patch: Patch = s.user ?? s
@@ -65,7 +70,8 @@ export const authConfig = {
           patch.lineLinkedMethod === null ||
           patch.lineLinkedMethod === 'self_identify' ||
           patch.lineLinkedMethod === 'admin_link' ||
-          patch.lineLinkedMethod === 'account_switch'
+          patch.lineLinkedMethod === 'account_switch' ||
+          patch.lineLinkedMethod === 'invite_link'
         ) {
           token.lineLinkedMethod = patch.lineLinkedMethod
         }
@@ -84,7 +90,13 @@ export const authConfig = {
         session.user.lineUserId = (token.lineUserId as string | null | undefined) ?? null
         session.user.lineLinkedAt = (token.lineLinkedAt as string | null | undefined) ?? null
         session.user.lineLinkedMethod =
-          (token.lineLinkedMethod as 'self_identify' | 'admin_link' | 'account_switch' | null | undefined) ?? null
+          (token.lineLinkedMethod as
+            | 'self_identify'
+            | 'admin_link'
+            | 'account_switch'
+            | 'invite_link'
+            | null
+            | undefined) ?? null
       }
       return session
     },
