@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto'
-
 /**
  * Pure helpers for the invite-link self-registration flow. DB-free so they can
  * be unit-tested in isolation; the Server Actions and the /register page wrap
@@ -8,6 +6,11 @@ import { randomBytes } from 'node:crypto'
  * Mirrors the shape of invite-code.ts, but the token here is a high-entropy
  * random (it rides in a URL, not spoken aloud) and validity is guarded purely
  * by an expiry preset plus a manual revoke — there is no per-person cap.
+ *
+ * NOTE: this module is imported by the admin section (a client component) for
+ * the expiry presets, so it must stay client-bundle-safe — i.e. NO `node:*`
+ * imports. Token generation therefore uses the Web Crypto global rather than
+ * `node:crypto` (a top-level `node:crypto` import breaks the browser build).
  */
 
 export type RegistrationInviteExpiryPreset = '1d' | '7d' | '30d'
@@ -39,13 +42,22 @@ export function isValidExpiryPreset(value: unknown): value is RegistrationInvite
 /**
  * Generate a fresh URL-safe invite token.
  *
- * 32 random bytes → 43 base64url characters. base64url avoids `+` / `/` / `=`
+ * 32 CSPRNG bytes → 43 base64url characters. base64url avoids `+` / `/` / `=`
  * so the token drops straight into `/register/<token>` without escaping. The
  * entropy is overkill for a link with operator-limited distribution, but it
  * costs nothing and keeps the URL unguessable (requirements §6).
+ *
+ * Uses `crypto.getRandomValues` (the Web Crypto global, a CSPRNG present in
+ * Node 18+, the browser, and Edge) instead of `node:crypto.randomBytes` to keep
+ * this module free of `node:*` imports — see the file-level note. Only ever
+ * called server-side regardless.
  */
 export function generateRegistrationToken(): string {
-  return randomBytes(32).toString('base64url')
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  let binary = ''
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /**

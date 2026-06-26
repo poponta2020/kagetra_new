@@ -86,7 +86,7 @@ status: completed
 - **対応Issue:** #179
 
 ### タスク8: E2E（Playwright）招待リンク発行→登録→ログイン フロー
-- [ ] 完了
+- [x] 完了
 - **概要:** 発行から登録・ログイン到達までの主要動線、期限切れ拒否、未ログイン→（LINE モック）→フォーム→作成を検証。
 - **変更対象ファイル:**
   - `apps/web/e2e/invite-link-registration.spec.ts`（新規）— [self-identify-flow.spec.ts](apps/web/e2e/self-identify-flow.spec.ts) / [admin-member-create.spec.ts](apps/web/e2e/admin-member-create.spec.ts) の認証モック（[playwright-auth.ts](apps/web/src/test-utils/playwright-auth.ts)）を流用
