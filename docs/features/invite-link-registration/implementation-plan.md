@@ -26,7 +26,7 @@ status: completed
 - **対応Issue:** #174
 
 ### タスク2: registration-invite ライブラリ（純関数）＋ ユニットテスト
-- [ ] 完了
+- [x] 完了
 - **概要:** トークン生成・有効期限算出・検証の純関数を実装。[invite-code.ts](apps/web/src/lib/invite-code.ts) / [invite-code.test.ts](apps/web/src/lib/invite-code.test.ts) のパターンを踏襲し、DB 非依存でテスト可能にする。
 - **変更対象ファイル:**
   - `apps/web/src/lib/registration-invite.ts`（新規）— `generateRegistrationToken()`（`crypto.randomBytes(32).toString('base64url')`）／`registrationInviteExpiresAt(preset, now?)`（preset: `'1d'|'7d'|'30d'`）／`isRegistrationInviteExpired(expiresAt, now?)`／`EXPIRY_PRESETS` 定義
