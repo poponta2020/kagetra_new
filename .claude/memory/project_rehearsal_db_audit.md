@@ -1,6 +1,6 @@
 ---
 name: project_rehearsal_db_audit
-description: リハDB kagetra_rehearsal の点検+是正。本体コーパス健全、PDF/Word55+special100分のゴミを是正。**2026-06-26 是正完遂: A1/A2/B1/B4/B5/同名区別/名人クイーン4系列化＋B2/B3(壊れ14大会ラベル行=幻ラウンド削除/opponent null化/final_rank人名null化)＋入賞者のみ36大会削除＋所属クリーン141 まで全完了・徹底監査全GREEN**。最終 tournaments1496。本番投入GO待ち。是正後dump=C:/tmp/rehearsal_corrected_2026-06-26.sql
+description: リハDB kagetra_rehearsal の点検+是正。本体コーパス健全、PDF/Word55+special100分のゴミを是正。**2026-06-26 是正完遂: A1/A2/B1/B4/B5/同名区別/名人クイーン4系列化＋B2/B3＋入賞者のみ36大会削除＋所属クリーン141＋宇都宮/熊本0対戦の原本取込(matches+1239)＋大会名/級名 素名ゆれ正規化(706件) まで全完了・全20監査GREEN**。最終 tournaments1496/matches819,703/players47,709。本番投入GO待ち。是正後dump=C:/tmp/rehearsal_corrected_2026-06-26.sql
 metadata: 
   node_type: memory
   type: project
@@ -32,6 +32,15 @@ metadata:
 - **D 所属クリーン(ユーザー決定)141行**: 1458ふりがな接頭除去＋1460/1461/1462/1463/1467/1468末尾別人名・末尾`―`除去。**branch-point方式**(兄弟分岐の最短接頭辞)で校名境界を安全判定→`久留米信愛女学院中学校`(校)/`久留米大学附設中学校・福`(福)/`諭吉の里　中津かるた会`(内部空白)/`中村学園女子高校・福岡`(福岡)の過剰削除回避。`C:/tmp/_aff_clean.py`。
 - **徹底監査=全GREEN**(FK/孤児/空/不変条件/系列/num_players ズレ・B2/B3固有ゴミ すべて0)。最終 **tournaments1496**/classes8688/participants367,582/matches818,464/players47,708(=distinct)/series180/editions1236(33無リンク化)/**edition_null22**(記念単発のみ・団体3削除)。
 - 残(任意)=1319/1143のmatches再パース判断・素名ゆれ・名人クイA1/A2(721/735/762)・1503山口。本番投入GO待ち継続。
+
+## 2026-06-26 宇都宮/熊本 原本取込 + 素名ゆれ正規化 = 完了(全20監査GREEN)
+- ユーザー依頼: 保持していた0対戦2大会を原本Excelから対戦込み取込＋大会名/級名の素名ゆれ正規化。是正前=`rehearsal_pre_ingest_2026-06-26.sql`、後=`rehearsal_corrected_2026-06-26.sql`。
+- **0対戦の原因**=原本は標準対戦表だが**ヘッダ列ラベル(枚数|勝敗)とデータ並び(勝敗|枚数)が逆**で旧パーサがresult誤読→0対戦化。**データ位置(相手→○×→枚数)から列役割をデータ検出**する新パーサ`_parse_results.py`で解決。教訓=結果表パースはヘッダ順を信用せずデータで列判定。
+- **1319宇都宮**(`new/6644.xls` 9級): 既存441参加者に**871対戦追加**。C2級末尾の連番ゴミ(相手欄"6.0"等)は「result無し行は対戦化しない」で除外。相手解決100%・氏名不一致0。
+- **1143熊本**(`new/16741.xlsx`): C級95に185対戦追加＋**欠落D級93名を新規取込**(class+player upsert[姓名のみ・異体字畳み]+183対戦)、名を`(C)`→`(C,D)`。新規player+1(92は既存同定)。
+- **素名ゆれ正規化**: tournament名**321**(★◎接頭222/cruft接尾83[結果報告/のご報告/成績発表/結果について・先頭`の`吸収]/全角数字・第Nスペース16)、class_name**385**(`対戦結果表_`接頭374+空白trim11)。sheet_name(内部生)非変更。衝突0を事前事後検証。⚠️`第\1回`置換の`\x01`化バグをpreviewで検出→lambda修正(適用前回避)。
+- **最終=全20監査GREEN**: zeromatch大会0達成・同edition同名0・残ゴミ名0。**tournaments1496/classes8689/participants367,675/matches819,703/players47,709(=distinct)/series180/editions1236**。
+- スクリプト=`_parse_results.py`/`_gen_ingest.py`/`_gen_names.py`。残(任意)=名人クイA1/A2(721/735/762)・1503山口。**本番投入GO待ち継続**。
 
 ---
 （以下は点検時=是正前の記録）
