@@ -1,13 +1,25 @@
 ---
 name: project_bulk_load_handover
-description: 過去大会結果の本番DB投入 — リハDBをクリーン再構築済(1454大会/824,220対戦/player47,654・ゴミ0・姓名のみ名寄せ・??稀字復旧・個人ギャップ救済)。本番投入は dump方式(GO待ち)。詳細=c:/tmp/HANDOVER_bulk_load.md ＋ c:/tmp/COVERAGE_classification.md
+description: 過去大会結果の本番DB投入 — **2026-06-27 本番投入 完了(GO実施)**。是正済リハDBの結果7表(series/editions含む)を dump→restore で本番(`kagetra`@Oracle東京)へ。本番=tournaments1496/matches819,703/players47,709、リハと完全一致・全整合GREEN。本番バックアップ=C:/tmp/prod_backup_before_load_2026-06-27.sql。詳細=c:/tmp/HANDOVER_bulk_load.md
 metadata: 
   node_type: memory
   type: project
   originSessionId: c46027bf-8209-47b5-a303-06559f887d85
 ---
 
-過去大会結果(全日本かるた協会会員ページ harvest の HTML/Excel)の本番DB投入タスク。**個人戦パース完全完了 = 1,453大会 / 371,070参加者 / 824,064対戦**。残るは本番DBへの投入のみ（**ユーザー明示GO必須**・未着手）。
+過去大会結果(全日本かるた協会会員ページ harvest の HTML/Excel)の本番DB投入タスク。**個人戦パース完全完了 → 是正(B2/B3/入賞者削除/素名正規化/宇都宮熊本取込=[[project_rehearsal_db_audit]])後に本番投入完了**。
+
+## ★2026-06-27 本番投入 完了（GO実施）= DONE
+- 是正済リハ `kagetra_rehearsal` の**結果7テーブルを本番 `kagetra`(Oracle Cloud東京)へ dump→restore**。**5表想定だったがユーザー指示で7表**(tournament_series/editions追加)。
+- 本番に series層スキーマが無い(Drizzle非管理)ため**先に生DDL適用**(enum `tournament_kind`/`tournament_status`＋表 `tournament_series`/`tournament_series_editions`＋`tournaments.edition_id`列/FK、`C:/tmp/prod_schema_series.sql`)→**7表data-only dump(`prod_load_7tables.sql` 83MB)を single-tx(-1/ON_ERROR_STOP)でrestore**(FK安全順、identity連番はdump内setvalで自動)。
+- 接続=`ssh -i ~/.ssh/id_ed25519_oracle ubuntu@new.hokudaicarta.com` → `sudo docker exec -i kagetra-postgres psql`(コンテナ内ソケットでPW不要・トンネル不要)。**PW未保存**。
+- **投入前フルバックアップ=`C:/tmp/prod_backup_before_load_2026-06-27.sql`(100MB・27表・保管)**。本番結果5表が空(0)・enum/series表/edition_id無を事前確認。
+- **read-back=本番件数リハ完全一致**: series180/editions1236/players47,709(=distinct)/tournaments1496/classes8689/participants367,675/matches**819,703**。整合性 player_id NULL0/孤児match0/edition FK不正0/series FK不正0。edition紐付け実証。連番=max。
+- ⚠️**スキーマdrift**: series層は本番生DDL=Drizzle非定義。**本番 db:migrate 運用で維持(db:push禁止)**。将来Drizzle化は別途。
+- 投入数値は handover §4 の期待値(1453等)より多い=是正後の最新(1496等)。
+
+---
+（以下は投入前=パース完了時点の記録）
 
 **詳細引き継ぎ書**: `c:/tmp/HANDOVER_bulk_load.md`（投入手順/接続/救済/見送り）＋ `c:/tmp/COVERAGE_classification.md`（取りこぼし全件の分類・理由・保留/取込判断）。
 

@@ -2662,3 +2662,12 @@
 - **素名ゆれ正規化**: tournament名**321件**(★◎接頭222・cruft接尾83[結果報告/のご報告/成績発表/結果について等、先頭`の`も吸収]・全角数字/「第 104 回」スペース16)、class_name**385件**(`対戦結果表_`接頭374＋空白trim11)。sheet_name(内部メタ・生)は非変更。**衝突0**(edition内同名0/tournament内同級名0)を事前+事後検証。⚠️途中`第\1回`置換が`\x01`化するバグをpreviewで検出→lambda化で修正(適用前に回避)。
 - **最終監査=全20項目GREEN**。最終 **tournaments1496/classes8689/participants367,675/matches819,703/players47,709(=distinct)/series180/editions1236**。
 - スクリプト=`_parse_results.py`(対戦表データ検出パーサ)/`_gen_ingest.py`/`_gen_names.py`(正規化+衝突検査)。**本番投入はGO待ち継続**。残=名人クイA1/A2(721/735/762)・1503山口(任意)。
+
+## 2026-06-27 ★過去結果 本番DB投入 完了（GO実施）
+- ユーザーGOで、是正済みリハDB `kagetra_rehearsal` の**結果7テーブルを本番DB(`kagetra`@Oracle Cloud東京)へ dump→restore で投入**。本番稼働データ(users/events/mail)は不変、結果系は追加のみ。
+- **投入前に本番フルバックアップ取得**=`C:/tmp/prod_backup_before_load_2026-06-27.sql`(100MB・27表・保管)。本番結果5表が空(0件)・enum/series表/edition_id列が無いことをread-onlyで確認。
+- ⚠️**引き継ぎ書(§4)は5表想定だったが、ユーザー指示で7表**(series/editions含む)。本番Drizzleスキーマに **edition_id列・tournament_series/editions表・enum(tournament_kind/tournament_status)が無い**(series層はDrizzle非管理の方針)ため、**先に本番へ生DDLでスキーマ作成**(enum2+表2+`tournaments.edition_id`列+FK、`C:/tmp/prod_schema_series.sql`)→**7表data-only dumpをsingle-tx(-1/ON_ERROR_STOP)でrestore**(`prod_load_7tables.sql` 83MB・FK安全順 players→series→editions→tournaments→classes→participants→matches)。identity連番はdump内setvalで自動セット。
+- 接続=`ssh id_ed25519_oracle ubuntu@new.hokudaicarta.com` → `sudo docker exec -i kagetra-postgres psql`(コンテナ内ソケット接続でPW不要・トンネル不要)。**本番PW/会員PWは未保存**。
+- **read-back検証=本番件数がリハと完全一致**: series180/editions1236/players47,709(=distinct)/tournaments1496/classes8689/participants367,675/matches**819,703**。整合性 player_id NULL0/孤児match0/edition FK不正0/series FK不正0。edition紐付け実証(1143→熊本大会第41回)。連番=max一致。
+- ⚠️**スキーマdrift注意**: series層は本番に生DDLで追加=Drizzleスキーマ非定義。**本番は db:migrate 運用なので維持される**(db:push禁止=未定義表をdropする恐れ)。将来Drizzle化は別途。
+- 残(任意)=NODATE/NONAME精緻化(handover§8)・名人クイA1/A2・1503山口・三原(暗号化PW)・団体/PDF/レポートは別スコープ。**本番投入は完了**。
