@@ -44,7 +44,7 @@ status: completed
 - **対応Issue:** #177
 
 ### タスク4: 登録確定 Server Action（registerViaInvite）＋ テスト
-- [ ] 完了
+- [x] 完了
 - **概要:** トークンを再検証し、セッションの LINE ユーザーIDで会員レコードを作成・紐付けするアクション。self-identify の claim と createMember の INSERT を組み合わせた形。
 - **変更対象ファイル:**
   - `apps/web/src/app/register/[token]/actions.ts`（新規）— `registerViaInvite(token, formData)`:
