@@ -349,16 +349,26 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     // 部分承認の 2 回目以降も findOrCreate は冪等なので同じ edition_id に収束する。
     let resolvedEditionId: number | null = null
     if (editionLink && editionNumber != null) {
-      // Codex R4 should_fix: 新規 series 作成時の kind は selected unit の kind から決める
-      // （series.kind は系列単位の事実。既定 individual のままだと団体戦系列が誤って個人戦化）。
-      // 1 案内 = 1 大会 = 1 kind 前提。個人/団体が混在する案内は系列 kind を確定できないので弾く。
-      const editionKinds = new Set(parsedUnits.map((u) => u.parsed.kind))
+      // 新規 series 作成時の kind は selected unit の kind から決める（series.kind は系列単位の
+      // 事実。既定 individual のままだと団体戦系列が誤って個人戦化）。1 案内 = 1 大会 = 1 kind 前提。
+      //
+      // Codex R5 blocker: parsedUnits（今回送信分）だけだと、部分承認をまたいだ混在を見逃す
+      // （登録済み unit は read-only で再送されない）。backfill 対象＝この draft 由来の既存 events の
+      // kind も合わせて検証し、個人/団体が混在する開催への紐付けを弾く。
+      const existingKindRows = await tx
+        .select({ kind: events.kind })
+        .from(events)
+        .where(eq(events.tournamentDraftId, draftId))
+      const editionKinds = new Set<'individual' | 'team'>([
+        ...parsedUnits.map((u) => u.parsed.kind),
+        ...existingKindRows.map((r) => r.kind),
+      ])
       if (editionKinds.size > 1) {
         throw new Error(
           '入力が不正です: 個人戦/団体戦が混在する案内は 1 つの開催にまとめて紐付けられません',
         )
       }
-      const editionKind = parsedUnits[0]?.parsed.kind ?? 'individual'
+      const editionKind: 'individual' | 'team' = [...editionKinds][0] ?? 'individual'
       // allowCreate は管理者が「新規系列として作成」を明示したときだけ true。未一致かつ未明示は
       // findOrCreateSeries が throw（silent な新規 master 化を防ぐ）。複数一致も throw（曖昧）。
       const { seriesId } = await findOrCreateSeries(tx, {

@@ -257,7 +257,13 @@ export async function findOrCreateSeries(
   const all = await loadAllSeries(tx)
   const ranked = rankSeriesCandidates(input.name, all)
   const exact = ranked.filter((c) => c.score >= EXACT_MATCH_SCORE)
-  if (exact.length === 1) return { seriesId: exact[0]!.series.id, created: false }
+  if (exact.length === 1) {
+    const s = exact[0]!.series
+    // Codex R5 should_fix: 既存 series の kind と要求 kind が食い違うリンクは作らない
+    // （個人戦 series に団体戦 event を紐付ける等。series.kind は系列単位の事実）。
+    assertSeriesKindMatches(s.name, s.kind, input.kind)
+    return { seriesId: s.id, created: false }
+  }
   if (exact.length > 1) {
     throw new Error(
       `系列名「${input.name}」が複数の既存系列に一致します。系列を特定できません（手動で選択してください）`,
@@ -277,12 +283,29 @@ export async function findOrCreateSeries(
     .returning({ id: tournamentSeries.id })
   if (inserted.length > 0) return { seriesId: inserted[0]!.id, created: true }
 
+  // 並行 INSERT が勝った場合の再 SELECT。kind も取得し、競合相手が別 kind で作っていたら弾く。
   const reselect = await tx
-    .select({ id: tournamentSeries.id })
+    .select({ id: tournamentSeries.id, kind: tournamentSeries.kind })
     .from(tournamentSeries)
     .where(eq(tournamentSeries.name, input.name.trim()))
     .limit(1)
-  return { seriesId: reselect[0]!.id, created: false }
+  const r = reselect[0]!
+  assertSeriesKindMatches(input.name, r.kind, input.kind)
+  return { seriesId: r.id, created: false }
+}
+
+/** 系列 kind と要求 kind の不一致を入力エラーにする（一致 or 要求未指定なら no-op）。 */
+function assertSeriesKindMatches(
+  name: string,
+  seriesKind: 'individual' | 'team',
+  requestedKind: 'individual' | 'team' | undefined,
+): void {
+  if (requestedKind && seriesKind !== requestedKind) {
+    const label = (k: 'individual' | 'team') => (k === 'team' ? '団体戦' : '個人戦')
+    throw new Error(
+      `系列「${name}」は${label(seriesKind)}系列ですが、${label(requestedKind)}として紐付けようとしています（系列を確認してください）`,
+    )
+  }
 }
 
 export interface EditionSuggestion {

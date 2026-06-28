@@ -918,6 +918,39 @@ describe('admin/mail-inbox actions', () => {
       await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/混在/)
     })
 
+    it('部分承認: 既存 individual event + 後から team unit を editionLink ON → 混在エラー（R5 blocker）', async () => {
+      // batch2 で team unit だけ送る（u1 は登録済みで再送されない）。parsedUnits だけ見ると
+      // team 単一で見逃すが、既存 events の kind も含めて検証するので弾けることを確認。
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-03-20'),
+          unit('u2', ['B'], '2031-03-21'),
+        ]),
+      })
+      // batch1: u1 を individual で承認（editionLink なし）
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20', extra: { kind: 'individual' } },
+          { unitKey: 'u2', grades: ['B'], eventDate: '2031-03-21', register: false },
+        ]),
+      )
+      // batch2: u2 を team で editionLink ON（u1 は再送しない）
+      const fd2 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20', register: false },
+        { unitKey: 'u2', grades: ['B'], eventDate: '2031-03-21', extra: { kind: 'team' } },
+      ])
+      fd2.set('editionLink', 'on')
+      fd2.set('editionSeriesName', '混在テスト大会')
+      fd2.set('editionNumber', '1')
+      fd2.set('editionCreateNewSeries', 'on')
+      await expect(approveDraftUnits(draft.id, fd2)).rejects.toThrow(/混在/)
+    })
+
     it('editionLink OFF → events.edition_id は null（非破壊）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

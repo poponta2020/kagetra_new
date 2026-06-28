@@ -259,6 +259,18 @@ describe('edition resolve — DB', () => {
         findOrCreateSeries(testDb, { name: 'テスト大会', allowCreate: true }),
       ).rejects.toThrow(/複数の既存系列に一致/)
     })
+    it('既存 series の kind と要求 kind が食い違うと throw（R5 should_fix）', async () => {
+      await seedSeries('個人戦の大会') // seedSeries は kind=individual
+      await expect(
+        findOrCreateSeries(testDb, { name: '個人戦の大会', kind: 'team', allowCreate: true }),
+      ).rejects.toThrow(/団体戦として紐付け/)
+    })
+    it('既存 series の kind と要求 kind が一致すれば解決する（R5）', async () => {
+      const id = await seedSeries('個人戦の大会')
+      const res = await findOrCreateSeries(testDb, { name: '個人戦の大会', kind: 'individual' })
+      expect(res.seriesId).toBe(id)
+      expect(res.created).toBe(false)
+    })
   })
 
   describe('autoResolveEdition', () => {
