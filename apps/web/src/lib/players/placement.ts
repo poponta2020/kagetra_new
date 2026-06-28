@@ -69,12 +69,10 @@ export function derivePlacement(
   const minRound = Math.min(...playedRounds)
   const maxPlayed = Math.max(...playedRounds)
 
-  // 進出経路の一貫性チェック（データ欠けを導出不能に倒す）。
-  // - 冒頭の bye は最大1回戦分（出場開始は round1 か round2）。それ以上飛んでいる
-  //   ＝「決勝だけ残っている」等のデータ欠けなので導出しない。
-  // - 出場 round は開始〜最終までギャップ無く連続のはず（重複は上で排除済みなので
-  //   distinct 数 = matches.length）。欠けていれば導出しない。
-  if (minRound > 2) return null
+  // 進出経路の連続性チェック: 出場 round は開始〜最終までギャップ無く連続のはず。
+  // シード/不戦の bye は冒頭にのみ付く（開始 round が遅いのは許容＝級全体の妥当性は
+  // isDerivableClass が担保）。内部に欠け（ギャップ）があると順位が確定できないので
+  // 導出しない。重複は上で排除済みなので distinct 数 = matches.length。
   if (maxPlayed - minRound + 1 !== matches.length) return null
 
   const last = matches.find((mt) => mt.round === maxPlayed)

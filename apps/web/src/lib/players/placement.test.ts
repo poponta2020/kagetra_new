@@ -47,9 +47,24 @@ describe('derivePlacement — 数値 round（4ラウンド=16人ブラケット,
     expect(derivePlacement(ms, 4)).toEqual({ label: 'ベスト16', bracket: 16 })
   })
 
-  it('シード（1回戦bye, 2回戦から）で準々決勝負け → ベスト8', () => {
-    const ms = [m(2, 'win'), m(3, 'win'), m(4, 'lose')] // 決勝負け=準優勝 のはず
+  it('シード（1回戦bye, 2回戦から）で決勝負け → 準優勝', () => {
+    const ms = [m(2, 'win'), m(3, 'win'), m(4, 'lose')]
     expect(derivePlacement(ms, 4)).toEqual({ label: '準優勝', bracket: 2 })
+  })
+
+  it('複数 round bye の第1シードが決勝まで全勝 → 優勝（Codex R4）', () => {
+    // 64人枠の第1シードが4回戦から出場し決勝(6回戦)まで全勝。開始 round が遅くても可。
+    expect(derivePlacement([m(4, 'win'), m(5, 'win'), m(6, 'win')], 6)).toEqual({
+      label: '優勝',
+      bracket: 1,
+    })
+  })
+
+  it('複数 round bye の選手が準決勝で敗退 → ベスト4', () => {
+    expect(derivePlacement([m(4, 'win'), m(5, 'lose')], 6)).toEqual({
+      label: 'ベスト4',
+      bracket: 4,
+    })
   })
 })
 
@@ -133,11 +148,6 @@ describe('derivePlacement — 導出不能は null（呼び出し側で final_ra
     expect(derivePlacement([m(1, 'win'), m(1, 'win'), m(2, 'win')], 2)).toBeNull()
   })
 
-  it('決勝だけ残っている（途中ラウンド欠落）→ null（Codex R2 blocker）', () => {
-    // classMaxRound=4 なのに本人の試合が決勝1件だけ＝データ欠け。優勝に過大計上しない。
-    expect(derivePlacement([m(4, 'win')], 4)).toBeNull()
-  })
-
   it('出場 round にギャップ（データ欠け）→ null', () => {
     expect(derivePlacement([m(1, 'win'), m(3, 'lose')], 3)).toBeNull()
   })
@@ -198,6 +208,16 @@ describe('isDerivableClass — 級全体がシングルイリミか', () => {
       cm(3, 'win', '準決勝'), cm(4, 'lose', '準決勝'),
       cm(1, 'win', '決勝'), cm(3, 'lose', '決勝'),
       cm(2, 'win', null), cm(4, 'lose', null), // 3位決定戦（ラベル無しでも数で弾く）
+    ]
+    expect(isDerivableClass(rows)).toBe(false)
+  })
+
+  it('敗北数が参加者-1 より少ない（データ欠け）→ false', () => {
+    // 4人だが敗者1しか記録が無い＝不完全（決勝勝者が一意に定まらない）→ 導出不能。
+    const rows = [
+      cm(1, 'win', '準決勝'), cm(2, 'lose', '準決勝'),
+      cm(3, 'win', '準決勝'), cm(4, 'win', '準決勝'),
+      cm(1, 'win', '決勝'), cm(3, 'win', '決勝'),
     ]
     expect(isDerivableClass(rows)).toBe(false)
   })
