@@ -135,14 +135,15 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     expect(editionNumber.value).toBe('28')
   })
 
-  it('開催(edition)紐付けセクション: 回次が取れなければ link を OFF にする', () => {
+  it('開催(edition)紐付けセクション: 既存系列に未一致なら（回次があっても）link は OFF', () => {
+    // Codex R1 should_fix: 新規系列候補は管理者が明示チェックする運用。
     const payload = buildPayload([buildUnit()])
     const { container } = render(
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        editionSuggestion={{ seriesName: '新規っぽい大会', editionNumber: 5, matched: false }}
         action={noop}
       />,
     )
@@ -150,6 +151,10 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       'input[name="editionLink"]',
     ) as HTMLInputElement
     expect(link.checked).toBe(false)
+    // 系列名・回次は pre-fill される（チェックを入れれば使える）
+    expect(
+      (container.querySelector('input[name="editionSeriesName"]') as HTMLInputElement).value,
+    ).toBe('新規っぽい大会')
   })
 
   it('開催日分割: 2 単位を別フォームとして描画し title を級ごとに合成する', () => {

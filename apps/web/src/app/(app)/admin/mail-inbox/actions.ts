@@ -409,6 +409,23 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       createdEventIds.push(newEventId)
     }
 
+    // flow① blocker fix (Codex R1): edition は draft 単位（events:edition は N:1）。今回 INSERT
+    // した events だけでなく「過去の部分承認で既に materialize 済みの events」も同じ edition_id へ
+    // 収束させる。でないと editionLink を後から ON にしたとき、同一 draft 由来の events で edition_id
+    // が混在する／全 unit 既存だと series/edition だけ作られてどの event にも紐付かない。link ON の
+    // ときだけ実行する（OFF のときは既存 edition_id を勝手に剥がさない）。
+    if (resolvedEditionId != null) {
+      await tx
+        .update(events)
+        .set({ editionId: resolvedEditionId, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(events.tournamentDraftId, draftId),
+            sql`${events.editionId} IS DISTINCT FROM ${resolvedEditionId}`,
+          ),
+        )
+    }
+
     // Decide whether the draft is now fully materialized: every unit_key in the
     // payload must have a corresponding events row (tournament_draft_id =
     // draftId). `payloadUnitKeys` was computed above from the FOR UPDATE locked

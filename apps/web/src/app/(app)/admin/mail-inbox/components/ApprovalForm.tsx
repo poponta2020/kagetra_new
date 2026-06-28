@@ -184,7 +184,12 @@ export function ApprovalForm({
               <input
                 type="checkbox"
                 name="editionLink"
-                defaultChecked={editionSuggestion.editionNumber != null}
+                // Codex R1 should_fix: 既存系列に完全一致したときだけ自動 ON にする。
+                // 未一致（新規系列候補）で自動 ON だと、誤抽出名がそのまま新規 master 系列に
+                // なるリスクがある。新規作成したい場合は管理者が明示的にチェックを入れる。
+                defaultChecked={
+                  editionSuggestion.matched && editionSuggestion.editionNumber != null
+                }
                 className="rounded border-border"
               />
               開催（第N回○○大会）に紐付ける

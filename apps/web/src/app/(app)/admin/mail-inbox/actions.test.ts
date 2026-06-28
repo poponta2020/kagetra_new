@@ -888,6 +888,50 @@ describe('admin/mail-inbox actions', () => {
       ).toHaveLength(0)
     })
 
+    it('部分承認で後から editionLink ON → 既存 event も同じ edition に backfill（Codex R1 blocker）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+      // batch1: u1 のみ承認・editionLink なし → edition_id null
+      const fd1 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11' },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12', register: false },
+      ])
+      await approveDraftUnits(draft.id, fd1)
+      const afterBatch1 = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(afterBatch1).toHaveLength(1)
+      expect(afterBatch1[0]?.editionId).toBeNull()
+
+      // batch2: u2 を editionLink ON で承認 → 既存 u1 も同じ edition に収束する
+      const fd2 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11' },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12' },
+      ])
+      fd2.set('editionLink', 'on')
+      fd2.set('editionSeriesName', 'こばえちゃ山形酒田大会')
+      fd2.set('editionNumber', '28')
+      await approveDraftUnits(draft.id, fd2)
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      const editionIds = new Set(rows.map((r) => r.editionId))
+      expect(editionIds.size).toBe(1) // 全 events が同一 edition
+      expect([...editionIds][0]).not.toBeNull()
+    })
+
     it('一部 register (2 中 1) → 1 event 作成・draft pending・mail 据え置き、残りを後から承認すると approved に遷移', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
