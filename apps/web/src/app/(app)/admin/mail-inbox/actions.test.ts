@@ -873,6 +873,51 @@ describe('admin/mail-inbox actions', () => {
       expect(await testDb.select().from(tournamentSeries)).toHaveLength(0)
     })
 
+    it('editionLink ON + team unit で新規系列 → series.kind=team（Codex R4 should_fix）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const fd = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20', extra: { kind: 'team' } },
+      ])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '団体新設大会')
+      fd.set('editionNumber', '1')
+      fd.set('editionCreateNewSeries', 'on')
+      await approveDraftUnits(draft.id, fd)
+      const series = await testDb
+        .select()
+        .from(tournamentSeries)
+        .where(eq(tournamentSeries.name, '団体新設大会'))
+      expect(series[0]?.kind).toBe('team')
+    })
+
+    it('editionLink ON + 個人/団体 混在 → 入力エラー（Codex R4）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-03-20'),
+          unit('u2', ['B'], '2031-03-21'),
+        ]),
+      })
+      const fd = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], extra: { kind: 'individual' } },
+        { unitKey: 'u2', grades: ['B'], extra: { kind: 'team' } },
+      ])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '混在大会')
+      fd.set('editionNumber', '1')
+      fd.set('editionCreateNewSeries', 'on')
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/混在/)
+    })
+
     it('editionLink OFF → events.edition_id は null（非破壊）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

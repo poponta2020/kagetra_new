@@ -349,11 +349,22 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     // 部分承認の 2 回目以降も findOrCreate は冪等なので同じ edition_id に収束する。
     let resolvedEditionId: number | null = null
     if (editionLink && editionNumber != null) {
+      // Codex R4 should_fix: 新規 series 作成時の kind は selected unit の kind から決める
+      // （series.kind は系列単位の事実。既定 individual のままだと団体戦系列が誤って個人戦化）。
+      // 1 案内 = 1 大会 = 1 kind 前提。個人/団体が混在する案内は系列 kind を確定できないので弾く。
+      const editionKinds = new Set(parsedUnits.map((u) => u.parsed.kind))
+      if (editionKinds.size > 1) {
+        throw new Error(
+          '入力が不正です: 個人戦/団体戦が混在する案内は 1 つの開催にまとめて紐付けられません',
+        )
+      }
+      const editionKind = parsedUnits[0]?.parsed.kind ?? 'individual'
       // allowCreate は管理者が「新規系列として作成」を明示したときだけ true。未一致かつ未明示は
       // findOrCreateSeries が throw（silent な新規 master 化を防ぐ）。複数一致も throw（曖昧）。
       const { seriesId } = await findOrCreateSeries(tx, {
         name: editionSeriesName,
         allowCreate: editionCreateNewSeries,
+        kind: editionKind,
       })
       const { editionId } = await findOrCreateEdition(tx, {
         seriesId,
