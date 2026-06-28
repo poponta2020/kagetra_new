@@ -65,8 +65,18 @@ export function derivePlacement(
     seenRounds.add(mt.round)
   }
 
-  // 最終試合（最大 round）。上の重複チェックで一意性は保証済み。
-  const maxPlayed = Math.max(...matches.map((mt) => mt.round))
+  const playedRounds = matches.map((mt) => mt.round)
+  const minRound = Math.min(...playedRounds)
+  const maxPlayed = Math.max(...playedRounds)
+
+  // 進出経路の一貫性チェック（データ欠けを導出不能に倒す）。
+  // - 冒頭の bye は最大1回戦分（出場開始は round1 か round2）。それ以上飛んでいる
+  //   ＝「決勝だけ残っている」等のデータ欠けなので導出しない。
+  // - 出場 round は開始〜最終までギャップ無く連続のはず（重複は上で排除済みなので
+  //   distinct 数 = matches.length）。欠けていれば導出しない。
+  if (minRound > 2) return null
+  if (maxPlayed - minRound + 1 !== matches.length) return null
+
   const last = matches.find((mt) => mt.round === maxPlayed)
   if (!last) return null
 

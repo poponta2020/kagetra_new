@@ -130,6 +130,15 @@ describe('derivePlacement — 導出不能は null（呼び出し側で final_ra
     // 重複が最大 round でなくても検出する（Codex R1 should_fix）。
     expect(derivePlacement([m(1, 'win'), m(1, 'win'), m(2, 'win')], 2)).toBeNull()
   })
+
+  it('決勝だけ残っている（途中ラウンド欠落）→ null（Codex R2 blocker）', () => {
+    // classMaxRound=4 なのに本人の試合が決勝1件だけ＝データ欠け。優勝に過大計上しない。
+    expect(derivePlacement([m(4, 'win')], 4)).toBeNull()
+  })
+
+  it('出場 round にギャップ（データ欠け）→ null', () => {
+    expect(derivePlacement([m(1, 'win'), m(3, 'lose')], 3)).toBeNull()
+  })
 })
 
 describe('isNyusho / isChampion', () => {
