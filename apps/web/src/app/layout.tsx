@@ -38,6 +38,13 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#ffffff',
+  // Suppress pinch-to-zoom in browser tabs so the app feels native, matching
+  // the sister app match-tracker (which uses maximum-scale=1.0). width and
+  // initialScale are inherited from Next.js' default viewport. userScalable is
+  // an iOS-leaning reinforcement; iOS Safari ignores it on its own but it
+  // helps on Android Chrome where maximum-scale alone can be bypassed.
+  maximumScale: 1,
+  userScalable: false,
   // Required for env(safe-area-inset-*) to be non-zero on iOS notch/home-
   // indicator devices; MobileShell's BottomNav relies on it to extend its
   // background into the home indicator area.
