@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
-import { getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
+import { getPlayerName, getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
 import { SensekiTimeline, type TimelineYear } from './SensekiTimeline'
 
 export const dynamic = 'force-dynamic'
@@ -33,8 +33,10 @@ function scoreToken(m: PlayerMatchView): {
 
 export default async function PlayerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string }>
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
@@ -45,6 +47,15 @@ export default async function PlayerDetailPage({
 
   const record = await getPlayerRecord(playerId)
   if (!record) notFound()
+
+  // 相手名タップで別選手から遷移してきた場合（?from=遷移元id）、戻る導線は
+  // 遷移元の選手詳細へ向ける。無効/自分自身/存在しない id は通常の検索へ戻る。
+  const { from } = await searchParams
+  const fromId = Number(from)
+  const fromName =
+    Number.isInteger(fromId) && fromId > 0 && fromId !== playerId
+      ? await getPlayerName(fromId)
+      : null
 
   const {
     player,
@@ -100,6 +111,10 @@ export default async function PlayerDetailPage({
     })
   }
   const years = [...yearMap.values()]
+  // 相手名タップ導線のヒントは、解決済み（リンク可能）な相手が1件でもある時だけ出す。
+  const hasTappableOpponent = participations.some((p) =>
+    p.matches.some((m) => m.opponentPlayerId != null),
+  )
 
   const spanLabel = activeYears
     ? activeYears.from === activeYears.to
@@ -116,9 +131,15 @@ export default async function PlayerDetailPage({
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        <Link href="/players" className="text-sm text-brand-fg">
-          ← 選手検索へ戻る
-        </Link>
+        {fromName ? (
+          <Link href={`/players/${fromId}`} className="text-sm text-brand-fg">
+            ← {fromName} の戦績へ戻る
+          </Link>
+        ) : (
+          <Link href="/players" className="text-sm text-brand-fg">
+            ← 選手検索へ戻る
+          </Link>
+        )}
       </div>
 
       {/* サマリー（箱なし・和紙地に直接） */}
@@ -159,6 +180,11 @@ export default async function PlayerDetailPage({
         </div>
 
         <div className="mt-2 text-xs text-ink-meta">{chips.join(' ・ ')}</div>
+        {hasTappableOpponent && (
+          <p className="mt-1.5 text-[11px] text-ink-muted">
+            ※ 試合表の相手名をタップすると、その選手の戦績へ移動します
+          </p>
+        )}
       </div>
 
       <hr className="border-t border-border-soft" />
@@ -166,7 +192,7 @@ export default async function PlayerDetailPage({
       {years.length === 0 ? (
         <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
       ) : (
-        <SensekiTimeline key={player.id} years={years} />
+        <SensekiTimeline key={player.id} years={years} playerId={player.id} />
       )}
     </div>
   )

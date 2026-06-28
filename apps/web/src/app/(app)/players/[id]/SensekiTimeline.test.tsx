@@ -55,64 +55,66 @@ const years: TimelineYear[] = [
 ]
 
 describe('SensekiTimeline', () => {
-  it('最新年は初期展開し、古い年は折りたたまれている', () => {
-    render(<SensekiTimeline years={years} />)
-    // getByText は見つからなければ throw する＝存在アサーション
+  it('初期は全年が畳まれている（年見出しのみ表示）', () => {
+    render(<SensekiTimeline years={years} playerId={5} />)
     screen.getByText('2026年')
     screen.getByText('2025年')
-    screen.getByText('北海道選手権A')
-    // 2025 は折りたたみ → 中身は描画されない
+    // 大会の中身はどの年も初期は出ない（全畳み）
+    expect(screen.queryByText('北海道選手権A')).toBeNull()
     expect(screen.queryByText('秋大会B')).toBeNull()
   })
 
   it('年見出しタップで展開する', () => {
-    render(<SensekiTimeline years={years} />)
-    fireEvent.click(screen.getByText('2025年'))
-    expect(screen.queryByText('秋大会B')).not.toBeNull()
+    render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2026年'))
+    screen.getByText('北海道選手権A')
   })
 
-  it('解決済みの相手は戦績リンク、未解決はリンクにしない（黒テキスト）', () => {
-    render(<SensekiTimeline years={years} />)
+  it('展開後、解決済みの相手は ?from 付き戦績リンク・未解決はリンク無し', () => {
+    render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2026年'))
     const link = screen.getByRole('link', { name: '渡辺大輔' })
-    expect(link.getAttribute('href')).toBe('/players/99')
+    expect(link.getAttribute('href')).toBe('/players/99?from=5')
     expect(screen.queryByRole('link', { name: '外部花子' })).toBeNull()
-    // 未解決の相手名はテキストとしては存在する
     screen.getByText('外部花子')
   })
 
-  it('相手の所属会と ○×トークンを表示する', () => {
-    render(<SensekiTimeline years={years} />)
+  it('展開後、相手の所属会と ○×トークンを表示する', () => {
+    render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2026年'))
     screen.getByText('（東京暁星会）')
     screen.getByText('○7')
     screen.getByText('×3')
   })
 
-  it('別選手データに差し替えると最新年のみ展開にリセットされる（Codex R3 should_fix）', () => {
-    const { rerender } = render(<SensekiTimeline years={years} />)
-    fireEvent.click(screen.getByText('2025年')) // ユーザーが古い年も開く
+  it('別選手データに差し替えると展開状態がリセットされる（同名年も畳む）', () => {
+    const { rerender } = render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2026年'))
+    screen.getByText('北海道選手権A')
     const other: TimelineYear[] = [
       {
-        year: '2020',
+        year: '2026',
         tournamentCount: 1,
         wins: 1,
         losses: 0,
         tournaments: [
-          { participantId: 9, dateLabel: '3/3', title: '別大会A', rank: '優勝', rankEmphasis: true, matches: [] },
+          { participantId: 9, dateLabel: '3/3', title: '別大会X', rank: '優勝', rankEmphasis: true, matches: [] },
         ],
       },
       {
-        year: '2019',
+        year: '2024',
         tournamentCount: 1,
         wins: 0,
         losses: 1,
         tournaments: [
-          { participantId: 8, dateLabel: '4/4', title: '旧大会B', rank: 'ベスト8', rankEmphasis: false, matches: [] },
+          { participantId: 8, dateLabel: '4/4', title: '旧大会Y', rank: 'ベスト8', rankEmphasis: false, matches: [] },
         ],
       },
     ]
-    rerender(<SensekiTimeline years={other} />)
-    // 最新年(2020)が開く・古い年(2019)は閉じる＝初期状態にリセット
-    screen.getByText('別大会A')
-    expect(screen.queryByText('旧大会B')).toBeNull()
+    rerender(<SensekiTimeline years={other} playerId={9} />)
+    // リセットで全畳み。同名年(2026)が開いたままにならない＝別大会X は出ない。
+    expect(screen.queryByText('別大会X')).toBeNull()
+    expect(screen.queryByText('北海道選手権A')).toBeNull()
+    screen.getByText('2026年')
   })
 })

@@ -49,15 +49,22 @@ function scoreClass(tone: TimelineMatch['scoreTone']): string {
   return 'text-ink-muted'
 }
 
-export function SensekiTimeline({ years }: { years: TimelineYear[] }) {
-  // 最新年（先頭）のみ初期展開。選手間遷移で App Router が同じインスタンスを再利用し
-  // years だけ差し替わっても、年セットが変わったら初期状態（最新年のみ開く）に作り直す。
+export function SensekiTimeline({
+  years,
+  playerId,
+}: {
+  years: TimelineYear[]
+  /** 表示中の選手 id。相手リンクに `?from=` として付け、遷移先の戻る導線に使う。 */
+  playerId: number
+}) {
+  // 初期は全年を畳む。選手間遷移で App Router が同じインスタンスを再利用し years だけ
+  // 差し替わっても、年セットが変わったら全閉じの初期状態に作り直す。
   const yearsKey = years.map((y) => y.year).join(',')
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [prevKey, setPrevKey] = useState<string | null>(null)
   if (yearsKey !== prevKey) {
     setPrevKey(yearsKey)
-    setOpen(years.length > 0 ? { [years[0]!.year]: true } : {})
+    setOpen({})
   }
   const toggle = (year: string) =>
     setOpen((prev) => ({ ...prev, [year]: !prev[year] }))
@@ -128,7 +135,7 @@ export function SensekiTimeline({ years }: { years: TimelineYear[] }) {
                                 {m.opponentName ? (
                                   m.opponentPlayerId ? (
                                     <Link
-                                      href={`/players/${m.opponentPlayerId}`}
+                                      href={`/players/${m.opponentPlayerId}?from=${playerId}`}
                                       className="text-ink"
                                     >
                                       {m.opponentName}
