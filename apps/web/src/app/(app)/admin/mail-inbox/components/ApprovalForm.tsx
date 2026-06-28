@@ -195,11 +195,10 @@ export function ApprovalForm({
               開催（第N回○○大会）に紐付ける
             </label>
             <p className="text-xs text-ink-meta">
-              系列名が既存と一致すればその系列の開催に、無ければ新規系列を作成して各イベントに
-              紐付けます。
+              系列名が既存と一致すればその系列の開催に紐付けます。
               {editionSuggestion.matched
                 ? '（既存の系列に一致しました）'
-                : '（一致する既存系列なし。新規作成になります。名称を確認してください）'}
+                : '（一致する既存系列が見つかりません。新規系列として作成する場合は下のチェックを入れてください）'}
             </p>
             <div className="grid grid-cols-[1fr_6rem] gap-3">
               <div>
@@ -222,6 +221,17 @@ export function ApprovalForm({
                 />
               </div>
             </div>
+            {/* Codex R3 should_fix: 新規系列の作成は明示確認。未一致名で link を ON にしても、
+                このチェックが無ければサーバが弾く（誤抽出名の silent な master 化を防ぐ）。 */}
+            <label className="flex items-center gap-2 text-xs text-ink-2">
+              <input
+                type="checkbox"
+                name="editionCreateNewSeries"
+                defaultChecked={false}
+                className="rounded border-border"
+              />
+              一致する既存系列が無い場合、この系列名で新規系列を作成する
+            </label>
           </div>
         </Card>
 

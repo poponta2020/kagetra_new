@@ -230,6 +230,11 @@ export interface FindOrCreateSeriesInput {
   /** 表示・保存する系列名（新規作成時の name）。 */
   name: string
   kind?: 'individual' | 'team'
+  /**
+   * 一致する既存系列が無いとき新規作成を許可するか。**管理者が「新規系列として作成」を明示
+   * 確認したときだけ true**（要件 §3.1 新規系列は確認必須）。false（既定）で未一致なら throw。
+   */
+  allowCreate?: boolean
 }
 
 export interface FindOrCreateSeriesResult {
@@ -238,9 +243,12 @@ export interface FindOrCreateSeriesResult {
 }
 
 /**
- * 系列を正規化名寄せで解決し、無ければ新規作成する。name は UNIQUE なので INSERT は
- * onConflictDoNothing → 再 SELECT で確定。**新規作成は呼び出し側（管理者確認）が決めた
- * ときだけ呼ぶこと**（auto 解決経路からは呼ばない）。
+ * 系列を正規化名寄せで解決する。曖昧性の扱いを suggest/auto と揃える（Codex R3 blocker）:
+ *   - 完全一致が **単独** → その既存 series を返す。
+ *   - 完全一致が **複数**（name と他 series の alias 衝突等）→ throw（先頭候補へ silent 解決しない）。
+ *   - 完全一致 **なし** → `allowCreate` が true のときだけ新規作成。false なら throw。
+ *
+ * name は UNIQUE なので INSERT は onConflictDoNothing → 再 SELECT で確定。
  */
 export async function findOrCreateSeries(
   tx: DbLike,
@@ -248,8 +256,19 @@ export async function findOrCreateSeries(
 ): Promise<FindOrCreateSeriesResult> {
   const all = await loadAllSeries(tx)
   const ranked = rankSeriesCandidates(input.name, all)
-  const exact = ranked.find((c) => c.score >= EXACT_MATCH_SCORE)
-  if (exact) return { seriesId: exact.series.id, created: false }
+  const exact = ranked.filter((c) => c.score >= EXACT_MATCH_SCORE)
+  if (exact.length === 1) return { seriesId: exact[0]!.series.id, created: false }
+  if (exact.length > 1) {
+    throw new Error(
+      `系列名「${input.name}」が複数の既存系列に一致します。系列を特定できません（手動で選択してください）`,
+    )
+  }
+  // 完全一致なし。新規作成は明示確認があるときだけ。
+  if (!input.allowCreate) {
+    throw new Error(
+      `系列名「${input.name}」に一致する既存系列がありません。新規系列として作成する場合は明示的に指定してください`,
+    )
+  }
 
   const inserted = await tx
     .insert(tournamentSeries)

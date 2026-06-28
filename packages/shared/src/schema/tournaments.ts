@@ -1,4 +1,4 @@
-import { date, foreignKey, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { date, foreignKey, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { tournamentSeriesEditions } from './tournament-series-editions'
 
 /**
@@ -40,4 +40,6 @@ export const tournaments = pgTable('tournaments', {
     foreignColumns: [tournamentSeriesEditions.id],
     name: 'tournaments_edition_id_fkey',
   }).onDelete('set null'),
+  // tournament-entry-rosters (Codex R3 should_fix): edition ハブ参照列の btree index。
+  index('tournaments_edition_id_idx').on(table.editionId),
 ])

@@ -7,6 +7,7 @@ import {
   boolean,
   uniqueIndex,
   foreignKey,
+  index,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import {
@@ -93,4 +94,7 @@ export const events = pgTable('events', {
     foreignColumns: [tournamentSeriesEditions.id],
     name: 'events_edition_id_fkey',
   }).onDelete('set null'),
+  // tournament-entry-rosters (Codex R3 should_fix): edition をハブに events を引く参照列に
+  // btree index（FK 列に PG は自動 index を作らない）。
+  index('events_edition_id_idx').on(table.editionId),
 ])

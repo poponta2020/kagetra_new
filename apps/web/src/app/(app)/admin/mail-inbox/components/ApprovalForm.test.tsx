@@ -133,6 +133,12 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       'input[name="editionNumber"]',
     ) as HTMLInputElement
     expect(editionNumber.value).toBe('28')
+    // 新規系列作成は明示チェック（既定 OFF・Codex R3）
+    const createNew = container.querySelector(
+      'input[name="editionCreateNewSeries"]',
+    ) as HTMLInputElement
+    expect(createNew).not.toBeNull()
+    expect(createNew.checked).toBe(false)
   })
 
   it('開催(edition)紐付けセクション: 既存系列に未一致なら（回次があっても）link は OFF', () => {

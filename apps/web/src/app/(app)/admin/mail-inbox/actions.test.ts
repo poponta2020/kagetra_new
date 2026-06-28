@@ -826,6 +826,8 @@ describe('admin/mail-inbox actions', () => {
       fd.set('editionLink', 'on')
       fd.set('editionSeriesName', '新設テスト大会')
       fd.set('editionNumber', '1')
+      // Codex R3: 新規系列作成は明示フラグが必要
+      fd.set('editionCreateNewSeries', 'on')
 
       await approveDraftUnits(draft.id, fd)
 
@@ -848,6 +850,27 @@ describe('admin/mail-inbox actions', () => {
         .from(events)
         .where(eq(events.tournamentDraftId, draft.id))
       expect(rows[0]?.editionId).toBe(ed[0]!.id)
+    })
+
+    it('editionLink ON + 未知系列 + 新規作成フラグなし → 入力エラー（Codex R3 blocker）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20' }])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', 'どこにもない大会')
+      fd.set('editionNumber', '1')
+      // editionCreateNewSeries を付けない → 新規系列を silent 作成しないため throw
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/新規系列として作成/)
+      // tx rollback で events も series も作られない
+      expect(
+        await testDb.select().from(events).where(eq(events.tournamentDraftId, draft.id)),
+      ).toHaveLength(0)
+      expect(await testDb.select().from(tournamentSeries)).toHaveLength(0)
     })
 
     it('editionLink OFF → events.edition_id は null（非破壊）', async () => {
@@ -920,6 +943,7 @@ describe('admin/mail-inbox actions', () => {
       fd2.set('editionLink', 'on')
       fd2.set('editionSeriesName', 'こばえちゃ山形酒田大会')
       fd2.set('editionNumber', '28')
+      fd2.set('editionCreateNewSeries', 'on') // R3: 未 seed のため新規作成を明示
       await approveDraftUnits(draft.id, fd2)
 
       const rows = await testDb

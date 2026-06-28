@@ -234,8 +234,8 @@ describe('edition resolve — DB', () => {
       expect(res.created).toBe(false)
       expect(res.seriesId).toBe(id)
     })
-    it('無ければ新規作成', async () => {
-      const res = await findOrCreateSeries(testDb, { name: '新設○○大会' })
+    it('allowCreate=true で無ければ新規作成', async () => {
+      const res = await findOrCreateSeries(testDb, { name: '新設○○大会', allowCreate: true })
       expect(res.created).toBe(true)
       const row = await testDb
         .select()
@@ -243,6 +243,21 @@ describe('edition resolve — DB', () => {
         .where(eq(tournamentSeries.id, res.seriesId))
         .limit(1)
       expect(row[0]?.name).toBe('新設○○大会')
+    })
+    it('未一致かつ allowCreate なし → throw（silent 作成しない・R3 blocker）', async () => {
+      await expect(
+        findOrCreateSeries(testDb, { name: 'どこにもない大会' }),
+      ).rejects.toThrow(/新規系列として作成/)
+      expect(await testDb.select().from(tournamentSeries)).toHaveLength(0)
+    })
+    it('完全一致が複数 → throw（曖昧・先頭へ silent 解決しない・R3 blocker）', async () => {
+      await seedSeries('テスト大会')
+      await testDb
+        .insert(tournamentSeries)
+        .values({ name: '別名持ち大会', aliases: ['テスト大会'], kind: 'individual' })
+      await expect(
+        findOrCreateSeries(testDb, { name: 'テスト大会', allowCreate: true }),
+      ).rejects.toThrow(/複数の既存系列に一致/)
     })
   })
 

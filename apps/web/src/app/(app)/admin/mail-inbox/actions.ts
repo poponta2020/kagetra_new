@@ -254,6 +254,9 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
   // 名寄せは管理者が確認した name で行う（findOrCreateSeries は正規化完全一致なら既存、
   // 無ければ新規作成）。link OFF なら edition_id は null のまま（非破壊）。
   const editionLink = formData.get('editionLink') === 'on'
+  // Codex R3: 新規系列の作成は管理者が「新規系列として作成」を明示チェックしたときだけ許可する
+  // （未一致名の silent な master 化を防ぐ）。findOrCreateSeries は allowCreate=false で未一致 throw。
+  const editionCreateNewSeries = formData.get('editionCreateNewSeries') === 'on'
   const editionSeriesNameRaw = formData.get('editionSeriesName')
   const editionSeriesName =
     typeof editionSeriesNameRaw === 'string' ? editionSeriesNameRaw.trim() : ''
@@ -346,7 +349,12 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     // 部分承認の 2 回目以降も findOrCreate は冪等なので同じ edition_id に収束する。
     let resolvedEditionId: number | null = null
     if (editionLink && editionNumber != null) {
-      const { seriesId } = await findOrCreateSeries(tx, { name: editionSeriesName })
+      // allowCreate は管理者が「新規系列として作成」を明示したときだけ true。未一致かつ未明示は
+      // findOrCreateSeries が throw（silent な新規 master 化を防ぐ）。複数一致も throw（曖昧）。
+      const { seriesId } = await findOrCreateSeries(tx, {
+        name: editionSeriesName,
+        allowCreate: editionCreateNewSeries,
+      })
       const { editionId } = await findOrCreateEdition(tx, {
         seriesId,
         editionNumber,
