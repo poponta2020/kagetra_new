@@ -2671,3 +2671,9 @@
 - **read-back検証=本番件数がリハと完全一致**: series180/editions1236/players47,709(=distinct)/tournaments1496/classes8689/participants367,675/matches**819,703**。整合性 player_id NULL0/孤児match0/edition FK不正0/series FK不正0。edition紐付け実証(1143→熊本大会第41回)。連番=max一致。
 - ⚠️**スキーマdrift注意**: series層は本番に生DDLで追加=Drizzleスキーマ非定義。**本番は db:migrate 運用なので維持される**(db:push禁止=未定義表をdropする恐れ)。将来Drizzle化は別途。
 - 残(任意)=NODATE/NONAME精緻化(handover§8)・名人クイA1/A2・1503山口・三原(暗号化PW)・団体/PDF/レポートは別スコープ。**本番投入は完了**。
+
+## 2026-06-29 戦績詳細リデザイン SHIPPED (PR #183, merge 1d81bd6)
+- `/players/[id]` をエディトリアル化（箱なしサマリー＋暦年sticky タイムライン＋`○N/×N`＋相手名タップ遷移）。順位は対戦結果から導出（`placement.ts`・入賞=ベスト8以上）、級単位ゲート `isDerivableClass`（敗北数=参加者-1）で非トーナメント形式は `final_rank` フォールバック。新規 migration なし。
+- フロー: `/design-screen`（新スキル・Claude Design 連携）で見た目 locked → emergent logic「相手名タップ→戦績」を requirements に delta 起票 → `/implement`。2レンズ協調フローを `docs/dev/feature-flow.md` に整備（main 直 8ea94e9）。
+- Codex auto-review 5R で pass（R1 同一round重複/R2 データ欠け優勝/R3 級ゲート+timeline reset/R4 多重bye/R5 pass・~351k tokens）。CI green。
+- 残 DoD: 本番デプロイ後の実機目視。

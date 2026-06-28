@@ -14,6 +14,7 @@
 - [players DBごみ行クリーンアップ(rehearsal)](project_players_garbage_cleanup.md) — 2026-06-26 本番未変更。ヘッダ449/団体112削除・連結36/1文字77完全復元(Excel姓名別セルをsource再パース)/文字化け21整形・?残17は協会HTML稀字化で復旧不能(実在個人で保持)。DBはNO_CLEAN相当ロードだった。再現=apps/web/_reresolve.mts。本番投入時は再混入注意
 - [リハDB データ点検＋是正](project_rehearsal_db_audit.md) — **2026-06-26 全是正完了(本番未変更)**。A2/A1/B1/B4/B5/同名区別/名人クイーン4系列化＋**B2/B3完了**(壊れ14大会: 幻「表彰」ラウンド削除131対戦[1445 R4=114/980/1495・原本xlsx確定]・散在ラベルopponent null化67[1216漏れ補足]・final_rank人名null化13[引継書48は過大])＋**入賞者のみWINNER_ONLY 36大会削除**(対戦0件・連鎖で孤児player86=ゴミ名含む。1319宇都宮441名/1143熊本95名はfull参加者=保持)＋**所属クリーン141**(1458ふりがな接頭・他末尾別人名/―をbranch-point方式で安全除去)。**徹底監査=全GREEN**(FK/孤児/空/不変条件/系列/num_players/B2B3固有ゴミ すべて0)。＋**宇都宮1319/熊本1143の0対戦を原本Excel取込**(ヘッダ列ラベルがデータ並びと逆→データ検出パーサで解決・matches+1239・1143はD級93名新規でtournament名(C,D)化)＋**素名ゆれ正規化706**(大会名321[★◎接頭/cruft接尾/全角数字]・級名385[対戦結果表_接頭strip]・`第\1回`置換の\x01化バグはpreview検出→lambda回避)。**全20監査GREEN**(zeromatch大会0達成/同edition同名0/残ゴミ名0)。最終 **tournaments1496/matches819,703/players47,709=distinct/participants367,675/series180/editions1236**。是正前=rehearsal_pre_ingest_2026-06-26.sql・是正後=rehearsal_corrected_2026-06-26.sql。残(任意)=名人クイA1/A2(721/735/762)・1503山口。**本番投入GO待ち継続**(dump方式)。スクリプト=_aff_clean/_parse_results/_gen_ingest/_gen_names.py
 - [過去結果 一括投入の設計方針](project_bulk_result_import_design.md) — 開催(名+日付)×級でidentity・人確定manifest・訂正版優先dedup・コピーDBリハーサル+冪等+read-back。年2回同級は1大会に束ねるとMERGEで消えるので開催単位行。実装未着手(2026-06-21)
+- [大会ライフサイクル基盤(edition)＋申込/確定名簿 機能定義](project_tournament_entry_rosters_def.md) — editionをハブに案内→申込→確定→結果を1本化＋名簿2型(applicant/confirmed)新設。判断=series/editions Drizzle化(方針反転・冪等baseline必須)/event_group撤去/名簿は出欠と分離/基盤先行。親#184+子#185-190・要件+手順書completed・実装未着手(/do-plan待ち)。第4段(出場回数)はスコープ外
 - [かるた協会 会員ページ=結果の正統ソース(Excel/HTML2形式)](project_karuta_member_result_source.md) — 結果は会員ページのみ。各大会 **Excelか HTMLテーブルの排他2形式で両方とも全対戦データ**(HTMLは級タブ→tournaments/{id}.html、入賞者のみではない=前回の誤りを訂正)。**全期間2010-2026 harvest完了**(c:\tmp、git外)。静的2010-2021=**Excel375＋HTML4510ページ(641大会)**(harvest.py/harvest_html.py、漏れ3件監査回収)。新WP2022-2026=**member-download585**(xlsx434/xls127/pdf24、harvest_new*.py、開催日100%)。整合性検証済(normalizePlayerNameが空白/異体字差吸収・二重取込なし)。**残=W2 Excel署名拡張・6414.xls修復・全コーパスparse→manifest**(HTML表パーサは W1 ship済 [[impl_result_html_parser]])。開催日はExcel「大会報告」シート/HTML見出し/新WP要項表
 - [HTML結果パーサ(parseResultHtml) W1 SHIPPED](impl_result_html_parser.md) — static HTML 4510ページを既存ParsedClass[]契約へ正規化。PR#167 merge `8c3ed1e`。round-cell共通化(W2再利用)・不戦壊れHTMLは全td走査で列ずれ防止・相手名はスコアtokenのみ除去。実回帰=例外0/大会名・開催日100%/相手解決99.9%。Codex3R(R3 pass)・CI green
 - [Excel positional「N回戦」署名検出 W2 SHIPPED](impl_result_excel_positional.md) — primary null時のみ起動するfallbackで未検出234中+122回収。PR#168 merge `1ac583e`。サブ見出しで相手/マーク/枚数列を識別し№/級/所属を無視・markCol無ければpositional・誤検出4重ガード(氏名必須/回戦≥1/○×ゼロ却下/数値相手却下)。回帰0/garbage0.06%。Codex6R(5修正,R6 pass)・CI green
@@ -48,6 +49,9 @@
 - [出場者DB形式パーサ修正 SHIPPED](impl_fix_result_parser_shusshadb.md) — 氏名=ふりがな/所属=所属会2 誤採用を first-wins+ふりがな除外で修正。PR #165 merge `cb8589f`（2026-06-20、Issue未起票）。実票42中13件で氏名全ひらがな・相手解決0%だった。**熊本の0件取込は別件未対応**
 - [tournament-results 実装 全完了](impl_tournament_results.md) — **全5タスク SHIPPED**。Task1 PR#163(`f3d2b4b`)、**Task2-5 PR#164 merge `8e3ad35`(2026-06-20)**、親#157＋子#158-162 全クローズ。Codex auto-review **5R で pass**(~790k tokens)。取込/承認/却下/materialize/パーサの並行・整合性決定を記録(worker↔UI 状態ポリシー一致+status ガード/approve は FOR UPDATE/reject も原子 UPDATE/participant id は index・opponent は正規化キー/player upsert は onConflictDoNothing()+再SELECT/parser は同名 className MERGE・round ブロック内列探索)。残=本番実機通し
 
+- [/design-screen 画面リデザインスキル](impl_design_screen_skill.md) — Claude Design(DesignSync)で見た目を見ながら作る汎用フロー。push/pull(get_file)・@dsCard・finalize_plan の deletes 必須・projectId 74ab8bf1…
+- [戦績詳細リデザイン(design+要件 収束)](project_senseki_detail_redesign.md) — /players/[id] をA案エディトリアル化、順位は対戦から導出(入賞=ベスト8)＋final_rank フォールバック、R1相手名タップ→戦績(黒・affordanceなし)。design locked+requirements completed・実装待ち（docs/dev/feature-flow.md）
+
 ## Reference
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
@@ -59,6 +63,7 @@
 
 ## Feedback
 - [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
+- [UIリデザインは design-spec が要件成果物](feedback_design_spec_is_requirement_for_ui.md) — /design-screen の後に /define-feature を回さない（重複）。画面主役は design-spec→薄い計画→/implement、define-feature はロジック主役の時だけ
 - [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中、周辺整備に勝手に逸れない。2026-06-21に2回実害(scripts移植/DB閲覧環境)
 - [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等
 - [メモリ運用ルール](feedback_memory_management.md) — 何を書く/書かない、セッション終了時の同期手順、肥大化防止
