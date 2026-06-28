@@ -157,7 +157,12 @@ export interface FindOrCreateEditionResult {
  * INSERT。並行で同じ edition を作ろうとした別 tx はこのロックで直列化され、ロック解放後に
  * 自分の SELECT で相手の行を拾う。万一の取りこぼしに備え INSERT は onConflictDoNothing で
  * UNIQUE(series_id, edition_number) 衝突を吸収し、衝突時は再 SELECT する（materialize の
- * player get-or-create と同型）。既存 edition の status/year は上書きしない（解決のみ）。
+ * player get-or-create と同型）。
+ *
+ * ライフサイクル昇格（Codex R2 should_fix）: 既存 edition が `unconfirmed`（flow① の案内時に
+ * 作成）で、今回 `held`（flow② の結果取込）で解決された場合だけ `held` に確定する。あわせて
+ * year/raw_name が未設定なら補完する（fill-if-empty・既存値は上書きしない）。それ以外の
+ * status 遷移や既存値の上書きはしない（解決のみ）。
  */
 export async function findOrCreateEdition(
   tx: DbLike,
@@ -172,11 +177,32 @@ export async function findOrCreateEdition(
   )
 
   const existing = await tx
-    .select({ id: tournamentSeriesEditions.id })
+    .select({
+      id: tournamentSeriesEditions.id,
+      status: tournamentSeriesEditions.status,
+      year: tournamentSeriesEditions.year,
+      rawName: tournamentSeriesEditions.rawName,
+    })
     .from(tournamentSeriesEditions)
     .where(where)
     .limit(1)
-  if (existing.length > 0) return { editionId: existing[0]!.id, created: false }
+  if (existing.length > 0) {
+    const row = existing[0]!
+    // unconfirmed → held のライフサイクル確定（結果取込時のみ）。
+    if (input.status === 'held' && row.status === 'unconfirmed') {
+      await tx
+        .update(tournamentSeriesEditions)
+        .set({
+          status: 'held',
+          // year/raw_name は未設定のときだけ補完（既存値は尊重）。
+          year: row.year ?? input.year ?? null,
+          rawName: row.rawName ?? input.rawName ?? null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(tournamentSeriesEditions.id, row.id))
+    }
+    return { editionId: row.id, created: false }
+  }
 
   const inserted = await tx
     .insert(tournamentSeriesEditions)
@@ -259,11 +285,15 @@ export async function suggestEditionFromName(
   const { editionNumber, seriesNameGuess } = parseAnnouncementName(rawName)
   const all = await loadAllSeries(tx)
   const ranked = rankSeriesCandidates(seriesNameGuess, all)
-  const exact = ranked.find((c) => c.score >= EXACT_MATCH_SCORE)
+  // Codex R2 should_fix: 完全一致が **単独** のときだけ matched=true（自動 ON）。複数 exact
+  // （alias 衝突等）は曖昧として matched=false にし、管理者に明示確認させる（autoResolveEdition
+  // の ambiguous 扱いと挙動を揃える）。
+  const exact = ranked.filter((c) => c.score >= EXACT_MATCH_SCORE)
+  const uniqueExact = exact.length === 1 ? exact[0]! : null
   return {
-    seriesName: exact ? exact.series.name : seriesNameGuess,
+    seriesName: uniqueExact ? uniqueExact.series.name : seriesNameGuess,
     editionNumber,
-    matched: Boolean(exact),
+    matched: uniqueExact != null,
   }
 }
 

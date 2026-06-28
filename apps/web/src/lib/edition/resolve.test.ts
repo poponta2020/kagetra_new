@@ -12,6 +12,7 @@ import {
   parseSeriesName,
   rankSeriesCandidates,
   scoreSeries,
+  suggestEditionFromName,
   type SeriesRow,
 } from './resolve'
 
@@ -154,6 +155,75 @@ describe('edition resolve — DB', () => {
           ),
         )
       expect(all).toHaveLength(1)
+    })
+
+    it('既存 unconfirmed を held(結果取込)で解決すると held に昇格＋year/rawName 補完（R2）', async () => {
+      const seriesId = await seedSeries('こばえちゃ山形酒田大会')
+      const [e] = await testDb
+        .insert(tournamentSeriesEditions)
+        .values({ seriesId, editionNumber: 28, year: null, status: 'unconfirmed' })
+        .returning({ id: tournamentSeriesEditions.id })
+
+      const res = await findOrCreateEdition(testDb, {
+        seriesId,
+        editionNumber: 28,
+        year: 2026,
+        status: 'held',
+        rawName: '第28回こばえちゃ山形酒田大会',
+      })
+      expect(res.created).toBe(false)
+      expect(res.editionId).toBe(e!.id)
+      const row = await testDb
+        .select()
+        .from(tournamentSeriesEditions)
+        .where(eq(tournamentSeriesEditions.id, e!.id))
+        .limit(1)
+      expect(row[0]?.status).toBe('held')
+      expect(row[0]?.year).toBe(2026)
+      expect(row[0]?.rawName).toBe('第28回こばえちゃ山形酒田大会')
+    })
+
+    it('既存 held は unconfirmed(案内)で解決しても降格しない・year は上書きしない（R2）', async () => {
+      const seriesId = await seedSeries('X大会')
+      const [e] = await testDb
+        .insert(tournamentSeriesEditions)
+        .values({ seriesId, editionNumber: 1, year: 2020, status: 'held' })
+        .returning({ id: tournamentSeriesEditions.id })
+      await findOrCreateEdition(testDb, {
+        seriesId,
+        editionNumber: 1,
+        year: 2099,
+        status: 'unconfirmed',
+      })
+      const row = await testDb
+        .select()
+        .from(tournamentSeriesEditions)
+        .where(eq(tournamentSeriesEditions.id, e!.id))
+        .limit(1)
+      expect(row[0]?.status).toBe('held')
+      expect(row[0]?.year).toBe(2020)
+    })
+  })
+
+  describe('suggestEditionFromName (R2 曖昧性)', () => {
+    it('完全一致が単独なら matched=true＋正準名', async () => {
+      await seedSeries('こばえちゃ山形酒田大会')
+      const sug = await suggestEditionFromName(testDb, '第28回こばえちゃ山形酒田大会C級')
+      expect(sug.matched).toBe(true)
+      expect(sug.seriesName).toBe('こばえちゃ山形酒田大会')
+      expect(sug.editionNumber).toBe(28)
+    })
+
+    it('完全一致が複数（name と他の alias 衝突）なら matched=false（曖昧）', async () => {
+      await seedSeries('テスト大会')
+      await testDb
+        .insert(tournamentSeries)
+        .values({ name: '別名持ち大会', aliases: ['テスト大会'], kind: 'individual' })
+      const sug = await suggestEditionFromName(testDb, '第1回テスト大会A級')
+      expect(sug.matched).toBe(false)
+      expect(sug.editionNumber).toBe(1)
+      // 系列名は解析した候補をそのまま（先頭候補へ silent 解決しない）
+      expect(sug.seriesName).toBe('テスト大会')
     })
   })
 

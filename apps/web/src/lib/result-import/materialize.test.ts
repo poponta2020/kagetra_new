@@ -666,6 +666,31 @@ describe('materializeResultDraft — edition 自動解決 (flow②)', () => {
     expect(await testDb.select().from(tournamentSeriesEditions)).toHaveLength(1)
   })
 
+  it('既存 unconfirmed edition(案内由来) → 結果取込で held に昇格する（Codex R2）', async () => {
+    const seriesId = await seedSeries('こばえちゃ山形酒田大会')
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId, editionNumber: 28, year: null, status: 'unconfirmed' })
+      .returning({ id: tournamentSeriesEditions.id })
+
+    const result = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, buildPayload(), {
+        tournamentName: '第28回こばえちゃ山形酒田大会C級',
+        eventDate: '2026-05-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(result.editionId).toBe(edition!.id)
+    const row = await testDb
+      .select()
+      .from(tournamentSeriesEditions)
+      .where(eq(tournamentSeriesEditions.id, edition!.id))
+      .limit(1)
+    expect(row[0]?.status).toBe('held') // unconfirmed → held に確定
+    expect(row[0]?.year).toBe(2026) // year も補完
+  })
+
   it('系列一致＋master に無い回次 → edition を新規作成(status=held)して紐付ける', async () => {
     const seriesId = await seedSeries('こばえちゃ山形酒田大会')
     const result = await testDb.transaction(async (tx) =>
