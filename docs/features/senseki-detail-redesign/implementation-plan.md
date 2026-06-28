@@ -21,7 +21,7 @@ kind: delta
 - **テスト:** `pnpm vitest --no-file-parallelism` で placement.test.ts green
 
 ### タスク2: getPlayerRecord 拡張（導出適用＋opponentPlayerId＋サマリー集計）＋クエリテスト
-- [ ] 完了
+- [x] 完了
 - **概要:** 戦績取得クエリを拡張。①各 match に `opponentPlayerId`（`opponent_participant_id`→`tournament_participants.player_id`）②各 participation の順位＝T1 で導出（不能なら保存 `final_rank` フォールバック）③サマリー集計（優勝N＝導出優勝数／入賞N＝ベスト8以上／出場大会数／活動年スパン min-max／現在の級＝最新参加 grade／通算勝敗+勝率＝既存）。
 - **変更対象:**
   - `apps/web/src/lib/players/queries.ts` — `getPlayerRecord` 拡張、`PlayerMatchView` に `opponentPlayerId: number | null`、`PlayerParticipationView` の `finalRank` を「導出 or フォールバック」結果に、`PlayerRecord` にサマリー（`championships`,`nyushoCount`,`tournamentCount`,`activeYears`,`currentGrade`）追加

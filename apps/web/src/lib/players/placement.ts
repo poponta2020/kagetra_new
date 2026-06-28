@@ -57,17 +57,21 @@ export function derivePlacement(
     if (mt.roundLabel && NON_BRACKET.test(mt.roundLabel)) return null
   }
 
-  // シングルイリミなら敗北は高々1回。2敗以上＝3位決定戦や別形式 → 導出しない
-  if (matches.filter((mt) => mt.result === 'lose').length > 1) return null
-
   // 最終試合（最大 round）。同一 round に複数 → 異常 → null
   const maxPlayed = Math.max(...matches.map((mt) => mt.round))
   const lastMatches = matches.filter((mt) => mt.round === maxPlayed)
   if (lastMatches.length !== 1) return null
   const last = lastMatches[0]
+  if (!last) return null
 
   // データ不整合（級の決勝より後ろの round は存在し得ない）
   if (classMaxRound < maxPlayed) return null
+
+  // シングルイリミなら敗北は高々1回、かつ**最終試合**（負けたら止まる）。
+  // 2敗以上や「敗北後に勝ち」は3位決定戦/別形式/データ不整合 → 導出しない。
+  const lossRounds = matches.filter((mt) => mt.result === 'lose').map((mt) => mt.round)
+  if (lossRounds.length > 1) return null
+  if (lossRounds.length === 1 && lossRounds[0] !== maxPlayed) return null
 
   const semantic = last.roundLabel ? bracketFromSemanticLabel(last.roundLabel) : null
 

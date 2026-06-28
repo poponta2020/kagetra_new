@@ -103,6 +103,11 @@ describe('derivePlacement — 導出不能は null（呼び出し側で final_ra
     expect(derivePlacement(ms, 3)).toBeNull()
   })
 
+  it('敗北が最終試合でない（敗北後に勝ち＝データ不整合） → null', () => {
+    const ms = [m(1, 'win'), m(2, 'lose'), m(4, 'win')]
+    expect(derivePlacement(ms, 4)).toBeNull()
+  })
+
   it('最終試合に勝っているが決勝でない（データ欠け） → null', () => {
     const ms = [m(1, 'win'), m(2, 'win')] // classMaxRound 4 なのに2回戦で止まり勝ち
     expect(derivePlacement(ms, 4)).toBeNull()
