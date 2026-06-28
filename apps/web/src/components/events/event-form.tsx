@@ -7,6 +7,16 @@ export interface EventFormProps {
   action: (formData: FormData) => void | Promise<void>
   cancelHref: string
   /**
+   * tournament-entry-rosters: 手動作成/編集での開催(edition) 紐付けの pre-fill。
+   * event_group 撤去の代替として、手動イベントも edition ハブに紐付けられるようにする
+   * （Codex R6 should_fix）。embedded（承認画面）では描画しない（ApprovalForm が別途持つ）。
+   */
+  editionDefault?: {
+    seriesName: string
+    editionNumber: number | null
+    linked: boolean
+  }
+  /**
    * tournament-title-grade-split: namespace every field `name` with this
    * prefix so multiple EventForms can be submitted from one parent `<form>`
    * (the multi-unit approval screen renders one form per event unit). Defaults
@@ -65,6 +75,7 @@ export function EventForm({
   cancelHref,
   fieldPrefix = '',
   defaultValues,
+  editionDefault,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
@@ -187,6 +198,56 @@ export function EventForm({
             <p className="mt-1 text-xs text-ink-meta">
               指定すると申込完了の LINE 通知に「抽選日は M/D です」が追記されます。
             </p>
+          </div>
+        )}
+
+        {/* tournament-entry-rosters (Codex R6): 手動作成/編集でも開催(edition) に紐付けられる
+            導線（event_group 撤去の代替）。承認画面 (embedded) は ApprovalForm 側が持つので出さない。 */}
+        {!embedded && (
+          <div className="rounded-md border border-border p-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <input
+                type="checkbox"
+                name="editionLink"
+                defaultChecked={editionDefault?.linked ?? false}
+                className="rounded border-border"
+              />
+              開催（第N回○○大会）に紐付ける
+            </label>
+            <p className="mt-1 text-xs text-ink-meta">
+              系列名が既存と一致すればその系列の開催に紐付けます。一致する既存系列が無い場合は
+              下の「新規系列を作成」も入れてください。
+            </p>
+            <div className="mt-2 grid grid-cols-[1fr_6rem] gap-3">
+              <div>
+                <label className={LABEL_CLASS}>系列名</label>
+                <input
+                  name="editionSeriesName"
+                  type="text"
+                  defaultValue={editionDefault?.seriesName ?? ''}
+                  className={FIELD_CLASS}
+                />
+              </div>
+              <div>
+                <label className={LABEL_CLASS}>回次</label>
+                <input
+                  name="editionNumber"
+                  type="number"
+                  min="1"
+                  defaultValue={editionDefault?.editionNumber ?? ''}
+                  className={FIELD_CLASS}
+                />
+              </div>
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+              <input
+                type="checkbox"
+                name="editionCreateNewSeries"
+                defaultChecked={false}
+                className="rounded border-border"
+              />
+              一致する既存系列が無い場合、この系列名で新規系列を作成する
+            </label>
           </div>
         )}
 

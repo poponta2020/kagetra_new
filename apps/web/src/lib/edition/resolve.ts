@@ -339,6 +339,52 @@ export async function suggestEditionFromName(
   }
 }
 
+export interface ResolveEditionFromFormOpts {
+  /** edition の系列 kind（手動フォームはイベント単体なので events.kind をそのまま）。 */
+  kind: 'individual' | 'team'
+  /** edition.year（イベント日の年など）。 */
+  year: number | null
+  /** 新規 edition の status（手動作成は基本 unconfirmed、結果確定は flow② が held へ昇格）。 */
+  status: TournamentStatus
+}
+
+/**
+ * 手動の大会作成/編集フォーム（events/new・events/[id]/edit）用の edition 紐付け解決。
+ * フォーム直下の editionLink / editionSeriesName / editionNumber / editionCreateNewSeries を読み、
+ * link ON のとき findOrCreateSeries→findOrCreateEdition で editionId を返す（OFF は null）。
+ * 系列の曖昧・未一致・kind 不一致・新規未明示は findOrCreateSeries が throw する。caller の tx 内で。
+ */
+export async function resolveEditionFromForm(
+  tx: DbLike,
+  formData: FormData,
+  opts: ResolveEditionFromFormOpts,
+): Promise<number | null> {
+  if (formData.get('editionLink') !== 'on') return null
+  const nameRaw = formData.get('editionSeriesName')
+  const seriesName = typeof nameRaw === 'string' ? nameRaw.trim() : ''
+  const numRaw = formData.get('editionNumber')
+  const editionNumber = typeof numRaw === 'string' && numRaw !== '' ? Number(numRaw) : null
+  if (!seriesName) {
+    throw new Error('入力が不正です: 開催を紐付けるには系列名が必要です')
+  }
+  if (editionNumber == null || !Number.isInteger(editionNumber) || editionNumber <= 0) {
+    throw new Error('入力が不正です: 回次は正の整数で指定してください')
+  }
+  const { seriesId } = await findOrCreateSeries(tx, {
+    name: seriesName,
+    allowCreate: formData.get('editionCreateNewSeries') === 'on',
+    kind: opts.kind,
+  })
+  const { editionId } = await findOrCreateEdition(tx, {
+    seriesId,
+    editionNumber,
+    year: opts.year,
+    status: opts.status,
+    rawName: seriesName,
+  })
+  return editionId
+}
+
 export interface AutoResolveInput {
   rawName: string
   year?: number | null

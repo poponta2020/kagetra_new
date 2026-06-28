@@ -11,6 +11,7 @@ import {
   parseEditionNumber,
   parseSeriesName,
   rankSeriesCandidates,
+  resolveEditionFromForm,
   scoreSeries,
   suggestEditionFromName,
   type SeriesRow,
@@ -270,6 +271,56 @@ describe('edition resolve — DB', () => {
       const res = await findOrCreateSeries(testDb, { name: '個人戦の大会', kind: 'individual' })
       expect(res.seriesId).toBe(id)
       expect(res.created).toBe(false)
+    })
+  })
+
+  describe('resolveEditionFromForm (手動フォーム)', () => {
+    it('link OFF → null', async () => {
+      const fd = new FormData()
+      const r = await resolveEditionFromForm(testDb, fd, {
+        kind: 'individual',
+        year: 2026,
+        status: 'unconfirmed',
+      })
+      expect(r).toBeNull()
+    })
+    it('link ON + 既存系列 → 解決して editionId を返す', async () => {
+      const seriesId = await seedSeries('テスト大会')
+      const fd = new FormData()
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', 'テスト大会')
+      fd.set('editionNumber', '5')
+      const r = await resolveEditionFromForm(testDb, fd, {
+        kind: 'individual',
+        year: 2026,
+        status: 'unconfirmed',
+      })
+      expect(r).not.toBeNull()
+      const ed = await testDb
+        .select()
+        .from(tournamentSeriesEditions)
+        .where(eq(tournamentSeriesEditions.id, r!))
+        .limit(1)
+      expect(ed[0]?.seriesId).toBe(seriesId)
+      expect(ed[0]?.editionNumber).toBe(5)
+    })
+    it('link ON + 未一致 + 新規フラグなし → throw', async () => {
+      const fd = new FormData()
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '存在しない大会')
+      fd.set('editionNumber', '1')
+      await expect(
+        resolveEditionFromForm(testDb, fd, { kind: 'individual', year: null, status: 'unconfirmed' }),
+      ).rejects.toThrow(/新規系列として作成/)
+    })
+    it('link ON + 回次なし → throw', async () => {
+      await seedSeries('テスト大会')
+      const fd = new FormData()
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', 'テスト大会')
+      await expect(
+        resolveEditionFromForm(testDb, fd, { kind: 'individual', year: null, status: 'unconfirmed' }),
+      ).rejects.toThrow(/回次/)
     })
   })
 
