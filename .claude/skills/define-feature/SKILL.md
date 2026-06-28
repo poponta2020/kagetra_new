@@ -17,6 +17,19 @@ argument-hint: [機能名や概要（任意）]
 
 ---
 
+## 設計レンズ（design-screen）との行き来 ★重要
+
+要件（ロジック）と設計（視覚）は順番ではなく**螺旋**で深める。詳細＝[`docs/dev/feature-flow.md`](../../../docs/dev/feature-flow.md)。本スキルは**ロジックのレンズ**。
+
+- **同居・相互参照・非重複:** `docs/features/<slug>/` に requirements.md（本スキル）と design-spec.md（design-screen）が同居。**画面レイアウトを言葉で再記述しない**＝design-spec があれば読んで参照で済ませ、ロジック/遷移/データ/API/DB に集中する。
+- **画面インベントリ＋画面間遷移（ナビゲーション地図）は requirements が持つ。** 個々の画面の見た目は design-spec が持つ。
+- **宿題で投げる:** 画面の視覚設計が要る論点は requirements に `## デザインへの宿題（→ /design-screen <slug>）` を書いて渡す（→ 視覚が固まったら戻ってくる）。design-spec 側の `## 要件への宿題` は本スキルで解決する。
+- **新規=greenfield／既存改修=delta**（既存挙動を参照し差分だけ。全部は書き直さない）。複数画面は design-spec を画面ごとに分割可。
+- **収束ゲート:** requirements と design-spec の両方が `status: completed`/`locked`＋互いの宿題ゼロ＋薄い implementation-plan → `/implement`。
+- **片レンズに縮む:** 純UI（新ロジック皆無）なら design-spec が要件成果物＝本スキル不要。ロジックだけ（UIなし）なら本スキルのみ。**「設計後の儀式」として丸ごと回さない**（emergent logic の差分に絞る）。
+
+---
+
 ## Step 0: 起動モードの判定
 
 ### 引数ありの場合
