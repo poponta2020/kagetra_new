@@ -50,7 +50,7 @@
 - [tournament-results 実装 全完了](impl_tournament_results.md) — **全5タスク SHIPPED**。Task1 PR#163(`f3d2b4b`)、**Task2-5 PR#164 merge `8e3ad35`(2026-06-20)**、親#157＋子#158-162 全クローズ。Codex auto-review **5R で pass**(~790k tokens)。取込/承認/却下/materialize/パーサの並行・整合性決定を記録(worker↔UI 状態ポリシー一致+status ガード/approve は FOR UPDATE/reject も原子 UPDATE/participant id は index・opponent は正規化キー/player upsert は onConflictDoNothing()+再SELECT/parser は同名 className MERGE・round ブロック内列探索)。残=本番実機通し
 
 - [/design-screen 画面リデザインスキル](impl_design_screen_skill.md) — Claude Design(DesignSync)で見た目を見ながら作る汎用フロー。push/pull(get_file)・@dsCard・finalize_plan の deletes 必須・projectId 74ab8bf1…
-- [戦績詳細リデザイン(design+要件 収束)](project_senseki_detail_redesign.md) — /players/[id] をA案エディトリアル化、順位は対戦から導出(入賞=ベスト8)＋final_rank フォールバック、R1相手名タップ→戦績(黒・affordanceなし)。design locked+requirements completed・実装待ち（docs/dev/feature-flow.md）
+- [戦績詳細リデザイン SHIPPED](project_senseki_detail_redesign.md) — /players/[id] をA案エディトリアル化、順位は対戦から導出(入賞=ベスト8・級ゲートisDerivableClass)＋final_rank フォールバック、R1相手名タップ→戦績。**PR#183(`1d81bd6`)Codex5R pass+本番デプロイ済＋小修正#191(`e953838`:初期全畳み/導線ヒント/?from=で遷移元へ戻る)**。残=本番実機目視（docs/dev/feature-flow.md）
 
 ## Reference
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須

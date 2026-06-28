@@ -2677,3 +2677,6 @@
 - フロー: `/design-screen`（新スキル・Claude Design 連携）で見た目を locked → emergent logic「相手名タップ→戦績」を requirements に delta 起票 → `/implement`。define-feature⇄design-screen の2レンズ協調フローを `docs/dev/feature-flow.md` に整備（main 直コミット 8ea94e9）。
 - Codex auto-review **5R で pass**（R1 同一round重複/R2 データ欠け優勝/R3 級ゲート+timeline reset/R4 多重bye/R5 pass・累計~351k tokens）。CI green。
 - 残 DoD: 本番デプロイ後の実機目視（表示・年展開・相手名タップ遷移）。
+
+## 2026-06-29 戦績詳細リデザイン 小修正 SHIPPED (PR #191, merge e953838)
+- PR #183 のフォロー3点: ①年タイムライン初期を全畳みに ②相手名タップ導線ヒントを小さく表示 ③相手から遷移時は相手リンクの `?from={id}` で戻る導線を遷移元の選手詳細へ（`getPlayerName` 追加）。Codex 1R pass・CI green・本番デプロイ自動。残=実機目視。

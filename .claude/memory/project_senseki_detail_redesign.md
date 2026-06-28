@@ -1,6 +1,6 @@
 ---
 name: project_senseki_detail_redesign
-description: "戦績詳細(/players/[id])リデザイン — A案エディトリアル＋順位は対戦から導出＋R1相手名タップ→戦績。design+要件とも収束(locked/completed)・実装待ち"
+description: "戦績詳細(/players/[id])リデザイン SHIPPED(PR#183 + 小修正#191) — A案エディトリアル＋順位は対戦から導出＋R1相手名タップ→戦績。残=本番実機目視"
 metadata: 
   node_type: memory
   type: project
@@ -19,4 +19,4 @@ metadata:
 
 **co-evolving（2レンズ螺旋）:** design round2 で骨子 lock → が emergent logic「相手名タップ→その選手の戦績」が出て [[feedback_design_spec_is_requirement_for_ui]] の流れで requirements.md を delta 起票。R1=相手名(opponent_participant_id 解決時のみ)→その player_id の /players/[id] へ・同名は統合 player。R1 はユーザー承認で確定・他 emergent logic 無し。affordance D1 はユーザー指定で**黒・下線なし（明示 affordance なし＝通常テキストのまま、タップ遷移のみ）**で確定＝両宿題ゼロで**収束**（design-spec locked / requirements completed）。
 
-次＝薄い implementation-plan(テスト先行) → `/implement`（getPlayerRecord に opponentPlayerId 追加＋順位導出ロジック&テスト・queries.ts は /players 検索と共有で型影響注意・多作選手で N+1 回避）。フロー正典=docs/dev/feature-flow.md。元データ系は [[impl_tournament_results]]・[[project_player_name_display_mode]]。
+**SHIPPED**: PR#183 merge `1d81bd6`（placement.ts 順位導出＋級ゲート isDerivableClass[敗北数=参加者-1]・getPlayerRecord 拡張・SensekiTimeline）。Codex 5R pass・CI green・本番デプロイ成功。**小修正 PR#191 merge `e953838`**＝①初期は全年畳む ②相手リンク導線ヒント小表示 ③相手から遷移時は相手リンクの `?from={id}` で戻る導線を遷移元へ（getPlayerName 追加）。残=本番実機目視。フロー正典=docs/dev/feature-flow.md。元データ系は [[impl_tournament_results]]・[[project_player_name_display_mode]]。
