@@ -1,22 +1,36 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
-import { Card, GradePill, Pill } from '@/components/ui'
-import { getPlayerRecord } from '@/lib/players/queries'
+import { getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
+import { SensekiTimeline, type TimelineYear } from './SensekiTimeline'
 
 export const dynamic = 'force-dynamic'
-
-const STATUS_LABEL: Record<string, string> = {
-  walkover: '不戦勝',
-  forfeit: '棄権',
-}
 
 /**
  * /players/[id] — 選手戦績の詳細（全ログインユーザー）。
  *
- * その選手の全出場（大会/級/順位/各試合の相手・枚数・勝敗）を読み取り専用で
- * 表示。通算勝敗は status=normal のみ集計（不戦勝・棄権は別表示）。
+ * design-spec A（エディトリアル）：上に箱なしのキャリアサマリー、下に暦年で畳む
+ * sticky タイムライン（展開＝その年の全大会＋試合表）。順位は対戦から導出
+ * （queries 側）、相手名タップでその選手の戦績へ（R1, 解決済みのみ）。
  */
+
+/** 「第N回」接頭を除去（全角数字も）。 */
+function stripKai(name: string): string {
+  return name.replace(/^第[0-9０-９]+回\s*/, '')
+}
+
+/** 枚数+勝敗を1トークン化。normal は ○|差| / ×|差|、不戦勝・棄権は語で。 */
+function scoreToken(m: PlayerMatchView): {
+  text: string
+  tone: 'win' | 'lose' | 'muted'
+} {
+  if (m.status === 'walkover') return { text: '不戦勝', tone: 'muted' }
+  if (m.status === 'forfeit') return { text: '棄権', tone: 'muted' }
+  const mark = m.result === 'win' ? '○' : '×'
+  const num = m.scoreDiff != null ? String(Math.abs(m.scoreDiff)) : ''
+  return { text: `${mark}${num}`, tone: m.result === 'win' ? 'win' : 'lose' }
+}
+
 export default async function PlayerDetailPage({
   params,
 }: {
@@ -32,99 +46,127 @@ export default async function PlayerDetailPage({
   const record = await getPlayerRecord(playerId)
   if (!record) notFound()
 
-  const { player, participations, totalWins, totalLosses } = record
+  const {
+    player,
+    participations,
+    totalWins,
+    totalLosses,
+    championships,
+    nyushoCount,
+    tournamentCount,
+    activeYears,
+    currentGrade,
+  } = record
+
+  const decided = totalWins + totalLosses
+  const winRate = decided > 0 ? Math.round((totalWins / decided) * 1000) / 10 : null
+
+  // 暦年でグルーピング（participations は開催日降順済み・null は不明として末尾に集まる）。
+  const yearMap = new Map<string, TimelineYear>()
+  for (const part of participations) {
+    const year = part.eventDate ? part.eventDate.slice(0, 4) : '不明'
+    let group = yearMap.get(year)
+    if (!group) {
+      group = { year, tournamentCount: 0, wins: 0, losses: 0, tournaments: [] }
+      yearMap.set(year, group)
+    }
+    group.tournamentCount += 1
+    for (const m of part.matches) {
+      if (m.status !== 'normal') continue
+      if (m.result === 'win') group.wins += 1
+      else group.losses += 1
+    }
+    const dateLabel = part.eventDate
+      ? `${Number(part.eventDate.slice(5, 7))}/${Number(part.eventDate.slice(8, 10))}`
+      : ''
+    group.tournaments.push({
+      participantId: part.participantId,
+      dateLabel,
+      title: `${stripKai(part.tournamentName)}${part.grade ?? ''}`,
+      rank: part.rank,
+      rankEmphasis:
+        part.rankBracket != null ? part.rankBracket <= 2 : /優勝/.test(part.rank ?? ''),
+      matches: [...part.matches].reverse().map((m) => {
+        const s = scoreToken(m)
+        return {
+          roundLabel: m.roundLabel ?? `${m.round}回戦`,
+          opponentName: m.opponentName,
+          opponentPlayerId: m.opponentPlayerId,
+          opponentAffiliation: m.opponentAffiliation,
+          scoreText: s.text,
+          scoreTone: s.tone,
+        }
+      }),
+    })
+  }
+  const years = [...yearMap.values()]
+
+  const spanLabel = activeYears
+    ? activeYears.from === activeYears.to
+      ? `${activeYears.from}`
+      : `${activeYears.from}–${activeYears.to}`
+    : null
+  const chips = [
+    `${tournamentCount}大会`,
+    `優勝 ${championships}`,
+    `入賞 ${nyushoCount}`,
+    spanLabel,
+  ].filter(Boolean)
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div>
-        <Link href="/players" className="text-sm text-brand-fg underline">
+        <Link href="/players" className="text-sm text-brand-fg">
           ← 選手検索へ戻る
         </Link>
       </div>
 
-      <Card>
-        <div className="flex flex-col gap-2">
-          <h1 className="font-display text-xl font-bold text-ink">{player.displayName}</h1>
-          <div className="text-xs text-ink-meta">
-            {[player.affiliation, player.prefecture].filter(Boolean).join(' / ') || '所属不明'}
-          </div>
-          <div className="mt-1 flex items-center gap-3 text-sm">
-            <span className="text-ink">
-              通算 <span className="font-bold text-success-fg">{totalWins}</span> 勝{' '}
-              <span className="font-bold text-danger-fg">{totalLosses}</span> 敗
+      {/* サマリー（箱なし・和紙地に直接） */}
+      <div>
+        <h1 className="font-display text-2xl font-bold text-ink">
+          {player.displayName}
+          {currentGrade && (
+            <span className="ml-2 align-baseline text-base font-normal text-ink-meta">
+              （{currentGrade}級）
             </span>
-            <span className="text-xs text-ink-meta">（実戦のみ・不戦勝/棄権は除く）</span>
+          )}
+        </h1>
+        {participations[0]?.affiliation && (
+          <div className="mt-0.5 text-xs text-ink-meta">
+            {participations[0].affiliation}
           </div>
-        </div>
-      </Card>
+        )}
 
-      {participations.length === 0 ? (
-        <Card>
-          <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
-        </Card>
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[11px] tracking-wide text-ink-meta">通算</span>
+            <span className="font-display text-2xl font-bold">
+              <span className="text-success-fg">{totalWins}</span>
+              <span className="text-[13px] text-ink-muted">勝</span>
+              <span className="text-danger-fg">{totalLosses}</span>
+              <span className="text-[13px] text-ink-muted">敗</span>
+            </span>
+          </div>
+          {winRate != null && (
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[11px] tracking-wide text-ink-meta">勝率</span>
+              <span className="font-display text-2xl font-bold text-brand">
+                {winRate}
+                <span className="text-sm">%</span>
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-2 text-xs text-ink-meta">{chips.join(' ・ ')}</div>
+      </div>
+
+      <hr className="border-t border-border-soft" />
+
+      {years.length === 0 ? (
+        <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
       ) : (
-        <div className="flex flex-col gap-3">
-          {participations.map((part) => (
-            <Card key={part.participantId}>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-ink">{part.tournamentName}</div>
-                    <div className="mt-0.5 text-xs text-ink-meta">
-                      {part.eventDate ?? '開催日不明'}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {part.grade && <GradePill grade={part.grade} size="sm" />}
-                    {part.finalRank && (
-                      <Pill tone="brand" size="sm">
-                        {part.finalRank}
-                      </Pill>
-                    )}
-                  </div>
-                </div>
-                <div className="text-xs text-ink-meta">
-                  {[part.className, part.affiliation].filter(Boolean).join(' ・ ')}
-                </div>
-
-                {part.matches.length > 0 && (
-                  <table className="w-full text-xs text-ink">
-                    <thead>
-                      <tr className="border-b border-border-soft text-left text-ink-meta">
-                        <th className="py-1 pr-2">回戦</th>
-                        <th className="py-1 pr-2">相手</th>
-                        <th className="py-1 pr-2 text-right">枚数</th>
-                        <th className="py-1 text-right">勝敗</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {part.matches.map((m, mi) => (
-                        <tr key={mi} className="border-b border-border-soft/50">
-                          <td className="py-0.5 pr-2 text-ink-meta">
-                            {m.roundLabel ?? `${m.round}回戦`}
-                          </td>
-                          <td className="py-0.5 pr-2">{m.opponentName ?? '—'}</td>
-                          <td className="py-0.5 pr-2 text-right">
-                            {m.status === 'normal' ? m.scoreDiff : (STATUS_LABEL[m.status] ?? '—')}
-                          </td>
-                          <td className="py-0.5 text-right">
-                            <span
-                              className={
-                                m.result === 'win' ? 'text-success-fg' : 'text-danger-fg'
-                              }
-                            >
-                              {m.result === 'win' ? '○' : '×'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
+        <SensekiTimeline key={player.id} years={years} />
       )}
     </div>
   )

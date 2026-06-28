@@ -266,3 +266,162 @@ describe('getPlayerRecord', () => {
     expect(record!.participations[0]!.matches).toHaveLength(2)
   })
 })
+
+describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2）', () => {
+  type Part = ParsedResultPayload['classes'][number]['participants'][number]
+  type Mt = Part['matches'][number]
+
+  const mt = (
+    round: number,
+    roundLabel: string | null,
+    opponentName: string | null,
+    scoreDiff: number | null,
+    result: 'win' | 'lose',
+    status: 'normal' | 'walkover' | 'forfeit' = 'normal',
+  ): Mt => ({ round, roundLabel, opponentName, scoreDiff, result, status })
+
+  const p = (
+    seqNo: number,
+    name: string,
+    matches: Mt[],
+    affiliation: string | null = null,
+  ): Part => ({
+    seqNo,
+    name,
+    nameKana: null,
+    affiliation,
+    prefecture: null,
+    dan: null,
+    memberNo: null,
+    finalRank: null,
+    matches,
+  })
+
+  const pRank = (seqNo: number, name: string, finalRank: string, matches: Mt[]): Part => ({
+    ...p(seqNo, name, matches),
+    finalRank,
+  })
+
+  // 4人シングルイリミ（準決勝→決勝）。A=優勝 / C=準優勝 / B・D=ベスト4。
+  const bracket: ParsedResultPayload = {
+    parserVersion: '1.0.0',
+    classes: [
+      classWith('A級', 'A', [
+        p(1, 'A太郎', [mt(1, '準決勝', 'B太郎', 5, 'win'), mt(2, '決勝', 'C太郎', 3, 'win')]),
+        p(2, 'B太郎', [mt(1, '準決勝', 'A太郎', 5, 'lose')], '東京A会'),
+        p(3, 'C太郎', [mt(1, '準決勝', 'D太郎', 7, 'win'), mt(2, '決勝', 'A太郎', 3, 'lose')]),
+        p(4, 'D太郎', [mt(1, '準決勝', 'C太郎', 7, 'lose')]),
+      ]),
+    ],
+  }
+
+  it('優勝者：rank=優勝/bracket=1、解決済みの相手に opponentPlayerId が付く、サマリーも集計', async () => {
+    await seedTournament(bracket, { name: '選手権', eventDate: '2026-05-03' })
+    const a = (await searchPlayers('A太郎'))[0]!
+    const b = (await searchPlayers('B太郎'))[0]!
+    const c = (await searchPlayers('C太郎'))[0]!
+    const rec = (await getPlayerRecord(a.id))!
+    const part = rec.participations[0]!
+    expect(part.rank).toBe('優勝')
+    expect(part.rankBracket).toBe(1)
+    expect(part.matches[0]!.opponentName).toBe('B太郎')
+    expect(part.matches[0]!.opponentPlayerId).toBe(b.id)
+    expect(part.matches[0]!.opponentAffiliation).toBe('東京A会')
+    expect(part.matches[1]!.opponentPlayerId).toBe(c.id)
+    expect(rec.championships).toBe(1)
+    expect(rec.nyushoCount).toBe(1)
+    expect(rec.tournamentCount).toBe(1)
+    expect(rec.currentGrade).toBe('A')
+    expect(rec.activeYears).toEqual({ from: 2026, to: 2026 })
+  })
+
+  it('準決勝敗退：rank=ベスト4/bracket=4、入賞に数えるが優勝には数えない', async () => {
+    await seedTournament(bracket, { name: '選手権', eventDate: '2026-05-03' })
+    const b = (await searchPlayers('B太郎'))[0]!
+    const rec = (await getPlayerRecord(b.id))!
+    expect(rec.participations[0]!.rank).toBe('ベスト4')
+    expect(rec.participations[0]!.rankBracket).toBe(4)
+    expect(rec.championships).toBe(0)
+    expect(rec.nyushoCount).toBe(1)
+  })
+
+  it('準優勝：rank=準優勝/bracket=2', async () => {
+    await seedTournament(bracket, { name: '選手権', eventDate: '2026-05-03' })
+    const c = (await searchPlayers('C太郎'))[0]!
+    const rec = (await getPlayerRecord(c.id))!
+    expect(rec.participations[0]!.rank).toBe('準優勝')
+    expect(rec.participations[0]!.rankBracket).toBe(2)
+    expect(rec.championships).toBe(0)
+    expect(rec.nyushoCount).toBe(1)
+  })
+
+  it('導出不能（リーグ戦）は保存 final_rank にフォールバック・優勝/入賞に数えない', async () => {
+    const league: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        classWith('B級', 'B', [
+          pRank(1, 'リーグ太郎', '3位', [
+            mt(1, '予選リーグ', '相手一郎', 2, 'win'),
+            mt(2, '予選リーグ', '相手二郎', 1, 'lose'),
+          ]),
+        ]),
+      ],
+    }
+    await seedTournament(league, { name: 'リーグ大会', eventDate: '2026-04-01' })
+    const rec = (await getPlayerRecord((await searchPlayers('リーグ太郎'))[0]!.id))!
+    const part = rec.participations[0]!
+    expect(part.rank).toBe('3位')
+    expect(part.rankBracket).toBeNull()
+    expect(rec.championships).toBe(0)
+    expect(rec.nyushoCount).toBe(0)
+  })
+
+  it('リーグ戦（通常ラベルで全勝）は級ゲートで導出抑止＝final_rank フォールバック（Codex R3 blocker）', async () => {
+    // 4人総当たり(3R)。AA は 3-0 で最終 round まで全勝＝本人列だけ見ると優勝に見えるが、
+    // 級全体の敗北数(6) ≠ 参加者-1(3) なのでシングルイリミでない → 級単位で導出抑止。
+    const rr: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        classWith('A級', 'A', [
+          pRank(1, 'AA太郎', '優勝', [
+            mt(1, '1回戦', 'BB太郎', 5, 'win'),
+            mt(2, '2回戦', 'CC太郎', 4, 'win'),
+            mt(3, '3回戦', 'DD太郎', 6, 'win'),
+          ]),
+          p(2, 'BB太郎', [
+            mt(1, '1回戦', 'AA太郎', 5, 'lose'),
+            mt(2, '2回戦', 'DD太郎', 3, 'win'),
+            mt(3, '3回戦', 'CC太郎', 2, 'win'),
+          ]),
+          p(3, 'CC太郎', [
+            mt(1, '1回戦', 'DD太郎', 7, 'win'),
+            mt(2, '2回戦', 'AA太郎', 4, 'lose'),
+            mt(3, '3回戦', 'BB太郎', 2, 'lose'),
+          ]),
+          p(4, 'DD太郎', [
+            mt(1, '1回戦', 'CC太郎', 7, 'lose'),
+            mt(2, '2回戦', 'BB太郎', 3, 'lose'),
+            mt(3, '3回戦', 'AA太郎', 6, 'lose'),
+          ]),
+        ]),
+      ],
+    }
+    await seedTournament(rr, { name: '総当たり大会', eventDate: '2026-06-01' })
+    const rec = (await getPlayerRecord((await searchPlayers('AA太郎'))[0]!.id))!
+    const part = rec.participations[0]!
+    expect(part.rankBracket).toBeNull() // 級ゲートで導出されていない
+    expect(part.rank).toBe('優勝') // final_rank フォールバックで表示はされる
+    expect(rec.championships).toBe(0) // 導出ベース集計には入らない
+  })
+
+  it('未解決の相手（級にいない生名）は opponentPlayerId=null', async () => {
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [classWith('C級', 'C', [p(1, '単独太郎', [mt(1, '1回戦', '外部花子', 4, 'win')])])],
+    }
+    await seedTournament(payload, { name: '小大会', eventDate: '2026-02-02' })
+    const rec = (await getPlayerRecord((await searchPlayers('単独太郎'))[0]!.id))!
+    expect(rec.participations[0]!.matches[0]!.opponentName).toBe('外部花子')
+    expect(rec.participations[0]!.matches[0]!.opponentPlayerId).toBeNull()
+  })
+})
