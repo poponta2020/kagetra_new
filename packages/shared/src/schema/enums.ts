@@ -170,3 +170,17 @@ export const tournamentStatusEnum = pgEnum('tournament_status', [
   'cancelled',
   'unconfirmed',
 ])
+
+// tournament-entry-rosters (PR-3 名簿): 申込/確定名簿。
+// roster_type: applicant=申込者名簿（締切後・抽選前）/ confirmed=確定名簿（抽選後。抽選不要でも発行）。
+export const rosterTypeEnum = pgEnum('roster_type', ['applicant', 'confirmed'])
+// roster_entry_status: 名簿各行の出場状態（出場回数の素データ）。
+// applied=申込（applicant 名簿の既定）/ confirmed=出場確定 / carried_up=繰上出場 /
+// carry_up_declined=繰上辞退 / cancelled=取消。confirmed 名簿の各行に保持し、繰上は再取込で更新。
+export const rosterEntryStatusEnum = pgEnum('roster_entry_status', [
+  'applied',
+  'confirmed',
+  'carried_up',
+  'carry_up_declined',
+  'cancelled',
+])

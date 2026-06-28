@@ -21,6 +21,8 @@ import { matches } from './matches'
 import { resultDrafts } from './result-drafts'
 import { tournamentSeries } from './tournament-series'
 import { tournamentSeriesEditions } from './tournament-series-editions'
+import { tournamentEntryRosters } from './tournament-entry-rosters'
+import { tournamentEntryRosterEntries } from './tournament-entry-roster-entries'
 
 // tournament-entry-rosters (PR-1a baseline): series 1:N editions、edition は
 // events / tournaments を束ねるハブ（どちらも N:1）。
@@ -47,6 +49,8 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
     fields: [events.editionId],
     references: [tournamentSeriesEditions.id],
   }),
+  // tournament-entry-rosters PR-3: 申込/確定名簿（1 event = applicant/confirmed 各 0..1）。
+  rosters: many(tournamentEntryRosters),
   attendances: many(eventAttendances),
   creator: one(users, {
     fields: [events.createdBy],
@@ -300,3 +304,37 @@ export const resultDraftsRelations = relations(resultDrafts, ({ one }) => ({
     references: [tournaments.id],
   }),
 }))
+
+// tournament-entry-rosters (PR-3 名簿)
+export const tournamentEntryRostersRelations = relations(
+  tournamentEntryRosters,
+  ({ one, many }) => ({
+    event: one(events, {
+      fields: [tournamentEntryRosters.eventId],
+      references: [events.id],
+    }),
+    sourceAttachment: one(mailAttachments, {
+      fields: [tournamentEntryRosters.sourceAttachmentId],
+      references: [mailAttachments.id],
+    }),
+    entries: many(tournamentEntryRosterEntries),
+  }),
+)
+
+export const tournamentEntryRosterEntriesRelations = relations(
+  tournamentEntryRosterEntries,
+  ({ one }) => ({
+    roster: one(tournamentEntryRosters, {
+      fields: [tournamentEntryRosterEntries.rosterId],
+      references: [tournamentEntryRosters.id],
+    }),
+    player: one(players, {
+      fields: [tournamentEntryRosterEntries.playerId],
+      references: [players.id],
+    }),
+    user: one(users, {
+      fields: [tournamentEntryRosterEntries.userId],
+      references: [users.id],
+    }),
+  }),
+)
