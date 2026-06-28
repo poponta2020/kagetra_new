@@ -57,11 +57,17 @@ export function derivePlacement(
     if (mt.roundLabel && NON_BRACKET.test(mt.roundLabel)) return null
   }
 
-  // 最終試合（最大 round）。同一 round に複数 → 異常 → null
+  // シングルイリミは「1 round = 1 試合」。どこかの round に複数試合があれば
+  // ブラケットとして異常（3位決定戦/別形式/データ不整合）→ 導出しない。
+  const seenRounds = new Set<number>()
+  for (const mt of matches) {
+    if (seenRounds.has(mt.round)) return null
+    seenRounds.add(mt.round)
+  }
+
+  // 最終試合（最大 round）。上の重複チェックで一意性は保証済み。
   const maxPlayed = Math.max(...matches.map((mt) => mt.round))
-  const lastMatches = matches.filter((mt) => mt.round === maxPlayed)
-  if (lastMatches.length !== 1) return null
-  const last = lastMatches[0]
+  const last = matches.find((mt) => mt.round === maxPlayed)
   if (!last) return null
 
   // データ不整合（級の決勝より後ろの round は存在し得ない）

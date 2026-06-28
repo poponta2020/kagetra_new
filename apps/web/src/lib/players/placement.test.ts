@@ -125,6 +125,11 @@ describe('derivePlacement — 導出不能は null（呼び出し側で final_ra
     const ms = [m(1, 'win'), m(2, 'lose'), m(2, 'win')]
     expect(derivePlacement(ms, 4)).toBeNull()
   })
+
+  it('最終以外の round でも同一 round 重複 → null', () => {
+    // 重複が最大 round でなくても検出する（Codex R1 should_fix）。
+    expect(derivePlacement([m(1, 'win'), m(1, 'win'), m(2, 'win')], 2)).toBeNull()
+  })
 })
 
 describe('isNyusho / isChampion', () => {
