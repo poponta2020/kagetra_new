@@ -280,11 +280,16 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     status: 'normal' | 'walkover' | 'forfeit' = 'normal',
   ): Mt => ({ round, roundLabel, opponentName, scoreDiff, result, status })
 
-  const p = (seqNo: number, name: string, matches: Mt[]): Part => ({
+  const p = (
+    seqNo: number,
+    name: string,
+    matches: Mt[],
+    affiliation: string | null = null,
+  ): Part => ({
     seqNo,
     name,
     nameKana: null,
-    affiliation: null,
+    affiliation,
     prefecture: null,
     dan: null,
     memberNo: null,
@@ -303,7 +308,7 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     classes: [
       classWith('A級', 'A', [
         p(1, 'A太郎', [mt(1, '準決勝', 'B太郎', 5, 'win'), mt(2, '決勝', 'C太郎', 3, 'win')]),
-        p(2, 'B太郎', [mt(1, '準決勝', 'A太郎', 5, 'lose')]),
+        p(2, 'B太郎', [mt(1, '準決勝', 'A太郎', 5, 'lose')], '東京A会'),
         p(3, 'C太郎', [mt(1, '準決勝', 'D太郎', 7, 'win'), mt(2, '決勝', 'A太郎', 3, 'lose')]),
         p(4, 'D太郎', [mt(1, '準決勝', 'C太郎', 7, 'lose')]),
       ]),
@@ -321,6 +326,7 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     expect(part.rankBracket).toBe(1)
     expect(part.matches[0]!.opponentName).toBe('B太郎')
     expect(part.matches[0]!.opponentPlayerId).toBe(b.id)
+    expect(part.matches[0]!.opponentAffiliation).toBe('東京A会')
     expect(part.matches[1]!.opponentPlayerId).toBe(c.id)
     expect(rec.championships).toBe(1)
     expect(rec.nyushoCount).toBe(1)

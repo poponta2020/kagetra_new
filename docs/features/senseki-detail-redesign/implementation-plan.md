@@ -31,7 +31,7 @@ kind: delta
 - **テスト:** queries.test.ts green、`pnpm typecheck`
 
 ### タスク3: 戦績詳細ページ UI 実装（フラット・年sticky・○N/×N・相手名タップ）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/players/[id]` を design-spec A 案に作り替え。サマリー（箱なし・serif 数字）＋年(暦年)グループの sticky 折りたたみタイムライン（展開単位＝年、その年の全大会の試合表）。試合表はフラット・降順・`○12/×7` トークン・相手名＋所属会。相手名タップ＝解決済みのみ `/players/[id]` へ（見た目は黒・通常テキスト＝明示 affordance なし）。
 - **変更対象:**
   - `apps/web/src/app/(app)/players/[id]/page.tsx` — サーバーコンポーネントは取得＋整形、表示はクライアントへ委譲

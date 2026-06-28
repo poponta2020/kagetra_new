@@ -30,6 +30,8 @@ export interface PlayerMatchView {
    * 未解決の生名／本人を指す場合は null（リンクにしない）。
    */
   opponentPlayerId: number | null
+  /** 相手のその大会での所属会（opponent participant の affiliation）。未解決は null。 */
+  opponentAffiliation: string | null
   scoreDiff: number | null
   result: 'win' | 'lose'
   status: 'normal' | 'walkover' | 'forfeit'
@@ -185,13 +187,15 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
   ]
   const opponentRows = opponentPartIds.length
     ? await db
-        .select({ id: tournamentParticipants.id, playerId: tournamentParticipants.playerId })
+        .select({
+          id: tournamentParticipants.id,
+          playerId: tournamentParticipants.playerId,
+          affiliation: tournamentParticipants.affiliation,
+        })
         .from(tournamentParticipants)
         .where(inArray(tournamentParticipants.id, opponentPartIds))
     : []
-  const playerIdByPart = new Map<number, number | null>(
-    opponentRows.map((r) => [r.id, r.playerId]),
-  )
+  const opponentInfoByPart = new Map(opponentRows.map((r) => [r.id, r]))
 
   let championships = 0
   let nyushoCount = 0
@@ -222,16 +226,18 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
       rank: derived?.label ?? p.finalRank,
       rankBracket: derived?.bracket ?? null,
       matches: sorted.map((m) => {
-        const oppPid =
+        const info =
           m.opponentParticipantId != null
-            ? (playerIdByPart.get(m.opponentParticipantId) ?? null)
-            : null
+            ? opponentInfoByPart.get(m.opponentParticipantId)
+            : undefined
+        const oppPid = info?.playerId ?? null
         return {
           round: m.round,
           roundLabel: m.roundLabel,
           opponentName: m.opponentName,
           // 本人を指す解決は除外（R1 境界）。
           opponentPlayerId: oppPid != null && oppPid !== playerId ? oppPid : null,
+          opponentAffiliation: info?.affiliation ?? null,
           scoreDiff: m.scoreDiff,
           result: m.result,
           status: m.status,
