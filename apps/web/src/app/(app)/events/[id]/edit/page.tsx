@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { events } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
+import { resolveEditionFromForm } from '@/lib/edition/resolve'
 import { EventForm } from '@/components/events/event-form'
 
 export default async function EditEventPage({
@@ -21,11 +22,20 @@ export default async function EditEventPage({
 
   const event = await db.query.events.findFirst({
     where: eq(events.id, idNum),
+    // tournament-entry-rosters (Codex R6): 現在の開催(edition) 紐付けを編集フォームに pre-fill。
+    with: { edition: { with: { series: true } } },
   })
 
   if (!event) notFound()
 
   const eventId = event.id
+  const editionDefault = event.edition
+    ? {
+        seriesName: event.edition.series?.name ?? '',
+        editionNumber: event.edition.editionNumber,
+        linked: true,
+      }
+    : { seriesName: '', editionNumber: null, linked: false }
 
   async function updateEvent(formData: FormData) {
     'use server'
@@ -41,12 +51,26 @@ export default async function EditEventPage({
     const data = parsed.data
 
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
+    const editionYear =
+      data.eventDate && /^\d{4}-/.test(data.eventDate) ? Number(data.eventDate.slice(0, 4)) : null
 
-    await db.update(events).set({
-      ...data,
-      eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
-      updatedAt: new Date(),
-    }).where(eq(events.id, eventId))
+    // tournament-entry-rosters (Codex R6): edition 紐付けを解決して更新（link OFF なら null=解除）。
+    await db.transaction(async (tx) => {
+      const editionId = await resolveEditionFromForm(tx, formData, {
+        kind: data.kind,
+        year: editionYear,
+        status: 'unconfirmed',
+      })
+      await tx
+        .update(events)
+        .set({
+          ...data,
+          eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
+          editionId,
+          updatedAt: new Date(),
+        })
+        .where(eq(events.id, eventId))
+    })
 
     redirect(`/events/${eventId}`)
   }
@@ -58,6 +82,7 @@ export default async function EditEventPage({
         mode="edit"
         action={updateEvent}
         cancelHref={`/events/${event.id}`}
+        editionDefault={editionDefault}
         defaultValues={{
           title: event.title,
           formalName: event.formalName,

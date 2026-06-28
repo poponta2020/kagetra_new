@@ -232,6 +232,13 @@
       "when": 1782663077250,
       "tag": "0032_drop_event_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782672555705,
+      "tag": "0033_edition_id_indexes",
+      "breakpoints": true
     }
   ]
 }

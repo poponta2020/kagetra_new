@@ -11,6 +11,7 @@ import {
 import { normalizeDan, normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
+import { autoResolveEdition } from '@/lib/edition/resolve'
 
 // Works for both NodePgDatabase (main db) and NodePgTransaction (inside tx callback).
 type DbLike = NodePgDatabase<typeof schema>
@@ -24,6 +25,8 @@ export interface MaterializeOpts {
 
 export interface MaterializeResult {
   tournamentId: number
+  /** tournament-entry-rosters flow②: 自動解決して紐付けた開催 id（未解決なら null）。 */
+  editionId: number | null
 }
 
 /**
@@ -43,6 +46,20 @@ export async function materializeResultDraft(
   payload: ParsedResultPayload,
   opts: MaterializeOpts,
 ): Promise<MaterializeResult> {
+  // tournament-entry-rosters flow②: 大会名から開催(edition)を best-effort で自動解決する。
+  // **保守的**: 系列が正規化完全一致かつ単独最良で、回次が取れたときだけ link する（曖昧・
+  // 新規系列・回次不明は null のまま＝要件 §3.1「100% 自動にしない」を尊重）。結果取込なので
+  // 開催済み＝status='held'。既存 edition は解決のみ（master の年は上書きしない）。新規系列は
+  // auto 作成しない。年は event_date から（v1 では基本 null）。
+  const edition = await autoResolveEdition(tx, {
+    rawName: opts.tournamentName,
+    year:
+      opts.eventDate && /^\d{4}-/.test(opts.eventDate)
+        ? Number(opts.eventDate.slice(0, 4))
+        : null,
+    status: 'held',
+  })
+
   // 1. Create tournament row.
   const [tournament] = await tx
     .insert(tournaments)
@@ -51,6 +68,7 @@ export async function materializeResultDraft(
       eventDate: opts.eventDate,
       venue: opts.venue,
       sourceResultDraftId: opts.sourceResultDraftId,
+      editionId: edition.editionId,
     })
     .returning({ id: tournaments.id })
   const tournamentId = tournament!.id
@@ -202,5 +220,5 @@ export async function materializeResultDraft(
   // （bulk/live 共通。caller の tx 内で実行。空 set なら関数側が 0 を返す）。
   await recomputePlayerDisplayNames(tx, [...touched])
 
-  return { tournamentId }
+  return { tournamentId, editionId: edition.editionId }
 }

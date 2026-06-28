@@ -60,6 +60,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -109,6 +110,59 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     expect(unitKey.value).toBe('u1')
   })
 
+  it('開催(edition)紐付けセクション: 候補を pre-fill し回次ありなら link を ON にする', () => {
+    const payload = buildPayload([buildUnit()])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: 'こばえちゃ山形酒田大会', editionNumber: 28, matched: true }}
+        action={noop}
+      />,
+    )
+    const link = container.querySelector(
+      'input[name="editionLink"]',
+    ) as HTMLInputElement
+    expect(link.checked).toBe(true)
+    const seriesName = container.querySelector(
+      'input[name="editionSeriesName"]',
+    ) as HTMLInputElement
+    expect(seriesName.value).toBe('こばえちゃ山形酒田大会')
+    const editionNumber = container.querySelector(
+      'input[name="editionNumber"]',
+    ) as HTMLInputElement
+    expect(editionNumber.value).toBe('28')
+    // 新規系列作成は明示チェック（既定 OFF・Codex R3）
+    const createNew = container.querySelector(
+      'input[name="editionCreateNewSeries"]',
+    ) as HTMLInputElement
+    expect(createNew).not.toBeNull()
+    expect(createNew.checked).toBe(false)
+  })
+
+  it('開催(edition)紐付けセクション: 既存系列に未一致なら（回次があっても）link は OFF', () => {
+    // Codex R1 should_fix: 新規系列候補は管理者が明示チェックする運用。
+    const payload = buildPayload([buildUnit()])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '新規っぽい大会', editionNumber: 5, matched: false }}
+        action={noop}
+      />,
+    )
+    const link = container.querySelector(
+      'input[name="editionLink"]',
+    ) as HTMLInputElement
+    expect(link.checked).toBe(false)
+    // 系列名・回次は pre-fill される（チェックを入れれば使える）
+    expect(
+      (container.querySelector('input[name="editionSeriesName"]') as HTMLInputElement).value,
+    ).toBe('新規っぽい大会')
+  })
+
   it('開催日分割: 2 単位を別フォームとして描画し title を級ごとに合成する', () => {
     const payload = buildPayload([
       buildUnit({ unit_key: 'u1', eligible_grades: ['B'], event_date: '2031-01-11' }),
@@ -119,6 +173,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -173,6 +228,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[{ unitKey: 'u1', eventId: 42 }]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -202,6 +258,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="酒田"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -246,6 +303,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={legacyPayload}
         shortNameStem={null}
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -276,6 +334,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={null}
         shortNameStem={null}
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -298,6 +357,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -315,6 +375,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -337,6 +398,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )
@@ -353,6 +415,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
         action={noop}
       />,
     )

@@ -127,5 +127,40 @@ describe('EventForm', () => {
     expect(container.querySelector('[name="lotteryDate"]')).toBeNull()
     // 締切群は描画されていること（embedded でも申込締切は出る）
     expect(container.querySelector('[name="u1__entryDeadline"]')).toBeTruthy()
+    // 開催(edition) 紐付け欄も embedded では出さない（ApprovalForm が別途持つ）
+    expect(container.querySelector('[name="editionLink"]')).toBeNull()
+    expect(container.querySelector('[name="u1__editionLink"]')).toBeNull()
+  })
+
+  // tournament-entry-rosters (Codex R6): 手動作成/編集の edition 紐付け欄
+  it("mode='create'（非 embedded）で edition 紐付け欄が描画される（既定 OFF・空）", () => {
+    const { container } = render(
+      <EventForm mode="create" action={noop} cancelHref="/events" />,
+    )
+    const link = container.querySelector('[name="editionLink"]') as HTMLInputElement | null
+    expect(link).toBeTruthy()
+    expect(link?.checked).toBe(false)
+    expect(container.querySelector('[name="editionSeriesName"]')).toBeTruthy()
+    expect(container.querySelector('[name="editionNumber"]')).toBeTruthy()
+    expect(container.querySelector('[name="editionCreateNewSeries"]')).toBeTruthy()
+  })
+
+  it("mode='edit' で editionDefault を pre-fill し link を ON にする", () => {
+    const { container } = render(
+      <EventForm
+        mode="edit"
+        action={noop}
+        cancelHref="/events/1"
+        editionDefault={{ seriesName: 'こばえちゃ山形酒田大会', editionNumber: 28, linked: true }}
+      />,
+    )
+    const link = container.querySelector('[name="editionLink"]') as HTMLInputElement
+    expect(link.checked).toBe(true)
+    expect(
+      (container.querySelector('[name="editionSeriesName"]') as HTMLInputElement).value,
+    ).toBe('こばえちゃ山形酒田大会')
+    expect(
+      (container.querySelector('[name="editionNumber"]') as HTMLInputElement).value,
+    ).toBe('28')
   })
 })
