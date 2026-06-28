@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
-import { getPlayerRecord, searchPlayers } from './queries'
+import { getPlayerName, getPlayerRecord, searchPlayers } from './queries'
 
 beforeEach(async () => {
   await truncateAll()
@@ -423,5 +423,34 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     const rec = (await getPlayerRecord((await searchPlayers('単独太郎'))[0]!.id))!
     expect(rec.participations[0]!.matches[0]!.opponentName).toBe('外部花子')
     expect(rec.participations[0]!.matches[0]!.opponentPlayerId).toBeNull()
+  })
+})
+
+describe('getPlayerName', () => {
+  it('表示名を引く / 存在しない id は null', async () => {
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('D級', 'D', [
+            {
+              seqNo: 1,
+              name: '戻る太郎',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              matches: [],
+            },
+          ]),
+        ],
+      },
+      { name: '大会1', eventDate: '2026-01-01' },
+    )
+    const player = (await searchPlayers('戻る太郎'))[0]!
+    expect(await getPlayerName(player.id)).toBe('戻る太郎')
+    expect(await getPlayerName(999_999)).toBeNull()
   })
 })

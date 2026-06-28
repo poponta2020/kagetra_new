@@ -111,6 +111,15 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
   return rows
 }
 
+/** 選手の表示名のみを引く軽量クエリ（戻る導線のラベル用）。存在しなければ null。 */
+export async function getPlayerName(playerId: number): Promise<string | null> {
+  const row = await db.query.players.findFirst({
+    where: eq(players.id, playerId),
+    columns: { displayName: true },
+  })
+  return row?.displayName ?? null
+}
+
 /**
  * 選手の全戦績。participants（生スナップショット）を起点に大会/級/順位/各試合を
  * 読み取り専用で集約する。
