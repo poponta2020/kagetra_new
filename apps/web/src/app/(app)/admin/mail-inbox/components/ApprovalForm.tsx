@@ -31,6 +31,16 @@ export interface ApprovalFormProps {
   shortNameStem: string | null
   /** Already-materialized units (event already created). Rendered read-only. */
   registeredUnitKeys: { unitKey: string; eventId: number }[]
+  /**
+   * tournament-entry-rosters flow①: 開催(edition) 紐付けの pre-fill 候補（サーバで
+   * 大会名から名寄せ・回次パースした結果）。型は inline（resolve.ts は DB 依存を持つので
+   * client bundle へ引き込まない＝node-import 退行回避）。
+   */
+  editionSuggestion: {
+    seriesName: string
+    editionNumber: number | null
+    matched: boolean
+  }
   action: (formData: FormData) => void | Promise<void>
 }
 
@@ -119,10 +129,15 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
  * (`extractEventUnitsFormData`) already keys off `${unit_key}__register`, so a
  * deselected unit is ignored end-to-end.
  */
+const EDITION_LABEL = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
+const EDITION_FIELD =
+  'mt-1 block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30'
+
 export function ApprovalForm({
   payload,
   shortNameStem,
   registeredUnitKeys,
+  editionSuggestion,
   action,
 }: ApprovalFormProps) {
   const units = normalizeUnits(payload)
@@ -160,6 +175,51 @@ export function ApprovalForm({
       </div>
 
       <form action={action} className="flex flex-col gap-4">
+        {/* tournament-entry-rosters flow①: 開催(edition) 紐付け（draft 単位・1 開催）。
+            link ON のとき系列名＋回次から edition を解決/新規作成し、この案内から作る
+            events 全件に同じ edition_id を張る。名寄せは管理者が確認（要件 §3.1）。 */}
+        <Card>
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <input
+                type="checkbox"
+                name="editionLink"
+                defaultChecked={editionSuggestion.editionNumber != null}
+                className="rounded border-border"
+              />
+              開催（第N回○○大会）に紐付ける
+            </label>
+            <p className="text-xs text-ink-meta">
+              系列名が既存と一致すればその系列の開催に、無ければ新規系列を作成して各イベントに
+              紐付けます。
+              {editionSuggestion.matched
+                ? '（既存の系列に一致しました）'
+                : '（一致する既存系列なし。新規作成になります。名称を確認してください）'}
+            </p>
+            <div className="grid grid-cols-[1fr_6rem] gap-3">
+              <div>
+                <label className={EDITION_LABEL}>系列名</label>
+                <input
+                  name="editionSeriesName"
+                  type="text"
+                  defaultValue={editionSuggestion.seriesName}
+                  className={EDITION_FIELD}
+                />
+              </div>
+              <div>
+                <label className={EDITION_LABEL}>回次</label>
+                <input
+                  name="editionNumber"
+                  type="number"
+                  min="1"
+                  defaultValue={editionSuggestion.editionNumber ?? ''}
+                  className={EDITION_FIELD}
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
+
         {units.map((unit) => {
           const registeredEventId = registeredMap.get(unit.unit_key)
           // New short-name = stem(場所) + grades. Only compose when a stem

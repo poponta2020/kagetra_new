@@ -6,6 +6,8 @@ import {
   tournaments,
   tournamentClasses,
   tournamentParticipants,
+  tournamentSeries,
+  tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
@@ -624,5 +626,96 @@ describe('materializeResultDraft — display_name 再計算配線 (Phase 2)', ()
     const allPlayers = await testDb.select().from(players)
     expect(allPlayers).toHaveLength(1)
     expect(allPlayers[0]!.displayName).toBe('山﨑')
+  })
+})
+
+// tournament-entry-rosters flow②: 結果取込時の開催(edition) 自動解決 ───────────
+describe('materializeResultDraft — edition 自動解決 (flow②)', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+
+  async function seedSeries(name: string) {
+    const [s] = await testDb
+      .insert(tournamentSeries)
+      .values({ name, kind: 'individual' })
+      .returning({ id: tournamentSeries.id })
+    return s!.id
+  }
+
+  it('系列完全一致＋既存 edition → tournaments.edition_id に解決（新規作成しない）', async () => {
+    const seriesId = await seedSeries('こばえちゃ山形酒田大会')
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId, editionNumber: 28, year: 2026, status: 'held' })
+      .returning({ id: tournamentSeriesEditions.id })
+
+    const result = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, buildPayload(), {
+        tournamentName: '第28回こばえちゃ山形酒田大会C級',
+        eventDate: '2026-05-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(result.editionId).toBe(edition!.id)
+    const t = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, result.tournamentId),
+    })
+    expect(t?.editionId).toBe(edition!.id)
+    expect(await testDb.select().from(tournamentSeriesEditions)).toHaveLength(1)
+  })
+
+  it('系列一致＋master に無い回次 → edition を新規作成(status=held)して紐付ける', async () => {
+    const seriesId = await seedSeries('こばえちゃ山形酒田大会')
+    const result = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, buildPayload(), {
+        tournamentName: '第99回こばえちゃ山形酒田大会A級',
+        eventDate: '2099-05-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    const ed = await testDb
+      .select()
+      .from(tournamentSeriesEditions)
+      .where(eq(tournamentSeriesEditions.seriesId, seriesId))
+    expect(ed).toHaveLength(1)
+    expect(ed[0]?.editionNumber).toBe(99)
+    expect(ed[0]?.status).toBe('held')
+    expect(ed[0]?.year).toBe(2099)
+    expect(result.editionId).toBe(ed[0]!.id)
+  })
+
+  it('系列が一致しない → edition_id は null（新規系列は auto 作成しない）', async () => {
+    await seedSeries('全く別の大会')
+    const result = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, buildPayload(), {
+        tournamentName: '第5回どこにもない大会B級',
+        eventDate: '2026-05-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(result.editionId).toBeNull()
+    const t = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, result.tournamentId),
+    })
+    expect(t?.editionId).toBeNull()
+    // series は増えていない
+    expect(await testDb.select().from(tournamentSeries)).toHaveLength(1)
+  })
+
+  it('回次が取れない大会名 → edition_id は null', async () => {
+    await seedSeries('全日本かるた選手権大会')
+    const result = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, buildPayload(), {
+        tournamentName: '全日本かるた選手権大会A級', // 第N回 なし
+        eventDate: null,
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(result.editionId).toBeNull()
   })
 })

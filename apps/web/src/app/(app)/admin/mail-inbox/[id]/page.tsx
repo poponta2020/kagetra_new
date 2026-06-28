@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { and, desc, eq, gte, ilike, ne, or, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { suggestEditionFromName } from '@/lib/edition/resolve'
 import {
   events,
   mailMessages,
@@ -215,6 +216,22 @@ export default async function MailDraftDetailPage({
         .limit(100)
     : []
 
+  // tournament-entry-rosters flow①: 開催(edition) 紐付けの pre-fill 候補をサーバで作る。
+  // 代表 formal_name（最初の非 null）から系列名を名寄せ・回次をパース（副作用なし）。
+  // showApproval のときだけ（読み取り専用 view では不要）。
+  const firstFormalName: string | null =
+    (extractedPayload?.events ?? [])
+      .map((e) => e.formal_name)
+      .find((n): n is string => typeof n === 'string' && n.trim() !== '') ??
+    ((rawPayload as { extracted?: { formal_name?: string | null; title?: string | null } })
+      ?.extracted?.formal_name ||
+      (rawPayload as { extracted?: { title?: string | null } })?.extracted?.title) ??
+    null
+  const editionSuggestion =
+    showApproval && firstFormalName
+      ? await suggestEditionFromName(db, firstFormalName)
+      : { seriesName: '', editionNumber: null, matched: false }
+
   // tournament-title-grade-split: events already materialized from this draft
   // (1 draft : N events). Used to mark registered units read-only in the form
   // and to surface "created events" links on an approved draft. Always queried
@@ -382,6 +399,7 @@ export default async function MailDraftDetailPage({
             payload={extractedPayload}
             shortNameStem={shortNameStem}
             registeredUnitKeys={registeredUnitKeys}
+            editionSuggestion={editionSuggestion}
             action={approveDraftUnits.bind(null, draftId)}
           />
           {/* r3 blocker: 「残りは作らず完了」は一部登録後の残単位を閉じる導線。

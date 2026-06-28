@@ -38,7 +38,7 @@ status: completed
 - **対応Issue:** #186
 
 ### タスク3【PR-2 flow①】edition 解決コア＋案内承認への組込み＋確認UI
-- [ ] 完了
+- [x] 完了
 - **概要:** 大会名から系列を名寄せ（name＋aliases）し、開催（edition）を解決 or 新規作成（回次は「第N回」パース、無ければ最大＋1候補）するコアを実装。案内ドラフト承認（flow①）に組込み、生成 events に `edition_id` を設定。**名寄せは管理者確認必須**（曖昧/新規/回次不明）。
 - **変更対象ファイル:**
   - `apps/web/src/lib/edition/resolve.ts`（新規, コア）＋テスト
@@ -69,7 +69,7 @@ status: completed
 - **対応Issue:** #189
 
 ### タスク6【PR-5 flow②】結果取込への edition 解決組込み
-- [ ] 完了
+- [x] 完了
 - **概要:** 結果ドラフト materialize 時に edition 解決コア（タスク3）を呼び、`tournaments.edition_id` を設定（自動サジェスト＋管理者確認）。
 - **変更対象ファイル:**
   - `apps/web/src/lib/result-import/materialize.ts` — edition 解決を組込み
