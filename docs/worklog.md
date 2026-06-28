@@ -2677,3 +2677,9 @@
 - フロー: `/design-screen`（新スキル・Claude Design 連携）で見た目 locked → emergent logic「相手名タップ→戦績」を requirements に delta 起票 → `/implement`。2レンズ協調フローを `docs/dev/feature-flow.md` に整備（main 直 8ea94e9）。
 - Codex auto-review 5R で pass（R1 同一round重複/R2 データ欠け優勝/R3 級ゲート+timeline reset/R4 多重bye/R5 pass・~351k tokens）。CI green。
 - 残 DoD: 本番デプロイ後の実機目視。
+
+## 2026-06-29 戦績詳細リデザイン SHIPPED (PR #183, merge 1d81bd6)
+- `/players/[id]` をエディトリアル化（箱なしサマリー＋暦年sticky タイムライン＋`○N/×N`＋相手名タップ遷移）。順位は対戦結果から導出（`placement.ts`・入賞=ベスト8以上）、級単位ゲート `isDerivableClass`（敗北数=参加者-1）で非トーナメント形式は `final_rank` フォールバック。新規 migration なし（読み取り層拡張のみ）。
+- フロー: `/design-screen`（新スキル・Claude Design 連携）で見た目を locked → emergent logic「相手名タップ→戦績」を requirements に delta 起票 → `/implement`。define-feature⇄design-screen の2レンズ協調フローを `docs/dev/feature-flow.md` に整備（main 直コミット 8ea94e9）。
+- Codex auto-review **5R で pass**（R1 同一round重複/R2 データ欠け優勝/R3 級ゲート+timeline reset/R4 多重bye/R5 pass・累計~351k tokens）。CI green。
+- 残 DoD: 本番デプロイ後の実機目視（表示・年展開・相手名タップ遷移）。
