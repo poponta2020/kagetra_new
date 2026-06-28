@@ -23,7 +23,8 @@ describe('EventForm', () => {
     render(
       <EventForm
         mode="create"
-        action={noop}        cancelHref="/events"
+        action={noop}
+        cancelHref="/events"
       />,
     )
     expect(screen.getByRole('button', { name: '作成' })).toBeTruthy()
@@ -33,7 +34,8 @@ describe('EventForm', () => {
     render(
       <EventForm
         mode="edit"
-        action={noop}        cancelHref="/events/1"
+        action={noop}
+        cancelHref="/events/1"
         defaultValues={{ title: '春の大会' }}
       />,
     )
@@ -46,7 +48,8 @@ describe('EventForm', () => {
     const { container } = render(
       <EventForm
         mode="create"
-        action={noop}        cancelHref="/events"
+        action={noop}
+        cancelHref="/events"
       />,
     )
     for (const name of NEW_FIELD_NAMES) {
@@ -59,7 +62,8 @@ describe('EventForm', () => {
     const { container } = render(
       <EventForm
         mode="edit"
-        action={noop}        cancelHref="/events/1"
+        action={noop}
+        cancelHref="/events/1"
         defaultValues={{
           feeJpy: 5000,
           capacityA: 32,
@@ -98,7 +102,8 @@ describe('EventForm', () => {
     const { container } = render(
       <EventForm
         mode="edit"
-        action={noop}        cancelHref="/events/1"
+        action={noop}
+        cancelHref="/events/1"
         defaultValues={{ lotteryDate: '2026-01-20' }}
       />,
     )
@@ -112,7 +117,8 @@ describe('EventForm', () => {
     const { container } = render(
       <EventForm
         mode="create"
-        action={noop}        cancelHref="/events"
+        action={noop}
+        cancelHref="/events"
         fieldPrefix="u1__"
       />,
     )
