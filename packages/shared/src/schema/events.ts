@@ -6,6 +6,7 @@ import {
   date,
   boolean,
   uniqueIndex,
+  foreignKey,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import {
@@ -18,6 +19,7 @@ import {
 } from './enums'
 import { users } from './auth'
 import { eventGroups } from './event-groups'
+import { tournamentSeriesEditions } from './tournament-series-editions'
 
 export const events = pgTable('events', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
@@ -34,6 +36,9 @@ export const events = pgTable('events', {
   entryDeadline: date('entry_deadline', { mode: 'string' }),
   internalDeadline: date('internal_deadline', { mode: 'string' }),
   eventGroupId: integer('event_group_id').references(() => eventGroups.id, { onDelete: 'set null' }),
+  // tournament-entry-rosters PR-1a: 開催（edition）へのハブ。複数日/級の events が同一
+  // edition を指す（N:1）。flow①（案内承認）で設定する（PR-2）。ON DELETE SET NULL。
+  editionId: integer('edition_id'),
   eligibleGrades: gradeEnum('eligible_grades').array(),
   feeJpy: integer('fee_jpy'),
   paymentDeadline: date('payment_deadline', { mode: 'string' }),
@@ -82,4 +87,11 @@ export const events = pgTable('events', {
     .where(
       sql`${table.tournamentDraftId} IS NOT NULL AND ${table.tournamentDraftUnitKey} IS NOT NULL`,
     ),
+  // tournament-entry-rosters PR-1a: events:edition は N:1。ON DELETE SET NULL で
+  // edition 削除時に紐付けだけ外す（events は残す）。名前は _fkey 規約に合わせる。
+  foreignKey({
+    columns: [table.editionId],
+    foreignColumns: [tournamentSeriesEditions.id],
+    name: 'events_edition_id_fkey',
+  }).onDelete('set null'),
 ])

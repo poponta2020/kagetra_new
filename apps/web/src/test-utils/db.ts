@@ -33,6 +33,8 @@ export async function truncateAll() {
       tournament_participants,
       tournament_classes,
       tournaments,
+      tournament_series_editions,
+      tournament_series,
       result_drafts,
       players,
       mail_attachments,
