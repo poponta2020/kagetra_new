@@ -52,6 +52,7 @@
 - [/design-screen 画面リデザインスキル](impl_design_screen_skill.md) — Claude Design(DesignSync)で見た目を見ながら作る汎用フロー。push/pull(get_file)・@dsCard・finalize_plan の deletes 必須・projectId 74ab8bf1…
 - [戦績詳細リデザイン SHIPPED](project_senseki_detail_redesign.md) — /players/[id] をA案エディトリアル化、順位は対戦から導出(入賞=ベスト8・級ゲートisDerivableClass)＋final_rank フォールバック、R1相手名タップ→戦績。**PR#183(`1d81bd6`)Codex5R pass+本番デプロイ済＋小修正#191(`e953838`:初期全畳み/導線ヒント/?from=で遷移元へ戻る)**。残=本番実機目視（docs/dev/feature-flow.md）
 - [ピンチ/入力フォーカスズーム抑制 SHIPPED](impl_disable_pinch_zoom.md) — viewport export に `maximumScale:1`+`userScalable:false`(layout.tsx)でモバイル全ルートのピンチ＋iOS入力フォーカス自動ズームを抑制(match-tracker同等)。PR#192 merge `3c0ee83`(2026-06-29)。非自明=Next.jsはdefault viewport(width/initial-scale)をフィールド単位merge→maximumScale追加だけで等価/ベース15px(<16px)だがmaximum-scale=1でフォーカスズームもno-op(font-size:16px案は不採用)/Codexのaccessibility needs_changes(コード欠陥0)をoverride ship。残=実機目視
+- [戦績検索結果の所属会を直近大会の所属に SHIPPED](impl_player_search_recent_affiliation.md) — /players 検索結果の所属が常に「所属不明」だった(players.affiliationはmigration0029以降常にnull)。searchPlayersのaffiliationを相関サブクエリ化し直近大会(event_date降順NULLS LAST・同日id降順)のparticipant所属を引く＝詳細ヘッダ/対戦相手と一致。PR#194 merge `2c9360f`(2026-06-29)。スキーマ非変更/16tests green/Codex1R pass。残=本番実機目視
 
 ## Reference
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須

@@ -2687,3 +2687,9 @@
 - 非自明②: ベース font-size が 15px(`--kg-text-base: 0.9375rem`, <16px)のため iOS は入力フォーカス時に自動ズームするが、**ズーム上限1xでこの自動ズームも no-op** になる＝同じ1変更でピンチ＋フォーカスズームの両症状をカバー。font-size:16px CSS 案は 15px タイプスケールを壊すため不採用。`userScalable:false` は Android Chrome 側の補強。
 - /auto-review-loop PR #192: 1R, verdict=needs_changes(override), effort=medium, tokens=28,554/500,000, result=override-ship。Codex の唯一の指摘は「ズーム禁止=アクセシビリティ退行」という**コード欠陥0のプロダクト判断異議**で、handover で受容済みの論点。ユーザー判断で override し ship。
 - CI green・本番 auto-deploy 対象。残 DoD=iPhone 実機でピンチ不可＋入力フォーカスでズームしないことの目視、既存レイアウト崩れなし確認。
+
+## 2026-06-29 戦績検索結果の所属会を直近大会の所属に SHIPPED (PR #194, merge 2c9360f)
+- `/players` 検索結果の所属会が常に「所属不明」だった問題を修正。原因=検索結果は `players.affiliation` を表示していたが、migration 0029（選手同定を姓名のみ化）以降 **`players.affiliation` は常に null**（所属は「人×大会」属性で participant 側の生スナップショットが正）。
+- 修正=`apps/web/src/lib/players/queries.ts` の `searchPlayers` の `affiliation` を相関サブクエリ化し、**直近の大会**（`event_date` 降順・NULLS LAST、同日は tournament id 降順）の participant スナップショットの所属を引く。戦績詳細ヘッダ（`participations[0].affiliation`）・対戦相手の所属（`opponentAffiliation`）と同じ「直近大会の所属」になり、検索結果と詳細で所属が一致。
+- DB スキーマ変更なし。フロント（players/page.tsx）は `p.affiliation` をそのまま使うため変更不要。表示行の都道府県は据え置き（依頼スコープ外）。テスト=既存期待値更新＋複数大会で所属が変わる場合に直近を返す（NULLS LAST 検証込み）テスト追加で 16/16 green。
+- /auto-review-loop PR #194: 1R, verdict=pass, effort=medium, tokens=43,458/500,000, result=pass。Codex 即 pass（NULLS LAST 回帰テストを good_points 評価）。CI green・本番 auto-deploy 対象。残 DoD=本番実機で選手検索→所属会が直近大会の所属で表示されることの目視。
