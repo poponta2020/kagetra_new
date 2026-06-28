@@ -17,10 +17,6 @@ const NEW_FIELD_NAMES = [
 ] as const
 
 const noop = () => {}
-const groups = [
-  { id: 1, name: 'グループA' },
-  { id: 2, name: 'グループB' },
-]
 
 describe('EventForm', () => {
   it("mode='create' で「作成」ボタンが表示される", () => {
@@ -28,7 +24,6 @@ describe('EventForm', () => {
       <EventForm
         mode="create"
         action={noop}
-        groups={groups}
         cancelHref="/events"
       />,
     )
@@ -40,7 +35,6 @@ describe('EventForm', () => {
       <EventForm
         mode="edit"
         action={noop}
-        groups={groups}
         cancelHref="/events/1"
         defaultValues={{ title: '春の大会' }}
       />,
@@ -50,31 +44,11 @@ describe('EventForm', () => {
     expect(titleInput.name).toBe('title')
   })
 
-  it('groups が select option としてレンダリングされる', () => {
-    render(
-      <EventForm
-        mode="create"
-        action={noop}
-        groups={groups}
-        cancelHref="/events"
-      />,
-    )
-    const optionA = screen.getByRole('option', {
-      name: 'グループA',
-    }) as HTMLOptionElement
-    const optionB = screen.getByRole('option', {
-      name: 'グループB',
-    }) as HTMLOptionElement
-    expect(optionA.value).toBe('1')
-    expect(optionB.value).toBe('2')
-  })
-
   it("mode='create' で新規追加された 11 フィールドが全てレンダリングされる", () => {
     const { container } = render(
       <EventForm
         mode="create"
         action={noop}
-        groups={groups}
         cancelHref="/events"
       />,
     )
@@ -89,7 +63,6 @@ describe('EventForm', () => {
       <EventForm
         mode="edit"
         action={noop}
-        groups={groups}
         cancelHref="/events/1"
         defaultValues={{
           feeJpy: 5000,
@@ -115,7 +88,7 @@ describe('EventForm', () => {
   // entry-notify-lottery-treasurer ------------------------------------------
   it("mode='create' で抽選日 (lotteryDate) の date 入力が描画される（空デフォルト）", () => {
     const { container } = render(
-      <EventForm mode="create" action={noop} groups={groups} cancelHref="/events" />,
+      <EventForm mode="create" action={noop} cancelHref="/events" />,
     )
     const lottery = container.querySelector(
       '[name="lotteryDate"]',
@@ -130,7 +103,6 @@ describe('EventForm', () => {
       <EventForm
         mode="edit"
         action={noop}
-        groups={groups}
         cancelHref="/events/1"
         defaultValues={{ lotteryDate: '2026-01-20' }}
       />,
@@ -146,7 +118,6 @@ describe('EventForm', () => {
       <EventForm
         mode="create"
         action={noop}
-        groups={groups}
         cancelHref="/events"
         fieldPrefix="u1__"
       />,

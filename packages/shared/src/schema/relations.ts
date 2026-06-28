@@ -1,7 +1,6 @@
 import { relations } from 'drizzle-orm'
 import { users } from './auth'
 import { events } from './events'
-import { eventGroups } from './event-groups'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
 import { mailMessages } from './mail-messages'
@@ -20,15 +19,33 @@ import { tournamentClasses } from './tournament-classes'
 import { tournamentParticipants } from './tournament-participants'
 import { matches } from './matches'
 import { resultDrafts } from './result-drafts'
+import { tournamentSeries } from './tournament-series'
+import { tournamentSeriesEditions } from './tournament-series-editions'
 
-export const eventGroupsRelations = relations(eventGroups, ({ many }) => ({
-  events: many(events),
+// tournament-entry-rosters (PR-1a baseline): series 1:N editions、edition は
+// events / tournaments を束ねるハブ（どちらも N:1）。
+export const tournamentSeriesRelations = relations(tournamentSeries, ({ many }) => ({
+  editions: many(tournamentSeriesEditions),
 }))
 
+export const tournamentSeriesEditionsRelations = relations(
+  tournamentSeriesEditions,
+  ({ one, many }) => ({
+    series: one(tournamentSeries, {
+      fields: [tournamentSeriesEditions.seriesId],
+      references: [tournamentSeries.id],
+    }),
+    events: many(events),
+    tournaments: many(tournaments),
+  }),
+)
+
 export const eventsRelations = relations(events, ({ one, many }) => ({
-  eventGroup: one(eventGroups, {
-    fields: [events.eventGroupId],
-    references: [eventGroups.id],
+  // tournament-entry-rosters: 開催（edition）。flow①（案内承認）で設定。
+  // 旧 eventGroup relation は PR-1b で撤去（束ねは edition に一本化）。
+  edition: one(tournamentSeriesEditions, {
+    fields: [events.editionId],
+    references: [tournamentSeriesEditions.id],
   }),
   attendances: many(eventAttendances),
   creator: one(users, {
@@ -226,8 +243,13 @@ export const playersRelations = relations(players, ({ one, many }) => ({
   participants: many(tournamentParticipants),
 }))
 
-export const tournamentsRelations = relations(tournaments, ({ many }) => ({
+export const tournamentsRelations = relations(tournaments, ({ one, many }) => ({
   classes: many(tournamentClasses),
+  // tournament-entry-rosters: 開催（edition）。flow②（結果取込）で設定。
+  edition: one(tournamentSeriesEditions, {
+    fields: [tournaments.editionId],
+    references: [tournamentSeriesEditions.id],
+  }),
 }))
 
 export const tournamentClassesRelations = relations(tournamentClasses, ({ one, many }) => ({

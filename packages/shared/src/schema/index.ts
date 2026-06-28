@@ -1,7 +1,6 @@
 export * from './enums'
 export * from './auth'
 export * from './registration-invites'
-export * from './event-groups'
 export * from './events'
 export * from './event-attendances'
 export * from './schedule-items'
@@ -15,6 +14,9 @@ export * from './event-broadcast-messages'
 export * from './attachment-share-tokens'
 export * from './event-lifecycle-notifications'
 export * from './push-subscriptions'
+// tournament-entry-rosters (PR-1a baseline): 系列/開催マスタ
+export * from './tournament-series'
+export * from './tournament-series-editions'
 // tournament-results
 export * from './players'
 export * from './tournaments'

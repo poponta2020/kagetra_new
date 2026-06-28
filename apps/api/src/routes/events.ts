@@ -17,7 +17,6 @@ const createEventSchema = z.object({
   kind: z.enum(['individual', 'team']).optional(),
   entryDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   internalDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  eventGroupId: z.number().int().positive().optional(),
   eligibleGrades: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).optional(),
 })
 

@@ -157,3 +157,16 @@ export const resultDraftStatusEnum = pgEnum('result_draft_status', [
 export const matchResultEnum = pgEnum('match_result', ['win', 'lose'])
 // normal=実戦（勝敗数に算入）/ walkover=不戦勝 / forfeit=棄権。集計は normal のみ。
 export const matchStatusEnum = pgEnum('match_status', ['normal', 'walkover', 'forfeit'])
+
+// tournament-entry-rosters (PR-1a baseline): 大会系列（tournament_series）/開催
+// （tournament_series_editions）のマスタ。既に raw SQL で本番投入済み（series 180 /
+// editions 1236）の現物を Drizzle 管理下に取り込む。enum 名・値は本番現物
+// （C:/tmp/prod_schema_series.sql）に一致させる。
+// kind: 個人戦/団体戦の区別（系列単位）。
+export const tournamentKindEnum = pgEnum('tournament_kind', ['individual', 'team'])
+// status: 開催の状態。held=開催済 / cancelled=中止 / unconfirmed=未確定（将来開催等）。
+export const tournamentStatusEnum = pgEnum('tournament_status', [
+  'held',
+  'cancelled',
+  'unconfirmed',
+])

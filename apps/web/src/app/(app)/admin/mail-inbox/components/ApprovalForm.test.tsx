@@ -60,7 +60,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -120,7 +119,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -175,7 +173,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[{ unitKey: 'u1', eventId: 42 }]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -205,7 +202,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="酒田"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -250,7 +246,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={legacyPayload}
         shortNameStem={null}
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -281,7 +276,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={null}
         shortNameStem={null}
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -304,7 +298,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -322,7 +315,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -345,7 +337,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )
@@ -362,7 +353,6 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         payload={payload}
         shortNameStem="大阪"
         registeredUnitKeys={[]}
-        groups={[]}
         action={noop}
       />,
     )

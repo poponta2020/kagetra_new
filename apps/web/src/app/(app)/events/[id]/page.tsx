@@ -74,7 +74,6 @@ export default async function EventDetailPage({
   const event = await db.query.events.findFirst({
     where: eq(events.id, idNum),
     with: {
-      eventGroup: true,
       attendances: {
         with: { user: true },
       },
@@ -321,9 +320,6 @@ export default async function EventDetailPage({
             ),
           },
         ]
-      : []),
-    ...(event.eventGroup?.name
-      ? [{ label: '大会グループ', value: event.eventGroup.name }]
       : []),
     ...(event.entryDeadline
       ? [{ label: '大会申込締切', value: event.entryDeadline }]

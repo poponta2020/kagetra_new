@@ -5,7 +5,6 @@ import { Btn, Card } from '@/components/ui'
 export interface EventFormProps {
   mode: 'create' | 'edit'
   action: (formData: FormData) => void | Promise<void>
-  groups: { id: number; name: string }[]
   cancelHref: string
   /**
    * tournament-title-grade-split: namespace every field `name` with this
@@ -26,7 +25,6 @@ export interface EventFormProps {
     internalDeadline?: string | null
     // entry-notify-lottery-treasurer: 抽選日（NULL=抽選なし）。承認画面 (embedded) では描画しない。
     lotteryDate?: string | null
-    eventGroupId?: number | null
     eligibleGrades?: string[] | null
     description?: string | null
     status?: EventStatus
@@ -64,7 +62,6 @@ const CANCEL_LINK_CLASS =
 export function EventForm({
   mode,
   action,
-  groups,
   cancelHref,
   fieldPrefix = '',
   defaultValues,
@@ -192,22 +189,6 @@ export function EventForm({
             </p>
           </div>
         )}
-
-        <div>
-          <label className={LABEL_CLASS}>大会グループ</label>
-          <select
-            name={n('eventGroupId')}
-            defaultValue={defaultValues?.eventGroupId ?? ''}
-            className={FIELD_CLASS}
-          >
-            <option value="">--</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
-        </div>
 
         <div>
           <label className={`${LABEL_CLASS} mb-2`}>参加可能な級</label>

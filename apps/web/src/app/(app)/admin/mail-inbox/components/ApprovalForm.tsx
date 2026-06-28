@@ -31,7 +31,6 @@ export interface ApprovalFormProps {
   shortNameStem: string | null
   /** Already-materialized units (event already created). Rendered read-only. */
   registeredUnitKeys: { unitKey: string; eventId: number }[]
-  groups: { id: number; name: string }[]
   action: (formData: FormData) => void | Promise<void>
 }
 
@@ -124,7 +123,6 @@ export function ApprovalForm({
   payload,
   shortNameStem,
   registeredUnitKeys,
-  groups,
   action,
 }: ApprovalFormProps) {
   const units = normalizeUnits(payload)
@@ -237,7 +235,6 @@ export function ApprovalForm({
                   <EventForm
                     mode="create"
                     action={action}
-                    groups={groups}
                     cancelHref="/admin/mail-inbox"
                     fieldPrefix={prefix}
                     defaultValues={{

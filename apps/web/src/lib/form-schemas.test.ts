@@ -32,11 +32,6 @@ describe('eventFormSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('eventGroupId=0 は positive 制約で弾く', () => {
-    const result = eventFormSchema.safeParse({ ...baseInput, eventGroupId: '0' })
-    expect(result.success).toBe(false)
-  })
-
   // entry-notify-lottery-treasurer -----------------------------------------
   it('lotteryDate=YYYY-MM-DD は受理する', () => {
     const result = eventFormSchema.safeParse({ ...baseInput, lotteryDate: '2026-01-20' })

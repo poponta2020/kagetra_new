@@ -5,7 +5,6 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
   events,
-  eventGroups,
   mailMessages,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
@@ -27,9 +26,9 @@ import {
  * /admin/mail-inbox/[id] — draft detail + approval surface (PR4 Phase 5).
  *
  * Server Component. Loads the draft + originating mail (with attachments,
- * minus the bytea data column), the event-groups list for the EventForm
- * dropdown, and — when the AI flagged the mail as a correction — short
- * lookups for related drafts/events so the operator can compare. Renders
+ * minus the bytea data column) and — when the AI flagged the mail as a
+ * correction — short lookups for related drafts/events so the operator can
+ * compare. Renders
  * the four bound Server Actions (approve / reject / re-extract / link)
  * inline; the page itself owns no client state.
  *
@@ -191,16 +190,10 @@ export default async function MailDraftDetailPage({
   const showLink = showApproval
   const showReextract = showApproval
 
-  // Gate the dropdown queries on showApproval / showLink so a read-only audit
-  // view of an approved/rejected/superseded draft does not pay for two extra
-  // round-trips that nothing on the page consumes (review r4 nit).
-  const groups = showApproval
-    ? await db.query.eventGroups.findMany({
-        columns: { id: true, name: true },
-        orderBy: (g, { asc }) => [asc(g.name)],
-      })
-    : []
-
+  // Gate the linking-candidate query on showLink so a read-only audit view of an
+  // approved/rejected/superseded draft does not pay for an extra round-trip that
+  // nothing on the page consumes (review r4 nit).
+  //
   // Linking-candidate dropdown: recent events (6 mo window) so an admin can
   // attach this draft's mail to an already-published event without paging
   // through the full archive. 100 cap keeps the <select> tractable.
@@ -389,7 +382,6 @@ export default async function MailDraftDetailPage({
             payload={extractedPayload}
             shortNameStem={shortNameStem}
             registeredUnitKeys={registeredUnitKeys}
-            groups={groups}
             action={approveDraftUnits.bind(null, draftId)}
           />
           {/* r3 blocker: 「残りは作らず完了」は一部登録後の残単位を閉じる導線。
