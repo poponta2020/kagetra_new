@@ -49,7 +49,7 @@ status: completed
 - **対応Issue:** #187
 
 ### タスク4【PR-3 名簿】rosters/roster_entries ＋ ファイル取込
-- [ ] 完了
+- [x] 完了
 - **概要:** 名簿2型（applicant/confirmed）テーブルを追加し、メール添付/アップロードのファイルをパースして取込。各行を `players`（姓名のみ同定・onConflictDoNothing）に解決、会員は `users` 紐付け。confirmed に出場状態を保持。
 - **変更対象ファイル:**
   - `packages/shared/src/schema/tournament-entry-rosters.ts`（新規）/ `tournament-entry-roster-entries.ts`（新規）/ enums（`roster_type`,`roster_entry_status`）/ barrel / migration
@@ -60,7 +60,7 @@ status: completed
 - **対応Issue:** #188
 
 ### タスク5【PR-4 名簿UI】大会詳細の名簿表示＋会員突合
-- [ ] 完了
+- [x] 完了
 - **概要:** 大会詳細で申込者/確定名簿を表示し、`roster_entries.user_id` 経由で自会員の掲載を突合ハイライト（判断3＝読み取り表示のみ・自動更新しない）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/[id]/page.tsx` ＋ 名簿表示コンポーネント（design-spec 待ち）

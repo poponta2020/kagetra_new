@@ -40,6 +40,7 @@ import {
   submitAttendance,
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
+import { RosterSection } from './components/RosterSection'
 
 const ACTIVE_BROADCAST_STATUSES = [
   'invite_pending',
@@ -76,6 +77,14 @@ export default async function EventDetailPage({
     with: {
       attendances: {
         with: { user: true },
+      },
+      // tournament-entry-rosters PR-3/4: 申込/確定名簿＋各行（会員突合は entry.user 経由）。
+      rosters: {
+        with: {
+          entries: {
+            with: { user: { columns: { id: true, name: true } } },
+          },
+        },
       },
     },
   })
@@ -443,6 +452,16 @@ export default async function EventDetailPage({
         generateInviteCodeAction={generateInviteCodeForEvent}
         revokeBroadcastAction={revokeBroadcast}
         manualBroadcastAction={manualBroadcast}
+      />
+
+      {/* tournament-entry-rosters PR-4: 申込/確定名簿＋会員突合（個人戦のみ）。
+          一般会員は確定名簿と自分の掲載状況を閲覧、管理者は取込フォームも表示。 */}
+      <RosterSection
+        eventId={event.id}
+        kind={event.kind}
+        rosters={event.rosters}
+        isAdmin={isAdmin}
+        currentUserId={session?.user.id ?? null}
       />
 
       {/* mail-inbox-mailer タスク5: 関連メール（AI 抽出経由 + 既存イベント結びつけ

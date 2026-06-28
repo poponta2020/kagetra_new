@@ -22,6 +22,9 @@ import {
   claimLifecycleNotification,
   sendClaimedNotification,
 } from '@/lib/event-lifecycle-notify'
+import { readExcel } from '@kagetra/mail-worker/result-import/reader'
+import { parseRosterGrid } from '@/lib/roster-import/parser'
+import { materializeRoster } from '@/lib/roster-import/materialize'
 
 async function requireAdminSession() {
   const session = await auth()
@@ -668,4 +671,58 @@ export async function setPaymentPaid(
     }
   }
   revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * tournament-entry-rosters PR-3: 名簿（申込/確定）の Excel を取り込む。
+ *
+ * 管理者操作。ファイル→readExcel→parseRosterGrid→materializeRoster（置換・player/user 解決）を
+ * 1 tx で。対象は個人戦のみ（§3.2）。パース不能・非対応ファイルはエラーで弾き DB を汚さない。
+ * 名簿は外部事実なので出欠/entryStatus は自動更新しない（判断3）。
+ */
+export async function uploadRoster(
+  eventId: number,
+  formData: FormData,
+): Promise<{ entryCount: number; matchedUserCount: number }> {
+  await requireAdminSession()
+
+  const rosterType = formData.get('rosterType')
+  if (rosterType !== 'applicant' && rosterType !== 'confirmed') {
+    throw new Error('入力が不正です: 名簿種別が不正です')
+  }
+  const file = formData.get('file')
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error('入力が不正です: ファイルを選択してください')
+  }
+  const publishedAtRaw = formData.get('publishedAt')
+  const publishedAt =
+    typeof publishedAtRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(publishedAtRaw)
+      ? publishedAtRaw
+      : null
+
+  const target = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { id: true, kind: true },
+  })
+  if (!target) throw new Error('イベントが見つかりません')
+  if (target.kind !== 'individual') {
+    throw new Error('名簿の取込は個人戦のみ対応しています')
+  }
+
+  const buf = Buffer.from(await file.arrayBuffer())
+  let sheets
+  try {
+    sheets = await readExcel(buf, file.name)
+  } catch {
+    throw new Error('Excel の読み込みに失敗しました（.xlsx / .xls のみ対応）')
+  }
+  // parseRosterGrid は氏名列が無ければ throw（DB を汚さない）。
+  const parsed = parseRosterGrid(sheets)
+
+  const result = await db.transaction((tx) =>
+    materializeRoster(tx, parsed, { eventId, rosterType, publishedAt }),
+  )
+
+  revalidatePath(`/events/${eventId}`)
+  return { entryCount: result.entryCount, matchedUserCount: result.matchedUserCount }
 }

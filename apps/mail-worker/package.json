@@ -14,7 +14,8 @@
     "./classify/schema": "./src/classify/schema.ts",
     "./classify/title": "./src/classify/title.ts",
     "./result-import/schema": "./src/result-import/schema.ts",
-    "./result-import/normalize": "./src/result-import/normalize.ts"
+    "./result-import/normalize": "./src/result-import/normalize.ts",
+    "./result-import/reader": "./src/result-import/reader.ts"
   },
   "scripts": {
     "start": "tsx src/index.ts",

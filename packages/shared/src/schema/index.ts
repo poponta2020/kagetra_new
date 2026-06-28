@@ -17,6 +17,9 @@ export * from './push-subscriptions'
 // tournament-entry-rosters (PR-1a baseline): 系列/開催マスタ
 export * from './tournament-series'
 export * from './tournament-series-editions'
+// tournament-entry-rosters (PR-3 名簿): 申込/確定名簿ヘッダ＋各行
+export * from './tournament-entry-rosters'
+export * from './tournament-entry-roster-entries'
 // tournament-results
 export * from './players'
 export * from './tournaments'
