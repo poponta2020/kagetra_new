@@ -59,9 +59,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
 
@@ -119,9 +117,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
 
@@ -174,9 +170,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[{ unitKey: 'u1', eventId: 42 }]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[{ unitKey: 'u1', eventId: 42 }]}        action={noop}
       />,
     )
 
@@ -204,9 +198,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="酒田"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const title = container.querySelector(
@@ -249,9 +241,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={legacyPayload}
         shortNameStem={null}
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
 
@@ -280,9 +270,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={null}
         shortNameStem={null}
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const title = container.querySelector(
@@ -303,9 +291,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const kind = container.querySelector(
@@ -321,9 +307,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const entryDeadline = container.querySelector(
@@ -344,9 +328,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const internalDeadline = container.querySelector(
@@ -361,9 +343,7 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       <ApprovalForm
         payload={payload}
         shortNameStem="大阪"
-        registeredUnitKeys={[]}
-        groups={[]}
-        action={noop}
+        registeredUnitKeys={[]}        action={noop}
       />,
     )
     const internalDeadline = container.querySelector(

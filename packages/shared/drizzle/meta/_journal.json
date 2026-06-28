@@ -225,6 +225,13 @@
       "when": 1782661425501,
       "tag": "0031_tournament_series_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782663077250,
+      "tag": "0032_drop_event_groups",
+      "breakpoints": true
     }
   ]
 }

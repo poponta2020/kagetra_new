@@ -1,7 +1,7 @@
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { db } from '@/lib/db'
-import { events, eventGroups } from '@kagetra/shared/schema'
+import { events } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
 import { EventForm } from '@/components/events/event-form'
@@ -25,10 +25,6 @@ export default async function EditEventPage({
 
   if (!event) notFound()
 
-  const groups = await db.query.eventGroups.findMany({
-    orderBy: (g, { asc }) => [asc(g.name)],
-  })
-
   const eventId = event.id
 
   async function updateEvent(formData: FormData) {
@@ -43,17 +39,6 @@ export default async function EditEventPage({
       throw new Error(`入力が不正です: ${parsed.error.issues[0]?.message ?? ''}`)
     }
     const data = parsed.data
-
-    // Validate eventGroupId existence before update to avoid FK exceptions surfacing as 500s.
-    if (data.eventGroupId != null) {
-      const group = await db.query.eventGroups.findFirst({
-        where: eq(eventGroups.id, data.eventGroupId),
-        columns: { id: true },
-      })
-      if (!group) {
-        throw new Error('入力が不正です: 指定された大会グループが存在しません')
-      }
-    }
 
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(g => formData.get(`grade_${g}`) === 'on')
 
@@ -72,7 +57,6 @@ export default async function EditEventPage({
       <EventForm
         mode="edit"
         action={updateEvent}
-        groups={groups}
         cancelHref={`/events/${event.id}`}
         defaultValues={{
           title: event.title,
@@ -85,7 +69,6 @@ export default async function EditEventPage({
           entryDeadline: event.entryDeadline,
           internalDeadline: event.internalDeadline,
           lotteryDate: event.lotteryDate,
-          eventGroupId: event.eventGroupId,
           eligibleGrades: event.eligibleGrades,
           description: event.description,
           status: event.status,

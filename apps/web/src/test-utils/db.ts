@@ -45,7 +45,6 @@ export async function truncateAll() {
       event_attendances,
       schedule_items,
       events,
-      event_groups,
       registration_invites,
       sessions,
       accounts,

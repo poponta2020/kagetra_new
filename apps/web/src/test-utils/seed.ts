@@ -3,7 +3,6 @@ import {
   users,
   events,
   eventAttendances,
-  eventGroups,
   mailMessages,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
@@ -12,7 +11,6 @@ import { testDb } from './db'
 type NewUser = InferInsertModel<typeof users>
 type NewEvent = InferInsertModel<typeof events>
 type NewEventAttendance = InferInsertModel<typeof eventAttendances>
-type NewEventGroup = InferInsertModel<typeof eventGroups>
 type NewMailMessage = InferInsertModel<typeof mailMessages>
 type NewTournamentDraft = InferInsertModel<typeof tournamentDrafts>
 
@@ -65,18 +63,6 @@ export async function createEvent(overrides: Partial<NewEvent> = {}) {
     .returning()
   if (!event) throw new Error('Failed to insert test event')
   return event
-}
-
-export async function createEventGroup(overrides: Partial<NewEventGroup> = {}) {
-  const [group] = await testDb
-    .insert(eventGroups)
-    .values({
-      name: `Test Group ${crypto.randomUUID()}`,
-      ...overrides,
-    })
-    .returning()
-  if (!group) throw new Error('Failed to insert test event group')
-  return group
 }
 
 /**

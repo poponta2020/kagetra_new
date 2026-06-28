@@ -25,7 +25,7 @@ status: completed
 - **対応Issue:** #185
 
 ### タスク2【PR-1b 土台】event_group の撤去（判断2=B）
-- [ ] 完了
+- [x] 完了
 - **概要:** 「同じ大会の束ね」は edition に一本化するため、`event_group` 一式を撤去。本番は空のためデータ損失なし。
 - **変更対象ファイル:**
   - `packages/shared/src/schema/events.ts` — `eventGroupId` 列削除

@@ -7,7 +7,6 @@ import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
-  eventGroups,
   events,
   mailAttachments,
   mailMessages,
@@ -53,19 +52,6 @@ export async function approveDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
   const parsed = eventFormSchema.parse(extractEventFormData(formData))
-
-  // Mirror events/new (apps/web/src/app/(app)/events/new/page.tsx) so an
-  // approval through the inbox produces the same FK-validated row a manual
-  // create would, instead of letting a stale group_id bubble up as a 500.
-  if (parsed.eventGroupId != null) {
-    const group = await db.query.eventGroups.findFirst({
-      where: eq(eventGroups.id, parsed.eventGroupId),
-      columns: { id: true },
-    })
-    if (!group) {
-      throw new Error('入力が不正です: 指定された大会グループが存在しません')
-    }
-  }
 
   // EventForm renders eligible grades as separate `grade_X` checkboxes which
   // extractEventFormData / eventFormSchema do not cover; collect them here
@@ -252,25 +238,14 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
   // （= unit_key 集合）を書き換えたとき、古い unit_key で events を作るレースが残る。
   // ここでは payload に依存しない parse + FK 検証だけを tx 前に済ませる。
 
-  // Validate every selected unit BEFORE opening the transaction so a bad unit
-  // aborts the whole batch without a partial INSERT — same FK-validation as
-  // events/new / approveDraft, applied per unit.
+  // Parse every selected unit BEFORE opening the transaction so a malformed unit
+  // aborts the whole batch without a partial INSERT — same field validation
+  // (eventFormSchema) as events/new / approveDraft, applied per unit.
   const parsedUnits = units.map((unit) => ({
     unitKey: unit.unitKey,
     eligibleGrades: unit.eligibleGrades,
     parsed: eventFormSchema.parse(unit.data),
   }))
-  for (const { parsed } of parsedUnits) {
-    if (parsed.eventGroupId != null) {
-      const group = await db.query.eventGroups.findFirst({
-        where: eq(eventGroups.id, parsed.eventGroupId),
-        columns: { id: true },
-      })
-      if (!group) {
-        throw new Error('入力が不正です: 指定された大会グループが存在しません')
-      }
-    }
-  }
 
   const createdEventIds: number[] = []
   let approvedMailMessageId: number | null = null

@@ -18,7 +18,6 @@ import {
   eventPaymentStatusEnum,
 } from './enums'
 import { users } from './auth'
-import { eventGroups } from './event-groups'
 import { tournamentSeriesEditions } from './tournament-series-editions'
 
 export const events = pgTable('events', {
@@ -35,9 +34,9 @@ export const events = pgTable('events', {
   kind: eventKindEnum('kind').notNull().default('individual'),
   entryDeadline: date('entry_deadline', { mode: 'string' }),
   internalDeadline: date('internal_deadline', { mode: 'string' }),
-  eventGroupId: integer('event_group_id').references(() => eventGroups.id, { onDelete: 'set null' }),
   // tournament-entry-rosters PR-1a: 開催（edition）へのハブ。複数日/級の events が同一
   // edition を指す（N:1）。flow①（案内承認）で設定する（PR-2）。ON DELETE SET NULL。
+  // 旧 event_group_id（手動・任意ラベル）は PR-1b で撤去し、束ねは edition に一本化。
   editionId: integer('edition_id'),
   eligibleGrades: gradeEnum('eligible_grades').array(),
   feeJpy: integer('fee_jpy'),

@@ -1,7 +1,6 @@
 export * from './enums'
 export * from './auth'
 export * from './registration-invites'
-export * from './event-groups'
 export * from './events'
 export * from './event-attendances'
 export * from './schedule-items'

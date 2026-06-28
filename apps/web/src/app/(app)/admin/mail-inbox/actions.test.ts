@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
-  eventGroups,
   events,
   mailAttachments,
   mailMessages,
@@ -423,52 +422,6 @@ describe('admin/mail-inbox actions', () => {
         where: eq(events.title, '級指定なし'),
       })
       expect(inserted?.eligibleGrades).toBeNull()
-    })
-
-    it('存在しない eventGroupId が指定されると入力エラーで弾く', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage()
-      const draft = await createTournamentDraft({ messageId: mail.id })
-
-      await expect(
-        approveDraft(
-          draft.id,
-          buildApproveFormData({ eventGroupId: '999999' }),
-        ),
-      ).rejects.toThrow(/大会グループ/)
-
-      // Validation runs before the transaction, so neither events nor draft
-      // status should change.
-      const eventRows = await testDb.select().from(events)
-      expect(eventRows).toHaveLength(0)
-      const after = await getDraft(draft.id)
-      expect(after?.status).toBe('pending_review')
-    })
-
-    it('既存 eventGroupId 指定なら通常通り events に紐付く', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage()
-      const draft = await createTournamentDraft({ messageId: mail.id })
-      const [group] = await testDb
-        .insert(eventGroups)
-        .values({ name: 'テストグループ' })
-        .returning()
-      if (!group) throw new Error('eventGroups insert failed')
-
-      await approveDraft(
-        draft.id,
-        buildApproveFormData({
-          title: 'グループ付き大会',
-          eventGroupId: String(group.id),
-        }),
-      )
-
-      const inserted = await testDb.query.events.findFirst({
-        where: eq(events.title, 'グループ付き大会'),
-      })
-      expect(inserted?.eventGroupId).toBe(group.id)
     })
 
     it('承認後、対応する mail_messages.status が archived になる', async () => {
@@ -989,28 +942,6 @@ describe('admin/mail-inbox actions', () => {
         expect(rows).toHaveLength(0)
       },
     )
-
-    it('存在しない eventGroupId はトランザクション前に弾く', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage()
-      const draft = await createTournamentDraft({
-        messageId: mail.id,
-        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
-      })
-
-      await expect(
-        approveDraftUnits(
-          draft.id,
-          buildUnitsFormData([
-            { unitKey: 'u1', grades: ['B'], extra: { eventGroupId: '999999' } },
-          ]),
-        ),
-      ).rejects.toThrow(/大会グループ/)
-      const rows = await testDb.select().from(events)
-      expect(rows).toHaveLength(0)
-      expect((await getDraft(draft.id))?.status).toBe('pending_review')
-    })
 
     it('旧形式 payload (extracted) を 1 単位 u1 として承認できる (後方互換)', async () => {
       const admin = await createAdmin()
