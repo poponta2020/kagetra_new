@@ -9,6 +9,7 @@ import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normaliz
 import {
   derivePlacement,
   isChampion,
+  isDerivableClass,
   isNyusho,
   type PlacementMatch,
 } from './placement'
@@ -161,19 +162,35 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
     },
   })
 
-  // 順位導出に必要な「級の決勝 round」＝級内 max(round) を一括取得。
+  // 級全体の試合を一括取得し、級ごとに「決勝 round（=max round）」と「順位導出可否」を
+  // 判定する。導出可否は**級単位**（リーグ/順位戦/3位決定戦/データ欠けは級ごと丸ごと
+  // final_rank フォールバック）。本人の試合列だけでは非トーナメント形式を見抜けないため。
   const classIds = [...new Set(participantRows.map((p) => p.classId))]
-  const maxRoundRows = classIds.length
+  const classMatchRows = classIds.length
     ? await db
         .select({
           classId: matches.classId,
-          maxRound: sql<number>`max(${matches.round})::int`,
+          round: matches.round,
+          roundLabel: matches.roundLabel,
+          result: matches.result,
+          participantId: matches.participantId,
         })
         .from(matches)
         .where(inArray(matches.classId, classIds))
-        .groupBy(matches.classId)
     : []
-  const maxRoundByClass = new Map(maxRoundRows.map((r) => [r.classId, r.maxRound]))
+  const classInfo = new Map<number, { maxRound: number; derivable: boolean }>()
+  {
+    const byClass = new Map<number, typeof classMatchRows>()
+    for (const r of classMatchRows) {
+      const arr = byClass.get(r.classId)
+      if (arr) arr.push(r)
+      else byClass.set(r.classId, [r])
+    }
+    for (const [cid, rows] of byClass) {
+      const maxRound = Math.max(...rows.map((r) => r.round))
+      classInfo.set(cid, { maxRound, derivable: isDerivableClass(rows) })
+    }
+  }
 
   // 相手 participant → player_id を一括解決（戦績リンク用・R1）。
   const opponentPartIds = [
@@ -207,10 +224,10 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
       result: m.result,
       status: m.status,
     }))
-    const classMaxRound =
-      maxRoundByClass.get(p.classId) ??
-      (placementMatches.length ? Math.max(...placementMatches.map((m) => m.round)) : 0)
-    const derived = derivePlacement(placementMatches, classMaxRound)
+    const info = classInfo.get(p.classId)
+    const derived = info?.derivable
+      ? derivePlacement(placementMatches, info.maxRound)
+      : null
     if (isChampion(derived)) championships++
     if (isNyusho(derived)) nyushoCount++
 

@@ -166,7 +166,7 @@ export default async function PlayerDetailPage({
       {years.length === 0 ? (
         <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
       ) : (
-        <SensekiTimeline years={years} />
+        <SensekiTimeline key={player.id} years={years} />
       )}
     </div>
   )

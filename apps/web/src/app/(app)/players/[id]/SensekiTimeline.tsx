@@ -50,10 +50,15 @@ function scoreClass(tone: TimelineMatch['scoreTone']): string {
 }
 
 export function SensekiTimeline({ years }: { years: TimelineYear[] }) {
-  // 最新年（先頭）のみ初期展開。
-  const [open, setOpen] = useState<Record<string, boolean>>(() =>
-    years.length > 0 ? { [years[0]!.year]: true } : {},
-  )
+  // 最新年（先頭）のみ初期展開。選手間遷移で App Router が同じインスタンスを再利用し
+  // years だけ差し替わっても、年セットが変わったら初期状態（最新年のみ開く）に作り直す。
+  const yearsKey = years.map((y) => y.year).join(',')
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [prevKey, setPrevKey] = useState<string | null>(null)
+  if (yearsKey !== prevKey) {
+    setPrevKey(yearsKey)
+    setOpen(years.length > 0 ? { [years[0]!.year]: true } : {})
+  }
   const toggle = (year: string) =>
     setOpen((prev) => ({ ...prev, [year]: !prev[year] }))
 

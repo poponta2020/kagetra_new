@@ -86,4 +86,33 @@ describe('SensekiTimeline', () => {
     screen.getByText('○7')
     screen.getByText('×3')
   })
+
+  it('別選手データに差し替えると最新年のみ展開にリセットされる（Codex R3 should_fix）', () => {
+    const { rerender } = render(<SensekiTimeline years={years} />)
+    fireEvent.click(screen.getByText('2025年')) // ユーザーが古い年も開く
+    const other: TimelineYear[] = [
+      {
+        year: '2020',
+        tournamentCount: 1,
+        wins: 1,
+        losses: 0,
+        tournaments: [
+          { participantId: 9, dateLabel: '3/3', title: '別大会A', rank: '優勝', rankEmphasis: true, matches: [] },
+        ],
+      },
+      {
+        year: '2019',
+        tournamentCount: 1,
+        wins: 0,
+        losses: 1,
+        tournaments: [
+          { participantId: 8, dateLabel: '4/4', title: '旧大会B', rank: 'ベスト8', rankEmphasis: false, matches: [] },
+        ],
+      },
+    ]
+    rerender(<SensekiTimeline years={other} />)
+    // 最新年(2020)が開く・古い年(2019)は閉じる＝初期状態にリセット
+    screen.getByText('別大会A')
+    expect(screen.queryByText('旧大会B')).toBeNull()
+  })
 })

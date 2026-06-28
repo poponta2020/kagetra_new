@@ -118,3 +118,31 @@ export function isNyusho(p: DerivedPlacement | null): boolean {
 export function isChampion(p: DerivedPlacement | null): boolean {
   return p !== null && p.bracket === 1
 }
+
+/** isDerivableClass 用：級内の全試合（参加者の生 row 単位）の最小情報。 */
+export interface ClassMatchRow {
+  roundLabel: string | null
+  result: 'win' | 'lose'
+  participantId: number
+}
+
+/**
+ * **級全体**が単純トーナメント（シングルイリミ）として安全に順位導出できるかを判定。
+ * 参加者本人の試合列だけでは見抜けない非トーナメント形式（リーグ戦・順位戦・予選+本戦・
+ * 3位決定戦）を級単位で弾くためのゲート。NG の級は全 participant で導出せず final_rank に
+ * フォールバックする。
+ *
+ * 判定：①非ブラケットラベルが無い ②参加者2人以上 ③**敗北数 = 参加者数 - 1**
+ * （完全なシングルイリミは優勝者のみ無敗で、他は1回ずつ敗退するため敗北総数は P-1）。
+ * リーグ戦は敗北が桁違いに多く、3位決定戦は +1、データ欠けは不足するので、いずれも弾かれる。
+ */
+export function isDerivableClass(classMatches: ClassMatchRow[]): boolean {
+  if (classMatches.length === 0) return false
+  for (const m of classMatches) {
+    if (m.roundLabel && NON_BRACKET.test(m.roundLabel)) return false
+  }
+  const participants = new Set(classMatches.map((m) => m.participantId)).size
+  if (participants < 2) return false
+  const losses = classMatches.filter((m) => m.result === 'lose').length
+  return losses === participants - 1
+}

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   derivePlacement,
   isChampion,
+  isDerivableClass,
   isNyusho,
+  type ClassMatchRow,
   type PlacementMatch,
 } from './placement'
 
@@ -155,5 +157,53 @@ describe('isNyusho / isChampion', () => {
     expect(isChampion({ label: '優勝', bracket: 1 })).toBe(true)
     expect(isChampion({ label: '準優勝', bracket: 2 })).toBe(false)
     expect(isChampion(null)).toBe(false)
+  })
+})
+
+describe('isDerivableClass — 級全体がシングルイリミか', () => {
+  const cm = (
+    participantId: number,
+    result: 'win' | 'lose',
+    roundLabel: string | null = null,
+  ): ClassMatchRow => ({ participantId, result, roundLabel })
+
+  it('クリーンなシングルイリミ（敗北数=参加者-1）→ true', () => {
+    // 4人: 敗者3（優勝者のみ無敗）。
+    const rows = [
+      cm(1, 'win', '準決勝'), cm(2, 'lose', '準決勝'),
+      cm(3, 'win', '準決勝'), cm(4, 'lose', '準決勝'),
+      cm(1, 'win', '決勝'), cm(3, 'lose', '決勝'),
+    ]
+    expect(isDerivableClass(rows)).toBe(true)
+  })
+
+  it('非ブラケットラベル（予選リーグ）→ false', () => {
+    expect(isDerivableClass([cm(1, 'win', '予選リーグ'), cm(2, 'lose', '予選リーグ')])).toBe(false)
+  })
+
+  it('リーグ戦（通常ラベルでも敗北数 ≠ 参加者-1）→ false', () => {
+    // 3人総当たり: 敗北3 ≠ 2。round_label が「N回戦」でも構造で弾く。
+    const rows = [
+      cm(1, 'win', '1回戦'), cm(2, 'lose', '1回戦'),
+      cm(1, 'win', '2回戦'), cm(3, 'lose', '2回戦'),
+      cm(2, 'win', '3回戦'), cm(3, 'lose', '3回戦'),
+    ]
+    expect(isDerivableClass(rows)).toBe(false)
+  })
+
+  it('3位決定戦で敗北が1多い（+1）→ false', () => {
+    // クリーン4人(敗者3) に 3位決定戦(敗者+1=4) を足すと P-1 を超える。
+    const rows = [
+      cm(1, 'win', '準決勝'), cm(2, 'lose', '準決勝'),
+      cm(3, 'win', '準決勝'), cm(4, 'lose', '準決勝'),
+      cm(1, 'win', '決勝'), cm(3, 'lose', '決勝'),
+      cm(2, 'win', null), cm(4, 'lose', null), // 3位決定戦（ラベル無しでも数で弾く）
+    ]
+    expect(isDerivableClass(rows)).toBe(false)
+  })
+
+  it('参加者1人/空 → false', () => {
+    expect(isDerivableClass([cm(1, 'win', '1回戦')])).toBe(false)
+    expect(isDerivableClass([])).toBe(false)
   })
 })
