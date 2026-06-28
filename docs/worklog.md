@@ -2680,3 +2680,10 @@
 
 ## 2026-06-29 戦績詳細リデザイン 小修正 SHIPPED (PR #191, merge e953838)
 - PR #183 のフォロー3点: ①年タイムライン初期を全畳みに ②相手名タップ導線ヒントを小さく表示 ③相手から遷移時は相手リンクの `?from={id}` で戻る導線を遷移元の選手詳細へ（`getPlayerName` 追加）。Codex 1R pass・CI green・本番デプロイ自動。残=実機目視。
+
+## 2026-06-29 モバイル ピンチズーム/入力フォーカスズーム抑制 SHIPPED (PR #192, merge 3c0ee83)
+- 姉妹アプリ match-tracker 同等に、全ルートのピンチズーム＋テキスト入力フォーカス時の iOS 自動ズームを抑制。`apps/web/src/app/layout.tsx` の `viewport` export に `maximumScale: 1` + `userScalable: false` を追加（quickfix・1ファイル7行）。
+- 非自明①: Next.js は default viewport（`width=device-width, initial-scale=1`）を**フィールド単位で merge**するため width/initialScale は不記載で等価（`maximumScale` 追加だけでよい）。確認元=`next/dist/lib/metadata/{default-metadata,resolve-metadata}.js` の `createDefaultViewport`/`mergeViewport`。
+- 非自明②: ベース font-size が 15px(`--kg-text-base: 0.9375rem`, <16px)のため iOS は入力フォーカス時に自動ズームするが、**ズーム上限1xでこの自動ズームも no-op** になる＝同じ1変更でピンチ＋フォーカスズームの両症状をカバー。font-size:16px CSS 案は 15px タイプスケールを壊すため不採用。`userScalable:false` は Android Chrome 側の補強。
+- /auto-review-loop PR #192: 1R, verdict=needs_changes(override), effort=medium, tokens=28,554/500,000, result=override-ship。Codex の唯一の指摘は「ズーム禁止=アクセシビリティ退行」という**コード欠陥0のプロダクト判断異議**で、handover で受容済みの論点。ユーザー判断で override し ship。
+- CI green・本番 auto-deploy 対象。残 DoD=iPhone 実機でピンチ不可＋入力フォーカスでズームしないことの目視、既存レイアウト崩れなし確認。
