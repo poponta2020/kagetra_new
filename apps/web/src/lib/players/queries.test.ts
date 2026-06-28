@@ -66,8 +66,9 @@ describe('searchPlayers', () => {
     const results = await searchPlayers('山田 太郎')
     expect(results).toHaveLength(1)
     expect(results[0]!.displayName).toBe('山田太郎')
-    // player は所属を持たない（同定は姓名のみ・所属は per-大会）。
-    expect(results[0]!.affiliation).toBeNull()
+    // player 行は所属を持たない（常に null）が、検索結果は直近大会の participant
+    // スナップショットの所属を出す（戦績詳細ヘッダと一致）。
+    expect(results[0]!.affiliation).toBe('札幌')
     expect(results[0]!.participationCount).toBe(1)
   })
 
@@ -97,6 +98,41 @@ describe('searchPlayers', () => {
     const results = await searchPlayers('佐藤')
     expect(results).toHaveLength(1)
     expect(results[0]!.displayName).toBe('佐藤花子')
+  })
+
+  it('複数大会で所属が変わる場合、直近の大会（event_date 最新）の所属を返す', async () => {
+    const part = (affiliation: string | null) => ({
+      seqNo: 1,
+      name: '移籍太郎',
+      nameKana: null,
+      affiliation,
+      prefecture: null,
+      dan: null,
+      memberNo: null,
+      finalRank: null,
+      matches: [],
+    })
+    // 古い大会（札幌）→ 新しい大会（東京）→ 開催日 null の大会（どこか会）を
+    // この順で投入（= どこか会が最大 id）。直近は event_date 最新の「東京」で、
+    // 開催日 null は NULLS LAST で直近扱いしない（id 降順だけなら誤って「どこか会」を
+    // 拾ってしまうのを弾く）。同名なので materialize で同一 player に名寄せされる。
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('札幌')])] },
+      { name: '古い大会', eventDate: '2024-01-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('東京')])] },
+      { name: '新しい大会', eventDate: '2026-05-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('どこか会')])] },
+      { name: '日付不明大会', eventDate: null },
+    )
+
+    const results = await searchPlayers('移籍太郎')
+    expect(results).toHaveLength(1)
+    expect(results[0]!.affiliation).toBe('東京')
+    expect(results[0]!.participationCount).toBe(3)
   })
 
   it('空クエリは空配列を返す', async () => {

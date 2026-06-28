@@ -3,7 +3,9 @@ import { db } from '@/lib/db'
 import {
   matches,
   players,
+  tournamentClasses,
   tournamentParticipants,
+  tournaments,
 } from '@kagetra/shared/schema'
 import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import {
@@ -97,7 +99,19 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
     .select({
       id: players.id,
       displayName: players.displayName,
-      affiliation: players.affiliation,
+      // 所属会は player 行には持たない（常に null・「人 × 大会」属性）。戦績詳細
+      // ヘッダ（participations[0].affiliation）と同じく、直近の大会（event_date
+      // 降順・NULLS LAST、同日は tournament id 降順）の participant スナップショット
+      // の所属を相関サブクエリで 1 件引く。詳細ヘッダと検索結果の所属が一致する。
+      affiliation: sql<string | null>`(
+        select tp.affiliation
+        from ${tournamentParticipants} tp
+        join ${tournamentClasses} tc on tc.id = tp.class_id
+        join ${tournaments} t on t.id = tc.tournament_id
+        where tp.player_id = ${players.id}
+        order by t.event_date desc nulls last, t.id desc
+        limit 1
+      )`,
       prefecture: players.prefecture,
       participationCount: sql<number>`count(${tournamentParticipants.id})::int`,
     })
