@@ -144,8 +144,11 @@ async function getOrCreatePlayer(
  */
 export function mapEntryStatus(statusText: string | null, rosterType: RosterType): RosterEntryStatus {
   const t = (statusText ?? '').normalize('NFKC')
-  if (t.includes('繰上') && (t.includes('辞退') || t.includes('不参加'))) return 'carry_up_declined'
-  if (t.includes('繰上') || t.includes('繰り上')) return 'carried_up'
+  // Codex R1 blocker: 繰上表記（繰上/繰り上）を先に共通判定し、辞退/不参加を carried_up より前で
+  // 評価する。でないと「繰り上げ辞退」が carried_up（出場）として保存され状態が逆になる。
+  const isCarryUp = t.includes('繰上') || t.includes('繰り上')
+  if (isCarryUp && (t.includes('辞退') || t.includes('不参加'))) return 'carry_up_declined'
+  if (isCarryUp) return 'carried_up'
   if (t.includes('辞退') || t.includes('取消') || t.includes('取り消') || t.includes('欠場') || t.includes('キャンセル')) {
     return 'cancelled'
   }

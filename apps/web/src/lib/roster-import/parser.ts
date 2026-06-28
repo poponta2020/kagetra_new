@@ -28,11 +28,13 @@ export interface ParsedRoster {
 
 const norm = (s: CellValue): string => (s ?? '').normalize('NFKC').replace(/\s+/g, '').trim()
 
-// ヘッダ語 → 列種別。包含一致（ヘッダセルが語を含めば採用）。
-const HEADER_PATTERNS: { key: ColKey; words: string[] }[] = [
+// ヘッダ語 → 列種別。既定は包含一致。exact:true は完全一致のみ。
+const HEADER_PATTERNS: { key: ColKey; words: string[]; exact?: boolean }[] = [
   { key: 'name', words: ['氏名', '名前', '選手名', '参加者名', '参加者', 'なまえ', 'お名前'] },
   { key: 'lastName', words: ['姓', '苗字', '名字'] },
-  { key: 'firstName', words: ['名'] }, // 「名」は単独列のときだけ（後段で姓とセット判定）
+  // Codex R1 should_fix: 「名」は会名/所属会名などの一部に含まれるため **完全一致のみ**
+  // （'名' 単独列だけを firstName とする。姓とセットで連結）。
+  { key: 'firstName', words: ['名'], exact: true },
   { key: 'kana', words: ['ふりがな', 'フリガナ', 'よみ', 'ヨミ', 'かな', 'カナ', '読み'] },
   { key: 'grade', words: ['級', 'クラス', 'class'] },
   { key: 'affiliation', words: ['所属', '団体', '支部', '会名', '所属会'] },
@@ -55,9 +57,10 @@ type ColKey =
 function classifyHeaderCell(cell: CellValue): ColKey | null {
   const v = norm(cell).toLowerCase()
   if (!v) return null
-  for (const { key, words } of HEADER_PATTERNS) {
+  for (const { key, words, exact } of HEADER_PATTERNS) {
     for (const w of words) {
-      if (v.includes(w.toLowerCase())) return key
+      const ww = w.toLowerCase()
+      if (exact ? v === ww : v.includes(ww)) return key
     }
   }
   return null

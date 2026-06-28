@@ -38,6 +38,28 @@ describe('parseRosterGrid', () => {
     expect(r.entries[0]?.grade).toBe('C')
   })
 
+  it('「会名」は所属に分類し、氏名の「名」列に誤分類しない（Codex R1 should_fix）', () => {
+    const r = parseRosterGrid([
+      sheet([
+        ['氏名', '会名', '級'],
+        ['札幌太郎', '札幌かるた会', 'A'],
+      ]),
+    ])
+    expect(r.entries[0]?.rawName).toBe('札幌太郎')
+    expect(r.entries[0]?.rawAffiliation).toBe('札幌かるた会')
+  })
+
+  it('姓+名+会名 形式（「名」単独列だけが firstName）', () => {
+    const r = parseRosterGrid([
+      sheet([
+        ['姓', '名', '会名'],
+        ['札幌', '太郎', '札幌会'],
+      ]),
+    ])
+    expect(r.entries[0]?.rawName).toBe('札幌太郎')
+    expect(r.entries[0]?.rawAffiliation).toBe('札幌会')
+  })
+
   it('空行・氏名なし行はスキップする', () => {
     const r = parseRosterGrid([
       sheet([

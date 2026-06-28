@@ -40,6 +40,12 @@ describe('mapEntryStatus (pure)', () => {
     expect(mapEntryStatus('欠場', 'confirmed')).toBe('cancelled')
     expect(mapEntryStatus('確定', 'applicant')).toBe('confirmed')
   })
+  it('「繰り上」表記も正しく判定する（Codex R1 blocker）', () => {
+    expect(mapEntryStatus('繰り上げ', 'confirmed')).toBe('carried_up')
+    // 「繰り上げ辞退」が carried_up に化けない（辞退を先に評価）
+    expect(mapEntryStatus('繰り上げ辞退', 'confirmed')).toBe('carry_up_declined')
+    expect(mapEntryStatus('繰り上り不参加', 'confirmed')).toBe('carry_up_declined')
+  })
 })
 
 describe('materializeRoster', () => {
