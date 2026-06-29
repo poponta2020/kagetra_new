@@ -27,6 +27,8 @@ export interface TimelineTournament {
   dateLabel: string
   /** 大会名（「第N回」除去・級letter後置, 例「北海道選手権A」）。 */
   title: string
+  /** その大会での選手自身の所属会（participant スナップショット）。大会名の下に表示。無ければ null。 */
+  affiliation: string | null
   rank: string | null
   /** 優勝・準優勝（bracket<=2）は藍で強調。 */
   rankEmphasis: boolean
@@ -110,9 +112,16 @@ export function SensekiTimeline({
                             {t.dateLabel}
                           </span>
                         )}
-                        <span className="truncate font-display text-[15px] font-medium text-ink">
-                          {t.title}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="block truncate font-display text-[15px] font-medium text-ink">
+                            {t.title}
+                          </span>
+                          {t.affiliation && (
+                            <span className="block truncate text-[11px] text-ink-muted">
+                              {t.affiliation}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {t.rank && (
                         <span

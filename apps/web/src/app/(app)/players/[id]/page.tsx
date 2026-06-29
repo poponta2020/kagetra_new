@@ -94,6 +94,7 @@ export default async function PlayerDetailPage({
       participantId: part.participantId,
       dateLabel,
       title: `${stripKai(part.tournamentName)}${part.grade ?? ''}`,
+      affiliation: part.affiliation,
       rank: part.rank,
       rankEmphasis:
         part.rankBracket != null ? part.rankBracket <= 2 : /優勝/.test(part.rank ?? ''),
