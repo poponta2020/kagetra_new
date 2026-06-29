@@ -22,7 +22,7 @@ status: completed
 - **完了条件:** test/dev は `db:push`、migration 生成。型・スキーマテスト green。本番は `db:migrate`（[[feedback_drizzle_kit_push_prompt]]）。
 
 ### タスク2: 住所検索 route（api/zip・サーバー経由 zipcloud） — #201
-- [ ] 完了
+- [x] 完了
 - **概要:** 郵便番号7桁→zipcloud をサーバーで照会し住所文字列を返す route。失敗/該当なしは手入力フォールバック（フォーム送信は阻害しない）。
 - **変更対象ファイル:**
   - `apps/web/src/app/api/zip/route.ts`（新規）— GET `?zipcode=7桁` → `{ address } | { error }`。`/register/*` 通過中の未紐付けユーザーから利用可
