@@ -24,6 +24,9 @@ import {
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
+// invite-register-redesign: ひらがな（小書き含む）＋長音記号 ー のみ。
+const HIRAGANA_RE = /^[ぁ-ゖー]+$/
+const PHONE_RE = /^[0-9-]+$/
 
 // Normalize a FormData entry for strict zod validation. Returns:
 //   - null: when the field is missing or empty (→ nullable zod accepts as null)
@@ -32,6 +35,21 @@ function formEntryOrNull(raw: FormDataEntryValue | null): string | null {
   if (typeof raw !== 'string') return null
   const s = raw.trim()
   return s.length === 0 ? null : s
+}
+
+// 'YYYY-MM-DD', a real calendar date, year ≥ 1900.
+function isRealYmd(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const y = Number(s.slice(0, 4))
+  const m = Number(s.slice(5, 7))
+  const d = Number(s.slice(8, 10))
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d &&
+    y >= 1900
+  )
 }
 
 const unlinkLineInputSchema = z.object({ userId: z.string().min(1) })
@@ -53,6 +71,44 @@ const updateProfileSchema = z.object({
     return Number.parseInt(s, 10)
   }, z.union([z.number().int().min(0).max(9), z.null()])),
   zenNichikyo: z.boolean(),
+  // invite-register-redesign: structured name + 全日協 PII. Admin/vice_admin can
+  // view + edit; all nullable (empty → null). `name` stays canonical and is NOT
+  // recomposed here — these columns are auxiliary profile data (see register
+  // flow / requirements §4.4). 五十音順 sorting relies on kana being ひらがな.
+  familyName: z.string().trim().max(20, '姓は20文字以内で入力してください').nullable(),
+  givenName: z.string().trim().max(20, '名は20文字以内で入力してください').nullable(),
+  familyKana: z
+    .string()
+    .trim()
+    .max(30, 'せいは30文字以内で入力してください')
+    .regex(HIRAGANA_RE, 'せい（ふりがな）はひらがなで入力してください')
+    .nullable(),
+  givenKana: z
+    .string()
+    .trim()
+    .max(30, 'めいは30文字以内で入力してください')
+    .regex(HIRAGANA_RE, 'めい（ふりがな）はひらがなで入力してください')
+    .nullable(),
+  birthDate: z.union([
+    z.string().refine(isRealYmd, '生年月日が正しくありません'),
+    z.null(),
+  ]),
+  phone: z
+    .string()
+    .trim()
+    .regex(PHONE_RE, '電話番号は数字とハイフンで入力してください')
+    .refine((s) => {
+      const d = s.replace(/-/g, '')
+      return d.length >= 10 && d.length <= 13
+    }, '電話番号の桁数が不正です（10〜13桁）')
+    .nullable(),
+  // 郵便番号はハイフン/空白除去の7桁に正規化保存。
+  postalCode: z.preprocess(
+    (v) => (typeof v === 'string' ? v.replace(/[\s-]/g, '') : v),
+    z.union([z.string().regex(/^\d{7}$/, '郵便番号は7桁で入力してください'), z.null()]),
+  ),
+  address1: z.string().trim().max(100, '住所は100文字以内で入力してください').nullable(),
+  address2: z.string().trim().max(100, '建物名・部屋番号は100文字以内で入力してください').nullable(),
 })
 
 export type UpdateProfileState = {
@@ -84,6 +140,15 @@ export async function updateMemberProfile(
     affiliation: formEntryOrNull(formData.get('affiliation')),
     dan: formData.get('dan'),
     zenNichikyo: formData.get('zenNichikyo') === 'on',
+    familyName: formEntryOrNull(formData.get('familyName')),
+    givenName: formEntryOrNull(formData.get('givenName')),
+    familyKana: formEntryOrNull(formData.get('familyKana')),
+    givenKana: formEntryOrNull(formData.get('givenKana')),
+    birthDate: formEntryOrNull(formData.get('birthDate')),
+    phone: formEntryOrNull(formData.get('phone')),
+    postalCode: formEntryOrNull(formData.get('postalCode')),
+    address1: formEntryOrNull(formData.get('address1')),
+    address2: formEntryOrNull(formData.get('address2')),
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? '入力が不正です' }
@@ -98,6 +163,15 @@ export async function updateMemberProfile(
       affiliation: data.affiliation,
       dan: data.dan,
       zenNichikyo: data.zenNichikyo,
+      familyName: data.familyName,
+      givenName: data.givenName,
+      familyKana: data.familyKana,
+      givenKana: data.givenKana,
+      birthDate: data.birthDate,
+      phone: data.phone,
+      postalCode: data.postalCode,
+      address1: data.address1,
+      address2: data.address2,
       updatedAt: new Date(),
     })
     .where(eq(users.id, data.userId))

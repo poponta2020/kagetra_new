@@ -89,6 +89,15 @@ export function EditMemberForm({
   affiliation,
   dan,
   zenNichikyo,
+  familyName,
+  givenName,
+  familyKana,
+  givenKana,
+  birthDate,
+  phone,
+  postalCode,
+  address1,
+  address2,
   grades,
   genders,
 }: {
@@ -102,6 +111,16 @@ export function EditMemberForm({
   affiliation: string
   dan: number | null
   zenNichikyo: boolean
+  // invite-register-redesign: 構造化氏名＋全日協 PII（管理者/副管理者のみ閲覧/編集）。
+  familyName: string
+  givenName: string
+  familyKana: string
+  givenKana: string
+  birthDate: string
+  phone: string
+  postalCode: string
+  address1: string
+  address2: string
   grades: readonly Grade[]
   genders: readonly Gender[]
 }) {
@@ -130,6 +149,67 @@ export function EditMemberForm({
             </p>
           </div>
         )}
+
+        <fieldset className="grid grid-cols-2 gap-3">
+          <legend className="mb-1 text-sm font-medium text-gray-700">
+            氏名・ふりがな（任意）
+          </legend>
+          <div>
+            <label htmlFor="familyName" className="block text-xs text-gray-600">
+              姓（漢字）
+            </label>
+            <input
+              id="familyName"
+              name="familyName"
+              type="text"
+              maxLength={20}
+              defaultValue={familyName}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="givenName" className="block text-xs text-gray-600">
+              名（漢字）
+            </label>
+            <input
+              id="givenName"
+              name="givenName"
+              type="text"
+              maxLength={20}
+              defaultValue={givenName}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="familyKana" className="block text-xs text-gray-600">
+              せい（ふりがな）
+            </label>
+            <input
+              id="familyKana"
+              name="familyKana"
+              type="text"
+              maxLength={30}
+              defaultValue={familyKana}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="givenKana" className="block text-xs text-gray-600">
+              めい（ふりがな）
+            </label>
+            <input
+              id="givenKana"
+              name="givenKana"
+              type="text"
+              maxLength={30}
+              defaultValue={givenKana}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <p className="col-span-2 text-xs text-gray-500">
+            表示名（ログイン名）は上の「名前」が正典で、ここでは変更されません。
+          </p>
+        </fieldset>
 
         <div>
           <label
@@ -221,6 +301,75 @@ export function EditMemberForm({
             全日協会員
           </label>
         </div>
+
+        <fieldset className="space-y-3 border-t border-gray-200 pt-4">
+          <legend className="text-sm font-medium text-gray-700">
+            全日協登録情報（任意・管理者のみ閲覧）
+          </legend>
+          <div>
+            <label htmlFor="birthDate" className="block text-xs text-gray-600">
+              生年月日
+            </label>
+            <input
+              id="birthDate"
+              name="birthDate"
+              type="date"
+              defaultValue={birthDate}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="phone" className="block text-xs text-gray-600">
+              電話番号
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              inputMode="tel"
+              defaultValue={phone}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="postalCode" className="block text-xs text-gray-600">
+              郵便番号
+            </label>
+            <input
+              id="postalCode"
+              name="postalCode"
+              inputMode="numeric"
+              defaultValue={postalCode}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="address1" className="block text-xs text-gray-600">
+              住所1（丁目・番地まで）
+            </label>
+            <input
+              id="address1"
+              name="address1"
+              type="text"
+              maxLength={100}
+              defaultValue={address1}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="address2" className="block text-xs text-gray-600">
+              住所2（建物名・部屋番号）
+            </label>
+            <input
+              id="address2"
+              name="address2"
+              type="text"
+              maxLength={100}
+              defaultValue={address2}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+        </fieldset>
 
         {state.error && (
           <p role="alert" className="text-sm text-red-600">

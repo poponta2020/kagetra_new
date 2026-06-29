@@ -51,7 +51,7 @@ status: completed
 - **完了条件:** フロントテスト green。jsdom 留意点（[[feedback_jsdom_css_env]] 等）。
 
 ### タスク5: 管理者 会員編集画面の拡張（PII 閲覧/編集） — #204
-- [ ] 完了
+- [x] 完了
 - **概要:** 管理者・副管理者が新9列を閲覧/編集できるよう編集画面を拡張（可視性=管理者閲覧の担保）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/admin/members/[id]/edit/edit-member-form.tsx` — 姓/名/かな/生年月日/電話/郵便/住所1/住所2 の表示・編集を追加

@@ -33,6 +33,15 @@ function renderForm(nameEditable: boolean) {
       affiliation=""
       dan={null}
       zenNichikyo={false}
+      familyName=""
+      givenName=""
+      familyKana=""
+      givenKana=""
+      birthDate=""
+      phone=""
+      postalCode=""
+      address1=""
+      address2=""
       grades={GRADES}
       genders={GENDERS}
     />,
@@ -116,5 +125,56 @@ describe('EditMemberForm — nameEditable による名前編集の出し分け',
     expect((screen.getByLabelText('名前') as HTMLInputElement).value).toBe(
       '保持される名前',
     )
+  })
+})
+
+describe('EditMemberForm — 構造化氏名＋全日協PII 列の表示/編集', () => {
+  beforeEach(() => {
+    updateMemberProfileMock.mockReset()
+    updateMemberNameMock.mockReset()
+  })
+
+  it('新9列の入力欄が表示される', () => {
+    renderForm(false)
+    expect(screen.getByLabelText('姓（漢字）')).toBeTruthy()
+    expect(screen.getByLabelText('名（漢字）')).toBeTruthy()
+    expect(screen.getByLabelText('せい（ふりがな）')).toBeTruthy()
+    expect(screen.getByLabelText('めい（ふりがな）')).toBeTruthy()
+    expect(screen.getByLabelText('生年月日')).toBeTruthy()
+    expect(screen.getByLabelText('電話番号')).toBeTruthy()
+    expect(screen.getByLabelText('郵便番号')).toBeTruthy()
+    expect(screen.getByLabelText('住所1（丁目・番地まで）')).toBeTruthy()
+    expect(screen.getByLabelText('住所2（建物名・部屋番号）')).toBeTruthy()
+  })
+
+  it('プロフィール保存で新9列が FormData に渡る', async () => {
+    updateMemberProfileMock.mockResolvedValue({ success: true })
+    const { container } = renderForm(false)
+
+    fireEvent.change(screen.getByLabelText('姓（漢字）'), { target: { value: '山田' } })
+    fireEvent.change(screen.getByLabelText('名（漢字）'), { target: { value: '太郎' } })
+    fireEvent.change(screen.getByLabelText('せい（ふりがな）'), { target: { value: 'やまだ' } })
+    fireEvent.change(screen.getByLabelText('めい（ふりがな）'), { target: { value: 'たろう' } })
+    fireEvent.change(screen.getByLabelText('生年月日'), { target: { value: '1990-04-01' } })
+    fireEvent.change(screen.getByLabelText('電話番号'), { target: { value: '090-1234-5678' } })
+    fireEvent.change(screen.getByLabelText('郵便番号'), { target: { value: '001-0010' } })
+    fireEvent.change(screen.getByLabelText('住所1（丁目・番地まで）'), { target: { value: '札幌市北区北十条西1-1' } })
+    fireEvent.change(screen.getByLabelText('住所2（建物名・部屋番号）'), { target: { value: '101号室' } })
+
+    const profileForm = container.querySelector('form')
+    if (!profileForm) throw new Error('profile form not found')
+    fireEvent.submit(profileForm)
+
+    await waitFor(() => expect(updateMemberProfileMock).toHaveBeenCalledTimes(1))
+    const fd = updateMemberProfileMock.mock.calls[0]?.[1]
+    expect(fd?.get('familyName')).toBe('山田')
+    expect(fd?.get('givenName')).toBe('太郎')
+    expect(fd?.get('familyKana')).toBe('やまだ')
+    expect(fd?.get('givenKana')).toBe('たろう')
+    expect(fd?.get('birthDate')).toBe('1990-04-01')
+    expect(fd?.get('phone')).toBe('090-1234-5678')
+    expect(fd?.get('postalCode')).toBe('001-0010')
+    expect(fd?.get('address1')).toBe('札幌市北区北十条西1-1')
+    expect(fd?.get('address2')).toBe('101号室')
   })
 })

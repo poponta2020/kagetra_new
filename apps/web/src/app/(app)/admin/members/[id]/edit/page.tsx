@@ -38,6 +38,15 @@ export default async function EditMemberPage({
       affiliation: true,
       dan: true,
       zenNichikyo: true,
+      familyName: true,
+      givenName: true,
+      familyKana: true,
+      givenKana: true,
+      birthDate: true,
+      phone: true,
+      postalCode: true,
+      address1: true,
+      address2: true,
       deactivatedAt: true,
       isInvited: true,
       lineUserId: true,
@@ -75,6 +84,15 @@ export default async function EditMemberPage({
         affiliation={member.affiliation ?? ''}
         dan={member.dan ?? null}
         zenNichikyo={member.zenNichikyo}
+        familyName={member.familyName ?? ''}
+        givenName={member.givenName ?? ''}
+        familyKana={member.familyKana ?? ''}
+        givenKana={member.givenKana ?? ''}
+        birthDate={member.birthDate ?? ''}
+        phone={member.phone ?? ''}
+        postalCode={member.postalCode ?? ''}
+        address1={member.address1 ?? ''}
+        address2={member.address2 ?? ''}
         grades={GRADES}
         genders={GENDERS}
       />
