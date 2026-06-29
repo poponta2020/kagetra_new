@@ -13,6 +13,7 @@ const years: TimelineYear[] = [
         participantId: 1,
         dateLabel: '5/3',
         title: '北海道選手権A',
+        affiliation: '東京大学かるた会',
         rank: '優勝',
         rankEmphasis: true,
         matches: [
@@ -46,6 +47,7 @@ const years: TimelineYear[] = [
         participantId: 2,
         dateLabel: '9/1',
         title: '秋大会B',
+        affiliation: null,
         rank: 'ベスト8',
         rankEmphasis: false,
         matches: [],
@@ -87,6 +89,20 @@ describe('SensekiTimeline', () => {
     screen.getByText('×3')
   })
 
+  it('展開後、各大会に選手自身のその大会での所属会を表示する', () => {
+    render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2026年'))
+    screen.getByText('東京大学かるた会')
+  })
+
+  it('所属会が null の大会は所属行を出さない', () => {
+    render(<SensekiTimeline years={years} playerId={5} />)
+    fireEvent.click(screen.getByText('2025年'))
+    // 秋大会B（affiliation: null）は所属行なし。大会名は出るが所属は無い。
+    screen.getByText('秋大会B')
+    expect(screen.queryByText('東京大学かるた会')).toBeNull()
+  })
+
   it('別選手データに差し替えると展開状態がリセットされる（同名年も畳む）', () => {
     const { rerender } = render(<SensekiTimeline years={years} playerId={5} />)
     fireEvent.click(screen.getByText('2026年'))
@@ -98,7 +114,7 @@ describe('SensekiTimeline', () => {
         wins: 1,
         losses: 0,
         tournaments: [
-          { participantId: 9, dateLabel: '3/3', title: '別大会X', rank: '優勝', rankEmphasis: true, matches: [] },
+          { participantId: 9, dateLabel: '3/3', title: '別大会X', affiliation: '別の会', rank: '優勝', rankEmphasis: true, matches: [] },
         ],
       },
       {
@@ -107,7 +123,7 @@ describe('SensekiTimeline', () => {
         wins: 0,
         losses: 1,
         tournaments: [
-          { participantId: 8, dateLabel: '4/4', title: '旧大会Y', rank: 'ベスト8', rankEmphasis: false, matches: [] },
+          { participantId: 8, dateLabel: '4/4', title: '旧大会Y', affiliation: null, rank: 'ベスト8', rankEmphasis: false, matches: [] },
         ],
       },
     ]
