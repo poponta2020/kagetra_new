@@ -31,7 +31,7 @@ status: completed
 - **完了条件:** route テスト green（zipcloud は fetch をモック）。無認証・無鍵・本番 outbound 前提を docs 反映。
 
 ### タスク3: registerViaInvite アクション改修（API・テストファースト） — #202
-- [ ] 完了
+- [x] 完了
 - **概要:** 新 zod スキーマ（条件付き必須）→ `name` 合成 → `users` INSERT。
 - **検証ロジック:** 姓/名(1-20)・せい/めい(ひらがな+ー,1-30) 常に必須／級 任意／**段位は級=A で必須(4-8)・他 null**／級∈{A,B,C} かつ zenNichikyo true で **gender(男女)・birth_date・phone・postal_code・address1 必須**、**address2 はサーバー任意**／級∈{D,E} は zenNichikyo=false・PII 全 null。`name=姓␣名`。UNIQUE(name)/line_user_id 違反処理は踏襲。
 - **変更対象ファイル:**
