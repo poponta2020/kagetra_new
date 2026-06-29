@@ -1,6 +1,7 @@
 import {
   boolean,
   check,
+  date,
   integer,
   pgTable,
   primaryKey,
@@ -30,6 +31,19 @@ export const users = pgTable(
     affiliation: text('affiliation'),
     dan: integer('dan'),
     zenNichikyo: boolean('zen_nichikyo').notNull().default(false),
+    // invite-register-redesign: structured name + 全日協 (全日本かるた協会) PII
+    // collected at self-registration. All nullable — `name` (合成表示名) stays
+    // the canonical display/UNIQUE key; existing ~100 members keep these NULL
+    // (we do not auto-split their `name`). PII is gated by zenNichikyo + grade.
+    familyName: text('family_name'),
+    givenName: text('given_name'),
+    familyKana: text('family_kana'),
+    givenKana: text('given_kana'),
+    birthDate: date('birth_date'),
+    phone: text('phone'),
+    postalCode: text('postal_code'),
+    address1: text('address1'),
+    address2: text('address2'),
     deactivatedAt: timestamp('deactivated_at', { mode: 'date', withTimezone: true }),
     lineLinkedAt: timestamp('line_linked_at', { mode: 'date', withTimezone: true }),
     lineLinkedMethod: lineLinkMethodEnum('line_link_method'),
