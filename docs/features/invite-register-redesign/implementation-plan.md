@@ -41,7 +41,7 @@ status: completed
 - **完了条件:** アクションテスト green（先に書く）。
 
 ### タスク4: 登録フォーム＋ページ（フロント・A-flat） — #203
-- [ ] 完了
+- [x] 完了
 - **概要:** design-spec の A-flat を実装。段階表示（級→段位[A]/全日協[A,B,C]→PII）、戸建てチェックで住所2 必須免除、郵便検索ボタンは api/zip 呼び出し。
 - **変更対象ファイル:**
   - `apps/web/src/app/register/[token]/register-form.tsx` — 2×2 氏名・級/段位/性別セグメント・全日協チェック・PII 群・住所2 戸建てチェック・controlled・useActionState・段階表示と値リセット
