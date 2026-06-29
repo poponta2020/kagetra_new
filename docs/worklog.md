@@ -2702,3 +2702,9 @@
 - **migration 0031-0034 全て kagetra_rehearsal（本番ミラー）の TEMPLATE コピーへ dry-run 後に本番 auto-deploy 適用**。foundation の 0031 は本番ログでも dry-run 通りの no-op を実証＝ミラー dry-run 手法の妥当性確認。
 - 非自明: test/dev=`drizzle-kit push`・本番=`db:migrate`／共有 test DB(5434) は並行 worktree と衝突するので隔離 DB `kagetra_test_ter` で実行／mail-worker `result-import/reader`(readExcel) は web から使うため package.json exports に追記要（tsc は exports map・vite は緩い）／mail-worker `pipeline-runs.test.ts` は CI で flaky（クロックドリフト）→ post-merge CI で deploy skip された PR#195 は `gh run rerun <id> --failed` で復旧／長い FK 名は PG 63字 truncate（push/migrate 同一で整合）／jsdom File は arrayBuffer 未実装で Server Action file テストは polyfill 要。
 - 残 DoD（任意・後日）: 本番実機目視（案内承認→edition 紐付け／結果取込→edition 自動解決／名簿 Excel 取込→表示→会員突合）。**UI は最小実装**＝実サンプル名簿＋ `/design-screen tournament-entry-rosters` の design-spec 後に精緻化推奨（PDF 名簿取込は未対応＝Excel のみ）。第4段（出場回数カウント）は当初からスコープ外（土台のみ用意）。
+
+## 2026-06-29 戦績詳細の各大会所属会 復活 SHIPPED (bug #197 → PR #198)
+- バグ報告: 戦績詳細(/players/[id])で各大会の「選手自身のその大会での所属会」が消えた。ユーザーは前夜の検索改修(PR#194)を疑ったが、**真因は PR#183（戦績詳細エディトリアル改修, 33d7396）**。新タイムライン `TimelineTournament` が `part.affiliation` を持たなくなり大会行から所属表示が落ちた回帰。リデザイン前は各大会行で `級名 ・ 所属会` を表示していた。
+- データ層 `getPlayerRecord` は今も `participations[].affiliation` を大会ごとに返しており、**UI 表示のみの回帰**＝フロント3ファイルで修正。`SensekiTimeline` の `TimelineTournament` に `affiliation` を追加し大会名の下に薄字1行（null は非表示）、`page.tsx` でマッピング時に `part.affiliation` を渡す、テストにフィクスチャ＋自分の所属表示/null非表示の2ケース追加。
+- 検証: web `tsc --noEmit` pass・コンポーネントテスト7件 pass（test DB Docker 未起動のため pure component は globalSetup 抜き一時 config で実行）。CI `Lint/Typecheck/Test` green。**PR #198 merge `fe4c424`**。Codex 自動レビュー 1R で pass（effort=medium, 13,127 tokens）。
+- 非自明: codex CLI が PATH 未登録＋`~/.codex/.sandbox-bin/codex.exe` は古い alpha(0.119)で既定モデル `gpt-5.5` 非対応→**VS Code 拡張内の新しい codex (`~/.vscode/extensions/openai.chatgpt-*/bin/windows-x86_64/codex.exe` 0.142.3) を使う**必要あり。worktree への `pnpm install` は WiFi 不調でハング→接続切替で 11.7s 完了。worktree 物理ディレクトリは node_modules ロックで削除不可（git 登録解除のみ・無害）。
