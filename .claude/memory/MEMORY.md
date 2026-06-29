@@ -63,7 +63,7 @@
 - [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
 - [かるた協会 会員ページ ログイン資格情報](reference_karuta_member_page_credentials.md) — ID/PW は repo root の `.credentials.local.md`（gitignored）。パスワード本体はmemory/コードに書かない
 - [公認大会 定員超過時の抽選優遇ルール](reference_karuta_kounin_taikai_lottery.md) — 競技会規程第二条三=出場回数の「少ない」選手を優先(多い人有利は誤解)。doc=docs/reference/公認大会-抽選-出場回数優先ルール.md
-- [codex CLI の場所](reference_codex_cli_location.md) — auto-review-loop の codex 本体は VS Code 拡張内 bin の最新版。PATH 未登録・~/.codex/.sandbox-bin は古く gpt-5.5 非対応で落ちる
+- [codex CLI の場所](reference_codex_cli_location.md) — npm global で PATH 導入済み(2026-06-29, codex 0.142.3)。`codex` でそのまま動く。~/.codex/.sandbox-bin は古く gpt-5.5 非対応なので直接呼ばない
 
 ## Feedback
 - [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
