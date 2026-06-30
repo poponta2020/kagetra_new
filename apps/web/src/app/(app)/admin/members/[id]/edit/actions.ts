@@ -37,19 +37,28 @@ function formEntryOrNull(raw: FormDataEntryValue | null): string | null {
   return s.length === 0 ? null : s
 }
 
-// 'YYYY-MM-DD', a real calendar date, year ≥ 1900.
+// 'YYYY-MM-DD', a real calendar date, year ≥ 1900, not in the future.
+// Mirrors validateBirthDate in the register flow so both write paths into the
+// shared users.birth_date column reject the same values — a future birth date
+// is invalid regardless of whether it was entered at self-registration or by
+// an admin editing the profile.
 function isRealYmd(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
   const y = Number(s.slice(0, 4))
   const m = Number(s.slice(5, 7))
   const d = Number(s.slice(8, 10))
   const dt = new Date(Date.UTC(y, m - 1, d))
-  return (
-    dt.getUTCFullYear() === y &&
-    dt.getUTCMonth() === m - 1 &&
-    dt.getUTCDate() === d &&
-    y >= 1900
-  )
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d ||
+    y < 1900
+  ) {
+    return false
+  }
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return dt.getTime() <= todayUtc
 }
 
 const unlinkLineInputSchema = z.object({ userId: z.string().min(1) })

@@ -318,6 +318,31 @@ describe('Admin member profile edit actions', () => {
       expect(updated?.birthDate).toBeNull()
       expect(updated?.postalCode).toBeNull()
     })
+
+    it('未来日の生年月日は登録側と同様に拒否する（DB は不変）', async () => {
+      const admin = await createAdmin({ name: 'admin-future-bd' })
+      const target = await createUser({ name: '未来日対象', grade: 'B' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: 'B',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          birthDate: '2999-01-01',
+        }),
+      )
+      expect(result.error).toBeDefined()
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.birthDate).toBeNull()
+    })
   })
 
   describe('toggleMemberDeactivation', () => {

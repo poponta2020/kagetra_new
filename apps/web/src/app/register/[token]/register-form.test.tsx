@@ -172,6 +172,26 @@ describe('RegisterForm', () => {
     expect(addr2.value).toBe('')
   })
 
+  it('降級→再昇級で全日協PIIがリセットされる（旧入力が復活しない）', () => {
+    render(<RegisterForm token="t" />)
+    selectGrade('B')
+    // PII を入力（全日協は既定 ON）
+    fireEvent.click(screen.getByRole('radio', { name: '男性' }))
+    fireEvent.change(screen.getByLabelText('生年月日'), { target: { value: '1990-04-01' } })
+    fireEvent.change(screen.getByLabelText('電話番号'), { target: { value: '090-1234-5678' } })
+    fireEvent.change(screen.getByLabelText('住所1（丁目・番地まで）'), {
+      target: { value: '札幌市北区北十条西1-1' },
+    })
+    // D級へ降級（PII 非表示）→ 再び B級（全日協は changeGrade で ON に戻る）
+    selectGrade('D')
+    selectGrade('B')
+    // 旧 PII が復活していない
+    expect((screen.getByLabelText('生年月日') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('電話番号') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('住所1（丁目・番地まで）') as HTMLInputElement).value).toBe('')
+    expect((screen.getByRole('radio', { name: '男性' }) as HTMLInputElement).checked).toBe(false)
+  })
+
   it('action エラーは role=alert で表示され、入力は保持される', async () => {
     registerMock.mockResolvedValue({ error: '同名の会員が既に存在します。管理者にご連絡ください。' })
     const { container } = render(<RegisterForm token="t" />)

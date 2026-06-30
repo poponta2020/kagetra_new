@@ -61,6 +61,17 @@ export function RegisterForm({ token }: { token: string }) {
     setGrade(next)
     setDan('4')
     setZenNichikyo(true)
+    // 全日協 PII も初期化する。B/C/A で入力 → D/E へ降級 → 再び B/C/A に戻す
+    // 経路では changeGrade が zenNichikyo を ON に戻すため、PII 状態を残すと
+    // 旧入力が再表示時に復活してそのまま送信され得る。表示と値を同時に戻す。
+    setGender('')
+    setBirthDate('')
+    setPhone('')
+    setPostalCode('')
+    setAddress1('')
+    setAddress2('')
+    setDetachedHouse(false)
+    setZipStatus({ kind: 'idle' })
   }
 
   async function searchZip() {
