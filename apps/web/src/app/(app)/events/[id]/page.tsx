@@ -361,7 +361,16 @@ export default async function EventDetailPage({
           },
         ]
       : []),
-    { label: 'ステータス', value: <StatusPill status={event.status} size="sm" /> },
+    // draft 廃止: 通常状態 (published) はステータス行自体を出さない（StatusPill が
+    // null を返すため、無条件追加だとラベルだけで値が空の行になる）。中止/終了のみ表示。
+    ...(event.status !== 'published'
+      ? [
+          {
+            label: 'ステータス',
+            value: <StatusPill status={event.status} size="sm" />,
+          },
+        ]
+      : []),
   ]
 
   return (

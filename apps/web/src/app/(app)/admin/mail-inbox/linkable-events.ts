@@ -10,6 +10,8 @@
  * 一本化し、サーバー側でも同じ判定を回す。
  */
 
+import type { EventStatus } from '@kagetra/shared/types'
+
 /** 「過去 30 日以内」cutoff の YYYY-MM-DD 文字列を返す（JST 基準）。 */
 export function linkableEventCutoffStr(now: Date = new Date()): string {
   const todayJst = new Date(
@@ -25,7 +27,8 @@ export function linkableEventCutoffStr(now: Date = new Date()): string {
  * cutoff 以降であること。`undefined` 返却なら OK、文字列ならエラーメッセージ。
  */
 export function validateLinkableEvent(
-  event: { eventDate: string; status: 'draft' | 'published' | 'cancelled' | 'done' },
+  // draft 廃止: status は EventStatus（published/cancelled/done）。
+  event: { eventDate: string; status: EventStatus },
   cutoffStr: string,
 ): string | undefined {
   if (event.status === 'cancelled') {

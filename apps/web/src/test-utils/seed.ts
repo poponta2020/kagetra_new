@@ -49,7 +49,7 @@ export async function createViceAdmin(overrides: Partial<NewUser> = {}) {
 
 /**
  * Create an event. Required columns in schema: title, eventDate.
- * kind defaults to 'individual', status defaults to 'draft', official defaults to true.
+ * kind defaults to 'individual', status defaults to 'published', official defaults to true.
  */
 export async function createEvent(overrides: Partial<NewEvent> = {}) {
   const [event] = await testDb

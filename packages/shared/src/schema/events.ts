@@ -28,7 +28,7 @@ export const events = pgTable('events', {
   eventDate: date('event_date', { mode: 'string' }).notNull(),
   location: text('location'),
   capacity: integer('capacity'),
-  status: eventStatusEnum('status').notNull().default('draft'),
+  status: eventStatusEnum('status').notNull().default('published'),
   createdBy: text('created_by').references(() => users.id),
   formalName: text('formal_name'),
   official: boolean('official').notNull().default(true),

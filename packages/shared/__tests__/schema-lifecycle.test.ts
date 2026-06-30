@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  eventStatusEnum,
   eventEntryStatusEnum,
   eventPaymentTypeEnum,
   eventPaymentStatusEnum,
@@ -8,6 +9,20 @@ import {
   events,
   eventLifecycleNotifications,
 } from '../src/schema'
+
+describe('event_status enum (draft 廃止)', () => {
+  it('declares event_status as exactly the 3 values published/cancelled/done', () => {
+    // draft は廃止済み。順序も含めて固定（migration の text-swap で再生成した順）。
+    expect(eventStatusEnum.enumValues).toEqual(['published', 'cancelled', 'done'])
+    expect(eventStatusEnum.enumValues).not.toContain('draft')
+  })
+
+  it("events.status defaults to 'published' and stays NOT NULL", () => {
+    expect(events.status.notNull).toBe(true)
+    expect(events.status.hasDefault).toBe(true)
+    expect(events.status.default).toBe('published')
+  })
+})
 
 describe('event-lifecycle-notify schema', () => {
   it('declares the lifecycle enums with the exact spec values', () => {

@@ -400,19 +400,24 @@ export function EventForm({
           />
         </div>
 
-        <div>
-          <label className={LABEL_CLASS}>ステータス</label>
-          <select
-            name={n('status')}
-            defaultValue={defaultValues?.status ?? 'draft'}
-            className={FIELD_CLASS}
-          >
-            <option value="draft">下書き</option>
-            <option value="published">公開</option>
-            {mode === 'edit' && <option value="cancelled">中止</option>}
-            {mode === 'edit' && <option value="done">終了</option>}
-          </select>
-        </div>
+        {/* draft 廃止: 作成は常に published（status コントロールを出さない）。
+            編集時のみ 公開(通常)/中止/終了 を選べる（中止からの復帰=「公開(通常)」）。
+            作成経路（手動 events/new・承認 ApprovalForm はどちらも mode="create"）では
+            status 入力自体を描画しないので、form-schemas の既定 'published' が採用される。 */}
+        {mode === 'edit' && (
+          <div>
+            <label className={LABEL_CLASS}>ステータス</label>
+            <select
+              name={n('status')}
+              defaultValue={defaultValues?.status ?? 'published'}
+              className={FIELD_CLASS}
+            >
+              <option value="published">公開（通常）</option>
+              <option value="cancelled">中止</option>
+              <option value="done">終了</option>
+            </select>
+          </div>
+        )}
     </>
   )
 

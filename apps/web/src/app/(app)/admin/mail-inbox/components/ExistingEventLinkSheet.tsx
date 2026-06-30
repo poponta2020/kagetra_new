@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import type { EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
 import { linkMailToEvent } from '../actions'
 import { BROADCAST_LEAD_PRESETS, LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
@@ -22,7 +23,8 @@ export interface LinkableEventOption {
   id: number
   title: string
   eventDate: string
-  status: 'draft' | 'published' | 'cancelled' | 'done'
+  // draft 廃止: EventStatus は published/cancelled/done の 3 値。
+  status: EventStatus
 }
 
 export function ExistingEventLinkSheet({
