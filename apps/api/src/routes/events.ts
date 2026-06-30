@@ -11,7 +11,7 @@ const createEventSchema = z.object({
   eventDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   location: z.string().optional(),
   capacity: z.number().int().positive().optional(),
-  status: z.enum(['draft', 'published', 'cancelled', 'done']).optional(),
+  status: z.enum(['published', 'cancelled', 'done']).optional(),
   formalName: z.string().max(200).optional(),
   official: z.boolean().optional(),
   kind: z.enum(['individual', 'team']).optional(),

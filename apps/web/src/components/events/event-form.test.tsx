@@ -163,4 +163,55 @@ describe('EventForm', () => {
       (container.querySelector('[name="editionNumber"]') as HTMLInputElement).value,
     ).toBe('28')
   })
+
+  // draft 廃止: status コントロールの出し分け ---------------------------------
+  it("mode='create' では status コントロールを描画しない（常に published で作成）", () => {
+    const { container } = render(
+      <EventForm mode="create" action={noop} cancelHref="/events" />,
+    )
+    expect(container.querySelector('[name="status"]')).toBeNull()
+  })
+
+  it("embedded（承認画面・mode='create'）でも status コントロールを描画しない", () => {
+    const { container } = render(
+      <EventForm
+        mode="create"
+        action={noop}
+        cancelHref="/events"
+        fieldPrefix="u1__"
+      />,
+    )
+    expect(container.querySelector('[name="u1__status"]')).toBeNull()
+    expect(container.querySelector('[name="status"]')).toBeNull()
+  })
+
+  it("mode='edit' では status コントロールが 公開(通常)/中止/終了 の 3 値で描画される（既定 published）", () => {
+    const { container } = render(
+      <EventForm mode="edit" action={noop} cancelHref="/events/1" />,
+    )
+    const select = container.querySelector('[name="status"]') as HTMLSelectElement | null
+    expect(select).toBeTruthy()
+    const optionValues = Array.from(select!.options).map((o) => o.value)
+    expect(optionValues).toEqual(['published', 'cancelled', 'done'])
+    // draft option が消えていること
+    expect(optionValues).not.toContain('draft')
+    // 既定は published（defaultValue 未指定時）
+    expect(select!.value).toBe('published')
+  })
+
+  it("mode='edit' で defaultValues.status=cancelled が select に反映される（中止からの復帰導線）", () => {
+    const { container } = render(
+      <EventForm
+        mode="edit"
+        action={noop}
+        cancelHref="/events/1"
+        defaultValues={{ status: 'cancelled' }}
+      />,
+    )
+    const select = container.querySelector('[name="status"]') as HTMLSelectElement
+    expect(select.value).toBe('cancelled')
+    // 「公開（通常）」の option があるので通常状態に戻せる
+    const optionValues = Array.from(select.options).map((o) => o.value)
+    expect(optionValues).toContain('published')
+  })
 })

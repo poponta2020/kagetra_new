@@ -123,7 +123,9 @@ function buildApproveFormData(overrides: Partial<Record<string, string>> = {}) {
   // Required-or-defaulted fields
   fd.set('title', 'AI 抽出から承認した大会')
   fd.set('eventDate', '2030-06-15')
-  fd.set('status', 'draft')
+  // draft 廃止: 承認＝公開作成。status は published（フォームは create で
+  // status 入力を出さないが、テストは extract が拾える値を明示しておく）。
+  fd.set('status', 'published')
   fd.set('kind', 'individual')
   // The checkbox `official` uses 'on' for true; omit to leave false.
   fd.set('official', 'on')
@@ -227,7 +229,8 @@ function buildUnitsFormData(
     if (s.register !== false) fd.set(`${s.unitKey}__register`, 'on')
     fd.set(`${s.unitKey}__title`, s.title ?? `大会-${s.unitKey}`)
     fd.set(`${s.unitKey}__eventDate`, s.eventDate ?? '2031-01-11')
-    fd.set(`${s.unitKey}__status`, 'draft')
+    // draft 廃止: 承認＝公開作成。
+    fd.set(`${s.unitKey}__status`, 'published')
     fd.set(`${s.unitKey}__kind`, 'individual')
     fd.set(`${s.unitKey}__official`, 'on')
     for (const g of s.grades ?? []) fd.set(`${s.unitKey}__grade_${g}`, 'on')
