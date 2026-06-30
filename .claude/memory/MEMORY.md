@@ -4,6 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [招待登録リデザイン＆プロフィール拡張](project_invite_register_redesign.md) — /register/[token] A-flat脱カード＋氏名分割/段位/全日協PII収集。**全6タスク実装完了・feature/invite-register-redesign push済(7コミット)・Codexレビュー直前で停止中**(再開=/prepare-pr)。migration0035・zen_nichikyo流用・住所2は戸建てチェックでフロント必須免除・api/zipはmiddleware除外
 - [招待リンク会員セルフ登録 機能定義](project_invite_link_registration_def.md) — 招待URL→LINEログイン→氏名+級入力で会員登録〜ログイン完結。URL期限内複数人可・不正対策不要(期限のみ)・LINE必須維持・enum invite_link追加・新表registration_invites・middleware /register/* 例外。**実装完了→[[impl_invite_link_registration]]**
 - [招待リンク会員セルフ登録 SHIPPED](impl_invite_link_registration.md) — PR#182 merge `62e9da9`(2026-06-26)・親#173+子#174-181全クローズ・migration0030。非自明=トークンはWeb Cryptoグローバル(node:crypto不可・E2Eがwebpackビルド破壊検出)/registerViaInviteはself-identify同型(unstable_updateにid渡さずnodeJwtCallbackが解決・Codex R1のblockerはfalse positiveでoverride ship)/同名→文言・同一LINE二重→/誘導。残=本番実機目視(0030はauto-deploy適用)
 - [PDF/Word 55件 ローカルDB取込](impl_ingest_pdfword_localdb.md) — PDF/Wordのみで未取込だった個人戦**55件全取込完了**(対戦表有22+入賞者のみ30+団体3、新規約6,800対戦)。番号参照シートはpdfplumberグリッド(parse_grid2)、画像PDFはPNG化→目視で攻略。PyMuPDF/word-extractor抽出。本番DB未変更。成果物=docs/調査用/分析レポート/REPORT_pdf_word_ingest.md

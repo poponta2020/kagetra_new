@@ -219,6 +219,130 @@ describe('Admin member profile edit actions', () => {
       })
       expect(unchanged?.grade).toBe('A')
     })
+
+    it('構造化氏名＋全日協PII の9列を更新できる（name は変更しない・郵便は正規化）', async () => {
+      const admin = await createAdmin({ name: 'admin-pii' })
+      const target = await createUser({ name: 'PII 対象', grade: 'B' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: 'B',
+          gender: 'male',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: 'on',
+          familyName: '山田',
+          givenName: '太郎',
+          familyKana: 'やまだ',
+          givenKana: 'たろう',
+          birthDate: '1990-04-01',
+          phone: '090-1234-5678',
+          postalCode: '001-0010',
+          address1: '札幌市北区北十条西1-1',
+          address2: '101号室',
+        }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+
+      const updated = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      // name（合成表示名）は再合成しない＝正典のまま。
+      expect(updated?.name).toBe('PII 対象')
+      expect(updated?.familyName).toBe('山田')
+      expect(updated?.givenName).toBe('太郎')
+      expect(updated?.familyKana).toBe('やまだ')
+      expect(updated?.givenKana).toBe('たろう')
+      expect(updated?.birthDate).toBe('1990-04-01')
+      expect(updated?.phone).toBe('090-1234-5678')
+      expect(updated?.postalCode).toBe('0010010')
+      expect(updated?.address1).toBe('札幌市北区北十条西1-1')
+      expect(updated?.address2).toBe('101号室')
+    })
+
+    it('空欄の新列は null で保存され、不正なふりがな（カタカナ）は拒否する', async () => {
+      const admin = await createAdmin({ name: 'admin-pii-2' })
+      const target = await createUser({
+        name: 'クリア 対象',
+        familyName: '旧姓',
+        givenName: '旧名',
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      // 不正なふりがな（カタカナ）は拒否。
+      const bad = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          familyKana: 'ヤマダ',
+        }),
+      )
+      expect(bad.error).toContain('ひらがな')
+
+      // 空欄送信で新列は null にクリアされる。
+      const ok = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          familyName: '',
+          givenName: '',
+          familyKana: '',
+          givenKana: '',
+          birthDate: '',
+          phone: '',
+          postalCode: '',
+          address1: '',
+          address2: '',
+        }),
+      )
+      expect(ok.success).toBe(true)
+      const updated = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(updated?.familyName).toBeNull()
+      expect(updated?.givenName).toBeNull()
+      expect(updated?.birthDate).toBeNull()
+      expect(updated?.postalCode).toBeNull()
+    })
+
+    it('未来日の生年月日は登録側と同様に拒否する（DB は不変）', async () => {
+      const admin = await createAdmin({ name: 'admin-future-bd' })
+      const target = await createUser({ name: '未来日対象', grade: 'B' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: 'B',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          birthDate: '2999-01-01',
+        }),
+      )
+      expect(result.error).toBeDefined()
+
+      const unchanged = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(unchanged?.birthDate).toBeNull()
+    })
   })
 
   describe('toggleMemberDeactivation', () => {

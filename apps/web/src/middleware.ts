@@ -84,6 +84,10 @@ export const config = {
     // attachment / image 配信エンドポイントは未認証アクセスが前提
     // (LINE グループの非ログインゲスト含む)。middleware を通すと
     // /auth/signin にリダイレクトされて到達不能になる。
-    '/((?!api/auth|api/webhook/line|api/line-broadcast|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
+    // invite-register-redesign: /api/zip は /register/* 登録中の未紐付け
+    // (id 未設定) ユーザーが叩くため、ここを通すと /self-identify へ
+    // リダイレクトされ郵便番号→住所補完が失敗する。無認証・無鍵の
+    // 公開 zipcloud プロキシなので matcher から除外する。
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
   ],
 }
