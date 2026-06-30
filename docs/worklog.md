@@ -2724,3 +2724,14 @@
   - R1②: 登録フォーム `changeGrade` が dan/zenNichikyo しかリセットせず、B/C/A で入力した PII が D/E 降級→再昇級で復活し送信され得た→ gender/birthDate/phone/postalCode/address1/address2/detachedHouse/zipStatus も初期化。回帰テスト2件追加（admin 未来日拒否・降級再昇級でPIIリセット）。web 50 tests green。
 - CI `Lint/Typecheck/Test` green（5m44s）。本番 migration 0035 は auto-deploy 対象（main push で適用）。残 DoD=本番実機目視（招待URL登録の各級パターン＋全日協PII＋郵便→住所＋管理者編集）。
 - **環境ハマり:** codex CLI 0.130.0 が `~/.codex/config.toml` の `service_tier = "default"`（Codex Desktop が書く値・CLI は `fast`/`flex` のみ受理）で**起動時パース失敗→codex CLI 全体が無効**。当該行を除去して解消。worktree 物理ディレクトリは node_modules 長パスで一度削除失敗→PowerShell リトライ＋`rmdir /s /q` フォールバックで除去。
+
+## 2026-06-30 イベント下書き(draft)ステータス廃止 SHIPPED（計画 → PR #207）
+- `event_status` を 4値→**3値(published/cancelled/done)** に縮約し「下書き」概念を廃止。作成は常に published(status コントロール非表示)、編集のみ 公開(通常)/中止/終了。表示ピルは cancelled=中止/done=終了 のみ(published/未知/null は非表示)。機能退行ゼロ。**PR #207 merge `888307f`**（migration 0036）。GitHub Issue なし（make-plan ベース）。
+- `/do-plan` で worktree 隔離実装→`/prepare-pr`→`/auto-review-loop`→`/ship` を自律完走。実装は単一 worktree 共有のため **3 subagent を逐次**（並行編集は破壊的）+リベース整合 subagent。
+- **並行衝突対応:** 着手時 pre-flight で「ローカル worktree `feature/import-past-results` は無関係(無衝突)」を確認。一方 **実装中にオープン PR #206 が migration 0035 を先取りマージ**→ユーザー合意で暫定 0036 採番→#206 マージ後に origin/main へリベース＋`db:generate` で migration 再生成。衝突は `_journal.json` の1ファイルのみ。**snapshot 連鎖の検証が肝**（`0036_snapshot.json` prevId=0035 の id・users PII列を含む・journal idx36）。
+- **migration 0036（手書き text-swap）:** enum 値削除は PostgreSQL/drizzle の auto-migration バグ回避で手書き（DROP DEFAULT→UPDATE draft→published→text化(`USING "status"::text`)→DROP TYPE→CREATE 3値→USING戻し→SET DEFAULT published）。隔離スクラッチ DB でフルチェーン db:migrate(0001→0036) 完走＋draft→published 実証。
+- `/auto-review-loop` PR #207: 2R, verdict=pass, effort=h→h, tokens=414,034/500,000, result=pass。
+  - R1（high）: blocker=1/should_fix=1/nit=1。**実欠陥1=詳細画面 `events/[id]/page.tsx` のステータス行が無条件追加→published で StatusPill が null を返すとラベルだけ値が空の回帰**（計画はリスト/archive のみ挙げ詳細を見落とし）→`event.status !== 'published'` で条件化。blocker(enum→text に USING)は防御的に追加（PG16 では USING 無しでも通るが移植性）。nit(`screen` 未使用)は**誤検出**＝実使用中で却下。commit `8796556`。
+  - R2（high）: blockers/should_fix/nits ゼロ → pass。
+- CI `Lint/Typecheck/Test` green（5m43s）。本番 migration 0036 は auto-deploy 対象（main push で適用）。残 DoD=本番実機目視（作成=status コントロール無し・ピル無し→編集で中止/終了→中止解除で通常復帰）。
+- **教訓:** 表示ヘルパの戻り値を null 許容化したら、inline 利用だけでなく label/value 行を組む全箇所（特に詳細画面の detailItems）を監査すること。
