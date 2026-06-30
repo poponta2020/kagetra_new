@@ -2716,3 +2716,11 @@
 - **検証(この端末で実施済み):** shared 16 / web 789(+1既存skip) / E2E invite-link-registration 10/10 / check-types(shared・web・api・mail-worker)+lint 全 green。
 - **別端末での再開手順:** ①`git fetch origin` ②`git worktree add <任意のパス> feature/invite-register-redesign`（or `git checkout`）③`pnpm install` ④テストDB起動（Docker `kagetra-db-test` :5434＝`docker compose -f docker/docker-compose.yml up -d postgres-test`）⑤続行するなら `/prepare-pr feature/invite-register-redesign`（PR作成→auto-review-loop→Codex）。
 - **実装の非自明点:** birth_date は drizzle `date()` string モード('YYYY-MM-DD')／**middleware matcher に `api/zip` 除外を追加**（未除外だと未紐付け登録者が /self-identify へ飛ぶ）／registerViaInvite はサーバー側で不変条件強制（級≠A→dan null・級∉{A,B,C}→zen=false・zen OFF→PII全null）・郵便7桁正規化・name=「姓 名」合成／`noUncheckedIndexedAccess` で `split('-').map(Number)` 分割代入NG→`Number(parts[i])`／フォーム住所2は `required={!戸建てチェック}`＝戸建て未チェックだとネイティブHTML5検証で送信ブロック／管理者編集は name を再合成しない（新列は補助）。詳細は `.claude/memory/project_invite_register_redesign.md` の「実装完了」節。
+
+## 2026-06-30 invite-register-redesign SHIPPED（親#199 → PR #206）
+- 前夜にハンドオフで Codex レビュー直前停止していた `feature/invite-register-redesign` を `/prepare-pr`→`/auto-review-loop`→`/ship` で出荷。**PR #206 merge `f8d8f5c`**。親 #199＋子 #200-205 全クローズ。migration 0035（users に nullable 9列）。
+- **Codex auto-review 2R で pass**（effort=high・累計 227,172/500,000 tokens）。R1=should_fix 2件→`/fix`（commit `10f51c3`）→R2=pass。
+  - R1①: 管理者会員編集の `isRealYmd` が未来日を許容（登録側 `validateBirthDate` は未来日拒否）→ 共有 `users.birth_date` への両書込経路で「実在日・1900年以降・未来日でない」を揃えた。
+  - R1②: 登録フォーム `changeGrade` が dan/zenNichikyo しかリセットせず、B/C/A で入力した PII が D/E 降級→再昇級で復活し送信され得た→ gender/birthDate/phone/postalCode/address1/address2/detachedHouse/zipStatus も初期化。回帰テスト2件追加（admin 未来日拒否・降級再昇級でPIIリセット）。web 50 tests green。
+- CI `Lint/Typecheck/Test` green（5m44s）。本番 migration 0035 は auto-deploy 対象（main push で適用）。残 DoD=本番実機目視（招待URL登録の各級パターン＋全日協PII＋郵便→住所＋管理者編集）。
+- **環境ハマり:** codex CLI 0.130.0 が `~/.codex/config.toml` の `service_tier = "default"`（Codex Desktop が書く値・CLI は `fast`/`flex` のみ受理）で**起動時パース失敗→codex CLI 全体が無効**。当該行を除去して解消。worktree 物理ディレクトリは node_modules 長パスで一度削除失敗→PowerShell リトライ＋`rmdir /s /q` フォールバックで除去。

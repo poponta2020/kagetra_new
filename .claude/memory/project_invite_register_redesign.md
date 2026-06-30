@@ -1,6 +1,6 @@
 ---
 name: project_invite_register_redesign
-description: "招待URL会員登録リデザイン＆プロフィール拡張。全6タスク実装完了・feature/invite-register-redesign push済(7コミット)・Codexレビュー前で停止中。migration0035"
+description: "招待URL会員登録リデザイン＆プロフィール拡張。全6タスク実装＋Codex2Rレビュー対応→SHIPPED。PR#206 merge f8d8f5c(2026-06-30)・親#199＋子#200-205全クローズ・migration0035。残=本番実機目視"
 metadata: 
   node_type: memory
   type: project
@@ -28,3 +28,10 @@ metadata:
   - フォームの下線セグメント＝sr-only `<input type=radio>`＋ラベル。E2E は `getByText(label,{exact})` でラベルクリック。住所2は `required={!detachedHouse}`＝戸建て未チェックだと**ネイティブHTML5検証で送信ブロック**（E2E A級でこれに嵌り、戸建てチェック or 住所2入力が必要）。
   - 管理者編集(T5)は新9列を直接 表示/編集（段階表示なし）。`name` は**再合成しない**＝正典のまま（新列は補助）。可視性は既存ロール制御(admin/vice_admin のみ到達)で担保。
   - test/E2E は docker `kagetra-db-test`(5434) 必須。worktree に pnpm install 済。Docker Desktop 起動→`docker compose -f <main>/docker/docker-compose.yml up -d postgres-test`（worktree cwd 回避は[[feedback_no_longlived_process_from_worktree_cwd]]）。
+
+## SHIPPED（2026-06-30・/prepare-pr→/auto-review-loop→/ship）— PR #206 merge `f8d8f5c`
+ハンドオフ後に別端末で再開し出荷。親 #199＋子 #200-205 全クローズ。本番 migration 0035 は auto-deploy 対象（main push で適用）。残 DoD=本番実機目視（招待URL登録 各級＋全日協PII＋郵便→住所＋管理者編集）。
+- **Codex auto-review 2R で pass**（effort=high・累計 227,172 tokens）。R1=should_fix 2件→`/fix`(commit `10f51c3`)→R2=pass。修正2点（いずれも回帰テスト追加・web 50 tests green）:
+  - **未来日の生年月日**: 管理者編集の `isRealYmd` が未来日を許容していた（登録側 `validateBirthDate` は未来日拒否）。共有 `users.birth_date` への両書込経路で「実在日・1900年以降・未来日でない」に統一。
+  - **changeGrade の PII リセット漏れ**: dan/zenNichikyo しか戻さず、B/C/A で入力した PII が D/E 降級→再昇級で復活し送信され得た（changeGrade が zenNichikyo を ON に戻すため）。gender/birthDate/phone/postalCode/address1/address2/detachedHouse/zipStatus も初期化しコメント通りの挙動に。
+- **環境ハマり（再発注意）:** codex CLI 0.130.0 が `~/.codex/config.toml` の `service_tier = "default"`（Codex Desktop 書込値・CLI は `fast`/`flex` のみ受理）で**起動時パース失敗→codex CLI 全体が無効**。当該行除去で解消（[[reference_codex_config_service_tier]]）。worktree 物理ディレクトリは node_modules 長パスで一度削除失敗→PowerShell リトライ＋`rmdir /s /q` で除去。
