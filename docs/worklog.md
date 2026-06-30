@@ -2733,5 +2733,7 @@
 - `/auto-review-loop` PR #207: 2R, verdict=pass, effort=h→h, tokens=414,034/500,000, result=pass。
   - R1（high）: blocker=1/should_fix=1/nit=1。**実欠陥1=詳細画面 `events/[id]/page.tsx` のステータス行が無条件追加→published で StatusPill が null を返すとラベルだけ値が空の回帰**（計画はリスト/archive のみ挙げ詳細を見落とし）→`event.status !== 'published'` で条件化。blocker(enum→text に USING)は防御的に追加（PG16 では USING 無しでも通るが移植性）。nit(`screen` 未使用)は**誤検出**＝実使用中で却下。commit `8796556`。
   - R2（high）: blockers/should_fix/nits ゼロ → pass。
-- CI `Lint/Typecheck/Test` green（5m43s）。本番 migration 0036 は auto-deploy 対象（main push で適用）。残 DoD=本番実機目視（作成=status コントロール無し・ピル無し→編集で中止/終了→中止解除で通常復帰）。
+- CI `Lint/Typecheck/Test` green（PR チェック 5m43s）。
+- **本番 deploy 成功・migration 0036 適用済**（`Migration summary: applied=1, skipped=36`・web/api/mail-worker build＋restart＋healthcheck 307）。残 DoD=本番実機目視（作成=status コントロール無し・ピル無し→編集で中止/終了→中止解除で通常復帰）。
+- **CI flake 注意:** merge commit `888307f` の main CI が `new-member-form.test.tsx`（本 PR 無関係・管理画面会員作成）の「フォーム reset」アサーションで失敗（`expected '札幌次郎' to be ''`・ログに `users_name_unique` 等 **共有 test DB 並列競合**）→ deploy skip。ただし**直後の docs commit `f9e9f8e` の auto-deploy が `before:e14bb9a→after:f9e9f8e` の差分（=888307f の code+migration 0036 を含む）を吸収してフルデプロイ**したため実害ゼロ。`gh run rerun 888307f --failed` で merge CI も green 化（rerun 時の deploy は既に f9e9f8e で NOOP）。CI は `--no-file-parallelism` 無しで走るため member 系テストがたまに flaky（[[feedback_vitest_no_file_parallelism]]）＝別 PR 候補。
 - **教訓:** 表示ヘルパの戻り値を null 許容化したら、inline 利用だけでなく label/value 行を組む全箇所（特に詳細画面の detailItems）を監査すること。
