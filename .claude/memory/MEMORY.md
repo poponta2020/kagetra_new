@@ -4,7 +4,6 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
-- [招待登録リデザイン＆プロフィール拡張 SHIPPED](project_invite_register_redesign.md) — /register/[token] A-flat脱カード＋氏名分割/段位/全日協PII収集。**PR#206 merge `f8d8f5c`(2026-06-30)・親#199＋子#200-205全クローズ・migration0035**。Codex2R pass(R1=未来生年月日の検証統一＋changeGradeのPIIリセット漏れを修正)。zen_nichikyo流用・住所2は戸建てチェックでフロント必須免除・api/zipはmiddleware除外。残=本番実機目視
 - [招待リンク会員セルフ登録 機能定義](project_invite_link_registration_def.md) — 招待URL→LINEログイン→氏名+級入力で会員登録〜ログイン完結。URL期限内複数人可・不正対策不要(期限のみ)・LINE必須維持・enum invite_link追加・新表registration_invites・middleware /register/* 例外。**実装完了→[[impl_invite_link_registration]]**
 - [招待リンク会員セルフ登録 SHIPPED](impl_invite_link_registration.md) — PR#182 merge `62e9da9`(2026-06-26)・親#173+子#174-181全クローズ・migration0030。非自明=トークンはWeb Cryptoグローバル(node:crypto不可・E2Eがwebpackビルド破壊検出)/registerViaInviteはself-identify同型(unstable_updateにid渡さずnodeJwtCallbackが解決・Codex R1のblockerはfalse positiveでoverride ship)/同名→文言・同一LINE二重→/誘導。残=本番実機目視(0030はauto-deploy適用)
 - [PDF/Word 55件 ローカルDB取込](impl_ingest_pdfword_localdb.md) — PDF/Wordのみで未取込だった個人戦**55件全取込完了**(対戦表有22+入賞者のみ30+団体3、新規約6,800対戦)。番号参照シートはpdfplumberグリッド(parse_grid2)、画像PDFはPNG化→目視で攻略。PyMuPDF/word-extractor抽出。本番DB未変更。成果物=docs/調査用/分析レポート/REPORT_pdf_word_ingest.md
@@ -56,6 +55,8 @@
 - [ピンチ/入力フォーカスズーム抑制 SHIPPED](impl_disable_pinch_zoom.md) — viewport export に `maximumScale:1`+`userScalable:false`(layout.tsx)でモバイル全ルートのピンチ＋iOS入力フォーカス自動ズームを抑制(match-tracker同等)。PR#192 merge `3c0ee83`(2026-06-29)。非自明=Next.jsはdefault viewport(width/initial-scale)をフィールド単位merge→maximumScale追加だけで等価/ベース15px(<16px)だがmaximum-scale=1でフォーカスズームもno-op(font-size:16px案は不採用)/Codexのaccessibility needs_changes(コード欠陥0)をoverride ship。残=実機目視
 - [戦績検索結果の所属会を直近大会の所属に SHIPPED](impl_player_search_recent_affiliation.md) — /players 検索結果の所属が常に「所属不明」だった(players.affiliationはmigration0029以降常にnull)。searchPlayersのaffiliationを相関サブクエリ化し直近大会(event_date降順NULLS LAST・同日id降順)のparticipant所属を引く＝詳細ヘッダ/対戦相手と一致。PR#194 merge `2c9360f`(2026-06-29)。スキーマ非変更/16tests green/Codex1R pass。残=本番実機目視
 - [イベント下書き(draft)廃止 SHIPPED](impl_remove_event_draft_status.md) — event_status を3値(published/cancelled/done)化し下書き概念廃止。**PR#207 merge `888307f`(2026-06-30、do-plan→ship自律完走)**。worktree実装(3subagent逐次)。**実装中に#206が0035先取り→暫定0036→#206マージ後にrebase+migration再生成(snapshot prevId=0035連鎖が肝)**。enum削除は手書きtext-swap。Codex2R pass(R1=詳細画面のpublished空ステータス行を条件化・null化したら全label/value行を監査せよ/blocker USINGは防御追加/nit誤検出却下)。**本番deploy成功・0036適用済(applied=1/skipped=36)**。残=実機目視のみ
+- [統計タブ再編(senseki-stats) 計画完了・PR-1実装中](project_senseki_stats_tab.md) — 戦績→「統計」4セクション化。design-spec **locked**＋requirements/implementation-plan **completed**＝収束ゲート達成、**Issue親#208+子#209-219(5PR)**。級タブ=旧クロス表(逆三角形)復元/大会統計6図+図詳細/derived_bracket基盤(migration 0037)/選手検索は既存流用。**PR-1(基盤)実装完了→[[impl_senseki_stats_pr1_derived_bracket]]**・残=PR-2〜5
+- [senseki-stats PR-1 基盤(derived_bracket) SHIPPED](impl_senseki_stats_pr1_derived_bracket.md) — tournament_participants.derived_bracket(順位bracket 1=優勝/2/4/8…・導出不能null) 追加。**PR #220 merge `7661fae`(2026-07-01・/implement→ship 自律完走)**・#209/#210/#211 全クローズ。順位定義は単一ソース `deriveClassBrackets`(materialize/backfill/getPlayerRecord 合意)・部分index(bracket,player_id)WHERE not null・冪等backfill(--dry-run)。Codex R1のblocker(all-or-nothing化)は§4.1違反でoverride＋SSOTテスト追加→R2 pass。shared19+web813 green。**残=本番0037適用+backfill dump/apply(投入待ち)・実機目視**
 
 ## Reference
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須
@@ -65,7 +66,7 @@
 - [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
 - [かるた協会 会員ページ ログイン資格情報](reference_karuta_member_page_credentials.md) — ID/PW は repo root の `.credentials.local.md`（gitignored）。パスワード本体はmemory/コードに書かない
 - [公認大会 定員超過時の抽選優遇ルール](reference_karuta_kounin_taikai_lottery.md) — 競技会規程第二条三=出場回数の「少ない」選手を優先(多い人有利は誤解)。doc=docs/reference/公認大会-抽選-出場回数優先ルール.md
-- [codex CLI の場所](reference_codex_cli_location.md) — npm global で PATH 導入済み(2026-06-29, codex 0.142.3)。`codex` でそのまま動く。~/.codex/.sandbox-bin は古く gpt-5.5 非対応なので直接呼ばない
+- [codex config service_tier で CLI 全停止](reference_codex_config_service_tier.md) — ~/.codex/config.toml の `service_tier="default"`(Desktop書込)で codex CLI 0.130.0 が起動時パース失敗→auto-review-loop 全停止。当該行削除で解消・再発注意
 
 ## Feedback
 - [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
