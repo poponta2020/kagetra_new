@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getPlayerName, getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
+import { buildRankingHref, parseRankingParams } from '../ranking/metrics'
+import { BackButton } from './BackButton'
 import { SensekiTimeline, type TimelineYear } from './SensekiTimeline'
 
 export const dynamic = 'force-dynamic'
@@ -36,7 +38,8 @@ export default async function PlayerDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ from?: string }>
+  // ランキング由来（?from=ranking＋絞り込み params）を複写できるよう全 searchParams を受ける。
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
@@ -48,13 +51,24 @@ export default async function PlayerDetailPage({
   const record = await getPlayerRecord(playerId)
   if (!record) notFound()
 
-  // 相手名タップで別選手から遷移してきた場合（?from=遷移元id）、戻る導線は
-  // 遷移元の選手詳細へ向ける。無効/自分自身/存在しない id は通常の検索へ戻る。
-  const { from } = await searchParams
-  const fromId = Number(from)
+  // 戻る導線の分岐（?from=…）。
+  // - `from=ranking` → ランキングへ戻る（router.back でスクロール保持・href フォールバックは
+  //   絞り込み params を再構成した URL）。数値 `from` とは排他（Number('ranking')=NaN）。
+  // - 正の整数 → 相手名タップの遷移元選手詳細へ戻る（既存）。
+  // - それ以外 → 選手検索へ戻る（既存）。
+  const sp = await searchParams
+  const fromRaw = Array.isArray(sp.from) ? sp.from[0] : sp.from
+  const fromId = Number(fromRaw)
   const fromName =
     Number.isInteger(fromId) && fromId > 0 && fromId !== playerId
       ? await getPlayerName(fromId)
+      : null
+  const rankingBackHref =
+    fromRaw === 'ranking'
+      ? (() => {
+          const { metric, filter, explicit } = parseRankingParams(sp, new Date().getFullYear())
+          return buildRankingHref(metric, filter, explicit)
+        })()
       : null
 
   const {
@@ -132,7 +146,9 @@ export default async function PlayerDetailPage({
   return (
     <div className="flex flex-col gap-4 p-4">
       <div>
-        {fromName ? (
+        {rankingBackHref ? (
+          <BackButton href={rankingBackHref} label="← ランキングへ戻る" />
+        ) : fromName ? (
           <Link href={`/players/${fromId}`} className="text-sm text-brand-fg">
             ← {fromName} の戦績へ戻る
           </Link>

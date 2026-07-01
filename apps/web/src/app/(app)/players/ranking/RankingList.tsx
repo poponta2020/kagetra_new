@@ -4,7 +4,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { RankingMetric, RankingRow } from '@/lib/stats/ranking'
 import type { StatsFilter } from '@/lib/stats/types'
-import { formatMetricSub, formatMetricValue, metricDef } from './metrics'
+import {
+  buildPlayerHrefFromRanking,
+  formatMetricSub,
+  formatMetricValue,
+  metricDef,
+} from './metrics'
 import { loadMoreRanking } from './actions'
 
 /**
@@ -21,11 +26,14 @@ export function RankingList({
   total,
   metric,
   filter,
+  explicit,
 }: {
   initialRows: RankingRow[]
   total: number
   metric: RankingMetric
   filter: StatsFilter
+  /** 明示的に絞り込み中か（行→詳細リンクへ絞り込み条件を複写＝戻り先復元のため）。 */
+  explicit: boolean
 }) {
   const [rows, setRows] = useState<RankingRow[]>(initialRows)
   const [loading, setLoading] = useState(false)
@@ -71,7 +79,7 @@ export function RankingList({
           return (
             <li key={r.playerId}>
               <Link
-                href={`/players/${r.playerId}`}
+                href={buildPlayerHrefFromRanking(r.playerId, metric, filter, explicit)}
                 className="flex items-center gap-3 py-2.5 hover:bg-surface-alt"
               >
                 <span className="w-8 shrink-0 text-right font-display text-lg font-bold text-ink tabular-nums">

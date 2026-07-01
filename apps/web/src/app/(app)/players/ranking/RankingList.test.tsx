@@ -18,7 +18,7 @@ const row = (over: Partial<RankingRow> & { rank: number; playerId: number }): Ra
 })
 
 describe('RankingList — 行描画', () => {
-  it('順位・氏名・所属・指標値＋単位を出す（行タップ→戦績詳細）', () => {
+  it('順位・氏名・所属・指標値＋単位を出す（行タップ→戦績詳細・from=ranking）', () => {
     render(
       <RankingList
         initialRows={[
@@ -28,6 +28,7 @@ describe('RankingList — 行描画', () => {
         total={2}
         metric="wins"
         filter={{}}
+        explicit={false}
       />,
     )
     expect(screen.getByText('一位太郎')).toBeTruthy()
@@ -37,9 +38,25 @@ describe('RankingList — 行描画', () => {
     // 値＋単位（勝利＝勝）
     expect(screen.getByText('12')).toBeTruthy()
     expect(screen.getAllByText('勝').length).toBeGreaterThan(0)
-    // 行は /players/{id} へのリンク
+    // 行は /players/{id}?…&from=ranking（現在の指標を複写）へのリンク
     const link = screen.getByText('一位太郎').closest('a')
-    expect(link?.getAttribute('href')).toBe('/players/10')
+    expect(link?.getAttribute('href')).toBe('/players/10?metric=wins&from=ranking')
+  })
+
+  it('明示モードの行リンクは f=1＋絞り込み params を from=ranking と共に複写する', () => {
+    render(
+      <RankingList
+        initialRows={[row({ rank: 1, playerId: 42, displayName: '甲', value: 3 })]}
+        total={1}
+        metric="wins"
+        filter={{ grades: ['A'], yearFrom: 2021, yearTo: 2026 }}
+        explicit={true}
+      />,
+    )
+    const link = screen.getByText('甲').closest('a')
+    expect(link?.getAttribute('href')).toBe(
+      '/players/42?metric=wins&f=1&yearFrom=2021&yearTo=2026&grades=A&from=ranking',
+    )
   })
 
   it('勝率は小数第1位＋副次（N戦）を出す', () => {
@@ -49,6 +66,7 @@ describe('RankingList — 行描画', () => {
         total={1}
         metric="winRate"
         filter={{}}
+        explicit={false}
       />,
     )
     expect(screen.getByText('66.7')).toBeTruthy()
@@ -63,6 +81,7 @@ describe('RankingList — 行描画', () => {
         total={1}
         metric="wins"
         filter={{}}
+        explicit={false}
       />,
     )
     const nameEl = screen.getByText('とても長い選手名'.repeat(4))
@@ -72,7 +91,9 @@ describe('RankingList — 行描画', () => {
 
 describe('RankingList — 空 / もっと見る', () => {
   it('該当0件は空状態文言（もっと見る無し）', () => {
-    render(<RankingList initialRows={[]} total={0} metric="championships" filter={{}} />)
+    render(
+      <RankingList initialRows={[]} total={0} metric="championships" filter={{}} explicit={false} />,
+    )
     expect(screen.getByText('該当する選手がいません。')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /もっと見る/ })).toBeNull()
   })
@@ -88,6 +109,7 @@ describe('RankingList — 空 / もっと見る', () => {
         total={3}
         metric="wins"
         filter={{ grades: ['A'] }}
+        explicit={true}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
@@ -107,6 +129,7 @@ describe('RankingList — 空 / もっと見る', () => {
         total={10}
         metric="wins"
         filter={{}}
+        explicit={false}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
@@ -122,6 +145,7 @@ describe('RankingList — 空 / もっと見る', () => {
         total={10}
         metric="wins"
         filter={{}}
+        explicit={false}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
@@ -146,6 +170,7 @@ describe('RankingList — 空 / もっと見る', () => {
         total={10}
         metric="wins"
         filter={{}}
+        explicit={false}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))

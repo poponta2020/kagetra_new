@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import {
   matches,
@@ -7,6 +7,7 @@ import {
   tournamentParticipants,
   tournaments,
 } from '@kagetra/shared/schema'
+import { periodConds } from './filters'
 import {
   coerceRankingMetric,
   sanitizeStatsFilter,
@@ -61,20 +62,76 @@ function filterConds(filter: StatsFilter): SQL[] {
 }
 
 /**
- * 直近大会（event_date 降順 NULLS LAST・同日は tournament id 降順）の participant 所属。
- * searchPlayers（[[impl_player_search_recent_affiliation]]）と同一ロジック＝戦績詳細
- * ヘッダ・検索結果・ランキングで所属表示が一致する。
+ * ⑤現級母集団の制限断片。**級フィルタ有り＋トグルOFF**（`includeFormerGrade` 偽）のときだけ
+ * 「**現級 ∈ 選択級**」の選手に母集団を絞る `players.id IN (...)` を1枚返す（他は undefined）。
+ * 成績の数え方（`filterConds` の grade IN＝分子/分母）は不変で、ここは「誰を載せるか」だけを変える。
+ *
+ * 現級＝**期間フィルタ内・判明級（grade IS NOT NULL）のみ**の直近1件の grade。非相関の
+ * DISTINCT ON サブクエリで選手ごと現級を1パスで畳み（選手ごと相関＝数万回スキャンを避ける）、
+ * その grade が選択級かを判定する。並びは所属解決・⑤現級で共通の event_date DESC NULLS LAST, id DESC。
+ *
+ * - 落とし穴①: 現級サブクエリの WHERE に **選択級（grade IN）を入れない**。入れると「級Xを
+ *   打った最新の参加」を拾い「最新の参加がたまたま級X」にならない。判明級の最新1件→grade 判定の順。
+ * - 落とし穴②: 生 SQL は tournaments を `t` にエイリアスするため drizzle の `tournaments.eventDate`
+ *   を流用できない。期間条件は `filters.periodConds`（t alias 版・「AND t.event_date …」）で組む。
  */
-function recentAffiliation(playerIdCol: SQLWrapper): SQL<string | null> {
-  return sql<string | null>`(
-    select tp.affiliation
-    from ${tournamentParticipants} tp
-    join ${tournamentClasses} tc on tc.id = tp.class_id
-    join ${tournaments} t on t.id = tc.tournament_id
-    where tp.player_id = ${playerIdCol}
-    order by t.event_date desc nulls last, t.id desc
-    limit 1
+function currentGradeMembership(filter: StatsFilter): SQL | undefined {
+  const grades = filter.grades
+  if (!grades || grades.length === 0 || filter.includeFormerGrade) return undefined
+  const period = periodConds(filter)
+  const gradeList = sql.join(
+    grades.map((g) => sql`${g}`),
+    sql`, `,
+  )
+  return sql`${players.id} in (
+    select player_id from (
+      select distinct on (tp.player_id) tp.player_id as player_id, tc.grade as grade
+      from tournament_participants tp
+      join tournament_classes tc on tc.id = tp.class_id
+      join tournaments t on t.id = tc.tournament_id
+      where tc.grade is not null ${period}
+      order by tp.player_id, t.event_date desc nulls last, t.id desc
+    ) cur
+    where cur.grade::text in (${gradeList})
   )`
+}
+
+/**
+ * ランキング各行の所属会を、集計後に playerId 群 →「期間フィルタ内の直近大会」（event_date
+ * 降順 NULLS LAST・同日は tournament id 降順・級不問）の participant 所属で一括解決してマップで返す。
+ *
+ * 以前は派生テーブル `agg` の列に相関する相関サブクエリ（`recentAffiliation(agg.playerId)`）で
+ * 引いていたが、派生列への相関が効かず **全行が同じ所属** になるバグがあった（テストが1人しか
+ * seed せず未検出＝テストギャップ）。`queries.ts` の相手所属解決と同型（行取得後に id 群を別
+ * クエリで一括解決）に寄せて集計本体を汚さず複数選手でも正しく解く。直近判定は現在の期間
+ * フィルタ内に限定（全期間なら通算直近）。級では絞らない（期間内・級不問の直近1件）。
+ */
+async function resolveRecentAffiliations(
+  playerIds: number[],
+  filter: StatsFilter,
+): Promise<Map<number, string | null>> {
+  if (playerIds.length === 0) return new Map()
+  // filters.ts の periodConds は生 SQL（t alias）用に「AND t.event_date …」を返す（フィルタ
+  // 無しなら空 SQL＝通算直近）。DISTINCT ON で選手ごと直近1件を取る（並びは所属表示と ⑤現級
+  // 判定で共通の event_date DESC NULLS LAST, id DESC）。
+  const period = periodConds(filter)
+  const ids = sql.join(
+    playerIds.map((id) => sql`${id}`),
+    sql`, `,
+  )
+  const res = await db.execute(sql`
+    SELECT DISTINCT ON (tp.player_id) tp.player_id AS player_id, tp.affiliation AS affiliation
+    FROM tournament_participants tp
+    JOIN tournament_classes tc ON tc.id = tp.class_id
+    JOIN tournaments t ON t.id = tc.tournament_id
+    WHERE tp.player_id = ANY(ARRAY[${ids}]::int[]) ${period}
+    ORDER BY tp.player_id, t.event_date DESC NULLS LAST, t.id DESC
+  `)
+  const map = new Map<number, string | null>()
+  for (const row of res.rows as Record<string, unknown>[]) {
+    map.set(Number(row.player_id), (row.affiliation as string | null) ?? null)
+  }
+  return map
 }
 
 /** 参加グレイン（tournament_participants 起点）の集計サブクエリ。優勝/入賞/出場で使う。 */
@@ -95,10 +152,16 @@ function participantAgg(
     .innerJoin(players, eq(players.id, tournamentParticipants.playerId))
     .innerJoin(tournamentClasses, eq(tournamentClasses.id, tournamentParticipants.classId))
     .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
-    .where(and(...filterConds(filter)))
+    .where(and(...filterConds(filter), ...membershipConds(filter)))
     .groupBy(players.id)
     .having(havingSql)
     .as('agg')
+}
+
+/** ⑤現級母集団の制限（発火時のみ 1 要素、非発火は空）を条件配列で返す。 */
+function membershipConds(filter: StatsFilter): SQL[] {
+  const membership = currentGradeMembership(filter)
+  return membership ? [membership] : []
 }
 
 /** 対戦グレイン（matches 起点）の集計サブクエリ。勝利/対戦/勝率で使う。 */
@@ -126,7 +189,7 @@ function matchAgg(
     .innerJoin(players, eq(players.id, tournamentParticipants.playerId))
     .innerJoin(tournamentClasses, eq(tournamentClasses.id, matches.classId))
     .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
-    .where(and(...filterConds(filter)))
+    .where(and(...filterConds(filter), ...membershipConds(filter)))
     .groupBy(players.id)
     .having(havingSql)
     .as('agg')
@@ -197,7 +260,6 @@ export async function getPlayerRanking(
       sub: agg.sub,
       rank: sql<number>`cast(rank() over (order by ${agg.value} desc) as int)`,
       total: sql<number>`cast(count(*) over () as int)`,
-      affiliation: recentAffiliation(agg.playerId),
     })
     .from(agg)
     // 値降順→表示名昇順→player_id 昇順。最後の player_id は同値同名でも並びを一意に
@@ -219,12 +281,19 @@ export async function getPlayerRanking(
     total = c?.n ?? 0
   }
 
+  // 所属会は集計後に別クエリで一括解決してマージ（②バグ修正）。相関サブクエリを派生列に
+  // 当てると全行同じ所属になるため。期間フィルタ内の直近1件（級不問）を使う。
+  const affiliations = await resolveRecentAffiliations(
+    rows.map((r) => r.playerId),
+    safeFilter,
+  )
+
   return {
     rows: rows.map((r) => ({
       rank: r.rank,
       playerId: r.playerId,
       displayName: r.displayName,
-      affiliation: r.affiliation,
+      affiliation: affiliations.get(r.playerId) ?? null,
       value: r.value,
       sub: r.sub,
     })),

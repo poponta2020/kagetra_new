@@ -46,6 +46,9 @@ export function RankingFilterBar({
   const [draftFrom, setDraftFrom] = useState<number | undefined>(filter.yearFrom)
   const [draftTo, setDraftTo] = useState<number | undefined>(filter.yearTo)
   const [draftGrades, setDraftGrades] = useState<Grade[]>(filter.grades ?? [])
+  const [draftIncludeFormer, setDraftIncludeFormer] = useState<boolean>(
+    filter.includeFormerGrade ?? false,
+  )
 
   // シートを開くたびに現在のフィルタで下書きを同期（前回のキャンセル分を破棄）。
   useEffect(() => {
@@ -53,8 +56,9 @@ export function RankingFilterBar({
       setDraftFrom(filter.yearFrom)
       setDraftTo(filter.yearTo)
       setDraftGrades(filter.grades ?? [])
+      setDraftIncludeFormer(filter.includeFormerGrade ?? false)
     }
-  }, [open, filter.yearFrom, filter.yearTo, filter.grades])
+  }, [open, filter.yearFrom, filter.yearTo, filter.grades, filter.includeFormerGrade])
 
   useEffect(() => {
     if (!open) return
@@ -70,18 +74,23 @@ export function RankingFilterBar({
       prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g],
     )
 
+  // 適用は常に明示モードで push（draft がデフォルト同値でも「明示的に絞り込み中」にする）。
+  // これで全級（grades 無し）・全期間（years 無し）も URL に保持でき、戻り時も復元される。
   const apply = () => {
     const next: StatsFilter = {}
     if (draftFrom != null) next.yearFrom = draftFrom
     if (draftTo != null) next.yearTo = draftTo
     if (draftGrades.length > 0) next.grades = draftGrades
+    // ⑤ 昇段済みを含む（級選択時のみ意味を持つ・true のときだけ set）。
+    if (draftGrades.length > 0 && draftIncludeFormer) next.includeFormerGrade = true
     setOpen(false)
-    router.push(buildRankingHref(metric, next))
+    router.push(buildRankingHref(metric, next, true))
   }
 
+  // クリアは素の URL（明示フラグ無し）へ＝デフォルト（現在A級・直近5年）へ復帰。
   const clear = () => {
     setOpen(false)
-    router.push(buildRankingHref(metric, {}))
+    router.push(buildRankingHref(metric, {}, false))
   }
 
   return (
@@ -189,6 +198,24 @@ export function RankingFilterBar({
                 })}
               </div>
             </section>
+
+            {/* ⑤ 昇段済みトグル：級を選んだときだけ意味を持つ（未選択時は非表示）。 */}
+            {draftGrades.length > 0 ? (
+              <section className="flex flex-col gap-1">
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={draftIncludeFormer}
+                    onChange={(e) => setDraftIncludeFormer(e.target.checked)}
+                    className="h-4 w-4 rounded border-border text-brand"
+                  />
+                  昇段済みの選手を含む
+                </label>
+                <p className="pl-6 text-[11px] text-ink-muted">
+                  OFF＝選択級が現在の級の選手のみ。ON＝過去に選択級だった選手も含めます。
+                </p>
+              </section>
+            ) : null}
 
             <div className="mt-1 flex items-center gap-2">
               <button
