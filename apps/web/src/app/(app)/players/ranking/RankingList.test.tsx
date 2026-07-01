@@ -113,4 +113,22 @@ describe('RankingList — 空 / もっと見る', () => {
     await waitFor(() => expect(screen.getByText('選手30')).toBeTruthy())
     expect(screen.getByRole('button', { name: 'もっと見る' })).toBeTruthy()
   })
+
+  it('追加取得が空配列なら（total 未達でも）もっと見る を終端して消す', async () => {
+    // total=10 だが次ページが 0 件（データ変化/offset 超過）→ 以後ボタンを出さない。
+    loadMoreMock.mockResolvedValue([])
+    render(
+      <RankingList
+        initialRows={[row({ rank: 1, playerId: 10, value: 12 }), row({ rank: 2, playerId: 20, value: 8 })]}
+        total={10}
+        metric="wins"
+        filter={{}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /もっと見る/ })).toBeNull(),
+    )
+    expect(loadMoreMock).toHaveBeenCalledTimes(1)
+  })
 })

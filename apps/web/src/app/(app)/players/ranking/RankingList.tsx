@@ -29,6 +29,10 @@ export function RankingList({
 }) {
   const [rows, setRows] = useState<RankingRow[]>(initialRows)
   const [loading, setLoading] = useState(false)
+  // 追加取得が空配列を返したら終端扱いにする。total は初期表示時点のスナップショットで、
+  // データ変化や offset 超過で `rows.length < total` のままでも次ページが 0 件になり得るため、
+  // それだけでボタンを出し続けると同じ offset のリクエストを繰り返せてしまう。
+  const [exhausted, setExhausted] = useState(false)
   const unit = metricDef(metric).unit
 
   if (rows.length === 0) {
@@ -39,13 +43,14 @@ export function RankingList({
     )
   }
 
-  const hasMore = rows.length < total
+  const hasMore = !exhausted && rows.length < total
 
   const loadMore = async () => {
     setLoading(true)
     try {
       const more = await loadMoreRanking(metric, filter, rows.length)
-      setRows((prev) => [...prev, ...more])
+      if (more.length === 0) setExhausted(true)
+      else setRows((prev) => [...prev, ...more])
     } finally {
       setLoading(false)
     }
