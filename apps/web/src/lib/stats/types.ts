@@ -21,6 +21,11 @@ export interface StatsFilter {
   yearFrom?: number
   yearTo?: number
   grades?: Grade[]
+  /**
+   * ⑤ 昇段済み（現級 ∉ 選択級）の選手も母集団に含めるか。**③選手ランキングのみ**で使用。
+   * 未指定=false＝現級のみに絞る。grades 未指定（全級）のときは無効（全員のまま）。
+   */
+  includeFormerGrade?: boolean
 }
 
 /**
@@ -117,5 +122,7 @@ export function sanitizeStatsFilter(filter: StatsFilter | null | undefined): Sta
   if (yearFrom != null) out.yearFrom = yearFrom
   if (yearTo != null) out.yearTo = yearTo
   if (grades.length > 0) out.grades = grades
+  // boolean コアース：truthy（改変された '1' 等含む）のみ true、未指定/false は省略＝現級のみ。
+  if (f.includeFormerGrade) out.includeFormerGrade = true
   return out
 }

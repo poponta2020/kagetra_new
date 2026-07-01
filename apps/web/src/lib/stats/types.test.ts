@@ -75,4 +75,20 @@ describe('sanitizeStatsFilter', () => {
     expect(sanitizeStatsFilter({ grades: 'A' as unknown as Array<'A'> })).toEqual({})
     expect(sanitizeStatsFilter({ grades: [] })).toEqual({})
   })
+
+  it('includeFormerGrade は boolean コアース（truthy→true・未指定/false→省略）', () => {
+    expect(sanitizeStatsFilter({ grades: ['A'], includeFormerGrade: true })).toEqual({
+      grades: ['A'],
+      includeFormerGrade: true,
+    })
+    // grades 無しでも値は保持（実質無効だが捨てない）。
+    expect(sanitizeStatsFilter({ includeFormerGrade: true })).toEqual({ includeFormerGrade: true })
+    // false / 未指定は省略。
+    expect(sanitizeStatsFilter({ grades: ['A'], includeFormerGrade: false })).toEqual({ grades: ['A'] })
+    expect(sanitizeStatsFilter({ grades: ['A'] })).toEqual({ grades: ['A'] })
+    // 改変された truthy 文字列も true に。
+    expect(
+      sanitizeStatsFilter({ includeFormerGrade: '1' as unknown as boolean }),
+    ).toEqual({ includeFormerGrade: true })
+  })
 })

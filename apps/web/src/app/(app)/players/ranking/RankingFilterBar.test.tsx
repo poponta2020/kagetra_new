@@ -66,3 +66,42 @@ describe('RankingFilterBar — シート操作', () => {
     expect(push).not.toHaveBeenCalled()
   })
 })
+
+describe('RankingFilterBar — ⑤昇段済みトグル', () => {
+  it('級未選択のときトグルは非表示', () => {
+    render(<RankingFilterBar metric="wins" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    expect(screen.queryByLabelText('昇段済みの選手を含む')).toBeNull()
+  })
+
+  it('級を選ぶとトグルが現れ、ON で適用すると includeFormer=1 が付く', () => {
+    render(<RankingFilterBar metric="wins" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A' }))
+    const toggle = screen.getByLabelText('昇段済みの選手を含む')
+    expect(toggle).toBeTruthy()
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: '適用' }))
+    expect(push).toHaveBeenCalledWith('/players/ranking?metric=wins&f=1&grades=A&includeFormer=1')
+  })
+
+  it('トグル OFF のままなら includeFormer は付かない', () => {
+    render(<RankingFilterBar metric="wins" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A' }))
+    fireEvent.click(screen.getByRole('button', { name: '適用' }))
+    expect(push).toHaveBeenCalledWith('/players/ranking?metric=wins&f=1&grades=A')
+  })
+
+  it('既に級選択＋includeFormerGrade のフィルタで開くとトグルが ON で初期表示', () => {
+    render(
+      <RankingFilterBar
+        metric="wins"
+        filter={{ grades: ['A'], includeFormerGrade: true }}
+        years={years}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    expect((screen.getByLabelText('昇段済みの選手を含む') as HTMLInputElement).checked).toBe(true)
+  })
+})

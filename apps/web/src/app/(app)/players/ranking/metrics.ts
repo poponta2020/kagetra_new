@@ -84,6 +84,8 @@ export function buildRankingHref(
       // 級は正規順（A→E）で安定化。
       params.set('grades', ALL_GRADES.filter((g) => filter.grades!.includes(g)).join(','))
     }
+    // ⑤ 昇段済みを含む（true のときだけ載せる・false は省略）。
+    if (filter.includeFormerGrade === true) params.set('includeFormer', '1')
   }
   const qs = params.toString()
   return qs ? `/players/ranking?${qs}` : '/players/ranking'
@@ -130,6 +132,7 @@ export function parseRankingParams(
     yearTo?: RawParam
     grades?: RawParam
     f?: RawParam
+    includeFormer?: RawParam
   },
   currentYear: number,
 ): ParsedRankingParams {
@@ -160,6 +163,9 @@ export function parseRankingParams(
     ? sp.grades.flatMap((v) => v.split(','))
     : (sp.grades?.split(',') ?? [])
   if (rawGrades.length > 0) candidate.grades = rawGrades as Grade[]
+
+  const includeFormer = firstParam(sp.includeFormer)
+  if (includeFormer === '1' || includeFormer === 'true') candidate.includeFormerGrade = true
 
   return { metric, explicit: true, filter: sanitizeStatsFilter(candidate) }
 }

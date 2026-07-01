@@ -62,6 +62,41 @@ function filterConds(filter: StatsFilter): SQL[] {
 }
 
 /**
+ * ⑤現級母集団の制限断片。**級フィルタ有り＋トグルOFF**（`includeFormerGrade` 偽）のときだけ
+ * 「**現級 ∈ 選択級**」の選手に母集団を絞る `players.id IN (...)` を1枚返す（他は undefined）。
+ * 成績の数え方（`filterConds` の grade IN＝分子/分母）は不変で、ここは「誰を載せるか」だけを変える。
+ *
+ * 現級＝**期間フィルタ内・判明級（grade IS NOT NULL）のみ**の直近1件の grade。非相関の
+ * DISTINCT ON サブクエリで選手ごと現級を1パスで畳み（選手ごと相関＝数万回スキャンを避ける）、
+ * その grade が選択級かを判定する。並びは所属解決・⑤現級で共通の event_date DESC NULLS LAST, id DESC。
+ *
+ * - 落とし穴①: 現級サブクエリの WHERE に **選択級（grade IN）を入れない**。入れると「級Xを
+ *   打った最新の参加」を拾い「最新の参加がたまたま級X」にならない。判明級の最新1件→grade 判定の順。
+ * - 落とし穴②: 生 SQL は tournaments を `t` にエイリアスするため drizzle の `tournaments.eventDate`
+ *   を流用できない。期間条件は `filters.periodConds`（t alias 版・「AND t.event_date …」）で組む。
+ */
+function currentGradeMembership(filter: StatsFilter): SQL | undefined {
+  const grades = filter.grades
+  if (!grades || grades.length === 0 || filter.includeFormerGrade) return undefined
+  const period = periodConds(filter)
+  const gradeList = sql.join(
+    grades.map((g) => sql`${g}`),
+    sql`, `,
+  )
+  return sql`${players.id} in (
+    select player_id from (
+      select distinct on (tp.player_id) tp.player_id as player_id, tc.grade as grade
+      from tournament_participants tp
+      join tournament_classes tc on tc.id = tp.class_id
+      join tournaments t on t.id = tc.tournament_id
+      where tc.grade is not null ${period}
+      order by tp.player_id, t.event_date desc nulls last, t.id desc
+    ) cur
+    where cur.grade::text in (${gradeList})
+  )`
+}
+
+/**
  * ランキング各行の所属会を、集計後に playerId 群 →「期間フィルタ内の直近大会」（event_date
  * 降順 NULLS LAST・同日は tournament id 降順・級不問）の participant 所属で一括解決してマップで返す。
  *
@@ -117,10 +152,16 @@ function participantAgg(
     .innerJoin(players, eq(players.id, tournamentParticipants.playerId))
     .innerJoin(tournamentClasses, eq(tournamentClasses.id, tournamentParticipants.classId))
     .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
-    .where(and(...filterConds(filter)))
+    .where(and(...filterConds(filter), ...membershipConds(filter)))
     .groupBy(players.id)
     .having(havingSql)
     .as('agg')
+}
+
+/** ⑤現級母集団の制限（発火時のみ 1 要素、非発火は空）を条件配列で返す。 */
+function membershipConds(filter: StatsFilter): SQL[] {
+  const membership = currentGradeMembership(filter)
+  return membership ? [membership] : []
 }
 
 /** 対戦グレイン（matches 起点）の集計サブクエリ。勝利/対戦/勝率で使う。 */
@@ -148,7 +189,7 @@ function matchAgg(
     .innerJoin(players, eq(players.id, tournamentParticipants.playerId))
     .innerJoin(tournamentClasses, eq(tournamentClasses.id, matches.classId))
     .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
-    .where(and(...filterConds(filter)))
+    .where(and(...filterConds(filter), ...membershipConds(filter)))
     .groupBy(players.id)
     .having(havingSql)
     .as('agg')

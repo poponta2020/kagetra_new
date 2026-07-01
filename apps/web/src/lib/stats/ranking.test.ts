@@ -265,12 +265,101 @@ describe('getPlayerRanking — 期間フィルタ', () => {
 })
 
 describe('getPlayerRanking — 級フィルタ', () => {
-  it('grades で絞る', async () => {
+  it('grades で分子（選択級の参加のみ）を数える', async () => {
     await seed('A大会', '2026-01-01', [classWith('A級', 'A', [p('級太郎', [])])])
     await seed('C大会', '2026-02-01', [classWith('C級', 'C', [p('級太郎', [])])])
 
-    expect((await getPlayerRanking('participations', { grades: ['A'] })).rows[0]!.value).toBe(1)
-    expect((await getPlayerRanking('participations', { grades: ['A', 'C'] })).rows[0]!.value).toBe(2)
+    // 級太郎の現級は C（直近＝C大会）。分子（grade IN）だけを検証するため includeFormerGrade で
+    // ⑤母集団制限を外す（現級制限は別 describe で検証）。
+    expect(
+      (await getPlayerRanking('participations', { grades: ['A'], includeFormerGrade: true }))
+        .rows[0]!.value,
+    ).toBe(1)
+    expect(
+      (await getPlayerRanking('participations', { grades: ['A', 'C'], includeFormerGrade: true }))
+        .rows[0]!.value,
+    ).toBe(2)
+  })
+})
+
+describe('getPlayerRanking — ⑤現級母集団 / includeFormerGrade', () => {
+  it('OFF（既定）は現級のみ・ON は過去に選択級を打った選手も含む（参加グレイン）', async () => {
+    // 甲: 2024 A → 2026 B（現級=B）。乙: 2024 A → 2026 A（現級=A）。
+    await seed('2024選手権', '2024-01-01', [classWith('A級', 'A', [p('甲', []), p('乙', [])])])
+    await seed('2026B', '2026-01-01', [classWith('B級', 'B', [p('甲', [])])])
+    await seed('2026A', '2026-02-01', [classWith('A級', 'A', [p('乙', [])])])
+
+    // grades=A・OFF: 現級A の乙のみ（甲は現級B で母集団から除外）。値は A参加のみ数える。
+    const off = await getPlayerRanking('participations', { grades: ['A'] })
+    expect(off.rows.map((r) => r.displayName)).toEqual(['乙'])
+    expect(off.total).toBe(1)
+
+    // grades=A・ON: 甲も含む。乙=A参加2（2024A+2026A）・甲=A参加1（2024A のみ）。
+    const on = await getPlayerRanking('participations', {
+      grades: ['A'],
+      includeFormerGrade: true,
+    })
+    expect(on.rows.map((r) => [r.displayName, r.value])).toEqual([
+      ['乙', 2],
+      ['甲', 1],
+    ])
+    expect(on.total).toBe(2)
+  })
+
+  it('OFF は対戦グレイン（勝利数）にも効く', async () => {
+    // 甲: 2024 A で勝2、2026 B（現級=B）。乙: 2024 A で勝1（現級=A）。
+    await seed('2024A', '2024-01-01', [
+      classWith('A級', 'A', [
+        p('甲', [mt(1, null, 'x', 5, 'win'), mt(2, null, 'y', 5, 'win')]),
+        p('乙', [mt(1, null, 'z', 5, 'win')]),
+      ]),
+    ])
+    await seed('2026B', '2026-01-01', [classWith('B級', 'B', [p('甲', [])])])
+
+    // grades=A OFF: 現級A の乙のみ（勝利1）。甲（現級B）は除外。
+    const off = await getPlayerRanking('wins', { grades: ['A'] })
+    expect(off.rows.map((r) => r.displayName)).toEqual(['乙'])
+
+    // ON: 甲（A級での勝利2）も含む。
+    const on = await getPlayerRanking('wins', { grades: ['A'], includeFormerGrade: true })
+    expect(on.rows.map((r) => [r.displayName, r.value])).toEqual([
+      ['甲', 2],
+      ['乙', 1],
+    ])
+  })
+
+  it('直近が級不明の選手は、その前の判明級を現級とみなす', async () => {
+    // 丙: 2024 A → 2026 級不明（grade=null）。現級=A（判明級の直近）。
+    await seed('2024A', '2024-01-01', [classWith('A級', 'A', [p('丙', [])])])
+    await seed('2026無級', '2026-01-01', [classWith('無級', null, [p('丙', [])])])
+
+    const off = await getPlayerRanking('participations', { grades: ['A'] })
+    expect(off.rows.map((r) => r.displayName)).toEqual(['丙'])
+    expect(off.rows[0]!.value).toBe(1)
+  })
+
+  it('現級は期間フィルタ内で判定（期間を絞ると現級が変わる）', async () => {
+    // 甲: 2020 A → 2026 B。全期間の現級=B、〜2021 の現級=A。
+    await seed('2020A', '2020-01-01', [classWith('A級', 'A', [p('甲', [])])])
+    await seed('2026B', '2026-01-01', [classWith('B級', 'B', [p('甲', [])])])
+
+    // 全期間 grades=A OFF: 現級B → 除外（0人）。
+    const all = await getPlayerRanking('participations', { grades: ['A'] })
+    expect(all.rows).toEqual([])
+    // 2019〜2021 grades=A OFF: 期間内の現級=A → 甲が載る（A参加1）。
+    const ranged = await getPlayerRanking('participations', {
+      grades: ['A'],
+      yearFrom: 2019,
+      yearTo: 2021,
+    })
+    expect(ranged.rows.map((r) => [r.displayName, r.value])).toEqual([['甲', 1]])
+  })
+
+  it('全級（grades 未指定）ではトグル・母集団制限とも無効（全員のまま）', async () => {
+    await seed('2024A', '2024-01-01', [classWith('A級', 'A', [p('甲', [])])])
+    await seed('2026B', '2026-01-01', [classWith('B級', 'B', [p('甲', [])])])
+    // grades 無し → 母集団制限なし。甲は2大会出場。
+    expect((await getPlayerRanking('participations')).rows[0]!.value).toBe(2)
   })
 })
 

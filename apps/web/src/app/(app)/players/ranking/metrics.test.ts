@@ -50,6 +50,19 @@ describe('buildRankingHref', () => {
     expect(buildRankingHref('participations', {}, true)).toBe('/players/ranking?f=1')
     expect(buildRankingHref('wins', {}, true)).toBe('/players/ranking?metric=wins&f=1')
   })
+
+  it('⑤ includeFormerGrade は明示モードで includeFormer=1（true のみ載せる）', () => {
+    expect(buildRankingHref('wins', { grades: ['A'], includeFormerGrade: true }, true)).toBe(
+      '/players/ranking?metric=wins&f=1&grades=A&includeFormer=1',
+    )
+    expect(buildRankingHref('wins', { grades: ['A'], includeFormerGrade: false }, true)).toBe(
+      '/players/ranking?metric=wins&f=1&grades=A',
+    )
+    // 非明示ではフィルタごと省略されるため includeFormer も出さない。
+    expect(buildRankingHref('wins', { grades: ['A'], includeFormerGrade: true })).toBe(
+      '/players/ranking?metric=wins',
+    )
+  })
 })
 
 describe('parseRankingParams — デフォルト注入 / 明示フラグ', () => {
@@ -88,6 +101,15 @@ describe('parseRankingParams — デフォルト注入 / 明示フラグ', () =>
       explicit: true,
       filter: {},
     })
+  })
+
+  it('⑤ 明示モードで includeFormer=1 を読み取る', () => {
+    expect(parseRankingParams({ f: '1', grades: 'A', includeFormer: '1' }, YEAR).filter).toEqual({
+      grades: ['A'],
+      includeFormerGrade: true,
+    })
+    // 未指定なら現級のみ（includeFormerGrade は付かない）。
+    expect(parseRankingParams({ f: '1', grades: 'A' }, YEAR).filter).toEqual({ grades: ['A'] })
   })
 
   it('明示モードで不正な指標・年・級は捨てる', () => {
