@@ -70,6 +70,8 @@ export async function getTournamentList(
   const safeYear = year != null && Number.isInteger(year) ? year : undefined
   const safeLimit =
     Number.isInteger(limit) && limit > 0 ? Math.min(limit, DEFAULT_LIMIT) : DEFAULT_LIMIT
+  // NaN/負値の offset（改変された Server Action 呼び出し）は 0 にクランプし、下の SQL では
+  // 必ずこの safeOffset を使う（生 offset を SQL へ渡さない＝OFFSET NaN/負 での 500 を防ぐ）。
   const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0
   const conds = listConds(query, safeYear)
   const where = conds.length > 0 ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``

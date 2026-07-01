@@ -95,7 +95,7 @@ export default async function SeriesDetailPage({
         </h2>
         <ul className="flex flex-col divide-y divide-border-soft">
           {detail.editions.map((e) => (
-            <EditionRow key={e.editionId} e={e} />
+            <EditionRow key={e.editionId} e={e} backPath={`/tournaments/series/${detail.seriesId}`} />
           ))}
         </ul>
       </section>
@@ -116,7 +116,7 @@ function SummaryChip({ label, children }: { label: string; children: React.React
  * 回次一覧の 1 行。結果データのある回（tournamentId あり）は大会詳細へリンク、中止・記録なしは
  * 非タップで明示（design-spec §3.6.4/5）。
  */
-function EditionRow({ e }: { e: SeriesEditionRow }) {
+function EditionRow({ e, backPath }: { e: SeriesEditionRow; backPath: string }) {
   const head = (
     <span className="min-w-0 flex-1">
       <span className="block truncate font-display text-[15px] text-ink">第{e.editionNumber}回</span>
@@ -143,7 +143,7 @@ function EditionRow({ e }: { e: SeriesEditionRow }) {
   return (
     <li>
       <Link
-        href={`/tournaments/${e.tournamentId}`}
+        href={`/tournaments/${e.tournamentId}?from=${encodeURIComponent(backPath)}`}
         className="flex items-center gap-3 py-2.5 hover:bg-surface-alt"
       >
         {head}
