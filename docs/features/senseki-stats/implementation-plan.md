@@ -102,7 +102,7 @@ status: completed
 - **完了条件:** 集計テスト green・event_date 無し大会は期間集計から除外・競技人口=distinct player。
 
 ### タスク8: 大会統計 画面（メイン＋図詳細）（PR-4）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/tournaments/stats`（4カード＋6図・期間フィルタ・完結図は級別構成直下・図4〜6に「級別比較 ›」）＋
   `/tournaments/stats/[metric]`（縦スモールマルチプル・図ごと個別正規化・平均は中立インク破線）。design-spec §3.2/§3.3。
 - **変更対象ファイル:**
