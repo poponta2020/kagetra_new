@@ -206,6 +206,19 @@ export async function getPlayerRanking(
     .limit(safeLimit)
     .offset(safeOffset)
 
+  // total は `count(*) over ()`＝offset 非依存の全体件数だが、offset が末尾を超える等で
+  // このページに 1 行も返らないと窓の値が取れない。契約（offset 非依存）を守るため、その
+  // ときだけ agg を数え直す（GROUP BY の行数＝該当選手数）。通常（offset=0 等 rows あり）は
+  // 追加クエリ無しで rows[0].total を使う。
+  let total = rows[0]?.total ?? 0
+  if (rows.length === 0) {
+    const countAgg = aggFor(safeMetric, safeFilter)
+    const [c] = await db
+      .select({ n: sql<number>`cast(count(*) as int)` })
+      .from(countAgg)
+    total = c?.n ?? 0
+  }
+
   return {
     rows: rows.map((r) => ({
       rank: r.rank,
@@ -215,6 +228,6 @@ export async function getPlayerRanking(
       value: r.value,
       sub: r.sub,
     })),
-    total: rows[0]?.total ?? 0,
+    total,
   }
 }

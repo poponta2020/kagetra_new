@@ -289,6 +289,16 @@ describe('getPlayerRanking — ページング / total', () => {
     expect(rows).toEqual([])
     expect(total).toBe(0)
   })
+
+  it('offset が末尾を超えても total は offset 非依存の全体件数（rows は空）', async () => {
+    await seed('大会1', '2026-01-01', [
+      classWith('D級', 'D', [p('甲', []), p('乙', []), p('丙', [])]),
+    ])
+    // 3 人しかいないが offset=10 → このページは空。total は 3 のまま（契約）。
+    const { rows, total } = await getPlayerRanking('participations', {}, 100, 10)
+    expect(rows).toEqual([])
+    expect(total).toBe(3)
+  })
 })
 
 describe('getPlayerRanking — 不正入力の防御（Server Action 境界）', () => {
