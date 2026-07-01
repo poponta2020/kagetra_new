@@ -1,13 +1,20 @@
-import type { RankingMetric } from '@/lib/stats/ranking'
-import type { Grade, StatsFilter } from '@/lib/stats/types'
+import {
+  ALL_GRADES,
+  DEFAULT_RANKING_METRIC,
+  coerceRankingMetric,
+  sanitizeStatsFilter,
+  type Grade,
+  type RankingMetric,
+  type StatsFilter,
+} from '@/lib/stats/types'
 
 /**
  * ③選手ランキングの指標カタログ（design-spec §3.1 の並び：出場／勝利／勝率／対戦／優勝／入賞）。
  * `chip`＝指標チップの短ラベル・`heading`＝見出しの正式名・`unit`＝値の単位。
  *
- * 型のみ `@/lib/stats/ranking` から借りる（`import type` はビルド時に消えるので、
- * db を含むサーバーモジュールがクライアントバンドルに混ざらない）。このモジュール自体は
- * 純粋な定数/関数だけなのでクライアントからも安全に import できる。
+ * 指標の許可リスト/検証・フィルタ検証は `@/lib/stats/types`（db 非依存）に集約し、ここは
+ * 表示ラベルと URL 組み立てだけを持つ。すべて純粋な定数/関数なのでクライアントから安全に
+ * import できる（サーバー依存を持ち込まない）。
  */
 export interface MetricDef {
   key: RankingMetric
@@ -24,10 +31,6 @@ export const RANKING_METRICS: readonly MetricDef[] = [
   { key: 'championships', chip: '優勝', heading: '優勝回数', unit: '回' },
   { key: 'nyusho', chip: '入賞', heading: '入賞回数', unit: '回' },
 ]
-
-const METRIC_KEYS = RANKING_METRICS.map((m) => m.key)
-const DEFAULT_METRIC: RankingMetric = 'participations'
-const ALL_GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
 
 export function metricDef(metric: RankingMetric): MetricDef {
   return RANKING_METRICS.find((m) => m.key === metric) ?? RANKING_METRICS[0]!
@@ -47,7 +50,7 @@ export function formatMetricSub(metric: RankingMetric, sub: number | null): stri
 /** filter を反映した /players/ranking の href（既定値は省略してURLを短く保つ）。 */
 export function buildRankingHref(metric: RankingMetric, filter: StatsFilter): string {
   const params = new URLSearchParams()
-  if (metric !== DEFAULT_METRIC) params.set('metric', metric)
+  if (metric !== DEFAULT_RANKING_METRIC) params.set('metric', metric)
   if (filter.yearFrom != null) params.set('yearFrom', String(filter.yearFrom))
   if (filter.yearTo != null) params.set('yearTo', String(filter.yearTo))
   if (filter.grades && filter.grades.length > 0) {
@@ -58,25 +61,10 @@ export function buildRankingHref(metric: RankingMetric, filter: StatsFilter): st
   return qs ? `/players/ranking?${qs}` : '/players/ranking'
 }
 
-/** 年の searchParam を検証（数値・妥当な範囲のみ採用、他は undefined）。 */
-function parseYear(raw: string | undefined): number | undefined {
-  if (raw == null) return undefined
-  const n = Number(raw)
-  if (!Number.isInteger(n) || n < 1900 || n > 3000) return undefined
-  return n
-}
-
-/** grades の searchParam（"A,B"）を検証して正規順の配列に。無効値は捨てる。 */
-function parseGrades(raw: string | undefined): Grade[] | undefined {
-  if (!raw) return undefined
-  const set = new Set(raw.split(','))
-  const grades = ALL_GRADES.filter((g) => set.has(g))
-  return grades.length > 0 ? grades : undefined
-}
-
 /**
  * /players/ranking の searchParams を検証済みの `{ metric, filter }` に。
- * 不正な指標/年/級は既定（出場・フィルタ無し）に落とす。yearFrom>yearTo は入替。
+ * 指標は許可リストへ丸め、年/級は `sanitizeStatsFilter` で妥当な値のみ採用（不正は捨てる・
+ * yearFrom>yearTo は入替）。文字列 → 型付き候補にしてから共通検証へ委譲する。
  */
 export function parseRankingParams(sp: {
   metric?: string
@@ -84,21 +72,13 @@ export function parseRankingParams(sp: {
   yearTo?: string
   grades?: string
 }): { metric: RankingMetric; filter: StatsFilter } {
-  const metric = (METRIC_KEYS as string[]).includes(sp.metric ?? '')
-    ? (sp.metric as RankingMetric)
-    : DEFAULT_METRIC
+  const candidate: StatsFilter = {}
+  if (sp.yearFrom != null) candidate.yearFrom = Number(sp.yearFrom)
+  if (sp.yearTo != null) candidate.yearTo = Number(sp.yearTo)
+  if (sp.grades) candidate.grades = sp.grades.split(',') as Grade[]
 
-  let yearFrom = parseYear(sp.yearFrom)
-  let yearTo = parseYear(sp.yearTo)
-  if (yearFrom != null && yearTo != null && yearFrom > yearTo) {
-    ;[yearFrom, yearTo] = [yearTo, yearFrom]
+  return {
+    metric: coerceRankingMetric(sp.metric),
+    filter: sanitizeStatsFilter(candidate),
   }
-
-  const filter: StatsFilter = {}
-  if (yearFrom != null) filter.yearFrom = yearFrom
-  if (yearTo != null) filter.yearTo = yearTo
-  const grades = parseGrades(sp.grades)
-  if (grades) filter.grades = grades
-
-  return { metric, filter }
 }

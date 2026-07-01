@@ -290,3 +290,22 @@ describe('getPlayerRanking — ページング / total', () => {
     expect(total).toBe(0)
   })
 })
+
+describe('getPlayerRanking — 不正入力の防御（Server Action 境界）', () => {
+  it('改変された metric/grade/年/offset でも例外を投げず既定で集計する', async () => {
+    await seed('大会1', '2026-01-01', [classWith('D級', 'D', [p('防御太郎', [])])])
+
+    // 不正 metric→既定(participations)・enum外grade/NaN年→除外・負offset→0 に丸められる。
+    // 型を欺いて（as）改変クライアントのペイロードを模す。
+    const res = await getPlayerRanking(
+      'bogus' as unknown as 'participations',
+      { grades: ['Z'] as unknown as Array<'A'>, yearFrom: Number.NaN, yearTo: -1 },
+      100,
+      -5,
+    )
+    // 例外にならず、フィルタが実質無効化されて「防御太郎」が出場ランキングに出る。
+    expect(res.total).toBe(1)
+    expect(res.rows[0]!.displayName).toBe('防御太郎')
+    expect(res.rows[0]!.value).toBe(1)
+  })
+})

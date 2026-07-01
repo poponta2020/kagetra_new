@@ -7,21 +7,16 @@ import {
   tournamentParticipants,
   tournaments,
 } from '@kagetra/shared/schema'
-import type { StatsFilter } from './types'
+import {
+  coerceRankingMetric,
+  sanitizeStatsFilter,
+  type RankingMetric,
+  type StatsFilter,
+} from './types'
 
-/**
- * ③選手ランキングの指標。requirements §3.5。
- * - `participations` 出場回数 ／ `wins` 勝利数（normal の win）／
- *   `winRate` 勝率（最低20試合で足切り）／ `matches` 対戦数（normal の試合数）／
- *   `championships` 優勝回数（derived_bracket=1）／ `nyusho` 入賞回数（derived_bracket≤8）。
- */
-export type RankingMetric =
-  | 'participations'
-  | 'wins'
-  | 'winRate'
-  | 'matches'
-  | 'championships'
-  | 'nyusho'
+// RankingMetric は共有型（types.ts）で定義。従来 `@/lib/stats/ranking` から import して
+// いた箇所を壊さないよう、取り込んだ型をそのまま再エクスポートする。
+export type { RankingMetric }
 
 export interface RankingRow {
   /** 競技ランキング順位（同値=同順位・タイの次は順位を飛ばす。3人が1位タイ→次は4位）。 */
@@ -183,7 +178,16 @@ export async function getPlayerRanking(
   limit = DEFAULT_LIMIT,
   offset = 0,
 ): Promise<PlayerRankingResult> {
-  const agg = aggFor(metric, filter)
+  // データアクセスの choke point で入力を丸める（全呼び出し元＝ページ/Server Action が
+  // ここを通る防御）。信頼できない Server Action ペイロード（改変された metric/filter/offset）
+  // でも aggFor が undefined を返したり DB エラー（enum 外 grade・負 offset・NaN 年）で 500 に
+  // ならないよう、許可リスト/範囲へ丸めてから集計する。
+  const safeMetric = coerceRankingMetric(metric)
+  const safeFilter = sanitizeStatsFilter(filter)
+  const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0
+  const safeLimit =
+    Number.isInteger(limit) && limit > 0 ? Math.min(limit, DEFAULT_LIMIT) : DEFAULT_LIMIT
+  const agg = aggFor(safeMetric, safeFilter)
 
   const rows = await db
     .select({
@@ -199,8 +203,8 @@ export async function getPlayerRanking(
     // 値降順→表示名昇順→player_id 昇順。最後の player_id は同値同名でも並びを一意に
     // 固定し、offset ページング（「もっと見る」）で境界の重複/欠落が起きないようにする。
     .orderBy(desc(agg.value), asc(agg.displayName), asc(agg.playerId))
-    .limit(limit)
-    .offset(offset)
+    .limit(safeLimit)
+    .offset(safeOffset)
 
   return {
     rows: rows.map((r) => ({

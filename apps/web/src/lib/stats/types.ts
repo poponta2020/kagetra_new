@@ -1,10 +1,15 @@
 /**
- * 統計セクション（③選手ランキング・④大会統計）横断の共通フィルタ型。
+ * 統計セクション（③選手ランキング・④大会統計）横断の共通型と、
+ * 信頼できない入力（Server Action・searchParams）を安全な値に丸める検証関数。
+ * db を持たない純粋モジュールなのでサーバー/クライアント両方から安全に import できる。
  * requirements §3.2 / §4.2。
  */
 
 /** 級（A–E）。tournament_classes.grade（正規化値）に対応。 */
 export type Grade = 'A' | 'B' | 'C' | 'D' | 'E'
+
+/** 級の正規順（A→E）。表示・URL の安定化に使う。 */
+export const ALL_GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
 
 /**
  * 期間・級の横断フィルタ。
@@ -16,4 +21,73 @@ export interface StatsFilter {
   yearFrom?: number
   yearTo?: number
   grades?: Grade[]
+}
+
+/**
+ * ③選手ランキングの指標。requirements §3.5。
+ * - `participations` 出場回数 ／ `wins` 勝利数（normal の win）／
+ *   `winRate` 勝率（最低20試合で足切り）／ `matches` 対戦数（normal の試合数）／
+ *   `championships` 優勝回数（derived_bracket=1）／ `nyusho` 入賞回数（derived_bracket≤8）。
+ */
+export type RankingMetric =
+  | 'participations'
+  | 'wins'
+  | 'winRate'
+  | 'matches'
+  | 'championships'
+  | 'nyusho'
+
+export const RANKING_METRIC_KEYS: readonly RankingMetric[] = [
+  'participations',
+  'wins',
+  'winRate',
+  'matches',
+  'championships',
+  'nyusho',
+]
+
+/** 既定指標（不正入力のフォールバック・URL 既定）。 */
+export const DEFAULT_RANKING_METRIC: RankingMetric = 'participations'
+
+/**
+ * 未知の値を安全な RankingMetric に丸める。Server Action / searchParams のように
+ * クライアントが改変できる入力に対して、許可リスト外を既定（出場）へ落とす。
+ * これで `aggFor` が undefined を返して集計が例外化することを防ぐ。
+ */
+export function coerceRankingMetric(value: unknown): RankingMetric {
+  return typeof value === 'string' &&
+    (RANKING_METRIC_KEYS as readonly string[]).includes(value)
+    ? (value as RankingMetric)
+    : DEFAULT_RANKING_METRIC
+}
+
+/** 年として妥当（整数・現実的な範囲）な値のみ通す。他は undefined。 */
+function validYear(n: unknown): number | undefined {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1900 && n <= 3000
+    ? n
+    : undefined
+}
+
+/**
+ * StatsFilter を検証済みの安全な形に丸める：年は整数・現実範囲のみ、from>to は入替、
+ * grades は A–E の正規順のみ（enum 外・非配列は捨てる）。信頼できない入力（Server Action・
+ * searchParams 由来）を集計クエリに渡す前に必ず通す。これにより enum 外 grade や NaN 年で
+ * DB エラー（500）が出るのを防ぐ。
+ */
+export function sanitizeStatsFilter(filter: StatsFilter | null | undefined): StatsFilter {
+  const f = filter ?? {}
+  let yearFrom = validYear(f.yearFrom)
+  let yearTo = validYear(f.yearTo)
+  if (yearFrom != null && yearTo != null && yearFrom > yearTo) {
+    ;[yearFrom, yearTo] = [yearTo, yearFrom]
+  }
+  const grades = Array.isArray(f.grades)
+    ? ALL_GRADES.filter((g) => f.grades!.includes(g))
+    : []
+
+  const out: StatsFilter = {}
+  if (yearFrom != null) out.yearFrom = yearFrom
+  if (yearTo != null) out.yearTo = yearTo
+  if (grades.length > 0) out.grades = grades
+  return out
 }
