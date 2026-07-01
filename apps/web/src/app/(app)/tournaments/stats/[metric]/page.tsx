@@ -39,6 +39,12 @@ export default async function StatsDetailPage({
   const { metric: rawMetric } = await params
   const metric = coerceDetailMetric(rawMetric)
   const filter = parsePeriodParams(await searchParams)
+  // 不正な metric セグメント（例 /tournaments/stats/bogus）は canonical URL へ正規化
+  // リダイレクトする。丸めた metric（score）で表示だけ差し替えると URL が /bogus のまま残り、
+  // 戻る導線・期間フィルタ（basePath=canonical）と現在パスが食い違うため（Codex R1 blocker）。
+  if (rawMetric !== metric) {
+    redirect(buildStatsHref(`/tournaments/stats/${metric}`, filter))
+  }
   const detail = await getStatsDetail(metric, filter)
   const title = detailMetricTitle(metric)
 
