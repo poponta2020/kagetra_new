@@ -61,24 +61,43 @@ export function buildRankingHref(metric: RankingMetric, filter: StatsFilter): st
   return qs ? `/players/ranking?${qs}` : '/players/ranking'
 }
 
+/** searchParams の値は Next.js App Router では string だけでなく配列にもなり得る。 */
+type RawParam = string | string[] | undefined
+
+/** 配列 searchParam（?k=a&k=b）は先頭を採用。単値/未指定はそのまま。 */
+function firstParam(v: RawParam): string | undefined {
+  return Array.isArray(v) ? v[0] : v
+}
+
 /**
  * /players/ranking の searchParams を検証済みの `{ metric, filter }` に。
  * 指標は許可リストへ丸め、年/級は `sanitizeStatsFilter` で妥当な値のみ採用（不正は捨てる・
  * yearFrom>yearTo は入替）。文字列 → 型付き候補にしてから共通検証へ委譲する。
+ *
+ * `searchParams` はユーザーが直接改変できる入力で、Next.js は同名 query 複数指定
+ * （`?grades=A&grades=B`）を **配列**で渡す。metric/year は先頭を採用、grades は配列・
+ * カンマ区切りの両方を平坦化してから検証する（`.split` を配列に対して呼んでページが 500 化
+ * するのを防ぐ）。
  */
 export function parseRankingParams(sp: {
-  metric?: string
-  yearFrom?: string
-  yearTo?: string
-  grades?: string
+  metric?: RawParam
+  yearFrom?: RawParam
+  yearTo?: RawParam
+  grades?: RawParam
 }): { metric: RankingMetric; filter: StatsFilter } {
   const candidate: StatsFilter = {}
-  if (sp.yearFrom != null) candidate.yearFrom = Number(sp.yearFrom)
-  if (sp.yearTo != null) candidate.yearTo = Number(sp.yearTo)
-  if (sp.grades) candidate.grades = sp.grades.split(',') as Grade[]
+  const yearFrom = firstParam(sp.yearFrom)
+  const yearTo = firstParam(sp.yearTo)
+  if (yearFrom != null) candidate.yearFrom = Number(yearFrom)
+  if (yearTo != null) candidate.yearTo = Number(yearTo)
+
+  const rawGrades = Array.isArray(sp.grades)
+    ? sp.grades.flatMap((v) => v.split(','))
+    : (sp.grades?.split(',') ?? [])
+  if (rawGrades.length > 0) candidate.grades = rawGrades as Grade[]
 
   return {
-    metric: coerceRankingMetric(sp.metric),
+    metric: coerceRankingMetric(firstParam(sp.metric)),
     filter: sanitizeStatsFilter(candidate),
   }
 }

@@ -64,6 +64,18 @@ describe('parseRankingParams', () => {
   it('grades は正規順（A→E）に並べ替える', () => {
     expect(parseRankingParams({ grades: 'E,B,A' }).filter.grades).toEqual(['A', 'B', 'E'])
   })
+
+  it('配列 searchParams（?grades=A&grades=B）でもクラッシュせず丸める', () => {
+    // 繰り返し query
+    expect(parseRankingParams({ grades: ['A', 'B'] }).filter.grades).toEqual(['A', 'B'])
+    // 繰り返し＋カンマ混在
+    expect(parseRankingParams({ grades: ['A,C', 'B'] }).filter.grades).toEqual(['A', 'B', 'C'])
+    // metric/year が配列なら先頭を採用
+    expect(parseRankingParams({ metric: ['winRate', 'wins'], yearFrom: ['2015'] })).toEqual({
+      metric: 'winRate',
+      filter: { yearFrom: 2015 },
+    })
+  })
 })
 
 describe('formatMetricValue / formatMetricSub', () => {

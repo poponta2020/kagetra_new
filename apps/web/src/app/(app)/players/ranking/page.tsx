@@ -23,12 +23,9 @@ const MIN_YEAR = 2010
 export default async function PlayerRankingPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    metric?: string
-    yearFrom?: string
-    yearTo?: string
-    grades?: string
-  }>
+  // Next.js App Router は同名 query 複数指定を配列で渡す（`?grades=A&grades=B`）。
+  // parseRankingParams が配列/単値の両方を安全に丸める。
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
