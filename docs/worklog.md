@@ -2770,3 +2770,11 @@
 - **CI 落ち2件を修正:** ①PR-2 の E2E `senseki-stats-nav` が旧 scaffold h1「選手ランキング」を assert→本実装で撤去のため fail→指標 tablist 可視＋ランキングタブ active に追従（`8e2d2c8`）。②無関係 flaky `admin/members/new-member-form`（初回CIは通過）→ `gh run rerun --failed` で green。
 - **検証:** 型チェック green・全 web 862+ tests green（ranking DB 13 / types 8 / metrics 13 / チップ 2 / フィルタ 5 / リスト 8 追加）・lint clean。worktree の共有 test DB 競合回避に isolated DB `kagetra_test_ranking`(5434) 使用。/auto-review-loop 6R pass（effort=high・累計 ~330k tokens）・CI green。
 - **残 DoD:** 本番実機目視（375px 縦積み・横スクロールは指標チップのみ・もっと見る・絞り込みシート）。**次＝PR-4 大会統計（#215 query getStatsOverview/getStatsDetail／#216 画面）**。migration 追加なし（PR-3 は web コードのみ・auto-deploy で build/restart）。
+
+## 2026-07-01 senseki-stats PR-4 大会統計（#215/#216）SHIPPED — PR#223 `0faed90`
+- **タスク7（#215）クエリ:** `apps/web/src/lib/stats/overview.ts` `getStatsOverview`＝絶対数4カード（大会数/対戦数=**実試合数**/競技人口/延べ参加）＋6図（級別構成推移・新規参入者[初出場年・2011〜]・一人当たり平均年参加数[x=級]・スコアヒスト25本+平均・年別競技人口・年別大会参加人数）。`detail.ts` `getStatsDetail`(score/competitors/participations)＝全級+各級A〜E 系列。`filters.ts` periodConds（期間のみ・級で絞らない）／types.ts に DetailMetric+coerceDetailMetric。
+- **タスク8（#216）画面:** `/tournaments/stats`（メイン4カード＋6図・図1〜3完結・図4〜6「級別比較 ›」ドリル）＋`/tournaments/stats/[metric]`（全級+A〜E 縦スモールマルチプル・図ごと個別正規化）。純SVGチャート `components/stats/charts/`（BarChart/Histogram/StackedComposition・y目盛+値ラベル・フックなし）＋`chart-utils.ts`＋`grade-tones.ts`（藍→砂トーンランプ・**朱はデータ装飾に使わない**・平均線=中立インク破線）＋`StatsPeriodFilter`（期間のみ・basePath 共用）。E2E senseki-stats-nav を本実装UIへ追随。
+- **非自明:** ①新規参入者の初出場年は**全データで min(year) 確定**→期間は表示窓のみ（部分集合内の「新規」ではない）。②**全級(all)は per-grade 合算でない**＝competitors は distinct player・participations は grade null 級も含む→ all は別集計。③スコアヒスト/総対戦数は normal の**勝者行のみ**で試合を1回だけカウント。④値ラベルと軸目盛のテキスト衝突をテストで `text.font-display` 絞りで回避・SVG `平均 {x}` はテンプレ文字列で単一ノード化。
+- **Codex auto-review 3R 収束:** R1=図詳細の不正 metric を canonical URL へ redirect（URL/表示/フィルタの不一致）／R2=**総対戦数カードを実試合数（normal 勝者行のみ・約半分）に**＝ユーザー確認で採用（corpus 見出し 819,703=行数 ではなく試合数・スコアヒストと定義一致）／R3=pass。effort=high・累計 ~314k tokens。
+- **検証:** 型チェック green・stats+ranking 111 tests green・lint clean。isolated test DB `kagetra_test_tstats`(5434) 使用（並行 import-past-results worktree と共有DB競合回避）。CI green・migration 追加なし（derived_bracket は PR-1 の 0037 で既出・auto-deploy で build/restart）。
+- **残 DoD:** 本番実機目視（375px 縦積み・図詳細ドリル・期間フィルタ・朱不使用）。**次＝PR-5 大会結果（#217 query／#218 一覧+シリーズ詳細／#219 大会詳細=入賞者+級クロス表）**。
