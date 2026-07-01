@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  deriveClassBrackets,
   derivePlacement,
   isChampion,
   isDerivableClass,
@@ -225,5 +226,67 @@ describe('isDerivableClass — 級全体がシングルイリミか', () => {
   it('参加者1人/空 → false', () => {
     expect(isDerivableClass([cm(1, 'win', '1回戦')])).toBe(false)
     expect(isDerivableClass([])).toBe(false)
+  })
+})
+
+describe('deriveClassBrackets — 級一括の bracket 導出（materialize/backfill 共通）', () => {
+  it('クリーンな4人シングルイリミ → [優勝1, 準優勝2, ベスト4, ベスト4]（入力順）', () => {
+    // maxRound=2（準決勝=R1, 決勝=R2）。優勝者のみ無敗、他3人が1敗ずつ＝導出可能。
+    const brackets = deriveClassBrackets([
+      { matches: [m(1, 'win', '準決勝'), m(2, 'win', '決勝')] }, // 優勝
+      { matches: [m(1, 'win', '準決勝'), m(2, 'lose', '決勝')] }, // 準優勝
+      { matches: [m(1, 'lose', '準決勝')] }, // ベスト4
+      { matches: [m(1, 'lose', '準決勝')] }, // ベスト4
+    ])
+    expect(brackets).toEqual([1, 2, 4, 4])
+  })
+
+  it('順位定義は getPlayerRecord と単一ソース（8人＝準々決勝で敗退はベスト8）', () => {
+    // maxRound=3（準々=R1, 準=R2, 決=R3）。優勝1・準優勝1・ベスト4×2・ベスト8×4＝敗者7。
+    const brackets = deriveClassBrackets([
+      { matches: [m(1, 'win'), m(2, 'win'), m(3, 'win')] }, // 優勝
+      { matches: [m(1, 'win'), m(2, 'win'), m(3, 'lose')] }, // 準優勝
+      { matches: [m(1, 'win'), m(2, 'lose')] }, // ベスト4
+      { matches: [m(1, 'win'), m(2, 'lose')] }, // ベスト4
+      { matches: [m(1, 'lose')] }, // ベスト8
+      { matches: [m(1, 'lose')] }, // ベスト8
+      { matches: [m(1, 'lose')] }, // ベスト8
+      { matches: [m(1, 'lose')] }, // ベスト8
+    ])
+    expect(brackets).toEqual([1, 2, 4, 4, 8, 8, 8, 8])
+  })
+
+  it('導出不能級（リーグ戦）は全参加者 null（呼び出し側が final_rank にフォールバック）', () => {
+    // 3人総当たり: 敗北3 ≠ 参加者-1(2) → isDerivableClass=false → 全 null。
+    const brackets = deriveClassBrackets([
+      { matches: [m(1, 'win', '1回戦'), m(3, 'lose', '3回戦')] },
+      { matches: [m(1, 'lose', '1回戦'), m(2, 'win', '2回戦')] },
+      { matches: [m(2, 'lose', '2回戦'), m(3, 'win', '3回戦')] },
+    ])
+    expect(brackets).toEqual([null, null, null])
+  })
+
+  it('非ブラケットラベル（順位戦）を含む級は全 null', () => {
+    const brackets = deriveClassBrackets([
+      { matches: [m(1, 'win', '順位戦')] },
+      { matches: [m(1, 'lose', '順位戦')] },
+    ])
+    expect(brackets).toEqual([null, null])
+  })
+
+  it('walkover/forfeit も win/lose として扱う（不戦の勝敗を導出に含める）', () => {
+    // 3人・maxRound=2: A は1回戦 bye(walkover 勝ち)→決勝勝ち＝優勝、B は1回戦で C に
+    // 勝ち(C の forfeit)→決勝負け＝準優勝、C は1回戦 forfeit 負け＝ベスト4。
+    // 敗者2（B の決勝負け・C の1回戦負け）＝参加者-1 で導出可能。
+    const brackets = deriveClassBrackets([
+      { matches: [m(1, 'win', null, 'walkover'), m(2, 'win', '決勝')] },
+      { matches: [m(1, 'win', '1回戦'), m(2, 'lose', '決勝')] },
+      { matches: [m(1, 'lose', '1回戦', 'forfeit')] },
+    ])
+    expect(brackets).toEqual([1, 2, 4])
+  })
+
+  it('空配列 → 空配列', () => {
+    expect(deriveClassBrackets([])).toEqual([])
   })
 })

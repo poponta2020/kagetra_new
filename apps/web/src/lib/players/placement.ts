@@ -144,3 +144,50 @@ export function isDerivableClass(classMatches: ClassMatchRow[]): boolean {
   const losses = classMatches.filter((m) => m.result === 'lose').length
   return losses === participants - 1
 }
+
+/** deriveClassBrackets の入力：級内の1参加者（自分の matches だけを持つ）。 */
+export interface ClassParticipantMatches {
+  matches: readonly PlacementMatch[]
+}
+
+/**
+ * 級の全参加者について、各自の順位 bracket（1=優勝 / 2=準優勝 / 4 / 8 / 16 …、導出
+ * 不能級は null）を **入力順（index 対応）で** 返す。materialize（取込承認）と backfill
+ * が participant へ `derived_bracket` を書き込むための共通純関数。
+ *
+ * 順位定義は `getPlayerRecord`（戦績詳細）と**単一ソース**にするため、同じ2段構えで
+ * 導出する：
+ *   ① 級全体を `isDerivableClass` で判定（リーグ/順位戦/3位決定戦/データ欠け等の
+ *      非トーナメント形式は級ごと丸ごと null＝呼び出し側が保存 `final_rank` に落ちる）。
+ *   ② 導出可能なら各参加者の matches を round 昇順にして `derivePlacement(_, classMaxRound)`。
+ * `classMaxRound` は級内 matches の max round（＝決勝 round）。
+ *
+ * **級が導出可能でも個別参加者の `derivePlacement` が null になる場合（0 試合参加者・
+ * その参加者だけ round ギャップ/重複 等）は、その参加者のみ null を返す（他は bracket を保持）。**
+ * これは意図した挙動で、`getPlayerRecord`（戦績詳細）が `derivable ? derivePlacement(...) : null`
+ * ＝ `rankBracket = derived?.bracket ?? null` と参加者ごとに同じフォールバックをするため。
+ * ここで「1人でも null なら級全員 null」に丸めると保存値が戦績詳細の導出値と乖離し、§4.1 の
+ * 単一ソース不変条件（保存 derived_bracket == 戦績詳細 rankBracket）が壊れる（queries.test.ts で
+ * この一致を検証）。null になった参加者は保存済み `final_rank` にフォールバックされ、汚染はしない。
+ *
+ * participantId は入力配列の index を用いる（`isDerivableClass` は distinct 参加者数の
+ * カウントにしか使わないため、index で一意なら十分）。
+ */
+export function deriveClassBrackets(
+  participants: readonly ClassParticipantMatches[],
+): (number | null)[] {
+  const classRows: ClassMatchRow[] = []
+  let classMaxRound = 0
+  for (let i = 0; i < participants.length; i++) {
+    for (const mt of participants[i]!.matches) {
+      classRows.push({ roundLabel: mt.roundLabel, result: mt.result, participantId: i })
+      if (mt.round > classMaxRound) classMaxRound = mt.round
+    }
+  }
+  const derivable = isDerivableClass(classRows)
+  return participants.map((p) => {
+    if (!derivable) return null
+    const sorted = [...p.matches].sort((a, b) => a.round - b.round)
+    return derivePlacement(sorted, classMaxRound)?.bracket ?? null
+  })
+}
