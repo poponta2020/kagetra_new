@@ -22,9 +22,15 @@ const TABS: readonly Tab[] = [
   { id: 'home', label: 'ホーム', href: '/dashboard', matches: ['/dashboard'] },
   { id: 'events', label: 'イベント', href: '/events', matches: ['/events'] },
   { id: 'schedule', label: '予定', href: '/schedule', matches: ['/schedule'] },
-  // tournament-results (Task5): 選手戦績の検索・閲覧。全ログインユーザー向け
-  // （会員でも見える初の専用タブ）。/players 配下を active 判定。
-  { id: 'players', label: '戦績', href: '/players', matches: ['/players'] },
+  // senseki-stats (PR-2): 戦績 → 統計 に改称。href は /players 据え置き
+  // （着地点＝選手検索）だが、配下の 4 セクション（選手検索/大会結果/ランキング/
+  // 大会統計）は /players・/tournaments の 2 基底に分かれるため両方を active 判定。
+  {
+    id: 'players',
+    label: '統計',
+    href: '/players',
+    matches: ['/players', '/tournaments'],
+  },
   {
     id: 'members',
     label: '会員',
