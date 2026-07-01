@@ -1,24 +1,44 @@
+import { redirect } from 'next/navigation'
+import { auth } from '@/auth'
 import { SectionTabs } from '@/components/stats/section-tabs'
-import { Card } from '@/components/ui'
+import { getTournamentList } from '@/lib/stats/tournaments'
+import { TournamentsHeader } from './TournamentsHeader'
+import { TournamentYearList } from './TournamentYearList'
+
+export const dynamic = 'force-dynamic'
+
+/** 年別ビューの初期表示件数（もっと見るで追記）。 */
+const PAGE_SIZE = 200
 
 /**
- * /tournaments — ② 大会結果（年別ビュー・閲覧）。senseki-stats PR-5 で実装予定。
- * PR-2（ナビ）では 4 セクションシェル配下のプレースホルダ scaffold。
- * `/tournaments/series`（大会別トグル）と `/tournaments/stats`（大会統計）は
- * 静的セグメントで、動的 `/tournaments/[id]`（大会詳細）より優先される。
+ * /tournaments — ② 大会結果・年別ビュー（閲覧）。requirements §3.4・design-spec §3.4。
+ *
+ * 全大会を開催日降順・年セクションで一覧（級構成トーンドット＋参加者数、行タップ→大会詳細）。
+ * 大会別（`/tournaments/series`）とはヘッダのトグルで切り替え、大会名検索は両ビュー共通。
  */
-export default function TournamentsPage() {
+export default async function TournamentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const session = await auth()
+  if (!session) redirect('/auth/signin')
+
+  const sp = await searchParams
+  const query = firstParam(sp.q)?.trim() ?? ''
+  const { rows, total } = await getTournamentList(query || undefined, undefined, PAGE_SIZE, 0)
+
   return (
     <div>
       <SectionTabs />
       <div className="flex flex-col gap-4 p-4">
-        <h1 className="font-display text-xl font-bold text-ink">大会結果</h1>
-        <Card>
-          <p className="py-10 text-center text-sm text-ink-meta">
-            大会結果一覧（年別／大会別）は準備中です（PR-5 で実装）。
-          </p>
-        </Card>
+        <TournamentsHeader view="year" query={query} />
+        <TournamentYearList key={query} initialRows={rows} total={total} query={query} />
       </div>
     </div>
   )
+}
+
+function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v
 }

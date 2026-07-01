@@ -123,7 +123,7 @@ status: completed
 - **完了条件:** クエリテスト green・中止/未確定/記録なしの区別・opponent は正規化キー解決（[[impl_tournament_results]] 踏襲）。
 
 ### タスク10: 大会一覧（年別/大会別）＋シリーズ詳細 画面（PR-5）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/tournaments`（年別・年セクション・級トーンドット・参加数・中止朱）↔`/tournaments/series`（大会別・
   シリーズ束ね）のトグル＋大会名検索。`/tournaments/series/[id]`（サマリー帯＋参加者数推移[中止年=朱破線]＋
   回次一覧[新しい順・記録なし帯]）。design-spec §3.4/§3.6。
