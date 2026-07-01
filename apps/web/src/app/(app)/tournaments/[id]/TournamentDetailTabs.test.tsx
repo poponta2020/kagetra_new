@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { ClassBlock } from '@/lib/stats/results'
 import { TournamentDetailTabs } from './TournamentDetailTabs'
+
+const push = vi.fn()
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
+
+beforeEach(() => push.mockReset())
 
 const dBlock: ClassBlock = {
   classId: 1,
@@ -82,6 +87,15 @@ describe('TournamentDetailTabs — タブ', () => {
     // 行の氏名は戦績詳細リンク（相手名の「甲」は非リンク span なので link ロールで特定）
     const table = screen.getByRole('table')
     expect(within(table).getByRole('link', { name: '甲' }).getAttribute('href')).toBe('/players/10')
+  })
+
+  it('クロス表は行全体タップで戦績詳細へ（相手セルのタップも行の選手へ）', () => {
+    render(<TournamentDetailTabs blocks={[dBlock]} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'D' }))
+    // 乙の行の相手セル「甲」（非リンク span）をタップ → 行の選手＝乙(20)の戦績へ
+    const oppCell = screen.getByText('甲', { selector: 'span' })
+    fireEvent.click(oppCell)
+    expect(push).toHaveBeenCalledWith('/players/20')
   })
 
   it('入賞者が無い級はセクションを出さない（空文言）', () => {

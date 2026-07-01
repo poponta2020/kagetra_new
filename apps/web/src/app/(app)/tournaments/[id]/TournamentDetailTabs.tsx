@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { ClassBlock, CrosstabCell, WinnerPlace } from '@/lib/stats/results'
 import { cn } from '@/lib/utils'
 
@@ -150,6 +151,7 @@ function PlaceRow({ place }: { place: WinnerPlace }) {
  * design-spec §7）。敗退後の回戦は空セル＝勝ち残りが逆三角形に見える。行タップ→戦績詳細。
  */
 function CrosstabView({ block }: { block: ClassBlock }) {
+  const router = useRouter()
   const { columns, rows } = block.crosstab
   if (rows.length === 0) {
     return <p className="py-10 text-center text-sm text-ink-meta">この級の対戦記録がありません。</p>
@@ -174,7 +176,14 @@ function CrosstabView({ block }: { block: ClassBlock }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.participantId} className="hover:bg-surface-alt">
+            <tr
+              key={r.participantId}
+              // 行全体タップで戦績詳細へ（design-spec §3.5「行タップ→戦績詳細」）。氏名セルは
+              // キーボード操作用に Link も残す（クリックは行 onClick と同一 URL で冪等）。相手名は
+              // 非リンクなので、相手セルのタップも「その行の選手」の戦績へ向かう。
+              className={r.playerId != null ? 'cursor-pointer hover:bg-surface-alt' : 'hover:bg-surface-alt'}
+              onClick={r.playerId != null ? () => router.push(`/players/${r.playerId}`) : undefined}
+            >
               <th className="sticky left-0 z-10 border-b border-border-soft bg-surface px-2 py-1.5 text-left font-normal">
                 {r.playerId != null ? (
                   <Link href={`/players/${r.playerId}`} className="block max-w-[7rem] truncate font-display text-[13px] text-ink hover:underline">

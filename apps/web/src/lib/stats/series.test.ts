@@ -165,6 +165,38 @@ describe('getSeriesDetail', () => {
     ])
   })
 
+  it('非導出級（リーグ）の優勝者は final_rank から拾う（大会詳細と単一ソース・Codex R3 blocker）', async () => {
+    await testDb.insert(tournamentSeries).values({ name: 'リーグ系列' })
+    // A 級がリーグ戦（bracket 導出不能）＋ B 級が通常トーナメント。最上位 A 級の優勝者を
+    // final_rank から拾い、B 級の bracket=1 で上書きしないことを確認する。
+    await seed('第5回リーグ系列', '2024-04-01', [
+      {
+        className: 'A級',
+        grade: 'A',
+        sheetName: null,
+        participants: [
+          { seqNo: 1, name: 'リーグ優勝', nameKana: null, affiliation: null, prefecture: null, dan: null, memberNo: null, finalRank: '優勝', matches: [{ round: 1, roundLabel: '予選リーグ', opponentName: 'リーグ2位', scoreDiff: 3, result: 'win', status: 'normal' }] },
+          { seqNo: 2, name: 'リーグ2位', nameKana: null, affiliation: null, prefecture: null, dan: null, memberNo: null, finalRank: '準優勝', matches: [{ round: 1, roundLabel: '予選リーグ', opponentName: 'リーグ優勝', scoreDiff: 3, result: 'lose', status: 'normal' }] },
+        ],
+      },
+      {
+        className: 'B級',
+        grade: 'B',
+        sheetName: null,
+        participants: [
+          { seqNo: 1, name: 'B級王者', nameKana: null, affiliation: null, prefecture: null, dan: null, memberNo: null, finalRank: null, matches: [{ round: 1, roundLabel: '決勝', opponentName: 'B級2位', scoreDiff: 5, result: 'win', status: 'normal' }] },
+          { seqNo: 2, name: 'B級2位', nameKana: null, affiliation: null, prefecture: null, dan: null, memberNo: null, finalRank: null, matches: [{ round: 1, roundLabel: '決勝', opponentName: 'B級王者', scoreDiff: 5, result: 'lose', status: 'normal' }] },
+        ],
+      },
+    ])
+    // beforeEach で truncate 済み＝この系列の id は 1。
+    const d = await getSeriesDetail(1)
+    expect(d).not.toBeNull()
+    const ed = d!.editions.find((e) => e.editionNumber === 5)!
+    // 最上位 A 級の final_rank『優勝』を採用（B 級の bracket=1『B級王者』で上書きしない）
+    expect(ed.championName).toBe('リーグ優勝')
+  })
+
   it('存在しない系列は null', async () => {
     expect(await getSeriesDetail(999999)).toBeNull()
     expect(await getSeriesDetail(0)).toBeNull()

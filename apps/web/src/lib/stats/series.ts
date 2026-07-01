@@ -149,16 +149,25 @@ export async function getSeriesDetail(seriesId: number): Promise<SeriesDetail | 
     ORDER BY e.edition_number DESC
   `)
 
-  // 優勝者（最上位級 A→E の derived_bracket=1）と、その優勝者の大会 id を回次ごとに 1 件。
+  // 優勝者（最上位級 A→E の優勝）と、その優勝者の大会 id を回次ごとに 1 件。
+  // 順位定義は大会詳細（buildWinners）と単一ソースに揃える：導出可能級は derived_bracket=1、
+  // 導出不能級（リーグ等・bracket null）は final_rank の「優勝」（準優勝は除外）にフォールバック。
+  // 同一級では bracket=1 を final_rank 優勝より優先し、級順（A→E）で最上位級の優勝者を採る
+  // （非導出の最上位級を下位級の bracket=1 で上書きしない）。
   const champRes = await db.execute(sql`
     SELECT DISTINCT ON (e.id) e.id AS edition_id, tp.name AS champion_name, t.id AS tournament_id
     FROM tournament_series_editions e
     JOIN tournaments t ON t.edition_id = e.id
     JOIN tournament_classes tc ON tc.tournament_id = t.id
-    JOIN tournament_participants tp ON tp.class_id = tc.id AND tp.derived_bracket = 1
+    JOIN tournament_participants tp ON tp.class_id = tc.id
     WHERE e.series_id = ${seriesId}
+      AND (
+        tp.derived_bracket = 1
+        OR (tp.derived_bracket IS NULL AND tp.final_rank LIKE '%優勝%' AND tp.final_rank NOT LIKE '%準優%')
+      )
     ORDER BY e.id,
       CASE tc.grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 WHEN 'D' THEN 4 WHEN 'E' THEN 5 ELSE 6 END,
+      CASE WHEN tp.derived_bracket = 1 THEN 0 ELSE 1 END,
       tc.id, tp.id
   `)
   const champByEdition = new Map<number, { name: string; tournamentId: number }>()
