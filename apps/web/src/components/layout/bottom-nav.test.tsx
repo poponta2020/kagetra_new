@@ -19,8 +19,8 @@ describe('BottomNav', () => {
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
-    // tournament-results Task5: 戦績 は全ユーザー共有タブ。
-    expect(screen.getByText('戦績')).toBeTruthy()
+    // senseki-stats PR-2: 戦績 → 統計 に改称。全ユーザー共有タブ。
+    expect(screen.getByText('統計')).toBeTruthy()
     expect(screen.getByText('会員')).toBeTruthy()
     expect(screen.getByText('メール')).toBeTruthy()
     expect(screen.getByText('Bot')).toBeTruthy()
@@ -29,28 +29,44 @@ describe('BottomNav', () => {
   // Regression: non-admins previously saw 会員 tab and were bounced to /403
   // by the admin-only page guard — breaking their bottom-nav UX. メール
   // (mail-inbox) follows the same admin-only convention.
-  it('isAdmin=false のとき 共有タブ（戦績含む）のみ表示し 会員 / メール は出さない', () => {
+  it('isAdmin=false のとき 共有タブ（統計含む）のみ表示し 会員 / メール は出さない', () => {
     render(<BottomNav isAdmin={false} />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
     expect(screen.getByText('予定')).toBeTruthy()
-    // tournament-results Task5: 戦績 は会員でも見える初の専用タブ。
-    expect(screen.getByText('戦績')).toBeTruthy()
+    // senseki-stats PR-2: 統計 は会員でも見える共有タブ。
+    expect(screen.getByText('統計')).toBeTruthy()
     expect(screen.queryByText('会員')).toBeNull()
     expect(screen.queryByText('メール')).toBeNull()
   })
 
-  it('pathname=/players で 戦績 タブが active になる', () => {
+  it('pathname=/players で 統計 タブが active になる', () => {
     mockUsePathname.mockReturnValue('/players')
     render(<BottomNav isAdmin={false} />)
-    const link = screen.getByText('戦績').closest('a')
+    const link = screen.getByText('統計').closest('a')
     expect(link?.className).toContain('border-brand')
   })
 
-  it('pathname=/players/42 のような詳細パスでも 戦績 タブが active', () => {
+  it('pathname=/players/42 のような詳細パスでも 統計 タブが active', () => {
     mockUsePathname.mockReturnValue('/players/42')
     render(<BottomNav isAdmin={false} />)
-    const link = screen.getByText('戦績').closest('a')
+    const link = screen.getByText('統計').closest('a')
+    expect(link?.className).toContain('border-brand')
+  })
+
+  // senseki-stats PR-2: 統計 タブは /tournaments 配下も active 判定に含む
+  // （大会結果・大会統計セクションは /tournaments 基底）。
+  it('pathname=/tournaments で 統計 タブが active になる', () => {
+    mockUsePathname.mockReturnValue('/tournaments')
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('統計').closest('a')
+    expect(link?.className).toContain('border-brand')
+  })
+
+  it('pathname=/tournaments/5 のような大会詳細でも 統計 タブが active', () => {
+    mockUsePathname.mockReturnValue('/tournaments/5')
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('統計').closest('a')
     expect(link?.className).toContain('border-brand')
   })
 

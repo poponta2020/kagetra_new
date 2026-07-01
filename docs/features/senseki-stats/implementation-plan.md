@@ -53,7 +53,7 @@ status: completed
   読み戻しで優勝/入賞数が妥当。**本番は投入待ち（worklog に残 DoD 明記）**。
 
 ### タスク4: タブ改称＋4セクションシェル＋ルート scaffold（PR-2 ナビ）
-- [ ] 完了
+- [x] 完了
 - **概要:** BottomNav「戦績」→「統計」（href=`/players`・active 判定に `/tournaments` 追加）。統計配下の
   **均等4分割の下線タブ**シェル（選手検索/大会結果/ランキング/大会統計）を共通コンポーネント化。新規ルートの
   空 scaffold（プレースホルダ）を作り、既存 `/players` 検索をシェル配下に収める。design-spec §3.0。
