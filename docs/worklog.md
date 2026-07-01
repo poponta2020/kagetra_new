@@ -2760,3 +2760,13 @@
 - **prettier 罠:** リポに prettier 設定が無く style は手書き規約（single-quote/no-semi）。素の `npx prettier --write` が既定（double-quote+semi）で13ファイルを一時破壊（lint/型は通るので気づきにくい）→`--single-quote --no-semi` で復元。教訓＝[[feedback_no_prettier_config_repo_style]]。
 - **検証:** 型チェック green・vitest 24 tests green（section-tabs 10 / bottom-nav 14）・lint clean。worktree の共有 test DB 競合回避に isolated DB `kagetra_test_sstats`(5434) を作成（ship 時 drop）。/auto-review-loop 1R で pass（effort=high・tokens 134,944）・CI green。
 - **残 DoD:** 本番実機目視（4セクション導線）。UI は最小 scaffold＝PR-3〜5 で中身実装。**次＝PR-3 選手ランキング（タスク5→6・#213/#214）**。
+
+## 2026-07-01 senseki-stats PR-3（選手ランキング）SHIPPED（親#208 → PR #222）
+
+- **PR #222 merge（`0d6fe10`）** — feat(stats): 選手ランキング（getPlayerRanking クエリ＋/players/ranking 画面）。子 #213/#214 クローズ（親 #208 は PR-4/5 残のため OPEN 継続）。/implement→auto-review-loop→ship 自律完走。
+- **タスク5（#213）:** `getPlayerRanking(metric, filter, limit, offset)`（`apps/web/src/lib/stats/ranking.ts` 新規）＝6指標（出場/勝利[normal win]/勝率[最低20試合足切り]/対戦[normal]/優勝[derived_bracket=1]/入賞[derived_bracket≤8]）。期間(年 from–to)・級(A–E)フィルタ連動。集計サブクエリ＋`rank() over`（競技ランキング=タイの次は飛ばす）＋`count(*) over`（該当総数）＋相関サブクエリ（直近所属）を1クエリで。並び=値降順→表示名→player_id（offset ページング安定化）。共通フィルタ型＋検証を `lib/stats/types.ts`（db 非依存）に集約。
+- **タスク6（#214）:** `/players/ranking` 画面＝横スクロール指標チップ（Link・現フィルタ保持）＋1行フィルタ（期間/級・絞り込みボトムシート）＋順位リスト（行タップ→戦績詳細・TOP100＋もっと見る=Server Action `loadMoreRanking`）。
+- **非自明（Codex 6R で収束・全 blocker 実欠陥）:** ①入力検証は data-access の**単一 choke point `getPlayerRanking`** に集約（page/Server Action 両方が通る）＝改変 metric/grade/年/offset で 500 化を回避（coerce/sanitize/clamp）。②未認証 Server Action は空配列でなく `redirect('/auth/signin')`（空配列だと「もっと見る」が消えず失敗ループ）。③`total` は offset 末尾超えで rows 空時のみ agg 数え直しフォールバック（offset 非依存契約）。④RankingList=追加取得空で終端・reject は try/catch でエラー表示＋再試行＋多重実行ガード。⑤**Next.js searchParams は `string | string[]`**（`?grades=A&grades=B`）＝`.split` が配列で 500 だった→先頭採用＋flatMap 平坦化、page.tsx 型も是正。⑥RankingMetric 型を types.ts へ移設し再エクスポート（クライアントに db を持ち込まない）。
+- **CI 落ち2件を修正:** ①PR-2 の E2E `senseki-stats-nav` が旧 scaffold h1「選手ランキング」を assert→本実装で撤去のため fail→指標 tablist 可視＋ランキングタブ active に追従（`8e2d2c8`）。②無関係 flaky `admin/members/new-member-form`（初回CIは通過）→ `gh run rerun --failed` で green。
+- **検証:** 型チェック green・全 web 862+ tests green（ranking DB 13 / types 8 / metrics 13 / チップ 2 / フィルタ 5 / リスト 8 追加）・lint clean。worktree の共有 test DB 競合回避に isolated DB `kagetra_test_ranking`(5434) 使用。/auto-review-loop 6R pass（effort=high・累計 ~330k tokens）・CI green。
+- **残 DoD:** 本番実機目視（375px 縦積み・横スクロールは指標チップのみ・もっと見る・絞り込みシート）。**次＝PR-4 大会統計（#215 query getStatsOverview/getStatsDetail／#216 画面）**。migration 追加なし（PR-3 は web コードのみ・auto-deploy で build/restart）。
