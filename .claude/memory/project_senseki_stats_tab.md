@@ -1,6 +1,6 @@
 ---
 name: project_senseki_stats_tab
-description: 戦績→「統計」タブ再編(4セクション)。design-spec locked＋requirements completed、収束ゲート達成、実装計画待ち
+description: 戦績→「統計」タブ再編(4セクション)。全5PR SHIPPED（PR-1〜5完了・親#208クローズ可）
 metadata: 
   node_type: memory
   type: project
@@ -9,7 +9,7 @@ metadata:
 
 戦績タブを「統計」に改称し **4セクション**（①選手検索 ②大会結果 ③選手ランキング ④大会統計）へ再編する機能。収録済み全国データ（1,496大会/819,703対戦/47,709人/367,675参加/180系列）を「個別に引く（閲覧）／横断集計（統計）」の2軸で見せる。
 
-**状態（2026-07-01）:** design/requirements/plan 全 completed＝収束ゲート達成。親 #208＋子 #209-219（11タスク/5PR）。**PR-1〜4 SHIPPED**（PR#220 基盤 [[impl_senseki_stats_pr1_derived_bracket]]／PR#221 ナビ [[impl_senseki_stats_pr2_nav]]／PR#222 ランキング [[impl_senseki_stats_pr3_ranking]]／**PR#223 大会統計 [[impl_senseki_stats_pr4_tournament_stats]]**）。**残＝PR-5 大会結果（#217 query 一覧/シリーズ/大会詳細／#218 一覧+シリーズ詳細 画面／#219 大会詳細=入賞者+級クロス表 画面）**。次＝`/implement senseki-stats`（タスク9 から・依存＝タスク2 済）。
+**状態（2026-07-01）:** **全5PR SHIPPED＝機能完了**。親 #208＋子 #209-219（11タスク/5PR）全実装。PR#220 基盤 [[impl_senseki_stats_pr1_derived_bracket]]／PR#221 ナビ [[impl_senseki_stats_pr2_nav]]／PR#222 ランキング [[impl_senseki_stats_pr3_ranking]]／PR#223 大会統計 [[impl_senseki_stats_pr4_tournament_stats]]／**PR#229 大会結果 [[impl_senseki_stats_pr5_tournament_results]]**。**残＝親 #208 クローズ＋各PRの本番実機目視**。
 
 **確定モック**（Claude Design "Kagetra Design System"・projectId `74ab8bf1-f11a-48e8-9853-e063b2f1f2d5`・`preview/`）: senseki-stats-a（シェル+ランキング）／-main（大会統計サマリー6図）／-detail（図詳細・級別比較）／-tournaments（一覧年別）／-tournaments-series（一覧大会別）／-tournament-detail（入賞者）／-tournament-detail-class（級=クロス表）／-tournament-series-detail（シリーズ詳細）。不採用 b/agg/overview は削除済。共有CSS=`preview/_senseki-stats.css`。
 
