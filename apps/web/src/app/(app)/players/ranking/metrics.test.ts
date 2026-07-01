@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   RANKING_METRICS,
+  buildPlayerHrefFromRanking,
   buildRankingHref,
   formatMetricSub,
   formatMetricValue,
@@ -139,6 +140,32 @@ describe('parseRankingParams — デフォルト注入 / 明示フラグ', () =>
       explicit: true,
       filter: { yearFrom: 2015 },
     })
+  })
+})
+
+describe('buildPlayerHrefFromRanking — ④行→詳細（from=ranking 複写）', () => {
+  it('非明示（デフォルト）は from=ranking のみ（指標が非既定なら metric も）', () => {
+    expect(buildPlayerHrefFromRanking(12, 'participations', {}, false)).toBe(
+      '/players/12?from=ranking',
+    )
+    expect(buildPlayerHrefFromRanking(12, 'wins', {}, false)).toBe(
+      '/players/12?metric=wins&from=ranking',
+    )
+    // 非明示ではフィルタは複写しない（素の URL のまま戻れる）。
+    expect(buildPlayerHrefFromRanking(12, 'wins', { grades: ['A'] }, false)).toBe(
+      '/players/12?metric=wins&from=ranking',
+    )
+  })
+
+  it('明示モードは f=1＋フィルタ（includeFormer 含む）を複写する', () => {
+    expect(
+      buildPlayerHrefFromRanking(
+        7,
+        'wins',
+        { grades: ['A'], yearFrom: 2021, yearTo: 2026, includeFormerGrade: true },
+        true,
+      ),
+    ).toBe('/players/7?metric=wins&f=1&yearFrom=2021&yearTo=2026&grades=A&includeFormer=1&from=ranking')
   })
 })
 

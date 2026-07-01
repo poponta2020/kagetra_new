@@ -59,6 +59,7 @@ export default async function PlayerRankingPage({
           total={total}
           metric={metric}
           filter={filter}
+          explicit={explicit}
         />
       </div>
     </div>

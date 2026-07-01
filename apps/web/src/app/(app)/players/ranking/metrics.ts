@@ -91,6 +91,25 @@ export function buildRankingHref(
   return qs ? `/players/ranking?${qs}` : '/players/ranking'
 }
 
+/**
+ * ランキング一覧の行 → 選手詳細の href（④）。`from=ranking`＋現在のランキング絞り込み params を
+ * 複写する。用途は (a)詳細側の「← ランキングへ戻る」ラベル判定、(b) `router.back()` が使えない
+ * 直リンク流入時のフォールバック遷移先の再構成、(c) 中クリック/JS 無効時の遷移先。ランキング
+ * params は `buildRankingHref` と同形（非明示＝指標のみ・明示＝f=1＋フィルタ）で往復可能。
+ */
+export function buildPlayerHrefFromRanking(
+  playerId: number,
+  metric: RankingMetric,
+  filter: StatsFilter,
+  explicit: boolean,
+): string {
+  const rankingHref = buildRankingHref(metric, filter, explicit)
+  const qIndex = rankingHref.indexOf('?')
+  const params = new URLSearchParams(qIndex >= 0 ? rankingHref.slice(qIndex + 1) : '')
+  params.set('from', 'ranking')
+  return `/players/${playerId}?${params.toString()}`
+}
+
 /** searchParams の値は Next.js App Router では string だけでなく配列にもなり得る。 */
 type RawParam = string | string[] | undefined
 
