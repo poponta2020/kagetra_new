@@ -83,8 +83,9 @@ function strOrNull(v: unknown): string | null {
 export async function getSeriesList(query?: string): Promise<SeriesListRow[]> {
   const q = query?.trim()
   // ILIKE のワイルドカードはエスケープ（ユーザー入力由来の % _ を literal 扱い）。
+  // ESCAPE '\' を明示し、置換済みの \% \_ を必ず literal 扱いにする（server 設定非依存）。
   const nameCond: SQL = q
-    ? sql`WHERE s.name ILIKE ${'%' + q.replace(/([%_\\])/g, '\\$1') + '%'}`
+    ? sql`WHERE s.name ILIKE ${'%' + q.replace(/([%_\\])/g, '\\$1') + '%'} ESCAPE '\\'`
     : sql``
   const res = await db.execute(sql`
     SELECT s.id, s.name, s.kind,
@@ -92,9 +93,11 @@ export async function getSeriesList(query?: string): Promise<SeriesListRow[]> {
       min(e.edition_number)::int AS ed_from,
       max(e.edition_number)::int AS ed_to,
       max(e.year)::int AS recent_year,
-      count(*) FILTER (WHERE e.status = 'held')::int AS held,
-      count(*) FILTER (WHERE e.status = 'cancelled')::int AS cancelled,
-      count(*) FILTER (WHERE e.status = 'unconfirmed')::int AS unconfirmed
+      -- 状態別は count(e.id) FILTER で数える（editions 0 件の系列は LEFT JOIN の NULL 拡張行を
+      -- 生むが e.id が NULL なので確実に除外＝空系列を 1 件の held と誤集計しない）。
+      count(e.id) FILTER (WHERE e.status = 'held')::int AS held,
+      count(e.id) FILTER (WHERE e.status = 'cancelled')::int AS cancelled,
+      count(e.id) FILTER (WHERE e.status = 'unconfirmed')::int AS unconfirmed
     FROM tournament_series s
     LEFT JOIN tournament_series_editions e ON e.series_id = s.id
     ${nameCond}

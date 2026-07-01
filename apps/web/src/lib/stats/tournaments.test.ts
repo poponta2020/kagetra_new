@@ -83,6 +83,14 @@ describe('getTournamentList — 年別ビュー', () => {
     expect(rows.map((r) => r.name)).toEqual(['東京大会'])
   })
 
+  it('検索語の % / _ は literal 扱い（ESCAPE 句）', async () => {
+    await seed('50%大会', '2025-04-01', [classWith('D', ['a'])])
+    await seed('普通大会', '2025-05-01', [classWith('D', ['b'])])
+    // '%' が literal なら '50%大会' だけ一致（ワイルドカード誤動作なら普通大会も一致）
+    const { rows } = await getTournamentList('50%')
+    expect(rows.map((r) => r.name)).toEqual(['50%大会'])
+  })
+
   it('単一年で絞り込める（event_date 無しは除外）', async () => {
     await seed('2024大会', '2024-04-01', [classWith('D', ['a'])])
     await seed('2025大会', '2025-04-01', [classWith('D', ['b'])])

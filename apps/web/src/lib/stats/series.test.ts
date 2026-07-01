@@ -106,6 +106,26 @@ describe('getSeriesList', () => {
     expect((await getSeriesList('テスト')).map((r) => r.name)).toEqual(['テスト大会'])
     expect(await getSeriesList('存在しない')).toEqual([])
   })
+
+  it('回次台帳の無い系列は count=0（空系列を held と誤集計しない・Codex R2 blocker）', async () => {
+    await testDb.insert(tournamentSeries).values({ name: '空系列' })
+    const rows = await getSeriesList('空系列')
+    expect(rows).toHaveLength(1)
+    const r = rows[0]!
+    expect(r.editionCount).toBe(0)
+    expect(r.heldCount).toBe(0)
+    expect(r.cancelledCount).toBe(0)
+    expect(r.unconfirmedCount).toBe(0)
+    expect(r.editionNumberFrom).toBeNull()
+    expect(r.recentYear).toBeNull()
+  })
+
+  it('検索語の % / _ は literal 扱い（ESCAPE 句）', async () => {
+    await testDb.insert(tournamentSeries).values({ name: '100%大会' })
+    await testDb.insert(tournamentSeries).values({ name: 'ABC大会' })
+    // '%' は literal＝ '100%大会' だけ一致（ワイルドカードなら ABC大会 も一致してしまう）
+    expect((await getSeriesList('100%')).map((r) => r.name)).toEqual(['100%大会'])
+  })
 })
 
 describe('getSeriesDetail', () => {

@@ -47,7 +47,8 @@ function listConds(query: string | undefined, year: number | undefined): SQL[] {
   const conds: SQL[] = []
   const q = query?.trim()
   if (q) {
-    conds.push(sql`t.name ILIKE ${'%' + q.replace(/([%_\\])/g, '\\$1') + '%'}`)
+    // ESCAPE '\' を明示し、置換済みの \% \_ を必ず literal 扱いにする（server 設定非依存）。
+    conds.push(sql`t.name ILIKE ${'%' + q.replace(/([%_\\])/g, '\\$1') + '%'} ESCAPE '\\'`)
   }
   if (year != null && Number.isInteger(year)) {
     conds.push(sql`t.event_date >= ${`${year}-01-01`}::date`)
