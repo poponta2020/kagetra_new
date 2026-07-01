@@ -11,6 +11,7 @@ import {
 import { normalizeDan, normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
+import { deriveClassBrackets } from '@/lib/players/placement'
 import { autoResolveEdition } from '@/lib/edition/resolve'
 
 // Works for both NodePgDatabase (main db) and NodePgTransaction (inside tx callback).
@@ -90,6 +91,14 @@ export async function materializeResultDraft(
       })
       .returning({ id: tournamentClasses.id })
     const classId = tClass!.id
+
+    // 級内 matches から各参加者の順位 bracket（1=優勝 / 2 / 4 / 8 …、導出不能級は
+    // null）を **participant insert より前に** まとめて算出する（senseki-stats §4.1）。
+    // 参照は participant 配列の index（下の Pass1 と同じ順序）。順位定義は戦績詳細
+    // （getPlayerRecord）と単一ソース＝`deriveClassBrackets`（内部で isDerivableClass →
+    // derivePlacement）。導出不能級は null のまま保存され、読み出し側は保存済み
+    // `final_rank` にフォールバックする。
+    const derivedBrackets = deriveClassBrackets(cls.participants)
 
     // Pass 1: Insert all participants for this class.
     //
@@ -174,6 +183,8 @@ export async function materializeResultDraft(
           danRank: normalizeDan(p.dan),
           memberNo: p.memberNo,
           finalRank: p.finalRank,
+          // 事前計算した順位 bracket（導出不能級は null → final_rank フォールバック）。
+          derivedBracket: derivedBrackets[i] ?? null,
         })
         .returning({ id: tournamentParticipants.id })
       participantIds[i] = participant!.id

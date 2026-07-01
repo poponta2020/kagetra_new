@@ -260,6 +260,13 @@
       "when": 1782791465878,
       "tag": "0036_remove_event_status_draft",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1782878436598,
+      "tag": "0037_derived_bracket",
+      "breakpoints": true
     }
   ]
 }

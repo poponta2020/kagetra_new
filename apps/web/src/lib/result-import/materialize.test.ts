@@ -744,3 +744,188 @@ describe('materializeResultDraft — edition 自動解決 (flow②)', () => {
     expect(result.editionId).toBeNull()
   })
 })
+
+// senseki-stats §4.1: 取込承認時に級内 matches から順位 bracket を事前計算して
+// participant.derived_bracket に保存する（順位定義は戦績詳細と単一ソース）。
+describe('materializeResultDraft — derived_bracket 書き込み (senseki-stats §4.1)', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+
+  type PMatch = ParsedResultPayload['classes'][number]['participants'][number]['matches'][number]
+  function mm(
+    round: number,
+    roundLabel: string | null,
+    opponentName: string | null,
+    result: 'win' | 'lose',
+    status: 'normal' | 'walkover' | 'forfeit' = 'normal',
+  ): PMatch {
+    return { round, roundLabel, opponentName, scoreDiff: null, result, status }
+  }
+  function part(
+    name: string,
+    finalRank: string | null,
+    matches: PMatch[],
+  ): ParsedResultPayload['classes'][number]['participants'][number] {
+    return {
+      seqNo: null,
+      name,
+      nameKana: null,
+      affiliation: null,
+      prefecture: null,
+      dan: null,
+      memberNo: null,
+      finalRank,
+      matches,
+    }
+  }
+
+  it('クリーンなシングルイリミ級 → 各 participant に bracket(優勝1/準優勝2/ベスト4) が保存される', async () => {
+    // 4人・2回戦（準決勝=R1, 決勝=R2）。優勝者のみ無敗＝敗者3で導出可能。
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        {
+          className: 'A級',
+          grade: 'A',
+          sheetName: null,
+          participants: [
+            part('優勝太郎', '優勝', [
+              mm(1, '準決勝', 'ベスト子', 'win'),
+              mm(2, '決勝', '準優花子', 'win'),
+            ]),
+            part('準優花子', '準優勝', [
+              mm(1, '準決勝', 'ベスト男', 'win'),
+              mm(2, '決勝', '優勝太郎', 'lose'),
+            ]),
+            part('ベスト子', null, [mm(1, '準決勝', '優勝太郎', 'lose')]),
+            part('ベスト男', null, [mm(1, '準決勝', '準優花子', 'lose')]),
+          ],
+        },
+      ],
+    }
+
+    const { tournamentId } = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: 'bracket大会',
+        eventDate: '2026-06-01',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, tournamentId))
+    const partRows = await testDb
+      .select()
+      .from(tournamentParticipants)
+      .where(eq(tournamentParticipants.classId, classRows[0]!.id))
+    const byName = (n: string) => partRows.find((p) => p.name === n)!
+
+    expect(byName('優勝太郎').derivedBracket).toBe(1)
+    expect(byName('準優花子').derivedBracket).toBe(2)
+    expect(byName('ベスト子').derivedBracket).toBe(4)
+    expect(byName('ベスト男').derivedBracket).toBe(4)
+  })
+
+  it('導出不能級（リーグ戦）→ derived_bracket は全 null・final_rank は温存', async () => {
+    // 3人総当たり: 敗北3 ≠ 参加者-1(2) → isDerivableClass=false → 全 null。
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        {
+          className: 'B級',
+          grade: 'B',
+          sheetName: null,
+          participants: [
+            part('総当A', '優勝', [
+              mm(1, '1回戦', '総当B', 'win'),
+              mm(3, '3回戦', '総当C', 'lose'),
+            ]),
+            part('総当B', '2位', [
+              mm(1, '1回戦', '総当A', 'lose'),
+              mm(2, '2回戦', '総当C', 'win'),
+            ]),
+            part('総当C', '3位', [
+              mm(2, '2回戦', '総当B', 'lose'),
+              mm(3, '3回戦', '総当A', 'win'),
+            ]),
+          ],
+        },
+      ],
+    }
+
+    const { tournamentId } = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: 'リーグ大会',
+        eventDate: '2026-06-02',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, tournamentId))
+    const partRows = await testDb
+      .select()
+      .from(tournamentParticipants)
+      .where(eq(tournamentParticipants.classId, classRows[0]!.id))
+
+    for (const p of partRows) expect(p.derivedBracket).toBeNull()
+    // 導出不能でも生の final_rank は温存される（呼び出し側のフォールバック元）。
+    expect(partRows.find((p) => p.name === '総当A')!.finalRank).toBe('優勝')
+  })
+
+  it('不戦(walkover/forfeit)を含むクリーンな級も導出される', async () => {
+    // 3人: A は1回戦 bye(walkover 勝ち)→決勝勝ち＝優勝、B は1回戦で C に勝ち(C forfeit)
+    // →決勝負け＝準優勝、C は1回戦 forfeit 負け＝ベスト4。
+    const payload: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        {
+          className: 'C級',
+          grade: 'C',
+          sheetName: null,
+          participants: [
+            part('不戦優勝', '優勝', [
+              mm(1, null, null, 'win', 'walkover'),
+              mm(2, '決勝', '不戦準V', 'win'),
+            ]),
+            part('不戦準V', '準優勝', [
+              mm(1, '1回戦', '不戦棄権', 'win'),
+              mm(2, '決勝', '不戦優勝', 'lose'),
+            ]),
+            part('不戦棄権', null, [mm(1, '1回戦', '不戦準V', 'lose', 'forfeit')]),
+          ],
+        },
+      ],
+    }
+
+    const { tournamentId } = await testDb.transaction(async (tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: '不戦大会',
+        eventDate: '2026-06-03',
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, tournamentId))
+    const partRows = await testDb
+      .select()
+      .from(tournamentParticipants)
+      .where(eq(tournamentParticipants.classId, classRows[0]!.id))
+    const byName = (n: string) => partRows.find((p) => p.name === n)!
+
+    expect(byName('不戦優勝').derivedBracket).toBe(1)
+    expect(byName('不戦準V').derivedBracket).toBe(2)
+    expect(byName('不戦棄権').derivedBracket).toBe(4)
+  })
+})

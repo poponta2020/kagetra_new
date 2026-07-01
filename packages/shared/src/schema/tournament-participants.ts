@@ -35,10 +35,23 @@ export const tournamentParticipants = pgTable(
     danRank: smallint('dan_rank'),
     memberNo: text('member_no'),
     finalRank: text('final_rank'),
+    // 事前計算した順位ブラケット（1=優勝 / 2=準優勝 / 4=ベスト4 / 8 / 16 …、導出不能
+    // 級は null）。取込承認（materialize）時に級内 matches から `derivePlacement` で確定
+    // し、順位定義は戦績詳細（getPlayerRecord）と単一ソース。②大会詳細の級別順位・
+    // ③優勝/入賞ランキング・②歴代優勝者を「参加グレイン」で支える派生列（期間・級
+    // フィルタを WHERE で効かせるため選手単位の事前集計表ではなくこの粒度で保持）。
+    // 導出不能級は null のまま呼び出し側が保存済み `final_rank` にフォールバックする。
+    derivedBracket: smallint('derived_bracket'),
   },
   (table) => [
     index('idx_participants_player_id').on(table.playerId),
     index('idx_participants_class_id').on(table.classId),
+    // ③選手ランキングの優勝(bracket=1)/入賞(bracket≤8)集計を支える。bracket で range
+    // 絞り込み → player_id 順で GROUP BY count が効くよう (derived_bracket, player_id)。
+    // 導出不能級(null)は集計対象外なので index からも除外し軽量化する部分 index。
+    index('idx_participants_derived_bracket')
+      .on(table.derivedBracket, table.playerId)
+      .where(sql`${table.derivedBracket} IS NOT NULL`),
     // matches の composite FK (participant_id, class_id) → (id, class_id) のターゲット。
     // id は単独で PK だが、composite FK は参照先の同一列集合に UNIQUE/PK 制約を要求する
     // ため明示的に張る。これにより「試合の class_id が参加者の所属級と一致する」ことを

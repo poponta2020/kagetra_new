@@ -68,6 +68,14 @@ describe('tournament-results schema', () => {
     expect(tournamentParticipants.finalRank.name).toBe('final_rank')
   })
 
+  it('defines a nullable derived_bracket smallint (事前計算した順位ブラケット)', () => {
+    // ②大会詳細の級別順位・③優勝/入賞ランキングを参加グレインで支える派生列。
+    // 導出不能級は null（final_rank フォールバック）なので nullable。
+    expect(tournamentParticipants.derivedBracket.name).toBe('derived_bracket')
+    expect(tournamentParticipants.derivedBracket.notNull).toBe(false)
+    expect(tournamentParticipants.derivedBracket.dataType).toBe('number')
+  })
+
   it('defines matches with notNull result and status defaulting to normal', () => {
     expect(matches.round.notNull).toBe(true)
     expect(matches.participantId.notNull).toBe(true)

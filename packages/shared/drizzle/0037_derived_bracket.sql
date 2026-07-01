@@ -1,0 +1,2 @@
+ALTER TABLE "tournament_participants" ADD COLUMN "derived_bracket" smallint;--> statement-breakpoint
+CREATE INDEX "idx_participants_derived_bracket" ON "tournament_participants" USING btree ("derived_bracket","player_id") WHERE "tournament_participants"."derived_bracket" IS NOT NULL;
