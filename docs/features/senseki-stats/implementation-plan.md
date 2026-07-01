@@ -112,7 +112,7 @@ status: completed
 - **完了条件:** フロントテスト green・6図/ドリル3図の描画・y目盛＋値ラベル・**朱はデータ装飾に使わない**（平均線/棒は中立or藍）・375px 縦積み。
 
 ### タスク9: 大会結果 クエリ（一覧/シリーズ/大会詳細）（PR-5）
-- [ ] 完了
+- [x] 完了
 - **概要:** `getTournamentList(query?, year?)`（年別）／`getSeriesList()`（大会別＝累計/回次範囲/直近年/状態内訳）／
   `getSeriesDetail(seriesId)`（回次一覧＋参加者数推移）／`getTournamentResults(tournamentId)`（級ブロック→
   {入賞者=bracket集約, クロス表=選手×回戦(勝ち上がり順)}、分割級A1/A2）。requirements §3.4/§4.2。
