@@ -66,8 +66,10 @@ function SeriesRow({ s }: { s: SeriesListRow }) {
           </span>
         </span>
         <span className="shrink-0 text-right">
+          {/* 累計開催回数＝実際に開催（held）した回数。中止/未確定は下の状態内訳で別掲
+              （design-spec §3.6.2：通算開催回数 と 状態内訳 は別軸）＝シリーズ詳細と一致。 */}
           <span className="font-display text-base font-bold text-brand tabular-nums">
-            {s.editionCount}
+            {s.heldCount}
             <span className="ml-0.5 text-xs font-normal text-ink-meta">回</span>
           </span>
           {s.cancelledCount > 0 || s.unconfirmedCount > 0 ? (
