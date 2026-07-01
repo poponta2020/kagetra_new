@@ -114,6 +114,29 @@ describe('RankingList — 空 / もっと見る', () => {
     expect(screen.getByRole('button', { name: 'もっと見る' })).toBeTruthy()
   })
 
+  it('追加取得が失敗したらエラー表示・ボタンは残り再試行できる', async () => {
+    loadMoreMock.mockRejectedValueOnce(new Error('boom'))
+    render(
+      <RankingList
+        initialRows={[row({ rank: 1, playerId: 10, value: 12 }), row({ rank: 2, playerId: 20, value: 8 })]}
+        total={10}
+        metric="wins"
+        filter={{}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
+    await waitFor(() =>
+      expect(screen.getByText('読み込みに失敗しました。もう一度お試しください。')).toBeTruthy(),
+    )
+    // ボタンは残り（再試行可能）。再試行が成功すれば行が増えエラーは消える。
+    loadMoreMock.mockResolvedValueOnce([row({ rank: 3, playerId: 30, displayName: '三位', value: 5 })])
+    fireEvent.click(screen.getByRole('button', { name: 'もっと見る' }))
+    await waitFor(() => expect(screen.getByText('三位')).toBeTruthy())
+    expect(
+      screen.queryByText('読み込みに失敗しました。もう一度お試しください。'),
+    ).toBeNull()
+  })
+
   it('追加取得が空配列なら（total 未達でも）もっと見る を終端して消す', async () => {
     // total=10 だが次ページが 0 件（データ変化/offset 超過）→ 以後ボタンを出さない。
     loadMoreMock.mockResolvedValue([])

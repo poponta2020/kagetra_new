@@ -33,6 +33,9 @@ export function RankingList({
   // データ変化や offset 超過で `rows.length < total` のままでも次ページが 0 件になり得るため、
   // それだけでボタンを出し続けると同じ offset のリクエストを繰り返せてしまう。
   const [exhausted, setExhausted] = useState(false)
+  // 追加取得の失敗（ネットワーク/一時的な Server Action 失敗/DB エラー）を捕捉して表示する。
+  // 捕捉しないとイベントハンドラ内の非同期例外が未処理になる。捕捉後もボタンは残し再試行可能。
+  const [error, setError] = useState<string | null>(null)
   const unit = metricDef(metric).unit
 
   if (rows.length === 0) {
@@ -46,11 +49,15 @@ export function RankingList({
   const hasMore = !exhausted && rows.length < total
 
   const loadMore = async () => {
+    if (loading) return // 多重実行ガード（同じ offset の連打を防ぐ）
     setLoading(true)
+    setError(null)
     try {
       const more = await loadMoreRanking(metric, filter, rows.length)
       if (more.length === 0) setExhausted(true)
       else setRows((prev) => [...prev, ...more])
+    } catch {
+      setError('読み込みに失敗しました。もう一度お試しください。')
     } finally {
       setLoading(false)
     }
@@ -99,6 +106,12 @@ export function RankingList({
           )
         })}
       </ul>
+
+      {error ? (
+        <p role="alert" className="mt-2 self-center text-xs text-accent-fg">
+          {error}
+        </p>
+      ) : null}
 
       {hasMore ? (
         <button
