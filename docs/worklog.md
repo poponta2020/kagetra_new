@@ -2750,3 +2750,13 @@
 - **worktree の罠:** 要件/計画/design-spec は main で untracked だったので worktree に手コピーして PR-1 に同梱。ship 後 `git merge --ff-only` が main 側の untracked 同名ファイルと衝突→untracked 削除で解消。`gh pr merge --delete-branch` はローカル branch が worktree 使用中で失敗（[[feedback_gh_pr_merge_from_worktree]]）→worktree remove（node_modules で dir 残→`rm -rf` 手動）+`git branch -d` で後始末。
 - **本番反映 完了（2026-07-01）:** ①**migration 0037 は auto-deploy が自動適用済み**（PR #220 merge `7661fae` の Deploy job＝`APPLY: 0037_derived_bracket`, `applied=1, skipped=37`, SUCCESS）。当初 worklog で「dump/apply」と書いたが**不要**＝単純 additive 列は通常の db:migrate 運用で足りる（series 層のような Drizzle 非管理スキーマとは別物）。②**backfill は本番ホストで直接実行して完了**：`ssh -i ~/.ssh/id_ed25519_oracle ubuntu@new.hokudaicarta.com` → `sudo -u kagetra bash -lc 'cd /opt/kagetra && DATABASE_URL=<.env.production抽出> corepack pnpm --filter @kagetra/web exec tsx scripts/backfill-derived-bracket.ts'`（ホスト上で local DB 接続＝ネットワーク転送なし・migrate と同環境・.env.local footgun なし）。**dry-run→本適用（updated 301,075 rows）→独立 psql 読み戻し→冪等 dry-run(rows to change=0)** で検証パス。③結果＝8,689 級 / 367,675 参加中 **derivable=301,075**（champions=7,805・入賞≤8=62,447・null=66,600・分布 1:7805/2:7810/4:15619/8:31213/16:61056/32:98125/64:66536/128:12748/256:163）。アプリ再起動不要（PR-1 は保存値未使用＝getPlayerRecord は live 導出継続・挙動不変。保存値は PR-3/PR-5 で使用）。
 - **残 DoD:** 本番実機目視。**次＝PR-2 ナビ（#212, タスク4・PR-1 と独立）**。
+- 2026-07-01 /auto-review-loop PR #221: 1R, verdict=pass, effort=high, tokens=134944/500000, result=pass
+
+## 2026-07-01 senseki-stats PR-2（ナビ再構成）ship 完了
+
+- **PR #221 merge（`59f572c`）** — feat(stats): 「統計」タブ改称＋4セクションシェル＋ルート scaffold。子 #212 クローズ（親 #208 は PR-3〜5 残のため OPEN 継続）。
+- **内容:** BottomNav「戦績」→「統計」（href=/players 据え置き・active 判定に /tournaments 追加）。`SectionTabs`（ss-segA 相当・均等4分割下線タブ：選手検索/大会結果/ランキング/大会統計）新設し既存 /players 検索をシェル配下に収納（検索ロジック不変）。新規ルート空 scaffold 7本（ranking/tournaments/series/stats のトップは SectionTabs＋プレースホルダ、[id]/series/[id]/stats/[metric] の詳細プッシュは戻る導線のみ・横断ナビ非表示）。
+- **非自明:** ①SectionTabs の active は**最長プレフィックス一致**（/players/ranking→ランキング・/tournaments/stats→大会統計が親タブより優先）。②SectionTabs はシェル layout ではなく各セクショントップ page で個別 render（詳細プッシュは出さない・§3.1）。③静的 seg（ranking/series/stats）> 動的 [id] の Next.js 優先順位に依存。
+- **prettier 罠:** リポに prettier 設定が無く style は手書き規約（single-quote/no-semi）。素の `npx prettier --write` が既定（double-quote+semi）で13ファイルを一時破壊（lint/型は通るので気づきにくい）→`--single-quote --no-semi` で復元。教訓＝[[feedback_no_prettier_config_repo_style]]。
+- **検証:** 型チェック green・vitest 24 tests green（section-tabs 10 / bottom-nav 14）・lint clean。worktree の共有 test DB 競合回避に isolated DB `kagetra_test_sstats`(5434) を作成（ship 時 drop）。/auto-review-loop 1R で pass（effort=high・tokens 134,944）・CI green。
+- **残 DoD:** 本番実機目視（4セクション導線）。UI は最小 scaffold＝PR-3〜5 で中身実装。**次＝PR-3 選手ランキング（タスク5→6・#213/#214）**。
