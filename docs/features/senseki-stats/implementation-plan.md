@@ -70,7 +70,7 @@ status: completed
   既存 `/players`/`/players/[id]` 非退行・E2E で4セクション到達。
 
 ### タスク5: 選手ランキング クエリ（PR-3）
-- [ ] 完了
+- [x] 完了
 - **概要:** `getPlayerRanking(metric, filter, limit, offset)`。指標＝出場/勝利/勝率(最低20試合)/対戦/
   **優勝(bracket=1)**/**入賞(bracket≤8)**。期間・級フィルタ連動。同値=同順位・値降順→表示名。requirements §3.5/§4.2。
 - **変更対象ファイル:**
@@ -81,7 +81,7 @@ status: completed
   `ANY(ARRAY[...]::int[])`（[[feedback_drizzle_sql_int_array_binding]]）。
 
 ### タスク6: 選手ランキング 画面（PR-3）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/players/ranking`。横スクロール指標チップ＋1行フィルタ（期間/級/絞り込みシート）＋順位リスト
   （TOP100＋もっと見る、行タップ→戦績詳細）。design-spec §3.1。
 - **変更対象ファイル:**

@@ -63,9 +63,8 @@ test.describe('統計タブ 4セクションナビ（SectionTabs）', () => {
     // → 選手ランキング（/players/ranking）
     await segA.getByRole('link', { name: 'ランキング' }).click()
     await expect(page).toHaveURL(/\/players\/ranking$/)
-    await expect(
-      page.getByRole('heading', { name: '選手ランキング' }),
-    ).toBeVisible()
+    // PR-3 で本実装：指標チップ（tablist）が出る（旧 scaffold の h1 は撤去）。
+    await expect(page.getByRole('tablist', { name: '指標' })).toBeVisible()
     await expect(
       segA.getByRole('link', { name: 'ランキング' }),
     ).toHaveAttribute('aria-current', 'page')
