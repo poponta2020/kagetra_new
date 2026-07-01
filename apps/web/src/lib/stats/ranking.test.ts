@@ -110,13 +110,48 @@ describe('getPlayerRanking — 出場回数', () => {
     ])
   })
 
-  it('直近大会の所属会を返す（searchPlayers と同一の相関サブクエリ）', async () => {
+  it('直近大会の所属会を返す（期間内の直近1件）', async () => {
     await seed('古い大会', '2024-01-01', [classWith('D級', 'D', [p('所属太郎', [], { affiliation: '札幌' })])])
     await seed('新しい大会', '2026-05-01', [classWith('D級', 'D', [p('所属太郎', [], { affiliation: '東京' })])])
 
     const { rows } = await getPlayerRanking('participations')
     expect(rows[0]!.displayName).toBe('所属太郎')
     expect(rows[0]!.affiliation).toBe('東京')
+  })
+
+  it('複数選手それぞれが別々の直近所属を返す（派生テーブル相関バグの回帰）', async () => {
+    // 甲=東京(2024)→札幌(2026 直近)、乙=名古屋(2024)→福岡(2026 直近)。
+    // 以前は agg.player_id への相関が効かず全行が同じ所属になっていた。
+    await seed('2024大会', '2024-01-01', [
+      classWith('D級', 'D', [
+        p('甲', [], { affiliation: '東京' }),
+        p('乙', [], { affiliation: '名古屋' }),
+      ]),
+    ])
+    await seed('2026大会', '2026-01-01', [
+      classWith('D級', 'D', [
+        p('甲', [], { affiliation: '札幌' }),
+        p('乙', [], { affiliation: '福岡' }),
+      ]),
+    ])
+
+    const { rows } = await getPlayerRanking('participations')
+    const byName = new Map(rows.map((r) => [r.displayName, r.affiliation]))
+    expect(byName.get('甲')).toBe('札幌')
+    expect(byName.get('乙')).toBe('福岡')
+    // 全行が同一（相関不良バグ）でないこと。
+    expect(byName.get('甲')).not.toBe(byName.get('乙'))
+  })
+
+  it('所属は期間フィルタ内の直近に基づく（期間を絞ると別大会の所属）', async () => {
+    await seed('2020大会', '2020-01-01', [classWith('D級', 'D', [p('期間太郎', [], { affiliation: '旧所属' })])])
+    await seed('2026大会', '2026-01-01', [classWith('D級', 'D', [p('期間太郎', [], { affiliation: '新所属' })])])
+
+    // 全期間：直近=2026 → 新所属。
+    expect((await getPlayerRanking('participations')).rows[0]!.affiliation).toBe('新所属')
+    // 2019〜2021 に絞る：その期間内の直近=2020 → 旧所属（歴史ビュー）。
+    const ranged = await getPlayerRanking('participations', { yearFrom: 2019, yearTo: 2021 })
+    expect(ranged.rows[0]!.affiliation).toBe('旧所属')
   })
 })
 

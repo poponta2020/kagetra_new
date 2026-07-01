@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import {
   matches,
@@ -7,6 +7,7 @@ import {
   tournamentParticipants,
   tournaments,
 } from '@kagetra/shared/schema'
+import { periodConds } from './filters'
 import {
   coerceRankingMetric,
   sanitizeStatsFilter,
@@ -61,20 +62,41 @@ function filterConds(filter: StatsFilter): SQL[] {
 }
 
 /**
- * 直近大会（event_date 降順 NULLS LAST・同日は tournament id 降順）の participant 所属。
- * searchPlayers（[[impl_player_search_recent_affiliation]]）と同一ロジック＝戦績詳細
- * ヘッダ・検索結果・ランキングで所属表示が一致する。
+ * ランキング各行の所属会を、集計後に playerId 群 →「期間フィルタ内の直近大会」（event_date
+ * 降順 NULLS LAST・同日は tournament id 降順・級不問）の participant 所属で一括解決してマップで返す。
+ *
+ * 以前は派生テーブル `agg` の列に相関する相関サブクエリ（`recentAffiliation(agg.playerId)`）で
+ * 引いていたが、派生列への相関が効かず **全行が同じ所属** になるバグがあった（テストが1人しか
+ * seed せず未検出＝テストギャップ）。`queries.ts` の相手所属解決と同型（行取得後に id 群を別
+ * クエリで一括解決）に寄せて集計本体を汚さず複数選手でも正しく解く。直近判定は現在の期間
+ * フィルタ内に限定（全期間なら通算直近）。級では絞らない（期間内・級不問の直近1件）。
  */
-function recentAffiliation(playerIdCol: SQLWrapper): SQL<string | null> {
-  return sql<string | null>`(
-    select tp.affiliation
-    from ${tournamentParticipants} tp
-    join ${tournamentClasses} tc on tc.id = tp.class_id
-    join ${tournaments} t on t.id = tc.tournament_id
-    where tp.player_id = ${playerIdCol}
-    order by t.event_date desc nulls last, t.id desc
-    limit 1
-  )`
+async function resolveRecentAffiliations(
+  playerIds: number[],
+  filter: StatsFilter,
+): Promise<Map<number, string | null>> {
+  if (playerIds.length === 0) return new Map()
+  // filters.ts の periodConds は生 SQL（t alias）用に「AND t.event_date …」を返す（フィルタ
+  // 無しなら空 SQL＝通算直近）。DISTINCT ON で選手ごと直近1件を取る（並びは所属表示と ⑤現級
+  // 判定で共通の event_date DESC NULLS LAST, id DESC）。
+  const period = periodConds(filter)
+  const ids = sql.join(
+    playerIds.map((id) => sql`${id}`),
+    sql`, `,
+  )
+  const res = await db.execute(sql`
+    SELECT DISTINCT ON (tp.player_id) tp.player_id AS player_id, tp.affiliation AS affiliation
+    FROM tournament_participants tp
+    JOIN tournament_classes tc ON tc.id = tp.class_id
+    JOIN tournaments t ON t.id = tc.tournament_id
+    WHERE tp.player_id = ANY(ARRAY[${ids}]::int[]) ${period}
+    ORDER BY tp.player_id, t.event_date DESC NULLS LAST, t.id DESC
+  `)
+  const map = new Map<number, string | null>()
+  for (const row of res.rows as Record<string, unknown>[]) {
+    map.set(Number(row.player_id), (row.affiliation as string | null) ?? null)
+  }
+  return map
 }
 
 /** 参加グレイン（tournament_participants 起点）の集計サブクエリ。優勝/入賞/出場で使う。 */
@@ -197,7 +219,6 @@ export async function getPlayerRanking(
       sub: agg.sub,
       rank: sql<number>`cast(rank() over (order by ${agg.value} desc) as int)`,
       total: sql<number>`cast(count(*) over () as int)`,
-      affiliation: recentAffiliation(agg.playerId),
     })
     .from(agg)
     // 値降順→表示名昇順→player_id 昇順。最後の player_id は同値同名でも並びを一意に
@@ -219,12 +240,19 @@ export async function getPlayerRanking(
     total = c?.n ?? 0
   }
 
+  // 所属会は集計後に別クエリで一括解決してマージ（②バグ修正）。相関サブクエリを派生列に
+  // 当てると全行同じ所属になるため。期間フィルタ内の直近1件（級不問）を使う。
+  const affiliations = await resolveRecentAffiliations(
+    rows.map((r) => r.playerId),
+    safeFilter,
+  )
+
   return {
     rows: rows.map((r) => ({
       rank: r.rank,
       playerId: r.playerId,
       displayName: r.displayName,
-      affiliation: r.affiliation,
+      affiliation: affiliations.get(r.playerId) ?? null,
       value: r.value,
       sub: r.sub,
     })),
