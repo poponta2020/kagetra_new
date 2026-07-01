@@ -61,6 +61,34 @@ export function coerceRankingMetric(value: unknown): RankingMetric {
     : DEFAULT_RANKING_METRIC
 }
 
+/**
+ * ④大会統計・図詳細（`/tournaments/stats/[metric]`）でドリルできる指標。requirements §3.6 / §4.2。
+ * - `score` 枚数差ヒスト ／ `competitors` 年別競技人口 ／ `participations` 年別大会参加人数。
+ *   いずれも「全級＋各級（A〜E）」を並べて比較する（メインの完結図＝級別構成/新規参入者/
+ *   一人当たり平均年参加数は詳細を持たない）。
+ */
+export type DetailMetric = 'score' | 'competitors' | 'participations'
+
+export const DETAIL_METRIC_KEYS: readonly DetailMetric[] = [
+  'score',
+  'competitors',
+  'participations',
+]
+
+/** 既定の詳細指標（不正な [metric] セグメントのフォールバック）。 */
+export const DEFAULT_DETAIL_METRIC: DetailMetric = 'score'
+
+/**
+ * 未知の値を安全な DetailMetric に丸める。`/tournaments/stats/[metric]` の動的セグメントは
+ * ユーザーが任意に打てるため、許可リスト外は既定（score）へ落として集計が例外化しないようにする。
+ */
+export function coerceDetailMetric(value: unknown): DetailMetric {
+  return typeof value === 'string' &&
+    (DETAIL_METRIC_KEYS as readonly string[]).includes(value)
+    ? (value as DetailMetric)
+    : DEFAULT_DETAIL_METRIC
+}
+
 /** 年として妥当（整数・現実的な範囲）な値のみ通す。他は undefined。 */
 function validYear(n: unknown): number | undefined {
   return typeof n === 'number' && Number.isInteger(n) && n >= 1900 && n <= 3000

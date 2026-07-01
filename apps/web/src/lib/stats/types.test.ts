@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coerceRankingMetric, sanitizeStatsFilter } from './types'
+import { coerceDetailMetric, coerceRankingMetric, sanitizeStatsFilter } from './types'
 
 describe('coerceRankingMetric', () => {
   it('妥当な指標はそのまま通す', () => {
@@ -14,6 +14,24 @@ describe('coerceRankingMetric', () => {
     expect(coerceRankingMetric(null)).toBe('participations')
     expect(coerceRankingMetric(42)).toBe('participations')
     expect(coerceRankingMetric({ metric: 'wins' })).toBe('participations')
+  })
+})
+
+describe('coerceDetailMetric', () => {
+  it('妥当な詳細指標はそのまま通す', () => {
+    expect(coerceDetailMetric('score')).toBe('score')
+    expect(coerceDetailMetric('competitors')).toBe('competitors')
+    expect(coerceDetailMetric('participations')).toBe('participations')
+  })
+
+  it('未知/非文字列は既定（score）へ丸める', () => {
+    expect(coerceDetailMetric('bogus')).toBe('score')
+    // ランキング指標（wins 等）は詳細指標ではない → 既定へ
+    expect(coerceDetailMetric('wins')).toBe('score')
+    expect(coerceDetailMetric('')).toBe('score')
+    expect(coerceDetailMetric(undefined)).toBe('score')
+    expect(coerceDetailMetric(null)).toBe('score')
+    expect(coerceDetailMetric(7)).toBe('score')
   })
 })
 

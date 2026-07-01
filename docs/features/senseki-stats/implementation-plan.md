@@ -91,7 +91,7 @@ status: completed
 - **完了条件:** フロントテスト green・375px で横スクロールなし（チップ列除く）・同順位表示・空/長大状態。
 
 ### タスク7: 大会統計 クエリ（getStatsOverview / getStatsDetail）（PR-4）
-- [ ] 完了
+- [x] 完了
 - **概要:** `getStatsOverview(filter)`＝絶対数4＋6図（級別構成推移/新規参入者[初出場年・**2011〜**左側打ち切り]/
   一人当たり平均年参加数[**x=級A〜E**]/スコアヒスト25本/年別競技人口/年別大会参加人数）。`getStatsDetail(metric,filter)`＝
   score/competitors/participations の**全級＋各級A〜E**系列。期間フィルタのみ。requirements §3.6/§4.2。
