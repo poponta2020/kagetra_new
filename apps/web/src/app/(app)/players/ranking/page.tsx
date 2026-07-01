@@ -30,11 +30,12 @@ export default async function PlayerRankingPage({
   const session = await auth()
   if (!session) redirect('/auth/signin')
 
-  const { metric, filter } = parseRankingParams(await searchParams)
+  // 当年はサーバー時刻で算出し、parse（デフォルト直近5年の注入）と期間セレクト候補で共有する。
+  const currentYear = new Date().getFullYear()
+  const { metric, filter, explicit } = parseRankingParams(await searchParams, currentYear)
   const { rows, total } = await getPlayerRanking(metric, filter, 100, 0)
 
   // 期間セレクトの候補：収録開始〜当年（降順）。
-  const currentYear = new Date().getFullYear()
   const years: number[] = []
   for (let y = Math.max(currentYear, MIN_YEAR); y >= MIN_YEAR; y--) years.push(y)
 
@@ -42,7 +43,7 @@ export default async function PlayerRankingPage({
     <div>
       <SectionTabs />
       <div className="flex flex-col gap-3 p-4">
-        <RankingMetricChips metric={metric} filter={filter} />
+        <RankingMetricChips metric={metric} filter={filter} explicit={explicit} />
         <RankingFilterBar metric={metric} filter={filter} years={years} />
 
         <p className="text-xs text-ink-meta">
@@ -53,7 +54,7 @@ export default async function PlayerRankingPage({
         </p>
 
         <RankingList
-          key={buildRankingHref(metric, filter)}
+          key={buildRankingHref(metric, filter, explicit)}
           initialRows={rows}
           total={total}
           metric={metric}

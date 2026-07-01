@@ -6,15 +6,18 @@ import { RANKING_METRICS, buildRankingHref } from './metrics'
 
 /**
  * 指標切替チップ（design-spec §3.1.1）。横スクロールの 6 チップ、選択中＝藍 bg。
- * 各チップは現在のフィルタを保ったまま `?metric=` を差し替える Link なので、
- * クライアント JS 無しで動く（サーバーコンポーネントから描画可）。
+ * 各チップは現在のフィルタ **と明示モード** を保ったまま `?metric=` を差し替える Link
+ * （非明示なら指標のみの素の URL、明示なら `f=1`＋フィルタ）。クライアント JS 無しで動く。
  */
 export function RankingMetricChips({
   metric,
   filter,
+  explicit,
 }: {
   metric: RankingMetric
   filter: StatsFilter
+  /** 明示的に絞り込み中か（指標切替でモードを保つ）。 */
+  explicit: boolean
 }) {
   return (
     <div
@@ -27,7 +30,7 @@ export function RankingMetricChips({
         return (
           <Link
             key={m.key}
-            href={buildRankingHref(m.key, filter)}
+            href={buildRankingHref(m.key, filter, explicit)}
             role="tab"
             aria-selected={active}
             className={cn(

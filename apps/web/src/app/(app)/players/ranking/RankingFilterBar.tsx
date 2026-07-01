@@ -70,18 +70,21 @@ export function RankingFilterBar({
       prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g],
     )
 
+  // 適用は常に明示モードで push（draft がデフォルト同値でも「明示的に絞り込み中」にする）。
+  // これで全級（grades 無し）・全期間（years 無し）も URL に保持でき、戻り時も復元される。
   const apply = () => {
     const next: StatsFilter = {}
     if (draftFrom != null) next.yearFrom = draftFrom
     if (draftTo != null) next.yearTo = draftTo
     if (draftGrades.length > 0) next.grades = draftGrades
     setOpen(false)
-    router.push(buildRankingHref(metric, next))
+    router.push(buildRankingHref(metric, next, true))
   }
 
+  // クリアは素の URL（明示フラグ無し）へ＝デフォルト（現在A級・直近5年）へ復帰。
   const clear = () => {
     setOpen(false)
-    router.push(buildRankingHref(metric, {}))
+    router.push(buildRankingHref(metric, {}, false))
   }
 
   return (

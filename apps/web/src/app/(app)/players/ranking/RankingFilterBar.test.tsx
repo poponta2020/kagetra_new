@@ -41,8 +41,9 @@ describe('RankingFilterBar — シート操作', () => {
     fireEvent.click(screen.getByRole('button', { name: 'C' }))
     fireEvent.click(screen.getByRole('button', { name: '適用' }))
 
+    // 適用は明示モード（f=1）で push する。
     expect(push).toHaveBeenCalledWith(
-      '/players/ranking?metric=wins&yearFrom=2020&yearTo=2026&grades=C',
+      '/players/ranking?metric=wins&f=1&yearFrom=2020&yearTo=2026&grades=C',
     )
     // 適用でシートは閉じる
     expect(screen.queryByRole('dialog')).toBeNull()
