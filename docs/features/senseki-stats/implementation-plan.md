@@ -81,7 +81,7 @@ status: completed
   `ANY(ARRAY[...]::int[])`（[[feedback_drizzle_sql_int_array_binding]]）。
 
 ### タスク6: 選手ランキング 画面（PR-3）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/players/ranking`。横スクロール指標チップ＋1行フィルタ（期間/級/絞り込みシート）＋順位リスト
   （TOP100＋もっと見る、行タップ→戦績詳細）。design-spec §3.1。
 - **変更対象ファイル:**

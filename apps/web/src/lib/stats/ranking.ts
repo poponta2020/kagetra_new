@@ -196,7 +196,9 @@ export async function getPlayerRanking(
       affiliation: recentAffiliation(agg.playerId),
     })
     .from(agg)
-    .orderBy(desc(agg.value), asc(agg.displayName))
+    // 値降順→表示名昇順→player_id 昇順。最後の player_id は同値同名でも並びを一意に
+    // 固定し、offset ページング（「もっと見る」）で境界の重複/欠落が起きないようにする。
+    .orderBy(desc(agg.value), asc(agg.displayName), asc(agg.playerId))
     .limit(limit)
     .offset(offset)
 
