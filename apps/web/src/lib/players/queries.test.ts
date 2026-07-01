@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { tournamentParticipants } from '@kagetra/shared/schema'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
@@ -459,6 +460,68 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     const rec = (await getPlayerRecord((await searchPlayers('単独太郎'))[0]!.id))!
     expect(rec.participations[0]!.matches[0]!.opponentName).toBe('外部花子')
     expect(rec.participations[0]!.matches[0]!.opponentPlayerId).toBeNull()
+  })
+
+  // 単一ソース不変条件（§4.1）: materialize が保存した derived_bracket は、戦績詳細
+  // (getPlayerRecord) が同じ生データから導出する rankBracket と参加者ごとに完全一致する。
+  // 導出可能級・非導出級（総当たり）・「導出可能だが個別導出が null になる異常級（0 試合
+  // 参加者を含む）」を混在させ、乖離が無いことをピン留めする。これにより「一部だけ保存され
+  // 得る」= partial は設計どおり（戦績詳細も同じフォールバックをする）＝汚染ではないことを担保。
+  it('保存 derived_bracket は getPlayerRecord の rankBracket と参加者ごとに一致する', async () => {
+    // 2人が正しく決勝を戦い、3人目は試合記録なし（棄権/未記録）。級は導出可能だが
+    // 「無試合」だけ個別 derivePlacement が null になる（partial ケース）。
+    const anomalous: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        classWith('D級', 'D', [
+          p(1, '半端優勝', [mt(1, '決勝', '半端準V', 5, 'win')]),
+          p(2, '半端準V', [mt(1, '決勝', '半端優勝', 5, 'lose')]),
+          p(3, '無試合', []),
+        ]),
+      ],
+    }
+    // 非導出級（3人総当たり: 敗北3 ≠ 参加者-1）。全員 rankBracket=null になるべき。
+    const league: ParsedResultPayload = {
+      parserVersion: '1.0.0',
+      classes: [
+        classWith('B級', 'B', [
+          pRank(1, '総A', '優勝', [mt(1, '1回戦', '総B', 2, 'win'), mt(3, '3回戦', '総C', 1, 'lose')]),
+          pRank(2, '総B', '2位', [mt(1, '1回戦', '総A', 2, 'lose'), mt(2, '2回戦', '総C', 3, 'win')]),
+          pRank(3, '総C', '3位', [mt(2, '2回戦', '総B', 3, 'lose'), mt(3, '3回戦', '総A', 1, 'win')]),
+        ]),
+      ],
+    }
+    await seedTournament(bracket, { name: '選手権', eventDate: '2026-05-03' })
+    await seedTournament(league, { name: '総当たり大会', eventDate: '2026-06-01' })
+    await seedTournament(anomalous, { name: '半端大会', eventDate: '2026-07-01' })
+
+    // 全 participant の保存 derived_bracket を読み、その player の戦績詳細と突き合わせる。
+    const parts = await testDb
+      .select({
+        id: tournamentParticipants.id,
+        name: tournamentParticipants.name,
+        playerId: tournamentParticipants.playerId,
+        stored: tournamentParticipants.derivedBracket,
+      })
+      .from(tournamentParticipants)
+    expect(parts.length).toBeGreaterThan(0)
+
+    const cache = new Map<number, Awaited<ReturnType<typeof getPlayerRecord>>>()
+    for (const part of parts) {
+      const pid = part.playerId
+      expect(pid).not.toBeNull()
+      if (!cache.has(pid!)) cache.set(pid!, await getPlayerRecord(pid!))
+      const rec = cache.get(pid!)!
+      const view = rec!.participations.find((v) => v.participantId === part.id)!
+      // 保存値 === 戦績詳細の参加者ごと導出値（乖離ゼロ）。
+      expect(view.rankBracket).toBe(part.stored)
+    }
+
+    // partial ケースの具体値: 「無試合」だけ null、他2人は 1/2 が保存される（設計どおり）。
+    const byName = new Map(parts.map((r) => [r.name, r.stored]))
+    expect(byName.get('半端優勝')).toBe(1)
+    expect(byName.get('半端準V')).toBe(2)
+    expect(byName.get('無試合')).toBeNull()
   })
 })
 

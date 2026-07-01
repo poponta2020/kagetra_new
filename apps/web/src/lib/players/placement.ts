@@ -162,6 +162,14 @@ export interface ClassParticipantMatches {
  *   ② 導出可能なら各参加者の matches を round 昇順にして `derivePlacement(_, classMaxRound)`。
  * `classMaxRound` は級内 matches の max round（＝決勝 round）。
  *
+ * **級が導出可能でも個別参加者の `derivePlacement` が null になる場合（0 試合参加者・
+ * その参加者だけ round ギャップ/重複 等）は、その参加者のみ null を返す（他は bracket を保持）。**
+ * これは意図した挙動で、`getPlayerRecord`（戦績詳細）が `derivable ? derivePlacement(...) : null`
+ * ＝ `rankBracket = derived?.bracket ?? null` と参加者ごとに同じフォールバックをするため。
+ * ここで「1人でも null なら級全員 null」に丸めると保存値が戦績詳細の導出値と乖離し、§4.1 の
+ * 単一ソース不変条件（保存 derived_bracket == 戦績詳細 rankBracket）が壊れる（queries.test.ts で
+ * この一致を検証）。null になった参加者は保存済み `final_rank` にフォールバックされ、汚染はしない。
+ *
  * participantId は入力配列の index を用いる（`isDerivableClass` は distinct 参加者数の
  * カウントにしか使わないため、index で一意なら十分）。
  */
