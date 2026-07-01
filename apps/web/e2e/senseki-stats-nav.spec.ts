@@ -69,12 +69,15 @@ test.describe('統計タブ 4セクションナビ（SectionTabs）', () => {
       segA.getByRole('link', { name: 'ランキング' }),
     ).toHaveAttribute('aria-current', 'page')
 
-    // → 大会統計（/tournaments/stats）
+    // → 大会統計（/tournaments/stats）：PR-4 本実装。全体サマリーの図見出しが出る
+    // （旧 scaffold の h1「大会統計」は撤去）。
     await segA.getByRole('link', { name: '大会統計' }).click()
     await expect(page).toHaveURL(/\/tournaments\/stats$/)
-    await expect(
-      page.getByRole('heading', { name: '大会統計', exact: true }),
-    ).toBeVisible()
+    await expect(page.getByRole('heading', { name: '級別構成の推移' })).toBeVisible()
+    await expect(segA.getByRole('link', { name: '大会統計' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
 
     // → 選手検索へ戻れる（既存検索の非退行を再確認）
     await segA.getByRole('link', { name: '選手検索' }).click()

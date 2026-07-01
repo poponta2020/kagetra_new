@@ -91,7 +91,7 @@ status: completed
 - **完了条件:** フロントテスト green・375px で横スクロールなし（チップ列除く）・同順位表示・空/長大状態。
 
 ### タスク7: 大会統計 クエリ（getStatsOverview / getStatsDetail）（PR-4）
-- [ ] 完了
+- [x] 完了
 - **概要:** `getStatsOverview(filter)`＝絶対数4＋6図（級別構成推移/新規参入者[初出場年・**2011〜**左側打ち切り]/
   一人当たり平均年参加数[**x=級A〜E**]/スコアヒスト25本/年別競技人口/年別大会参加人数）。`getStatsDetail(metric,filter)`＝
   score/competitors/participations の**全級＋各級A〜E**系列。期間フィルタのみ。requirements §3.6/§4.2。
@@ -102,7 +102,7 @@ status: completed
 - **完了条件:** 集計テスト green・event_date 無し大会は期間集計から除外・競技人口=distinct player。
 
 ### タスク8: 大会統計 画面（メイン＋図詳細）（PR-4）
-- [ ] 完了
+- [x] 完了
 - **概要:** `/tournaments/stats`（4カード＋6図・期間フィルタ・完結図は級別構成直下・図4〜6に「級別比較 ›」）＋
   `/tournaments/stats/[metric]`（縦スモールマルチプル・図ごと個別正規化・平均は中立インク破線）。design-spec §3.2/§3.3。
 - **変更対象ファイル:**
