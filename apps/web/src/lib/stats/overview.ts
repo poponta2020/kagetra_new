@@ -24,7 +24,11 @@ export interface StatsTotals {
   competitors: number
   /** 収録大会数＝tournaments 件数（期間指定時は event_date 無しを除外）。 */
   tournaments: number
-  /** 総対戦数＝matches 行数（勝者/敗者 2 行のロスレス保持をそのまま数える）。 */
+  /**
+   * 総対戦数＝**実試合数**。matches は通常対戦を勝者/敗者 2 行で保持するため、単純な
+   * count(*) では 2 倍・不戦勝/棄権も混入する。試合を 1 回だけ数えるためスコアヒストと
+   * 同じく normal の勝者行のみ（status='normal' AND result='win'）を数える。
+   */
   matches: number
   /** 大会参加人数＝延べ参加（tournament_participants 行数）。 */
   participations: number
@@ -138,7 +142,7 @@ async function queryTotals(period: ReturnType<typeof periodConds>): Promise<Stat
       FROM matches m
       JOIN tournament_classes tc ON tc.id = m.class_id
       JOIN tournaments t ON t.id = tc.tournament_id
-      WHERE true ${period}
+      WHERE m.status = 'normal' AND m.result = 'win' ${period}
     `),
     db.execute(sql`
       SELECT count(*)::int AS n

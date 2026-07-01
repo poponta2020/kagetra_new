@@ -74,7 +74,8 @@ describe('getStatsOverview — 絶対数カード', () => {
     expect(totals.tournaments).toBe(2)
     expect(totals.competitors).toBe(2) // X太郎・Y太郎（X は 2 大会でも 1 人）
     expect(totals.participations).toBe(3) // 大会A 2 + 大会B 1
-    expect(totals.matches).toBe(4) // 大会A 3 行 + 大会B 1 行
+    // 実試合数＝normal 勝者行のみ：X(win) + Y(win) + 大会B X(win) = 3。X の lose 行は除外。
+    expect(totals.matches).toBe(3)
   })
 
   it('期間フィルタで event_date 無し大会・範囲外を除外する', async () => {
