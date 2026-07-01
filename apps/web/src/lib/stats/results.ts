@@ -315,7 +315,10 @@ function buildWinners(
 export async function getTournamentResults(
   tournamentId: number,
 ): Promise<TournamentResults | null> {
-  if (!Number.isInteger(tournamentId) || tournamentId <= 0) return null
+  // 正の 32bit 整数（PG int4）のみ。範囲外は id 列比較が overflow で 500 になるので早期 null。
+  if (!Number.isInteger(tournamentId) || tournamentId <= 0 || tournamentId > 2147483647) {
+    return null
+  }
 
   const tournament = await db.query.tournaments.findFirst({
     where: eq(tournaments.id, tournamentId),

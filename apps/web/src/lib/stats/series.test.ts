@@ -197,8 +197,10 @@ describe('getSeriesDetail', () => {
     expect(ed.championName).toBe('リーグ優勝')
   })
 
-  it('存在しない系列は null', async () => {
+  it('存在しない/不正な系列 id は null（0・小数・int4 超過で 500 にしない）', async () => {
     expect(await getSeriesDetail(999999)).toBeNull()
     expect(await getSeriesDetail(0)).toBeNull()
+    expect(await getSeriesDetail(1.5)).toBeNull()
+    expect(await getSeriesDetail(2147483648)).toBeNull() // int4 超過→overflow回避
   })
 })

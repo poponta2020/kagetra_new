@@ -22,8 +22,9 @@ export default async function TournamentDetailPage({
   if (!session) redirect('/auth/signin')
 
   const { id } = await params
-  const tournamentId = Number(id)
-  const results = Number.isInteger(tournamentId) ? await getTournamentResults(tournamentId) : null
+  // 動的セグメントは 10 進整数のみを正規 URL とする（`1.0`/`1e3` 等の非正規表現は 404）。
+  if (!/^\d+$/.test(id)) notFound()
+  const results = await getTournamentResults(Number(id))
   if (!results) notFound()
 
   const sp = await searchParams

@@ -126,7 +126,8 @@ export async function getSeriesList(query?: string): Promise<SeriesListRow[]> {
  * distinct 参加者数。遷移先 tournament は優勝者の属する大会（無ければ最小 id）。
  */
 export async function getSeriesDetail(seriesId: number): Promise<SeriesDetail | null> {
-  if (!Number.isInteger(seriesId) || seriesId <= 0) return null
+  // 正の 32bit 整数（PG int4）のみ。範囲外は id 列比較が overflow で 500 になるので早期 null。
+  if (!Number.isInteger(seriesId) || seriesId <= 0 || seriesId > 2147483647) return null
 
   const seriesRes = await db.execute(sql`
     SELECT id, name, kind FROM tournament_series WHERE id = ${seriesId} LIMIT 1

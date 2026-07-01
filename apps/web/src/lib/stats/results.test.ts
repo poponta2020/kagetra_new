@@ -160,9 +160,11 @@ describe('getTournamentResults — 級ブロック（A1/A2 分割・並び）', 
     expect(labels).toEqual(['A1', 'A2', 'B'])
   })
 
-  it('存在しない大会は null', async () => {
+  it('存在しない/不正な大会 id は null（0・負・小数・int4 超過で 500 にしない）', async () => {
     expect(await getTournamentResults(999999)).toBeNull()
     expect(await getTournamentResults(0)).toBeNull()
     expect(await getTournamentResults(-1)).toBeNull()
+    expect(await getTournamentResults(1.5)).toBeNull()
+    expect(await getTournamentResults(2147483648)).toBeNull() // int4 超過→overflow回避
   })
 })
