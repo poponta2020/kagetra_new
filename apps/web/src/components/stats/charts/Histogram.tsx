@@ -16,16 +16,20 @@ export interface HistogramProps {
 
 const VW = 320
 const PL = 32
-const PR = 6
+const PR = 26
 const PT = 14
 const PB = 20
 /** x 軸ラベルを出す枚数差（1・5・10・15・20・25）。 */
 const X_TICKS = [1, 5, 10, 15, 20, 25]
+/** 右軸（累積%）の目盛。累積は必ず 0〜100% なので固定刻み。 */
+const CUM_TICKS = [0, 25, 50, 75, 100]
 
 /**
- * 枚数差ヒストグラム（25 本）＋平均線。design-spec §3.2 / §3.3。
- * 平均マーカーは **中立インクの破線**（朱不使用・design-spec §8 / R2）、平均の数値ラベルは藍。
- * 純粋 SVG（フックなし）。棒が密（25 本）なので値ラベルは出さず y 目盛（割合 %）で読む。
+ * 枚数差パレート図（棒 25 本＋累積%折れ線＋平均線）。design-spec §3.2 / §3.3。
+ * 左軸＝枚数差ごとの試合割合(%・図ごと個別正規化)、右軸＝累積割合(0〜100%固定)。
+ * 累積線は中立インクの実線、平均マーカーは **中立インクの破線**（いずれも朱不使用・
+ * design-spec §8 / R2）、平均の数値ラベルは藍。純粋 SVG（フックなし）。棒が密（25 本）
+ * なので値ラベルは出さず y 目盛（割合 %）で読む。
  */
 export function Histogram({
   bins,
@@ -57,6 +61,17 @@ export function Histogram({
   const cxOfDiff = (d: number) => PL + slot * (d - 1) + slot / 2
   const avgClamped = Math.min(Math.max(average, 1), n)
   const avgX = cxOfDiff(avgClamped)
+
+  // パレート用の累積割合(%)。左軸（個別正規化）とはスケールが異なるため右軸（0〜100%固定）
+  // で写像する。合計 0 のときは折れ線を描かない（0 除算による NaN 座標を避ける）。
+  const cum: number[] = []
+  pct.reduce((acc, v) => {
+    const next = acc + v
+    cum.push(next)
+    return next
+  }, 0)
+  const yOfCum = (v: number) => PT + (1 - v / 100) * plotH
+  const cumPoints = cum.map((v, i) => `${cxOfDiff(i + 1)},${yOfCum(v)}`).join(' ')
 
   return (
     <svg
@@ -91,6 +106,20 @@ export function Histogram({
         )
       })}
 
+      {/* 右軸（累積%）の目盛ラベル */}
+      {CUM_TICKS.map((t) => (
+        <text
+          key={`c${t}`}
+          x={VW - PR + 3}
+          y={yOfCum(t) + 3}
+          textAnchor="start"
+          className="fill-ink-muted"
+          fontSize={8}
+        >
+          {formatPercentTick(t)}
+        </text>
+      ))}
+
       {pct.map((v, i) => {
         const x = PL + slot * i + (slot - barW) / 2
         const y = yOf(v)
@@ -105,6 +134,11 @@ export function Histogram({
           />
         )
       })}
+
+      {/* 累積%の折れ線（パレート・右軸スケール・中立インク実線＝破線の平均線と区別） */}
+      {total > 0 ? (
+        <polyline points={cumPoints} fill="none" className="stroke-neutral-fg" strokeWidth={1.2} />
+      ) : null}
 
       {/* x 軸ラベル（1・5・…・25） */}
       {X_TICKS.map((d) => (

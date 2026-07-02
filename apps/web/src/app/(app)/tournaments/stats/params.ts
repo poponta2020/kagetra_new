@@ -52,7 +52,7 @@ export interface DetailMetricDef {
 }
 
 export const DETAIL_METRICS: readonly DetailMetricDef[] = [
-  { key: 'score', title: 'スコア統計' },
+  { key: 'score', title: '枚数差統計' },
   { key: 'competitors', title: '年別 競技人口' },
   { key: 'participations', title: '年別 大会参加人数' },
 ]

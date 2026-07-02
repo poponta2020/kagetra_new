@@ -149,7 +149,7 @@ describe('getStatsOverview — 図3 一人当たり 平均年参加数（x=級�
   })
 })
 
-describe('getStatsOverview — 図4 スコア統計（枚数差ヒスト）', () => {
+describe('getStatsOverview — 図4 枚数差統計（枚数差ヒスト）', () => {
   it('normal の勝者行のみ・1〜25 の 25 本・平均は試合数で加重', async () => {
     await seed('大会', '2025-04-01', [
       classWith('D級', 'D', [

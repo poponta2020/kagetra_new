@@ -29,8 +29,46 @@ describe('Histogram', () => {
     const bins = new Array<number>(25).fill(0)
     bins[0] = 1 // 唯一の試合 → 枚数差 1 が 100%
     const { container } = render(<Histogram bins={bins} average={1} ariaLabel="pct" />)
-    const texts = [...container.querySelectorAll('text')].map((t) => t.textContent)
-    expect(texts).toContain('100%')
+    // 右軸（累積%）にも 100% が常に出るため、左軸ラベル（text-anchor=end）に限定して確認する。
+    const leftTexts = [...container.querySelectorAll('text[text-anchor="end"]')].map(
+      (t) => t.textContent,
+    )
+    expect(leftTexts).toContain('100%')
+  })
+
+  it('累積%の折れ線（パレート）を描き、終点は右軸 100%（上端）に達する', () => {
+    const { container } = render(
+      <Histogram bins={bins25()} average={6} ariaLabel="パレート" />,
+    )
+    const line = container.querySelector('polyline')
+    expect(line).not.toBeNull()
+    expect(line!.getAttribute('fill')).toBe('none')
+    // 実線の中立インク（破線の平均線と区別・朱不使用）。
+    expect(line!.getAttribute('class') ?? '').toContain('neutral')
+    expect(line!.hasAttribute('stroke-dasharray')).toBe(false)
+    // 25 点（枚数差 1〜25）で、累積 100% の終点はプロット上端 y=PT(14)。
+    const points = (line!.getAttribute('points') ?? '').split(' ')
+    expect(points).toHaveLength(25)
+    expect(points[points.length - 1]!.endsWith(',14')).toBe(true)
+  })
+
+  it('右軸（累積%）の目盛 0/25/50/75/100% を出す', () => {
+    const { container } = render(
+      <Histogram bins={bins25()} average={6} ariaLabel="右軸" />,
+    )
+    const rightTexts = [...container.querySelectorAll('text[text-anchor="start"]')].map(
+      (t) => t.textContent,
+    )
+    for (const t of ['0%', '25%', '50%', '75%', '100%']) {
+      expect(rightTexts).toContain(t)
+    }
+  })
+
+  it('合計 0 なら累積折れ線を出さない', () => {
+    const { container } = render(
+      <Histogram bins={new Array(25).fill(0)} average={0} ariaLabel="空パレート" />,
+    )
+    expect(container.querySelector('polyline')).toBeNull()
   })
 
   it('平均線は中立インクの破線（朱不使用）', () => {
