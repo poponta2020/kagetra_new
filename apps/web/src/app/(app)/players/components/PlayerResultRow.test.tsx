@@ -30,8 +30,9 @@ describe('PlayerResultRow', () => {
     expect(screen.getByText('山本 陽子')).toBeTruthy()
     expect(screen.getByText('(A)')).toBeTruthy()
     expect(screen.getByText('東京東会')).toBeTruthy()
-    expect(screen.getByText('203')).toBeTruthy()
-    expect(screen.getByText('大会')).toBeTruthy()
+    // 出場大会数は数値 span＋単位 small を跨ぐので親（リンク）の textContent 単位で検証
+    // （getByText の直接テキストノード依存を避け、Testing Library 内部挙動に頼らない）。
+    expect(screen.getByRole('link').textContent).toContain('203大会')
     expect(screen.getByText('›')).toBeTruthy()
     expect(screen.getByRole('link').getAttribute('href')).toBe('/players/42')
   })
@@ -85,7 +86,7 @@ describe('PlayerResultRow', () => {
   it('出場記録が全く無い（大会名 null）行は「出場記録なし」を出す', () => {
     renderRow({ lastEventDate: null, lastTournamentName: null, lastResult: null, participationCount: 0 })
     expect(screen.getByText('出場記録なし')).toBeTruthy()
-    expect(screen.getByText('0')).toBeTruthy()
+    expect(screen.getByRole('link').textContent).toContain('0大会')
   })
 
   it('長い氏名・所属・大会名は省略記号（truncate）で 1 行に収める', () => {
