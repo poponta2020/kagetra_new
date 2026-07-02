@@ -167,8 +167,11 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
     .from(players)
     .leftJoinLateral(latest, sql`true`)
     .where(like(players.normalizedName, sql`'%' || ${escaped} || '%'`))
-    // 並びは最終出場が新しい順（現役が上）＝ lastEventDate 降順 NULLS LAST を主キーに、
-    // 同日/開催日不明のタイブレークを出場大会数降順 → 表示名昇順で安定させる。
+    // 並びは最終出場が新しい順（現役が上）＝ lastEventDate 降順 NULLS LAST が主キー。
+    // 開催日不明（null）は主キーで常に最後尾グループに落ちる（現役を優先＝日付あり行を
+    // null 行が出場大会数で追い越すことはない）。第2・第3キーの「出場大会数降順→表示名昇順」は
+    // **lastEventDate が等しい行同士**でのみ効く＝同日グループ、および開催日不明グループの
+    // “中”での安定タイブレーク。design-spec §6 の並び順定義どおり。
     .orderBy(
       sql`${latest.eventDate} desc nulls last`,
       desc(participationCount),

@@ -318,6 +318,32 @@ describe('searchPlayers — 拡張フィールド（現級 / 最終出場 / 結�
     const names = (await searchPlayers('回タイ')).map((r) => r.displayName)
     expect(names).toEqual(['多回タイ', '少回タイ'])
   })
+
+  it('開催日不明グループは常に最後尾で、その中だけ出場大会数の多い順（日付ありは追い越されない）', async () => {
+    // 日付ソ順＝開催日あり(2020・1出場)。不明多ソ順＝開催日 null 2 大会で 2 出場、
+    // 不明少ソ順＝開催日 null 1 大会で 1 出場。期待順＝日付あり（少出場でも先頭）→
+    // 開催日不明の中を出場大会数降順（多→少）。null 行が participationCount で日付あり行を
+    // 追い越さないことを固定する（Codex R1 should_fix）。
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('日付ソ順')])] },
+      { name: '日付あり大会', eventDate: '2020-01-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('不明多ソ順'), part('不明少ソ順')])] },
+      { name: '無日付A大会', eventDate: null },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('不明多ソ順')])] },
+      { name: '無日付B大会', eventDate: null },
+    )
+    const rows = await searchPlayers('ソ順')
+    expect(rows.map((r) => r.displayName)).toEqual(['日付ソ順', '不明多ソ順', '不明少ソ順'])
+    // 日付ソ順は 1 出場でも、開催日不明（2 出場）より上（NULLS LAST 主キー）。
+    expect(rows[0]!.participationCount).toBe(1)
+    expect(rows[0]!.lastEventDate).toBe('2020-01-01')
+    expect(rows[1]!.participationCount).toBe(2) // 不明多＝null 群の中で出場数最多が先頭
+    expect(rows[1]!.lastEventDate).toBeNull()
+  })
 })
 
 describe('getPlayerRecord', () => {
