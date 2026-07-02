@@ -42,7 +42,14 @@ export default async function PlayerRankingPage({
   return (
     <div>
       <SectionTabs />
-      <div className="flex flex-col gap-3 p-4">
+
+      {/*
+        指標チップ・フィルタ行・該当件数を区画ごとタブ直下に固定（選手検索バーと同じ挙動）。
+        surface 背景＋下境界＋淡い影で「ヘッダ」を作り、順位リストがその裏に潜って流れる。
+        top-11 はタブ（`sticky top-0 h-11`）分のオフセット。z-10 はタブ（z-20）より後ろ・
+        本文より前。チップの `-mx-4` フルブリード横スクロールを保つため px-4 を持たせる。
+      */}
+      <div className="sticky top-11 z-10 flex flex-col gap-3 border-b border-border bg-surface px-4 pb-3 pt-4 shadow-[0_3px_6px_rgba(60,45,20,0.06)]">
         <RankingMetricChips metric={metric} filter={filter} explicit={explicit} />
         <RankingFilterBar metric={metric} filter={filter} years={years} />
 
@@ -52,7 +59,9 @@ export default async function PlayerRankingPage({
           <span className="text-ink tabular-nums">{total}</span>
           {' 人'}
         </p>
+      </div>
 
+      <div className="px-4 pb-4 pt-3">
         <RankingList
           key={buildRankingHref(metric, filter, explicit)}
           initialRows={rows}
