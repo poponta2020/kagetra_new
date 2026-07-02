@@ -37,7 +37,7 @@ status: draft
 - **対応Issue:** #246（親 #248）
 
 ### タスク3: クライアント一覧コンポーネント＋テスト（コントロール＋描画）
-- [ ] 完了
+- [x] 完了
 - **概要:** 並び替えセグメント＋申込可能スイッチ＋区切り線リスト（B案）を実装。締切 tone・参加者チップ・空表示を design-spec どおりに。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/events/EventListClient.tsx`（新規, `'use client'`）—
