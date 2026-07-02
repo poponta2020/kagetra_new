@@ -41,6 +41,7 @@ import {
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
 import { RosterSection } from './components/RosterSection'
+import { surname } from '@/lib/surname'
 
 const ACTIVE_BROADCAST_STATUSES = [
   'invite_pending',
@@ -52,13 +53,6 @@ const ACTIVE_BROADCAST_STATUSES = [
 // matches the back link's visual weight in the in-page header bar.
 const EDIT_LINK_CLASS =
   'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-surface text-ink-2 border border-border hover:bg-surface-alt'
-
-/** Extract the surname for the participant chip (split on ASCII or full-width space). */
-function surname(name: string | null | undefined): string {
-  if (!name) return '?'
-  const parts = name.split(/[\s　]/)
-  return parts[0] || name
-}
 
 export default async function EventDetailPage({
   params,

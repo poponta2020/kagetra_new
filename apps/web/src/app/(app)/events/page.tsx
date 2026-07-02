@@ -1,9 +1,16 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
-import { events, eventAttendances } from '@kagetra/shared/schema'
-import { and, asc, eq, count, gte, inArray } from 'drizzle-orm'
+import { events, eventAttendances, users } from '@kagetra/shared/schema'
+import type { Grade } from '@kagetra/shared/types'
+import { and, asc, eq, gte, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
-import { Card, Pill, StatusPill } from '@/components/ui'
+import { surname } from '@/lib/surname'
+import { EventListClient } from './EventListClient'
+import {
+  CHIP_LIMIT,
+  isGradeEligible,
+  type EventListItem,
+} from './event-list-utils'
 
 // Btn primary mirrored as a Link className since wrapping <Link> in <Btn>
 // would nest it inside a <button>.
@@ -20,36 +27,79 @@ export default async function EventsPage() {
     timeZone: 'Asia/Tokyo',
   })
 
-  // Fetch event list first so the attendance aggregate can be scoped to the
-  // visible IDs — otherwise we'd scan every row in event_attendances, including
-  // rows for archived events rendered on /events-archive.
+  // Fetch event list first so the attendance join can be scoped to the visible
+  // IDs — otherwise we'd scan every row in event_attendances, including rows for
+  // archived events rendered on /events-archive. id is a stable secondary sort.
   const eventList = await db.query.events.findMany({
     where: gte(events.eventDate, todayStr),
-    orderBy: [asc(events.eventDate)],
+    orderBy: [asc(events.eventDate), asc(events.id)],
   })
   const visibleEventIds = eventList.map((e) => e.id)
-  const attendCounts =
+
+  // ⑧ 参加者名: attend=true を users 結合で表示中イベントぶん 1 クエリ取得（N+1 回避）。
+  // 集計セマンティクスは現行と同じ attend=true 件数（詳細画面の eligible 絞り込みとは別）。
+  const participantRows =
     visibleEventIds.length === 0
       ? []
       : await db
           .select({
             eventId: eventAttendances.eventId,
-            count: count(),
+            name: users.name,
+            grade: users.grade,
           })
           .from(eventAttendances)
+          .innerJoin(users, eq(users.id, eventAttendances.userId))
           .where(
             and(
               inArray(eventAttendances.eventId, visibleEventIds),
               eq(eventAttendances.attend, true),
             ),
           )
-          .groupBy(eventAttendances.eventId)
-  const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
+
+  // イベント別にまとめ、級昇順（未設定は末尾）で並べる（詳細画面の参加者表示に合わせる）。
+  const participantsByEvent = new Map<
+    number,
+    Array<{ name: string | null; grade: Grade | null }>
+  >()
+  for (const row of participantRows) {
+    const list = participantsByEvent.get(row.eventId)
+    if (list) list.push(row)
+    else participantsByEvent.set(row.eventId, [row])
+  }
+  for (const list of participantsByEvent.values()) {
+    list.sort((a, b) => (a.grade ?? 'Z').localeCompare(b.grade ?? 'Z'))
+  }
+
+  // ⑦ 申込可能判定は「自分の級」で行う（管理者バイパスなし）。級のみ取得。
+  let myGrade: Grade | null = null
+  if (session?.user.id) {
+    const me = await db.query.users.findFirst({
+      where: eq(users.id, session.user.id),
+      columns: { grade: true },
+    })
+    myGrade = me?.grade ?? null
+  }
+
+  // クライアントへ渡す最小データ。location/official/eligibleGrades/grade はカードに
+  // 渡さず、①⑤は表示から落とし、⑦は canApply に畳む。
+  const items: EventListItem[] = eventList.map((e) => {
+    const parts = participantsByEvent.get(e.id) ?? []
+    return {
+      id: e.id,
+      title: e.title,
+      eventDate: e.eventDate,
+      internalDeadline: e.internalDeadline,
+      status: e.status,
+      canApply: isGradeEligible(e.eligibleGrades, myGrade),
+      attendCount: parts.length,
+      chipSurnames: parts.slice(0, CHIP_LIMIT).map((p) => surname(p.name)),
+    }
+  })
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold text-ink">イベント一覧</h1>
+        <h1 className="font-display text-xl font-bold text-ink">大会申込</h1>
         <div className="flex items-center gap-3">
           <Link href="/events-archive" className="text-sm text-brand">
             過去のイベント →
@@ -61,59 +111,7 @@ export default async function EventsPage() {
           )}
         </div>
       </div>
-      {eventList.length === 0 ? (
-        <Card>
-          <div className="text-center text-ink-meta py-6">
-            現在のイベントはありません
-          </div>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {eventList.map((event) => (
-            <Link
-              key={event.id}
-              href={`/events/${event.id}`}
-              className="block"
-            >
-              <Card>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-ink truncate">
-                        {event.title}
-                      </span>
-                      {event.official && (
-                        <Pill tone="success" size="sm">
-                          公認
-                        </Pill>
-                      )}
-                    </div>
-                    <div className="mt-1 text-xs text-ink-meta">
-                      {event.eventDate}
-                    </div>
-                    {event.location && (
-                      <div className="mt-0.5 text-xs text-ink-meta">
-                        {event.location}
-                      </div>
-                    )}
-                    {event.internalDeadline && (
-                      <div className="mt-0.5 text-xs text-ink-meta">
-                        締切: {event.internalDeadline}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <StatusPill status={event.status} size="sm" />
-                    <span className="text-xs text-ink-meta">
-                      参加 {attendCountMap.get(event.id) ?? 0}名
-                    </span>
-                  </div>
-                </div>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      )}
+      <EventListClient items={items} todayStr={todayStr} />
     </div>
   )
 }
