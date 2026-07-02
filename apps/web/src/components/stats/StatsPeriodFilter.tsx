@@ -88,11 +88,11 @@ export function StatsPeriodFilter({
           role="dialog"
           aria-modal="true"
           aria-label="期間で絞り込み"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/40 sm:items-center"
           onClick={() => setOpen(false)}
         >
           <div
-            className="flex w-full flex-col gap-4 rounded-t-2xl bg-surface p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-2xl sm:pb-4"
+            className="flex max-h-full w-full flex-col gap-4 overflow-y-auto rounded-t-2xl bg-surface p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-2xl sm:pb-4"
             onClick={(e) => e.stopPropagation()}
           >
             <header className="flex items-center justify-between">
