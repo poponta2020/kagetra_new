@@ -219,3 +219,17 @@ body {
   height: 100dvh;
   height: 100svh;
 }
+
+/* Bottom-sheet / modal overlay height. Same svh-last cascade as
+   .mobile-shell-h and for the same reason: with viewport-fit=cover, iOS
+   Safari reports 100dvh *including* the bottom URL-bar overlay, so a
+   dvh-sized overlay pushes an `items-end` sheet's footer (apply/clear
+   buttons) underneath the UA chrome. 100svh keeps the sheet bottom inside
+   the always-visible region. Applied by the shared bottom-sheet dialogs
+   (RankingFilterBar, StatsPeriodFilter, account-menu, InviteCodeModal,
+   RegistrationInviteModal, ManualLinkModal, ExistingEventLinkSheet). */
+.modal-overlay-h {
+  height: 100vh;
+  height: 100dvh;
+  height: 100svh;
+}

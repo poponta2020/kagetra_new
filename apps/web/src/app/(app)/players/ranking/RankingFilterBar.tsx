@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import type { RankingMetric } from '@/lib/stats/ranking'
 import type { Grade, StatsFilter } from '@/lib/stats/types'
@@ -128,12 +129,17 @@ export function RankingFilterBar({
         </button>
       </div>
 
-      {open ? (
+      {/* Portal + .modal-overlay-h (svh cascade): body 直下に描画して sticky
+          z-10 ヘッダ等の stacking context から脱出しつつ、iOS の dvh 罠
+          （viewport-fit=cover では URL バー込みの高さが返り、items-end の
+          フッター＝適用/クリアが UA クローム裏に落ちる）を svh で回避する。
+          open はクリック起点でしか true にならないので SSR で portal は走らない。 */}
+      {open ? createPortal(
         <div
           role="dialog"
           aria-modal="true"
           aria-label="絞り込み"
-          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/40 sm:items-center"
+          className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
           onClick={() => setOpen(false)}
         >
           <div
@@ -278,7 +284,8 @@ export function RankingFilterBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   )

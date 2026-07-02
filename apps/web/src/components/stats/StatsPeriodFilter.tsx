@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import type { StatsFilter } from '@/lib/stats/types'
 import { buildStatsHref } from '@/app/(app)/tournaments/stats/params'
@@ -83,12 +84,16 @@ export function StatsPeriodFilter({
         </button>
       </div>
 
-      {open ? (
+      {/* Portal + .modal-overlay-h (svh cascade): 祖先の stacking context を
+          脱出し、iOS viewport-fit=cover の dvh 罠（URL バー込みの高さ→
+          items-end のフッターが UA クローム裏に落ちる）を svh で回避。
+          詳細は RankingFilterBar の同コメント参照。 */}
+      {open ? createPortal(
         <div
           role="dialog"
           aria-modal="true"
           aria-label="期間で絞り込み"
-          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/40 sm:items-center"
+          className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
           onClick={() => setOpen(false)}
         >
           <div
@@ -161,7 +166,8 @@ export function StatsPeriodFilter({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   )

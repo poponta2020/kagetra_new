@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import type { EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
@@ -82,12 +83,15 @@ export function ExistingEventLinkSheet({
       <Btn kind={buttonKind} size="md" onClick={() => setOpen(true)} disabled={pending}>
         {buttonLabel}
       </Btn>
-      {open && (
+      {/* Portal + .modal-overlay-h (svh cascade): 祖先の stacking context を脱出し、
+          iOS viewport-fit=cover の dvh 罠を svh で回避（RankingFilterBar の同コメント参照）。
+          open はクリック起点でしか true にならないので SSR で portal は走らない。 */}
+      {open && createPortal(
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="link-event-sheet-title"
-          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/40 sm:items-center sm:p-4"
+          className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
           onClick={() => !pending && setOpen(false)}
         >
           <div
@@ -207,7 +211,8 @@ export function ExistingEventLinkSheet({
               </Btn>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   )
