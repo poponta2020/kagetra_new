@@ -8,6 +8,7 @@ import { Histogram } from '@/components/stats/charts/Histogram'
 import { denseYears, formatDecimal1, formatInt } from '@/components/stats/charts/chart-utils'
 import { getStatsDetail, type ScoreSeries, type YearSeries } from '@/lib/stats/detail'
 import { gradeTone, seriesLabel } from '@/lib/stats/grade-tones'
+import type { DetailMetric } from '@/lib/stats/types'
 import {
   buildStatsHref,
   coerceDetailMetric,
@@ -18,6 +19,15 @@ import {
 export const dynamic = 'force-dynamic'
 
 const MIN_YEAR = 2010
+
+/**
+ * 指標別の分析文（数え方の説明＋読み取れる傾向）。詳細ページ上部の共通注記の下に添える。
+ * 図の内容は指標ごとに異なるため文章も指標単位で持ち、未設定の指標は共通注記のみ表示する。
+ */
+const METRIC_ANALYSIS: Partial<Record<DetailMetric, string>> = {
+  competitors:
+    'グラフはその年に1度以上大会に参加した選手数（＝競技人口）をカウントしたものです。2020年はコロナ禍の影響で競技人口の落ち込みが顕著ですが、翌年以降は徐々に回復傾向にあることがうかがえます。',
+}
 
 /**
  * /tournaments/stats/[metric] — ④ 大会統計・図詳細（級別比較）。requirements §3.6・design-spec §3.3。
@@ -64,22 +74,31 @@ export default async function StatsDetailPage({
       <p className="text-xs text-ink-meta">
         全級（参照）と各級（A〜E）を並べて比較します。縦軸は形状比較のため図ごとに個別正規化しています。
       </p>
+      {METRIC_ANALYSIS[metric] ? (
+        <p className="text-xs leading-relaxed text-ink-meta">{METRIC_ANALYSIS[metric]}</p>
+      ) : null}
 
       <div className="flex flex-col gap-3">
         {detail.metric === 'score'
           ? detail.series.map((s) => <ScorePanel key={s.key} series={s} />)
-          : renderYearPanels(detail.series, detail.metric)}
+          : renderYearPanels(detail.series, detail.metric, currentYear)}
       </div>
     </div>
   )
 }
 
 /** competitors / participations：全系列の x（年）を揃えるため 'all' から年域を取り 0 埋め。 */
-function renderYearPanels(series: YearSeries[], unit: 'competitors' | 'participations') {
+function renderYearPanels(
+  series: YearSeries[],
+  unit: 'competitors' | 'participations',
+  currentYear: number,
+) {
   const allPoints = series.find((s) => s.key === 'all')?.points ?? []
   const lo = allPoints.length ? Math.min(...allPoints.map((p) => p.year)) : undefined
   const hi = allPoints.length ? Math.max(...allPoints.map((p) => p.year)) : undefined
-  return series.map((s) => <YearPanel key={s.key} series={s} lo={lo} hi={hi} unit={unit} />)
+  return series.map((s) => (
+    <YearPanel key={s.key} series={s} lo={lo} hi={hi} unit={unit} currentYear={currentYear} />
+  ))
 }
 
 /** 系列スウォッチ＋ラベル＋見出し数値（serif藍）の共通ヘッダ。 */
@@ -140,28 +159,28 @@ function YearPanel({
   lo,
   hi,
   unit,
+  currentYear,
 }: {
   series: YearSeries
   lo?: number
   hi?: number
   unit: 'competitors' | 'participations'
+  currentYear: number
 }) {
   const data = denseYears(series.points, lo, hi)
-  const dataYears = series.points.filter((p) => p.count > 0)
-  const mean =
-    dataYears.length > 0
-      ? dataYears.reduce((s, p) => s + p.count, 0) / dataYears.length
-      : 0
   const tone = gradeTone(series.key)
-  const unitLabel = unit === 'competitors' ? '人/年' : '/年'
+  // 見出しは平均ではなく「今年の人数」。今年のデータが無い級は、その級の最新データ年へ
+  // フォールバックして「0名（今年）」を避ける（points は年昇順なので末尾が最新）。
+  const latest =
+    series.points.find((p) => p.year === currentYear) ??
+    series.points[series.points.length - 1]
+  const suffix = unit === 'competitors' ? '名' : ''
+  const headline = latest
+    ? `${formatInt(latest.count)}${suffix}（${latest.year}年）`
+    : 'データなし'
   return (
     <Card className="flex flex-col gap-1.5">
-      <PanelHeader
-        tone={tone}
-        label={seriesLabel(series.key)}
-        headline={`平均 ${formatInt(mean)}`}
-        sub={unitLabel}
-      />
+      <PanelHeader tone={tone} label={seriesLabel(series.key)} headline={headline} />
       <BarChart
         data={data}
         color={tone}
