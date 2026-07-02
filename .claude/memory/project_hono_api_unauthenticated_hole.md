@@ -1,6 +1,6 @@
 ---
 name: project_hono_api_unauthenticated_hole
-description: 本番の Hono API /hono-api/* が完全無認証で LINE ログインを迂回できる重大な穴（未修正）
+description: 本番の Hono API /hono-api/events が完全無認証で LINE ログインを迂回できた穴。PR#252 で events ルート撤去＝修正済み（/events は 404、/health のみ残す）
 metadata: 
   node_type: memory
   type: project
@@ -17,4 +17,6 @@ apps/api (Hono) は `apps/api/src/app.ts` に logger と cors しか噛ませて
 
 Web 側（Auth.js / middleware / self-identify / register / Server Actions / admin route / token route）は堅牢で穴なし。
 
-**How to apply:** 修正方針の候補 = ①最短: nginx から `/hono-api/` location を削除 + `kagetra-api.service` を stop/disable（フロント未使用なので影響なし）。②筋: Hono に Auth.js JWT を検証する認証ミドルウェアを追加してから CRUD を role ゲート。どちらか要決定。関連 [[project_self_identify_verification_pending]]（self-identify は本人性検証なし＝別軸の受容リスク）。
+**修正済み（2026-07-02・PR#252 merge `2fceb79`）:** 最短方針で解決。app.ts から `/events` ルート撤去＋`routes/events.ts` 削除し、Hono は `/health` のみ公開に縮小。フロント未使用（apiClient 呼び出し元ゼロ）なので web 影響なし。auto-deploy が `apps/api` 変更を検知して `kagetra-api` を再ビルド・再起動。**本番 read-back 済み: `/hono-api/health`=200 / `/hono-api/events`=404**。api/web 型チェック緑・CI 緑。今後 Hono にルートを再追加する場合は Auth.js JWT 検証ミドルウェア＋role ゲートを先に噛ませること（nginx が middleware を迂回する構造は不変）。
+
+関連 [[project_self_identify_verification_pending]]（self-identify は本人性検証なし＝別軸の受容リスク・今回は未対応の設計判断）。
