@@ -26,7 +26,7 @@ const MIN_YEAR = 2010
  */
 const METRIC_ANALYSIS: Partial<Record<DetailMetric, string>> = {
   score:
-    '各級共に運命戦が一番多い。級毎の比較を行うと、E級からB級までは平均枚数差は減少傾向にあり、このことから級が上がるにつれ選手間の実力の差が小さくなってくことが予想される。一方でB→A級は+0.4枚と若干の増加であり、これはA級には昇級がないためB級と比べ同級内でも実力に差異が生じやすいためであると考えられる。枚数差で判断すると最も参加者間に実力差があるのはE級、実力差が小さいのはB級である。',
+    '各級共に運命戦での決着が一番多い。級毎の比較を行うとE級からB級までは平均枚数差は減少傾向であり、このことから級が上がるにつれ選手間の実力差も小さくなっていくことが予想される。一方でB級→A級では+0.4枚と若干増であり、これはA級には昇級がないため同級であっても実力に差が生じやすいためであると考えられる。枚数差から推測されるに、参加者の中に最も実力差があるのはE級、逆にそれが小さいのはB級である。',
   competitors:
     'グラフはその年に1度以上大会に参加した選手数（＝競技人口）をカウントしたものです。2020年はコロナ禍の影響で競技人口の落ち込みが顕著ですが、翌年以降は徐々に回復傾向にあることがうかがえます。',
 }
@@ -34,8 +34,9 @@ const METRIC_ANALYSIS: Partial<Record<DetailMetric, string>> = {
 /**
  * /tournaments/stats/[metric] — ④ 大会統計・図詳細（級別比較）。requirements §3.6・design-spec §3.3。
  *
- * 全級（参照）＋各級（A〜E）を**縦スモールマルチプル**で並べる。縦軸は形状比較のため図ごと
- * 個別正規化（各ミニ図が自分の最大でスケール）。metric = score / competitors / participations。
+ * 全級（参照）＋各級（A〜E）を**縦スモールマルチプル**で並べる。縦軸は score＝全図共通
+ * 0〜10% 固定（級間で高さを直接比較）、competitors/participations＝形状比較のため図ごと
+ * 個別正規化。metric = score / competitors / participations。
  * プッシュ表示のため SectionTabs は出さず戻る導線のみ。期間フィルタは有効（級では絞らない）。
  */
 export default async function StatsDetailPage({
@@ -74,7 +75,9 @@ export default async function StatsDetailPage({
       <StatsPeriodFilter basePath={`/tournaments/stats/${metric}`} filter={filter} years={years} />
 
       <p className="text-xs text-ink-meta">
-        全級（参照）と各級（A〜E）を並べて比較します。縦軸は形状比較のため図ごとに個別正規化しています。
+        {metric === 'score'
+          ? '全級（参照）と各級（A〜E）を並べて比較します。縦軸は全図共通の0〜10%、右軸は累積割合（0〜100%）です。'
+          : '全級（参照）と各級（A〜E）を並べて比較します。縦軸は形状比較のため図ごとに個別正規化しています。'}
       </p>
       {METRIC_ANALYSIS[metric] ? (
         <p className="text-xs leading-relaxed text-ink-meta">{METRIC_ANALYSIS[metric]}</p>
