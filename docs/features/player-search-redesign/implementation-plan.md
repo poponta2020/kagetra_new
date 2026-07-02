@@ -36,7 +36,7 @@ status: draft
 - **検証:** フロントテスト green。
 
 ### タスク4: 検索バー固定（選手検索のみ）
-- [ ] 完了
+- [x] 完了
 - **概要:** 検索ボックス＋ボタンの区画に surface 背景＋下境界＋淡い影を与え、タブ直下に `position: sticky`。ボタン単体でなく区画ごと固定。結果はバー裏に潜る。top はタブ高さ分オフセット、z-index はタブ>検索バー>本文。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/players/page.tsx` ／ `components/PlayerSearchForm.tsx`（固定バーのラッパ・背景・境界）
