@@ -1,4 +1,4 @@
-import { axisTicks, formatCompact, formatDecimal1, niceMax } from './chart-utils'
+import { axisTicks, formatDecimal1, formatPercentTick, niceMax } from './chart-utils'
 
 export interface HistogramProps {
   /** 枚数差ヒスト（length 25：index i＝枚数差 i+1 の試合数）。 */
@@ -25,7 +25,7 @@ const X_TICKS = [1, 5, 10, 15, 20, 25]
 /**
  * 枚数差ヒストグラム（25 本）＋平均線。design-spec §3.2 / §3.3。
  * 平均マーカーは **中立インクの破線**（朱不使用・design-spec §8 / R2）、平均の数値ラベルは藍。
- * 純粋 SVG（フックなし）。棒が密（25 本）なので値ラベルは出さず y 目盛で桁を読む。
+ * 純粋 SVG（フックなし）。棒が密（25 本）なので値ラベルは出さず y 目盛（割合 %）で読む。
  */
 export function Histogram({
   bins,
@@ -38,10 +38,14 @@ export function Histogram({
 }: HistogramProps) {
   const plotW = VW - PL - PR
   const plotH = height - PT - PB
-  const maxVal = bins.reduce((m, v) => Math.max(m, v), 0)
-  // 試合数（件数）軸なので整数目盛で刻む（0.25 等の小数・重複ラベルを避ける）。
-  const top = niceMax(maxVal, true)
-  const ticks = axisTicks(maxVal, true)
+  // 縦軸は「全試合に対する割合(%)」。各図（メイン＝全級／詳細＝各級）ごとに自分の合計を
+  // 分母に正規化するので、絶対数(数千〜万)ではなく枚数差分布の形として読める。
+  const total = bins.reduce((s, v) => s + v, 0)
+  const pct = bins.map((v) => (total > 0 ? (v / total) * 100 : 0))
+  const maxVal = pct.reduce((m, v) => Math.max(m, v), 0)
+  // 割合(%)軸なので小数ステップ可（axisTicks が 0/5/10… のきりの良い値に丸める）。
+  const top = niceMax(maxVal)
+  const ticks = axisTicks(maxVal)
 
   const yOf = (v: number) => PT + (1 - v / top) * plotH
   const baseY = yOf(0)
@@ -81,13 +85,13 @@ export function Histogram({
               className="fill-ink-muted"
               fontSize={8}
             >
-              {formatCompact(t)}
+              {formatPercentTick(t)}
             </text>
           </g>
         )
       })}
 
-      {bins.map((v, i) => {
+      {pct.map((v, i) => {
         const x = PL + slot * i + (slot - barW) / 2
         const y = yOf(v)
         return (

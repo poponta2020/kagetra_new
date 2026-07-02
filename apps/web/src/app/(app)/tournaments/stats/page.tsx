@@ -88,7 +88,11 @@ export default async function TournamentStatsPage({
         </ChartCard>
 
         {/* 図4：スコア統計（ドリル） */}
-        <ChartCard title="スコア統計" note="枚数差の分布（1〜25枚・平均線）" drill={detailHref('score', filter)}>
+        <ChartCard
+          title="スコア統計"
+          note="枚数差ごとの試合割合（%・1〜25枚・平均線）"
+          drill={detailHref('score', filter)}
+        >
           <Histogram
             bins={ov.scoreHistogram.bins}
             average={ov.scoreHistogram.average}
@@ -97,7 +101,11 @@ export default async function TournamentStatsPage({
         </ChartCard>
 
         {/* 図5：年別 競技人口（ドリル） */}
-        <ChartCard title="年別 競技人口" note="各年のユニーク選手数" drill={detailHref('competitors', filter)}>
+        <ChartCard
+          title="年別 競技人口"
+          note="一回以上大会に参加した選手の数"
+          drill={detailHref('competitors', filter)}
+        >
           <BarChart data={competitors} ariaLabel="年別 競技人口の推移" />
         </ChartCard>
 
