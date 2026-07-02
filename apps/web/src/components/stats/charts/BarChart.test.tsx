@@ -15,13 +15,10 @@ describe('BarChart', () => {
     expect(container.querySelectorAll('rect')).toHaveLength(3)
   })
 
-  it('本数が少なければ値ラベル（font-display）を各棒に出す', () => {
+  it('棒の上に値ラベルを出さない（y 目盛で値を読む）', () => {
     const { container } = render(<BarChart data={data} ariaLabel="年推移" />)
-    // 値ラベルは font-display の text（y 目盛は fill-ink-muted で別）。
-    const valueLabels = [...container.querySelectorAll('text.font-display')].map(
-      (t) => t.textContent,
-    )
-    expect(valueLabels).toEqual(['3', '5', '1'])
+    // 棒上の値ラベル（font-display の text）は廃止済み。棒数と一致する数値テキストは無い。
+    expect(container.querySelectorAll('text.font-display')).toHaveLength(0)
   })
 
   it('指定色で棒を塗る（既定は藍・朱はデータ装飾に使わない）', () => {
@@ -35,7 +32,7 @@ describe('BarChart', () => {
     expect(container.innerHTML).not.toContain('accent')
   })
 
-  it('valueFormat を値ラベルと y 目盛に適用（小数）', () => {
+  it('valueFormat を y 目盛ラベルに適用（小数軸）', () => {
     render(
       <BarChart
         data={[{ label: 'A級', value: 1.5 }]}
@@ -43,6 +40,7 @@ describe('BarChart', () => {
         valueFormat={(n) => n.toFixed(1)}
       />,
     )
+    // 小数軸なので 0.5 刻み目盛（0.0/0.5/1.0/1.5）に valueFormat が効く。
     expect(screen.getByText('1.5')).toBeTruthy()
   })
 })
