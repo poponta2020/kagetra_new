@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, like, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import {
   matches,
@@ -8,6 +8,8 @@ import {
   tournaments,
 } from '@kagetra/shared/schema'
 import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
+import { filterConds } from '@/lib/stats/ranking'
+import type { StatsFilter } from '@/lib/stats/types'
 import {
   derivePlacement,
   isChampion,
@@ -95,8 +97,30 @@ export interface PlayerRecord {
   tournamentCount: number
   /** 活動年スパン：event_date のある参加の最小〜最大年。無ければ null。 */
   activeYears: { from: number; to: number } | null
-  /** 現在の級：最新参加（開催日降順で最初）の非 null grade。 */
+  /** 現在の級：最新参加（開催日降順で最初）の非 null grade。絞り込み時も全成績ベース。 */
   currentGrade: 'A' | 'B' | 'C' | 'D' | 'E' | null
+  /**
+   * ヘッダ所属：直近大会（event_date 降順 NULLS LAST・同日 id 降順）の participant 所属。
+   * player は所属を持たないのでここが正。**絞り込み時も全成績ベース**（identity は絞り込み
+   * 条件で変えない）。全出場が無ければ null。
+   */
+  currentAffiliation: string | null
+}
+
+/** getPlayerRecord のドリルダウン絞り込みオプション（?from=ranking 由来のときのみ渡す）。 */
+export interface GetPlayerRecordOptions {
+  /**
+   * ①期間＋級の絞り込み（`yearFrom` / `yearTo` / `grades` のみ使用）。指定時のみ絞り込み
+   * モードになり、一覧・ヘッダ集計・勝敗を①母集合で再計算する。条件式はランキング集計
+   * （`ranking.ts` の `filterConds`）と同一関数＝セマンティクス単一ソース。
+   */
+  filter?: StatsFilter
+  /**
+   * ②一覧（participations）をさらに優勝（`1`）／入賞（`8`＝ベスト8以上）した参加のみに絞る。
+   * **一覧の id 絞りにのみ**適用し、ヘッダ集計（優勝 N・入賞 N・勝敗等）は①母集合のまま。
+   * 判定は事前計算列 `derived_bracket`（優勝/入賞回数ランキングと単一定義）。
+   */
+  bracketAtMost?: 1 | 8
 }
 
 /**
@@ -217,7 +241,10 @@ export async function getPlayerName(playerId: number): Promise<string | null> {
  *   フォールバック（requirements R1 / design-spec §6）。
  * - 各試合の相手は同一級で解決できていればその player_id を持たせ、戦績リンクに使う。
  */
-export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | null> {
+export async function getPlayerRecord(
+  playerId: number,
+  opts?: GetPlayerRecordOptions,
+): Promise<PlayerRecord | null> {
   const player = await db.query.players.findFirst({
     where: eq(players.id, playerId),
     columns: {
@@ -229,36 +256,86 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
   })
   if (!player) return null
 
-  const participantRows = await db.query.tournamentParticipants.findMany({
-    where: eq(tournamentParticipants.playerId, playerId),
-    columns: {
-      id: true,
-      classId: true,
-      affiliation: true,
-      finalRank: true,
-    },
-    with: {
-      class: {
-        columns: { className: true, grade: true },
-        with: {
-          tournament: {
-            columns: { id: true, name: true, eventDate: true },
+  // 絞り込みモード：`opts.filter` があるとき（?from=ranking 由来）だけ発火。フィルタ無し
+  // 呼び出し（選手検索・相手名タップ）は現行パスのまま（挙動不変）。
+  const filter = opts?.filter
+  const bracketAtMost = opts?.bracketAtMost
+
+  // ①期間＋級で対象 participant を軽量 join クエリで先に絞る（フィルタ時のみ）。ヘッダ集計は
+  // この①母集合（bracket 条件なし）で、一覧は②bracketAtMost を追加適用した部分集合で描く。
+  // derived_bracket と event_date も同じ行で取り、ヘッダの優勝/入賞/活動年計算に使う。
+  let baseIdRows:
+    | { id: number; bracket: number | null; eventDate: string | null }[]
+    | null = null
+  if (filter) {
+    baseIdRows = await db
+      .select({
+        id: tournamentParticipants.id,
+        bracket: tournamentParticipants.derivedBracket,
+        eventDate: tournaments.eventDate,
+      })
+      .from(tournamentParticipants)
+      .innerJoin(
+        tournamentClasses,
+        eq(tournamentClasses.id, tournamentParticipants.classId),
+      )
+      .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+      .where(and(eq(tournamentParticipants.playerId, playerId), ...filterConds(filter)))
+  }
+  const baseIds = baseIdRows?.map((r) => r.id) ?? null
+  // 一覧に出す participant id。②指定時は①母集合を derived_bracket でさらに絞る
+  // （null bracket＝導出不能は優勝/入賞と確定できないので除外＝ランキングと同じ割り切り）。
+  const listIds =
+    baseIdRows == null
+      ? null
+      : bracketAtMost != null
+        ? baseIdRows
+            .filter((r) => r.bracket != null && r.bracket <= bracketAtMost)
+            .map((r) => r.id)
+        : baseIds!
+
+  // フィルタ時は①（＋②）で絞った participant id に限定。空の inArray は drizzle に渡さない
+  // （コードベース既存パターン）＝①/②で 0 件なら一覧も空。
+  const participantWhere =
+    listIds != null
+      ? and(
+          eq(tournamentParticipants.playerId, playerId),
+          inArray(tournamentParticipants.id, listIds),
+        )
+      : eq(tournamentParticipants.playerId, playerId)
+  const participantRows =
+    listIds != null && listIds.length === 0
+      ? []
+      : await db.query.tournamentParticipants.findMany({
+          where: participantWhere,
+          columns: {
+            id: true,
+            classId: true,
+            affiliation: true,
+            finalRank: true,
           },
-        },
-      },
-      matches: {
-        columns: {
-          round: true,
-          roundLabel: true,
-          opponentName: true,
-          opponentParticipantId: true,
-          scoreDiff: true,
-          result: true,
-          status: true,
-        },
-      },
-    },
-  })
+          with: {
+            class: {
+              columns: { className: true, grade: true },
+              with: {
+                tournament: {
+                  columns: { id: true, name: true, eventDate: true },
+                },
+              },
+            },
+            matches: {
+              columns: {
+                round: true,
+                roundLabel: true,
+                opponentName: true,
+                opponentParticipantId: true,
+                scoreDiff: true,
+                result: true,
+                status: true,
+              },
+            },
+          },
+        })
 
   // 級全体の試合を一括取得し、級ごとに「決勝 round（=max round）」と「順位導出可否」を
   // 判定する。導出可否は**級単位**（リーグ/順位戦/3位決定戦/データ欠けは級ごと丸ごと
@@ -369,41 +446,107 @@ export async function getPlayerRecord(playerId: number): Promise<PlayerRecord | 
     return a.tournamentName.localeCompare(b.tournamentName)
   })
 
-  // サマリー：活動年スパン（event_date の年）と現在の級（最新の非 null grade）。
-  const years = participations
-    .map((p) => p.eventDate)
+  // ヘッダ集計（優勝 N・入賞 N・出場大会数・活動年スパン）。
+  // - 絞り込み時：①母集合を derived_bracket で数える（優勝/入賞回数ランキングと単一定義）。
+  //   一覧が②で更に絞られてもヘッダ集計の母集合は①のまま（優勝大会だけで数えない）。
+  // - 非絞り込み時：現行どおり participations（＝全成績・上の map で導出済み）から算出。
+  if (baseIdRows != null) {
+    championships = baseIdRows.filter((r) => r.bracket === 1).length
+    nyushoCount = baseIdRows.filter((r) => r.bracket != null && r.bracket <= 8).length
+  }
+  const tournamentCount = baseIdRows != null ? baseIdRows.length : participations.length
+  // 活動年スパンも①母集合の event_date から（絞り込み時は participations が②で欠けうるため）。
+  const yearSource =
+    baseIdRows != null
+      ? baseIdRows.map((r) => r.eventDate)
+      : participations.map((p) => p.eventDate)
+  const years = yearSource
     .filter((d): d is string => !!d)
     .map((d) => Number(d.slice(0, 4)))
     .filter((y) => !Number.isNaN(y))
   const activeYears =
     years.length > 0 ? { from: Math.min(...years), to: Math.max(...years) } : null
-  const currentGrade = participations.find((p) => p.grade != null)?.grade ?? null
 
-  // 勝敗数は status=normal のみ。DB 側で集計して導出する。
-  const [agg] = await db
-    .select({
-      wins: sql<number>`count(*) filter (where ${matches.result} = 'win' and ${matches.status} = 'normal')::int`,
-      losses: sql<number>`count(*) filter (where ${matches.result} = 'lose' and ${matches.status} = 'normal')::int`,
-    })
-    .from(matches)
-    .innerJoin(
-      tournamentParticipants,
-      and(
-        eq(matches.participantId, tournamentParticipants.id),
-        eq(matches.classId, tournamentParticipants.classId),
-      ),
-    )
-    .where(eq(tournamentParticipants.playerId, playerId))
+  // アイデンティティ（現級・ヘッダ所属）は「その人が誰か」の情報。絞り込み条件で変えない。
+  // 絞り込み時のみ全成績ベースの軽量クエリで別取得（searchPlayers の相関サブクエリと同型：
+  // event_date 降順 NULLS LAST・同日 id 降順の直近1件）。非絞り込み時は participations から導出。
+  let currentGrade: 'A' | 'B' | 'C' | 'D' | 'E' | null
+  let currentAffiliation: string | null
+  if (filter) {
+    const [gradeRow] = await db
+      .select({ grade: tournamentClasses.grade })
+      .from(tournamentParticipants)
+      .innerJoin(
+        tournamentClasses,
+        eq(tournamentClasses.id, tournamentParticipants.classId),
+      )
+      .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+      .where(
+        and(
+          eq(tournamentParticipants.playerId, playerId),
+          isNotNull(tournamentClasses.grade),
+        ),
+      )
+      .orderBy(sql`${tournaments.eventDate} desc nulls last`, desc(tournaments.id))
+      .limit(1)
+    const [affRow] = await db
+      .select({ affiliation: tournamentParticipants.affiliation })
+      .from(tournamentParticipants)
+      .innerJoin(
+        tournamentClasses,
+        eq(tournamentClasses.id, tournamentParticipants.classId),
+      )
+      .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+      .where(eq(tournamentParticipants.playerId, playerId))
+      .orderBy(sql`${tournaments.eventDate} desc nulls last`, desc(tournaments.id))
+      .limit(1)
+    currentGrade = gradeRow?.grade ?? null
+    currentAffiliation = affRow?.affiliation ?? null
+  } else {
+    currentGrade = participations.find((p) => p.grade != null)?.grade ?? null
+    currentAffiliation = participations[0]?.affiliation ?? null
+  }
+
+  // 勝敗数は status=normal のみ。DB 側で集計して導出する。絞り込み時は①母集合の participant
+  // に限定（inArray）。①で 0 件なら追加クエリせず 0勝0敗。
+  let totalWins = 0
+  let totalLosses = 0
+  if (!(baseIds != null && baseIds.length === 0)) {
+    const [agg] = await db
+      .select({
+        wins: sql<number>`count(*) filter (where ${matches.result} = 'win' and ${matches.status} = 'normal')::int`,
+        losses: sql<number>`count(*) filter (where ${matches.result} = 'lose' and ${matches.status} = 'normal')::int`,
+      })
+      .from(matches)
+      .innerJoin(
+        tournamentParticipants,
+        and(
+          eq(matches.participantId, tournamentParticipants.id),
+          eq(matches.classId, tournamentParticipants.classId),
+        ),
+      )
+      .where(
+        baseIds != null
+          ? and(
+              eq(tournamentParticipants.playerId, playerId),
+              inArray(tournamentParticipants.id, baseIds),
+            )
+          : eq(tournamentParticipants.playerId, playerId),
+      )
+    totalWins = agg?.wins ?? 0
+    totalLosses = agg?.losses ?? 0
+  }
 
   return {
     player,
     participations,
-    totalWins: agg?.wins ?? 0,
-    totalLosses: agg?.losses ?? 0,
+    totalWins,
+    totalLosses,
     championships,
     nyushoCount,
-    tournamentCount: participations.length,
+    tournamentCount,
     activeYears,
     currentGrade,
+    currentAffiliation,
   }
 }
