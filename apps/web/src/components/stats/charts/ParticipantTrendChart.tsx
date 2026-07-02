@@ -27,8 +27,9 @@ export function ParticipantTrendChart({
   const plotW = VW - PL - PR
   const plotH = height - PT - PB
   const maxVal = points.reduce((m, p) => Math.max(m, p.count), 0)
-  const top = niceMax(maxVal)
-  const ticks = axisTicks(maxVal)
+  // 参加者数（件数）軸なので整数目盛で刻む（小数・重複ラベルを避ける）。
+  const top = niceMax(maxVal, true)
+  const ticks = axisTicks(maxVal, true)
 
   const yOf = (v: number) => PT + (1 - v / top) * plotH
   const baseY = yOf(0)

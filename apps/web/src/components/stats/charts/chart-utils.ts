@@ -28,40 +28,48 @@ export function formatDecimal1(n: number): string {
   return n.toFixed(1)
 }
 
+/** 目盛のおおよその目標本数（実際の本数はステップ丸めで前後する）。 */
+const TICK_TARGET = 5
+
 /**
- * 軸の上端を「きりの良い」値へ丸める（0 は 1 に）。1/2/2.5/5/10 × 10^k のいずれか。
- * y 軸目盛線と棒高さの正規化に使う。
+ * `rough` 以上で最小の「きりの良い」ステップ（1/2/5 × 10^k）を返す。y 軸を等間隔かつ
+ * 読みやすい丸め値で刻むための基本単位。`integer=true`（件数軸）のときは 1 未満へ落とさず
+ * 整数へ丸め、0.25 のような小数ステップ＝重複ラベルが出ないようにする。
  */
-export function niceMax(max: number): number {
-  if (!Number.isFinite(max) || max <= 0) return 1
-  const pow = 10 ** Math.floor(Math.log10(max))
-  const n = max / pow
-  let nice: number
-  if (n <= 1) nice = 1
-  else if (n <= 2) nice = 2
-  else if (n <= 2.5) nice = 2.5
-  else if (n <= 5) nice = 5
-  else nice = 10
-  return nice * pow
+function niceStep(rough: number, integer: boolean): number {
+  if (!Number.isFinite(rough) || rough <= 0) return 1
+  const pow = 10 ** Math.floor(Math.log10(rough))
+  const n = rough / pow // 1 <= n < 10
+  const mult = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10
+  const step = mult * pow
+  return integer ? Math.max(1, Math.round(step)) : step
 }
 
 /**
- * 0〜niceMax(max) を等分した目盛値（昇順）。top が整数なら割り切れる本数を優先し、目盛が
- * きれいな整数になるようにする（例：top=5→6本[0..5]、top=10→6本[0,2,..,10]）。
+ * 軸の上端（0〜この値で正規化）。max を「きりの良いステップ」の整数倍へ切り上げる。
+ * 0/負は 1。`integer=true` は整数上端（件数軸）を保証する。
  */
-export function axisTicks(max: number, preferred = 4): number[] {
-  const top = niceMax(max)
-  let count = preferred
-  if (Number.isInteger(top)) {
-    for (const c of [preferred, 5, 3, 2]) {
-      if (top % c === 0) {
-        count = c
-        break
-      }
-    }
-  }
+export function niceMax(max: number, integer = false): number {
+  if (!Number.isFinite(max) || max <= 0) return 1
+  const step = niceStep(max / TICK_TARGET, integer)
+  return Math.ceil(max / step) * step
+}
+
+/**
+ * 0〜niceMax(max) を「きりの良いステップ」で等間隔に刻んだ目盛値（昇順）。ステップが整数なら
+ * 目盛も整数、小数軸（一人当たり平均など）でも 0/0.5/1.0… のように割り切れる値になる。
+ * 旧実装（上端を preferred 等分）は上端が 1 や 2.5 のとき 0.25/0.625 など小数・重複目盛を
+ * 出していたので、それを解消する。`integer=true` は件数軸（整数目盛）用。
+ */
+export function axisTicks(max: number, integer = false): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0, 1]
+  const step = niceStep(max / TICK_TARGET, integer)
+  const top = Math.ceil(max / step) * step
   const ticks: number[] = []
-  for (let i = 0; i <= count; i++) ticks.push((top / count) * i)
+  // 浮動小数の誤差で最終目盛が欠けないよう step/2 を許容し、各値も丸める。
+  for (let v = 0; v <= top + step / 2; v += step) {
+    ticks.push(integer ? Math.round(v) : Number(v.toFixed(4)))
+  }
   return ticks
 }
 

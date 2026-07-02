@@ -39,8 +39,9 @@ export function Histogram({
   const plotW = VW - PL - PR
   const plotH = height - PT - PB
   const maxVal = bins.reduce((m, v) => Math.max(m, v), 0)
-  const top = niceMax(maxVal)
-  const ticks = axisTicks(maxVal)
+  // 試合数（件数）軸なので整数目盛で刻む（0.25 等の小数・重複ラベルを避ける）。
+  const top = niceMax(maxVal, true)
+  const ticks = axisTicks(maxVal, true)
 
   const yOf = (v: number) => PT + (1 - v / top) * plotH
   const baseY = yOf(0)

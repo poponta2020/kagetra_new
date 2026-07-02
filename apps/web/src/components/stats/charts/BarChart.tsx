@@ -13,7 +13,7 @@ export interface BarChartProps {
   height?: number
   /** スクリーンリーダー用の説明（必須）。 */
   ariaLabel: string
-  /** 値ラベルの整形（既定 formatCompact）。 */
+  /** y 軸目盛ラベルの整形（既定 formatCompact）。 */
   valueFormat?: (n: number) => string
   className?: string
 }
@@ -21,14 +21,14 @@ export interface BarChartProps {
 const VW = 320
 const PL = 32 // y 目盛ラベル幅
 const PR = 6
-const PT = 14 // 値ラベル余白
+const PT = 14 // 上端余白
 const PB = 22 // x ラベル余白
 
 /**
- * 縦棒グラフ（y 軸目盛線＋値ラベル）。design-spec §3.2「全棒グラフに y軸目盛線＋値ラベル」。
- * 純粋な SVG コンポーネント（フックなし＝サーバー描画・jsdom テスト可）。棒色は既定で藍
- * （朱はデータ装飾に使わない）。x が密なとき（>12 本）は x ラベルを間引き、棒スロットが
- * 狭いとき（<16u）は値ラベルを省いて重なりを避ける（y 目盛で桁は読める）。
+ * 縦棒グラフ（y 軸目盛線＋目盛ラベル）。design-spec §3.2。純粋な SVG コンポーネント
+ * （フックなし＝サーバー描画・jsdom テスト可）。棒色は既定で藍（朱はデータ装飾に使わない）。
+ * 棒上の値ラベルは出さず y 目盛で値を読む（オーナー指示・小さなモバイル図の煩雑さ回避）。
+ * x が密なとき（>12 本）は x ラベルを間引く。y 目盛は件数軸（全値が整数）なら整数刻み。
  */
 export function BarChart({
   data,
@@ -41,8 +41,10 @@ export function BarChart({
   const plotW = VW - PL - PR
   const plotH = height - PT - PB
   const maxVal = data.reduce((m, d) => Math.max(m, d.value), 0)
-  const top = niceMax(maxVal)
-  const ticks = axisTicks(maxVal)
+  // 全データが整数なら件数軸として整数目盛（0.5 等の小数・重複ラベルを避ける）。
+  const integerAxis = data.every((d) => Number.isInteger(d.value))
+  const top = niceMax(maxVal, integerAxis)
+  const ticks = axisTicks(maxVal, integerAxis)
 
   const yOf = (v: number) => PT + (1 - v / top) * plotH
   const baseY = yOf(0)
@@ -50,7 +52,6 @@ export function BarChart({
   const n = data.length
   const slot = n > 0 ? plotW / n : plotW
   const barW = Math.min(slot * 0.62, 22)
-  const showValueLabels = slot >= 16
   const xEvery = n > 12 ? 2 : 1
 
   return (
@@ -87,7 +88,7 @@ export function BarChart({
         )
       })}
 
-      {/* 棒＋値ラベル＋x ラベル */}
+      {/* 棒＋x ラベル（棒上の値ラベルは出さない） */}
       {data.map((d, i) => {
         const x = PL + slot * i + (slot - barW) / 2
         const y = yOf(d.value)
@@ -97,17 +98,6 @@ export function BarChart({
         return (
           <g key={`b${i}`}>
             <rect x={x} y={y} width={barW} height={h} rx={1} fill={d.color ?? color} />
-            {showValueLabels && d.value > 0 ? (
-              <text
-                x={cx}
-                y={y - 2}
-                textAnchor="middle"
-                className="fill-ink-meta font-display"
-                fontSize={7.5}
-              >
-                {valueFormat(d.value)}
-              </text>
-            ) : null}
             {showX ? (
               <text
                 x={cx}
