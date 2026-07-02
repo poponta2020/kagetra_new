@@ -15,4 +15,6 @@ metadata:
 
 **非自明:** ローカル Windows の `next build` は standalone output の symlink 作成で EPERM 失敗する（コンパイル自体は成功・権限の環境問題・CI の Linux build で最終確認する運用）。関連 [[impl_senseki_stats_pr4_tournament_stats]] [[impl_stats_chart_yaxis_labels_fix]]
 
+**追修正 PR#260 merge `394f09c`（2026-07-03・ユーザー指示で Codex レビュー省略・CI green のみで ship）:** ①分析文を新文言へ差し替え②左軸を個別正規化→**全図共通 0〜10% 固定**（目盛 0/2.5/5/7.5/10%・右軸 0/25/50/75/100 と罫線4等分共有）③10% 超過ビンは上端頭打ち（全期間は最大 9.68%=B級運命戦で収まる実測・狭い期間フィルタでは最大 13.7% があり得る→頭打ち表示）④級別比較の注記を score のみ固定軸説明に分岐
+
 残=本番実機目視（/tournaments/stats と /tournaments/stats/score）
