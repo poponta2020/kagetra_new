@@ -11,6 +11,7 @@ import { GradeLegend, StackedComposition } from '@/components/stats/charts/Stack
 import { denseYears, formatDecimal1, formatInt } from '@/components/stats/charts/chart-utils'
 import { getStatsOverview } from '@/lib/stats/overview'
 import { GRADE_TONES } from '@/lib/stats/grade-tones'
+import { ALL_GRADES, type Grade } from '@/lib/stats/types'
 import { detailHref, parsePeriodParams } from './params'
 
 export const dynamic = 'force-dynamic'
@@ -63,6 +64,9 @@ export default async function TournamentStatsPage({
           <StatCard label="競技人口" value={ov.totals.competitors} unit="人" />
           <StatCard label="延べ参加" value={ov.totals.participations} unit="人" />
         </div>
+
+        {/* 級別 競技人口（1人=1級・直近級方式） */}
+        <GradePopulationCard population={ov.gradePopulation} />
 
         {/* 図1：級別構成の推移（完結） */}
         <ChartCard title="級別構成の推移" note="各年を100%に正規化（A〜E）">
@@ -131,6 +135,31 @@ function StatCard({ label, value, unit }: { label: string; value: number; unit?:
         {formatInt(value)}
         {unit ? <span className="ml-0.5 text-sm font-normal text-ink-meta">{unit}</span> : null}
       </span>
+    </Card>
+  )
+}
+
+/**
+ * 級別 競技人口カード（A→E の 5 列・full width）。1人=1級の直近級方式（overview.ts の
+ * queryGradePopulation）。数値は StatCard と同じ serif・tabular-nums で一段小さく。
+ * 級トーン着色はしない（数値カードのため。図1/図3 の凡例色と混同させない）。
+ * 単位「人」は 5 列に収めるため省略し注記で補う。ドリルは既存の図5「級別比較 ›」に委ねる。
+ */
+function GradePopulationCard({ population }: { population: Record<Grade, number> }) {
+  return (
+    <Card className="flex flex-col gap-1">
+      <span className="text-xs text-ink-meta">級別 競技人口</span>
+      <div className="grid grid-cols-5">
+        {ALL_GRADES.map((grade) => (
+          <div key={grade} className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-ink-meta">{grade}級</span>
+            <span className="font-display text-xl font-bold text-ink tabular-nums">
+              {formatInt(population[grade])}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-ink-meta">期間内で最後に出場した級で1人ずつ数える（単位：人）</p>
     </Card>
   )
 }
