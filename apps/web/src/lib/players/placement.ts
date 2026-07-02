@@ -24,7 +24,12 @@ export interface DerivedPlacement {
 /** round_label がブラケット戦でないことを示すサイン。これらを含む級は導出しない。 */
 const NON_BRACKET = /リーグ|順位|予選|敗者|総当|スイス|位決定/
 
-function labelForBracket(bracket: number): string {
+/**
+ * bracket（1=優勝 / 2=準優勝 / 4, 8, 16 …）→ 表示ラベル。`derivePlacement` の
+ * ラベル生成と単一ソース。事前計算列 `derived_bracket` から表示文字列を復元する
+ * 呼び出し側（選手検索の最終出場結果 `searchPlayers`）でも同じ写像を使うため export。
+ */
+export function labelForBracket(bracket: number): string {
   if (bracket <= 1) return '優勝'
   if (bracket === 2) return '準優勝'
   return `ベスト${bracket}`

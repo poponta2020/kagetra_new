@@ -167,6 +167,185 @@ describe('searchPlayers', () => {
   })
 })
 
+describe('searchPlayers — 拡張フィールド（現級 / 最終出場 / 結果 / 並び順）', () => {
+  type Part = ParsedResultPayload['classes'][number]['participants'][number]
+  type Mt = Part['matches'][number]
+
+  const mt = (
+    round: number,
+    roundLabel: string | null,
+    opponentName: string | null,
+    scoreDiff: number | null,
+    result: 'win' | 'lose',
+    status: 'normal' | 'walkover' | 'forfeit' = 'normal',
+  ): Mt => ({ round, roundLabel, opponentName, scoreDiff, result, status })
+
+  const part = (
+    name: string,
+    opts: { affiliation?: string | null; finalRank?: string | null; matches?: Mt[] } = {},
+  ): Part => ({
+    seqNo: 1,
+    name,
+    nameKana: null,
+    affiliation: opts.affiliation ?? null,
+    prefecture: null,
+    dan: null,
+    memberNo: null,
+    finalRank: opts.finalRank ?? null,
+    matches: opts.matches ?? [],
+  })
+
+  it('bracket 導出できる最終出場：現級・最終出場（日/大会名）・結果を bracket ラベルで返す', async () => {
+    // 4 人シングルイリミ A 級（準決勝→決勝）。王者=優勝(1) / 三席=準優勝(2) / 次点・四席=ベスト4(4)。
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('A級', 'A', [
+            part('王者太郎', { matches: [mt(1, '準決勝', '次点太郎', 5, 'win'), mt(2, '決勝', '三席太郎', 3, 'win')] }),
+            part('三席太郎', { matches: [mt(1, '準決勝', '四席太郎', 7, 'win'), mt(2, '決勝', '王者太郎', 3, 'lose')] }),
+            part('次点太郎', { matches: [mt(1, '準決勝', '王者太郎', 5, 'lose')] }),
+            part('四席太郎', { matches: [mt(1, '準決勝', '三席太郎', 7, 'lose')] }),
+          ]),
+        ],
+      },
+      { name: '選手権大会', eventDate: '2026-05-03' },
+    )
+
+    const champ = (await searchPlayers('王者太郎'))[0]!
+    expect(champ.currentGrade).toBe('A')
+    expect(champ.lastEventDate).toBe('2026-05-03')
+    expect(champ.lastTournamentName).toBe('選手権大会')
+    expect(champ.lastResult).toBe('優勝') // derived_bracket=1
+
+    expect((await searchPlayers('三席太郎'))[0]!.lastResult).toBe('準優勝') // 2
+    expect((await searchPlayers('次点太郎'))[0]!.lastResult).toBe('ベスト4') // 4
+  })
+
+  it('導出不能（リーグ）の最終出場は生 final_rank を lastResult にフォールバック', async () => {
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('B級', 'B', [
+            part('リーグ次郎', {
+              finalRank: '3位',
+              matches: [mt(1, '予選リーグ', '甲', 2, 'win'), mt(2, '予選リーグ', '乙', 1, 'lose')],
+            }),
+          ]),
+        ],
+      },
+      { name: 'リーグ大会', eventDate: '2026-04-01' },
+    )
+    const r = (await searchPlayers('リーグ次郎'))[0]!
+    expect(r.currentGrade).toBe('B')
+    expect(r.lastResult).toBe('3位') // bracket 導出不能 → 生 final_rank
+  })
+
+  it('bracket も final_rank も無い最終出場は lastResult=null（記録なし）', async () => {
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('記録無子')])] },
+      { name: '小さな大会', eventDate: '2026-02-02' },
+    )
+    const r = (await searchPlayers('記録無子'))[0]!
+    expect(r.lastResult).toBeNull()
+    expect(r.lastEventDate).toBe('2026-02-02')
+    expect(r.lastTournamentName).toBe('小さな大会')
+  })
+
+  it('開催日 null の最終出場は lastEventDate=null（開催日不明）でも他フィールドは返る', async () => {
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('C級', 'C', [part('日付無男', { finalRank: '優勝' })])] },
+      { name: '日付不明大会', eventDate: null },
+    )
+    const r = (await searchPlayers('日付無男'))[0]!
+    expect(r.lastEventDate).toBeNull()
+    expect(r.lastTournamentName).toBe('日付不明大会')
+    expect(r.currentGrade).toBe('C')
+    expect(r.lastResult).toBe('優勝') // 生 final_rank（無試合＝導出不能）
+  })
+
+  it('直近参加の grade が null でも currentGrade は遡って非 null を採用し、last* は絶対的直近を指す', async () => {
+    // 古い方＝B 級（grade B）、新しい方＝級不明（grade null）。同名なので同一 player に名寄せ。
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('B級', 'B', [part('遡上太郎', { affiliation: '旧会' })])] },
+      { name: '旧年大会', eventDate: '2024-01-01' },
+    )
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [classWith('級別なし', null, [part('遡上太郎', { affiliation: '新会', finalRank: 'ベスト8' })])],
+      },
+      { name: '新年大会', eventDate: '2026-06-01' },
+    )
+
+    const r = (await searchPlayers('遡上太郎'))[0]!
+    expect(r.participationCount).toBe(2)
+    expect(r.currentGrade).toBe('B') // 直近（新年・grade null）を飛ばして遡って非 null
+    expect(r.lastEventDate).toBe('2026-06-01') // 絶対的直近＝新年大会
+    expect(r.lastTournamentName).toBe('新年大会')
+    expect(r.affiliation).toBe('新会') // 直近の所属スナップショット
+    expect(r.lastResult).toBe('ベスト8') // 生 final_rank（級不明＝導出不能）
+  })
+
+  it('並びは最終出場が新しい順（NULLS LAST）＝現役が上', async () => {
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('並太新')])] },
+      { name: '2026大会', eventDate: '2026-03-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('並太古')])] },
+      { name: '2020大会', eventDate: '2020-03-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('並太無')])] },
+      { name: '日付なし大会', eventDate: null },
+    )
+    const names = (await searchPlayers('並太')).map((r) => r.displayName)
+    expect(names).toEqual(['並太新', '並太古', '並太無'])
+  })
+
+  it('同じ最終出場日のタイブレークは出場大会数の多い順', async () => {
+    // 多回タイ＝昔(2023)＋直近同日(2025-05-01) で 2 出場、少回タイ＝直近同日のみ 1 出場。
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('多回タイ')])] },
+      { name: '昔の大会', eventDate: '2023-01-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('多回タイ'), part('少回タイ')])] },
+      { name: '直近同日大会', eventDate: '2025-05-01' },
+    )
+    const names = (await searchPlayers('回タイ')).map((r) => r.displayName)
+    expect(names).toEqual(['多回タイ', '少回タイ'])
+  })
+
+  it('開催日不明グループは常に最後尾で、その中だけ出場大会数の多い順（日付ありは追い越されない）', async () => {
+    // 日付ソ順＝開催日あり(2020・1出場)。不明多ソ順＝開催日 null 2 大会で 2 出場、
+    // 不明少ソ順＝開催日 null 1 大会で 1 出場。期待順＝日付あり（少出場でも先頭）→
+    // 開催日不明の中を出場大会数降順（多→少）。null 行が participationCount で日付あり行を
+    // 追い越さないことを固定する（Codex R1 should_fix）。
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('日付ソ順')])] },
+      { name: '日付あり大会', eventDate: '2020-01-01' },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('不明多ソ順'), part('不明少ソ順')])] },
+      { name: '無日付A大会', eventDate: null },
+    )
+    await seedTournament(
+      { parserVersion: '1.0.0', classes: [classWith('D級', 'D', [part('不明多ソ順')])] },
+      { name: '無日付B大会', eventDate: null },
+    )
+    const rows = await searchPlayers('ソ順')
+    expect(rows.map((r) => r.displayName)).toEqual(['日付ソ順', '不明多ソ順', '不明少ソ順'])
+    // 日付ソ順は 1 出場でも、開催日不明（2 出場）より上（NULLS LAST 主キー）。
+    expect(rows[0]!.participationCount).toBe(1)
+    expect(rows[0]!.lastEventDate).toBe('2020-01-01')
+    expect(rows[1]!.participationCount).toBe(2) // 不明多＝null 群の中で出場数最多が先頭
+    expect(rows[1]!.lastEventDate).toBeNull()
+  })
+})
+
 describe('getPlayerRecord', () => {
   it('全出場と試合を返し、勝敗は status=normal のみ集計する', async () => {
     // 田中: normal win(対佐藤) + normal lose(対鈴木) + walkover win + forfeit win
