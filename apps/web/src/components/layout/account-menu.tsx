@@ -71,11 +71,11 @@ export function AccountMenu({ user, isAdmin, signOutAction }: AccountMenuProps) 
           role="dialog"
           aria-modal="true"
           aria-label="設定"
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end sm:items-center justify-center bg-black/40"
           onClick={close}
         >
           <div
-            className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] sm:pb-4 flex flex-col gap-1"
+            className="max-h-full overflow-y-auto w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] sm:pb-4 flex flex-col gap-1"
             onClick={(e) => e.stopPropagation()}
           >
             <header className="flex items-center justify-between gap-3 pb-2">
