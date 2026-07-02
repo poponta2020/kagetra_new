@@ -267,6 +267,13 @@
       "when": 1782878436598,
       "tag": "0037_derived_bracket",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1782990805009,
+      "tag": "0038_tournament_series_short_name",
+      "breakpoints": true
     }
   ]
 }

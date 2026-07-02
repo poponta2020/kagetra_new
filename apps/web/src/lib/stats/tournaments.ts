@@ -22,6 +22,11 @@ export interface TournamentListRow {
   participantCount: number
   /** 紐付く開催が中止（rare/defensive・結果は基本 held）。 */
   cancelled: boolean
+  /**
+   * ② 紐付くシリーズの通称（`tournament_series.short_name`）。年別一覧の行タイトルを
+   * 「通称＋開催級」に合成するのに使う（未設定/edition 未紐付きは null＝正式名称フォールバック）。
+   */
+  shortName: string | null
 }
 
 export interface TournamentListResult {
@@ -81,16 +86,20 @@ export async function getTournamentList(
     SELECT t.id, t.name, t.event_date, t.venue,
       extract(year FROM t.event_date)::int AS year,
       e.status AS edition_status,
+      -- ② シリーズ通称（年別一覧の行タイトル合成用）。t.id で GROUP するため s 列は明示的に
+      -- GROUP BY に含める（t の主キーの関数従属は s 列まで及ばない）。
+      s.short_name AS short_name,
       count(DISTINCT tp.id)::int AS participant_count,
       -- enum 配列は node-pg に型パーサが無く生の配列文字列で返るため text[] へキャスト
       -- する（text[] は組み込みパーサで JS 配列になる）。
       array_remove(array_agg(DISTINCT tc.grade), NULL)::text[] AS grades
     FROM tournaments t
     LEFT JOIN tournament_series_editions e ON e.id = t.edition_id
+    LEFT JOIN tournament_series s ON s.id = e.series_id
     LEFT JOIN tournament_classes tc ON tc.tournament_id = t.id
     LEFT JOIN tournament_participants tp ON tp.class_id = tc.id
     ${where}
-    GROUP BY t.id, e.status
+    GROUP BY t.id, e.status, s.short_name
     ORDER BY t.event_date DESC NULLS LAST, t.id DESC
     LIMIT ${safeLimit} OFFSET ${safeOffset}
   `)
@@ -113,6 +122,7 @@ export async function getTournamentList(
       grades,
       participantCount: Number(r.participant_count ?? 0),
       cancelled: r.edition_status === 'cancelled',
+      shortName: r.short_name == null ? null : String(r.short_name),
     }
   })
 

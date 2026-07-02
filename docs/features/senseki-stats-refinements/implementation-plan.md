@@ -21,7 +21,7 @@ status: completed
 - **対応Issue:** #232
 
 ### タスク2: ② 大会一覧（年別）を通称表示に（short_name マスタ新設）
-- [ ] 完了
+- [x] 完了
 - **概要:** `tournament_series.short_name`（text・nullable）を新設し、180 シリーズの略称を
   バックフィル。年別一覧の行タイトルを「short_name＋開催級連結」（例: 大阪BC）にする。
   未紐付き/未設定は正式名称フォールバック。検索・他画面は正式名称のまま。

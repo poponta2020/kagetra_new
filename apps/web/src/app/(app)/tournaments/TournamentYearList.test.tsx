@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { TournamentListRow } from '@/lib/stats/tournaments'
-import { TournamentYearList } from './TournamentYearList'
+import { TournamentYearList, tournamentDisplayTitle } from './TournamentYearList'
 import { loadMoreTournaments } from './actions'
 
 vi.mock('./actions', () => ({ loadMoreTournaments: vi.fn() }))
@@ -19,6 +19,7 @@ const row = (
   grades: ['D'],
   participantCount: 10,
   cancelled: false,
+  shortName: null,
   ...over,
 })
 
@@ -71,6 +72,52 @@ describe('TournamentYearList — 年セクション', () => {
     )
     // 「日付不明」は年セクション見出し＋日付欄の両方に出る
     expect(screen.getAllByText('日付不明').length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('tournamentDisplayTitle — ② 通称合成', () => {
+  it('通称＋開催級を A→E 順で連結（大阪BC・多摩A）', () => {
+    expect(tournamentDisplayTitle({ name: '大阪大会', shortName: '大阪', grades: ['B', 'C'] })).toBe(
+      '大阪BC',
+    )
+    expect(tournamentDisplayTitle({ name: '多摩大会', shortName: '多摩', grades: ['A'] })).toBe('多摩A')
+  })
+
+  it('開催級が空なら通称のみ（名人戦・クイーン戦など A–E 外）', () => {
+    expect(
+      tournamentDisplayTitle({ name: '名人戦東日本予選', shortName: '名人戦東予選', grades: [] }),
+    ).toBe('名人戦東予選')
+  })
+
+  it('short_name 未設定（null）は正式名称フォールバック', () => {
+    expect(tournamentDisplayTitle({ name: '謎大会', shortName: null, grades: ['D'] })).toBe('謎大会')
+  })
+})
+
+describe('TournamentYearList — ② 通称表示（一覧レンダリング）', () => {
+  it('shortName があれば行タイトルは通称＋開催級（正式名称は出さない）', () => {
+    render(
+      <TournamentYearList
+        initialRows={[
+          row({ tournamentId: 1, name: '大阪大会', shortName: '大阪', grades: ['B', 'C'] }),
+        ]}
+        total={1}
+        query=""
+      />,
+    )
+    expect(screen.getByText('大阪BC')).toBeTruthy()
+    expect(screen.queryByText('大阪大会')).toBeNull()
+  })
+
+  it('shortName が null なら正式名称のまま', () => {
+    render(
+      <TournamentYearList
+        initialRows={[row({ tournamentId: 1, name: '正式名称大会', shortName: null })]}
+        total={1}
+        query=""
+      />,
+    )
+    expect(screen.getByText('正式名称大会')).toBeTruthy()
   })
 })
 

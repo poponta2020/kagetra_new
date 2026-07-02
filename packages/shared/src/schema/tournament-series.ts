@@ -21,6 +21,10 @@ export const tournamentSeries = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    // ② 大会一覧（年別）の通称表示用の略称（地名・通称の最短形。例: 大阪/多摩/名人戦東予選）。
+    // 表示時に開催級（A→E）を連結（例: 大阪BC）。nullable＝未設定は正式名称フォールバック。
+    // aliases（名寄せ用の別表記）とは用途が異なる。
+    shortName: text('short_name'),
     kind: tournamentKindEnum('kind').notNull().default('individual'),
     note: text('note'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
