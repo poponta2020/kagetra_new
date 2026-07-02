@@ -1,4 +1,4 @@
-import type { Grade } from '@kagetra/shared/types'
+import type { EventStatus, Grade } from '@kagetra/shared/types'
 
 /**
  * Pure display/sort helpers for the `/events` list ("大会申込").
@@ -27,7 +27,7 @@ export interface EventListItem {
   title: string
   eventDate: string
   internalDeadline: string | null
-  status: string
+  status: EventStatus
   /** `isGradeEligible(eligibleGrades, myGrade)` computed on the server. */
   canApply: boolean
   /** Total `attend=true` count (unchanged "参加 N名" semantics). */
