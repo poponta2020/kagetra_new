@@ -212,7 +212,8 @@ export function RankingFilterBar({
                   昇段済みの選手を含む
                 </label>
                 <p className="pl-6 text-[11px] text-ink-muted">
-                  OFF＝選択級が現在の級の選手のみ。ON＝過去に選択級だった選手も含めます。
+                  OFF＝選択級が現在の級の選手のみ（B〜E級で直近の大会に優勝した選手＝昇段見込みは除く）。
+                  ON＝過去に選択級だった選手も含めます。
                 </p>
               </section>
             ) : null}

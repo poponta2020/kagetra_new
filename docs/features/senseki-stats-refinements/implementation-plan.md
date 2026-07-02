@@ -44,7 +44,7 @@ status: completed
 - **対応Issue:** #233
 
 ### タスク3: ③ 現級フィルタから「直近参加で優勝した B〜E級選手」を除外
-- [ ] 完了
+- [x] 完了
 - **概要:** `currentGradeMembership` の DISTINCT ON サブクエリに `derived_bracket` を追加取得し、
   外側 WHERE に `AND NOT (cur.grade IN ('B'..'E') AND cur.derived_bracket = 1)` を追加。
   A級対象外・トグルON時は現行どおり。トグル説明文にひとこと追記。
