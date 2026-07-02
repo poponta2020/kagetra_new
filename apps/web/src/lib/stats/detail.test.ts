@@ -94,20 +94,59 @@ describe('getStatsDetail — score（枚数差ヒスト・全級＋各級）', (
   })
 })
 
-describe('getStatsDetail — competitors（年別 competitors・distinct）', () => {
-  it('全級は distinct（級合算だと重複）・各級は自級の distinct', async () => {
-    // 2025：A級に X,Y／B級に X（X は両級）
+describe('getStatsDetail — competitors（年別 競技人口・全級=distinct／各級=1人=1級）', () => {
+  it('全級は distinct 選手数・各級はその年の直近級のみ（複数級出場でも重複しない）', async () => {
+    // 2025：A級に X,Y／B級に X（X は同一大会で両級＝異常データ）→ X は上位級 A のみ。
+    // 無級の Z は all にのみ算入（級パネルには現れない）。
     await seed('大会', '2025-04-01', [
       classWith('A級', 'A', [p('X', []), p('Y', [])]),
       classWith('B級', 'B', [p('X', [])]),
+      classWith('無級', null, [p('Z', [])]),
     ])
 
     const res = await getStatsDetail('competitors')
     expect(res.metric).toBe('competitors')
     const m = byKey(res.series as YearSeries[])
-    // 全級 = distinct(X,Y) = 2（A の 2 + B の 1 の単純合算 3 ではない）
-    expect(m.get('all')!.points).toEqual([{ year: 2025, count: 2 }])
+    // 全級 = distinct(X,Y,Z) = 3（従来どおり）。A〜E 合計(2) との差＝grade なし級のみの Z
+    expect(m.get('all')!.points).toEqual([{ year: 2025, count: 3 }])
     expect(m.get('A')!.points).toEqual([{ year: 2025, count: 2 }])
+    // 従来の級ごと distinct では B にも X が立っていた（1人=1級化で解消）
+    expect(m.get('B')!.points).toEqual([])
+    expect(m.get('C')!.points).toEqual([])
+  })
+
+  it('同一年内で B→A と昇級した選手はその年 A のみに1カウント', async () => {
+    await seed('春大会', '2025-04-01', [classWith('B級', 'B', [p('X', [])])])
+    await seed('夏大会', '2025-06-01', [classWith('A級', 'A', [p('X', [])])])
+
+    const res = await getStatsDetail('competitors')
+    const m = byKey(res.series as YearSeries[])
+    expect(m.get('A')!.points).toEqual([{ year: 2025, count: 1 }])
+    expect(m.get('B')!.points).toEqual([])
+    expect(m.get('all')!.points).toEqual([{ year: 2025, count: 1 }])
+  })
+
+  it('年をまたぐ昇級は各年それぞれの級にカウント（過去年は塗り替えない）', async () => {
+    await seed('2023大会', '2023-04-01', [classWith('B級', 'B', [p('X', [])])])
+    await seed('2024大会', '2024-04-01', [classWith('A級', 'A', [p('X', [])])])
+
+    const res = await getStatsDetail('competitors')
+    const m = byKey(res.series as YearSeries[])
+    expect(m.get('B')!.points).toEqual([{ year: 2023, count: 1 }])
+    expect(m.get('A')!.points).toEqual([{ year: 2024, count: 1 }])
+    expect(m.get('all')!.points).toEqual([
+      { year: 2023, count: 1 },
+      { year: 2024, count: 1 },
+    ])
+  })
+
+  it('同日複数大会は id 降順で直近級が決定的', async () => {
+    // 同日 2 大会：後から取り込んだ（id 大）方の B を採用
+    await seed('同日1', '2025-04-01', [classWith('C級', 'C', [p('X', [])])])
+    await seed('同日2', '2025-04-01', [classWith('B級', 'B', [p('X', [])])])
+
+    const res = await getStatsDetail('competitors')
+    const m = byKey(res.series as YearSeries[])
     expect(m.get('B')!.points).toEqual([{ year: 2025, count: 1 }])
     expect(m.get('C')!.points).toEqual([])
   })

@@ -112,6 +112,62 @@ describe('getStatsOverview — 図1 級別構成の推移', () => {
   })
 })
 
+describe('getStatsOverview — 級別 競技人口（直近級方式・1人=1級）', () => {
+  it('期間内に昇級した選手は直近級のみに1カウントされる', async () => {
+    // X：2025-04 B級 → 2025-06 A級（昇級）。直近の A のみに数える（B に重複しない）。
+    await seed('春大会', '2025-04-01', [classWith('B級', 'B', [p('X', [])])])
+    await seed('夏大会', '2025-06-01', [classWith('A級', 'A', [p('X', [])])])
+
+    const { gradePopulation } = await getStatsOverview()
+    expect(gradePopulation).toEqual({ A: 1, B: 0, C: 0, D: 0, E: 0 })
+  })
+
+  it('期間フィルタで直近級が変わる（昔に絞ると昇級前の級にカウント）', async () => {
+    await seed('2020大会', '2020-04-01', [classWith('B級', 'B', [p('X', [])])])
+    await seed('2024大会', '2024-04-01', [classWith('A級', 'A', [p('X', [])])])
+
+    const all = await getStatsOverview()
+    expect(all.gradePopulation).toEqual({ A: 1, B: 0, C: 0, D: 0, E: 0 })
+
+    const past = await getStatsOverview({ yearFrom: 2019, yearTo: 2022 })
+    expect(past.gradePopulation).toEqual({ A: 0, B: 1, C: 0, D: 0, E: 0 })
+  })
+
+  it('grade なしクラスのみの選手は内訳に出ない（全体 競技人口には含まれる）', async () => {
+    await seed('名人戦', '2025-04-01', [classWith('名人級', null, [p('Z', [])])])
+    await seed('通常大会', '2025-05-01', [classWith('D級', 'D', [p('W', [])])])
+
+    const res = await getStatsOverview()
+    expect(res.gradePopulation).toEqual({ A: 0, B: 0, C: 0, D: 1, E: 0 })
+    // A〜E 合計(1) < competitors(2)：差は grade なしクラスのみ出場の Z
+    expect(res.totals.competitors).toBe(2)
+  })
+
+  it('同日複数大会は id 降順・同一大会内の複数級は上位級・日付なしは日付ありに劣後', async () => {
+    // X：同日 2 大会 → 後から取り込んだ（id 大）方の B を採用
+    await seed('同日1', '2025-04-01', [classWith('C級', 'C', [p('X', [])])])
+    await seed('同日2', '2025-04-01', [classWith('B級', 'B', [p('X', [])])])
+    // Y：同一大会内で複数級に出現（異常データ）→ grade 昇順で上位級 A を採用
+    await seed('異常大会', '2025-05-01', [
+      classWith('B級', 'B', [p('Y', [])]),
+      classWith('A級', 'A', [p('Y', [])]),
+    ])
+    // V：日付なし大会（E級）と日付あり大会（D級）→ NULLS LAST で日付ありの D を優先
+    await seed('日付なし', null, [classWith('E級', 'E', [p('V', [])])])
+    await seed('日付あり', '2020-01-01', [classWith('D級', 'D', [p('V', [])])])
+    // U：日付なし大会のみ → 期間フィルタ無しなら id 降順で決定的に割り当て
+    await seed('日付なし2', null, [classWith('E級', 'E', [p('U', [])])])
+
+    const { gradePopulation } = await getStatsOverview()
+    expect(gradePopulation).toEqual({ A: 1, B: 1, C: 0, D: 1, E: 1 })
+  })
+
+  it('データ 0 件でも全級 0 のレコードを返す', async () => {
+    const { gradePopulation } = await getStatsOverview()
+    expect(gradePopulation).toEqual({ A: 0, B: 0, C: 0, D: 0, E: 0 })
+  })
+})
+
 describe('getStatsOverview — 図2 新規参入者（初出場年・2011〜）', () => {
   it('初出場年は全データ由来・2010 は除外・再出場年には数えない', async () => {
     // 太郎A：2010 初出場（除外）

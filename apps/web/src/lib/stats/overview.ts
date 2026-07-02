@@ -64,6 +64,11 @@ export interface ScoreHistogram {
 
 export interface StatsOverview {
   totals: StatsTotals
+  /**
+   * 級別 競技人口カード（A〜E）。期間内の直近級方式（1人=1級）。全級を常にキーに持ち、
+   * データ無し級は 0。grade 無し級のみ出場の選手は含まないので合計 ≦ totals.competitors。
+   */
+  gradePopulation: Record<Grade, number>
   /** 図1（年昇順）。 */
   gradeComposition: GradeCompositionPoint[]
   /** 図2（初出場年昇順・2011〜・期間で窓を絞る）。 */
@@ -98,6 +103,7 @@ export async function getStatsOverview(filter: StatsFilter = {}): Promise<StatsO
 
   const [
     totals,
+    gradePopulation,
     gradeComposition,
     newcomers,
     perPlayerAvg,
@@ -106,6 +112,7 @@ export async function getStatsOverview(filter: StatsFilter = {}): Promise<StatsO
     participationsByYear,
   ] = await Promise.all([
     queryTotals(period),
+    queryGradePopulation(period),
     queryGradeComposition(period),
     queryNewcomers(f),
     queryPerPlayerAvg(period),
@@ -116,6 +123,7 @@ export async function getStatsOverview(filter: StatsFilter = {}): Promise<StatsO
 
   return {
     totals,
+    gradePopulation,
     gradeComposition,
     newcomers,
     perPlayerAvg,
@@ -157,6 +165,36 @@ async function queryTotals(period: ReturnType<typeof periodConds>): Promise<Stat
     matches: num((matchAgg.rows[0] as Record<string, unknown> | undefined)?.n),
     tournaments: num((tournamentAgg.rows[0] as Record<string, unknown> | undefined)?.n),
   }
+}
+
+/**
+ * 級別 競技人口カード。期間内の A〜E 級参加のうち**直近のもの**の級に選手を 1 人だけ
+ * 割り当てる（1人=1級・直近級方式）。直近の決定は選手検索の直近所属（PR#194）と同じ流儀：
+ * event_date 降順 NULLS LAST（日付ありを優先）→ 同日は t.id 降順 → 同一大会内の複数級
+ * （異常データ）は grade 昇順（上位級）で決定的。grade 無し級（名人・クイーン戦、F級等）
+ * は割り当て対象外なので、A〜E の合計は totals.competitors 以下（差＝級なしのみ出場者）。
+ */
+async function queryGradePopulation(
+  period: ReturnType<typeof periodConds>,
+): Promise<Record<Grade, number>> {
+  const res = await db.execute(sql`
+    SELECT grade, count(*)::int AS cnt
+    FROM (
+      SELECT DISTINCT ON (tp.player_id) tp.player_id, tc.grade AS grade
+      FROM tournament_participants tp
+      JOIN tournament_classes tc ON tc.id = tp.class_id
+      JOIN tournaments t ON t.id = tc.tournament_id
+      WHERE tp.player_id IS NOT NULL AND tc.grade IS NOT NULL ${period}
+      ORDER BY tp.player_id, t.event_date DESC NULLS LAST, t.id DESC, tc.grade ASC
+    ) s
+    GROUP BY grade
+  `)
+  const out: Record<Grade, number> = { A: 0, B: 0, C: 0, D: 0, E: 0 }
+  for (const row of res.rows as Record<string, unknown>[]) {
+    const grade = String(row.grade) as Grade
+    if (ALL_GRADES.includes(grade)) out[grade] = num(row.cnt)
+  }
+  return out
 }
 
 /** 図1：年×級の延べ参加を pivot。grade 無し級は除外（構成は A〜E 固定）。 */
