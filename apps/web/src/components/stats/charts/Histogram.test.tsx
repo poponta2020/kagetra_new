@@ -25,15 +25,24 @@ describe('Histogram', () => {
     expect(texts.some((t) => t?.endsWith('%'))).toBe(true)
   })
 
-  it('縦軸は合計に対する割合(%)で正規化する', () => {
-    const bins = new Array<number>(25).fill(0)
-    bins[0] = 1 // 唯一の試合 → 枚数差 1 が 100%
-    const { container } = render(<Histogram bins={bins} average={1} ariaLabel="pct" />)
-    // 右軸（累積%）にも 100% が常に出るため、左軸ラベル（text-anchor=end）に限定して確認する。
+  it('左軸は全図共通の 0〜10% 固定（目盛 0/2.5/5/7.5/10%）', () => {
+    const { container } = render(<Histogram bins={bins25()} average={6} ariaLabel="pct" />)
+    // 右軸（累積%）ラベルは text-anchor=start なので、左軸ラベル（text-anchor=end）に限定する。
     const leftTexts = [...container.querySelectorAll('text[text-anchor="end"]')].map(
       (t) => t.textContent,
     )
-    expect(leftTexts).toContain('100%')
+    expect(leftTexts).toEqual(['0%', '2.5%', '5%', '7.5%', '10%'])
+  })
+
+  it('10% を超えるビンは上端（y=PT）で頭打ちに描く', () => {
+    const bins = new Array<number>(25).fill(0)
+    bins[0] = 1 // 唯一の試合 → 枚数差 1 が 100% ＝ 固定軸 10% を超過
+    const { container } = render(<Histogram bins={bins} average={1} ariaLabel="clamp" />)
+    const rects = [...container.querySelectorAll('rect')]
+    expect(rects).toHaveLength(25)
+    // 既定 height=150・PT=14・PB=20 → plotH=116。頭打ちの棒は y=14・height=116。
+    expect(rects[0]!.getAttribute('y')).toBe('14')
+    expect(rects[0]!.getAttribute('height')).toBe('116')
   })
 
   it('累積%の折れ線（パレート）を描き、終点は右軸 100%（上端）に達する', () => {

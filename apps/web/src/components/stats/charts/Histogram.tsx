@@ -1,4 +1,4 @@
-import { axisTicks, formatDecimal1, formatPercentTick, niceMax } from './chart-utils'
+import { formatDecimal1, formatPercentTick } from './chart-utils'
 
 export interface HistogramProps {
   /** 枚数差ヒスト（length 25：index i＝枚数差 i+1 の試合数）。 */
@@ -21,12 +21,17 @@ const PT = 14
 const PB = 20
 /** x 軸ラベルを出す枚数差（1・5・10・15・20・25）。 */
 const X_TICKS = [1, 5, 10, 15, 20, 25]
+/** 左軸（試合割合%）の上端。全図共通の固定スケール（級間で高さを直接比較できるように）。 */
+const Y_MAX = 10
+/** 左軸の目盛（0/2.5/5/7.5/10%）。右軸 0/25/50/75/100 と同じ4等分＝罫線を共有する。 */
+const Y_TICKS = [0, 2.5, 5, 7.5, 10]
 /** 右軸（累積%）の目盛。累積は必ず 0〜100% なので固定刻み。 */
 const CUM_TICKS = [0, 25, 50, 75, 100]
 
 /**
  * 枚数差パレート図（棒 25 本＋累積%折れ線＋平均線）。design-spec §3.2 / §3.3。
- * 左軸＝枚数差ごとの試合割合(%・図ごと個別正規化)、右軸＝累積割合(0〜100%固定)。
+ * 左軸＝枚数差ごとの試合割合(%・全図共通 0〜10% 固定)、右軸＝累積割合(0〜100%固定)。
+ * 10% を超えるビン（期間を狭く絞った小母数の級で起こり得る）は上端で頭打ちに描く。
  * 累積線は中立インクの実線、平均マーカーは **中立インクの破線**（いずれも朱不使用・
  * design-spec §8 / R2）、平均の数値ラベルは藍。純粋 SVG（フックなし）。棒が密（25 本）
  * なので値ラベルは出さず y 目盛（割合 %）で読む。
@@ -44,14 +49,13 @@ export function Histogram({
   const plotH = height - PT - PB
   // 縦軸は「全試合に対する割合(%)」。各図（メイン＝全級／詳細＝各級）ごとに自分の合計を
   // 分母に正規化するので、絶対数(数千〜万)ではなく枚数差分布の形として読める。
+  // スケールは全図共通の 0〜Y_MAX(10%) 固定（全期間表示の最大ビンは 9.7% 弱で収まる実測）。
   const total = bins.reduce((s, v) => s + v, 0)
   const pct = bins.map((v) => (total > 0 ? (v / total) * 100 : 0))
-  const maxVal = pct.reduce((m, v) => Math.max(m, v), 0)
-  // 割合(%)軸なので小数ステップ可（axisTicks が 0/5/10… のきりの良い値に丸める）。
-  const top = niceMax(maxVal)
-  const ticks = axisTicks(maxVal)
+  const top = Y_MAX
+  const ticks = Y_TICKS
 
-  const yOf = (v: number) => PT + (1 - v / top) * plotH
+  const yOf = (v: number) => PT + (1 - Math.min(v, top) / top) * plotH
   const baseY = yOf(0)
   const n = bins.length // 25
   const slot = plotW / n
