@@ -9,6 +9,7 @@ import {
 } from '@kagetra/shared/schema'
 import { periodConds } from './filters'
 import {
+  DEFAULT_WIN_RATE_MIN_MATCHES,
   coerceRankingMetric,
   sanitizeStatsFilter,
   type RankingMetric,
@@ -38,8 +39,6 @@ export interface PlayerRankingResult {
   total: number
 }
 
-/** 勝率の足切り（最低対戦数）。requirements §3.5。 */
-const WIN_RATE_MIN_MATCHES = 20
 const DEFAULT_LIMIT = 100
 
 /**
@@ -74,6 +73,12 @@ function filterConds(filter: StatsFilter): SQL[] {
  *   打った最新の参加」を拾い「最新の参加がたまたま級X」にならない。判明級の最新1件→grade 判定の順。
  * - 落とし穴②: 生 SQL は tournaments を `t` にエイリアスするため drizzle の `tournaments.eventDate`
  *   を流用できない。期間条件は `filters.periodConds`（t alias 版・「AND t.event_date …」）で組む。
+ *
+ * ③（優勝者除外）: B〜E級は優勝すると必ず昇段するドメインルールがある。現級を決めた「直近参加
+ * そのもの」で優勝（`derived_bracket = 1`）した B〜E級選手は、まだ次の大会に出ておらず旧級に
+ * 残っているだけなので母集団から除外する。DISTINCT ON で現級を畳む際に `derived_bracket` も同じ
+ * 行から取り、外側 WHERE で除外する。A級は優勝しても昇段しないため対象外。優勝定義は優勝回数
+ * ランキングと同一（derived_bracket=1）で、ブラケット導出不能（null）の優勝は除外しない。
  */
 function currentGradeMembership(filter: StatsFilter): SQL | undefined {
   const grades = filter.grades
@@ -85,7 +90,8 @@ function currentGradeMembership(filter: StatsFilter): SQL | undefined {
   )
   return sql`${players.id} in (
     select player_id from (
-      select distinct on (tp.player_id) tp.player_id as player_id, tc.grade as grade
+      select distinct on (tp.player_id) tp.player_id as player_id, tc.grade as grade,
+        tp.derived_bracket as derived_bracket
       from tournament_participants tp
       join tournament_classes tc on tc.id = tp.class_id
       join tournaments t on t.id = tc.tournament_id
@@ -93,6 +99,14 @@ function currentGradeMembership(filter: StatsFilter): SQL | undefined {
       order by tp.player_id, t.event_date desc nulls last, t.id desc
     ) cur
     where cur.grade::text in (${gradeList})
+      -- ③ 直近参加そのもので優勝した B〜E級選手（昇段確定＝旧級に残っているだけ）を除外。
+      -- derived_bracket が null（ブラケット導出不能）の参加は「優勝と確定できない」ため
+      -- coalesce で false 扱い＝母集団に残す（優勝回数ランキングと同じ割り切り）。null を
+      -- そのまま = 1 判定すると NOT(true AND null)=null で null 級の非優勝者まで落ちる。
+      and not (
+        cur.grade::text in ('B', 'C', 'D', 'E')
+        and coalesce(cur.derived_bracket = 1, false)
+      )
   )`
 }
 
@@ -215,15 +229,18 @@ function aggFor(metric: RankingMetric, filter: StatsFilter) {
       return matchAgg(filter, sql<number>`${NORMAL_WINS}::int`, NO_SUB, sql`${NORMAL_WINS} > 0`)
     case 'matches':
       return matchAgg(filter, sql<number>`${NORMAL_GAMES}::int`, NO_SUB, sql`${NORMAL_GAMES} > 0`)
-    case 'winRate':
-      // 勝率＝normal の勝ち/対戦（小数第1位）。母数は最低20試合で足切り（HAVING）。
-      // 母数0はHAVINGで弾かれるが、念のため nullif でゼロ除算を防ぐ。
+    case 'winRate': {
+      // 勝率＝normal の勝ち/対戦（小数第1位）。母数は最低試合数で足切り（HAVING）。
+      // 既定 20・④で filter.minMatches（1〜1000 クランプ済み）が来ればそれを使う。他指標は
+      // minMatches を参照しない。母数0はHAVINGで弾かれるが、念のため nullif でゼロ除算を防ぐ。
+      const minMatches = filter.minMatches ?? DEFAULT_WIN_RATE_MIN_MATCHES
       return matchAgg(
         filter,
         sql<number>`round(100.0 * ${NORMAL_WINS} / nullif(${NORMAL_GAMES}, 0), 1)::float8`,
         sql<number>`${NORMAL_GAMES}::int`,
-        sql`${NORMAL_GAMES} >= ${WIN_RATE_MIN_MATCHES}`,
+        sql`${NORMAL_GAMES} >= ${minMatches}`,
       )
+    }
   }
 }
 

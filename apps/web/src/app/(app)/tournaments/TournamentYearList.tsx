@@ -76,7 +76,7 @@ export function TournamentYearList({
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-display text-[15px] text-ink">
-                      {t.name}
+                      {tournamentDisplayTitle(t)}
                     </span>
                     <span className="block truncate text-xs text-ink-meta">
                       {formatDate(t.eventDate)}
@@ -118,6 +118,18 @@ export function TournamentYearList({
       ) : null}
     </div>
   )
+}
+
+/**
+ * ② 年別一覧の行タイトル。`short_name` があれば「通称＋開催級（A→E 正規順で連結）」に合成する。
+ * grades は row 生成時に既に A→E 正規順（getTournamentList）。開催級が空（名人戦等 A–E 外のみ）は
+ * 通称のみ。`short_name` 未設定/edition 未紐付き（shortName=null）は正式名称フォールバック。
+ * 年別一覧に閉じた合成（大会詳細・シリーズ・選手詳細は正式名称のまま）。
+ */
+export function tournamentDisplayTitle(
+  row: Pick<TournamentListRow, 'name' | 'shortName' | 'grades'>,
+): string {
+  return row.shortName != null ? row.shortName + row.grades.join('') : row.name
 }
 
 /** 開催日 YYYY-MM-DD → YYYY/MM/DD（design-spec §8）。null は「日付不明」。 */

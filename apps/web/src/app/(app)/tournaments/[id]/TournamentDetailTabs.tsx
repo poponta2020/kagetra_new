@@ -157,11 +157,14 @@ function CrosstabView({ block }: { block: ClassBlock }) {
     return <p className="py-10 text-center text-sm text-ink-meta">この級の対戦記録がありません。</p>
   }
   return (
-    <div className="-mx-4 overflow-x-auto px-4">
+    // 左パディングを外してテーブル（＝sticky の選手列）を画面左端に密着させる（①フルブリード）。
+    // 右端の pr-4 はスクロール終端で最終回戦列を画面右端に見切れさせないための終端パディング。
+    // 選手セルの内側パディング（pl-4）はセル側に移し、文字が画面端に貼り付かないようにする。
+    <div className="-mx-4 overflow-x-auto pr-4">
       <table className="border-collapse text-xs">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 border-b border-border bg-surface px-2 py-1.5 text-left font-medium text-ink-meta">
+            <th className="sticky left-0 z-10 border-b border-border bg-surface pl-4 pr-2 py-1.5 text-left font-medium text-ink-meta">
               選手
             </th>
             {columns.map((c) => (
@@ -184,7 +187,7 @@ function CrosstabView({ block }: { block: ClassBlock }) {
               className={r.playerId != null ? 'cursor-pointer hover:bg-surface-alt' : 'hover:bg-surface-alt'}
               onClick={r.playerId != null ? () => router.push(`/players/${r.playerId}`) : undefined}
             >
-              <th className="sticky left-0 z-10 border-b border-border-soft bg-surface px-2 py-1.5 text-left font-normal">
+              <th className="sticky left-0 z-10 border-b border-border-soft bg-surface pl-4 pr-2 py-1.5 text-left font-normal">
                 {r.playerId != null ? (
                   <Link href={`/players/${r.playerId}`} className="block max-w-[7rem] truncate font-display text-[13px] text-ink hover:underline">
                     {r.name}

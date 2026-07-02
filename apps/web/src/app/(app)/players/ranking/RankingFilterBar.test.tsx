@@ -105,3 +105,44 @@ describe('RankingFilterBar — ⑤昇段済みトグル', () => {
     expect((screen.getByLabelText('昇段済みの選手を含む') as HTMLInputElement).checked).toBe(true)
   })
 })
+
+describe('RankingFilterBar — ④最低試合数（勝率タブのみ）', () => {
+  it('勝率以外のタブでは最低試合数セクションを出さない', () => {
+    render(<RankingFilterBar metric="wins" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    expect(screen.queryByText('最低試合数')).toBeNull()
+  })
+
+  it('勝率タブでは最低試合数セクション＋5/10/20/50/100 チップを出す', () => {
+    render(<RankingFilterBar metric="winRate" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    expect(screen.getByText('最低試合数')).toBeTruthy()
+    for (const n of ['5', '10', '20', '50', '100']) {
+      expect(screen.getByRole('button', { name: n })).toBeTruthy()
+    }
+  })
+
+  it('チップを選んで適用すると minMatches が付く（20以外）', () => {
+    render(<RankingFilterBar metric="winRate" filter={{}} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    fireEvent.click(screen.getByRole('button', { name: '50' }))
+    fireEvent.click(screen.getByRole('button', { name: '適用' }))
+    expect(push).toHaveBeenCalledWith('/players/ranking?metric=winRate&f=1&minMatches=50')
+  })
+
+  it('既定20を選ぶと minMatches は付かない（省略）', () => {
+    render(<RankingFilterBar metric="winRate" filter={{ minMatches: 50 }} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    // 現在50 → 20 に戻す
+    fireEvent.click(screen.getByRole('button', { name: '20' }))
+    fireEvent.click(screen.getByRole('button', { name: '適用' }))
+    expect(push).toHaveBeenCalledWith('/players/ranking?metric=winRate&f=1')
+  })
+
+  it('開いたとき現在の minMatches チップが選択（aria-pressed）', () => {
+    render(<RankingFilterBar metric="winRate" filter={{ minMatches: 50 }} years={years} />)
+    fireEvent.click(screen.getByRole('button', { name: '絞り込み' }))
+    expect(screen.getByRole('button', { name: '50' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: '20' }).getAttribute('aria-pressed')).toBe('false')
+  })
+})

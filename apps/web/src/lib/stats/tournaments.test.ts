@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
@@ -119,5 +120,24 @@ describe('getTournamentList — 年別ビュー', () => {
     const res = await getTournamentList(undefined, Number.NaN, -5, -1)
     expect(res.total).toBe(1)
     expect(res.rows).toHaveLength(1)
+  })
+
+  it('② 紐付くシリーズに short_name があれば shortName を返す', async () => {
+    // 通称つきシリーズを用意 → 「第N回<系列名>」の大会名で autoResolveEdition が回次を
+    // パースし系列に完全一致 → edition を link → tournaments→editions→series の join で通称を拾う。
+    await testDb.execute(sql`INSERT INTO tournament_series (name, short_name) VALUES ('大阪大会', '大阪')`)
+    await seed('第1回大阪大会', '2026-04-01', [classWith('B', ['甲']), classWith('C', ['乙'])])
+
+    const { rows } = await getTournamentList()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.shortName).toBe('大阪')
+    // grades は A→E 正規順（表示側で '大阪' + 'BC' に合成される）
+    expect(rows[0]!.grades).toEqual(['B', 'C'])
+  })
+
+  it('② short_name 未設定なら shortName は null（正式名称フォールバック）', async () => {
+    await seed('無名大会', '2026-04-01', [classWith('D', ['丙'])])
+    const { rows } = await getTournamentList()
+    expect(rows[0]!.shortName).toBeNull()
   })
 })

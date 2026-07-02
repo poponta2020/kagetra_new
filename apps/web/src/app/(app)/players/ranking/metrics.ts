@@ -1,6 +1,7 @@
 import {
   ALL_GRADES,
   DEFAULT_RANKING_METRIC,
+  DEFAULT_WIN_RATE_MIN_MATCHES,
   coerceRankingMetric,
   sanitizeStatsFilter,
   type Grade,
@@ -87,6 +88,12 @@ export function buildRankingHref(
     // ⑤ 昇段済みを含む（true のときだけ載せる・false は省略）。
     if (filter.includeFormerGrade === true) params.set('includeFormer', '1')
   }
+  // ④ 最低試合数は明示フラグ（f）と**独立**のパラメータ。既定（20）以外のときだけ載せ、
+  // 非明示（デフォルトビュー）でも保持する（デフォルト注入①③の対象外）。勝率以外の指標でも
+  // URL には残す（集計側で無視されるだけ）ので、指標を切り替えても値が保たれる。
+  if (filter.minMatches != null && filter.minMatches !== DEFAULT_WIN_RATE_MIN_MATCHES) {
+    params.set('minMatches', String(filter.minMatches))
+  }
   const qs = params.toString()
   return qs ? `/players/ranking?${qs}` : '/players/ranking'
 }
@@ -152,14 +159,19 @@ export function parseRankingParams(
     grades?: RawParam
     f?: RawParam
     includeFormer?: RawParam
+    minMatches?: RawParam
   },
   currentYear: number,
 ): ParsedRankingParams {
   const metric = coerceRankingMetric(firstParam(sp.metric))
   const explicit = firstParam(sp.f) === '1'
 
+  // ④ 最低試合数は明示フラグと独立に読む（不正/未指定は sanitize が捨てて既定 20 扱い）。
+  const minMatchesRaw = firstParam(sp.minMatches)
+  const minMatches = minMatchesRaw != null ? Number(minMatchesRaw) : undefined
+
   if (!explicit) {
-    // 素の URL／クリア後 → デフォルト（現在A級・直近5年）。①③。
+    // 素の URL／クリア後 → デフォルト（現在A級・直近5年）。①③。minMatches は独立に保持。
     return {
       metric,
       explicit: false,
@@ -167,6 +179,7 @@ export function parseRankingParams(
         grades: [...DEFAULT_GRADES],
         yearFrom: currentYear - DEFAULT_YEARS_BACK,
         yearTo: currentYear,
+        minMatches,
       }),
     }
   }
@@ -185,6 +198,8 @@ export function parseRankingParams(
 
   const includeFormer = firstParam(sp.includeFormer)
   if (includeFormer === '1' || includeFormer === 'true') candidate.includeFormerGrade = true
+
+  if (minMatches != null) candidate.minMatches = minMatches
 
   return { metric, explicit: true, filter: sanitizeStatsFilter(candidate) }
 }

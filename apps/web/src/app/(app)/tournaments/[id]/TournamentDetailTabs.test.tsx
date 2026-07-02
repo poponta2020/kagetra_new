@@ -108,4 +108,18 @@ describe('TournamentDetailTabs — タブ', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'B' }))
     expect(screen.getByText('この級の対戦記録がありません。')).toBeTruthy()
   })
+
+  it('クロス表は左端フルブリード（ラッパーに左パディング無し・選手列に内側 pl-4）', () => {
+    render(<TournamentDetailTabs blocks={[dBlock]} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'D' }))
+    // スクロールラッパー（table の親 div）は左端に密着（px-4/pl-4 を持たず、右終端のみ pr-4）
+    const wrapper = screen.getByRole('table').parentElement as HTMLElement
+    expect(wrapper.className).toContain('pr-4')
+    expect(wrapper.className).not.toContain('px-4')
+    expect(wrapper.className).not.toContain('pl-4')
+    // 選手列ヘッダ（sticky）はセル側で pl-4 の内側パディングを持つ（文字が画面端に貼り付かない）
+    const playerHead = screen.getByText('選手')
+    expect(playerHead.className).toContain('sticky')
+    expect(playerHead.className).toContain('pl-4')
+  })
 })
