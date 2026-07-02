@@ -13,6 +13,7 @@ import {
   isChampion,
   isDerivableClass,
   isNyusho,
+  labelForBracket,
   type PlacementMatch,
 } from './placement'
 
@@ -22,6 +23,22 @@ export interface PlayerSearchResult {
   affiliation: string | null
   prefecture: string | null
   participationCount: number
+  /**
+   * 現級：最新参加（event_date 降順 NULLS LAST・同日は tournament id 降順）のうち
+   * **非 null な** `tournament_classes.grade`。詳細画面 `PlayerRecord.currentGrade` と
+   * 同定義（絶対的直近参加の grade が null でも遡って非 null を拾う）。
+   */
+  currentGrade: 'A' | 'B' | 'C' | 'D' | 'E' | null
+  /** 最終出場（＝直近参加 1 件）の大会開催日。null＝開催日不明。 */
+  lastEventDate: string | null
+  /** 最終出場の大会名。参加がなければ null。 */
+  lastTournamentName: string | null
+  /**
+   * 最終出場の結果表示：①導出 `derived_bracket`→ラベル（優勝/準優勝/ベストN）
+   * ②生 `final_rank`（例「3位」）③どちらも無ければ null（＝記録なし）。詳細画面の
+   * `rank` と単一ソース（`derived_bracket` は materialize 時に `derivePlacement` で確定）。
+   */
+  lastResult: string | null
 }
 
 export interface PlayerMatchView {
@@ -95,34 +112,89 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
   // するが記号は残すため、ユーザー入力由来の % / _ を literal 扱いにする。
   const escaped = normalized.replace(/([%_\\])/g, '\\$1')
 
+  // 「直近参加 1 件」（event_date 降順 NULLS LAST・同日は tournament id 降順）の
+  // スナップショットを LATERAL で一括取得する。所属会・最終出場（開催日/大会名）・
+  // 結果導出元（derived_bracket / final_rank）を同じ 1 行から引くので、相関スカラ
+  // サブクエリを列ごとに並べずに済み、直近 1 件の同定基準が全列で必ず一致する。
+  // 詳細画面ヘッダ（participations[0]）と同じ 1 件を指すため所属表示も一致する。
+  const latest = db
+    .select({
+      affiliation: tournamentParticipants.affiliation,
+      derivedBracket: tournamentParticipants.derivedBracket,
+      finalRank: tournamentParticipants.finalRank,
+      eventDate: tournaments.eventDate,
+      tournamentName: tournaments.name,
+    })
+    .from(tournamentParticipants)
+    .innerJoin(tournamentClasses, eq(tournamentClasses.id, tournamentParticipants.classId))
+    .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+    .where(eq(tournamentParticipants.playerId, players.id))
+    .orderBy(sql`${tournaments.eventDate} desc nulls last`, desc(tournaments.id))
+    .limit(1)
+    .as('latest')
+
+  // 出場大会数（participation 数）。LATERAL とは別粒度なのでスカラサブクエリで数える。
+  const participationCount = sql<number>`(
+    select count(*)::int from ${tournamentParticipants} tp where tp.player_id = ${players.id}
+  )`
+
+  // 現級＝最新参加のうち **grade が非 null** の直近 1 件（詳細画面 currentGrade と同定義）。
+  // last* の「絶対的直近 1 件」とは条件が違う（直近参加の grade が null の場合、last* は
+  // その参加を指すが currentGrade はさらに遡って非 null grade を拾う）ため別サブクエリ。
+  const currentGrade = sql<'A' | 'B' | 'C' | 'D' | 'E' | null>`(
+    select tc.grade
+    from ${tournamentParticipants} tp
+    join ${tournamentClasses} tc on tc.id = tp.class_id
+    join ${tournaments} t on t.id = tc.tournament_id
+    where tp.player_id = ${players.id} and tc.grade is not null
+    order by t.event_date desc nulls last, t.id desc
+    limit 1
+  )`
+
   const rows = await db
     .select({
       id: players.id,
       displayName: players.displayName,
-      // 所属会は player 行には持たない（常に null・「人 × 大会」属性）。戦績詳細
-      // ヘッダ（participations[0].affiliation）と同じく、直近の大会（event_date
-      // 降順・NULLS LAST、同日は tournament id 降順）の participant スナップショット
-      // の所属を相関サブクエリで 1 件引く。詳細ヘッダと検索結果の所属が一致する。
-      affiliation: sql<string | null>`(
-        select tp.affiliation
-        from ${tournamentParticipants} tp
-        join ${tournamentClasses} tc on tc.id = tp.class_id
-        join ${tournaments} t on t.id = tc.tournament_id
-        where tp.player_id = ${players.id}
-        order by t.event_date desc nulls last, t.id desc
-        limit 1
-      )`,
       prefecture: players.prefecture,
-      participationCount: sql<number>`count(${tournamentParticipants.id})::int`,
+      affiliation: latest.affiliation,
+      lastEventDate: latest.eventDate,
+      lastTournamentName: latest.tournamentName,
+      lastBracket: latest.derivedBracket,
+      lastFinalRank: latest.finalRank,
+      participationCount,
+      currentGrade,
     })
     .from(players)
-    .leftJoin(tournamentParticipants, eq(tournamentParticipants.playerId, players.id))
+    .leftJoinLateral(latest, sql`true`)
     .where(like(players.normalizedName, sql`'%' || ${escaped} || '%'`))
-    .groupBy(players.id)
-    .orderBy(desc(sql`count(${tournamentParticipants.id})`), players.displayName)
+    // 並びは最終出場が新しい順（現役が上）＝ lastEventDate 降順 NULLS LAST を主キーに、
+    // 同日/開催日不明のタイブレークを出場大会数降順 → 表示名昇順で安定させる。
+    .orderBy(
+      sql`${latest.eventDate} desc nulls last`,
+      desc(participationCount),
+      players.displayName,
+    )
     .limit(50)
 
-  return rows
+  return rows.map((r) => ({
+    id: r.id,
+    displayName: r.displayName,
+    affiliation: r.affiliation,
+    prefecture: r.prefecture,
+    participationCount: r.participationCount,
+    currentGrade: r.currentGrade,
+    lastEventDate: r.lastEventDate,
+    lastTournamentName: r.lastTournamentName,
+    // 最終出場の結果：①導出 bracket→ラベル ②生 final_rank ③null（＝記録なし）。
+    // 導出は詳細画面 rank と単一ソース（derived_bracket は materialize 時に確定・
+    // 保存値 == 詳細 rankBracket の不変条件を queries.test で担保済み）。
+    lastResult:
+      r.lastBracket != null
+        ? labelForBracket(r.lastBracket)
+        : r.lastFinalRank && r.lastFinalRank.trim() !== ''
+          ? r.lastFinalRank
+          : null,
+  }))
 }
 
 /** 選手の表示名のみを引く軽量クエリ（戻る導線のラベル用）。存在しなければ null。 */

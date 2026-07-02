@@ -17,7 +17,7 @@ status: draft
 - **検証:** 4画面すべてでスクロール時にタブが残る／既存レイアウト非回帰（目視＋実機）。
 
 ### タスク2: searchPlayers 拡張（フィールド追加＋並び替え）
-- [ ] 完了
+- [x] 完了
 - **概要ः** 戻り値に `currentGrade` / `lastEventDate` / `lastTournamentName` / `lastResult` を追加し、**並び順を lastEventDate 降順（NULLS LAST）主キー**へ変更（タイブレーク＝participationCount 降順→displayName）。`lastResult` は ①`derivePlacement` 導出（当該直近大会・級のみ）→ ②`final_rank` フォールバック → ③null（=記録なし）。各選手の直近参加1件だけを対象に対戦をまとめて取得し N+1 を回避。
 - **変更対象ファイル:**
   - `apps/web/src/lib/players/queries.ts` — `PlayerSearchResult` 型拡張＋クエリ＋導出
