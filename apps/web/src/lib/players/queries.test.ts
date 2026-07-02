@@ -4,7 +4,7 @@ import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/sch
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
 import { getPlayerRanking } from '@/lib/stats/ranking'
-import type { RankingMetric } from '@/lib/stats/types'
+import type { RankingMetric, StatsFilter } from '@/lib/stats/types'
 import { getPlayerName, getPlayerRecord, searchPlayers } from './queries'
 
 beforeEach(async () => {
@@ -638,7 +638,7 @@ describe('getPlayerRecord — ランキングドリルダウン絞り込み', ()
     await seedTournament(elim4('A', 'champion', 'w1'), { name: '優勝大会', eventDate: '2022-05-01' })
     await seedTournament(elim4('A', 'best4', 'w2'), { name: 'ベスト4大会', eventDate: '2023-05-01' })
 
-    const filter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] as const }
+    const filter: StatsFilter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] }
     const rec = (await getPlayerRecord(await heroId(), {
       filter: { ...filter },
       bracketAtMost: 1,
@@ -672,7 +672,7 @@ describe('getPlayerRecord — ランキングドリルダウン絞り込み', ()
     await seedTournament(elim4('A', 'best4', 'iB', { name: '整合太郎' }), { name: '整合2024', eventDate: '2024-05-01' })
 
     const pid = (await searchPlayers('整合太郎'))[0]!.id
-    const filter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] as const }
+    const filter: StatsFilter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] }
     const rec = (await getPlayerRecord(pid, { filter: { ...filter } }))!
 
     // ランキング側の同条件の値（該当選手の行）を引く小ヘルパ。

@@ -4,6 +4,11 @@ import { auth } from '@/auth'
 import { getPlayerName, getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
 import { buildRankingHref, parseRankingParams } from '../ranking/metrics'
 import { BackButton } from './BackButton'
+import {
+  buildClearScopeHref,
+  formatRankingScopeLabel,
+  metricBracketAtMost,
+} from './scopeLabel'
 import { SensekiTimeline, type TimelineYear } from './SensekiTimeline'
 
 export const dynamic = 'force-dynamic'
@@ -48,7 +53,24 @@ export default async function PlayerDetailPage({
   const playerId = Number(id)
   if (!Number.isInteger(playerId) || playerId <= 0) notFound()
 
-  const record = await getPlayerRecord(playerId)
+  const sp = await searchParams
+  const fromRaw = Array.isArray(sp.from) ? sp.from[0] : sp.from
+  const allRaw = Array.isArray(sp.all) ? sp.all[0] : sp.all
+
+  // ランキング由来（?from=ranking）なら params を一度だけ parse し、戻る href の再構成と
+  // ドリルダウン絞り込みの両方に共用する。`all=1`（解除フラグ）が立っているときは絞り込みを
+  // 適用しない（全成績表示に戻す・ランキング params は維持されるので戻る導線は残る）。
+  const rankingParsed =
+    fromRaw === 'ranking' ? parseRankingParams(sp, new Date().getFullYear()) : null
+  const scoped = rankingParsed != null && allRaw !== '1'
+
+  // 絞り込み時は期間＋級（①）と、優勝/入賞指標なら②（bracketAtMost）を getPlayerRecord へ渡す。
+  const record = scoped
+    ? await getPlayerRecord(playerId, {
+        filter: rankingParsed!.filter,
+        bracketAtMost: metricBracketAtMost(rankingParsed!.metric),
+      })
+    : await getPlayerRecord(playerId)
   if (!record) notFound()
 
   // 戻る導線の分岐（?from=…）。
@@ -56,20 +78,20 @@ export default async function PlayerDetailPage({
   //   絞り込み params を再構成した URL）。数値 `from` とは排他（Number('ranking')=NaN）。
   // - 正の整数 → 相手名タップの遷移元選手詳細へ戻る（既存）。
   // - それ以外 → 選手検索へ戻る（既存）。
-  const sp = await searchParams
-  const fromRaw = Array.isArray(sp.from) ? sp.from[0] : sp.from
   const fromId = Number(fromRaw)
   const fromName =
     Number.isInteger(fromId) && fromId > 0 && fromId !== playerId
       ? await getPlayerName(fromId)
       : null
-  const rankingBackHref =
-    fromRaw === 'ranking'
-      ? (() => {
-          const { metric, filter, explicit } = parseRankingParams(sp, new Date().getFullYear())
-          return buildRankingHref(metric, filter, explicit)
-        })()
-      : null
+  const rankingBackHref = rankingParsed
+    ? buildRankingHref(rankingParsed.metric, rankingParsed.filter, rankingParsed.explicit)
+    : null
+
+  // 絞り込み中の条件表示行と解除リンク（scoped のときだけ）。
+  const scopeLabel = scoped
+    ? formatRankingScopeLabel(rankingParsed!.metric, rankingParsed!.filter)
+    : null
+  const clearScopeHref = scoped ? buildClearScopeHref(playerId, sp) : null
 
   const {
     player,
@@ -81,6 +103,7 @@ export default async function PlayerDetailPage({
     tournamentCount,
     activeYears,
     currentGrade,
+    currentAffiliation,
   } = record
 
   const decided = totalWins + totalLosses
@@ -169,10 +192,8 @@ export default async function PlayerDetailPage({
             </span>
           )}
         </h1>
-        {participations[0]?.affiliation && (
-          <div className="mt-0.5 text-xs text-ink-meta">
-            {participations[0].affiliation}
-          </div>
+        {currentAffiliation && (
+          <div className="mt-0.5 text-xs text-ink-meta">{currentAffiliation}</div>
         )}
 
         <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1">
@@ -197,6 +218,19 @@ export default async function PlayerDetailPage({
         </div>
 
         <div className="mt-2 text-xs text-ink-meta">{chips.join(' ・ ')}</div>
+        {scopeLabel && (
+          <p className="mt-1.5 text-[11px] text-ink-meta">
+            {scopeLabel}
+            {clearScopeHref && (
+              <>
+                {' '}
+                <Link href={clearScopeHref} className="text-brand-fg underline">
+                  絞り込みを解除して全成績を見る
+                </Link>
+              </>
+            )}
+          </p>
+        )}
         {hasTappableOpponent && (
           <p className="mt-1.5 text-[11px] text-ink-muted">
             ※ 試合表の相手名をタップすると、その選手の戦績へ移動します
@@ -207,7 +241,21 @@ export default async function PlayerDetailPage({
       <hr className="border-t border-border-soft" />
 
       {years.length === 0 ? (
-        <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
+        scoped ? (
+          <p className="py-6 text-center text-sm text-ink-meta">
+            絞り込み条件に該当する大会がありません。
+            {clearScopeHref && (
+              <>
+                {' '}
+                <Link href={clearScopeHref} className="text-brand-fg underline">
+                  全成績を見る
+                </Link>
+              </>
+            )}
+          </p>
+        ) : (
+          <p className="py-6 text-center text-sm text-ink-meta">出場記録がありません。</p>
+        )
       ) : (
         <SensekiTimeline key={player.id} years={years} playerId={player.id} />
       )}

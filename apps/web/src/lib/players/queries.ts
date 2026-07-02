@@ -219,46 +219,48 @@ export async function getPlayerRecord(
             .map((r) => r.id)
         : baseIds!
 
-  // 空の inArray を drizzle に渡さない（コードベース既存パターン）。①/②で 0 件なら一覧も空。
+  // フィルタ時は①（＋②）で絞った participant id に限定。空の inArray は drizzle に渡さない
+  // （コードベース既存パターン）＝①/②で 0 件なら一覧も空。
+  const participantWhere =
+    listIds != null
+      ? and(
+          eq(tournamentParticipants.playerId, playerId),
+          inArray(tournamentParticipants.id, listIds),
+        )
+      : eq(tournamentParticipants.playerId, playerId)
   const participantRows =
     listIds != null && listIds.length === 0
       ? []
       : await db.query.tournamentParticipants.findMany({
-    where:
-      listIds != null
-        ? and(
-            eq(tournamentParticipants.playerId, playerId),
-            inArray(tournamentParticipants.id, listIds),
-          )
-        : eq(tournamentParticipants.playerId, playerId),
-    columns: {
-      id: true,
-      classId: true,
-      affiliation: true,
-      finalRank: true,
-    },
-    with: {
-      class: {
-        columns: { className: true, grade: true },
-        with: {
-          tournament: {
-            columns: { id: true, name: true, eventDate: true },
+          where: participantWhere,
+          columns: {
+            id: true,
+            classId: true,
+            affiliation: true,
+            finalRank: true,
           },
-        },
-      },
-      matches: {
-        columns: {
-          round: true,
-          roundLabel: true,
-          opponentName: true,
-          opponentParticipantId: true,
-          scoreDiff: true,
-          result: true,
-          status: true,
-        },
-      },
-    },
-  })
+          with: {
+            class: {
+              columns: { className: true, grade: true },
+              with: {
+                tournament: {
+                  columns: { id: true, name: true, eventDate: true },
+                },
+              },
+            },
+            matches: {
+              columns: {
+                round: true,
+                roundLabel: true,
+                opponentName: true,
+                opponentParticipantId: true,
+                scoreDiff: true,
+                result: true,
+                status: true,
+              },
+            },
+          },
+        })
 
   // 級全体の試合を一括取得し、級ごとに「決勝 round（=max round）」と「順位導出可否」を
   // 判定する。導出可否は**級単位**（リーグ/順位戦/3位決定戦/データ欠けは級ごと丸ごと
