@@ -2800,5 +2800,7 @@
 - 2026-07-02 /auto-review-loop PR #240: 1R, verdict=pass, effort=high, tokens=66222/500000, result=pass（--no-auto-ship で ship 保留＝②通称表示の追加待ち）
 - 2026-07-02 /auto-review-loop PR #240 (②追加後・全4タスク): 1R, verdict=pass, effort=high, tokens=122499, result=pass（--no-auto-ship・ship はユーザー判断）
 - 2026-07-02 /ship PR #240 SHIPPED (統計 delta 改修 全4タスク①②③④): merge `6e8c2a3`・親#231+子#232-235 全クローズ・migration 0038(short_name+180件)。Codex 2パス全pass・CI green。残=本番実機目視(0038 auto-deploy 適用)
+- 2026-07-02 /auto-review-loop PR #242 (senseki-ranking-drilldown 全3タスク): 1R, verdict=pass, effort=high, tokens=111521/500000, result=pass。CI green。auto-ship ON→/ship へ
+- 2026-07-02 /ship PR #242 SHIPPED (senseki-ranking-drilldown 全3タスク): merge `82437b6`・親#236+子#237-239 全クローズ・migration なし。ランキング→選手詳細のドリルダウン絞り込み（①期間+級／②優勝入賞は一覧のみ derived_bracket 絞り／ヘッダ①母集合再計算+条件表示行+解除all=1／identity 全成績ベース維持）。Codex 1R(high) pass・CI green。残=本番実機目視
 - 2026-07-02 /auto-review-loop PR #241: 4R, verdict=pass, effort=h→h→h→h（全ラウンド high・>400行）, tokens≈181000/500000, result=pass（R1-3 は挙動非変更の並び順コメント/ミュート境界文言/出場数テスト堅牢化・R4 pass）
 - 2026-07-02 /ship PR #241 SHIPPED (選手検索 結果一覧リデザイン): merge `ddd5ded`・GitHub Issue なし(design-spec 駆動)・migration 無(既存 derived_bracket 再利用)。SectionTabs 固定(統計4画面共通 h-11)＋searchPlayers 拡張(現級/最終出場/結果・leftJoinLateral・最終出場順)＋密リスト行 PlayerResultRow＋検索バー固定(top-11)。ミュート10年(2016以前・モック準拠)。Codex 4R pass・CI green。残=本番実機目視(web 再ビルドで反映)

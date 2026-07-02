@@ -1,13 +1,13 @@
 ---
 name: project_senseki_ranking_drilldown_def
-description: "ランキング→選手詳細ドリルダウン絞り込みの機能定義（親#236+子#237-239・実装未着手）"
+description: "ランキング→選手詳細ドリルダウン絞り込みの機能定義（親#236+子#237-239・実装完了→[[impl_senseki_ranking_drilldown]]）"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 5524f5fd-ac53-41c2-a51f-169d538d430d
 ---
 
-**senseki-ranking-drilldown 機能定義完了（2026-07-02）・実装未着手（/implement 待ち）。**
+**senseki-ranking-drilldown 機能定義完了（2026-07-02）・実装 SHIPPED → [[impl_senseki_ranking_drilldown]]（PR#242 merge 82437b6）。**
 
 ランキング（[[impl_senseki_stats_pr3_ranking]]）の選手名タップで遷移した選手詳細 /players/[id]
 （[[project_senseki_detail_redesign]]）に遷移元フィルタを適用する。
