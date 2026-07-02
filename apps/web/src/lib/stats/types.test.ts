@@ -91,4 +91,23 @@ describe('sanitizeStatsFilter', () => {
       sanitizeStatsFilter({ includeFormerGrade: '1' as unknown as boolean }),
     ).toEqual({ includeFormerGrade: true })
   })
+
+  it('④ minMatches は正の整数のみ・1〜1000 にクランプ（不正は捨てる＝既定20扱い）', () => {
+    // 妥当な正の整数はそのまま
+    expect(sanitizeStatsFilter({ minMatches: 5 })).toEqual({ minMatches: 5 })
+    expect(sanitizeStatsFilter({ minMatches: 20 })).toEqual({ minMatches: 20 })
+    // 超過（>1000）は 1000 にクランプ
+    expect(sanitizeStatsFilter({ minMatches: 5000 })).toEqual({ minMatches: 1000 })
+    // 負値 / 0 / 小数 / NaN / 文字列 は捨てる（省略＝既定 20）
+    expect(sanitizeStatsFilter({ minMatches: 0 })).toEqual({})
+    expect(sanitizeStatsFilter({ minMatches: -5 })).toEqual({})
+    expect(sanitizeStatsFilter({ minMatches: 3.5 })).toEqual({})
+    expect(sanitizeStatsFilter({ minMatches: Number.NaN })).toEqual({})
+    expect(sanitizeStatsFilter({ minMatches: '50' as unknown as number })).toEqual({})
+    // 他フィールドと併存
+    expect(sanitizeStatsFilter({ grades: ['A'], minMatches: 50 })).toEqual({
+      grades: ['A'],
+      minMatches: 50,
+    })
+  })
 })

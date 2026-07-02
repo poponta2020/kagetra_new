@@ -195,6 +195,48 @@ describe('parseRankingParams / buildRankingHref — round-trip（モード維持
   })
 })
 
+describe('④ minMatches（勝率の最低試合数・明示フラグと独立）', () => {
+  it('buildRankingHref は既定20のとき省略・それ以外は付与（非明示でも保持）', () => {
+    // 既定 20 は URL に出さない
+    expect(buildRankingHref('winRate', { minMatches: 20 })).toBe('/players/ranking?metric=winRate')
+    // 20 以外は非明示（デフォルトビュー）でも付く（独立パラメータ）
+    expect(buildRankingHref('winRate', { minMatches: 50 })).toBe(
+      '/players/ranking?metric=winRate&minMatches=50',
+    )
+    // 明示モードでも f=1 と併存して付く
+    expect(buildRankingHref('winRate', { grades: ['A'], minMatches: 5 }, true)).toBe(
+      '/players/ranking?metric=winRate&f=1&grades=A&minMatches=5',
+    )
+  })
+
+  it('parseRankingParams は minMatches を明示フラグと独立に読む（不正は捨てる）', () => {
+    // 非明示でもデフォルト（級A・直近5年）に加えて minMatches を読む
+    expect(parseRankingParams({ metric: 'winRate', minMatches: '50' }, YEAR).filter).toEqual({
+      grades: ['A'],
+      yearFrom: 2021,
+      yearTo: 2026,
+      minMatches: 50,
+    })
+    // 明示モードでも読む
+    expect(parseRankingParams({ f: '1', metric: 'winRate', minMatches: '5' }, YEAR).filter).toEqual({
+      minMatches: 5,
+    })
+    // 不正値（文字列/負値）は捨てる＝既定20扱い（URL に出ない）
+    expect(
+      parseRankingParams({ metric: 'winRate', minMatches: 'x' }, YEAR).filter.minMatches,
+    ).toBeUndefined()
+    expect(parseRankingParams({ f: '1', minMatches: '-3' }, YEAR).filter.minMatches).toBeUndefined()
+  })
+
+  it('round-trip：指標を替えても minMatches は保たれる（他指標は無視するだけ）', () => {
+    const { filter, explicit } = parseRankingParams({ metric: 'winRate', minMatches: '50' }, YEAR)
+    // 勝率 → 対戦へ指標切替。minMatches は URL に残る。
+    const href = buildRankingHref('matches', filter, explicit)
+    expect(href).toContain('minMatches=50')
+    expect(parseRankingParams(hrefParams(href), YEAR).filter.minMatches).toBe(50)
+  })
+})
+
 describe('formatMetricValue / formatMetricSub', () => {
   it('勝率は小数第1位固定・他は整数', () => {
     expect(formatMetricValue('winRate', 60)).toBe('60.0')

@@ -26,6 +26,12 @@ export interface StatsFilter {
    * 未指定=false＝現級のみに絞る。grades 未指定（全級）のときは無効（全員のまま）。
    */
   includeFormerGrade?: boolean
+  /**
+   * ④ 勝率ランキングの最低試合数（足切り）。**③選手ランキングの勝率指標のみ**で使用。
+   * 未指定＝既定（`DEFAULT_WIN_RATE_MIN_MATCHES`）。`sanitizeStatsFilter` で 1〜1000 の
+   * 整数にクランプ。勝率以外の指標では無視（集計に影響しない）。
+   */
+  minMatches?: number
 }
 
 /**
@@ -53,6 +59,16 @@ export const RANKING_METRIC_KEYS: readonly RankingMetric[] = [
 
 /** 既定指標（不正入力のフォールバック・URL 既定）。 */
 export const DEFAULT_RANKING_METRIC: RankingMetric = 'participations'
+
+/**
+ * ④ 勝率ランキングの最低試合数（足切り）の既定。requirements §3.5 / §3④。集計の HAVING と
+ * URL 省略判定（この値のときは `minMatches=` を出さない）で共有する単一ソース。db を持たない
+ * ここに置き、ranking.ts（集計）・metrics.ts（URL）・RankingFilterBar（UI）が参照する。
+ */
+export const DEFAULT_WIN_RATE_MIN_MATCHES = 20
+
+/** ④ 絞り込みシートの最低試合数プリセット（勝率タブのみ・単一選択・既定は 20）。 */
+export const WIN_RATE_MIN_MATCHES_PRESETS: readonly number[] = [5, 10, 20, 50, 100]
 
 /**
  * 未知の値を安全な RankingMetric に丸める。Server Action / searchParams のように
@@ -102,6 +118,15 @@ function validYear(n: unknown): number | undefined {
 }
 
 /**
+ * ④ 最低試合数として妥当（正の整数）な値のみ通し、1〜1000 にクランプする。負値/小数/0/文字列は
+ * undefined（＝既定 20 扱い）。プリセット外（URL 直打ち）でも安全に通す（表示上はチップ非選択）。
+ */
+function validMinMatches(n: unknown): number | undefined {
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) return undefined
+  return Math.min(n, 1000)
+}
+
+/**
  * StatsFilter を検証済みの安全な形に丸める：年は整数・現実範囲のみ、from>to は入替、
  * grades は A–E の正規順のみ（enum 外・非配列は捨てる）。信頼できない入力（Server Action・
  * searchParams 由来）を集計クエリに渡す前に必ず通す。これにより enum 外 grade や NaN 年で
@@ -118,11 +143,15 @@ export function sanitizeStatsFilter(filter: StatsFilter | null | undefined): Sta
     ? ALL_GRADES.filter((g) => f.grades!.includes(g))
     : []
 
+  const minMatches = validMinMatches(f.minMatches)
+
   const out: StatsFilter = {}
   if (yearFrom != null) out.yearFrom = yearFrom
   if (yearTo != null) out.yearTo = yearTo
   if (grades.length > 0) out.grades = grades
   // boolean コアース：truthy（改変された '1' 等含む）のみ true、未指定/false は省略＝現級のみ。
   if (f.includeFormerGrade) out.includeFormerGrade = true
+  // ④ 最低試合数（正の整数・1〜1000 クランプ）。不正/未指定は省略＝既定 20 扱い。
+  if (minMatches != null) out.minMatches = minMatches
   return out
 }

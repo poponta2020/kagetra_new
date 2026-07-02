@@ -248,6 +248,34 @@ describe('getPlayerRanking — 入賞回数（bracket≤8）', () => {
   })
 })
 
+describe('getPlayerRanking — ④勝率の最低試合数（minMatches）', () => {
+  it('minMatches で足切りが変わる（下限を下げると行が増える・上げると減る）', async () => {
+    await seed('大会A', '2026-01-01', [classWith('D級', 'D', [p('多数', manyMatches(15, 10))])]) // 25試合
+    await seed('大会B', '2026-01-02', [classWith('D級', 'D', [p('中数', manyMatches(6, 6))])]) // 12試合
+    await seed('大会C', '2026-01-03', [classWith('D級', 'D', [p('少数', manyMatches(4, 3))])]) // 7試合
+
+    // 既定 20: 多数(25)のみ（現行維持）
+    expect((await getPlayerRanking('winRate')).total).toBe(1)
+    // 10 に緩める: 多数(25)+中数(12)
+    expect((await getPlayerRanking('winRate', { minMatches: 10 })).total).toBe(2)
+    // 5 に緩める: 3人全員
+    expect((await getPlayerRanking('winRate', { minMatches: 5 })).total).toBe(3)
+    // 50 に厳しく: 0人
+    expect((await getPlayerRanking('winRate', { minMatches: 50 })).total).toBe(0)
+  })
+
+  it('minMatches は勝率以外の指標に影響しない（無視される）', async () => {
+    await seed('大会', '2026-01-01', [classWith('D級', 'D', [p('少戦士', manyMatches(3, 2))])]) // 5試合
+
+    // 勝率は既定20で除外
+    expect((await getPlayerRanking('winRate')).total).toBe(0)
+    // 対戦数・勝利数・出場は minMatches を指定しても集計に影響しない（>0 のまま載る）
+    expect((await getPlayerRanking('matches', { minMatches: 100 })).total).toBe(1)
+    expect((await getPlayerRanking('wins', { minMatches: 100 })).total).toBe(1)
+    expect((await getPlayerRanking('participations', { minMatches: 100 })).total).toBe(1)
+  })
+})
+
 describe('getPlayerRanking — 期間フィルタ', () => {
   it('year 範囲で絞り・event_date 無し大会は範囲指定時に除外', async () => {
     await seed('2018大会', '2018-05-01', [classWith('D級', 'D', [p('期間太郎', [])])])
@@ -360,6 +388,63 @@ describe('getPlayerRanking — ⑤現級母集団 / includeFormerGrade', () => {
     await seed('2026B', '2026-01-01', [classWith('B級', 'B', [p('甲', [])])])
     // grades 無し → 母集団制限なし。甲は2大会出場。
     expect((await getPlayerRanking('participations')).rows[0]!.value).toBe(2)
+  })
+})
+
+describe('getPlayerRanking — ③現級から直近優勝者を除外', () => {
+  it('直近参加が B級優勝の選手は B級フィルタ（OFF）で消え、ON では出る', async () => {
+    // B級ブラケット：B優勝(bracket=1)/B準優(2)/B四強X,Y(4)。全員 現級=B。
+    await seed('2026B選手権', '2026-03-01', [
+      bracketClass('B級', 'B', 'B優勝', 'B準優', 'B四強X', 'B四強Y'),
+    ])
+
+    // OFF: 直近参加そのもので優勝した B優勝（昇段見込み）は母集団から除外。他は残る。
+    const off = await getPlayerRanking('participations', { grades: ['B'] })
+    const offNames = off.rows.map((r) => r.displayName)
+    expect(offNames).not.toContain('B優勝')
+    expect(offNames).toContain('B準優')
+    expect(offNames).toContain('B四強X')
+    expect(off.total).toBe(3)
+
+    // ON: 母集団制限なし＝優勝者も表示。
+    const on = await getPlayerRanking('participations', {
+      grades: ['B'],
+      includeFormerGrade: true,
+    })
+    expect(on.rows.map((r) => r.displayName)).toContain('B優勝')
+    expect(on.total).toBe(4)
+  })
+
+  it('A級優勝は除外しない（優勝しても昇段しないため）', async () => {
+    await seed('2026A選手権', '2026-03-01', [
+      bracketClass('A級', 'A', 'A優勝', 'A準優', 'A四強X', 'A四強Y'),
+    ])
+    const off = await getPlayerRanking('participations', { grades: ['A'] })
+    expect(off.rows.map((r) => r.displayName)).toContain('A優勝')
+    expect(off.total).toBe(4)
+  })
+
+  it('B級優勝後に A級出場済みの選手は A級フィルタに出る（現級=A・回帰）', async () => {
+    // 昇段太郎: 2024 B で優勝（bracket=1）→ 2026 A に出場（現級=A）。
+    await seed('2024B選手権', '2024-01-01', [
+      bracketClass('B級', 'B', '昇段太郎', 'b準優', 'b四強X', 'b四強Y'),
+    ])
+    await seed('2026A', '2026-01-01', [classWith('A級', 'A', [p('昇段太郎', [])])])
+
+    // grades=A OFF: 現級A（直近=2026A）で除外条件（B〜E限定）に掛からず、A参加1で載る。
+    const off = await getPlayerRanking('participations', { grades: ['A'] })
+    expect(off.rows.map((r) => [r.displayName, r.value])).toEqual([['昇段太郎', 1]])
+  })
+
+  it('現級 B でも直近参加のブラケットが導出不能（null）なら除外しない', async () => {
+    // 総当り太郎: 1 参加者級＝ブラケット非導出（derived_bracket=null）。優勝と確定できない
+    // ため母集団に残す（null を = 1 判定で落とさない coalesce 安全網の回帰）。
+    await seed('2026B総当り', '2026-01-01', [
+      classWith('B級', 'B', [p('総当り太郎', manyMatches(2, 1))]),
+    ])
+    const off = await getPlayerRanking('participations', { grades: ['B'] })
+    expect(off.rows.map((r) => r.displayName)).toContain('総当り太郎')
+    expect(off.total).toBe(1)
   })
 })
 
