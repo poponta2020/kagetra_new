@@ -45,8 +45,11 @@ const DEFAULT_LIMIT = 100
  * 期間・級フィルタの WHERE 断片。tournaments / tournament_classes を join 済みの
  * クエリで使う。year 指定時は event_date の日付比較になり、event_date 無し大会は
  * 自然に除外される（NULL 比較が偽）。grades は enum 列への IN（未指定なら無条件）。
+ *
+ * 戦績ドリルダウン（getPlayerRecord のフィルタ）とセマンティクスを単一ソースにするため
+ * export する（同じ join 前提＝tournaments / tournament_classes が居るクエリで使う）。
  */
-function filterConds(filter: StatsFilter): SQL[] {
+export function filterConds(filter: StatsFilter): SQL[] {
   const conds: SQL[] = []
   if (filter.yearFrom != null) {
     conds.push(sql`${tournaments.eventDate} >= ${`${filter.yearFrom}-01-01`}::date`)

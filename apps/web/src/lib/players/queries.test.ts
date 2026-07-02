@@ -3,6 +3,8 @@ import { tournamentParticipants } from '@kagetra/shared/schema'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
+import { getPlayerRanking } from '@/lib/stats/ranking'
+import type { RankingMetric } from '@/lib/stats/types'
 import { getPlayerName, getPlayerRecord, searchPlayers } from './queries'
 
 beforeEach(async () => {
@@ -522,6 +524,212 @@ describe('getPlayerRecord — 順位導出・相手リンク・サマリー（T2
     expect(byName.get('半端優勝')).toBe(1)
     expect(byName.get('半端準V')).toBe(2)
     expect(byName.get('無試合')).toBeNull()
+  })
+})
+
+describe('getPlayerRecord — ランキングドリルダウン絞り込み', () => {
+  type Part = ParsedResultPayload['classes'][number]['participants'][number]
+  type Mt = Part['matches'][number]
+
+  const mt = (
+    round: number,
+    roundLabel: string | null,
+    opponentName: string | null,
+    scoreDiff: number | null,
+    result: 'win' | 'lose',
+    status: 'normal' | 'walkover' | 'forfeit' = 'normal',
+  ): Mt => ({ round, roundLabel, opponentName, scoreDiff, result, status })
+
+  const p = (
+    seqNo: number,
+    name: string,
+    matches: Mt[],
+    affiliation: string | null = null,
+  ): Part => ({
+    seqNo,
+    name,
+    nameKana: null,
+    affiliation,
+    prefecture: null,
+    dan: null,
+    memberNo: null,
+    finalRank: null,
+    matches,
+  })
+
+  /**
+   * 4人シングルイリミの大会 payload を作る（準決勝→決勝）。優勝(bracket=1・2勝0敗)／準優勝
+   * (bracket=2・1勝1敗)／ベスト4(bracket=4・0勝1敗) のうち hero を主役の席に割り当て、他は
+   * tag 付きのユニーク名フィラーで埋める（大会をまたいだ意図せぬ名寄せを防ぐ）。materialize が
+   * derived_bracket を計算するので②の bracket 判定も本番同型になる。
+   */
+  const elim4 = (
+    grade: 'A' | 'B' | 'C' | 'D' | 'E' | null,
+    hero: 'champion' | 'runnerUp' | 'best4',
+    tag: string,
+    heroOpts: { name?: string; affiliation?: string | null } = {},
+  ): ParsedResultPayload => {
+    const heroName = heroOpts.name ?? '主役'
+    const heroAff = heroOpts.affiliation ?? null
+    const names = {
+      champion: hero === 'champion' ? heroName : `優勝${tag}`,
+      runnerUp: hero === 'runnerUp' ? heroName : `準優${tag}`,
+      best4a: hero === 'best4' ? heroName : `四A${tag}`,
+      best4b: `四B${tag}`,
+    }
+    const affOf = (n: string) => (n === heroName ? heroAff : null)
+    return {
+      parserVersion: '1.0.0',
+      classes: [
+        classWith(grade ? `${grade}級` : '級不明', grade, [
+          p(1, names.champion, [mt(1, '準決勝', names.best4a, 5, 'win'), mt(2, '決勝', names.runnerUp, 3, 'win')], affOf(names.champion)),
+          p(2, names.runnerUp, [mt(1, '準決勝', names.best4b, 7, 'win'), mt(2, '決勝', names.champion, 3, 'lose')], affOf(names.runnerUp)),
+          p(3, names.best4a, [mt(1, '準決勝', names.champion, 5, 'lose')], affOf(names.best4a)),
+          p(4, names.best4b, [mt(1, '準決勝', names.runnerUp, 7, 'lose')], affOf(names.best4b)),
+        ]),
+      ],
+    }
+  }
+
+  const heroId = async () => (await searchPlayers('主役'))[0]!.id
+
+  it('①期間のみ：範囲内の大会だけに絞る（年初・年末境界・event_date null 除外）', async () => {
+    await seedTournament(elim4('A', 'champion', 'y1'), { name: '年初大会', eventDate: '2021-01-01' })
+    await seedTournament(elim4('A', 'champion', 'y2'), { name: '年末大会', eventDate: '2026-12-31' })
+    await seedTournament(elim4('A', 'champion', 'y3'), { name: '範囲外大会', eventDate: '2020-12-31' })
+    await seedTournament(elim4('A', 'champion', 'y4'), { name: '日付なし大会', eventDate: null })
+
+    const rec = (await getPlayerRecord(await heroId(), {
+      filter: { yearFrom: 2021, yearTo: 2026 },
+    }))!
+    const names = rec.participations.map((v) => v.tournamentName).sort()
+    expect(names).toEqual(['年初大会', '年末大会'])
+    expect(rec.tournamentCount).toBe(2)
+    // 範囲内2大会とも優勝（各2勝0敗）
+    expect(rec.championships).toBe(2)
+    expect(rec.totalWins).toBe(4)
+    expect(rec.totalLosses).toBe(0)
+  })
+
+  it('①級のみ：指定級の参加だけに絞る（grade null 除外）', async () => {
+    await seedTournament(elim4('A', 'champion', 'gA'), { name: 'A大会', eventDate: '2024-01-01' })
+    await seedTournament(elim4('B', 'champion', 'gB'), { name: 'B大会', eventDate: '2024-02-01' })
+    await seedTournament(elim4(null, 'champion', 'gN'), { name: '級不明大会', eventDate: '2024-03-01' })
+
+    const rec = (await getPlayerRecord(await heroId(), { filter: { grades: ['A'] } }))!
+    expect(rec.participations.map((v) => v.tournamentName)).toEqual(['A大会'])
+    expect(rec.tournamentCount).toBe(1)
+    expect(rec.championships).toBe(1)
+  })
+
+  it('①期間＋級：両方の条件で絞る', async () => {
+    await seedTournament(elim4('A', 'champion', 'ok'), { name: '対象大会', eventDate: '2023-05-01' })
+    await seedTournament(elim4('B', 'champion', 'bg'), { name: '級外大会', eventDate: '2023-06-01' })
+    await seedTournament(elim4('A', 'champion', 'oy'), { name: '期外大会', eventDate: '2019-06-01' })
+
+    const rec = (await getPlayerRecord(await heroId(), {
+      filter: { yearFrom: 2021, yearTo: 2026, grades: ['A'] },
+    }))!
+    expect(rec.participations.map((v) => v.tournamentName)).toEqual(['対象大会'])
+    expect(rec.tournamentCount).toBe(1)
+  })
+
+  it('②優勝(bracketAtMost=1)：一覧は優勝大会のみ・ヘッダ集計は①母集合のまま', async () => {
+    await seedTournament(elim4('A', 'champion', 'w1'), { name: '優勝大会', eventDate: '2022-05-01' })
+    await seedTournament(elim4('A', 'best4', 'w2'), { name: 'ベスト4大会', eventDate: '2023-05-01' })
+
+    const filter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] as const }
+    const rec = (await getPlayerRecord(await heroId(), {
+      filter: { ...filter },
+      bracketAtMost: 1,
+    }))!
+    // 一覧は優勝大会のみ
+    expect(rec.participations.map((v) => v.tournamentName)).toEqual(['優勝大会'])
+    expect(rec.participations[0]!.rankBracket).toBe(1)
+    // ヘッダは①母集合（優勝大会＋ベスト4大会）で集計
+    expect(rec.tournamentCount).toBe(2)
+    expect(rec.championships).toBe(1)
+    expect(rec.nyushoCount).toBe(2)
+    expect(rec.totalWins).toBe(2) // 優勝2勝 + ベスト4は0勝
+    expect(rec.totalLosses).toBe(1) // ベスト4の1敗
+  })
+
+  it('②入賞(bracketAtMost=8)：一覧は入賞大会のみ（ベスト4も含む）', async () => {
+    await seedTournament(elim4('A', 'champion', 'n1'), { name: '優勝大会', eventDate: '2022-05-01' })
+    await seedTournament(elim4('A', 'best4', 'n2'), { name: 'ベスト4大会', eventDate: '2023-05-01' })
+
+    const rec = (await getPlayerRecord(await heroId(), {
+      filter: { yearFrom: 2021, yearTo: 2026, grades: ['A'] },
+      bracketAtMost: 8,
+    }))!
+    expect(rec.participations.map((v) => v.tournamentName).sort()).toEqual(['ベスト4大会', '優勝大会'])
+    expect(rec.tournamentCount).toBe(2)
+    expect(rec.nyushoCount).toBe(2)
+  })
+
+  it('ヘッダ再計算値が getPlayerRanking の同条件の値と一致する（受け入れ基準・6指標）', async () => {
+    await seedTournament(elim4('A', 'champion', 'iA', { name: '整合太郎' }), { name: '整合2022', eventDate: '2022-05-01' })
+    await seedTournament(elim4('A', 'best4', 'iB', { name: '整合太郎' }), { name: '整合2024', eventDate: '2024-05-01' })
+
+    const pid = (await searchPlayers('整合太郎'))[0]!.id
+    const filter = { yearFrom: 2021, yearTo: 2026, grades: ['A'] as const }
+    const rec = (await getPlayerRecord(pid, { filter: { ...filter } }))!
+
+    // ランキング側の同条件の値（該当選手の行）を引く小ヘルパ。
+    const rankValue = async (metric: RankingMetric, minMatches?: number) => {
+      const res = await getPlayerRanking(metric, { ...filter, ...(minMatches ? { minMatches } : {}) }, 100, 0)
+      return res.rows.find((r) => r.playerId === pid)?.value ?? null
+    }
+
+    expect(rec.tournamentCount).toBe(await rankValue('participations'))
+    expect(rec.championships).toBe(await rankValue('championships'))
+    expect(rec.nyushoCount).toBe(await rankValue('nyusho'))
+    expect(rec.totalWins).toBe(await rankValue('wins'))
+    expect(rec.totalWins + rec.totalLosses).toBe(await rankValue('matches'))
+    // 勝率はヘッダ（page 相当）と同じ式で算出して照合。最低試合数は record 側では無視される
+    // ので、ランキング側だけ minMatches=1 で足切りを外して同一母集合を比較する。
+    const decided = rec.totalWins + rec.totalLosses
+    const headerWinRate = Math.round((rec.totalWins / decided) * 1000) / 10
+    expect(headerWinRate).toBeCloseTo((await rankValue('winRate', 1))!, 1)
+  })
+
+  it('アイデンティティ（現級・所属）は絞り込みに影響されない', async () => {
+    await seedTournament(elim4('A', 'champion', 'idA'), { name: 'A大会', eventDate: '2022-05-01' })
+    await seedTournament(elim4('B', 'champion', 'idB', { affiliation: '最新会' }), { name: 'B大会', eventDate: '2026-05-01' })
+
+    // A級で絞っても、現級は最新参加(B級)・ヘッダ所属も最新参加(最新会)のまま。
+    const rec = (await getPlayerRecord(await heroId(), { filter: { grades: ['A'] } }))!
+    expect(rec.participations.map((v) => v.tournamentName)).toEqual(['A大会'])
+    expect(rec.currentGrade).toBe('B')
+    expect(rec.currentAffiliation).toBe('最新会')
+  })
+
+  it('絞り込み 0 件：participations 空・record は非 null・identity は残る', async () => {
+    await seedTournament(elim4('A', 'champion', 'z1', { affiliation: '所属会' }), { name: 'A大会', eventDate: '2022-05-01' })
+
+    const rec = (await getPlayerRecord(await heroId(), {
+      filter: { yearFrom: 2100, yearTo: 2100 },
+    }))!
+    expect(rec).not.toBeNull()
+    expect(rec.participations).toEqual([])
+    expect(rec.tournamentCount).toBe(0)
+    expect(rec.championships).toBe(0)
+    expect(rec.totalWins).toBe(0)
+    expect(rec.activeYears).toBeNull()
+    // identity は全成績ベースで残る
+    expect(rec.currentGrade).toBe('A')
+    expect(rec.currentAffiliation).toBe('所属会')
+  })
+
+  it('フィルタ無し呼び出しは全成績を返し currentAffiliation も出す（回帰）', async () => {
+    await seedTournament(elim4('A', 'champion', 'r1'), { name: 'A大会', eventDate: '2022-05-01' })
+    await seedTournament(elim4('B', 'champion', 'r2', { affiliation: '最新会' }), { name: 'B大会', eventDate: '2026-05-01' })
+
+    const rec = (await getPlayerRecord(await heroId()))!
+    expect(rec.tournamentCount).toBe(2)
+    expect(rec.championships).toBe(2)
+    expect(rec.currentGrade).toBe('B')
+    expect(rec.currentAffiliation).toBe('最新会')
   })
 })
 
