@@ -1,6 +1,6 @@
 ---
 name: impl_event_list_refinements
-description: 大会申込（/events 一覧）delta 改修の実装。3タスク実装完了・PR待ち（見出し改称/日付M-D曜/締切残日数3段階/締切既定ソート/申込可能フィルタ/参加者チップ）
+description: 大会申込（/events 一覧）delta 改修 SHIPPED PR#251（見出し改称/日付M-D曜/締切残日数3段階/締切既定ソート/申込可能フィルタ/参加者チップ）
 metadata: 
   node_type: memory
   type: project
@@ -9,7 +9,7 @@ metadata:
 
 `/events`（イベント一覧）の delta 改修＝**「大会申込」**。design-spec B案（区切り線リスト）。**DBスキーマ変更なし・マイグレーションなし**。
 
-**実装完了→PR/レビュー/ship 待ち**。branch=`feature/event-list-refine`・親#248＋子#245-247。worktree=`C:/tmp/impl-event-list-refine`。
+**SHIPPED**：PR#251 merge `2f67b08`（2026-07-02・implement→prepare-pr→auto-review-loop→ship 自律完走）・親#248＋子#245-247 全クローズ。Codex 2R（high）で pass。残=**本番実機目視のみ**（auto-deploy 対象・migration なし）。
 
 ## 実装（3コミット）
 - **タスク1 #245**: pure ヘルパー＋テスト。`apps/web/src/app/(app)/events/event-list-utils.ts`（`formatEventDate` M/D(曜)ゼロ埋めなし・`formatDeadlineCountdown` 本日/soon(1-3)/normal(4+)/締切済/—・`isGradeEligible` 級のみ・`sortEvents` 締切/開催日・共有型 `EventListItem`/`SortAxis`/`DeadlineTone`・定数 `SOON_THRESHOLD`/`CHIP_LIMIT`）。`surname()` を詳細画面から `apps/web/src/lib/surname.ts` へ抽出（挙動不変・`[id]/page.tsx` は import 差し替え）。テスト30件。
@@ -26,6 +26,10 @@ metadata:
 - ①会場・⑤公認ピルは**一覧の表示削除のみ**（DB値・詳細表示は保持）。location/official/eligibleGrades/grade はカードへ渡さない。
 
 ## 検証
-typecheck/lint/対象テスト43件 green。フル web suite は `new-member-form.test.tsx` が**フル実行時のみ**落ちる既知フレーク（単体では green・共有testDB の跨ぎ／`札幌次郎` 残行で create 衝突→form 未リセット・[[reference_worktree_vitest_db_setup]]／[[feedback_vitest_no_file_parallelism]]）＝本改修と無関係。CI は ephemeral DB で問題なし想定。
+typecheck/lint/対象テスト43件 green。フル web suite は `new-member-form.test.tsx` が**フル実行時のみ**落ちる既知フレーク（単体では green・共有testDB の跨ぎ／`札幌次郎` 残行で create 衝突→form 未リセット・[[reference_worktree_vitest_db_setup]]／[[feedback_vitest_no_file_parallelism]]）＝本改修と無関係。**CI（ephemeral DB）はフル suite green で確定＝フレークを実証**。
 
-残=Codex レビュー→ship→本番実機目視。
+## Codex レビュー（auto-review-loop 2R・high）
+- **R1 blocker=1 は false positive**：「`EventListItem.status` を string に広げたので StatusPill 型エラー→ビルド失敗」→ StatusPill の prop は `string|null|undefined` で tsc 済み green＝ビルドは落ちない。ただし**型精度を戻す提案は妥当**なので `status: EventStatus`（共有union）へ narrow 反映（`37116f7`）。page.tsx の enum とも整合。
+- R2 pass（nit=1：switch を `<label>` で包む a11y 軽微指摘・switch はボタン側 aria-label＋onClick で機能・据え置き）。
+
+残=**本番実機目視のみ**。
