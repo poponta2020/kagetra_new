@@ -4,6 +4,8 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [統計画面 delta 改修4件 機能定義](project_senseki_stats_refinements_def.md) — 親#231+子#232-235・クロス表左端寄せ/通称表示(short_name新設+180件migration同梱)/現級フィルタ優勝者除外/勝率最低試合数可変。**実装完了→[[impl_senseki_stats_refinements]]**
+- [統計 delta 改修4件 SHIPPED](impl_senseki_stats_refinements.md) — PR#240 merge `6e8c2a3`(2026-07-02)・親#231+子#232-235全クローズ・migration0038。①クロス表フルブリード②通称表示(short_name新設・180件ユーザー承認short-names.md・年別一覧のみ大阪BC合成)③現級から直近優勝B〜E除外(derived_bracket追加・null平文SQLバグ→coalesce必須)④勝率最低試合数(minMatches 1-1000・f独立param・チップ5/10/20/50/100)。ユーザー指示で②後回し→①③④先行収束→②承認後実装。Codex2パス全pass。残=本番実機目視
 - [招待リンク会員セルフ登録 機能定義](project_invite_link_registration_def.md) — 招待URL→LINEログイン→氏名+級入力で会員登録〜ログイン完結。URL期限内複数人可・不正対策不要(期限のみ)・LINE必須維持・enum invite_link追加・新表registration_invites・middleware /register/* 例外。**実装完了→[[impl_invite_link_registration]]**
 - [招待リンク会員セルフ登録 SHIPPED](impl_invite_link_registration.md) — PR#182 merge `62e9da9`(2026-06-26)・親#173+子#174-181全クローズ・migration0030。非自明=トークンはWeb Cryptoグローバル(node:crypto不可・E2Eがwebpackビルド破壊検出)/registerViaInviteはself-identify同型(unstable_updateにid渡さずnodeJwtCallbackが解決・Codex R1のblockerはfalse positiveでoverride ship)/同名→文言・同一LINE二重→/誘導。残=本番実機目視(0030はauto-deploy適用)
 - [PDF/Word 55件 ローカルDB取込](impl_ingest_pdfword_localdb.md) — PDF/Wordのみで未取込だった個人戦**55件全取込完了**(対戦表有22+入賞者のみ30+団体3、新規約6,800対戦)。番号参照シートはpdfplumberグリッド(parse_grid2)、画像PDFはPNG化→目視で攻略。PyMuPDF/word-extractor抽出。本番DB未変更。成果物=docs/調査用/分析レポート/REPORT_pdf_word_ingest.md
@@ -58,7 +60,9 @@
 - [統計タブ再編(senseki-stats) 全5PR SHIPPED](project_senseki_stats_tab.md) — 戦績→「統計」4セクション化(親#208+子#209-219)。基盤derived_bracket[[impl_senseki_stats_pr1_derived_bracket]]／ナビ4タブ[[impl_senseki_stats_pr2_nav]]／ランキング[[impl_senseki_stats_pr3_ranking]]／大会統計6図[[impl_senseki_stats_pr4_tournament_stats]]／大会結果[[impl_senseki_stats_pr5_tournament_results]]。級タブ=旧クロス表(逆三角形)復元・選手検索は既存流用・朱はデータ装飾に使わない。残=親#208クローズ+各PR実機目視
 - [senseki-stats PR-5 大会結果 SHIPPED](impl_senseki_stats_pr5_tournament_results.md) — getTournamentResults(入賞者=bracket集約+非導出はfinal_rank/クロス表)・getSeriesList/Detail・getTournamentList＋/tournaments(年別↔大会別トグル)/[id](入賞者+級クロス表 氏名sticky)/series/[id]。PR#229 `dc04d6a`。非自明=enum配列は::text[]/累計開催回数=held(count(e.id) FILTER)/シリーズ優勝者は大会詳細と単一ソース/動的IDは/^\d+$/+int4上限/LIKEはESCAPE明示。Codex5R(R1-4修正・R5誤検出override:matches export実在)。963tests green。残=実機目視
 
+- [多摩大会 重複削除(2022)/2024は削除せず](project_tama_duplicate_cleanup_2022.md) — 本番で2022重複A/B(1245/1247)削除・2024の999「全体」はB級唯一記録で保持
 - [統計ランキング改修5件 SHIPPED](project_senseki_ranking_refinements_def.md) — **PR#230 merge `fbb5dcf`(2026-07-02・implement→review→ship自律完走)・親#224+子#225-228全クローズ・migration無・Codex1R pass(high)**。①デフォ直近5年②所属会バグ(派生列相関→行取得後DISTINCT ON別クエリ・filters.periodConds再利用)③デフォ級A(明示フラグf=1)④戻る=router.back+BackButton(from=ranking複写)⑤現級母集団制限+昇段者トグル(非相関DISTINCT ON・cur.grade::text in)。残=本番実機目視
+- [ランキング→選手詳細ドリルダウン 機能定義](project_senseki_ranking_drilldown_def.md) — 親#236+子#237-239・実装未着手。URL複写params読取・②はderived_bracket・ヘッダ①母集合再計算+条件行・解除all=1
 - [カスタムエージェント案 再評価(7種→1種)](project_proposed_agents.md) — 2026-07-01 一次資料再調査で「7種一括作成」を撤回。solo で7種は乱立=アンチパターン。作るなら code-reviewer-jp 1つ・生成系4案はSkill化・migration-guardはHook・drizzle-scoutは保留(Explore重複)。コスト1/15は設定で無料回収可。詳細=docs/dev/proposed-agents.md
 - [Skill/Subagent/Workflow オーケストレーション方針](project_skill_subagent_orchestration.md) — 2026-07-01 公式一次資料で確定。実装フロー骨格はスキル(main)のまま維持しエージェント連鎖に置換しない(多段・文脈共有・side-effect)。葉ステップ(read-heavy調査/客観レビュー)だけ `context:fork`+`agent:` でサブ委譲。Workflowは規模もの専用。正典=docs/dev/feature-flow.md
 
@@ -71,6 +75,7 @@
 - [かるた協会 会員ページ ログイン資格情報](reference_karuta_member_page_credentials.md) — ID/PW は repo root の `.credentials.local.md`（gitignored）。パスワード本体はmemory/コードに書かない
 - [公認大会 定員超過時の抽選優遇ルール](reference_karuta_kounin_taikai_lottery.md) — 競技会規程第二条三=出場回数の「少ない」選手を優先(多い人有利は誤解)。doc=docs/reference/公認大会-抽選-出場回数優先ルール.md
 - [codex config service_tier で CLI 全停止](reference_codex_config_service_tier.md) — ~/.codex/config.toml の `service_tier="default"`(Desktop書込)で codex CLI 0.130.0 が起動時パース失敗→auto-review-loop 全停止。当該行削除で解消・再発注意
+- [worktree vitest の test DB 前提](reference_worktree_vitest_db_setup.md) — worktreeは.envコピー必須／Node24はlocalhost→IPv6でECONNRESET(127.0.0.1で書く)／隔離DBはkagetra_testからpg_dump schemaコピーで種化
 
 ## Feedback
 - [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
@@ -82,6 +87,7 @@
 - [/ship の main 直 push は事前承認済み](feedback_main_push_authorized_for_ship.md) — worklog/memory 同期 commit は確認なしで `git push origin main` 実行可。1人開発・身内プロジェクト前提
 - [autonomous-loop sentinel の解釈](feedback_autonomous_loop_scope.md) — `<<autonomous-loop-dynamic>>` は実装 GO ではない。CLAUDE.md ルール 1 は autonomous でも有効
 - [Windows worktree のパス罠](feedback_windows_worktree_path.md) — `/tmp` は git/pnpm が `%TEMP%`、Write/Read は `C:/tmp` を参照して別ディレクトリになる。worktree は最初から `C:/tmp/...` で明示作成
+- [Windows host→docker pg は 127.0.0.1 必須](feedback_windows_localhost_econnreset_docker_pg.md) — ホストの node/pg/drizzle-kit から docker Postgres へ `localhost:5434` は ECONNRESET(IPv6)。`127.0.0.1` で通る。TEST_DATABASE_URL に 127.0.0.1 を渡す。push無限スピン/接続断の誤診に注意
 - [ブランチ作業は共有 main ディレクトリ禁止](feedback_no_shared_maindir_for_branch_work.md) — infra/CI の小 PR でも必ず隔離 worktree。共有 main 作業ディレクトリで checkout/commit すると並行セッションとブランチが揺れて衝突（2026-06-01 に実害）
 - [jsdom が CSS env() inline style を捨てる](feedback_jsdom_css_env.md) — vitest 環境では `style={{ paddingBottom: 'env(...)' }}` は消える。Tailwind arbitrary value `pb-[env(...)]` で書け
 - [flex + overflow-y-auto には min-h-0 が必須](feedback_flex_min_h_0_for_overflow.md) — `flex-1 overflow-y-auto` だけだと flex item デフォルト `min-height: auto` で親を突き抜けて body スクロール化。常に `min-h-0` を同時指定

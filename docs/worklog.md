@@ -2797,3 +2797,6 @@
 - **D(#228) ④ランキングへ戻る:** 行リンクに `from=ranking`＋絞り込み params 複写（`buildPlayerHrefFromRanking`）。詳細 `page.tsx` は `from==='ranking'` で新規 `BackButton.tsx`（client・`router.back()` でスクロール保持・href フォールバックは `history.length>1` 判定）。数値 `from`（相手名タップ）と排他。
 - **検証:** web 全テスト green（949 passed / 1 skipped・isolated test DB `kagetra_test_ranking`・`--no-file-parallelism`）・`tsc --noEmit` clean・`next lint` 0。**Codex auto-review 1R pass（effort=high・0 blocker/should_fix/nit・109,910 tokens）**・CI green。
 - **残 DoD:** 本番実機目視（既定=現在A級・直近5年／全級・全期間の到達と復元／クリアで既定復帰／行ごとの所属会／詳細→ランキング戻りのフィルタ＋スクロール保持／トグルON/OFF の人数増減）。migration 無＝web 再ビルドで反映（auto-deploy 対象外）。
+- 2026-07-02 /auto-review-loop PR #240: 1R, verdict=pass, effort=high, tokens=66222/500000, result=pass（--no-auto-ship で ship 保留＝②通称表示の追加待ち）
+- 2026-07-02 /auto-review-loop PR #240 (②追加後・全4タスク): 1R, verdict=pass, effort=high, tokens=122499, result=pass（--no-auto-ship・ship はユーザー判断）
+- 2026-07-02 /ship PR #240 SHIPPED (統計 delta 改修 全4タスク①②③④): merge `6e8c2a3`・親#231+子#232-235 全クローズ・migration 0038(short_name+180件)。Codex 2パス全pass・CI green。残=本番実機目視(0038 auto-deploy 適用)
