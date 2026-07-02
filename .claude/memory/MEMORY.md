@@ -4,6 +4,8 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [大会申込(/events一覧)delta改修 実装完了](impl_event_list_refinements.md) — 見出し改称/日付M-D曜/締切残日数3段階/締切既定ソート/申込可能フィルタ/参加者チップ。親#248子#245-247・branch feature/event-list-refine・PR待ち
+- [⚠️Hono API 無認証の穴(未修正)](project_hono_api_unauthenticated_hole.md) — 本番 /hono-api/events が完全無認証でCRUD可・LINEログイン迂回。nginxがmiddleware迂回でproxy・フロント未使用の死にコードだが公開稼働中
 - [統計画面 delta 改修4件 機能定義](project_senseki_stats_refinements_def.md) — 親#231+子#232-235・クロス表左端寄せ/通称表示(short_name新設+180件migration同梱)/現級フィルタ優勝者除外/勝率最低試合数可変。**実装完了→[[impl_senseki_stats_refinements]]**
 - [統計 delta 改修4件 SHIPPED](impl_senseki_stats_refinements.md) — PR#240 merge `6e8c2a3`(2026-07-02)・親#231+子#232-235全クローズ・migration0038。①クロス表フルブリード②通称表示(short_name新設・180件ユーザー承認short-names.md・年別一覧のみ大阪BC合成)③現級から直近優勝B〜E除外(derived_bracket追加・null平文SQLバグ→coalesce必須)④勝率最低試合数(minMatches 1-1000・f独立param・チップ5/10/20/50/100)。ユーザー指示で②後回し→①③④先行収束→②承認後実装。Codex2パス全pass。残=本番実機目視
 - [招待リンク会員セルフ登録 機能定義](project_invite_link_registration_def.md) — 招待URL→LINEログイン→氏名+級入力で会員登録〜ログイン完結。URL期限内複数人可・不正対策不要(期限のみ)・LINE必須維持・enum invite_link追加・新表registration_invites・middleware /register/* 例外。**実装完了→[[impl_invite_link_registration]]**
