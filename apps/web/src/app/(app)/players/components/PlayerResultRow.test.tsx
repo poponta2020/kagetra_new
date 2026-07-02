@@ -57,14 +57,14 @@ describe('PlayerResultRow', () => {
     expect(screen.queryByText('(A)')).toBeNull()
   })
 
-  it('直近 10 年より前の最終出場年月はミュート（引退の気配・砂）', () => {
-    renderRow({ lastEventDate: '2016-05-01' }) // 2026 - 10 = 2016 → 境界も古い扱い
+  it('現在年から10年以上前（境界の10年前ちょうど含む）の最終出場年月はミュート（引退の気配・砂）', () => {
+    renderRow({ lastEventDate: '2016-05-01' }) // 2026 - 10 = 2016（ちょうど10年前）→ ミュート
     const yr = screen.getByText('2016/05')
     expect(yr.className).toContain('text-ink-muted')
   })
 
-  it('直近 10 年以内の最終出場年月は通常色（ミュートしない）', () => {
-    renderRow({ lastEventDate: '2019-11-01' }) // 2026 - 7 → 通常
+  it('2017年以降（10年未満前）の最終出場年月は通常色（ミュートしない）', () => {
+    renderRow({ lastEventDate: '2019-11-01' }) // 2026 - 7 年前 → 通常
     const yr = screen.getByText('2019/11')
     expect(yr.className).toContain('text-ink-meta')
     expect(yr.className).not.toContain('text-ink-muted')
