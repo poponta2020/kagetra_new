@@ -28,6 +28,11 @@ export function formatDecimal1(n: number): string {
   return n.toFixed(1)
 }
 
+/** 割合軸の目盛表記（整数はそのまま・端数は小数第1位・末尾 %）。 */
+export function formatPercentTick(n: number): string {
+  return `${Number.isInteger(n) ? n : n.toFixed(1)}%`
+}
+
 /** 目盛のおおよその目標本数（実際の本数はステップ丸めで前後する）。 */
 const TICK_TARGET = 5
 

@@ -16,11 +16,21 @@ describe('Histogram', () => {
     )
     expect(screen.getByRole('img', { name: '枚数差ヒスト' })).toBeTruthy()
     expect(container.querySelectorAll('rect')).toHaveLength(25)
-    // y 目盛（0,2,4,6,8,10）と衝突しない x 目盛だけを検証する。
+    // x 目盛（枚数差）。y 目盛は割合(%)で末尾に % が付く＝x 目盛の数字と文字列衝突しない。
     const texts = [...container.querySelectorAll('text')].map((t) => t.textContent)
     for (const t of ['1', '5', '15', '20', '25']) {
       expect(texts).toContain(t)
     }
+    // 縦軸は割合(%)＝目盛ラベルは % 付き。
+    expect(texts.some((t) => t?.endsWith('%'))).toBe(true)
+  })
+
+  it('縦軸は合計に対する割合(%)で正規化する', () => {
+    const bins = new Array<number>(25).fill(0)
+    bins[0] = 1 // 唯一の試合 → 枚数差 1 が 100%
+    const { container } = render(<Histogram bins={bins} average={1} ariaLabel="pct" />)
+    const texts = [...container.querySelectorAll('text')].map((t) => t.textContent)
+    expect(texts).toContain('100%')
   })
 
   it('平均線は中立インクの破線（朱不使用）', () => {

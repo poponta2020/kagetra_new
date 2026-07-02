@@ -71,22 +71,21 @@ export function SectionTabs() {
       {SECTIONS.map((s) => {
         const active = s.href === current
         return (
+          // アクティブ下線は Link（タブ全幅・全高）に直接 border-b で付ける。nav は
+          // items-stretch なので下線はタブ下辺にピタッと張り付き（浮かない）、幅もタブ全幅。
+          // -mb-px で nav 自身の 1px 区切り線に重ね、下辺ラインとして揃える。
           <Link
             key={s.id}
             href={s.href}
             aria-current={active ? 'page' : undefined}
-            className="flex flex-1 items-center justify-center text-[13px]"
+            className={cn(
+              'flex flex-1 items-center justify-center border-b-[3px] text-[13px] transition-colors -mb-px',
+              active
+                ? 'border-brand font-medium text-brand'
+                : 'border-transparent text-ink-meta',
+            )}
           >
-            <span
-              className={cn(
-                'inline-block rounded-[2px] border-b-[2.5px] pb-1 transition-colors',
-                active
-                  ? 'border-brand font-medium text-brand'
-                  : 'border-transparent text-ink-meta',
-              )}
-            >
-              {s.label}
-            </span>
+            {s.label}
           </Link>
         )
       })}
