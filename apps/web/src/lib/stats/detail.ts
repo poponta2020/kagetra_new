@@ -20,8 +20,9 @@ import type { YearCountPoint } from './overview'
  * - `competitors` … 年別 競技人口（distinct player）
  * - `participations` … 年別 大会参加人数（延べ参加）
  *
- * 「全級（all）」は各級の単純合算ではない：competitors は選手が複数級に出ても distinct で
- * 1 人（合算は重複）、participations は grade 無し級も含む（各級 A〜E の和より多くなり得る）。
+ * 「全級（all）」は各級の単純合算ではない：competitors の各級は「その年の直近級」で
+ * 1人=1級に数える（直近級方式）ため A〜E の合計 ≦ all（差＝その年 grade 無し級のみに
+ * 出場した選手数）、participations は grade 無し級も含む（各級 A〜E の和より多くなり得る）。
  * だから all は per-grade とは別に算出する。
  */
 
@@ -141,8 +142,12 @@ function toPoints(byYear: Map<number, number>): YearCountPoint[] {
 }
 
 /**
- * competitors：全級は distinct player の年集計（別クエリ＝級合算だと重複）。各級は
- * (grade, year) の distinct player。
+ * competitors：全級は distinct player の年集計（従来どおり＝その年に 1 回以上参加した選手数。
+ * 別クエリ＝級合算だと重複）。各級は「(選手, 年) ごとの直近級」方式（1人=1級）：その年の
+ * A〜E 級参加のうち直近のもの（event_date 降順 → 同日 t.id 降順 → 同一大会内の複数級は
+ * grade 昇順＝上位級）の級に 1 人だけ数える。サマリーの級別 競技人口カード（期間全体で
+ * 直近級を決める queryGradePopulation）と同じ規則を年バケット内で適用したもの。
+ * 年別系列は event_date IS NOT NULL が前提なので NULLS LAST は不要。
  */
 async function queryCompetitorsDetail(
   period: ReturnType<typeof periodConds>,
@@ -158,13 +163,18 @@ async function queryCompetitorsDetail(
       GROUP BY year
     `),
     db.execute(sql`
-      SELECT tc.grade AS grade, extract(year FROM t.event_date)::int AS year,
-             count(DISTINCT tp.player_id)::int AS cnt
-      FROM tournament_participants tp
-      JOIN tournament_classes tc ON tc.id = tp.class_id
-      JOIN tournaments t ON t.id = tc.tournament_id
-      WHERE tp.player_id IS NOT NULL AND tc.grade IS NOT NULL AND t.event_date IS NOT NULL ${period}
-      GROUP BY tc.grade, year
+      SELECT grade, year, count(*)::int AS cnt
+      FROM (
+        SELECT DISTINCT ON (tp.player_id, extract(year FROM t.event_date))
+               tp.player_id, extract(year FROM t.event_date)::int AS year, tc.grade AS grade
+        FROM tournament_participants tp
+        JOIN tournament_classes tc ON tc.id = tp.class_id
+        JOIN tournaments t ON t.id = tc.tournament_id
+        WHERE tp.player_id IS NOT NULL AND tc.grade IS NOT NULL AND t.event_date IS NOT NULL ${period}
+        ORDER BY tp.player_id, extract(year FROM t.event_date),
+                 t.event_date DESC, t.id DESC, tc.grade ASC
+      ) s
+      GROUP BY grade, year
     `),
   ])
   return assembleYearSeries(allRes.rows as Record<string, unknown>[], gradeRes.rows as Record<string, unknown>[])
