@@ -9,6 +9,7 @@ import {
 } from '@kagetra/shared/schema'
 import { periodConds } from './filters'
 import {
+  DEFAULT_WIN_RATE_MIN_MATCHES,
   coerceRankingMetric,
   sanitizeStatsFilter,
   type RankingMetric,
@@ -38,8 +39,6 @@ export interface PlayerRankingResult {
   total: number
 }
 
-/** 勝率の足切り（最低対戦数）。requirements §3.5。 */
-const WIN_RATE_MIN_MATCHES = 20
 const DEFAULT_LIMIT = 100
 
 /**
@@ -230,15 +229,18 @@ function aggFor(metric: RankingMetric, filter: StatsFilter) {
       return matchAgg(filter, sql<number>`${NORMAL_WINS}::int`, NO_SUB, sql`${NORMAL_WINS} > 0`)
     case 'matches':
       return matchAgg(filter, sql<number>`${NORMAL_GAMES}::int`, NO_SUB, sql`${NORMAL_GAMES} > 0`)
-    case 'winRate':
-      // 勝率＝normal の勝ち/対戦（小数第1位）。母数は最低20試合で足切り（HAVING）。
-      // 母数0はHAVINGで弾かれるが、念のため nullif でゼロ除算を防ぐ。
+    case 'winRate': {
+      // 勝率＝normal の勝ち/対戦（小数第1位）。母数は最低試合数で足切り（HAVING）。
+      // 既定 20・④で filter.minMatches（1〜1000 クランプ済み）が来ればそれを使う。他指標は
+      // minMatches を参照しない。母数0はHAVINGで弾かれるが、念のため nullif でゼロ除算を防ぐ。
+      const minMatches = filter.minMatches ?? DEFAULT_WIN_RATE_MIN_MATCHES
       return matchAgg(
         filter,
         sql<number>`round(100.0 * ${NORMAL_WINS} / nullif(${NORMAL_GAMES}, 0), 1)::float8`,
         sql<number>`${NORMAL_GAMES}::int`,
-        sql`${NORMAL_GAMES} >= ${WIN_RATE_MIN_MATCHES}`,
+        sql`${NORMAL_GAMES} >= ${minMatches}`,
       )
+    }
   }
 }
 

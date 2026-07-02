@@ -248,6 +248,34 @@ describe('getPlayerRanking — 入賞回数（bracket≤8）', () => {
   })
 })
 
+describe('getPlayerRanking — ④勝率の最低試合数（minMatches）', () => {
+  it('minMatches で足切りが変わる（下限を下げると行が増える・上げると減る）', async () => {
+    await seed('大会A', '2026-01-01', [classWith('D級', 'D', [p('多数', manyMatches(15, 10))])]) // 25試合
+    await seed('大会B', '2026-01-02', [classWith('D級', 'D', [p('中数', manyMatches(6, 6))])]) // 12試合
+    await seed('大会C', '2026-01-03', [classWith('D級', 'D', [p('少数', manyMatches(4, 3))])]) // 7試合
+
+    // 既定 20: 多数(25)のみ（現行維持）
+    expect((await getPlayerRanking('winRate')).total).toBe(1)
+    // 10 に緩める: 多数(25)+中数(12)
+    expect((await getPlayerRanking('winRate', { minMatches: 10 })).total).toBe(2)
+    // 5 に緩める: 3人全員
+    expect((await getPlayerRanking('winRate', { minMatches: 5 })).total).toBe(3)
+    // 50 に厳しく: 0人
+    expect((await getPlayerRanking('winRate', { minMatches: 50 })).total).toBe(0)
+  })
+
+  it('minMatches は勝率以外の指標に影響しない（無視される）', async () => {
+    await seed('大会', '2026-01-01', [classWith('D級', 'D', [p('少戦士', manyMatches(3, 2))])]) // 5試合
+
+    // 勝率は既定20で除外
+    expect((await getPlayerRanking('winRate')).total).toBe(0)
+    // 対戦数・勝利数・出場は minMatches を指定しても集計に影響しない（>0 のまま載る）
+    expect((await getPlayerRanking('matches', { minMatches: 100 })).total).toBe(1)
+    expect((await getPlayerRanking('wins', { minMatches: 100 })).total).toBe(1)
+    expect((await getPlayerRanking('participations', { minMatches: 100 })).total).toBe(1)
+  })
+})
+
 describe('getPlayerRanking — 期間フィルタ', () => {
   it('year 範囲で絞り・event_date 無し大会は範囲指定時に除外', async () => {
     await seed('2018大会', '2018-05-01', [classWith('D級', 'D', [p('期間太郎', [])])])

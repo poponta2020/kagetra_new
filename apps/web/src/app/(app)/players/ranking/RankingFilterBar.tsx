@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { RankingMetric } from '@/lib/stats/ranking'
 import type { Grade, StatsFilter } from '@/lib/stats/types'
+import { DEFAULT_WIN_RATE_MIN_MATCHES, WIN_RATE_MIN_MATCHES_PRESETS } from '@/lib/stats/types'
 import { cn } from '@/lib/utils'
 import { buildRankingHref } from './metrics'
 
@@ -49,6 +50,9 @@ export function RankingFilterBar({
   const [draftIncludeFormer, setDraftIncludeFormer] = useState<boolean>(
     filter.includeFormerGrade ?? false,
   )
+  const [draftMinMatches, setDraftMinMatches] = useState<number>(
+    filter.minMatches ?? DEFAULT_WIN_RATE_MIN_MATCHES,
+  )
 
   // シートを開くたびに現在のフィルタで下書きを同期（前回のキャンセル分を破棄）。
   useEffect(() => {
@@ -57,8 +61,16 @@ export function RankingFilterBar({
       setDraftTo(filter.yearTo)
       setDraftGrades(filter.grades ?? [])
       setDraftIncludeFormer(filter.includeFormerGrade ?? false)
+      setDraftMinMatches(filter.minMatches ?? DEFAULT_WIN_RATE_MIN_MATCHES)
     }
-  }, [open, filter.yearFrom, filter.yearTo, filter.grades, filter.includeFormerGrade])
+  }, [
+    open,
+    filter.yearFrom,
+    filter.yearTo,
+    filter.grades,
+    filter.includeFormerGrade,
+    filter.minMatches,
+  ])
 
   useEffect(() => {
     if (!open) return
@@ -83,6 +95,9 @@ export function RankingFilterBar({
     if (draftGrades.length > 0) next.grades = draftGrades
     // ⑤ 昇段済みを含む（級選択時のみ意味を持つ・true のときだけ set）。
     if (draftGrades.length > 0 && draftIncludeFormer) next.includeFormerGrade = true
+    // ④ 最低試合数（勝率のみ集計に効く・既定 20 のときは URL 省略）。指標に関わらず値は
+    // 保持する（勝率以外では無視されるだけ）。
+    if (draftMinMatches !== DEFAULT_WIN_RATE_MIN_MATCHES) next.minMatches = draftMinMatches
     setOpen(false)
     router.push(buildRankingHref(metric, next, true))
   }
@@ -215,6 +230,34 @@ export function RankingFilterBar({
                   OFF＝選択級が現在の級の選手のみ（B〜E級で直近の大会に優勝した選手＝昇段見込みは除く）。
                   ON＝過去に選択級だった選手も含めます。
                 </p>
+              </section>
+            ) : null}
+
+            {/* ④ 最低試合数：勝率タブのときだけ表示（プリセット単一選択・既定20）。 */}
+            {metric === 'winRate' ? (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-xs font-medium text-ink-meta">最低試合数</h3>
+                <div className="flex gap-2">
+                  {WIN_RATE_MIN_MATCHES_PRESETS.map((n) => {
+                    const on = draftMinMatches === n
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setDraftMinMatches(n)}
+                        aria-pressed={on}
+                        className={cn(
+                          'flex-1 rounded-lg border py-2 text-sm font-medium transition-colors',
+                          on
+                            ? 'border-brand bg-brand text-white'
+                            : 'border-border bg-surface text-ink-meta hover:bg-surface-alt',
+                        )}
+                      >
+                        {n}
+                      </button>
+                    )
+                  })}
+                </div>
               </section>
             ) : null}
 
