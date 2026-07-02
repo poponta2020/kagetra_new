@@ -16,4 +16,4 @@ metadata:
 - パネルに `max-h-full overflow-y-auto` を付与（内容が可視領域を超えたらパネル内スクロール＝ボタンに到達可能）。安全領域下パディング `pb-[calc(1rem_+_env(safe-area-inset-bottom))]` は維持。[[feedback_flex_min_h_0_for_overflow]]／[[feedback_tailwind_arbitrary_underscore_space]] にも注意。
 - CSS のみで直り挙動/ロジックは不変。テストが className に依存していなければ回帰なし。
 
-**実例:** PR#253(`3231fbe`,2026-07-02) で統計の絞り込みシート `RankingFilterBar.tsx`＋`StatsPeriodFilter.tsx` を修正。**同じ脆弱パターンの未修正モーダルが他にもある**（`InviteCodeModal`/`RegistrationInviteModal`/`ManualLinkModal`/`account-menu` 等＝`fixed inset-0 flex items-end sm:items-center`）。内容が短いので顕在化しにくいが、下端要素を足すと同じ不具合が出る。新規ボトムシートは最初からこの形にする。
+**実例:** PR#253(`3231fbe`,2026-07-02) で統計の絞り込みシート `RankingFilterBar.tsx`＋`StatsPeriodFilter.tsx`、続けて **PR#254(`e6d450c`,2026-07-03) で残り全モーダル**（`InviteCodeModal`/`RegistrationInviteModal`/`ManualLinkModal`/`account-menu`/`ExistingEventLinkSheet`）を横展開修正。**現状 `fixed inset-0 + items-end` のボトムシートは全て対応済み**。今後の新規ボトムシートは最初からこの形（外側 `inset-x-0 top-0 h-[100dvh]`＋パネル `max-h-full overflow-y-auto`）で書くこと。`grep 'fixed inset-0.*items-end'` で新規混入を検知できる。
