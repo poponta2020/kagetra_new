@@ -81,11 +81,11 @@ export function RegistrationInviteModal({ payload, onClose }: RegistrationInvite
       role="dialog"
       aria-modal="true"
       aria-label="招待リンク"
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end sm:items-center justify-center bg-black/40"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 flex flex-col gap-4"
+        className="max-h-full overflow-y-auto w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 flex flex-col gap-4"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-3">

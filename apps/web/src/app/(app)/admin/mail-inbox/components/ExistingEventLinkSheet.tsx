@@ -87,7 +87,7 @@ export function ExistingEventLinkSheet({
           role="dialog"
           aria-modal="true"
           aria-labelledby="link-event-sheet-title"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
+          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end justify-center bg-black/40 sm:items-center sm:p-4"
           onClick={() => !pending && setOpen(false)}
         >
           <div

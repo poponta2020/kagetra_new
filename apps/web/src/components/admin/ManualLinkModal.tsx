@@ -93,11 +93,11 @@ export function ManualLinkModal({
           role="dialog"
           aria-modal="true"
           aria-label={`${channelLabel} 手動紐付け`}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+          className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end sm:items-center justify-center bg-black/40"
           onClick={handleClose}
         >
           <div
-            className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 flex flex-col gap-3"
+            className="max-h-full overflow-y-auto w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 flex flex-col gap-3"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold text-ink-1">手動紐付け</h2>
