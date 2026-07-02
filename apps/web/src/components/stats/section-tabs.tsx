@@ -59,9 +59,14 @@ export function SectionTabs() {
   const pathname = usePathname() ?? ''
   const current = activeHref(pathname)
   return (
+    // 統計 4 画面共通のセクションナビ。`MobileShell` の `<main>`（唯一のスクロール
+    // コンテナ）の先頭に置かれるため、`sticky top-0` で下スクロール時も最上部
+    // （44px の AppBar 直下）に固定される（design-spec §7-1・4 画面共通挙動）。
+    // 高さは AppBar と同じ 44px（h-11）に固定＝選手検索の検索バー固定 top オフセット
+    // （`top-11`）を確定値にするため。z-20 で本文・検索バー（z-10）より前面に置く。
     <nav
       aria-label="統計セクション"
-      className="flex items-stretch border-b border-border bg-surface"
+      className="sticky top-0 z-20 flex h-11 items-stretch border-b border-border bg-surface"
     >
       {SECTIONS.map((s) => {
         const active = s.href === current
@@ -70,7 +75,7 @@ export function SectionTabs() {
             key={s.id}
             href={s.href}
             aria-current={active ? 'page' : undefined}
-            className="flex flex-1 items-center justify-center py-2.5 text-[13px]"
+            className="flex flex-1 items-center justify-center text-[13px]"
           >
             <span
               className={cn(
