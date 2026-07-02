@@ -25,6 +25,8 @@ const MIN_YEAR = 2010
  * 図の内容は指標ごとに異なるため文章も指標単位で持ち、未設定の指標は共通注記のみ表示する。
  */
 const METRIC_ANALYSIS: Partial<Record<DetailMetric, string>> = {
+  score:
+    '各級共に運命戦が一番多い。級毎の比較を行うと、E級からB級までは平均枚数差は減少傾向にあり、このことから級が上がるにつれ選手間の実力の差が小さくなってくことが予想される。一方でB→A級は+0.4枚と若干の増加であり、これはA級には昇級がないためB級と比べ同級内でも実力に差異が生じやすいためであると考えられる。枚数差で判断すると最も参加者間に実力差があるのはE級、実力差が小さいのはB級である。',
   competitors:
     'グラフはその年に1度以上大会に参加した選手数（＝競技人口）をカウントしたものです。2020年はコロナ禍の影響で競技人口の落ち込みが顕著ですが、翌年以降は徐々に回復傾向にあることがうかがえます。',
 }
@@ -129,7 +131,7 @@ function PanelHeader({
   )
 }
 
-/** score 詳細の 1 パネル（枚数差ヒスト・個別正規化・平均線）。 */
+/** score 詳細の 1 パネル（枚数差パレート図・個別正規化・平均線・累積%右軸）。 */
 function ScorePanel({ series }: { series: ScoreSeries }) {
   const total = series.bins.reduce((s, v) => s + v, 0)
   const tone = gradeTone(series.key)
@@ -147,7 +149,7 @@ function ScorePanel({ series }: { series: ScoreSeries }) {
         color={tone}
         height={120}
         showAverageLabel={false}
-        ariaLabel={`${seriesLabel(series.key)}の枚数差ヒストグラム`}
+        ariaLabel={`${seriesLabel(series.key)}の枚数差パレート図`}
       />
     </Card>
   )

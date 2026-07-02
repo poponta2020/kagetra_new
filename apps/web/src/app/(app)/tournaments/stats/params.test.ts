@@ -47,7 +47,7 @@ describe('buildStatsHref / detailHref', () => {
 
 describe('detailMetricTitle / coerceDetailMetric', () => {
   it('指標のタイトル', () => {
-    expect(detailMetricTitle('score')).toBe('スコア統計')
+    expect(detailMetricTitle('score')).toBe('枚数差統計')
     expect(detailMetricTitle('competitors')).toBe('年別 競技人口')
     expect(detailMetricTitle('participations')).toBe('年別 大会参加人数')
   })

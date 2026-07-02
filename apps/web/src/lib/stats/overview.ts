@@ -14,7 +14,7 @@ import { ALL_GRADES, sanitizeStatsFilter, type Grade, type StatsFilter } from '.
  *   1. 級別構成の推移（年×A〜E の 100% 積み上げ・延べ参加）
  *   2. 新規参入者の推移（初出場年別・**2011〜**＝収録開始 2010 は既存選手を含むため左側打ち切り）
  *   3. 一人当たり 平均年参加数（x=級 A〜E・その人がその年に出た大会数の平均）
- *   4. スコア統計（枚数差 1〜25 の 25 本ヒスト＋平均）
+ *   4. 枚数差統計（枚数差 1〜25 の 25 本ヒスト＋平均。UI ではパレート図＝累積%右軸つき）
  *   5. 年別 競技人口 ／ 6. 年別 大会参加人数
  */
 
@@ -54,7 +54,7 @@ export interface PerPlayerAvgPoint {
   avg: number
 }
 
-/** 図4：スコア統計（枚数差ヒスト）。 */
+/** 図4：枚数差統計（枚数差ヒスト）。 */
 export interface ScoreHistogram {
   /** length 25。index i＝枚数差 (i+1) 枚の試合数。 */
   bins: number[]

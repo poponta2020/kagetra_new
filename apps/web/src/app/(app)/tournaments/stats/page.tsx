@@ -87,16 +87,16 @@ export default async function TournamentStatsPage({
           />
         </ChartCard>
 
-        {/* 図4：スコア統計（ドリル） */}
+        {/* 図4：枚数差統計（ドリル） */}
         <ChartCard
-          title="スコア統計"
-          note="枚数差ごとの試合割合（%・1〜25枚・平均線）"
+          title="枚数差統計"
+          note="枚数差ごとの試合割合（%・1〜25枚・平均線）と累積割合（右軸）"
           drill={detailHref('score', filter)}
         >
           <Histogram
             bins={ov.scoreHistogram.bins}
             average={ov.scoreHistogram.average}
-            ariaLabel="スコア統計（枚数差ヒストグラム）"
+            ariaLabel="枚数差統計（枚数差パレート図）"
           />
         </ChartCard>
 
