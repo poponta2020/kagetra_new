@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
+import { createPortal } from 'react-dom'
 import { Btn } from '@/components/ui'
 
 export interface RegistrationInvitePayload {
@@ -76,12 +77,15 @@ export function RegistrationInviteModal({ payload, onClose }: RegistrationInvite
     })
   }
 
-  return (
+  // Portal + .modal-overlay-h (svh cascade): 祖先の stacking context を脱出し、
+  // iOS viewport-fit=cover の dvh 罠を svh で回避（RankingFilterBar の同コメント参照）。
+  // payload はクリック起点でしか非 null にならないので SSR で portal は走らない。
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label="招待リンク"
-      className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] items-end sm:items-center justify-center bg-black/40"
+      className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={onClose}
     >
       <div
@@ -125,6 +129,7 @@ export function RegistrationInviteModal({ payload, onClose }: RegistrationInvite
           </Btn>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
