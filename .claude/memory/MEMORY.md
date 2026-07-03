@@ -4,125 +4,116 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
-- [⭐本番結果データ Tier1点検+Tier2①②完了(2026-07-03)](project_prod_result_health_audit.md) — ①二重取込10大会削除(台帳#1-11・3,872対戦)＋②◯U+25EFパーサバグ→PR#265 ship+11大会再取込(台帳#12・2,300→4,813対戦)まで本番適用済。本番へはSSHトンネルでmaterialize直結可。残=③構造破綻・④大垣・⑤未解決・⑥矛盾・⑦軽微SQL(草案+不戦181件)・⑧漏れ147回収
-- [級別競技人口サマリー 機能定義](project_stats_grade_population_def.md) — 親#256+子#257-259。直近級方式(1人=1級)・A〜Eのみ・ドリルも統一。**実装完了→[[impl_stats_grade_population]]**
-- [級別競技人口サマリー SHIPPED](impl_stats_grade_population.md) — PR#261 merge `76f88de`(2026-07-03)・親#256+子#257-259全クローズ・migration無。DISTINCT ON直近級集計(gradePopulation)+サマリーカード+ドリルcompetitors統一。Codex1R(high)pass。turbo strict envがTEST_DATABASE_URLを落とす罠→pnpm --filter直実行。残=実機目視
-- [大会統計 枚数差統計改称＋パレート図化 SHIPPED](impl_stats_pareto_rename.md) — PR#255 `4ec4643`＋追修正PR#260 `394f09c`(2026-07-03)・図4改称/累積%右軸パレート化/分析文v2/左軸0〜10%固定(超過は頭打ち)。残=実機目視
-- [大会申込(/events一覧)delta改修 SHIPPED](impl_event_list_refinements.md) — PR#251 merge `2f67b08`(2026-07-02)・親#248子#245-247全クローズ・migration無。見出し改称/日付M-D曜/締切残日数3段階/締切既定ソート/申込可能フィルタ(級のみ・管理者バイパス無)/参加者チップ。Codex2R(R1 status型blockerはfalse positive→EventStatus narrow反映)。残=実機目視
-- [Hono API 無認証の穴 SHIPPED(修正済)](project_hono_api_unauthenticated_hole.md) — 本番 /hono-api/events が完全無認証でCRUD可・LINEログイン迂回だった。PR#252`2fceb79`でeventsルート撤去(/health のみ残す)・本番read-back済(events=404/health=200)。フロント未使用の死にコードで影響なし
-- [統計画面 delta 改修4件 機能定義](project_senseki_stats_refinements_def.md) — 親#231+子#232-235・クロス表左端寄せ/通称表示(short_name新設+180件migration同梱)/現級フィルタ優勝者除外/勝率最低試合数可変。**実装完了→[[impl_senseki_stats_refinements]]**
-- [統計 delta 改修4件 SHIPPED](impl_senseki_stats_refinements.md) — PR#240 merge `6e8c2a3`(2026-07-02)・親#231+子#232-235全クローズ・migration0038。①クロス表フルブリード②通称表示(short_name新設・180件ユーザー承認short-names.md・年別一覧のみ大阪BC合成)③現級から直近優勝B〜E除外(derived_bracket追加・null平文SQLバグ→coalesce必須)④勝率最低試合数(minMatches 1-1000・f独立param・チップ5/10/20/50/100)。ユーザー指示で②後回し→①③④先行収束→②承認後実装。Codex2パス全pass。残=本番実機目視
-- [招待リンク会員セルフ登録 機能定義](project_invite_link_registration_def.md) — 招待URL→LINEログイン→氏名+級入力で会員登録〜ログイン完結。URL期限内複数人可・不正対策不要(期限のみ)・LINE必須維持・enum invite_link追加・新表registration_invites・middleware /register/* 例外。**実装完了→[[impl_invite_link_registration]]**
-- [招待リンク会員セルフ登録 SHIPPED](impl_invite_link_registration.md) — PR#182 merge `62e9da9`(2026-06-26)・親#173+子#174-181全クローズ・migration0030。非自明=トークンはWeb Cryptoグローバル(node:crypto不可・E2Eがwebpackビルド破壊検出)/registerViaInviteはself-identify同型(unstable_updateにid渡さずnodeJwtCallbackが解決・Codex R1のblockerはfalse positiveでoverride ship)/同名→文言・同一LINE二重→/誘導。残=本番実機目視(0030はauto-deploy適用)
-- [PDF/Word 55件 ローカルDB取込](impl_ingest_pdfword_localdb.md) — PDF/Wordのみで未取込だった個人戦**55件全取込完了**(対戦表有22+入賞者のみ30+団体3、新規約6,800対戦)。番号参照シートはpdfplumberグリッド(parse_grid2)、画像PDFはPNG化→目視で攻略。PyMuPDF/word-extractor抽出。本番DB未変更。成果物=docs/調査用/分析レポート/REPORT_pdf_word_ingest.md
-- [大会シリーズ・マスターDB(tournament_series)](project_tournament_series_master.md) — HP一次ソース由来で各個人戦が第何回〜何回開催かを新規DBマスター化(tournaments非依存)。**結果データと同じ `kagetra_rehearsal` DB に一本化投入+検証合格(176シリーズ/1171回次, held1052/cancel33/unconf86・結果5表不変・制約全在・held797/1052がtournamentsと対応)**。命名=選手権系○○選手権/高松宮杯/椿・信州・益田統合/個人戦のみ/地方ブロックなし。**edition日付は持たない(A)=event_date/venue削除・級別日付は将来tournaments/events側**。COVID年汚染(大阪102=2020→2022等)修正済。投入SQL=c:/tmp/load_series.sql(本番はユーザーがdumpで後日)。取り込み機能/seed基盤/Drizzle化は作らない方針
-- [特殊形式100件 ローカルDB反映](impl_ingest_special100_localdb.md) — 「未取込100件」は95件が実は投入済(excelMeta誤作動でゴミ名→照合偽陰性)。参加者集合一致で確定→57件正名化UPDATE(ファイル名逆引き)+多摩22 F級手動追加+完全重複2行除去。96/100反映・取込不能4(報告のみ/団体/HP重複)。**本番DB未変更**。成果物=c:/tmp/REPORT_ingest_100.md
-- [個人戦カバレッジ調査(2010-26)](project_individual_coverage_audit.md) — 会員ページharvest完全と実証(再取得不要)・欠落は順位戦/PDF/団体/no_result/中止に分解・選抜大会16回が最大回収候補(順位戦パーサ要)。成果物=c:/tmp/REPORT_individual_coverage_2010_2026.md+series_coverage.csv。DB非変更
-- [⭐過去結果 本番投入 完了](project_bulk_load_handover.md) — **2026-06-27 本番投入 完了(GO実施)**。是正済リハの結果**7表(series/editions含む)を dump→restore で本番(`kagetra`@Oracle東京)へ**。本番にseries層スキーマ無→生DDL(enum2+表2+edition_id列/FK)先行適用→7表data single-tx restore。read-back=リハ完全一致(tournaments1496/matches819,703/players47,709/series180/editions1236/参加367,675)・全整合GREEN・連番max。投入前フルbackup=`C:/tmp/prod_backup_before_load_2026-06-27.sql`(100MB)。⚠️series層はDrizzle非定義=本番db:migrate運用で維持(db:push禁止)。接続=ssh+docker exec(PW不要)。詳細=c:/tmp/HANDOVER_bulk_load.md。団体/PDF/暗号化は別スコープ見送り確定(2026-06-24)。リハfail2はゾンビloaderの並行デッドロックが原因=解決済(クリーンランfail0実証)。**段位パーサ修正 ship済(PR#169 `78e4b51`,2026-06-25)→投入時段位22,383件/128大会、残=救済'classes'(兵庫全国)はpositional.py未対応**。**段位正規化 dan_rank(1-10) も ship(PR#171 `a2a10bf`)→生dan39異形をrankに畳む+値域CHECK、段位別検索/最高段位=max(dan_rank)可能、リハbackfill済19,794行/実人数7,855人。**投入の前提=players 同定キー姓名のみ化 ship済(PR#172 `9fbea13`,2026-06-25)→[[impl_player_identity_name_only]]**（所属分裂を解消・affiliation は player で null）**
-- [players DBごみ行クリーンアップ(rehearsal)](project_players_garbage_cleanup.md) — 2026-06-26 本番未変更。ヘッダ449/団体112削除・連結36/1文字77完全復元(Excel姓名別セルをsource再パース)/文字化け21整形・?残17は協会HTML稀字化で復旧不能(実在個人で保持)。DBはNO_CLEAN相当ロードだった。再現=apps/web/_reresolve.mts。本番投入時は再混入注意
-- [リハDB データ点検＋是正](project_rehearsal_db_audit.md) — **2026-06-26 全是正完了(本番未変更)**。A2/A1/B1/B4/B5/同名区別/名人クイーン4系列化＋**B2/B3完了**(壊れ14大会: 幻「表彰」ラウンド削除131対戦[1445 R4=114/980/1495・原本xlsx確定]・散在ラベルopponent null化67[1216漏れ補足]・final_rank人名null化13[引継書48は過大])＋**入賞者のみWINNER_ONLY 36大会削除**(対戦0件・連鎖で孤児player86=ゴミ名含む。1319宇都宮441名/1143熊本95名はfull参加者=保持)＋**所属クリーン141**(1458ふりがな接頭・他末尾別人名/―をbranch-point方式で安全除去)。**徹底監査=全GREEN**(FK/孤児/空/不変条件/系列/num_players/B2B3固有ゴミ すべて0)。＋**宇都宮1319/熊本1143の0対戦を原本Excel取込**(ヘッダ列ラベルがデータ並びと逆→データ検出パーサで解決・matches+1239・1143はD級93名新規でtournament名(C,D)化)＋**素名ゆれ正規化706**(大会名321[★◎接頭/cruft接尾/全角数字]・級名385[対戦結果表_接頭strip]・`第\1回`置換の\x01化バグはpreview検出→lambda回避)。**全20監査GREEN**(zeromatch大会0達成/同edition同名0/残ゴミ名0)。最終 **tournaments1496/matches819,703/players47,709=distinct/participants367,675/series180/editions1236**。是正前=rehearsal_pre_ingest_2026-06-26.sql・是正後=rehearsal_corrected_2026-06-26.sql。残(任意)=名人クイA1/A2(721/735/762)・1503山口。**本番投入GO待ち継続**(dump方式)。スクリプト=_aff_clean/_parse_results/_gen_ingest/_gen_names.py
-- [過去結果 一括投入の設計方針](project_bulk_result_import_design.md) — 開催(名+日付)×級でidentity・人確定manifest・訂正版優先dedup・コピーDBリハーサル+冪等+read-back。年2回同級は1大会に束ねるとMERGEで消えるので開催単位行。実装未着手(2026-06-21)
-- [大会ライフサイクル基盤(edition)＋申込/確定名簿 機能定義](project_tournament_entry_rosters_def.md) — editionをハブに案内→申込→確定→結果を1本化＋名簿2型(applicant/confirmed)新設。判断=series/editions Drizzle化(方針反転・冪等baseline必須)/event_group撤去/名簿は出欠と分離/基盤先行。親#184+子#185-190・要件+手順書completed。**PR-1(土台)実装完了→[[impl_tournament_entry_rosters_foundation]]**。第4段(出場回数)はスコープ外
-- [tournament-entry-rosters 全6タスク 完了+本番deploy](impl_tournament_entry_rosters_foundation.md) — 親#184＋子#185-190 全クローズ。**3PR 全 ship+本番deploy 済(2026-06-29 自律run)**: PR#193土台(0031/0032)・PR#195 edition解決(0033,Codex7R)・PR#196名簿(0034,Codex2R)。migration 0031-0034 は kagetra_rehearsal ミラーで dry-run 後 auto-deploy 適用。非自明=test/dev=push/本番=migrate・dry-runはrehearsalコピーへSQL直・共有testDB衝突は[[feedback_shared_test_db_worktree_push_race]]・mail-worker exports追記要・pipeline-runs flakyでdeploy skip時は`gh run rerun --failed`。**残=本番実機目視・UIは最小実装(design-spec後に精緻化・PDF名簿未対応)・第4段(出場回数)はスコープ外**
-- [かるた協会 会員ページ=結果の正統ソース(Excel/HTML2形式)](project_karuta_member_result_source.md) — 結果は会員ページのみ。各大会 **Excelか HTMLテーブルの排他2形式で両方とも全対戦データ**(HTMLは級タブ→tournaments/{id}.html、入賞者のみではない=前回の誤りを訂正)。**全期間2010-2026 harvest完了**(c:\tmp、git外)。静的2010-2021=**Excel375＋HTML4510ページ(641大会)**(harvest.py/harvest_html.py、漏れ3件監査回収)。新WP2022-2026=**member-download585**(xlsx434/xls127/pdf24、harvest_new*.py、開催日100%)。整合性検証済(normalizePlayerNameが空白/異体字差吸収・二重取込なし)。**残=W2 Excel署名拡張・6414.xls修復・全コーパスparse→manifest**(HTML表パーサは W1 ship済 [[impl_result_html_parser]])。開催日はExcel「大会報告」シート/HTML見出し/新WP要項表
-- [HTML結果パーサ(parseResultHtml) W1 SHIPPED](impl_result_html_parser.md) — static HTML 4510ページを既存ParsedClass[]契約へ正規化。PR#167 merge `8c3ed1e`。round-cell共通化(W2再利用)・不戦壊れHTMLは全td走査で列ずれ防止・相手名はスコアtokenのみ除去。実回帰=例外0/大会名・開催日100%/相手解決99.9%。Codex3R(R3 pass)・CI green
-- [Excel positional「N回戦」署名検出 W2 SHIPPED](impl_result_excel_positional.md) — primary null時のみ起動するfallbackで未検出234中+122回収。PR#168 merge `1ac583e`。サブ見出しで相手/マーク/枚数列を識別し№/級/所属を無視・markCol無ければpositional・誤検出4重ガード(氏名必須/回戦≥1/○×ゼロ却下/数値相手却下)。回帰0/garbage0.06%。Codex6R(5修正,R6 pass)・CI green
-- [同姓同名リスク受容の確定](project_homonym_risk_accepted.md) — 同姓同名は区別しない/所属会も使わない(変わるため)。区別の悪影響>同一視の影響。participant生データ残るので可逆
-- [選手名 正規化維持＋display代表表記(方針②) SHIPPED](project_player_name_display_mode.md) — display_name=participants最頻の生表記(方針②)。**PR#170 merge 4a843fa(2026-06-25)**=recompute関数(ranked CTE/mode()不使用)+materialize末尾配線(MaterializeOpts非変更でPR#166と分離)+backfill(--dry-run/sentinel rollback)。リハDB﨑mismatch140→78(残留は崎が真の最頻)・冪等・592tests green。drizzle 0.45は`ANY(ARRAY[...]::int[])`要素展開必須。bulk(#166)より先にマージ済
-- [選手同定キー 姓名のみ化 SHIPPED](impl_player_identity_name_only.md) — players 同定を (normalized_name,affiliation)→**姓名のみ**に(migration 0029)。所属表記ゆれで同一人物が最大16行に分裂してた問題を是正。**player.affiliation は常に null**・所属は participant 生値で per-大会表示。bulk/メール取込承認の共通 materialize 改修。dan-rank #171 へリベース(materialize 非衝突自動マージ・migration 0028 baseline 再生成)。Codex 1R 実欠陥なし(blocker=本番0件false alarm)。PR#172 merge `9fbea13`(2026-06-25)。[[project_bulk_load_handover]] の bulk 投入が前提クリア
-- [設計判断まとめ](project_kagetra_new_design.md) — 技術選定の却下理由、ドメインルール（未回答=不参加、締切の使い分け等）
-- [/self-identify 本人性検証は実装しない](project_self_identify_verification_pending.md) — 身内アプリのためリスク受容で確定（2026-04-22）。外部公開時のみ再検討
-- [PR#6 フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JP は実使用ウェイトのみ、serif は preload:false
-- [本番デプロイ計画 (Phase A-D)](project_production_deploy.md) — Oracle Cloud Always Free 東京 + new.hokudaicarta.com サブドメイン分離 + Cloudflare R2 backup。**Phase A-D 全 ship 完了 (2026-05-22)**、本番稼働中、旧 kagetra と並行稼働、データ移行と cutover は Phase 4 完了後に別 PR
-- [PWA 最小対応 ship 完了](project_pwa_minimal.md) — PR #49 merge + 本番反映 + iPhone 実機 standalone 起動 OK (2026-05-25)、#43/#44-#48 全 close
-- [モバイルシェル固定 完全完了](project_sticky_mobile_shell.md) — PR #64+#66+#67+#68 ship + 本番反映 + 実機 OK (2026-05-28)、Issue #50/#51/#52/#53 全 close、教訓は 4 つの feedback memory に切り出し済
-- [event-line-broadcast 本番運用開始](impl_event_line_broadcast_task1.md) — PR #65 + PR #70 (xlsx MIME fix) merge `d94199f` (2026-05-31)。Oracle Cloud 東京で稼働、2 Bot 運用、1 大会通しテスト成功
-- [Codex review effort 自動判定](project_codex_review_effort.md) — PR #69 merge (647aa62)。/auto-review-loop が差分内容で medium/high を auto 判定。~/.codex/config.toml は medium 既定（git 管理外）
-- [mail-body-as-image SHIPPED+本番反映](impl_mail_body_as_image.md) — 本文を A4 JPEG 画像で LINE 配信、添付全リンク統一。PR #84 merge `cc6c765`、**本番 `322b3b7` 手動デプロイ済** (2026-06-01)。Issue #73-#78 全クローズ。**後日 PR #94 (`c6a4be6`) で先頭空白ページ修正（libreoffice `--writer`、Issue #93）**。残 DoD=実機 LINE 目視のみ
-- [event-lifecycle-notify 機能定義](project_event_lifecycle_notify.md) — Bot を大会ライフサイクル（申込/締切/支払い）通知役に拡張。要件+計画+Issue #79-83。支払いは事前/現地で分岐、通知は紐付け済み参加者グループに集約、once-ever ログで重複防止
-- [event-lifecycle-notify SHIPPED](impl_event_lifecycle_notify.md) — PR #85 merge `42e1cef` (2026-06-01)、子#80-83+親#79クローズ。非自明: 自前push・同一tx で状態flip+once-ever claim・scripts を type/test 編入・未紐付けでも slot 消費・payment型変更は状態リセットするが once-ever ログ保持。**本番反映済 (migration 0017 適用 + reminder timer enable, 2026-06-01、auto-deploy 有効化の前提として実施)**。残=実機LINE目視のみ
-- [本番自動デプロイ (Actions+SSH) 稼働中](project_auto_deploy.md) — PR #86 merge `7d15042` (2026-06-01)、初回 run 成功(SKIPPED_NOCODE 疎通確認)。main の code 変更 push で自動 build→migration(冪等)→restart、docs のみ skip。kagetra(scoped sudo)へ deploy 鍵で SSH。host 鍵/sudoers/secrets 設定済。**PR #132 (2026-06-10) で `apps/*/systemd/kagetra-*.{service,timer}` 自動配置を追加 + sudoers を 12 unit 固定列挙に拡張 + `User=kagetra` defensive check**（Issue #131 多摩大会 AI 抽出滞留が契機）。**PR #137 (2026-06-11) でビルド対象判定を拡張: WEB は apps/(web|mail-worker)、pnpm-lock.yaml は SHARED**（Issue #135 が契機）
-- [mail-triage-badge SHIPPED](project_mail_triage_badge.md) — 全メールトリアージ＋PWA未処理バッジ(Web Push)。PR #95 merge `2ca9af2` (2026-06-01)、本番反映 success、Issue #87-92 全クローズ。triage_status 3状態・処理4アクション・既存メール processed 化・準リアルタイム同期。残 DoD=本番 VAPID 鍵設定+iOS 実機バッジ目視
-- [tournament-title-grade-split SHIPPED+本番反映](project_tournament_title_grade_split.md) — 大会名を「場所+級」短縮通称化＋開催日ごとイベント分割（mail-tournament-import 拡張）。PR #111 merge `e664b3d` (2026-06-04)、本番反映 success(migration 0020)、親#102+子#103-109 全クローズ。1ドラフト:Nイベント・title合成(stem AI/級A→E連結)・AI抽出2.0.0・FOR UPDATE で承認/再抽出の payload race 直列化(R1-R6)・LINE配信グループ重複排除。残 DoD=実機目視のみ
-- [settings-sheet SHIPPED](project_settings_sheet.md) — 設定画面への導線（ヘッダ {name}さん タップ→設定シート AccountMenu）。PR #110 merge `4857787` (2026-06-03)、親#97+子#98-101 全クローズ。design.md §3 未実装仕様の実装、ロール出し分け、ログアウト集約、/settings/notifications を (app) 配下へ移動(URL不変)・line-link は据え置き。残 DoD=実機目視
-- [entry-notify-lottery-treasurer SHIPPED](impl_entry_notify_lottery_treasurer.md) — 申込完了通知を2通化（参加者へ抽選日追記＋会計へ振込方法/期限）。PR #118 merge `b64f291` (2026-06-06)、親#112+子#113-117 全クローズ。Codex R1 で pass/0指摘・CI green。同一tx で 2 claim + コミット後独立 try/catch push、cancelled/未紐付けでも対称、金額非表示・payment_type で出し分けず常時送信、承認画面は embedded で抽選日非表示。残 DoD=本番反映後の実機 LINE 目視（migration 0021）
-- [mail-inbox-mailer 機能定義](project_mail_inbox_mailer.md) — メール処理を「アプリ＝メーラー」モデルに作り替え。AI 自動分類廃止＋ボタン起動化、triage 2 状態、3 アクション（AI抽出/既存イベント結びつけ/対応不要）。親#119+子#120-126（2026-06-06 定義、実装未着手）
-- [旧形式Word(.doc)抽出対応 SHIPPED](impl_fix_doc_attachment_extraction.md) — PR #134 merge `c208b66` (2026-06-10)、Issue #133 クローズ。word-extractor で .doc 抽出 + classifier lazy fallback (DB非更新) + prompt 2.1.0 (申込期間→終了日採用・和暦換算)。**残DoD=本番で多摩 draft #29 を再抽出→締切 prefill 確認→承認**（PR #137 デプロイ後に消化可能）
-- [deploy: mail-worker変更でweb再ビルド fix](impl_fix_deploy_web_rebuild_on_worker_change.md) — PR #137 merge `f6da7a1` (2026-06-11)、Issue #135 クローズ。web は transpilePackages で mail-worker ソースをバンドル → mail-worker のみの PR #134 デプロイが web=0 となり本番の「再抽出」が旧 classifier のまま（=処理が走らないように見えた）。WEB 判定を apps/(web|mail-worker) に拡張 + lockfile→SHARED + next.config.ts コメント変更で即時 web 再ビルドを同梱
-- [メール添付 inline allowlist 拡張 SHIPPED](impl_fix_mail_attachment_pwa_inline.md) — PR #139 merge `d84ae90` (2026-06-11)、Issue #138 クローズ。iPhone PWA で添付チップ白画面死 → PDF/Office/画像/text を fail-closed allowlist で inline 化。チップ遷移は PR #146 でアプリ内ビューアに置換済（ルート自体は元ファイルリンク/画像直表示で継続使用）
-- [添付アプリ内ビューア SHIPPED](impl_fix_attachment_inapp_viewer.md) — PR #146 merge `c99b2ea` (2026-06-12)。チップ→`/admin/mail-inbox/attachments/[id]`、PDF/Office をページ JPEG 化（libreoffice forceWriter:false + pdftoppm + image-cache `attpv:`）、✕ は `?from=` 明示 + Link replace。preview ルートはキャッシュヒット時も行存在確認。残 DoD=iPhone 実機で表示と✕復帰確認
-- [image-cache module instance 分離 fix](impl_fix_image_cache_module_instance.md) — PR #129 merge `57ceadc` (2026-06-07)、Issue #128 自動クローズ。PR #127 deploy 後に Next.js chunk splitting が再評価され Server Action 側と Route Handler 側で `image-cache.ts` が別 Map instance に分離 → LINE 本文画像 URL が全て 404 退行。`globalThis` pin で修正。残 DoD=本番反映後の実機目視+nginx ログ 200 OK 確認
-- [admin-member-create SHIPPED](impl_admin_member_create.md) — 管理画面からの新規会員手動追加＋誤登録リカバリ(名前編集/削除)。PR #147 merge `27d6727` (2026-06-16)、親#140+子#141-145 全クローズ。createMember は role=member/招待済/未紐付け強制で即 self-identify 候補化、updateMemberName/deleteMember は未紐付け+role=member 限定、削除は FOR UPDATE+FK 参照チェックで履歴保護。Codex 4R 収束。残 DoD=実機通し確認
-- [broadcast-lead-message SHIPPED](project_broadcast_lead_message.md) — 既存大会LINE配信に冒頭テキスト(見出し「抽選結果が出ました！」等)を任意で先頭追加。プリセット＋自由入力(コード固定)、linkMailToEvent のみ対象、event_broadcast_messages に lead_text/sent_lead_count 追加し manualBroadcast 再送で継承。PR #155 merge `4ff8d8f` (2026-06-17)、親#148+子#149-154 全クローズ、Codex 1R 即pass。本番 migration 0025 適用済(auto-deploy #156 run に集約)+実機 LINE 目視済=**完全完了**
-- [tournament-results 機能定義 完了](project_tournament_results_def.md) — 全国大会結果Excel取込→全選手勝敗をDB保存。実データ42件解析で標準ツール定型と判明→**ヘッダ署名駆動の決定的パーサで AI不要・$0**。旧contest_*踏襲＋選手マスタ。大会報告非取込・試合は選手視点2行・勝敗はstatus=normal導出。**要件/計画/Issue(#157,子#158-162)作成済・実装未着手（/implement待ち）**
-- [出場者DB形式パーサ修正 SHIPPED](impl_fix_result_parser_shusshadb.md) — 氏名=ふりがな/所属=所属会2 誤採用を first-wins+ふりがな除外で修正。PR #165 merge `cb8589f`（2026-06-20、Issue未起票）。実票42中13件で氏名全ひらがな・相手解決0%だった。**熊本の0件取込は別件未対応**
-- [tournament-results 実装 全完了](impl_tournament_results.md) — **全5タスク SHIPPED**。Task1 PR#163(`f3d2b4b`)、**Task2-5 PR#164 merge `8e3ad35`(2026-06-20)**、親#157＋子#158-162 全クローズ。Codex auto-review **5R で pass**(~790k tokens)。取込/承認/却下/materialize/パーサの並行・整合性決定を記録(worker↔UI 状態ポリシー一致+status ガード/approve は FOR UPDATE/reject も原子 UPDATE/participant id は index・opponent は正規化キー/player upsert は onConflictDoNothing()+再SELECT/parser は同名 className MERGE・round ブロック内列探索)。残=本番実機通し
-
-- [/design-screen 画面リデザインスキル](impl_design_screen_skill.md) — Claude Design(DesignSync)で見た目を見ながら作る汎用フロー。push/pull(get_file)・@dsCard・finalize_plan の deletes 必須・projectId 74ab8bf1…
-- [戦績詳細リデザイン SHIPPED](project_senseki_detail_redesign.md) — /players/[id] をA案エディトリアル化、順位は対戦から導出(入賞=ベスト8・級ゲートisDerivableClass)＋final_rank フォールバック、R1相手名タップ→戦績。**PR#183(`1d81bd6`)Codex5R pass+本番デプロイ済＋小修正#191(`e953838`:初期全畳み/導線ヒント/?from=で遷移元へ戻る)**。残=本番実機目視（docs/dev/feature-flow.md）
-- [ピンチ/入力フォーカスズーム抑制 SHIPPED](impl_disable_pinch_zoom.md) — viewport export に `maximumScale:1`+`userScalable:false`(layout.tsx)でモバイル全ルートのピンチ＋iOS入力フォーカス自動ズームを抑制(match-tracker同等)。PR#192 merge `3c0ee83`(2026-06-29)。非自明=Next.jsはdefault viewport(width/initial-scale)をフィールド単位merge→maximumScale追加だけで等価/ベース15px(<16px)だがmaximum-scale=1でフォーカスズームもno-op(font-size:16px案は不採用)/Codexのaccessibility needs_changes(コード欠陥0)をoverride ship。残=実機目視
-- [戦績検索結果の所属会を直近大会の所属に SHIPPED](impl_player_search_recent_affiliation.md) — /players 検索結果の所属が常に「所属不明」だった(players.affiliationはmigration0029以降常にnull)。searchPlayersのaffiliationを相関サブクエリ化し直近大会(event_date降順NULLS LAST・同日id降順)のparticipant所属を引く＝詳細ヘッダ/対戦相手と一致。PR#194 merge `2c9360f`(2026-06-29)。スキーマ非変更/16tests green/Codex1R pass。残=本番実機目視
-- [イベント下書き(draft)廃止 SHIPPED](impl_remove_event_draft_status.md) — event_status を3値(published/cancelled/done)化し下書き概念廃止。**PR#207 merge `888307f`(2026-06-30、do-plan→ship自律完走)**。worktree実装(3subagent逐次)。**実装中に#206が0035先取り→暫定0036→#206マージ後にrebase+migration再生成(snapshot prevId=0035連鎖が肝)**。enum削除は手書きtext-swap。Codex2R pass(R1=詳細画面のpublished空ステータス行を条件化・null化したら全label/value行を監査せよ/blocker USINGは防御追加/nit誤検出却下)。**本番deploy成功・0036適用済(applied=1/skipped=36)**。残=実機目視のみ
-- [統計タブ再編(senseki-stats) 全5PR SHIPPED](project_senseki_stats_tab.md) — 戦績→「統計」4セクション化(親#208+子#209-219)。基盤derived_bracket[[impl_senseki_stats_pr1_derived_bracket]]／ナビ4タブ[[impl_senseki_stats_pr2_nav]]／ランキング[[impl_senseki_stats_pr3_ranking]]／大会統計6図[[impl_senseki_stats_pr4_tournament_stats]]／大会結果[[impl_senseki_stats_pr5_tournament_results]]。級タブ=旧クロス表(逆三角形)復元・選手検索は既存流用・朱はデータ装飾に使わない。残=親#208クローズ+各PR実機目視
-- [senseki-stats PR-5 大会結果 SHIPPED](impl_senseki_stats_pr5_tournament_results.md) — getTournamentResults(入賞者=bracket集約+非導出はfinal_rank/クロス表)・getSeriesList/Detail・getTournamentList＋/tournaments(年別↔大会別トグル)/[id](入賞者+級クロス表 氏名sticky)/series/[id]。PR#229 `dc04d6a`。非自明=enum配列は::text[]/累計開催回数=held(count(e.id) FILTER)/シリーズ優勝者は大会詳細と単一ソース/動的IDは/^\d+$/+int4上限/LIKEはESCAPE明示。Codex5R(R1-4修正・R5誤検出override:matches export実在)。963tests green。残=実機目視
-
-- [多摩大会 重複削除(2022)/2024は削除せず](project_tama_duplicate_cleanup_2022.md) — 本番で2022重複A/B(1245/1247)削除・2024の999「全体」はB級唯一記録で保持
-- [統計ランキング改修5件 SHIPPED](project_senseki_ranking_refinements_def.md) — **PR#230 merge `fbb5dcf`(2026-07-02・implement→review→ship自律完走)・親#224+子#225-228全クローズ・migration無・Codex1R pass(high)**。①デフォ直近5年②所属会バグ(派生列相関→行取得後DISTINCT ON別クエリ・filters.periodConds再利用)③デフォ級A(明示フラグf=1)④戻る=router.back+BackButton(from=ranking複写)⑤現級母集団制限+昇段者トグル(非相関DISTINCT ON・cur.grade::text in)。残=本番実機目視
-- [ランキング→選手詳細ドリルダウン 機能定義](project_senseki_ranking_drilldown_def.md) — 親#236+子#237-239。URL複写params読取・②はderived_bracket・ヘッダ①母集合再計算+条件行・解除all=1。**実装完了→[[impl_senseki_ranking_drilldown]]**
-- [ランキングドリルダウン SHIPPED](impl_senseki_ranking_drilldown.md) — PR#242 merge `82437b6`・親#236+子#237-239全クローズ・migrationなし。getPlayerRecord opts{filter,bracketAtMost}・scopeLabel純関数・identity分離(currentAffiliation別取得・全成績ベース)・整合テスト6指標=ranking一致。Codex1R(high)pass。残=本番実機目視
-- [選手検索 結果一覧リデザイン SHIPPED](impl_player_search_redesign.md) — /players を密リスト化＋現級/最終出場(年月+大会名+結果)/出場数・最終出場順。**PR#241 merge `ddd5ded`(2026-07-02・4タスク1PR・migration無・Codex4R pass)**。非自明=lastResultは保存derived_bracket→labelForBracket再利用(N+1回避・詳細と単一ソース)/直近1件はleftJoinLateral・現級のみ非nullグレード別サブクエリ/並びlastEventDate降順NULLS LAST主キー・null群内のみ出場数タイブレーク/ミュート10年(2016以前・モック準拠)/SectionTabs固定は4画面共通h-11・検索バーtop-11。残=本番実機目視。テスト罠=[[reference_worktree_vitest_db_setup]]
-- [大会統計グラフ 値ラベル削除＋縦軸目盛修正 SHIPPED](impl_stats_chart_yaxis_labels_fix.md) — PR#243 `2c1f4a4`。棒上値ラベル撤去＋niceMax/axisTicksをきり良いステップ(1/2/5×10ⁿ)化(旧=小数/重複目盛)・integer軸フラグ。ParticipantTrend巻き込み修正必須
-- [カスタムエージェント案 再評価(7種→1種)](project_proposed_agents.md) — 2026-07-01 一次資料再調査で「7種一括作成」を撤回。solo で7種は乱立=アンチパターン。作るなら code-reviewer-jp 1つ・生成系4案はSkill化・migration-guardはHook・drizzle-scoutは保留(Explore重複)。コスト1/15は設定で無料回収可。詳細=docs/dev/proposed-agents.md
-- [Skill/Subagent/Workflow オーケストレーション方針](project_skill_subagent_orchestration.md) — 2026-07-01 公式一次資料で確定。実装フロー骨格はスキル(main)のまま維持しエージェント連鎖に置換しない(多段・文脈共有・side-effect)。葉ステップ(read-heavy調査/客観レビュー)だけ `context:fork`+`agent:` でサブ委譲。Workflowは規模もの専用。正典=docs/dev/feature-flow.md
+- [⭐本番結果データ点検 Tier2(2026-07-04 調査全完了)](project_prod_result_health_audit.md) — ①②本番適用済・③〜⑧調査/トリアージ完了。GO待ち=t995再取込(リハ合格)/⑦SQL v2/⑥フリップ37件。次=太宰府北國PDF再パーサ(々バグ込)・大垣ID+LOSE_MARK PR。正典=result-fix-ledger.md
+- [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層はDrizzle非定義=本番db:push禁止**。接続手順=c:/tmp/HANDOVER_bulk_load.md
+- [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
+- [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)・取込機能/Drizzle化作らない方針
+- [リハDB全是正(2026-06-26)](project_rehearsal_db_audit.md) — 20監査GREENで本番投入済。0035以降migration未適用に注意
+- [players ゴミ行クリーンアップ(リハ)](project_players_garbage_cleanup.md) — ヘッダ/団体削除・復元。再現=_reresolve.mts
+- [一括投入の設計方針](project_bulk_result_import_design.md) — 開催×級identity・訂正版優先dedup・リハ+冪等+read-back
+- [個人戦カバレッジ調査](project_individual_coverage_audit.md) — harvest完全実証・欠落は順位戦/PDF/団体/中止に分解
+- [PDF/Word55件 ローカル取込](impl_ingest_pdfword_localdb.md) — 全取込完了・本番未変更。pdfplumberグリッド攻略
+- [特殊形式100件 ローカル反映](impl_ingest_special100_localdb.md) — 96/100反映・本番未変更
+- [同姓同名リスク受容](project_homonym_risk_accepted.md) — 区別しない/所属会も使わない。participant生データで可逆
+- [選手同定キー姓名のみ化](impl_player_identity_name_only.md) — PR#172 migration0029。player.affiliationは常にnull・所属はparticipant生値
+- [display_name=最頻表記](project_player_name_display_mode.md) — PR#170。recompute関数+materialize配線
+- [HTML結果パーサ W1](impl_result_html_parser.md) — PR#167。4510ページ→ParsedClass[]
+- [Excel positional W2](impl_result_excel_positional.md) — PR#168。「N回戦」署名fallback+誤検出4重ガード
+- [出場者DB形式パーサ修正](impl_fix_result_parser_shusshadb.md) — PR#165。ふりがな誤採用修正
+- [tournament-results 全5タスク](impl_tournament_results.md) — PR#163/#164(2026-06-20)。取込/承認/materialize/パーサの整合性決定を記録
+- [統計タブ再編 全5PR](project_senseki_stats_tab.md) — 戦績→統計4セクション化。基盤derived_bracket・朱はデータ装飾に使わない
+- [senseki-stats PR-5 大会結果](impl_senseki_stats_pr5_tournament_results.md) — PR#229。優勝者=bracket集約・シリーズ詳細
+- [統計ランキング改修5件](project_senseki_ranking_refinements_def.md) — PR#230(2026-07-02)。デフォ直近5年/級A・現級母集団+昇段者トグル
+- [ランキングドリルダウン](impl_senseki_ranking_drilldown.md) — PR#242。URL params複写・identity分離
+- [選手検索一覧リデザイン](impl_player_search_redesign.md) — PR#241。derived_bracket再利用・leftJoinLateral
+- [戦績詳細リデザイン](project_senseki_detail_redesign.md) — PR#183+#191。順位は対戦から導出
+- [戦績検索の所属=直近大会](impl_player_search_recent_affiliation.md) — PR#194。相関サブクエリ
+- [級別競技人口サマリー](impl_stats_grade_population.md) — PR#261。DISTINCT ON直近級(1人=1級)。turbo strict env罠→pnpm --filter直実行
+- [枚数差統計改称+パレート化](impl_stats_pareto_rename.md) — PR#255+#260。左軸0-10%固定
+- [統計グラフ縦軸目盛修正](impl_stats_chart_yaxis_labels_fix.md) — PR#243。niceMax 1/2/5×10ⁿ
+- [統計delta改修4件](impl_senseki_stats_refinements.md) — PR#240 migration0038。short_name新設・現級から直近優勝除外
+- [大会申込一覧delta改修](impl_event_list_refinements.md) — PR#251。締切ソート/残日数3段階/申込可能フィルタ
+- [イベントdraft廃止](impl_remove_event_draft_status.md) — PR#207 migration0036。並行migration衝突→rebase+snapshot再生成が肝
+- [招待リンク会員セルフ登録](impl_invite_link_registration.md) — PR#182 migration0030。トークンはWeb Cryptoグローバル(node:crypto不可)
+- [Hono API無認証の穴(修正済)](project_hono_api_unauthenticated_hole.md) — PR#252でeventsルート撤去・read-back済
+- [entry-rosters基盤 3PR](impl_tournament_entry_rosters_foundation.md) — PR#193/#195/#196(0031-0034)。UIは最小・PDF名簿未対応
+- [多摩大会重複削除(2022)](project_tama_duplicate_cleanup_2022.md) — 2024の999「全体」はB級唯一記録で保持
+- [設計判断まとめ](project_kagetra_new_design.md) — 技術選定却下理由・ドメインルール(未回答=不参加等)
+- [self-identify本人性検証しない](project_self_identify_verification_pending.md) — リスク受容確定。外部公開時のみ再検討
+- [本番デプロイ(Phase A-D完了)](project_production_deploy.md) — Oracle Cloud東京+new.hokudaicarta.com。旧kagetraと並行稼働
+- [自動デプロイ稼働](project_auto_deploy.md) — PR#86+#132+#137。code変更pushでbuild→migrate→restart・docsのみskip
+- [PWA最小対応](project_pwa_minimal.md) — PR#49。iPhone standalone OK
+- [モバイルシェル固定](project_sticky_mobile_shell.md) — PR#64-68完了。教訓はfeedbackへ切出済
+- [event-line-broadcast](impl_event_line_broadcast_task1.md) — PR#65+#70。2Bot運用
+- [event-lifecycle-notify](impl_event_lifecycle_notify.md) — PR#85 migration0017。同一txでflip+once-ever claim
+- [entry-notify-lottery-treasurer](impl_entry_notify_lottery_treasurer.md) — PR#118 migration0021。参加者+会計へ2通
+- [broadcast-lead-message](project_broadcast_lead_message.md) — PR#155 完全完了
+- [mail-triage-badge](project_mail_triage_badge.md) — PR#95。残=VAPID鍵+実機バッジ
+- [mail-inbox-mailer 機能定義](project_mail_inbox_mailer.md) — メーラーモデル化。親#119+子#120-126・**実装未着手**
+- [mail-body-as-image](impl_mail_body_as_image.md) — PR#84+#94。A4 JPEG化・libreoffice --writer
+- [.doc抽出対応](impl_fix_doc_attachment_extraction.md) — PR#134。残DoD=多摩draft#29再抽出確認
+- [deploy WEB判定拡張](impl_fix_deploy_web_rebuild_on_worker_change.md) — PR#137。webはmail-workerソースをバンドル
+- [添付inline allowlist](impl_fix_mail_attachment_pwa_inline.md) — PR#139。fail-closed allowlist
+- [添付アプリ内ビューア](impl_fix_attachment_inapp_viewer.md) — PR#146。ページJPEG化+?from=復帰
+- [image-cache instance分離fix](impl_fix_image_cache_module_instance.md) — PR#129。globalThis pin
+- [admin-member-create](impl_admin_member_create.md) — PR#147。FOR UPDATE+FK参照チェック
+- [tournament-title-grade-split](project_tournament_title_grade_split.md) — PR#111 migration0020。FOR UPDATEでrace直列化
+- [settings-sheet](project_settings_sheet.md) — PR#110。AccountMenu
+- [ピンチズーム抑制](impl_disable_pinch_zoom.md) — PR#192。viewport maximumScale:1
+- [Codex review effort自動判定](project_codex_review_effort.md) — PR#69。差分内容でmedium/high
+- [/design-screenスキル](impl_design_screen_skill.md) — DesignSync連携。finalize_planのdeletes必須
+- [カスタムエージェント案再評価](project_proposed_agents.md) — 7種一括を撤回。作るならcode-reviewer-jp 1つ。docs/dev/proposed-agents.md
+- [Skill/Subagent/Workflow方針](project_skill_subagent_orchestration.md) — 実装フロー骨格はスキル維持・葉ステップのみfork委譲。正典=docs/dev/feature-flow.md
+- [PR#6フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JPは実使用ウェイトのみ
 
 ## Reference
-- [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無し・ls/出力が偽のことがある。PowerShell Test-Path等の独立系統・単一ファイルで検証。重要/不可逆操作の後は独立verify必須
-- [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump、旧データ構造リファレンス
-- [ローカル動作確認セットアップ](reference_local_dev_setup.md) — docs/dev/local-dev-setup.md がエントリーポイント、env 配置・Cookie 注入 vs 実 LINE・mail-worker 実 API テスト・コスト目安
-- [旧 kagetra インフラ構成 (Lightsail + Route 53)](reference_legacy_kagetra_infra.md) — `hokudaicarta.com` の DNS は Lightsail DNS ゾーン (裏で Route 53)、お名前.com Navi の DNS 設定では効かない
-- [VSCode拡張 tool_use パース退行](reference_vscode_ext_toolcall_parse_regression.md) — 「could not be parsed (retry also failed)」で停止する原因は拡張CLI 2.1.158-2.1.162 の退行。2.1.153/145 へ固定 or ターミナルCLI 2.1.109 で回避
-- [かるた協会 会員ページ ログイン資格情報](reference_karuta_member_page_credentials.md) — ID/PW は repo root の `.credentials.local.md`（gitignored）。パスワード本体はmemory/コードに書かない
-- [公認大会 定員超過時の抽選優遇ルール](reference_karuta_kounin_taikai_lottery.md) — 競技会規程第二条三=出場回数の「少ない」選手を優先(多い人有利は誤解)。doc=docs/reference/公認大会-抽選-出場回数優先ルール.md
-- [codex config service_tier で CLI 全停止](reference_codex_config_service_tier.md) — ~/.codex/config.toml の `service_tier="default"`(Desktop書込)で codex CLI 0.130.0 が起動時パース失敗→auto-review-loop 全停止。当該行削除で解消・再発注意
-- [worktree vitest の test DB 前提](reference_worktree_vitest_db_setup.md) — worktreeは.envコピー必須／Node24はlocalhost→IPv6でECONNRESET(127.0.0.1で書く)／隔離DBはkagetra_testからpg_dump schemaコピーで種化
+- [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無しがある。重要操作後は独立系統でverify
+- [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump
+- [ローカル動作確認セットアップ](reference_local_dev_setup.md) — docs/dev/local-dev-setup.md がエントリ
+- [旧kagetraインフラ](reference_legacy_kagetra_infra.md) — DNSはLightsailゾーン。お名前.com側設定は効かない
+- [VSCode拡張tool_useパース退行](reference_vscode_ext_toolcall_parse_regression.md) — 拡張CLI 2.1.158-162退行。2.1.153固定で回避
+- [会員ページ資格情報](reference_karuta_member_page_credentials.md) — repo rootの.credentials.local.md(gitignored)
+- [公認大会抽選ルール](reference_karuta_kounin_taikai_lottery.md) — 出場回数「少ない」選手優先。docs/reference/
+- [codex service_tierでCLI停止](reference_codex_config_service_tier.md) — config.tomlの当該行削除で解消
+- [worktree vitestのtest DB前提](reference_worktree_vitest_db_setup.md) — .envコピー必須/127.0.0.1/隔離DBはpg_dump schemaで種化
 
 ## Feedback
-- [ボトムシートの下端ボタンがモバイルで隠れる](feedback_bottom_sheet_url_bar_hidden.md) — 原因2重(sticky z-10の stacking閉じ込め＋iOS dvh罠)。createPortal(body)＋.modal-overlay-h(svh最終勝ち)で根治。dvh/max-hだけの#253/#254は実機再発→PR#262(`8af40f0`)で全7シートPortal化。新規は最初からこの形
-- [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
-- [UIリデザインは design-spec が要件成果物](feedback_design_spec_is_requirement_for_ui.md) — /design-screen の後に /define-feature を回さない（重複）。画面主役は design-spec→薄い計画→/implement、define-feature はロジック主役の時だけ
-- [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中、周辺整備に勝手に逸れない。2026-06-21に2回実害(scripts移植/DB閲覧環境)
-- [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・セッションプロトコル・DoD等
-- [メモリ運用ルール](feedback_memory_management.md) — 何を書く/書かない、セッション終了時の同期手順、肥大化防止
-- [Auth.js v5 JWT strategy の user.id 罠](feedback_auth_js_jwt_strategy_user_id.md) — adapter なしだと毎回ランダム UUID。OAuth sub は account.providerAccountId から
-- [/ship の main 直 push は事前承認済み](feedback_main_push_authorized_for_ship.md) — worklog/memory 同期 commit は確認なしで `git push origin main` 実行可。1人開発・身内プロジェクト前提
-- [autonomous-loop sentinel の解釈](feedback_autonomous_loop_scope.md) — `<<autonomous-loop-dynamic>>` は実装 GO ではない。CLAUDE.md ルール 1 は autonomous でも有効
-- [Windows worktree のパス罠](feedback_windows_worktree_path.md) — `/tmp` は git/pnpm が `%TEMP%`、Write/Read は `C:/tmp` を参照して別ディレクトリになる。worktree は最初から `C:/tmp/...` で明示作成
-- [Windows host→docker pg は 127.0.0.1 必須](feedback_windows_localhost_econnreset_docker_pg.md) — ホストの node/pg/drizzle-kit から docker Postgres へ `localhost:5434` は ECONNRESET(IPv6)。`127.0.0.1` で通る。TEST_DATABASE_URL に 127.0.0.1 を渡す。push無限スピン/接続断の誤診に注意
-- [ブランチ作業は共有 main ディレクトリ禁止](feedback_no_shared_maindir_for_branch_work.md) — infra/CI の小 PR でも必ず隔離 worktree。共有 main 作業ディレクトリで checkout/commit すると並行セッションとブランチが揺れて衝突（2026-06-01 に実害）
-- [jsdom が CSS env() inline style を捨てる](feedback_jsdom_css_env.md) — vitest 環境では `style={{ paddingBottom: 'env(...)' }}` は消える。Tailwind arbitrary value `pb-[env(...)]` で書け
-- [flex + overflow-y-auto には min-h-0 が必須](feedback_flex_min_h_0_for_overflow.md) — `flex-1 overflow-y-auto` だけだと flex item デフォルト `min-height: auto` で親を突き抜けて body スクロール化。常に `min-h-0` を同時指定
-- [Tailwind min-h-* + p-* は border-box で padding が算入される](feedback_tailwind_min_h_border_box.md) — `min-h-[52px]` + `pb-[env(...)]` だとコンテンツ 18px に圧縮。`min-h-[calc(52px_+_env(...))]` で合算必須
-- [Tailwind arbitrary value 内のスペースは `_` でエスケープ](feedback_tailwind_arbitrary_underscore_space.md) — `calc(a+b)` のままだと CSS spec 違反で Safari が無効化。`calc(a_+_b)` で実 CSS の空白に展開
-- [iOS Safari `100dvh` が URL バー込みで viewport 超える](feedback_ios_safari_dvh_url_bar.md) — sticky bottom UI で `h-dvh` だけだと BottomNav が下部 URL バーの裏に隠れる。`100vh → 100dvh → 100svh` の cascade を globals.css の専用クラスで固定
-- [Tailwind の utility 出力順は className 順では制御できない](feedback_tailwind_utility_output_order_not_className.md) — 同一 property を複数 utility で重ねて cascade 期待するのは NG。CSS 側に専用クラスを切る
-- [Next.js standalone リビルド時の static cp](feedback_nextjs_standalone_static_cp.md) — build 後に `.next/static` と `public` を `.next/standalone/apps/web/` 配下にコピーし忘れると CSS/JS 全部 404 で画面真っ白
-- [本番ホストに Noto CJK 必須](feedback_libreoffice_ja_fonts.md) — `poppler-utils` + `libreoffice` で PDF/Word 画像化するなら日本語フォントを必ず apt install。デフォルトの Ubuntu Server は `fc-list :lang=ja` が 0 件で文字化け
-- [libreoffice HTML→PDF は --writer 必須](feedback_libreoffice_writer_blank_page.md) — 無いと先頭に真っ白ページが入り本文が2ページ目にずれる(LibreOffice 既知バグ)。Issue #93/PR #94。HTML 変換は `--writer` で Writer 文書として開く
-- [本番 migration は `db:migrate` 使う](feedback_drizzle_kit_push_prompt.md) — `db:push` は既存データありで UNIQUE 制約追加時に interactive prompt 要求 → TTY なしで詰む。`db:migrate` は journal ベースで非 interactive
-- [drizzle raw SQL の int[] バインドは ANY(ARRAY[...])](feedback_drizzle_sql_int_array_binding.md) — `sql` 補間に JS 配列を直接渡すと malformed array literal で落ちる。要素展開 `ANY(ARRAY[${sql.join(...)}]::int[])` か inArray()。空配列は early-return
-- [公開添付 route は blocklist + attachment 固定](feedback_attachment_mime_blocklist.md) — allowlist 方式は xlsx 等をモバイルアプリで開けなくする副作用。`Content-Disposition: attachment` 固定 + 危険 MIME blocklist + token 検証の三重防御
-- [vitest は --no-file-parallelism で逐次実行](feedback_vitest_no_file_parallelism.md) — WSL2 Docker test DB(5434) のクロックドリフトで時刻境界テスト(pipeline-runs/reextract)が並行実行で flaky。ローカルは常に `--no-file-parallelism`
-- [並行 worktree の共有 test DB push 衝突](feedback_shared_test_db_worktree_push_race.md) — 2 worktree が同時に vitest を走らせると global-setup の `drizzle-kit push` が互いの schema を上書きし 42P01 で大量 fail。`TEST_DATABASE_URL` で隔離 DB に向ける
-- [Next.js の module-level state は globalThis pin が必須](feedback_nextjs_module_state_globalthis_pin.md) — Server Action / Route Handler / Server Component を跨いで共有する `Map`/`Set`/`let` は globalThis pin しないと chunk splitting で別 instance になりうる。2026-06-07 [[impl_fix_image_cache_module_instance]] で実害（LINE 本文画像 全 404）
-- [git textconv が .doc 入り diff を非UTF-8 化](feedback_git_textconv_doc_no_utf8_diff.md) — codex 等へパイプする diff は `--no-textconv` で生成（PR #134 R1 で実害）
-- [iOS PWA は attachment disposition で白画面死](feedback_ios_pwa_attachment_disposition.md) — 管理画面の配信 route は inert type を実 MIME + inline の fail-closed allowlist で。送信者制御 Content-Type に blocklist inline は fail-open で NG
-- [iOS PWA in-scope 遷移は脱出不可・iframe PDF は1ページのみ](feedback_ios_pwa_inscope_doc_preview.md) — same-origin は target=_blank でも同一 WebView（overlay は out-of-scope のみ）、iframe 内 PDF は iOS で1ページ目だけ。戻る UI 付き文書プレビューはサーバーでページ画像化一択
-- [ship 後の残 DoD は本番未反映で実害化する](feedback_ship_dod_residual_check.md) — systemd / sudoers / env / VAPID key 等の本番手作業 DoD は worklog に書くだけで放置すると後で機能停止に直結（PR #127→Issue #131 で実害）。ship 完了時に消化手順併記+ユーザー口頭確認+可能なら auto-deploy 取り込み
-- [worktree cwd から長寿命プロセスを起動しない](feedback_no_longlived_process_from_worktree_cwd.md) — Docker Desktop 等を worktree 内 cwd で Start-Process すると cwd 継承でハンドル保持、worktree 削除が Device busy で失敗（PR #136 ship で実害）。起動前に cwd を worktree 外へ
-- [参照ゼロ確認→削除は FOR UPDATE で直列化](feedback_admin_delete_for_update_race.md) — 「子に参照が無いことを確認してから親を hard delete」は READ COMMITTED ではチェックとDELETEの間に参照挿入が割り込み履歴が静かに消える。親行を FOR UPDATE ロックしてから確認→削除（PR #147 R2 で実害指摘）
-- [/implement タスク進行は都度承認不要](feedback_implement_task_progression.md) — 承認済み plan のタスクは連続実装してよい。確認は計画外の設計分岐・破壊的変更・想定外時のみ（2026-06-17 明言）
-- [gh pr merge を worktree から実行するとローカル後処理が失敗](feedback_gh_pr_merge_from_worktree.md) — リモートのマージは成立するが "main is already used by worktree" で exit 1、--delete-branch も効かない。state 確認→手動で remote/worktree/local 削除（PR #156 で実害）
-- [要件定義は急がない・データファースト](feedback_dont_rush_requirements_data_first.md) — 結論/実装計画へ急がず実データを集めて見てから設計。AskUserQuestionで早期closeしない。サンプル収集中はIssue作成へ進まない（2026-06-18 tournament-results で明言）
-- [node: import が client バンドルを壊す](feedback_node_import_breaks_client_bundle.md) — client component が node:crypto 等を持つモジュールを import するとブラウザビルドが落ちる。乱数は Web Crypto グローバルで同形化。tsc/vitestでは出ずE2E/実ビルドで初検出（invite-link-registration で実検出）
-- [かるた調査は会員ページを積極利用](feedback_karuta_member_page_proactive.md) — かるた関連調査では全日本かるた協会の会員ページ(ログイン必須)に積極的にログインして一次資料を取りに行く。公開ページ/web検索だけで止めない（制度詳細は会員限定通達にある）
-- [リポジトリに prettier 設定は無い・素の prettier はstyle破壊](feedback_no_prettier_config_repo_style.md) — kagetra_new は prettier 設定ゼロ・style は手書き規約(single-quote/セミコロン無し)。素の `npx prettier --write` は既定(double-quote+semi)で全ファイルを壊す(lint/型は通るので気づきにくい)。使うなら `--single-quote --no-semi`、基本は手で書く（2026-07-01 senseki-stats PR-2 で13ファイル実害）
+- [ボトムシート下端隠れ](feedback_bottom_sheet_url_bar_hidden.md) — createPortal(body)+.modal-overlay-h(svh)で根治。新規は最初からこの形
+- [ツール呼び出しantml:接頭辞必須](feedback_tool_call_antml_prefix.md) — 落とすと生テキスト露出
+- [UIリデザインはdesign-specが要件成果物](feedback_design_spec_is_requirement_for_ui.md) — design-screen後にdefine-featureを回さない
+- [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中・周辺整備に逸れない
+- [開発ルール11条](project_dev_rules.md) — 実装前確認・テストファースト・DoD等
+- [メモリ運用ルール](feedback_memory_management.md) — 書く/書かない・同期手順・肥大化防止
+- [Auth.js v5 user.id罠](feedback_auth_js_jwt_strategy_user_id.md) — OAuth subはaccount.providerAccountIdから
+- [/shipのmain直pushは事前承認済み](feedback_main_push_authorized_for_ship.md) — worklog/memory同期commitは確認なしでpush可
+- [autonomous-loop sentinelの解釈](feedback_autonomous_loop_scope.md) — 実装GOではない。ルール1は有効
+- [Windows worktreeパス罠](feedback_windows_worktree_path.md) — /tmpは二重解釈。C:/tmp/...で明示作成
+- [host→docker pgは127.0.0.1必須](feedback_windows_localhost_econnreset_docker_pg.md) — localhostはIPv6でECONNRESET
+- [ブランチ作業は共有mainディレクトリ禁止](feedback_no_shared_maindir_for_branch_work.md) — 小PRでも隔離worktree
+- [jsdomはCSS env() inline styleを捨てる](feedback_jsdom_css_env.md) — Tailwind arbitrary valueで書く
+- [flex+overflow-y-autoにmin-h-0必須](feedback_flex_min_h_0_for_overflow.md)
+- [Tailwind min-h+pはborder-boxでpadding算入](feedback_tailwind_min_h_border_box.md) — calc合算必須
+- [Tailwind arbitrary内スペースは_エスケープ](feedback_tailwind_arbitrary_underscore_space.md)
+- [iOS 100dvhはURLバー込み](feedback_ios_safari_dvh_url_bar.md) — vh→dvh→svhカスケードを専用クラスで
+- [Tailwind utility出力順はclassName順で制御不可](feedback_tailwind_utility_output_order_not_className.md) — 専用クラスを切る
+- [standaloneリビルドのstatic cp](feedback_nextjs_standalone_static_cp.md) — .next/static+publicコピー忘れで画面真っ白
+- [本番ホストにNoto CJK必須](feedback_libreoffice_ja_fonts.md) — 日本語フォントapt install必須
+- [libreoffice HTML→PDFは--writer必須](feedback_libreoffice_writer_blank_page.md) — 無いと先頭白ページ
+- [本番migrationはdb:migrate](feedback_drizzle_kit_push_prompt.md) — pushはinteractive promptで詰む
+- [drizzle raw SQLのint[]はANY(ARRAY[...])](feedback_drizzle_sql_int_array_binding.md) — 要素展開かinArray。空配列early-return
+- [公開添付routeはblocklist+attachment固定](feedback_attachment_mime_blocklist.md)
+- [vitestは--no-file-parallelism](feedback_vitest_no_file_parallelism.md) — 時刻境界テストのflaky回避
+- [並行worktreeの共有test DB push衝突](feedback_shared_test_db_worktree_push_race.md) — TEST_DATABASE_URLで隔離
+- [module-level stateはglobalThis pin必須](feedback_nextjs_module_state_globalthis_pin.md) — chunk splittingで別instance化
+- [git textconvが.doc入りdiffを非UTF-8化](feedback_git_textconv_doc_no_utf8_diff.md) — --no-textconvで生成
+- [iOS PWAはattachment dispositionで白画面死](feedback_ios_pwa_attachment_disposition.md) — inline fail-closed allowlist
+- [iOS PWA in-scope遷移は脱出不可](feedback_ios_pwa_inscope_doc_preview.md) — 文書プレビューはサーバーでページ画像化一択
+- [ship後の残DoDは実害化する](feedback_ship_dod_residual_check.md) — 本番手作業DoDは消化手順併記+確認
+- [worktree cwdから長寿命プロセス起動しない](feedback_no_longlived_process_from_worktree_cwd.md) — 削除がDevice busyで失敗
+- [参照ゼロ確認→削除はFOR UPDATE直列化](feedback_admin_delete_for_update_race.md)
+- [/implementタスク進行は都度承認不要](feedback_implement_task_progression.md) — 確認は設計分岐・破壊的変更時のみ
+- [gh pr mergeをworktreeから実行しない](feedback_gh_pr_merge_from_worktree.md) — ローカル後処理が失敗
+- [要件定義は急がない・データファースト](feedback_dont_rush_requirements_data_first.md) — 実データを見てから設計
+- [node: importがclientバンドルを壊す](feedback_node_import_breaks_client_bundle.md) — Web Cryptoグローバルで同形化
+- [かるた調査は会員ページを積極利用](feedback_karuta_member_page_proactive.md) — 一次資料は会員限定通達にある
+- [repoにprettier設定は無い](feedback_no_prettier_config_repo_style.md) — 素のprettierはstyle破壊。single-quote/セミコロン無しを手で書く
