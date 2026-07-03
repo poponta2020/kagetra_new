@@ -14,6 +14,7 @@ metadata:
 - **#257 集計** `035e9e0`: `StatsOverview.gradePopulation: Record<Grade, number>` 新設。`queryGradePopulation(period)`＝`DISTINCT ON (tp.player_id)`＋`ORDER BY player_id, event_date DESC NULLS LAST, t.id DESC, grade ASC`（grade enum は A→E 定義順なので ASC=上位級）。
 - **#259 ドリル統一** `2d59906`: `queryCompetitorsDetail` 各級系列を `DISTINCT ON (player_id, extract(year FROM event_date))` の年内直近級へ変更。all 系列は不変。`METRIC_ANALYSIS.competitors` に数え方追記。既存テスト1本の期待値更新（同一大会複数級 X が B にも立っていた→A のみ）。
 - **#258 カード** `404303a`: 4カード直下に GradePopulationCard（5列グリッド・serif text-xl・級トーンなし・注記「期間内で最後に出場した級で1人ずつ数える（単位：人）」）。機能定義 docs 同梱（メイン側で未コミットだったため worktree へコピーして初コミット）。
+  - **後日フォローアップ(PR#263 merge `55bf697`・2026-07-03・quickfix)**: ユーザー要望で数値カードを廃し **BarChart（x=級A〜E・級トーン着色・ChartCard「級別 競技人口」）** に置換。図3(一人当たり平均年参加数)と同じ表現に統一。データ層(gradePopulation)不変・表示のみ。GradePopulationCard関数削除＋未使用 `Grade` 型 import 整理。Codex1R(medium)pass・lint/check-types green。残=本番実機目視。
 
 ## 非自明な点
 - **turbo strict env が TEST_DATABASE_URL を落とす**: ルート `pnpm test`（turbo）だと mail-worker が localhost フォールバック→IPv6 ECONNRESET で即死。`pnpm --filter <pkg> test` で直接実行すれば通る（turbo.json に env 宣言なし）。
