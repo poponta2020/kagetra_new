@@ -4,7 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
-- [⭐本番結果データ Tier1点検 完了(2026-07-03)](project_prod_result_health_audit.md) — 二重取込9ペア/構造破綻4大会/ミラー欠落・未解決全数値。成果物=docs/data-quality/。Tier2優先=東京東会直近のミラー欠落100%(現行取込疑い)
+- [⭐本番結果データ Tier1点検 完了+Tier2着手(2026-07-03)](project_prod_result_health_audit.md) — 二重取込9ペア/構造破綻4大会/ミラー欠落・未解決全数値。成果物=docs/data-quality/。**Tier2②診断済=現行メール経路でも再発確定(パーサ/書込器共用・ミラー生成機構なし)**。①⑦SQL草案+台帳新設。原本突合はTier1マシン待ち
 - [級別競技人口サマリー 機能定義](project_stats_grade_population_def.md) — 親#256+子#257-259。直近級方式(1人=1級)・A〜Eのみ・ドリルも統一。**実装完了→[[impl_stats_grade_population]]**
 - [級別競技人口サマリー SHIPPED](impl_stats_grade_population.md) — PR#261 merge `76f88de`(2026-07-03)・親#256+子#257-259全クローズ・migration無。DISTINCT ON直近級集計(gradePopulation)+サマリーカード+ドリルcompetitors統一。Codex1R(high)pass。turbo strict envがTEST_DATABASE_URLを落とす罠→pnpm --filter直実行。残=実機目視
 - [大会統計 枚数差統計改称＋パレート図化 SHIPPED](impl_stats_pareto_rename.md) — PR#255 `4ec4643`＋追修正PR#260 `394f09c`(2026-07-03)・図4改称/累積%右軸パレート化/分析文v2/左軸0〜10%固定(超過は頭打ち)。残=実機目視

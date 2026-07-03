@@ -21,3 +21,8 @@ metadata:
 **手法メモ**: 接続=ssh+docker exec+`PGOPTIONS='-c default_transaction_read_only=on'`。重複判定=同一edition×同一gradeペアの参加者重複率(≥90%=重複、50-63%=年2回開催)→同一対戦(選手×相手×round)照合で確定。editionsは`tournament_series_editions`でyear列を持つ(旧メモの「日付持たない」はevent_date/venueのみ削除の意)。
 
 **次(Tier2)**: 重複削除→構造破綻4大会再取込→直近ミラー欠落の原因究明(現行パーサ)→大垣再パース→結線改善一括再解決→矛盾個別精査→軽微一括SQL→取込漏れ147回収。修正スキル([[feedback_no_scope_creep]]配慮の指揮者+調査fork委譲ハイブリッド案)は方針合意済みだが作成保留中。関連 [[project_bulk_load_handover]] [[project_rehearsal_db_audit]] [[project_individual_coverage_audit]]
+
+**Tier2 進捗 (2026-07-03 午後・別マシン=SSH鍵/コーパス/リハDB/会員ページ資格情報なし)**:
+- **②コード調査 完了** → `docs/data-quality/DIAGNOSIS_ミラー欠落_現行取込経路_2026-07-03.md`。確定: 一括投入(_rehearse_load.mts)と現行メール経路は**同一パーサ(parseResultExcel)+同一書込器(materializeResultDraft)を共用**→現行経路でも必ず再発。ミラー行の生成・検証機構はパーサ/materializeのどこにも無い(matches=選手視点1行・両側は原本頼み)。千葉2026級名ゴミ=シート名フォールバック無検証(`className = deriveClassNameFromSheet ?? sheet.name`)。ブロック概念なし(クラス列regex `/^クラス$|^class$/i` のみ)→E級ブロック潰れ。テストfixture CHIBA_SHEET自体が非対称(未検証)。100%欠落は原本が片側形式の示唆(推測)＝**(a)パーサ改修/(b)ミラー機械生成の判定は原本突合待ち(Tier1マシン)**
+- ①⑦ **SQL草案作成済**(`docs/data-quality/sql/tier2-01_dedup_delete_DRAFT.sql`/`tier2-07_minor_cleanup_DRAFT.sql`、preflight+backup+read-back込み・未適用・愛知2022は未決で除外)。修正台帳 `result-fix-ledger.md` 新設
+- 原本突合・①原本確認・本番適用・⑧回収はTier1マシン(または鍵/コーパス移設後)でのみ可能
