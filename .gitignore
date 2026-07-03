@@ -16,3 +16,5 @@ playwright/.auth/
 .claude/settings.local.json
 docs/調査用/
 scripts/大会結果取り込み/
+# ローカル資格情報 (コミット禁止)
+.credentials.local.md
