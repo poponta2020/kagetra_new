@@ -1,19 +1,22 @@
 ---
 name: feedback_bottom_sheet_url_bar_hidden
-description: "ボトムシート(fixed inset-0 + items-end)は下端ボタンがモバイルURLバー裏に隠れる → h-[100dvh]追従＋max-h-full overflow-y-auto で直す"
+description: "ボトムシートの下端ボタンがモバイルで隠れる → createPortal(body)＋.modal-overlay-h(svh最終勝ち)で根治。dvh/max-hだけでは直らない"
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: a1ccf5e9-21f0-4a98-9e6c-2563bc6c0210
 ---
 
-**モバイルのボトムシートで下端（適用/OK ボタン等）が画面外に隠れる**不具合の定番原因と直し方。
+**モバイルのボトムシートで下端（適用/OK ボタン等）が画面外に隠れる**不具合。原因は**2つ重なる**ので、両方潰さないと直らない（dvh 修正だけでは実機で再発する）。
 
-**Why:** 外側オーバーレイを `fixed inset-0`（＝レイアウトビューポート基準の全画面）にし、パネルを `flex items-end` で下端固定するパターンは、モバイルブラウザでは**レイアウトビューポート下端が URL バー/ツールバーの裏＝可視領域の外**に来るため、下端に貼ったパネルの一番下（＝ボタン群）が画面外に隠れる。パネルに高さ上限・スクロールが無いと、内容が高いとき（条件で増える欄など）に一層はみ出す。※`items-end` は「内容がVPより高いと上にはみ出す」問題とは**別**で、こちらは位置基準（可視外の下端）の問題。
+**原因1（stacking context の閉じ込め）:** シートが `<main>` 内の `sticky z-10` ヘッダ等の**stacking context / containing block** の中に描画されていると、`fixed z-50` がその文脈内でしか効かず、ボトムナビ等の兄弟要素の手前に出られない／位置基準がずれる。実機で「背後のボトムナビが暗転せずシート手前に見える」= この症状。
 
-**How to apply:**
-- 外側コンテナを**可視ビューポート高に追従**させる：`fixed inset-0` → `fixed inset-x-0 top-0 h-[100dvh]`（`items-end` の貼り付き先が可視領域の下端になる）。[[feedback_ios_safari_dvh_url_bar]] の 100dvh 系。
-- パネルに `max-h-full overflow-y-auto` を付与（内容が可視領域を超えたらパネル内スクロール＝ボタンに到達可能）。安全領域下パディング `pb-[calc(1rem_+_env(safe-area-inset-bottom))]` は維持。[[feedback_flex_min_h_0_for_overflow]]／[[feedback_tailwind_arbitrary_underscore_space]] にも注意。
-- CSS のみで直り挙動/ロジックは不変。テストが className に依存していなければ回帰なし。
+**原因2（iOS dvh 罠）:** iOS Safari は `viewport-fit=cover` だと **`100dvh` を下部 URL バー込みの高さ**で返す（シェルが PR#67 で踏んだ既知罠＝[[feedback_ios_safari_dvh_url_bar]]）。`h-[100dvh]` のオーバーレイは可視領域より下まで伸び、`items-end` のフッター（ボタン）が UA クローム裏に落ちる。**`dvh` では直らず `svh`（UA クローム表示時の最小高）が必要。**
 
-**実例:** PR#253(`3231fbe`,2026-07-02) で統計の絞り込みシート `RankingFilterBar.tsx`＋`StatsPeriodFilter.tsx`、続けて **PR#254(`e6d450c`,2026-07-03) で残り全モーダル**（`InviteCodeModal`/`RegistrationInviteModal`/`ManualLinkModal`/`account-menu`/`ExistingEventLinkSheet`）を横展開修正。**現状 `fixed inset-0 + items-end` のボトムシートは全て対応済み**。今後の新規ボトムシートは最初からこの形（外側 `inset-x-0 top-0 h-[100dvh]`＋パネル `max-h-full overflow-y-auto`）で書くこと。`grep 'fixed inset-0.*items-end'` で新規混入を検知できる。
+**How to apply（両方やる）:**
+- **Portal 化**：`createPortal(<overlay/>, document.body)` で body 直下へ描画し祖先の stacking context / containing block を脱出。`open`/`payload` はクリック起点でしか true/非 null にならないので SSR で portal は走らない（`import { createPortal } from 'react-dom'`）。
+- **svh カスケード**：globals.css の `.modal-overlay-h { height:100vh; height:100dvh; height:100svh; }`（`.mobile-shell-h` と同手法・最後に理解できる宣言=svh が勝つ。Tailwind の同プロパティ utility は出力順不定なので**必ず CSS 側に書く**）を overlay に当て、`h-[100dvh]` を置換。
+- パネルは `max-h-full overflow-y-auto`＋安全領域下パディング `pb-[calc(1rem_+_env(safe-area-inset-bottom))]` 維持。[[feedback_flex_min_h_0_for_overflow]]／[[feedback_tailwind_arbitrary_underscore_space]]。
+- 挙動/ロジック不変・CSS＋描画位置のみ。テストが `screen`（document 全体検索）なら Portal 化で回帰なし。
+
+**経緯（重要な教訓）:** PR#253(`3231fbe`)→#254(`e6d450c`) で `h-[100dvh]`＋`max-h-full` を当てたが**実機で直らなかった**（dvh 罠＋stacking の二重原因を見落とし・スクショで判明）。**PR#262(`8af40f0`,2026-07-03)** で全7シート（RankingFilterBar/StatsPeriodFilter/InviteCodeModal/RegistrationInviteModal/ManualLinkModal/account-menu/ExistingEventLinkSheet）を **Portal＋`.modal-overlay-h`(svh)** に置換して根治。**新規ボトムシートは最初からこの形で書く**。`grep 'fixed inset-0.*items-end'` や `h-\[100dvh\]` で旧パターン混入を検知。

@@ -86,7 +86,7 @@
 - [worktree vitest の test DB 前提](reference_worktree_vitest_db_setup.md) — worktreeは.envコピー必須／Node24はlocalhost→IPv6でECONNRESET(127.0.0.1で書く)／隔離DBはkagetra_testからpg_dump schemaコピーで種化
 
 ## Feedback
-- [ボトムシートの下端がURLバー裏に隠れる](feedback_bottom_sheet_url_bar_hidden.md) — fixed inset-0+items-end はモバイルで下端ボタンが可視外に。外側 inset-x-0 top-0 h-[100dvh]追従＋パネル max-h-full overflow-y-auto。PR#253+#254で全ボトムシート対応済(新規は最初からこの形・grep 'fixed inset-0.*items-end'で検知)
+- [ボトムシートの下端ボタンがモバイルで隠れる](feedback_bottom_sheet_url_bar_hidden.md) — 原因2重(sticky z-10の stacking閉じ込め＋iOS dvh罠)。createPortal(body)＋.modal-overlay-h(svh最終勝ち)で根治。dvh/max-hだけの#253/#254は実機再発→PR#262(`8af40f0`)で全7シートPortal化。新規は最初からこの形
 - [ツール呼び出しの antml: 接頭辞必須](feedback_tool_call_antml_prefix.md) — invoke/parameter に antml: を必ず付ける。落とすと壊れた呼び出しで実行されず生テキスト露出（2026-06-21に多発）
 - [UIリデザインは design-spec が要件成果物](feedback_design_spec_is_requirement_for_ui.md) — /design-screen の後に /define-feature を回さない（重複）。画面主役は design-spec→薄い計画→/implement、define-feature はロジック主役の時だけ
 - [スコープを膨らませない](feedback_no_scope_creep.md) — 依頼の核に集中、周辺整備に勝手に逸れない。2026-06-21に2回実害(scripts移植/DB閲覧環境)
