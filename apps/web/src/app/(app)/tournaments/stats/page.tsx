@@ -11,7 +11,7 @@ import { GradeLegend, StackedComposition } from '@/components/stats/charts/Stack
 import { denseYears, formatDecimal1, formatInt } from '@/components/stats/charts/chart-utils'
 import { getStatsOverview } from '@/lib/stats/overview'
 import { GRADE_TONES } from '@/lib/stats/grade-tones'
-import { ALL_GRADES, type Grade } from '@/lib/stats/types'
+import { ALL_GRADES } from '@/lib/stats/types'
 import { detailHref, parsePeriodParams } from './params'
 
 export const dynamic = 'force-dynamic'
@@ -22,8 +22,9 @@ const MIN_YEAR = 2010
 /**
  * /tournaments/stats — ④ 大会統計・全体サマリー（統計）。requirements §3.6・design-spec §3.2。
  *
- * 4 カード＋6 図。全級固定・**期間フィルタのみ**（級は絞り込みでなく比較軸）。図 1〜3 はこの
- * 画面で完結（詳細なし）、図 4〜6 は右上「級別比較 ›」で `/tournaments/stats/<metric>` へドリル。
+ * 4 カード＋7 図。全級固定・**期間フィルタのみ**（級は絞り込みでなく比較軸）。級別競技人口・
+ * 図 1〜3 はこの画面で完結（詳細なし）、図 4〜6 は右上「級別比較 ›」で
+ * `/tournaments/stats/<metric>` へドリル。
  * 朱はデータ装飾に使わない（正の強調＝藍・平均線＝中立インク）。
  */
 export default async function TournamentStatsPage({
@@ -50,6 +51,12 @@ export default async function TournamentStatsPage({
     value: g.avg,
     color: GRADE_TONES[g.grade],
   }))
+  // 級別 競技人口（A〜E・直近級方式）を縦棒に。x=級 の図3と同じく級トーンで着色。
+  const gradePopulation = ALL_GRADES.map((grade) => ({
+    label: `${grade}級`,
+    value: ov.gradePopulation[grade],
+    color: GRADE_TONES[grade],
+  }))
 
   return (
     <div>
@@ -65,8 +72,10 @@ export default async function TournamentStatsPage({
           <StatCard label="延べ参加" value={ov.totals.participations} unit="人" />
         </div>
 
-        {/* 級別 競技人口（1人=1級・直近級方式） */}
-        <GradePopulationCard population={ov.gradePopulation} />
+        {/* 級別 競技人口（1人=1級・直近級方式・完結） */}
+        <ChartCard title="級別 競技人口" note="期間内で最後に出場した級で1人ずつ数える（単位：人）">
+          <BarChart data={gradePopulation} ariaLabel="級別 競技人口（A〜E）" />
+        </ChartCard>
 
         {/* 図1：級別構成の推移（完結） */}
         <ChartCard title="級別構成の推移" note="各年を100%に正規化（A〜E）">
@@ -135,31 +144,6 @@ function StatCard({ label, value, unit }: { label: string; value: number; unit?:
         {formatInt(value)}
         {unit ? <span className="ml-0.5 text-sm font-normal text-ink-meta">{unit}</span> : null}
       </span>
-    </Card>
-  )
-}
-
-/**
- * 級別 競技人口カード（A→E の 5 列・full width）。1人=1級の直近級方式（overview.ts の
- * queryGradePopulation）。数値は StatCard と同じ serif・tabular-nums で一段小さく。
- * 級トーン着色はしない（数値カードのため。図1/図3 の凡例色と混同させない）。
- * 単位「人」は 5 列に収めるため省略し注記で補う。ドリルは既存の図5「級別比較 ›」に委ねる。
- */
-function GradePopulationCard({ population }: { population: Record<Grade, number> }) {
-  return (
-    <Card className="flex flex-col gap-1">
-      <span className="text-xs text-ink-meta">級別 競技人口</span>
-      <div className="grid grid-cols-5">
-        {ALL_GRADES.map((grade) => (
-          <div key={grade} className="flex flex-col gap-0.5">
-            <span className="text-[11px] text-ink-meta">{grade}級</span>
-            <span className="font-display text-xl font-bold text-ink tabular-nums">
-              {formatInt(population[grade])}
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="text-[11px] text-ink-meta">期間内で最後に出場した級で1人ずつ数える（単位：人）</p>
     </Card>
   )
 }
