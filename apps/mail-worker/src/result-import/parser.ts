@@ -46,10 +46,13 @@ interface ColMap {
  * Handles: 「選手名」「氏名」「名前」「参加者」.
  */
 function isPlayerNameHeader(v: string): boolean {
+  // 「氏(U+3000)名」= 全角空白入りヘッダ (千葉2026 実ファイル) は normalizeText 後も
+  // "氏 名" と空白が残り /氏名/ に落ちるため、判定は空白除去後の文字列で行う。
+  const s = v.replace(/\s+/g, '')
   // Exclude furigana/reading columns (e.g.「選手名ふりがな」「氏名カナ」) which also contain
   // 選手名/氏名: the 出場者DB layout places 選手名 and 選手名ふりがな side by side, and
   // last-match-wins otherwise picked the kana column → every name imported as hiragana.
-  return /選手名|氏名|名前/.test(v) && !/ふりがな|フリガナ|カナ|読み|かな/.test(v)
+  return /選手名|氏名|名前/.test(s) && !/ふりがな|フリガナ|カナ|読み|かな/.test(s)
 }
 
 function isOpponentHeader(v: string): boolean {
@@ -400,6 +403,23 @@ function deriveClassNameFromSheet(sheet: SheetData): string | null {
     if (cell && /^[A-E]\d*$/.test(normalizeText(cell))) return normalizeText(cell)
   }
 
+  // Title-cell fallback: 級 is only in a merged heading like
+  // 「【第４回全国競技かるた千葉大会（Ａ級）】」(千葉2026) while the sheet name is a
+  // block label (優勝1/2/3). NFKC folds Ａ／（） to A/() so match the parenthesized
+  // grade after normalizeText. A trailing block number in the sheet name keeps
+  // blocks separate (優勝1 → A1) — merging them into a single class would collide
+  // round numbers across blocks (t995 東京東会2024E と同じ破綻になる).
+  for (let r = 0; r < Math.min(sheet.grid.length, 5); r++) {
+    for (const cell of sheet.grid[r] ?? []) {
+      if (!cell) continue
+      const m = normalizeText(cell).match(/\(([A-E]\d*)級\)/)
+      if (m) {
+        const block = normalizeText(sheet.name).match(/(\d+)$/)
+        return block ? `${m[1]}${block[1]}` : m[1]!
+      }
+    }
+  }
+
   return null
 }
 
@@ -482,7 +502,7 @@ function detectRoundLayoutSignature(
     const isOppHdr = (s: string) => /相手|対戦/.test(s) && !/(no|番号|所属|級|会|ふりがな|フリガナ|カナ)/i.test(s)
     // Header label, NOT a data mark: 勝敗 / 結果 / a combined "○✕" label (2+ mark
     // chars) / 勝 / 敗. A bare ○ or × is a data value, so must not match.
-    const isMarkHdr = (s: string) => /勝敗|結果/.test(s) || /^[○×✕●]{2,}$/.test(s) || s === '勝' || s === '敗'
+    const isMarkHdr = (s: string) => /勝敗|結果/.test(s) || /^[○〇◯×✕●]{2,}$/.test(s) || s === '勝' || s === '敗'
     // 枚数差: 枚数 / 枚差 / 点数 / lone 差 or 数 (abbreviated 枚数). Kept in sync with
     // the subHits 数/差 set below so a column counted as a sub-header is also read.
     const isScoreHdr = (s: string) => /枚数|枚差|点数|^差$|^数$/.test(s)

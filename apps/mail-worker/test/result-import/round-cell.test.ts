@@ -34,6 +34,16 @@ describe('parseRoundCellText', () => {
     expect(parseRoundCellText('〇 5 相手').result).toBe('win')
   })
 
+  it('treats ◯ (U+25EF LARGE CIRCLE) as win and strips it from the opponent name', () => {
+    expect(parseRoundCellText('◯ 5 相手')).toEqual({
+      result: 'win',
+      scoreDiff: 5,
+      status: 'normal',
+      opponentName: '相手',
+      empty: false,
+    })
+  })
+
   it('treats ✕ (U+2715) as lose', () => {
     expect(parseRoundCellText('✕ 5 相手').result).toBe('lose')
   })
