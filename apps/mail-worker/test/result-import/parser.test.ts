@@ -315,3 +315,99 @@ describe('parseResultExcel — 出場者DB with 選手名ふりがな + 所属�
     expect(p1.matches[0]?.opponentName).toBe('漢字次郎')
   })
 })
+
+/**
+ * ◯ (U+25EF LARGE CIRCLE) used as the win mark — the shape used by the real
+ * 東京東会79回 / 千葉2024+ result files. Regression for the mirror-missing-100% bug
+ * (Issue #264): pre-fix, every ◯ round was dropped as unparseable, so only the
+ * loser-side rows survived (winners had matches=[]) and no match had its mirror.
+ */
+const U25EF_VARIANT_SHEET: SheetData = makeSheet('対戦結果表_A級', [
+  [null, null, null, '1回戦', null, null, '2回戦', null, null],
+  ['No', '選手名', '所属', '相手', '枚数', '勝敗', '相手', '枚数', '勝敗', '順位'],
+  ['1', '大丸勝者', '甲会', '大丸敗者', '6', '◯', '大丸次鋒', '15', '◯', '優勝'],
+  ['2', '大丸敗者', '乙会', '大丸勝者', '6', '×', null, null, null, null],
+  ['3', '大丸次鋒', '丙会', null, '不戦勝', '◯', '大丸勝者', '15', '×', null],
+])
+
+describe('parseResultExcel — ◯ (U+25EF) treated as win (Issue #264 regression)', () => {
+  const classes = parseResultExcel([U25EF_VARIANT_SHEET])
+  const cls = classes[0]!
+
+  it('keeps the undefeated winner rows (pre-fix they were dropped entirely)', () => {
+    const winner = cls.participants.find((p) => p.name === '大丸勝者')!
+    expect(winner.matches).toHaveLength(2)
+    expect(winner.matches.map((m) => m.result)).toEqual(['win', 'win'])
+  })
+
+  it('produces both sides of every normal match (mirror completeness)', () => {
+    // every (player, round, opponent, result) must have the reciprocal row
+    for (const p of cls.participants) {
+      for (const m of p.matches) {
+        if (!m.opponentName) continue // 不戦勝 has no reciprocal
+        const opp = cls.participants.find((q) => q.name === m.opponentName)!
+        const back = opp.matches.find((bm) => bm.round === m.round)
+        expect(back?.opponentName).toBe(p.name)
+        expect(back?.result).toBe(m.result === 'win' ? 'lose' : 'win')
+      }
+    }
+  })
+
+  it('accepts ◯ on a walkover cell too', () => {
+    const bye = cls.participants.find((p) => p.name === '大丸次鋒')!
+    expect(bye.matches[0]).toMatchObject({ result: 'win', status: 'walkover', opponentName: null })
+  })
+})
+
+/**
+ * 「氏(U+3000)名」 header — ideographic space inside the label, real 千葉2026 layout.
+ * Pre-fix isPlayerNameHeader tested /氏名/ against the normalized cell where the
+ * full-width space survives as an ASCII space ("氏 名"), so the primary detector
+ * missed the sheet and fell through to the W2 positional fallback, which nulled
+ * every opponent/score. The row-0 title cell is the only place the grade appears
+ * (the sheet name is a block label), so this fixture also covers the title-cell
+ * class derivation: 優勝1 + （Ａ級） → className "A1", grade "A".
+ */
+const CHIBA_2026_SHEET: SheetData = makeSheet('優勝1', [
+  [null, '【第４回全国競技かるた千葉大会（Ａ級）】', null, null, null, null],
+  [null, null, null, '1回戦', null, null],
+  [null, '氏　名', '所属会名', '相手', '枚数', '勝敗'],
+  ['優勝', '千葉勝子', 'てすと会', '千葉負男', '3', '◯'],
+  [null, '千葉負男', 'てすと会2', '千葉勝子', '3', '×'],
+])
+
+describe('parseResultExcel — 「氏　名」 header + title-cell grade (千葉2026, Issue #264)', () => {
+  const classes = parseResultExcel([CHIBA_2026_SHEET])
+
+  it('detects the primary signature (opponents survive, unlike the W2 fallback)', () => {
+    expect(classes).toHaveLength(1)
+    const winner = classes[0]!.participants.find((p) => p.name === '千葉勝子')!
+    expect(winner.matches[0]).toMatchObject({
+      result: 'win',
+      scoreDiff: 3,
+      opponentName: '千葉負男',
+      round: 1,
+    })
+  })
+
+  it('derives className from the parenthesized grade in the title cell, not the sheet name', () => {
+    // 優勝1 (block label) would otherwise become the className with grade=null
+    expect(classes[0]!.className).toBe('A1')
+    expect(classes[0]!.grade).toBe('A')
+  })
+})
+
+describe('deriveClassNameFromSheet title-cell fallback — no trailing block number', () => {
+  it('uses the bare grade when the sheet name has no block suffix', () => {
+    const sheet = makeSheet('結果', [
+      ['【第５回テスト大会（Ｂ級）】', null, null, null, null],
+      ['氏　名', '所属会名', '相手', '枚数', '勝敗'],
+      ['勝田花子', '会イ', '負田太郎', '7', '◯'],
+      ['負田太郎', '会ロ', '勝田花子', '7', '×'],
+    ])
+    const classes = parseResultExcel([sheet])
+    expect(classes).toHaveLength(1)
+    expect(classes[0]!.className).toBe('B')
+    expect(classes[0]!.grade).toBe('B')
+  })
+})

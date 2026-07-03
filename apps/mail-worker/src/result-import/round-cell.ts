@@ -12,7 +12,7 @@ export interface ParsedRoundCell {
   empty: boolean
 }
 
-const WIN_MARK = /[○〇]/ // ○ U+25CB, 〇 U+3007
+const WIN_MARK = /[○〇◯]/ // ○ U+25CB, 〇 U+3007, ◯ U+25EF (NFKC で畳まれない別字)
 const LOSE_MARK = /[×✕●]/ // × U+00D7, ✕ U+2715, ● U+25CF (used as 負 in some 成績表)
 
 /**
@@ -57,7 +57,7 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   // to contain a digit (e.g. "山田2郎") is preserved — opponentName is handed to
   // materialize raw for normalizePlayerName-based opponent resolution.
   const tokens = text
-    .replace(/[○〇×✕●]/g, ' ')
+    .replace(/[○〇◯×✕●]/g, ' ')
     .replace(/不戦勝?|棄権/g, ' ')
     .split(/\s+/)
     .filter((t) => t.length > 0)

@@ -51,12 +51,13 @@ export function normalizeDan(raw: string | null | undefined): number | null {
 
 /**
  * Parse a win/lose indicator cell value.
- * Accepts ○ (U+25CB), 〇 (U+3007), × (U+00D7 / U+00D7 lookalike), ● (U+25CF, used
+ * Accepts ○ (U+25CB), 〇 (U+3007), ◯ (U+25EF LARGE CIRCLE — NFKC は U+25CB に
+ * 畳まないため明示が必要), × (U+00D7 / U+00D7 lookalike), ● (U+25CF, used
  * as 負 in some 成績表). Returns null if unrecognized (row skipped / end-of-data).
  */
 export function parseResultChar(s: string): 'win' | 'lose' | null {
   const n = normalizeText(s)
-  if (n === '○' || n === '〇') return 'win'
+  if (n === '○' || n === '〇' || n === '◯') return 'win'
   if (n === '×' || n === '✕' || n === '×' || n === '●') return 'lose'
   return null
 }
