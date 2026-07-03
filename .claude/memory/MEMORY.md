@@ -5,7 +5,7 @@
 
 ## Project
 - [級別競技人口サマリー 機能定義](project_stats_grade_population_def.md) — 親#256+子#257-259。直近級方式(1人=1級)・A〜Eのみ・ドリルも統一。**実装完了→[[impl_stats_grade_population]]**
-- [級別競技人口サマリー 実装](impl_stats_grade_population.md) — 全3タスク完了(PR前)。DISTINCT ON直近級集計+カード+ドリル統一。turbo strict envがTEST_DATABASE_URLを落とす罠。worktree=C:/tmp/impl-stats-grade-population
+- [級別競技人口サマリー SHIPPED](impl_stats_grade_population.md) — PR#261 merge `76f88de`(2026-07-03)・親#256+子#257-259全クローズ・migration無。DISTINCT ON直近級集計(gradePopulation)+サマリーカード+ドリルcompetitors統一。Codex1R(high)pass。turbo strict envがTEST_DATABASE_URLを落とす罠→pnpm --filter直実行。残=実機目視
 - [大会統計 枚数差統計改称＋パレート図化 SHIPPED](impl_stats_pareto_rename.md) — PR#255 `4ec4643`＋追修正PR#260 `394f09c`(2026-07-03)・図4改称/累積%右軸パレート化/分析文v2/左軸0〜10%固定(超過は頭打ち)。残=実機目視
 - [大会申込(/events一覧)delta改修 SHIPPED](impl_event_list_refinements.md) — PR#251 merge `2f67b08`(2026-07-02)・親#248子#245-247全クローズ・migration無。見出し改称/日付M-D曜/締切残日数3段階/締切既定ソート/申込可能フィルタ(級のみ・管理者バイパス無)/参加者チップ。Codex2R(R1 status型blockerはfalse positive→EventStatus narrow反映)。残=実機目視
 - [Hono API 無認証の穴 SHIPPED(修正済)](project_hono_api_unauthenticated_hole.md) — 本番 /hono-api/events が完全無認証でCRUD可・LINEログイン迂回だった。PR#252`2fceb79`でeventsルート撤去(/health のみ残す)・本番read-back済(events=404/health=200)。フロント未使用の死にコードで影響なし
