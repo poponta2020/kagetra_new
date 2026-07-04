@@ -41,4 +41,31 @@
 
 現状把握の出し分けは design-screen の Step1 が、greenfield/delta は define-feature が、それぞれ内部で吸収する。連結（同居・宿題・収束ゲート）は新規/改修で同一。
 
+## オーケストレーション設計方針（Skills / Subagents / Workflows）
+
+**このフロー全体の骨格はスキルのまま維持する。エージェント連鎖に置き換えない。** 2026-07-01 に公式一次資料（下記出典）で再確認した結論：
+
+- **Skills = オーケストレーションの骨格**（main会話で可視・逐次介入・手続き）。公式ブログ *"Use a skill when you want the procedure to play out inside the main thread so you can see and steer each step"* / *"deploy workflows, release checklists, or review processes belong in a skill"*。`define-feature → design-screen → implement → prepare-pr → auto-review-loop → ship` は**多段・文脈共有・side-effctあり**＝全部 main会話（スキル）側が公式解。
+- **Subagents = 葉ステップの隔離委譲**のみ。サブは *fresh context で会話履歴を見ない* ため、連鎖に置き換えると各ホップで蓄積文脈が切れる（＝劣化）。**置き換えではなく、スキルの中の read-heavy 調査ステップと客観レビューだけをサブに逃がす。**
+- **Workflows = 規模もの専用**（多数エージェントの決定的オーケストレーション。過去データ一括移行・全コーパス監査・多観点並列レビュー）。1機能の実装フローには過剰。
+
+### ステップ→機構の対応
+
+| ステップ | 機構 | 理由 |
+|---|---|---|
+| define-feature / design-screen / make-plan | スキル（main） | 文脈共有・逐次介入・宿題往復 |
+| **スキーマ/既存コードの事前調査** | **`context: fork` + `agent: Explore`** でスキルから委譲（**`model: haiku` を明示**） | 冗長な読み取り出力を隔離（サブ本来の得意）。要約だけ main に返る。指定なしだと main と同モデル価格で走る |
+| implement（オーケストレーション） | スキル（main）**forkしない** | タスク選択・委譲判定・受け入れ確認・コミットは蓄積文脈が必須。`context: fork` はタスク自己完結スキル限定（公式警告） |
+| **仕様確定済みの単一実装タスク** | **`task-implementer`（Sonnet）へ Agent 委譲** | 4条件（仕様完全・設計判断なし・検証手段あり・高リスク領域なし）を満たす場合のみ。仕様は全文添付・迷ったら停止 |
+| レビュー | Codex（auto-review-loop）に一本化 | Sonnet 前段セルフレビューは不採用（2026-07-04 ユーザー判断: Codex で充足・Claude 使用量を割かない） |
+| prepare-pr / ship（side-effect） | スキル＋`disable-model-invocation: true` | 手動トリガー必須。「Claudeが勝手に deploy しない」公式パターン |
+
+**スキルがエージェントを呼ぶ = `context: fork`（＋逆方向はサブの `skills:` フィールドで知識先読み）が公式機構。** カスタムエージェント方針は [proposed-agents.md](proposed-agents.md) を参照（code-reviewer-jp は不採用・`task-implementer` を採用、経緯は同ファイルの 2026-07-04 追記）。
+
+### モデル階層（葉ステップに割り当てるモデル）
+
+サブ委譲する葉には**下位モデルを明示指定**する（指定なしだと main と同モデル＝Fable/Opus 価格で走る。内蔵 `Explore` も v2.1.198+ は main 継承・Opus 上限）：調査・探索= `Explore` + `model: haiku` ／ 仕様確定済みの単一実装タスク= `task-implementer`（Sonnet, `.claude/agents/`）／ 判断・計画・裁定・本番操作= main（Fable/Opus）のまま。委譲可否の4条件・委譲の作法・価格は [model-delegation.md](model-delegation.md) が正典。
+
+出典: [Skills 公式ドキュメント](https://code.claude.com/docs/en/skills) / [Subagents 公式ドキュメント](https://code.claude.com/docs/en/sub-agents) / [Steering Claude Code（Anthropic公式ブログ）](https://claude.com/blog/steering-claude-code-skills-hooks-rules-subagents-and-more) / [Workflows 公式ドキュメント](https://code.claude.com/docs/en/workflows)
+
 > このフローは `/define-feature`・`/design-screen` の SKILL.md から参照される正典。変更時はこの1ファイルを直す。

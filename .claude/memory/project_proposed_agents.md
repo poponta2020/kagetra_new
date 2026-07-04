@@ -1,6 +1,6 @@
 ---
 name: project-proposed-agents
-description: カスタムサブエージェント案7種の再評価。2026-07-01 に「7種一括作成」方針を撤回し「1種＋Skill/Hook振り分け」へ反転。
+description: カスタムサブエージェント案7種の再評価。2026-07-01 に「7種一括作成」方針を撤回し「1種＋Skill/Hook振り分け」へ反転。2026-07-04 残る1種(code-reviewer-jp)も不採用が確定。
 metadata: 
   node_type: memory
   type: project
@@ -8,6 +8,8 @@ metadata:
 ---
 
 2026-07-01 初版でカスタムサブエージェント7種を提案 → **同日、公式ドキュメント・Anthropic公式ブログ・複数実務家記事（一次資料＋複数一致意見）を再調査して結論を反転**。詳細仕様＋旧案＋出典は `docs/dev/proposed-agents.md`（上書き済・旧案は末尾保存）。
+
+**2026-07-04 追記**: code-reviewer-jp も不採用が確定（レビューは Codex/auto-review-loop で充足・Claude 使用量を割かないというユーザー判断）。代わりにモデル階層ワーカー `task-implementer`（Sonnet）を採用 → 正典と経緯は [[project_model_delegation]]。
 
 **Why:** ゴールデンスタンダードは「a handful of well-scoped agents, not a sprawling roster」。solo で7種は乱立＝自動委譲を壊すアンチパターン。加えて①自動委譲(descriptionトリガー)は unreliable＝確実なのは @-mention/`--agent` の明示呼び出しのみ ②生成・ボイラープレートは公式が Skill と明言（生成物はメインに戻る＝隔離利点なし＋メインから文脈を隠す害）③目玉の「コスト1/15」はエージェント不要で無料回収可能。
 

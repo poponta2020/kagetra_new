@@ -4,6 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md
 - [⭐本番結果データ点検 Tier2(2026-07-04)](project_prod_result_health_audit.md) — 台帳#1-20適用済(read-back全green)。t788除外・t711 dedupe・④⑥5大会再取込(新t1557-1561)完了、矛盾ペア残9(HTML保留のみ)。見送り=t1459(別人姓切詰)・大垣t742/767/791(**parseResultChar全角Ｘ未対応→別PR待ち**)。残=⑤新パス(母数**14,944**)。正典=result-fix-ledger.md
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層はDrizzle非定義=本番db:push禁止**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
@@ -62,7 +63,7 @@
 - [ピンチズーム抑制](impl_disable_pinch_zoom.md) — PR#192。viewport maximumScale:1
 - [Codex review effort自動判定](project_codex_review_effort.md) — PR#69。差分内容でmedium/high
 - [/design-screenスキル](impl_design_screen_skill.md) — DesignSync連携。finalize_planのdeletes必須
-- [カスタムエージェント案再評価](project_proposed_agents.md) — 7種一括を撤回。作るならcode-reviewer-jp 1つ。docs/dev/proposed-agents.md
+- [カスタムエージェント案再評価](project_proposed_agents.md) — 7種一括を撤回、code-reviewer-jpも2026-07-04不採用(task-implementer採用)。docs/dev/proposed-agents.md
 - [Skill/Subagent/Workflow方針](project_skill_subagent_orchestration.md) — 実装フロー骨格はスキル維持・葉ステップのみfork委譲。正典=docs/dev/feature-flow.md
 - [PR#6フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JPは実使用ウェイトのみ
 

@@ -15,6 +15,7 @@
 - Turborepo + pnpm / Docker Compose on AWS Lightsail
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
 - レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを最大10ラウンド回し、pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で pass 時点停止／手動レビューは `/review` で VS Code Codex に切替）
+- モデル委譲: main(Fable/Opus)=判断・計画・受け入れ確認／Sonnet(`task-implementer`)=仕様確定済み実装タスク／Haiku(`Explore` を `model: haiku` 明示で)=read-heavy調査。委譲判定と作法の正典=docs/dev/model-delegation.md
 
 ## 構成
 

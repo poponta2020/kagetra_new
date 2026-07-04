@@ -125,6 +125,11 @@ Skill ツールで `claude-mem:do` を呼び出す。
 - マイグレーション追加時は番号を pre-flight で確認済みの値から開始
 - packages/shared/ への変更は最小限に抑える（他ブランチとの競合源）
 - テストファースト: 実装前に該当範囲のテストを書く（CLAUDE.md ルール 2）
+
+【モデル委譲】(正典: docs/dev/model-delegation.md)
+- read-heavy な調査サブタスクは Explore サブエージェントに **model: haiku を明示**して委譲（精度が要るスキーマ調査等は sonnet）
+- 計画で完全仕様化された実装サブタスクは **task-implementer サブエージェント（Sonnet）** へ委譲。仕様は全文添付・worktree パス必須・commit はワーカーにさせない
+- 設計判断・schema/migration・認証認可・検証の裁定・commit はオーケストレーター自身（main モデル）が行う。委譲4条件を満たさないサブタスクは main が直接実装する
 ```
 
 `/claude-mem:do` の通常フロー（Documentation Discovery → 各 Phase の Implementation → Verification → Anti-pattern check → Code Quality → Commit → Branch/Sync）はそのまま走る。

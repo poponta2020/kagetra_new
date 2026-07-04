@@ -21,6 +21,7 @@ allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent, AskUserQuestion, Skil
 - 関連するファイル・コンポーネント・エンドポイントを特定する
 - Grep / Glob / Read を使ってコードを読み、原因を突き止める
 - バックエンドとフロントエンドの両方を確認する（プロジェクト内の該当ディレクトリを特定すること）
+- 関連ファイルの特定・既存パターン収集など read-heavy な広域探索は、Agent tool の `Explore` サブエージェント（**`model: haiku` を明示**）に委譲して要約だけ受け取ってよい（正典: docs/dev/model-delegation.md）。原因の最終判断は main が行う
 
 ### Step 2: 影響範囲調査
 
@@ -94,12 +95,12 @@ cd /tmp/fix-<summary>/<フロントエンドディレクトリ> && npm run build
 ```
 
 **テストが失敗した場合:**
-- `test-automator` エージェントを使って失敗内容を分析・修正する
+- main 自身が失敗内容を分析し、worktree 内で修正する
 - 修正後に再度テストを実行する
 - 成功するまで繰り返す
 
 **修正内容がセキュリティに関わる場合（認証・認可・入力バリデーション・APIエンドポイント等）:**
-- `security-auditor` エージェントを使って修正後のコードにセキュリティ上の問題がないか確認する
+- 下位モデルへ委譲せず main が担当し、認可ガード・バリデーション・エラーメッセージの漏れを重点確認する（docs/dev/model-delegation.md の委譲禁止領域）
 
 ### Step 7: ドキュメント更新（必要な場合のみ）
 

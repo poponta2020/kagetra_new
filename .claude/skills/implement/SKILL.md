@@ -111,14 +111,22 @@ git worktree add /tmp/impl-<summary> feature/<summary>
 CLAUDE.mdのルールに従い、不明点があればユーザーに確認を取る。
 **パスは必ず `/tmp/impl-<summary>/` プレフィックスを使うこと。**
 
-タスクの種類に応じて、以下の専門エージェントに委譲する：
+### タスクのモデル委譲（正典: docs/dev/model-delegation.md）
 
-- **Hono / バックエンドAPI実装**（ルート定義、ミドルウェア、認証、バリデーション、ビジネスロジック等）→ `nextjs-hono-engineer` エージェントを使う
-- **Next.js / フロントエンド実装**（App Router、Server/Client Components、Tailwind CSS + shadcn/ui、状態管理等）→ `nextjs-frontend-specialist` エージェントを使う
-- **Drizzle ORM / DB設計**（スキーマ定義、マイグレーション、クエリビルダー、PostgreSQLインデックス設計等）→ `drizzle-postgres-specialist` エージェントを使う
-- **複数レイヤーにまたがるタスク**（バックエンド + フロントエンド + shared パッケージ）→ Claude 本体が担当し、必要に応じて各エージェントを部分的に活用する
+タスクごとに委譲可否を判定し、以下の**4条件をすべて満たす場合は `task-implementer` エージェント（Sonnet）に委譲**する：
 
-**エージェントに委譲する際は、worktreeパス（`/tmp/impl-<summary>/`）を作業ディレクトリとして必ず伝えること。**
+1. 実装手順書＋要件定義書でタスクが完全に仕様化されている（変更対象ファイル・完了条件が明確）
+2. 設計判断の余地が残っていない（API の形・データモデル・UI 挙動の解釈が確定済み）
+3. 検証手段がある（テスト・型チェックで失敗を機械的に検知できる）
+4. スキーマ変更/migration・認証認可の新設・本番操作を含まない
+
+1つでも欠けるタスク（跨層・曖昧・migration 含み等）は、従来どおり main（このスキル）が worktree 内で直接実装する。
+
+**委譲時にプロンプトへ必ず含めるもの**: Step 6 で作成した worktree の絶対パス（Windows 形式 `C:/tmp/impl-<summary>/`）／タスク仕様の**全文**（実装手順書・要件定義書の該当部分を要約せず貼る。仕様不足はワーカーの誤った推測に直結する）／**書くべきテスト**（テストファースト。実装手順書にテストが明記されていない場合は main がテスト要件を決めてから委譲する）／実行すべき検証コマンド（テスト・`check-types`）。
+
+エージェントが「停止して報告」を返したら、その論点は main が引き取って判断・実装する（下位モデルへの再委譲リトライはしない）。
+
+**委譲後の受け入れ確認（main が必ず行う）**: `git -C <worktree> diff` を読んで方針との一致を確認 → 検証コマンドを main 自身でも実行 → メインリポジトリが汚れていないか `git status --short` で一瞥 → 問題なければ Step 8 のコミットへ。
 
 ## Step 8: コミットとPush
 
@@ -161,6 +169,7 @@ gh issue edit <親Issue番号> --body "<更新後の本文>"
 - 変更したファイル一覧
 - 実装中に発見した問題や注意点
 - worktreeパス
+- 委譲した場合: ワーカー種別（task-implementer/Sonnet 等）と受け入れ確認の結果（後からモデル別品質を監査するため。正典: docs/dev/model-delegation.md の品質フィードバックループ）
 - カテゴリは `implement` とし、機能名をタグとして付与する
 
 実装中にブロッカーや想定外の問題が発生した場合も、即座にclaude-memに記録すること。
