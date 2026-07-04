@@ -4,7 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
-- [⭐本番結果データ点検 Tier2(2026-07-04)](project_prod_result_health_audit.md) — ①②③⑥⑦本番適用済(台帳#1-15・read-back全green)・**④ガードPR#266 ship済**。t788除外=N-6混在class発見で保留。残=t788一括除外/N-2二重2件/④大垣6大会再取込+⑥構造的27/⑤新パス(母数18,456)。正典=result-fix-ledger.md
+- [⭐本番結果データ点検 Tier2(2026-07-04)](project_prod_result_health_audit.md) — 台帳#1-20適用済(read-back全green)。t788除外・t711 dedupe・④⑥5大会再取込(新t1557-1561)完了、矛盾ペア残9(HTML保留のみ)。見送り=t1459(別人姓切詰)・大垣t742/767/791(**parseResultChar全角Ｘ未対応→別PR待ち**)。残=⑤新パス(母数**14,944**)。正典=result-fix-ledger.md
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層はDrizzle非定義=本番db:push禁止**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
 - [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)・取込機能/Drizzle化作らない方針
