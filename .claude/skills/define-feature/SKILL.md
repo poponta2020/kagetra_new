@@ -3,14 +3,14 @@ name: define-feature
 description: 新機能の要件定義を徹底的なヒアリングで行い、要件定義書・実装手順書・GitHub Issueを作成するスキル。セッションをまたいだ途中保存・再開に対応。新機能を作りたいとき、機能の要件を整理したいときに使用する。
 disable-model-invocation: true
 user-invocable: true
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent, Skill
 argument-hint: [機能名や概要（任意）]
 ---
 
 # 新機能 要件定義スキル
 
 新機能の要件を徹底的にヒアリングし、実装者（Claude Code）が迷わず着手できるレベルまで落とし込む。
-要件定義書・実装手順書・GitHub Issueを成果物として作成する。
+要件定義書・実装手順書・GitHub Issueを成果物として作成する。**UI を伴う機能は、実装手順書を作る前に define-feature 自身が `/design-screen` を明示的に呼び、要件⇄デザインをループで収束させる**（デザイン起因の手戻りを防ぐ＝Step 3.5）。
 セッションをまたいだ途中保存・再開に対応する。
 
 **ユーザーとの対話はすべて日本語で行うこと。**
@@ -25,7 +25,7 @@ argument-hint: [機能名や概要（任意）]
 - **画面インベントリ＋画面間遷移（ナビゲーション地図）は requirements が持つ。** 個々の画面の見た目は design-spec が持つ。
 - **宿題で投げる:** 画面の視覚設計が要る論点は requirements に `## デザインへの宿題（→ /design-screen <slug>）` を書いて渡す（→ 視覚が固まったら戻ってくる）。design-spec 側の `## 要件への宿題` は本スキルで解決する。
 - **新規=greenfield／既存改修=delta**（既存挙動を参照し差分だけ。全部は書き直さない）。複数画面は design-spec を画面ごとに分割可。
-- **収束ゲート:** requirements と design-spec の両方が `status: completed`/`locked`＋互いの宿題ゼロ＋薄い implementation-plan → `/implement`。
+- **収束ゲート（順序★）:** UI を伴う機能は **design-spec を先に確定させてから** implementation-plan を作る（デザインで要件が動く手戻りを防ぐ）。requirements 承認 → **Step 3.5 で要件⇄デザインをループ収束**（define-feature が `/design-screen` を**明示的に呼ぶ** → デザインで要件が動けば詰め直して再度呼ぶ → design-spec が `status: completed`/`locked`＋互いの宿題ゼロで収束）→ Step 4 で薄い implementation-plan＋Issue → `/implement`。**implementation-plan をデザイン確定前に書かない。** 純ロジック（UIなし）は design-spec 不要で Step 3 → Step 4 へ直行。
 - **片レンズに縮む:** 純UI（新ロジック皆無）なら design-spec が要件成果物＝本スキル不要。ロジックだけ（UIなし）なら本スキルのみ。**「設計後の儀式」として丸ごと回さない**（emergent logic の差分に絞る）。
 
 ---
@@ -35,20 +35,23 @@ argument-hint: [機能名や概要（任意）]
 ### 引数ありの場合
 `$ARGUMENTS` で指定された機能名に対応する `docs/features/<機能名>/` ディレクトリを探す。
 
-- **ディレクトリが存在し、`requirements.md` の `status` が `completed` でない場合** → **途中再開モード**（Step 0a へ）
-- **ディレクトリが存在し、`requirements.md` の `status` が `completed`、かつ `implementation-plan.md` の `status` が `completed` でない場合** → **実装手順書の途中再開モード**（Step 0b へ）
-- **ディレクトリが存在しない場合** → **新規作成モード**（Step 1 へ）
-- **両方とも `completed` の場合** → 「この機能の要件定義は完了済みです。`/implement <機能名>` で実装に進んでください。」と伝える
+上から順に判定する（最初に当たった分岐を採用）：
+- **ディレクトリが存在しない** → **新規作成モード**（Step 1 へ）
+- **`requirements.md` の `status` が `completed` でない** → **ヒアリング途中再開**（Step 0a へ）
+- **`requirements.md` completed・`design_required: true`・かつ design-spec.md が未完了**（ファイルが無い、または `status` が `completed`/`locked` でない）→ **デザイン収束ループの再開**（Step 3.5 へ＝design-screen を再度呼ぶ／収束チェック）
+- **`requirements.md` completed・（`design_required: false` または design-spec.md 完了）・かつ `implementation-plan.md` が未完了**（無い、または `status` が `completed` でない）→ **実装手順書の作成/再開**（Step 0b → Step 4b へ）
+- **すべて完了**（requirements＋[UIなら design-spec]＋implementation-plan）→ 「この機能の要件定義は完了済みです。`/implement <機能名>` で実装に進んでください。」と伝える
 
 ### 引数なしの場合
 `docs/features/` 配下のディレクトリを走査する。
 
-- **途中状態（`status` が `completed` でない）のものがある場合** → 一覧表示してユーザーに選択させる
+- **途中状態（`status` が `completed` でない、またはデザイン収束ループ中・実装手順書未完了）のものがある場合** → 一覧表示してユーザーに選択させる
 
 ```
 途中状態の要件定義:
 1. <機能名A> — ステータス: ヒアリング中（次: 技術設計）
-2. <機能名B> — ステータス: ドラフトレビュー中
+2. <機能名B> — ステータス: デザイン収束ループ中（design-spec 確定待ち）
+3. <機能名C> — ステータス: 実装手順書 作成中
 どの機能の要件定義を再開しますか？ または新しい機能名を入力してください。
 ```
 
@@ -66,13 +69,13 @@ argument-hint: [機能名や概要（任意）]
 
 該当する Step 2 のセクションから続行する。
 
-### Step 0b: 実装手順書の途中再開
+### Step 0b: 実装手順書の作成/途中再開
 
-`requirements.md` は完了済み。`implementation-plan.md` のフロントマターを読み取り、途中から再開する。
+`requirements.md` は完了済み、かつ **UI を伴う機能なら design-spec.md も完了済み**（Step 3.5 の収束ゲート通過）。`implementation-plan.md` が無ければ新規作成、あればフロントマターを読み取り途中から再開する。
 
 ```
-前回は「<機能名>」の要件定義書は完了しており、実装手順書の作成途中です。
-続きから再開します。
+前回は「<機能名>」の要件定義書（とデザイン）は完了しています。
+実装手順書の作成から続けます。
 ```
 
 Step 4b から続行する。
@@ -248,15 +251,41 @@ next_section: null
 - 主要な設計判断とその理由
 ```
 
-ユーザーの承認を得たら、`requirements.md` のステータスを `completed` に更新し、フロントマターを以下に変更する：
+ユーザーの承認を得たら、`requirements.md` のステータスを `completed` に更新し、**この機能がデザインを要するか（`design_required`）を判定**してフロントマターに記録する：
 
 ```yaml
 ---
 status: completed
+design_required: true   # ユーザー向け画面の新規/変更を伴う→true ／ cron・API・データ等の純バックエンド→false
 ---
 ```
 
+`design_required` の判定：ユーザーが触れる画面（新規 or 既存改修）が要件に含まれれば **true**、UI が一切無ければ **false**。迷うときはユーザーに確認する。
+
+**次に進む先（★順序）:**
+- `design_required: true` → **Step 3.5（要件⇄デザインの収束ループ）へ。** design-spec が確定するまで implementation-plan は作らない。
+- `design_required: false` → **Step 4 へ直行**（design-spec 不要）。
+
 **注意:** ドラフトレビュー中にユーザーが中断を申し出た場合も、Step 2f と同様に保存して中断する。
+
+---
+
+## Step 3.5: 要件⇄デザインの収束ループ（収束ゲート）★
+
+`design_required: true` のときのみ実行（false ならスキップして Step 4）。**実装手順書を作る前に、要件とデザインを行き来して収束させる。** ねらいは「実装手順書を書いた後にデザインで要件が変わって手戻り」を防ぐこと。**define-feature 自身が `/design-screen` を明示的に呼ぶ**（ユーザーに手動実行を促すのではない）。
+
+### ループ（収束するまで反復）
+1. **要件を確定**：requirements.md を `status: completed`、`## デザインへの宿題（→ /design-screen <機能名>）` に視覚設計が要る論点を列挙する。
+2. **design-screen を明示的に呼ぶ**：**Skill ツールで `/design-screen <機能名>` を invoke する。** design-screen が実物（claude.ai/design）を見ながらユーザーと往復し、design-spec.md を作成・更新して戻ってくる。
+3. **デザイン結果を取り込んで収束判定**：戻ってきたら design-spec.md の `## 要件への宿題（→ /define-feature <機能名>）` と、デザイン中に判明した emergent logic（新しい遷移・データ・状態・同名処理・空状態・権限分岐など）を確認する。
+   - **要件の再定義が必要** → Step 2／Step 3 に戻って該当箇所を詰め直し、requirements を追記更新して再 `completed` にする → **手順2へ戻る（design-screen を再度呼ぶ）**。
+   - **要件変更なし & 互いの宿題ゼロ & design-spec が `completed`/`locked`** → **収束**。ループを抜けて Step 4 へ。
+4. 収束するまで 2〜3 を繰り返す。各反復で「今回デザインから出た変更」「要件にどう反映したか」をユーザーへ短く報告してから次の反復へ進む。
+
+> 不動点まで回す：要件が動くたびにデザインを描き直し、デザインが要件を動かすたびに要件を詰め直す。両方が安定してから Step 4 で薄い implementation-plan を起こす。
+
+### 中断・再開
+ループ途中でセッションが切れても、`/define-feature <機能名>` で Step 0 が「デザイン収束ループ中」を検出してここへ戻す。design-spec が未完了なら design-screen を再度呼び、requirements に未解決の宿題があれば要件の詰め直しから再開する。
 
 ---
 
@@ -264,11 +293,13 @@ status: completed
 
 ### 4a. 要件定義書の確定
 
-Step 3 で承認済みの `requirements.md` がそのまま確定版となる（すでにファイルに保存済み）。
+Step 3 で承認済みの `requirements.md` がそのまま確定版となる（すでにファイルに保存済み）。UI を伴う機能は Step 3.5 で design-spec も確定済み（収束ゲート通過）。
 
 ### 4b. 実装手順書の作成
 
-`docs/features/<機能名>/implementation-plan.md` に実装手順書を作成する。
+**前提:** requirements.md が completed、かつ UI を伴う機能なら design-spec.md も completed/locked（Step 3.5 の収束ゲート通過）。**この前提を満たさずに実装手順書を書き始めない。**
+
+`docs/features/<機能名>/implementation-plan.md` に実装手順書を作成する。タスクは requirements（ロジック/遷移/データ/API/DB）と design-spec（画面構成）の**両方**を踏まえ、テスト先行のタスク／対象ファイル／依存／影響範囲を薄く書く。
 
 作成開始時にまず以下のフロントマター付きでファイルを作成する：
 
@@ -319,7 +350,7 @@ status: completed
 
 ### 4c. GitHub Issue の作成
 
-**前提条件:** `requirements.md` と `implementation-plan.md` の両方が `status: completed` であること。
+**前提条件:** `requirements.md` と `implementation-plan.md` が `status: completed`（UI を伴う機能は `design-spec.md` も `completed`/`locked`）であること。
 
 **親Issue:**
 
@@ -374,6 +405,7 @@ EOF
 
 ユーザーに以下を報告する：
 - 作成した要件定義書のパス
+- （UIを伴う場合）design-spec のパスと確定状況
 - 作成した実装手順書のパス
 - 親IssueのURL
 - 子Issue一覧（番号・タイトル・URL）

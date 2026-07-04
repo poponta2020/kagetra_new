@@ -1,7 +1,6 @@
 ---
 name: design-screen
-description: 任意の画面の見た目を Claude Design (claude.ai/design) で見ながら作り込む汎用リデザインフロー。対象画面の実トークンを抽出→HTMLモックを Kagetra Design System に push→ユーザーと往復で調整→確定したら design-spec.md に落として /define-feature・/implement に渡す。画面のUIを変えたい・見づらいUIを直したい・新画面の見た目を試作したいときに /design-screen で使用する。
-disable-model-invocation: true
+description: 任意の画面の見た目を Claude Design (claude.ai/design) で見ながら作り込む汎用リデザインフロー。対象画面の実トークンを抽出→HTMLモックを Kagetra Design System に push→ユーザーと往復で調整→確定したら design-spec.md に落として /define-feature・/implement に渡す。画面のUIを変えたい・見づらいUIを直したい・新画面の見た目を試作したいときに /design-screen で使用する。/define-feature の収束ループからも明示的に呼ばれる（そのため model-invocable）。
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Write, Edit, AskUserQuestion, DesignSync
 argument-hint: [対象画面 — ルート(/players/[id])・コンポーネントパス・または新規画面の説明]
