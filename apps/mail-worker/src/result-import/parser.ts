@@ -718,6 +718,9 @@ export function parseResultExcel(sheets: SheetData[]): ParsedClass[] {
   const order: string[] = []
 
   for (const sheet of sheets) {
+    // 練習シート(例:「対戦結果表_E級練習」)は本番の級と同じ className に解決されて
+    // 上記 merge 規則で本番参加者へ合流してしまうため、結果対象外として丸ごと skip。
+    if (sheet.name.includes('練習')) continue
     const parsed = parseSheet(sheet)
     for (const cls of parsed) {
       const existing = byClassName.get(cls.className)
