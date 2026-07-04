@@ -51,4 +51,5 @@ metadata:
 - **⑥フリップ群**: 36ペアflip+枚数補正5(いずれも正側現値=提案値を事前裏取り)+t1547相手補正(m834895 武藤374933→渡邊374781・opponent_nameも更新)。read-back=36ペアwin/lose整合・5ペアsd対称・t1547ミラー完全成立(両側sd7)
 - **新発見N-6=t788除外は保留**: 対象class 5502は個人77人+**団体34チーム102対戦の混在**(承認済み2チーム除外では32チーム残存+他団体opponent参照4行dangling)。一括除外案を台帳N-6に記録、ユーザー判断待ち。※団体player 7件は他大会participation共有→players削除禁止
 - **⑥⑦後グローバル検証PASS**: 矛盾ペア73→**37**(t1441=14/t1495=13/t788=1/HTML期保留9)・フリップ済16大会残0・totals不変。**新発見N-7=walkover非正規形531件**(opponent_name等が非NULLのレガシー・41大会分散・⑦とは別系統・低優先)
-- 残GO候補=t788一括除外/N-2二重2件/④大垣+⑥構造的27/⑤新パス。バックアップ=c:/tmp/dq/tier2/bk_{reingest3,t7_*,t6_}*_2026-07-04.csv・as-applied SQL=同dir t7_apply/t6_apply_2026-07-04.sql
+- **④恒久ガード=PR#266 ship済(2026-07-04)**: round-cell.ts LOSE_MARK_TOKEN（全角Ｘ/ｘはNFKCでASCII X/x化→ローマ字名誤爆を避け単独トークン判定）＋parser.ts 練習シートskip。quickfix→Codex 1R(high) pass→CI green→auto-ship。mail-worker 414 tests
+- 残GO候補=t788一括除外/N-2二重2件/④大垣6大会再取込+⑥構造的27(パーサは修正済・再取込のみ残)/⑤新パス。バックアップ=c:/tmp/dq/tier2/bk_{reingest3,t7_*,t6_}*_2026-07-04.csv・as-applied SQL=同dir t7_apply/t6_apply_2026-07-04.sql
