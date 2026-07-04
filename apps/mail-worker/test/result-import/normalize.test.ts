@@ -44,6 +44,12 @@ describe('parseResultChar', () => {
     expect(parseResultChar('◯')).toBe('win'))
   it('parses × as lose', () => expect(parseResultChar('×')).toBe('lose'))
   it('parses ● (U+25CF, 負 in some 成績表) as lose', () => expect(parseResultChar('●')).toBe('lose'))
+  it('parses Ｘ (U+FF38, 大垣大会 成績表の負けマーク) as lose', () => expect(parseResultChar('Ｘ')).toBe('lose'))
+  it('parses ｘ (U+FF58) as lose', () => expect(parseResultChar('ｘ')).toBe('lose'))
+  it('parses X (ASCII) as lose', () => expect(parseResultChar('X')).toBe('lose'))
+  it('parses x (ASCII) as lose', () => expect(parseResultChar('x')).toBe('lose'))
+  it('does not misfire on romaji names like "Alex"', () => expect(parseResultChar('Alex')).toBeNull())
+  it('does not misfire on "XX" (single mark only)', () => expect(parseResultChar('XX')).toBeNull())
   it('returns null for empty/unknown', () => {
     expect(parseResultChar('')).toBeNull()
     expect(parseResultChar('-')).toBeNull()
