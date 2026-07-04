@@ -56,6 +56,36 @@ describe('parseRoundCellText', () => {
     })
   })
 
+  it('treats a standalone 全角Ｘ (U+FF38, NFKC→X) as lose and strips it (大垣系成績表)', () => {
+    expect(parseRoundCellText('相手花子 Ｘ 6')).toEqual({
+      result: 'lose',
+      scoreDiff: 6,
+      status: 'normal',
+      opponentName: '相手花子',
+      empty: false,
+    })
+  })
+
+  it('treats a standalone 全角ｘ (U+FF58, NFKC→x) as lose and strips it', () => {
+    expect(parseRoundCellText('ｘ 9 相手太郎')).toEqual({
+      result: 'lose',
+      scoreDiff: 9,
+      status: 'normal',
+      opponentName: '相手太郎',
+      empty: false,
+    })
+  })
+
+  it('does NOT treat x inside a romaji opponent name as a lose mark', () => {
+    expect(parseRoundCellText('○ 5 Alex')).toMatchObject({
+      result: 'win',
+      scoreDiff: 5,
+      opponentName: 'Alex',
+    })
+    // no mark at all + name starting with X → still no result (round skipped)
+    expect(parseRoundCellText('6 Xavier').result).toBe(null)
+  })
+
   it('collapses heavy whitespace/newlines (HTML cell shape)', () => {
     expect(parseRoundCellText('\n\t\t○\n\t\t4\n\t\t相手花子\n')).toEqual({
       result: 'win',

@@ -14,6 +14,10 @@ export interface ParsedRoundCell {
 
 const WIN_MARK = /[○〇◯]/ // ○ U+25CB, 〇 U+3007, ◯ U+25EF (NFKC で畳まれない別字)
 const LOSE_MARK = /[×✕●]/ // × U+00D7, ✕ U+2715, ● U+25CF (used as 負 in some 成績表)
+// 全角Ｘ(U+FF38)/ｘ(U+FF58) も負けマークに使われる(大垣系成績表)が、normalizeText の
+// NFKC で ASCII X/x に畳まれて届くため文字クラスには足せない — ローマ字の相手名
+// (例: "Alex") の x に誤爆する。単独トークンの場合のみ負けマークとして扱う。
+const LOSE_MARK_TOKEN = /(?:^|\s)[Xx](?:\s|$)/
 
 /**
  * Parse the text content of one "round" cell into a structured match.
@@ -47,7 +51,7 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
   // Result from an explicit ○/× mark; fall back to bye/forfeit semantics.
   let result: 'win' | 'lose' | null = null
   if (WIN_MARK.test(text)) result = 'win'
-  else if (LOSE_MARK.test(text)) result = 'lose'
+  else if (LOSE_MARK.test(text) || LOSE_MARK_TOKEN.test(text)) result = 'lose'
   if (result === null && isWalkover) result = 'win' // 不戦勝 = 進出 = win
   if (result === null && isForfeit) result = 'lose' // 棄権 = the withdrawing player loses
 
@@ -60,7 +64,9 @@ export function parseRoundCellText(raw: string): ParsedRoundCell {
     .replace(/[○〇◯×✕●]/g, ' ')
     .replace(/不戦勝?|棄権/g, ' ')
     .split(/\s+/)
-    .filter((t) => t.length > 0)
+    // 単独トークンの X/x は負けマーク(NFKC 済みの全角Ｘ/ｘ)なので相手名から落とす。
+    // 名前の一部の x ("Alex" 等) はトークンが 1 文字でないため保持される。
+    .filter((t) => t.length > 0 && t !== 'X' && t !== 'x')
 
   // Always lift the first standalone integer token (枚数) out of the name — even
   // for walkover/forfeit compound cells like "不戦 ○ 1 相手" / "棄権 × 4 相手" — so the

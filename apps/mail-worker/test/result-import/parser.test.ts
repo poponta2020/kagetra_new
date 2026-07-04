@@ -229,6 +229,29 @@ describe('parseResultExcel — all non-signature sheets', () => {
   })
 })
 
+// 練習シートは本番の級と同じ className に解決されて merge 規則で本番参加者へ
+// 合流してしまう(東京東会「対戦結果表_E級練習」の実害)ため、丸ごと skip する。
+describe('parseResultExcel — sheets named 練習 are skipped', () => {
+  const PRACTICE_SHEET: SheetData = makeSheet('対戦結果表_D1級練習', [
+    ['D1', null, null, null, null, null],
+    [null, null, null, '1回戦', null, null],
+    ['No', '選手名', '所属', '相手', '枚数', '勝敗'],
+    ['1', '練習選手甲', '練習会', '練習選手乙', '3', '○'],
+    ['2', '練習選手乙', '練習会', '練習選手甲', '3', '×'],
+  ])
+
+  it('does not merge a 練習 sheet into the real class of the same name', () => {
+    const classes = parseResultExcel([STANDARD_SHEET, PRACTICE_SHEET])
+    expect(classes).toHaveLength(1)
+    expect(classes[0]?.participants).toHaveLength(4)
+    expect(classes[0]?.participants.some((p) => p.name.startsWith('練習選手'))).toBe(false)
+  })
+
+  it('returns empty when only 練習 sheets are present', () => {
+    expect(parseResultExcel([PRACTICE_SHEET])).toEqual([])
+  })
+})
+
 // Codex R4 blocker: a class split across two sheets (same derived className)
 // must MERGE participants, not silently drop the second sheet.
 describe('parseResultExcel — duplicate className across sheets is merged', () => {
