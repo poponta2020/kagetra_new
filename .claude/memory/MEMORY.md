@@ -9,7 +9,7 @@
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層は後にDrizzle化済み(下記参照)**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
 - [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)。**現在はDrizzle化+本番投入済み、short_name(通称)も180系列backfill済**
-- [player-tournament-shortname 実装完了(2026-07-05)](impl_player_tournament_shortname.md) — 選手検索一覧+戦績詳細の大会名を通称+本人出場級に変更。4タスク完了・PR未作成。worktree=C:/tmp/impl-player-tournament-shortname
+- [player-tournament-shortname shipped(2026-07-05)](impl_player_tournament_shortname.md) — 選手検索一覧+戦績詳細の大会名を通称+本人出場級に変更。PR#273 merge、Issue#268-272全クローズ
 - [リハDB全是正(2026-06-26)](project_rehearsal_db_audit.md) — 20監査GREENで本番投入済。0035以降migration未適用に注意
 - [players ゴミ行クリーンアップ(リハ)](project_players_garbage_cleanup.md) — ヘッダ/団体削除・復元。再現=_reresolve.mts
 - [一括投入の設計方針](project_bulk_result_import_design.md) — 開催×級identity・訂正版優先dedup・リハ+冪等+read-back

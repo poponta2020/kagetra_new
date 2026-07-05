@@ -1,6 +1,6 @@
 ---
 name: impl_player_tournament_shortname
-description: player-tournament-shortname実装完了(PR未作成)。選手検索結果一覧+戦績詳細画面の大会名表示を通称(short_name)+本人出場級に変更。Issue親#268/子#269-272(全closeは次PRマージ時)。design-spec不要(design_required:false)
+description: player-tournament-shortname完了(PR#273 shipped)。選手検索結果一覧+戦績詳細画面の大会名表示を通称(short_name)+本人出場級に変更。Issue親#268/子#269-272全クローズ。design-spec不要(design_required:false)
 metadata:
   node_type: memory
   type: project
@@ -26,9 +26,7 @@ metadata:
 - `docs/features/player-tournament-shortname/implementation-plan.md`（completed, 4タスク）
 - Issue: 親#268、子#269(純関数)/#270(クエリ層)/#271(戦績詳細)/#272(検索一覧)
 
-## 実装完了（2026-07-05, /implement）
-- ブランチ `feature/player-tournament-shortname`、worktree `C:/tmp/impl-player-tournament-shortname`（削除しない・prepare-pr/ship継続で使用）。
-- 4タスク全完了・全コミットmainへ未マージ（PR未作成の時点）: タスク1(#269) `tournamentLabel.ts`+テスト新設 → タスク2(#270) `queries.ts`拡張+テスト3件追加 → タスク3(#271) `page.tsx`のローカルstripKai撤去 → タスク4(#272) `PlayerResultRow.tsx`差し替え+テスト更新(既存アサーション変更含む)。
-- 全タスクmainのSonnetで直接実装（task-implementer委譲なし。仕様は完全に固まっていたが影響範囲が薄く小さいため主エージェントが直接着手）。
-- 落とし穴: `docs/features/player-tournament-shortname/`がメイン作業ツリーにuntrackedのまま（define-featureはcommitしない）で、originから作ったworktreeに無かった→手動cp+commitで補完（詳細は[[feedback_define_feature_docs_uncommitted]]）。
-- 全テストgreen（`pnpm --filter web test`/`check-types`）。次は `/prepare-pr feature/player-tournament-shortname` → auto-review-loop。
+## 実装〜出荷完了（2026-07-05）
+- 4タスク全完了（タスク1(#269) `tournamentLabel.ts`+テスト新設 → タスク2(#270) `queries.ts`拡張+テスト3件追加 → タスク3(#271) `page.tsx`のローカルstripKai撤去 → タスク4(#272) `PlayerResultRow.tsx`差し替え+テスト更新）。全タスクmainのSonnetで直接実装（task-implementer委譲なし。影響範囲が薄く小さいため主エージェントが直接着手）。
+- 落とし穴: `docs/features/player-tournament-shortname/`がメイン作業ツリーにuntrackedのまま（define-featureはcommitしない）で、originから作ったworktreeに無かった→手動cp+commitで補完（詳細は[[feedback_define_feature_docs_uncommitted]]）。ship時のmain ff-onlyでも同名untrackedファイルとの衝突が再発（内容確認の上で削除して解消）。
+- **PR #273**: auto-review-loop 1R(effort=high, diff541行/9ファイル) pass・指摘0（Codexが一時ChatGPTクォータ上限に達し1回リトライ）。CI green→`/ship`でmerge `a207d06`・Issue親#268+子#269-272全自動クローズ。worktree削除済。
