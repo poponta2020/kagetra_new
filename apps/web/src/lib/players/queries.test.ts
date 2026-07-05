@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { tournamentParticipants } from '@kagetra/shared/schema'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
@@ -909,6 +910,104 @@ describe('getPlayerRecord — ランキングドリルダウン絞り込み', ()
     expect(rec.championships).toBe(2)
     expect(rec.currentGrade).toBe('B')
     expect(rec.currentAffiliation).toBe('最新会')
+  })
+})
+
+describe('searchPlayers / getPlayerRecord — 大会シリーズ通称（shortName）＋出場級', () => {
+  it('series に short_name あり：searchPlayers の lastShortName/lastGrade、getPlayerRecord の participations[].shortName が返る', async () => {
+    // 「第N回<系列名>」の大会名で autoResolveEdition が回次をパースし系列に完全一致 → edition
+    // を link（apps/web/src/lib/stats/tournaments.test.ts §② と同じ仕込み方）。
+    await testDb.execute(sql`INSERT INTO tournament_series (name, short_name) VALUES ('大阪大会', '大阪')`)
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('A級', 'A', [
+            {
+              seqNo: 1,
+              name: '通称太郎',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              matches: [],
+            },
+          ]),
+        ],
+      },
+      { name: '第1回大阪大会', eventDate: '2026-04-01' },
+    )
+
+    const found = (await searchPlayers('通称太郎'))[0]!
+    expect(found.lastShortName).toBe('大阪')
+    expect(found.lastGrade).toBe('A')
+
+    const rec = (await getPlayerRecord(found.id))!
+    expect(rec.participations[0]!.shortName).toBe('大阪')
+  })
+
+  it('edition 未紐付き（系列に一致しない大会名）：lastShortName/shortName は null', async () => {
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('B級', 'B', [
+            {
+              seqNo: 1,
+              name: '無名次郎',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              matches: [],
+            },
+          ]),
+        ],
+      },
+      { name: '無名大会', eventDate: '2026-04-01' },
+    )
+
+    const found = (await searchPlayers('無名次郎'))[0]!
+    expect(found.lastShortName).toBeNull()
+    expect(found.lastGrade).toBe('B')
+
+    const rec = (await getPlayerRecord(found.id))!
+    expect(rec.participations[0]!.shortName).toBeNull()
+  })
+
+  it('series に紐付くが short_name 未設定：lastShortName/shortName は null（正式名称フォールバックは表示層の責務）', async () => {
+    await testDb.execute(sql`INSERT INTO tournament_series (name) VALUES ('無称大会')`)
+    await seedTournament(
+      {
+        parserVersion: '1.0.0',
+        classes: [
+          classWith('C級', 'C', [
+            {
+              seqNo: 1,
+              name: '未設定三郎',
+              nameKana: null,
+              affiliation: null,
+              prefecture: null,
+              dan: null,
+              memberNo: null,
+              finalRank: null,
+              matches: [],
+            },
+          ]),
+        ],
+      },
+      { name: '第1回無称大会', eventDate: '2026-04-01' },
+    )
+
+    const found = (await searchPlayers('未設定三郎'))[0]!
+    expect(found.lastShortName).toBeNull()
+
+    const rec = (await getPlayerRecord(found.id))!
+    expect(rec.participations[0]!.shortName).toBeNull()
   })
 })
 

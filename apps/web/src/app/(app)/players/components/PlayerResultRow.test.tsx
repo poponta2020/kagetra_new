@@ -15,6 +15,8 @@ function player(overrides: Partial<PlayerSearchResult> = {}): PlayerSearchResult
     currentGrade: 'A',
     lastEventDate: '2026-06-01',
     lastTournamentName: '第40回高松宮記念杯',
+    lastShortName: null,
+    lastGrade: null,
     lastResult: '優勝',
     ...overrides,
   }
@@ -40,10 +42,34 @@ describe('PlayerResultRow', () => {
   it('最終出場を YYYY/MM＋大会名＋結果で 1 行集約し、入賞は藍（brand-fg）', () => {
     renderRow({ lastEventDate: '2026-05-01', lastTournamentName: '第72回全日本かるた選手権', lastResult: '準優勝' })
     expect(screen.getByText('2026/05')).toBeTruthy()
-    expect(screen.getByRole('link').textContent).toContain('第72回全日本かるた選手権')
+    // shortName 未設定＝フォールバック（「第N回」除去）＋級（デフォルト null＝級表示なし）
+    expect(screen.getByRole('link').textContent).toContain('全日本かるた選手権')
     const res = screen.getByText('準優勝')
     expect(res.className).toContain('text-brand-fg')
     expect(res.className).not.toContain('text-ink-muted')
+  })
+
+  it('通称（shortName）があれば通称＋出場級で表示する（「第N回」も正式名称も出さない）', () => {
+    renderRow({
+      lastTournamentName: '第72回全日本かるた選手権',
+      lastShortName: '全日本',
+      lastGrade: 'A',
+      lastResult: '準優勝',
+    })
+    expect(screen.getByRole('link').textContent).toContain('全日本A')
+    expect(screen.getByRole('link').textContent).not.toContain('第72回')
+    expect(screen.getByRole('link').textContent).not.toContain('全日本かるた選手権')
+  })
+
+  it('通称が無ければ正式名称から「第N回」を除去したもの＋出場級で表示する', () => {
+    renderRow({
+      lastTournamentName: '第72回全日本かるた選手権',
+      lastShortName: null,
+      lastGrade: 'B',
+      lastResult: '準優勝',
+    })
+    expect(screen.getByRole('link').textContent).toContain('全日本かるた選手権B')
+    expect(screen.getByRole('link').textContent).not.toContain('第72回')
   })
 
   it('結果が無い最終出場は「記録なし」を砂ミュートで出す（藍にしない）', () => {
