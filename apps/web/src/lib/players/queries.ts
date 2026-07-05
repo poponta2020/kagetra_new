@@ -5,6 +5,8 @@ import {
   players,
   tournamentClasses,
   tournamentParticipants,
+  tournamentSeries,
+  tournamentSeriesEditions,
   tournaments,
 } from '@kagetra/shared/schema'
 import { normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
@@ -35,6 +37,10 @@ export interface PlayerSearchResult {
   lastEventDate: string | null
   /** 最終出場の大会名。参加がなければ null。 */
   lastTournamentName: string | null
+  /** 最終出場大会が紐づくシリーズの通称（tournament_series.short_name）。未紐付き/未設定は null。 */
+  lastShortName: string | null
+  /** 最終出場での本人の出場級（大会全体の開催級ではない）。参加がなければ null。 */
+  lastGrade: 'A' | 'B' | 'C' | 'D' | 'E' | null
   /**
    * 最終出場の結果表示：①導出 `derived_bracket`→ラベル（優勝/準優勝/ベストN）
    * ②生 `final_rank`（例「3位」）③どちらも無ければ null（＝記録なし）。詳細画面の
@@ -63,6 +69,8 @@ export interface PlayerParticipationView {
   participantId: number
   tournamentId: number
   tournamentName: string
+  /** 大会シリーズの通称（tournament_series.short_name）。未紐付き/未設定は null。 */
+  shortName: string | null
   eventDate: string | null
   className: string
   grade: 'A' | 'B' | 'C' | 'D' | 'E' | null
@@ -148,10 +156,14 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
       finalRank: tournamentParticipants.finalRank,
       eventDate: tournaments.eventDate,
       tournamentName: tournaments.name,
+      grade: tournamentClasses.grade,
+      shortName: tournamentSeries.shortName,
     })
     .from(tournamentParticipants)
     .innerJoin(tournamentClasses, eq(tournamentClasses.id, tournamentParticipants.classId))
     .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+    .leftJoin(tournamentSeriesEditions, eq(tournamentSeriesEditions.id, tournaments.editionId))
+    .leftJoin(tournamentSeries, eq(tournamentSeries.id, tournamentSeriesEditions.seriesId))
     .where(eq(tournamentParticipants.playerId, players.id))
     .orderBy(sql`${tournaments.eventDate} desc nulls last`, desc(tournaments.id))
     .limit(1)
@@ -183,6 +195,8 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
       affiliation: latest.affiliation,
       lastEventDate: latest.eventDate,
       lastTournamentName: latest.tournamentName,
+      lastShortName: latest.shortName,
+      lastGrade: latest.grade,
       lastBracket: latest.derivedBracket,
       lastFinalRank: latest.finalRank,
       participationCount,
@@ -212,6 +226,8 @@ export async function searchPlayers(query: string): Promise<PlayerSearchResult[]
     currentGrade: r.currentGrade,
     lastEventDate: r.lastEventDate,
     lastTournamentName: r.lastTournamentName,
+    lastShortName: r.lastShortName,
+    lastGrade: r.lastGrade,
     // 最終出場の結果：①導出 bracket→ラベル ②生 final_rank ③null（＝記録なし）。
     // 導出は詳細画面 rank と単一ソース（derived_bracket は materialize 時に確定・
     // 保存値 == 詳細 rankBracket の不変条件を queries.test で担保済み）。
@@ -320,6 +336,15 @@ export async function getPlayerRecord(
               with: {
                 tournament: {
                   columns: { id: true, name: true, eventDate: true },
+                  with: {
+                    edition: {
+                      with: {
+                        series: {
+                          columns: { shortName: true },
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -410,6 +435,7 @@ export async function getPlayerRecord(
       participantId: p.id,
       tournamentId: p.class.tournament.id,
       tournamentName: p.class.tournament.name,
+      shortName: p.class.tournament.edition?.series?.shortName ?? null,
       eventDate: p.class.tournament.eventDate,
       className: p.class.className,
       grade: p.class.grade,
