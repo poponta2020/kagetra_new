@@ -28,7 +28,7 @@ status: completed
 - **対応Issue:** #270
 
 ### タスク3: 戦績詳細画面 `/players/[id]` の表示差し替え
-- [ ] 完了
+- [x] 完了
 - **概要:** ローカル `stripKai` を撤去し、`formatTournamentLabel` を使って年別大会見出しの `title` を組み立てる。通称が使えない大会は現行と同じ見た目（回帰なし）。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/players/[id]/page.tsx` — ローカル `stripKai` 関数定義を削除。`title: \`${stripKai(part.tournamentName)}${part.grade ?? ''}\`` を `title: formatTournamentLabel({ name: part.tournamentName, shortName: part.shortName, grade: part.grade })` に置換（`tournamentLabel.ts` から import）。
