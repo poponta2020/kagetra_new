@@ -5,7 +5,7 @@
 
 ## Project
 - [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md
-- [⭐本番結果データ点検 Tier2(2026-07-04)](project_prod_result_health_audit.md) — 台帳#1-21適用済(read-back全green)。PR#267(parseResultChar全角Ｘ/ｘ)ship→大垣t742/767/791再取込完了(新t1562-1564)=④6/6完遂・totals 819,004。見送り=t1459(別人姓切詰)のみ。残=⑤新パス(母数14,944・**承認済→実装待ち・DESIGN_tier2-05**)。正典=result-fix-ledger.md
+- [⭐本番結果データ点検 Tier2(2026-07-05)](project_prod_result_health_audit.md) — 台帳#1-22適用済(read-back全green)。**⑤相手未解決 一括再解決backfill完了(台帳#22・2026-07-05)**: _t5reresolve.mtsで9,275件UPDATE・opp_null_normal 14,944→5,669(理論値一致・矛盾/重複増0・totals不変・ミラー欠落−283)・独立SQL全件検証+3経路read-back一致・backup全revert可。①〜⑧全消化(残=⑥保留9/⑧原本なし88/materialize Pass2 T2追加は別PR任意)。totals 1,484/365,706/819,004。正典=result-fix-ledger.md
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層はDrizzle非定義=本番db:push禁止**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
 - [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)・取込機能/Drizzle化作らない方針
