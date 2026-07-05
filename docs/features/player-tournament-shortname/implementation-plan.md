@@ -37,7 +37,7 @@ status: completed
 - **対応Issue:** #271
 
 ### タスク4: 選手検索結果一覧の表示差し替え（`PlayerResultRow`）
-- [ ] 完了
+- [x] 完了
 - **概要:** 「最終出場：YYYY/MM（大会名 結果）」の大会名部分を `formatTournamentLabel` 経由の表示に差し替え、級を新規に付加する。`lastTournamentName` が null＝出場記録なし、の分岐ロジックは変更しない。
 - **変更対象ファイル:**
   - `apps/web/src/app/(app)/players/components/PlayerResultRow.tsx` — `{player.lastTournamentName}` の直接表示を `{formatTournamentLabel({ name: player.lastTournamentName, shortName: player.lastShortName, grade: player.lastGrade })}` に置換（`lastTournamentName` は null チェック済みの分岐内なので non-null として渡せる）。
