@@ -17,7 +17,7 @@ status: completed
 - **対応Issue:** #269
 
 ### タスク2: クエリ層の拡張（`getPlayerRecord` / `searchPlayers`）＋テスト【テスト先行】
-- [ ] 完了
+- [x] 完了
 - **概要:** 通称解決（`tournaments.edition_id → tournament_series_editions.series_id → tournament_series.short_name`）を両クエリに追加し、戻り値の型に通称・級フィールドを足す。既存フィールド（`tournamentName`/`lastTournamentName` 等）は変更しない（後方互換）。
 - **変更対象ファイル:**
   - `apps/web/src/lib/players/queries.ts`
