@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getPlayerName, getPlayerRecord, type PlayerMatchView } from '@/lib/players/queries'
+import { formatTournamentLabel } from '@/lib/players/tournamentLabel'
 import { buildRankingHref, parseRankingParams } from '../ranking/metrics'
 import { BackButton } from './BackButton'
 import {
@@ -20,11 +21,6 @@ export const dynamic = 'force-dynamic'
  * sticky タイムライン（展開＝その年の全大会＋試合表）。順位は対戦から導出
  * （queries 側）、相手名タップでその選手の戦績へ（R1, 解決済みのみ）。
  */
-
-/** 「第N回」接頭を除去（全角数字も）。 */
-function stripKai(name: string): string {
-  return name.replace(/^第[0-9０-９]+回\s*/, '')
-}
 
 /** 枚数+勝敗を1トークン化。normal は ○|差| / ×|差|、不戦勝・棄権は語で。 */
 function scoreToken(m: PlayerMatchView): {
@@ -130,7 +126,11 @@ export default async function PlayerDetailPage({
     group.tournaments.push({
       participantId: part.participantId,
       dateLabel,
-      title: `${stripKai(part.tournamentName)}${part.grade ?? ''}`,
+      title: formatTournamentLabel({
+        name: part.tournamentName,
+        shortName: part.shortName,
+        grade: part.grade,
+      }),
       affiliation: part.affiliation,
       rank: part.rank,
       rankEmphasis:
