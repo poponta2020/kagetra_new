@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import type { PlayerSearchResult } from '@/lib/players/queries'
+import { formatTournamentLabel } from '@/lib/players/tournamentLabel'
 
 /**
  * 最終出場が「引退の気配」に見えるまで古いと判定する境界年数。現在年から数えて
@@ -75,7 +76,12 @@ export function PlayerResultRow({
               >
                 {yearMonth}
               </span>
-              （{player.lastTournamentName}{' '}
+              （
+              {formatTournamentLabel({
+                name: player.lastTournamentName,
+                shortName: player.lastShortName,
+                grade: player.lastGrade,
+              })}{' '}
               <span
                 className={cn(
                   hasResult ? 'font-semibold text-brand-fg' : 'font-normal text-ink-muted',
