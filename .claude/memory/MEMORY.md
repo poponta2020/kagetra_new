@@ -5,10 +5,11 @@
 
 ## Project
 - [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md
-- [⭐本番結果データ点検 Tier2(2026-07-05)](project_prod_result_health_audit.md) — 台帳#1-22適用済(read-back全green)。**⑤相手未解決 一括再解決backfill完了(台帳#22・2026-07-05)**: _t5reresolve.mtsで9,275件UPDATE・opp_null_normal 14,944→5,669(理論値一致・矛盾/重複増0・totals不変・ミラー欠落−283)・独立SQL全件検証+3経路read-back一致・backup全revert可。①〜⑧全消化(残=⑥保留9/⑧原本なし88/materialize Pass2 T2追加は別PR任意)。totals 1,484/365,706/819,004。正典=result-fix-ledger.md
-- [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層はDrizzle非定義=本番db:push禁止**。接続手順=c:/tmp/HANDOVER_bulk_load.md
+- [⭐本番結果データ点検 Tier2(2026-07-05)](project_prod_result_health_audit.md) — 台帳#1-22適用済(read-back全green)。⑤相手未解決backfill完了(9,275件UPDATE・opp_null 14,944→5,669)。**次=⑨欠け大会の回収(起票2026-07-05)＝残5,669の最終処分は⑨完了後へ先送り**。5,669中身=REFERENCE_相手未解決5669件・⑨計画=PLAN_tier2-09(完全欠損147回次〈実効回収≈ミュンヘン+順位戦6のみ〉+部分欠損17大会〈全滅再パース4/名簿欠落13〉)。引継ぎ=c:/tmp/dq/tier2/HANDOVER_tier2-09_next_session.md。totals 1,484/365,706/819,004。正典=result-fix-ledger.md
+- [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層は後にDrizzle化済み(下記参照)**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
-- [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)・取込機能/Drizzle化作らない方針
+- [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)。**現在はDrizzle化+本番投入済み、short_name(通称)も180系列backfill済**
+- [player-tournament-shortname 実装完了(2026-07-05)](impl_player_tournament_shortname.md) — 選手検索一覧+戦績詳細の大会名を通称+本人出場級に変更。4タスク完了・PR未作成。worktree=C:/tmp/impl-player-tournament-shortname
 - [リハDB全是正(2026-06-26)](project_rehearsal_db_audit.md) — 20監査GREENで本番投入済。0035以降migration未適用に注意
 - [players ゴミ行クリーンアップ(リハ)](project_players_garbage_cleanup.md) — ヘッダ/団体削除・復元。再現=_reresolve.mts
 - [一括投入の設計方針](project_bulk_result_import_design.md) — 開催×級identity・訂正版優先dedup・リハ+冪等+read-back
@@ -79,6 +80,7 @@
 - [worktree vitestのtest DB前提](reference_worktree_vitest_db_setup.md) — .envコピー必須/127.0.0.1/隔離DBはpg_dump schemaで種化
 
 ## Feedback
+- [define-feature成果物がuntrackedのままworktreeに欠落](feedback_define_feature_docs_uncommitted.md) — /define-featureはgit commitしない。/implementのworktree作成直後に存在確認→無ければcp+commit
 - [ボトムシート下端隠れ](feedback_bottom_sheet_url_bar_hidden.md) — createPortal(body)+.modal-overlay-h(svh)で根治。新規は最初からこの形
 - [ツール呼び出しantml:接頭辞必須](feedback_tool_call_antml_prefix.md) — 落とすと生テキスト露出
 - [UIリデザインはdesign-specが要件成果物](feedback_design_spec_is_requirement_for_ui.md) — design-screen後にdefine-featureを回さない
