@@ -5,7 +5,7 @@
 
 ## Project
 - [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md
-- [⭐本番結果データ点検 Tier2(2026-07-05)](project_prod_result_health_audit.md) — 台帳#1-22適用済(read-back全green)。⑤相手未解決backfill完了(9,275件UPDATE・opp_null 14,944→5,669)。**次=⑨欠け大会の回収(起票2026-07-05)＝残5,669の最終処分は⑨完了後へ先送り**。5,669中身=REFERENCE_相手未解決5669件・⑨計画=PLAN_tier2-09(完全欠損147回次〈実効回収≈ミュンヘン+順位戦6のみ〉+部分欠損17大会〈全滅再パース4/名簿欠落13〉)。引継ぎ=c:/tmp/dq/tier2/HANDOVER_tier2-09_next_session.md。totals 1,484/365,706/819,004。正典=result-fix-ledger.md
+- [⭐本番結果データ点検 Tier2(2026-07-06)](project_prod_result_health_audit.md) — 台帳#1-40適用済(read-back全green)。**⑨session4でA/B/C/D完遂**: A/B=confirmed-dead+メタ誤り+t1459を台帳クローズ(#39・DB書込なし)／C=残opp_nullを大会別a/b/c仕分け(新[REFERENCE_相手未解決3868件])／D=兵庫16型再発監査で新規隠れ級ゼロ／**宇佐神宮t702/t726の姓のみ異体字ミラーbackfill 242件relink(#40・totals中立)**。opp_null_normal 3,868→**3,626**。totals 1,495/368,481/823,427。次候補=(c)横展開(t801/t789/t650/t673/t745)・(b)t851千葉/鳥取の原本入手。正典=result-fix-ledger.md
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層は後にDrizzle化済み(下記参照)**。接続手順=c:/tmp/HANDOVER_bulk_load.md
 - [会員ページ=結果の正統ソース](project_karuta_member_result_source.md) — Excel/HTML排他2形式で全対戦データ。2010-26 harvest完了(c:/tmp・git外)
 - [大会シリーズマスター(series/editions)](project_tournament_series_master.md) — edition日付持たない(A)。**現在はDrizzle化+本番投入済み、short_name(通称)も180系列backfill済**
