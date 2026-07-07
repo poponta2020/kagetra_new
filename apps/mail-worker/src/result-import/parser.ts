@@ -55,6 +55,17 @@ function isPlayerNameHeader(v: string): boolean {
   return /選手名|氏名|名前/.test(s) && !/ふりがな|フリガナ|カナ|読み|かな/.test(s)
 }
 
+/**
+ * True when a "name" column value is actually a non-participant marker row rather
+ * than a real player — a repeated print-page header (選手名/氏名/...), or a bare
+ * class-code section marker (e.g. "A2級") that precedes a new sub-bracket within a
+ * sheet that stacks multiple classes back to back (兵庫大会 詳細結果 format).
+ */
+function isPhantomNameCell(v: string): boolean {
+  const s = v.replace(/\s+/g, '')
+  return isPlayerNameHeader(s) || /^[A-E]\d*級$/.test(s)
+}
+
 function isOpponentHeader(v: string): boolean {
   return /相手/.test(v)
 }
@@ -253,6 +264,10 @@ function parseDataRow(
 ): ParsedParticipant | null {
   const name = cellStr(row, colMap.playerNameCol)
   if (!name) return null
+  // Printed multi-page sheets repeat the header row (氏名/選手名 …), and sheets that
+  // stack multiple classes insert a bare class-code marker row (e.g. "A2級") before
+  // each new sub-bracket — reject both rather than importing them as participants.
+  if (isPhantomNameCell(name)) return null
 
   const seqRaw = cellStr(row, colMap.seqNoCol)
   const seqNo = seqRaw != null && /^\d+$/.test(seqRaw) ? parseInt(seqRaw, 10) : null
@@ -597,6 +612,10 @@ function parseRoundLayoutRow(
 ): ParsedParticipant | null {
   const name = cellStr(row, layout.nameCol)
   if (!name) return null
+  // Printed multi-page sheets repeat the header row, and sheets that stack multiple
+  // classes insert a bare class-code marker row (e.g. "A2級") before each new
+  // sub-bracket — reject both rather than importing them as participants.
+  if (isPhantomNameCell(name)) return null
 
   const seqRaw = cellStr(row, layout.seqNoCol)
   const seqNo = seqRaw != null && /^\d+$/.test(seqRaw) ? parseInt(seqRaw, 10) : null

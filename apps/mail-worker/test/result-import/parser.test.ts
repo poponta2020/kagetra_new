@@ -434,3 +434,64 @@ describe('deriveClassNameFromSheet title-cell fallback — no trailing block num
     expect(classes[0]!.grade).toBe('B')
   })
 })
+
+describe('parseResultExcel — bare 不戦 (own-row bye, mark in a separate column) (兵庫大会 regression)', () => {
+  it('treats bare 不戦 as walkover, not a normal match with a null opponent', () => {
+    const sheet = makeSheet('対戦結果表_A1級', [
+      [null, null, null, '1回戦', null, null, '2回戦', null, null],
+      ['No', '選手名', '所属', '相手', '枚数', '勝敗', '相手', '枚数', '勝敗'],
+      // own-row bye: opponent cell empty, score cell carries bare "不戦", mark is a separate ○
+      ['1', '不戦勝太郎', '甲会', null, '不戦', '○', '対戦次郎', '5', '○'],
+      ['2', '対戦次郎', '乙会', '不戦勝太郎', '5', '×', null, null, null],
+    ])
+    const classes = parseResultExcel([sheet])
+    const p = classes[0]!.participants.find((x) => x.name === '不戦勝太郎')!
+    expect(p.matches[0]).toMatchObject({ status: 'walkover', result: 'win', opponentName: null, scoreDiff: null })
+  })
+})
+
+describe('parseResultExcel — repeated header row mid-sheet (印刷ページ繰り返し, 兵庫18回 regression)', () => {
+  it('does not import the repeated 選手名 header row as a phantom participant', () => {
+    const sheet = makeSheet('対戦結果表_E1級', [
+      [null, null, null, '1回戦', null, null],
+      ['No', '選手名', '所属', '相手', '枚数', '勝敗'],
+      ['1', 'テスト一郎', '甲会', 'テスト二郎', '3', '○'],
+      // page break: header repeats verbatim partway through the data
+      ['No', '選手名', '所属', '相手', '枚数', '勝敗'],
+      ['2', 'テスト二郎', '乙会', 'テスト一郎', '3', '×'],
+    ])
+    const classes = parseResultExcel([sheet])
+    expect(classes).toHaveLength(1)
+    expect(classes[0]!.participants).toHaveLength(2)
+    expect(classes[0]!.participants.some((p) => p.name === '選手名')).toBe(false)
+  })
+})
+
+describe('parseResultExcel — bare class-code marker row mid-sheet (複数ブラケット結合, 兵庫18回 regression)', () => {
+  it('does not import the "A2級" section-marker row (or its "N名" count cell) as a phantom participant', () => {
+    // Matches the real 兵庫大会詳細結果 layout: 選手名 is column 0 (no leading No. column),
+    // and each sub-bracket restarts with its own class-code + count row in that same column.
+    const sheet = makeSheet('A', [
+      ['A1級', '2名', null, null, null],
+      [null, null, '1回戦', null, null],
+      ['選手名', '所属', '相手', '枚数', '勝敗'],
+      ['テスト一郎', '甲会', 'テスト二郎', '3', '○'],
+      ['テスト二郎', '乙会', 'テスト一郎', '3', '×'],
+      // next sub-bracket starts here, same sheet
+      ['A2級', '2名', null, null, null],
+      [null, null, '1回戦', null, null],
+      ['選手名', '所属', '相手', '枚数', '勝敗'],
+      ['テスト三郎', '丙会', 'テスト四郎', '5', '○'],
+      ['テスト四郎', '丁会', 'テスト三郎', '5', '×'],
+    ])
+    const classes = parseResultExcel([sheet])
+    expect(classes).toHaveLength(1)
+    expect(classes[0]!.participants).toHaveLength(4)
+    expect(classes[0]!.participants.map((p) => p.name)).toEqual([
+      'テスト一郎',
+      'テスト二郎',
+      'テスト三郎',
+      'テスト四郎',
+    ])
+  })
+})

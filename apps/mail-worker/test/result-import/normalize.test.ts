@@ -63,6 +63,9 @@ describe('parseScoreCell', () => {
   it('parses 不戦勝 as walkover', () => {
     expect(parseScoreCell('不戦勝')).toEqual({ scoreDiff: null, isWalkover: true, isForfeit: false })
   })
+  it('parses bare 不戦 (opponent-mark in a separate column) as walkover', () => {
+    expect(parseScoreCell('不戦')).toEqual({ scoreDiff: null, isWalkover: true, isForfeit: false })
+  })
   it('parses 棄権 as forfeit', () => {
     expect(parseScoreCell('棄権')).toEqual({ scoreDiff: null, isWalkover: false, isForfeit: true })
   })

@@ -75,8 +75,10 @@ export function parseScoreCell(raw: string | null | undefined): {
 } {
   if (raw == null) return { scoreDiff: null, isWalkover: false, isForfeit: false }
   const s = normalizeText(String(raw))
-  if (s === '不戦勝') return { scoreDiff: null, isWalkover: true, isForfeit: false }
-  if (s === '棄権') return { scoreDiff: null, isWalkover: false, isForfeit: true }
+  // 相手視点シートでは「不戦勝」、本人視点シートでは裸の「不戦」(勝敗マークは別列)が
+  // 使われる。round-cell.ts の parseRoundCellText と同じ部分一致に揃える。
+  if (s.includes('不戦')) return { scoreDiff: null, isWalkover: true, isForfeit: false }
+  if (s.includes('棄権')) return { scoreDiff: null, isWalkover: false, isForfeit: true }
   const n = Number(s)
   if (!isNaN(n) && Number.isInteger(n) && n >= 0) return { scoreDiff: n, isWalkover: false, isForfeit: false }
   return { scoreDiff: null, isWalkover: false, isForfeit: false }
