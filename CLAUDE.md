@@ -14,8 +14,9 @@
 - Tailwind CSS + shadcn/ui / Vitest + Playwright
 - Turborepo + pnpm / Docker Compose on AWS Lightsail
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
-- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを最大10ラウンド回し、pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で pass 時点停止／手動レビューは `/review` で VS Code Codex に切替）
-- モデル委譲: main(Fable/Opus)=判断・計画・受け入れ確認／Sonnet(`task-implementer`)=仕様確定済み実装タスク／Haiku(`Explore` を `model: haiku` 明示で)=read-heavy調査。委譲判定と作法の正典=docs/dev/model-delegation.md
+- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを回し、Codex pass 後に AC 適合チェック（acceptance-reviewer）→ pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で停止／手動レビューは `/review-manual`）
+- モデル運用: セッション既定=opusplan（Plan=Opus/実行=Sonnet）+ Advisor=Opus。要件定義・設計は `/model opus` の設計セッションで行う。サブエージェント委譲は**コンテキスト隔離・作業独立性**で判断（正典=devflow の implement スキル）。調査は機械的列挙=Explore(haiku)／判断込み=Explore(sonnet)／核心は main 自読
+- 開発スキル・エージェントは **devflow プラグイン**（poponta2020/claude-devflow）で提供。プロジェクト固有設定の正典= [.claude/project-profile.md](.claude/project-profile.md)
 
 ## 構成
 
@@ -40,20 +41,21 @@ scripts/migration/ → データ移行
 
 ## 開発ルール
 
-1. **実装前確認**: claude-mem検索→曖昧さは確認→make-plan→ユーザー承認。**計画承認後も /do-plan（または素の /claude-mem:do）の明示的な指示があるまで実装を開始しない**。/do-plan は worktree 隔離と並行作業の衝突検知込み（推奨）
+1. **実装前確認**: .claude/memory/ と docs/worklog.md を確認→曖昧さは確認→計画提示→ユーザー承認。**計画承認後もユーザーの明示的な実装開始指示（/implement 等）があるまで実装を開始しない**。実装時は worktree 隔離と並行作業の衝突検知を必ず行う
 2. **テストファースト**: APIテスト→実装→フロントテスト→実装→E2E
 3. **1PR=1機能**: 小さく、混ぜない、description(何を・なぜ・テスト方法)必須
-4. **claude-mem記録**: 設計判断/バグ修正/完了/フィードバック時に必ず
+4. **memory記録**: 設計判断/バグ修正/完了/フィードバック時に .claude/memory/ へ必ず記録（MEMORY.md 索引も更新）
 5. **破壊的変更禁止**: テスト破壊は承認必須、直接ALTER禁止、本番操作は確認
 6. **セッションプロトコル**: 開始→git pull→.claude/memory/からローカルmemoryへ同期→docs/worklog.md確認→続きから / 終了→worklog.md追記→ローカルmemoryから.claude/memory/へ同期→コミット→git push
-7. **DoD**: 実装完了→テスト(API+フロント+E2E)+CI通過+claude-mem記録→PR作成+Codexレビュー+指摘修正→最終確認(スマホ実機含む)+ship
+7. **DoD**: 実装完了→テスト(API+フロント+E2E)+CI通過+memory記録→PR作成+Codexレビュー+AC適合+指摘修正→ship（DoD ゲートは gate-dod.sh で全自動。実機確認は出荷後に本番で行い、不具合は即修正）
 8. **フェーズ品質ゲート**: 全DoD+移行確認+リグレッションなし+本番確認+総括+次Phase合意
-9. **スコープ管理**: Phase外要望はclaude-memに記録、混ぜない。ついでリファクタ禁止
+9. **スコープ管理**: Phase外要望は .claude/memory/ に記録、混ぜない。ついでリファクタ禁止
 10. **トラブル対応**: 原因確認→修正PRまたはロールバック→インシデント記録
-11. **並行作業管理**: セッション開始時にclaude-memで他ブランチの進行状況を確認。worktree作成/削除、マイグレーション番号の衝突回避、shared/の競合チェック、マージ時のリベースは全てClaude側で行う。危険な並行は警告してユーザーに確認を取る
+11. **並行作業管理**: セッション開始時に docs/worklog.md と .claude/memory/ で他ブランチの進行状況を確認。worktree作成/削除、マイグレーション番号の衝突回避、shared/の競合チェック、マージ時のリベースは全てClaude側で行う。危険な並行は警告してユーザーに確認を取る
 
 ## 開発フロー (1機能)
 
-grill-me(仕様確認) → define-feature(要件定義+計画+Issue) → ユーザー承認 → implement(worktreeで1タスクずつ実装、全タスク完了時に自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex CLIで構造化レビュー→/fix修正→再レビュー、最大10ラウンド、pass+CI green で ship まで自動) → ship(マージ+memory同期+push)。DoD チェック(/dod)を ship 前に挟みたい場合は `--no-auto-ship` で停止してから手動実行
+[設計セッション: /model opus] grill-me(仕様確認) → define-feature(要件ヒアリング→**要件承認=唯一の承認ポイント**→技術計画→implementation-plan→Issue までノンストップ。UIは design-screen と収束ループ)
+[実行セッション: opusplan+advisor] implement(**起動=実装GO**。worktreeでタスクループ→/verify で AC 実動作確認→自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex レビュー→/fix→再レビュー + AC適合チェック、pass+CI green で ship まで自動) → ship(Step 0 の DoD ゲート通過が必須。マージ+memory同期+push)
 
-実装系スキル（implement / do-plan / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、**pass かつ CI green なら ship まで自動で繋がる**（auto-ship 既定 ON、`--no-auto-ship` で auto-review-loop の pass 時点で停止）。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review` を呼ぶ。
+実装系スキル（implement / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、**pass かつ CI green なら ship まで自動で繋がる**（auto-ship 既定 ON、`--no-auto-ship` で auto-review-loop の pass 時点で停止）。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review-manual` を呼ぶ。

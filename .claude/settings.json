@@ -1,4 +1,6 @@
 {
+  "model": "opusplan",
+  "advisorModel": "opus",
   "permissions": {
     "allow": [
       "Bash",
@@ -12,22 +14,13 @@
       "WebFetch",
       "WebSearch",
       "NotebookEdit",
-      "mcp__plugin_claude-mem_mcp-search__search",
-      "mcp__plugin_claude-mem_mcp-search__get_observations",
-      "mcp__plugin_claude-mem_mcp-search__smart_outline",
-      "Edit(/.claude/skills/implement/**)",
-      "Edit(/.claude/skills/review/**)",
-      "Edit(/.claude/skills/ship/**)",
-      "Edit(/.claude/skills/dod/**)",
-      "Edit(/.claude/skills/auto-review-loop/**)",
       "Bash(codex exec:*)",
       "Bash(codex --version)",
       "Bash(git push origin main)",
       "Bash(git push origin main:main)"
     ],
     "additionalDirectories": [
-      ".claude",
-      ".claude/skills"
+      ".claude"
     ]
   }
 }

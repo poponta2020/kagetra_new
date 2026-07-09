@@ -17,8 +17,8 @@ metadata:
 **Why:** Fable/Opusは方針決め・裁定に集中させ、指示どおりの実装にはオーバースペック（Sonnet=1/3〜1/5、Haiku=1/10価格）。Web調査で「well-specified planならSonnet実行で品質維持」「曖昧タスクの丸投げ・executorのeffort不足・静かな能力ミスマッチが3大失敗」と確認し、対策（全文仕様・effort high固定・main受け入れ確認+CI+Codex後段網）を規約化。
 
 **How to apply:**
-- 配線済み: implement Step7（存在しなかった nextjs-hono-engineer 等の参照を委譲判定に差替）／do-plan Step4（claude-mem:do への指示文に【モデル委譲】ブロック）／quickfix Step1・Step6（test-automator/security-auditor の幽霊参照も撤去）／define-feature Step2／feature-flow.md「モデル階層」節／CLAUDE.md 技術スタック1行
-- 運用ルール（2026-07-04 監査で追加）: 小径修正は委譲しない・ワーカー並列は worktree 分離・スカウト要約は地図（核心ファイルは main 自読）・テスト要件は brief に必須・受け入れNG2回で委譲除外＋正典更新・claude-mem にワーカー種別を記録。task-implementer には UI 既知バグ規約と「DB書き込みはテストDB限定」を埋め込み済み
+- 配線済み: implement Step7（存在しなかった nextjs-hono-engineer 等の参照を委譲判定に差替）／quickfix Step1・Step6（test-automator/security-auditor の幽霊参照も撤去）／define-feature Step2／feature-flow.md「モデル階層」節／CLAUDE.md 技術スタック1行。（2026-07-09: claude-mem プラグイン廃止に伴い do-plan スキルは削除済み）
+- 運用ルール（2026-07-04 監査で追加）: 小径修正は委譲しない・ワーカー並列は worktree 分離・スカウト要約は地図（核心ファイルは main 自読）・テスト要件は brief に必須・受け入れNG2回で委譲除外＋正典更新・.claude/memory/ の実装記録にワーカー種別を記録。task-implementer には UI 既知バグ規約と「DB書き込みはテストDB限定」を埋め込み済み
 - **code-reviewer-jp は不採用が確定**（ユーザー判断: レビューはCodexで充足・Claude使用量を割かない・Sonnetレビュー効果に疑義）。レビュー系の提案を蒸し返さない
 - 価格（2026-07-04）: Fable $10/$50・Opus $5/$25・Sonnet 5 $3/$15（〜08-31イントロ$2/$10）・Haiku $1/$5 /MTok
 

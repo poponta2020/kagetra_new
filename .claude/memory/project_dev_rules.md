@@ -10,17 +10,17 @@ originSessionId: 7a6f3eef-c1d7-4809-af7e-04e5801e5d83
 
 **Why:** 1人開発 + AI（Claude + Codex）の体制で品質を保ちながら大規模アプリを構築するため。ルールなしだと手戻りとスコープクリープで破綻するリスクが高い。
 
-**How to apply:** 全セッションでこのルールに従う。CLAUDE.mdにも同内容を記載済み。
+**How to apply:** 全セッションでこのルールに従う。CLAUDE.mdにも同内容を記載済み。（2026-07-09: claude-mem プラグイン廃止に伴い、記録先を .claude/memory/ に統一）
 
 ### ルール一覧
-1. **実装前確認義務** — claude-mem検索 → 曖昧さは確認 → make-plan → ユーザー承認
+1. **実装前確認義務** — .claude/memory/ 確認 → 曖昧さは確認 → 計画提示 → ユーザー承認 → 明示的な実装開始指示を待つ
 2. **テストファースト** — APIテスト→実装→フロントテスト→実装→E2E
 3. **1PR = 1機能** — 小さく、混ぜない、description必須
-4. **claude-mem記録** — 設計判断/バグ修正/完了/フィードバック時に必ず
+4. **memory記録** — 設計判断/バグ修正/完了/フィードバック時に .claude/memory/ へ必ず
 5. **破壊的変更禁止** — テスト破壊は承認必須、直接ALTER禁止、本番操作は確認
 6. **セッションプロトコル** — 開始: git pull→.claude/memory/からローカルmemory同期→worklog.md確認→続きから / 終了: worklog.md追記→memory同期→コミット→push
-7. **Definition of Done** — APIテスト+フロントテスト+E2E+CI+Codexレビュー+スマホ実機+claude-mem記録
+7. **Definition of Done** — APIテスト+フロントテスト+E2E+CI+Codexレビュー+スマホ実機+memory記録
 8. **フェーズ品質ゲート** — 全DoD達成+移行確認+リグレッションなし+本番確認+総括+次Phase合意
-9. **スコープ管理** — Phase外の要望はclaude-memに記録、混ぜない。ついでリファクタ禁止
+9. **スコープ管理** — Phase外の要望は .claude/memory/ に記録、混ぜない。ついでリファクタ禁止
 10. **トラブル対応** — 原因確認→修正PRまたはロールバック→インシデント記録
 11. **並行作業管理** — 他ブランチ確認→worktree作成→競合チェック→マイグレーション番号管理→リベース。全てClaude側で処理

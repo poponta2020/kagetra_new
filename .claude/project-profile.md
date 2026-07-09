@@ -1,0 +1,95 @@
+# Project Profile — kagetra_new
+
+devflow プラグインのスキルが読む、このプロジェクトの唯一の設定ファイル。
+
+## commands
+
+テスト・lint・typecheck コマンド（gate-dod.sh・/fix・/implement が使用。リポジトリルートから実行される）
+<!-- devflow:commands -->
+```sh
+DEVFLOW_TEST_CMDS=("pnpm test")
+DEVFLOW_LINT_CMDS=("pnpm lint")
+DEVFLOW_TYPECHECK_CMDS=("pnpm check-types")
+```
+<!-- /devflow:commands -->
+
+- E2E: `pnpm test:e2e`（Playwright。テスト DB `pnpm test:db:up` が前提）。ローカルゲートでは実行せず CI が最終網
+- 単一パッケージのテストは `pnpm --filter=@kagetra/<pkg> test` で直接指定（turbo 経由は strict env の罠あり）
+
+## run
+
+- Web 起動: `pnpm dev:web`（Next.js。ローカル DB は `docker/docker-compose.yml` の postgres）
+- テスト DB: `pnpm test:db:up`（127.0.0.1:5434）→ `pnpm test:db:push`
+- 詳細な /verify 用起動レシピは未整備 — 初回の /verify 時に `/run-skill-generator` で整備すること
+
+## worktree
+
+既定（Windows: /c/tmp、Linux: /tmp）。
+
+## branches
+
+- ベースブランチ: `main`（1人開発・保護なし）。機能は `feature/<slug>` ブランチ + PR
+- `git push origin main` は `/ship` のセッション終了プロトコル（worklog・memory 同期コミット）で許可済み
+- PR マージは `gh pr merge --merge --delete-branch`
+
+## database
+
+- ローカル開発 DB: `docker exec kagetra-db psql`（Docker Compose）
+- テスト DB: `127.0.0.1:5434`（`localhost` は IPv6 で ECONNRESET になるため IP 直指定）。並行 worktree は `TEST_DATABASE_URL` で隔離
+- スキーマ管理: Drizzle ORM（`pnpm db:generate` / `db:migrate`）。**本番 DB への直接操作・db:push はユーザー確認必須**
+- 実装ワーカーの DB 書き込みは**テスト DB 限定**
+
+## prod-logs
+
+本番: Oracle Cloud（`new.hokudaicarta.com`）。デプロイは CI から `scripts/deploy/auto-deploy.sh`（SSH）。本番ログは SSH で確認する。
+
+## design-system
+
+- claude.ai/design プロジェクト名: **Kagetra Design System**
+- デザイントークン: `apps/web` の Tailwind v4 設定・globals.css
+
+## review-extra
+
+Codex レビュー・code-review に追加するプロジェクト固有観点:
+- モノレポ: `apps/web`（Next.js 15 App Router）+ `apps/api`（Hono）+ `packages/shared`（Drizzle ORM + 共有型）
+- 認証: Auth.js v5 LINE 認証・招待制・RBAC 3層（admin / vice_admin / member）
+- フロントは Server Components + Server Actions で DB 直接操作。Hono API は将来のクライアント用
+- Tailwind v4 + shadcn/ui、モバイルファースト。テスト: Vitest + Playwright
+- 招待制・身内アプリのため**本人性検証は意図的に省略**されている部分がある（過剰指摘しない）
+
+高リスクパス（レビュー effort を high に上げる対象）:
+- 認証・認可: `auth` / `permission` / `middleware` を含むパス
+- LINE 一斉配信: `line` かつ `broadcast` / `notify` / `bot`。Bot プール・招待コード関連
+- メールワーカー / AI 振り分け: `apps/mail-worker/**`
+- DB スキーマ: `packages/shared/**/schema*`、`**/drizzle/**`、`**/migrations/**`
+- P3 課金・外部 API: `amadeus` / `agoda` / `rakuten` / `travel` / `payment` を含むパス
+
+## conventions
+
+task-implementer（実装ワーカー）が厳守する実装規約:
+- pnpm + Turborepo monorepo。TypeScript strict
+- **repo に prettier 設定は無い** — 周辺コードのスタイル（シングルクォート・セミコロン無し等）を目で見て合わせる。一括フォーマッタをかけない
+- ユーザー向けエラーメッセージ・UI 文言は日本語
+- Server Action / API は認可ガード必須（`requireAdminSession()` 等の既存パターンを踏襲）。データ変更後は該当パスの `revalidatePath()` 漏れを確認
+- 参照ゼロ確認→削除する処理は `FOR UPDATE` で直列化（既存実装を踏襲）
+- module-level の状態は `globalThis` に pin する（chunk splitting 対策）
+- クライアントから import され得るコードで `node:` import を使わない（Web Crypto グローバルを使う）
+- テスト実行: `pnpm --filter` で対象 package を直接指定。vitest は `--no-file-parallelism`
+- スキーマ変更・Drizzle migration 生成が必要と判明したら**停止して報告**（main が担当）
+
+UI タスクの追加規約（実害が出た既知バグ。再発させない）:
+- ボトムシート/モーダルは `createPortal(document.body)` + 既存の `.modal-overlay-h`（svh ベース）パターンを踏襲
+- ビューポート高は vh→dvh→svh のカスケードを**専用クラス**で書く（Tailwind utility の出力順は className の並びで制御不能）
+- flex 子で `overflow-y-auto` するコンテナには `min-h-0` 必須
+- `min-h-*` と padding は border-box で合算される（必要なら calc）。arbitrary value 内のスペースは `_` でエスケープ
+- jsdom は inline style の CSS `env()` を捨てる — テストで検証する値は Tailwind arbitrary value で書く
+
+## docs
+
+- `docs/dev/feature-flow.md` — 機能開発フロー詳細
+- `docs/dev/model-delegation.md` — モデル委譲の正典
+- `docs/features/<slug>/` — 機能別 requirements / design-spec / implementation-plan
+
+## worklog
+
+`docs/worklog.md`（/ship・/auto-review-loop が追記する）
