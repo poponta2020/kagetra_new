@@ -23,22 +23,33 @@
 - [Excel positional W2](impl_result_excel_positional.md) — PR#168。「N回戦」署名fallback+誤検出4重ガード
 - [出場者DB形式パーサ修正](impl_fix_result_parser_shusshadb.md) — PR#165。ふりがな誤採用修正
 - [tournament-results 全5タスク](impl_tournament_results.md) — PR#163/#164(2026-06-20)。取込/承認/materialize/パーサの整合性決定を記録
+- [tournament-results 機能定義](project_tournament_results_def.md) — 親#157+子#158-162。実データ42件調査・ヘッダ署名駆動パーサ・$0 AI
 - [統計タブ再編 全5PR](project_senseki_stats_tab.md) — 戦績→統計4セクション化。基盤derived_bracket・朱はデータ装飾に使わない
+- [senseki-stats PR-1 基盤](impl_senseki_stats_pr1_derived_bracket.md) — derived_bracket schema/migration+materialize+backfill
+- [senseki-stats PR-2 ナビ再構成](impl_senseki_stats_pr2_nav.md) — PR#221。タブ改称+4セクションシェル+ルートscaffold
+- [senseki-stats PR-3 選手ランキング](impl_senseki_stats_pr3_ranking.md) — PR#222。getPlayerRanking 6指標+/players/ranking
+- [senseki-stats PR-4 大会統計](impl_senseki_stats_pr4_tournament_stats.md) — PR#223。getStatsOverview/Detail+メイン/図詳細画面
 - [senseki-stats PR-5 大会結果](impl_senseki_stats_pr5_tournament_results.md) — PR#229。優勝者=bracket集約・シリーズ詳細
 - [統計ランキング改修5件](project_senseki_ranking_refinements_def.md) — PR#230(2026-07-02)。デフォ直近5年/級A・現級母集団+昇段者トグル
 - [ランキングドリルダウン](impl_senseki_ranking_drilldown.md) — PR#242。URL params複写・identity分離
+- [ランキングドリルダウン機能定義](project_senseki_ranking_drilldown_def.md) — 親#236+子#237-239
 - [選手検索一覧リデザイン](impl_player_search_redesign.md) — PR#241。derived_bracket再利用・leftJoinLateral
 - [戦績詳細リデザイン](project_senseki_detail_redesign.md) — PR#183+#191。順位は対戦から導出
 - [戦績検索の所属=直近大会](impl_player_search_recent_affiliation.md) — PR#194。相関サブクエリ
 - [級別競技人口サマリー](impl_stats_grade_population.md) — PR#261。DISTINCT ON直近級(1人=1級)。turbo strict env罠→pnpm --filter直実行
+- [級別競技人口 機能定義](project_stats_grade_population_def.md) — 親#256+子#257-259。1人=1級方式へ統一
 - [枚数差統計改称+パレート化](impl_stats_pareto_rename.md) — PR#255+#260。左軸0-10%固定
 - [統計グラフ縦軸目盛修正](impl_stats_chart_yaxis_labels_fix.md) — PR#243。niceMax 1/2/5×10ⁿ
 - [統計delta改修4件](impl_senseki_stats_refinements.md) — PR#240 migration0038。short_name新設・現級から直近優勝除外
+- [統計delta改修4件 機能定義](project_senseki_stats_refinements_def.md) — 親#231+子#232-235。クロス表左寄せ/通称表示/優勝者除外/最低試合数可変
 - [大会申込一覧delta改修](impl_event_list_refinements.md) — PR#251。締切ソート/残日数3段階/申込可能フィルタ
 - [イベントdraft廃止](impl_remove_event_draft_status.md) — PR#207 migration0036。並行migration衝突→rebase+snapshot再生成が肝
 - [招待リンク会員セルフ登録](impl_invite_link_registration.md) — PR#182 migration0030。トークンはWeb Cryptoグローバル(node:crypto不可)
+- [招待リンク登録 機能定義](project_invite_link_registration_def.md) — セルフ登録→LINEログイン完結の要件・計画・Issue一式
+- [招待URL登録リデザイン](project_invite_register_redesign.md) — PR#206 merge(2026-06-30)・migration0035。全6タスク+プロフィール拡張・親#199+子#200-205
 - [Hono API無認証の穴(修正済)](project_hono_api_unauthenticated_hole.md) — PR#252でeventsルート撤去・read-back済
 - [entry-rosters基盤 3PR](impl_tournament_entry_rosters_foundation.md) — PR#193/#195/#196(0031-0034)。UIは最小・PDF名簿未対応
+- [entry-rosters 機能定義](project_tournament_entry_rosters_def.md) — editionハブ化+series/editionsのDrizzle化+名簿2型新設。親#184+子#185-190
 - [多摩大会重複削除(2022)](project_tama_duplicate_cleanup_2022.md) — 2024の999「全体」はB級唯一記録で保持
 - [設計判断まとめ](project_kagetra_new_design.md) — 技術選定却下理由・ドメインルール(未回答=不参加等)
 - [self-identify本人性検証しない](project_self_identify_verification_pending.md) — リスク受容確定。外部公開時のみ再検討
@@ -47,7 +58,9 @@
 - [PWA最小対応](project_pwa_minimal.md) — PR#49。iPhone standalone OK
 - [モバイルシェル固定](project_sticky_mobile_shell.md) — PR#64-68完了。教訓はfeedbackへ切出済
 - [event-line-broadcast](impl_event_line_broadcast_task1.md) — PR#65+#70。2Bot運用
+- [event-line-broadcast 機能定義](project_event_line_broadcast.md) — 承認済み大会案内のLINEグループ自動配信。Botプール30個方式
 - [event-lifecycle-notify](impl_event_lifecycle_notify.md) — PR#85 migration0017。同一txでflip+once-ever claim
+- [event-lifecycle-notify 機能定義](project_event_lifecycle_notify.md) — Botを申込・締切・支払い通知役へ拡張(2026-06-01)
 - [entry-notify-lottery-treasurer](impl_entry_notify_lottery_treasurer.md) — PR#118 migration0021。参加者+会計へ2通
 - [broadcast-lead-message](project_broadcast_lead_message.md) — PR#155 完全完了
 - [mail-triage-badge](project_mail_triage_badge.md) — PR#95。残=VAPID鍵+実機バッジ
@@ -57,6 +70,7 @@
 - [deploy WEB判定拡張](impl_fix_deploy_web_rebuild_on_worker_change.md) — PR#137。webはmail-workerソースをバンドル
 - [添付inline allowlist](impl_fix_mail_attachment_pwa_inline.md) — PR#139。fail-closed allowlist
 - [添付アプリ内ビューア](impl_fix_attachment_inapp_viewer.md) — PR#146。ページJPEG化+?from=復帰
+- [添付ストレージ肥大バックログ](project_attachment_storage_growth.md) — bytea無期限蓄積。対策未着手・実測先行
 - [image-cache instance分離fix](impl_fix_image_cache_module_instance.md) — PR#129。globalThis pin
 - [admin-member-create](impl_admin_member_create.md) — PR#147。FOR UPDATE+FK参照チェック
 - [tournament-title-grade-split](project_tournament_title_grade_split.md) — PR#111 migration0020。FOR UPDATEでrace直列化
@@ -77,6 +91,7 @@
 - [会員ページ資格情報](reference_karuta_member_page_credentials.md) — repo rootの.credentials.local.md(gitignored)
 - [公認大会抽選ルール](reference_karuta_kounin_taikai_lottery.md) — 出場回数「少ない」選手優先。docs/reference/
 - [codex service_tierでCLI停止](reference_codex_config_service_tier.md) — config.tomlの当該行削除で解消
+- [codex CLIの所在](reference_codex_cli_location.md) — npm globalでPATH上(2026-06-29)。auto-review-loopはそのまま動く
 - [worktree vitestのtest DB前提](reference_worktree_vitest_db_setup.md) — .envコピー必須/127.0.0.1/隔離DBはpg_dump schemaで種化
 
 ## Feedback
@@ -120,3 +135,4 @@
 - [node: importがclientバンドルを壊す](feedback_node_import_breaks_client_bundle.md) — Web Cryptoグローバルで同形化
 - [かるた調査は会員ページを積極利用](feedback_karuta_member_page_proactive.md) — 一次資料は会員限定通達にある
 - [repoにprettier設定は無い](feedback_no_prettier_config_repo_style.md) — 素のprettierはstyle破壊。single-quote/セミコロン無しを手で書く
+- [Bash timeoutはnode子プロセスを殺しきらない](feedback_bash_timeout_orphan_node_prod_tx.md) — 本番DB書込はゾンビ継続。長時間書込はrun_in_backgroundで完了通知を待つ

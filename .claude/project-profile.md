@@ -76,6 +76,7 @@ task-implementer（実装ワーカー）が厳守する実装規約:
 - クライアントから import され得るコードで `node:` import を使わない（Web Crypto グローバルを使う）
 - テスト実行: `pnpm --filter` で対象 package を直接指定。vitest は `--no-file-parallelism`
 - スキーマ変更・Drizzle migration 生成が必要と判明したら**停止して報告**（main が担当）
+- 使い捨て診断スクリプトは `scripts/diagnostics/`（リポジトリルート・gitignore 済）に作る。**apps/ 直下への生成禁止**
 
 UI タスクの追加規約（実害が出た既知バグ。再発させない）:
 - ボトムシート/モーダルは `createPortal(document.body)` + 既存の `.modal-overlay-h`（svh ベース）パターンを踏襲

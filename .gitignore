@@ -17,4 +17,8 @@ playwright/.auth/
 docs/調査用/
 scripts/大会結果取り込み/
 # ローカル資格情報 (コミット禁止)
-.credentials.local.md.claude/.devflow-state
+.credentials.local.md
+# devflow プラグインのゲート状態
+.claude/.devflow-state
+# 使い捨て診断スクリプト置き場
+scripts/diagnostics/

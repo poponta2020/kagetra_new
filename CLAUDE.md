@@ -5,14 +5,14 @@
 ## 概要
 
 - 会員100名超、LINE通知対象約50名/年、1人開発(Claude+Codex)
-- コスト: Lightsail + AI API以外は無料
+- コスト: Oracle Cloud + AI API以外は無料
 
 ## 技術スタック
 
 - Next.js 15 (App Router) + Hono (API) の分離構成、TypeScript strict
 - PostgreSQL 16 / Drizzle ORM / Auth.js v5 (LINE認証のみ/招待制)
 - Tailwind CSS + shadcn/ui / Vitest + Playwright
-- Turborepo + pnpm / Docker Compose on AWS Lightsail
+- Turborepo + pnpm / Docker Compose on Oracle Cloud（東京 / new.hokudaicarta.com）
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
 - レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを回し、Codex pass 後に AC 適合チェック（acceptance-reviewer）→ pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で停止／手動レビューは `/review-manual`）
 - モデル運用: セッション既定=opusplan（Plan=Opus/実行=Sonnet）+ Advisor=Opus。要件定義・設計は `/model opus` の設計セッションで行う。サブエージェント委譲は**コンテキスト隔離・作業独立性**で判断（正典=devflow の implement スキル）。調査は機械的列挙=Explore(haiku)／判断込み=Explore(sonnet)／核心は main 自読
@@ -21,13 +21,17 @@
 ## 構成
 
 ```
-apps/web/    → Next.js (フロント+BFF)
-apps/api/    → Hono (バックエンドAPI)
+apps/web/    → Next.js (フロント+BFF)。API 実処理はここ (Server Actions + src/app/api/)
+apps/api/    → Hono (バックエンドAPI)。現状スケルトン (src 3ファイル・実処理なし)
+apps/mail-worker/ → メール取込ワーカー (IMAP→AI振り分け。result-import パーサ本体もここ)
 packages/shared/ → 共有型定義、Drizzleスキーマ
 docker/      → docker-compose.yml, nginx
 scripts/migration/ → データ移行
+scripts/diagnostics/ → 使い捨て診断スクリプト置き場 (gitignore対象)
 .github/workflows/ → CI/CD
 ```
+
+使い捨て診断スクリプトは scripts/diagnostics/ に作る（apps/ 直下禁止）。
 
 ## 機能 (4フェーズ)
 

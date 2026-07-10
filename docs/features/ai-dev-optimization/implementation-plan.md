@@ -8,7 +8,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 衛生タスク一式（CLAUDE.md修正・診断スクリプト移動・ネストCLAUDE.md・memory索引）
-- [ ] 完了
+- [x] 完了
 - **目的:** CLAUDE.md の stale 修正（Lightsail→Oracle Cloud、apps/api スケルトン+BFF 注記）、apps/web/_*.mts を scripts/diagnostics/ へ移動+gitignore+再発防止ルール明記、apps/web/CLAUDE.md 新設（≤50行）、memory 索引差分解消
 - **対応AC:** AC-K1, AC-K2, AC-K3, AC-K4
 - **主な変更領域:** CLAUDE.md, .gitignore, scripts/diagnostics/（新規）, apps/web/CLAUDE.md（新規）, .claude/memory/MEMORY.md, .claude/project-profile.md §conventions
