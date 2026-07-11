@@ -87,9 +87,27 @@ UI タスクの追加規約（実害が出た既知バグ。再発させない�
 
 ## docs
 
-- `docs/dev/feature-flow.md` — 機能開発フロー詳細
-- `docs/dev/model-delegation.md` — モデル委譲の正典
-- `docs/features/<slug>/` — 機能別 requirements / design-spec / implementation-plan
+docs レジストリ（/quickfix・/implement・/audit-feature・gate-dod.sh が参照）。
+
+**事実タイプ→正典ファイル（1つの事実は1ファイルにのみ書く）:**
+- 機能仕様・画面・フロー・API（Server Actions / route handlers） → `docs/spec/<ドメイン>.md`（索引: `docs/SPECIFICATION.md`）
+- テーブル定義・enum・リレーション → `docs/design/db.md`（+分割分は `docs/design/db-tables-*.md`。**他ファイルへのカラム定義表の記載禁止**。正は `packages/shared/src/schema/` の Drizzle 定義 — スキーマ変更と同じコミットで更新）
+- UI デザイントークン・デザインシステム → `docs/design/design.md`・`docs/design/colors_and_type.css`（claude.ai/design 連携）
+- 変更履歴 → `docs/features/<slug>/`（requirements / design-spec / implementation-plan。索引: `docs/features/INDEX.md`。本体 docs への履歴追記禁止）
+- 開発プロセス → `docs/dev/feature-flow.md`／モデル委譲 → `docs/dev/model-delegation.md`／ローカル環境 → `docs/dev/local-dev-setup.md`
+- データ品質作業の台帳 → `docs/data-quality/`
+- 作業ログ → `docs/worklog.md`
+
+**更新手順:** 該当ドメインファイルを特定 → 見出しを Grep → そのセクションだけ in-place 更新（実装と同じコミットに含める）
+**書き込み規律:** 1事実1ファイル／見出しに連番を付けない／実装参照はファイルパス粒度（行番号禁止）／長いコード断片のコピー禁止／本文への changelog 追記禁止
+
+gate-dod.sh の D2 チェック用パスパターン:
+<!-- devflow:docs -->
+```sh
+DEVFLOW_SRC_PATTERNS=("apps/web/src/" "apps/mail-worker/src/" "packages/shared/src/")
+DEVFLOW_DOCS_PATTERNS=("docs/" "CLAUDE.md" "apps/web/CLAUDE.md")
+```
+<!-- /devflow:docs -->
 
 ## worklog
 

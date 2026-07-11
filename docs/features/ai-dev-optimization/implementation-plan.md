@@ -18,7 +18,7 @@ status: completed
 - **対応Issue:** poponta2020/match-tracker#1017（cross-repo・手動クローズ）
 
 ### タスク2: 全体仕様書フル作成 + features INDEX + profile レジストリ
-- [ ] 完了
+- [x] 完了
 - **目的:** ドメイン区分け（requirements §5 の候補8ドメイン）を App Router 構造・28スラッグと突合して確定し、コードベースのリバースエンジニアリングで全体仕様書をドメイン分割形式でフル作成。INDEX.md と profile §docs レジストリも整備
 - **対応AC:** AC-K5, AC-K6, AC-K7, AC-K8
 - **主な変更領域:** docs/SPECIFICATION.md（新規ハブ≤200行）, docs/spec/（新規・各≤500行）, docs/design/db.md（packages/shared/src/schema/ の Drizzle 定義から生成）, docs/features/INDEX.md（新規）, .claude/project-profile.md §docs

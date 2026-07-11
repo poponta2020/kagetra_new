@@ -6,8 +6,8 @@
 
 - `(app)/` — 認証必須のメイン画面群（共通モバイルシェル layout）
   - `dashboard/` ホーム / `events/` イベント出欠・大会申込 / `events-archive/` 過去イベント
-  - `players/` 選手検索・戦績詳細・ランキング / `tournaments/` 大会結果（取込承認・シリーズ・統計）
-  - `schedule/` 行事予定 / `admin/` 管理（members・mail-inbox・line-channels） / `settings/` 設定
+  - `players/` 選手検索・戦績詳細・ランキング / `tournaments/` 大会結果閲覧（一覧・詳細・シリーズ・統計）
+  - `schedule/` 行事予定 / `admin/` 管理（members・mail-inbox〔結果ドラフト承認含む〕・line-channels） / `settings/` 設定
 - `api/` — BFF ルートハンドラ（auth / webhook / line-broadcast / line-link / zip / admin）
 - `auth/signin` LINE ログイン / `register/[token]` 招待登録 / `self-identify` 本人紐付け
 

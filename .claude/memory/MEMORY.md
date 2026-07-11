@@ -4,6 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [ai-dev-optimization実装(2026-07-11)](impl_ai_dev_optimization.md) — ブロックK: 衛生タスク+全体仕様書9ドメイン新規作成。gitignore連結バグ発見・パーサ本体はmail-worker側
 - [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md
 - [⭐本番結果データ点検 Tier2(2026-07-10)](project_prod_result_health_audit.md) — 台帳#1-59適用/記録済(read-back全green)。**⑨session8: 愛知23回/兵庫16回の不戦勝(単字「不」)43件をwalkover修正+兵庫11回1件異体字backfill・opp_null_normal 817→773**。★重大発見=マージされたサブクラスで姓が別人へ「誤解決」(opp_null=0でも隠れうる=指標だけで品質測れない)。兵庫11/13/15残はフル再構築要でユーザー選択により見送り。正典=FINDING_merged_subclass_misresolution_2026-07-10.md / 過去: **⑨session7で兵庫11/17/18回+埼玉20回を原本取込・1,498→817**: parseResultExcelの3件のバグ(不戦裸表記/印刷ページヘッダ重複/複数ブラケット結合マーカー)を発見・恒久修正(commit 209121f・main push済)。兵庫18回(t1385→t1597・203件)/17回(t1240→t1598・77件)はこのバグのみが原因で修正後opp_null 0。**埼玉20回(t1459→t1599)は「原本URL未取得で回収不能確定」の過去判定を覆す大発見**: 原本PDF入手で旧DBが複数クラスを1つの「A級」196人へ誤統合していた根本的な構造破綻と判明、pdfplumber座標パーサで本当の10クラス構成(276名)へ全面再構築・397件解決。兵庫11回はBB級4件のみ安全backfill。残は兵庫11回E級5件/13回45件/16回14件/15回15件(未入手)/愛知23回29件等。次は原本入手継続 or 打ち切り判断待ち。正典=result-fix-ledger.md
 - [⭐過去結果 本番投入完了(2026-06-27)](project_bulk_load_handover.md) — 結果7表を本番へrestore済。**series層は後にDrizzle化済み(下記参照)**。接続手順=c:/tmp/HANDOVER_bulk_load.md
