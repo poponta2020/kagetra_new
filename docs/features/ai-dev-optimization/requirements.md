@@ -17,7 +17,7 @@ parent: poponta2020/match-tracker docs/features/ai-dev-optimization/requirements
 
 ## 2. 機能要件
 
-- K1: CLAUDE.md の stale 修正 — 本番環境「AWS Lightsail」→「Oracle Cloud（東京 / new.hokudaicarta.com）」、「apps/api は現状スケルトン（4ファイル）。API 実処理は apps/web/src/app/api/（BFF）にある」の明記
+- K1: CLAUDE.md の stale 修正 — 本番環境「AWS Lightsail」→「Oracle Cloud（東京 / new.hokudaicarta.com）」、「apps/api は現状スケルトン（src 3ファイル）。API 実処理は apps/web/src/app/api/（BFF）にある」の明記
 - K2: apps/web/_*.mts 診断スクリプト（約105本・未追跡・grep汚染源）を scripts/diagnostics/ へ一括移動し .gitignore に `scripts/diagnostics/` を追加。「使い捨て診断スクリプトは scripts/diagnostics/ に作る（apps/ 直下禁止）」を CLAUDE.md と profile §conventions に明記
 - K3: apps/web/CLAUDE.md 新設（App Router 構成・lib/ モジュール・components 規約。50行以下・遅延読み込み前提）
 - K4: .claude/memory/ の実ファイルと MEMORY.md 索引の差分解消（調査時点: 実130 vs 索引113）

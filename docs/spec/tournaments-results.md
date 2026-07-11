@@ -56,14 +56,14 @@
 
 `materializeResultDraft`（`apps/web/src/lib/result-import/materialize.ts`）が呼び出し元トランザクション内で実行する。
 
-**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは後述の edition 解決が best-effort で行うのみで、「同じ大会の結果を2回承認すると別大会として重複登録される」という前提を UI 運用（1ドラフト=1度だけ承認）で担保している。訂正版の再取込・差し替え（`result_drafts.status='superseded'`）はスキーマに列（`superseded_by_draft_id`）と enum 値が予約されているが、現行コードにこれを遷移させる経路はない（将来拡張）。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は `[spec/players.md](players.md)`）。
+**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは後述の edition 解決が best-effort で行うのみで、「同じ大会の結果を2回承認すると別大会として重複登録される」という前提を UI 運用（1ドラフト=1度だけ承認）で担保している。訂正版の再取込・差し替え（`result_drafts.status='superseded'`）はスキーマに列（`superseded_by_draft_id`）と enum 値が予約されているが、現行コードにこれを遷移させる経路はない（将来拡張）。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は [spec/players.md](players.md)）。
 
 1. 大会名から開催（edition）を best-effort で自動解決する（`autoResolveEdition`、後述）。解決できれば `tournaments.editionId` に張る
 2. `tournaments` 行を1件作成（`sourceResultDraftId` で承認元ドラフトを追跡）
 3. 級（`ParsedClass`）ごとに `tournament_classes` を作成し、その級の対戦から順位 bracket（優勝=1/準優勝=2/ベスト4=4…）を参加者 index 単位で事前算出して `tournament_participants.derivedBracket` に保存する（導出できない級＝リーグ戦・順位戦混在等は `null` のまま。導出アルゴリズム自体（`apps/web/src/lib/players/placement.ts` の単一ソース）は [spec/players.md](players.md)、統計での集計利用は [spec/stats.md](stats.md) が正典）
-4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない（同定規則の詳細は `[spec/players.md](players.md)`）
+4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない（同定規則の詳細は [spec/players.md](players.md)）
 5. 対戦（`matches`）を2パス目で挿入する。自分の参加者IDは配列 index で一意に特定し、相手は正規化名がその級内で**単独一致**したときだけ `opponentParticipantId` を解決する（同姓同名が複数いる/不明な場合は `null` のまま `opponentName` の文字列だけを保持）
-6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は `[spec/players.md](players.md)`）
+6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は [spec/players.md](players.md)）
 
 承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。ドラフト行を `FOR UPDATE` でロックしてから状態を再確認し、`materializeResultDraft` を同一トランザクションで実行することで、二重承認による重複 materialize を防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。
 
@@ -79,7 +79,7 @@
 - `findOrCreateEdition` は親 `tournament_series` 行を `FOR UPDATE` でロックしてから `UNIQUE(series_id, edition_number)` で解決/新規作成する。既存 edition が `unconfirmed`（大会案内承認時点で作成）で今回 `held`（結果取込）が解決された場合はライフサイクルを `held` に確定し、`year`/`rawName` が未設定なら補完する（既存値は上書きしない）
 - `findOrCreateSeries` は完全一致が単独のときだけ既存系列を返し、複数一致は曖昧としてエラー、未一致は `allowCreate` が明示されたときのみ新規作成する（silent な新規マスタ化を防ぐ）。系列の `kind`（individual/team）と紐付け要求の不一致もエラーにする
 
-このコアは大会案内承認（`tournament_drafts` → `events` 作成。`apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveDraftUnits` 等）からも呼ばれるが、`events`・大会申込の画面/フローそのものは `[spec/events-attendance.md](events-attendance.md)` が正典。ここでは edition/series 解決ロジックのみを正典として扱う。
+このコアは大会案内承認（`tournament_drafts` → `events` 作成。`apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveDraftUnits` 等）からも呼ばれるが、`events`・大会申込の画面/フローそのものは [spec/events-attendance.md](events-attendance.md) が正典。ここでは edition/series 解決ロジックのみを正典として扱う。
 
 ### 参加名簿（申込/確定）の取込
 
@@ -90,7 +90,7 @@
 - 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` を張る（曖昧は `null`）
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
-呼び出し元の Server Action（`importRoster` 相当。個人戦大会のみ対象）は `apps/web/src/app/(app)/events/[id]/actions.ts` にあり、画面は大会詳細（events ドメイン）側。名簿の取込ボタン・UI の詳細は `[spec/events-attendance.md](events-attendance.md)` を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
+呼び出し元の Server Action（`importRoster` 相当。個人戦大会のみ対象）は `apps/web/src/app/(app)/events/[id]/actions.ts` にあり、画面は大会詳細（events ドメイン）側。名簿の取込ボタン・UI の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
 
 ## 画面
 
