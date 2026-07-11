@@ -35,7 +35,7 @@ session2 偵察: 「姓backfillだけでは141件しか回収できず、大半�
 - **Excel(xlsx)**: `readExcel`(exceljs)→`parseResultExcel`→ParsedClass[]（兵庫16/21）
 - **Excel(.xls)**: libreoffice無いので **Python xlrd で grid抽出→JSON→parseResultExcel**（_t3reingest8.mts の 'grid' kind と同型・益田/神奈川/宗像/岡山/兵庫13）
 - **PDF(札幌/埼玉/山梨)**: pdfplumber でダンプ→**AI直接読取で ParsedClass[] に成形**（大きすぎなければ）or pdfplumber座標再パース
-- 各: 旧tournament DELETE(cascade)→materialize→**edition復元**→**残る姓のみ後半ラウンドは surname resolver `apps/web/_t2b1_backfill.mts` で補完**（級内prefix候補→ミラー[同round・勝敗逆・枚数一致 or 相手側解決済]で一意化・曖昧null。session2でDRY検証済=141解決だが**再取込で名簿完備後に再実行すれば解決数は大幅増**）
+- 各: 旧tournament DELETE(cascade)→materialize→**edition復元**→**残る姓のみ後半ラウンドは surname resolver `scripts/diagnostics/_t2b1_backfill.mts` で補完**（級内prefix候補→ミラー[同round・勝敗逆・枚数一致 or 相手側解決済]で一意化・曖昧null。session2でDRY検証済=141解決だが**再取込で名簿完備後に再実行すれば解決数は大幅増**）
 - **兵庫21が最クリーン(未解決0)＝最初の再取込PoCに最適**
 
 | 原本ファイル(docs/data-quality/大会結果再取得/) | tid | 大会 | 形式 | 現名簿 | メモ |

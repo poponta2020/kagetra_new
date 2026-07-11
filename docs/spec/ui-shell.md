@@ -28,7 +28,7 @@
 
 ### ビューポート高カスケード（`.mobile-shell-h` / `.modal-overlay-h`）
 
-シェルの高さおよびボトムシート/モーダルオーバーレイの高さは、Tailwind のユーティリティ合成（`h-screen h-dvh h-svh` のような並記）では**保証されない**。同一プロパティに対する Tailwind ユーティリティの出力順は `className` の記述順とは無関係に決まるため、どの宣言が最終的に勝つか制御できない（PR #68 R1 で発覚したブロッカー）。そのため `globals.css` に単一の CSS ルールとして
+シェルの高さおよびボトムシート/モーダルオーバーレイの高さは、Tailwind のユーティリティ合成（`h-screen h-dvh h-svh` のような並記）では**保証されない**。同一プロパティに対する Tailwind ユーティリティの出力順は `className` の記述順とは無関係に決まるため、どの宣言が最終的に勝つか制御できない。そのため `globals.css` に単一の CSS ルールとして
 
 ```css
 height: 100vh;   /* 旧ブラウザ fallback */
@@ -36,7 +36,7 @@ height: 100dvh;  /* dynamic viewport（後述の理由で上書きされる） *
 height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 ```
 
-の順で列挙する専用クラスを用意し、カスケードの「最後に理解できた宣言が勝つ」性質を利用して確定的に `100svh` を勝たせている。`viewport-fit=cover` 指定時、iOS Safari の `100dvh` は下部URLバーのオーバーレイ領域を含んだ値を返すため、`dvh` のままだとシェルやモーダルの実際の高さがビューポートの表示可能域より大きくなり、BottomNav やシート下部のボタンがURLバーの下に隠れる（PR #67 の本番バグ）。`100svh` はUAクロームが常に表示された状態の保守的な高さで、URLバーが後で縮んでも上下バーが隠れないことを優先し、代わりにURLバー縮小時に余白帯ができるトレードオフを取る。
+の順で列挙する専用クラスを用意し、カスケードの「最後に理解できた宣言が勝つ」性質を利用して確定的に `100svh` を勝たせている。`viewport-fit=cover` 指定時、iOS Safari の `100dvh` は下部URLバーのオーバーレイ領域を含んだ値を返すため、`dvh` のままだとシェルやモーダルの実際の高さがビューポートの表示可能域より大きくなり、BottomNav やシート下部のボタンがURLバーの下に隠れる。`100svh` はUAクロームが常に表示された状態の保守的な高さで、URLバーが後で縮んでも上下バーが隠れないことを優先し、代わりにURLバー縮小時に余白帯ができるトレードオフを取る。
 
 このクラスは `MobileShell` のルート `div`（`.mobile-shell-h`）と、共有ボトムシート/モーダル群（`RankingFilterBar`・`StatsPeriodFilter`・`AccountMenu`・`InviteCodeModal`・`RegistrationInviteModal`・`ManualLinkModal`・`ExistingEventLinkSheet` 等、各ドメインの正典に実装詳細がある）の `.modal-overlay-h` に共通適用される。
 
@@ -90,6 +90,6 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 `RootLayout` は `next/font/google` の `Noto_Sans_JP`（本文、`display: 'swap'`）と `Noto_Serif_JP`（見出し等の一部、`weight: ['700']` のみプリロード無効）を CSS 変数として `<html>` に適用する。`viewport.themeColor` および manifest の `background_color` / `theme_color` はいずれも `#ffffff` で統一されている。
 
-## 曖昧・不明点
+## 既知のギャップ・未確認事項
 
 - `apps/web/public/sw.js` は現状 Web Push（notifications ドメイン）専用の実装のみを持ち、UI シェル固有の PWA 挙動（オフラインキャッシュ等）は実装されていない。将来オフライン対応が追加された場合、この仕様書の PWA セクションを更新する

@@ -45,7 +45,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - `joined_waiting_code`: LINE Webhookの `join` イベントで、Botが招待されたグループの `groupId` を記録し、この状態に遷移する。返信で「30分以内に6桁コードを発言してください」と案内する。
 - `linked`: グループ内で正しい6桁コードが発言されると、`event_line_broadcasts` を `linked` に、対応する `line_channels` を `status='active'` に更新する（同一トランザクション、CAS条件付きUPDATEで多重発言・レースを弾く）。招待コードはグループ紐付け専用のため、`user`/`room` からの発言や、別グループでの発言、既存 `lineGroupId` との不一致は拒否する。
 - `revoked`: Botがグループから追い出された（`leave` イベント、`source.groupId` が現在の紐付け先と一致する場合のみ）、管理者による強制解放（`/admin/line-channels/[id]` の「強制解放」、`releaseChannel`）、または配信失敗時の自動リカバリ（後述）で遷移する。チャネルは `available` に戻り、招待コードはNULL化される。
-- `released`: `scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, event_date + 30日)` を過ぎた行を自動解放する。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
+- `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, event_date + 30日)` を過ぎた行を自動解放する。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
 
 **メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。
 
@@ -64,7 +64,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
 - **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
-- **リマインド（日次バッチ）**: `scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
+- **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
   - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件
   - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件

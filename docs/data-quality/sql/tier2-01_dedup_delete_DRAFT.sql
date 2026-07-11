@@ -79,7 +79,7 @@ WHERE NOT EXISTS (SELECT 1 FROM tournament_participants tp WHERE tp.player_id = 
 
 -- =============================================================================
 -- 3. 全ペア完了後の派生再計算（HANDOVER §4-5）
---    - display_name 再計算: apps/web/_recompute_all.mts（recomputePlayerDisplayNames）
+--    - display_name 再計算: scripts/diagnostics/_recompute_all.mts（recomputePlayerDisplayNames）
 --    - derived_bracket / num_players は削除大会ごと消えるため残側は影響なし（確認のみ）
 --    - 台帳 result-fix-ledger.md に1ペア=1行で記録
 -- =============================================================================

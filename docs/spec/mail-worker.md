@@ -204,7 +204,7 @@ mail-worker 側 CLI エントリポイント（Server Action からは呼ばれ�
 - `apps/mail-worker/src/index.ts` — dispatcher（`--mode=fetch-only`/`--mode=extract-only`、各種テスト用フラグ）
 - `apps/mail-worker/src/reextract.ts` — 一括再抽出 CLI（`--since` 必須）
 
-## 保留・注意点
+## 既知のギャップ・未確認事項
 
 - `apps/web/src/app/api/zip/route.ts` は郵便番号→住所検索（zipcloud プロキシ、会員登録フォーム向け）であり、mail-worker / 添付とは無関係。オーケストレーターの想定と異なるため本仕様には含めていない。
 - `notify/line.ts`（システムアラート）と `line-broadcast.ts`（承認後の会員向け配信、notifications.md 管轄）は別チャンネル・別コードパス。両者とも `line_channels` テーブルを共有するが `status` カラムの値（`system` vs `assigned`/`active`）で区別される。

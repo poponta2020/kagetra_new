@@ -23,4 +23,4 @@ metadata:
 ## 結果
 **96/100反映**(正名化57+既に適正名37+recovery1+手動追加1)。取込不能4=報告のみ2(シニア28/湘南認定1=入賞者一覧のみ対戦表無)+団体1(九州地区高校4)+HP重複1(東京都選手権16)。DB: tournaments1454→**1453**(追加+1,重複-2)、matches→**822,957**。残ゴミ名53件は本100件の対象外(別タスクで同手法適用可)。
 
-スクリプト(git外c:/tmp): `_probe.mts`/`match_to_db.py`/`fix_names_v2.py`(file逆引きrename)/`build_tama22.py`/`apps/web/_add_load.mts`(materialize投入)/`build_ingest_doc.py`。ローダーは cwd=apps/web で実行(materializeの`@/`エイリアスはweb tsconfigで解決、mail-worker cwdだと失敗)。
+スクリプト(git外c:/tmp): `_probe.mts`/`match_to_db.py`/`fix_names_v2.py`(file逆引きrename)/`build_tama22.py`/`scripts/diagnostics/_add_load.mts`(materialize投入)/`build_ingest_doc.py`。ローダーは cwd=apps/web で実行(materializeの`@/`エイリアスはweb tsconfigで解決、mail-worker cwdだと失敗)。

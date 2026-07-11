@@ -146,7 +146,7 @@
 
 - `apps/web/src/app/api/auth/[...nextauth]/route.ts` — `auth.ts` の `handlers`（`GET` / `POST`）をそのまま re-export するだけの Auth.js v5 標準エンドポイント。
 
-## 保留・注意事項
+## 既知のギャップ・未確認事項
 
 - ロール（`admin` / `vice_admin` / `member`）を変更する UI・Server Action は本ドメインには存在しない。運用上は DB 直接操作でロールを割り当てている。
 - 本人性検証（招待された本人が本当にログインしているか）は招待制であることを理由に意図的に省略されている（[docs/features/invite-link-registration/requirements.md](../features/invite-link-registration/requirements.md) 参照）。
