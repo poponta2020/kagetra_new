@@ -18,4 +18,4 @@ metadata:
 - **C 1文字切れ**(77件) → **Excelの姓/名別セルを source再パースで完全復元**(西→西奈津子)。`recover_c.py`+`assess_input.jsonl`。siblings はクラス↔シートで分離
 - **F 文字化け?**(38→17) → 21復元(skeleton3/spurious-?除去17/所属照合1)。**残17は協会HTMLが稀字を?化＝復旧不能**で実在個人のため保持(削除しない)
 
-再現エンジン=`apps/web/_reresolve.mts`(normalizePlayerName+get-or-create+recomputePlayerDisplayNames再利用、孤児削除込み)。**本番反映は dump方式に決定([[project_bulk_load_handover]] §4)＝この clean済リハDBを5テーブル pg_dump→本番(空)へ restore。ローダを本番で動かさない＝再混入なし**(clean結果がデータに焼込済)。将来もしローダを本番直実行する経路に戻すなら、ローダ `isHeaderJunk` が `氏名/選手名` を取り逃す・団体/1文字切れ非対応な点の対処が要る。team は別スコープ見送り確定と整合。dump 元最終件数=tournaments1453/players47,471/participants369,410/matches822,530。
+再現エンジン=`scripts/diagnostics/_reresolve.mts`(normalizePlayerName+get-or-create+recomputePlayerDisplayNames再利用、孤児削除込み)。**本番反映は dump方式に決定([[project_bulk_load_handover]] §4)＝この clean済リハDBを5テーブル pg_dump→本番(空)へ restore。ローダを本番で動かさない＝再混入なし**(clean結果がデータに焼込済)。将来もしローダを本番直実行する経路に戻すなら、ローダ `isHeaderJunk` が `氏名/選手名` を取り逃す・団体/1文字切れ非対応な点の対処が要る。team は別スコープ見送り確定と整合。dump 元最終件数=tournaments1453/players47,471/participants369,410/matches822,530。

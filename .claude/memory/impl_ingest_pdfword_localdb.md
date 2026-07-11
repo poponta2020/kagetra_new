@@ -25,6 +25,6 @@ metadata:
 - ソース: 静的PDF/docはharvest.pyがExcelのみDL→協会HP(Basic認証)から49件追加DL `karuta_results/pdfword/`。新eraはharvest済。
 - テキスト: PDF=**PyMuPDF(fitz)**(CMapで日本語OK)、.doc=**word-extractor**(プロジェクト依存・UTF-16対応。antiwordはCJK不可)。`pdftext/`。
 - 対戦表パーサ `parse_text.py`(トークンストリーム型・順序差両対応・不戦勝/棄権/ふりがな/所属結合対処)。**精度=札幌6/北國79がソース完全一致**。pdfplumberグリッド+`parse_positional`は版差で不安定だった。入賞者=`parse_ranking.py`+`parse_kagoshima.py`(人数/優勝/準優勝/3位表)、難物は手動`build_manual*.py`。
-- 投入: `apps/web/_add_load.mts`(materializeResultDraft, name+date冪等, ADD_FILE env)。grade enumはA-Eのみ(F級等null)。cwd=apps/web(materializeの`@/`解決)。
+- 投入: `scripts/diagnostics/_add_load.mts`(materializeResultDraft, name+date冪等, ADD_FILE env)。grade enumはA-Eのみ(F級等null)。cwd=apps/web(materializeの`@/`解決)。
 
 教訓: 大会ごとにPDFレイアウトが全く異なり万能パーサは不可。テキストストリーム型+順序非依存で主要形式を吸収、番号参照/画像/団体は個別判断。「手段の目的化」回避のため難物は手動・対象外明記。

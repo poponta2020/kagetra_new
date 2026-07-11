@@ -17,7 +17,7 @@
 
 ## session5で完了した分（台帳 #45-48/#50/#51・opp_null_normal 2,233→2,004・当方−209）
 
-会員pageローカルharvest(`/c/tmp/karuta_results/` 2010-2021・xls/xlsx原本)から未着手中規模7大会を自力回収。ドライバは全て scratch（`…/scratchpad/`）にPython、reingestのみ`apps/web/_univ18_reingest.mts`。
+会員pageローカルharvest(`/c/tmp/karuta_results/` 2010-2021・xls/xlsx原本)から未着手中規模7大会を自力回収。ドライバは全て scratch（`…/scratchpad/`）にPython、reingestのみ`scripts/diagnostics/_univ18_reingest.mts`。
 
 | # | 大会 | tid | 手法 | 件数 | totals |
 |--|---|--|---|--:|:--:|
@@ -31,7 +31,7 @@
 **再利用可能な汎用手法（scratch資産）**:
 - `recip_fill.py` / `resolve_full.py`: **逆行reciprocal fill**（相手が自分をopp_pidで既記録している一意行から相手を決定論補完・typo吸収）＋**sd強制ペアリング**（同クラス同round同枚数差で勝敗各1のみforced結線）。原本入手不要・totals中立・**誤結線ゼロ**（曖昧はnull）。**残opp_nullの多くにそのまま効く可能性が高い**（次セッションでまず全大会にこの2手法を一括適用してみる価値大）。
 - `relink_pairing.py`（mirror pairing＋forced-move消去）/`validate_binds.py`（対称性・自己bind・クラス跨ぎ検証）/`hiroshima_relink.py`（原本round grid再構成→seq_no結線）/`bye_count.py`（不戦bye級単位カウント）/`xls_inspect.py`（.xls=xlrd/.xlsx=openpyxl 生グリッドダンプ）。
-- reingest雛形: `apps/web/_univ18_reingest.mts`（JSON→ParsedClass[]→旧DELETE→materializeResultDraft→edition復元・mirrorSafeguard null=0 assert・`REINGEST_TID`env）＋`univ18_build.py`（原本→フルネーム解決JSON化・氏名は`姓+半角空白+名`）。session4の`_shuki4_reingest.mts`も参照。
+- reingest雛形: `scripts/diagnostics/_univ18_reingest.mts`（JSON→ParsedClass[]→旧DELETE→materializeResultDraft→edition復元・mirrorSafeguard null=0 assert・`REINGEST_TID`env）＋`univ18_build.py`（原本→フルネーム解決JSON化・氏名は`姓+半角空白+名`）。session4の`_shuki4_reingest.mts`も参照。
 
 ## 次にやること（候補・ユーザー判断）
 
@@ -43,6 +43,6 @@
 
 ## ドライバ資産の所在
 - session5新規（scratch・git外）: `…/scratchpad/` に `recip_fill.py`/`resolve_full.py`/`relink_pairing.py`/`validate_binds.py`/`hiroshima_relink.py`/`bye_count.py`/`xls_inspect.py`/`univ18_build.py`/`univ18_eval.py`。
-- session5新規（git内・未commit）: `apps/web/_univ18_reingest.mts`/`apps/web/_relink7_inspect.mts`。
+- session5新規（git内・未commit）: `scripts/diagnostics/_univ18_reingest.mts`/`scripts/diagnostics/_relink7_inspect.mts`。
 - 原本: 会員pageローカルharvest `/c/tmp/karuta_results/{YYYY}/`（2010-2021・cid_filename形式）＋`{YYYY}_plan.csv`（category/name/kyu/href）＋`{YYYY}_html_index.csv`（cid/tournament/class/tid）。会員page資格情報=repo rootの`.credentials.local.md`（gitignored）。
 - 台帳バックアップ: `…/scratchpad/bk_t{tid}_*_2026-07-07.csv`（各適用の対象行スナップショット）。

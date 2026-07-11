@@ -18,7 +18,7 @@
 
 ## 1. 経路の同一性（確定・本調査の最重要事実)
 
-過去分一括投入スクリプト [apps/web/_rehearse_load.mts](../../apps/web/_rehearse_load.mts)（コミット d7a3705 で保存）は:
+過去分一括投入スクリプト [scripts/diagnostics/_rehearse_load.mts](../../scripts/diagnostics/_rehearse_load.mts)（コミット d7a3705 で保存）は:
 
 ```ts
 import { parseResultHtml } from '../mail-worker/src/result-import/html-parser.ts'

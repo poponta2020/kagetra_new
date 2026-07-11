@@ -33,7 +33,7 @@ Out（やらない）:
   - participant 挿入で `name: p.name`（raw, line 154）, `playerId` 紐付け（line 149）。
   - **追加ポイント**: 関数先頭で `const touched = new Set<number>()`、participant ループ内 `touched.add(playerId)`（line 161 付近）、class ループ後・`return` 前（line 200 付近）で `await recomputePlayerDisplayNames(tx, [...touched])`。
 - 呼び出し元（改修不要・末尾 recompute を継承）:
-  - bulk loader `apps/web/_rehearse_load.mts:138-148`（per-tournament・`db.transaction` 内、git外scratch）
+  - bulk loader `scripts/diagnostics/_rehearse_load.mts:138-148`（per-tournament・`db.transaction` 内、git外scratch）
   - 本番 `approveResultDraft` … `apps/web/src/app/(app)/admin/mail-inbox/actions.ts:1443`（`db.transaction`＋FOR UPDATE 内）
 - DbLike 型は materialize.ts と同じ `NodePgDatabase<typeof schema>`（tx でも main db でも可）。
 
