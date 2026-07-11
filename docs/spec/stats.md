@@ -62,7 +62,7 @@
 
 ### 全体サマリー（`getStatsOverview`）
 
-4枚の絶対数カード（大会数／対戦数＝normal の勝者行のみで実試合数を1回だけ数える／競技人口＝distinct player／延べ参加＝`tournament_participants` 行数）と、級別競技人口カード＋7図を1回の `Promise.all` で並行集計する。
+4枚の絶対数カード（大会数／対戦数＝normal の勝者行のみで実試合数を1回だけ数える／競技人口＝distinct player／延べ参加＝`tournament_participants` 行数）と、級別競技人口カード＋6図を1回の `Promise.all` で並行集計する。
 
 - **級別競技人口**：期間内・判明級のみの直近参加1件（`event_date DESC NULLS LAST` → `id DESC` → 同一大会内の複数級は `grade ASC` で決定的）の級に選手を1人だけ割り当てる「直近級方式」（1人=1級）。A〜E の合計は級なし出場者の分だけ総競技人口を下回り得る。
 - **図1 級別構成の推移**：年×A〜Eの延べ参加を UI 側で100%積み上げに正規化（`StackedComposition`）。図内で完結（詳細ドリルなし）。

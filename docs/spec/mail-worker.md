@@ -25,7 +25,7 @@
 > - `apps/web/src/app/api/admin/mail/unprocessed-count/route.ts`（未処理バッジ件数）
 > - `apps/web/src/app/api/admin/mail-inbox/[id]/draft-status/route.ts`（AI 抽出進行 polling）
 > - `apps/web/src/lib/mail-body-cleaner.ts` / `mail-body-image-render.ts` / `attachment-image-render.ts` / `attachment-preview.ts` / `image-cache.ts` / `text-splitter.ts`
-> - `packages/shared/src/schema/mail-messages.ts` / `mail-attachments.ts`（`mail-attachments.ts` は `attachment_share_tokens` を含む） / `mail-worker.ts`（`mail_worker_runs` / `mail_worker_jobs`）
+> - `packages/shared/src/schema/mail-messages.ts` / `mail-attachments.ts` / `attachment-share-tokens.ts` / `mail-worker.ts`（`mail_worker_runs` / `mail_worker_jobs`）
 
 ## 機能仕様
 
@@ -162,7 +162,7 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 添付バイナリ配信（`/api/admin/mail/attachments/[id]`）は fail-closed allowlist を実装する: PDF / Office 文書 / ラスタ画像 / プレーンテキストのみ宣言 MIME のまま `inline` で配信し、それ以外（HTML/SVG/XML/JS 等の active content・不明型）は `application/octet-stream` + `Content-Disposition: attachment` に強制ダウングレードする（`X-Content-Type-Options: nosniff` を常に付与）。ページプレビュー配信（`/api/admin/mail/attachments/[id]/preview/[page]`）は常に pdftoppm が生成した JPEG（送信元の危険性に関わらず inert）を返すため MIME allowlist 判断が不要。両ルートとも `admin`/`vice_admin` セッション必須。
 
-添付ファイルは LINE 配信時に `attachment_share_tokens`（`packages/shared/src/schema/mail-attachments.ts`）経由の公開ダウンロードリンクとしても共有される。トークンは添付 1 件につき最大 1 行（60 日 TTL、期限内は再利用、期限切れなら同一行を書き換えて発行し直す）で、`/api/line-broadcast/attachments/[token]` が配信するが、この公開ルートおよび LINE 配信自体の詳細は [spec/notifications.md](notifications.md) の管轄。
+添付ファイルは LINE 配信時に `attachment_share_tokens`（`packages/shared/src/schema/attachment-share-tokens.ts`）経由の公開ダウンロードリンクとしても共有される。トークンは添付 1 件につき最大 1 行（60 日 TTL、期限内は再利用、期限切れなら同一行を書き換えて発行し直す）で、`/api/line-broadcast/attachments/[token]` が配信するが、この公開ルートおよび LINE 配信自体の詳細は [spec/notifications.md](notifications.md) の管轄。
 
 ### メール本文の LINE 配信向け加工
 

@@ -60,7 +60,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 ### event-lifecycle-notify: 定型LINE通知
 
-大会の状態遷移に応じて、`linked` なLINEグループへ固定テンプレートのテキストを1通push する（`pushTextToEventGroup` / `event-lifecycle-notify.ts`）。通知種別は8種（`entry_applied`、`entry_applied_treasurer`、`entry_deadline_advance`、`entry_deadline_day`、`payment_paid`、`payment_deadline_advance`、`payment_deadline_day`、`onsite_payment_advance`、`onsite_payment_day`）で、`event_lifecycle_notifications` の `UNIQUE(eventId, type)` により **同一イベント×種別は生涯一度きり** しか送らない。
+大会の状態遷移に応じて、`linked` なLINEグループへ固定テンプレートのテキストを1通push する（`pushTextToEventGroup` / `event-lifecycle-notify.ts`）。通知種別は9種（`entry_applied`、`entry_applied_treasurer`、`entry_deadline_advance`、`entry_deadline_day`、`payment_paid`、`payment_deadline_advance`、`payment_deadline_day`、`onsite_payment_advance`、`onsite_payment_day`）で、`event_lifecycle_notifications` の `UNIQUE(eventId, type)` により **同一イベント×種別は生涯一度きり** しか送らない。
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
 - **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。

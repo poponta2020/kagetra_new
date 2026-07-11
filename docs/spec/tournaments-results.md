@@ -60,7 +60,7 @@
 
 1. 大会名から開催（edition）を best-effort で自動解決する（`autoResolveEdition`、後述）。解決できれば `tournaments.editionId` に張る
 2. `tournaments` 行を1件作成（`sourceResultDraftId` で承認元ドラフトを追跡）
-3. 級（`ParsedClass`）ごとに `tournament_classes` を作成し、その級の対戦から順位 bracket（優勝=1/準優勝=2/ベスト4=4…）を参加者 index 単位で事前算出して `tournament_participants.derivedBracket` に保存する（導出できない級＝リーグ戦・順位戦混在等は `null` のまま。導出アルゴリズム自体と読み出し側の利用は `[spec/stats.md](stats.md)` が正典）
+3. 級（`ParsedClass`）ごとに `tournament_classes` を作成し、その級の対戦から順位 bracket（優勝=1/準優勝=2/ベスト4=4…）を参加者 index 単位で事前算出して `tournament_participants.derivedBracket` に保存する（導出できない級＝リーグ戦・順位戦混在等は `null` のまま。導出アルゴリズム自体（`apps/web/src/lib/players/placement.ts` の単一ソース）は [spec/players.md](players.md)、統計での集計利用は [spec/stats.md](stats.md) が正典）
 4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない（同定規則の詳細は `[spec/players.md](players.md)`）
 5. 対戦（`matches`）を2パス目で挿入する。自分の参加者IDは配列 index で一意に特定し、相手は正規化名がその級内で**単独一致**したときだけ `opponentParticipantId` を解決する（同姓同名が複数いる/不明な場合は `null` のまま `opponentName` の文字列だけを保持）
 6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は `[spec/players.md](players.md)`）
