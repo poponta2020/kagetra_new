@@ -86,6 +86,8 @@
 - [PR#6フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JPは実使用ウェイトのみ
 
 ## Reference
+- [in-app pane でアプリ画面表示(/show-app)](reference_inapp_pane_app_view.md) — in-appブラウザは307追従不可でERR_TOO_MANY_REDIRECTS。/を踏ませず/sw.js経由でcookie注入→200ページ直行。dev:session(既存user・INSERT無)
+- [本番DBへSSHトンネル接続(:5435)](reference_prod_db_tunnel_connect.md) — ローカルdev webを本番postgresへ。id_ed25519_oracle鍵・5435トンネル・.env.local切替(127.0.0.1)。read-write/session限り
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無しがある。重要操作後は独立系統でverify
 - [旧kagetra DBダンプ](reference_legacy_dump.md) — scripts/migration/dump/myappdb.dump
 - [ローカル動作確認セットアップ](reference_local_dev_setup.md) — docs/dev/local-dev-setup.md がエントリ
