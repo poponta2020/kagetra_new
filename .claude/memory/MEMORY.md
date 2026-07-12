@@ -4,6 +4,7 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+- [mail-worker Node/DBクロックドリフト修正(2026-07-12)](impl_mail_worker_clock_drift_draft_subjects.md) — Issue#275/PR#276。new_draft_subjectsの時刻範囲クエリをID直接収集に置換、既存2flaky根治。ラウンド=auto_review_pr276.md
 - [ai-dev-optimization実装・出荷済(2026-07-12)](impl_ai_dev_optimization.md) — ブロックK: 衛生タスク+全体仕様書9ドメイン新規作成→PR#274 merge・親#1010クローズ。gitignore連結バグ発見・パーサ本体はmail-worker側
 - [auto-review PR#274記録](auto_review_pr274.md) — 3R pass・AC pass・追加code-reviewでgit mv取りこぼし37箇所発見
 - [⭐モデル階層委譲(2026-07-04)](project_model_delegation.md) — main=Fable/Opus固定・調査=Explore(haiku明示必須)・仕様確定実装=task-implementer(sonnet)・レビューはCodex一本(Sonnet前段不採用)。正典=docs/dev/model-delegation.md

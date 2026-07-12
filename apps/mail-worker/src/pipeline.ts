@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
@@ -55,6 +55,17 @@ export interface PipelineSummary {
    * a stale AI re-run, which is the desired behaviour but worth surfacing.
    */
   draftsPreserved: number
+  /**
+   * `mail_messages.id` of every mail that got a freshly-INSERTed
+   * `pending_review` draft this run (regression #275: previously
+   * `new_draft_subjects` was backfilled via
+   * `gte(tournamentDrafts.createdAt, startedAt)`, comparing Node's clock
+   * against Postgres's `defaultNow()` — two different clock domains that
+   * drift on WSL2 Docker and made the lookup miss rows inserted moments
+   * earlier. Collecting the exact ids here removes the clock comparison
+   * entirely.)
+   */
+  newDraftMessageIds: number[]
   /** Tournament-positive + AI-classified-as-noise mails (any successful AI run). */
   aiSucceeded: number
   /** AI calls that threw twice or returned malformed payloads. */
@@ -134,6 +145,7 @@ function emptySummary(): PipelineSummary {
     draftsInserted: 0,
     draftsUpdated: 0,
     draftsPreserved: 0,
+    newDraftMessageIds: [],
     aiSucceeded: 0,
     aiFailed: 0,
     aiSkipped: 0,
@@ -477,6 +489,9 @@ async function runAiPhase(
     summary.draftsInserted += tally.draftsInserted
     summary.draftsUpdated += tally.draftsUpdated
     summary.draftsPreserved += tally.draftsPreserved
+    if (outcome.kind === 'tournament' && tally.draftsInserted > 0) {
+      summary.newDraftMessageIds.push(rowId)
+    }
     summary.aiSucceeded += tally.aiSucceeded
     summary.aiFailed += tally.aiFailed
     summary.aiSkipped += tally.aiSkipped
@@ -651,11 +666,12 @@ export async function runOnce(opts: RunOnceOptions = {}): Promise<RunOnceResult>
     })
   }
 
-  // (3) Compose summary jsonb. New draft subjects are looked up post-hoc
-  // (createdAt >= startedAt) so we don't have to thread them through the
-  // pipeline summary shape (which would risk regressing classifier tests).
-  const newDraftSubjects = summary.draftsInserted > 0
-    ? await fetchNewDraftSubjects(db, startedAt)
+  // (3) Compose summary jsonb. New draft subjects are looked up by the exact
+  // `mail_messages.id`s collected during the AI phase — see
+  // `PipelineSummary.newDraftMessageIds` for why this replaced a
+  // time-window query.
+  const newDraftSubjects = summary.newDraftMessageIds.length > 0
+    ? await fetchDraftSubjectsByMessageIds(db, summary.newDraftMessageIds)
     : []
 
   // Merge top-level error (if any) with per-mail AI errors collected by
@@ -1078,35 +1094,24 @@ function computeRunStatus(
 }
 
 /**
- * Look up subjects of drafts created during this run. We filter by
- * `createdAt >= startedAt` and join through `mail_messages` for the subject
- * line. Drafts are typically small in number per run (a handful at most), so
- * the IN-list join is cheap.
+ * Look up subjects for the exact `mail_messages.id`s that got a fresh
+ * `pending_review` draft this run (see `PipelineSummary.newDraftMessageIds`).
+ * No timestamp comparison involved, so there's nothing for Node/Postgres
+ * clock drift to race against.
  *
  * If the query fails for any reason we return `[]` rather than aborting the
  * whole run — a missing notification preview is far less bad than rolling
  * back a successful pipeline write.
  */
-async function fetchNewDraftSubjects(
+async function fetchDraftSubjectsByMessageIds(
   db: import('./db.js').Db,
-  startedAt: Date,
+  messageIds: number[],
 ): Promise<string[]> {
   try {
-    const draftRows = await db
-      .select({ messageId: tournamentDrafts.messageId })
-      .from(tournamentDrafts)
-      .where(
-        and(
-          gte(tournamentDrafts.createdAt, startedAt),
-          eq(tournamentDrafts.status, 'pending_review'),
-        ),
-      )
-    if (draftRows.length === 0) return []
-    const ids = draftRows.map((r) => r.messageId)
     const subjects = await db
       .select({ subject: mailMessages.subject })
       .from(mailMessages)
-      .where(inArray(mailMessages.id, ids))
+      .where(inArray(mailMessages.id, messageIds))
     return subjects
       .map((r) => r.subject ?? '(no subject)')
       .filter((s): s is string => typeof s === 'string')
