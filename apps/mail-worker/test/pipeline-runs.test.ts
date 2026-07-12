@@ -520,6 +520,46 @@ describe('runOnce → mail_worker_runs persistence', () => {
     expect(message).toMatch(/第65回/)
   })
 
+  it('new-drafts notification includes subject even when the worker clock races ahead of the DB clock (regression #275)', async () => {
+    // Pre-fix, the new-draft subject lookup filtered on
+    // `gte(tournamentDrafts.createdAt, startedAt)` — comparing Node's clock
+    // (`startedAt`) against Postgres's `defaultNow()` (`created_at`). Those
+    // are different clock domains; on WSL2 Docker they drift enough that the
+    // real happy-path tests above flake non-deterministically (~50% locally).
+    // Force the skew deterministically by running the worker with its `Date`
+    // clock several seconds ahead of the real (unfaked) DB clock, so a
+    // time-window query would always exclude the draft just inserted.
+    const llm = await buildExtractor()
+    const source = await buildSource(['tournament-announcement.eml'])
+    const notifier = vi.fn<(...args: unknown[]) => Promise<unknown>>(
+      async () => ({}),
+    )
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 5000)
+    try {
+      const result = await runOnce({
+        kind: 'cron',
+        source,
+        llmExtractor: llm,
+        notifier,
+      })
+      expect(result.draftsInserted).toBe(1)
+
+      const row = await fetchRunById(result.runId)
+      const summary = row.summary as MailWorkerRunSummary
+      expect(summary.new_draft_subjects).toContain(
+        '[taikai-ajka:828] 第65回全日本選手権大会/ご案内',
+      )
+
+      expect(notifier).toHaveBeenCalledTimes(1)
+      const message = notifier.mock.calls[0]![1] as string
+      expect(message).toMatch(/第65回/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does NOT push when drafts_created is 0 (and no consecutive failure)', async () => {
     const llm = await buildExtractor()
     const source = await buildSource(['newsletter-with-unsubscribe.eml'])
