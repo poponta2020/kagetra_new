@@ -8,11 +8,13 @@
 | 文書 | スキル | 担当する「何を」 | 高度 |
 |---|---|---|---|
 | `requirements.md` | `/define-feature` | ロジック・画面遷移・データ・API・DB・ビジネスルール | 振る舞い（言葉） |
-| `design-spec.md`（複数画面は `design-spec-<screen>.md`） | `/design-screen` | レイアウト・コンポーネント・状態・見た目 | 視覚 |
+| `design-spec.md`（複数画面は `design-spec-<screen>.md`）＋ `design-prototype.patch` | `/design-screen` | レイアウト・コンポーネント・状態・見た目 | 視覚 |
 
 - requirements は**画面レイアウトを言葉で再記述しない**（design-spec を参照）。
 - design-spec は**ロジックを決めない**（requirements に投げる）。
 - **画面インベントリと画面間遷移（ナビゲーション地図）は requirements が持つ**（多画面でもスケール）。
+
+> **design-screen の実体（2026-07-12〜）**: Claude Design へのモック push ではなく、**使い捨て worktree（`C:/tmp/design-live`・ブランチ `design/<slug>`）で実コードを直接編集し、Claude Code の Browser プレビュー（launch.json `design-live`・port 3100）で実物を見ながら調整するライブプロトタイピング**。確定時に design-spec.md（意図・状態・データ要件）と design-prototype.patch（実差分＝レイアウトの正）を出力し、productionize（実データ配線・DESIGN-PROTO スタブ除去・テスト）は /implement が行う。プロトタイプ worktree からの push・PR は禁止。Claude Design（DesignSync）は実機閲覧・アーカイブ用の任意フォールバックに格下げ。
 
 ## 宿題で投げ合う（行き来の実体）
 片方のレンズで解けない論点は、相手レンズへ**宿題**として渡す：
@@ -27,7 +29,7 @@
 3. **収束ゲート**：両文書が `status: locked`＋互いの宿題ゼロ＋**薄い implementation-plan**（テスト先行のタスク／対象ファイル／影響範囲）→ `/implement`。
 
 ## 片レンズに自然に縮む
-- **視覚だけ**（新ロジック皆無）→ design-screen のみ → 薄い計画 → implement（define-feature 不要＝design-spec が要件成果物）
+- **視覚だけ**（新ロジック皆無）→ design-screen のみ（確定時に薄い implementation-plan も生成）→ implement（define-feature 不要＝design-spec + patch が要件成果物）
 - **ロジックだけ**（UIなし。cron/API 等）→ define-feature のみ → implement
 - **両方** → 螺旋
 
@@ -37,7 +39,7 @@
 | 起点 | ロジック寄り→define-feature／UI 寄り→design-screen | たいてい design-screen（UI 駆動） |
 | requirements | greenfield（ストーリー/データ/API/DB/migration） | delta（既存挙動を参照し差分だけ） |
 | design-spec | 画面ごとに分割可 | 1枚（現状=before を起点に） |
-| 現状把握 | 近い既存画面＋`ui_kits/` 参照 | 対象画面のコード/トークン/データを snapshot |
+| 現状把握 | 近い既存画面を参照し worktree にスタブルートで試作 | 対象画面を design worktree で直接編集 |
 
 現状把握の出し分けは design-screen の Step1 が、greenfield/delta は define-feature が、それぞれ内部で吸収する。連結（同居・宿題・収束ゲート）は新規/改修で同一。
 

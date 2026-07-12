@@ -45,8 +45,14 @@ DEVFLOW_TYPECHECK_CMDS=("pnpm check-types")
 
 ## design-system
 
-- claude.ai/design プロジェクト名: **Kagetra Design System**
-- デザイントークン: `apps/web` の Tailwind v4 設定・globals.css
+/design-screen（ライブプロトタイピング）用の設定:
+
+- **プロトタイプ preview エントリ:** launch.json の `design-live`（port 3100・cwd=`C:/tmp/design-live/apps/web`）→ http://localhost:3100 。メイン dev（`web`・port 3000）と取り違えないこと
+- **design worktree セットアップ:** `ensure-worktree.sh design-live design/<slug>` → メインの `apps/web/.env.local` を worktree の同パスへコピー → worktree ルートで `corepack pnpm install` → DB は launch.json の `postgres` エントリを先に起動（dev DB は読み取り中心・書き込みしない）
+- **UI プリミティブ:** `apps/web/src/components/ui/`（shadcn/ui ベース + 共通コンポーネント）。新規要素は既存プリミティブを再利用
+- **デザイントークン:** `apps/web` の Tailwind v4 設定・globals.css（色・フォントを発明しない）
+- **ブランドガードレール:** モバイルファースト 375px 基準・日本語 UI・絵文字はデータ装飾に使わない（朱色はデータ装飾に使わない等、既存画面の規約に倣う）
+- （任意）claude.ai/design プロジェクト名: **Kagetra Design System** — 実機閲覧・アーカイブ用フォールバック
 
 ## review-extra
 

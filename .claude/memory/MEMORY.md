@@ -80,7 +80,7 @@
 - [settings-sheet](project_settings_sheet.md) — PR#110。AccountMenu
 - [ピンチズーム抑制](impl_disable_pinch_zoom.md) — PR#192。viewport maximumScale:1
 - [Codex review effort自動判定](project_codex_review_effort.md) — PR#69。差分内容でmedium/high
-- [/design-screenスキル](impl_design_screen_skill.md) — DesignSync連携。finalize_planのdeletes必須
+- [/design-screenスキル](impl_design_screen_skill.md) — **v0.6.0でライブプロトタイピング化(2026-07-12)**: design-live worktree(C:/tmp固定)+Browser(port 3100)+DESIGN-PROTOマーカー+design-prototype.patch。DesignSyncは任意付録へ
 - [カスタムエージェント案再評価](project_proposed_agents.md) — 7種一括を撤回、code-reviewer-jpも2026-07-04不採用(task-implementer採用)。docs/dev/proposed-agents.md
 - [Skill/Subagent/Workflow方針](project_skill_subagent_orchestration.md) — 実装フロー骨格はスキル維持・葉ステップのみfork委譲。正典=docs/dev/feature-flow.md
 - [PR#6フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JPは実使用ウェイトのみ

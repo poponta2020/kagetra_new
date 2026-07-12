@@ -1,0 +1,44 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "corepack", "pnpm", "dev"],
+      "port": 3000,
+      "cwd": "apps/web",
+      "env": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" }
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "corepack", "pnpm", "dev"],
+      "port": 3001,
+      "cwd": "apps/api",
+      "env": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" }
+    },
+    {
+      "name": "design-live",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "corepack", "pnpm", "exec", "next", "dev", "--port", "3100"],
+      "port": 3100,
+      "cwd": "C:/tmp/design-live/apps/web",
+      "env": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" }
+    },
+    {
+      "name": "postgres",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "docker", "compose", "-f", "docker/docker-compose.yml", "up", "db"],
+      "port": 5433,
+      "cwd": ".",
+      "env": {}
+    },
+    {
+      "name": "mail-worker",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "corepack", "pnpm", "dev"],
+      "cwd": "apps/mail-worker",
+      "env": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" }
+    }
+  ]
+}
