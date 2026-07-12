@@ -7,12 +7,15 @@ devflow プラグインのスキルが読む、このプロジェクトの唯一
 テスト・lint・typecheck コマンド（gate-dod.sh・/fix・/implement が使用。リポジトリルートから実行される）
 <!-- devflow:commands -->
 ```sh
-DEVFLOW_TEST_CMDS=("pnpm test")
+DEVFLOW_TEST_CMDS=("apps/web/::pnpm --filter=@kagetra/web test" "apps/api/::pnpm --filter=@kagetra/api test" "apps/mail-worker/::pnpm --filter=@kagetra/mail-worker test" "packages/shared/::pnpm test")
 DEVFLOW_LINT_CMDS=("pnpm lint")
 DEVFLOW_TYPECHECK_CMDS=("pnpm check-types")
+DEVFLOW_CI_COVERS=("test" "lint" "typecheck")
 ```
 <!-- /devflow:commands -->
 
+- スコープ付き（`パス::コマンド`）: web のみの差分で mail-worker の flaky スイートを回さない。`packages/shared/` 変更は全パッケージに波及するため全体実行
+- `DEVFLOW_CI_COVERS`: CI（test.yml）が lint / check-types / test / e2e を全て実行するため、gate-dod は CI green 時にローカル再実行をスキップする
 - E2E: `pnpm test:e2e`（Playwright。テスト DB `pnpm test:db:up` が前提）。ローカルゲートでは実行せず CI が最終網
 - 単一パッケージのテストは `pnpm --filter=@kagetra/<pkg> test` で直接指定（turbo 経由は strict env の罠あり）
 
@@ -62,6 +65,10 @@ Codex レビュー・code-review に追加するプロジェクト固有観点:
 - フロントは Server Components + Server Actions で DB 直接操作。Hono API は将来のクライアント用
 - Tailwind v4 + shadcn/ui、モバイルファースト。テスト: Vitest + Playwright
 - 招待制・身内アプリのため**本人性検証は意図的に省略**されている部分がある（過剰指摘しない）
+
+低リスクパス（trivial 高速パス = Codex effort low・AC 適合チェック条件付きスキップの対象。差分<150行・≤4ファイルで全変更がこの範囲内の場合のみ）:
+- `apps/web/src/components/**` — ただし Server Action・DB アクセス・認可判定（`"use server"` / drizzle / `require*Session`）を含むファイルは除く（純粋な表示コンポーネントのみ）
+- `docs/**`
 
 高リスクパス（レビュー effort を high に上げる対象）:
 - 認証・認可: `auth` / `permission` / `middleware` を含むパス
