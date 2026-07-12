@@ -2,25 +2,6 @@
   "model": "opusplan",
   "advisorModel": "opus",
   "permissions": {
-    "allow": [
-      "Bash",
-      "Read",
-      "Write",
-      "Edit",
-      "Glob",
-      "Grep",
-      "Agent",
-      "Skill",
-      "WebFetch",
-      "WebSearch",
-      "NotebookEdit",
-      "Bash(codex exec:*)",
-      "Bash(codex --version)",
-      "Bash(git push origin main)",
-      "Bash(git push origin main:main)"
-    ],
-    "additionalDirectories": [
-      ".claude"
-    ]
+    "defaultMode": "bypassPermissions"
   }
 }
