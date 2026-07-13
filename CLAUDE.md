@@ -14,7 +14,8 @@
 - Tailwind CSS + shadcn/ui / Vitest + Playwright
 - Turborepo + pnpm / Docker Compose on Oracle Cloud（東京 / new.hokudaicarta.com）
 - CI/CD: GitHub Actions (テスト+型チェック+lint+自動デプロイ)
-- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを回し、Codex pass 後に AC 適合チェック（acceptance-reviewer）→ pass かつ CI green なら `/ship` まで自動（`--no-auto-ship` で停止／手動レビューは `/review-manual`）
+- レビュー: PR作成後 auto-review-loop が Codex CLI で構造化レビュー→`/fix` で自動修正→再レビューを回し、**pass で即終了**（nit は修正のみ・確認ラウンドなし）→ **CI 完了は待たず** `/ship` まで自動（CI が既に失敗している場合のみ中断。`--no-auto-ship` で停止／手動レビューは `/review-manual`）
+  ※ devflow v0.8.0〜v0.9.0 で AC適合（acceptance-reviewer）・追加/code-review・/verify・マージ前CI待ちを標準ループから除外（時間対効果の実測による。支障が出たら再装着。マージ後にCIが赤なら追修正）
 - モデル運用: セッション既定=opusplan（Plan=Opus/実行=Sonnet）+ Advisor=Opus。要件定義・設計は `/model opus` の設計セッションで行う。サブエージェント委譲は**コンテキスト隔離・作業独立性**で判断（正典=devflow の implement スキル）。調査は機械的列挙=Explore(haiku)／判断込み=Explore(sonnet)／核心は main 自読
 - 開発スキル・エージェントは **devflow プラグイン**（poponta2020/claude-devflow）で提供。プロジェクト固有設定の正典= [.claude/project-profile.md](.claude/project-profile.md)
 
@@ -51,7 +52,7 @@ scripts/diagnostics/ → 使い捨て診断スクリプト置き場 (gitignore�
 4. **memory記録**: 設計判断/バグ修正/完了/フィードバック時に .claude/memory/ へ必ず記録（MEMORY.md 索引も更新）
 5. **破壊的変更禁止**: テスト破壊は承認必須、直接ALTER禁止、本番操作は確認
 6. **セッションプロトコル**: 開始→git pull→.claude/memory/からローカルmemoryへ同期→docs/worklog.md確認→続きから / 終了→worklog.md追記→ローカルmemoryから.claude/memory/へ同期→コミット→git push
-7. **DoD**: 実装完了→テスト(API+フロント+E2E)+CI通過+memory記録→PR作成+Codexレビュー+AC適合+指摘修正→ship（DoD ゲートは gate-dod.sh で全自動。実機確認は出荷後に本番で行い、不具合は即修正）
+7. **DoD**: 実装完了→テスト(API+フロント。E2EはCIに委譲)+memory記録→PR作成+Codexレビュー+指摘修正→ship（DoD ゲートは gate-dod.sh で全自動。CI pending はブロックしない=マージ後に赤なら追修正。実機確認は出荷後に本番で行い、不具合は即修正）
 8. **フェーズ品質ゲート**: 全DoD+移行確認+リグレッションなし+本番確認+総括+次Phase合意
 9. **スコープ管理**: Phase外要望は .claude/memory/ に記録、混ぜない。ついでリファクタ禁止
 10. **トラブル対応**: 原因確認→修正PRまたはロールバック→インシデント記録
@@ -60,6 +61,6 @@ scripts/diagnostics/ → 使い捨て診断スクリプト置き場 (gitignore�
 ## 開発フロー (1機能)
 
 [設計セッション: /model opus] grill-me(仕様確認) → define-feature(要件ヒアリング→**要件承認=唯一の承認ポイント**→技術計画→implementation-plan→Issue までノンストップ。UIは design-screen と収束ループ)
-[実行セッション: opusplan+advisor] implement(**起動=実装GO**。worktreeでタスクループ→/verify で AC 実動作確認→自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex レビュー→/fix→再レビュー + AC適合チェック、pass+CI green で ship まで自動) → ship(Step 0 の DoD ゲート通過が必須。マージ+memory同期+push)
+[実行セッション: opusplan+advisor] implement(**起動=実装GO**。worktreeでタスクループ→自動連鎖) → prepare-pr(PR作成) → auto-review-loop(Codex レビュー→/fix→再レビュー、pass で即終了・CI待ちなしで ship まで自動) → ship(Step 0 の DoD ゲート通過が必須。マージ+memory同期+push)
 
-実装系スキル（implement / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、**pass かつ CI green なら ship まで自動で繋がる**（auto-ship 既定 ON、`--no-auto-ship` で auto-review-loop の pass 時点で停止）。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review-manual` を呼ぶ。
+実装系スキル（implement / quickfix / bug-report / fix-feature）はすべて末尾で次スキルを自動呼び出しし、**Codex pass なら CI を待たずに ship まで自動で繋がる**（CI が既に失敗している場合のみ中断。auto-ship 既定 ON、`--no-auto-ship` で auto-review-loop の pass 時点で停止）。手動 Codex VS Code レビューを使いたい場合のみユーザーが個別に `/review-manual` を呼ぶ。
