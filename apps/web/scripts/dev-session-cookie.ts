@@ -104,7 +104,7 @@ async function main() {
       },
     })
 
-    process.stderr.write(`[dev-session] minted for role=${u.role} name=${u.name} id=${u.id}\n`)
+    process.stderr.write(`[dev-session] minted for role=${u.role} id=${u.id}\n`)
     process.stdout.write(token + '\n')
   } finally {
     await pool.end()
