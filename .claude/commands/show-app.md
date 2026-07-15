@@ -8,65 +8,125 @@ argument-hint: "[local|prod] [route]  e.g. `prod /tournaments`"
 Goal: render the authenticated kagetra web app **live in the in-app Browser pane**.
 Args: `$1` = data source `local` (default) or `prod`; `$2` = route (default `/dashboard`).
 
+> **Fast path — do these in order, no detours (this ordering is the point):**
+> ① reconcile `.env.local` ↔ `$1` → ② make DB reachable → ③ **mint cookie = DB probe** →
+> ④ `preview_start web` → ⑤ land on `/sw.js` **and verify `origin` is http** →
+> ⑥ inject cookie + verify session → ⑦ navigate to the route → ⑧ prove with `read_page`.
+> Every slow run so far came from discovering a **wrong/dead DB *after*** starting the server.
+> Steps ①–③ front-load that failure so it costs seconds, not the whole pane dance.
+
 ## THE GOLDEN RULE (why this command exists)
 
-The in-app Browser pane **cannot follow a top-level HTTP redirect** — it re-requests
-the same URL until the browser aborts with `ERR_TOO_MANY_REDIRECTS`, leaving a broken
-`(non-http)` page (screenshot times out, `document.cookie` denied). This app redirects
-on `/` (unauth → `/auth/signin`; authed → `/dashboard`). So:
+The in-app Browser pane **cannot follow a top-level HTTP redirect** — it re-requests the same
+URL until the browser aborts with `ERR_TOO_MANY_REDIRECTS`, landing on a dead
+`chrome-error://chromewebdata/` page (`location.origin === "null"`, `document.cookie` throws
+`Access is denied`). This app redirects on `/` (unauth → `/auth/signin`; authed → `/dashboard`). So:
 
-- **NEVER navigate the pane to `/`** or any redirecting URL.
-- Always land the pane on a **direct 200 page** (`/sw.js`, `/auth/signin` when logged out,
-  or any `/dashboard`, `/tournaments`, `/players`, … once a session cookie is set).
+- **NEVER navigate the pane to `/`** or any redirecting URL — and never a **bare
+  `http://localhost:3000`** (that *is* `/`). Always include an explicit non-redirecting path.
+- Always land the pane on a **direct 200 page** (`/sw.js`, `/auth/signin` when logged out, or any
+  `/dashboard`, `/tournaments`, `/players`, … once a session cookie is set).
 - In-app **bottom-nav clicks are client-side (no redirect) and safe**; use them to move around.
-- The server itself is fine (curl/Playwright follow the redirect normally) — this is purely
-  an in-app-pane limitation.
+- The server itself is fine (curl/Playwright follow the redirect normally) — this is purely an
+  in-app-pane limitation.
+- **A `screenshot` timeout is NOT a reliable failure signal** — it times out both on the dead
+  chrome-error page AND on perfectly healthy pages (pane capture quirk). Never diagnose from a
+  screenshot; check `location.origin` / `document.readyState` and use `read_page` instead.
+
+## Ignore preview-runner "dev server failed" errors that aren't about `web`
+
+`.claude/launch.json` also defines `design-live` (cwd `C:/tmp/design-live/...`, an external
+worktree) and `postgres` (port 5433, permanently owned by the docker DB). Both are
+**categorically incompatible with the preview runner** — it rejects an external cwd, and it can't
+bind a port docker already holds. When the pane opens, the harness may try them and surface generic
+**"dev server failed"** popups naming `cwd must be a relative path` / `port 5433 (or 3100) in use`.
+
+- **These are NOT about `web`.** `preview_start web` starts cleanly on 3000 with those entries
+  present (verified 2026-07-13). Do **not** investigate them and do **not** edit `launch.json` in
+  response — that rabbit hole cost the last run ~10 minutes. (If the popups ever become annoying,
+  the only real fix is deleting those two entries and launching `design-live` outside this file —
+  a separate decision, not part of this command.)
 
 ## Steps
 
-0. Confirm the dev server can start: `.claude/launch.json` `web` entry uses
-   `cmd /c corepack pnpm dev` (the preview runner's PATH lacks the pnpm global bin —
-   plain `pnpm` fails). Don't "fix" it back to bare `pnpm`.
+1. **Pre-flight: reconcile the DB target — BEFORE anything else.**
+   Read `apps/web/.env.local`'s active (uncommented) `DATABASE_URL`:
+   - `@127.0.0.1:5435` → currently **prod** (a leftover tunnel from a past `/show-app prod` that
+     was never reverted — see `feedback_ship_dod_residual_check` / `reference_prod_db_tunnel_connect`).
+   - `@…:5433` → currently **local** (docker).
+   - **If the current target ≠ `$1`, STOP and ask the user which data they want.** A plain
+     `/show-app` inheriting a prod `.env.local` is the exact ambiguity that derailed the last run.
+     Don't silently revert (discards their prod setup) and don't silently use prod (contradicts the
+     command). Proceed only once the source is agreed.
 
-1. **If `$1` == prod** — point web at the production DB first (see the
-   `reference_prod_db_tunnel_connect` memory for full detail). Otherwise skip to step 2.
-   - Tunnel: if `netstat -ano | grep 127.0.0.1:5435` shows nothing, start it in the background:
-     `ssh -i ~/.ssh/id_ed25519_oracle -o BatchMode=yes -o ExitOnForwardFailure=yes -N -L 127.0.0.1:5435:127.0.0.1:5432 ubuntu@new.hokudaicarta.com`
-   - `.env.local`: if `apps/web/.env.local`'s active `DATABASE_URL` is not already on `:5435`,
-     switch it to `postgresql://kagetra:<PW>@127.0.0.1:5435/kagetra?sslmode=disable`
-     (comment the original for revert). Get `<PW>` at runtime — never hardcode it:
-     `ssh -i ~/.ssh/id_ed25519_oracle -o BatchMode=yes ubuntu@new.hokudaicarta.com 'sudo docker exec kagetra-postgres printenv POSTGRES_PASSWORD'`
-   - ⚠️ Tell the user: this is **session-scoped and read-WRITE against production** — the tunnel
-     dies with the session and `.env.local` must be reverted afterward.
+2. **Make `.env.local` match the agreed source, and make the DB reachable** (the reachability
+   proof happens in step 3):
+   - **local**: active `DATABASE_URL` = the `:5433` line (uncomment it, comment `:5435`). Confirm
+     docker db is up: `netstat -ano | grep ':5433' | grep LISTENING`.
+   - **prod**:
+     - **Tunnel**: if `netstat -ano | grep '127.0.0.1:5435'` shows no LISTENING line, start it in
+       the **background** and wait for the listener:
+       ```
+       ssh -i ~/.ssh/id_ed25519_oracle -o BatchMode=yes -o ExitOnForwardFailure=yes -N \
+         -L 127.0.0.1:5435:127.0.0.1:5432 ubuntu@new.hokudaicarta.com
+       ```
+       then poll: `for i in 1 2 3 4 5; do netstat -ano | grep -q '127.0.0.1:5435.*LISTENING' && echo UP && break; done`
+     - **`.env.local`**: if the active `DATABASE_URL` isn't already `@127.0.0.1:5435`, switch it to
+       `postgresql://kagetra:<PW>@127.0.0.1:5435/kagetra?sslmode=disable` (comment the original for
+       revert). Fetch `<PW>` at runtime — never hardcode:
+       `ssh -i ~/.ssh/id_ed25519_oracle -o BatchMode=yes ubuntu@new.hokudaicarta.com 'sudo docker exec kagetra-postgres printenv POSTGRES_PASSWORD'`
+     - ⚠️ Tell the user: **read-WRITE against production**, session-scoped — the tunnel dies with
+       the session and `.env.local` must be reverted afterward (step 9).
 
-2. **Start the dev server**: `preview_start` with name `web`. It auto-opens the `seed` tab
-   (which loads `/` → redirect → will show the loop; ignore it, we override in step 4).
-
-3. **Mint a session cookie** for an existing user (never inserts — prod-safe):
+3. **Mint the session cookie — this doubles as the DB reachability probe, so run it BEFORE
+   `preview_start`.** `dev:session` connects to the DB directly (no web server needed) and only
+   SELECTs an existing user (never inserts → prod-safe):
    ```
    pnpm --silent --filter @kagetra/web dev:session -- --role=admin 2>/dev/null | tail -n1 | tr -d '\r\n'
    ```
-   Use `--silent` + `tail -n1` or pnpm's banner mashes into the token. Capture the token.
-   (For a fresh LOCAL DB with no users, `dev:cookie` seeds one — but NEVER run `dev:cookie` against prod.)
+   `--silent` + `tail -n1` keep pnpm's banner out of the token.
+   - **If the output is empty or doesn't start with `eyJ`, the DB is unreachable** — re-run
+     WITHOUT `2>/dev/null` to read the error (`ECONNREFUSED :5435` = prod tunnel down;
+     `:5433` = docker db down). Fix step 2 and retry. **Do NOT proceed without a valid `eyJ…`
+     token** — a missing token is precisely what makes the later cookie step fail.
+   - (Fresh LOCAL DB with no users: `dev:cookie` seeds one — but NEVER run `dev:cookie` against prod.)
 
-4. **Land the pane on a scriptable 200 page** (not `/`):
-   `navigate` the `seed` tab to `http://localhost:3000/sw.js` (static file, excluded from
-   auth middleware → always 200, no redirect).
+4. **Start the dev server**: `preview_start` with name `web` (starts on 3000; **note the returned
+   `tabId`** and use it for every pane call below). It auto-opens a tab at `/` → redirect → dead
+   `chrome-error` page; we override it in step 5.
+   - Confirm `launch.json`'s `web` entry still uses `cmd /c corepack pnpm dev` — the runner's PATH
+     lacks the pnpm global bin, so bare `pnpm` fails. Don't "fix" it to bare `pnpm`.
 
-5. **Inject the cookie + verify** via `javascript_tool` on the `seed` tab:
+5. **Land the pane on a scriptable 200 page — and VERIFY you actually escaped the error page.**
+   `navigate` the tab to `http://localhost:3000/sw.js` (static file, excluded from auth middleware
+   → always 200). Then confirm with `javascript_tool`:
+   ```js
+   JSON.stringify({ href: location.href, origin: location.origin })
+   ```
+   **Expect `origin === "http://localhost:3000"`.** If `origin` is `"null"` (still the chrome-error
+   page — the first navigate off it often doesn't stick), `navigate` to `/sw.js` **again** and
+   re-check. **Do not inject the cookie until origin is confirmed http** — otherwise
+   `document.cookie` throws `Access is denied` and you waste a round-trip.
+
+6. **Inject the cookie + verify** via `javascript_tool` on the same tab:
    ```js
    document.cookie = "authjs.session-token=<TOKEN>; Path=/; Max-Age=604800; SameSite=Lax";
    (async () => (await fetch('/api/auth/session',{credentials:'same-origin'})).text())()
    ```
-   Expect JSON with the user (not `null`). `document.cookie` can set it because there's no
-   pre-existing HttpOnly session cookie (JS can't overwrite one; if session isn't null here,
-   sign out first via `/api/auth/signout` or clear cookies).
+   Expect JSON with the user (not `null`). JS can set the cookie only because there's no
+   pre-existing HttpOnly session cookie; if the session isn't null here, sign out first
+   (`/api/auth/signout`) or clear cookies, then re-inject.
 
-6. **Navigate the pane directly to the target 200 page**: `http://localhost:3000$2`
-   (default `/dashboard`). With the session set this returns 200 (no redirect) and renders.
+7. **Navigate to the target route**: `route = $2 || "/dashboard"`; `navigate` to
+   `http://localhost:3000` + `route`. **Assert `route` starts with `/` and is not `/`** (a bare host
+   = `/` = redirect loop). With the session set this renders a 200.
 
-7. **Screenshot** the `seed` tab to confirm, and report. Remind the user: click the bottom
-   nav to browse; never open `/`; ask you to jump to a specific page if needed.
+8. **Prove it + report.** Primary proof = `read_page` (a11y tree) plus a `javascript_tool` read of
+   `location.href` / `document.title` / heading text. Try one `screenshot` for a visual, but
+   **treat a screenshot timeout as a non-issue when the DOM is `complete` and the console is clean**
+   — don't retry-loop on it. Remind the user: click the bottom nav to browse; never open `/`; ask
+   to jump to a specific page.
 
-8. **If `$1` == prod**, remind the user to run the revert when done: stop the SSH tunnel and
-   restore `apps/web/.env.local`'s original `DATABASE_URL` (uncomment the saved line).
+9. **If `$1` == prod, remind the user to revert when done**: stop the SSH tunnel (kill the
+   background ssh) and restore `apps/web/.env.local`'s original `DATABASE_URL` (uncomment the
+   `:5433` line, re-comment `:5435`).
