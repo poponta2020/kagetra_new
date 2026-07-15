@@ -10,7 +10,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:cookie": "tsx scripts/dev-issue-cookie.ts"
+    "dev:cookie": "tsx scripts/dev-issue-cookie.ts",
+    "dev:session": "tsx scripts/dev-session-cookie.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",
