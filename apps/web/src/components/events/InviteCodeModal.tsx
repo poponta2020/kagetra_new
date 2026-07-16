@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { Btn } from '@/components/ui'
+import type { GuidelineCandidateMail } from '@/lib/event-related-mails'
 
 export interface InviteCodePayload {
   inviteCode: string
@@ -10,13 +11,23 @@ export interface InviteCodePayload {
   botId: string
   botLabel: string
   addFriendUrl: string
+  // broadcast-guidelines-on-link: モーダルの「要綱として送信するファイル」選択
+  // リスト用。候補は関連メール別（受信日時降順・添付 id 昇順）、選択済みは当該
+  // LINE 連携行に保持済みの添付 id。
+  guidelineCandidates: GuidelineCandidateMail[]
+  selectedGuidelineAttachmentIds: number[]
 }
 
 export interface InviteCodeModalProps {
+  eventId: number
   eventTitle: string
   /** When non-null, modal opens with this payload. Reset to null to close. */
   payload: InviteCodePayload | null
   onClose: () => void
+  setGuidelineAttachmentsAction: (
+    eventId: number,
+    attachmentIds: number[],
+  ) => Promise<void>
 }
 
 function formatExpiry(expiresAt: Date): string {
@@ -24,6 +35,20 @@ function formatExpiry(expiresAt: Date): string {
     dateStyle: 'short',
     timeStyle: 'short',
   })
+}
+
+function formatMailReceivedAt(receivedAt: Date): string {
+  return receivedAt.toLocaleString('ja-JP', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  })
+}
+
+/** bytes を人間可読なサイズ表記へ整形する（例: 12.3 KB / 1.2 MB）。 */
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function useCountdown(expiresAt: Date | null): string {
@@ -42,20 +67,56 @@ function useCountdown(expiresAt: Date | null): string {
 }
 
 export function InviteCodeModal({
+  eventId,
   eventTitle,
   payload,
   onClose,
+  setGuidelineAttachmentsAction,
 }: InviteCodeModalProps) {
   const [copied, setCopied] = useState(false)
-  const [, startTransition] = useTransition()
+  // 要綱選択の保存中フラグ。replace 意味論の Server Action を連打すると応答順が
+  // 前後して古い選択が後勝ちし得るため、保存中はチェックボックスを無効化して
+  // 1 リクエストずつ直列化する（最後のユーザー操作が確実に勝つ）。
+  const [isSavingGuidelines, startTransition] = useTransition()
   const countdown = useCountdown(payload?.expiresAt ?? null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [guidelineError, setGuidelineError] = useState<string | null>(null)
 
   // Reset the "copied" badge when the modal is reopened with a new payload.
   useEffect(() => {
     if (payload) setCopied(false)
   }, [payload])
 
+  // Reset the selection from the freshly-loaded payload whenever the modal
+  // (re)opens with a new payload (mirrors the copied-badge reset above).
+  useEffect(() => {
+    if (payload) {
+      setSelectedIds(new Set(payload.selectedGuidelineAttachmentIds))
+      setGuidelineError(null)
+    }
+  }, [payload])
+
   if (!payload) return null
+
+  function toggleAttachment(attachmentId: number) {
+    const next = new Set(selectedIds)
+    if (next.has(attachmentId)) next.delete(attachmentId)
+    else next.add(attachmentId)
+    setSelectedIds(next)
+    setGuidelineError(null)
+    startTransition(async () => {
+      try {
+        await setGuidelineAttachmentsAction(eventId, Array.from(next))
+      } catch (e) {
+        // Optimistic toggle failed server-side — revert the local checkbox
+        // state so the UI doesn't lie about what's actually saved.
+        setSelectedIds(selectedIds)
+        setGuidelineError(
+          e instanceof Error ? e.message : '要綱の選択保存に失敗しました',
+        )
+      }
+    })
+  }
 
   function handleCopy() {
     if (!payload) return
@@ -134,6 +195,53 @@ export function InviteCodeModal({
           <li>作成したグループに {payload.botLabel} を招待</li>
           <li>グループ内で上記 6 桁コードを発言</li>
         </ol>
+
+        <div className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold text-ink-1">
+            要綱として送信するファイル
+          </h3>
+          {payload.guidelineCandidates.length === 0 ? (
+            <p className="text-[11px] text-ink-meta bg-surface-alt rounded-xl px-3 py-3">
+              送信できる添付ファイルがありません
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {payload.guidelineCandidates.map((mail) => (
+                <div key={mail.mailId} className="flex flex-col gap-1.5">
+                  <div className="text-[11px] text-ink-meta">
+                    <span className="text-ink-2">
+                      {mail.subject || '(件名なし)'}
+                    </span>
+                    {' '}
+                    ・{formatMailReceivedAt(mail.receivedAt)}
+                  </div>
+                  <ul className="flex flex-col gap-1 pl-1">
+                    {mail.attachments.map((att) => (
+                      <li key={att.id}>
+                        <label className="flex items-center gap-2 rounded-lg bg-surface-alt px-2.5 py-2 text-xs text-ink-1">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-border disabled:opacity-50"
+                            checked={selectedIds.has(att.id)}
+                            disabled={isSavingGuidelines}
+                            onChange={() => toggleAttachment(att.id)}
+                          />
+                          <span className="flex-1 truncate">{att.filename}</span>
+                          <span className="text-[10px] text-ink-meta tabular-nums">
+                            {formatFileSize(att.sizeBytes)}
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+          {guidelineError ? (
+            <p className="text-xs text-danger-fg">{guidelineError}</p>
+          ) : null}
+        </div>
 
         <p className="text-[10px] text-ink-meta">
           紐付けが完了すると、このセクションは「連携中」表示に切り替わります。

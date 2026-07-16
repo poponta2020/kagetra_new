@@ -10,6 +10,7 @@ import { lineChannels } from './line-channels'
 import { mailWorkerJobs, mailWorkerRuns } from './mail-worker'
 import { eventLineBroadcasts } from './event-line-broadcasts'
 import { eventBroadcastMessages } from './event-broadcast-messages'
+import { eventBroadcastGuidelineAttachments } from './event-broadcast-guideline-attachments'
 import { attachmentShareTokens } from './attachment-share-tokens'
 import { eventLifecycleNotifications } from './event-lifecycle-notifications'
 import { pushSubscriptions } from './push-subscriptions'
@@ -175,6 +176,23 @@ export const eventLineBroadcastsRelations = relations(
       references: [lineChannels.id],
     }),
     messages: many(eventBroadcastMessages),
+    // broadcast-guidelines-on-link: 紐付け完了時に送る「要綱」として選択された
+    // 添付 (join)。
+    guidelineAttachments: many(eventBroadcastGuidelineAttachments),
+  }),
+)
+
+export const eventBroadcastGuidelineAttachmentsRelations = relations(
+  eventBroadcastGuidelineAttachments,
+  ({ one }) => ({
+    broadcast: one(eventLineBroadcasts, {
+      fields: [eventBroadcastGuidelineAttachments.eventLineBroadcastId],
+      references: [eventLineBroadcasts.id],
+    }),
+    attachment: one(mailAttachments, {
+      fields: [eventBroadcastGuidelineAttachments.mailAttachmentId],
+      references: [mailAttachments.id],
+    }),
   }),
 )
 

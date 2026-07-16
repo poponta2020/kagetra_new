@@ -102,6 +102,7 @@
 | released_at | timestamptz | NULL | — | |
 | revoked_at | timestamptz | NULL | — | |
 | revoke_reason | text | NULL | — | 自由記述（manual/bot_kicked/channel_disabled等） |
+| guidelines_sent_at | timestamptz | NULL | — | 紐付け完了時に選択済み要綱を push した最終日時（監査/表示用）。未送信・再発行後はNULL |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
@@ -131,6 +132,21 @@
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
 **制約**: UNIQUE `event_broadcast_messages_broadcast_mail_uq` on (event_line_broadcast_id, mail_message_id)
+
+## event_broadcast_guideline_attachments（TS: `eventBroadcastGuidelineAttachments`）
+
+定義ファイル: `packages/shared/src/schema/event-broadcast-guideline-attachments.ts`
+
+招待コード発行モーダルで管理者が「要綱として送信するファイル」に選んだ添付を、対象イベントのLINE連携（`event_line_broadcasts`, 1 event = 1 行）に紐づけて保持するjoinテーブル。紐付け完了（linked）時に選択済み添付だけが署名URLリンクでLINEグループへpushされる（broadcast-guidelines-on-link）。招待コード再発行は同一`event_line_broadcasts`行のUPDATE（id保持）なので選択は再発行をまたいで保持される。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| event_line_broadcast_id | integer | NOT NULL | — | FK→event_line_broadcasts.id ON DELETE CASCADE |
+| mail_attachment_id | integer | NOT NULL | — | FK→mail_attachments.id ON DELETE CASCADE |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE `event_broadcast_guideline_attachments_uq` on (event_line_broadcast_id, mail_attachment_id) / INDEX `event_broadcast_guideline_attachments_mail_attachment_idx` on (mail_attachment_id)（FK ON DELETE CASCADE のカスケード探索用）
 
 ## event_lifecycle_notifications（TS: `eventLifecycleNotifications`）
 

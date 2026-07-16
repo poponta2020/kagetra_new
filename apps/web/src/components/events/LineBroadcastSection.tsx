@@ -34,6 +34,9 @@ export interface LineBroadcastSectionProps {
         lineGroupIdTail: string | null
         linkedAt: Date | string | null
         lastBroadcastAt: Date | string | null
+        // broadcast-guidelines-on-link: 選択済み要綱の件数と最終送信日時。
+        guidelineCount: number
+        guidelinesSentAt: Date | string | null
       }
     | null
   history: readonly BroadcastHistoryRow[]
@@ -47,6 +50,11 @@ export interface LineBroadcastSectionProps {
     eventId: number,
     mailMessageId: number,
   ) => Promise<void>
+  setGuidelineAttachmentsAction: (
+    eventId: number,
+    attachmentIds: number[],
+  ) => Promise<void>
+  resendGuidelinesAction: (eventId: number) => Promise<void>
 }
 
 function formatDateTime(date: Date | string | null | undefined): string {
@@ -75,9 +83,12 @@ export function LineBroadcastSection({
   generateInviteCodeAction,
   revokeBroadcastAction,
   manualBroadcastAction,
+  setGuidelineAttachmentsAction,
+  resendGuidelinesAction,
 }: LineBroadcastSectionProps) {
   const [pendingGenerate, startGenerate] = useTransition()
   const [pendingRevoke, startRevoke] = useTransition()
+  const [pendingResend, startResend] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [modalPayload, setModalPayload] = useState<InviteCodePayload | null>(null)
 
@@ -106,6 +117,17 @@ export function LineBroadcastSection({
         setModalPayload(payload)
       } catch (e) {
         setError(e instanceof Error ? e.message : '招待コードの発行に失敗しました')
+      }
+    })
+  }
+
+  function handleResend() {
+    setError(null)
+    startResend(async () => {
+      try {
+        await resendGuidelinesAction(eventId)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '要綱の再送に失敗しました')
       }
     })
   }
@@ -180,8 +202,28 @@ export function LineBroadcastSection({
                   {formatDateTime(binding?.lastBroadcastAt)}
                 </dd>
               </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-ink-meta">要綱</dt>
+                <dd className="text-ink-1">
+                  {binding?.guidelineCount ?? 0}件選択済み
+                  {binding?.guidelinesSentAt
+                    ? `（最終送信 ${formatDateTime(binding.guidelinesSentAt)}）`
+                    : ''}
+                </dd>
+              </div>
             </dl>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              {(binding?.guidelineCount ?? 0) > 0 ? (
+                <Btn
+                  type="button"
+                  kind="secondary"
+                  size="sm"
+                  onClick={handleResend}
+                  disabled={pendingResend}
+                >
+                  {pendingResend ? '送信中…' : '要綱を再送'}
+                </Btn>
+              ) : null}
               <Btn
                 type="button"
                 kind="danger"
@@ -245,9 +287,11 @@ export function LineBroadcastSection({
       ) : null}
 
       <InviteCodeModal
+        eventId={eventId}
         eventTitle={eventTitle}
         payload={modalPayload}
         onClose={() => setModalPayload(null)}
+        setGuidelineAttachmentsAction={setGuidelineAttachmentsAction}
       />
     </section>
   )

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import {
+  eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   eventLineBroadcasts,
   events,
@@ -10,7 +11,7 @@ import {
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { auth } from '@/auth'
 import {
   AttendanceCounts,
@@ -33,8 +34,10 @@ import { LifecycleStatusBadge } from '@/components/events/LifecycleStatusBadge'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
+  resendGuidelines,
   revokeBroadcast,
   setEntryApplied,
+  setGuidelineAttachments,
   setPaymentPaid,
   setPaymentType,
   submitAttendance,
@@ -114,6 +117,8 @@ export default async function EventDetailPage({
         lineGroupIdTail: string | null
         linkedAt: Date | string | null
         lastBroadcastAt: Date | string | null
+        guidelineCount: number
+        guidelinesSentAt: Date | string | null
       }
     | null = null
   let broadcastHistory: BroadcastHistoryRow[] = []
@@ -123,9 +128,11 @@ export default async function EventDetailPage({
       // 管理者向け: フル情報を取得して RSC payload に乗せる。
       const broadcastRow = await db
         .select({
+          id: eventLineBroadcasts.id,
           status: eventLineBroadcasts.status,
           lineGroupId: eventLineBroadcasts.lineGroupId,
           linkedAt: eventLineBroadcasts.linkedAt,
+          guidelinesSentAt: eventLineBroadcasts.guidelinesSentAt,
           botId: lineChannels.botId,
           botLabel: lineChannels.note,
         })
@@ -143,6 +150,22 @@ export default async function EventDetailPage({
         .limit(1)
       const activeBroadcast = broadcastRow[0]
       if (activeBroadcast) {
+        // broadcast-guidelines-on-link: 選択済み要綱の件数（招待コード発行
+        // モーダルで選択された添付の join 件数）。
+        const guidelineCountRows = await db
+          .select({ n: count() })
+          .from(eventBroadcastGuidelineAttachments)
+          .where(
+            eq(
+              eventBroadcastGuidelineAttachments.eventLineBroadcastId,
+              activeBroadcast.id,
+            ),
+          )
+        // 要綱件数・guidelines_sent_at は broadcast 行そのものから取る値で、
+        // 配信履歴 (event_broadcast_messages) の有無には依存しない。linked 直後で
+        // 履歴が空でも、選択済みなら guidelineCount は正しく > 0 になり再送導線が出る。
+        const guidelineCount = guidelineCountRows[0]?.n ?? 0
+
         const historyRows = await db
           .select({
             id: eventBroadcastMessages.id,
@@ -173,6 +196,9 @@ export default async function EventDetailPage({
           .orderBy(desc(eventBroadcastMessages.createdAt))
           .limit(20)
 
+        const lastBroadcastAt =
+          historyRows.find((row) => row.sentAt)?.sentAt ?? null
+
         broadcastBinding = {
           status: activeBroadcast.status as LineBroadcastBindingStatus,
           botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
@@ -180,7 +206,9 @@ export default async function EventDetailPage({
             ? activeBroadcast.lineGroupId.slice(-8)
             : null,
           linkedAt: activeBroadcast.linkedAt,
-          lastBroadcastAt: historyRows.find((row) => row.sentAt)?.sentAt ?? null,
+          lastBroadcastAt,
+          guidelineCount,
+          guidelinesSentAt: activeBroadcast.guidelinesSentAt,
         }
         broadcastHistory = historyRows.map((row) => ({
           id: row.id,
@@ -204,6 +232,8 @@ export default async function EventDetailPage({
         lineGroupIdTail: null,
         linkedAt: null,
         lastBroadcastAt: null,
+        guidelineCount: 0,
+        guidelinesSentAt: null,
       }
     }
   }
@@ -455,6 +485,8 @@ export default async function EventDetailPage({
         generateInviteCodeAction={generateInviteCodeForEvent}
         revokeBroadcastAction={revokeBroadcast}
         manualBroadcastAction={manualBroadcast}
+        setGuidelineAttachmentsAction={setGuidelineAttachments}
+        resendGuidelinesAction={resendGuidelines}
       />
 
       {/* tournament-entry-rosters PR-4: 申込/確定名簿＋会員突合（個人戦のみ）。

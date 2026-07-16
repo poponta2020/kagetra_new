@@ -1,0 +1,1 @@
+CREATE INDEX "event_broadcast_guideline_attachments_mail_attachment_idx" ON "event_broadcast_guideline_attachments" USING btree ("mail_attachment_id");
