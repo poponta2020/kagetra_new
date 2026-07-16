@@ -72,6 +72,12 @@ jobs:
 
       - name: Test (Vitest)
         run: pnpm test
+        # web スイートは fileParallelism:false で全テストファイルを単一ワーカーに
+        # 逐次ロードするためヒープが累積する。Node 既定の ~4GB 上限に達して OOM
+        # (tinypool worker が Channel closed) するのを避けるため上限を引き上げる。
+        # 恒久対策(per-worker 隔離DBで並列化 / ファイル毎の pg pool close)は別途。
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
