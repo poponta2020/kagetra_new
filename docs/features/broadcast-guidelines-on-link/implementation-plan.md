@@ -34,7 +34,7 @@ status: completed
 - **完了条件:** `pnpm db:generate` が単一 migration を生成、`pnpm test:db:push` 相当が通る、型チェック green
 
 ### タスク2: 要綱送信ヘルパー
-- [ ] 完了
+- [x] 完了
 - **対応Issue:** #280（親 #278）
 - **目的:** 選択済み要綱を LINE グループへ push する best-effort ヘルパーを実装
 - **対応AC:** AC-3, AC-4, AC-6, AC-10
