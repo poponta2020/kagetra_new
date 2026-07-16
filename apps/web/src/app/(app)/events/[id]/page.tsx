@@ -161,6 +161,9 @@ export default async function EventDetailPage({
               activeBroadcast.id,
             ),
           )
+        // 要綱件数・guidelines_sent_at は broadcast 行そのものから取る値で、
+        // 配信履歴 (event_broadcast_messages) の有無には依存しない。linked 直後で
+        // 履歴が空でも、選択済みなら guidelineCount は正しく > 0 になり再送導線が出る。
         const guidelineCount = guidelineCountRows[0]?.n ?? 0
 
         const historyRows = await db
@@ -193,6 +196,9 @@ export default async function EventDetailPage({
           .orderBy(desc(eventBroadcastMessages.createdAt))
           .limit(20)
 
+        const lastBroadcastAt =
+          historyRows.find((row) => row.sentAt)?.sentAt ?? null
+
         broadcastBinding = {
           status: activeBroadcast.status as LineBroadcastBindingStatus,
           botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
@@ -200,7 +206,7 @@ export default async function EventDetailPage({
             ? activeBroadcast.lineGroupId.slice(-8)
             : null,
           linkedAt: activeBroadcast.linkedAt,
-          lastBroadcastAt: historyRows.find((row) => row.sentAt)?.sentAt ?? null,
+          lastBroadcastAt,
           guidelineCount,
           guidelinesSentAt: activeBroadcast.guidelinesSentAt,
         }
