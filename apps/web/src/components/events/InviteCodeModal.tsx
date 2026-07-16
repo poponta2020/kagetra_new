@@ -74,7 +74,10 @@ export function InviteCodeModal({
   setGuidelineAttachmentsAction,
 }: InviteCodeModalProps) {
   const [copied, setCopied] = useState(false)
-  const [, startTransition] = useTransition()
+  // 要綱選択の保存中フラグ。replace 意味論の Server Action を連打すると応答順が
+  // 前後して古い選択が後勝ちし得るため、保存中はチェックボックスを無効化して
+  // 1 リクエストずつ直列化する（最後のユーザー操作が確実に勝つ）。
+  const [isSavingGuidelines, startTransition] = useTransition()
   const countdown = useCountdown(payload?.expiresAt ?? null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [guidelineError, setGuidelineError] = useState<string | null>(null)
@@ -218,8 +221,9 @@ export function InviteCodeModal({
                         <label className="flex items-center gap-2 rounded-lg bg-surface-alt px-2.5 py-2 text-xs text-ink-1">
                           <input
                             type="checkbox"
-                            className="h-4 w-4 rounded border-border"
+                            className="h-4 w-4 rounded border-border disabled:opacity-50"
                             checked={selectedIds.has(att.id)}
+                            disabled={isSavingGuidelines}
                             onChange={() => toggleAttachment(att.id)}
                           />
                           <span className="flex-1 truncate">{att.filename}</span>

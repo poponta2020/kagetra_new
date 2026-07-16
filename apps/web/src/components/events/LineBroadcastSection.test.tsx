@@ -15,6 +15,8 @@ const baseProps = (
   history: [],
   generateInviteCodeAction: vi.fn(),
   revokeBroadcastAction: vi.fn(),
+  // manualBroadcastAction は optional だが、明示して意図を明確にする。
+  manualBroadcastAction: vi.fn().mockResolvedValue(undefined),
   setGuidelineAttachmentsAction: vi.fn().mockResolvedValue(undefined),
   resendGuidelinesAction: vi.fn().mockResolvedValue(undefined),
   ...over,
