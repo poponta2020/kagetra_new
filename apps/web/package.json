@@ -8,7 +8,7 @@
     "start": "next start",
     "check-types": "tsc --noEmit",
     "lint": "next lint",
-    "test": "vitest run",
+    "test": "vitest run --shard=1/4 && vitest run --shard=2/4 && vitest run --shard=3/4 && vitest run --shard=4/4",
     "test:watch": "vitest",
     "dev:cookie": "tsx scripts/dev-issue-cookie.ts",
     "dev:session": "tsx scripts/dev-session-cookie.ts"
