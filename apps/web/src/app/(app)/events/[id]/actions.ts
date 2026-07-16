@@ -1,10 +1,11 @@
 'use server'
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
+  eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   events,
   eventAttendances,
@@ -16,7 +17,13 @@ import {
   generateInviteCode,
   inviteCodeExpiresAt,
 } from '@/lib/invite-code'
-import { broadcastMailToEvent } from '@/lib/line-broadcast'
+import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
+import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
+import {
+  loadGuidelineCandidates,
+  loadSelectedGuidelineAttachmentIds,
+  type GuidelineCandidateMail,
+} from '@/lib/event-related-mails'
 import {
   buildLifecycleMessage,
   claimLifecycleNotification,
@@ -41,6 +48,11 @@ export interface GeneratedInviteCode {
   botId: string
   botLabel: string
   addFriendUrl: string
+  // broadcast-guidelines-on-link: モーダルの「要綱として送信するファイル」選択
+  // リスト用。候補は関連メール別（受信日時降順・添付 id 昇順）、選択済みは当該
+  // LINE 連携行に保持済みの添付 id。
+  guidelineCandidates: GuidelineCandidateMail[]
+  selectedGuidelineAttachmentIds: number[]
 }
 
 /**
@@ -66,7 +78,11 @@ export async function generateInviteCodeForEvent(
 ): Promise<GeneratedInviteCode> {
   await requireAdminSession()
 
-  return await db.transaction(async (tx) => {
+  // 予約 (channel 確保 + invite code 発行) は 1 トランザクションで原子化する。
+  // 一方で「要綱候補 (3 経路 union + 添付読取) / 選択済み添付 id」の読み取りは
+  // この予約 tx の外 (commit 後) で行う——channel 予約 tx を無駄に肥大化させない
+  // ため。
+  const reservation = await db.transaction(async (tx) => {
     const targetEvent = await tx.query.events.findFirst({
       where: eq(events.id, eventId),
       columns: { id: true },
@@ -191,6 +207,8 @@ export async function generateInviteCodeForEvent(
     let inviteCode = ''
     let expiresAt = new Date()
     let lastError: unknown = null
+    // 要綱選択の join のキー。UI へ返す候補/選択の読み取りに使う。
+    let broadcastId: number | null = null
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       inviteCode = generateInviteCode()
@@ -210,17 +228,26 @@ export async function generateInviteCodeForEvent(
                 releasedAt: null,
                 revokedAt: null,
                 revokeReason: null,
+                // broadcast-guidelines-on-link: binding リセットに合わせて
+                // 「要綱送信済み」監査もクリア。選択 (join 行) は同一行 UPDATE
+                // なので保持され、再紐付け時に改めて送信される (AC-8)。
+                guidelinesSentAt: null,
                 updatedAt: sql`now()`,
               })
               .where(eq(eventLineBroadcasts.id, existing.id))
+            broadcastId = existing.id
           } else {
-            await sp.insert(eventLineBroadcasts).values({
-              eventId,
-              lineChannelId: channelId,
-              inviteCode,
-              inviteCodeExpiresAt: expiresAt,
-              status: 'invite_pending',
-            })
+            const insertedBroadcast = await sp
+              .insert(eventLineBroadcasts)
+              .values({
+                eventId,
+                lineChannelId: channelId,
+                inviteCode,
+                inviteCodeExpiresAt: expiresAt,
+                status: 'invite_pending',
+              })
+              .returning({ id: eventLineBroadcasts.id })
+            broadcastId = insertedBroadcast[0]!.id
           }
         })
         lastError = null
@@ -246,9 +273,6 @@ export async function generateInviteCodeForEvent(
     })
     if (!channelRow) throw new Error('チャネル情報の取得に失敗しました')
 
-    revalidatePath(`/events/${eventId}`)
-    revalidatePath('/admin/line-channels')
-
     return {
       inviteCode,
       expiresAt,
@@ -257,8 +281,119 @@ export async function generateInviteCodeForEvent(
       // botId is the LINE basic ID (`@...`). The friends-add URL accepts it
       // verbatim per the LINE Messaging API docs.
       addFriendUrl: `https://line.me/R/ti/p/${encodeURIComponent(channelRow.botId)}`,
+      // broadcastId は必ず設定される (成功で break、全 attempt 失敗なら上で throw)。
+      broadcastId: broadcastId!,
     }
   })
+
+  // commit 後に候補と選択を読む (予約 tx に含めない)。
+  const [guidelineCandidates, selectedGuidelineAttachmentIds] = await Promise.all([
+    loadGuidelineCandidates(db, eventId),
+    loadSelectedGuidelineAttachmentIds(db, reservation.broadcastId),
+  ])
+
+  revalidatePath(`/events/${eventId}`)
+  revalidatePath('/admin/line-channels')
+
+  return {
+    inviteCode: reservation.inviteCode,
+    expiresAt: reservation.expiresAt,
+    botId: reservation.botId,
+    botLabel: reservation.botLabel,
+    addFriendUrl: reservation.addFriendUrl,
+    guidelineCandidates,
+    selectedGuidelineAttachmentIds,
+  }
+}
+
+/**
+ * broadcast-guidelines-on-link: 招待コードモーダルで選ばれた「要綱」添付を、
+ * 当該イベントの LINE 連携行に保存する（replace 意味論・トグルで即時保存）。
+ * admin / vice_admin のみ。
+ *
+ * `attachmentIds` は「今この大会で選択されている添付 id の全集合」。イベントの
+ * 関連メール添付以外の id が混ざっていたら弾く（UI は候補 id しか送らないが防御）。
+ * `event_line_broadcasts` は 1 大会 1 行なのでその行に紐づけて置き換える。招待
+ * コード再発行は同一行 UPDATE なので、選択は再発行後も保持される（AC-2）。
+ */
+export async function setGuidelineAttachments(
+  eventId: number,
+  attachmentIds: number[],
+): Promise<void> {
+  await requireAdminSession()
+
+  const broadcast = await db.query.eventLineBroadcasts.findFirst({
+    where: eq(eventLineBroadcasts.eventId, eventId),
+    columns: { id: true },
+  })
+  if (!broadcast) {
+    throw new Error('先に招待コードを発行してください')
+  }
+
+  // 重複除去 + イベントの関連メール添付に限定（候補外 id は弾く）。
+  const requested = Array.from(new Set(attachmentIds))
+  if (requested.length > 0) {
+    const candidates = await loadGuidelineCandidates(db, eventId)
+    const validIds = new Set(
+      candidates.flatMap((m) => m.attachments.map((a) => a.id)),
+    )
+    const invalid = requested.filter((id) => !validIds.has(id))
+    if (invalid.length > 0) {
+      throw new Error('この大会の関連メールに無い添付は選択できません')
+    }
+  }
+
+  // replace 意味論: この連携行の既存選択を全消し → 要求分を入れ直す。件数は
+  // 高々数件なので diff せず置換する。
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(eventBroadcastGuidelineAttachments)
+      .where(
+        eq(
+          eventBroadcastGuidelineAttachments.eventLineBroadcastId,
+          broadcast.id,
+        ),
+      )
+    if (requested.length > 0) {
+      await tx.insert(eventBroadcastGuidelineAttachments).values(
+        requested.map((mailAttachmentId) => ({
+          eventLineBroadcastId: broadcast.id,
+          mailAttachmentId,
+        })),
+      )
+    }
+  })
+
+  revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * broadcast-guidelines-on-link: linked 状態で選択済み要綱を再送する（best-effort
+ * の取りこぼし復旧）。admin / vice_admin のみ。linked していない / 選択が空 /
+ * 送信失敗のときはエラーで返して UI に表示させる。
+ */
+export async function resendGuidelines(eventId: number): Promise<void> {
+  await requireAdminSession()
+
+  const binding = await loadActiveBinding(db, eventId)
+  if (!binding) {
+    throw new Error('LINE 連携が完了していません')
+  }
+
+  const result = await sendGuidelinesOnLink(db, {
+    eventLineBroadcastId: binding.id,
+    lineGroupId: binding.lineGroupId,
+    channelAccessToken: binding.channel.channelAccessToken,
+  })
+
+  revalidatePath(`/events/${eventId}`)
+
+  if (result.status === 'skipped') {
+    throw new Error('送信できる要綱ファイルがありません')
+  }
+  if (result.status === 'failed' || result.status === 'partial') {
+    throw new Error('要綱の送信に失敗しました。時間をおいて再度お試しください')
+  }
 }
 
 /**

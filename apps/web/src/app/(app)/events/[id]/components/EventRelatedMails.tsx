@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { desc, eq, inArray } from 'drizzle-orm'
+import { desc, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { events, mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
+import { mailMessages } from '@kagetra/shared/schema'
+import { collectRelatedMailIds } from '@/lib/event-related-mails'
 import { Card } from '@/components/ui'
 
 /**
@@ -18,7 +19,7 @@ import { Card } from '@/components/ui'
  * 結果は受信日降順 + クリックで mail/[id] へ遷移。重複は mail_messages.id で dedup。
  */
 export async function EventRelatedMails({ eventId }: { eventId: number }) {
-  const mailIds = await collectRelatedMailIds(eventId)
+  const mailIds = await collectRelatedMailIds(db, eventId)
   if (mailIds.length === 0) return null
 
   const rows = await db
@@ -63,48 +64,6 @@ export async function EventRelatedMails({ eventId }: { eventId: number }) {
       </div>
     </section>
   )
-}
-
-async function collectRelatedMailIds(eventId: number): Promise<number[]> {
-  // (A) linked_event_id 直接。
-  const linkedRows = await db
-    .select({ id: mailMessages.id })
-    .from(mailMessages)
-    .where(eq(mailMessages.linkedEventId, eventId))
-
-  // (B) tournament_drafts.event_id = eventId 経由（linkDraftToEvent 経路）。
-  //     event_id → draft → message_id (= mail_messages.id)。
-  const draftLinkedRows = await db
-    .select({ id: tournamentDrafts.messageId })
-    .from(tournamentDrafts)
-    .where(eq(tournamentDrafts.eventId, eventId))
-
-  // (C) events.tournament_draft_id → drafts.message_id → mail_messages.id
-  //     （tournament-title-grade-split 経路: 1 draft : N events、events 側に
-  //     tournament_draft_id が立つ）。Codex r7 blocker: 対象 event の
-  //     tournamentDraftId を先に取得し、それが non-null のときに draft を
-  //     直接 SELECT して messageId を取り出す形に書き換え。意図が明確になる
-  //     のと、JOIN ベースより index 利用が素直になる。
-  const eventDraftRows = await db
-    .select({ draftId: events.tournamentDraftId })
-    .from(events)
-    .where(eq(events.id, eventId))
-    .limit(1)
-  const targetDraftId = eventDraftRows[0]?.draftId ?? null
-  const synthRows: { id: number }[] = []
-  if (targetDraftId !== null) {
-    const rows = await db
-      .select({ id: tournamentDrafts.messageId })
-      .from(tournamentDrafts)
-      .where(eq(tournamentDrafts.id, targetDraftId))
-    for (const r of rows) synthRows.push(r)
-  }
-
-  const set = new Set<number>()
-  for (const r of linkedRows) set.add(r.id)
-  for (const r of draftLinkedRows) set.add(r.id)
-  for (const r of synthRows) set.add(r.id)
-  return Array.from(set)
 }
 
 function formatJstShort(date: Date): string {
