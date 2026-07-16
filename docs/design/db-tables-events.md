@@ -146,7 +146,7 @@
 | mail_attachment_id | integer | NOT NULL | — | FK→mail_attachments.id ON DELETE CASCADE |
 | created_at | timestamptz | NOT NULL | `now()` | |
 
-**制約**: UNIQUE `event_broadcast_guideline_attachments_uq` on (event_line_broadcast_id, mail_attachment_id)
+**制約**: UNIQUE `event_broadcast_guideline_attachments_uq` on (event_line_broadcast_id, mail_attachment_id) / INDEX `event_broadcast_guideline_attachments_mail_attachment_idx` on (mail_attachment_id)（FK ON DELETE CASCADE のカスケード探索用）
 
 ## event_lifecycle_notifications（TS: `eventLifecycleNotifications`）
 

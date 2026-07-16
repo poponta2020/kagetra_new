@@ -281,6 +281,13 @@
       "when": 1784174247512,
       "tag": "0039_living_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784182945589,
+      "tag": "0040_unknown_magma",
+      "breakpoints": true
     }
   ]
 }

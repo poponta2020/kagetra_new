@@ -1,4 +1,4 @@
-import { integer, pgTable, timestamp, unique } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, timestamp, unique } from 'drizzle-orm/pg-core'
 import { eventLineBroadcasts } from './event-line-broadcasts'
 import { mailAttachments } from './mail-attachments'
 
@@ -38,6 +38,13 @@ export const eventBroadcastGuidelineAttachments = pgTable(
   (t) => [
     unique('event_broadcast_guideline_attachments_uq').on(
       t.eventLineBroadcastId,
+      t.mailAttachmentId,
+    ),
+    // mail_attachment_id 側の FK (ON DELETE CASCADE) 用インデックス。UNIQUE は
+    // 先頭列 event_line_broadcast_id にしか効かないため、添付/メール削除時の
+    // カスケード探索が全走査にならないよう別途張る（既存 mail_attachments・
+    // attachment_share_tokens と同じ慣習）。
+    index('event_broadcast_guideline_attachments_mail_attachment_idx').on(
       t.mailAttachmentId,
     ),
   ],

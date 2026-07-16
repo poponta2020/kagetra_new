@@ -1,7 +1,8 @@
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventBroadcastGuidelineAttachments,
   eventLineBroadcasts,
+  lineChannels,
   mailAttachments,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
@@ -277,6 +278,45 @@ export async function sendGuidelinesOnLink(
       })
     }
 
+    // 送信直前に連携状態を再検証する（既存 broadcastMailToEvent の r-final-7 と
+    // 同方針）。呼び出し元は linked 確定後 / loadActiveBinding 後に別トランザクション
+    // で本関数を await するため、その間（特に多ファイル選択の batch sleep 中）に
+    // 連携解除・再発行・チャネル再割当が走ると、既に無効な旧グループへ push したり
+    // 再利用された行の guidelines_sent_at を誤って立て得る。送信時点で「同じ linked
+    // binding（status=linked かつ lineGroupId・channelAccessToken 一致）」でなければ
+    // 送信を中止する。
+    const current = await db
+      .select({
+        status: eventLineBroadcasts.status,
+        lineGroupId: eventLineBroadcasts.lineGroupId,
+        channelAccessToken: lineChannels.channelAccessToken,
+      })
+      .from(eventLineBroadcasts)
+      .innerJoin(
+        lineChannels,
+        eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
+      )
+      .where(eq(eventLineBroadcasts.id, args.eventLineBroadcastId))
+      .limit(1)
+    const cur = current[0]
+    if (
+      !cur ||
+      cur.status !== 'linked' ||
+      cur.lineGroupId !== args.lineGroupId ||
+      cur.channelAccessToken !== args.channelAccessToken
+    ) {
+      logger.warn('sendGuidelinesOnLink: binding changed before push; skipping', {
+        eventLineBroadcastId: args.eventLineBroadcastId,
+        currentStatus: cur?.status ?? null,
+      })
+      return {
+        status: 'skipped',
+        reason: 'binding_changed',
+        sentCount: 0,
+        totalCount: messages.length,
+      }
+    }
+
     const pushResult = await pushGuidelineMessages(
       fetchImpl,
       args.channelAccessToken,
@@ -292,12 +332,27 @@ export async function sendGuidelinesOnLink(
           ? 'partial'
           : 'failed'
 
-    // 全通配信できたときだけ最終送信日時を刻む。
+    // 全通配信できたときだけ最終送信日時を刻む。CAS で「送信開始時と同じ linked
+    // binding」のときだけ更新し、送信中に再発行・連携解除で行が変わっていたら
+    // 0 行更新 = stale として刻まない（監査不整合を防ぐ）。
     if (status === 'sent') {
-      await db
+      const stamped = await db
         .update(eventLineBroadcasts)
         .set({ guidelinesSentAt: sql`now()`, updatedAt: sql`now()` })
-        .where(eq(eventLineBroadcasts.id, args.eventLineBroadcastId))
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, args.eventLineBroadcastId),
+            eq(eventLineBroadcasts.status, 'linked'),
+            eq(eventLineBroadcasts.lineGroupId, args.lineGroupId),
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
+      if (stamped.length === 0) {
+        logger.warn(
+          'sendGuidelinesOnLink: guidelines_sent_at not stamped (binding changed after push)',
+          { eventLineBroadcastId: args.eventLineBroadcastId },
+        )
+      }
     }
 
     if (pushResult.error) {

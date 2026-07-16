@@ -215,6 +215,32 @@ describe('sendGuidelinesOnLink', () => {
     expect(await readGuidelinesSentAt(seed.broadcastId)).not.toBeNull()
   })
 
+  it('送信直前に binding が変わっていたら push せず skipped（連携解除・再発行との競合防止）', async () => {
+    const seed = await seedLinkedBroadcast()
+    await addSelectedAttachment(seed, '要項.pdf')
+    // 送信開始前に revoke 相当へ遷移させる（linked でなくなる）。
+    await db
+      .update(eventLineBroadcasts)
+      .set({ status: 'revoked', lineGroupId: null })
+      .where(eq(eventLineBroadcasts.id, seed.broadcastId))
+    const fetchImpl = okFetch()
+
+    const result = await sendGuidelinesOnLink(
+      db,
+      {
+        eventLineBroadcastId: seed.broadcastId,
+        lineGroupId: seed.lineGroupId,
+        channelAccessToken: seed.channelAccessToken,
+      },
+      { fetchImpl, batchSleepMs: 0 },
+    )
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('binding_changed')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(await readGuidelinesSentAt(seed.broadcastId)).toBeNull()
+  })
+
   it('選択添付が0件なら skipped で何もしない（push しない・guidelines_sent_at は NULL）', async () => {
     const seed = await seedLinkedBroadcast()
     const fetchImpl = okFetch()
