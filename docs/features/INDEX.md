@@ -6,6 +6,7 @@
 - `admin-member-create` — 管理者による会員の手動作成（LINE未連携会員の事前登録）（主要領域: apps/web）
 - `ai-dev-optimization` — AI開発最適化 — 全体仕様書のドメイン分割新規作成・docsレジストリ・診断スクリプト整理（主要領域: docs, scripts, apps/web）
 - `broadcast-lead-message` — LINE一斉配信にリード文（プリセット+自由文）を付加する機能（主要領域: apps/web）
+- `broadcast-guidelines-on-link` — 大会LINE紐付け完了時に、選択した要綱ファイルをグループへ自動送信（招待コードモーダルで添付選択）（主要領域: apps/web, packages/shared）[shipped: PR #284]
 - `bulk-result-import` — 過去大会結果の一括投入（開催×級identity・訂正版優先dedup・リハーサル+冪等+read-back）（主要領域: scripts, apps/web）
 - `entry-notify-lottery-treasurer` — 大会申込の確定時に参加者と会計係へLINE通知を送る機能（主要領域: apps/web, packages/shared）
 - `event-lifecycle-notify` — イベントの申込開始・締切等ライフサイクルをBotが自動通知（主要領域: apps/web, packages/shared）
