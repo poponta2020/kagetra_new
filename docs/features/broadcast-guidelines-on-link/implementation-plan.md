@@ -54,7 +54,7 @@ status: completed
 - **完了条件:** vitest green・`revalidatePath` 漏れなし・型チェック通過
 
 ### タスク4: 紐付け完了時の発火（webhook＋手動紐付け）
-- [ ] 完了
+- [x] 完了
 - **対応Issue:** #282（親 #278）
 - **目的:** `linked` 遷移の両経路で要綱送信を発火させる（best-effort）
 - **対応AC:** AC-3, AC-5, AC-6, AC-7, AC-8

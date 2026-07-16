@@ -9,6 +9,7 @@ import {
   events,
   lineChannels,
 } from '@kagetra/shared/schema'
+import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 
 async function requireAdminSession() {
   const session = await auth()
@@ -188,7 +189,7 @@ export async function manualLinkGroup(input: {
     throw new Error('LINE グループ ID を入力してください')
   }
 
-  await db.transaction(async (tx) => {
+  const linked = await db.transaction(async (tx) => {
     const channel = await tx.query.lineChannels.findFirst({
       where: eq(lineChannels.id, input.channelId),
       columns: {
@@ -196,6 +197,8 @@ export async function manualLinkGroup(input: {
         purpose: true,
         status: true,
         assignedEventId: true,
+        // broadcast-guidelines-on-link: commit 後の要綱送信に使う。
+        channelAccessToken: true,
       },
     })
     if (!channel) throw new Error('チャネルが見つかりません')
@@ -236,6 +239,9 @@ export async function manualLinkGroup(input: {
       )
     }
 
+    // broadcast-guidelines-on-link: commit 後の要綱送信に broadcast 行の id が
+    // 要る。既存行は再利用 (選択 join を保持)、新規は returning で id を取る。
+    let boundBroadcastId: number
     if (existingBroadcast) {
       await tx
         .update(eventLineBroadcasts)
@@ -249,17 +255,25 @@ export async function manualLinkGroup(input: {
           releasedAt: null,
           inviteCode: null,
           inviteCodeExpiresAt: null,
+          // 再紐付け = 新しいグループへ改めて送るので送信済み監査をクリア (AC-8)。
+          // 選択 (join 行) は同一行 UPDATE なので保持される。
+          guidelinesSentAt: null,
           updatedAt: sql`now()`,
         })
         .where(eq(eventLineBroadcasts.id, existingBroadcast.id))
+      boundBroadcastId = existingBroadcast.id
     } else {
-      await tx.insert(eventLineBroadcasts).values({
-        eventId: input.eventId,
-        lineChannelId: input.channelId,
-        lineGroupId: trimmedGroupId,
-        status: 'linked',
-        linkedAt: sql`now()`,
-      })
+      const insertedBroadcast = await tx
+        .insert(eventLineBroadcasts)
+        .values({
+          eventId: input.eventId,
+          lineChannelId: input.channelId,
+          lineGroupId: trimmedGroupId,
+          status: 'linked',
+          linkedAt: sql`now()`,
+        })
+        .returning({ id: eventLineBroadcasts.id })
+      boundBroadcastId = insertedBroadcast[0]!.id
     }
 
     // rr3 review blocker: 2 つの管理操作が並行実行されたとき、上の
@@ -290,9 +304,31 @@ export async function manualLinkGroup(input: {
         'チャネル状態が変わっています。再度ご確認のうえやり直してください',
       )
     }
+
+    return {
+      broadcastId: boundBroadcastId,
+      lineGroupId: trimmedGroupId,
+      channelAccessToken: channel.channelAccessToken,
+    }
   })
 
   revalidatePath('/admin/line-channels')
   revalidatePath(`/admin/line-channels/${input.channelId}`)
   revalidatePath(`/events/${input.eventId}`)
+
+  // broadcast-guidelines-on-link: 手動紐付けでも、選択済み要綱があれば同じ形式で
+  // 送信する (AC-7)。linked は tx で commit 済みなので、送信の成否は紐付けに影響
+  // しない (best-effort)。選択ゼロ (招待コードモーダル未表示のまま手動紐付け) は
+  // ヘルパー側でクリーンに skip される。取りこぼしは events 画面の「要綱を再送」で
+  // 復旧できる。sendGuidelinesOnLink は throw しない設計だが、万一の例外でも
+  // 紐付け成功を覆さないよう防御的に握りつぶす。
+  try {
+    await sendGuidelinesOnLink(db, {
+      eventLineBroadcastId: linked.broadcastId,
+      lineGroupId: linked.lineGroupId,
+      channelAccessToken: linked.channelAccessToken,
+    })
+  } catch {
+    // best-effort: 紐付けはコミット済み。送信失敗で巻き戻さない。
+  }
 }

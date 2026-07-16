@@ -4,6 +4,8 @@
 > **関連画面:** `/settings/line-link`（LINEアカウント切替）、`/(app)/settings/notifications`（Web Push購読設定）、`/(app)/admin/line-channels`（Bot一覧）、`/(app)/admin/line-channels/[id]`（Bot詳細・手動紐付け）
 > **主要実装:**
 > - `apps/web/src/lib/line-broadcast.ts`（大会LINEグループへのメール配信本体）
+> - `apps/web/src/lib/line-broadcast-guidelines.ts`（紐付け完了時の要綱ファイル送信・best-effort）
+> - `apps/web/src/lib/event-related-mails.ts`（関連メール収集・要綱候補ローダー）
 > - `apps/web/src/lib/line-webhook-handler.ts`（LINE Webhook: join/leave/招待コード）
 > - `apps/web/src/lib/line-oauth.ts`（LINEアカウント切替の生OAuth2ヘルパー）
 > - `apps/web/src/lib/event-lifecycle-notify.ts`（申込/支払い等の定型LINE通知）
@@ -57,6 +59,15 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - 送信直前に紐付け（Bot/グループ）を再取得し、添付処理中に管理者が連携解除・再紐付けを行っていた場合は送信を中止する（`binding_changed`）。
 - 既に `status='sent'` なメールは自動配信では再送しない（`force=true` のUI再配信操作のみ例外）。
 - LINE APIが401を返した場合はチャネルを `disabled` にして紐付けを `revoked` にする（トークン失効）。401以外の4xx（レート制限除く）はチャネルを `available` に戻して紐付けのみ `revoked` にする（グループ不正・Bot追放等）。いずれも「送信開始時に保持していたチャネル/グループ」が現在も有効な場合に限り実行し、レース中の再紐付けを壊さない。
+
+**要綱の紐付け完了時送信**（broadcast-guidelines-on-link）は、上記のメール配信とは独立した経路で、紐付け完了（`linked`）の瞬間に「大会案内メールの要綱ファイル」だけをグループへ送る追加機能。紐付け前に承認済みだった案内メール（＝多くの場合、要綱そのもの）は既存の自動配信ではバックフィルされないため、その穴を要綱に限って埋める。
+
+- **選択**: 招待コード発行モーダル（`InviteCodeModal`）で、対象イベントの全関連メール（3経路union。詳細は `spec/events-attendance.md` の関連メール）の添付をメール別に列挙し、管理者が要綱にあたるファイルを複数選択する。選択は `setGuidelineAttachments`（admin/vice_admin・replace意味論・候補外の添付idは拒否）で `event_broadcast_guideline_attachments`（`event_line_broadcasts` への join、両FK ON DELETE CASCADE）に即時保存する。`event_line_broadcasts` は1大会1行で、招待コード再発行は同一行UPDATEなので選択は再発行をまたいで保持される。
+- **送信トリガー**: `event_line_broadcasts` が `linked` に遷移した時（Webhookの招待コード照合成功、および管理者の手動紐付け `manualLinkGroup`）に、選択済み添付があれば送信する。送信は紐付け成立**後**（reply枠は消費済み）に走るpushで、`sendGuidelinesOnLink`（`apps/web/src/lib/line-broadcast-guidelines.ts`）が担う。同モジュールはWebhook（nodejs runtime）から呼ばれるため `line-broadcast.ts`（本文画像化の重依存）を意図的にimportせず、署名URLの `getOrCreateShareToken` だけ再利用した自己完結の最小pushを持つ（5通/バッチ・1.5秒間隔・429リトライ・30秒タイムアウト・`LINE_NOTIFY_DRY_RUN` 尊重）。
+- **送信内容**: 選択ファイルごとに「📎【大会要綱】ファイル名 + 署名URL（`/api/line-broadcast/attachments/[token]`、60日）」のテキスト1通。既存の添付配信と同じ署名URL方式で、新規の公開エンドポイントは作らない。
+- **best-effort**: 送信の成否は紐付け（`linked`）に影響しない（`sendGuidelinesOnLink` はthrowしない）。全通配信できたときだけ `event_line_broadcasts.guidelines_sent_at` を更新する。監査に `event_broadcast_messages`（メール単位・role別カウンタ）は流用しない（full-mail配信と衝突するため独立）。
+- **再送・再連携**: `linked` 状態で `resendGuidelines`（events画面の「要綱を再送」）を押すと選択済み要綱を同形式で再送できる（best-effortの取りこぼし復旧）。連携解除→再発行→再紐付けでは、選択は保持され `guidelines_sent_at` はリセットされて新グループへ改めて送信される。
+- **未選択時**: 紐付け完了時の要綱送信は行われない（既存挙動と完全に同じ）。多ファイル選択（>5）でWebhook応答が遅れLINEが再送しても、CASが再linkを弾くので二重送信にはならない。
 
 ### event-lifecycle-notify: 定型LINE通知
 
@@ -115,10 +126,10 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 ### 大会LINEグループの新規紐付け〜配信
 
-1. 管理者が `/events/[id]` から招待コード発行を実行 → `generateInviteCodeForEvent` がBotプールから1台予約し6桁コード（30分TTL）を発行。
+1. 管理者が `/events/[id]` から招待コード発行を実行 → `generateInviteCodeForEvent` がBotプールから1台予約し6桁コード（30分TTL）を発行。同時に、招待コードモーダルで関連メール添付から「要綱として送信するファイル」を選択できる（任意・`setGuidelineAttachments` で即時保存）。
 2. 運営がLINEグループを作成しBotを友だち追加・招待 → Webhook `join` を受けて `joined_waiting_code`。
-3. グループ内で6桁コードを発言 → Webhook `message` が照合し `linked`。
-4. 以降、承認済みメール（AI下書き承認・訂正紐付け等、詳細は `spec/mail-worker.md`）のたびに `broadcastMailToEvent` が自動配信される。管理者は必要に応じて `/events/[id]` から手動再配信（`manualBroadcast`）もできる。
+3. グループ内で6桁コードを発言 → Webhook `message` が照合し `linked`。選択済み要綱があれば、この直後に `sendGuidelinesOnLink` が要綱ファイルをグループへpushする（best-effort）。
+4. 以降、承認済みメール（AI下書き承認・訂正紐付け等、詳細は `spec/mail-worker.md`）のたびに `broadcastMailToEvent` が自動配信される。管理者は必要に応じて `/events/[id]` から手動再配信（`manualBroadcast`）や要綱の再送（`resendGuidelines`）もできる。
 5. 大会終了30日後（またはoperatorが延長した日付）を過ぎると日次バッチが自動解放し、Botはプールに戻る。
 
 ### イベントライフサイクル通知
@@ -147,8 +158,11 @@ invite_pending → joined_waiting_code → linked → revoked / released
 | `releaseChannel(channelId, expectedEventId?)` | Server Action | admin/vice_admin | Botの強制解放（紐付け`revoked`＋チャネル`available`） |
 | `disableChannel(channelId)` | Server Action | admin/vice_admin | Botの無効化（紐付け中は拒否） |
 | `enableChannel(channelId)` | Server Action | admin/vice_admin | 無効化されたBotをプールに復帰 |
-| `manualLinkGroup(input)` | Server Action | admin/vice_admin | 招待コードフローを介さない手動紐付け（運用フォールバック） |
+| `manualLinkGroup(input)` | Server Action | admin/vice_admin | 招待コードフローを介さない手動紐付け（運用フォールバック）。紐付け完了後に選択済み要綱を送信 |
+| `setGuidelineAttachments(eventId, attachmentIds)` | Server Action | admin/vice_admin | 紐付け完了時に送る「要綱」添付の選択保存（replace意味論・候補外id拒否） |
+| `resendGuidelines(eventId)` | Server Action | admin/vice_admin | `linked` 状態で選択済み要綱を再送（best-effort取りこぼし復旧） |
 | `broadcastMailToEvent(db, args, options)` | ライブラリ関数 | 呼び出し元（承認フロー/manualBroadcast）が認可を担保 | メール本文＋添付をLINEグループへ配信する本体処理 |
+| `sendGuidelinesOnLink(db, args, options)` | ライブラリ関数 | 呼び出し元（Webhook/manualLinkGroup/resendGuidelines）が認可を担保 | 選択済み要綱を署名URLリンクでpush（best-effort・throwしない） |
 | `pushTextToEventGroup(db, eventId, text, opts)` | ライブラリ関数 | 同上 | 定型テキスト1通のpush（lifecycle通知の下請け） |
 | `claimLifecycleNotification` / `finalizeLifecycleNotification` / `sendClaimedNotification` / `sendReminderNotification` | ライブラリ関数 | 同上 | once-ever通知ログのclaim/finalize/送信ヘルパー群 |
 

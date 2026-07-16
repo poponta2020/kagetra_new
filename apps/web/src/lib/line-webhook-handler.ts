@@ -7,6 +7,24 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
+import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
+
+/**
+ * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
+ * する `{ info, warn }` 形式のロガーへ橋渡しする。要綱送信の best-effort な
+ * 失敗も webhook のログ経路に残す (AC-6)。
+ */
+function toGuidelinesLogger(
+  log: (event: string, ctx: Record<string, unknown>) => void,
+): {
+  info(msg: string, ctx?: Record<string, unknown>): void
+  warn(msg: string, ctx?: Record<string, unknown>): void
+} {
+  return {
+    info: (msg, ctx) => log('guidelines_info', { msg, ...(ctx ?? {}) }),
+    warn: (msg, ctx) => log('guidelines_warn', { msg, ...(ctx ?? {}) }),
+  }
+}
 
 /**
  * LINE webhook entry point logic, extracted from the Next.js route handler
@@ -214,6 +232,7 @@ export async function applyWebhookEvents(
                 text,
                 replyClient,
                 now,
+                log,
               )
             }
             // Non-code text and non-text messages are intentionally ignored.
@@ -331,6 +350,7 @@ async function handleInviteCode(
   text: string,
   replyClient: LineReplyClient,
   now: Date,
+  log: (event: string, ctx: Record<string, unknown>) => void,
 ): Promise<void> {
   if (!isValidInviteCodeFormat(text)) return
 
@@ -481,6 +501,25 @@ async function handleInviteCode(
       channelAccessToken,
     })
   }
+
+  // broadcast-guidelines-on-link: 紐付け成立後に、管理者が選んだ「要綱」添付を
+  // グループへ push する。紐付け成功の reply 枠は消費済みなので push。
+  //
+  // best-effort: sendGuidelinesOnLink は throw しない (linked を巻き戻さない,
+  // AC-6)。多ファイル選択 (>5 = バッチ sleep) で webhook 応答が遅れて LINE が
+  // 再送しても、CAS が再 link を弾く (STALE_BROADCAST) ので二重送信にはならない。
+  // push は webhook 応答と独立に完走するため、fire-and-forget に「最適化」せず
+  // あえて await してエラーログを残す。
+  const linkedGroupId = storedGroupId ?? sourceGroupId!
+  await sendGuidelinesOnLink(
+    db,
+    {
+      eventLineBroadcastId: candidate.id,
+      lineGroupId: linkedGroupId,
+      channelAccessToken,
+    },
+    { logger: toGuidelinesLogger(log) },
+  )
 }
 
 /**

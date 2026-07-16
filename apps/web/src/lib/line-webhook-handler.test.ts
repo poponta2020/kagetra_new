@@ -21,6 +21,28 @@ import {
 } from '@kagetra/shared/schema'
 import { db } from './db'
 
+// broadcast-guidelines-on-link: handleInviteCode が紐付け成立後に要綱送信
+// ヘルパーを呼ぶ配線を検証する。実 push はここでは対象外なのでスパイに差し替える
+// (既存テストは呼ばれても no-op で影響なし)。
+type GuidelineResult = {
+  status: 'skipped' | 'sent' | 'partial' | 'failed'
+  reason?: string
+  sentCount: number
+  totalCount: number
+}
+const { sendGuidelinesOnLinkSpy } = vi.hoisted(() => ({
+  sendGuidelinesOnLinkSpy: vi.fn(
+    async (): Promise<GuidelineResult> => ({
+      status: 'skipped',
+      sentCount: 0,
+      totalCount: 0,
+    }),
+  ),
+}))
+vi.mock('@/lib/line-broadcast-guidelines', () => ({
+  sendGuidelinesOnLink: sendGuidelinesOnLinkSpy,
+}))
+
 const CHANNEL_SECRET = 'test-secret-abcdef'
 
 async function resetDb() {
@@ -502,5 +524,139 @@ describe('applyWebhookEvents — leave path', () => {
     })
     expect(after?.status).toBe('active')
     expect(after?.assignedEventId).toBe(eventId)
+  })
+})
+
+describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-guidelines-on-link)', () => {
+  let channelId: number
+  let eventId: number
+
+  beforeEach(async () => {
+    await resetDb()
+    sendGuidelinesOnLinkSpy.mockClear()
+    sendGuidelinesOnLinkSpy.mockResolvedValue({
+      status: 'skipped',
+      sentCount: 0,
+      totalCount: 0,
+    })
+    const channel = await insertChannel({ status: 'assigned' })
+    channelId = channel.id
+    eventId = await insertEvent()
+  })
+
+  function codePayload(): LineWebhookPayload {
+    return {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-guide',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+  }
+
+  it('linked 成立後に要綱送信ヘルパーを連携情報付きで呼ぶ (AC-3)', async () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    const broadcast = await insertBroadcast(eventId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    await applyWebhookEvents(
+      db,
+      channelId,
+      'access-token-abc',
+      codePayload(),
+      makeReplyClient().client,
+    )
+
+    expect(sendGuidelinesOnLinkSpy).toHaveBeenCalledTimes(1)
+    expect(sendGuidelinesOnLinkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        eventLineBroadcastId: broadcast.id,
+        lineGroupId: 'C123',
+        channelAccessToken: 'access-token-abc',
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('無効なコード（紐付け失敗）では要綱送信を呼ばない (AC-5)', async () => {
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(eventId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '654321',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    await applyWebhookEvents(
+      db,
+      channelId,
+      'token',
+      codePayload(),
+      makeReplyClient().client,
+    )
+
+    expect(sendGuidelinesOnLinkSpy).not.toHaveBeenCalled()
+  })
+
+  it('要綱送信が失敗しても linked は保たれる (AC-6)', async () => {
+    sendGuidelinesOnLinkSpy.mockResolvedValueOnce({
+      status: 'failed',
+      sentCount: 0,
+      totalCount: 1,
+    })
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    const broadcast = await insertBroadcast(eventId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    await applyWebhookEvents(
+      db,
+      channelId,
+      'token',
+      codePayload(),
+      makeReplyClient().client,
+    )
+
+    const row = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.id, broadcast.id),
+    })
+    expect(row?.status).toBe('linked')
+  })
+
+  it('ヘルパーが throw しても linked は tx の外なので巻き戻らない (AC-6)', async () => {
+    sendGuidelinesOnLinkSpy.mockRejectedValueOnce(new Error('boom'))
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    const broadcast = await insertBroadcast(eventId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    // applyWebhookEvents はイベント単位の try/catch で throw を飲む（handler は 200）。
+    await applyWebhookEvents(
+      db,
+      channelId,
+      'token',
+      codePayload(),
+      makeReplyClient().client,
+    )
+
+    const row = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.id, broadcast.id),
+    })
+    expect(row?.status).toBe('linked')
   })
 })
