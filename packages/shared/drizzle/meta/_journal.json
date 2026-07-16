@@ -274,6 +274,13 @@
       "when": 1782990805009,
       "tag": "0038_tournament_series_short_name",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1784174247512,
+      "tag": "0039_living_maximus",
+      "breakpoints": true
     }
   ]
 }

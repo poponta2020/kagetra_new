@@ -62,6 +62,14 @@ export const eventLineBroadcasts = pgTable(
     // text rather than enum since this is operator-facing audit info and may
     // grow new values as edge cases surface.
     revokeReason: text('revoke_reason'),
+    // broadcast-guidelines-on-link: 紐付け完了 (linked) 時に、選択済みの
+    // 要綱添付を LINE グループへ push した最終日時 (監査 + UI 表示用)。
+    // 未送信・要綱未選択・招待コード再発行後 (binding リセット) は NULL。
+    // 選択の実体は event_broadcast_guideline_attachments (join) が持つ。
+    guidelinesSentAt: timestamp('guidelines_sent_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .notNull()
       .defaultNow(),
