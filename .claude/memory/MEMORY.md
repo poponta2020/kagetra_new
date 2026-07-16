@@ -65,7 +65,7 @@
 - [モバイルシェル固定](project_sticky_mobile_shell.md) — PR#64-68完了。教訓はfeedbackへ切出済
 - [event-line-broadcast](impl_event_line_broadcast_task1.md) — PR#65+#70。2Bot運用
 - [event-line-broadcast 機能定義](project_event_line_broadcast.md) — 承認済み大会案内のLINEグループ自動配信。Botプール30個方式
-- [broadcast-guidelines-on-link 出荷(PR#284)](impl_broadcast_guidelines_on_link.md) — 大会LINE紐付け完了時に選択済み要綱を自動push。migration0039/0040。送信直前binding再検証+FOR UPDATE直列化。Codex 6R収束。★偽陽性blocker=実証で確認
+- [broadcast-guidelines-on-link 出荷(PR#284)](impl_broadcast_guidelines_on_link.md) — 大会LINE紐付け完了時に選択済み要綱を自動push。migration0039/0040。送信直前binding再検証+FOR UPDATE直列化。Codex 6R収束。★偽陽性blocker=実証で確認。★マージ後CI赤=web単一ワーカー累積OOM(既存per-file leak・+6ファイルが引き金)→保留・Issue #286で追跡
 - [event-lifecycle-notify](impl_event_lifecycle_notify.md) — PR#85 migration0017。同一txでflip+once-ever claim
 - [event-lifecycle-notify 機能定義](project_event_lifecycle_notify.md) — Botを申込・締切・支払い通知役へ拡張(2026-06-01)
 - [entry-notify-lottery-treasurer](impl_entry_notify_lottery_treasurer.md) — PR#118 migration0021。参加者+会計へ2通

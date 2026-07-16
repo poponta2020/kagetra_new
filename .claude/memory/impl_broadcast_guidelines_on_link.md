@@ -25,4 +25,6 @@ metadata:
 - 関連 feedback: [[feedback_shared_test_db_worktree_push_race]] [[feedback_node_import_breaks_client_bundle]] [[feedback_admin_delete_for_update_race]]。
 
 ## 検証・既知事象
-型チェック(全4pkg)/lint green・DESIGN-PROTO 0。実装時に web 全1154 passed。**セッション後半に vitest ワーカーが V8 ヒープ OOM 頻発**（連続実行のメモリ累積。line-channels 全4テスト同時実行で再現・個別実行では全 green）→ 隔離 test DB `kagetra_test_bgol` 使用。AC-13(実機)は出荷後確認。CI は pending のままマージ（v0.9.0・赤なら追修正）。
+型チェック(全4pkg)/lint green・DESIGN-PROTO 0。AC-13(実機)は出荷後確認。CI は pending のままマージ（v0.9.0）。
+
+★**web テストスイートの単一ワーカー OOM は CI 再現の実 suite ceiling**（当初「session/local のみ」と誤認したが訂正）。原因: `apps/web/vitest.config.mts` の `fileParallelism:false`（DB決定性のため全テストファイルを単一ワーカーに逐次ロード）で、globalThis ピンの image-cache 等の外部/ネイティブメモリがファイルをまたいで累積。CI では web 53ファイル通過後にクラッシュ（4GB heap=old-space OOM / 6GB heap=`invalid table size`=V8ハッシュテーブル構造上限=RAM非依存, pooled 5GB超）。#284 の +6テストファイルが閾値超えの引き金＝**私の回帰**（#277/#276/#274 は緑）。**NODE_OPTIONS ヒープ引き上げは無効**（外部/構造上限には効かず逆効果）。**各ファイル単独は軽い**（mail-inbox 123テストでも 62MB）が **~250MB/ファイルの retained が worker に残る**（native/globalThis/pg pool。isolate はモジュールのみ解放）。**シャーディング**（PR #285）を試したが、重いファイルが hash で1シャードに偏り、**開発機の使えるヒープ(~3GB)が CI(4GB)より低いためローカルで CI-green を確定できず**（8シャードでも自機で1シャード OOM=~3GB必要、CI 4GBなら通る計算だが確証不能）。ユーザー判断で**保留＝PR #285 close・フォローアップ Issue #286 で恒久策(per-worker 隔離DB並列化 or per-file leak根治)を追跡**（v0.9.0=CI-red はマージ非ブロック・機能は本番稼働中）。プロジェクト単位の `poolOptions` は vitest workspace で無視（256MBプローブで実証）。関連: [[feedback_shared_test_db_worktree_push_race]]。
