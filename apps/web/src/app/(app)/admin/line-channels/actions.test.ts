@@ -89,7 +89,8 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
     )
   })
 
-  it('要綱送信が失敗（throw）しても linked は保たれる（best-effort）', async () => {
+  it('要綱送信が失敗（throw）しても linked は保たれ、ログに残す（best-effort・AC-6）', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     sendGuidelinesOnLinkMock.mockRejectedValueOnce(new Error('boom'))
     const ev = await createEvent({ title: 'fail-safe' })
     const channelId = await seedAvailableChannel()
@@ -110,6 +111,34 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
       where: eq(lineChannels.id, channelId),
     })
     expect(channel?.status).toBe('active')
+
+    // AC-6: 失敗はログに残る。
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it('要綱送信が status=failed を返したら console.error に記録する（AC-6）', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sendGuidelinesOnLinkMock.mockResolvedValueOnce({
+      status: 'failed',
+      sentCount: 0,
+      totalCount: 1,
+    })
+    const ev = await createEvent({ title: 'log-failed' })
+    const channelId = await seedAvailableChannel()
+
+    await manualLinkGroup({
+      channelId,
+      eventId: ev.id,
+      lineGroupId: 'Cmanual789',
+    })
+
+    const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.eventId, ev.id),
+    })
+    expect(broadcast?.status).toBe('linked')
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 
   it('admin / vice_admin 以外は拒否する', async () => {

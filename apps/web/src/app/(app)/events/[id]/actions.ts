@@ -324,10 +324,21 @@ export async function setGuidelineAttachments(
 
   const broadcast = await db.query.eventLineBroadcasts.findFirst({
     where: eq(eventLineBroadcasts.eventId, eventId),
-    columns: { id: true },
+    columns: { id: true, status: true },
   })
   if (!broadcast) {
     throw new Error('先に招待コードを発行してください')
+  }
+  // 要件 Non-goals: linked 中の選択編集は不可（変更は連携解除→再発行）。紐付け
+  // 後に選択を書き換えても自動送信は済んでおり、選択内容と実際の送信・
+  // guidelines_sent_at 表示が乖離するため、紐付け前の状態でのみ保存を許可する。
+  if (
+    broadcast.status !== 'invite_pending' &&
+    broadcast.status !== 'joined_waiting_code'
+  ) {
+    throw new Error(
+      '紐付け完了後は要綱を変更できません。変更するには連携を解除して再発行してください',
+    )
   }
 
   // 重複除去 + イベントの関連メール添付に限定（候補外 id は弾く）。

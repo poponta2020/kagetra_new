@@ -320,15 +320,36 @@ export async function manualLinkGroup(input: {
   // 送信する (AC-7)。linked は tx で commit 済みなので、送信の成否は紐付けに影響
   // しない (best-effort)。選択ゼロ (招待コードモーダル未表示のまま手動紐付け) は
   // ヘルパー側でクリーンに skip される。取りこぼしは events 画面の「要綱を再送」で
-  // 復旧できる。sendGuidelinesOnLink は throw しない設計だが、万一の例外でも
-  // 紐付け成功を覆さないよう防御的に握りつぶす。
+  // 復旧できる。
+  //
+  // AC-6: 送信失敗はログに残す。webhook 経路は構造化 logger を渡すが、Server
+  // Action にはアンビエントロガーが無いため、mail-inbox の broadcast 失敗と同じ
+  // console.error 系で記録する（sendGuidelinesOnLink は throw しない設計だが、
+  // 万一の例外も linked を覆さないよう握りつぶしつつログする）。
   try {
-    await sendGuidelinesOnLink(db, {
-      eventLineBroadcastId: linked.broadcastId,
-      lineGroupId: linked.lineGroupId,
-      channelAccessToken: linked.channelAccessToken,
-    })
-  } catch {
-    // best-effort: 紐付けはコミット済み。送信失敗で巻き戻さない。
+    const result = await sendGuidelinesOnLink(
+      db,
+      {
+        eventLineBroadcastId: linked.broadcastId,
+        lineGroupId: linked.lineGroupId,
+        channelAccessToken: linked.channelAccessToken,
+      },
+      {
+        logger: {
+          info: () => undefined,
+          warn: (msg, ctx) => console.warn(`[manualLinkGroup] ${msg}`, ctx),
+        },
+      },
+    )
+    if (result.status === 'failed' || result.status === 'partial') {
+      console.error('[manualLinkGroup] 要綱送信が完了しませんでした', {
+        eventId: input.eventId,
+        status: result.status,
+        reason: result.reason,
+      })
+    }
+  } catch (err) {
+    // best-effort: 紐付けはコミット済み。送信失敗で巻き戻さない（ログのみ）。
+    console.error('[manualLinkGroup] 要綱送信で想定外の例外', err)
   }
 }

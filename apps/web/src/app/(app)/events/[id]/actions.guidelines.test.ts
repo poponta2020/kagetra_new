@@ -160,6 +160,22 @@ describe('setGuidelineAttachments', () => {
     )
   })
 
+  it('紐付け完了（linked）後は選択変更を拒否する（Non-goals: linked 中は再送のみ）', async () => {
+    const ev = await createEvent({ title: 'linked-reject' })
+    const channelId = await seedAvailableChannel()
+    await testDb.insert(eventLineBroadcasts).values({
+      eventId: ev.id,
+      lineChannelId: channelId,
+      status: 'linked',
+      lineGroupId: 'C123456789',
+      linkedAt: new Date(),
+    })
+    const att = await seedRelatedAttachment(ev.id, 'a.pdf')
+    await expect(setGuidelineAttachments(ev.id, [att])).rejects.toThrow(
+      /紐付け完了後は要綱を変更できません/,
+    )
+  })
+
   it('admin / vice_admin 以外は拒否する', async () => {
     const ev = await createEvent({ title: 'auth' })
     await seedInvitePendingBroadcast(ev.id)
