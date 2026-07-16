@@ -322,26 +322,8 @@ export async function setGuidelineAttachments(
 ): Promise<void> {
   await requireAdminSession()
 
-  const broadcast = await db.query.eventLineBroadcasts.findFirst({
-    where: eq(eventLineBroadcasts.eventId, eventId),
-    columns: { id: true, status: true },
-  })
-  if (!broadcast) {
-    throw new Error('先に招待コードを発行してください')
-  }
-  // 要件 Non-goals: linked 中の選択編集は不可（変更は連携解除→再発行）。紐付け
-  // 後に選択を書き換えても自動送信は済んでおり、選択内容と実際の送信・
-  // guidelines_sent_at 表示が乖離するため、紐付け前の状態でのみ保存を許可する。
-  if (
-    broadcast.status !== 'invite_pending' &&
-    broadcast.status !== 'joined_waiting_code'
-  ) {
-    throw new Error(
-      '紐付け完了後は要綱を変更できません。変更するには連携を解除して再発行してください',
-    )
-  }
-
-  // 重複除去 + イベントの関連メール添付に限定（候補外 id は弾く）。
+  // 重複除去 + イベントの関連メール添付に限定（候補外 id は弾く）。候補検証は
+  // 読み取りのみで status 遷移と競合しないため、行ロックの外で先に済ませる。
   const requested = Array.from(new Set(attachmentIds))
   if (requested.length > 0) {
     const candidates = await loadGuidelineCandidates(db, eventId)
@@ -354,21 +336,48 @@ export async function setGuidelineAttachments(
     }
   }
 
-  // replace 意味論: この連携行の既存選択を全消し → 要求分を入れ直す。件数は
-  // 高々数件なので diff せず置換する。
+  // 選択の置換は、紐付け遷移（webhook の招待コード照合 / 手動紐付け）とのレースで
+  // 「実際に送信した要綱」と「DB 上の選択」がズレないよう、event_line_broadcasts
+  // 行を FOR UPDATE でロックし tx 内で status を再確認したうえで行う（mail-inbox の
+  // draft 承認と同じ直列化パターン）。
+  //   - webhook/手動が先に linked へ遷移 → 本 tx は linked を読んで abort（送信済み
+  //     の古い選択のまま・DB も不変で整合）
+  //   - 本 tx が先にロック → 置換を commit してからロック解放 → 続く linked 遷移後の
+  //     送信は新しい選択を読む（整合）
+  // 要件 Non-goals: linked 中の選択編集は不可（変更は連携解除→再発行）。
   await db.transaction(async (tx) => {
+    const locked = await tx
+      .select({
+        id: eventLineBroadcasts.id,
+        status: eventLineBroadcasts.status,
+      })
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.eventId, eventId))
+      .for('update')
+      .limit(1)
+    const row = locked[0]
+    if (!row) {
+      throw new Error('先に招待コードを発行してください')
+    }
+    if (
+      row.status !== 'invite_pending' &&
+      row.status !== 'joined_waiting_code'
+    ) {
+      throw new Error(
+        '紐付け完了後は要綱を変更できません。変更するには連携を解除して再発行してください',
+      )
+    }
+
+    // replace 意味論: 既存選択を全消し → 要求分を入れ直す（件数は高々数件）。
     await tx
       .delete(eventBroadcastGuidelineAttachments)
       .where(
-        eq(
-          eventBroadcastGuidelineAttachments.eventLineBroadcastId,
-          broadcast.id,
-        ),
+        eq(eventBroadcastGuidelineAttachments.eventLineBroadcastId, row.id),
       )
     if (requested.length > 0) {
       await tx.insert(eventBroadcastGuidelineAttachments).values(
         requested.map((mailAttachmentId) => ({
-          eventLineBroadcastId: broadcast.id,
+          eventLineBroadcastId: row.id,
           mailAttachmentId,
         })),
       )
