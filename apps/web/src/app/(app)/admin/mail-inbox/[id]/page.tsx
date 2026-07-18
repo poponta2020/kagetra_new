@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { and, desc, eq, gte, ilike, ne, or, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { suggestEditionFromName } from '@/lib/edition/resolve'
+import { loadEditionSelectionData } from '@/lib/edition/resolve'
 import {
   events,
   mailMessages,
@@ -227,10 +227,12 @@ export default async function MailDraftDetailPage({
       ?.extracted?.formal_name ||
       (rawPayload as { extracted?: { title?: string | null } })?.extracted?.title) ??
     null
-  const editionSuggestion =
-    showApproval && firstFormalName
-      ? await suggestEditionFromName(db, firstFormalName)
-      : { seriesName: '', editionNumber: null, matched: false }
+  const editionSelection = showApproval
+    ? await loadEditionSelectionData(db, firstFormalName ?? '')
+    : {
+        suggestion: { seriesId: null, seriesName: '', editionNumber: null, matched: false },
+        seriesOptions: [],
+      }
 
   // tournament-title-grade-split: events already materialized from this draft
   // (1 draft : N events). Used to mark registered units read-only in the form
@@ -399,7 +401,8 @@ export default async function MailDraftDetailPage({
             payload={extractedPayload}
             shortNameStem={shortNameStem}
             registeredUnitKeys={registeredUnitKeys}
-            editionSuggestion={editionSuggestion}
+            editionSuggestion={editionSelection.suggestion}
+            seriesOptions={editionSelection.seriesOptions}
             action={approveDraftUnits.bind(null, draftId)}
           />
           {/* r3 blocker: 「残りは作らず完了」は一部登録後の残単位を閉じる導線。
