@@ -2,6 +2,24 @@ import { and, eq, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import * as schema from '@kagetra/shared/schema'
 import { tournamentSeries, tournamentSeriesEditions } from '@kagetra/shared/schema'
+import {
+  EXACT_MATCH_SCORE,
+  normalizeForMatch,
+  rankSeriesCandidates,
+  scoreSeries,
+  type SeriesCandidate,
+  type SeriesRow,
+  type TournamentKind,
+} from './match'
+
+export {
+  EXACT_MATCH_SCORE,
+  normalizeForMatch,
+  rankSeriesCandidates,
+  scoreSeries,
+  type SeriesCandidate,
+  type SeriesRow,
+} from './match'
 
 /**
  * tournament-entry-rosters PR-2: edition 解決コア（flow①=案内承認 / flow②=結果取込 共通）。
@@ -20,36 +38,6 @@ import { tournamentSeries, tournamentSeriesEditions } from '@kagetra/shared/sche
 type DbLike = NodePgDatabase<typeof schema>
 
 export type TournamentStatus = 'held' | 'cancelled' | 'unconfirmed'
-
-export interface SeriesRow {
-  id: number
-  name: string
-  aliases: string[]
-  kind: 'individual' | 'team'
-}
-
-export interface SeriesCandidate {
-  series: SeriesRow
-  /** 100 = 正規化完全一致（name か alias）, 50 = 部分一致（包含）, それ未満は候補外。 */
-  score: number
-}
-
-/** 完全一致とみなすスコア（auto 解決の閾値）。 */
-export const EXACT_MATCH_SCORE = 100
-const CONTAINS_MATCH_SCORE = 50
-
-/**
- * マッチング用の正規化。NFKC で全角/半角・互換文字を畳み、空白と一般的な区切り/装飾を
- * 除去する。人名ではなく大会系列名向けの専用正規化（normalizePlayerName とは別物）。
- */
-export function normalizeForMatch(s: string): string {
-  return s
-    .normalize('NFKC')
-    .replace(/[\s　]/g, '')
-    // 区切り・装飾（中黒/読点/ハイフン/各種カッコ/星印など）。系列名の実体には影響しない。
-    .replace(/[・･,，、.。\-―ー~〜‐-―（）()「」『』【】［］\[\]★☆◎○●◆■]/g, '')
-    .toLowerCase()
-}
 
 /**
  * 大会名から回次（第N回）を抜き出す。全角数字は NFKC で半角化してから拾う。無ければ null。
@@ -93,36 +81,6 @@ export function parseAnnouncementName(name: string): ParsedAnnouncementName {
   }
 }
 
-/**
- * 系列名候補 1 つを既存 series 群に対してスコアリングする（DB アクセスなし・テスト容易）。
- * name と全 aliases を正規化比較し、完全一致 100 / 包含 50 / それ以外 0。
- */
-export function scoreSeries(seriesNameGuess: string, series: SeriesRow): number {
-  const guess = normalizeForMatch(seriesNameGuess)
-  if (!guess) return 0
-  const targets = [series.name, ...(series.aliases ?? [])].map(normalizeForMatch).filter(Boolean)
-  let best = 0
-  for (const t of targets) {
-    if (t === guess) return EXACT_MATCH_SCORE
-    if (t.includes(guess) || guess.includes(t)) best = Math.max(best, CONTAINS_MATCH_SCORE)
-  }
-  return best
-}
-
-/**
- * 系列名候補に対する series 候補一覧（スコア降順）。UI はこれを使って最良を pre-select しつつ
- * 全件から選び直せるようにする。
- */
-export function rankSeriesCandidates(
-  seriesNameGuess: string,
-  allSeries: SeriesRow[],
-): SeriesCandidate[] {
-  return allSeries
-    .map((series) => ({ series, score: scoreSeries(seriesNameGuess, series) }))
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score || a.series.name.localeCompare(b.series.name))
-}
-
 /** 全 series を読み込む（180 件規模なので JS 側スコアリングで十分）。 */
 export async function loadAllSeries(tx: DbLike): Promise<SeriesRow[]> {
   const rows = await tx
@@ -133,7 +91,7 @@ export async function loadAllSeries(tx: DbLike): Promise<SeriesRow[]> {
       kind: tournamentSeries.kind,
     })
     .from(tournamentSeries)
-  return rows
+  return rows.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
 }
 
 export interface FindOrCreateEditionInput {
@@ -242,6 +200,84 @@ export interface FindOrCreateSeriesResult {
   created: boolean
 }
 
+export interface GetSeriesForEditionLinkInput {
+  seriesId: number
+  kind: TournamentKind
+}
+
+/** 承認画面で選択された既存系列 ID を同一 tx 内で検証し、開催作成まで親行をロックする。 */
+export async function getSeriesForEditionLink(
+  tx: DbLike,
+  input: GetSeriesForEditionLinkInput,
+): Promise<SeriesRow> {
+  if (!Number.isInteger(input.seriesId) || input.seriesId <= 0) {
+    throw new Error('入力が不正です: 選択された大会系列を確認してください')
+  }
+
+  const rows = await tx
+    .select({
+      id: tournamentSeries.id,
+      name: tournamentSeries.name,
+      aliases: tournamentSeries.aliases,
+      kind: tournamentSeries.kind,
+    })
+    .from(tournamentSeries)
+    .where(eq(tournamentSeries.id, input.seriesId))
+    .limit(1)
+    .for('update')
+  const series = rows[0]
+  if (!series) {
+    throw new Error('選択された大会系列が見つかりません。再読み込みして選び直してください')
+  }
+  assertSeriesKindMatches(series.name, series.kind, input.kind)
+  return series
+}
+
+export interface CreateConfirmedSeriesInput {
+  name: string
+  kind: TournamentKind
+}
+
+/**
+ * 承認画面で「新しい系列を作る」が明示された場合だけ系列を作る。
+ * 既存系列は名称では解決せず、完全一致があれば検索結果から ID 選択するよう促す。
+ */
+export async function createConfirmedSeries(
+  tx: DbLike,
+  input: CreateConfirmedSeriesInput,
+): Promise<SeriesRow> {
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error('入力が不正です: 新しい大会系列の名前を入力してください')
+  }
+
+  const all = await loadAllSeries(tx)
+  const exact = rankSeriesCandidates(name, all).filter(
+    (candidate) => candidate.score >= EXACT_MATCH_SCORE,
+  )
+  if (exact.length > 0) {
+    throw new Error(
+      `系列名「${name}」に一致する既存系列があります。検索結果から選択してください`,
+    )
+  }
+
+  const inserted = await tx
+    .insert(tournamentSeries)
+    .values({ name, kind: input.kind })
+    .onConflictDoNothing()
+    .returning({
+      id: tournamentSeries.id,
+      name: tournamentSeries.name,
+      aliases: tournamentSeries.aliases,
+      kind: tournamentSeries.kind,
+    })
+  if (inserted[0]) return inserted[0]
+
+  throw new Error(
+    `系列名「${name}」は既に作成されています。再読み込みして検索結果から選択してください`,
+  )
+}
+
 /**
  * 系列を正規化名寄せで解決する。曖昧性の扱いを suggest/auto と揃える（Codex R3 blocker）:
  *   - 完全一致が **単独** → その既存 series を返す。
@@ -309,11 +345,47 @@ function assertSeriesKindMatches(
 }
 
 export interface EditionSuggestion {
+  /** 一意な完全一致がある場合の既存系列 ID。曖昧または未一致なら null。 */
+  seriesId: number | null
   /** UI に pre-fill する系列名。既存に完全一致すればその正準名、無ければ解析した候補名。 */
   seriesName: string
   editionNumber: number | null
   /** 既存 series に完全一致したか（UI の文言出し分け用）。 */
   matched: boolean
+}
+
+export interface EditionSelectionData {
+  suggestion: EditionSuggestion
+  seriesOptions: SeriesRow[]
+}
+
+/** DB から既に取得した同じスナップショットを使って承認画面の初期候補を作る。 */
+export function buildEditionSuggestion(
+  rawName: string,
+  allSeries: SeriesRow[],
+): EditionSuggestion {
+  const { editionNumber, seriesNameGuess } = parseAnnouncementName(rawName)
+  const ranked = rankSeriesCandidates(seriesNameGuess, allSeries)
+  const exact = ranked.filter((candidate) => candidate.score >= EXACT_MATCH_SCORE)
+  const uniqueExact = exact.length === 1 ? exact[0]! : null
+  return {
+    seriesId: uniqueExact?.series.id ?? null,
+    seriesName: uniqueExact ? uniqueExact.series.name : seriesNameGuess,
+    editionNumber,
+    matched: uniqueExact != null,
+  }
+}
+
+/** 系列一覧と初期候補を 1 回の系列取得から返す。 */
+export async function loadEditionSelectionData(
+  tx: DbLike,
+  rawName: string,
+): Promise<EditionSelectionData> {
+  const seriesOptions = await loadAllSeries(tx)
+  return {
+    suggestion: buildEditionSuggestion(rawName, seriesOptions),
+    seriesOptions,
+  }
 }
 
 /**
@@ -324,19 +396,7 @@ export async function suggestEditionFromName(
   tx: DbLike,
   rawName: string,
 ): Promise<EditionSuggestion> {
-  const { editionNumber, seriesNameGuess } = parseAnnouncementName(rawName)
-  const all = await loadAllSeries(tx)
-  const ranked = rankSeriesCandidates(seriesNameGuess, all)
-  // Codex R2 should_fix: 完全一致が **単独** のときだけ matched=true（自動 ON）。複数 exact
-  // （alias 衝突等）は曖昧として matched=false にし、管理者に明示確認させる（autoResolveEdition
-  // の ambiguous 扱いと挙動を揃える）。
-  const exact = ranked.filter((c) => c.score >= EXACT_MATCH_SCORE)
-  const uniqueExact = exact.length === 1 ? exact[0]! : null
-  return {
-    seriesName: uniqueExact ? uniqueExact.series.name : seriesNameGuess,
-    editionNumber,
-    matched: uniqueExact != null,
-  }
+  return (await loadEditionSelectionData(tx, rawName)).suggestion
 }
 
 export interface ResolveEditionFromFormOpts {

@@ -38,3 +38,10 @@ type: project
 
 - `docs/features/tournament-entry-rosters/requirements.md`
 - `docs/features/tournament-entry-rosters/implementation-plan.md`
+
+## 実装メモ
+
+- 承認専用の既存系列解決は `editionSeriesId` をトランザクション内で `FOR UPDATE` 検証し、名前による暗黙解決と分離した。
+- 明示的新規作成でも正準名・aliases の正規化完全一致があれば拒否し、検索結果からの既存系列選択へ戻す。
+- 部分承認では、先行イベントに edition がある場合、後続送信の link が OFF でも同じ edition を継承する。逆順（後から link ON）の backfill と合わせて draft 内を同一 edition に収束させる。
+- UI 検索は「系列名／別名が検索語を含む」方向だけの部分一致とし、自動解決用の保守的な双方向包含スコアとは分離した。
