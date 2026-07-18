@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -9,6 +9,11 @@ import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
 import { addDays } from '@/lib/jst-date'
+import type { SeriesRow, TournamentKind } from '@/lib/edition/match'
+import {
+  TournamentSeriesSelectSheet,
+  type TournamentSeriesSelection,
+} from './TournamentSeriesSelectSheet'
 
 /**
  * 会内締切デフォルト = 大会申込締切の 6 日前。会内で参加者を取りまとめて
@@ -37,10 +42,12 @@ export interface ApprovalFormProps {
    * client bundle へ引き込まない＝node-import 退行回避）。
    */
   editionSuggestion: {
+    seriesId?: number | null
     seriesName: string
     editionNumber: number | null
     matched: boolean
   }
+  seriesOptions?: SeriesRow[]
   action: (formData: FormData) => void | Promise<void>
 }
 
@@ -138,6 +145,7 @@ export function ApprovalForm({
   shortNameStem,
   registeredUnitKeys,
   editionSuggestion,
+  seriesOptions = [],
   action,
 }: ApprovalFormProps) {
   const units = normalizeUnits(payload)
@@ -166,6 +174,70 @@ export function ApprovalForm({
   const registeredCount = units.filter((u) =>
     registeredMap.has(u.unit_key),
   ).length
+  const unitKinds = new Set(
+    units
+      .filter(
+        (unit) =>
+          registeredMap.has(unit.unit_key) ||
+          (registered[unit.unit_key] ?? true),
+      )
+      .map((unit) => unit.kind ?? ('individual' as const)),
+  )
+  const hasMixedKinds = unitKinds.size > 1
+  const editionKind = [...unitKinds][0] ?? 'individual'
+  const compatibleSeriesOptions = hasMixedKinds
+    ? []
+    : seriesOptions.filter((series) => series.kind === editionKind)
+  const initialSeriesId = compatibleSeriesOptions.some(
+    (series) => series.id === editionSuggestion.seriesId,
+  )
+    ? (editionSuggestion.seriesId ?? null)
+    : null
+  const [editionLink, setEditionLink] = useState(
+    initialSeriesId != null && editionSuggestion.editionNumber != null,
+  )
+  const [seriesSelection, setSeriesSelection] =
+    useState<TournamentSeriesSelection>({
+      query: editionSuggestion.seriesName,
+      seriesId: initialSeriesId,
+      createNew: false,
+    })
+  const [seriesSelectionKind, setSeriesSelectionKind] =
+    useState<TournamentKind | null>(initialSeriesId != null ? editionKind : null)
+  const [seriesSheetOpen, setSeriesSheetOpen] = useState(false)
+  const selectedSeries = compatibleSeriesOptions.find(
+    (series) => series.id === seriesSelection.seriesId,
+  )
+
+  useEffect(() => {
+    const hasConfirmedSelection =
+      seriesSelection.seriesId != null || seriesSelection.createNew
+    if (!hasConfirmedSelection) return
+    const existingSeriesIsCompatible =
+      seriesSelection.seriesId == null || selectedSeries != null
+    if (
+      !hasMixedKinds &&
+      seriesSelectionKind === editionKind &&
+      existingSeriesIsCompatible
+    ) {
+      return
+    }
+
+    setSeriesSelection((current) => ({
+      ...current,
+      seriesId: null,
+      createNew: false,
+    }))
+    setSeriesSelectionKind(null)
+    setEditionLink(false)
+  }, [
+    editionKind,
+    hasMixedKinds,
+    selectedSeries,
+    seriesSelection.createNew,
+    seriesSelection.seriesId,
+    seriesSelectionKind,
+  ])
 
   return (
     <div className="flex flex-col gap-3">
@@ -175,40 +247,88 @@ export function ApprovalForm({
       </div>
 
       <form action={action} className="flex flex-col gap-4">
-        {/* tournament-entry-rosters flow①: 開催(edition) 紐付け（draft 単位・1 開催）。
-            link ON のとき系列名＋回次から edition を解決/新規作成し、この案内から作る
-            events 全件に同じ edition_id を張る。名寄せは管理者が確認（要件 §3.1）。 */}
+        {/* tournament-entry-rosters flow①: 既存系列は検索結果の ID で確定し、検索語と
+            選択状態を分離する。新規系列は 0 件時の明示確認だけ hidden field へ反映。 */}
         <Card>
           <div className="flex flex-col gap-3">
             <label className="flex items-center gap-2 text-sm font-semibold text-ink">
               <input
                 type="checkbox"
                 name="editionLink"
-                // Codex R1 should_fix: 既存系列に完全一致したときだけ自動 ON にする。
-                // 未一致（新規系列候補）で自動 ON だと、誤抽出名がそのまま新規 master 系列に
-                // なるリスクがある。新規作成したい場合は管理者が明示的にチェックを入れる。
-                defaultChecked={
-                  editionSuggestion.matched && editionSuggestion.editionNumber != null
-                }
+                checked={editionLink}
+                onChange={(event) => setEditionLink(event.target.checked)}
                 className="rounded border-border"
               />
               開催（第N回○○大会）に紐付ける
             </label>
-            <p className="text-xs text-ink-meta">
-              系列名が既存と一致すればその系列の開催に紐付けます。
-              {editionSuggestion.matched
-                ? '（既存の系列に一致しました）'
-                : '（一致する既存系列が見つかりません。新規系列として作成する場合は下のチェックを入れてください）'}
-            </p>
-            <div className="grid grid-cols-[1fr_6rem] gap-3">
-              <div>
-                <label className={EDITION_LABEL}>系列名</label>
-                <input
-                  name="editionSeriesName"
-                  type="text"
-                  defaultValue={editionSuggestion.seriesName}
-                  className={EDITION_FIELD}
-                />
+            <input type="hidden" name="editionSeriesId" value={seriesSelection.seriesId ?? ''} />
+            <input
+              type="hidden"
+              name="editionSeriesName"
+              value={seriesSelection.createNew ? seriesSelection.query : ''}
+            />
+            {seriesSelection.createNew && (
+              <input type="hidden" name="editionCreateNewSeries" value="on" />
+            )}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem]">
+              <div className="min-w-0">
+                <span className={EDITION_LABEL}>大会系列</span>
+                <div className="mt-1 rounded-md border border-border-soft bg-surface-alt p-3">
+                  {selectedSeries ? (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="block text-xs text-ink-meta">選択済み</span>
+                        <span className="block break-words text-sm font-semibold text-ink">
+                          {selectedSeries.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSeriesSelection((current) => ({
+                            ...current,
+                            seriesId: null,
+                            createNew: false,
+                          }))
+                          setSeriesSelectionKind(null)
+                          setEditionLink(false)
+                        }}
+                        className="shrink-0 text-xs text-ink-meta underline"
+                      >
+                        解除
+                      </button>
+                    </div>
+                  ) : seriesSelection.createNew ? (
+                    <div>
+                      <span className="block text-xs text-ink-meta">新規作成</span>
+                      <span className="block break-words text-sm font-semibold text-ink">
+                        {seriesSelection.query}
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="block text-sm font-medium text-ink">系列は未選択です</span>
+                      {seriesSelection.query && (
+                        <span className="mt-0.5 block break-words text-xs text-ink-meta">
+                          AI候補: {seriesSelection.query}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSeriesSheetOpen(true)}
+                  disabled={hasMixedKinds}
+                  className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-border bg-surface px-3 text-sm font-semibold text-ink-2 hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  系列を検索・選択
+                </button>
+                {hasMixedKinds && (
+                  <p className="mt-1 text-xs text-danger">
+                    個人戦と団体戦が混在しているため、1つの開催には紐づけられません。
+                  </p>
+                )}
               </div>
               <div>
                 <label className={EDITION_LABEL}>回次</label>
@@ -217,23 +337,33 @@ export function ApprovalForm({
                   type="number"
                   min="1"
                   defaultValue={editionSuggestion.editionNumber ?? ''}
+                  required={editionLink}
                   className={EDITION_FIELD}
                 />
               </div>
             </div>
-            {/* Codex R3 should_fix: 新規系列の作成は明示確認。未一致名で link を ON にしても、
-                このチェックが無ければサーバが弾く（誤抽出名の silent な master 化を防ぐ）。 */}
-            <label className="flex items-center gap-2 text-xs text-ink-2">
-              <input
-                type="checkbox"
-                name="editionCreateNewSeries"
-                defaultChecked={false}
-                className="rounded border-border"
-              />
-              一致する既存系列が無い場合、この系列名で新規系列を作成する
-            </label>
+            {editionLink && !selectedSeries && !seriesSelection.createNew && (
+              <p className="text-xs text-danger">
+                開催へ紐づけるには、検索結果から既存系列を選ぶか新しい系列を明示してください。
+              </p>
+            )}
           </div>
         </Card>
+        <TournamentSeriesSelectSheet
+          open={seriesSheetOpen}
+          kind={editionKind}
+          seriesOptions={seriesOptions}
+          selection={seriesSelection}
+          onClose={() => setSeriesSheetOpen(false)}
+          onConfirm={(selection) => {
+            const hasConfirmedSelection =
+              selection.seriesId != null || selection.createNew
+            setSeriesSelection(selection)
+            setSeriesSelectionKind(hasConfirmedSelection ? editionKind : null)
+            setEditionLink(hasConfirmedSelection)
+            setSeriesSheetOpen(false)
+          }}
+        />
 
         {units.map((unit) => {
           const registeredEventId = registeredMap.get(unit.unit_key)

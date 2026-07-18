@@ -798,7 +798,7 @@ describe('admin/mail-inbox actions', () => {
         { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12' },
       ])
       fd.set('editionLink', 'on')
-      fd.set('editionSeriesName', 'こばえちゃ山形酒田大会')
+      fd.set('editionSeriesId', String(series!.id))
       fd.set('editionNumber', '28')
 
       await approveDraftUnits(draft.id, fd)
@@ -855,7 +855,7 @@ describe('admin/mail-inbox actions', () => {
       expect(rows[0]?.editionId).toBe(ed[0]!.id)
     })
 
-    it('editionLink ON + 未知系列 + 新規作成フラグなし → 入力エラー（Codex R3 blocker）', async () => {
+    it('editionLink ON + 検索文字列だけ → 検索結果の選択を求める', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage()
@@ -867,13 +867,92 @@ describe('admin/mail-inbox actions', () => {
       fd.set('editionLink', 'on')
       fd.set('editionSeriesName', 'どこにもない大会')
       fd.set('editionNumber', '1')
-      // editionCreateNewSeries を付けない → 新規系列を silent 作成しないため throw
-      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/新規系列として作成/)
+      // 検索欄の文字列を既存系列の確定値としては扱わない。
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/検索結果から大会系列を選ぶ/)
       // tx rollback で events も series も作られない
       expect(
         await testDb.select().from(events).where(eq(events.tournamentDraftId, draft.id)),
       ).toHaveLength(0)
       expect(await testDb.select().from(tournamentSeries)).toHaveLength(0)
+    })
+
+    it('既存系列 ID と新規作成フラグの同時指定を拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const [series] = await testDb
+        .insert(tournamentSeries)
+        .values({ name: '既存大会', kind: 'individual' })
+        .returning({ id: tournamentSeries.id })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['A'] }])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesId', String(series!.id))
+      fd.set('editionSeriesName', '新しい大会')
+      fd.set('editionCreateNewSeries', 'on')
+      fd.set('editionNumber', '1')
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/同時には選べません/)
+    })
+
+    it('存在しない既存系列 ID を拒否してイベントを作らない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['A'] }])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesId', '999999')
+      fd.set('editionNumber', '1')
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/見つかりません/)
+      expect(
+        await testDb.select().from(events).where(eq(events.tournamentDraftId, draft.id)),
+      ).toHaveLength(0)
+    })
+
+    it('既存系列 ID の kind が承認 unit と異なる場合を拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const [series] = await testDb
+        .insert(tournamentSeries)
+        .values({ name: '団体戦系列', kind: 'team' })
+        .returning({ id: tournamentSeries.id })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['A'] }])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesId', String(series!.id))
+      fd.set('editionNumber', '1')
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/個人戦として紐付け/)
+    })
+
+    it('新規系列としての入力が既存系列に完全一致する場合を拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      await testDb.insert(tournamentSeries).values({
+        name: '既存大会',
+        aliases: ['旧称大会'],
+        kind: 'individual',
+      })
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['A'] }])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '旧称大会')
+      fd.set('editionCreateNewSeries', 'on')
+      fd.set('editionNumber', '1')
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(/検索結果から選択/)
     })
 
     it('editionLink ON + team unit で新規系列 → series.kind=team（Codex R4 should_fix）', async () => {
@@ -1035,6 +1114,46 @@ describe('admin/mail-inbox actions', () => {
       const editionIds = new Set(rows.map((r) => r.editionId))
       expect(editionIds.size).toBe(1) // 全 events が同一 edition
       expect([...editionIds][0]).not.toBeNull()
+    })
+
+    it('部分承認で先に editionLink ON → 後続の link OFF でも同じ edition を継承する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+      const [series] = await testDb
+        .insert(tournamentSeries)
+        .values({ name: '継承テスト大会', kind: 'individual' })
+        .returning({ id: tournamentSeries.id })
+
+      const fd1 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11' },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12', register: false },
+      ])
+      fd1.set('editionLink', 'on')
+      fd1.set('editionSeriesId', String(series!.id))
+      fd1.set('editionNumber', '7')
+      await approveDraftUnits(draft.id, fd1)
+
+      const fd2 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11', register: false },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12' },
+      ])
+      await approveDraftUnits(draft.id, fd2)
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      expect(rows[0]?.editionId).not.toBeNull()
+      expect(new Set(rows.map((row) => row.editionId)).size).toBe(1)
     })
 
     it('一部 register (2 中 1) → 1 event 作成・draft pending・mail 据え置き、残りを後から承認すると approved に遷移', async () => {

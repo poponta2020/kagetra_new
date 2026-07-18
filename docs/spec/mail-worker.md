@@ -143,7 +143,11 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 **承認（`approveDraftUnits`）** は 1 draft : N イベントの複数単位承認 UI（`ApprovalForm`。旧`approveDraft` は 1 draft : 1 event の後方互換経路として残置、DoD 上は新規承認は複数単位経路を使う）。`ApprovalForm` は `EventUnit[]`（新形式）または単一 `extracted` オブジェクト（旧 2.0.0 未満フォーマット、`normalizeUnits()` が単一ユニット `u1` に正規化）を各単位ごとの `EventForm` としてレンダリングし、タイトル初期値は `composeTitle(shortNameStem, eligible_grades)`。管理者はチェックした単位だけを選んで登録できる（部分承認）。既に materialize 済みの単位は読み取り専用表示。全単位が materialize されて初めて draft を `approved` + mail を `processed`/`archived` に倒す（部分承認中は `pending_review` のまま受信箱に残る）。「残りは作らず完了」（`completeDraft`）は 1 件以上 materialize 済みのときだけ表示され、未登録の残り単位を作らずに draft を閉じる。
 
-承認処理には任意で「開催（edition）への紐付け」チェックがあり、系列名＋回次を入力すると `findOrCreateSeries`/`findOrCreateEdition`（`apps/web/src/lib/edition/resolve.ts`）が既存 `tournament_series`/`tournament_series_editions` を解決するか、管理者が明示チェックした場合のみ新規系列を作成する（曖昧な silent マスタ化を避ける設計。詳細は [spec/tournaments-results.md](tournaments-results.md)）。同一 draft から作る全イベントの `kind`（個人戦/団体戦）が混在すると拒否する。
+承認処理には任意で「開催（edition）への紐付け」チェックがある。承認可能な詳細画面は `tournament_series` を1回読み込み、AI抽出名が正準名または別名に正規化完全一致する系列が1件だけなら、その系列IDと回次を初期選択する。未一致・複数一致ではAI由来の名前を検索語にだけ入れ、系列は未選択にする。
+
+「系列を検索・選択」はモバイル対応のボトムシートで、承認対象と同じ `kind`（個人戦/団体戦）の系列を正準名・別名から正規化部分一致検索する。候補は正準名を主表示し、別名に一致した場合は一致した別名も表示する。検索文字列と選択済み系列を別状態として扱い、既存系列は hidden `editionSeriesId` だけで確定する。0件時だけ検索語を新規系列として作る明示確認を提示し、確認後に限り `editionSeriesName` と `editionCreateNewSeries=on` を送る。
+
+`approveDraftUnits` は draft 行をロックしたトランザクション内で、既存系列IDの存在・`kind` を再検証して `findOrCreateEdition`（`apps/web/src/lib/edition/resolve.ts`）を呼ぶ。検索文字列だけ、既存IDと新規作成の同時指定、改ざんID、種別不一致、正でない回次は拒否する。明示的新規作成名が既存系列の正準名・別名に完全一致する場合も、検索結果から既存系列を選び直すよう拒否する。同一 draft から作る全イベントの `kind` が混在すると拒否し、部分承認では先行・後続どちらで開催を選んでも全イベントを同一 edition へ収束させる（詳細は [spec/tournaments-results.md](tournaments-results.md)）。
 
 承認/却下/紐付け操作はすべて `tournament_drafts` 行を `FOR UPDATE` でロックしてから状態遷移する（並行操作の直列化）。1 件でもイベントを materialize 済みの draft は却下・単純紐付け（`linkDraftToEvent`）ができない（作成済みイベントが孤児化する矛盾を防ぐ）。承認・紐付け成功後は `after()` フックでレスポンスをブロックせずに LINE 自動配信（`broadcastMailToEvent`）を起動する（配信自体は [spec/notifications.md](notifications.md)）。
 

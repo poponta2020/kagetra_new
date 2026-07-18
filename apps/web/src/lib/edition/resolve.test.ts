@@ -4,8 +4,11 @@ import { tournamentSeries, tournamentSeriesEditions } from '@kagetra/shared/sche
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   autoResolveEdition,
+  createConfirmedSeries,
   findOrCreateEdition,
   findOrCreateSeries,
+  getSeriesForEditionLink,
+  loadEditionSelectionData,
   normalizeForMatch,
   parseAnnouncementName,
   parseEditionNumber,
@@ -208,9 +211,10 @@ describe('edition resolve — DB', () => {
 
   describe('suggestEditionFromName (R2 曖昧性)', () => {
     it('完全一致が単独なら matched=true＋正準名', async () => {
-      await seedSeries('こばえちゃ山形酒田大会')
+      const seriesId = await seedSeries('こばえちゃ山形酒田大会')
       const sug = await suggestEditionFromName(testDb, '第28回こばえちゃ山形酒田大会C級')
       expect(sug.matched).toBe(true)
+      expect(sug.seriesId).toBe(seriesId)
       expect(sug.seriesName).toBe('こばえちゃ山形酒田大会')
       expect(sug.editionNumber).toBe(28)
     })
@@ -222,9 +226,58 @@ describe('edition resolve — DB', () => {
         .values({ name: '別名持ち大会', aliases: ['テスト大会'], kind: 'individual' })
       const sug = await suggestEditionFromName(testDb, '第1回テスト大会A級')
       expect(sug.matched).toBe(false)
+      expect(sug.seriesId).toBeNull()
       expect(sug.editionNumber).toBe(1)
       // 系列名は解析した候補をそのまま（先頭候補へ silent 解決しない）
       expect(sug.seriesName).toBe('テスト大会')
+    })
+
+    it('系列一覧と候補を同じ取得結果から返す', async () => {
+      const seriesId = await seedSeries('テスト大会')
+      const data = await loadEditionSelectionData(testDb, '第2回テスト大会')
+      expect(data.seriesOptions.map((series) => series.id)).toContain(seriesId)
+      expect(data.suggestion.seriesId).toBe(seriesId)
+      expect(data.suggestion.editionNumber).toBe(2)
+    })
+  })
+
+  describe('approval-specific series selection', () => {
+    it('既存系列 ID を検証して返す', async () => {
+      const seriesId = await seedSeries('既存大会')
+      await expect(
+        getSeriesForEditionLink(testDb, { seriesId, kind: 'individual' }),
+      ).resolves.toMatchObject({ id: seriesId, name: '既存大会' })
+    })
+
+    it('存在しない系列 ID は拒否する', async () => {
+      await expect(
+        getSeriesForEditionLink(testDb, { seriesId: 999999, kind: 'individual' }),
+      ).rejects.toThrow(/見つかりません/)
+    })
+
+    it('系列 kind が承認対象と異なる場合は拒否する', async () => {
+      const seriesId = await seedSeries('個人戦大会')
+      await expect(
+        getSeriesForEditionLink(testDb, { seriesId, kind: 'team' }),
+      ).rejects.toThrow(/団体戦として紐付け/)
+    })
+
+    it('明示的新規作成でも既存正準名・別名との完全一致を拒否する', async () => {
+      await seedSeries('既存大会', ['旧称大会'])
+      await expect(
+        createConfirmedSeries(testDb, { name: '★ 既存大会', kind: 'individual' }),
+      ).rejects.toThrow(/検索結果から選択/)
+      await expect(
+        createConfirmedSeries(testDb, { name: '旧称大会', kind: 'individual' }),
+      ).rejects.toThrow(/検索結果から選択/)
+    })
+
+    it('完全一致がない場合だけ新規系列を作る', async () => {
+      const created = await createConfirmedSeries(testDb, {
+        name: ' 新しい大会 ',
+        kind: 'team',
+      })
+      expect(created).toMatchObject({ name: '新しい大会', kind: 'team' })
     })
   })
 

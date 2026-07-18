@@ -15,7 +15,11 @@ import {
   tournamentDrafts,
 } from '@kagetra/shared/schema'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
-import { findOrCreateEdition, findOrCreateSeries } from '@/lib/edition/resolve'
+import {
+  createConfirmedSeries,
+  findOrCreateEdition,
+  getSeriesForEditionLink,
+} from '@/lib/edition/resolve'
 import {
   eventFormSchema,
   extractEventFormData,
@@ -248,15 +252,15 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     parsed: eventFormSchema.parse(unit.data),
   }))
 
-  // tournament-entry-rosters flow①: 開催(edition) 紐付け（管理者確認・draft 単位の
-  // 直下フィールド）。link が ON のときだけ系列名＋回次から edition を解決/新規作成し、
-  // この draft から生成する events 全件に同じ edition_id を張る（events:edition は N:1）。
-  // 名寄せは管理者が確認した name で行う（findOrCreateSeries は正規化完全一致なら既存、
-  // 無ければ新規作成）。link OFF なら edition_id は null のまま（非破壊）。
+  // tournament-entry-rosters flow①: 既存系列は検索 UI が送る ID だけで確定する。
+  // 検索文字列をそのまま既存系列へ名寄せしないため、表示名の改変や曖昧一致で別系列へ
+  // 紐づくことがない。新規系列は明示選択＋名前の組み合わせだけを受け付ける。
   const editionLink = formData.get('editionLink') === 'on'
-  // Codex R3: 新規系列の作成は管理者が「新規系列として作成」を明示チェックしたときだけ許可する
-  // （未一致名の silent な master 化を防ぐ）。findOrCreateSeries は allowCreate=false で未一致 throw。
   const editionCreateNewSeries = formData.get('editionCreateNewSeries') === 'on'
+  const editionSeriesIdRaw = formData.get('editionSeriesId')
+  const hasEditionSeriesId =
+    typeof editionSeriesIdRaw === 'string' && editionSeriesIdRaw.trim() !== ''
+  const editionSeriesId = hasEditionSeriesId ? Number(editionSeriesIdRaw) : null
   const editionSeriesNameRaw = formData.get('editionSeriesName')
   const editionSeriesName =
     typeof editionSeriesNameRaw === 'string' ? editionSeriesNameRaw.trim() : ''
@@ -266,11 +270,28 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       ? Number(editionNumberRaw)
       : null
   if (editionLink) {
-    if (!editionSeriesName) {
-      throw new Error('入力が不正です: 開催を紐付けるには系列名が必要です')
-    }
     if (editionNumber == null || !Number.isInteger(editionNumber) || editionNumber <= 0) {
       throw new Error('入力が不正です: 回次は正の整数で指定してください')
+    }
+    if (hasEditionSeriesId && editionCreateNewSeries) {
+      throw new Error('入力が不正です: 既存系列と新しい系列を同時には選べません')
+    }
+    if (hasEditionSeriesId) {
+      if (
+        editionSeriesId == null ||
+        !Number.isInteger(editionSeriesId) ||
+        editionSeriesId <= 0
+      ) {
+        throw new Error('入力が不正です: 選択された大会系列を確認してください')
+      }
+    } else if (editionCreateNewSeries) {
+      if (!editionSeriesName) {
+        throw new Error('入力が不正です: 新しい大会系列の名前を入力してください')
+      }
+    } else {
+      throw new Error(
+        '入力が不正です: 検索結果から大会系列を選ぶか、新しい系列として作成してください',
+      )
     }
   }
   // edition.year は最初の有効な event_date の年から導出（同年2回・中止スキップがあるため
@@ -344,10 +365,38 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       }
     }
 
+    const existingDraftEvents = await tx
+      .select({ kind: events.kind, editionId: events.editionId })
+      .from(events)
+      .where(eq(events.tournamentDraftId, draftId))
+
     // flow①: 開催(edition) を draft 単位で 1 回だけ解決/新規作成する（FOR UPDATE 直列化＋
-    // UNIQUE(series_id, edition_number) onConflict は findOrCreateEdition 内）。link OFF は null。
-    // 部分承認の 2 回目以降も findOrCreate は冪等なので同じ edition_id に収束する。
+    // UNIQUE(series_id, edition_number) onConflict は findOrCreateEdition 内）。部分承認の
+    // 先行 unit に edition があれば、後続送信で link が OFF でも同じ edition を継承する。
     let resolvedEditionId: number | null = null
+    const existingEditionIds = [
+      ...new Set(
+        existingDraftEvents
+          .map((row) => row.editionId)
+          .filter((id): id is number => id != null),
+      ),
+    ]
+    if (existingEditionIds.length > 1) {
+      throw new Error(
+        'この案内から登録済みのイベントに複数の開催が紐づいています。管理者へ確認してください',
+      )
+    }
+
+    const editionKinds = new Set<'individual' | 'team'>([
+      ...parsedUnits.map((unit) => unit.parsed.kind),
+      ...existingDraftEvents.map((row) => row.kind),
+    ])
+    if ((editionLink || existingEditionIds.length > 0) && editionKinds.size > 1) {
+      throw new Error(
+        '入力が不正です: 個人戦/団体戦が混在する案内は 1 つの開催にまとめて紐付けられません',
+      )
+    }
+
     if (editionLink && editionNumber != null) {
       // 新規 series 作成時の kind は selected unit の kind から決める（series.kind は系列単位の
       // 事実。既定 individual のままだと団体戦系列が誤って個人戦化）。1 案内 = 1 大会 = 1 kind 前提。
@@ -355,36 +404,28 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       // Codex R5 blocker: parsedUnits（今回送信分）だけだと、部分承認をまたいだ混在を見逃す
       // （登録済み unit は read-only で再送されない）。backfill 対象＝この draft 由来の既存 events の
       // kind も合わせて検証し、個人/団体が混在する開催への紐付けを弾く。
-      const existingKindRows = await tx
-        .select({ kind: events.kind })
-        .from(events)
-        .where(eq(events.tournamentDraftId, draftId))
-      const editionKinds = new Set<'individual' | 'team'>([
-        ...parsedUnits.map((u) => u.parsed.kind),
-        ...existingKindRows.map((r) => r.kind),
-      ])
-      if (editionKinds.size > 1) {
-        throw new Error(
-          '入力が不正です: 個人戦/団体戦が混在する案内は 1 つの開催にまとめて紐付けられません',
-        )
-      }
       const editionKind: 'individual' | 'team' = [...editionKinds][0] ?? 'individual'
-      // allowCreate は管理者が「新規系列として作成」を明示したときだけ true。未一致かつ未明示は
-      // findOrCreateSeries が throw（silent な新規 master 化を防ぐ）。複数一致も throw（曖昧）。
-      const { seriesId } = await findOrCreateSeries(tx, {
-        name: editionSeriesName,
-        allowCreate: editionCreateNewSeries,
-        kind: editionKind,
-      })
+      const selectedSeries =
+        editionSeriesId != null
+          ? await getSeriesForEditionLink(tx, {
+              seriesId: editionSeriesId,
+              kind: editionKind,
+            })
+          : await createConfirmedSeries(tx, {
+              name: editionSeriesName,
+              kind: editionKind,
+            })
       const { editionId } = await findOrCreateEdition(tx, {
-        seriesId,
+        seriesId: selectedSeries.id,
         editionNumber,
         year: editionYear,
         // 案内由来＝開催前。結果未確定なので unconfirmed。flow②（結果取込）で held に確定。
         status: 'unconfirmed',
-        rawName: editionSeriesName,
+        rawName: selectedSeries.name,
       })
       resolvedEditionId = editionId
+    } else if (existingEditionIds[0] != null) {
+      resolvedEditionId = existingEditionIds[0]
     }
 
     for (const { unitKey, eligibleGrades, parsed } of parsedUnits) {
