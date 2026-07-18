@@ -13,6 +13,15 @@ PR #21 (Phase P3-A メール大会取り込み 最終 PR) のマージ後、ま�
 - Node.js 22.13+ / pnpm 9.15+
 - リポジトリ clone 済み
 
+### Codex cloud から開発する場合
+
+- Codex cloud の Environment で Setup script に `bash .codex/cloud-setup.sh`、Maintenance script に `bash .codex/cloud-maintenance.sh` を設定する。
+- Environment secret `DEVFLOW_GITHUB_TOKEN` には private リポジトリ `poponta2020/claude-devflow` を read できる fine-grained GitHub token を設定する。
+- 初期化時に共通 devflow の `main` を `$CODEX_HOME/shared/claude-devflow` へ取得し、Codex アダプタースキルをユーザースコープへリンクする。ワークフロー本体は共通リポジトリだけで更新し、このリポジトリには複製しない。
+- Codex cloud はクラウド上の checkout で動くためローカルPCは不要。DB、LINE、メール、AIなど外部サービスを必要とするタスクだけ、対応する secret とネットワーク許可を Environment に追加する。
+- PR 出荷時は既定方針どおり CI pending を PASS とする。失敗が確定した check はマージを止める。
+- GitHub Actions の自動レビューは repository secret `OPENAI_API_KEY` と variable `CODEX_REVIEW_ENABLED=true` を設定した時だけ有効になる。中央 private リポジトリの reusable workflow access も許可する。レビューが `pass` なら即マージし、`needs_changes` はCodex cloudの `auto-review-loop` が引き継ぐ。
+
 ---
 
 ## 1. 初回セットアップ
