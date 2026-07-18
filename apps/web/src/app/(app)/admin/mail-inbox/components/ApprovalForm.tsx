@@ -9,7 +9,7 @@ import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
 import { addDays } from '@/lib/jst-date'
-import type { SeriesRow } from '@/lib/edition/match'
+import type { SeriesRow, TournamentKind } from '@/lib/edition/match'
 import {
   TournamentSeriesSelectSheet,
   type TournamentSeriesSelection,
@@ -202,22 +202,42 @@ export function ApprovalForm({
       seriesId: initialSeriesId,
       createNew: false,
     })
+  const [seriesSelectionKind, setSeriesSelectionKind] =
+    useState<TournamentKind | null>(initialSeriesId != null ? editionKind : null)
   const [seriesSheetOpen, setSeriesSheetOpen] = useState(false)
   const selectedSeries = compatibleSeriesOptions.find(
     (series) => series.id === seriesSelection.seriesId,
   )
 
   useEffect(() => {
-    if (seriesSelection.seriesId == null) return
-    if (selectedSeries) return
+    const hasConfirmedSelection =
+      seriesSelection.seriesId != null || seriesSelection.createNew
+    if (!hasConfirmedSelection) return
+    const existingSeriesIsCompatible =
+      seriesSelection.seriesId == null || selectedSeries != null
+    if (
+      !hasMixedKinds &&
+      seriesSelectionKind === editionKind &&
+      existingSeriesIsCompatible
+    ) {
+      return
+    }
 
     setSeriesSelection((current) => ({
       ...current,
       seriesId: null,
       createNew: false,
     }))
+    setSeriesSelectionKind(null)
     setEditionLink(false)
-  }, [selectedSeries, seriesSelection.seriesId])
+  }, [
+    editionKind,
+    hasMixedKinds,
+    selectedSeries,
+    seriesSelection.createNew,
+    seriesSelection.seriesId,
+    seriesSelectionKind,
+  ])
 
   return (
     <div className="flex flex-col gap-3">
@@ -270,6 +290,7 @@ export function ApprovalForm({
                             seriesId: null,
                             createNew: false,
                           }))
+                          setSeriesSelectionKind(null)
                           setEditionLink(false)
                         }}
                         className="shrink-0 text-xs text-ink-meta underline"
@@ -335,8 +356,11 @@ export function ApprovalForm({
           selection={seriesSelection}
           onClose={() => setSeriesSheetOpen(false)}
           onConfirm={(selection) => {
+            const hasConfirmedSelection =
+              selection.seriesId != null || selection.createNew
             setSeriesSelection(selection)
-            setEditionLink(true)
+            setSeriesSelectionKind(hasConfirmedSelection ? editionKind : null)
+            setEditionLink(hasConfirmedSelection)
             setSeriesSheetOpen(false)
           }}
         />

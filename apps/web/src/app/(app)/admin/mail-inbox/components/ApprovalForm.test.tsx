@@ -348,6 +348,60 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     expect(within(dialog).queryByRole('checkbox')).toBeNull()
   })
 
+  it('新規系列の確認後に登録対象の種別が変わったら確認を解除する', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', event_date: '2030-12-01', kind: 'team' }),
+      buildUnit({ unit_key: 'u2', event_date: '2030-12-02', kind: 'individual' }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesName: '新規大会',
+          editionNumber: 1,
+          matched: false,
+        }}
+        seriesOptions={[]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'このイベントを登録する (2030-12-02)',
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+    const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+    fireEvent.click(within(dialog).getByRole('checkbox'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+    expect(
+      (container.querySelector(
+        'input[name="editionCreateNewSeries"]',
+      ) as HTMLInputElement).value,
+    ).toBe('on')
+    expect(
+      (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'このイベントを登録する (2030-12-02)',
+      }),
+    )
+    expect(
+      container.querySelector('input[name="editionCreateNewSeries"]'),
+    ).toBeNull()
+    expect(
+      (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false)
+  })
+
   it('開催日分割: 2 単位を別フォームとして描画し title を級ごとに合成する', () => {
     const payload = buildPayload([
       buildUnit({ unit_key: 'u1', eligible_grades: ['B'], event_date: '2031-01-11' }),
