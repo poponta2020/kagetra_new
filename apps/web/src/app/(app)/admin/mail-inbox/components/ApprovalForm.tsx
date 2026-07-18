@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -185,20 +185,39 @@ export function ApprovalForm({
   )
   const hasMixedKinds = unitKinds.size > 1
   const editionKind = [...unitKinds][0] ?? 'individual'
-  const compatibleSeriesOptions = hasMixedKinds ? [] : seriesOptions
+  const compatibleSeriesOptions = hasMixedKinds
+    ? []
+    : seriesOptions.filter((series) => series.kind === editionKind)
+  const initialSeriesId = compatibleSeriesOptions.some(
+    (series) => series.id === editionSuggestion.seriesId,
+  )
+    ? (editionSuggestion.seriesId ?? null)
+    : null
   const [editionLink, setEditionLink] = useState(
-    editionSuggestion.seriesId != null && editionSuggestion.editionNumber != null,
+    initialSeriesId != null && editionSuggestion.editionNumber != null,
   )
   const [seriesSelection, setSeriesSelection] =
     useState<TournamentSeriesSelection>({
       query: editionSuggestion.seriesName,
-      seriesId: editionSuggestion.seriesId ?? null,
+      seriesId: initialSeriesId,
       createNew: false,
     })
   const [seriesSheetOpen, setSeriesSheetOpen] = useState(false)
   const selectedSeries = compatibleSeriesOptions.find(
     (series) => series.id === seriesSelection.seriesId,
   )
+
+  useEffect(() => {
+    if (seriesSelection.seriesId == null) return
+    if (selectedSeries) return
+
+    setSeriesSelection((current) => ({
+      ...current,
+      seriesId: null,
+      createNew: false,
+    }))
+    setEditionLink(false)
+  }, [selectedSeries, seriesSelection.seriesId])
 
   return (
     <div className="flex flex-col gap-3">
@@ -312,7 +331,7 @@ export function ApprovalForm({
         <TournamentSeriesSelectSheet
           open={seriesSheetOpen}
           kind={editionKind}
-          seriesOptions={compatibleSeriesOptions}
+          seriesOptions={seriesOptions}
           selection={seriesSelection}
           onClose={() => setSeriesSheetOpen(false)}
           onConfirm={(selection) => {

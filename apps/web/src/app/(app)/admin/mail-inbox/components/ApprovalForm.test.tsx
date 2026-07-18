@@ -243,6 +243,111 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     expect((search as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it('初期候補の系列種別が登録対象と異なる場合は選択しない', () => {
+    const payload = buildPayload([buildUnit({ kind: 'team' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesId: 13,
+          seriesName: '個人戦大会',
+          editionNumber: 4,
+          matched: true,
+        }}
+        seriesOptions={[
+          { id: 13, name: '個人戦大会', aliases: [], kind: 'individual' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    expect(
+      (container.querySelector('input[name="editionSeriesId"]') as HTMLInputElement)
+        .value,
+    ).toBe('')
+    expect(
+      (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
+        .checked,
+    ).toBe(false)
+  })
+
+  it('登録対象の種別変更で選択済み系列が不適合になったら解除する', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', event_date: '2030-12-01', kind: 'team' }),
+      buildUnit({ unit_key: 'u2', event_date: '2030-12-02', kind: 'individual' }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: 1, matched: false }}
+        seriesOptions={[
+          { id: 7, name: '団体戦大会', aliases: [], kind: 'team' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'このイベントを登録する (2030-12-02)',
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+    const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '団体戦大会' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+    const seriesId = container.querySelector(
+      'input[name="editionSeriesId"]',
+    ) as HTMLInputElement
+    const editionLink = container.querySelector(
+      'input[name="editionLink"]',
+    ) as HTMLInputElement
+    expect(seriesId.value).toBe('7')
+    expect(editionLink.checked).toBe(true)
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'このイベントを登録する (2030-12-02)',
+      }),
+    )
+    expect(seriesId.value).toBe('')
+    expect(editionLink.checked).toBe(false)
+  })
+
+  it('別種別に同名系列がある場合は新規系列作成を提示しない', () => {
+    const payload = buildPayload([buildUnit({ kind: 'team' })])
+    render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesName: '同名大会',
+          editionNumber: 1,
+          matched: false,
+        }}
+        seriesOptions={[
+          { id: 8, name: '同名大会', aliases: [], kind: 'individual' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+    const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+    expect(
+      within(dialog).getByText(
+        '同じ名前の系列が別の大会種別で登録されています。大会種別を確認してください。',
+      ),
+    ).toBeDefined()
+    expect(within(dialog).queryByRole('checkbox')).toBeNull()
+  })
+
   it('開催日分割: 2 単位を別フォームとして描画し title を級ごとに合成する', () => {
     const payload = buildPayload([
       buildUnit({ unit_key: 'u1', eligible_grades: ['B'], event_date: '2031-01-11' }),

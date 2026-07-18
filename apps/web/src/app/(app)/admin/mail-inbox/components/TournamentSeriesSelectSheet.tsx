@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Btn, Card } from '@/components/ui'
 import {
+  normalizeForMatch,
   searchSeriesCandidates,
   type SeriesRow,
   type TournamentKind,
@@ -57,7 +58,23 @@ export function TournamentSeriesSelectSheet({
     [kind, query, seriesOptions],
   )
   const trimmedQuery = query.trim()
-  const canCreateNew = trimmedQuery !== '' && candidates.length === 0
+  const normalizedQuery = normalizeForMatch(trimmedQuery)
+  const hasCrossKindExactMatch = useMemo(
+    () =>
+      normalizedQuery !== '' &&
+      seriesOptions.some(
+        (series) =>
+          series.kind !== kind &&
+          [series.name, ...series.aliases].some(
+            (name) => normalizeForMatch(name) === normalizedQuery,
+          ),
+      ),
+    [kind, normalizedQuery, seriesOptions],
+  )
+  const canCreateNew =
+    trimmedQuery !== '' &&
+    candidates.length === 0 &&
+    !hasCrossKindExactMatch
   const kindLabel = kind === 'team' ? '団体戦' : '個人戦'
 
   if (!open) return null
@@ -144,6 +161,11 @@ export function TournamentSeriesSelectSheet({
                 <p className="text-center text-ink-meta">
                   一致する既存系列がありません
                 </p>
+                {hasCrossKindExactMatch && (
+                  <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-ink">
+                    同じ名前の系列が別の大会種別で登録されています。大会種別を確認してください。
+                  </p>
+                )}
                 {canCreateNew && (
                   <label className="flex items-start gap-2 rounded-md border border-border-soft p-3 text-ink">
                     <input
