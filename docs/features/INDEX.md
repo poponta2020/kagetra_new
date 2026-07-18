@@ -30,6 +30,6 @@
 - `settings-sheet` — 設定ボトムシートとAccountMenuの新設（主要領域: apps/web）
 - `stats-grade-population` — 大会統計への級別競技人口サマリー追加（1人=1級方式）（主要領域: apps/web）
 - `sticky-mobile-shell` — ヘッダー・ボトムナビ固定のモバイルシェル（主要領域: apps/web）
-- `tournament-entry-rosters` — 大会ライフサイクル基盤（edition）+申込/確定名簿（主要領域: apps/web, packages/shared）
+- `tournament-entry-rosters` — 大会ライフサイクル基盤（edition）+申込/確定名簿（主要領域: apps/web, packages/shared）[shipped: PR #292]
 - `tournament-results` — 大会結果の取込・承認・materializeとパーサ基盤（主要領域: apps/web, apps/mail-worker, packages/shared）
 - `tournament-title-grade-split` — 大会イベントのタイトル・級の分離入力（主要領域: apps/web, packages/shared）
