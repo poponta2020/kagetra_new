@@ -152,3 +152,4 @@
 - [tournament-lottery-trends Task 2](impl_tournament_lottery_trends-task2.md) — Issue #297 roster parsing, versioning, and member links
 - [tournament-lottery-trends Task 5](impl_tournament_lottery_trends-task5.md) — Issue #300 appearance counts
 - [tournament-lottery-trends Task 3](impl_tournament_lottery_trends-task3.md) — Issue #298 mailbox roster drafts
+- [Tournament lottery roster adoption](impl_tournament_lottery_trends-task4.md) — Use when changing roster draft approval, roster revisions, lottery facts, or actual-result links

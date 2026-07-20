@@ -313,4 +313,37 @@ describe('materializeRoster', () => {
       expect.arrayContaining([applicant.rosterId, confirmed.rosterId]),
     )
   })
+
+  it('同じ名簿の確定発表日を異なる日付で再利用しない', async () => {
+    const [series] = await testDb
+      .insert(tournamentSeries)
+      .values({ name: '発表日競合系列' })
+      .returning()
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId: series!.id, editionNumber: 1, year: 2030, status: 'held' })
+      .returning()
+    const event = await createEvent({ editionId: edition!.id })
+    const applicant = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('発表日太郎', { grade: 'A' })]), {
+        eventId: event.id,
+        rosterType: 'applicant',
+        revision: { kind: 'initial' },
+      }),
+    )
+
+    await testDb.transaction((tx) => publishConfirmedRoster(tx, {
+      editionId: edition!.id,
+      grade: 'A',
+      rosterId: applicant.rosterId,
+      publishedAt: '2030-01-01',
+    }))
+
+    await expect(testDb.transaction((tx) => publishConfirmedRoster(tx, {
+      editionId: edition!.id,
+      grade: 'A',
+      rosterId: applicant.rosterId,
+      publishedAt: '2030-01-02',
+    }))).rejects.toThrow('確定発表日が既存データと一致しません')
+  })
 })

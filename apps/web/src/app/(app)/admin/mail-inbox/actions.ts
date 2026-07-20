@@ -12,9 +12,22 @@ import {
   mailMessages,
   mailWorkerJobs,
   resultDrafts,
+  tournamentClasses,
   tournamentDrafts,
+  tournamentRosterImportDrafts,
+  tournaments,
 } from '@kagetra/shared/schema'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
+import { materializeRoster, publishConfirmedRoster } from '@/lib/roster-import/materialize'
+import {
+  createLotteryFactRevision,
+  linkActualResultClass,
+  loadActiveLotteryFact,
+  lockLotteryEdition,
+  type GradeAdoptionConfig,
+  type LotteryGrade,
+  type RosterPurpose,
+} from '@/lib/roster-import/adoption'
 import {
   createConfirmedSeries,
   findOrCreateEdition,
@@ -1500,6 +1513,380 @@ export async function triggerResultParse(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// tournament-lottery-trends Task4: 名簿解析・確認・採用
+// ─────────────────────────────────────────────────────────────────────────────
+
+const rosterGradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
+const rosterPurposeSchema = z.enum([
+  'applicant',
+  'selection_result',
+  'confirmed_publication',
+])
+const rosterRevisionSchema = z.enum(['initial', 'correction', 'additional'])
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}, '実在する日付を入力してください')
+const gradeAdoptionConfigSchema = z.object({
+  grade: rosterGradeSchema,
+  selectionStatus: z.enum(['lottery', 'under_capacity', 'no_capacity', 'unknown']),
+  capacity: z.number().int().positive().nullable(),
+  applicationStartDate: isoDateSchema.nullable(),
+  publishAsConfirmed: z.boolean(),
+})
+const rosterApprovalSchema = z.object({
+  editionId: z.number().int().positive(),
+  eventId: z.number().int().positive(),
+  purpose: rosterPurposeSchema,
+  publishedAt: isoDateSchema,
+  revisionKind: rosterRevisionSchema,
+  correctionTargetRosterId: z.number().int().positive().nullable(),
+  gradeConfigs: z.array(gradeAdoptionConfigSchema).min(1).max(5),
+})
+const rosterDraftPayloadSchema = z.object({
+  entries: z.array(z.object({
+    rawName: z.string().min(1),
+    rawKana: z.string().nullable(),
+    grade: rosterGradeSchema.nullable(),
+    rawAffiliation: z.string().nullable(),
+    rawDan: z.string().nullable(),
+    statusText: z.string().nullable(),
+    selectionOutcome: z.enum(['accepted', 'waitlisted', 'rejected', 'unknown']),
+    selectionExempt: z.boolean(),
+    seqNo: z.number().int().nullable(),
+    sourceSheetName: z.string().min(1),
+  })).min(1),
+  sheetName: z.string().min(1),
+  sheetNames: z.array(z.string().min(1)).min(1),
+  validationIssues: z.array(z.object({
+    code: z.string(),
+    message: z.string(),
+    sheetNames: z.array(z.string()),
+  })).optional().default([]),
+}).passthrough()
+
+function parseRosterApprovalForm(formData: FormData) {
+  let gradeConfigs: unknown
+  try {
+    gradeConfigs = JSON.parse(String(formData.get('gradeConfigs') ?? ''))
+  } catch {
+    throw new Error('級別設定を確認してください')
+  }
+  const rawTarget = String(formData.get('correctionTargetRosterId') ?? '').trim()
+  const parsed = rosterApprovalSchema.safeParse({
+    editionId: Number(formData.get('editionId')),
+    eventId: Number(formData.get('eventId')),
+    purpose: formData.get('purpose'),
+    publishedAt: formData.get('publishedAt'),
+    revisionKind: formData.get('revisionKind'),
+    correctionTargetRosterId: rawTarget ? Number(rawTarget) : null,
+    gradeConfigs,
+  })
+  if (!parsed.success) throw new Error('名簿の採用設定を確認してください')
+  const grades = parsed.data.gradeConfigs.map((config) => config.grade)
+  if (new Set(grades).size !== grades.length) throw new Error('同じ級を複数設定できません')
+  if (parsed.data.revisionKind === 'correction' && parsed.data.correctionTargetRosterId === null) {
+    throw new Error('訂正する旧版名簿を選択してください')
+  }
+  if (parsed.data.revisionKind !== 'correction' && parsed.data.correctionTargetRosterId !== null) {
+    throw new Error('訂正以外では訂正対象を指定できません')
+  }
+  if (
+    parsed.data.revisionKind === 'additional' &&
+    parsed.data.purpose !== 'confirmed_publication'
+  ) {
+    throw new Error('追加発表は後日の確定名簿発表だけで選択できます')
+  }
+  return parsed.data
+}
+
+function rosterSourcePredicate(mailId: number, attachmentId: number | null) {
+  return attachmentId === null
+    ? and(
+        eq(tournamentRosterImportDrafts.sourceKind, 'body'),
+        eq(tournamentRosterImportDrafts.sourceMailMessageId, mailId),
+      )
+    : and(
+        eq(tournamentRosterImportDrafts.sourceKind, 'attachment'),
+        eq(tournamentRosterImportDrafts.sourceAttachmentId, attachmentId),
+      )
+}
+
+export async function triggerRosterParse(
+  mailId: number,
+  attachmentId: number | null,
+): Promise<{ ok: true; jobId: number; reused: boolean } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+  if (!Number.isInteger(mailId) || mailId <= 0) return { ok: false, error: 'メールIDが不正です' }
+  if (attachmentId !== null && (!Number.isInteger(attachmentId) || attachmentId <= 0)) {
+    return { ok: false, error: '添付ファイルIDが不正です' }
+  }
+
+  try {
+    const queued = await db.transaction(async (tx) => {
+      // One mail is the source parent for all attachment/body units. Locking it makes the
+      // SELECT-then-INSERT job guard safe even though payload itself has no unique index.
+      const [mail] = await tx
+        .select({ id: mailMessages.id, bodyText: mailMessages.bodyText, bodyHtml: mailMessages.bodyHtml })
+        .from(mailMessages)
+        .where(eq(mailMessages.id, mailId))
+        .for('update')
+      if (!mail) throw new Error('メールが見つかりません')
+
+      if (attachmentId === null) {
+        if (!(mail.bodyText ?? mail.bodyHtml)?.trim()) throw new Error('解析できるメール本文がありません')
+      } else {
+        const [attachment] = await tx
+          .select({ id: mailAttachments.id, mailMessageId: mailAttachments.mailMessageId })
+          .from(mailAttachments)
+          .where(eq(mailAttachments.id, attachmentId))
+          .limit(1)
+        if (!attachment) throw new Error('添付ファイルが見つかりません')
+        if (attachment.mailMessageId !== mailId) {
+          throw new Error('指定された添付ファイルはこのメールに属していません')
+        }
+      }
+
+      const [draft] = await tx
+        .select({ id: tournamentRosterImportDrafts.id, status: tournamentRosterImportDrafts.status })
+        .from(tournamentRosterImportDrafts)
+        .where(rosterSourcePredicate(mailId, attachmentId))
+        .limit(1)
+      if (draft && draft.status !== 'parse_failed') {
+        throw new Error(`この原本には既に名簿ドラフトがあります (${draft.status})`)
+      }
+
+      const attachmentJobPredicate = attachmentId === null
+        ? sql`${mailWorkerJobs.payload}->>'attachment_id' IS NULL`
+        : sql`${mailWorkerJobs.payload}->>'attachment_id' = ${String(attachmentId)}`
+      const [existingJob] = await tx
+        .select({ id: mailWorkerJobs.id })
+        .from(mailWorkerJobs)
+        .where(
+          and(
+            eq(mailWorkerJobs.kind, 'roster_parse'),
+            inArray(mailWorkerJobs.status, ['pending', 'claimed']),
+            sql`${mailWorkerJobs.payload}->>'mail_message_id' = ${String(mailId)}`,
+            attachmentJobPredicate,
+          ),
+        )
+        .limit(1)
+      if (existingJob) return { jobId: existingJob.id, reused: true }
+
+      const [job] = await tx
+        .insert(mailWorkerJobs)
+        .values({
+          requestedByUserId: session.user.id,
+          status: 'pending',
+          kind: 'roster_parse',
+          payload: { mail_message_id: mailId, attachment_id: attachmentId },
+        })
+        .returning({ id: mailWorkerJobs.id })
+      if (!job) throw new Error('名簿解析ジョブを登録できませんでした')
+      return { jobId: job.id, reused: false }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+    return { ok: true, ...queued }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function approveRosterImportDraft(
+  draftId: number,
+  formData: FormData,
+): Promise<{ ok: true; rosterId: number } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+  let input: ReturnType<typeof parseRosterApprovalForm>
+  try {
+    input = parseRosterApprovalForm(formData)
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+
+  try {
+    const adopted = await db.transaction(async (tx) => {
+      const [draft] = await tx
+        .select({
+          id: tournamentRosterImportDrafts.id,
+          status: tournamentRosterImportDrafts.status,
+          extractedPayload: tournamentRosterImportDrafts.extractedPayload,
+          sourceMailMessageId: tournamentRosterImportDrafts.sourceMailMessageId,
+          sourceAttachmentId: tournamentRosterImportDrafts.sourceAttachmentId,
+        })
+        .from(tournamentRosterImportDrafts)
+        .where(eq(tournamentRosterImportDrafts.id, draftId))
+        .for('update')
+      if (!draft) throw new Error('名簿ドラフトが見つかりません')
+      if (draft.status !== 'pending_review') {
+        throw new Error(`このドラフトは承認できない状態です (${draft.status})`)
+      }
+
+      // The edition lock must precede active-fact reads so two first-time approvals cannot
+      // both observe "no active fact" and violate the partial unique index.
+      const edition = await lockLotteryEdition(tx, input.editionId)
+      const payload = rosterDraftPayloadSchema.safeParse(draft.extractedPayload)
+      if (!payload.success) throw new Error('名簿ドラフトの構造化データが不正です')
+      if (payload.data.validationIssues.length > 0) {
+        throw new Error(payload.data.validationIssues.map((issue) => issue.message).join('\n'))
+      }
+
+      const configuredGrades = new Set(input.gradeConfigs.map((config) => config.grade))
+      const explicitGrades = new Set(
+        payload.data.entries
+          .map((entry) => entry.grade)
+          .filter((grade): grade is LotteryGrade => grade !== null),
+      )
+      if (explicitGrades.size === 0 && configuredGrades.size !== 1) {
+        throw new Error('級がない行を複数級へ推測で割り当てることはできません')
+      }
+      if (
+        explicitGrades.size > 0 &&
+        (explicitGrades.size !== configuredGrades.size ||
+          [...explicitGrades].some((grade) => !configuredGrades.has(grade)))
+      ) {
+        throw new Error('原本に含まれる全ての級を級別設定へ含めてください')
+      }
+
+      const [event] = await tx
+        .select({ id: events.id, editionId: events.editionId, eligibleGrades: events.eligibleGrades })
+        .from(events)
+        .where(eq(events.id, input.eventId))
+        .limit(1)
+      if (!event || event.editionId !== input.editionId) {
+        throw new Error('イベントと開催回の組み合わせが一致しません')
+      }
+      if (
+        event.eligibleGrades != null &&
+        [...configuredGrades].some((grade) => !event.eligibleGrades!.includes(grade))
+      ) {
+        throw new Error('イベントの対象級に含まれない級が指定されています')
+      }
+
+      const purpose = input.purpose as RosterPurpose
+      const rosterType = purpose === 'applicant' ? 'applicant' : 'confirmed'
+      const parsedRoster = {
+        entries: payload.data.entries.map((entry) => ({
+          ...entry,
+          grade: entry.grade ?? input.gradeConfigs[0]!.grade,
+        })),
+        sheetName: payload.data.sheetName,
+        sheetNames: payload.data.sheetNames,
+      }
+      const revision = input.revisionKind === 'correction'
+        ? { kind: 'correction' as const, targetRosterId: input.correctionTargetRosterId! }
+        : input.revisionKind === 'additional'
+          ? { kind: 'additional' as const }
+          : { kind: 'initial' as const }
+      const roster = await materializeRoster(tx, parsedRoster, {
+        eventId: event.id,
+        rosterType,
+        publishedAt: input.publishedAt,
+        sourceAttachmentId: draft.sourceAttachmentId,
+        sourceMailMessageId: draft.sourceMailMessageId,
+        approvedByUserId: session.user.id,
+        revision,
+      })
+
+      for (const config of input.gradeConfigs) {
+        if (purpose !== 'applicant' || config.publishAsConfirmed) {
+          await publishConfirmedRoster(tx, {
+            editionId: input.editionId,
+            grade: config.grade,
+            rosterId: roster.rosterId,
+            publishedAt: input.publishedAt,
+          })
+        }
+      }
+
+      // Additional confirmed publications coexist and do not revise the lottery-time fact.
+      if (input.revisionKind !== 'additional') {
+        for (const config of input.gradeConfigs as GradeAdoptionConfig[]) {
+          await createLotteryFactRevision(tx, {
+            editionId: input.editionId,
+            config,
+            purpose,
+            rosterId: roster.rosterId,
+            correctionTargetRosterId:
+              input.revisionKind === 'correction' ? input.correctionTargetRosterId : null,
+            sourceMailMessageId: draft.sourceMailMessageId,
+            verifiedByUserId: session.user.id,
+          })
+        }
+      }
+
+      const updated = await tx
+        .update(tournamentRosterImportDrafts)
+        .set({
+          status: 'approved',
+          inferredEditionId: input.editionId,
+          inferredRosterType: rosterType,
+          inferredGrade: input.gradeConfigs.length === 1 ? input.gradeConfigs[0]!.grade : null,
+          approvedAt: sql`now()`,
+          approvedByUserId: session.user.id,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(tournamentRosterImportDrafts.id, draftId),
+            eq(tournamentRosterImportDrafts.status, 'pending_review'),
+          ),
+        )
+        .returning({ id: tournamentRosterImportDrafts.id })
+      if (!updated[0]) throw new Error('名簿ドラフトの承認状態を更新できませんでした')
+
+      return {
+        rosterId: roster.rosterId,
+        mailId: draft.sourceMailMessageId,
+        eventId: event.id,
+        seriesId: edition.seriesId,
+      }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/roster-drafts/${draftId}`)
+    if (adopted.mailId != null) revalidatePath(`/admin/mail-inbox/mail/${adopted.mailId}`)
+    revalidatePath(`/events/${adopted.eventId}`)
+    revalidatePath(`/tournaments/series/${adopted.seriesId}`)
+    return { ok: true, rosterId: adopted.rosterId }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function rejectRosterImportDraft(
+  draftId: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+  const trimmed = reason.trim()
+  if (!trimmed) return { ok: false, error: '却下理由を入力してください' }
+  const updated = await db
+    .update(tournamentRosterImportDrafts)
+    .set({
+      status: 'rejected',
+      rejectionReason: trimmed,
+      rejectedAt: sql`now()`,
+      rejectedByUserId: session.user.id,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(tournamentRosterImportDrafts.id, draftId),
+        inArray(tournamentRosterImportDrafts.status, ['pending_review', 'parse_failed']),
+      ),
+    )
+    .returning({ id: tournamentRosterImportDrafts.id, mailId: tournamentRosterImportDrafts.sourceMailMessageId })
+  if (!updated[0]) return { ok: false, error: 'この名簿ドラフトは却下できません' }
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/roster-drafts/${draftId}`)
+  if (updated[0].mailId != null) revalidatePath(`/admin/mail-inbox/mail/${updated[0].mailId}`)
+  return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // tournament-results Task4: レビュー承認/却下
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1514,6 +1901,14 @@ export async function approveResultDraft(
 
   const eventDateRaw = ((formData.get('eventDate') as string | null) ?? '').trim() || null
   const venue = ((formData.get('venue') as string | null) ?? '').trim() || null
+  const editionIdRaw = String(formData.get('editionId') ?? '').trim()
+  const selectedEditionId = editionIdRaw ? Number(editionIdRaw) : undefined
+  if (
+    selectedEditionId !== undefined &&
+    (!Number.isInteger(selectedEditionId) || selectedEditionId <= 0)
+  ) {
+    return { ok: false, error: '開催回を確認してください' }
+  }
 
   const { ParsedResultPayloadSchema } = await import(
     '@kagetra/mail-worker/result-import/schema'
@@ -1531,7 +1926,13 @@ export async function approveResultDraft(
         tx,
       ): Promise<
         | { ok: false; error: string }
-        | { ok: true; tournamentId: number; messageId: number }
+        | {
+            ok: true
+            tournamentId: number
+            messageId: number
+            seriesId: number | null
+            eventIds: number[]
+          }
       > => {
         const lockedRows = await tx
           .select({
@@ -1554,12 +1955,41 @@ export async function approveResultDraft(
           return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
         }
 
-        const { tournamentId } = await materializeResultDraft(tx, parsed.data, {
+        let lockedEdition = selectedEditionId === undefined
+          ? null
+          : await lockLotteryEdition(tx, selectedEditionId)
+
+        const { tournamentId, editionId } = await materializeResultDraft(tx, parsed.data, {
           tournamentName,
           eventDate: eventDateRaw,
           venue,
           sourceResultDraftId: draftId,
+          editionId: selectedEditionId,
         })
+
+        if (editionId !== null && lockedEdition === null) {
+          lockedEdition = await lockLotteryEdition(tx, editionId)
+        }
+
+        if (editionId !== null) {
+          const createdClasses = await tx
+            .select({ id: tournamentClasses.id, grade: tournamentClasses.grade })
+            .from(tournamentClasses)
+            .where(eq(tournamentClasses.tournamentId, tournamentId))
+          for (const grade of ['A', 'B', 'C', 'D', 'E'] as const) {
+            const gradeClasses = createdClasses.filter((row) => row.grade === grade)
+            // Auto-link only when this result identifies exactly one class for the grade.
+            if (gradeClasses.length !== 1) continue
+            await linkActualResultClass(tx, {
+              editionId,
+              grade,
+              classId: gradeClasses[0]!.id,
+              sourceMailMessageId: draft.messageId,
+              verifiedByUserId: session.user.id,
+              replaceExisting: false,
+            })
+          }
+        }
 
         await tx
           .update(resultDrafts)
@@ -1582,7 +2012,21 @@ export async function approveResultDraft(
           })
           .where(eq(mailMessages.id, draft.messageId))
 
-        return { ok: true, tournamentId, messageId: draft.messageId }
+        const editionEventIds = editionId === null
+          ? []
+          : (await tx
+              .select({ id: events.id })
+              .from(events)
+              .where(eq(events.editionId, editionId)))
+              .map((event) => event.id)
+
+        return {
+          ok: true,
+          tournamentId,
+          messageId: draft.messageId,
+          seriesId: lockedEdition?.seriesId ?? null,
+          eventIds: editionEventIds,
+        }
       },
     )
 
@@ -1591,9 +2035,96 @@ export async function approveResultDraft(
     revalidatePath('/admin/mail-inbox')
     revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
     revalidatePath(`/admin/mail-inbox/mail/${result.messageId}`)
+    if (result.seriesId !== null) revalidatePath(`/tournaments/series/${result.seriesId}`)
+    for (const eventId of result.eventIds) revalidatePath(`/events/${eventId}`)
     return { ok: true, tournamentId: result.tournamentId }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function replaceActualResultFact(
+  draftId: number,
+  grade: LotteryGrade,
+  expectedActiveFactId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+  if (!rosterGradeSchema.safeParse(grade).success) {
+    return { ok: false, error: '級を確認してください' }
+  }
+  if (!Number.isInteger(expectedActiveFactId) || expectedActiveFactId <= 0) {
+    return { ok: false, error: '採用中factを確認してください' }
+  }
+
+  try {
+    const replaced = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({
+          status: resultDrafts.status,
+          messageId: resultDrafts.messageId,
+          tournamentId: resultDrafts.tournamentId,
+          editionId: tournaments.editionId,
+        })
+        .from(resultDrafts)
+        .innerJoin(tournaments, eq(tournaments.id, resultDrafts.tournamentId))
+        .where(eq(resultDrafts.id, draftId))
+        .for('update')
+      if (!row || row.status !== 'approved' || row.tournamentId === null || row.editionId === null) {
+        throw new Error('承認済み結果ドラフトと開催回の紐付けを確認してください')
+      }
+
+      const edition = await lockLotteryEdition(tx, row.editionId)
+      const classes = await tx
+        .select({ id: tournamentClasses.id })
+        .from(tournamentClasses)
+        .where(
+          and(
+            eq(tournamentClasses.tournamentId, row.tournamentId),
+            eq(tournamentClasses.grade, grade),
+          ),
+        )
+      if (classes.length !== 1) {
+        throw new Error(`${grade}級の結果クラスを一意に特定できません`)
+      }
+
+      const active = await loadActiveLotteryFact(tx, row.editionId, grade)
+      if (!active || active.id !== expectedActiveFactId) {
+        throw new Error('採用中factが更新されています。画面を再読み込みしてください')
+      }
+      if (active.actualResultClassId === null) {
+        throw new Error('既存結果が未設定のため置換操作は不要です')
+      }
+      if (active.actualResultClassId === classes[0]!.id) {
+        throw new Error('この結果は既に採用されています')
+      }
+
+      await linkActualResultClass(tx, {
+        editionId: row.editionId,
+        grade,
+        classId: classes[0]!.id,
+        sourceMailMessageId: row.messageId,
+        verifiedByUserId: session.user.id,
+        replaceExisting: true,
+      })
+      const editionEventIds = await tx
+        .select({ id: events.id })
+        .from(events)
+        .where(eq(events.editionId, row.editionId))
+      return {
+        messageId: row.messageId,
+        seriesId: edition.seriesId,
+        eventIds: editionEventIds.map((event) => event.id),
+      }
+    })
+
+    revalidatePath('/admin/mail-inbox')
+    revalidatePath(`/admin/mail-inbox/result-drafts/${draftId}`)
+    revalidatePath(`/admin/mail-inbox/mail/${replaced.messageId}`)
+    revalidatePath(`/tournaments/series/${replaced.seriesId}`)
+    for (const eventId of replaced.eventIds) revalidatePath(`/events/${eventId}`)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

@@ -198,6 +198,9 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 - `unlinkMailFromEvent(mailId)` — 既存イベント紐付けの取り消し（LINE 配信済みメッセージ自体は取り消せない）
 - `triggerMailFetch(formData)` — 手動 IMAP 取得ジョブの enqueue（24h/3d/7d/custom プリセット）
 - `triggerResultParse(mailId, attachmentId)` / `approveResultDraft(...)` / `rejectResultDraft(...)` — 結果 Excel 取込系。ロジックの正典は [spec/tournaments-results.md](tournaments-results.md)（本ファイルはトリガ導線のみ記述）
+- `triggerRosterParse(mailId, attachmentId)` — 対応する添付（Excel/PDF/Word/text）または本文を指定し、同じ原本の未完了ジョブを重複させず `roster_parse` をenqueueする
+- `approveRosterImportDraft(draftId, formData)` — 開催・イベント・原本用途・版の扱い・級別factを検証し、ドラフト、roster、publication、級別factを1トランザクションで採用する。検証エラーの残るドラフトは拒否する
+- `rejectRosterImportDraft(draftId, reason)` — 承認待ちまたは解析失敗の名簿ドラフトを理由付きで却下する。1メールに複数原本があり得るため、名簿1件の採用・却下だけではメール全体を処理済みにしない
 
 Route Handlers（すべて `admin`/`vice_admin` セッション必須）:
 

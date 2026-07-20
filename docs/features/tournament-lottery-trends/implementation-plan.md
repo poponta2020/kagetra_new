@@ -42,7 +42,7 @@ status: completed
 - **対応Issue:** #298
 
 ### タスク4: 名簿ドラフトの確認・採用・訂正フローを実装する
-- [ ] 完了
+- [x] 完了
 - **目的:** 抽出結果を開催回・級・原本用途へ安全に紐づけ、検証済みfactだけを集計対象にする。
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-6, AC-7
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/` の名簿取込Action・レビュー画面、edition検索の既存部品、roster/fact/publication materialize、結果原本置換Action、対応テスト。

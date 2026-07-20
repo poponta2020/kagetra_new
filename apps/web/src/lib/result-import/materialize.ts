@@ -23,6 +23,8 @@ export interface MaterializeOpts {
   eventDate: string | null
   venue: string | null
   sourceResultDraftId: number
+  /** Review UIで明示選択した開催回。undefined のときだけ従来の大会名自動解決を使う。 */
+  editionId?: number | null
 }
 
 export interface MaterializeResult {
@@ -53,14 +55,16 @@ export async function materializeResultDraft(
   // 新規系列・回次不明は null のまま＝要件 §3.1「100% 自動にしない」を尊重）。結果取込なので
   // 開催済み＝status='held'。既存 edition は解決のみ（master の年は上書きしない）。新規系列は
   // auto 作成しない。年は event_date から（v1 では基本 null）。
-  const edition = await autoResolveEdition(tx, {
-    rawName: opts.tournamentName,
-    year:
-      opts.eventDate && /^\d{4}-/.test(opts.eventDate)
-        ? Number(opts.eventDate.slice(0, 4))
-        : null,
-    status: 'held',
-  })
+  const edition = opts.editionId === undefined
+    ? await autoResolveEdition(tx, {
+        rawName: opts.tournamentName,
+        year:
+          opts.eventDate && /^\d{4}-/.test(opts.eventDate)
+            ? Number(opts.eventDate.slice(0, 4))
+            : null,
+        status: 'held',
+      })
+    : { editionId: opts.editionId }
 
   // 1. Create tournament row.
   const [tournament] = await tx

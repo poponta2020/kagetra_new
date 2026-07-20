@@ -34,6 +34,7 @@ export interface MaterializeRosterOpts {
   sourceAttachmentId?: number | null
   sourceMailMessageId?: number | null
   note?: string | null
+  approvedByUserId?: string | null
   revision:
     | { kind: 'initial' }
     | { kind: 'correction'; targetRosterId: number }
@@ -112,6 +113,8 @@ export async function materializeRoster(
       sourceAttachmentId: opts.sourceAttachmentId ?? null,
       sourceMailMessageId: opts.sourceMailMessageId ?? null,
       supersedesRosterId: supersededRoster?.id ?? null,
+      approvedAt: opts.approvedByUserId ? new Date() : null,
+      approvedByUserId: opts.approvedByUserId ?? null,
       note: opts.note ?? null,
     })
     .returning({ id: tournamentEntryRosters.id })
@@ -180,7 +183,10 @@ export async function publishConfirmedRoster(
   if (publication) return publication.id
 
   const [existing] = await tx
-    .select({ id: tournamentConfirmedRosterPublications.id })
+    .select({
+      id: tournamentConfirmedRosterPublications.id,
+      publishedAt: tournamentConfirmedRosterPublications.publishedAt,
+    })
     .from(tournamentConfirmedRosterPublications)
     .where(
       and(
@@ -191,6 +197,9 @@ export async function publishConfirmedRoster(
     )
     .limit(1)
   if (!existing) throw new Error('確定名簿発表を保存できませんでした')
+  if (existing.publishedAt !== input.publishedAt) {
+    throw new Error('同じ名簿の確定発表日が既存データと一致しません')
+  }
   return existing.id
 }
 

@@ -56,7 +56,7 @@
 
 `materializeResultDraft`（`apps/web/src/lib/result-import/materialize.ts`）が呼び出し元トランザクション内で実行する。
 
-**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは後述の edition 解決が best-effort で行うのみで、「同じ大会の結果を2回承認すると別大会として重複登録される」という前提を UI 運用（1ドラフト=1度だけ承認）で担保している。訂正版の再取込・差し替え（`result_drafts.status='superseded'`）はスキーマに列（`superseded_by_draft_id`）と enum 値が予約されているが、現行コードにこれを遷移させる経路はない（将来拡張）。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は [spec/players.md](players.md)）。
+**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは、承認画面で明示選択した edition を優先し、未選択時だけ後述の自動解決を試みる。結果承認後の級は、同じ級のクラスが1件だけで既存の採用リンクがない場合に限り、年度回数計算用の実出場原本へ自動リンクする。既存リンクの上書きは承認に含めず、専用の明示置換操作で旧リンクを版として残す。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は [spec/players.md](players.md)）。
 
 1. 大会名から開催（edition）を best-effort で自動解決する（`autoResolveEdition`、後述）。解決できれば `tournaments.editionId` に張る
 2. `tournaments` 行を1件作成（`sourceResultDraftId` で承認元ドラフトを追跡）
@@ -65,7 +65,7 @@
 5. 対戦（`matches`）を2パス目で挿入する。自分の参加者IDは配列 index で一意に特定し、相手は正規化名がその級内で**単独一致**したときだけ `opponentParticipantId` を解決する（同姓同名が複数いる/不明な場合は `null` のまま `opponentName` の文字列だけを保持）
 6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は [spec/players.md](players.md)）
 
-承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。ドラフト行を `FOR UPDATE` でロックしてから状態を再確認し、`materializeResultDraft` を同一トランザクションで実行することで、二重承認による重複 materialize を防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。
+承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。承認対象editionとドラフト行をトランザクション内でロックして状態を再確認し、`materializeResultDraft` と実出場原本の初回リンクを同一トランザクションで実行することで、二重承認による重複materializeを防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。既存の実出場原本を別の承認済み結果へ差し替える場合は `replaceActualResultFact` を使い、画面に表示したactive fact IDを再検証してから旧factの `valid_to` を閉じ、新revisionを挿入する。
 
 `result_parse` ジョブハンドラ（`apps/mail-worker/src/result-import/run.ts` の `runResultParse`）は解析結果を `result_drafts` に UPSERT する。既存ドラフトが `approved`/`pending_review` なら上書きせず、`parse_failed`/`rejected`/`superseded` のときだけ再取込で置き換える（`triggerResultParse` の状態ガードと同じ方針をワーカー側でも二重に持つ）。解析失敗時は `status='parse_failed'` として `parseError` を保存し、承認は不可・却下のみ可能な画面になる。
 
@@ -124,13 +124,15 @@
 
 ### 名簿取込フロー
 
-管理者が大会詳細（events ドメイン画面）から申込名簿/確定名簿の `.xlsx` / `.xlsm` / `.xls` をアップロード → `readExcel` → `parseRosterGrid` → `materializeRoster` を1トランザクションで実行する。直接再取込は画面に出ている最新有効版を訂正対象とし、採用済み原本は専用の確認・訂正フローを要求する。パース不能（氏名列なし・同一級の氏名重複）ファイルは DB を汚さず即エラーになる。
+管理者がメール詳細から対応する添付または本文を原本単位で解析し、`tournament_roster_import_drafts` に確認用ドラフトを生成する。レビュー画面では開催回・対象イベント・原本用途（申込／抽選結果／後日確定）・初回／訂正／追加発表・発表日と級別factを明示し、全級をまとめて採用する。訂正は指定したactive rosterだけをsupersedeし、後日追加発表は旧版と併存する。申込名簿を確定名簿として兼用する場合も級ごとに明示する。同一級の氏名重複などの検証エラーは抽出行とともにレビュー画面へ残るが、解消前の採用はできない。既存の大会詳細から行う直接取込は後方互換として維持する。
 
 ## API（Server Actions / ジョブハンドラ）
 
 - `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx` 添付を指定して `result_parse` ジョブを積む。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
 - `approveResultDraft(draftId, formData)` — 大会名/開催日/会場を受け取り `materializeResultDraft` を実行、`result_drafts.status='approved'` に遷移。`FOR UPDATE` で二重承認をガード
+- `replaceActualResultFact(draftId, classId, expectedFactId)` — 承認済み結果の単独級クラスを実出場原本へ明示的に差し替える。画面表示時のactive fact IDが変わっていれば拒否し、旧factを削除せずrevision化する
 - `rejectResultDraft(draftId, reason)` — `pending_review`/`parse_failed` のドラフトを理由付きで却下
+- `triggerRosterParse(mailId, attachmentId)` / `approveRosterImportDraft(draftId, formData)` / `rejectRosterImportDraft(draftId, reason)` — メール原本の解析enqueue、レビュー済み名簿の版管理採用、却下。採用時はedition/event/全級設定を再検証し、roster/publication/級別factを同一トランザクションで更新する
 - `runResultParse(opts)`（`apps/mail-worker/src/result-import/run.ts`）— ジョブ本体。Excel 読込・解析・`result_drafts` UPSERT・`mail_worker_runs` 記録・Web Push 通知
 - `materializeResultDraft(tx, payload, opts)`（`apps/web/src/lib/result-import/materialize.ts`）— 解析済みペイロードから確定テーブル群への書き込み本体。呼び出し元トランザクション内で実行する前提（単体では commit しない）
 - `autoResolveEdition` / `findOrCreateEdition` / `findOrCreateSeries` / `suggestEditionFromName`（`apps/web/src/lib/edition/resolve.ts`）— 系列・開催の解決 API 群。結果取込・大会案内承認の双方から呼ばれる共通コア
