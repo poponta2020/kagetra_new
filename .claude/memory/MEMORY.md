@@ -150,3 +150,4 @@
 - [PR #294 review](project_review-pr294.md) — review pass
 - [tournament-lottery-trends Task 1](impl_tournament_lottery_trends-task1.md) — Issue #296 schema and migration
 - [tournament-lottery-trends Task 2](impl_tournament_lottery_trends-task2.md) — Issue #297 roster parsing, versioning, and member links
+- [tournament-lottery-trends Task 5](impl_tournament_lottery_trends-task5.md) — Issue #300 appearance counts
