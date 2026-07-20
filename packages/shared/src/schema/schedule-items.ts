@@ -1,5 +1,8 @@
 import { integer, pgTable, text, timestamp, date } from 'drizzle-orm/pg-core'
 import { scheduleKindEnum } from './enums'
+
+// Legacy schema retained until the separately scheduled, backup-verified DB
+// cleanup. No application route, action, or UI may use this table.
 import { users } from './auth'
 
 export const scheduleItems = pgTable('schedule_items', {

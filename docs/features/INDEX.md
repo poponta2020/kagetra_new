@@ -1,5 +1,7 @@
 # Features Index
 
+- `remove-schedule` — 大会以外の予定タブ・画面を廃止し、大会特化の提供範囲へ整理する。対象範囲: apps/web, packages/shared, docs。
+
 <!-- 規約: 1スラッグ=1行。/define-feature が作成時に、/ship が出荷時に末尾へ追記・更新する。並べ替え禁止。 -->
 <!-- 初期生成（2026-07-11）分はアルファベット順。以降は末尾追記。 -->
 

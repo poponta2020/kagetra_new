@@ -8,7 +8,7 @@
 ### 目的
 
 競技かるた会向け総合グループウェア（poponta2020/kagetra の完全リプレイス）。
-大会申込イベントの出欠・進行管理、大会案内メールの AI 取込と LINE 配信、大会結果の取込・戦績/統計の閲覧、行事予定、会員管理を行い、会運営を1つのアプリに集約する。
+大会申込イベントの出欠・進行管理、大会案内メールの AI 取込と LINE 配信、大会結果の取込・戦績/統計の閲覧、会員管理を行い、大会運営を1つのアプリに集約する。
 
 会の規模・技術スタック・リポジトリ構成・本番環境はリポジトリルートの `CLAUDE.md` が正典（本ファイルでは繰り返さない）。
 
@@ -27,7 +27,6 @@
 | 大会・結果取込 | 大会結果（Excel/HTML）の取込・承認・materialize、大会一覧/詳細、系列（series/edition）解決、参加名簿取込 | [spec/tournaments-results.md](spec/tournaments-results.md) |
 | 選手 | 選手の名寄せ（姓名キー）・display_name・検索一覧・戦績詳細・会員とのセルフ紐付け（self-identify） | [spec/players.md](spec/players.md) |
 | 統計 | 選手ランキング・大会統計（フィルタ正規化・集計・チャート描画） | [spec/stats.md](spec/stats.md) |
-| 行事予定 | 練習・会議等の行事カレンダー（出欠管理なし） | [spec/schedule.md](spec/schedule.md) |
 | 認証・会員管理 | LINE 認証（Auth.js v5・招待制）・RBAC 3層・招待リンク登録・会員管理 | [spec/auth-admin.md](spec/auth-admin.md) |
 | メール取込 | IMAP 取込・AI 大会案内抽出・管理者承認・受信箱 UI・添付プレビュー配信 | [spec/mail-worker.md](spec/mail-worker.md) |
 | 通知・LINE・Push | 大会単位 LINE グループ配信（Bot プール）・ライフサイクル通知・LINE アカウント切替・Web Push バッジ | [spec/notifications.md](spec/notifications.md) |

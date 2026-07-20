@@ -66,7 +66,9 @@
 
 **制約**: UNIQUE(event_id, user_id)
 
-## schedule_items（TS: `scheduleItems`）
+## schedule_items（TS: `scheduleItems`、legacy）
+
+予定機能はアプリケーションから廃止済み。既存データの復元可能なバックアップと旧アプリ停止を確認した第2段階で、このテーブルと `schedule_kind` enum を削除する。
 
 定義ファイル: `packages/shared/src/schema/schedule-items.ts`
 

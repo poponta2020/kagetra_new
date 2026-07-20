@@ -3,6 +3,8 @@ export * from './auth'
 export * from './registration-invites'
 export * from './events'
 export * from './event-attendances'
+// Legacy DB schema only. It is not an application feature and will be removed
+// with schedule_items after the production backup and maintenance gate.
 export * from './schedule-items'
 export * from './mail-messages'
 export * from './mail-attachments'

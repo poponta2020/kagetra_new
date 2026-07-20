@@ -101,6 +101,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   players: many(players),
 }))
 
+// Legacy DB relation retained with scheduleItems until physical cleanup.
 export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
   owner: one(users, {
     fields: [scheduleItems.ownerId],

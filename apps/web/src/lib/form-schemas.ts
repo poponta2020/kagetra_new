@@ -48,16 +48,7 @@ export const eventFormSchema = z.object({
   capacityE: optionalPositiveInt,
 })
 
-export const scheduleFormSchema = z.object({
-  date: dateStr,
-  name: z.string().min(1, '名前は必須').max(100, '名前は100文字以内'),
-  kind: z.enum(['practice', 'meeting', 'social', 'other']),
-  location: optionalStr,
-  description: optionalStr,
-})
-
 export type EventFormData = z.infer<typeof eventFormSchema>
-export type ScheduleFormData = z.infer<typeof scheduleFormSchema>
 
 export function extractEventFormData(formData: FormData): Record<string, unknown> {
   return {
@@ -163,14 +154,4 @@ export function extractEventUnitsFormData(
   }
 
   return result
-}
-
-export function extractScheduleFormData(formData: FormData): Record<string, unknown> {
-  return {
-    date: formData.get('date'),
-    name: formData.get('name'),
-    kind: formData.get('kind') || 'other',
-    location: formData.get('location'),
-    description: formData.get('description'),
-  }
 }

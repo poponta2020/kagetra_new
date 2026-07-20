@@ -21,7 +21,6 @@ interface Tab {
 const TABS: readonly Tab[] = [
   { id: 'home', label: 'ホーム', href: '/dashboard', matches: ['/dashboard'] },
   { id: 'events', label: 'イベント', href: '/events', matches: ['/events'] },
-  { id: 'schedule', label: '予定', href: '/schedule', matches: ['/schedule'] },
   // senseki-stats (PR-2): 戦績 → 統計 に改称。href は /players 据え置き
   // （着地点＝選手検索）だが、配下の 4 セクション（選手検索/大会結果/ランキング/
   // 大会統計）は /players・/tournaments の 2 基底に分かれるため両方を active 判定。
@@ -42,7 +41,7 @@ const TABS: readonly Tab[] = [
   },
   // mail-tournament-import (PR1): admin-only inbox of mails fetched by
   // apps/mail-worker. Hidden for general members so the BottomNav stays at
-  // 4 tabs for them; admins see 5.
+  // 3 tabs for them; admins see 6.
   {
     id: 'mail-inbox',
     label: 'メール',
@@ -78,8 +77,8 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント /
- * 予定 / 会員 (admin only until a member-facing list exists).
+ * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント / 統計,
+ * plus 会員 / メール / Bot for admins.
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +

@@ -81,22 +81,6 @@ kagetra_new 本番 (`https://new.hokudaicarta.com`) を Phase A-C 配線完了�
 
 ---
 
-## 3. スケジュール機能
-
-### 3.1 一覧 + 作成
-
-- [ ] `/schedule` でスケジュール一覧 (空でも可)
-- [ ] `/schedule/new` でスケジュール作成 (タイトル / 日付 / kind 等)
-- [ ] 作成後リダイレクト → 一覧に現れる
-
-### 3.2 詳細 + 編集 + 削除
-
-- [ ] `/schedule/[id]` 詳細表示
-- [ ] `/schedule/[id]/edit` で内容変更 → 反映確認
-- [ ] 削除 → 一覧から消える + DB 行も消える (or soft delete 仕様確認)
-
----
-
 ## 4. 管理機能
 
 ### 4.1 メンバー管理
@@ -224,7 +208,6 @@ FROM mail_worker_runs ORDER BY id DESC LIMIT 5;
 - [ ] `/` → `/auth/signin` 自動遷移、LINE ボタン押しやすいサイズ
 - [ ] LINE 認証 → dashboard 表示、スクロール / タップ違和感なし
 - [ ] `/events` 一覧、`/events/[id]` 詳細、出欠回答ボタンが指で押せる
-- [ ] `/schedule` 一覧、`/schedule/[id]` 詳細
 - [ ] `/admin/mail-inbox` (admin 機能だが PC 想定) → モバイルでも崩壊しない
 - [ ] viewport が `width=device-width` で文字が小さすぎない / 横スクロール無し
 

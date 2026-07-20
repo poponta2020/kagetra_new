@@ -23,14 +23,6 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div>
-        <SectionLabel>今後の予定</SectionLabel>
-        <Card>
-          <p className="text-sm text-ink-meta">
-            今後の予定はまもなく表示されます
-          </p>
-        </Card>
-      </div>
     </div>
   )
 }

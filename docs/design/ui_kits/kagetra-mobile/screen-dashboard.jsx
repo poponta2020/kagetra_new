@@ -17,7 +17,7 @@ const Dashboard = () => {
   return (
     <MobileFrame activeNav="home">
       <div style={{ padding: '14px 14px 24px', overflowY: 'auto', height: '100%' }}>
-        <div style={{ fontFamily: 'var(--font-display, inherit)', fontSize: 18, fontWeight: 700, marginBottom: 2 }}>今後の予定</div>
+        <div style={{ fontFamily: 'var(--font-display, inherit)', fontSize: 18, fontWeight: 700, marginBottom: 2 }}>大会イベント</div>
         <div style={{ fontSize: 12, color: C.fg3, marginBottom: 16 }}>{upcoming.length}件のイベント</div>
 
         <div style={{ position: 'relative', paddingLeft: 58 }}>
