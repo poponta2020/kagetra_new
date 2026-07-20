@@ -1,7 +1,9 @@
-import { date, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { date, foreignKey, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { rosterTypeEnum } from './enums'
 import { events } from './events'
 import { mailAttachments } from './mail-attachments'
+import { mailMessages } from './mail-messages'
+import { users } from './auth'
 
 /**
  * tournament_entry_rosters: 大会の名簿ヘッダ（tournament-entry-rosters PR-3）。
@@ -19,18 +21,38 @@ export const tournamentEntryRosters = pgTable(
       .notNull()
       .references(() => events.id, { onDelete: 'cascade' }),
     rosterType: rosterTypeEnum('roster_type').notNull(),
+    version: integer('version').notNull().default(1),
     // 名簿の発行日（主催者発表日）。任意。
     publishedAt: date('published_at', { mode: 'string' }),
     // 取り込み元のメール添付（プロビナンス）。手動アップロードや添付削除時は null。
     sourceAttachmentId: integer('source_attachment_id').references(() => mailAttachments.id, {
       onDelete: 'set null',
     }),
+    sourceMailMessageId: integer('source_mail_message_id'),
+    // Self-FK is added by migration 0041 to avoid a TypeScript self-reference.
+    supersedesRosterId: integer('supersedes_roster_id'),
+    supersededAt: timestamp('superseded_at', { mode: 'date', withTimezone: true }),
+    approvedAt: timestamp('approved_at', { mode: 'date', withTimezone: true }),
+    approvedByUserId: text('approved_by_user_id'),
     note: text('note'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // 1 大会につき各 roster_type 0..1（再取込は置換）。
-    unique('tournament_entry_rosters_event_id_roster_type_key').on(table.eventId, table.rosterType),
+    unique('tournament_entry_rosters_event_id_roster_type_version_key').on(
+      table.eventId,
+      table.rosterType,
+      table.version,
+    ),
+    foreignKey({
+      columns: [table.sourceMailMessageId],
+      foreignColumns: [mailMessages.id],
+      name: 'ter_source_mail_fk',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [table.approvedByUserId],
+      foreignColumns: [users.id],
+      name: 'ter_approved_by_fk',
+    }).onDelete('set null'),
   ],
 )

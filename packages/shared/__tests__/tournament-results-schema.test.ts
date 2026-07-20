@@ -26,7 +26,12 @@ describe('tournament-results schema', () => {
   })
 
   it('extends mail_worker_job_kind with result_parse (appended, existing values intact)', () => {
-    expect(mailWorkerJobKindEnum.enumValues).toEqual(['fetch', 'manual_extract', 'result_parse'])
+    expect(mailWorkerJobKindEnum.enumValues).toEqual([
+      'fetch',
+      'manual_extract',
+      'result_parse',
+      'roster_parse',
+    ])
   })
 
   it('defines players with a normalized_name key and nullable user_id', () => {

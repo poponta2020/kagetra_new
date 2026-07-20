@@ -30,7 +30,7 @@
 | mail_worker_run_kind | mailWorkerRunKindEnum | cron, manual |
 | mail_worker_run_status | mailWorkerRunStatusEnum | running, success, imap_failed, ai_failed, partial |
 | mail_worker_job_status | mailWorkerJobStatusEnum | pending, claimed, done, failed |
-| mail_worker_job_kind | mailWorkerJobKindEnum | fetch, manual_extract, result_parse |
+| mail_worker_job_kind | mailWorkerJobKindEnum | fetch, manual_extract, result_parse, roster_parse |
 | line_channel_purpose | lineChannelPurposeEnum | system_notify, event_broadcast |
 | event_line_broadcast_status | eventLineBroadcastStatusEnum | invite_pending, joined_waiting_code, linked, revoked, released |
 | event_broadcast_message_status | eventBroadcastMessageStatusEnum | pending, sending, sent, partial, failed |
@@ -92,6 +92,9 @@
 | tournament_series_editions | tournamentSeriesEditions | 系列の「開催（第N回）」。events/tournamentsを束ねるハブ | schema/tournament-series-editions.ts |
 | tournament_entry_rosters | tournamentEntryRosters | 大会の名簿ヘッダ（申込者/確定名簿） | schema/tournament-entry-rosters.ts |
 | tournament_entry_roster_entries | tournamentEntryRosterEntries | 名簿の各行（1人分） | schema/tournament-entry-roster-entries.ts |
+| tournament_confirmed_roster_publications | tournamentConfirmedRosterPublications | 出場回数へ算入する確定名簿発表 | schema/tournament-confirmed-roster-publications.ts |
+| tournament_edition_grade_lottery_facts | tournamentEditionGradeLotteryFacts | 開催回・級別の抽選集計用ファクト | schema/tournament-edition-grade-lottery-facts.ts |
+| tournament_roster_import_drafts | tournamentRosterImportDrafts | メール原本から抽出した名簿レビュードラフト | schema/tournament-roster-import-drafts.ts |
 | players | players | 選手マスタ（姓名のみで名寄せしたグルーピング層） | schema/players.ts |
 | tournaments | tournaments | 1大会 = 1取込ファイル（結果取込の実体） | schema/tournaments.ts |
 | tournament_classes | tournamentClasses | 大会内の「級（クラス）」 | schema/tournament-classes.ts |

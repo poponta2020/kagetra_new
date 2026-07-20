@@ -12,7 +12,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 版管理・級別採用原本・大会区分のスキーマを追加する
-- [ ] 完了
+- [x] 完了
 - **目的:** 抽選時点の名簿、後日更新、実出場結果、級別定員、大会区分を訂正可能かつ追跡可能な形で保持する。
 - **対応AC:** AC-1, AC-2, AC-4, AC-5, AC-6, AC-7
 - **主な変更領域:** `packages/shared/src/schema/`、`packages/shared/drizzle/`、schema relations・schema tests。roster版管理、entry当落区分、確定名簿発表、開催回・級別fact、roster import draft、mail worker job kind、edition大会区分を含む。

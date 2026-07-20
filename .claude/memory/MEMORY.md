@@ -148,3 +148,4 @@
 - [メール承認画面の系列検索 要件定義](project_tournament_entry_rosters_series_search.md) — 親Issue #289
 - [remove-schedule implementation](impl_remove_schedule.md) — remove-schedule implementation
 - [PR #294 review](project_review-pr294.md) — review pass
+- [tournament-lottery-trends Task 1](impl_tournament_lottery_trends-task1.md) — Issue #296 schema and migration

@@ -28,6 +28,9 @@ export const testDb = drizzle(testPool, { schema })
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
+      tournament_roster_import_drafts,
+      tournament_confirmed_roster_publications,
+      tournament_edition_grade_lottery_facts,
       tournament_entry_roster_entries,
       tournament_entry_rosters,
       tournament_drafts,

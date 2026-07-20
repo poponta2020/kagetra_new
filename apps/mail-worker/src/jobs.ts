@@ -13,8 +13,10 @@ import type { Db } from './db.js'
  *                    して result_drafts へ格納するジョブ。enum 値は本 PR (schema)
  *                    で追加。実際の claim/dispatch 配線とハンドラは後続 PR
  *                    (tournament-results Task 3) で追加する。
+ * - 'roster_parse'  : tournament-lottery-trends。名簿候補を構造化ドラフトへ
+ *                    変換するジョブ。Task 3 で claim/dispatch を追加する。
  */
-export type MailWorkerJobKind = 'fetch' | 'manual_extract' | 'result_parse'
+export type MailWorkerJobKind = 'fetch' | 'manual_extract' | 'result_parse' | 'roster_parse'
 
 export interface ManualExtractPayload {
   mail_message_id: number

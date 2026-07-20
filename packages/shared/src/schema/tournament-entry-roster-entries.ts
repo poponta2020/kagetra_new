@@ -1,5 +1,5 @@
-import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import { gradeEnum, rosterEntryStatusEnum } from './enums'
+import { boolean, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { gradeEnum, rosterEntryStatusEnum, selectionOutcomeEnum } from './enums'
 import { tournamentEntryRosters } from './tournament-entry-rosters'
 import { players } from './players'
 import { users } from './auth'
@@ -28,6 +28,8 @@ export const tournamentEntryRosterEntries = pgTable(
     rawAffiliation: text('raw_affiliation'),
     rawDan: text('raw_dan'),
     status: rosterEntryStatusEnum('status').notNull(),
+    selectionOutcome: selectionOutcomeEnum('selection_outcome').notNull().default('unknown'),
+    selectionExempt: boolean('selection_exempt').notNull().default(false),
     seqNo: integer('seq_no'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
@@ -36,5 +38,10 @@ export const tournamentEntryRosterEntries = pgTable(
     index('roster_entries_roster_id_idx').on(table.rosterId),
     index('roster_entries_player_id_idx').on(table.playerId),
     index('roster_entries_user_id_idx').on(table.userId),
+    index('roster_entries_roster_grade_player_idx').on(
+      table.rosterId,
+      table.grade,
+      table.playerId,
+    ),
   ],
 )
