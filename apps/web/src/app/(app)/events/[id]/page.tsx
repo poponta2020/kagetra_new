@@ -8,10 +8,11 @@ import {
   events,
   lineChannels,
   mailMessages,
+  tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, count, desc, eq, inArray } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { auth } from '@/auth'
 import {
   AttendanceCounts,
@@ -77,6 +78,8 @@ export default async function EventDetailPage({
       },
       // tournament-entry-rosters PR-3/4: 申込/確定名簿＋各行（会員突合は entry.user 経由）。
       rosters: {
+        where: isNull(tournamentEntryRosters.supersededAt),
+        orderBy: [desc(tournamentEntryRosters.version)],
         with: {
           entries: {
             with: { user: { columns: { id: true, name: true } } },

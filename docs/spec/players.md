@@ -28,7 +28,7 @@
 
 `players.affiliation` は常に `null` で、実データとしては使われない。表示上の所属は常に `tournament_participants`（大会ごとの生スナップショット）から取得する。`participants` が常に正であり、`players` は後から再解決・マージできるグルーピング層という役割分担（名寄せ誤りを生データを壊さず是正できる）。取込・materialize・大会マスターの詳細は [spec/tournaments-results.md](tournaments-results.md) を正典とする。
 
-`players.userId` は会員（`users`）との紐付け用カラムとして schema に存在するが、v1 では基本 `null` のまま運用され、このカラムを実際に埋める処理は本ドメインに実装されていない（後述「本人紐付け（self-identify）」の実態と乖離がある点に注意）。
+`players.userId` は会員（`users`）との自動紐付けに使う。名簿取込と結果materializeは共通の `member-link` を呼び、`normalizePlayerName` で正規化した姓名が `users.name` に1件だけ一致するとき設定する。0件または複数一致では `null` とし、所属・段位等から推測しない。会員名の追加により一致が曖昧になった場合は、触れたplayerと対応する既存roster entryの自動リンクも解除する。一括バックフィルには `syncPlayersToUniqueMembers` を使える。
 
 ### 表示名（display_name）の再計算
 
@@ -82,7 +82,7 @@ Postgres の集約 `mode()` は tiebreak を制御できないため使わず、
 
 `/self-identify` は LINE ログイン済みだが内部 `users.id` にまだ紐付いていないセッションに対し、招待済み（`isInvited=true`）かつ未紐付け（`lineUserId IS NULL`）・非退会（`deactivatedAt IS NULL`）の `users` 候補一覧から本人を選ばせ、選択した `users` 行にセッションの `lineUserId` を紐付ける機能である。
 
-**重要な注意**: この機能が実際に紐付けるのは `users`（会員アカウント）行であり、`players`（大会結果の選手）行ではない。`players.userId`（players↔users を結ぶための想定カラム）は self-identify では一切更新されない。仕様上「会員↔選手の紐付け」を想起させる名前だが、実装は「LINE アカウント↔会員アカウント」の紐付けに留まり、会員↔選手（大会成績）の紐付けは v1 では未実装（`players.userId` は基本 `null` のまま）。会員アカウント自体のロール・招待・登録の仕様は [spec/auth-admin.md](auth-admin.md) を参照。
+**重要な注意**: self-identify自体が紐付けるのは `users`（会員アカウント）行であり、`players.userId` は更新しない。会員↔選手の自動紐付けは名簿または大会結果のmaterialize時に、上記の一意な正規化姓名一致規則で別途行われる。会員アカウント自体のロール・招待・登録の仕様は [spec/auth-admin.md](auth-admin.md) を参照。
 
 本人性の検証は行わない（候補一覧から名前を選ぶだけで、他者確認や証跡照合はない）。招待制・身内アプリであることを前提としたリスク受容済みの割り切りである（`project_self_identify_verification_pending`）。候補一覧には氏名のみを表示し、級・所属などは開示しない。
 

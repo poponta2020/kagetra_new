@@ -13,6 +13,7 @@ export interface RosterEntryView {
 export interface RosterView {
   id: number
   rosterType: 'applicant' | 'confirmed'
+  version: number
   publishedAt: string | null
   entries: RosterEntryView[]
 }
@@ -57,7 +58,9 @@ function RosterList({
       </div>
       {currentUserId != null && (
         <p className={`text-xs font-semibold ${youOnIt ? 'text-success-fg' : 'text-ink-meta'}`}>
-          {youOnIt ? '★ あなたはこの名簿に掲載されています' : 'あなたはこの名簿に掲載されていません'}
+          {youOnIt
+            ? '★ あなたはこの最新名簿に掲載されています'
+            : 'あなたはこの最新名簿に掲載されていません'}
         </p>
       )}
       <p className="text-xs text-ink-2">
@@ -113,8 +116,9 @@ export function RosterSection({
   // 名簿が一つも無く、かつ管理者でもない（取込導線も無い）なら何も出さない。
   if (rosters.length === 0 && !isAdmin) return null
 
-  const applicant = rosters.find((r) => r.rosterType === 'applicant')
-  const confirmed = rosters.find((r) => r.rosterType === 'confirmed')
+  const newestFirst = [...rosters].sort((a, b) => b.version - a.version)
+  const applicant = newestFirst.find((r) => r.rosterType === 'applicant')
+  const confirmed = newestFirst.find((r) => r.rosterType === 'confirmed')
 
   return (
     <Card>
@@ -125,7 +129,7 @@ export function RosterSection({
         {isAdmin && (
           <div className="flex flex-col gap-3 border-t border-border pt-3">
             <p className="text-xs text-ink-meta">
-              名簿 Excel を取り込みます（同じ種別を再取込すると置換されます。繰上りは確定名簿の再取込で更新）。
+              名簿 Excel を取り込みます（再取込時も旧版を保持し、最新の有効版を表示します）。
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <RosterUploadForm eventId={eventId} rosterType="confirmed" label="確定名簿" />

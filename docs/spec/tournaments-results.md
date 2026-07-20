@@ -61,7 +61,7 @@
 1. 大会名から開催（edition）を best-effort で自動解決する（`autoResolveEdition`、後述）。解決できれば `tournaments.editionId` に張る
 2. `tournaments` 行を1件作成（`sourceResultDraftId` で承認元ドラフトを追跡）
 3. 級（`ParsedClass`）ごとに `tournament_classes` を作成し、その級の対戦から順位 bracket（優勝=1/準優勝=2/ベスト4=4…）を参加者 index 単位で事前算出して `tournament_participants.derivedBracket` に保存する（導出できない級＝リーグ戦・順位戦混在等は `null` のまま。導出アルゴリズム自体（`apps/web/src/lib/players/placement.ts` の単一ソース）は [spec/players.md](players.md)、統計での集計利用は [spec/stats.md](stats.md) が正典）
-4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない（同定規則の詳細は [spec/players.md](players.md)）
+4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない。触れた選手は、正規化した `users.name` が1会員だけに一致するとき `players.userId` も同期する（同定規則の詳細は [spec/players.md](players.md)）
 5. 対戦（`matches`）を2パス目で挿入する。自分の参加者IDは配列 index で一意に特定し、相手は正規化名がその級内で**単独一致**したときだけ `opponentParticipantId` を解決する（同姓同名が複数いる/不明な場合は `null` のまま `opponentName` の文字列だけを保持）
 6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は [spec/players.md](players.md)）
 
@@ -83,11 +83,12 @@
 
 ### 参加名簿（申込/確定）の取込
 
-`apps/web/src/lib/roster-import/parser.ts`（`parseRosterGrid`）が名簿 Excel をヘッダ語検出で解析し（氏名/姓+名・ふりがな・級・所属・段位・出場状態列を任意組み合わせで許容）、`materialize.ts`（`materializeRoster`）が `tournament_entry_rosters` / `tournament_entry_roster_entries` へ確定保存する。
+`apps/web/src/lib/roster-import/parser.ts`（`parseRosterGrid`）が名簿 Excel の氏名表を持つ全シートをヘッダ語検出で解析する。氏名/姓+名・ふりがな・A〜E級・所属・段位・出場状態・当落区分・抽選除外列を任意組み合わせで許容し、行に級がなければ明示的なシート名から補う。自己申告の出場回数列は集計入力に使わない。同一級で正規化氏名が重複した場合は自動除外せず検証エラーにする。`materialize.ts`（`materializeRoster`）が `tournament_entry_rosters` / `tournament_entry_roster_entries` へ確定保存する。
 
-- **再取込は置換**: 同一 `(event_id, roster_type)` の既存名簿を削除（`ON DELETE CASCADE` でエントリも消える）してから作り直す。繰上りの反映は確定名簿の再取込で行う
+- **再取込は版管理**: event行をロックして同一 `(event_id, roster_type)` のversionを採番する。訂正は明示した有効版だけをsupersededにし、旧名簿とentriesを削除しない。後日の追加発表は旧版をsupersedeせず併存できる。大会詳細はsupersededを除外し、種別ごとの最大versionだけを表示する
+- 確定名簿発表は `publishConfirmedRoster` で既存rosterへ明示的に関連付ける。無抽選で申込名簿を確定名簿として兼用する場合もrosterを複製せず参照でき、後日の別発表も併存できる
 - 各行の選手も `result-import` と同型の get-or-create（正規化姓名キーのみ、`onConflictDoNothing`）で `players` に解決する
-- 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` を張る（曖昧は `null`）
+- 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` と `players.userId` を張る。0件または複数一致では両方を `null` にし、既存の曖昧な自動リンクも解除する
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
 呼び出し元の Server Action（`importRoster` 相当。個人戦大会のみ対象）は `apps/web/src/app/(app)/events/[id]/actions.ts` にあり、画面は大会詳細（events ドメイン）側。名簿の取込ボタン・UI の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
@@ -123,7 +124,7 @@
 
 ### 名簿取込フロー
 
-管理者が大会詳細（events ドメイン画面）から申込名簿/確定名簿の Excel をアップロード → `readExcel` → `parseRosterGrid` → `materializeRoster` を1トランザクションで実行。パース不能（氏名列を検出できない）ファイルは DB を汚さず即エラーになる。
+管理者が大会詳細（events ドメイン画面）から申込名簿/確定名簿の `.xlsx` / `.xlsm` / `.xls` をアップロード → `readExcel` → `parseRosterGrid` → `materializeRoster` を1トランザクションで実行する。直接再取込は画面に出ている最新有効版を訂正対象とし、採用済み原本は専用の確認・訂正フローを要求する。パース不能（氏名列なし・同一級の氏名重複）ファイルは DB を汚さず即エラーになる。
 
 ## API（Server Actions / ジョブハンドラ）
 

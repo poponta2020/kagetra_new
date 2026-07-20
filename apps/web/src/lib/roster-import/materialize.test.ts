@@ -2,18 +2,24 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   players,
+  tournamentConfirmedRosterPublications,
   tournamentEntryRosters,
   tournamentEntryRosterEntries,
+  tournamentSeries,
+  tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createUser, createEvent } from '@/test-utils/seed'
-import { materializeRoster, mapEntryStatus } from './materialize'
+import { materializeRoster, mapEntryStatus, publishConfirmedRoster } from './materialize'
 import type { ParsedRoster } from './parser'
 
 function roster(entries: ParsedRoster['entries']): ParsedRoster {
-  return { sheetName: 'x', entries }
+  return { sheetName: 'x', sheetNames: ['x'], entries }
 }
-function entry(rawName: string, over: Partial<ParsedRoster['entries'][number]> = {}) {
+function entry(
+  rawName: string,
+  over: Partial<ParsedRoster['entries'][number]> = {},
+): ParsedRoster['entries'][number] {
   return {
     rawName,
     rawKana: null,
@@ -21,7 +27,10 @@ function entry(rawName: string, over: Partial<ParsedRoster['entries'][number]> =
     rawAffiliation: null,
     rawDan: null,
     statusText: null,
+    selectionOutcome: 'unknown',
+    selectionExempt: false,
     seqNo: null,
+    sourceSheetName: 'x',
     ...over,
   }
 }
@@ -66,7 +75,7 @@ describe('materializeRoster', () => {
           entry('札幌太郎', { grade: 'A', rawAffiliation: '札幌', seqNo: 1 }),
           entry('他県次郎', { grade: 'B', rawAffiliation: '他県', seqNo: 2 }),
         ]),
-        { eventId: event.id, rosterType: 'applicant' },
+        { eventId: event.id, rosterType: 'applicant', revision: { kind: 'initial' } },
       ),
     )
     expect(res.entryCount).toBe(2)
@@ -82,34 +91,49 @@ describe('materializeRoster', () => {
     const taro = entries.find((e) => e.rawName === '札幌太郎')
     expect(taro?.userId).toBe(member.id) // 会員突合
     expect(taro?.playerId).not.toBeNull()
+    expect((await testDb.select().from(players)).find((p) => p.id === taro?.playerId)?.userId).toBe(
+      member.id,
+    )
     expect(taro?.status).toBe('applied') // applicant 既定
     expect(taro?.grade).toBe('A')
     const jiro = entries.find((e) => e.rawName === '他県次郎')
     expect(jiro?.userId).toBeNull() // 非会員
   })
 
-  it('再取込は置換（古い名簿/entries は消える）', async () => {
+  it('訂正取込は旧版を保持して対象版だけ supersede する', async () => {
     const event = await createEvent()
-    await testDb.transaction((tx) =>
+    const first = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎'), entry('B次郎')]), {
         eventId: event.id,
         rosterType: 'confirmed',
+        revision: { kind: 'initial' },
       }),
     )
-    // 再取込（1 名のみ）
     const res2 = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎', { statusText: '繰上' })]), {
         eventId: event.id,
         rosterType: 'confirmed',
+        revision: { kind: 'correction', targetRosterId: first.rosterId },
       }),
     )
-    // confirmed 名簿は 1 つ（置換）
     const rosters = await testDb
       .select()
       .from(tournamentEntryRosters)
       .where(eq(tournamentEntryRosters.eventId, event.id))
-    expect(rosters).toHaveLength(1)
-    expect(rosters[0]?.id).toBe(res2.rosterId)
+    expect(rosters).toHaveLength(2)
+    expect(rosters.find((r) => r.id === first.rosterId)?.supersededAt).not.toBeNull()
+    expect(rosters.find((r) => r.id === res2.rosterId)).toMatchObject({
+      version: 2,
+      supersedesRosterId: first.rosterId,
+      supersededAt: null,
+    })
+    expect(res2.supersededRosterId).toBe(first.rosterId)
+    expect(
+      await testDb
+        .select()
+        .from(tournamentEntryRosterEntries)
+        .where(eq(tournamentEntryRosterEntries.rosterId, first.rosterId)),
+    ).toHaveLength(2)
     const entries = await testDb
       .select()
       .from(tournamentEntryRosterEntries)
@@ -121,10 +145,18 @@ describe('materializeRoster', () => {
   it('applicant と confirmed は別名簿として共存できる', async () => {
     const event = await createEvent()
     await testDb.transaction((tx) =>
-      materializeRoster(tx, roster([entry('A太郎')]), { eventId: event.id, rosterType: 'applicant' }),
+      materializeRoster(tx, roster([entry('A太郎')]), {
+        eventId: event.id,
+        rosterType: 'applicant',
+        revision: { kind: 'initial' },
+      }),
     )
     await testDb.transaction((tx) =>
-      materializeRoster(tx, roster([entry('A太郎')]), { eventId: event.id, rosterType: 'confirmed' }),
+      materializeRoster(tx, roster([entry('A太郎')]), {
+        eventId: event.id,
+        rosterType: 'confirmed',
+        revision: { kind: 'initial' },
+      }),
     )
     const rosters = await testDb
       .select()
@@ -133,5 +165,152 @@ describe('materializeRoster', () => {
     expect(rosters).toHaveLength(2)
     // player は同一人物で 1 行（get-or-create）
     expect(await testDb.select().from(players)).toHaveLength(1)
+  })
+
+  it('追加発表は旧版を supersede せず、selection 情報も版ごとに保持する', async () => {
+    const event = await createEvent()
+    const first = await testDb.transaction((tx) =>
+      materializeRoster(
+        tx,
+        roster([
+          entry('A太郎', {
+            grade: 'A',
+            selectionOutcome: 'accepted',
+            selectionExempt: true,
+          }),
+        ]),
+        { eventId: event.id, rosterType: 'confirmed', revision: { kind: 'initial' } },
+      ),
+    )
+    const additional = await testDb.transaction((tx) =>
+      materializeRoster(
+        tx,
+        roster([entry('B次郎', { grade: 'A', selectionOutcome: 'waitlisted' })]),
+        { eventId: event.id, rosterType: 'confirmed', revision: { kind: 'additional' } },
+      ),
+    )
+
+    const rosters = await testDb.select().from(tournamentEntryRosters)
+    expect(rosters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.rosterId, version: 1, supersededAt: null }),
+        expect.objectContaining({ id: additional.rosterId, version: 2, supersededAt: null }),
+      ]),
+    )
+    const entries = await testDb.select().from(tournamentEntryRosterEntries)
+    expect(entries.find((row) => row.rawName === 'A太郎')).toMatchObject({
+      selectionOutcome: 'accepted',
+      selectionExempt: true,
+    })
+    expect(entries.find((row) => row.rawName === 'B次郎')?.selectionOutcome).toBe('waitlisted')
+  })
+
+  it('複数の有効版があっても correction は明示対象だけを supersede する', async () => {
+    const event = await createEvent()
+    const first = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('初版')]), {
+        eventId: event.id,
+        rosterType: 'confirmed',
+        revision: { kind: 'initial' },
+      }),
+    )
+    const additional = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('追加版')]), {
+        eventId: event.id,
+        rosterType: 'confirmed',
+        revision: { kind: 'additional' },
+      }),
+    )
+    const correction = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('初版の訂正版')]), {
+        eventId: event.id,
+        rosterType: 'confirmed',
+        revision: { kind: 'correction', targetRosterId: first.rosterId },
+      }),
+    )
+
+    const rosters = await testDb.select().from(tournamentEntryRosters)
+    expect(rosters.find((row) => row.id === first.rosterId)?.supersededAt).not.toBeNull()
+    expect(rosters.find((row) => row.id === additional.rosterId)?.supersededAt).toBeNull()
+    expect(rosters.find((row) => row.id === correction.rosterId)).toMatchObject({
+      version: 3,
+      supersedesRosterId: first.rosterId,
+      supersededAt: null,
+    })
+  })
+
+  it('正規化名が複数会員へ一致したら player と既存 roster entry のリンクを解除する', async () => {
+    const firstMember = await createUser({ name: '山田 太郎' })
+    const event = await createEvent()
+    const first = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('山田太郎')]), {
+        eventId: event.id,
+        rosterType: 'applicant',
+        revision: { kind: 'initial' },
+      }),
+    )
+    expect((await testDb.select().from(players))[0]?.userId).toBe(firstMember.id)
+
+    await createUser({ name: '山田太郎' })
+    await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('山田 太郎')]), {
+        eventId: event.id,
+        rosterType: 'applicant',
+        revision: { kind: 'correction', targetRosterId: first.rosterId },
+      }),
+    )
+
+    expect((await testDb.select().from(players))[0]?.userId).toBeNull()
+    expect(
+      (await testDb.select().from(tournamentEntryRosterEntries)).every(
+        (row) => row.userId === null,
+      ),
+    ).toBe(true)
+  })
+
+  it('申込名簿を確定用途へ明示利用でき、後日の別発表も併存できる', async () => {
+    const [series] = await testDb
+      .insert(tournamentSeries)
+      .values({ name: '発表テスト系列' })
+      .returning()
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId: series!.id, editionNumber: 1, year: 2030, status: 'held' })
+      .returning()
+    const event = await createEvent({ editionId: edition!.id })
+    const applicant = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('A太郎', { grade: 'A' })]), {
+        eventId: event.id,
+        rosterType: 'applicant',
+        revision: { kind: 'initial' },
+      }),
+    )
+    const confirmed = await testDb.transaction((tx) =>
+      materializeRoster(tx, roster([entry('B次郎', { grade: 'A' })]), {
+        eventId: event.id,
+        rosterType: 'confirmed',
+        revision: { kind: 'initial' },
+      }),
+    )
+
+    await testDb.transaction(async (tx) => {
+      await publishConfirmedRoster(tx, {
+        editionId: edition!.id,
+        grade: 'A',
+        rosterId: applicant.rosterId,
+        publishedAt: '2030-01-01',
+      })
+      await publishConfirmedRoster(tx, {
+        editionId: edition!.id,
+        grade: 'A',
+        rosterId: confirmed.rosterId,
+        publishedAt: '2030-01-02',
+      })
+    })
+
+    const publications = await testDb.select().from(tournamentConfirmedRosterPublications)
+    expect(publications.map((row) => row.rosterId)).toEqual(
+      expect.arrayContaining([applicant.rosterId, confirmed.rosterId]),
+    )
   })
 })

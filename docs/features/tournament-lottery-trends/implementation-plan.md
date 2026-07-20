@@ -22,7 +22,7 @@ status: completed
 - **対応Issue:** #296
 
 ### タスク2: 名簿パーサとmaterializeを版管理・当落区分・会員自動紐づけへ対応させる
-- [ ] 完了
+- [x] 完了
 - **目的:** Excel全シートのA〜E級名簿を解析し、抽選時点を失わず保存するとともに、氏名完全一致かつ一意な会員を自動紐づけする。
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-6
 - **主な変更領域:** `apps/web/src/lib/roster-import/`、`apps/web/src/lib/players/`、`apps/web/src/lib/result-import/materialize.ts`、イベント詳細の名簿取込Action・表示、対応テスト。

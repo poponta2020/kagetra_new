@@ -48,8 +48,8 @@ export function RosterUploadForm({
     <form action={onSubmit} className="flex flex-col gap-2 rounded-md border border-border p-3">
       <span className="text-sm font-semibold text-ink">{label}を取り込む</span>
       <div>
-        <label className={LABEL}>Excel ファイル（.xlsx / .xls）</label>
-        <input type="file" name="file" accept=".xlsx,.xls" required className={FIELD} />
+        <label className={LABEL}>Excel ファイル（.xlsx / .xlsm / .xls）</label>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required className={FIELD} />
       </div>
       <div>
         <label className={LABEL}>発行日（任意）</label>

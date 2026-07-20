@@ -11,6 +11,7 @@ import {
 import { normalizeDan, normalizePlayerName } from '@kagetra/mail-worker/result-import/normalize'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
+import { syncPlayersToUniqueMembers } from '@/lib/players/member-link'
 import { deriveClassBrackets } from '@/lib/players/placement'
 import { autoResolveEdition } from '@/lib/edition/resolve'
 
@@ -226,6 +227,9 @@ export async function materializeResultDraft(
       }
     }
   }
+
+  // roster/result 共通の一意氏名規則で、既存 player と roster entry の会員リンクも同期する。
+  await syncPlayersToUniqueMembers(tx, [...touched])
 
   // この tournament で触れた player の display_name を全 participation 横断で再計算
   // （bulk/live 共通。caller の tx 内で実行。空 set なら関数側が 0 を返す）。

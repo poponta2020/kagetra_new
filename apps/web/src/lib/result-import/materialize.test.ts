@@ -11,6 +11,7 @@ import {
 } from '@kagetra/shared/schema'
 import type { ParsedResultPayload } from '@kagetra/mail-worker/result-import/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
+import { createUser } from '@/test-utils/seed'
 import { materializeResultDraft } from './materialize'
 
 beforeEach(async () => {
@@ -927,5 +928,52 @@ describe('materializeResultDraft — derived_bracket 書き込み (senseki-stats
     expect(byName('不戦優勝').derivedBracket).toBe(1)
     expect(byName('不戦準V').derivedBracket).toBe(2)
     expect(byName('不戦棄権').derivedBracket).toBe(4)
+  })
+
+  it('結果取込でも既存 player を一意な自会員へ紐づけ、正規化衝突時は解除する', async () => {
+    const member = await createUser({ name: '札幌 太郎' })
+    const [existingPlayer] = await testDb
+      .insert(players)
+      .values({ displayName: '札幌太郎', normalizedName: '札幌太郎' })
+      .returning()
+    const payload = buildPayload()
+    payload.classes[0]!.participants = [
+      {
+        seqNo: 1,
+        name: '札幌太郎',
+        nameKana: null,
+        affiliation: null,
+        prefecture: null,
+        dan: null,
+        memberNo: null,
+        finalRank: null,
+        matches: [],
+      },
+    ]
+
+    await testDb.transaction((tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: '会員紐づけ大会',
+        eventDate: null,
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(
+      (await testDb.select().from(players)).find((player) => player.id === existingPlayer!.id)?.userId,
+    ).toBe(member.id)
+
+    await createUser({ name: '札幌太郎' })
+    await testDb.transaction((tx) =>
+      materializeResultDraft(tx, payload, {
+        tournamentName: '会員衝突大会',
+        eventDate: null,
+        venue: null,
+        sourceResultDraftId: 1,
+      }),
+    )
+    expect(
+      (await testDb.select().from(players)).find((player) => player.id === existingPlayer!.id)?.userId,
+    ).toBeNull()
   })
 })
