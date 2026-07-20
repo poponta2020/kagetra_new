@@ -147,3 +147,4 @@
 - [Bash timeoutはnode子プロセスを殺しきらない](feedback_bash_timeout_orphan_node_prod_tx.md) — 本番DB書込はゾンビ継続。長時間書込はrun_in_backgroundで完了通知を待つ
 - [メール承認画面の系列検索 要件定義](project_tournament_entry_rosters_series_search.md) — 親Issue #289
 - [remove-schedule implementation](impl_remove_schedule.md) — remove-schedule implementation
+- [PR #294 review](project_review-pr294.md) — review pass
