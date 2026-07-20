@@ -25,6 +25,7 @@ function payloadEntries(payload: unknown): Array<{
   grade: Grade | null
   rawAffiliation: string | null
   selectionOutcome: string
+  selectionExempt: boolean
 }> {
   if (!payload || typeof payload !== 'object' || !('entries' in payload)) return []
   const entries = (payload as { entries?: unknown }).entries
@@ -41,6 +42,7 @@ function payloadEntries(payload: unknown): Array<{
       grade,
       rawAffiliation: typeof value.rawAffiliation === 'string' ? value.rawAffiliation : null,
       selectionOutcome: typeof value.selectionOutcome === 'string' ? value.selectionOutcome : 'unknown',
+      selectionExempt: value.selectionExempt === true,
     }]
   })
 }
@@ -189,7 +191,7 @@ export default async function RosterDraftReviewPage({
             <h2 className="font-display text-sm font-semibold text-ink-2">抽出行（{entries.length}名）</h2>
             <div className="max-h-72 overflow-y-auto">
               <table className="w-full text-xs text-ink">
-                <thead><tr className="border-b border-border-soft text-left text-ink-meta"><th className="pb-1">級</th><th className="pb-1">氏名</th><th className="pb-1">所属</th><th className="pb-1">当落</th></tr></thead>
+                <thead><tr className="border-b border-border-soft text-left text-ink-meta"><th className="pb-1">級</th><th className="pb-1">氏名</th><th className="pb-1">所属</th><th className="pb-1">当落</th><th className="pb-1">抽選区分</th></tr></thead>
                 <tbody>
                   {entries.map((entry, index) => (
                     <tr key={`${entry.rawName}-${index}`} className="border-b border-border-soft/50">
@@ -197,6 +199,7 @@ export default async function RosterDraftReviewPage({
                       <td className="py-1">{entry.rawName}</td>
                       <td className="py-1 text-ink-meta">{entry.rawAffiliation ?? '—'}</td>
                       <td className="py-1 text-ink-meta">{entry.selectionOutcome}</td>
+                      <td className="py-1 text-ink-meta">{entry.selectionExempt ? '主催者枠・除外' : '通常'}</td>
                     </tr>
                   ))}
                 </tbody>

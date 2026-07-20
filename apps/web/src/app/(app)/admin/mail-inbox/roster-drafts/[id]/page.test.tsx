@@ -81,6 +81,7 @@ describe('roster draft review page', () => {
     expect(screen.getByText('対象イベント')).toBeTruthy()
     expect(screen.getAllByText('抽選状態')).toHaveLength(2)
     expect(screen.getAllByText(/確定名簿とする/)).toHaveLength(2)
+    expect(screen.getAllByText('通常')).toHaveLength(2)
   })
 
   it('memberは403へredirectする', async () => {

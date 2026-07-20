@@ -140,6 +140,7 @@ function approvalForm(input: {
   purpose?: 'applicant' | 'selection_result' | 'confirmed_publication'
   selectionStatus?: 'lottery' | 'under_capacity' | 'no_capacity' | 'unknown'
   capacity?: number | null
+  exemptionClassificationVerified?: boolean
   revisionKind?: 'initial' | 'correction' | 'additional'
   correctionTargetRosterId?: number
 }) {
@@ -155,6 +156,7 @@ function approvalForm(input: {
     capacity: input.capacity ?? null,
     applicationStartDate: '2030-04-01',
     publishAsConfirmed: false,
+    exemptionClassificationVerified: input.exemptionClassificationVerified ?? true,
   }]))
   if (input.correctionTargetRosterId != null) {
     form.set('correctionTargetRosterId', String(input.correctionTargetRosterId))
@@ -379,6 +381,28 @@ describe('roster import review actions', () => {
       applicationStartDate: '2030-02-30', publishAsConfirmed: false,
     }]))
     expect((await approveRosterImportDraft(draft.id, invalidApplicationStart)).ok).toBe(false)
+    expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(0)
+  })
+
+  it('A級抽選は主催者枠・抽選除外の分類確認なしに採用できない', async () => {
+    const admin = await createAdmin()
+    const { edition, event } = await createEditionFixture()
+    const mail = await createMailMessage()
+    const draft = await createRosterDraft({ mailId: mail.id })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await approveRosterImportDraft(draft.id, approvalForm({
+      editionId: edition.id,
+      eventId: event.id,
+      selectionStatus: 'lottery',
+      capacity: 10,
+      exemptionClassificationVerified: false,
+    }))
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'A級抽選では主催者枠・抽選除外の分類確認が必要です',
+    })
     expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(0)
   })
 

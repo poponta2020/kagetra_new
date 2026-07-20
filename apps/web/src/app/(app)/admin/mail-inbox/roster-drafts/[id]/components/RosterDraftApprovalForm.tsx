@@ -14,6 +14,7 @@ interface GradeConfig {
   capacity: string
   applicationStartDate: string
   publishAsConfirmed: boolean
+  exemptionClassificationVerified: boolean
 }
 
 export interface EditionOption {
@@ -51,6 +52,7 @@ function configsForEdition(grades: Grade[], editionId: number, facts: FactOption
       capacity: fact?.capacity == null ? '' : String(fact.capacity),
       applicationStartDate: fact?.applicationStartDate ?? '',
       publishAsConfirmed: false,
+      exemptionClassificationVerified: false,
     }
   })
 }
@@ -126,6 +128,7 @@ export function RosterDraftApprovalForm({
       capacity: config.capacity === '' ? null : Number(config.capacity),
       applicationStartDate: config.applicationStartDate || null,
       publishAsConfirmed: purpose === 'applicant' && config.publishAsConfirmed,
+      exemptionClassificationVerified: config.exemptionClassificationVerified,
     }))))
 
     startTransition(async () => {
@@ -273,6 +276,19 @@ export function RosterDraftApprovalForm({
                 <label className="flex items-center gap-2 text-xs text-ink sm:col-span-2">
                   <input type="checkbox" checked={config.publishAsConfirmed} onChange={(event) => updateConfig(index, { publishAsConfirmed: event.target.checked })} />
                   原本に「この申込名簿を確定名簿とする」と明記されている
+                </label>
+              )}
+              {config.grade === 'A' && config.selectionStatus === 'lottery' && (
+                <label className="flex items-center gap-2 text-xs text-ink sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={config.exemptionClassificationVerified}
+                    onChange={(event) => updateConfig(index, {
+                      exemptionClassificationVerified: event.target.checked,
+                    })}
+                  />
+                  主催者枠・抽選除外の該当者（該当なしを含む）を原本で確認した
                 </label>
               )}
             </div>

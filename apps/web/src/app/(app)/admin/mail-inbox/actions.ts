@@ -1533,6 +1533,7 @@ const gradeAdoptionConfigSchema = z.object({
   capacity: z.number().int().positive().nullable(),
   applicationStartDate: isoDateSchema.nullable(),
   publishAsConfirmed: z.boolean(),
+  exemptionClassificationVerified: z.boolean().default(false),
 })
 const rosterApprovalSchema = z.object({
   editionId: z.number().int().positive(),
@@ -1596,6 +1597,13 @@ function parseRosterApprovalForm(formData: FormData) {
     parsed.data.purpose !== 'confirmed_publication'
   ) {
     throw new Error('追加発表は後日の確定名簿発表だけで選択できます')
+  }
+  if (parsed.data.gradeConfigs.some(
+    (config) => config.grade === 'A' &&
+      config.selectionStatus === 'lottery' &&
+      !config.exemptionClassificationVerified,
+  )) {
+    throw new Error('A級抽選では主催者枠・抽選除外の分類確認が必要です')
   }
   return parsed.data
 }
