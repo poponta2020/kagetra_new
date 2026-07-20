@@ -10,6 +10,7 @@
 > - `apps/mail-worker/src/fetch/`（`fetcher.ts` / `imap-client.ts` / `pre-filter.ts`）
 > - `apps/mail-worker/src/extract/`（`orchestrator.ts` / `pdf.ts` / `docx.ts` / `doc.ts`）
 > - `apps/mail-worker/src/classify/`（`classifier.ts` / `schema.ts` / `prompt.ts` / `title.ts` / `cost.ts` / `llm/`）
+> - `apps/mail-worker/src/roster-import/`（名簿候補判定・全シート解析・ドラフト生成）
 > - `apps/mail-worker/src/persist/`（`mail-message.ts` / `attachment.ts` / `draft.ts`）
 > - `apps/mail-worker/src/notify/`（`orchestrator.ts` / `line.ts` / `message-templates.ts` / `web-push.ts`）
 > - `apps/mail-worker/src/reextract.ts`（`reextract` CLI）
@@ -36,9 +37,9 @@ Yahoo!JAPAN Mail (IMAP) → `mail-worker`（fetch → 事前ノイズフィル�
 `mail-worker` は本番では systemd timer から起動される CLI（`apps/mail-worker/src/index.ts`）で、常駐プロセスではない。2 つの独立した timer が同じバイナリを異なる `--mode` で呼ぶ:
 
 - **fetch dispatcher**（既定 `--mode=fetch-only`、cron 定期）: IMAP から新着を取得し `mail_messages` / `mail_attachments` に永続化するだけで、**AI 抽出は呼ばない**（旧仕様の「取得したら即 AI 判定」は廃止された）。`mail_worker_jobs` の `kind='fetch'` ジョブ（管理者による手動取得トリガ）もこの dispatcher が拾う。
-- **extract-only dispatcher**（`--mode=extract-only`、30 秒間隔 timer）: IMAP fetch を一切行わず、`mail_worker_jobs` の `kind IN ('manual_extract', 'result_parse')` を 1 tick 1 件だけ claim して実行する。`manual_extract` は本ドメインの AI 抽出、`result_parse` は結果 Excel の決定的パースで [spec/tournaments-results.md](tournaments-results.md) の管轄（本仕様では「結果として取り込む」ボタンのトリガのみ扱う）。
+- **extract-only dispatcher**（`--mode=extract-only`、30 秒間隔 timer）: IMAP fetch を一切行わず、`mail_worker_jobs` の `kind IN ('manual_extract', 'result_parse', 'roster_parse')` を 1 tick 1 件だけ claim して実行する。`manual_extract` は本ドメインの AI 抽出、`result_parse` は結果 Excel の決定的パース、`roster_parse` は添付または本文からの名簿ドラフト生成を担う。名簿解析だけの tick では Anthropic 設定を要求しない。
 
-`--mock-imap` / `--mock-llm` / `--dry-run` / `--no-claim` フラグでテスト・スモーク実行を切り替えられる（`apps/mail-worker/src/index.ts` の `printUsage()` 参照）。`--since` 省略時、ライブ IMAP は直近 7 日分をデフォルトで取得する。
+`--mock-imap` / `--mock-llm` / `--dry-run` / `--no-claim` フラグでテスト・スモーク実行を切り替えられる（`apps/mail-worker/src/index.ts` の `printUsage()` 参照）。通常取得は `--mailbox` 省略時に `INBOX`、`--since` 省略時に直近 7 日分を使う。過去フォルダ調査は `--mailbox`、`--from-year`、`--to-year`、`--max-roster-candidates`、`--max-roster-ai-calls` で取得範囲と処理上限を固定できる。過去フォルダの `--dry-run` はDB書込・添付抽出・AI呼出を行わず、決定的な候補件数だけを返す。
 
 ### 取得（fetch）
 
@@ -137,6 +138,8 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 `.xls`/`.xlsx` 添付がある場合、画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
+名簿候補は件名・本文・添付名だけで低コストに判定し、空の申込書や一般案内を除外する。`roster_parse` は `.xls` / `.xlsx` / `.xlsm` の氏名表を全シートから解析し、PDF・Word・本文は既存抽出テキストを確認用ドラフトとして保持する。添付は `source_attachment_id`、本文は `source_mail_message_id` ごとの部分一意制約で冪等化する。構造を確定できない原本は `parse_failed`、正規化氏名の同級重複は行を削除せず `pending_review` の `validationIssues` に残す。採用・訂正フローは tournament-lottery-trends の管理画面仕様が担当する。
+
 ### ドラフト承認詳細（`/admin/mail-inbox/[id]`）
 
 `tournament_drafts.status` が `pending_review`/`ai_failed` の間だけ操作ボタン（承認・却下・再抽出・既存イベント紐付け）を表示し、`approved`/`rejected`/`superseded` は読み取り専用ビューに畳む（表示条件はサーバー側の `APPROVABLE_STATUSES` ガードと一致させている）。
@@ -174,7 +177,7 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 ### ジョブキュー・ワーカー運用状態
 
-`mail_worker_jobs`（`kind`: `fetch` / `manual_extract` / `result_parse`、`status`: `pending`/`claimed`/`done`/`failed`）は管理者操作起点の非同期実行キュー。`claimNextJob()` は `FOR UPDATE SKIP LOCKED` で単一 dispatcher 前提の安全な claim を行い、`kinds` オプションで dispatcher の `--mode` ごとに拾う種別を絞る。`recoverStaleClaimedJobs()` は worker クラッシュで `claimed` のまま取り残された行を `pending` に戻す（`fetch` 系は 1 時間閾値、`manual_extract`/`result_parse` は systemd の `TimeoutStartSec=300` に合わせた 10 分閾値で別途復旧）。
+`mail_worker_jobs`（`kind`: `fetch` / `manual_extract` / `result_parse` / `roster_parse`、`status`: `pending`/`claimed`/`done`/`failed`）は管理者操作起点の非同期実行キュー。`claimNextJob()` は `FOR UPDATE SKIP LOCKED` で単一 dispatcher 前提の安全な claim を行い、`kinds` オプションで dispatcher の `--mode` ごとに拾う種別を絞る。`recoverStaleClaimedJobs()` は worker クラッシュで `claimed` のまま取り残された行を `pending` に戻す（`fetch` 系は 1 時間閾値、`manual_extract`/`result_parse`/`roster_parse` は systemd の `TimeoutStartSec=300` に合わせた 10 分閾値で別途復旧）。
 
 `mail_worker_runs`（`kind`: `cron`/`manual`、`status`: `running`/`success`/`imap_failed`/`ai_failed`/`partial`）は 1 起動 = 1 行。`summary` jsonb に取得件数・分類件数・新規 draft 件数・エラー一覧・アラート済みフラグを保持し、受信箱一覧の「最近の取り込み履歴」テーブルと `notify/orchestrator.ts` の連続失敗検知の両方が同じ行を参照する。
 
@@ -205,7 +208,7 @@ Route Handlers（すべて `admin`/`vice_admin` セッション必須）:
 
 mail-worker 側 CLI エントリポイント（Server Action からは呼ばれない、systemd/手動実行専用）:
 
-- `apps/mail-worker/src/index.ts` — dispatcher（`--mode=fetch-only`/`--mode=extract-only`、各種テスト用フラグ）
+- `apps/mail-worker/src/index.ts` — dispatcher（`--mode=fetch-only`/`--mode=extract-only`、`--mailbox`・年度範囲・名簿候補上限を含む運用フラグ）
 - `apps/mail-worker/src/reextract.ts` — 一括再抽出 CLI（`--since` 必須）
 
 ## 既知のギャップ・未確認事項

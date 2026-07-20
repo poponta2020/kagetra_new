@@ -97,7 +97,10 @@ describe('pipeline (fixture → DB)', () => {
     expect(first.inserted).toBe(1)
     expect(first.duplicated).toBe(0)
 
-    const second = await runPipelineFromFixtures([{ source: buf }])
+    const second = await runPipelineFromFixtures(
+      [{ source: buf }],
+      { mailbox: '99_202510以前のメール' },
+    )
     expect(second.fetched).toBe(1)
     expect(second.inserted).toBe(0)
     expect(second.duplicated).toBe(1)
@@ -134,6 +137,32 @@ describe('pipeline (fixture → DB)', () => {
     expect(summary.inserted).toBe(0)
     const rows = await testDb.select().from(mailMessages)
     expect(rows).toHaveLength(0)
+  })
+
+  it('archive mailbox dry-run returns bounded roster candidate counts without mutation', async () => {
+    const rosterMail = Buffer.from([
+      'Message-ID: <archive-roster@example.test>',
+      'From: organizer@example.test',
+      'To: receiver@example.test',
+      'Date: Thu, 1 Aug 2024 09:00:00 +0900',
+      'Subject: =?UTF-8?B?56ysNDDlm57lpKfkvJogQee0miDmip3pgbjntZDmnpw=?=',
+      '',
+      'A級の確定名簿を送付します。',
+    ].join('\r\n'))
+    const summary = await runPipelineFromFixtures([{ source: rosterMail }], {
+      dryRun: true,
+      mailbox: '99_202510以前のメール',
+      fromYear: 2024,
+      toYear: 2024,
+      maxRosterCandidates: 1,
+      maxRosterAiCalls: 0,
+    })
+
+    expect(summary.rosterCandidateMessages).toBe(1)
+    expect(summary.rosterCandidateBodies).toBe(1)
+    expect(summary.rosterCandidatesSelected).toBe(1)
+    expect(summary.rosterAiEligible).toBe(0)
+    expect(await testDb.select().from(mailMessages)).toHaveLength(0)
   })
 
   it('honours --since: skips mails older than the cutoff', async () => {

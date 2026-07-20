@@ -151,6 +151,12 @@ export interface ResultParsePayload {
   attachment_id: number
 }
 
+export interface RosterParsePayload {
+  mail_message_id: number
+  /** null means the roster candidate is the mail body itself. */
+  attachment_id: number | null
+}
+
 /**
  * mail-inbox-mailer: `manual_extract` ジョブの payload を narrow する。
  * jsonb から `mail_message_id: number` が取り出せなければ throw する。
@@ -252,6 +258,32 @@ export function parseResultParsePayload(payload: unknown): ResultParsePayload {
   throw new Error(
     `result_parse job payload missing mail_message_id or attachment_id (got ${JSON.stringify(payload)})`,
   )
+}
+
+/** Narrow the attachment-or-body payload used by roster_parse jobs. */
+export function parseRosterParsePayload(payload: unknown): RosterParsePayload {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('mail_message_id' in payload) ||
+    typeof (payload as { mail_message_id: unknown }).mail_message_id !== 'number'
+  ) {
+    throw new Error(
+      `roster_parse job payload missing mail_message_id (got ${JSON.stringify(payload)})`,
+    )
+  }
+  const attachmentId = 'attachment_id' in payload
+    ? (payload as { attachment_id: unknown }).attachment_id
+    : null
+  if (attachmentId !== null && typeof attachmentId !== 'number') {
+    throw new Error(
+      `roster_parse job payload attachment_id must be a number or null (got ${JSON.stringify(payload)})`,
+    )
+  }
+  return {
+    mail_message_id: (payload as { mail_message_id: number }).mail_message_id,
+    attachment_id: attachmentId,
+  }
 }
 
 /**

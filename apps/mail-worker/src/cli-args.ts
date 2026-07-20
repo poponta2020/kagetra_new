@@ -30,3 +30,96 @@ export function parseSinceArg(value: string): Date {
   }
   return date
 }
+
+export type DispatcherMode = 'fetch' | 'extract'
+
+export interface WorkerCliFlags {
+  once: boolean
+  since: Date | undefined
+  mockImap: boolean
+  mockLlm: boolean
+  dryRun: boolean
+  noClaim: boolean
+  fixtureDir: string | undefined
+  mode: DispatcherMode
+  mailbox: string
+  fromYear: number | undefined
+  toYear: number | undefined
+  maxRosterCandidates: number
+  maxRosterAiCalls: number
+  help: boolean
+}
+
+export const DEFAULT_MAX_ROSTER_CANDIDATES = 500
+export const DEFAULT_MAX_ROSTER_AI_CALLS = 0
+
+function parseIntegerFlag(name: string, value: string, minimum: number): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    throw new Error(`--${name} must be a finite integer >= ${minimum}, got: ${value}`)
+  }
+  return parsed
+}
+
+export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
+  const flags: WorkerCliFlags = {
+    once: false,
+    since: undefined,
+    mockImap: false,
+    mockLlm: false,
+    dryRun: false,
+    noClaim: false,
+    fixtureDir: undefined,
+    mode: 'fetch',
+    mailbox: 'INBOX',
+    fromYear: undefined,
+    toYear: undefined,
+    maxRosterCandidates: DEFAULT_MAX_ROSTER_CANDIDATES,
+    maxRosterAiCalls: DEFAULT_MAX_ROSTER_AI_CALLS,
+    help: false,
+  }
+
+  for (const arg of argv) {
+    if (arg === '--once') flags.once = true
+    else if (arg === '--mock-imap') flags.mockImap = true
+    else if (arg === '--mock-llm') flags.mockLlm = true
+    else if (arg === '--dry-run') flags.dryRun = true
+    else if (arg === '--no-claim') flags.noClaim = true
+    else if (arg === '--help' || arg === '-h') flags.help = true
+    else if (arg.startsWith('--since=')) flags.since = parseSinceArg(arg.slice('--since='.length))
+    else if (arg.startsWith('--fixture-dir=')) flags.fixtureDir = arg.slice('--fixture-dir='.length)
+    else if (arg.startsWith('--mailbox=')) {
+      const mailbox = arg.slice('--mailbox='.length).trim()
+      if (!mailbox) throw new Error('--mailbox must not be empty')
+      flags.mailbox = mailbox
+    } else if (arg.startsWith('--from-year=')) {
+      flags.fromYear = parseIntegerFlag('from-year', arg.slice('--from-year='.length), 2000)
+    } else if (arg.startsWith('--to-year=')) {
+      flags.toYear = parseIntegerFlag('to-year', arg.slice('--to-year='.length), 2000)
+    } else if (arg.startsWith('--max-roster-candidates=')) {
+      flags.maxRosterCandidates = parseIntegerFlag(
+        'max-roster-candidates',
+        arg.slice('--max-roster-candidates='.length),
+        0,
+      )
+    } else if (arg.startsWith('--max-roster-ai-calls=')) {
+      flags.maxRosterAiCalls = parseIntegerFlag(
+        'max-roster-ai-calls',
+        arg.slice('--max-roster-ai-calls='.length),
+        0,
+      )
+    } else if (arg.startsWith('--mode=')) {
+      const value = arg.slice('--mode='.length)
+      if (value === 'extract-only') flags.mode = 'extract'
+      else if (value === 'fetch-only' || value === 'fetch') flags.mode = 'fetch'
+      else throw new Error(`unknown --mode value: ${value} (expected fetch-only or extract-only)`)
+    } else {
+      throw new Error(`unknown flag: ${arg}`)
+    }
+  }
+
+  if (flags.fromYear !== undefined && flags.toYear !== undefined && flags.fromYear > flags.toYear) {
+    throw new Error('year range must have --from-year <= --to-year')
+  }
+  return flags
+}

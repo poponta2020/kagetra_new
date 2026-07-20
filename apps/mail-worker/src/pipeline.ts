@@ -19,6 +19,7 @@ import {
   type NewMailInfo,
 } from './notify/web-push.js'
 import type { WebPushConfig } from './config.js'
+import { collectRosterCandidates } from './roster-import/candidate.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -81,6 +82,13 @@ export interface PipelineSummary {
    * error instead of "unknown AI error".
    */
   aiErrors: string[]
+  /** Deterministic roster-candidate counts (no AI calls are made here). */
+  rosterCandidateMessages: number
+  rosterCandidateAttachments: number
+  rosterCandidateBodies: number
+  rosterCandidatesSelected: number
+  rosterCandidatesSkippedByLimit: number
+  rosterAiEligible: number
 }
 
 export interface RunPipelineOptions {
@@ -110,6 +118,14 @@ export interface RunPipelineOptions {
    * テストは vi.fn() を直接渡してフック発火を検証できる。
    */
   onMailInserted?: (mail: NewMailInfo) => Promise<void>
+  /** IMAP folder to open. Periodic fetch keeps the INBOX default. */
+  mailbox?: string
+  /** Inclusive calendar-year bounds evaluated in Asia/Tokyo. */
+  fromYear?: number
+  toYear?: number
+  /** Finite cost guards for follow-up roster parsing / optional AI assistance. */
+  maxRosterCandidates?: number
+  maxRosterAiCalls?: number
 }
 
 export interface PipelineLogger {
@@ -150,6 +166,12 @@ function emptySummary(): PipelineSummary {
     aiFailed: 0,
     aiSkipped: 0,
     aiErrors: [],
+    rosterCandidateMessages: 0,
+    rosterCandidateAttachments: 0,
+    rosterCandidateBodies: 0,
+    rosterCandidatesSelected: 0,
+    rosterCandidatesSkippedByLimit: 0,
+    rosterAiEligible: 0,
   }
 }
 
@@ -157,6 +179,15 @@ interface ExtractedAttachment {
   att: ParsedAttachment
   text: string | null
   status: ExtractionStatus
+}
+
+function receivedInYearRange(date: Date, fromYear?: number, toYear?: number): boolean {
+  if (fromYear === undefined && toYear === undefined) return true
+  const year = Number.parseInt(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+  }).format(date), 10)
+  return (fromYear === undefined || year >= fromYear) && (toYear === undefined || year <= toYear)
 }
 
 /**
@@ -184,9 +215,27 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
   const summary = emptySummary()
 
   try {
-    const result = await fetchMails(source, opts.since)
-    summary.fetched = result.prepared.length + result.errors.length
+    const result = await fetchMails(source, opts.since, opts.mailbox ?? 'INBOX')
+    const prepared = result.prepared.filter(({ meta }) =>
+      receivedInYearRange(meta.receivedAt, opts.fromYear, opts.toYear))
+    summary.fetched = prepared.length + result.errors.length
     summary.failed = result.errors.length
+
+    const rosterCandidates = collectRosterCandidates(
+      prepared.filter((mail) => !mail.noise).map((mail) => mail.meta),
+      {
+        fromYear: opts.fromYear,
+        toYear: opts.toYear,
+        maxCandidates: opts.maxRosterCandidates ?? 500,
+        maxAiCalls: opts.maxRosterAiCalls ?? 0,
+      },
+    )
+    summary.rosterCandidateMessages = rosterCandidates.candidateMessages
+    summary.rosterCandidateAttachments = rosterCandidates.candidateAttachments
+    summary.rosterCandidateBodies = rosterCandidates.candidateBodies
+    summary.rosterCandidatesSelected = rosterCandidates.selected.length
+    summary.rosterCandidatesSkippedByLimit = rosterCandidates.skippedByCandidateLimit
+    summary.rosterAiEligible = rosterCandidates.aiEligible.length
 
     for (const err of result.errors) {
       log.warn('mail fetch failed', {
@@ -199,10 +248,17 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
     }
 
     if (opts.dryRun) {
-      summary.noise = result.prepared.filter((p) => p.noise).length
+      summary.noise = prepared.filter((p) => p.noise).length
+      // Archive backfill dry-runs are candidate inventories, not extraction
+      // runs. Avoid parsing thousands of PDF/Word binaries merely to count
+      // deterministic subject/body/filename candidates.
+      if (opts.mailbox !== undefined && opts.mailbox !== 'INBOX') {
+        log.info('pipeline archive dry-run candidate summary', { ...summary })
+        return summary
+      }
       // In dry-run we still account attachments so operators see the same
       // counters they'll see post-merge, just without DB side effects.
-      for (const { meta } of result.prepared) {
+      for (const { meta } of prepared) {
         accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
         for (const att of meta.attachments) {
           await runExtraction(att, summary, log, meta.messageId)
@@ -213,7 +269,7 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
     }
 
     const db = getDb()
-    for (const { meta, noise } of result.prepared) {
+    for (const { meta, noise } of prepared) {
       // Attachment skip counters land regardless of duplicate/insert status —
       // operators care that an inline-only mail came in even when the parent
       // row already existed.

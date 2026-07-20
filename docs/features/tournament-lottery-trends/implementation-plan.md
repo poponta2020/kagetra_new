@@ -32,7 +32,7 @@ status: completed
 - **対応Issue:** #297
 
 ### タスク3: Yahoo Mail複数フォルダ取得と名簿ドラフト生成を実装する
-- [ ] 完了
+- [x] 完了
 - **目的:** INBOXと過去フォルダを冪等取得し、低コストの候補判定後に名簿原本を構造化ドラフトへ変換する。
 - **対応AC:** AC-6
 - **主な変更領域:** `apps/mail-worker/src/fetch/`、CLI、jobs、roster parser runner、candidate classifier、PDF/Word/本文フォールバック、`apps/mail-worker/test/`。

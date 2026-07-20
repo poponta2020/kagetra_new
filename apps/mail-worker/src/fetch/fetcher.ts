@@ -16,8 +16,14 @@ import { shouldSkipByHeaders } from './pre-filter.js'
  * one bad message can never abort the batch.
  */
 export interface MailSource {
-  fetch(since: Date | undefined): Promise<FetchSinceResult>
+  fetch(since: Date | undefined, mailbox?: string): Promise<FetchSinceResult>
   close(): Promise<void>
+}
+
+export interface ImapClientLike {
+  connect(): Promise<void>
+  disconnect(): Promise<void>
+  fetchSince(since: Date | undefined, mailbox?: string): Promise<FetchSinceResult>
 }
 
 /**
@@ -25,15 +31,16 @@ export interface MailSource {
  * received on or after `since`. Always disconnects on close.
  */
 export class LiveMailSource implements MailSource {
-  private client = new ImapClient()
   private connected = false
 
-  async fetch(since: Date | undefined): Promise<FetchSinceResult> {
+  constructor(private readonly client: ImapClientLike = new ImapClient()) {}
+
+  async fetch(since: Date | undefined, mailbox = 'INBOX'): Promise<FetchSinceResult> {
     if (!this.connected) {
       await this.client.connect()
       this.connected = true
     }
-    return this.client.fetchSince(since)
+    return this.client.fetchSince(since, mailbox)
   }
 
   async close(): Promise<void> {
@@ -57,12 +64,12 @@ export interface FixtureEntry {
 export class FixtureMailSource implements MailSource {
   constructor(private readonly entries: readonly FixtureEntry[]) {}
 
-  async fetch(since: Date | undefined): Promise<FetchSinceResult> {
+  async fetch(since: Date | undefined, mailbox = 'INBOX'): Promise<FetchSinceResult> {
     const parsed: ParsedMailMeta[] = []
     const errors: FetchedMailError[] = []
     for (const entry of this.entries) {
       const imapUid = entry.imapUid ?? null
-      const imapBox = entry.imapBox ?? 'INBOX'
+      const imapBox = entry.imapBox ?? mailbox
       try {
         const meta = await parseEmlBuffer(entry.source, imapUid, imapBox)
         if (!meta) {
@@ -115,8 +122,9 @@ export interface FetchResult {
 export async function fetchMails(
   source: MailSource,
   since: Date | undefined,
+  mailbox = 'INBOX',
 ): Promise<FetchResult> {
-  const { parsed, errors } = await source.fetch(since)
+  const { parsed, errors } = await source.fetch(since, mailbox)
   const prepared = parsed.map((meta) => ({
     meta,
     noise: shouldSkipByHeaders(meta.headers),
