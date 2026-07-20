@@ -41,7 +41,7 @@ const TABS: readonly Tab[] = [
   },
   // mail-tournament-import (PR1): admin-only inbox of mails fetched by
   // apps/mail-worker. Hidden for general members so the BottomNav stays at
-  // 4 tabs for them; admins see 5.
+  // 3 tabs for them; admins see 6.
   {
     id: 'mail-inbox',
     label: 'メール',
@@ -77,8 +77,8 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント /
- * 会員 (admin only until a member-facing list exists).
+ * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント / 統計,
+ * plus 会員 / メール / Bot for admins.
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +

@@ -44,7 +44,7 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 `usePathname()` でアクティブタブを判定するクライアントコンポーネント。タブ定義は `bottom-nav.tsx` 内の `TABS` 配列にハードコードされており、各タブは `matches`（アクティブ判定用パスプレフィックスの配列）を持つ。判定はセグメント境界を意識し、`pathname === prefix || pathname.startsWith(prefix + '/')` で一致させる。これは単純な `startsWith` 判定だと `/events-archive` が `/events` タブを誤って光らせてしまう回帰を修正したもの。
 
-現在のタブ構成（共有4種＋管理者専用2〜3種）:
+現在のタブ構成（共有3種＋管理者専用3種）:
 
 | id | ラベル | href | active 判定 matches | 表示条件 |
 |---|---|---|---|---|
