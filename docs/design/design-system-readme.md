@@ -225,7 +225,7 @@ Two families. **Noto Serif JP** carries identity moments (the wordmark, page tit
 
 ### Fixed / sticky elements
 
-- Mobile: top header is sticky (wordmark + `{name}さん`). Bottom tab bar is sticky (ホーム / イベント / 予定 / 会員). Event-detail pages have a sticky primary action (参加する) pinned to the bottom of the viewport above the tab bar.
+- Mobile: top header is sticky (wordmark + `{name}さん`). Bottom tab bar is sticky (ホーム / イベント / 会員). Event-detail pages have a sticky primary action (参加する) pinned to the bottom of the viewport above the tab bar.
 - Desktop (admin tables only): header scrolls with the page. No side nav.
 
 ### Mobile-first

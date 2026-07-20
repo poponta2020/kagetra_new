@@ -124,7 +124,7 @@
   --kg-text-base:  0.9375rem;  /* 15px — body, buttons, forms */
   --kg-text-md:    1rem;       /* 16px — list titles */
   --kg-text-lg:    1.125rem;   /* 18px — card section headings */
-  --kg-text-xl:    1.375rem;   /* 22px — page title (h2), 今後の予定 */
+  --kg-text-xl:    1.375rem;   /* 22px — page title (h2) */
   --kg-text-2xl:   1.75rem;    /* 28px — event detail title (serif) */
 
   --kg-leading-tight:  1.25;
