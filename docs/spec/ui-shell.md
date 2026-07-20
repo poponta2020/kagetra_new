@@ -50,7 +50,6 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 |---|---|---|---|---|
 | `home` | ホーム | `/dashboard` | `/dashboard` | 全員 |
 | `events` | イベント | `/events` | `/events` | 全員 |
-| `schedule` | 予定 | `/schedule` | `/schedule` | 全員 |
 | `players` | 統計 | `/players` | `/players`, `/tournaments` | 全員 |
 | `members` | 会員 | `/admin/members` | `/admin/members`, `/members` | 管理者のみ |
 | `mail-inbox` | メール | `/admin/mail-inbox` | `/admin/mail-inbox` | 管理者のみ |

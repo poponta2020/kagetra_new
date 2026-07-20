@@ -23,7 +23,7 @@
 
 ### イベントとは
 
-`events` テーブル 1 行が「1 会場・1 日の開催単位」を表す。大会申込（他会主催の大会への参加募集）と会内行事の両方をこのテーブルで扱い、`kind` カラムで `individual`（個人戦）/ `team`（団体戦）を区別する。行事予定（練習日・会議等の日常スケジュール）は別テーブル `schedule_items` が持ち、そちらの仕様は [spec/schedule.md](schedule.md) を参照。カラム定義の正典は docs/design/db.md。
+`events` テーブル 1 行が「1 会場・1 日の大会開催単位」を表す。大会申込（他会主催の大会への参加募集を含む）を扱い、`kind` カラムで `individual`（個人戦）/ `team`（団体戦）を区別する。カラム定義の正典は docs/design/db.md。
 
 複数日・複数級にまたがる同一大会は、`events` を日付/級ごとに複数行へ分割しつつ `editionId`（`tournament_series_editions` への参照）で束ねる。edition（開催）・series（大会シリーズ）自体の名寄せ・解決ロジックは `apps/web/src/lib/edition/resolve.ts` が持ち、詳細は [spec/tournaments-results.md](tournaments-results.md) を参照。手動作成/編集フォーム（`EventForm`）にも「開催に紐付ける」チェックボックスがあり、系列名＋回次を入力すると `resolveEditionFromForm` が既存 edition を解決するか新規作成する。
 
@@ -67,7 +67,7 @@
 
 ### ホーム画面（ダッシュボード）
 
-`/dashboard` はプロフィール（ロール表示）と「今後の予定」セクションのプレースホルダのみで、確認した時点でイベント一覧やカウントダウン等の実データは表示していない。
+`/dashboard` はプロフィール（ロール表示）のみを表示し、イベント一覧やカウントダウン等の実データは表示していない。
 
 ## 画面
 
@@ -142,4 +142,3 @@
 
 - 定員（`capacity` / `capacityA`〜`capacityE`）は表示専用に見え、出欠登録時に定員超過を拒否する実装はコード上確認できなかった。将来的な制限予定かどうかは未確認。
 - `events.kind='team'`（団体戦）を実際に選択・作成できる UI 経路は `EventForm` 内で確認できなかった（フォームは `kind` を常に `individual` 固定の hidden input で送信している）。団体戦イベントがどの経路で作られるかは未確認。
-- `/dashboard` の「今後の予定」は現状プレースホルダ文言のみで、`events` と連携した実装は確認できなかった（今後の実装予定かは未確認）。

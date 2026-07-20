@@ -20,7 +20,7 @@
 | grade | gradeEnum | A, B, C, D, E |
 | gender | genderEnum | male, female |
 | event_kind | eventKindEnum | individual, team |
-| schedule_kind | scheduleKindEnum | practice, meeting, social, other |
+| schedule_kind | scheduleKindEnum | legacy: practice, meeting, social, other（第2段階の DB 削除対象） |
 | line_link_method | lineLinkMethodEnum | self_identify, admin_link, account_switch, invite_link |
 | mail_message_status | mailMessageStatusEnum | pending, fetched, parse_failed, fetch_failed, ai_processing, ai_done, ai_failed, oversize_skipped, archived |
 | mail_classification | mailClassificationEnum | tournament, noise, unknown |
@@ -68,7 +68,7 @@
 |---|---|---|---|
 | events | events | 大会・イベント本体（申込/支払い状態含む） | schema/events.ts |
 | event_attendances | eventAttendances | イベントへの出欠回答 | schema/event-attendances.ts |
-| schedule_items | scheduleItems | 練習/会議等のスケジュール項目 | schema/schedule-items.ts |
+| schedule_items | scheduleItems | legacy: 廃止済み予定機能の保持データ（第2段階の DB 削除対象） | schema/schedule-items.ts |
 | event_line_broadcasts | eventLineBroadcasts | イベント⇔LINEグループの1:1紐付け | schema/event-line-broadcasts.ts |
 | event_broadcast_messages | eventBroadcastMessages | 1メール→1LINEグループ配信の実行ログ | schema/event-broadcast-messages.ts |
 | event_lifecycle_notifications | eventLifecycleNotifications | 申込/支払いライフサイクル通知のonce-everログ | schema/event-lifecycle-notifications.ts |
@@ -108,7 +108,7 @@
 - `events` N : 1 `tournamentSeriesEditions`（`edition`）／1 : N `tournamentEntryRosters`（`rosters`）／1 : N `eventAttendances`（`attendances`）／N : 1 `users`（`creator` via `createdBy`）／1 : 1 `eventLineBroadcasts`（`lineBroadcast`、逆参照は省略形relation）／1 : N `eventLifecycleNotifications`（`lifecycleNotifications`）／N : 1 `tournamentDrafts`（`sourceDraft`、relationName: `eventSourceDraft`）
 - `eventAttendances` N : 1 `events`（`event`）／N : 1 `users`（`user`）
 - `users` 1 : N `eventAttendances`（`attendances`）／1 : N `pushSubscriptions`（`pushSubscriptions`）／1 : N `players`（`players`）。`line_channels.assigned_user_id`（1:1相当）は逆方向relationを張らず`WHERE assigned_user_id = ?`で引く運用
-- `scheduleItems` N : 1 `users`（`owner` via `ownerId`）
+- `scheduleItems` N : 1 `users`（`owner` via `ownerId`、legacy DB 関係）
 - `mailMessages` 1 : N `mailAttachments`（`attachments`）／1 : 1 `tournamentDrafts`（`draft`、`messageId`一致）／1 : N `eventBroadcastMessages`（`broadcastMessages`）／N : 1 `users`（`triagedBy`）／1 : 1 `resultDrafts`（`resultDraft`、`messageId`一致）
 - `mailAttachments` N : 1 `mailMessages`（`mail`）／1 : N `attachmentShareTokens`（`shareTokens`）
 - `tournamentDrafts` N : 1 `mailMessages`（`mail`）／N : 1 `events`（`event`、`eventId`経由・relationName: `draftCorrectionEvent`）／1 : N `events`（`materializedEvents`、relationName: `eventSourceDraft`）

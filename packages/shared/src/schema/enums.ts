@@ -5,6 +5,7 @@ export const eventStatusEnum = pgEnum('event_status', ['published', 'cancelled',
 export const gradeEnum = pgEnum('grade', ['A', 'B', 'C', 'D', 'E'])
 export const genderEnum = pgEnum('gender', ['male', 'female'])
 export const eventKindEnum = pgEnum('event_kind', ['individual', 'team'])
+// Legacy enum retained with scheduleItems until the backup-verified DB cleanup.
 export const scheduleKindEnum = pgEnum('schedule_kind', ['practice', 'meeting', 'social', 'other'])
 export const lineLinkMethodEnum = pgEnum('line_link_method', [
   'self_identify',

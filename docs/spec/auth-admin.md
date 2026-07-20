@@ -89,7 +89,7 @@
 - **名前の変更**（`updateMemberName`）: LINE 未紐付けかつ `role = 'member'` の行に限定した「誤登録の取り消し」用の操作。対象条件は UPDATE の WHERE 句自体に埋め込まれており、`/self-identify` での紐付けと同時に起きる競合を単一 SQL 文で安全に弾く。
 - **退会切替**（`toggleMemberDeactivation`）: `deactivatedAt` を now() / null でトグルする。退会中はログイン不可（「認証方式」節を参照）。
 - **LINE 紐付け解除**（`unlinkLine`、`admin` 限定）: `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` を `null` に戻す。解除後の次回ログインでは再び `/self-identify` から選び直せる。
-- **削除**（`deleteMember`、`DeleteMemberSection`）: 「誤登録の取り消し」専用のハード削除。`role = 'member'` かつ `lineUserId IS NULL` の行のみが対象で、かつ 11 テーブル・12 カラムに渡る参照ゼロチェック（`eventAttendances` / `events.createdBy` / `scheduleItems.ownerId` / `lineChannels.assignedUserId` / `mailMessages.triagedByUserId` / `mailWorkerRuns.triggeredByUserId` / `mailWorkerJobs.requestedByUserId` / `tournamentDrafts` の承認・却下者 / `pushSubscriptions.userId` / `accounts.userId` / `sessions.userId`）をすべて通過しないと実行されない。対象行ロック（`FOR UPDATE`）→ 参照チェック → `DELETE` を単一トランザクション内で行い、チェック後に参照が増える競合（子テーブルの FK 挿入が親行の `FOR KEY SHARE` を取るため本トランザクションの完了まで待たされる）を塞ぐ。1件でも参照があれば削除を拒否し「退会処理を使ってください」という文言で案内する。
+- **削除**（`deleteMember`、`DeleteMemberSection`）: 「誤登録の取り消し」専用のハード削除。`role = 'member'` かつ `lineUserId IS NULL` の行のみが対象で、かつ 10 テーブル・11 カラムに渡る参照ゼロチェック（`eventAttendances` / `events.createdBy` / `lineChannels.assignedUserId` / `mailMessages.triagedByUserId` / `mailWorkerRuns.triggeredByUserId` / `mailWorkerJobs.requestedByUserId` / `tournamentDrafts` の承認・却下者 / `pushSubscriptions.userId` / `accounts.userId` / `sessions.userId`）をすべて通過しないと実行されない。対象行ロック（`FOR UPDATE`）→ 参照チェック → `DELETE` を単一トランザクション内で行い、チェック後に参照が増える競合（子テーブルの FK 挿入が親行の `FOR KEY SHARE` を取るため本トランザクションの完了まで待たされる）を塞ぐ。1件でも参照があれば削除を拒否し「退会処理を使ってください」という文言で案内する。
 
 ## 画面
 

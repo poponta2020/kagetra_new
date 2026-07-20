@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { eventAttendances, users } from '@kagetra/shared/schema'
+import { eventAttendances, scheduleItems, users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -653,6 +653,30 @@ describe('Admin member profile edit actions', () => {
 
       const { redirect } = await import('next/navigation')
       expect(vi.mocked(redirect)).toHaveBeenCalledWith('/admin/members')
+    })
+
+    it('allows deleting a member who owns a legacy schedule item', async () => {
+      const admin = await createAdmin({ name: 'admin-del-legacy-schedule' })
+      const target = await createUser({ name: 'legacy-schedule-owner', lineUserId: null })
+      const [legacyItem] = await testDb
+        .insert(scheduleItems)
+        .values({ date: '2030-01-01', kind: 'other', name: 'legacy item', ownerId: target.id })
+        .returning()
+      if (!legacyItem) throw new Error('Failed to create legacy schedule item')
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await deleteMember({}, formOf({ userId: target.id }))
+      expect(result?.error).toBeUndefined()
+
+      const gone = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(gone).toBeUndefined()
+      const retained = await testDb
+        .select()
+        .from(scheduleItems)
+        .where(eq(scheduleItems.id, legacyItem.id))
+      expect(retained[0]?.ownerId).toBeNull()
     })
 
     it('LINE 紐付け済みの会員は削除できない', async () => {

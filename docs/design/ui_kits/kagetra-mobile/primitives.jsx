@@ -147,7 +147,6 @@ const MobileFrame = ({ children, title = 'かげとら', user = '山田さん', 
         {[
           { id: 'home', l: 'ホーム' },
           { id: 'events', l: 'イベント' },
-          { id: 'schedule', l: '予定' },
           { id: 'members', l: '会員' },
         ].map(it => {
           const a = it.id === activeNav;

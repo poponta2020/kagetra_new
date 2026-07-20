@@ -18,7 +18,7 @@ describe('BottomNav', () => {
     render(<BottomNav isAdmin />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
-    expect(screen.getByText('予定')).toBeTruthy()
+    expect(screen.queryByText('予定')).toBeNull()
     // senseki-stats PR-2: 戦績 → 統計 に改称。全ユーザー共有タブ。
     expect(screen.getByText('統計')).toBeTruthy()
     expect(screen.getByText('会員')).toBeTruthy()
@@ -33,7 +33,7 @@ describe('BottomNav', () => {
     render(<BottomNav isAdmin={false} />)
     expect(screen.getByText('ホーム')).toBeTruthy()
     expect(screen.getByText('イベント')).toBeTruthy()
-    expect(screen.getByText('予定')).toBeTruthy()
+    expect(screen.queryByText('予定')).toBeNull()
     // senseki-stats PR-2: 統計 は会員でも見える共有タブ。
     expect(screen.getByText('統計')).toBeTruthy()
     expect(screen.queryByText('会員')).toBeNull()

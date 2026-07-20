@@ -129,7 +129,7 @@ Two families. **Noto Serif JP** carries identity moments (the wordmark, page tit
 - **Weights** — serif uses 500 (section headings) and 700 (wordmark, page titles, big numerals). Sans uses 400 (body), 500 (labels, list titles, pills), 600 (LINE button only), 700 (card headings like 出欠状況).
 - **Sizes**
   - `28px / serif 700` — event-detail page title
-  - `22px / serif 500` — section opener (今後の予定)
+  - `22px / serif 500` — section opener
   - `20px / serif 700` — wordmark
   - `18px / sans 700` — card headings (出欠状況)
   - `16px / sans 500` — list titles (event name in a timeline row)

@@ -16,7 +16,6 @@ import {
   mailWorkerJobs,
   mailWorkerRuns,
   pushSubscriptions,
-  scheduleItems,
   sessions,
   tournamentDrafts,
   users,
@@ -318,7 +317,7 @@ export async function deleteMember(
       return { error: DELETE_BLOCKED_ERROR }
     }
 
-    // users.id を FK 参照する全テーブル (12 カラム / 11 テーブル) の存在チェック。
+    // users.id を FK 参照する全テーブル (11 カラム / 10 テーブル) の存在チェック。
     // 参照列そのものを select するので各テーブルの PK 形状に依存しない。
     const referenceChecks = [
       () =>
@@ -332,12 +331,6 @@ export async function deleteMember(
           .select({ ref: events.createdBy })
           .from(events)
           .where(eq(events.createdBy, targetId))
-          .limit(1),
-      () =>
-        tx
-          .select({ ref: scheduleItems.ownerId })
-          .from(scheduleItems)
-          .where(eq(scheduleItems.ownerId, targetId))
           .limit(1),
       () =>
         tx
