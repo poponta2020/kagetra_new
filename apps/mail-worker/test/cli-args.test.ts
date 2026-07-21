@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSinceArg } from '../src/cli-args.js'
+import { parseSinceArg, parseWorkerArgs } from '../src/cli-args.js'
 
 describe('parseSinceArg', () => {
   it('parses bare YYYY-MM-DD as JST start-of-day (00:00 JST = 15:00 UTC prev day)', () => {
@@ -48,5 +48,52 @@ describe('parseSinceArg', () => {
 
   it('throws on unparseable input', () => {
     expect(() => parseSinceArg('not-a-date')).toThrow(/parseable date/)
+  })
+})
+
+describe('parseWorkerArgs', () => {
+  it('defaults the mailbox to INBOX and applies finite roster cost limits', () => {
+    const flags = parseWorkerArgs([])
+    expect(flags.mailbox).toBe('INBOX')
+    expect(flags.maxRosterCandidates).toBeGreaterThan(0)
+    expect(Number.isFinite(flags.maxRosterCandidates)).toBe(true)
+    expect(flags.maxRosterAiCalls).toBeGreaterThanOrEqual(0)
+    expect(Number.isFinite(flags.maxRosterAiCalls)).toBe(true)
+  })
+
+  it('parses an archive mailbox, year range, and explicit limits', () => {
+    const flags = parseWorkerArgs([
+      '--mailbox=99_202510以前のメール',
+      '--from-year=2018',
+      '--to-year=2025',
+      '--max-roster-candidates=120',
+      '--max-roster-ai-calls=10',
+      '--resume-after-uid=4567',
+      '--lottery-coverage-report',
+    ])
+    expect(flags).toMatchObject({
+      mailbox: '99_202510以前のメール',
+      fromYear: 2018,
+      toYear: 2025,
+      maxRosterCandidates: 120,
+      maxRosterAiCalls: 10,
+      resumeAfterUid: 4567,
+      lotteryCoverageReport: true,
+    })
+  })
+
+  it('rejects an invalid range or unbounded limits', () => {
+    expect(() => parseWorkerArgs(['--from-year=2025', '--to-year=2024'])).toThrow(/year range/)
+    expect(() => parseWorkerArgs(['--max-roster-candidates=Infinity'])).toThrow(
+      /max-roster-candidates/,
+    )
+    expect(() => parseWorkerArgs(['--resume-after-uid=-1'])).toThrow(/resume-after-uid/)
+  })
+
+  it('requires explicit bounded write mode for archive draft staging', () => {
+    expect(parseWorkerArgs(['--once', '--stage-roster-drafts']).stageRosterDrafts).toBe(true)
+    expect(() => parseWorkerArgs(['--stage-roster-drafts'])).toThrow(/requires --once/)
+    expect(() => parseWorkerArgs(['--once', '--dry-run', '--stage-roster-drafts']))
+      .toThrow(/cannot be combined/)
   })
 })

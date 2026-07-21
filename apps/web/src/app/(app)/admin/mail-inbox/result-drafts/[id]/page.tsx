@@ -1,13 +1,21 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { resultDrafts } from '@kagetra/shared/schema'
+import {
+  resultDrafts,
+  tournamentClasses,
+  tournamentEditionGradeLotteryFacts,
+  tournaments,
+  tournamentSeries,
+  tournamentSeriesEditions,
+} from '@kagetra/shared/schema'
 import { Card, Pill } from '@/components/ui'
 import { ParsedResultPayloadSchema } from '@kagetra/mail-worker/result-import/schema'
 import { ApproveResultDraftForm } from './components/ApproveResultDraftForm'
 import { RejectResultDraftButton } from './components/RejectResultDraftButton'
+import { ReplaceActualResultButton } from './components/ReplaceActualResultButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +59,57 @@ export default async function ResultDraftReviewPage({
     rejected: '却下',
     parse_failed: '取込失敗',
     superseded: '差し替え済み',
+  }
+
+  const editionRows = await db
+    .select({
+      id: tournamentSeriesEditions.id,
+      editionNumber: tournamentSeriesEditions.editionNumber,
+      year: tournamentSeriesEditions.year,
+      seriesName: tournamentSeries.name,
+    })
+    .from(tournamentSeriesEditions)
+    .innerJoin(tournamentSeries, eq(tournamentSeries.id, tournamentSeriesEditions.seriesId))
+
+  let replacementCandidates: Array<{
+    grade: 'A' | 'B' | 'C' | 'D' | 'E'
+    activeFactId: number
+  }> = []
+  if (draft.status === 'approved' && draft.tournamentId !== null) {
+    const [tournament] = await db
+      .select({ editionId: tournaments.editionId })
+      .from(tournaments)
+      .where(eq(tournaments.id, draft.tournamentId))
+      .limit(1)
+    if (tournament?.editionId != null) {
+      const [classes, facts] = await Promise.all([
+        db
+          .select({ id: tournamentClasses.id, grade: tournamentClasses.grade })
+          .from(tournamentClasses)
+          .where(eq(tournamentClasses.tournamentId, draft.tournamentId)),
+        db
+          .select({
+            id: tournamentEditionGradeLotteryFacts.id,
+            grade: tournamentEditionGradeLotteryFacts.grade,
+            actualResultClassId: tournamentEditionGradeLotteryFacts.actualResultClassId,
+          })
+          .from(tournamentEditionGradeLotteryFacts)
+          .where(
+            and(
+              eq(tournamentEditionGradeLotteryFacts.editionId, tournament.editionId),
+              isNull(tournamentEditionGradeLotteryFacts.validTo),
+            ),
+          ),
+      ])
+      replacementCandidates = (['A', 'B', 'C', 'D', 'E'] as const).flatMap((grade) => {
+        const gradeClasses = classes.filter((row) => row.grade === grade)
+        const fact = facts.find((row) => row.grade === grade)
+        return gradeClasses.length === 1 && fact?.actualResultClassId != null &&
+          fact.actualResultClassId !== gradeClasses[0]!.id
+          ? [{ grade, activeFactId: fact.id }]
+          : []
+      })
+    }
   }
 
   return (
@@ -102,9 +161,26 @@ export default async function ResultDraftReviewPage({
       {/* 承認済み */}
       {draft.status === 'approved' && (
         <Card className="border-success-fg/30 bg-success-bg">
-          <span className="text-sm font-semibold text-success-fg">
-            承認済み — 大会 #{draft.tournamentId} として保存されました
-          </span>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-semibold text-success-fg">
+              承認済み — 大会 #{draft.tournamentId} として保存されました
+            </span>
+            {replacementCandidates.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-danger-fg">
+                  この開催回には別の採用結果があります。訂正版として切り替える級だけ明示操作してください。
+                </p>
+                {replacementCandidates.map((candidate) => (
+                  <ReplaceActualResultButton
+                    key={candidate.grade}
+                    draftId={draftId}
+                    grade={candidate.grade}
+                    expectedActiveFactId={candidate.activeFactId}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
       )}
 
@@ -190,6 +266,10 @@ export default async function ResultDraftReviewPage({
             <ApproveResultDraftForm
               draftId={draftId}
               defaultTournamentName={defaultTournamentName}
+              editionOptions={editionRows.map((edition) => ({
+                id: edition.id,
+                label: `${edition.seriesName} 第${edition.editionNumber}回${edition.year ? ` (${edition.year})` : ''}`,
+              }))}
             />
             <RejectResultDraftButton draftId={draftId} />
           </div>

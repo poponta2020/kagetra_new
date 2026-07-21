@@ -1,0 +1,1 @@
+ALTER TABLE "tournament_edition_grade_lottery_facts" ADD COLUMN "selection_rule_evidence" text;

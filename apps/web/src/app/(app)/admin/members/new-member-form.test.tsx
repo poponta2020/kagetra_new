@@ -104,7 +104,9 @@ describe('NewMemberForm', () => {
 
     const status = await screen.findByRole('status')
     expect(status.textContent).toBe('登録しました。')
-    expect((screen.getByLabelText(/名前/) as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('級') as HTMLSelectElement).value).toBe('')
+    await waitFor(() => {
+      expect((screen.getByLabelText(/名前/) as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('級') as HTMLSelectElement).value).toBe('')
+    })
   })
 })

@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
-import { mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { mailAttachments, mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
 import { findByMessageId, insertMailMessage, updateStatus } from './persist/mail-message.js'
@@ -19,6 +19,11 @@ import {
   type NewMailInfo,
 } from './notify/web-push.js'
 import type { WebPushConfig } from './config.js'
+import {
+  collectRosterCandidates,
+  type CollectedRosterCandidate,
+} from './roster-import/candidate.js'
+import { runRosterParse } from './roster-import/run.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -81,6 +86,22 @@ export interface PipelineSummary {
    * error instead of "unknown AI error".
    */
   aiErrors: string[]
+  /** Deterministic roster-candidate counts (no AI calls are made here). */
+  rosterCandidateMessages: number
+  rosterCandidateAttachments: number
+  rosterCandidateBodies: number
+  rosterCandidatesSelected: number
+  rosterCandidatesSkippedByLimit: number
+  rosterAiEligible: number
+  rosterSourcesSelected: number
+  rosterSourcesClassified: number
+  rosterSourcesNeedReview: number
+  rosterDraftsCreated: number
+  rosterDraftsReused: number
+  rosterDraftsFailed: number
+  skippedByResumeCursor: number
+  nextResumeCursor: number | null
+  resumeCursorBlockedByFailure: boolean
 }
 
 export interface RunPipelineOptions {
@@ -110,6 +131,18 @@ export interface RunPipelineOptions {
    * テストは vi.fn() を直接渡してフック発火を検証できる。
    */
   onMailInserted?: (mail: NewMailInfo) => Promise<void>
+  /** IMAP folder to open. Periodic fetch keeps the INBOX default. */
+  mailbox?: string
+  /** Inclusive calendar-year bounds evaluated in Asia/Tokyo. */
+  fromYear?: number
+  toYear?: number
+  /** Finite cost guards for follow-up roster parsing / optional AI assistance. */
+  maxRosterCandidates?: number
+  maxRosterAiCalls?: number
+  /** Archive backfill cursor. Only messages with a larger IMAP UID are considered. */
+  resumeAfterUid?: number
+  /** Explicit operator-authorized archive mode that persists review drafts. */
+  stageRosterDrafts?: boolean
 }
 
 export interface PipelineLogger {
@@ -150,6 +183,21 @@ function emptySummary(): PipelineSummary {
     aiFailed: 0,
     aiSkipped: 0,
     aiErrors: [],
+    rosterCandidateMessages: 0,
+    rosterCandidateAttachments: 0,
+    rosterCandidateBodies: 0,
+    rosterCandidatesSelected: 0,
+    rosterCandidatesSkippedByLimit: 0,
+    rosterAiEligible: 0,
+    rosterSourcesSelected: 0,
+    rosterSourcesClassified: 0,
+    rosterSourcesNeedReview: 0,
+    rosterDraftsCreated: 0,
+    rosterDraftsReused: 0,
+    rosterDraftsFailed: 0,
+    skippedByResumeCursor: 0,
+    nextResumeCursor: null,
+    resumeCursorBlockedByFailure: false,
   }
 }
 
@@ -157,6 +205,137 @@ interface ExtractedAttachment {
   att: ParsedAttachment
   text: string | null
   status: ExtractionStatus
+}
+
+function receivedInYearRange(date: Date, fromYear?: number, toYear?: number): boolean {
+  if (fromYear === undefined && toYear === undefined) return true
+  const year = Number.parseInt(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+  }).format(date), 10)
+  return (fromYear === undefined || year >= fromYear) && (toYear === undefined || year <= toYear)
+}
+
+function uidAfterCursor(uid: number | null, cursor: number | undefined): boolean {
+  return cursor === undefined || uid === null || uid > cursor
+}
+
+function uidOrder(left: { imapUid: number | null; receivedAt: Date }, right: { imapUid: number | null; receivedAt: Date }): number {
+  if (left.imapUid !== null && right.imapUid !== null) return left.imapUid - right.imapUid
+  if (left.imapUid !== null) return -1
+  if (right.imapUid !== null) return 1
+  return left.receivedAt.getTime() - right.receivedAt.getTime()
+}
+
+function nextResumeCursor(input: {
+  current: number | undefined
+  preparedUids: Array<number | null>
+  failedUids: Array<number | null>
+  selectedCandidateUids: Array<number | null>
+  skippedByCandidateLimit: number
+}): { value: number | null; blockedByFailure: boolean } {
+  const current = input.current ?? 0
+  const failedWithNoUid = input.failedUids.some((uid) => uid === null)
+  const firstFailedUid = input.failedUids
+    .filter((uid): uid is number => uid !== null)
+    .sort((left, right) => left - right)[0]
+  if (failedWithNoUid) return { value: input.current ?? null, blockedByFailure: true }
+
+  const processedBoundary = input.skippedByCandidateLimit > 0
+    ? input.selectedCandidateUids.filter((uid): uid is number => uid !== null).at(-1)
+    : input.preparedUids.filter((uid): uid is number => uid !== null).at(-1)
+  let value = processedBoundary ?? (input.current ?? null)
+  if (firstFailedUid !== undefined) {
+    value = Math.min(value ?? firstFailedUid - 1, firstFailedUid - 1)
+  }
+  if (value !== null) value = Math.max(current, value)
+  return { value, blockedByFailure: firstFailedUid !== undefined }
+}
+
+function blockResumeCursorAt(
+  summary: PipelineSummary,
+  current: number | undefined,
+  failedUid: number | null,
+): void {
+  summary.resumeCursorBlockedByFailure = true
+  if (failedUid === null) {
+    summary.nextResumeCursor = current ?? null
+    return
+  }
+  const safeBoundary = failedUid - 1
+  summary.nextResumeCursor = Math.max(
+    current ?? 0,
+    Math.min(summary.nextResumeCursor ?? safeBoundary, safeBoundary),
+  )
+}
+
+async function stageSelectedRosterDrafts(
+  db: ReturnType<typeof getDb>,
+  candidates: readonly CollectedRosterCandidate[],
+  summary: PipelineSummary,
+  log: PipelineLogger,
+  resumeAfterUid: number | undefined,
+): Promise<void> {
+  for (const candidate of candidates) {
+    const message = await findByMessageId(db, candidate.mail.messageId)
+    if (!message) {
+      summary.rosterDraftsFailed += candidate.decision.sources.length
+      blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+      log.warn('roster draft staging skipped because persisted mail is missing', {
+        messageId: candidate.mail.messageId,
+        imapUid: candidate.mail.imapUid,
+      })
+      continue
+    }
+
+    const attachments = await db
+      .select({ id: mailAttachments.id })
+      .from(mailAttachments)
+      .where(eq(mailAttachments.mailMessageId, message.id))
+      .orderBy(asc(mailAttachments.id))
+
+    for (const source of candidate.decision.sources) {
+      const attachmentId = source.sourceKind === 'attachment'
+        ? attachments[source.attachmentIndex ?? -1]?.id
+        : null
+      if (source.sourceKind === 'attachment' && attachmentId === undefined) {
+        summary.rosterDraftsFailed += 1
+        blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        log.warn('roster draft staging attachment is missing', {
+          messageId: candidate.mail.messageId,
+          attachmentIndex: source.attachmentIndex,
+          imapUid: candidate.mail.imapUid,
+        })
+        continue
+      }
+      try {
+        const result = await runRosterParse({
+          mailMessageId: message.id,
+          attachmentId,
+          triggeredByUserId: null,
+          db,
+          logger: log,
+        })
+        if (result.status === 'parse_failed') {
+          summary.rosterDraftsFailed += 1
+          blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        } else if (result.created) {
+          summary.rosterDraftsCreated += 1
+        } else {
+          summary.rosterDraftsReused += 1
+        }
+      } catch (error) {
+        summary.rosterDraftsFailed += 1
+        blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        log.warn('roster draft staging failed', {
+          messageId: candidate.mail.messageId,
+          attachmentId,
+          imapUid: candidate.mail.imapUid,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
 }
 
 /**
@@ -184,11 +363,50 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
   const summary = emptySummary()
 
   try {
-    const result = await fetchMails(source, opts.since)
-    summary.fetched = result.prepared.length + result.errors.length
-    summary.failed = result.errors.length
+    const result = await fetchMails(source, opts.since, opts.mailbox ?? 'INBOX')
+    const preparedBeforeCursor = result.prepared.filter(({ meta }) =>
+      receivedInYearRange(meta.receivedAt, opts.fromYear, opts.toYear))
+    const errorsBeforeCursor = result.errors.filter((error) => uidAfterCursor(error.imapUid, opts.resumeAfterUid))
+    const prepared = preparedBeforeCursor
+      .filter(({ meta }) => uidAfterCursor(meta.imapUid, opts.resumeAfterUid))
+      .sort((left, right) => uidOrder(left.meta, right.meta))
+    summary.skippedByResumeCursor = preparedBeforeCursor.length - prepared.length
+      + (result.errors.length - errorsBeforeCursor.length)
+    summary.fetched = prepared.length + errorsBeforeCursor.length
+    summary.failed = errorsBeforeCursor.length
 
-    for (const err of result.errors) {
+    const rosterCandidates = collectRosterCandidates(
+      prepared.filter((mail) => !mail.noise).map((mail) => mail.meta),
+      {
+        fromYear: opts.fromYear,
+        toYear: opts.toYear,
+        maxCandidates: opts.maxRosterCandidates ?? 500,
+        maxAiCalls: opts.maxRosterAiCalls ?? 0,
+      },
+    )
+    summary.rosterCandidateMessages = rosterCandidates.candidateMessages
+    summary.rosterCandidateAttachments = rosterCandidates.candidateAttachments
+    summary.rosterCandidateBodies = rosterCandidates.candidateBodies
+    summary.rosterCandidatesSelected = rosterCandidates.selected.length
+    summary.rosterCandidatesSkippedByLimit = rosterCandidates.skippedByCandidateLimit
+    summary.rosterAiEligible = rosterCandidates.aiEligible.length
+    const selectedSources = rosterCandidates.selected.flatMap((candidate) => candidate.decision.sources)
+    summary.rosterSourcesSelected = selectedSources.length
+    summary.rosterSourcesClassified = selectedSources.filter(
+      (source) => source.inferredGrade !== null && source.inferredRosterType !== null,
+    ).length
+    summary.rosterSourcesNeedReview = selectedSources.length - summary.rosterSourcesClassified
+    const cursor = nextResumeCursor({
+      current: opts.resumeAfterUid,
+      preparedUids: prepared.map(({ meta }) => meta.imapUid),
+      failedUids: errorsBeforeCursor.map((error) => error.imapUid),
+      selectedCandidateUids: rosterCandidates.selected.map(({ mail }) => mail.imapUid),
+      skippedByCandidateLimit: rosterCandidates.skippedByCandidateLimit,
+    })
+    summary.nextResumeCursor = cursor.value
+    summary.resumeCursorBlockedByFailure = cursor.blockedByFailure
+
+    for (const err of errorsBeforeCursor) {
       log.warn('mail fetch failed', {
         stage: err.stage,
         imapUid: err.imapUid,
@@ -199,10 +417,17 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
     }
 
     if (opts.dryRun) {
-      summary.noise = result.prepared.filter((p) => p.noise).length
+      summary.noise = prepared.filter((p) => p.noise).length
+      // Archive backfill dry-runs are candidate inventories, not extraction
+      // runs. Avoid parsing thousands of PDF/Word binaries merely to count
+      // deterministic subject/body/filename candidates.
+      if (opts.mailbox !== undefined && opts.mailbox !== 'INBOX') {
+        log.info('pipeline archive dry-run candidate summary', { ...summary })
+        return summary
+      }
       // In dry-run we still account attachments so operators see the same
       // counters they'll see post-merge, just without DB side effects.
-      for (const { meta } of result.prepared) {
+      for (const { meta } of prepared) {
         accountAttachmentSkips(meta.attachmentSkips, summary, log, meta.messageId)
         for (const att of meta.attachments) {
           await runExtraction(att, summary, log, meta.messageId)
@@ -213,7 +438,7 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
     }
 
     const db = getDb()
-    for (const { meta, noise } of result.prepared) {
+    for (const { meta, noise } of prepared) {
       // Attachment skip counters land regardless of duplicate/insert status —
       // operators care that an inline-only mail came in even when the parent
       // row already existed.
@@ -320,6 +545,7 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         // the mail can be retried on the next run. We don't bump
         // attachmentsInserted at all because the rollback un-inserted them.
         summary.failed += 1
+        blockResumeCursorAt(summary, opts.resumeAfterUid, meta.imapUid)
         log.warn('mail persist failed', {
           messageId: meta.messageId,
           // Mirror the fetch-error log fields (`pipeline.ts:104-110`) so an
@@ -388,6 +614,15 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
           )
         }
       }
+    }
+    if (opts.stageRosterDrafts) {
+      await stageSelectedRosterDrafts(
+        db,
+        rosterCandidates.selected,
+        summary,
+        log,
+        opts.resumeAfterUid,
+      )
     }
     return summary
   } finally {

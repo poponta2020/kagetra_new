@@ -8,6 +8,7 @@ import {
   markJobDone,
   markJobFailed,
   parseManualExtractPayload,
+  parseRosterParsePayload,
   recoverStaleClaimedJobs,
   STALE_CLAIM_RECOVERY_MS,
 } from '../src/jobs.js'
@@ -34,7 +35,7 @@ async function seedAdmin() {
 async function seedJob(
   opts: {
     since?: Date | null
-    kind?: 'fetch' | 'manual_extract'
+    kind?: 'fetch' | 'manual_extract' | 'roster_parse'
     payload?: Record<string, unknown> | null
   } = {},
 ): Promise<number> {
@@ -128,6 +129,20 @@ describe('jobs queue', () => {
     expect(() => parseManualExtractPayload({})).toThrow(/missing mail_message_id/)
     expect(() => parseManualExtractPayload({ mail_message_id: '42' })).toThrow(
       /missing mail_message_id/,
+    )
+  })
+
+  it('parseRosterParsePayload accepts attachment and body jobs', () => {
+    expect(parseRosterParsePayload({ mail_message_id: 10, attachment_id: 20 })).toEqual({
+      mail_message_id: 10,
+      attachment_id: 20,
+    })
+    expect(parseRosterParsePayload({ mail_message_id: 10 })).toEqual({
+      mail_message_id: 10,
+      attachment_id: null,
+    })
+    expect(() => parseRosterParsePayload({ mail_message_id: 10, attachment_id: '20' })).toThrow(
+      /attachment_id/,
     )
   })
 

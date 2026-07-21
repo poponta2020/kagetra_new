@@ -90,6 +90,10 @@ export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', [
   'fetch',
   'manual_extract',
   'result_parse',
+  // tournament-lottery-trends: roster source -> structured review draft.
+  // The dispatcher starts claiming this kind in Task 3; Task 1 only persists
+  // the queue contract so web and worker can share the same enum safely.
+  'roster_parse',
 ])
 
 // event-line-broadcast
@@ -184,4 +188,44 @@ export const rosterEntryStatusEnum = pgEnum('roster_entry_status', [
   'carried_up',
   'carry_up_declined',
   'cancelled',
+])
+
+// tournament-lottery-trends: classification of an edition for appearance counts.
+// Existing editions default to unknown and are never inferred as official.
+export const competitionCategoryEnum = pgEnum('competition_category', [
+  'official',
+  'new_year',
+  'hosted',
+  'supported',
+  'other',
+  'unknown',
+])
+
+// Outcome at the lottery-result publication point. This is independent from
+// roster_entry_status, which continues to describe the later participation lifecycle.
+export const selectionOutcomeEnum = pgEnum('selection_outcome', [
+  'accepted',
+  'waitlisted',
+  'rejected',
+  'unknown',
+])
+
+export const lotterySelectionStatusEnum = pgEnum('lottery_selection_status', [
+  'lottery',
+  'under_capacity',
+  'no_capacity',
+  'unknown',
+])
+
+export const rosterImportDraftStatusEnum = pgEnum('roster_import_draft_status', [
+  'pending_review',
+  'approved',
+  'rejected',
+  'parse_failed',
+  'superseded',
+])
+
+export const rosterImportSourceKindEnum = pgEnum('roster_import_source_kind', [
+  'attachment',
+  'body',
 ])

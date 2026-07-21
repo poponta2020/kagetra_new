@@ -113,7 +113,51 @@ describe('parseRosterGrid', () => {
       ),
     ])
     expect(r.sheetName).toBe('名簿')
+    expect(r.sheetNames).toEqual(['名簿'])
     expect(r.entries).toHaveLength(1)
+  })
+
+  it('氏名表を持つ全シートを結合し、シート名から A〜E 級を補う', () => {
+    const r = parseRosterGrid([
+      sheet([['注意事項'], ['持ち物']], '表紙'),
+      ...(['A', 'B', 'C', 'D', 'E'] as const).map((grade) =>
+        sheet([['氏名'], [`${grade}級選手`]], `${grade}級`),
+      ),
+    ])
+
+    expect(r.sheetNames).toEqual(['A級', 'B級', 'C級', 'D級', 'E級'])
+    expect(r.entries.map((entry) => entry.grade)).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+
+  it('当落区分・抽選除外を保持し、自己申告の出場回数は状態へ流用しない', () => {
+    const r = parseRosterGrid([
+      sheet(
+        [
+          ['氏名', '当落', '抽選除外', '出場回数'],
+          ['当選太郎', '当選', '○', '5'],
+          ['待機花子', 'キャンセル待ち', '対象外', '0'],
+          ['落選次郎', '落選', '', '2'],
+        ],
+        'A級抽選結果',
+      ),
+    ])
+
+    expect(r.entries.map((entry) => entry.selectionOutcome)).toEqual([
+      'accepted',
+      'waitlisted',
+      'rejected',
+    ])
+    expect(r.entries.map((entry) => entry.selectionExempt)).toEqual([true, false, false])
+    expect(r.entries.every((entry) => entry.statusText === null)).toBe(true)
+  })
+
+  it('同一級の正規化氏名重複は自動除外せず検証エラーにする', () => {
+    expect(() =>
+      parseRosterGrid([
+        sheet([['氏名'], ['山田 太郎']], 'A級当選'),
+        sheet([['氏名'], ['山田太郎']], 'A級キャンセル待ち'),
+      ]),
+    ).toThrow(/同一級に重複/)
   })
 
   it('氏名列がどのシートにも無ければ throw', () => {

@@ -18,6 +18,10 @@ import {
   ResultParseButton,
   type ExcelAttachment,
 } from '../../components/ResultParseButton'
+import {
+  RosterParseButton,
+  type RosterParseSource,
+} from '../../components/RosterParseButton'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -55,6 +59,12 @@ function formatJst(date: Date): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function isRosterSourceFilename(filename: string): boolean {
+  const lower = filename.toLowerCase()
+  return ['.xls', '.xlsx', '.xlsm', '.pdf', '.doc', '.docx', '.txt']
+    .some((extension) => lower.endsWith(extension))
 }
 
 /**
@@ -142,6 +152,15 @@ export default async function MailDetailPage({
           parseError: true,
         },
       },
+      rosterImportDrafts: {
+        columns: {
+          id: true,
+          sourceKind: true,
+          sourceAttachmentId: true,
+          status: true,
+          failureReason: true,
+        },
+      },
     },
   })
   if (!mail) notFound()
@@ -153,6 +172,17 @@ export default async function MailDetailPage({
       return lower.endsWith('.xls') || lower.endsWith('.xlsx')
     })
     .map((a) => ({ id: a.id, filename: a.filename }))
+  const rosterSources: RosterParseSource[] = [
+    ...((mail.bodyText ?? mail.bodyHtml)?.trim()
+      ? [{ attachmentId: null, label: 'メール本文' }]
+      : []),
+    ...mail.attachments
+      .filter((attachment) => isRosterSourceFilename(attachment.filename))
+      .map((attachment) => ({
+        attachmentId: attachment.id,
+        label: attachment.filename,
+      })),
+  ]
 
   const triage = TRIAGE_LABEL[mail.triageStatus] ?? {
     label: mail.triageStatus,
@@ -371,6 +401,41 @@ export default async function MailDetailPage({
               </div>
             </Card>
           )}
+        </section>
+      )}
+
+      {(rosterSources.length > 0 || mail.rosterImportDrafts.length > 0) && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-base font-bold text-ink">大会名簿の取込</h2>
+          {rosterSources.length > 0 && (
+            <Card>
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-ink-meta">
+                  添付または本文を原本単位で解析します。解析結果は承認するまで集計へ反映されません。
+                </p>
+                <RosterParseButton mailId={mail.id} sources={rosterSources} />
+              </div>
+            </Card>
+          )}
+
+          {mail.rosterImportDrafts.map((draft) => (
+            <Card key={draft.id}>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-semibold text-ink-2">
+                  名簿ドラフト #{draft.id}（{draft.status}）
+                </span>
+                {draft.failureReason && (
+                  <p className="text-xs text-danger-fg">{draft.failureReason}</p>
+                )}
+                <Link
+                  href={`/admin/mail-inbox/roster-drafts/${draft.id}`}
+                  className="text-brand-fg underline"
+                >
+                  確認画面を開く →
+                </Link>
+              </div>
+            </Card>
+          ))}
         </section>
       )}
     </div>

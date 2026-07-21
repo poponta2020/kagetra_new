@@ -93,11 +93,16 @@ async function readXlsBuffer(buf: Buffer): Promise<SheetData[]> {
 
 /**
  * Read an Excel file (buffer) and return per-sheet cell grids.
- * filename is used only to decide the format (.xls vs .xlsx).
+ * filename is used only to decide the format. Macro-enabled .xlsm files use
+ * the same OOXML container reader as .xlsx; macros are never executed.
  */
-export async function readExcel(buf: Buffer, filename: string): Promise<SheetData[]> {
+export function detectExcelFormat(filename: string): 'ooxml' | 'xls' {
   const lower = filename.toLowerCase()
-  if (lower.endsWith('.xlsx')) return readXlsxBuffer(buf)
-  if (lower.endsWith('.xls')) return readXlsBuffer(buf)
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'ooxml'
+  if (lower.endsWith('.xls')) return 'xls'
   throw new Error(`Unsupported Excel extension: ${filename}`)
+}
+
+export async function readExcel(buf: Buffer, filename: string): Promise<SheetData[]> {
+  return detectExcelFormat(filename) === 'ooxml' ? readXlsxBuffer(buf) : readXlsBuffer(buf)
 }

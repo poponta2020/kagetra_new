@@ -4,6 +4,8 @@
 - [ユーザープロフィール](user_profile.md) — 競技かるた会運営者、1人開発、品質重視、札幌在住、家と会社の2環境
 
 ## Project
+
+- [Tournament lottery trends PR #304](impl_tournament_lottery_trends-pr304.md) — Delivery notes, review fixes, and production-operation safety boundaries
 - [/show-app + dev:session Cookieヘルパー(2026-07-15)](impl_show_app_dev_session_helper.md) — 認証済みアプリ画面を in-app pane にライブ表示する開発補助。dev:session は既存ユーザーSELECTのみ(prod安全)。PR #277 merge・Codex 1R pass
 - [devflow v0.8.0〜v0.9.0 レビュー軽量化(2026-07-14)](project_devflow_v090_lean_review.md) — AC適合・追加code-review・/verify・マージ前CI待ちを標準ループから除外、pass即終了。E2Eの網はマージ後main CIに移る点に注意。再装着条件あり
 - [devflow v0.7.0 小差分レビュー高速化(2026-07-12)](project_devflow_v070_review_fastpath.md) — CI委譲(DEVFLOW_CI_COVERS)・スコープ付きコマンド(パス::cmd)・trivialティア(effort low+AC条件付きスキップ)・codex JSONパス根治。PR#1028の60分精査が発端。初回実走で動作確認要
@@ -148,3 +150,11 @@
 - [メール承認画面の系列検索 要件定義](project_tournament_entry_rosters_series_search.md) — 親Issue #289
 - [remove-schedule implementation](impl_remove_schedule.md) — remove-schedule implementation
 - [PR #294 review](project_review-pr294.md) — review pass
+- [tournament-lottery-trends Task 1](impl_tournament_lottery_trends-task1.md) — Issue #296 schema and migration
+- [tournament-lottery-trends Task 2](impl_tournament_lottery_trends-task2.md) — Issue #297 roster parsing, versioning, and member links
+- [tournament-lottery-trends Task 5](impl_tournament_lottery_trends-task5.md) — Issue #300 appearance counts
+- [tournament-lottery-trends Task 3](impl_tournament_lottery_trends-task3.md) — Issue #298 mailbox roster drafts
+- [Tournament lottery roster adoption](impl_tournament_lottery_trends-task4.md) — Use when changing roster draft approval, roster revisions, lottery facts, or actual-result links
+- [Tournament lottery series metrics](impl_tournament_lottery_trends-task6.md) — Use when changing series lottery ratios, capacity metrics, or A-grade cutoff aggregation
+- [Tournament lottery trends Task 7](impl_tournament_lottery_trends-task7.md) — Public series-detail lottery UI invariants
+- [Tournament lottery trends Task 8](impl_tournament_lottery_trends-task8.md) — Resumable backfill and coverage-report safety contract

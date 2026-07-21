@@ -1,6 +1,7 @@
-import { foreignKey, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
-import { tournamentStatusEnum } from './enums'
+import { foreignKey, index, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { competitionCategoryEnum, tournamentStatusEnum } from './enums'
 import { tournamentSeries } from './tournament-series'
+import { users } from './auth'
 
 /**
  * tournament_series_editions: 系列の「開催（第N回）」。tournament_series 1 : editions N。
@@ -23,6 +24,18 @@ export const tournamentSeriesEditions = pgTable(
     status: tournamentStatusEnum('status').notNull(),
     sourceFiletype: text('source_filetype'),
     rawName: text('raw_name'),
+    competitionCategory: competitionCategoryEnum('competition_category')
+      .notNull()
+      .default('unknown'),
+    // Plain integer to avoid the mail_messages -> events -> editions module cycle.
+    // Migration 0041 adds the FK with ON DELETE SET NULL.
+    competitionCategorySourceMailId: integer('competition_category_source_mail_id'),
+    competitionCategoryNote: text('competition_category_note'),
+    competitionCategoryVerifiedAt: timestamp('competition_category_verified_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    competitionCategoryVerifiedByUserId: text('competition_category_verified_by_user_id'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   },
@@ -36,5 +49,11 @@ export const tournamentSeriesEditions = pgTable(
       foreignColumns: [tournamentSeries.id],
       name: 'tournament_series_editions_series_id_fkey',
     }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.competitionCategoryVerifiedByUserId],
+      foreignColumns: [users.id],
+      name: 'tse_category_verified_by_fk',
+    }).onDelete('set null'),
+    index('tournament_series_editions_competition_category_idx').on(table.competitionCategory),
   ],
 )

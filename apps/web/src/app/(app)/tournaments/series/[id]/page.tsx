@@ -4,6 +4,7 @@ import { auth } from '@/auth'
 import { Card } from '@/components/ui'
 import { ParticipantTrendChart } from '@/components/stats/charts/ParticipantTrendChart'
 import { getSeriesDetail, type SeriesEditionRow } from '@/lib/stats/series'
+import { LotteryMetricsSection } from './LotteryMetricsSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,6 +89,8 @@ export default async function SeriesDetailPage({
           <ParticipantTrendChart points={detail.participantTrend} ariaLabel={`${detail.name} 参加者数の推移`} />
         </Card>
       ) : null}
+
+      <LotteryMetricsSection metrics={detail.lotteryMetrics} />
 
       {/* 回次一覧（新しい順） */}
       <section className="flex flex-col">

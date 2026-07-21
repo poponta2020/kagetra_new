@@ -1,56 +1,29 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runManualExtract, runOnce, RunOnceError, runPipeline } from './pipeline.js'
+import { runManualExtract, runOnce, RunOnceError, runPipeline, type PipelineSummary } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb, getDb } from './db.js'
 import { loadLogConfig, loadLlmConfig, loadWebPushConfig } from './config.js'
-import { parseSinceArg } from './cli-args.js'
+import { parseWorkerArgs, type WorkerCliFlags } from './cli-args.js'
 import {
   claimNextJob,
   markJobDone,
   markJobFailed,
   parseManualExtractPayload,
   parseResultParsePayload,
+  parseRosterParsePayload,
   recoverStaleClaimedJobs,
   STALE_CLAIM_RECOVERY_MS_EXTRACT,
 } from './jobs.js'
 import { runResultParse } from './result-import/run.js'
+import { runRosterParse } from './roster-import/run.js'
+import { buildLotteryBackfillReport } from './roster-import/backfill-report.js'
+import { getLotteryCoverageReport } from './roster-import/coverage-report.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
 import type { ExtractionPayload } from './classify/schema.js'
-
-/**
- * mail-inbox-mailer: dispatcher の動作 mode。
- * - 'fetch': 既存 cron。IMAP fetch + persist のみ実行。**AI 抽出は呼ばない**。
- *            `fetch` ジョブの claim も受ける（既存の手動 fetch 操作）。
- * - 'extract': mail-inbox-mailer タスク2 の新規モード。IMAP fetch をスキップ
- *              して `manual_extract` ジョブのみ pick → `runManualExtract`。
- *              30 秒間隔の systemd timer から起動される想定。
- */
-type DispatcherMode = 'fetch' | 'extract'
-
-interface CliFlags {
-  /**
-   * Currently a no-op — the worker always exits after one run. Parsed for
-   * forward-compat with the `--watch` flag landing in PR5; keeps existing cron
-   * invocations working unchanged once `--watch` ships.
-   */
-  once: boolean
-  since: Date | undefined
-  mockImap: boolean
-  mockLlm: boolean
-  dryRun: boolean
-  /**
-   * PR5: skip the `mail_worker_jobs` claim step and run a pure cron tick.
-   * Used by tests / smoke / debug to exercise the legacy code path.
-   */
-  noClaim: boolean
-  fixtureDir: string | undefined
-  /** mail-inbox-mailer: dispatcher mode (default: 'fetch'). */
-  mode: DispatcherMode
-}
 
 /**
  * Default lookback for live IMAP when `--since` is omitted. Avoids the worst
@@ -59,43 +32,6 @@ interface CliFlags {
  * to keep memory and DB churn bounded.
  */
 const LIVE_DEFAULT_SINCE_DAYS = 7
-
-function parseArgs(argv: readonly string[]): CliFlags {
-  const flags: CliFlags = {
-    once: false,
-    since: undefined,
-    mockImap: false,
-    mockLlm: false,
-    dryRun: false,
-    noClaim: false,
-    fixtureDir: undefined,
-    mode: 'fetch',
-  }
-  for (const arg of argv) {
-    if (arg === '--once') flags.once = true
-    else if (arg === '--mock-imap') flags.mockImap = true
-    else if (arg === '--mock-llm') flags.mockLlm = true
-    else if (arg === '--dry-run') flags.dryRun = true
-    else if (arg === '--no-claim') flags.noClaim = true
-    else if (arg.startsWith('--since=')) {
-      const value = arg.slice('--since='.length)
-      flags.since = parseSinceArg(value)
-    } else if (arg.startsWith('--fixture-dir=')) {
-      flags.fixtureDir = arg.slice('--fixture-dir='.length)
-    } else if (arg.startsWith('--mode=')) {
-      const value = arg.slice('--mode='.length)
-      if (value === 'extract-only') flags.mode = 'extract'
-      else if (value === 'fetch-only' || value === 'fetch') flags.mode = 'fetch'
-      else throw new Error(`unknown --mode value: ${value} (expected fetch-only or extract-only)`)
-    } else if (arg === '--help' || arg === '-h') {
-      printUsage()
-      process.exit(0)
-    } else {
-      throw new Error(`unknown flag: ${arg}`)
-    }
-  }
-  return flags
-}
 
 function printUsage(): void {
 
@@ -114,6 +50,21 @@ function printUsage(): void {
                          instead of Anthropic. Skips ANTHROPIC_API_KEY validation.
   --fixture-dir=PATH     Directory of *.eml files for --mock-imap (default: ./test/fixtures).
   --dry-run              Parse only; do not write to DB or call the LLM.
+  --mailbox=NAME         IMAP mailbox to fetch (default: INBOX).
+  --from-year=YYYY       Inclusive received-year lower bound (Asia/Tokyo).
+  --to-year=YYYY         Inclusive received-year upper bound (Asia/Tokyo).
+  --max-roster-candidates=N
+                         Maximum roster candidates selected per run (default: 500).
+  --max-roster-ai-calls=N
+                         Maximum optional roster AI calls per run (default: 0; Task 3
+                         uses deterministic parsing only).
+  --resume-after-uid=N   Resume an archive batch strictly after this IMAP UID.
+                         The report returns nextAfterUid; failures stop cursor advance.
+  --stage-roster-drafts  With --once, idempotently create review drafts for selected
+                         archive sources. Cannot be combined with --dry-run.
+  --lottery-coverage-report
+                         Read-only 2024+ category/confirmed-roster/result coverage JSON.
+                         Use --from-year/--to-year to change the range.
   --no-claim             Skip mail_worker_jobs claim and run a pure cron tick (test/debug).
   --mode=fetch-only      (default) IMAP fetch + 'fetch' job dispatch. AI extraction
                          is NOT invoked (mail-inbox-mailer: cron AI 廃止)。
@@ -127,6 +78,30 @@ function defaultLiveSince(now: Date = new Date()): Date {
   return new Date(now.getTime() - LIVE_DEFAULT_SINCE_DAYS * 24 * 60 * 60 * 1000)
 }
 
+function printLotteryBackfillReport(
+  summary: PipelineSummary,
+  flags: WorkerCliFlags,
+  dryRun: boolean,
+): void {
+  console.log('lottery backfill report:', JSON.stringify(buildLotteryBackfillReport(summary, {
+    dryRun,
+    mailbox: flags.mailbox,
+    fromYear: flags.fromYear,
+    toYear: flags.toYear,
+    maxCandidates: flags.maxRosterCandidates,
+    maxAiCalls: flags.maxRosterAiCalls,
+    resumeAfterUid: flags.resumeAfterUid,
+  }), null, 2))
+}
+
+function isBackfillRun(flags: WorkerCliFlags): boolean {
+  return flags.mailbox !== 'INBOX'
+    || flags.fromYear !== undefined
+    || flags.toYear !== undefined
+    || flags.resumeAfterUid !== undefined
+    || flags.stageRosterDrafts
+}
+
 async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }>> {
   const entries = await readdir(dir)
   const emls = entries.filter((name) => name.toLowerCase().endsWith('.eml'))
@@ -138,7 +113,11 @@ async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }
 }
 
 async function main(): Promise<void> {
-  const flags = parseArgs(process.argv.slice(2))
+  const flags = parseWorkerArgs(process.argv.slice(2))
+  if (flags.help) {
+    printUsage()
+    return
+  }
 
   // mail-inbox-mailer: AI 抽出は extract-only mode のみで使う。fetch mode は
   // cron AI 廃止により llmExtractor を渡さない運用に変更（cron が
@@ -149,7 +128,7 @@ async function main(): Promise<void> {
   //   --mode=fetch-only (def)   → undefined (cron AI 廃止)
   //   --mode=extract-only       → FixtureLLMExtractor or AnthropicSonnet46Extractor
   const llmExtractor =
-    flags.mode === 'extract' ? await buildLlmExtractor(flags) : undefined
+    flags.mode === 'extract' && flags.mockLlm ? await buildLlmExtractor(flags) : undefined
 
   // Build the IMAP source: `--mock-imap` reads fixture eml files; otherwise
   // we let `runPipeline` instantiate a `LiveMailSource` (via the default).
@@ -163,11 +142,16 @@ async function main(): Promise<void> {
 
   // Default lookback for cron / live IMAP. Logged the first time we apply it
   // so operators know why a manual `pnpm start` looks at the last 7 days.
-  const cronSince = flags.since ?? defaultLiveSince()
-  if (!flags.since && !flags.mockImap && flags.mode === 'fetch') {
+  const cronSince = flags.since
+    ?? (flags.fromYear !== undefined
+      ? new Date(`${flags.fromYear}-01-01T00:00:00+09:00`)
+      : flags.mailbox === 'INBOX'
+        ? defaultLiveSince()
+        : undefined)
+  if (!flags.since && flags.fromYear === undefined && !flags.mockImap && flags.mode === 'fetch' && flags.mailbox === 'INBOX') {
 
     console.log(
-      `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${cronSince.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
+      `[mail-worker] --since not provided; defaulting to last ${LIVE_DEFAULT_SINCE_DAYS} days (since=${cronSince!.toISOString()}). Pass --since=YYYY-MM-DD to override.`,
     )
   }
 
@@ -183,6 +167,15 @@ async function main(): Promise<void> {
   // closeDb() is idempotent and a no-op when no pool was opened, so the
   // dry-run / parseArgs-throw paths are safe.
   try {
+    if (flags.lotteryCoverageReport) {
+      const report = await getLotteryCoverageReport(getDb(), {
+        fromYear: flags.fromYear,
+        toYear: flags.toYear,
+      })
+      console.log('lottery coverage report:', JSON.stringify(report, null, 2))
+      return
+    }
+
     // Dispatcher: `--dry-run` bypasses runOnce / job claim / notify entirely so
     // it never writes a `mail_worker_runs` row. The CLI usage promises "do not
     // write to DB", and runOnce would INSERT a running row before runPipeline
@@ -195,9 +188,17 @@ async function main(): Promise<void> {
         dryRun: true,
         logger: log,
         llmExtractor,
+        mailbox: flags.mailbox,
+        fromYear: flags.fromYear,
+        toYear: flags.toYear,
+        maxRosterCandidates: flags.maxRosterCandidates,
+        maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)
+      printLotteryBackfillReport(summary, flags, true)
       return
     }
 
@@ -205,7 +206,8 @@ async function main(): Promise<void> {
     // ジョブだけを 1 件 pick して runManualExtract を回す。
     if (flags.mode === 'extract') {
       await runExtractOnlyDispatcher({
-        llmExtractor: llmExtractor!,
+        llmExtractor,
+        flags,
         webPushConfig,
         log,
       })
@@ -223,9 +225,17 @@ async function main(): Promise<void> {
         logger: log,
         llmExtractor,
         webPushConfig,
+        mailbox: flags.mailbox,
+        fromYear: flags.fromYear,
+        toYear: flags.toYear,
+        maxRosterCandidates: flags.maxRosterCandidates,
+        maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)
+      if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
       return
     }
 
@@ -273,10 +283,18 @@ async function main(): Promise<void> {
           logger: log,
           llmExtractor,
           webPushConfig,
+          mailbox: flags.mailbox,
+          fromYear: flags.fromYear,
+          toYear: flags.toYear,
+          maxRosterCandidates: flags.maxRosterCandidates,
+          maxRosterAiCalls: flags.maxRosterAiCalls,
+          resumeAfterUid: flags.resumeAfterUid,
+          stageRosterDrafts: flags.stageRosterDrafts,
         })
         await markJobDone(db, job.id, summary.runId)
 
         console.log('pipeline summary:', summary)
+        if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
       } catch (err) {
         // runOnce may throw on top-level IMAP failure; the run row is already
         // persisted with status=imap_failed inside runOnce. Mark the job
@@ -301,9 +319,17 @@ async function main(): Promise<void> {
         logger: log,
         llmExtractor,
         webPushConfig,
+        mailbox: flags.mailbox,
+        fromYear: flags.fromYear,
+        toYear: flags.toYear,
+        maxRosterCandidates: flags.maxRosterCandidates,
+        maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)
+      if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
     }
   } finally {
     await closeDb()
@@ -320,7 +346,8 @@ async function main(): Promise<void> {
  * IMAP fetch を一切呼ばないので、ANTHROPIC_API_KEY だけあれば動く。
  */
 async function runExtractOnlyDispatcher(opts: {
-  llmExtractor: LLMExtractor
+  llmExtractor: LLMExtractor | undefined
+  flags: WorkerCliFlags
   webPushConfig: ReturnType<typeof loadWebPushConfig>
   log: ReturnType<typeof consoleLogger>
 }): Promise<void> {
@@ -333,7 +360,7 @@ async function runExtractOnlyDispatcher(opts: {
   // 専用復旧し、他 kind (fetch) は fetch dispatcher 側に任せる。
   await recoverStaleClaimedJobs(db, {
     staleAfterMs: STALE_CLAIM_RECOVERY_MS_EXTRACT,
-    kinds: ['manual_extract', 'result_parse'],
+    kinds: ['manual_extract', 'result_parse', 'roster_parse'],
   }).then(
     (recovered) => {
       if (recovered > 0) {
@@ -347,7 +374,9 @@ async function runExtractOnlyDispatcher(opts: {
     },
   )
 
-  const job = await claimNextJob(db, { kinds: ['manual_extract', 'result_parse'] }).catch((err) => {
+  const job = await claimNextJob(db, {
+    kinds: ['manual_extract', 'result_parse', 'roster_parse'],
+  }).catch((err) => {
     opts.log.warn('claimNextJob (extract-only) failed', {
       err: err instanceof Error ? err.message : String(err),
     })
@@ -379,12 +408,26 @@ async function runExtractOnlyDispatcher(opts: {
       await markJobDone(db, job.id, result.runId)
 
       console.log('result_parse result:', result)
+    } else if (job.kind === 'roster_parse') {
+      const { mail_message_id: mailMessageId, attachment_id: attachmentId } =
+        parseRosterParsePayload(job.payload)
+      const result = await runRosterParse({
+        mailMessageId,
+        attachmentId,
+        triggeredByUserId: job.requestedByUserId,
+        logger: opts.log,
+      })
+      await markJobDone(db, job.id, result.runId)
+
+      console.log('roster_parse result:', result)
     } else {
       // 'manual_extract'
       const { mail_message_id: mailMessageId } = parseManualExtractPayload(job.payload)
+      const llmExtractor = opts.llmExtractor ?? await buildLlmExtractor(opts.flags)
+      if (!llmExtractor) throw new Error('manual_extract requires an LLM extractor')
       const result = await runManualExtract({
         mailMessageId,
-        llmExtractor: opts.llmExtractor,
+        llmExtractor,
         triggeredByUserId: job.requestedByUserId,
         webPushConfig: opts.webPushConfig,
         logger: opts.log,
@@ -420,7 +463,7 @@ async function runExtractOnlyDispatcher(opts: {
  * the `--mock-llm` and `--dry-run` early returns, so `--mock-llm` smoke runs
  * never require a real key.
  */
-async function buildLlmExtractor(flags: CliFlags): Promise<LLMExtractor | undefined> {
+async function buildLlmExtractor(flags: WorkerCliFlags): Promise<LLMExtractor | undefined> {
   if (flags.dryRun) return undefined
 
   if (flags.mockLlm) {

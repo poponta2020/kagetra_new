@@ -56,16 +56,16 @@
 
 `materializeResultDraft`（`apps/web/src/lib/result-import/materialize.ts`）が呼び出し元トランザクション内で実行する。
 
-**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは後述の edition 解決が best-effort で行うのみで、「同じ大会の結果を2回承認すると別大会として重複登録される」という前提を UI 運用（1ドラフト=1度だけ承認）で担保している。訂正版の再取込・差し替え（`result_drafts.status='superseded'`）はスキーマに列（`superseded_by_draft_id`）と enum 値が予約されているが、現行コードにこれを遷移させる経路はない（将来拡張）。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は [spec/players.md](players.md)）。
+**識別（identity）の粒度**: 1回の承認＝1件の「開催（大会）× 級」を単位に確定保存される（`tournaments` 行1件 → 配下に級ごとの `tournament_classes`）。ただし `tournaments` 側に既存大会との重複排除（同名・同日での dedup）は無く、承認するたびに必ず新規 `tournaments` 行が作られる。既存大会シリーズとの結び付けは、承認画面で明示選択した edition を優先し、未選択時だけ後述の自動解決を試みる。結果承認後の級は、同じ級のクラスが1件だけで既存の採用リンクがない場合に限り、年度回数計算用の実出場原本へ自動リンクする。既存リンクの上書きは承認に含めず、専用の明示置換操作で旧リンクを版として残す。選手の同定キーは正規化姓名のみ（所属会は使わない。詳細は [spec/players.md](players.md)）。
 
 1. 大会名から開催（edition）を best-effort で自動解決する（`autoResolveEdition`、後述）。解決できれば `tournaments.editionId` に張る
 2. `tournaments` 行を1件作成（`sourceResultDraftId` で承認元ドラフトを追跡）
 3. 級（`ParsedClass`）ごとに `tournament_classes` を作成し、その級の対戦から順位 bracket（優勝=1/準優勝=2/ベスト4=4…）を参加者 index 単位で事前算出して `tournament_participants.derivedBracket` に保存する（導出できない級＝リーグ戦・順位戦混在等は `null` のまま。導出アルゴリズム自体（`apps/web/src/lib/players/placement.ts` の単一ソース）は [spec/players.md](players.md)、統計での集計利用は [spec/stats.md](stats.md) が正典）
-4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない（同定規則の詳細は [spec/players.md](players.md)）
+4. 参加者ごとに選手（`players`）を get-or-create する。同定キーは**正規化姓名のみ**（所属会は使わない）。所属・段位・ふりがな等の生値は `tournament_participants` にスナップショットとして保持し、`players` 行には持たせない。触れた選手は、正規化した `users.name` が1会員だけに一致するとき `players.userId` も同期する（同定規則の詳細は [spec/players.md](players.md)）
 5. 対戦（`matches`）を2パス目で挿入する。自分の参加者IDは配列 index で一意に特定し、相手は正規化名がその級内で**単独一致**したときだけ `opponentParticipantId` を解決する（同姓同名が複数いる/不明な場合は `null` のまま `opponentName` の文字列だけを保持）
 6. この大会で触れた選手全員の `display_name` を再計算する（`recomputePlayerDisplayNames`。最頻表記への収束。詳細は [spec/players.md](players.md)）
 
-承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。ドラフト行を `FOR UPDATE` でロックしてから状態を再確認し、`materializeResultDraft` を同一トランザクションで実行することで、二重承認による重複 materialize を防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。
+承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。承認対象editionとドラフト行をトランザクション内でロックして状態を再確認し、`materializeResultDraft` と実出場原本の初回リンクを同一トランザクションで実行することで、二重承認による重複materializeを防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。既存の実出場原本を別の承認済み結果へ差し替える場合は `replaceActualResultFact` を使い、画面に表示したactive fact IDを再検証してから旧factの `valid_to` を閉じ、新revisionを挿入する。
 
 `result_parse` ジョブハンドラ（`apps/mail-worker/src/result-import/run.ts` の `runResultParse`）は解析結果を `result_drafts` に UPSERT する。既存ドラフトが `approved`/`pending_review` なら上書きせず、`parse_failed`/`rejected`/`superseded` のときだけ再取込で置き換える（`triggerResultParse` の状態ガードと同じ方針をワーカー側でも二重に持つ）。解析失敗時は `status='parse_failed'` として `parseError` を保存し、承認は不可・却下のみ可能な画面になる。
 
@@ -83,11 +83,12 @@
 
 ### 参加名簿（申込/確定）の取込
 
-`apps/web/src/lib/roster-import/parser.ts`（`parseRosterGrid`）が名簿 Excel をヘッダ語検出で解析し（氏名/姓+名・ふりがな・級・所属・段位・出場状態列を任意組み合わせで許容）、`materialize.ts`（`materializeRoster`）が `tournament_entry_rosters` / `tournament_entry_roster_entries` へ確定保存する。
+`apps/web/src/lib/roster-import/parser.ts`（`parseRosterGrid`）が名簿 Excel の氏名表を持つ全シートをヘッダ語検出で解析する。氏名/姓+名・ふりがな・A〜E級・所属・段位・出場状態・当落区分・抽選除外列を任意組み合わせで許容し、行に級がなければ明示的なシート名から補う。自己申告の出場回数列は集計入力に使わない。同一級で正規化氏名が重複した場合は自動除外せず検証エラーにする。`materialize.ts`（`materializeRoster`）が `tournament_entry_rosters` / `tournament_entry_roster_entries` へ確定保存する。
 
-- **再取込は置換**: 同一 `(event_id, roster_type)` の既存名簿を削除（`ON DELETE CASCADE` でエントリも消える）してから作り直す。繰上りの反映は確定名簿の再取込で行う
+- **再取込は版管理**: event行をロックして同一 `(event_id, roster_type)` のversionを採番する。訂正は明示した有効版だけをsupersededにし、旧名簿とentriesを削除しない。後日の追加発表は旧版をsupersedeせず併存できる。大会詳細はsupersededを除外し、種別ごとの最大versionだけを表示する
+- 確定名簿発表は `publishConfirmedRoster` で既存rosterへ明示的に関連付ける。無抽選で申込名簿を確定名簿として兼用する場合もrosterを複製せず参照でき、後日の別発表も併存できる
 - 各行の選手も `result-import` と同型の get-or-create（正規化姓名キーのみ、`onConflictDoNothing`）で `players` に解決する
-- 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` を張る（曖昧は `null`）
+- 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` と `players.userId` を張る。0件または複数一致では両方を `null` にし、既存の曖昧な自動リンクも解除する
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
 呼び出し元の Server Action（`importRoster` 相当。個人戦大会のみ対象）は `apps/web/src/app/(app)/events/[id]/actions.ts` にあり、画面は大会詳細（events ドメイン）側。名簿の取込ボタン・UI の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
@@ -103,6 +104,8 @@
 ### `/tournaments/series`・`/tournaments/series/[id]`（大会別＝系列一覧・詳細）
 
 系列を1行に束ねて累計開催回数・回次範囲・直近年・状態内訳（開催/中止/未確定）を表示する一覧と、系列詳細（回次一覧＋参加者数推移チャート）。回次一覧は結果データのある回（`tournamentId` あり）のみ大会詳細へタップ可能で、中止・記録なしの回は非タップ表示にする。
+
+系列詳細の「申込・抽選の推移」は A〜E 級のタブを持ち、級ごとに申込者数の推移と、抽選時は倍率（小数第2位）・分子/分母、定員未満時は残り枠・定員充足率、定員設定なし時は専用状態を表示する。原本不足などで集計が不完全な回は理由だけを示し、取得済みの部分値を一般画面へ出さない。A級は主催者枠と年度開始時点の出場回数層を積み上げ、完全な履歴がある場合だけ定員線と当落境界を表示する。公開レスポンスと画面には氏名、会員・選手・名簿の内部ID、原本情報を含めない。長い系列は横軸ラベルを間引き、375px幅とダークモードでも既存の級別詳細・回次リンクを損なわない。
 
 ### `/tournaments/[id]`（大会詳細）
 
@@ -123,13 +126,17 @@
 
 ### 名簿取込フロー
 
-管理者が大会詳細（events ドメイン画面）から申込名簿/確定名簿の Excel をアップロード → `readExcel` → `parseRosterGrid` → `materializeRoster` を1トランザクションで実行。パース不能（氏名列を検出できない）ファイルは DB を汚さず即エラーになる。
+管理者がメール詳細から対応する添付または本文を原本単位で解析し、`tournament_roster_import_drafts` に確認用ドラフトを生成する。レビュー画面では開催回・対象イベント・原本用途（申込／抽選結果／後日確定）・初回／訂正／追加発表・発表日と級別factを明示し、全級をまとめて採用する。行の級が一部だけ欠けた複数級ドラフトは先頭級へ寄せず採用を拒否する。採用時は設定した級をイベントの `eligible_grades` へ反映し、開催回の大会区分と根拠メモを同じ管理者・原本メールで監査記録する。A級抽選は抽出行の主催者枠・抽選除外表示を確認し、「該当なし」を含め分類確認を明示しなければ採用できない。この承認をfactの `verified_at` / `verified_by_user_id` に記録し、全falseが未確認なのか確認済み0人なのかを区別する運用契約とする。訂正は指定したactive rosterだけをsupersedeし、後日追加発表は旧版と併存する。申込名簿を確定名簿として兼用する場合も級ごとに明示する。同一級の氏名重複などの検証エラーは抽出行とともにレビュー画面へ残るが、解消前の採用はできない。既存の大会詳細から行う直接取込は後方互換として維持する。
+
+過去名簿のmailbox×年度dry-run、IMAP UID再開カーソル、2024年以降の大会区分／対象級／級別確定名簿／級別実出場原本coverageは [data-quality/tournament-lottery-backfill.md](../data-quality/tournament-lottery-backfill.md) の手順で確認する。coverage不足は0件で補完せず、該当する年度回数・倍率・当落線をincompleteのまま維持する。本番migration、非dry-run取得、ドラフト一括生成、採用は各段階で明示承認を得る。
 
 ## API（Server Actions / ジョブハンドラ）
 
 - `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx` 添付を指定して `result_parse` ジョブを積む。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
 - `approveResultDraft(draftId, formData)` — 大会名/開催日/会場を受け取り `materializeResultDraft` を実行、`result_drafts.status='approved'` に遷移。`FOR UPDATE` で二重承認をガード
+- `replaceActualResultFact(draftId, classId, expectedFactId)` — 承認済み結果の単独級クラスを実出場原本へ明示的に差し替える。画面表示時のactive fact IDが変わっていれば拒否し、旧factを削除せずrevision化する
 - `rejectResultDraft(draftId, reason)` — `pending_review`/`parse_failed` のドラフトを理由付きで却下
+- `triggerRosterParse(mailId, attachmentId)` / `approveRosterImportDraft(draftId, formData)` / `rejectRosterImportDraft(draftId, reason)` — メール原本の解析enqueue、レビュー済み名簿の版管理採用、却下。採用時はedition/event/全級設定を再検証し、roster/publication/級別factを同一トランザクションで更新する
 - `runResultParse(opts)`（`apps/mail-worker/src/result-import/run.ts`）— ジョブ本体。Excel 読込・解析・`result_drafts` UPSERT・`mail_worker_runs` 記録・Web Push 通知
 - `materializeResultDraft(tx, payload, opts)`（`apps/web/src/lib/result-import/materialize.ts`）— 解析済みペイロードから確定テーブル群への書き込み本体。呼び出し元トランザクション内で実行する前提（単体では commit しない）
 - `autoResolveEdition` / `findOrCreateEdition` / `findOrCreateSeries` / `suggestEditionFromName`（`apps/web/src/lib/edition/resolve.ts`）— 系列・開催の解決 API 群。結果取込・大会案内承認の双方から呼ばれる共通コア

@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -11,6 +11,9 @@ import {
   eventAttendances,
   eventLineBroadcasts,
   lineChannels,
+  tournamentConfirmedRosterPublications,
+  tournamentEditionGradeLotteryFacts,
+  tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import {
@@ -831,7 +834,7 @@ export async function setPaymentPaid(
 /**
  * tournament-entry-rosters PR-3: 名簿（申込/確定）の Excel を取り込む。
  *
- * 管理者操作。ファイル→readExcel→parseRosterGrid→materializeRoster（置換・player/user 解決）を
+ * 管理者操作。ファイル→readExcel→parseRosterGrid→materializeRoster（版管理・player/user 解決）を
  * 1 tx で。対象は個人戦のみ（§3.2）。パース不能・非対応ファイルはエラーで弾き DB を汚さない。
  * 名簿は外部事実なので出欠/entryStatus は自動更新しない（判断3）。
  */
@@ -869,14 +872,58 @@ export async function uploadRoster(
   try {
     sheets = await readExcel(buf, file.name)
   } catch {
-    throw new Error('Excel の読み込みに失敗しました（.xlsx / .xls のみ対応）')
+    throw new Error('Excel の読み込みに失敗しました（.xlsx / .xlsm / .xls に対応）')
   }
   // parseRosterGrid は氏名列が無ければ throw（DB を汚さない）。
   const parsed = parseRosterGrid(sheets)
 
-  const result = await db.transaction((tx) =>
-    materializeRoster(tx, parsed, { eventId, rosterType, publishedAt }),
-  )
+  const result = await db.transaction(async (tx) => {
+    const [latestActive] = await tx
+      .select({ id: tournamentEntryRosters.id })
+      .from(tournamentEntryRosters)
+      .where(
+        and(
+          eq(tournamentEntryRosters.eventId, eventId),
+          eq(tournamentEntryRosters.rosterType, rosterType),
+          isNull(tournamentEntryRosters.supersededAt),
+        ),
+      )
+      .orderBy(desc(tournamentEntryRosters.version))
+      .limit(1)
+
+    if (latestActive) {
+      const adoptedFact = await tx
+        .select({ id: tournamentEditionGradeLotteryFacts.id })
+        .from(tournamentEditionGradeLotteryFacts)
+        .where(
+          and(
+            isNull(tournamentEditionGradeLotteryFacts.validTo),
+            or(
+              eq(tournamentEditionGradeLotteryFacts.applicantRosterId, latestActive.id),
+              eq(tournamentEditionGradeLotteryFacts.selectionResultRosterId, latestActive.id),
+            ),
+          ),
+        )
+        .limit(1)
+      const adoptedPublication = await tx
+        .select({ id: tournamentConfirmedRosterPublications.id })
+        .from(tournamentConfirmedRosterPublications)
+        .where(eq(tournamentConfirmedRosterPublications.rosterId, latestActive.id))
+        .limit(1)
+      if (adoptedFact.length > 0 || adoptedPublication.length > 0) {
+        throw new Error('集計へ採用済みの名簿は、確認・訂正フローから差し替えてください')
+      }
+    }
+
+    return materializeRoster(tx, parsed, {
+      eventId,
+      rosterType,
+      publishedAt,
+      revision: latestActive
+        ? { kind: 'correction', targetRosterId: latestActive.id }
+        : { kind: 'initial' },
+    })
+  })
 
   revalidatePath(`/events/${eventId}`)
   return { entryCount: result.entryCount, matchedUserCount: result.matchedUserCount }

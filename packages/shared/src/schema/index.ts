@@ -23,6 +23,9 @@ export * from './tournament-series-editions'
 // tournament-entry-rosters (PR-3 名簿): 申込/確定名簿ヘッダ＋各行
 export * from './tournament-entry-rosters'
 export * from './tournament-entry-roster-entries'
+export * from './tournament-confirmed-roster-publications'
+export * from './tournament-edition-grade-lottery-facts'
+export * from './tournament-roster-import-drafts'
 // tournament-results
 export * from './players'
 export * from './tournaments'

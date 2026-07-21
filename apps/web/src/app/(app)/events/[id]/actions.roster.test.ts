@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  tournamentConfirmedRosterPublications,
   tournamentEntryRosters,
   tournamentEntryRosterEntries,
+  tournamentSeries,
+  tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createAdmin, createEvent, createUser } from '@/test-utils/seed'
@@ -16,10 +19,10 @@ vi.mock('@kagetra/mail-worker/result-import/reader', () => ({ readExcel: readExc
 
 const { uploadRoster } = await import('./actions')
 
-function fileForm(rosterType: string): FormData {
+function fileForm(rosterType: string, filename = 'roster.xlsx'): FormData {
   const fd = new FormData()
   fd.set('rosterType', rosterType)
-  fd.set('file', new File([new Uint8Array([1, 2, 3])], 'roster.xlsx'))
+  fd.set('file', new File([new Uint8Array([1, 2, 3])], filename))
   return fd
 }
 
@@ -98,6 +101,54 @@ describe('uploadRoster', () => {
     readExcelMock.mockResolvedValue([{ name: 's', grid: [['日付', '会場'], ['1/1', '近江']] }])
     await expect(uploadRoster(event.id, fileForm('confirmed'))).rejects.toThrow(/氏名列/)
     expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(0)
+  })
+
+  it('.xlsm を受け付け、再取込では旧版を保持して最新版を作る', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const event = await createEvent({ kind: 'individual' })
+    readExcelMock
+      .mockResolvedValueOnce([{ name: 'A級', grid: [['氏名'], ['初版太郎']] }])
+      .mockResolvedValueOnce([{ name: 'A級', grid: [['氏名'], ['訂正版太郎']] }])
+
+    await uploadRoster(event.id, fileForm('confirmed', 'roster.xlsm'))
+    await uploadRoster(event.id, fileForm('confirmed', 'roster.xlsm'))
+
+    expect(readExcelMock).toHaveBeenNthCalledWith(1, expect.any(Buffer), 'roster.xlsm')
+    const rosters = await testDb
+      .select()
+      .from(tournamentEntryRosters)
+      .where(eq(tournamentEntryRosters.eventId, event.id))
+    expect(rosters).toHaveLength(2)
+    expect(rosters.find((roster) => roster.version === 1)?.supersededAt).not.toBeNull()
+    expect(rosters.find((roster) => roster.version === 2)?.supersededAt).toBeNull()
+  })
+
+  it('集計へ採用済みの名簿は直接差し替えず確認・訂正フローを要求する', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const [series] = await testDb
+      .insert(tournamentSeries)
+      .values({ name: '採用済みテスト系列' })
+      .returning()
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId: series!.id, editionNumber: 1, year: 2030, status: 'held' })
+      .returning()
+    const event = await createEvent({ kind: 'individual', editionId: edition!.id })
+    readExcelMock.mockResolvedValue([{ name: 'A級', grid: [['氏名'], ['採用済太郎']] }])
+
+    await uploadRoster(event.id, fileForm('confirmed'))
+    const [current] = await testDb.select().from(tournamentEntryRosters)
+    await testDb.insert(tournamentConfirmedRosterPublications).values({
+      editionId: edition!.id,
+      grade: 'A',
+      rosterId: current!.id,
+      publishedAt: '2030-01-01',
+    })
+
+    await expect(uploadRoster(event.id, fileForm('confirmed'))).rejects.toThrow(/確認・訂正フロー/)
+    expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(1)
   })
 
   it('roster_type 不正は弾く', async () => {

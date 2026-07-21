@@ -141,8 +141,8 @@ mail-worker実行1回分（cron/manual）のログ。
 | requested_by_user_id | text | NOT NULL | — | FK→users.id ON DELETE CASCADE |
 | since | timestamptz | NULL | — | |
 | status | mail_worker_job_status (enum) | NOT NULL | 'pending' | |
-| kind | mail_worker_job_kind (enum) | NOT NULL | 'fetch' | fetch / manual_extract / result_parse |
-| payload | jsonb | NULL | — | `manual_extract`は`{mail_message_id}`必須。`result_parse`は`{mail_message_id, attachment_id}`必須 |
+| kind | mail_worker_job_kind (enum) | NOT NULL | 'fetch' | fetch / manual_extract / result_parse / roster_parse |
+| payload | jsonb | NULL | — | `manual_extract`は`{mail_message_id}`必須。`result_parse` / `roster_parse`は`{mail_message_id, attachment_id}`必須 |
 | claimed_at | timestamptz | NULL | — | |
 | run_id | integer | NULL | — | FK→mail_worker_runs.id ON DELETE SET NULL |
 | error | text | NULL | — | |

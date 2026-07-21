@@ -24,6 +24,9 @@ import { tournamentSeries } from './tournament-series'
 import { tournamentSeriesEditions } from './tournament-series-editions'
 import { tournamentEntryRosters } from './tournament-entry-rosters'
 import { tournamentEntryRosterEntries } from './tournament-entry-roster-entries'
+import { tournamentConfirmedRosterPublications } from './tournament-confirmed-roster-publications'
+import { tournamentEditionGradeLotteryFacts } from './tournament-edition-grade-lottery-facts'
+import { tournamentRosterImportDrafts } from './tournament-roster-import-drafts'
 
 // tournament-entry-rosters (PR-1a baseline): series 1:N editions、edition は
 // events / tournaments を束ねるハブ（どちらも N:1）。
@@ -40,6 +43,17 @@ export const tournamentSeriesEditionsRelations = relations(
     }),
     events: many(events),
     tournaments: many(tournaments),
+    confirmedRosterPublications: many(tournamentConfirmedRosterPublications),
+    lotteryFacts: many(tournamentEditionGradeLotteryFacts),
+    rosterImportDrafts: many(tournamentRosterImportDrafts),
+    competitionCategorySourceMail: one(mailMessages, {
+      fields: [tournamentSeriesEditions.competitionCategorySourceMailId],
+      references: [mailMessages.id],
+    }),
+    competitionCategoryVerifiedBy: one(users, {
+      fields: [tournamentSeriesEditions.competitionCategoryVerifiedByUserId],
+      references: [users.id],
+    }),
   }),
 )
 
@@ -126,6 +140,9 @@ export const mailMessagesRelations = relations(mailMessages, ({ one, many }) => 
     fields: [mailMessages.id],
     references: [resultDrafts.messageId],
   }),
+  sourceRosters: many(tournamentEntryRosters),
+  lotteryFacts: many(tournamentEditionGradeLotteryFacts),
+  rosterImportDrafts: many(tournamentRosterImportDrafts),
 }))
 
 export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many }) => ({
@@ -134,6 +151,7 @@ export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many 
     references: [mailMessages.id],
   }),
   shareTokens: many(attachmentShareTokens),
+  rosterImportDrafts: many(tournamentRosterImportDrafts),
 }))
 
 export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one, many }) => ({
@@ -282,6 +300,7 @@ export const tournamentClassesRelations = relations(tournamentClasses, ({ one, m
   }),
   participants: many(tournamentParticipants),
   matches: many(matches),
+  lotteryFacts: many(tournamentEditionGradeLotteryFacts),
 }))
 
 export const tournamentParticipantsRelations = relations(
@@ -337,6 +356,21 @@ export const tournamentEntryRostersRelations = relations(
       references: [mailAttachments.id],
     }),
     entries: many(tournamentEntryRosterEntries),
+    sourceMail: one(mailMessages, {
+      fields: [tournamentEntryRosters.sourceMailMessageId],
+      references: [mailMessages.id],
+    }),
+    approvedBy: one(users, {
+      fields: [tournamentEntryRosters.approvedByUserId],
+      references: [users.id],
+    }),
+    confirmedPublications: many(tournamentConfirmedRosterPublications),
+    applicantFacts: many(tournamentEditionGradeLotteryFacts, {
+      relationName: 'lotteryFactApplicantRoster',
+    }),
+    selectionResultFacts: many(tournamentEditionGradeLotteryFacts, {
+      relationName: 'lotteryFactSelectionResultRoster',
+    }),
   }),
 )
 
@@ -354,6 +388,80 @@ export const tournamentEntryRosterEntriesRelations = relations(
     user: one(users, {
       fields: [tournamentEntryRosterEntries.userId],
       references: [users.id],
+    }),
+  }),
+)
+
+export const tournamentConfirmedRosterPublicationsRelations = relations(
+  tournamentConfirmedRosterPublications,
+  ({ one }) => ({
+    edition: one(tournamentSeriesEditions, {
+      fields: [tournamentConfirmedRosterPublications.editionId],
+      references: [tournamentSeriesEditions.id],
+    }),
+    roster: one(tournamentEntryRosters, {
+      fields: [tournamentConfirmedRosterPublications.rosterId],
+      references: [tournamentEntryRosters.id],
+    }),
+  }),
+)
+
+export const tournamentEditionGradeLotteryFactsRelations = relations(
+  tournamentEditionGradeLotteryFacts,
+  ({ one }) => ({
+    edition: one(tournamentSeriesEditions, {
+      fields: [tournamentEditionGradeLotteryFacts.editionId],
+      references: [tournamentSeriesEditions.id],
+    }),
+    applicantRoster: one(tournamentEntryRosters, {
+      fields: [tournamentEditionGradeLotteryFacts.applicantRosterId],
+      references: [tournamentEntryRosters.id],
+      relationName: 'lotteryFactApplicantRoster',
+    }),
+    selectionResultRoster: one(tournamentEntryRosters, {
+      fields: [tournamentEditionGradeLotteryFacts.selectionResultRosterId],
+      references: [tournamentEntryRosters.id],
+      relationName: 'lotteryFactSelectionResultRoster',
+    }),
+    actualResultClass: one(tournamentClasses, {
+      fields: [tournamentEditionGradeLotteryFacts.actualResultClassId],
+      references: [tournamentClasses.id],
+    }),
+    sourceMail: one(mailMessages, {
+      fields: [tournamentEditionGradeLotteryFacts.sourceMailMessageId],
+      references: [mailMessages.id],
+    }),
+    verifiedBy: one(users, {
+      fields: [tournamentEditionGradeLotteryFacts.verifiedByUserId],
+      references: [users.id],
+    }),
+  }),
+)
+
+export const tournamentRosterImportDraftsRelations = relations(
+  tournamentRosterImportDrafts,
+  ({ one }) => ({
+    sourceMail: one(mailMessages, {
+      fields: [tournamentRosterImportDrafts.sourceMailMessageId],
+      references: [mailMessages.id],
+    }),
+    sourceAttachment: one(mailAttachments, {
+      fields: [tournamentRosterImportDrafts.sourceAttachmentId],
+      references: [mailAttachments.id],
+    }),
+    inferredEdition: one(tournamentSeriesEditions, {
+      fields: [tournamentRosterImportDrafts.inferredEditionId],
+      references: [tournamentSeriesEditions.id],
+    }),
+    approvedBy: one(users, {
+      fields: [tournamentRosterImportDrafts.approvedByUserId],
+      references: [users.id],
+      relationName: 'rosterImportDraftApprovedBy',
+    }),
+    rejectedBy: one(users, {
+      fields: [tournamentRosterImportDrafts.rejectedByUserId],
+      references: [users.id],
+      relationName: 'rosterImportDraftRejectedBy',
     }),
   }),
 )

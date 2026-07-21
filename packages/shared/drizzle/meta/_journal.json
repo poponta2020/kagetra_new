@@ -288,6 +288,20 @@
       "when": 1784182945589,
       "tag": "0040_unknown_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784560773528,
+      "tag": "0041_tournament_lottery_trends",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1784598662794,
+      "tag": "0042_useful_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

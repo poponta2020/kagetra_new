@@ -36,6 +36,11 @@
 | status | tournament_status (enum) | NOT NULL | デフォルトなし | 開催ごとに必ず確定させる |
 | source_filetype | text | NULL | — | 取込元プロビナンス |
 | raw_name | text | NULL | — | 取込元プロビナンス |
+| competition_category | competition_category (enum) | NOT NULL | 'unknown' | official / new_year / hosted / supported / other / unknown。出場回数集計はofficial/new_yearのみ |
+| competition_category_source_mail_id | integer | NULL | — | 根拠メール。FK→mail_messages.id ON DELETE SET NULL |
+| competition_category_note | text | NULL | — | メール外の一次資料など区分根拠 |
+| competition_category_verified_at | timestamptz | NULL | — | 区分確認日時 |
+| competition_category_verified_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
@@ -45,20 +50,26 @@
 
 定義ファイル: `packages/shared/src/schema/tournament-entry-rosters.ts`
 
-大会の名簿ヘッダ。1大会(event)につきapplicant(申込者名簿)0..1 / confirmed(確定名簿)0..1。対象は個人戦のみ（events.kind=individual）。
+大会の名簿ヘッダ。1大会(event)・種別ごとに複数版を保持し、訂正時も旧版を削除しない。対象は個人戦のみ（events.kind=individual）。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
 | id | integer | NOT NULL | identity | PK |
 | event_id | integer | NOT NULL | — | FK→events.id ON DELETE CASCADE |
 | roster_type | roster_type (enum) | NOT NULL | — | |
+| version | integer | NOT NULL | 1 | event・種別内の版番号 |
 | published_at | date (string mode) | NULL | — | 主催者発表日 |
 | source_attachment_id | integer | NULL | — | FK→mail_attachments.id ON DELETE SET NULL |
+| source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
+| supersedes_roster_id | integer | NULL | — | 訂正元roster。自己FK ON DELETE SET NULL |
+| superseded_at | timestamptz | NULL | — | 訂正で旧版が無効になった日時 |
+| approved_at | timestamptz | NULL | — | 検証・採用日時 |
+| approved_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
 | note | text | NULL | — | |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
-**制約**: UNIQUE `tournament_entry_rosters_event_id_roster_type_key` on (event_id, roster_type)
+**制約**: UNIQUE `tournament_entry_rosters_event_id_roster_type_version_key` on (event_id, roster_type, version)
 
 ## tournament_entry_roster_entries（TS: `tournamentEntryRosterEntries`）
 
@@ -78,11 +89,84 @@
 | raw_affiliation | text | NULL | — | |
 | raw_dan | text | NULL | — | |
 | status | roster_entry_status (enum) | NOT NULL | — | 出場状態（出場回数の素データ） |
+| selection_outcome | selection_outcome (enum) | NOT NULL | 'unknown' | accepted / waitlisted / rejected / unknown（抽選発表時点） |
+| selection_exempt | boolean | NOT NULL | false | 主催者枠・抽選除外 |
 | seq_no | integer | NULL | — | |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
-**インデックス**: `roster_entries_roster_id_idx` on (roster_id) / `roster_entries_player_id_idx` on (player_id) / `roster_entries_user_id_idx` on (user_id)
+**インデックス**: `roster_entries_roster_id_idx` on (roster_id) / `roster_entries_player_id_idx` on (player_id) / `roster_entries_user_id_idx` on (user_id) / `roster_entries_roster_grade_player_idx` on (roster_id, grade, player_id)
+
+## tournament_confirmed_roster_publications（TS: `tournamentConfirmedRosterPublications`）
+
+定義ファイル: `packages/shared/src/schema/tournament-confirmed-roster-publications.ts`
+
+年度別出場回数へ算入する確定名簿発表。後日の追加確定発表は旧発表を消さず、開催回・級ごとに和集合で扱う。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| edition_id | integer | NOT NULL | — | FK→tournament_series_editions.id ON DELETE CASCADE |
+| grade | grade (enum) | NOT NULL | — | |
+| roster_id | integer | NULL | — | FK→tournament_entry_rosters.id ON DELETE SET NULL。欠落時はincomplete |
+| published_at | date | NOT NULL | — | 基準日判定に使う発表日 |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約・インデックス**: UNIQUE `tcrp_edition_grade_roster_uq` on (edition_id, grade, roster_id) / INDEX `tcrp_edition_grade_published_idx` on (edition_id, grade, published_at)
+
+## tournament_edition_grade_lottery_facts（TS: `tournamentEditionGradeLotteryFacts`）
+
+定義ファイル: `packages/shared/src/schema/tournament-edition-grade-lottery-facts.ts`
+
+開催回・級ごとに集計へ採用する申込名簿、抽選結果発表時名簿、実出場結果、級別定員を版管理する。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| edition_id | integer | NOT NULL | — | FK→tournament_series_editions.id ON DELETE CASCADE |
+| grade | grade (enum) | NOT NULL | — | |
+| selection_status | lottery_selection_status (enum) | NOT NULL | 'unknown' | lottery / under_capacity / no_capacity / unknown |
+| capacity | integer | NULL | — | 級別定員。正数またはNULL |
+| application_start_date | date | NULL | — | A級回数算定の基準日前日を求める起点 |
+| applicant_roster_id | integer | NULL | — | FK→tournament_entry_rosters.id ON DELETE SET NULL |
+| selection_result_roster_id | integer | NULL | — | FK→tournament_entry_rosters.id ON DELETE SET NULL |
+| actual_result_class_id | integer | NULL | — | FK→tournament_classes.id ON DELETE SET NULL |
+| selection_rule_version | text | NULL | — | 適用した優先抽選ルール版 |
+| selection_rule_evidence | text | NULL | — | ルール版を裏付ける一次資料または正典内の根拠キー。版だけで根拠が欠ける場合は当落線を不完全扱い |
+| source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
+| verified_at | timestamptz | NULL | — | |
+| verified_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| supersedes_fact_id | integer | NULL | — | 訂正元fact。自己FK ON DELETE SET NULL |
+| valid_to | timestamptz | NULL | — | NULLの行がactive |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約・インデックス**: 部分UNIQUE `tournament_edition_grade_lottery_facts_active_key` on (edition_id, grade) WHERE valid_to IS NULL / capacity正数CHECK / selection_statusとcapacityの整合CHECK
+
+## tournament_roster_import_drafts（TS: `tournamentRosterImportDrafts`）
+
+定義ファイル: `packages/shared/src/schema/tournament-roster-import-drafts.ts`
+
+メール本文または添付を構造化した、管理者確認前の名簿ドラフト。原本単位を`source_kind`で保持し、添付削除後も本文ドラフトとの冪等性制約が衝突しない。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| source_kind | roster_import_source_kind (enum) | NOT NULL | — | attachment / body |
+| source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
+| source_attachment_id | integer | NULL | — | FK→mail_attachments.id ON DELETE SET NULL |
+| parser_version | text | NOT NULL | — | |
+| status | roster_import_draft_status (enum) | NOT NULL | 'pending_review' | pending_review / approved / rejected / parse_failed / superseded |
+| extracted_payload | jsonb | NOT NULL | `'{}'::jsonb` | |
+| failure_reason | text | NULL | — | |
+| inferred_edition_id | integer | NULL | — | FK→tournament_series_editions.id ON DELETE SET NULL |
+| inferred_roster_type | roster_type (enum) | NULL | — | |
+| inferred_grade | grade (enum) | NULL | — | |
+| approved_at / rejected_at | timestamptz | NULL | — | レビュー監査 |
+| approved_by_user_id / rejected_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| rejection_reason | text | NULL | — | |
+| created_at / updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約・インデックス**: 添付sourceの部分UNIQUE `tournament_roster_import_drafts_attachment_key` / 本文sourceの部分UNIQUE `tournament_roster_import_drafts_body_message_key` / INDEX `tournament_roster_import_drafts_status_created_idx`
 
 ## players（TS: `players`）
 
