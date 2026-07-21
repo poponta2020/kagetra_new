@@ -62,7 +62,7 @@ status: completed
 - **対応Issue:** #300
 
 ### タスク6: シリーズ級別倍率・定員余裕・A級当落線の集計を実装する
-- [ ] 完了
+- [x] 完了
 - **目的:** activeな採用原本だけから、A〜E級の推移点とA級積み上げデータを個人情報なしで生成する。
 - **対応AC:** AC-1, AC-2, AC-3, AC-5, AC-7
 - **主な変更領域:** `apps/web/src/lib/lottery/series-metrics.ts`、`apps/web/src/lib/stats/series.ts`、型・DBテスト。

@@ -1,5 +1,9 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { db } from '@/lib/db'
+import {
+  getSeriesLotteryMetrics,
+  type SeriesLotteryMetrics,
+} from '@/lib/lottery/series-metrics'
 
 /**
  * ② 大会結果の「大会別ビュー」（シリーズ一覧 `/tournaments/series`）とシリーズ詳細
@@ -61,6 +65,8 @@ export interface SeriesDetail {
   editions: SeriesEditionRow[]
   /** 参加者数推移（edition_number 昇順・記録ある年＋中止年のみ）。 */
   participantTrend: ParticipantTrendPoint[]
+  /** 級別倍率・定員余裕・A級当落線（個人情報を含まない集計のみ）。 */
+  lotteryMetrics: SeriesLotteryMetrics
 }
 
 /** pg の QueryResult 行は Record<string, unknown>。数値/文字列を安全に取り出す。 */
@@ -134,6 +140,8 @@ export async function getSeriesDetail(seriesId: number): Promise<SeriesDetail | 
   `)
   const s = seriesRes.rows[0] as Record<string, unknown> | undefined
   if (!s) return null
+
+  const lotteryMetricsPromise = getSeriesLotteryMetrics(seriesId)
 
   // 回次台帳＋結果データの集約（参加者数・代表大会）を 1 パスで。
   const edRes = await db.execute(sql`
@@ -212,6 +220,8 @@ export async function getSeriesDetail(seriesId: number): Promise<SeriesDetail | 
       cancelled: e.status === 'cancelled',
     }))
 
+  const lotteryMetrics = await lotteryMetricsPromise
+
   return {
     seriesId: num(s.id),
     name: String(s.name),
@@ -225,5 +235,6 @@ export async function getSeriesDetail(seriesId: number): Promise<SeriesDetail | 
     unconfirmedCount,
     editions,
     participantTrend: trend,
+    lotteryMetrics,
   }
 }

@@ -138,6 +138,7 @@ describe('getSeriesDetail', () => {
     expect(detail!.editionNumberTo).toBe(3)
     expect(detail!.yearFrom).toBe(2021)
     expect(detail!.yearTo).toBe(2023)
+    expect(detail!.lotteryMetrics).toEqual({ points: [] })
 
     // 回次一覧は edition_number 降順
     expect(detail!.editions.map((e) => e.editionNumber)).toEqual([3, 2, 1])
