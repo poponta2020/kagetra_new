@@ -5,8 +5,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { mailMessages, tournamentRosterImportDrafts } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateMailTables } from './test-db.js'
-import { runPipelineFromFixtures } from '../src/pipeline.js'
+import { runPipelineFromFixtures, type PipelineSummary } from '../src/pipeline.js'
 import { closeDb } from '../src/db.js'
+import { buildCorruptPdf, buildEml } from './fixtures/attachments/builders.js'
 
 const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/', import.meta.url))
 
@@ -202,6 +203,75 @@ describe('pipeline (fixture → DB)', () => {
       rosterDraftsFailed: 0,
     })
     expect(await testDb.select().from(tournamentRosterImportDrafts)).toHaveLength(1)
+  })
+
+  it('keeps the resume cursor before a selected source whose staged draft cannot be parsed', async () => {
+    const rosterMail = buildEml({
+      messageId: '<archive-stage-failure@example.test>',
+      from: 'organizer@example.test',
+      to: 'receiver@example.test',
+      date: 'Thu, 1 Aug 2024 09:00:00 +0900',
+      subject: 'A邏・遒ｺ螳壼錐邁ｿ',
+      textBody: 'A邏壹・遒ｺ螳壼錐邁ｿ繧帝∽ｻ倥＠縺ｾ縺吶・',
+      attachments: [{
+        filename: 'A邏・遒ｺ螳壼錐邁ｿ.pdf',
+        contentType: 'application/pdf',
+        data: buildCorruptPdf(),
+      }],
+    })
+
+    // The candidate classifier has its own exhaustive tests. Pin this test to
+    // the staging failure boundary: a selected attachment whose extracted
+    // text is unavailable must not let the archive cursor skip past its UID.
+    const candidateModule = await import('../src/roster-import/candidate.js')
+    const candidateSpy = vi
+      .spyOn(candidateModule, 'collectRosterCandidates')
+      .mockImplementation((mails) => ({
+        candidateMessages: 1,
+        candidateAttachments: 1,
+        candidateBodies: 0,
+        selected: [{
+          mail: mails[0]!,
+          decision: {
+            candidate: true,
+            reasons: ['test_selected_attachment'],
+            inferredRosterType: 'confirmed',
+            inferredGrade: 'A',
+            sources: [{
+              sourceKind: 'attachment',
+              attachmentIndex: 0,
+              filename: 'A邏・遒ｺ螳壼錐邁ｿ.pdf',
+              inferredRosterType: 'confirmed',
+              inferredGrade: 'A',
+            }],
+          },
+        }],
+        skippedByCandidateLimit: 0,
+        aiEligible: [],
+      }))
+
+    let summary: PipelineSummary
+    try {
+      summary = await runPipelineFromFixtures([{ source: rosterMail, imapUid: 501 }], {
+        mailbox: '99_202510莉･蜑阪・繝｡繝ｼ繝ｫ',
+        fromYear: 2024,
+        toYear: 2024,
+        maxRosterCandidates: 1,
+        maxRosterAiCalls: 0,
+        resumeAfterUid: 500,
+        stageRosterDrafts: true,
+      })
+    } finally {
+      candidateSpy.mockRestore()
+    }
+
+    expect(summary).toMatchObject({
+      rosterCandidatesSelected: 1,
+      rosterDraftsCreated: 0,
+      rosterDraftsFailed: 1,
+      resumeCursorBlockedByFailure: true,
+      nextResumeCursor: 500,
+    })
   })
 
   it('resumes an archive dry-run by IMAP UID and returns a stable next cursor', async () => {
