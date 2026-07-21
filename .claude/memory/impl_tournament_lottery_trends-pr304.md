@@ -12,3 +12,4 @@ PR #304 implements tournament lottery trends across the shared schema, mail work
 - Roster approval rejects mixed explicit and unresolved grades for multi-grade configurations and records an audited competition-category verification.
 - Review rounds: r1 found seven correctness gaps; r2 passed after the staging-failure cursor regression test. CI passed before the final test-only commit; the final CI run must be green before shipping.
 - Production migration and non-dry-run archive backfill were intentionally not executed by this implementation workflow.
+- Shipped in merge commit `99ee8d8` after DoD PASS and CI green (lint, typecheck, Vitest, and Playwright E2E).

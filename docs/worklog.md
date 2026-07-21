@@ -1,5 +1,11 @@
 # Work Log
 
+## 2026-07-21 — tournament-lottery-trends (PR #304)
+
+- Shipped merge `99ee8d8`: versioned lottery facts, authenticated series trends, audited roster adoption, and resumable mailbox backfill/coverage reporting.
+- Acceptance review passed after correcting grade-scope completeness, A-grade rule evidence, under-capacity cutoff handling, and staging-failure cursor coverage.
+- CI passed lint, typecheck, Vitest, and Playwright E2E; production migration and non-dry-run backfill were not executed.
+
 セッション間・マシン間で作業状況を共有するためのログ。claude-memのローカルDBを補完し、どのマシンからでも前回の続きが分かるようにする。
 
 ---
