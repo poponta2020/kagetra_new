@@ -47,6 +47,10 @@ export interface WorkerCliFlags {
   toYear: number | undefined
   maxRosterCandidates: number
   maxRosterAiCalls: number
+  /** Resume an archive batch strictly after this IMAP UID. */
+  resumeAfterUid: number | undefined
+  /** Print the read-only 2024+ tournament-category/source coverage report. */
+  lotteryCoverageReport: boolean
   help: boolean
 }
 
@@ -76,6 +80,8 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
     toYear: undefined,
     maxRosterCandidates: DEFAULT_MAX_ROSTER_CANDIDATES,
     maxRosterAiCalls: DEFAULT_MAX_ROSTER_AI_CALLS,
+    resumeAfterUid: undefined,
+    lotteryCoverageReport: false,
     help: false,
   }
 
@@ -85,6 +91,7 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
     else if (arg === '--mock-llm') flags.mockLlm = true
     else if (arg === '--dry-run') flags.dryRun = true
     else if (arg === '--no-claim') flags.noClaim = true
+    else if (arg === '--lottery-coverage-report') flags.lotteryCoverageReport = true
     else if (arg === '--help' || arg === '-h') flags.help = true
     else if (arg.startsWith('--since=')) flags.since = parseSinceArg(arg.slice('--since='.length))
     else if (arg.startsWith('--fixture-dir=')) flags.fixtureDir = arg.slice('--fixture-dir='.length)
@@ -106,6 +113,12 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
       flags.maxRosterAiCalls = parseIntegerFlag(
         'max-roster-ai-calls',
         arg.slice('--max-roster-ai-calls='.length),
+        0,
+      )
+    } else if (arg.startsWith('--resume-after-uid=')) {
+      flags.resumeAfterUid = parseIntegerFlag(
+        'resume-after-uid',
+        arg.slice('--resume-after-uid='.length),
         0,
       )
     } else if (arg.startsWith('--mode=')) {

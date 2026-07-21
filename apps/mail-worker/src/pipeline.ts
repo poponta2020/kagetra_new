@@ -89,6 +89,12 @@ export interface PipelineSummary {
   rosterCandidatesSelected: number
   rosterCandidatesSkippedByLimit: number
   rosterAiEligible: number
+  rosterSourcesSelected: number
+  rosterSourcesClassified: number
+  rosterSourcesNeedReview: number
+  skippedByResumeCursor: number
+  nextResumeCursor: number | null
+  resumeCursorBlockedByFailure: boolean
 }
 
 export interface RunPipelineOptions {
@@ -126,6 +132,8 @@ export interface RunPipelineOptions {
   /** Finite cost guards for follow-up roster parsing / optional AI assistance. */
   maxRosterCandidates?: number
   maxRosterAiCalls?: number
+  /** Archive backfill cursor. Only messages with a larger IMAP UID are considered. */
+  resumeAfterUid?: number
 }
 
 export interface PipelineLogger {
@@ -172,6 +180,12 @@ function emptySummary(): PipelineSummary {
     rosterCandidatesSelected: 0,
     rosterCandidatesSkippedByLimit: 0,
     rosterAiEligible: 0,
+    rosterSourcesSelected: 0,
+    rosterSourcesClassified: 0,
+    rosterSourcesNeedReview: 0,
+    skippedByResumeCursor: 0,
+    nextResumeCursor: null,
+    resumeCursorBlockedByFailure: false,
   }
 }
 
@@ -188,6 +202,59 @@ function receivedInYearRange(date: Date, fromYear?: number, toYear?: number): bo
     year: 'numeric',
   }).format(date), 10)
   return (fromYear === undefined || year >= fromYear) && (toYear === undefined || year <= toYear)
+}
+
+function uidAfterCursor(uid: number | null, cursor: number | undefined): boolean {
+  return cursor === undefined || uid === null || uid > cursor
+}
+
+function uidOrder(left: { imapUid: number | null; receivedAt: Date }, right: { imapUid: number | null; receivedAt: Date }): number {
+  if (left.imapUid !== null && right.imapUid !== null) return left.imapUid - right.imapUid
+  if (left.imapUid !== null) return -1
+  if (right.imapUid !== null) return 1
+  return left.receivedAt.getTime() - right.receivedAt.getTime()
+}
+
+function nextResumeCursor(input: {
+  current: number | undefined
+  preparedUids: Array<number | null>
+  failedUids: Array<number | null>
+  selectedCandidateUids: Array<number | null>
+  skippedByCandidateLimit: number
+}): { value: number | null; blockedByFailure: boolean } {
+  const current = input.current ?? 0
+  const failedWithNoUid = input.failedUids.some((uid) => uid === null)
+  const firstFailedUid = input.failedUids
+    .filter((uid): uid is number => uid !== null)
+    .sort((left, right) => left - right)[0]
+  if (failedWithNoUid) return { value: input.current ?? null, blockedByFailure: true }
+
+  const processedBoundary = input.skippedByCandidateLimit > 0
+    ? input.selectedCandidateUids.filter((uid): uid is number => uid !== null).at(-1)
+    : input.preparedUids.filter((uid): uid is number => uid !== null).at(-1)
+  let value = processedBoundary ?? (input.current ?? null)
+  if (firstFailedUid !== undefined) {
+    value = Math.min(value ?? firstFailedUid - 1, firstFailedUid - 1)
+  }
+  if (value !== null) value = Math.max(current, value)
+  return { value, blockedByFailure: firstFailedUid !== undefined }
+}
+
+function blockResumeCursorAt(
+  summary: PipelineSummary,
+  current: number | undefined,
+  failedUid: number | null,
+): void {
+  summary.resumeCursorBlockedByFailure = true
+  if (failedUid === null) {
+    summary.nextResumeCursor = current ?? null
+    return
+  }
+  const safeBoundary = failedUid - 1
+  summary.nextResumeCursor = Math.max(
+    current ?? 0,
+    Math.min(summary.nextResumeCursor ?? safeBoundary, safeBoundary),
+  )
 }
 
 /**
@@ -216,10 +283,16 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
 
   try {
     const result = await fetchMails(source, opts.since, opts.mailbox ?? 'INBOX')
-    const prepared = result.prepared.filter(({ meta }) =>
+    const preparedBeforeCursor = result.prepared.filter(({ meta }) =>
       receivedInYearRange(meta.receivedAt, opts.fromYear, opts.toYear))
-    summary.fetched = prepared.length + result.errors.length
-    summary.failed = result.errors.length
+    const errorsBeforeCursor = result.errors.filter((error) => uidAfterCursor(error.imapUid, opts.resumeAfterUid))
+    const prepared = preparedBeforeCursor
+      .filter(({ meta }) => uidAfterCursor(meta.imapUid, opts.resumeAfterUid))
+      .sort((left, right) => uidOrder(left.meta, right.meta))
+    summary.skippedByResumeCursor = preparedBeforeCursor.length - prepared.length
+      + (result.errors.length - errorsBeforeCursor.length)
+    summary.fetched = prepared.length + errorsBeforeCursor.length
+    summary.failed = errorsBeforeCursor.length
 
     const rosterCandidates = collectRosterCandidates(
       prepared.filter((mail) => !mail.noise).map((mail) => mail.meta),
@@ -236,8 +309,23 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
     summary.rosterCandidatesSelected = rosterCandidates.selected.length
     summary.rosterCandidatesSkippedByLimit = rosterCandidates.skippedByCandidateLimit
     summary.rosterAiEligible = rosterCandidates.aiEligible.length
+    const selectedSources = rosterCandidates.selected.flatMap((candidate) => candidate.decision.sources)
+    summary.rosterSourcesSelected = selectedSources.length
+    summary.rosterSourcesClassified = selectedSources.filter(
+      (source) => source.inferredGrade !== null && source.inferredRosterType !== null,
+    ).length
+    summary.rosterSourcesNeedReview = selectedSources.length - summary.rosterSourcesClassified
+    const cursor = nextResumeCursor({
+      current: opts.resumeAfterUid,
+      preparedUids: prepared.map(({ meta }) => meta.imapUid),
+      failedUids: errorsBeforeCursor.map((error) => error.imapUid),
+      selectedCandidateUids: rosterCandidates.selected.map(({ mail }) => mail.imapUid),
+      skippedByCandidateLimit: rosterCandidates.skippedByCandidateLimit,
+    })
+    summary.nextResumeCursor = cursor.value
+    summary.resumeCursorBlockedByFailure = cursor.blockedByFailure
 
-    for (const err of result.errors) {
+    for (const err of errorsBeforeCursor) {
       log.warn('mail fetch failed', {
         stage: err.stage,
         imapUid: err.imapUid,
@@ -376,6 +464,7 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
         // the mail can be retried on the next run. We don't bump
         // attachmentsInserted at all because the rollback un-inserted them.
         summary.failed += 1
+        blockResumeCursorAt(summary, opts.resumeAfterUid, meta.imapUid)
         log.warn('mail persist failed', {
           messageId: meta.messageId,
           // Mirror the fetch-error log fields (`pipeline.ts:104-110`) so an

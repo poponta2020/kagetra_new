@@ -39,7 +39,7 @@ Yahoo!JAPAN Mail (IMAP) → `mail-worker`（fetch → 事前ノイズフィル�
 - **fetch dispatcher**（既定 `--mode=fetch-only`、cron 定期）: IMAP から新着を取得し `mail_messages` / `mail_attachments` に永続化するだけで、**AI 抽出は呼ばない**（旧仕様の「取得したら即 AI 判定」は廃止された）。`mail_worker_jobs` の `kind='fetch'` ジョブ（管理者による手動取得トリガ）もこの dispatcher が拾う。
 - **extract-only dispatcher**（`--mode=extract-only`、30 秒間隔 timer）: IMAP fetch を一切行わず、`mail_worker_jobs` の `kind IN ('manual_extract', 'result_parse', 'roster_parse')` を 1 tick 1 件だけ claim して実行する。`manual_extract` は本ドメインの AI 抽出、`result_parse` は結果 Excel の決定的パース、`roster_parse` は添付または本文からの名簿ドラフト生成を担う。名簿解析だけの tick では Anthropic 設定を要求しない。
 
-`--mock-imap` / `--mock-llm` / `--dry-run` / `--no-claim` フラグでテスト・スモーク実行を切り替えられる（`apps/mail-worker/src/index.ts` の `printUsage()` 参照）。通常取得は `--mailbox` 省略時に `INBOX`、`--since` 省略時に直近 7 日分を使う。過去フォルダ調査は `--mailbox`、`--from-year`、`--to-year`、`--max-roster-candidates`、`--max-roster-ai-calls` で取得範囲と処理上限を固定できる。過去フォルダの `--dry-run` はDB書込・添付抽出・AI呼出を行わず、決定的な候補件数だけを返す。
+`--mock-imap` / `--mock-llm` / `--dry-run` / `--no-claim` フラグでテスト・スモーク実行を切り替えられる（`apps/mail-worker/src/index.ts` の `printUsage()` 参照）。通常取得は `--mailbox` 省略時に `INBOX`、`--since` 省略時に直近 7 日分を使う。過去フォルダ調査は `--mailbox`、`--from-year`、`--to-year`、`--max-roster-candidates`、`--max-roster-ai-calls`、`--resume-after-uid` で取得範囲・処理上限・再開位置を固定できる。過去フォルダの `--dry-run` はDB書込・添付抽出・AI呼出を行わず、`lottery backfill report`（候補、決定的分類成功、要確認、失敗、次回カーソル）をJSONで返す。分類成功は級と名簿用途の推定が揃ったという意味であり、ドラフト承認・公開済みを意味しない。
 
 ### 取得（fetch）
 
@@ -50,6 +50,12 @@ Yahoo!JAPAN Mail (IMAP) → `mail-worker`（fetch → 事前ノイズフィル�
 - `oversized`: `MAX_ATTACHMENT_BYTES`（30 MB）超過
 
 Message-ID が無いメールはパース失敗として `FetchedMailError`（`stage: 'parse_failed'`）に積まれ、バッチ全体を止めない。`mail_messages.message_id` の UNIQUE 制約による `ON CONFLICT DO NOTHING`（`persist/mail-message.ts`）が冪等性の最終防衛線で、同一ウィンドウを cron が再取得しても重複挿入されない。
+
+### 抽選名簿の過去バックフィル運用
+
+初期バックフィルは mailbox×受信年を1バッチとし、必ず同じ引数の `--dry-run` から始める。候補上限で次バッチが残る場合、レポートの `resume.nextAfterUid` を次回の `--resume-after-uid` に渡す。IMAP取得・パース失敗がある場合はカーソルをそのUIDより先へ進めず `blockedByFailure=true` とするため、原因を解消して同じカーソルから再実行する。Message-ID一意制約と原本単位のドラフト一意制約により同じ入力の再実行は冪等である。
+
+`--lottery-coverage-report` はDBを変更せず、2024年度以降（`--from-year` / `--to-year` で変更可）の開催回について、大会区分不明数、開催日不足、公認・新春の開催済み回数、確定名簿原本・active実出場原本の有無を協会年度別JSONで返す。協会年度は開催日を3か月戻した年で判定し、開催日が取れない回はedition年へ仮置きしたうえで `missingReferenceDate` として不完全扱いにする。`unknown`を公認扱いへ推定せず、いずれかの不足があれば `complete=false` とする。実運用コマンド、出力保存、承認ゲートは [data-quality/tournament-lottery-backfill.md](../data-quality/tournament-lottery-backfill.md) を正典とする。本番migration、非dry-run取得、ドラフト一括生成、採用はそれぞれ別の明示承認が必要で、このCLIの実装完了だけでは実行しない。
 
 `fetch/pre-filter.ts` の `shouldSkipByHeaders()` はヘッダーベースのノイズ判定（`Auto-Submitted` / `Precedence: bulk|junk` / `X-Spam-Flag` / `X-Spam-Status` / `List-Unsubscribe` かつ `List-Id` 欠如）。該当メールは `mail_messages.classification='noise'` で永続化されるが行自体は残す（誤判定を運用者が確認できるように）。正規のメーリングリストヘッダー（`Precedence: list` や `List-Id` 付き `List-Unsubscribe`）は意図的にスキップ対象から除外している（taikai-ajka 等の大会案内 ML を取り込むため）。
 

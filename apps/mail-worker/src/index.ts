@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runManualExtract, runOnce, RunOnceError, runPipeline } from './pipeline.js'
+import { runManualExtract, runOnce, RunOnceError, runPipeline, type PipelineSummary } from './pipeline.js'
 import { FixtureMailSource } from './fetch/fetcher.js'
 import { closeDb, getDb } from './db.js'
 import { loadLogConfig, loadLlmConfig, loadWebPushConfig } from './config.js'
@@ -18,6 +18,8 @@ import {
 } from './jobs.js'
 import { runResultParse } from './result-import/run.js'
 import { runRosterParse } from './roster-import/run.js'
+import { buildLotteryBackfillReport } from './roster-import/backfill-report.js'
+import { getLotteryCoverageReport } from './roster-import/coverage-report.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
 import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
@@ -56,6 +58,11 @@ function printUsage(): void {
   --max-roster-ai-calls=N
                          Maximum optional roster AI calls per run (default: 0; Task 3
                          uses deterministic parsing only).
+  --resume-after-uid=N   Resume an archive batch strictly after this IMAP UID.
+                         The report returns nextAfterUid; failures stop cursor advance.
+  --lottery-coverage-report
+                         Read-only 2024+ category/confirmed-roster/result coverage JSON.
+                         Use --from-year/--to-year to change the range.
   --no-claim             Skip mail_worker_jobs claim and run a pure cron tick (test/debug).
   --mode=fetch-only      (default) IMAP fetch + 'fetch' job dispatch. AI extraction
                          is NOT invoked (mail-inbox-mailer: cron AI 廃止)。
@@ -67,6 +74,29 @@ function printUsage(): void {
 
 function defaultLiveSince(now: Date = new Date()): Date {
   return new Date(now.getTime() - LIVE_DEFAULT_SINCE_DAYS * 24 * 60 * 60 * 1000)
+}
+
+function printLotteryBackfillReport(
+  summary: PipelineSummary,
+  flags: WorkerCliFlags,
+  dryRun: boolean,
+): void {
+  console.log('lottery backfill report:', JSON.stringify(buildLotteryBackfillReport(summary, {
+    dryRun,
+    mailbox: flags.mailbox,
+    fromYear: flags.fromYear,
+    toYear: flags.toYear,
+    maxCandidates: flags.maxRosterCandidates,
+    maxAiCalls: flags.maxRosterAiCalls,
+    resumeAfterUid: flags.resumeAfterUid,
+  }), null, 2))
+}
+
+function isBackfillRun(flags: WorkerCliFlags): boolean {
+  return flags.mailbox !== 'INBOX'
+    || flags.fromYear !== undefined
+    || flags.toYear !== undefined
+    || flags.resumeAfterUid !== undefined
 }
 
 async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }>> {
@@ -134,6 +164,15 @@ async function main(): Promise<void> {
   // closeDb() is idempotent and a no-op when no pool was opened, so the
   // dry-run / parseArgs-throw paths are safe.
   try {
+    if (flags.lotteryCoverageReport) {
+      const report = await getLotteryCoverageReport(getDb(), {
+        fromYear: flags.fromYear,
+        toYear: flags.toYear,
+      })
+      console.log('lottery coverage report:', JSON.stringify(report, null, 2))
+      return
+    }
+
     // Dispatcher: `--dry-run` bypasses runOnce / job claim / notify entirely so
     // it never writes a `mail_worker_runs` row. The CLI usage promises "do not
     // write to DB", and runOnce would INSERT a running row before runPipeline
@@ -151,9 +190,11 @@ async function main(): Promise<void> {
         toYear: flags.toYear,
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
       })
 
       console.log('pipeline summary:', summary)
+      printLotteryBackfillReport(summary, flags, true)
       return
     }
 
@@ -185,9 +226,11 @@ async function main(): Promise<void> {
         toYear: flags.toYear,
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
       })
 
       console.log('pipeline summary:', summary)
+      if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
       return
     }
 
@@ -240,10 +283,12 @@ async function main(): Promise<void> {
           toYear: flags.toYear,
           maxRosterCandidates: flags.maxRosterCandidates,
           maxRosterAiCalls: flags.maxRosterAiCalls,
+          resumeAfterUid: flags.resumeAfterUid,
         })
         await markJobDone(db, job.id, summary.runId)
 
         console.log('pipeline summary:', summary)
+        if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
       } catch (err) {
         // runOnce may throw on top-level IMAP failure; the run row is already
         // persisted with status=imap_failed inside runOnce. Mark the job
@@ -273,9 +318,11 @@ async function main(): Promise<void> {
         toYear: flags.toYear,
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
+        resumeAfterUid: flags.resumeAfterUid,
       })
 
       console.log('pipeline summary:', summary)
+      if (isBackfillRun(flags)) printLotteryBackfillReport(summary, flags, false)
     }
   } finally {
     await closeDb()

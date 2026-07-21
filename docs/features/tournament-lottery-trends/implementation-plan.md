@@ -81,8 +81,8 @@ status: completed
 - **完了条件:** UI testsがgreenで、AC-3を375pxの実画面で確認し、既存シリーズ機能が維持される。
 - **対応Issue:** #302
 
-### タスク8: 過去データのバックフィル、完全性レポート、正典文書を整備する
-- [ ] 完了
+### タスク8: 過去データのバックフィル、完全性レポート、正典文書を整備する [x]
+- [x] 完了
 - **目的:** 2018年以降の取得可能データを安全に段階投入でき、未取得・未確定範囲を把握できる状態にする。
 - **対応AC:** AC-4, AC-5, AC-6, AC-7
 - **主な変更領域:** `scripts/diagnostics/` またはmail-workerの運用CLI、`docs/data-quality/`、`docs/spec/tournaments-results.md`、`mail-worker.md`、`players.md`、`stats.md`、`events-attendance.md`、DB設計書、関連回帰テスト。

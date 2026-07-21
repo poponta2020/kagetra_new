@@ -155,3 +155,4 @@
 - [Tournament lottery roster adoption](impl_tournament_lottery_trends-task4.md) — Use when changing roster draft approval, roster revisions, lottery facts, or actual-result links
 - [Tournament lottery series metrics](impl_tournament_lottery_trends-task6.md) — Use when changing series lottery ratios, capacity metrics, or A-grade cutoff aggregation
 - [Tournament lottery trends Task 7](impl_tournament_lottery_trends-task7.md) — Public series-detail lottery UI invariants
+- [Tournament lottery trends Task 8](impl_tournament_lottery_trends-task8.md) — Resumable backfill and coverage-report safety contract

@@ -128,6 +128,8 @@
 
 管理者がメール詳細から対応する添付または本文を原本単位で解析し、`tournament_roster_import_drafts` に確認用ドラフトを生成する。レビュー画面では開催回・対象イベント・原本用途（申込／抽選結果／後日確定）・初回／訂正／追加発表・発表日と級別factを明示し、全級をまとめて採用する。A級抽選は抽出行の主催者枠・抽選除外表示を確認し、「該当なし」を含め分類確認を明示しなければ採用できない。この承認をfactの `verified_at` / `verified_by_user_id` に記録し、全falseが未確認なのか確認済み0人なのかを区別する運用契約とする。訂正は指定したactive rosterだけをsupersedeし、後日追加発表は旧版と併存する。申込名簿を確定名簿として兼用する場合も級ごとに明示する。同一級の氏名重複などの検証エラーは抽出行とともにレビュー画面へ残るが、解消前の採用はできない。既存の大会詳細から行う直接取込は後方互換として維持する。
 
+過去名簿のmailbox×年度dry-run、IMAP UID再開カーソル、2024年以降の大会区分／確定名簿／実出場原本coverageは [data-quality/tournament-lottery-backfill.md](../data-quality/tournament-lottery-backfill.md) の手順で確認する。coverage不足は0件で補完せず、該当する年度回数・倍率・当落線をincompleteのまま維持する。本番migration、非dry-run取得、ドラフト一括生成、採用は各段階で明示承認を得る。
+
 ## API（Server Actions / ジョブハンドラ）
 
 - `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx` 添付を指定して `result_parse` ジョブを積む。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
