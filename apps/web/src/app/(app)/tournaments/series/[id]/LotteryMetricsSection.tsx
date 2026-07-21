@@ -28,6 +28,7 @@ const METRIC_REASON_LABELS: Record<LotteryMetricMissingReason, string> = {
 }
 
 const CUTOFF_REASON_LABELS: Record<AGradeCutoffMissingReason, string> = {
+  missing_rule_evidence: '適用ルールの根拠資料を確認できません',
   invalid_adopted_input: '当落線の根拠となる名簿を確認できません',
   missing_capacity: 'A級の定員がありません',
   missing_application_start_date: '申込開始日を確認できません',

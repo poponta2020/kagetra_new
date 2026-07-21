@@ -7,6 +7,7 @@ import { approveRosterImportDraft, rejectRosterImportDraft } from '../../../acti
 
 type Grade = 'A' | 'B' | 'C' | 'D' | 'E'
 type SelectionStatus = 'lottery' | 'under_capacity' | 'no_capacity' | 'unknown'
+type CompetitionCategory = 'official' | 'new_year' | 'hosted' | 'supported' | 'other' | 'unknown'
 
 interface GradeConfig {
   grade: Grade
@@ -20,6 +21,8 @@ interface GradeConfig {
 export interface EditionOption {
   id: number
   label: string
+  competitionCategory?: CompetitionCategory
+  competitionCategoryNote?: string | null
 }
 
 export interface EventOption {
@@ -83,6 +86,13 @@ export function RosterDraftApprovalForm({
   const [editionSearch, setEditionSearch] = useState('')
   const defaultEditionId = initialEditionId ?? editions[0]?.id ?? 0
   const [editionId, setEditionId] = useState(defaultEditionId)
+  const defaultEdition = editions.find((edition) => edition.id === defaultEditionId)
+  const [competitionCategory, setCompetitionCategory] = useState<CompetitionCategory>(
+    defaultEdition?.competitionCategory ?? 'unknown',
+  )
+  const [competitionCategoryNote, setCompetitionCategoryNote] = useState(
+    defaultEdition?.competitionCategoryNote ?? '',
+  )
   const [eventId, setEventId] = useState(
     events.find((event) => event.editionId === defaultEditionId)?.id ?? 0,
   )
@@ -120,6 +130,8 @@ export function RosterDraftApprovalForm({
     form.set('editionId', String(editionId))
     form.set('eventId', String(eventId || visibleEvents[0]?.id || 0))
     form.set('purpose', purpose)
+    form.set('competitionCategory', competitionCategory)
+    form.set('competitionCategoryNote', competitionCategoryNote)
     form.set('revisionKind', revisionKind)
     if (revisionKind === 'correction') form.set('correctionTargetRosterId', String(targetRosterId))
     form.set('gradeConfigs', JSON.stringify(configs.map((config) => ({
@@ -166,6 +178,9 @@ export function RosterDraftApprovalForm({
             onChange={(event) => {
               const nextEditionId = Number(event.target.value)
               setEditionId(nextEditionId)
+              const nextEdition = editions.find((candidate) => candidate.id === nextEditionId)
+              setCompetitionCategory(nextEdition?.competitionCategory ?? 'unknown')
+              setCompetitionCategoryNote(nextEdition?.competitionCategoryNote ?? '')
               setEventId(events.find((candidate) => candidate.editionId === nextEditionId)?.id ?? 0)
               setTargetRosterId(0)
               setConfigs(configsForEdition(initialGrades, nextEditionId, facts))
@@ -193,6 +208,34 @@ export function RosterDraftApprovalForm({
             {visibleEvents.map((event) => <option key={event.id} value={event.id}>{event.label}</option>)}
           </select>
         </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs font-semibold text-ink-2">
+            大会区分
+            <select
+              value={competitionCategory}
+              onChange={(event) => setCompetitionCategory(event.target.value as CompetitionCategory)}
+              className="rounded border border-border bg-surface p-2 text-sm font-normal text-ink"
+            >
+              <option value="unknown">未確認</option>
+              <option value="official">公認大会</option>
+              <option value="new_year">新春大会</option>
+              <option value="hosted">主催大会</option>
+              <option value="supported">後援大会</option>
+              <option value="other">その他</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-ink-2">
+            大会区分の確認メモ
+            <input
+              value={competitionCategoryNote}
+              onChange={(event) => setCompetitionCategoryNote(event.target.value)}
+              maxLength={500}
+              placeholder="原本の記載箇所など"
+              className="rounded border border-border bg-surface p-2 text-sm font-normal text-ink"
+            />
+          </label>
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-xs font-semibold text-ink-2">

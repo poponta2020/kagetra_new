@@ -249,10 +249,15 @@ describe('roster import review actions', () => {
     const draft = await createRosterDraft({ mailId: mail.id, attachmentId: attachment.id })
     await setAuthSession({ id: admin.id, role: 'admin' })
 
-    const result = await approveRosterImportDraft(
-      draft.id,
-      approvalForm({ editionId: edition.id, eventId: event.id, selectionStatus: 'under_capacity', capacity: 3 }),
-    )
+    const form = approvalForm({
+      editionId: edition.id,
+      eventId: event.id,
+      selectionStatus: 'under_capacity',
+      capacity: 3,
+    })
+    form.set('competitionCategory', 'official')
+    form.set('competitionCategoryNote', '大会要項に公認大会と記載')
+    const result = await approveRosterImportDraft(draft.id, form)
     expect(result.ok).toBe(true)
 
     const fact = await testDb.query.tournamentEditionGradeLotteryFacts.findFirst({
@@ -265,6 +270,14 @@ describe('roster import review actions', () => {
       applicationStartDate: '2030-04-01',
     })
     expect(fact?.applicantRosterId).not.toBeNull()
+    expect(await testDb.query.tournamentSeriesEditions.findFirst({
+      where: eq(tournamentSeriesEditions.id, edition.id),
+    })).toMatchObject({
+      competitionCategory: 'official',
+      competitionCategorySourceMailId: mail.id,
+      competitionCategoryNote: '大会要項に公認大会と記載',
+      competitionCategoryVerifiedByUserId: admin.id,
+    })
     expect(revalidatePathMock).toHaveBeenCalledWith(`/tournaments/series/${series.id}`)
   })
 
@@ -565,6 +578,43 @@ describe('roster import review actions', () => {
     expect((await approveRosterImportDraft(draft!.id, form)).ok).toBe(true)
     const facts = await testDb.select().from(tournamentEditionGradeLotteryFacts)
     expect(facts.map((fact) => fact.grade).sort()).toEqual(['A', 'B'])
+  })
+
+  it('複数級の原本に級不明行が混在する場合は先頭級へ推測せず承認を拒否する', async () => {
+    const admin = await createAdmin()
+    const { edition, event } = await createEditionFixture()
+    await testDb.update(events).set({ eligibleGrades: ['A', 'B'] }).where(eq(events.id, event.id))
+    const mail = await createMailMessage()
+    const [draft] = await testDb.insert(tournamentRosterImportDrafts).values({
+      sourceKind: 'body',
+      sourceMailMessageId: mail.id,
+      parserVersion: 'test',
+      extractedPayload: {
+        parserVersion: 'test',
+        sheetName: '複数級',
+        sheetNames: ['複数級'],
+        validationIssues: [],
+        entries: [
+          ...rosterPayload('A', 1).entries,
+          ...rosterPayload('B', 1).entries.map((entry) => ({ ...entry, rawName: 'B級選手' })),
+          ...rosterPayload('A', 1).entries.map((entry) => ({
+            ...entry,
+            rawName: '級不明選手',
+            grade: null,
+          })),
+        ],
+      },
+    }).returning()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const form = approvalForm({ editionId: edition.id, eventId: event.id })
+    form.set('gradeConfigs', JSON.stringify([
+      { grade: 'A', selectionStatus: 'unknown', capacity: null, applicationStartDate: null, publishAsConfirmed: false },
+      { grade: 'B', selectionStatus: 'unknown', capacity: null, applicationStartDate: null, publishAsConfirmed: false },
+    ]))
+
+    const result = await approveRosterImportDraft(draft!.id, form)
+    expect(result.ok).toBe(false)
+    expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(0)
   })
 
   it('結果承認はedition/grade一意なら初回自動リンクし、既存リンクは明示時だけfact新版へ置換する', async () => {

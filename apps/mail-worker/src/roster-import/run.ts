@@ -31,7 +31,7 @@ interface RosterDraftParseOutcome {
 export async function runRosterParse(opts: {
   mailMessageId: number
   attachmentId?: number | null
-  triggeredByUserId: string
+  triggeredByUserId: string | null
   logger?: PipelineLogger
   db?: DbClient
 }): Promise<RosterParseResult> {

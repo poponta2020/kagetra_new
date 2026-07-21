@@ -70,6 +70,9 @@ describe('tournament-lottery-trends schema', () => {
 
     expect(tournamentEditionGradeLotteryFacts.selectionStatus.default).toBe('unknown')
     expect(tournamentEditionGradeLotteryFacts.capacity.notNull).toBe(false)
+    expect(tournamentEditionGradeLotteryFacts.selectionRuleEvidence.name).toBe(
+      'selection_rule_evidence',
+    )
     expect(tournamentEditionGradeLotteryFacts.validTo.notNull).toBe(false)
     expect(tournamentEditionGradeLotteryFacts.supersedesFactId.name).toBe(
       'supersedes_fact_id',

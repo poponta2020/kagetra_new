@@ -132,6 +132,7 @@
 | selection_result_roster_id | integer | NULL | — | FK→tournament_entry_rosters.id ON DELETE SET NULL |
 | actual_result_class_id | integer | NULL | — | FK→tournament_classes.id ON DELETE SET NULL |
 | selection_rule_version | text | NULL | — | 適用した優先抽選ルール版 |
+| selection_rule_evidence | text | NULL | — | ルール版を裏付ける一次資料または正典内の根拠キー。版だけで根拠が欠ける場合は当落線を不完全扱い |
 | source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
 | verified_at | timestamptz | NULL | — | |
 | verified_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |

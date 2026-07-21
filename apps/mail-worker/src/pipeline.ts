@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
-import { mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { mailAttachments, mailMessages, mailWorkerRuns, tournamentDrafts } from '@kagetra/shared/schema'
 import { fetchMails, FixtureMailSource, LiveMailSource, type MailSource } from './fetch/fetcher.js'
 import type { ParsedAttachment, ParsedAttachmentSkip } from './fetch/imap-client.js'
 import { findByMessageId, insertMailMessage, updateStatus } from './persist/mail-message.js'
@@ -19,7 +19,11 @@ import {
   type NewMailInfo,
 } from './notify/web-push.js'
 import type { WebPushConfig } from './config.js'
-import { collectRosterCandidates } from './roster-import/candidate.js'
+import {
+  collectRosterCandidates,
+  type CollectedRosterCandidate,
+} from './roster-import/candidate.js'
+import { runRosterParse } from './roster-import/run.js'
 
 export interface PipelineSummary {
   /** Total mails seen by the source (parsed OK + parse failures). */
@@ -92,6 +96,9 @@ export interface PipelineSummary {
   rosterSourcesSelected: number
   rosterSourcesClassified: number
   rosterSourcesNeedReview: number
+  rosterDraftsCreated: number
+  rosterDraftsReused: number
+  rosterDraftsFailed: number
   skippedByResumeCursor: number
   nextResumeCursor: number | null
   resumeCursorBlockedByFailure: boolean
@@ -134,6 +141,8 @@ export interface RunPipelineOptions {
   maxRosterAiCalls?: number
   /** Archive backfill cursor. Only messages with a larger IMAP UID are considered. */
   resumeAfterUid?: number
+  /** Explicit operator-authorized archive mode that persists review drafts. */
+  stageRosterDrafts?: boolean
 }
 
 export interface PipelineLogger {
@@ -183,6 +192,9 @@ function emptySummary(): PipelineSummary {
     rosterSourcesSelected: 0,
     rosterSourcesClassified: 0,
     rosterSourcesNeedReview: 0,
+    rosterDraftsCreated: 0,
+    rosterDraftsReused: 0,
+    rosterDraftsFailed: 0,
     skippedByResumeCursor: 0,
     nextResumeCursor: null,
     resumeCursorBlockedByFailure: false,
@@ -255,6 +267,75 @@ function blockResumeCursorAt(
     current ?? 0,
     Math.min(summary.nextResumeCursor ?? safeBoundary, safeBoundary),
   )
+}
+
+async function stageSelectedRosterDrafts(
+  db: ReturnType<typeof getDb>,
+  candidates: readonly CollectedRosterCandidate[],
+  summary: PipelineSummary,
+  log: PipelineLogger,
+  resumeAfterUid: number | undefined,
+): Promise<void> {
+  for (const candidate of candidates) {
+    const message = await findByMessageId(db, candidate.mail.messageId)
+    if (!message) {
+      summary.rosterDraftsFailed += candidate.decision.sources.length
+      blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+      log.warn('roster draft staging skipped because persisted mail is missing', {
+        messageId: candidate.mail.messageId,
+        imapUid: candidate.mail.imapUid,
+      })
+      continue
+    }
+
+    const attachments = await db
+      .select({ id: mailAttachments.id })
+      .from(mailAttachments)
+      .where(eq(mailAttachments.mailMessageId, message.id))
+      .orderBy(asc(mailAttachments.id))
+
+    for (const source of candidate.decision.sources) {
+      const attachmentId = source.sourceKind === 'attachment'
+        ? attachments[source.attachmentIndex ?? -1]?.id
+        : null
+      if (source.sourceKind === 'attachment' && attachmentId === undefined) {
+        summary.rosterDraftsFailed += 1
+        blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        log.warn('roster draft staging attachment is missing', {
+          messageId: candidate.mail.messageId,
+          attachmentIndex: source.attachmentIndex,
+          imapUid: candidate.mail.imapUid,
+        })
+        continue
+      }
+      try {
+        const result = await runRosterParse({
+          mailMessageId: message.id,
+          attachmentId,
+          triggeredByUserId: null,
+          db,
+          logger: log,
+        })
+        if (result.status === 'parse_failed') {
+          summary.rosterDraftsFailed += 1
+          blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        } else if (result.created) {
+          summary.rosterDraftsCreated += 1
+        } else {
+          summary.rosterDraftsReused += 1
+        }
+      } catch (error) {
+        summary.rosterDraftsFailed += 1
+        blockResumeCursorAt(summary, resumeAfterUid, candidate.mail.imapUid)
+        log.warn('roster draft staging failed', {
+          messageId: candidate.mail.messageId,
+          attachmentId,
+          imapUid: candidate.mail.imapUid,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
 }
 
 /**
@@ -533,6 +614,15 @@ export async function runPipeline(opts: RunPipelineOptions = {}): Promise<Pipeli
           )
         }
       }
+    }
+    if (opts.stageRosterDrafts) {
+      await stageSelectedRosterDrafts(
+        db,
+        rosterCandidates.selected,
+        summary,
+        log,
+        opts.resumeAfterUid,
+      )
     }
     return summary
   } finally {

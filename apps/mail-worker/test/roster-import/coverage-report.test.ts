@@ -43,6 +43,7 @@ describe('getLotteryCoverageReport', () => {
       title: 'covered event',
       eventDate: '2024-05-01',
       editionId: covered!.id,
+      eligibleGrades: ['A'],
     }).returning()
     const [roster] = await testDb.insert(tournamentEntryRosters).values({
       eventId: event!.id,
@@ -84,6 +85,7 @@ describe('getLotteryCoverageReport', () => {
         editions: 2,
         unknownCategory: 1,
         missingReferenceDate: 1,
+        missingGradeScope: 0,
         eligibleHeldEditions: 1,
         withConfirmedRoster: 1,
         withActualResult: 1,
@@ -95,6 +97,7 @@ describe('getLotteryCoverageReport', () => {
         editions: 1,
         unknownCategory: 0,
         missingReferenceDate: 1,
+        missingGradeScope: 1,
         eligibleHeldEditions: 1,
         withConfirmedRoster: 0,
         withActualResult: 0,
@@ -102,5 +105,60 @@ describe('getLotteryCoverageReport', () => {
         missingActualResult: 1,
       },
     ])
+  })
+
+  it('requires confirmed and actual sources for every eligible grade', async () => {
+    const [series] = await testDb.insert(tournamentSeries).values({ name: 'partial grade coverage' }).returning()
+    const [edition] = await testDb.insert(tournamentSeriesEditions).values({
+      seriesId: series!.id,
+      editionNumber: 1,
+      year: 2024,
+      status: 'held',
+      competitionCategory: 'official',
+    }).returning()
+    const [event] = await testDb.insert(events).values({
+      title: 'partial event',
+      eventDate: '2024-05-01',
+      editionId: edition!.id,
+      eligibleGrades: ['A', 'B'],
+    }).returning()
+    const [roster] = await testDb.insert(tournamentEntryRosters).values({
+      eventId: event!.id,
+      rosterType: 'confirmed',
+    }).returning()
+    await testDb.insert(tournamentConfirmedRosterPublications).values({
+      editionId: edition!.id,
+      grade: 'A',
+      rosterId: roster!.id,
+      publishedAt: '2024-04-20',
+    })
+    const [tournament] = await testDb.insert(tournaments).values({
+      name: 'partial result',
+      eventDate: '2024-05-01',
+      editionId: edition!.id,
+    }).returning()
+    const [tournamentClass] = await testDb.insert(tournamentClasses).values({
+      tournamentId: tournament!.id,
+      className: 'A級',
+      grade: 'A',
+    }).returning()
+    await testDb.insert(tournamentEditionGradeLotteryFacts).values({
+      editionId: edition!.id,
+      grade: 'A',
+      selectionStatus: 'unknown',
+      actualResultClassId: tournamentClass!.id,
+    })
+
+    const report = await getLotteryCoverageReport(testDb, { fromYear: 2024, toYear: 2024 })
+
+    expect(report.complete).toBe(false)
+    expect(report.byYear[0]).toMatchObject({
+      eligibleHeldEditions: 1,
+      missingGradeScope: 0,
+      withConfirmedRoster: 0,
+      withActualResult: 0,
+      missingConfirmedRoster: 1,
+      missingActualResult: 1,
+    })
   })
 })

@@ -7,6 +7,7 @@ export interface LotteryCoverageYear {
   editions: number
   unknownCategory: number
   missingReferenceDate: number
+  missingGradeScope: number
   eligibleHeldEditions: number
   withConfirmedRoster: number
   withActualResult: number
@@ -53,36 +54,72 @@ export async function getLotteryCoverageReport(
         d.reference_date
       FROM tournament_series_editions e
       LEFT JOIN edition_date d ON d.edition_id = e.id
+    ), expected_grade AS (
+      SELECT DISTINCT event.edition_id, expected.grade
+      FROM events event
+      CROSS JOIN LATERAL unnest(event.eligible_grades) AS expected(grade)
+      WHERE event.edition_id IS NOT NULL
     ), publication AS (
-      SELECT edition_id, bool_or(roster_id IS NOT NULL) AS has_confirmed_roster
-      FROM tournament_confirmed_roster_publications
-      GROUP BY edition_id
-    ), active_fact AS (
-      SELECT edition_id, bool_or(actual_result_class_id IS NOT NULL) AS has_actual_result
-      FROM tournament_edition_grade_lottery_facts
-      WHERE valid_to IS NULL
-      GROUP BY edition_id
+      SELECT DISTINCT publication.edition_id, publication.grade
+      FROM tournament_confirmed_roster_publications publication
+      JOIN tournament_entry_rosters roster ON roster.id = publication.roster_id
+      JOIN events roster_event
+        ON roster_event.id = roster.event_id
+       AND roster_event.edition_id = publication.edition_id
+      WHERE roster.superseded_at IS NULL
+    ), active_result AS (
+      SELECT DISTINCT fact.edition_id, fact.grade
+      FROM tournament_edition_grade_lottery_facts fact
+      JOIN tournament_classes class ON class.id = fact.actual_result_class_id
+      JOIN tournaments tournament
+        ON tournament.id = class.tournament_id
+       AND tournament.edition_id = fact.edition_id
+      WHERE fact.valid_to IS NULL
+    ), edition_coverage AS (
+      SELECT e.id AS edition_id,
+        count(expected.grade)::int AS expected_grades,
+        count(expected.grade) FILTER (
+          WHERE publication.grade IS NOT NULL
+        )::int AS confirmed_grades,
+        count(expected.grade) FILTER (
+          WHERE active_result.grade IS NOT NULL
+        )::int AS actual_result_grades
+      FROM edition_scope e
+      LEFT JOIN expected_grade expected ON expected.edition_id = e.id
+      LEFT JOIN publication
+        ON publication.edition_id = e.id
+       AND publication.grade = expected.grade
+      LEFT JOIN active_result
+        ON active_result.edition_id = e.id
+       AND active_result.grade = expected.grade
+      GROUP BY e.id
     )
     SELECT e.association_year AS year,
       count(*)::int AS editions,
       count(*) FILTER (WHERE e.competition_category = 'unknown')::int AS unknown_category,
       count(*) FILTER (WHERE e.reference_date IS NULL)::int AS missing_reference_date,
       count(*) FILTER (
+        WHERE e.status = 'held'
+          AND e.competition_category IN ('official', 'new_year')
+          AND coverage.expected_grades = 0
+      )::int AS missing_grade_scope,
+      count(*) FILTER (
         WHERE e.status = 'held' AND e.competition_category IN ('official', 'new_year')
       )::int AS eligible_held_editions,
       count(*) FILTER (
         WHERE e.status = 'held'
           AND e.competition_category IN ('official', 'new_year')
-          AND coalesce(p.has_confirmed_roster, false)
+          AND coverage.expected_grades > 0
+          AND coverage.confirmed_grades = coverage.expected_grades
       )::int AS with_confirmed_roster,
       count(*) FILTER (
         WHERE e.status = 'held'
           AND e.competition_category IN ('official', 'new_year')
-          AND coalesce(f.has_actual_result, false)
+          AND coverage.expected_grades > 0
+          AND coverage.actual_result_grades = coverage.expected_grades
       )::int AS with_actual_result
     FROM edition_scope e
-    LEFT JOIN publication p ON p.edition_id = e.id
-    LEFT JOIN active_fact f ON f.edition_id = e.id
+    JOIN edition_coverage coverage ON coverage.edition_id = e.id
     WHERE e.association_year >= ${fromYear}
       ${toYear === undefined ? sql`` : sql`AND e.association_year <= ${toYear}`}
     GROUP BY e.association_year
@@ -98,6 +135,7 @@ export async function getLotteryCoverageReport(
       editions: count(row.editions),
       unknownCategory: count(row.unknown_category),
       missingReferenceDate: count(row.missing_reference_date),
+      missingGradeScope: count(row.missing_grade_scope),
       eligibleHeldEditions,
       withConfirmedRoster,
       withActualResult,
@@ -110,6 +148,7 @@ export async function getLotteryCoverageReport(
       editions: sum.editions + row.editions,
       unknownCategory: sum.unknownCategory + row.unknownCategory,
       missingReferenceDate: sum.missingReferenceDate + row.missingReferenceDate,
+      missingGradeScope: sum.missingGradeScope + row.missingGradeScope,
       eligibleHeldEditions: sum.eligibleHeldEditions + row.eligibleHeldEditions,
       withConfirmedRoster: sum.withConfirmedRoster + row.withConfirmedRoster,
       withActualResult: sum.withActualResult + row.withActualResult,
@@ -120,6 +159,7 @@ export async function getLotteryCoverageReport(
       editions: 0,
       unknownCategory: 0,
       missingReferenceDate: 0,
+      missingGradeScope: 0,
       eligibleHeldEditions: 0,
       withConfirmedRoster: 0,
       withActualResult: 0,
@@ -134,6 +174,7 @@ export async function getLotteryCoverageReport(
     complete: totals.editions > 0
       && totals.unknownCategory === 0
       && totals.missingReferenceDate === 0
+      && totals.missingGradeScope === 0
       && totals.missingConfirmedRoster === 0
       && totals.missingActualResult === 0,
     totals,

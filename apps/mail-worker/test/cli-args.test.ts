@@ -89,4 +89,11 @@ describe('parseWorkerArgs', () => {
     )
     expect(() => parseWorkerArgs(['--resume-after-uid=-1'])).toThrow(/resume-after-uid/)
   })
+
+  it('requires explicit bounded write mode for archive draft staging', () => {
+    expect(parseWorkerArgs(['--once', '--stage-roster-drafts']).stageRosterDrafts).toBe(true)
+    expect(() => parseWorkerArgs(['--stage-roster-drafts'])).toThrow(/requires --once/)
+    expect(() => parseWorkerArgs(['--once', '--dry-run', '--stage-roster-drafts']))
+      .toThrow(/cannot be combined/)
+  })
 })

@@ -60,6 +60,8 @@ function printUsage(): void {
                          uses deterministic parsing only).
   --resume-after-uid=N   Resume an archive batch strictly after this IMAP UID.
                          The report returns nextAfterUid; failures stop cursor advance.
+  --stage-roster-drafts  With --once, idempotently create review drafts for selected
+                         archive sources. Cannot be combined with --dry-run.
   --lottery-coverage-report
                          Read-only 2024+ category/confirmed-roster/result coverage JSON.
                          Use --from-year/--to-year to change the range.
@@ -97,6 +99,7 @@ function isBackfillRun(flags: WorkerCliFlags): boolean {
     || flags.fromYear !== undefined
     || flags.toYear !== undefined
     || flags.resumeAfterUid !== undefined
+    || flags.stageRosterDrafts
 }
 
 async function loadFixtureBuffers(dir: string): Promise<Array<{ source: Buffer }>> {
@@ -191,6 +194,7 @@ async function main(): Promise<void> {
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
         resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)
@@ -227,6 +231,7 @@ async function main(): Promise<void> {
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
         resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)
@@ -284,6 +289,7 @@ async function main(): Promise<void> {
           maxRosterCandidates: flags.maxRosterCandidates,
           maxRosterAiCalls: flags.maxRosterAiCalls,
           resumeAfterUid: flags.resumeAfterUid,
+          stageRosterDrafts: flags.stageRosterDrafts,
         })
         await markJobDone(db, job.id, summary.runId)
 
@@ -319,6 +325,7 @@ async function main(): Promise<void> {
         maxRosterCandidates: flags.maxRosterCandidates,
         maxRosterAiCalls: flags.maxRosterAiCalls,
         resumeAfterUid: flags.resumeAfterUid,
+        stageRosterDrafts: flags.stageRosterDrafts,
       })
 
       console.log('pipeline summary:', summary)

@@ -49,6 +49,8 @@ export interface WorkerCliFlags {
   maxRosterAiCalls: number
   /** Resume an archive batch strictly after this IMAP UID. */
   resumeAfterUid: number | undefined
+  /** Explicitly persist selected archive sources as review drafts. */
+  stageRosterDrafts: boolean
   /** Print the read-only 2024+ tournament-category/source coverage report. */
   lotteryCoverageReport: boolean
   help: boolean
@@ -81,6 +83,7 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
     maxRosterCandidates: DEFAULT_MAX_ROSTER_CANDIDATES,
     maxRosterAiCalls: DEFAULT_MAX_ROSTER_AI_CALLS,
     resumeAfterUid: undefined,
+    stageRosterDrafts: false,
     lotteryCoverageReport: false,
     help: false,
   }
@@ -92,6 +95,7 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
     else if (arg === '--dry-run') flags.dryRun = true
     else if (arg === '--no-claim') flags.noClaim = true
     else if (arg === '--lottery-coverage-report') flags.lotteryCoverageReport = true
+    else if (arg === '--stage-roster-drafts') flags.stageRosterDrafts = true
     else if (arg === '--help' || arg === '-h') flags.help = true
     else if (arg.startsWith('--since=')) flags.since = parseSinceArg(arg.slice('--since='.length))
     else if (arg.startsWith('--fixture-dir=')) flags.fixtureDir = arg.slice('--fixture-dir='.length)
@@ -133,6 +137,12 @@ export function parseWorkerArgs(argv: readonly string[]): WorkerCliFlags {
 
   if (flags.fromYear !== undefined && flags.toYear !== undefined && flags.fromYear > flags.toYear) {
     throw new Error('year range must have --from-year <= --to-year')
+  }
+  if (flags.stageRosterDrafts && !flags.once) {
+    throw new Error('--stage-roster-drafts requires --once to keep the write batch bounded')
+  }
+  if (flags.stageRosterDrafts && flags.dryRun) {
+    throw new Error('--stage-roster-drafts cannot be combined with --dry-run')
   }
   return flags
 }

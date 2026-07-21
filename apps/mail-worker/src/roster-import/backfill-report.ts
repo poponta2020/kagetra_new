@@ -12,6 +12,9 @@ export interface LotteryBackfillSummary {
   rosterSourcesSelected: number
   rosterSourcesClassified: number
   rosterSourcesNeedReview: number
+  rosterDraftsCreated: number
+  rosterDraftsReused: number
+  rosterDraftsFailed: number
   skippedByResumeCursor: number
   nextResumeCursor: number | null
   resumeCursorBlockedByFailure: boolean
@@ -37,6 +40,9 @@ export interface LotteryBackfillReport {
     selectedSources: number
     successfulClassifications: number
     needsReview: number
+    draftsCreated: number
+    draftsReused: number
+    draftFailures: number
     failures: number
     skippedByLimit: number
     aiEligible: number
@@ -80,7 +86,10 @@ export function buildLotteryBackfillReport(
       selectedSources: summary.rosterSourcesSelected,
       successfulClassifications: summary.rosterSourcesClassified,
       needsReview: summary.rosterSourcesNeedReview,
-      failures: summary.failed,
+      draftsCreated: summary.rosterDraftsCreated,
+      draftsReused: summary.rosterDraftsReused,
+      draftFailures: summary.rosterDraftsFailed,
+      failures: summary.failed + summary.rosterDraftsFailed,
       skippedByLimit: summary.rosterCandidatesSkippedByLimit,
       aiEligible: summary.rosterAiEligible,
     },

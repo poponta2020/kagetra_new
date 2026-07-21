@@ -15,6 +15,7 @@ import {
   tournamentClasses,
   tournamentDrafts,
   tournamentRosterImportDrafts,
+  tournamentSeriesEditions,
   tournaments,
 } from '@kagetra/shared/schema'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
@@ -1523,6 +1524,14 @@ const rosterPurposeSchema = z.enum([
   'confirmed_publication',
 ])
 const rosterRevisionSchema = z.enum(['initial', 'correction', 'additional'])
+const competitionCategorySchema = z.enum([
+  'official',
+  'new_year',
+  'hosted',
+  'supported',
+  'other',
+  'unknown',
+])
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   const date = new Date(`${value}T00:00:00Z`)
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
@@ -1542,6 +1551,8 @@ const rosterApprovalSchema = z.object({
   publishedAt: isoDateSchema,
   revisionKind: rosterRevisionSchema,
   correctionTargetRosterId: z.number().int().positive().nullable(),
+  competitionCategory: competitionCategorySchema.default('unknown'),
+  competitionCategoryNote: z.string().trim().max(500).nullable().default(null),
   gradeConfigs: z.array(gradeAdoptionConfigSchema).min(1).max(5),
 })
 const rosterDraftPayloadSchema = z.object({
@@ -1581,6 +1592,8 @@ function parseRosterApprovalForm(formData: FormData) {
     publishedAt: formData.get('publishedAt'),
     revisionKind: formData.get('revisionKind'),
     correctionTargetRosterId: rawTarget ? Number(rawTarget) : null,
+    competitionCategory: formData.get('competitionCategory') ?? undefined,
+    competitionCategoryNote: String(formData.get('competitionCategoryNote') ?? '').trim() || null,
     gradeConfigs,
   })
   if (!parsed.success) throw new Error('名簿の採用設定を確認してください')
@@ -1747,7 +1760,8 @@ export async function approveRosterImportDraft(
           .map((entry) => entry.grade)
           .filter((grade): grade is LotteryGrade => grade !== null),
       )
-      if (explicitGrades.size === 0 && configuredGrades.size !== 1) {
+      const hasUnresolvedGrade = payload.data.entries.some((entry) => entry.grade === null)
+      if (hasUnresolvedGrade && configuredGrades.size !== 1) {
         throw new Error('級がない行を複数級へ推測で割り当てることはできません')
       }
       if (
@@ -1771,6 +1785,33 @@ export async function approveRosterImportDraft(
         [...configuredGrades].some((grade) => !event.eligibleGrades!.includes(grade))
       ) {
         throw new Error('イベントの対象級に含まれない級が指定されています')
+      }
+
+      // The reviewed roster configuration is the authoritative grade scope
+      // for completeness checks. Preserve any previously verified grades.
+      await tx
+        .update(events)
+        .set({
+          eligibleGrades: [...new Set([...(event.eligibleGrades ?? []), ...configuredGrades])],
+          updatedAt: new Date(),
+        })
+        .where(eq(events.id, event.id))
+
+      // An explicit non-unknown choice is an audited category verification.
+      // The source mail and reviewer are stored together so historical
+      // coverage never depends on unsupported direct database edits.
+      if (input.competitionCategory !== 'unknown') {
+        await tx
+          .update(tournamentSeriesEditions)
+          .set({
+            competitionCategory: input.competitionCategory,
+            competitionCategorySourceMailId: draft.sourceMailMessageId,
+            competitionCategoryNote: input.competitionCategoryNote,
+            competitionCategoryVerifiedAt: new Date(),
+            competitionCategoryVerifiedByUserId: session.user.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(tournamentSeriesEditions.id, input.editionId))
       }
 
       const purpose = input.purpose as RosterPurpose

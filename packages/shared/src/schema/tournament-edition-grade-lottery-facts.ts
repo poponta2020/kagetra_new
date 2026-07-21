@@ -32,6 +32,7 @@ export const tournamentEditionGradeLotteryFacts = pgTable(
     selectionResultRosterId: integer('selection_result_roster_id'),
     actualResultClassId: integer('actual_result_class_id'),
     selectionRuleVersion: text('selection_rule_version'),
+    selectionRuleEvidence: text('selection_rule_evidence'),
     sourceMailMessageId: integer('source_mail_message_id'),
     verifiedAt: timestamp('verified_at', { mode: 'date', withTimezone: true }),
     verifiedByUserId: text('verified_by_user_id'),

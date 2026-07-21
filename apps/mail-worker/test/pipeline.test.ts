@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { mailMessages } from '@kagetra/shared/schema'
+import { mailMessages, tournamentRosterImportDrafts } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateMailTables } from './test-db.js'
 import { runPipelineFromFixtures } from '../src/pipeline.js'
 import { closeDb } from '../src/db.js'
@@ -163,6 +163,45 @@ describe('pipeline (fixture → DB)', () => {
     expect(summary.rosterCandidatesSelected).toBe(1)
     expect(summary.rosterAiEligible).toBe(0)
     expect(await testDb.select().from(mailMessages)).toHaveLength(0)
+  })
+
+  it('explicit archive stage mode creates one idempotent review draft per selected source', async () => {
+    const rosterMail = Buffer.from([
+      'Message-ID: <archive-stage-roster@example.test>',
+      'From: organizer@example.test',
+      'To: receiver@example.test',
+      'Date: Thu, 1 Aug 2024 09:00:00 +0900',
+      'Subject: A級 確定名簿',
+      '',
+      'A級の確定名簿を送付します。',
+    ].join('\r\n'))
+    const options = {
+      mailbox: '99_202510以前のメール',
+      fromYear: 2024,
+      toYear: 2024,
+      maxRosterCandidates: 1,
+      maxRosterAiCalls: 0,
+      stageRosterDrafts: true,
+    }
+
+    const first = await runPipelineFromFixtures([{ source: rosterMail, imapUid: 501 }], options)
+    expect(first).toMatchObject({
+      inserted: 1,
+      rosterCandidatesSelected: 1,
+      rosterDraftsCreated: 1,
+      rosterDraftsReused: 0,
+      rosterDraftsFailed: 0,
+      nextResumeCursor: 501,
+    })
+
+    const second = await runPipelineFromFixtures([{ source: rosterMail, imapUid: 501 }], options)
+    expect(second).toMatchObject({
+      duplicated: 1,
+      rosterDraftsCreated: 0,
+      rosterDraftsReused: 1,
+      rosterDraftsFailed: 0,
+    })
+    expect(await testDb.select().from(tournamentRosterImportDrafts)).toHaveLength(1)
   })
 
   it('resumes an archive dry-run by IMAP UID and returns a stable next cursor', async () => {

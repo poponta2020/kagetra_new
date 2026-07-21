@@ -37,12 +37,22 @@ pnpm --filter @kagetra/mail-worker exec tsx src/index.ts --dry-run --mailbox=99_
 pnpm --filter @kagetra/mail-worker exec tsx src/index.ts --lottery-coverage-report --from-year=2024
 ```
 
-協会年度（4月1日〜翌3月31日）別に `unknownCategory`、`missingReferenceDate`、`missingConfirmedRoster`、`missingActualResult` を確認する。すべて0になるまで `complete=false` とし、区分不明開催を公認・新春へ推定しない。開催日、確定名簿、実出場原本が不足する開催回は年度回数・A級当落線の完全値へ利用しない。
+協会年度（4月1日〜翌3月31日）別に `unknownCategory`、`missingReferenceDate`、`missingGradeScope`、`missingConfirmedRoster`、`missingActualResult` を確認する。すべて0になるまで `complete=false` とし、区分不明開催を公認・新春へ推定しない。対象級は `events.eligible_grades` を正とし、原本に存在する級から補完しない。開催日、対象級、級別の確定名簿、実出場原本が不足する開催回は年度回数・A級当落線の完全値へ利用しない。
+
+## 承認後のドラフト一括生成
+
+dry-runレポートとcoverageを保存し、候補原本のレビューとDBバックアップを完了して明示承認を得た後に限り、1バッチを次の形で実行する。`--stage-roster-drafts` は取得した候補原本から確認用ドラフトを作るだけで、ドラフトの採用や一般公開集計への反映は行わない。
+
+```powershell
+pnpm --filter @kagetra/mail-worker exec tsx src/index.ts --once --stage-roster-drafts --mailbox=99_202510以前のメール --from-year=2018 --to-year=2025 --max-roster-candidates=500 --max-roster-ai-calls=0 --resume-after-uid=<previousCursor>
+```
+
+レポートの `rosterDraftsCreated`、`rosterDraftsReused`、`rosterDraftFailures` を照合する。同じ引数の再実行は既存ドラフトを再利用する。`rosterDraftFailures` が1件でもあれば `blockedByFailure=true` とし、原因解消まで同じカーソルから再実行する。`--dry-run` と `--stage-roster-drafts` は併用しない。
 
 ## 実装時のfixture検証（2026-07-21）
 
 - archive dry-run: fetched 6、DB insert 0、AI eligible 0、failures 0
-- 専用テストDBcoverage: 3開催中 category unknown 1、開催日不足2、公認・新春の開催済み2、確定名簿不足1、実出場原本不足1、`complete=false`
+- 専用テストDBcoverage: 3開催中 category unknown 1、開催日不足2、公認・新春の開催済み2、確定名簿不足1、実出場原本不足1、`complete=false`。追加fixtureで対象級未設定とA/B一部級欠落を検出
 - これはfixture／専用テストDBの機構確認値であり、Yahoo Mailまたは本番DBの実件数ではない
 
 ## 本番書込み前の承認チェック

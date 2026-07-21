@@ -43,6 +43,7 @@ async function createEdition(
     category?: 'official' | 'new_year' | 'hosted' | 'supported' | 'other' | 'unknown'
     capacity?: number | null
     capacityA?: number | null
+    eligibleGrades?: Grade[]
   } = {},
 ) {
   const [edition] = await testDb
@@ -63,6 +64,7 @@ async function createEdition(
       editionId: edition!.id,
       capacity: options.capacity ?? null,
       capacityA: options.capacityA ?? null,
+      eligibleGrades: options.eligibleGrades ?? ['A'],
     })
     .returning()
   return { edition: edition!, event: event! }
@@ -112,6 +114,7 @@ async function createFact(input: {
   selectionResultRosterId?: number | null
   applicationStartDate?: string | null
   ruleVersion?: string | null
+  ruleEvidence?: string | null
   actualResultClassId?: number | null
 }) {
   const [fact] = await testDb
@@ -125,6 +128,8 @@ async function createFact(input: {
       selectionResultRosterId: input.selectionResultRosterId ?? null,
       applicationStartDate: input.applicationStartDate ?? null,
       selectionRuleVersion: input.ruleVersion ?? null,
+      selectionRuleEvidence: input.ruleEvidence ??
+        (input.ruleVersion ? 'requirements:tournament-lottery-trends#2024-a-grade-priority-notice' : null),
       actualResultClassId: input.actualResultClassId ?? null,
       verifiedAt: new Date(),
       verifiedByUserId: verifierId,
@@ -289,6 +294,42 @@ describe('getSeriesLotteryMetrics', () => {
       occupancy: null,
       lotteryRatio: null,
       completeness: 'complete',
+    })
+  })
+
+  it('keeps the A-grade capacity line for an under-capacity 80/100 edition', async () => {
+    const series = await createSeries()
+    const target = await createEdition(series.id, 1, '2025-02-01', {
+      eligibleGrades: ['A'],
+    })
+    const applicantRows: Array<{ name: string; playerId: number }> = []
+    for (let index = 0; index < 80; index += 1) {
+      const player = await createPlayer(`定員未満${index + 1}`)
+      applicantRows.push({ name: player.displayName, playerId: player.id })
+    }
+    const applicants = await createRoster(target.event.id, 'applicant', 'A', applicantRows)
+    await createFact({
+      editionId: target.edition.id,
+      grade: 'A',
+      status: 'under_capacity',
+      capacity: 100,
+      applicantRosterId: applicants.id,
+      applicationStartDate: '2025-01-10',
+      ruleVersion: APPEARANCE_COUNT_RULE_VERSION,
+    })
+
+    const point = (await getSeriesLotteryMetrics(series.id, testDb)).points[0]!
+    expect(point.aGradeCutoff).toMatchObject({
+      completeness: 'complete',
+      capacityLine: {
+        capacity: 100,
+        remainingSlots: 20,
+        boundaryAppearanceCount: null,
+      },
+      appearanceBuckets: [{
+        appearanceCount: 0,
+        applicantCount: 80,
+      }],
     })
   })
 

@@ -79,14 +79,15 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
     expect(broadcast?.status).toBe('linked')
 
     expect(sendGuidelinesOnLinkMock).toHaveBeenCalledTimes(1)
-    expect(sendGuidelinesOnLinkMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        eventLineBroadcastId: broadcast!.id,
-        lineGroupId: 'Cmanual123',
-        channelAccessToken: 'tok-manual',
-      }),
-    )
+    const guidelineCall = sendGuidelinesOnLinkMock.mock.calls[0] as
+      | unknown[]
+      | undefined
+    expect(guidelineCall?.[0]).toBeDefined()
+    expect(guidelineCall?.[1]).toMatchObject({
+      eventLineBroadcastId: broadcast!.id,
+      lineGroupId: 'Cmanual123',
+      channelAccessToken: 'tok-manual',
+    })
   })
 
   it('要綱送信が失敗（throw）しても linked は保たれ、ログに残す（best-effort・AC-6）', async () => {

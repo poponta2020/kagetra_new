@@ -109,6 +109,8 @@ export default async function RosterDraftReviewPage({
         number: tournamentSeriesEditions.editionNumber,
         year: tournamentSeriesEditions.year,
         seriesName: tournamentSeries.name,
+        competitionCategory: tournamentSeriesEditions.competitionCategory,
+        competitionCategoryNote: tournamentSeriesEditions.competitionCategoryNote,
       })
       .from(tournamentSeriesEditions)
       .innerJoin(tournamentSeries, eq(tournamentSeries.id, tournamentSeriesEditions.seriesId)),
@@ -245,6 +247,8 @@ export default async function RosterDraftReviewPage({
             publishedAt={jstDate(draft.sourceMail?.receivedAt)}
             editions={editionRows.map((edition) => ({
               id: edition.id,
+              competitionCategory: edition.competitionCategory,
+              competitionCategoryNote: edition.competitionCategoryNote,
               label: `${edition.seriesName} 第${edition.number}回${edition.year ? ` (${edition.year})` : ''}`,
             }))}
             events={eventRows.map((event) => ({

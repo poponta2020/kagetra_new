@@ -73,6 +73,7 @@ flowchart LR
 - `selection_result_roster_id`: 抽選結果発表時の当落結果原本。抽選時確定者数は`selection_outcome='accepted'`を数える。
 - `actual_result_class_id`: 当日実出場者の正となる `tournament_classes` 行
 - `selection_rule_version`: A級優先抽選ルールの版。初期値は制度施行期間に応じた `ajka-a-priority-2024-v1`。
+- `selection_rule_evidence`: 上記ルール版を確定した一次資料または正典内の根拠キー。ルール適用期間外または根拠を特定できない開催回はnullのままにし、A級当落線をincompleteとする。
 - `source_mail_message_id`、`verified_at`、`verified_by_user_id`
 - `supersedes_fact_id`、`valid_to`: 訂正前の定員・採用原本・結果リンクを残す。`valid_to IS NULL`の `(edition_id, grade)` を1件に制約する。
 
@@ -126,6 +127,8 @@ flowchart LR
 
 完全性は、対象年度・基準日以前の公認／新春開催について、確定名簿発表が存在するか、開催済みならactiveな実出場結果が存在するかを検査する。区分不明開催が残る年度もincompleteとする。
 
+対象級の正は開催イベントの `events.eligible_grades` とする。名簿・publication・factに存在する級から対象級を逆算しない。対象級が未設定なら `unknown_grade_scope`、一部の級だけ原本がある場合は不足級を列挙してincompleteとする。
+
 ## 5. 倍率・定員余裕・A級当落線
 
 `apps/web/src/lib/lottery/series-metrics.ts` がactiveな級別採用原本から集計する。
@@ -136,6 +139,8 @@ flowchart LR
 - 0人、原本欠落、重複、級不明、accepted=0等は0補完せずincompleteにする。
 
 A級当落線は申込開始日前日を基準に、対象A級申込者全員の年度回数を1回の集合SQLで算定する。申込者を主催者枠と通常枠へ分け、通常枠を0回、1回、2回……の順に集約する。抽選結果原本とのplayer一致からaccepted／waitlisted／rejected人数を出し、capacity線が横切る回数帯を境界として返す。自己申告列は読み取っても計算へ渡さない。
+
+抽選結果との当落照合は `selection_status=lottery` のときだけ必須とする。`under_capacity` は申込名簿と定員から残枠・充足率を算出し、抽選結果原本を要求しない。A級ルールは `2024-04-01` 以上 `2026-04-01` 未満を `ajka-a-priority-2024-v1` とする有効期間レジストリで解決し、版と根拠をfactへ同時保存する。
 
 ## 6. Yahoo Mailと過去データ取込
 

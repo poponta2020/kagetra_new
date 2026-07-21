@@ -13,6 +13,30 @@ export type LotteryGrade = 'A' | 'B' | 'C' | 'D' | 'E'
 export type LotterySelectionStatus = 'lottery' | 'under_capacity' | 'no_capacity' | 'unknown'
 export type RosterPurpose = 'applicant' | 'selection_result' | 'confirmed_publication'
 
+export interface ASelectionRule {
+  version: string
+  evidence: string
+}
+
+const A_SELECTION_RULE_PERIODS = [
+  {
+    effectiveFrom: '2024-04-01',
+    effectiveThrough: '2026-03-31',
+    version: 'ajka-a-priority-2024-v1',
+    evidence: 'requirements:tournament-lottery-trends#2024-a-grade-priority-notice',
+  },
+] as const
+
+/** Resolve only periods backed by reviewed rule evidence; never guess outside them. */
+export function resolveASelectionRule(applicationStartDate: string): ASelectionRule | null {
+  const period = A_SELECTION_RULE_PERIODS.find(
+    (candidate) =>
+      applicationStartDate >= candidate.effectiveFrom &&
+      applicationStartDate <= candidate.effectiveThrough,
+  )
+  return period ? { version: period.version, evidence: period.evidence } : null
+}
+
 export interface GradeAdoptionConfig {
   grade: LotteryGrade
   selectionStatus: LotterySelectionStatus
@@ -33,6 +57,7 @@ export interface ActiveLotteryFact {
   selectionResultRosterId: number | null
   actualResultClassId: number | null
   selectionRuleVersion: string | null
+  selectionRuleEvidence: string | null
   sourceMailMessageId: number | null
   verifiedAt: Date | null
   verifiedByUserId: string | null
@@ -49,6 +74,7 @@ const factProjection = {
   selectionResultRosterId: tournamentEditionGradeLotteryFacts.selectionResultRosterId,
   actualResultClassId: tournamentEditionGradeLotteryFacts.actualResultClassId,
   selectionRuleVersion: tournamentEditionGradeLotteryFacts.selectionRuleVersion,
+  selectionRuleEvidence: tournamentEditionGradeLotteryFacts.selectionRuleEvidence,
   sourceMailMessageId: tournamentEditionGradeLotteryFacts.sourceMailMessageId,
   verifiedAt: tournamentEditionGradeLotteryFacts.verifiedAt,
   verifiedByUserId: tournamentEditionGradeLotteryFacts.verifiedByUserId,
@@ -222,6 +248,12 @@ export async function createLotteryFactRevision(
   },
 ): Promise<number> {
   const current = await loadActiveLotteryFact(tx, input.editionId, input.config.grade)
+  const applicationStartDate =
+    input.config.applicationStartDate ?? current?.applicationStartDate ?? null
+  const selectionRule =
+    input.config.grade === 'A' && applicationStartDate !== null
+      ? resolveASelectionRule(applicationStartDate)
+      : null
 
   if (input.correctionTargetRosterId !== null) {
     const adoptedTarget =
@@ -240,7 +272,7 @@ export async function createLotteryFactRevision(
     grade: input.config.grade,
     selectionStatus: input.config.selectionStatus,
     capacity: input.config.capacity,
-    applicationStartDate: input.config.applicationStartDate,
+    applicationStartDate,
     applicantRosterId:
       input.purpose === 'applicant' ? input.rosterId : (current?.applicantRosterId ?? null),
     selectionResultRosterId:
@@ -248,11 +280,8 @@ export async function createLotteryFactRevision(
         ? input.rosterId
         : (current?.selectionResultRosterId ?? null),
     actualResultClassId: current?.actualResultClassId ?? null,
-    selectionRuleVersion:
-      current?.selectionRuleVersion ??
-      (input.config.grade === 'A' && input.config.applicationStartDate
-        ? 'ajka-a-priority-2024-v1'
-        : null),
+    selectionRuleVersion: selectionRule?.version ?? null,
+    selectionRuleEvidence: selectionRule?.evidence ?? null,
     sourceMailMessageId: input.sourceMailMessageId,
     verifiedAt: new Date(),
     verifiedByUserId: input.verifiedByUserId,
@@ -306,6 +335,7 @@ async function insertCopiedFactWithActualResult(
     selectionResultRosterId: current.selectionResultRosterId,
     actualResultClassId,
     selectionRuleVersion: current.selectionRuleVersion,
+    selectionRuleEvidence: current.selectionRuleEvidence,
     sourceMailMessageId: sourceMailMessageId ?? current.sourceMailMessageId,
     verifiedAt: new Date(),
     verifiedByUserId,

@@ -8,6 +8,7 @@ export const APPEARANCE_COUNT_RULE_VERSION = 'ajka-a-priority-2024-v1'
 export type AppearanceCountGrade = 'A' | 'B' | 'C' | 'D' | 'E'
 export type AppearanceCountMissingReason =
   | 'unknown_competition_category'
+  | 'unknown_grade_scope'
   | 'missing_confirmed_roster'
   | 'missing_actual_result'
 
@@ -189,10 +190,11 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
       WHERE publication.published_at <= ${validated.referenceDate}::date
         AND roster.superseded_at IS NULL
     ),
-    edition_grades AS (
-      SELECT edition_id, grade FROM active_facts
-      UNION
-      SELECT edition_id, grade FROM eligible_publications
+    expected_grades AS (
+      SELECT DISTINCT ce.edition_id, expected.grade
+      FROM candidate_editions ce
+      JOIN events expected_event ON expected_event.edition_id = ce.edition_id
+      CROSS JOIN LATERAL unnest(expected_event.eligible_grades) AS expected(grade)
     ),
     eligible_actual_classes AS (
       SELECT fact.edition_id, fact.grade, class.id AS class_id
@@ -205,14 +207,14 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
         AND tournament.event_date <= ${validated.effectiveEndDate}::date
     ),
     grade_scope AS (
-      SELECT ce.edition_id, eg.grade
+      SELECT ce.edition_id, expected.grade
       FROM candidate_editions ce
-      JOIN edition_grades eg ON eg.edition_id = ce.edition_id
+      JOIN expected_grades expected ON expected.edition_id = ce.edition_id
       UNION ALL
       SELECT ce.edition_id, NULL::grade
       FROM candidate_editions ce
       WHERE NOT EXISTS (
-        SELECT 1 FROM edition_grades eg WHERE eg.edition_id = ce.edition_id
+        SELECT 1 FROM expected_grades expected WHERE expected.edition_id = ce.edition_id
       )
     ),
     roster_appearances AS (
@@ -293,10 +295,32 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
 
       SELECT scope.edition_id,
              scope.grade,
+             'unknown_grade_scope'::text AS reason
+      FROM grade_scope scope
+      JOIN candidate_editions ce ON ce.edition_id = scope.edition_id
+      WHERE scope.grade IS NULL
+        AND ce.competition_category IN ('official', 'new_year')
+        AND (
+          ce.event_date <= ${validated.effectiveEndDate}::date
+          OR EXISTS (
+            SELECT 1 FROM eligible_publications publication
+            WHERE publication.edition_id = scope.edition_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM eligible_actual_classes actual
+            WHERE actual.edition_id = scope.edition_id
+          )
+        )
+
+      UNION ALL
+
+      SELECT scope.edition_id,
+             scope.grade,
              'missing_confirmed_roster'::text AS reason
       FROM grade_scope scope
       JOIN candidate_editions ce ON ce.edition_id = scope.edition_id
       WHERE ce.competition_category IN ('official', 'new_year')
+        AND scope.grade IS NOT NULL
         AND ce.event_date <= ${validated.effectiveEndDate}::date
         AND NOT EXISTS (
           SELECT 1
@@ -313,6 +337,7 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
       FROM grade_scope scope
       JOIN candidate_editions ce ON ce.edition_id = scope.edition_id
       WHERE ce.competition_category IN ('official', 'new_year')
+        AND scope.grade IS NOT NULL
         AND ce.status = 'held'
         AND ce.event_date <= ${validated.effectiveEndDate}::date
         AND NOT EXISTS (

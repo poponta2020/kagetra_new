@@ -25,6 +25,7 @@ export type AGradeCutoffMissingReason =
   | 'missing_capacity'
   | 'missing_application_start_date'
   | 'unsupported_rule_version'
+  | 'missing_rule_evidence'
   | 'unverified_exemption_classification'
   | 'missing_applicant_identity'
   | 'duplicate_applicant_identity'
@@ -112,6 +113,7 @@ interface CoreRow extends Record<string, unknown> {
   capacity: number | null
   application_start_date: string | null
   selection_rule_version: string | null
+  selection_rule_evidence: string | null
   verified_at: Date | null
   verified_by_user_id: string | null
   applicant_roster_id: number | null
@@ -167,6 +169,7 @@ function coreQuery(seriesId: number) {
            f.capacity,
            f.application_start_date,
            f.selection_rule_version,
+           f.selection_rule_evidence,
            f.verified_at,
            f.verified_by_user_id,
            ar.id AS applicant_roster_id,
@@ -318,10 +321,13 @@ function cutoffQuery(seriesId: number) {
         ON roster_event.id = roster.event_id
        AND roster_event.edition_id = publication.edition_id
     ),
-    edition_grades AS (
-      SELECT target_edition_id, edition_id, grade FROM active_facts
-      UNION
-      SELECT target_edition_id, edition_id, grade FROM eligible_publications
+    expected_grades AS (
+      SELECT DISTINCT candidate.target_edition_id,
+             candidate.edition_id,
+             expected.grade
+      FROM candidate_editions candidate
+      JOIN events expected_event ON expected_event.edition_id = candidate.edition_id
+      CROSS JOIN LATERAL unnest(expected_event.eligible_grades) AS expected(grade)
     ),
     eligible_actual_classes AS (
       SELECT fact.target_edition_id,
@@ -339,18 +345,18 @@ function cutoffQuery(seriesId: number) {
        AND tournament.event_date <= candidate.reference_date
     ),
     grade_scope AS (
-      SELECT candidate.target_edition_id, candidate.edition_id, grade.grade
+      SELECT candidate.target_edition_id, candidate.edition_id, expected.grade
       FROM candidate_editions candidate
-      JOIN edition_grades grade
-        ON grade.target_edition_id = candidate.target_edition_id
-       AND grade.edition_id = candidate.edition_id
+      JOIN expected_grades expected
+        ON expected.target_edition_id = candidate.target_edition_id
+       AND expected.edition_id = candidate.edition_id
       UNION ALL
       SELECT candidate.target_edition_id, candidate.edition_id, NULL::grade
       FROM candidate_editions candidate
       WHERE NOT EXISTS (
-        SELECT 1 FROM edition_grades grade
-        WHERE grade.target_edition_id = candidate.target_edition_id
-          AND grade.edition_id = candidate.edition_id
+        SELECT 1 FROM expected_grades expected
+        WHERE expected.target_edition_id = candidate.target_edition_id
+          AND expected.edition_id = candidate.edition_id
       )
     ),
     roster_appearances AS (
@@ -420,12 +426,34 @@ function cutoffQuery(seriesId: number) {
           )
         )
       UNION
+      SELECT scope.target_edition_id, 'unknown_grade_scope'::text
+      FROM grade_scope scope
+      JOIN candidate_editions candidate
+        ON candidate.target_edition_id = scope.target_edition_id
+       AND candidate.edition_id = scope.edition_id
+      WHERE scope.grade IS NULL
+        AND candidate.competition_category IN ('official', 'new_year')
+        AND (
+          candidate.event_date <= candidate.reference_date
+          OR EXISTS (
+            SELECT 1 FROM eligible_publications publication
+            WHERE publication.target_edition_id = scope.target_edition_id
+              AND publication.edition_id = scope.edition_id
+          )
+          OR EXISTS (
+            SELECT 1 FROM eligible_actual_classes actual
+            WHERE actual.target_edition_id = scope.target_edition_id
+              AND actual.edition_id = scope.edition_id
+          )
+        )
+      UNION
       SELECT scope.target_edition_id, 'missing_confirmed_roster'::text
       FROM grade_scope scope
       JOIN candidate_editions candidate
         ON candidate.target_edition_id = scope.target_edition_id
        AND candidate.edition_id = scope.edition_id
       WHERE candidate.competition_category IN ('official', 'new_year')
+        AND scope.grade IS NOT NULL
         AND candidate.event_date <= candidate.reference_date
         AND NOT EXISTS (
           SELECT 1 FROM eligible_publications publication
@@ -440,6 +468,7 @@ function cutoffQuery(seriesId: number) {
         ON candidate.target_edition_id = scope.target_edition_id
        AND candidate.edition_id = scope.edition_id
       WHERE candidate.competition_category IN ('official', 'new_year')
+        AND scope.grade IS NOT NULL
         AND candidate.status = 'held'
         AND candidate.event_date <= candidate.reference_date
         AND NOT EXISTS (
@@ -618,6 +647,7 @@ function buildCutoff(
   if (core.selection_rule_version !== APPEARANCE_COUNT_RULE_VERSION) {
     reasons.push('unsupported_rule_version')
   }
+  if (core.selection_rule_evidence == null) reasons.push('missing_rule_evidence')
   if (core.verified_at == null || core.verified_by_user_id == null) {
     reasons.push('unverified_exemption_classification')
   }
@@ -625,13 +655,20 @@ function buildCutoff(
   if (int(core.applicant_count) !== int(core.applicant_distinct_count)) {
     reasons.push('duplicate_applicant_identity')
   }
-  if (subjects.some((row) => int(row.selection_match_count) === 0)) {
-    reasons.push('missing_selection_outcome')
+  // Under-capacity editions intentionally have no selection-result roster.
+  // Their capacity line is derived from the applicant stack alone; only an
+  // actual lottery needs a one-to-one, resolved outcome for every applicant.
+  if (core.selection_status === 'lottery') {
+    if (subjects.some((row) => int(row.selection_match_count) === 0)) {
+      reasons.push('missing_selection_outcome')
+    }
+    if (subjects.some((row) => int(row.selection_match_count) > 1)) {
+      reasons.push('duplicate_selection_outcome')
+    }
+    if (subjects.some((row) => int(row.unknown_count) > 0)) {
+      reasons.push('unknown_selection_outcome')
+    }
   }
-  if (subjects.some((row) => int(row.selection_match_count) > 1)) {
-    reasons.push('duplicate_selection_outcome')
-  }
-  if (subjects.some((row) => int(row.unknown_count) > 0)) reasons.push('unknown_selection_outcome')
   if (missingHistory) reasons.push('incomplete_appearance_history')
 
   const organizerRows = subjects.filter((row) => row.selection_exempt === true)

@@ -40,6 +40,7 @@ async function createEdition(input: {
   eventDate: string
   category?: 'official' | 'new_year' | 'hosted' | 'supported' | 'other' | 'unknown'
   status?: 'held' | 'cancelled' | 'unconfirmed'
+  eligibleGrades: Grade[]
 }) {
   let [series] = await testDb.select().from(tournamentSeries).limit(1)
   if (!series) {
@@ -65,6 +66,7 @@ async function createEdition(input: {
       title: `edition-${input.editionNumber}`,
       eventDate: input.eventDate,
       editionId: edition.id,
+      eligibleGrades: input.eligibleGrades,
     })
     .returning()
   if (!event) throw new Error('failed to create event')
@@ -188,6 +190,7 @@ describe('getAppearanceCounts', () => {
         editionNumber: index + 1,
         eventDate: item.date,
         category: item.category,
+        eligibleGrades: [item.grade],
       })
       await publishRoster(edition.id, event.id, item.grade, item.date, [
         { playerId: player.id },
@@ -216,7 +219,11 @@ describe('getAppearanceCounts', () => {
     const waitlisted = await createPlayer('キャンセル待ち選手')
     const actualOnly = await createPlayer('当日繰上選手')
     const rejected = await createPlayer('落選選手')
-    const { edition, event } = await createEdition({ editionNumber: 1, eventDate: '2024-08-01' })
+    const { edition, event } = await createEdition({
+      editionNumber: 1,
+      eventDate: '2024-08-01',
+      eligibleGrades: ['B', 'E'],
+    })
 
     await publishRoster(
       edition.id,
@@ -286,6 +293,7 @@ describe('getAppearanceCounts', () => {
       editionNumber: 1,
       eventDate: '2024-06-01',
       status: 'unconfirmed',
+      eligibleGrades: ['A'],
     })
     await publishRoster(edition.id, event.id, 'A', '2024-06-02', [{ playerId: player.id }])
     const resultClass = await createActualResult(edition.id, 'A', '2024-06-03', [player.id])
@@ -316,6 +324,7 @@ describe('getAppearanceCounts', () => {
       editionNumber: 1,
       eventDate: '2024-12-01',
       status: 'unconfirmed',
+      eligibleGrades: ['A'],
     })
     await publishRoster(edition.id, event.id, 'A', '2024-05-20', [
       { playerId: rosterPlayer.id },
@@ -344,7 +353,11 @@ describe('getAppearanceCounts', () => {
   it('follows the active fact when a corrected result replaces the old class', async () => {
     const oldPlayer = await createPlayer('旧結果選手')
     const correctedPlayer = await createPlayer('訂正結果選手')
-    const { edition } = await createEdition({ editionNumber: 1, eventDate: '2024-09-01' })
+    const { edition } = await createEdition({
+      editionNumber: 1,
+      eventDate: '2024-09-01',
+      eligibleGrades: ['A'],
+    })
     const oldClass = await createActualResult(edition.id, 'A', '2024-09-01', [oldPlayer.id])
     await addActiveFact(edition.id, 'A', oldClass.id, { validTo: new Date('2024-09-02T00:00:00Z') })
     const correctedClass = await createActualResult(edition.id, 'A', '2024-09-01', [
@@ -374,6 +387,7 @@ describe('getAppearanceCounts', () => {
       editionNumber: 1,
       eventDate: '2024-09-01',
       status: 'unconfirmed',
+      eligibleGrades: ['A'],
     })
     const oldRoster = await publishRoster(edition.id, event.id, 'A', '2024-08-01', [
       { playerId: oldPlayer.id },
@@ -412,6 +426,7 @@ describe('getAppearanceCounts', () => {
       editionNumber: 1,
       eventDate: '2024-09-01',
       status: 'unconfirmed',
+      eligibleGrades: ['A'],
     })
     const [applicantRoster] = await testDb
       .insert(tournamentEntryRosters)
@@ -447,13 +462,22 @@ describe('getAppearanceCounts', () => {
       editionNumber: 1,
       eventDate: '2024-05-01',
       category: 'unknown',
+      eligibleGrades: ['C'],
     })
     await addActiveFact(unknown.edition.id, 'C', null)
 
-    const missingBoth = await createEdition({ editionNumber: 2, eventDate: '2024-06-01' })
+    const missingBoth = await createEdition({
+      editionNumber: 2,
+      eventDate: '2024-06-01',
+      eligibleGrades: ['A'],
+    })
     await addActiveFact(missingBoth.edition.id, 'A', null)
 
-    const missingResult = await createEdition({ editionNumber: 3, eventDate: '2024-07-01' })
+    const missingResult = await createEdition({
+      editionNumber: 3,
+      eventDate: '2024-07-01',
+      eligibleGrades: ['B'],
+    })
     await publishRoster(
       missingResult.edition.id,
       missingResult.event.id,
@@ -495,11 +519,63 @@ describe('getAppearanceCounts', () => {
     )
   })
 
+  it('does not report complete when one eligible grade is entirely absent', async () => {
+    const player = await createPlayer('部分級選手')
+    const { edition, event } = await createEdition({
+      editionNumber: 1,
+      eventDate: '2024-08-01',
+      eligibleGrades: ['A', 'B'],
+    })
+    await publishRoster(edition.id, event.id, 'A', '2024-07-01', [{ playerId: player.id }])
+    const resultClass = await createActualResult(edition.id, 'A', '2024-08-01', [player.id])
+    await addActiveFact(edition.id, 'A', resultClass.id)
+
+    const result = await getAppearanceCounts(
+      { playerIds: [player.id], associationYear: 2024, referenceDate: '2025-03-31' },
+      testDb,
+    )
+
+    expect(result.playerCounts).toEqual([{ playerId: player.id, count: 1 }])
+    expect(result.completeness).toBe('incomplete')
+    expect(result.missing).toEqual(expect.arrayContaining([
+      { editionId: edition.id, grade: 'B', reason: 'missing_confirmed_roster' },
+      { editionId: edition.id, grade: 'B', reason: 'missing_actual_result' },
+    ]))
+  })
+
+  it('reports an unknown grade scope instead of deriving completeness from present sources', async () => {
+    const player = await createPlayer('級範囲不明選手')
+    const { edition, event } = await createEdition({
+      editionNumber: 1,
+      eventDate: '2024-08-01',
+      eligibleGrades: [],
+    })
+    await publishRoster(edition.id, event.id, 'A', '2024-07-01', [{ playerId: player.id }])
+    const resultClass = await createActualResult(edition.id, 'A', '2024-08-01', [player.id])
+    await addActiveFact(edition.id, 'A', resultClass.id)
+
+    const result = await getAppearanceCounts(
+      { playerIds: [player.id], associationYear: 2024, referenceDate: '2025-03-31' },
+      testDb,
+    )
+
+    expect(result.completeness).toBe('incomplete')
+    expect(result.missing).toContainEqual({
+      editionId: edition.id,
+      grade: null,
+      reason: 'unknown_grade_scope',
+    })
+  })
+
   it('batches member counts in one query and returns zero for members without a linked player', async () => {
     const member = await createUser({ name: '会員選手' })
     const emptyMember = await createUser({ name: '出場なし会員' })
     const player = await createPlayer('会員選手', member.id)
-    const { edition, event } = await createEdition({ editionNumber: 1, eventDate: '2024-08-01' })
+    const { edition, event } = await createEdition({
+      editionNumber: 1,
+      eventDate: '2024-08-01',
+      eligibleGrades: ['D'],
+    })
     await publishRoster(edition.id, event.id, 'D', '2024-07-20', [
       { playerId: player.id, userId: member.id },
     ])
