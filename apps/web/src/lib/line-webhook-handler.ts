@@ -4,6 +4,7 @@ import {
   eventLineBroadcasts,
   events,
   lineChannels,
+  lineGradeGroupBindings,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
@@ -114,10 +115,13 @@ const ACTIVE_BROADCAST_STATUSES = [
   'joined_waiting_code',
 ] as const
 
+type LineChannelPurpose = (typeof lineChannels.$inferSelect)['purpose']
+
 interface ChannelLookup {
   id: number
   channelSecret: string
   channelAccessToken: string
+  purpose: LineChannelPurpose
 }
 
 async function loadChannelByDestination(
@@ -131,6 +135,10 @@ async function loadChannelByDestination(
   // channelId fallbacks are kept for backwards compatibility with rows
   // seeded before this column existed (e.g. mid-rollout test fixtures);
   // a fresh production seed always populates webhookDestinationId.
+  //
+  // event-grade-group-broadcast: `grade_broadcast` チャネル (級別常設グループ)
+  // もここで解決する必要があるので purpose フィルタを2値へ広げる。1 チャネル =
+  // 1 purpose なので、戻り値の purpose を見るだけで下流の振り分けが排他になる。
   const rows = await db
     .select({
       id: lineChannels.id,
@@ -139,9 +147,10 @@ async function loadChannelByDestination(
       botId: lineChannels.botId,
       channelId: lineChannels.channelId,
       webhookDestinationId: lineChannels.webhookDestinationId,
+      purpose: lineChannels.purpose,
     })
     .from(lineChannels)
-    .where(eq(lineChannels.purpose, 'event_broadcast'))
+    .where(sql`${lineChannels.purpose} IN ('event_broadcast','grade_broadcast')`)
   const hit = rows.find((row) => {
     if (row.webhookDestinationId === destination) return true
     // Backward-compat fallback: only fires when webhookDestinationId is
@@ -157,6 +166,7 @@ async function loadChannelByDestination(
         id: hit.id,
         channelSecret: hit.channelSecret,
         channelAccessToken: hit.channelAccessToken,
+        purpose: hit.purpose,
       }
     : null
 }
@@ -202,9 +212,20 @@ export async function applyWebhookEvents(
   payload: LineWebhookPayload,
   replyClient: LineReplyClient,
   options: HandleWebhookOptions = {},
+  // event-grade-group-broadcast: 1チャネル=1purpose なので、呼び出し元
+  // (handleLineWebhook) が解決済みチャネルの purpose をここへ渡すだけで
+  // 大会用/級グループ用のフローが構造的に排他になる。既存の呼び出し元
+  // (route.ts 経由 / このファイルの既存テスト) を壊さないよう末尾のオプション
+  // 引数として追加し、省略時は従来どおり大会用として扱う。
+  purpose: LineChannelPurpose = 'event_broadcast',
 ): Promise<void> {
   const now = options.now ?? new Date()
   const log = options.logger ?? (() => undefined)
+
+  if (purpose === 'grade_broadcast') {
+    await applyGradeGroupWebhookEvents(db, channelId, channelAccessToken, payload, replyClient, log)
+    return
+  }
 
   for (const event of payload.events) {
     try {
@@ -241,6 +262,67 @@ export async function applyWebhookEvents(
         }
         default:
           // memberJoined, follow, etc. — surfaced for visibility but no-op.
+          break
+      }
+    } catch (err) {
+      log('webhook_event_failed', {
+        channelId,
+        eventType: event.type,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+}
+
+/**
+ * 級グループ (`line_grade_group_bindings`) 用の webhook イベント処理。
+ * 大会用 (`event_line_broadcasts`) のフローとはテーブルもライフサイクルの
+ * 意味も異なるため、既存ハンドラを流用せず別関数として独立させる
+ * (実装手順書の指定)。大会用と違い:
+ *   - `line_channels.status` / `assignedEventId` は触らない (級用チャネルは
+ *     大会に割り当てられる概念が無い常設チャネル)
+ *   - `sendGuidelinesOnLink` (要綱送信) は呼ばない (大会に紐付かないので
+ *     送るべき要綱が無い)
+ *   - leave してもチャネルをプールへ戻さない (級用チャネルは常設)
+ */
+async function applyGradeGroupWebhookEvents(
+  db: typeof appDb,
+  channelId: number,
+  channelAccessToken: string,
+  payload: LineWebhookPayload,
+  replyClient: LineReplyClient,
+  log: (event: string, ctx: Record<string, unknown>) => void,
+): Promise<void> {
+  for (const event of payload.events) {
+    try {
+      switch (event.type) {
+        case 'join': {
+          await handleGradeGroupJoin(db, channelId, event, channelAccessToken, replyClient)
+          break
+        }
+        case 'leave': {
+          // memberLeft は通常メンバーの退出でも届くため、大会用と同様に
+          // ここでは扱わない (Bot 自身が外された leave のみ処理する)。
+          await handleGradeGroupLeave(db, channelId, event)
+          break
+        }
+        case 'message': {
+          if (event.message?.type === 'text' && event.message.text) {
+            const text = event.message.text.trim()
+            if (INVITE_CODE_PATTERN.test(text)) {
+              await handleGradeGroupInviteCode(
+                db,
+                channelId,
+                channelAccessToken,
+                event,
+                text,
+                replyClient,
+              )
+            }
+          }
+          break
+        }
+        default:
           break
       }
     } catch (err) {
@@ -522,6 +604,177 @@ async function handleInviteCode(
   )
 }
 
+async function handleGradeGroupJoin(
+  db: typeof appDb,
+  channelId: number,
+  event: LineWebhookEvent,
+  channelAccessToken: string,
+  replyClient: LineReplyClient,
+): Promise<void> {
+  const groupId = event.source.groupId
+  if (!groupId) return
+
+  // `line_channel_id` は UNIQUE なので、このチャネルに紐づく行は常に高々1件
+  // (event_line_broadcasts と違って WHERE に status IN(...) の履歴考慮は不要)。
+  // invite_pending の状態からのみ join で joined_waiting_code へ進める。
+  await db
+    .update(lineGradeGroupBindings)
+    .set({
+      lineGroupId: groupId,
+      status: 'joined_waiting_code',
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(lineGradeGroupBindings.lineChannelId, channelId),
+        eq(lineGradeGroupBindings.status, 'invite_pending'),
+      ),
+    )
+
+  // 既存 handleJoin と同様、UPDATE が行を更新したかに関わらず replyToken が
+  // あれば案内を返す (更新の成否をユーザーに露出しない一貫した挙動)。
+  if (event.replyToken) {
+    await replyClient.reply({
+      replyToken: event.replyToken,
+      text: 'このグループは級別連絡用 Bot です。管理者から提示された 6 桁の招待コードを発言してください。',
+      channelAccessToken,
+    })
+  }
+}
+
+async function handleGradeGroupLeave(
+  db: typeof appDb,
+  channelId: number,
+  event: LineWebhookEvent,
+): Promise<void> {
+  // 大会用 handleLeave と同じ理由: leave の source.groupId と現在の
+  // lineGroupId が一致するときだけ revoke する。groupId が無い leave は no-op。
+  const sourceGroupId = event.source?.groupId
+  if (!sourceGroupId) return
+
+  await db
+    .update(lineGradeGroupBindings)
+    .set({
+      status: 'revoked',
+      revokedAt: sql`now()`,
+      revokeReason: 'bot_kicked',
+      // 招待コードを残すと partial unique が後続の再発行を塞ぐので null 化。
+      inviteCode: null,
+      inviteCodeExpiresAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(lineGradeGroupBindings.lineChannelId, channelId),
+        eq(lineGradeGroupBindings.lineGroupId, sourceGroupId),
+        sql`${lineGradeGroupBindings.status} IN ('invite_pending','joined_waiting_code','linked')`,
+      ),
+    )
+  // 級用チャネルは常設なので、大会用と違い line_channels をプールへ戻さない。
+}
+
+async function handleGradeGroupInviteCode(
+  db: typeof appDb,
+  channelId: number,
+  channelAccessToken: string,
+  event: LineWebhookEvent,
+  text: string,
+  replyClient: LineReplyClient,
+): Promise<void> {
+  if (!isValidInviteCodeFormat(text)) return
+
+  const candidate = await db.query.lineGradeGroupBindings.findFirst({
+    where: and(
+      eq(lineGradeGroupBindings.lineChannelId, channelId),
+      sql`${lineGradeGroupBindings.status} IN ('invite_pending','joined_waiting_code')`,
+    ),
+    columns: {
+      id: true,
+      inviteCode: true,
+      inviteCodeExpiresAt: true,
+      lineGroupId: true,
+    },
+  })
+
+  const result = verifyInviteCode(
+    text,
+    candidate?.inviteCode ?? null,
+    candidate?.inviteCodeExpiresAt ?? null,
+  )
+
+  const sourceGroupId = event.source?.groupId
+
+  // 大会用 handleInviteCode の rr4 blocker と同じ理由: groupId が無い
+  // (user/room) source からの redeem は拒否する。
+  const groupIdMissing = !sourceGroupId
+
+  // 大会用の rr3 blocker と同じ理由: stored lineGroupId が既にあるなら
+  // source.groupId と一致するときだけ受け付ける (別グループでの redeem 防止)。
+  const storedGroupId = candidate?.lineGroupId ?? null
+  const groupMismatch = storedGroupId != null && storedGroupId !== sourceGroupId
+
+  if (!result.ok || !candidate || groupIdMissing || groupMismatch) {
+    if (event.replyToken) {
+      await replyClient.reply({
+        replyToken: event.replyToken,
+        text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+        channelAccessToken,
+      })
+    }
+    return
+  }
+
+  // 大会用の r-final-4 blocker と同じ理由: candidate 取得から UPDATE までは
+  // tx 外なので、管理者の revoke / reissue や別グループからの同時 redeem と
+  // 競合しうる。UPDATE の WHERE に検証時と同じ条件を再掲して CAS にし、stale
+  // な実行は RETURNING 0 件で弾く。この UPDATE は line_grade_group_bindings
+  // の1テーブルのみを書くので (line_channels は級用チャネルでは触らない)、
+  // 大会用のような2テーブル tx は不要。
+  const updated = await db
+    .update(lineGradeGroupBindings)
+    .set({
+      status: 'linked',
+      linkedAt: sql`now()`,
+      lineGroupId: storedGroupId ?? sourceGroupId!,
+      // 消費済みコードの再利用を防ぐため null 化。
+      inviteCode: null,
+      inviteCodeExpiresAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(lineGradeGroupBindings.id, candidate.id),
+        sql`${lineGradeGroupBindings.status} IN ('invite_pending','joined_waiting_code')`,
+        eq(lineGradeGroupBindings.inviteCode, text),
+        sql`${lineGradeGroupBindings.inviteCodeExpiresAt} > now()`,
+        sql`(${lineGradeGroupBindings.lineGroupId} IS NULL OR ${lineGradeGroupBindings.lineGroupId} = ${sourceGroupId})`,
+      ),
+    )
+    .returning({ id: lineGradeGroupBindings.id, grade: lineGradeGroupBindings.grade })
+
+  if (updated.length === 0) {
+    if (event.replyToken) {
+      await replyClient.reply({
+        replyToken: event.replyToken,
+        text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+        channelAccessToken,
+      })
+    }
+    return
+  }
+
+  // 大会用と違い、line_channels の status/assignedEventId は触らない
+  // (級用チャネルは常設で大会に割り当てられない)。sendGuidelinesOnLink
+  // (要綱送信) も呼ばない (紐付く大会が無いので送るべき要綱が無い)。
+  if (event.replyToken) {
+    await replyClient.reply({
+      replyToken: event.replyToken,
+      text: `✅ ${updated[0]!.grade}級グループと紐付けました。今後この級宛の連絡をこのグループに自動配信します。`,
+      channelAccessToken,
+    })
+  }
+}
+
 /**
  * Full handler: signature verification + channel lookup + event dispatch.
  * The route handler in `app/api/webhook/line/route.ts` is a thin wrapper
@@ -564,6 +817,7 @@ export async function handleLineWebhook(
     payload,
     replyClient,
     options,
+    channel.purpose,
   )
   return { status: 200 }
 }

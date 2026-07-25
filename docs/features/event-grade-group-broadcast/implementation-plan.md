@@ -48,7 +48,7 @@ status: completed
 
 ### タスク3: webhook の級グループ対応
 
-- [ ] 完了
+- [x] 完了
 - **目的:** Bot 招待でグループ ID を捕捉し、6桁コードで紐付けを確定できるようにする
 - **対応AC:** AC-17, AC-18
 - **主な変更領域:** `apps/web/src/lib/line-webhook-handler.ts`、`apps/web/src/lib/line-webhook-handler.test.ts`
