@@ -13,15 +13,22 @@
 
 本 PR は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が最初の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは先行して手で行う。
 
+**本番 checkout を汚さずに取り出すこと。** `git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、マージ後のデプロイが開始直後に必ず失敗する。一時ファイルへ書き出して install する。
+
 ```bash
 cd /opt/kagetra
-git fetch origin && git checkout origin/feature/entry-overdue-alert -- infra/sudoers/kagetra-deploy
-sudo install -m 0440 -o root -g root \
-  /opt/kagetra/infra/sudoers/kagetra-deploy /etc/sudoers.d/kagetra-deploy
+git fetch origin
+tmp=$(mktemp)
+git show origin/feature/entry-overdue-alert:infra/sudoers/kagetra-deploy > "$tmp"
+sudo install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/kagetra-deploy
 sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
+rm -f "$tmp"
+
+# 作業ツリーが汚れていないことを確認（空であること）
+git status --porcelain --untracked-files=no
 ```
 
-（マージ後に `/opt/kagetra` を通常どおり `git pull` すれば、この一時 checkout は main の内容で上書きされる。）
+（マージ後は通常どおり `git pull` すれば `/opt/kagetra/infra/sudoers/kagetra-deploy` が main の内容になる。`/etc/sudoers.d/` 側は既に同内容なので再配置は不要。）
 
 ## 1. コード取得 → 依存解決 → マイグレーション
 
