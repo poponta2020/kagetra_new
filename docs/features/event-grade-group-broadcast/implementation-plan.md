@@ -62,7 +62,7 @@ status: completed
 
 ### タスク4: 級グループ管理画面
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 管理者が級ごとに招待コードを発行し、紐付け状態を確認・解除できるようにする
 - **対応AC:** AC-16, AC-19, AC-20, AC-22, AC-25, AC-26
 - **主な変更領域:** `apps/web/src/app/(app)/admin/line-grade-groups/page.tsx`（新規）、同 `actions.ts`（新規）、同 `actions.test.ts`（新規）
