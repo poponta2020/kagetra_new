@@ -93,7 +93,7 @@ status: completed
 
 ### タスク6: 承認フォームの要綱選択
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 承認時に「LINE告知に載せる要綱」を1件選び、作成される大会に保存する
 - **対応AC:** AC-12, AC-23
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`approveDraft` / `approveDraftUnits` の INSERT に `gradeBroadcastAttachmentId` を追加）

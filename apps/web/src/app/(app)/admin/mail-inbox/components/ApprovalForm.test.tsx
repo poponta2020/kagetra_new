@@ -663,4 +663,51 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     ) as HTMLInputElement
     expect(internalDeadline.value).toBe('')
   })
+
+  // event-grade-group-broadcast タスク6: 承認フォームの要綱選択 ────────────
+  it('要綱選択: 候補があるとき「選択しない」がデフォルトで選ばれている', () => {
+    const payload = buildPayload([buildUnit()])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        attachmentCandidates={[
+          { id: 1, filename: '要綱.pdf', contentType: 'application/pdf', extractionStatus: 'extracted' },
+          { id: 2, filename: '組合せ表.pdf', contentType: 'application/pdf', extractionStatus: 'pending' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    const radios = Array.from(
+      container.querySelectorAll('input[name="gradeBroadcastAttachmentId"]'),
+    ) as HTMLInputElement[]
+    expect(radios).toHaveLength(3) // 「選択しない」+ 候補2件
+    const none = radios.find((r) => r.value === '')
+    expect(none?.checked).toBe(true)
+    expect(radios.filter((r) => r.checked)).toHaveLength(1)
+    expect(screen.getByText('要綱.pdf')).toBeDefined()
+    expect(screen.getByText('組合せ表.pdf')).toBeDefined()
+  })
+
+  it('要綱選択: 候補が0件（元メールに添付が無い）なら空状態を表示する', () => {
+    const payload = buildPayload([buildUnit()])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        attachmentCandidates={[]}
+        action={noop}
+      />,
+    )
+
+    expect(
+      container.querySelector('input[name="gradeBroadcastAttachmentId"]'),
+    ).toBeNull()
+    expect(screen.getByText('添付がありません')).toBeDefined()
+  })
 })

@@ -1,11 +1,13 @@
 'use server'
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import * as schema from '@kagetra/shared/schema'
 import {
   events,
   mailAttachments,
@@ -67,6 +69,51 @@ async function requireAdminSession() {
   return session
 }
 
+// Works for both NodePgDatabase (main db) and NodePgTransaction (inside a tx
+// callback) — same pattern as lib/result-import/materialize.ts.
+type DbLike = NodePgDatabase<typeof schema>
+
+/**
+ * event-grade-group-broadcast タスク6: 承認フォームで選ばれた「LINE告知に
+ * 載せる要綱」の添付 ID を検証する。
+ *
+ * 過去の r5 blocker（unit_key の事前検証をロック前の read に対して行い、
+ * 並行 reextract に古い集合ですり抜けられた事故）と同じ穴を作らないため、
+ * ここでの判定材料はページが渡した候補リストやトランザクション前の read
+ * ではなく、呼び出し側が tx 内で確定させた `lockedMessageId`（＝そのドラフト
+ * の元メール。ドラフト作成後に変わらない列）だけを使う。選択された添付が
+ * 実際にその元メールに属していることを、同じ tx 内の SELECT で確認する。
+ *
+ * 未選択（空文字 / 欠落）は null を返す（配信時に URL 行が省略される —
+ * lib/event-grade-broadcast.ts 側の既存挙動）。
+ */
+async function resolveGradeBroadcastAttachmentId(
+  tx: DbLike,
+  formData: FormData,
+  lockedMessageId: number,
+): Promise<number | null> {
+  const raw = formData.get('gradeBroadcastAttachmentId')
+  if (typeof raw !== 'string' || raw.trim() === '') return null
+  const attachmentId = Number(raw)
+  if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
+    throw new Error('入力が不正です: 要綱の添付を確認してください')
+  }
+  const rows = await tx
+    .select({ id: mailAttachments.id })
+    .from(mailAttachments)
+    .where(
+      and(
+        eq(mailAttachments.id, attachmentId),
+        eq(mailAttachments.mailMessageId, lockedMessageId),
+      ),
+    )
+    .limit(1)
+  if (rows.length === 0) {
+    throw new Error(`入力が不正です: 未知の要綱添付 (${attachmentId})`)
+  }
+  return attachmentId
+}
+
 export async function approveDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
@@ -87,12 +134,29 @@ export async function approveDraft(draftId: number, formData: FormData) {
   let approvedIsCorrection = false
 
   await db.transaction(async (tx) => {
+    // event-grade-group-broadcast タスク6: この経路 (approveDraft) は draft 行を
+    // FOR UPDATE しないが、messageId はドラフト作成後に変わらない列（変わるのは
+    // status / extracted_payload のみ）なので、tx 内で読めば同一トランザクション
+    // 内での検証として十分（unit_key のような並行 reextract レースが存在しない）。
+    const draftRow = await tx
+      .select({ messageId: tournamentDrafts.messageId })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .limit(1)
+    if (draftRow.length === 0) throw new Error('draft not found')
+    const gradeBroadcastAttachmentId = await resolveGradeBroadcastAttachmentId(
+      tx,
+      formData,
+      draftRow[0]!.messageId,
+    )
+
     const inserted = await tx
       .insert(events)
       .values({
         ...parsed,
         eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
         createdBy: session.user.id,
+        gradeBroadcastAttachmentId,
       })
       .returning({ id: events.id })
     const newEventId = inserted[0]?.id
@@ -379,6 +443,17 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       }
     }
 
+    // event-grade-group-broadcast タスク6: 「LINE告知に載せる要綱」は unit ごとで
+    // はなく承認フォーム全体で 1 件だけ選ぶ。ここで一度だけ解決し、今回の承認で
+    // 作られる全 events に同じ値を入れる。検証は lockedRow.messageId（FOR UPDATE
+    // ロック済み行から取得）に対して行う — unit_key と同じ理由で、ページが渡した
+    // 候補リストは信用しない。
+    const gradeBroadcastAttachmentId = await resolveGradeBroadcastAttachmentId(
+      tx,
+      formData,
+      lockedRow.messageId,
+    )
+
     const existingDraftEvents = await tx
       .select({ kind: events.kind, editionId: events.editionId })
       .from(events)
@@ -474,6 +549,9 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
           tournamentDraftUnitKey: unitKey,
           // flow①: 解決した開催。link OFF/未解決なら null。
           editionId: resolvedEditionId,
+          // タスク6: 承認フォーム全体で 1 件の選択を、今回作られる全 unit の
+          // events に同じ値で入れる（分割承認でも回ごとに同じ値になる）。
+          gradeBroadcastAttachmentId,
         })
         // `where` is REQUIRED here: the unique index is PARTIAL (WHERE both
         // columns NOT NULL), and Postgres only treats a partial index as the

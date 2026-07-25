@@ -450,6 +450,32 @@ describe('admin/mail-inbox actions', () => {
       const afterMail = await getMail(mail.id)
       expect(afterMail?.status).toBe('archived')
     })
+
+    // event-grade-group-broadcast タスク6: approveDraft はレガシー1draft=1event
+    // 経路。FOR UPDATE は持たないが、messageId 自体は draft 作成後に変わらない
+    // ので同じ tx 内で読んで検証すれば十分（approveDraftUnits と同じ検証関数を
+    // 共有する）。配線を忘れると、この経路で承認された大会だけ静かに NULL が
+    // 入り、配信の要綱 URL 行が永久に落ちる。
+    it('gradeBroadcastAttachmentId を選択すると events.grade_broadcast_attachment_id に保存される（レガシー経路）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'legacy approve' })
+      const att = await createMailAttachment(mail.id, { filename: '要綱legacy.pdf' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+
+      await approveDraft(
+        draft.id,
+        buildApproveFormData({
+          title: 'レガシー要綱テスト',
+          gradeBroadcastAttachmentId: String(att.id),
+        }),
+      )
+
+      const inserted = await testDb.query.events.findFirst({
+        where: eq(events.title, 'レガシー要綱テスト'),
+      })
+      expect(inserted?.gradeBroadcastAttachmentId).toBe(att.id)
+    })
   })
 
   describe('rejectDraft', () => {
@@ -1362,6 +1388,112 @@ describe('admin/mail-inbox actions', () => {
       expect(rows[0]?.tournamentDraftUnitKey).toBe('u1')
       // 旧形式は u1 のみなので 1 単位 materialize で approved に遷移する。
       expect((await getDraft(draft.id))?.status).toBe('approved')
+    })
+
+    // event-grade-group-broadcast タスク6: 承認フォームの要綱選択 ──────────
+    it('選択した要綱添付が events.grade_broadcast_attachment_id に保存される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const att = await createMailAttachment(mail.id, { filename: '要綱.pdf' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['B'] }])
+      fd.set('gradeBroadcastAttachmentId', String(att.id))
+      await approveDraftUnits(draft.id, fd)
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.gradeBroadcastAttachmentId).toBe(att.id)
+    })
+
+    it('gradeBroadcastAttachmentId 未選択（デフォルト）なら NULL のまま保存される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      // gradeBroadcastAttachmentId を付けない = 未選択（フォームの「選択しない」）。
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['B'] }])
+      await approveDraftUnits(draft.id, fd)
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows[0]?.gradeBroadcastAttachmentId).toBeNull()
+    })
+
+    it('候補外（別メールの）添付 ID を渡すと拒否される（ロック済み draft 行の messageId で検証）', async () => {
+      // 過去の r5 blocker（unit_key の事前検証がロック前 read に対して行われて
+      // すり抜けられた事故）と同じ穴を作っていないことの確認。ページが渡す候補
+      // リストではなく、tx 内でロックした draft の元メールに対して検証する。
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const otherMail = await createMailMessage()
+      const otherAtt = await createMailAttachment(otherMail.id, {
+        filename: '別メールの添付.pdf',
+      })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      const fd = buildUnitsFormData([{ unitKey: 'u1', grades: ['B'] }])
+      fd.set('gradeBroadcastAttachmentId', String(otherAtt.id))
+
+      await expect(approveDraftUnits(draft.id, fd)).rejects.toThrow(
+        /入力が不正です/,
+      )
+      // tx rollback で events も作られない。
+      expect(
+        await testDb.select().from(events).where(eq(events.tournamentDraftId, draft.id)),
+      ).toHaveLength(0)
+    })
+
+    it('分割承認 (2 バッチ) でも作られる全 event に同じ gradeBroadcastAttachmentId が入る', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const att = await createMailAttachment(mail.id, { filename: '要綱.pdf' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      const fd1 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11' },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12', register: false },
+      ])
+      fd1.set('gradeBroadcastAttachmentId', String(att.id))
+      await approveDraftUnits(draft.id, fd1)
+
+      const fd2 = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['B'], eventDate: '2031-01-11', register: false },
+        { unitKey: 'u2', grades: ['C'], eventDate: '2031-01-12' },
+      ])
+      fd2.set('gradeBroadcastAttachmentId', String(att.id))
+      await approveDraftUnits(draft.id, fd2)
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      expect(rows.every((r) => r.gradeBroadcastAttachmentId === att.id)).toBe(true)
     })
   })
 
