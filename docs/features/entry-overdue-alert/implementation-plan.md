@@ -42,7 +42,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: `entry_status` に `not_applying` を追加（スキーマ + migration）
-- [ ] 完了
+- [x] 完了（migration `0043_entry_status_not_applying.sql`）
 - **目的:** 3 値目の enum 値を DB とスキーマ定義に追加し、後続タスクすべての前提を作る
 - **対応AC:** AC-4, AC-12, AC-14, AC-16
 - **主な変更領域:** `packages/shared/src/schema/enums.ts`（`eventEntryStatusEnum`）、`packages/shared/drizzle/`（`pnpm db:generate` で生成される新規 migration + snapshot）、`packages/shared/__tests__/schema-lifecycle.test.ts`、`docs/design/db-tables-events.md`
@@ -51,6 +51,7 @@ status: completed
 - **必要なテスト:** `schema-lifecycle.test.ts` に `not_applying` を含む 3 値であることのアサーションを追加
 - **完了条件:** `pnpm db:generate` で migration が生成され、テスト DB へ `db:migrate` が通る／`pnpm --filter=@kagetra/shared test` green／`pnpm check-types` green
 - **注意:** PostgreSQL の enum 値追加はロールバック不可。値名は `not_applying` で確定。並行 worktree があると migration 番号が衝突するため、生成前に `packages/shared/drizzle/` の最新番号を確認する
+- **実装時の追加:** enum を広げると `events.entryStatus` の推論型が 3 値になり、`LifecycleStatusBadge` の `EntryStatus`（2 値）へ渡している `events/[id]/page.tsx` が型エラーになる。ツリーを緑に保つため、**`EntryStatus` の union 拡張（1 行）だけをタスク1 に含めた**（ピルの分岐・トーンはタスク3）
 - **対応Issue:** #306
 
 ---

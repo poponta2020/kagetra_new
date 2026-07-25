@@ -117,7 +117,15 @@ export const eventBroadcastMessageStatusEnum = pgEnum('event_broadcast_message_s
 ])
 
 // event-lifecycle-notify: 会レベルの申込/支払い状態 + ライフサイクル通知ログ
-export const eventEntryStatusEnum = pgEnum('event_entry_status', ['not_applied', 'applied'])
+// entry-overdue-alert: `not_applying`（申込なし）を追加。「申込者がいないため会として
+// 今回は主催者へ申し込まない」という終端判断で、管理者が手動で設定する。既存の申込締切
+// リマインドは `entry_status='not_applied'` で絞っているため、3 値目にすることで
+// 見送った大会が自動的にリマインド対象から外れる（条件式は変更しない）。
+export const eventEntryStatusEnum = pgEnum('event_entry_status', [
+  'not_applied',
+  'applied',
+  'not_applying',
+])
 // payment_type は nullable カラム（未設定 = 支払い通知なし）。事前払い/現地払いで挙動が分岐する。
 export const eventPaymentTypeEnum = pgEnum('event_payment_type', ['advance', 'onsite'])
 // payment_status は payment_type='advance'（事前払い）のときのみ意味を持つ。

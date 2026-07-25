@@ -26,7 +26,9 @@ describe('event_status enum (draft 廃止)', () => {
 
 describe('event-lifecycle-notify schema', () => {
   it('declares the lifecycle enums with the exact spec values', () => {
-    expect(eventEntryStatusEnum.enumValues).toEqual(['not_applied', 'applied'])
+    // entry-overdue-alert: 3 値目 `not_applying`（申込なし）を追加。既存 2 値の順序は
+    // 変えない（ALTER TYPE ADD VALUE は末尾追加のため DB の順序と一致する）。
+    expect(eventEntryStatusEnum.enumValues).toEqual(['not_applied', 'applied', 'not_applying'])
     expect(eventPaymentTypeEnum.enumValues).toEqual(['advance', 'onsite'])
     expect(eventPaymentStatusEnum.enumValues).toEqual(['unpaid', 'paid'])
     // Order matters: the daily batch iterates these and the strings are persisted.

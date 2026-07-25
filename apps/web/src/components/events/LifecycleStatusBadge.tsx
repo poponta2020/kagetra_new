@@ -1,6 +1,6 @@
 import { Pill } from '@/components/ui'
 
-export type EntryStatus = 'not_applied' | 'applied'
+export type EntryStatus = 'not_applied' | 'applied' | 'not_applying'
 export type PaymentType = 'advance' | 'onsite'
 export type PaymentStatus = 'unpaid' | 'paid'
 
