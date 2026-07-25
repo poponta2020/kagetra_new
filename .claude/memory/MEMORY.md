@@ -148,6 +148,11 @@
 - [repoにprettier設定は無い](feedback_no_prettier_config_repo_style.md) — 素のprettierはstyle破壊。single-quote/セミコロン無しを手で書く
 - [Bash timeoutはnode子プロセスを殺しきらない](feedback_bash_timeout_orphan_node_prod_tx.md) — 本番DB書込はゾンビ継続。長時間書込はrun_in_backgroundで完了通知を待つ
 - [メール承認画面の系列検索 要件定義](project_tournament_entry_rosters_series_search.md) — 親Issue #289
+- [予定機能の廃止](project_remove_schedule.md) — Issue #293
+- [大会倍率・A級当落線推移 要件定義](project_tournament_lottery_trends.md) — 親Issue #295
+- [entry-overdue-alert 要件定義](project_entry_overdue_alert_def.md) — 親Issue #305
+- [新規大会→級別LINEグループ配信 設計確定](project_event_grade_group_broadcast_def.md) — grill-me完了/要件定義未着手。Playwright+OAM方式を調べた末に不採用→級別グループ×Bot5個のPush方式へ
+- [entry-overdue-alert 実装完了(2026-07-25)](impl_entry_overdue_alert.md) — 会内締切超過アラート+申込なし状態。全6タスク実装済・PR前。enum拡張の型波及とdrizzle相関サブクエリの罠
 - [remove-schedule implementation](impl_remove_schedule.md) — remove-schedule implementation
 - [PR #294 review](project_review-pr294.md) — review pass
 - [tournament-lottery-trends Task 1](impl_tournament_lottery_trends-task1.md) — Issue #296 schema and migration
@@ -158,3 +163,6 @@
 - [Tournament lottery series metrics](impl_tournament_lottery_trends-task6.md) — Use when changing series lottery ratios, capacity metrics, or A-grade cutoff aggregation
 - [Tournament lottery trends Task 7](impl_tournament_lottery_trends-task7.md) — Public series-detail lottery UI invariants
 - [Tournament lottery trends Task 8](impl_tournament_lottery_trends-task8.md) — Resumable backfill and coverage-report safety contract
+- [fix PR #312](impl_fix-pr312.md) — review 指摘の修正（systemd Requires= の即時起動が本命）
+- [auto-review PR #312](auto-review-round-pr312.md) — R3 verdict=needs_changes→修正済・token上限で中断。指摘は全てデプロイ経路
+- [entry-overdue-alert 出荷(2026-07-25)](project_ship-entry-overdue-alert.md) — shipped: PR #312。残DoD=本番デプロイ(sudoers先行配置が必須)とAC-21
