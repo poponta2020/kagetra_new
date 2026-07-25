@@ -2884,3 +2884,13 @@
 会内締切超過の未申込大会を管理者個人 LINE へ毎朝サマリ通知する機能と、進行管理の 3 値目 `not_applying`（申込なし）を出荷した（merge commit f442d03・親 Issue #305 / 子 #306-311 クローズ）。Codex 4R pass・CI green・DoD 全項目 PASS。
 
 残作業: 本番デプロイと AC-21（JST 07:00 のタイマー実発火確認）。**新規 systemd unit を 2 本追加しているため、マージ済みコードを pull する前に `infra/sudoers/kagetra-deploy` を本番へ先行配置すること**（auto-deploy は sudoers を更新しないので、未反映だと最初の install で sudo に蹴られて deploy が失敗する）。手順は docs/deploy/entry-overdue-alert.md §0-§4。
+
+## 2026-07-26 entry-overdue-alert 本番デプロイ (PR #312 / 手順書修正 PR #320)
+
+PR #312 のマージで走った auto-deploy は sudoers 未反映で failure（Codex R2 の blocker が現実化）。失敗地点は systemd unit の `install` で、**migration 0043 と build は完了済み・web restart のみ未実行**という状態だった。直後の docs-only コミットの deploy は success だが `no buildable code changed` で実質何もしていない成功なので、緑だけ見ると誤認する。
+
+復旧手順: sudoers を検証してから配置 → **deploy ユーザー(kagetra)として** allowlist の実効性を実証 → web restart（再ビルド不要）→ timer `enable --now`。timer 有効化後に service が `inactive` / journal `No entries` であることを確認し、**PR #312 R1 で `Requires=` を外した修正が正しく効いていることを実地検証**した。dry-run では対象 18 件・文面・絶対 URL とも正常。
+
+**AC-21 は未完了**: 深夜の実送信を避け、2026-07-26 07:00 JST の自動発火に委ねた（`systemctl list-timers` で NEXT を確認済み）。朝に管理者 LINE へサマリが届けば完了。
+
+手順書の不備（検証と配置の順序 / マージ後の経路 / 失敗時の復旧範囲）は PR #320 で修正・出荷済み。

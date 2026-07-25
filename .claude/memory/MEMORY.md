@@ -151,7 +151,6 @@
 - [予定機能の廃止](project_remove_schedule.md) — Issue #293
 - [大会倍率・A級当落線推移 要件定義](project_tournament_lottery_trends.md) — 親Issue #295
 - [entry-overdue-alert 要件定義](project_entry_overdue_alert_def.md) — 親Issue #305
-- [新規大会→級別LINEグループ配信 設計確定](project_event_grade_group_broadcast_def.md) — grill-me完了/要件定義未着手。Playwright+OAM方式を調べた末に不採用→級別グループ×Bot5個のPush方式へ
 - [entry-overdue-alert 実装完了(2026-07-25)](impl_entry_overdue_alert.md) — 会内締切超過アラート+申込なし状態。全6タスク実装済・PR前。enum拡張の型波及とdrizzle相関サブクエリの罠
 - [remove-schedule implementation](impl_remove_schedule.md) — remove-schedule implementation
 - [PR #294 review](project_review-pr294.md) — review pass
@@ -166,3 +165,6 @@
 - [fix PR #312](impl_fix-pr312.md) — review 指摘の修正（systemd Requires= の即時起動が本命）
 - [auto-review PR #312](auto-review-round-pr312.md) — R3 verdict=needs_changes→修正済・token上限で中断。指摘は全てデプロイ経路
 - [entry-overdue-alert 出荷(2026-07-25)](project_ship-entry-overdue-alert.md) — shipped: PR #312。残DoD=本番デプロイ(sudoers先行配置が必須)とAC-21
+- [event-grade-group-broadcast 要件定義](project_event_grade_group_broadcast_def.md) — 親Issue #313・Playwright/OAM方式を調べた末に不採用→級別グループ×Bot5個のPush方式へ
+- [auto-review PR #320](auto-review-round-pr320.md) — 4R pass。運用手順書は実行して初めて誤りが出る
+- [entry-overdue-alert 本番デプロイ(2026-07-26)](project_deploy-entry-overdue-alert.md) — auto-deploy が sudoers 未反映で失敗→手動復旧。AC-21 は 07:00 の自動発火待ち
