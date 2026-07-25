@@ -26,6 +26,9 @@ export interface EventLifecycleSectionProps {
    */
   isLineLinked: boolean
   setEntryAppliedAction: (eventId: number, applied: boolean) => Promise<void>
+  // entry-overdue-alert: 3 値目「申し込まない」。not_applied / applied の
+  // どちらからでも呼べる（not_applying → applied の直接遷移は UI に無い）。
+  setEntryNotApplyingAction: (eventId: number) => Promise<void>
   setPaymentTypeAction: (
     eventId: number,
     type: 'advance' | 'onsite' | null,
@@ -61,6 +64,7 @@ export function EventLifecycleSection({
   paymentDeadline,
   isLineLinked,
   setEntryAppliedAction,
+  setEntryNotApplyingAction,
   setPaymentTypeAction,
   setPaymentPaidAction,
 }: EventLifecycleSectionProps) {
@@ -89,6 +93,28 @@ export function EventLifecycleSection({
     })
   }
 
+  /**
+   * entry-overdue-alert: 「申し込まない」への設定。LINE 通知は飛ばないが、
+   * 大会申込一覧から消える不可視化を伴うため、`run` の通知 confirm とは別に
+   * 常に確認する（isLineLinked に関係なく出す）。
+   */
+  function runNotApplying() {
+    setError(null)
+    if (typeof window !== 'undefined') {
+      const ok = window.confirm(
+        'この大会は大会申込一覧に表示されなくなります。よろしいですか？',
+      )
+      if (!ok) return
+    }
+    startTransition(async () => {
+      try {
+        await setEntryNotApplyingAction(eventId)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '更新に失敗しました')
+      }
+    })
+  }
+
   const entryApplied = entryStatus === 'applied'
   const paymentPaid = paymentStatus === 'paid'
 
@@ -104,21 +130,54 @@ export function EventLifecycleSection({
       </div>
 
       <Card className="px-3 py-3 flex flex-col gap-4 text-xs text-ink-2">
-        {/* 申込状態 */}
+        {/* 申込状態
+            entry-overdue-alert: 3 状態化。not_applying からは「未申込に戻す」
+            のみを出し、直接「申込済にする」へは進ませない（必ず not_applied
+            を経由させ、状態機械を単純に保つ）。 */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-ink-meta">申込状態</span>
-            <Btn
-              type="button"
-              kind={entryApplied ? 'secondary' : 'primary'}
-              size="sm"
-              disabled={isPending}
-              onClick={() =>
-                run(() => setEntryAppliedAction(eventId, !entryApplied), !entryApplied)
-              }
-            >
-              {entryApplied ? '未申込に戻す' : '申込済にする'}
-            </Btn>
+            <div className="flex items-center gap-1.5">
+              {entryStatus === 'not_applying' ? (
+                <Btn
+                  type="button"
+                  kind="secondary"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() =>
+                    run(() => setEntryAppliedAction(eventId, false), false)
+                  }
+                >
+                  未申込に戻す
+                </Btn>
+              ) : (
+                <>
+                  <Btn
+                    type="button"
+                    kind={entryApplied ? 'secondary' : 'primary'}
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() =>
+                      run(
+                        () => setEntryAppliedAction(eventId, !entryApplied),
+                        !entryApplied,
+                      )
+                    }
+                  >
+                    {entryApplied ? '未申込に戻す' : '申込済にする'}
+                  </Btn>
+                  <Btn
+                    type="button"
+                    kind="ghost"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={runNotApplying}
+                  >
+                    申し込まない
+                  </Btn>
+                </>
+              )}
+            </div>
           </div>
           {entryApplied && (
             <p className="text-[11px] text-ink-meta">

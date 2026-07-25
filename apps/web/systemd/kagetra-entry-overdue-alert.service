@@ -1,0 +1,40 @@
+[Unit]
+Description=Kagetra entry-overdue-alert daily summary (会内締切超過の未申込大会を管理者個人へ通知)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/entry-overdue-alert.md
+
+[Service]
+# Type=oneshot — but NOT idempotent by design: this alert has no once-ever log,
+# so a same-day re-run pushes the same summary again. That is the feature (the
+# reminder must repeat every morning until the entry is filed); just don't
+# trigger it manually while the timer is also armed.
+Type=oneshot
+
+# Same dedicated system user as the other kagetra services.
+User=kagetra
+Group=kagetra
+
+WorkingDirectory=/opt/kagetra
+
+# Required env: DATABASE_URL *and* PUBLIC_BASE_URL. The summary links each event
+# with an absolute URL so it is tappable in LINE, and the batch fails loudly
+# (exit 1) when PUBLIC_BASE_URL is missing rather than sending a linkless alert.
+# NOTE: this differs from kagetra-lifecycle-reminders.service, whose text-only
+# pushes do NOT need PUBLIC_BASE_URL — do not copy that unit's comment here.
+# Leave LINE_NOTIFY_DRY_RUN unset in production; set it to 1 only for verification.
+EnvironmentFile=/opt/kagetra/.env.production
+
+# NOTE: `pnpm --filter @kagetra/web exec` runs the command with cwd set to the
+# package directory (apps/web), NOT WorkingDirectory. So `tsx scripts/...`
+# resolves to apps/web/scripts/send-entry-overdue-alert.ts. WorkingDirectory is
+# only the repo root from which pnpm discovers the workspace. This mirrors the
+# production-running kagetra-lifecycle-reminders.service.
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/send-entry-overdue-alert.ts
+
+StandardOutput=journal
+StandardError=journal
+
+# Bounded: one query over未来日の events plus a single text push. Cap at 10 min
+# to catch a runaway query.
+TimeoutStartSec=600
+TimeoutStopSec=30

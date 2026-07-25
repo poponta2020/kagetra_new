@@ -1,0 +1,1 @@
+ALTER TYPE "public"."event_entry_status" ADD VALUE 'not_applying';

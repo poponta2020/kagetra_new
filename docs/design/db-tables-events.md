@@ -35,7 +35,7 @@
 | capacity_c | integer | NULL | — | |
 | capacity_d | integer | NULL | — | |
 | capacity_e | integer | NULL | — | |
-| entry_status | event_entry_status (enum) | NOT NULL | 'not_applied' | |
+| entry_status | event_entry_status (enum) | NOT NULL | 'not_applied' | `not_applied` / `applied` / `not_applying`（申込者なしで見送り。`/events` 一覧から除外され、申込締切リマインド・締切超過アラートの対象外） |
 | entry_applied_at | timestamptz | NULL | — | |
 | payment_type | event_payment_type (enum) | NULL | — | NULL=支払い通知なし |
 | payment_status | event_payment_status (enum) | NOT NULL | 'unpaid' | `payment_type='advance'`時のみ意味を持つ |

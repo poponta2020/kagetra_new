@@ -26,12 +26,13 @@
 
 ### 全体像
 
-本ドメインは4つの独立した仕組みからなる。
+本ドメインは5つの独立した仕組みからなる。
 
 1. **event-line-broadcast**: 大会ごとに1つのLINEグループへ、承認済みメール（要項・訂正等）を自動配信する。実体は「30 Bot のプール」方式で、1大会が1台の配信専用Botチャネルを一時的に占有する（個人ごとにBotを持つ設計ではない）。
 2. **event-lifecycle-notify**: 大会の申込/支払い状態がトグルされた際、同じLINEグループへ定型文の通知を送る（申込完了、支払完了、締切リマインド等）。
-3. **LINEアカウント連携**: 会員個人がどのLINEアカウントで一次ログインしているか（Auth.js）とは別に、既存セッションのまま連携先LINEアカウントを切り替える機能。
-4. **mail-triage-badge (Web Push)**: 管理者/副管理者の端末に、新着メール到着をWeb Pushで通知し、未処理件数をPWAのアプリアイコンバッジに反映する。
+3. **entry-overdue-alert**: 会内締切を過ぎても未申込のままの大会を、**管理者個人のLINE**へ毎朝1通のサマリで通知する。宛先も冪等性も 2. とは別系統（後述）。
+4. **LINEアカウント連携**: 会員個人がどのLINEアカウントで一次ログインしているか（Auth.js）とは別に、既存セッションのまま連携先LINEアカウントを切り替える機能。
+5. **mail-triage-badge (Web Push)**: 管理者/副管理者の端末に、新着メール到着をWeb Pushで通知し、未処理件数をPWAのアプリアイコンバッジに反映する。
 
 ### event-line-broadcast: Botプールと配信
 
@@ -82,6 +83,30 @@ invite_pending → joined_waiting_code → linked → revoked / released
   - リード日数は既定3日（`EVENT_LIFECYCLE_REMINDER_LEAD_DAYS` env で上書き可）。日付判定はすべてJSTの `YYYY-MM-DD` 文字列比較（`jstTodayIso`）で行う。
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
 - push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、その他4xx→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール。将来的な統合はrequirements §6.9で「マージ後リファクタ」として据え置かれている）。
+
+### entry-overdue-alert: 管理者向け毎日アラート
+
+会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
+
+| 軸 | event-lifecycle-notify | entry-overdue-alert |
+|---|---|---|
+| 宛先 | 大会LINEグループ（`linked` 必須） | 管理者個人（system_notify Bot） |
+| 冪等性 | once-ever（`UNIQUE(eventId, type)`） | **なし**（毎日繰り返すことが要件） |
+| 配信時刻 | JST 00:00 | JST 07:00 |
+
+**対象条件**（JST基準・すべて満たす大会）: `status != 'cancelled'` ／ `eventDate >= 今日` ／ `entryStatus = 'not_applied'` ／ 基準締切 `COALESCE(internalDeadline, entryDeadline)` が非NULLかつ今日より前。基準締切が今日と等しい（締切当日）は対象外で、超過した翌日から鳴り始める。会内締切は手入力のため未入力が起こりうるので、未入力なら大会申込締切で代替する（「未入力だから黙る」では締切を入れ忘れた大会＝最も危ない大会を検知できないため）。
+
+**`event_line_broadcasts` へは一切JOINしない。** LINEグループが未紐付けの大会も対象に含める設計で、これが event-lifecycle-notify のリマインドとの決定的な違い。既存リマインドは `linked` なグループを前提にしているため、グループ未紐付けの大会には1通も飛ばない — 申込漏れが最も起きやすいのはまさにその層である。
+
+**文面**: 基準締切の超過日数が大きい順（tie-break は開催日昇順→id昇順の安定ソート）に上位5件を明細で出し、超過分は「他 N 件」に畳む。各明細は大会名・会内締切と超過日数（`entryDeadline` 代替時はその旨を併記）・大会申込締切と残日数・出欠「参加」人数・`{PUBLIC_BASE_URL}/events/{id}` の絶対URL。対象0件の日は送信しない。
+
+**失敗ポリシーの適用順序**（順序で挙動が変わるため固定）: ①対象抽出 → 0件なら何もせず正常終了 → ②system_notifyチャネル解決（行なし／`notification_line_user_id` 未設定なら**警告してスキップ・正常終了**）→ ③`PUBLIC_BASE_URL` 解決（未設定は**例外で停止**）→ ④文面 → ⑤push。②を③より前に置くことで、system_notify を構成していない環境で毎朝 exit 1 が出るのを防ぐ。push失敗はリトライしない（429 の `Retry-After` 追従を除く。翌朝また対象になる）。
+
+**通知ログ表を持たない。** `event_lifecycle_notifications` への claim も INSERT も行わないため、同じ日に2回実行すれば同じ内容が再送される。運用上はタイマーが1日1回起動する。
+
+アラートの停止条件は、進行管理から `entryStatus` を `applied`（申込済）にするか `not_applying`（申込なし＝申込者がいないため見送り）にすること。`not_applying` は既存の申込締切リマインドの対象からも自動的に外れる（リマインドの `entryStatus='not_applied'` 条件をそのまま利用するため、この条件を「`applied` 以外」に緩めてはならない）。進行管理の状態遷移そのものは [spec/events-attendance.md](events-attendance.md) が正典。
+
+デプロイ・運用手順は [deploy/entry-overdue-alert.md](../deploy/entry-overdue-alert.md)。
 
 ### LINE Webhook
 
@@ -165,5 +190,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 | `sendGuidelinesOnLink(db, args, options)` | ライブラリ関数 | 呼び出し元（Webhook/manualLinkGroup/resendGuidelines）が認可を担保 | 選択済み要綱を署名URLリンクでpush（best-effort・throwしない） |
 | `pushTextToEventGroup(db, eventId, text, opts)` | ライブラリ関数 | 同上 | 定型テキスト1通のpush（lifecycle通知の下請け） |
 | `claimLifecycleNotification` / `finalizeLifecycleNotification` / `sendClaimedNotification` / `sendReminderNotification` | ライブラリ関数 | 同上 | once-ever通知ログのclaim/finalize/送信ヘルパー群 |
+| `collectOverdueEntries` / `buildOverdueAlertMessage` / `loadSystemChannel` / `pushSystemText` / `sendEntryOverdueAlert` | ライブラリ関数 | 呼び出し元（日次バッチ）が実行環境を担保 | 締切超過アラートの抽出・文面組立・system_notifyチャネル解決・push（`entry-overdue-alert.ts`） |
+| `apps/web/scripts/send-entry-overdue-alert.ts` | バッチ（systemd timer） | ホスト実行（`kagetra` ユーザー） | 毎朝 JST 07:00 に `sendEntryOverdueAlert` を1回実行。`--dry-run` は候補と文面の表示のみ |
 
-`generateInviteCodeForEvent` / `revokeBroadcast` / `extendBroadcastLifetime` / `manualBroadcast` / `setEntryApplied` / `setPaymentType` / `setPaymentPaid` は `apps/web/src/app/(app)/events/[id]/actions.ts` に実装されているが、大会画面のServer Actionとしての位置づけは `spec/events-attendance.md` の正典とし、本ファイルではLINE通知観点の挙動のみを機能仕様節で記述した。
+`generateInviteCodeForEvent` / `revokeBroadcast` / `extendBroadcastLifetime` / `manualBroadcast` / `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` は `apps/web/src/app/(app)/events/[id]/actions.ts` に実装されているが、大会画面のServer Actionとしての位置づけは `spec/events-attendance.md` の正典とし、本ファイルではLINE通知観点の挙動のみを機能仕様節で記述した。

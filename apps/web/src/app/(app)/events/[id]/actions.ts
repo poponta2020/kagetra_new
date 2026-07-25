@@ -637,6 +637,11 @@ export async function setEntryApplied(
       .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
       .where(eq(events.id, eventId))
     revalidatePath(`/events/${eventId}`)
+    // entry-overdue-alert: entry_status は /events 一覧の表示可否も左右する
+    // ようになった（not_applying が除外条件）。この revert 分岐は
+    // not_applying → not_applied の復帰も担うため、一覧側のキャッシュも
+    // 更新しておかないと古い（非表示のままの）一覧が残る。
+    revalidatePath('/events')
     return
   }
 
@@ -735,6 +740,30 @@ export async function setEntryApplied(
     }
   }
   revalidatePath(`/events/${eventId}`)
+}
+
+/**
+ * entry-overdue-alert: 「申込者がいないため今回は申し込まない」を記録する
+ * （admin/vice_admin のみ）。`not_applied` / `applied` どちらからでも遷移可
+ * （要件 §3.2.2 の状態遷移表）。通知 claim・push は一切行わない — 対外的な
+ * アクションを伴わない内部判断のため（要件 §7-9）。
+ *
+ * ここから直接 `applied` へは戻さない（UI 側も用意しない）。復帰は
+ * `setEntryApplied(id, false)` で `not_applied` を経由させ、既存の遷移ガード
+ * `WHERE entry_status = 'not_applied'` を変更せずに済ませる。
+ */
+export async function setEntryNotApplying(eventId: number): Promise<void> {
+  await requireAdminSession()
+
+  await db
+    .update(events)
+    .set({ entryStatus: 'not_applying', entryAppliedAt: null, updatedAt: sql`now()` })
+    .where(eq(events.id, eventId))
+
+  revalidatePath(`/events/${eventId}`)
+  // /events 一覧は entry_status='not_applying' を除外条件にしているため、
+  // 一覧側のキャッシュも更新する。
+  revalidatePath('/events')
 }
 
 /**

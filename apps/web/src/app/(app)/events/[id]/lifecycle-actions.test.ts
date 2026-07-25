@@ -14,7 +14,8 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 // Import under test AFTER mocks so @/auth resolves to the mock.
-const { setEntryApplied, setPaymentType, setPaymentPaid } = await import('./actions')
+const { setEntryApplied, setEntryNotApplying, setPaymentType, setPaymentPaid } =
+  await import('./actions')
 
 async function seedLinkedEvent(overrides: Parameters<typeof createEvent>[0] = {}) {
   const event = await createEvent({ title: 'Linked', ...overrides })
@@ -260,5 +261,109 @@ describe('event lifecycle actions', () => {
     const logs = await paidLogs()
     expect(logs).toHaveLength(1) // 重複通知なし
     expect(logs[0]!.id).toBe(originalLogId) // 同一ログ行＝新規 INSERT されていない
+  })
+
+  // entry-overdue-alert タスク3: 「申し込まない」(entry_status='not_applying')。
+  describe('setEntryNotApplying', () => {
+    it('一般会員は呼べない（Forbidden）', async () => {
+      const member = await createUser({ role: 'member' })
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: member.id, role: 'member' })
+
+      await expect(setEntryNotApplying(event.id)).rejects.toThrow('Forbidden')
+      expect((await getEvent(event.id))?.entryStatus).toBe('not_applied')
+    })
+
+    it('admin は not_applied → not_applying に遷移できる', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await setEntryNotApplying(event.id)
+
+      const row = await getEvent(event.id)
+      expect(row?.entryStatus).toBe('not_applying')
+      expect(row?.entryAppliedAt).toBeNull()
+    })
+
+    it('vice_admin は applied → not_applying に遷移できる', async () => {
+      const viceAdmin = await createUser({ role: 'vice_admin' })
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: viceAdmin.id, role: 'vice_admin' })
+
+      await setEntryApplied(event.id, true)
+      await setEntryNotApplying(event.id)
+
+      const row = await getEvent(event.id)
+      expect(row?.entryStatus).toBe('not_applying')
+      expect(row?.entryAppliedAt).toBeNull()
+    })
+
+    it('設定時に LINE 通知は一切送られない（event_lifecycle_notifications に行が増えない）', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await setEntryNotApplying(event.id)
+
+      expect(await notifications(event.id)).toHaveLength(0)
+    })
+
+    it('解除時（not_applying → not_applied 経由での申込済化）も LINE 通知は一切送られない', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await setEntryNotApplying(event.id)
+      expect(await notifications(event.id)).toHaveLength(0)
+
+      // 解除のみ（申込済化しない）でも通知なし
+      await setEntryApplied(event.id, false)
+      expect((await getEvent(event.id))?.entryStatus).toBe('not_applied')
+      expect(await notifications(event.id)).toHaveLength(0)
+    })
+
+    it('not_applying →（解除）→ not_applied →（申込済化）→ applied で参加者向け/会計向け 2 通が従来どおり送信される（AC-15）', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await setEntryNotApplying(event.id)
+      await setEntryApplied(event.id, false)
+      expect((await getEvent(event.id))?.entryStatus).toBe('not_applied')
+
+      await setEntryApplied(event.id, true)
+
+      const row = await getEvent(event.id)
+      expect(row?.entryStatus).toBe('applied')
+      const logs = await notifications(event.id)
+      const byType = new Map(logs.map((l) => [l.type, l]))
+      expect(byType.size).toBe(2)
+      expect(byType.get('entry_applied')).toMatchObject({ status: 'sent' })
+      expect(byType.get('entry_applied_treasurer')).toMatchObject({ status: 'sent' })
+    })
+
+    it('once-ever 回帰: 一度 applied になった大会を not_applying → not_applied → applied と戻しても再送されない（AC-18）', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      // 一度 applied にして 2 通の once-ever スロットを消費させる。
+      await setEntryApplied(event.id, true)
+      const firstLogs = await notifications(event.id)
+      expect(firstLogs).toHaveLength(2)
+      const firstLogIds = new Set(firstLogs.map((l) => l.id))
+
+      // 「申し込まない」→ 解除 → 再度申込済に戻す。
+      await setEntryNotApplying(event.id)
+      await setEntryApplied(event.id, false)
+      await setEntryApplied(event.id, true)
+
+      expect((await getEvent(event.id))?.entryStatus).toBe('applied')
+      const secondLogs = await notifications(event.id)
+      // 行数は増えない（新規 INSERT なし＝同一ログ行のまま）。
+      expect(secondLogs).toHaveLength(2)
+      expect(new Set(secondLogs.map((l) => l.id))).toEqual(firstLogIds)
+    })
   })
 })

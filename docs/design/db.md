@@ -34,7 +34,7 @@
 | line_channel_purpose | lineChannelPurposeEnum | system_notify, event_broadcast |
 | event_line_broadcast_status | eventLineBroadcastStatusEnum | invite_pending, joined_waiting_code, linked, revoked, released |
 | event_broadcast_message_status | eventBroadcastMessageStatusEnum | pending, sending, sent, partial, failed |
-| event_entry_status | eventEntryStatusEnum | not_applied, applied |
+| event_entry_status | eventEntryStatusEnum | not_applied, applied, not_applying |
 | event_payment_type | eventPaymentTypeEnum | advance, onsite |
 | event_payment_status | eventPaymentStatusEnum | unpaid, paid |
 | event_lifecycle_notification_type | eventLifecycleNotificationTypeEnum | entry_applied, entry_deadline_advance, entry_deadline_day, payment_paid, payment_deadline_advance, payment_deadline_day, onsite_payment_advance, onsite_payment_day, entry_applied_treasurer |
