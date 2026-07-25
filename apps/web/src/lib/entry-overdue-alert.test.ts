@@ -449,6 +449,25 @@ describe('entry-overdue-alert — DB', () => {
       ).rejects.toThrow(/PUBLIC_BASE_URL/)
     })
 
+    it.each(['new.hokudaicarta.com', 'http://kagetra.example.com', 'ftp://x'])(
+      'PUBLIC_BASE_URL が https:// でない (%s) と例外',
+      async (badUrl) => {
+        await createEvent({
+          title: '対象',
+          eventDate: '2030-01-01',
+          internalDeadline: '2026-06-01',
+          entryStatus: 'not_applied',
+        })
+        await seedSystemChannel()
+        const fetchImpl = okFetch()
+        // 裸のホストを通すと LINE 上でタップできない文字列が届くだけになる。
+        await expect(
+          sendEntryOverdueAlert(testDb, { today, baseUrl: badUrl, fetchImpl }),
+        ).rejects.toThrow(/https:\/\//)
+        expect(fetchImpl).not.toHaveBeenCalled()
+      },
+    )
+
     it('チャネル未設定のケースでは PUBLIC_BASE_URL 未設定に到達しない（throw しない）', async () => {
       await createEvent({
         title: '対象',

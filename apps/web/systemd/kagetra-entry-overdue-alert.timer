@@ -1,7 +1,15 @@
 [Unit]
 Description=Run kagetra entry-overdue alert once daily at 07:00 JST
 Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/entry-overdue-alert.md
-Requires=kagetra-entry-overdue-alert.service
+
+# NOTE: `Requires=` is deliberately absent here, unlike
+# kagetra-lifecycle-reminders.timer. `Requires=` is an *activation* dependency:
+# starting the timer would also start the service, so `systemctl enable --now`
+# would fire an alert immediately instead of waiting for 07:00. The lifecycle
+# reminders tolerate that because their once-ever UNIQUE makes the extra run a
+# no-op — this alert is deliberately non-idempotent, so it would send a real
+# duplicate push. `Unit=` below is all that is needed to activate the service
+# when the timer elapses.
 
 [Timer]
 # 07:00 JST — deliberately NOT the 00:00 lifecycle-reminders slot: this alert

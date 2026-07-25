@@ -125,6 +125,32 @@ export async function collectOverdueEntries(
 }
 
 // ---------------------------------------------------------------------------
+// ③ 絶対 URL の origin 解決
+// ---------------------------------------------------------------------------
+
+/**
+ * サマリー各行に載せる大会詳細 URL の origin を解決する。未設定だけでなく
+ * 形式も検証する — `new.hokudaicarta.com` のような裸のホストを通すと、LINE 上で
+ * タップできないただの文字列が届いてしまう（AC-8 が要求するのは絶対 URL）。
+ * line-broadcast.ts の `resolveBaseUrl` と同方針（重依存を避けるため import は
+ * せず、同じ規則を各モジュールで明示する）。
+ */
+function resolveBaseUrl(override?: string): string {
+  const candidate = override ?? process.env.PUBLIC_BASE_URL
+  if (!candidate) {
+    throw new Error(
+      'PUBLIC_BASE_URL is not configured. entry-overdue-alert requires an absolute URL for LINE links.',
+    )
+  }
+  if (!/^https:\/\//i.test(candidate)) {
+    throw new Error(
+      `PUBLIC_BASE_URL must use https:// (got "${candidate}"). LINE では裸のホストや http はタップ可能なリンクにならない。`,
+    )
+  }
+  return candidate.replace(/\/$/, '')
+}
+
+// ---------------------------------------------------------------------------
 // ④ 文面組立 (pure)
 // ---------------------------------------------------------------------------
 
@@ -420,13 +446,8 @@ export async function sendEntryOverdueAlert(
     return { skipped: 'no-user-id' }
   }
 
-  // ③ PUBLIC_BASE_URL 解決（未設定は throw）
-  const baseUrl = opts.baseUrl ?? process.env.PUBLIC_BASE_URL
-  if (!baseUrl) {
-    throw new Error(
-      'PUBLIC_BASE_URL is not configured. entry-overdue-alert requires an absolute URL for LINE links.',
-    )
-  }
+  // ③ PUBLIC_BASE_URL 解決（未設定・不正形式は throw）
+  const baseUrl = resolveBaseUrl(opts.baseUrl)
 
   // ④ 文面組立
   const text = buildOverdueAlertMessage(rows, { today, baseUrl })
