@@ -26,9 +26,10 @@
 
 ### 全体像
 
-本ドメインは5つの独立した仕組みからなる。
+本ドメインは6つの独立した仕組みからなる。
 
 1. **event-line-broadcast**: 大会ごとに1つのLINEグループへ、承認済みメール（要項・訂正等）を自動配信する。実体は「30 Bot のプール」方式で、1大会が1台の配信専用Botチャネルを一時的に占有する（個人ごとにBotを持つ設計ではない）。
+1b. **event-grade-group-broadcast**: 級別（A〜E）のLINEグループへ、新規登録された大会の**概要**を配信する。1. とは読み手が違う（1. は「その大会の申込者」、こちらは「会員全体」）。目的は詳細伝達ではなく**存在の周知**で、案内を見落として申込機会を失う導線の穴を埋める。紐付けは大会単位ではなく**常設**。
 2. **event-lifecycle-notify**: 大会の申込/支払い状態がトグルされた際、同じLINEグループへ定型文の通知を送る（申込完了、支払完了、締切リマインド等）。
 3. **entry-overdue-alert**: 会内締切を過ぎても未申込のままの大会を、**管理者個人のLINE**へ毎朝1通のサマリで通知する。宛先も冪等性も 2. とは別系統（後述）。
 4. **LINEアカウント連携**: 会員個人がどのLINEアカウントで一次ログインしているか（Auth.js）とは別に、既存セッションのまま連携先LINEアカウントを切り替える機能。
@@ -69,6 +70,24 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - **best-effort**: 送信の成否は紐付け（`linked`）に影響しない（`sendGuidelinesOnLink` はthrowしない）。全通配信できたときだけ `event_line_broadcasts.guidelines_sent_at` を更新する。監査に `event_broadcast_messages`（メール単位・role別カウンタ）は流用しない（full-mail配信と衝突するため独立）。
 - **再送・再連携**: `linked` 状態で `resendGuidelines`（events画面の「要綱を再送」）を押すと選択済み要綱を同形式で再送できる（best-effortの取りこぼし復旧）。連携解除→再発行→再紐付けでは、選択は保持され `guidelines_sent_at` はリセットされて新グループへ改めて送信される。
 - **未選択時**: 紐付け完了時の要綱送信は行われない（既存挙動と完全に同じ）。多ファイル選択（>5）でWebhook応答が遅れLINEが再送しても、CASが再linkを弾くので二重送信にはならない。
+
+### event-grade-group-broadcast: 級別グループへの概要配信
+
+`line_channels.purpose` の3値目 `grade_broadcast` が本機能用のチャネル。既存30 Botプール（`event_broadcast`）から5個を確保し転換して使う（招待コード発行時に同一トランザクションで転換するため、運用スクリプトは不要）。**級ごとに専用チャネルを持つ**理由は、LINEの無料通数枠がチャネル単位で月200通のため — 1個を全級で共有すると5グループ合計で月20回程度で枯渇する。
+
+**紐付け**（`line_grade_group_bindings`。`grade` UNIQUE / `line_channel_id` UNIQUE）は `invite_pending → joined_waiting_code → linked → revoked` で、大会単位の `event_line_broadcasts` と違い**常設**（`released` を持たず、大会終了で解放されない）。招待コード方式・webhook の join/コード照合は大会用と同じ流儀だが、専用ハンドラに分離されており、級用チャネルでは `line_channels` の `status`/`assignedEventId` を触らず、要綱送信も行わず、Bot が追い出されてもチャネルをプールへ戻さない。**push 失敗で紐付けを自動解除しない**（常設なので自動解除すると運用のたびに繋ぎ直しになる）。
+
+**配信対象の判定は `status='linked'` かつ `line_group_id IS NOT NULL` の行のみ**。「行が存在する」で判定してはならない（解除済みの級へ送り続けてしまう）。
+
+**トリガー**は新規登録の3経路（AI下書き承認 `approveDraft`/`approveDraftUnits`、手動作成 `/events/new`、`/events/[id]` の再送ボタン）。いずれも `after()` の fire-and-forget で、配信の失敗は登録・承認を巻き戻さない。**編集経路には配線しない**（後から編集しても再送しない）。1回の承認で複数の大会が作られた場合は、作成した全 `event` を1回の呼び出しでまとめて渡し、同じ級に複数件該当しても**級ごと1通**に連結する。
+
+**冪等性**は `event_grade_broadcasts`（`UNIQUE(event_id, grade)`）の **claim → push → 確定/取消**で担保する。claim はリースつき upsert（`ON CONFLICT DO UPDATE ... WHERE sent_at IS NULL AND claimed_at < now() - interval '5 minutes'`）で、push 成功なら `sent_at` を刻み、失敗なら claim 行を削除して未送信のまま残す（後から紐付け直して再送できる）。単純な `ON CONFLICT DO NOTHING` にしないのは、push 途中でプロセスが落ちると `sent_at IS NULL` の claim が残り、その `(大会, 級)` が永久に送信不能になる（再送ボタンも静かにスキップする）ため。
+
+**文面**は `M/D(曜) <title>の案内が来ました！` ＋ 要綱URL行 ＋ 空行と `締切 はM/Dです。`。要綱（`events.grade_broadcast_attachment_id`、承認フォームで1件選択・既定は未選択）と会内締切（`internal_deadline`）は無ければ行ごと省略する。要綱URLは既存の署名トークン方式（`/api/line-broadcast/attachments/[token]`、60日）をそのまま使い、新しい公開エンドポイントは作らない（級グループには未登録会員がいる可能性があるため未認証のまま維持する）。対象級は `events.eligible_grades`、**null または空なら全5級**（`isGradeEligible` と同ルール）。
+
+**未紐付けでスキップした級と push に失敗した級は集計して管理者の個人LINEへ1通通知する**（`entry-overdue-alert.ts` の `loadSystemChannel`/`pushSystemText` を再利用）。無言でスキップすると「特定の級だけ永久に届いていない」状態に誰も気づけないため。
+
+到達範囲の限界（受容済み）: 級グループに参加していない会員には届かない（会員100名超に対しグループ計50名程度）。通数超過は静かに送信不能になる（自動検知なし・手動対応）。遅延キュー・送信取消・配信時間帯ガードは持たないため、深夜に登録すれば深夜に通知が飛ぶ。
 
 ### event-lifecycle-notify: 定型LINE通知
 
@@ -112,6 +131,8 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 `POST /api/webhook/line`（`runtime='nodejs'` 固定。署名検証がHMAC-SHA256で`node:crypto`必須のためEdgeランタイム不可）が全30+1 Botの受け口を兼ねる。payloadの `destination`（LINE Bot のユーザーID、Basic IDとは別値。`line_channels.webhookDestinationId` に保持）でチャネルを特定し、そのチャネル固有の `channelSecret` で `X-Line-Signature` を検証する。未知の `destination` は404、署名不一致は401、以降は常に200を返す（LINEの再送を避けるため、個々のイベント処理失敗は握りつぶしログのみ）。
 
+チャネルの解決は `purpose IN ('event_broadcast','grade_broadcast')` で行い、**解決したチャネルの `purpose` で処理を振り分ける**。1チャネル = 1 purpose なので、大会用フローと級グループ用フローの排他は構造的に保証される（振り分け方式を新設していない）。以下は大会用（`event_broadcast`）の挙動で、級グループ用は専用ハンドラが同じイベントタイプを別テーブル（`line_grade_group_bindings`）に対して処理する。
+
 処理するイベントタイプ:
 - `join`: 上述の `joined_waiting_code` 遷移。
 - `leave`: Bot自身がグループから外れた場合のみ（`memberLeft`＝一般メンバー退出は無視）。`source.groupId` が現在の紐付け先と一致する場合のみ `revoked` にする。
@@ -143,6 +164,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - **`/settings/line-link`**: 現在連携中のLINEアカウントID（末尾6文字以外マスク表示）と、切替導線のみのシンプルな画面。エラーコード（`missing_env` / `state_mismatch` / `denied` / `conflict` / `oauth_failed`）ごとに日本語メッセージを出し分ける。
 - **`/(app)/settings/notifications`**: Web Push購読のON/OFFのみ。状態は `loading` / `unsupported`（Push API非対応）/ `no-key`（VAPID未設定）/ `denied`（OS拒否）/ `subscribed` / `unsubscribed` の6状態。
 - **`/(app)/admin/line-channels`**: 30 Botの一覧（`purpose='event_broadcast'` のみ、system_notify行は非表示）。ステータス別フィルタ（空き/招待コード発行中/配信中/無効化）、`active` が全体の25/30以上になると枯渇警告バナーを表示する。各行に紐付け先大会・自動解放までの残日数を表示する。
+- **`/(app)/admin/line-grade-groups`**: 級別グループ紐付けの管理（**admin のみ。vice_admin は不可**）。A〜Eの5行固定で、各行に状態（未紐付け/招待コード発行済み/参加済みコード待ち/紐付け済み）と操作（招待コード発行・解除）を出す。招待コード発行時に `event_broadcast` の空きチャネルを1個確保して `grade_broadcast` へ転換するため、転換後のチャネルは `/admin/line-channels` の一覧（`purpose='event_broadcast'` 固定）から自動的に消える。導線は `/admin/line-channels` からのリンク（ボトムナビは admin 時点で既に6タブのため追加しない）。
 - **`/(app)/admin/line-channels/[id]`**: 個別Botの詳細。現在の紐付け先、紐付け履歴（直近20件）、操作ボタン（強制解放/無効化/有効化/手動紐付けモーダル `ManualLinkModal`）。手動紐付けは、Webhookが `join`/コード発言を受け取れなかった場合の運用フォールバックで、対象イベント・LINEグループIDを直接入力してその場で `linked` にする。
 
 大会単体の配信状況（配信履歴テーブル・招待コード発行UI・現在の紐付け状態表示等）は `/events/[id]` ページの一部（`LineBroadcastSection` / `BroadcastHistoryTable` コンポーネント）として表示されるが、これは大会本体の画面構成に属するため詳細は `spec/events-attendance.md` を参照。
@@ -156,6 +178,14 @@ invite_pending → joined_waiting_code → linked → revoked / released
 3. グループ内で6桁コードを発言 → Webhook `message` が照合し `linked`。選択済み要綱があれば、この直後に `sendGuidelinesOnLink` が要綱ファイルをグループへpushする（best-effort）。
 4. 以降、承認済みメール（AI下書き承認・訂正紐付け等、詳細は `spec/mail-worker.md`）のたびに `broadcastMailToEvent` が自動配信される。管理者は必要に応じて `/events/[id]` から手動再配信（`manualBroadcast`）や要綱の再送（`resendGuidelines`）もできる。
 5. 大会終了30日後（またはoperatorが延長した日付）を過ぎると日次バッチが自動解放し、Botはプールに戻る。
+
+### 級別グループの紐付け〜配信
+
+1. 管理者が `/admin/line-grade-groups` で級を選び招待コードを発行 → 空きBotを1台 `grade_broadcast` へ転換し6桁コード（30分TTL）を発行。
+2. その級のLINEグループへBotを招待 → Webhook `join` を受けて `joined_waiting_code`。
+3. グループ内で6桁コードを発言 → `linked`。以降この紐付けは常設で、大会ごとに解放されない。
+4. 大会が新規登録される（AI下書き承認 / 手動作成）たびに、対象級のグループへ概要が1通届く。未紐付け・送信失敗の級は管理者の個人LINEへまとめて通知される。
+5. 取りこぼしは `/events/[id]` の「級グループへ再送」で復旧できる（未送信の級にだけ届く）。
 
 ### イベントライフサイクル通知
 
@@ -175,7 +205,10 @@ invite_pending → joined_waiting_code → linked → revoked / released
 |---|---|---|---|
 | `startLineLink()` | Server Action | ログイン必須 | LINEアカウント切替の開始。CSRF state発行＋LINE認可URLへリダイレクト |
 | `GET /api/line-link/callback` | route handler | ログイン必須（セッション一致検証あり） | LINEアカウント切替の完了処理 |
-| `POST /api/webhook/line` | route handler | LINE署名検証（`X-Line-Signature`） | Bot群共通のWebhook受け口。join/leave/招待コードを処理 |
+| `POST /api/webhook/line` | route handler | LINE署名検証（`X-Line-Signature`） | Bot群共通のWebhook受け口。join/leave/招待コードを処理。チャネルの `purpose` で大会用/級グループ用に振り分ける |
+| `generateGradeInviteCode(grade)` | Server Action | **admin のみ** | 級別グループの招待コード発行。空きBotを1台 `grade_broadcast` へ転換（既存行がある級は同一行UPDATE） |
+| `revokeGradeBinding(grade)` | Server Action | **admin のみ** | 級別グループの紐付け解除。チャネルはプールへ戻さない |
+| `resendGradeBroadcast(eventId)` | Server Action | **admin のみ** | 級別グループへの再送。未送信の級にだけ送る（判定は claim に委ねる） |
 | `GET /api/line-broadcast/attachments/[token]` | route handler | 署名トークン（発行時に検証済み・失効付き） | 添付ファイルの署名URLダウンロード |
 | `GET /api/line-broadcast/images/[token]` | route handler | 署名トークン（インメモリキャッシュ） | 本文画像JPEGのLINE向け配信 |
 | `savePushSubscription(input)` | Server Action | admin/vice_admin | Web Push購読の保存（endpoint UNIQUEでupsert） |

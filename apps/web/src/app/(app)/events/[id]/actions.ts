@@ -21,6 +21,7 @@ import {
   inviteCodeExpiresAt,
 } from '@/lib/invite-code'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
+import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import {
   loadGuidelineCandidates,
@@ -417,6 +418,39 @@ export async function resendGuidelines(eventId: number): Promise<void> {
   if (result.status === 'failed' || result.status === 'partial') {
     throw new Error('要綱の送信に失敗しました。時間をおいて再度お試しください')
   }
+}
+
+/**
+ * event-grade-group-broadcast: 級別グループへの再送（AC-21）。
+ *
+ * 「まだ送信済みでない級にだけ送る」はコアロジックの claim がそのまま担う
+ * （`event_grade_broadcasts` に `sent_at` 付きの行がある級は claim が 0 件を返し、
+ * 文面にも含まれない）。ここで送信済み級を自前で除外しない — 二重に判定すると
+ * claim との間にレースが生まれる。
+ *
+ * 権限は **admin のみ**（AC-22）。このファイルの `requireAdminSession` は
+ * vice_admin も通すため使わない。
+ *
+ * 配信は best-effort（`broadcastEventsToGradeGroups` は throw しない）なので、
+ * 1件も送れなかったときだけ操作者へエラーを返して状況を伝える。
+ */
+export async function resendGradeBroadcast(eventId: number): Promise<void> {
+  const session = await auth()
+  if (session?.user?.role !== 'admin') throw new Error('Forbidden')
+
+  const result = await broadcastEventsToGradeGroups(db, [eventId])
+
+  revalidatePath(`/events/${eventId}`)
+
+  if (result.sentGrades.length > 0) return
+  if (result.skippedGrades.length > 0 && result.failedGrades.length === 0) {
+    throw new Error('紐付け済みの級グループがありません。/admin/line-grade-groups で紐付けてください')
+  }
+  if (result.failedGrades.length > 0) {
+    throw new Error('級グループへの送信に失敗しました。時間をおいて再度お試しください')
+  }
+  // 対象級が全て送信済み = 送るものが無い。
+  throw new Error('未送信の級がありません')
 }
 
 /**

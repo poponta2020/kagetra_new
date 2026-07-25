@@ -32,6 +32,7 @@ const {
   loadActiveBindingMock,
   classifyMailMock,
   persistOutcomeMock,
+  broadcastEventsToGradeGroupsMock,
 } = vi.hoisted(() => ({
   // dedup テストで即時実行に差し替えるため切り替え可能（既定 no-op）。
   afterMock: vi.fn((_cb: () => void | Promise<void>) => {}),
@@ -48,6 +49,16 @@ const {
   ),
   classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
   persistOutcomeMock: vi.fn(async () => ({})),
+  // event-grade-group-broadcast: 承認から級別グループ配信が起動する配線を
+  // 検証する。実 push は対象外なのでスパイに差し替える。
+  broadcastEventsToGradeGroupsMock: vi.fn(
+    async (_db: unknown, _eventIds: number[]) => ({
+      sentGrades: [] as string[],
+      skippedGrades: [] as string[],
+      failedGrades: [] as string[],
+      notified: false,
+    }),
+  ),
 }))
 
 vi.mock('@/auth', () => mockAuthModule())
@@ -76,6 +87,12 @@ vi.mock('next/server', async () => {
 vi.mock('@/lib/line-broadcast', () => ({
   broadcastMailToEvent: broadcastMailToEventMock,
   loadActiveBinding: loadActiveBindingMock,
+}))
+
+// event-grade-group-broadcast: 承認 → 級別グループ配信の配線だけを検証する。
+// 実 push・DB 読みはコアロジック側のテスト (lib/event-grade-broadcast.test.ts) の担当。
+vi.mock('@/lib/event-grade-broadcast', () => ({
+  broadcastEventsToGradeGroups: broadcastEventsToGradeGroupsMock,
 }))
 
 // Stub the mail-worker classifier surface so reextractDraft does not actually
@@ -252,6 +269,13 @@ describe('admin/mail-inbox actions', () => {
     // 既定は no-op (after は実行しない)。dedup テストだけ即時実行に切り替える。
     afterMock.mockReset()
     afterMock.mockImplementation(() => {})
+    broadcastEventsToGradeGroupsMock.mockClear()
+    broadcastEventsToGradeGroupsMock.mockResolvedValue({
+      sentGrades: [],
+      skippedGrades: [],
+      failedGrades: [],
+      notified: false,
+    })
   })
   afterAll(async () => {
     await closeTestDb()
@@ -1596,6 +1620,80 @@ describe('admin/mail-inbox actions', () => {
 
       // 2 イベント作成・同一グループ → broadcastMailToEvent は 1 回だけ。
       expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    // event-grade-group-broadcast タスク5: 承認 → 級別グループ配信の配線。
+    it('承認で級別グループ配信が作成した全 event を 1 回でまとめて受け取る（AC-10）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+      expect(afterCb).not.toBeNull()
+      await afterCb!()
+
+      // event ごとに呼ぶと同じ級へ複数通届いてしまう。呼び出しは 1 回で、
+      // 作成した 2 件の eventId が 1 つの配列で渡ること。
+      expect(broadcastEventsToGradeGroupsMock).toHaveBeenCalledTimes(1)
+      const passedEventIds = broadcastEventsToGradeGroupsMock.mock.calls[0]![1]
+      expect(passedEventIds).toHaveLength(2)
+
+      const createdEvents = await testDb
+        .select({ id: events.id })
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect([...passedEventIds].sort()).toEqual(
+        createdEvents.map((e) => e.id).sort(),
+      )
+    })
+
+    it('級別グループ配信が例外を投げても承認は成功する（AC-3）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      broadcastEventsToGradeGroupsMock.mockRejectedValue(new Error('boom'))
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([{ unitKey: 'u1', title: '大阪B', grades: ['B'] }]),
+      )
+      expect(afterCb).not.toBeNull()
+      // after() の中で例外が漏れると Next のリクエスト処理ごと落ちる。
+      await expect(afterCb!()).resolves.toBeUndefined()
+
+      // 承認そのものは巻き戻らない。
+      const created = await testDb
+        .select({ id: events.id })
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(created).toHaveLength(1)
     })
 
     it('異なる lineGroupId なら 2 イベントで broadcast 2 回', async () => {
