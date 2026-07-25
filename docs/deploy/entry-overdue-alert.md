@@ -9,26 +9,82 @@
 - **`line_channels` に `status='system'` の行があり、`notification_line_user_id` が管理者の LINE userId で埋まっている**こと（メール取込アラートで既に使っている経路。未投入なら `apps/mail-worker/scripts/seed-system-channel.ts`）。
 - **`PUBLIC_BASE_URL` が `.env.production` に入っている**こと。サマリの各行に大会詳細の絶対 URL を載せるため必須で、未設定だとバッチは exit 1 で止まる（リンクなしの通知を送るより設定漏れに気づかせる方針）。既存の要綱送信（`line-broadcast-guidelines.ts`）が同じ変数を使っているので、通常は既に設定済み。
 
-## 0. **マージ前に** scoped sudoers を本番へ再配置する（必須）
+## 0. scoped sudoers を本番へ配置する（必須・**マージ前が望ましい**）
 
-本 PR は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が最初の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは先行して手で行う。
+本機能は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が unit の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは手で行う。
 
-**本番 checkout を汚さずに取り出すこと。** `git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、マージ後のデプロイが開始直後に必ず失敗する。一時ファイルへ書き出して install する。
+### 0-a. 必ず「検証 → 配置」の順で行う
+
+**壊れた sudoers を `/etc/sudoers.d/` に置くと、`ubuntu` を含む全ユーザーの `sudo` が使えなくなり、SSH 越しには復旧できない。** 配置前に repo 内のファイルを検証する。作業中は**別の SSH セッションを開いたままにしておく**。
+
+```bash
+# CRLF 混入チェック（1 つでもあれば sudoers 構文エラー。0 であること）
+grep -c $'\r' <SRC> || echo "0 (LF only)"
+
+# 構文検証（"parsed OK" を確認してから次へ進む）
+sudo visudo -c -f <SRC>
+```
+
+`<SRC>` は次節で決まる。**検証が通るまで `install` しない。**
+
+### 0-b. `<SRC>` の決め方（マージ前 / マージ後）
+
+**マージ前**（推奨）— 対象ブランチはまだ存在する。本番 checkout を汚さないよう一時ファイルへ書き出す。`git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、次回デプロイが開始直後に必ず失敗する。**`git show` を使うこと。**
 
 ```bash
 cd /opt/kagetra
 git fetch origin
-tmp=$(mktemp)
-git show origin/feature/entry-overdue-alert:infra/sudoers/kagetra-deploy > "$tmp"
-sudo install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/kagetra-deploy
-sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
-rm -f "$tmp"
+SRC=$(mktemp)
+git show origin/<ブランチ名>:infra/sudoers/kagetra-deploy > "$SRC"
+```
+
+**マージ後** — `/ship` がリモートブランチを削除するので上の `git show origin/<ブランチ名>:...` は**失敗する**。マージ後は host の checkout に実体があるのでそれを直接使う。
+
+```bash
+cd /opt/kagetra
+SRC=/opt/kagetra/infra/sudoers/kagetra-deploy   # git pull 済みなら main の内容
+git log --oneline -1   # 目的の unit を含むコミットに達しているか確認
+```
+
+### 0-c. 配置
+
+0-a の検証が通ってから実行する。
+
+```bash
+sudo install -m 0440 -o root -g root "$SRC" /etc/sudoers.d/kagetra-deploy
+sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # 配置後の再確認
+sudo -n true && echo "SUDO_STILL_WORKS"           # sudo が壊れていないことの確認
+[ "$SRC" != /opt/kagetra/infra/sudoers/kagetra-deploy ] && rm -f "$SRC"
 
 # 作業ツリーが汚れていないことを確認（空であること）
 git status --porcelain --untracked-files=no
 ```
 
-（マージ後は通常どおり `git pull` すれば `/opt/kagetra/infra/sudoers/kagetra-deploy` が main の内容になる。`/etc/sudoers.d/` 側は既に同内容なので再配置は不要。）
+配置後は、**deploy ユーザー（`kagetra`）として allowlist が実際に効くか**を確認する。`ubuntu` の全権 sudo で unit を置いてしまうと、allowlist の検証にならず次の PR で同じ失敗を繰り返す。
+
+```bash
+sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service \
+  /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_OK
+```
+
+パスワードを求められたら allowlist のエントリが一致していない（パスやオプションの綴り違い）。
+
+### 0-d. 先に auto-deploy を失敗させてしまった場合の復旧範囲
+
+sudoers 未反映のままマージすると auto-deploy は fail するが、**失敗するのは systemd unit の `install` 段階**である。それより前の工程は完了している:
+
+| 工程 | 状態 |
+|---|---|
+| `git pull` / `pnpm install` | 完了 |
+| build（`.next/standalone` 更新） | 完了 |
+| **migration（`db:migrate`）** | **適用済み** |
+| systemd unit の install | ← ここで停止 |
+| web の restart | 未実行（＝旧コードのまま稼働） |
+
+したがって復旧は **§0（sudoers 配置）→ §3（unit 配置・timer 有効化）→ §2 の `systemctl restart kagetra-web`** で足りる。**migration の再実行も再ビルドも不要**（`.next` の mtime が失敗したデプロイの時刻になっていることで確認できる）。この状態は DB に新 enum があり web が旧コード、という組み合わせだが、旧コードは新しい値を書き込まず既存行も持たないため無害。
+
+なお auto-deploy の `CHANGED` は pull 前後の差分から算出されるため、host が既に `origin/main` に達している状態でワークフローを再実行しても `already up to date` で NOOP になる。**復旧はワークフロー再実行ではなく上記の手順で行うこと。**
 
 ## 1. コード取得 → 依存解決 → マイグレーション
 
