@@ -38,6 +38,7 @@ import {
   resendGuidelines,
   revokeBroadcast,
   setEntryApplied,
+  setEntryNotApplying,
   setGuidelineAttachments,
   setPaymentPaid,
   setPaymentType,
@@ -463,6 +464,7 @@ export default async function EventDetailPage({
           paymentDeadline={event.paymentDeadline}
           isLineLinked={isLineLinked}
           setEntryAppliedAction={setEntryApplied}
+          setEntryNotApplyingAction={setEntryNotApplying}
           setPaymentTypeAction={setPaymentType}
           setPaymentPaidAction={setPaymentPaid}
         />
