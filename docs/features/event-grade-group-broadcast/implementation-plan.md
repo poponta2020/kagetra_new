@@ -21,7 +21,7 @@ status: completed
 
 ### タスク1: スキーマとマイグレーション
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 級グループの常設紐付け・`(大会, 級)` 送信記録・要綱添付参照を DB に定義する
 - **対応AC:** AC-8, AC-9, AC-20, AC-23
 - **主な変更領域:** `packages/shared/src/schema/enums.ts`（`lineChannelPurposeEnum` に `grade_broadcast` 追加 / `lineGradeGroupStatusEnum` 新設）、`packages/shared/src/schema/line-grade-group-bindings.ts`（新規）、`packages/shared/src/schema/event-grade-broadcasts.ts`（新規）、`packages/shared/src/schema/events.ts`（`gradeBroadcastAttachmentId` 追加）、`packages/shared/src/schema/index.ts`、`packages/shared/drizzle/0044_*.sql`

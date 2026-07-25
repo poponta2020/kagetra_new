@@ -71,6 +71,15 @@ export const events = pgTable('events', {
   tournamentDraftId: integer('tournament_draft_id'),
   // 元ドラフト payload 内の該当イベント単位 (unit_key)。部分承認済み単位の突合に使う。
   tournamentDraftUnitKey: text('tournament_draft_unit_key'),
+  // event-grade-group-broadcast: 級別グループ告知に載せる「要綱」添付。承認フォームで
+  // 1 件だけ選ぶ (未選択 = NULL → 配信文面から URL 行を省略)。既存
+  // event_broadcast_guideline_attachments は event_line_broadcasts にぶら下がり、
+  // 新規登録の時点では親行が存在しないため流用できない。手動作成 (/events/new) には
+  // 添付そのものが無いので常に NULL。
+  // FK (→ mail_attachments.id, ON DELETE SET NULL) は
+  // events → mail_attachments → mail_messages → events の TypeScript 型循環を避けるため
+  // migration の raw ALTER で張る (tournamentDraftId と同じ方針)。
+  gradeBroadcastAttachmentId: integer('grade_broadcast_attachment_id'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
