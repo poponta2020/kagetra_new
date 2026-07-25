@@ -15,7 +15,15 @@
 
 ### 0-a. 必ず「検証 → 配置」の順で行う
 
-**壊れた sudoers を `/etc/sudoers.d/` に置くと、`ubuntu` を含む全ユーザーの `sudo` が使えなくなり、SSH 越しには復旧できない。** 配置前に repo 内のファイルを検証する。作業中は**別の SSH セッションを開いたままにしておく**。
+**壊れた sudoers を `/etc/sudoers.d/` に置くと、`ubuntu` を含む全ユーザーの `sudo` が使えなくなり、SSH 越しには復旧できない。** 配置前に repo 内のファイルを検証する。
+
+作業中は**別の SSH セッションで root shell を取り、完了まで閉じないこと**。単に別セッションを開くだけでは退路にならない — sudoers が壊れていれば既存・新規どちらのセッションでも `sudo` は通らず、昇格済みのシェルだけが復旧手段になる。
+
+```bash
+# 別ターミナルで実行し、§0 が完了するまで閉じない
+ssh -i ~/.ssh/id_ed25519_oracle ubuntu@new.hokudaicarta.com
+sudo -i   # ← このシェルを保持する
+```
 
 ```bash
 # CRLF 混入チェック（1 つでもあれば sudoers 構文エラー。0 であること）
@@ -48,10 +56,13 @@ git log --oneline -1   # 目的の unit を含むコミットに達している�
 
 ### 0-c. 配置
 
-0-a の検証が通ってから実行する。
+0-a の検証が通ってから実行する。**live ファイルへ直接 `install` しない** — 途中で中断・容量不足になると `/etc/sudoers.d/kagetra-deploy` が部分書き込みのまま残り、そのまま sudo が壊れる。同一ファイルシステム内のステージングファイルへ置いてから `mv` でアトミックに差し替える。ステージング名は**先頭ドット付き**にする（`#includedir` は名前に `.` を含むファイルを読み飛ばすため、途中状態でも sudo に影響しない）。
 
 ```bash
-sudo install -m 0440 -o root -g root "$SRC" /etc/sudoers.d/kagetra-deploy
+STAGE=/etc/sudoers.d/.kagetra-deploy.staging
+sudo install -m 0440 -o root -g root "$SRC" "$STAGE"
+sudo visudo -c -f "$STAGE"                        # ステージング状態で検証
+sudo mv "$STAGE" /etc/sudoers.d/kagetra-deploy    # 同一 fs なのでアトミック
 sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # 配置後の再確認
 sudo -n true && echo "SUDO_STILL_WORKS"           # sudo が壊れていないことの確認
 [ "$SRC" != /opt/kagetra/infra/sudoers/kagetra-deploy ] && rm -f "$SRC"
@@ -60,7 +71,21 @@ sudo -n true && echo "SUDO_STILL_WORKS"           # sudo が壊れていない�
 git status --porcelain --untracked-files=no
 ```
 
-配置後は、**deploy ユーザー（`kagetra`）として allowlist が実際に効くか**を確認する。`ubuntu` の全権 sudo で unit を置いてしまうと、allowlist の検証にならず次の PR で同じ失敗を繰り返す。
+`SUDO_STILL_WORKS` が出るまで、0-a で確保した root shell を閉じないこと。
+
+### 0-e. allowlist が deploy ユーザーに効いているかの確認
+
+`ubuntu` の全権 sudo で unit を置いてしまうと allowlist の検証にならず、次に systemd unit を触る PR で同じ失敗を繰り返す。**deploy ユーザー（`kagetra`）として**確認する。
+
+**マージ前は `sudo -n -l` でポリシー一致だけを見る。** この時点の本番 checkout はまだ旧 main なので `apps/web/systemd/kagetra-entry-overdue-alert.service` が存在せず、実 install は allowlist が正しくても source missing で失敗する（allowlist 不一致と誤認しやすい）。
+
+```bash
+sudo -u kagetra sudo -n -l /usr/bin/install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service \
+  /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_POLICY_OK
+```
+
+**マージ後**（unit ファイルが checkout に現れてから）は実 install で確認する。これは §3 の手順そのものなので、そちらで兼ねてよい。
 
 ```bash
 sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
@@ -68,7 +93,7 @@ sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
   /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_OK
 ```
 
-パスワードを求められたら allowlist のエントリが一致していない（パスやオプションの綴り違い）。
+いずれもパスワードを求められたら allowlist のエントリが一致していない（パスやオプションの綴り違い）。
 
 ### 0-d. 先に auto-deploy を失敗させてしまった場合の復旧範囲
 
