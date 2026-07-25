@@ -53,13 +53,22 @@ fi
 test -s "$SRC" || { rm -f "$SRC"; echo "sudoers source is empty" >&2; exit 1; }
 ```
 
-**マージ後** — `/ship` がリモートブランチを削除するので上の `git show origin/<ブランチ名>:...` は**失敗する**。マージ後は host の checkout に実体があるのでそれを直接使う。
+**マージ後** — `/ship` がリモートブランチを削除するため、上の `git show origin/<ブランチ名>:...` は**使わない**。`git fetch origin` は `fetch.prune=true` を設定していない限り削除済みブランチの remote-tracking ref を消さないので、「失敗するから気づける」とは限らず、**stale な ref から古い sudoers を引いてしまう**方が危険。取得元は決定論的に `origin/main`（または確認済みの merge commit SHA）を指すか、host の checkout を直接使う。
 
 ```bash
 cd /opt/kagetra
-SRC=/opt/kagetra/infra/sudoers/kagetra-deploy   # git pull 済みなら main の内容
-test -s "$SRC"         # 空でないこと
-git log --oneline -1   # 目的の unit を含むコミットに達しているか確認
+git fetch origin main
+git log --oneline -1 origin/main   # 目的の unit を含むコミットに達しているか確認
+
+# (a) host の checkout をそのまま使う（git pull 済みの場合）
+SRC=/opt/kagetra/infra/sudoers/kagetra-deploy
+# (b) checkout の状態に依存させたくない場合は origin/main から取り出す
+# SRC=$(mktemp)
+# if ! git show "origin/main:infra/sudoers/kagetra-deploy" > "$SRC"; then
+#   rm -f "$SRC"; echo "sudoers source extraction failed" >&2; exit 1
+# fi
+
+test -s "$SRC"   # 空でないこと
 ```
 
 ### 0-c. 配置
@@ -93,7 +102,7 @@ sudo -u kagetra sudo -n -l /usr/bin/install -m 644 -o root -g root \
   /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_POLICY_OK
 ```
 
-**マージ後**（unit ファイルが checkout に現れてから）は実 install で確認する。これは §3 の手順そのものなので、そちらで兼ねてよい。
+**マージ後**（unit ファイルが checkout に現れてから）は実 install で確認する。**§3 では兼用できない** — §3 のコマンドは操作ユーザー（`ubuntu` 等）の全権 sudo で実行するため、`kagetra` 用の allowlist が欠落・不一致でも成功してしまい検証にならない。下記を必ず別途実行すること（あるいは §3 の install / daemon-reload / enable / restart / is-active をすべて `sudo -u kagetra sudo -n /usr/bin/...` の形で実行すれば兼用できる）。
 
 ```bash
 sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
@@ -113,9 +122,11 @@ sudoers 未反映のままマージすると auto-deploy は fail するが、**
 | build（`.next/standalone` 更新） | 完了 |
 | **migration（`db:migrate`）** | **適用済み** |
 | systemd unit の install | ← ここで停止 |
-| web の restart | 未実行（＝旧コードのまま稼働） |
+| web の restart | **未実行** |
 
-したがって復旧は **§0（sudoers 配置）→ §3（unit 配置・timer 有効化）→ §2 の `systemctl restart kagetra-web`** で足りる。**migration の再実行も再ビルドも不要**（`.next` の mtime が失敗したデプロイの時刻になっていることで確認できる）。この状態は DB に新 enum があり web が旧コード、という組み合わせだが、旧コードは新しい値を書き込まず既存行も持たないため無害。
+したがって復旧は **§0（sudoers 配置）→ §3（unit 配置・timer 有効化）→ §2 の `systemctl restart kagetra-web`** で足りる。**migration の再実行も再ビルドも不要**（build 成功ログと `.next` の mtime が失敗したデプロイの時刻になっていることで確認できる。確認できなければ §2 のリビルドから行う）。
+
+**ただし「restart するまで旧コードで安全に動き続ける」とは考えないこと。** auto-deploy は稼働中の web プロセスを止めずに同じ `.next` 配下を置き換えるため、プロセス自体は旧プロセスでも、まだロードしていない route chunk や manifest は更新後のディスクから読まれうる（＝新旧が混在した状態になりうる）。**§0・§3 を終えたら速やかに restart と healthcheck まで行うこと。** 放置して様子を見る、という判断はしない。
 
 なお auto-deploy の `CHANGED` は pull 前後の差分から算出されるため、host が既に `origin/main` に達している状態でワークフローを再実行しても `already up to date` で NOOP になる。**復旧はワークフロー再実行ではなく上記の手順で行うこと。**
 
