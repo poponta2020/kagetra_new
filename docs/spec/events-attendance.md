@@ -29,7 +29,7 @@
 
 ### 一覧と過去イベントの分割
 
-`/events`（大会申込一覧）と `/events-archive`（過去のイベント）は同じ `events` テーブルを JST 基準の `event_date`（`YYYY-MM-DD` 文字列の辞書式比較）で振り分ける。`todayInJst()`（`jst-date.ts`）相当の JST 今日文字列を各ページが個別に算出し、`/events` は `eventDate >= todayStr`、`/events-archive` は `eventDate < todayStr` を条件にクエリする。両ページとも参加者集計（`event_attendances` の `attend=true` 件数）を表示中の event id 集合にスコープして取得し、もう一方の画面のみに表示される行をスキャンしない。
+`/events`（大会申込一覧）と `/events-archive`（過去のイベント）は同じ `events` テーブルを JST 基準の `event_date`（`YYYY-MM-DD` 文字列の辞書式比較）で振り分ける。`todayInJst()`（`jst-date.ts`）相当の JST 今日文字列を各ページが個別に算出し、`/events` は `eventDate >= todayStr`、`/events-archive` は `eventDate < todayStr` を条件にクエリする。加えて `/events` のみ `entryStatus != 'not_applying'` を AND する — 「申込者がいないため申し込まない」は会内締切後にしか下せない終端判断で、押した後にその大会へ行う操作が存在しないため、一覧に残すと期限切れの大会が積み上がる。除外は取得後フィルタではなくクエリ条件で行い、件数表示・並び替え・フィルタの母集団を揃える。`/events-archive` はこの除外を持たないので、開催日を過ぎれば `not_applying` の大会も従来どおり並ぶ。結果として `not_applying` の大会は開催日が来るまでどちらの一覧にも現れず、詳細 URL の直叩きだけが到達手段になる（意図的な設計。復帰導線は詳細ページに常に残る）。両ページとも参加者集計（`event_attendances` の `attend=true` 件数）を表示中の event id 集合にスコープして取得し、もう一方の画面のみに表示される行をスキャンしない。
 
 ### 一覧の表示・並び替え・フィルタ
 
@@ -43,7 +43,9 @@
 
 `events.status`（`published` / `cancelled` / `done`）はイベント自体の開催状態。draft は廃止済みで、作成経路は必ず `published` から始まる。`eventStatus()`（`event-status.ts`）は `cancelled` → 「中止」（danger）、`done` → 「終了」（info）のピルを返し、`published` を含むそれ以外はピル非表示（`null`）を返す — 通常運転中の大会にステータス行を出さない設計。
 
-`entryStatus`（`not_applied` / `applied`）、`paymentType`（`advance` / `onsite` / `null`）、`paymentStatus`（`unpaid` / `paid`）は「会として主催者に対して行う 1 アクション」の進行状態で、会員個々の出欠とは独立している。これらのトグルと、初回遷移時の LINE 完了通知トリガーは `apps/web/src/app/(app)/events/[id]/actions.ts` の `setEntryApplied` / `setPaymentType` / `setPaymentPaid` が持つが、実際の通知組み立て・送信（`buildLifecycleMessage` / `claimLifecycleNotification` / `sendClaimedNotification`、`apps/web/src/lib/event-lifecycle-notify.ts`）は [spec/notifications.md](notifications.md) の管轄。`LifecycleStatusBadge` は誰でも見える読み取り専用ピル、`EventLifecycleSection` は管理者専用の操作パネルで、`isAdmin` により `/events/[id]` で出し分けている。
+`entryStatus`（`not_applied` / `applied` / `not_applying`）、`paymentType`（`advance` / `onsite` / `null`）、`paymentStatus`（`unpaid` / `paid`）は「会として主催者に対して行う 1 アクション」の進行状態で、会員個々の出欠とは独立している。これらのトグルと、初回遷移時の LINE 完了通知トリガーは `apps/web/src/app/(app)/events/[id]/actions.ts` の `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` が持つが、実際の通知組み立て・送信（`buildLifecycleMessage` / `claimLifecycleNotification` / `sendClaimedNotification`、`apps/web/src/lib/event-lifecycle-notify.ts`）は [spec/notifications.md](notifications.md) の管轄。`LifecycleStatusBadge` は誰でも見える読み取り専用ピル（`not_applied`=neutral「未申込」／`applied`=success「申込済」／`not_applying`=info「申込なし」。`not_applying` のときは支払いピルを描画しない — 申し込まない大会に支払い状態は無意味なため）、`EventLifecycleSection` は管理者専用の操作パネルで、`isAdmin` により `/events/[id]` で出し分けている。
+
+`not_applying`（申込なし）は「申込者がいないため、会として今回は主催者へ申し込まない」という終端判断を記録する状態。設定・解除で LINE 通知は一切送らない（対外アクションを伴わない内部判断のため）。遷移は `not_applied → not_applying` と `applied → not_applying`（取り下げ。想定は低いが状態機械として塞がない）、および解除の `not_applying → not_applied` の3方向で、**`not_applying → applied` の直接遷移は UI に用意しない** — 復帰は必ず `not_applied` を経由させ、`setEntryApplied` の遷移ガード `WHERE entry_status = 'not_applied'` を変更せずに済ませる（2ステップ目は既存経路そのものなので、申込完了通知2通と once-ever は既存挙動のまま）。出欠回答の可否は `not_applying` でも変わらない（従来どおり会内締切・対象級・`isInvited` で判定する）。
 
 ### 出欠登録ルール
 
@@ -73,7 +75,7 @@
 
 ### `/events` 大会申込一覧
 
-未来日（JST 今日以降）のイベントを開催日昇順で取得し、`EventListClient` に渡す。ヘッダーに「過去のイベント →」（`/events-archive`）リンクと、管理者のみ「新規作成」（`/events/new`）ボタンを表示する。0 件時は並び替え UI を出さず「現在のイベントはありません」を表示、フィルタ適用で 0 件になった場合は「申込可能な大会はありません」を表示する。
+未来日（JST 今日以降）かつ `entryStatus != 'not_applying'` のイベントを開催日昇順で取得し、`EventListClient` に渡す。ヘッダーに「過去のイベント →」（`/events-archive`）リンクと、管理者のみ「新規作成」（`/events/new`）ボタンを表示する。0 件時は並び替え UI を出さず「現在のイベントはありません」を表示、フィルタ適用で 0 件になった場合は「申込可能な大会はありません」を表示する。
 
 各行はイベント詳細（`/events/[id]`）へのリンクで、日付・タイトル・ステータスピル・締切カウントダウン・参加人数と参加者チップを表示する。
 
@@ -116,8 +118,8 @@
 
 ### 進行管理（申込/支払い状態）フロー
 
-1. 管理者が `/events/[id]` の「進行管理」パネルで「申込済にする」等をクリック
-2. LINE グループが紐付き済み（`isLineLinked`）かつ通知を伴う操作（申込済化・支払済化。取り消し方向や支払いタイプ変更は通知なし）なら、クライアントで `window.confirm` による確認を挟む
+1. 管理者が `/events/[id]` の「進行管理」パネルで「申込済にする」等をクリック。申込状態行のボタン構成は状態で変わる: `not_applied` → 「申込済にする」＋「申し込まない」、`applied` → 「未申込に戻す」＋「申し込まない」、`not_applying` → 「未申込に戻す」のみ
+2. LINE グループが紐付き済み（`isLineLinked`）かつ通知を伴う操作（申込済化・支払済化。取り消し方向や支払いタイプ変更は通知なし）なら、クライアントで `window.confirm` による確認を挟む。「申し込まない」は LINE 通知を伴わないが `/events` 一覧から消える不可視化を伴うため、`isLineLinked` に関係なく別文言の確認を必ず出す（解除側は確認なし）
 3. `setEntryApplied` / `setPaymentPaid` が対象トランザクション内で状態を `not_applied → applied` 等の初回遷移でのみ更新し、同一トランザクションで通知 claim（`claimLifecycleNotification`）を行う。再トグルや二重呼び出しでは 2 回目以降は通知されない（once-ever）
 4. コミット後、push 送信は best-effort（失敗しても状態変更はロールバックしない）
 5. `revalidatePath` でイベント詳細を再検証
@@ -134,9 +136,11 @@
 
 管理者・副管理者ガード（`session.user.role`）。`eventFormSchema.safeParse(extractEventFormData(formData))` でバリデーションし、失敗時は最初のエラーメッセージを添えて例外を投げる。対象級チェックボックス（`grade_A`〜`grade_E`）はスキーマ外で個別に読み取り、`eligibleGrades` 配列に組み立てる。`resolveEditionFromForm` による edition 解決と `events` insert/update を 1 トランザクションで行う。
 
-### `setEntryApplied(eventId, applied)` / `setPaymentType(eventId, type)` / `setPaymentPaid(eventId, paid)` — `events/[id]/actions.ts`
+### `setEntryApplied(eventId, applied)` / `setEntryNotApplying(eventId)` / `setPaymentType(eventId, type)` / `setPaymentPaid(eventId, paid)` — `events/[id]/actions.ts`
 
 いずれも管理者・副管理者専用（`requireAdminSession()`）。`entryStatus` / `paymentType` / `paymentStatus` の更新自体はこのドメインの管轄だが、初回遷移で発火する LINE 通知の組み立て・送信ロジックは [spec/notifications.md](notifications.md) が正典。`cancelled` ステータスの大会には通知しない（状態変更自体は記録する）。
+
+`setEntryNotApplying` は `entryStatus='not_applying'`・`entryAppliedAt=null` へ無条件 UPDATE し、通知 claim も push も行わない。`entryStatus` が `/events` 一覧の表示可否を左右するため、詳細ページに加えて `/events` も `revalidatePath` する（`setEntryApplied` の解除分岐も同様）。
 
 ## 既知のギャップ・未確認事項
 

@@ -35,3 +35,4 @@
 - `tournament-entry-rosters` — 大会ライフサイクル基盤（edition）+申込/確定名簿（主要領域: apps/web, packages/shared）[shipped: PR #292]
 - `tournament-results` — 大会結果の取込・承認・materializeとパーサ基盤（主要領域: apps/web, apps/mail-worker, packages/shared）
 - `tournament-title-grade-split` — 大会イベントのタイトル・級の分離入力（主要領域: apps/web, packages/shared）
+- `entry-overdue-alert` — 会内締切超過の未申込大会を管理者個人LINEへ毎朝アラート＋進行管理に「申込なし」を追加（主要領域: apps/web, packages/shared）

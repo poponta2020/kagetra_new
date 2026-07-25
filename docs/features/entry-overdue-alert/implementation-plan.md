@@ -131,7 +131,7 @@ status: completed
 ---
 
 ### タスク6: 正典ドキュメントの更新
-- [ ] 完了
+- [x] 完了
 - **目的:** 機能仕様の正典（`docs/spec/`）を変更後の姿に更新し、DoD の docs ゲートを満たす
 - **対応AC:** AC-22（の一部。docs 単独では機械検証されないが gate-dod の D2 で確認される）
 - **主な変更領域:** `docs/spec/notifications.md`（「管理者向け毎日アラート」節を新設。全体像の「4 つの独立した仕組み」を 5 つに更新、API 表に新規 Server Action とバッチを追加）、`docs/spec/events-attendance.md`（進行管理フローの 3 状態化・一覧の除外条件）、`docs/features/INDEX.md`（`entry-overdue-alert` を追記）
