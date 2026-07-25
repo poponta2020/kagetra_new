@@ -31,4 +31,5 @@ ALTER TABLE "line_grade_group_bindings" ADD CONSTRAINT "line_grade_group_binding
 ALTER TABLE "event_grade_broadcasts" ADD CONSTRAINT "event_grade_broadcasts_event_id_events_id_fk" FOREIGN KEY ("event_id") REFERENCES "public"."events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "line_grade_group_bindings_invite_code_active_uq" ON "line_grade_group_bindings" USING btree ("invite_code") WHERE "line_grade_group_bindings"."invite_code" IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "event_grade_broadcasts_event_grade_uq" ON "event_grade_broadcasts" USING btree ("event_id","grade");--> statement-breakpoint
+CREATE INDEX "events_grade_broadcast_attachment_id_idx" ON "events" USING btree ("grade_broadcast_attachment_id");--> statement-breakpoint
 ALTER TABLE "events" ADD CONSTRAINT "events_grade_broadcast_attachment_id_fkey" FOREIGN KEY ("grade_broadcast_attachment_id") REFERENCES "mail_attachments"("id") ON DELETE SET NULL;

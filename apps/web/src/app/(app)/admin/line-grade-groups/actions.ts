@@ -64,6 +64,17 @@ export async function generateGradeInviteCode(
       where: eq(lineGradeGroupBindings.grade, grade),
     })
 
+    // review r1 blocker: 紐付け済み (linked) の級で再発行を許すと、単なる
+    // 「招待コードを再発行」の1操作で lineGroupId / linkedAt が消え、その級が
+    // 無確認のまま配信対象から外れる（以後の大会案内が丸ごと欠落する）。
+    // 既存の大会用 generateInviteCodeForEvent も linked を拒否しており、
+    // 破壊的な付け替えは確認付きの「解除」を先に通す、が本リポジトリの流儀。
+    if (existing && existing.status === 'linked') {
+      throw new Error(
+        '現在このグループと紐付け中です。解除してから再発行してください',
+      )
+    }
+
     let channelId: number
 
     if (existing) {
@@ -114,31 +125,57 @@ export async function generateGradeInviteCode(
       channelId = claimedId
     }
 
-    const inviteCode = generateInviteCode()
-    const expiresAt = inviteCodeExpiresAt()
+    // review r1 should_fix: invite_code は部分 UNIQUE（有効なコードのみ対象）
+    // なので、低確率だが他の級のコードと衝突して 23505 で発行全体が落ちうる。
+    // 既存 generateInviteCodeForEvent と同じく savepoint 付きで数回再試行する
+    // （23505 以外は再試行しても無駄なので即座に投げ直す）。
+    const MAX_ATTEMPTS = 3
+    let inviteCode = ''
+    let expiresAt = new Date()
+    let lastError: unknown = null
 
-    if (existing) {
-      await tx
-        .update(lineGradeGroupBindings)
-        .set({
-          inviteCode,
-          inviteCodeExpiresAt: expiresAt,
-          status: 'invite_pending',
-          lineGroupId: null,
-          linkedAt: null,
-          revokedAt: null,
-          revokeReason: null,
-          updatedAt: sql`now()`,
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      inviteCode = generateInviteCode()
+      expiresAt = inviteCodeExpiresAt()
+      try {
+        await tx.transaction(async (sp) => {
+          if (existing) {
+            await sp
+              .update(lineGradeGroupBindings)
+              .set({
+                inviteCode,
+                inviteCodeExpiresAt: expiresAt,
+                status: 'invite_pending',
+                lineGroupId: null,
+                linkedAt: null,
+                revokedAt: null,
+                revokeReason: null,
+                updatedAt: sql`now()`,
+              })
+              .where(eq(lineGradeGroupBindings.id, existing.id))
+          } else {
+            await sp.insert(lineGradeGroupBindings).values({
+              grade,
+              lineChannelId: channelId,
+              inviteCode,
+              inviteCodeExpiresAt: expiresAt,
+              status: 'invite_pending',
+            })
+          }
         })
-        .where(eq(lineGradeGroupBindings.id, existing.id))
-    } else {
-      await tx.insert(lineGradeGroupBindings).values({
-        grade,
-        lineChannelId: channelId,
-        inviteCode,
-        inviteCodeExpiresAt: expiresAt,
-        status: 'invite_pending',
-      })
+        lastError = null
+        break
+      } catch (err) {
+        lastError = err
+        const code = (err as { code?: string }).code
+        if (code !== '23505') throw err
+        if (attempt === MAX_ATTEMPTS) break
+      }
+    }
+    if (lastError) {
+      throw new Error(
+        `招待コードの発行に失敗しました (UNIQUE 衝突を ${MAX_ATTEMPTS} 回連続で踏みました)`,
+      )
     }
 
     const channelRow = await tx.query.lineChannels.findFirst({

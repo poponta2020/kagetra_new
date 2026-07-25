@@ -545,4 +545,118 @@ describe('broadcastEventsToGradeGroups — DB', () => {
     expect(result).toEqual({ sentGrades: [], skippedGrades: [], failedGrades: [], notified: false })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
+
+  // ─── review r1 blocker: push 成功後の確定失敗で二重配信しない ───────────
+
+  it('push 成功後に sent_at 確定が失敗しても claim を消さない（再送で二重配信しない）', async () => {
+    const event = await createEvent({ eligibleGrades: ['A'] })
+    await seedGradeBinding('A')
+    const fetchImpl = okFetch()
+
+    // push は成功、その直後の UPDATE だけを失敗させる。
+    const brokenDb = new Proxy(testDb, {
+      get(target, prop, receiver) {
+        if (prop === 'update') {
+          return () => {
+            throw new Error('DB went away after push')
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    }) as typeof testDb
+
+    const result = await broadcastEventsToGradeGroups(brokenDb, [event.id], {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(result.failedGrades).toEqual(['A'])
+
+    // claim 行が残っていること。ここで消してしまうと、次回の配信・再送で
+    // 同じ本文がもう一度 LINE に届く（AC-8 違反）。
+    const rows = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.sentAt).toBeNull()
+  })
+
+  it('同じ内容の再送は同じ X-Line-Retry-Key を送る（LINE 側で冪等化される）', async () => {
+    const event = await createEvent({ eligibleGrades: ['A'] })
+    await seedGradeBinding('A')
+
+    const first = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: first,
+      baseUrl: BASE_URL,
+    })
+    const firstKey = (first.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+
+    // claim を放置状態へ戻し（プロセス停止相当）、リースを 0 にして再 claim させる。
+    await testDb
+      .update(eventGradeBroadcasts)
+      .set({ sentAt: null, claimedAt: sql`now() - interval '1 hour'` })
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+
+    const second = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: second,
+      baseUrl: BASE_URL,
+    })
+    const secondKey = (second.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+
+    expect(firstKey['X-Line-Retry-Key']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    // claim 行は upsert で使い回されるので、同じ内容の再送はキーが一致する。
+    expect(secondKey['X-Line-Retry-Key']).toBe(firstKey['X-Line-Retry-Key'])
+  })
+
+  it('LINE が 409（同一 retry key で受理済み）を返したら送信成功として扱う', async () => {
+    const event = await createEvent({ eligibleGrades: ['A'] })
+    await seedGradeBinding('A')
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () =>
+        ({
+          ok: false,
+          status: 409,
+          headers: { get: () => null },
+          text: async () => 'conflict',
+        }) as unknown as Response,
+    )
+
+    const result = await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    // 409 を失敗扱いにすると claim を巻き戻し、次回さらに送ろうとしてしまう。
+    expect(result.sentGrades).toEqual(['A'])
+    const rows = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows[0]!.sentAt).not.toBeNull()
+  })
+
+  // ─── review r1 should_fix: 添付なし配信は PUBLIC_BASE_URL に依存しない ───
+
+  it('要綱添付が無い配信は PUBLIC_BASE_URL 未設定でも送れる', async () => {
+    const event = await createEvent({
+      eligibleGrades: ['A'],
+      internalDeadline: '2031-07-25',
+    })
+    await seedGradeBinding('A')
+    const fetchImpl = okFetch()
+
+    // baseUrl を渡さず、env も未設定のまま（beforeEach で delete 済み）。
+    const result = await broadcastEventsToGradeGroups(testDb, [event.id], { fetchImpl })
+
+    expect(result.sentGrades).toEqual(['A'])
+    const body = bodyOf(fetchImpl)
+    expect(body.messages[0]!.text).toContain('締切')
+    expect(body.messages[0]!.text).not.toContain('http')
+  })
 })

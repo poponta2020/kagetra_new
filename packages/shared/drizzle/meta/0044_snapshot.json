@@ -1,5 +1,5 @@
 {
-  "id": "7e984917-bb1d-4097-aa88-57aa98e21d7c",
+  "id": "bd741e4f-8a47-479e-b731-3e77e04a0ec7",
   "prevId": "505ffaa4-11be-4362-8201-ba3c01e68915",
   "version": "7",
   "dialect": "postgresql",
@@ -763,6 +763,21 @@
           "columns": [
             {
               "expression": "edition_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "events_grade_broadcast_attachment_id_idx": {
+          "name": "events_grade_broadcast_attachment_id_idx",
+          "columns": [
+            {
+              "expression": "grade_broadcast_attachment_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

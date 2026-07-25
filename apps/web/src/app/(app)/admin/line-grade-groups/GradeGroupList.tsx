@@ -254,19 +254,24 @@ export function GradeGroupList({
                 </dl>
               ) : null}
               <div className="flex justify-end gap-2">
-                <Btn
-                  type="button"
-                  kind="primary"
-                  size="sm"
-                  onClick={() => handleGenerate(row.grade)}
-                  disabled={isBusy}
-                >
-                  {isBusy && pendingAction === 'generate'
-                    ? '発行中…'
-                    : row.status === 'unbound'
-                      ? '招待コード発行'
-                      : '招待コードを再発行'}
-                </Btn>
+                {/* review r1 blocker: 紐付け済みの級は再発行で紐付けが壊れる
+                    （Server Action 側でも拒否する）。付け替えたい場合は先に
+                    確認付きの「解除」を通させる。 */}
+                {row.status !== 'linked' ? (
+                  <Btn
+                    type="button"
+                    kind="primary"
+                    size="sm"
+                    onClick={() => handleGenerate(row.grade)}
+                    disabled={isBusy}
+                  >
+                    {isBusy && pendingAction === 'generate'
+                      ? '発行中…'
+                      : row.status === 'unbound'
+                        ? '招待コード発行'
+                        : '招待コードを再発行'}
+                  </Btn>
+                ) : null}
                 {row.status !== 'unbound' ? (
                   <Btn
                     type="button"

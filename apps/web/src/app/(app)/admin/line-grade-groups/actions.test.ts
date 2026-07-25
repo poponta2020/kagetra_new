@@ -101,6 +101,49 @@ describe('generateGradeInviteCode', () => {
     expect(bindings[0]!.inviteCode).toBe(second.inviteCode)
   })
 
+  // review r1 blocker: 紐付け済みの級で再発行を許すと、確認なしの1操作で
+  // その級が配信対象から外れる（以後の大会案内が丸ごと届かなくなる）。
+  it('紐付け済み(linked)の級では再発行を拒否し、紐付けを壊さない', async () => {
+    const channelId = await seedAvailableChannel()
+    await generateGradeInviteCode('C')
+    await testDb
+      .update(lineGradeGroupBindings)
+      .set({ status: 'linked', lineGroupId: 'G-C', linkedAt: sql`now()` })
+      .where(eq(lineGradeGroupBindings.grade, 'C'))
+
+    await expect(generateGradeInviteCode('C')).rejects.toThrow(
+      /解除してから再発行/,
+    )
+
+    const binding = await testDb.query.lineGradeGroupBindings.findFirst({
+      where: eq(lineGradeGroupBindings.grade, 'C'),
+    })
+    expect(binding?.status).toBe('linked')
+    expect(binding?.lineGroupId).toBe('G-C')
+    expect(binding?.linkedAt).not.toBeNull()
+    expect(binding?.lineChannelId).toBe(channelId)
+  })
+
+  it('解除してからなら再発行できる（同一行を再利用）', async () => {
+    await seedAvailableChannel()
+    await generateGradeInviteCode('C')
+    await testDb
+      .update(lineGradeGroupBindings)
+      .set({ status: 'linked', lineGroupId: 'G-C', linkedAt: sql`now()` })
+      .where(eq(lineGradeGroupBindings.grade, 'C'))
+
+    await revokeGradeBinding('C')
+    const reissued = await generateGradeInviteCode('C')
+
+    expect(reissued.inviteCode).toMatch(/^\d{6}$/)
+    const bindings = await testDb
+      .select()
+      .from(lineGradeGroupBindings)
+      .where(eq(lineGradeGroupBindings.grade, 'C'))
+    expect(bindings).toHaveLength(1)
+    expect(bindings[0]!.status).toBe('invite_pending')
+  })
+
   it('DB 層でも同じ級に 2 行を作れない（grade UNIQUE 制約）', async () => {
     const channelId1 = await seedAvailableChannel('kagetra-grade-bot-1')
     const channelId2 = await seedAvailableChannel('kagetra-grade-bot-2')

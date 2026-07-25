@@ -106,4 +106,9 @@ export const events = pgTable('events', {
   // tournament-entry-rosters (Codex R3 should_fix): edition をハブに events を引く参照列に
   // btree index（FK 列に PG は自動 index を作らない）。
   index('events_edition_id_idx').on(table.editionId),
+  // event-grade-group-broadcast (Codex R1 should_fix): grade_broadcast_attachment_id は
+  // FK (→ mail_attachments) で ON DELETE SET NULL。参照列に index が無いと、添付・メール
+  // 削除のたびに PostgreSQL が events を全走査する（既存の添付参照テーブルも同じ理由で
+  // 参照列 index を張っている）。
+  index('events_grade_broadcast_attachment_id_idx').on(table.gradeBroadcastAttachmentId),
 ])
