@@ -32,7 +32,7 @@ status: completed
 
 ### タスク2: 配信コアロジック
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 文面組み立て・対象級の解決・claim/push/確定・スキップと失敗の管理者通知を1モジュールに実装する
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12, AC-13, AC-14
 - **主な変更領域:** `apps/web/src/lib/event-grade-broadcast.ts`（新規）、`apps/web/src/lib/event-grade-broadcast.test.ts`（新規）
@@ -97,7 +97,15 @@ status: completed
 - **目的:** 承認時に「LINE告知に載せる要綱」を1件選び、作成される大会に保存する
 - **対応AC:** AC-12, AC-23
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`approveDraft` / `approveDraftUnits` の INSERT に `gradeBroadcastAttachmentId` を追加）
-  - 候補は既存 `loadGuidelineCandidates()` を再利用。**デフォルト未選択**
+  - **【実装時の計画修正】候補は「そのドラフトの元メールの添付」とする。** 当初計画は既存
+    `loadGuidelineCandidates()` の再利用としていたが、あの関数は `collectRelatedMailIds(db, eventId)`
+    経由の **event スコープ**で、承認時点ではまだ event が存在しないため使えない。ドラフト詳細画面が
+    既に元メールの添付を読み込んでおり、意味的にも「この案内メールの添付から要綱を選ぶ」が正しい。
+    AC-23（選択でき・保存される）は満たすため要件変更ではない
+  - **候補の検証は tx 内・ロック済み draft 行の `messageId` に対して行う**
+    （`mail_attachments.id = 選択値 AND mail_message_id = lockedRow.messageId`）。ページが渡してきた
+    候補リストや tx 前の read で検証してはならない（`unit_key` 検証を固めた r5 blocker と同じ穴）
+  - **デフォルト未選択**
   - 選択は承認1回につき1件で、その承認で作られる全 `events` に同じ値を入れる
   - 未選択なら NULL（配信時に URL 行が省略される）
 - **依存タスク:** タスク1
