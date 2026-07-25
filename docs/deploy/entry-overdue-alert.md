@@ -9,13 +9,30 @@
 - **`line_channels` に `status='system'` の行があり、`notification_line_user_id` が管理者の LINE userId で埋まっている**こと（メール取込アラートで既に使っている経路。未投入なら `apps/mail-worker/scripts/seed-system-channel.ts`）。
 - **`PUBLIC_BASE_URL` が `.env.production` に入っている**こと。サマリの各行に大会詳細の絶対 URL を載せるため必須で、未設定だとバッチは exit 1 で止まる（リンクなしの通知を送るより設定漏れに気づかせる方針）。既存の要綱送信（`line-broadcast-guidelines.ts`）が同じ変数を使っているので、通常は既に設定済み。
 
-## 1. マイグレーション
+## 0. **マージ前に** scoped sudoers を本番へ再配置する（必須）
 
-`event_entry_status` enum に `not_applying`（申込なし）を追加する（migration `0043_entry_status_not_applying`）。既存行の値は変わらない。
+本 PR は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が最初の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは先行して手で行う。
 
 ```bash
 cd /opt/kagetra
+git fetch origin && git checkout origin/feature/entry-overdue-alert -- infra/sudoers/kagetra-deploy
+sudo install -m 0440 -o root -g root \
+  /opt/kagetra/infra/sudoers/kagetra-deploy /etc/sudoers.d/kagetra-deploy
+sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
+```
+
+（マージ後に `/opt/kagetra` を通常どおり `git pull` すれば、この一時 checkout は main の内容で上書きされる。）
+
+## 1. コード取得 → 依存解決 → マイグレーション
+
+**順序が重要**: migration `0043` は `git pull` するまで手元に存在しない。先に `db:migrate` を実行しても何も適用されず、その状態で新しい web を起動すると `/events` の `entry_status <> 'not_applying'` が未拡張の enum に対して実行され `invalid input value for enum` になる。
+
+```bash
+cd /opt/kagetra
+git pull
+corepack pnpm install --frozen-lockfile
 # db:push は interactive prompt で詰むので必ず db:migrate を使う。
+# 0043 は event_entry_status への ALTER TYPE ADD VALUE のみ（既存行の値は変わらない）。
 DATABASE_URL=postgres://... pnpm db:migrate
 ```
 
@@ -25,8 +42,6 @@ DATABASE_URL=postgres://... pnpm db:migrate
 
 ```bash
 cd /opt/kagetra
-git pull
-pnpm install --frozen-lockfile
 pnpm --filter @kagetra/web build
 # standalone は .next/static と public を手動コピーしないと CSS/JS が 404 になる
 cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/
@@ -40,15 +55,21 @@ sudo systemctl restart kagetra-web
 
 日次 07:00 JST の timer を 1 本追加する（既存の 00:00 lifecycle-reminders / 04:00 broadcast-cleanup とは別ユニット。管理者の端末が深夜に鳴らないよう時刻を分けている）。
 
+**通常は `scripts/deploy/auto-deploy.sh` がこの節を自動で行う**（`apps/*/systemd/kagetra-*.{service,timer}` の変更を検出して install → `daemon-reload` → timer は `enable --now` + `restart` + `is-active`）。§0 の sudoers 反映が済んでいればそのまま通る。手で行う場合は以下。
+
 ```bash
-sudo cp apps/web/systemd/kagetra-entry-overdue-alert.service /etc/systemd/system/
-sudo cp apps/web/systemd/kagetra-entry-overdue-alert.timer   /etc/systemd/system/
+sudo install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service /etc/systemd/system/kagetra-entry-overdue-alert.service
+sudo install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.timer   /etc/systemd/system/kagetra-entry-overdue-alert.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now kagetra-entry-overdue-alert.timer
 
 # 次回発火予定を確認
 systemctl list-timers kagetra-entry-overdue-alert.timer
 ```
+
+`enable --now` はタイマーを起動するだけで、サービスは 07:00 まで実行されない（`.timer` に `Requires=` を置いていないため。既存 lifecycle-reminders との差異はユニット内のコメント参照）。
 
 ## 4. 動作確認
 
