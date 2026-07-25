@@ -190,8 +190,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 | `sendGuidelinesOnLink(db, args, options)` | ライブラリ関数 | 呼び出し元（Webhook/manualLinkGroup/resendGuidelines）が認可を担保 | 選択済み要綱を署名URLリンクでpush（best-effort・throwしない） |
 | `pushTextToEventGroup(db, eventId, text, opts)` | ライブラリ関数 | 同上 | 定型テキスト1通のpush（lifecycle通知の下請け） |
 | `claimLifecycleNotification` / `finalizeLifecycleNotification` / `sendClaimedNotification` / `sendReminderNotification` | ライブラリ関数 | 同上 | once-ever通知ログのclaim/finalize/送信ヘルパー群 |
-| `setEntryNotApplying(eventId)` | Server Action | admin/vice_admin | 「申し込まない」への遷移。**LINE通知は一切送らない**（毎日アラートの停止条件かつ `/events` 一覧の除外条件。詳細は `spec/events-attendance.md`） |
 | `collectOverdueEntries` / `buildOverdueAlertMessage` / `loadSystemChannel` / `pushSystemText` / `sendEntryOverdueAlert` | ライブラリ関数 | 呼び出し元（日次バッチ）が実行環境を担保 | 締切超過アラートの抽出・文面組立・system_notifyチャネル解決・push（`entry-overdue-alert.ts`） |
 | `apps/web/scripts/send-entry-overdue-alert.ts` | バッチ（systemd timer） | ホスト実行（`kagetra` ユーザー） | 毎朝 JST 07:00 に `sendEntryOverdueAlert` を1回実行。`--dry-run` は候補と文面の表示のみ |
 
-`generateInviteCodeForEvent` / `revokeBroadcast` / `extendBroadcastLifetime` / `manualBroadcast` / `setEntryApplied` / `setPaymentType` / `setPaymentPaid` は `apps/web/src/app/(app)/events/[id]/actions.ts` に実装されているが、大会画面のServer Actionとしての位置づけは `spec/events-attendance.md` の正典とし、本ファイルではLINE通知観点の挙動のみを機能仕様節で記述した。
+`generateInviteCodeForEvent` / `revokeBroadcast` / `extendBroadcastLifetime` / `manualBroadcast` / `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` は `apps/web/src/app/(app)/events/[id]/actions.ts` に実装されているが、大会画面のServer Actionとしての位置づけは `spec/events-attendance.md` の正典とし、本ファイルではLINE通知観点の挙動のみを機能仕様節で記述した。
