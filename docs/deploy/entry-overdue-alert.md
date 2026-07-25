@@ -9,26 +9,126 @@
 - **`line_channels` に `status='system'` の行があり、`notification_line_user_id` が管理者の LINE userId で埋まっている**こと（メール取込アラートで既に使っている経路。未投入なら `apps/mail-worker/scripts/seed-system-channel.ts`）。
 - **`PUBLIC_BASE_URL` が `.env.production` に入っている**こと。サマリの各行に大会詳細の絶対 URL を載せるため必須で、未設定だとバッチは exit 1 で止まる（リンクなしの通知を送るより設定漏れに気づかせる方針）。既存の要綱送信（`line-broadcast-guidelines.ts`）が同じ変数を使っているので、通常は既に設定済み。
 
-## 0. **マージ前に** scoped sudoers を本番へ再配置する（必須）
+## 0. scoped sudoers を本番へ配置する（必須・**マージ前が望ましい**）
 
-本 PR は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が最初の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは先行して手で行う。
+本機能は新規 systemd unit を 2 本追加する。`infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、**sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が unit の `install` で sudo に蹴られて fail する**。auto-deploy は sudoers 自身を更新しないため、この手順だけは手で行う。
 
-**本番 checkout を汚さずに取り出すこと。** `git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、マージ後のデプロイが開始直後に必ず失敗する。一時ファイルへ書き出して install する。
+### 0-a. 必ず「検証 → 配置」の順で行う
+
+**壊れた sudoers を `/etc/sudoers.d/` に置くと、`ubuntu` を含む全ユーザーの `sudo` が使えなくなり、SSH 越しには復旧できない。** 配置前に repo 内のファイルを検証する。
+
+作業中は**別の SSH セッションで root shell を取り、完了まで閉じないこと**。単に別セッションを開くだけでは退路にならない — sudoers が壊れていれば既存・新規どちらのセッションでも `sudo` は通らず、昇格済みのシェルだけが復旧手段になる。
+
+```bash
+# 別ターミナルで実行し、§0 が完了するまで閉じない
+ssh -i ~/.ssh/id_ed25519_oracle ubuntu@new.hokudaicarta.com
+sudo -i   # ← このシェルを保持する
+```
+
+```bash
+# CRLF 混入チェック（1 つでもあれば sudoers 構文エラー。0 であること）
+grep -c $'\r' <SRC> || echo "0 (LF only)"
+
+# 構文検証（"parsed OK" を確認してから次へ進む）
+sudo visudo -c -f <SRC>
+```
+
+`<SRC>` は次節で決まる。**検証が通るまで `install` しない。**
+
+### 0-b. `<SRC>` の決め方（マージ前 / マージ後）
+
+**マージ前**（推奨）— 対象ブランチはまだ存在する。本番 checkout を汚さないよう一時ファイルへ書き出す。`git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、次回デプロイが開始直後に必ず失敗する。**`git show` を使うこと。**
+
+**取得失敗と空ファイルを必ず弾くこと。** `> "$SRC"` のリダイレクトは `git show` の実行**前**にファイルを作るため、ブランチ名の誤記やブランチ削除との競合で `git show` が失敗しても空ファイルが残る。**空ファイルは `visudo -c` を通過する**ので、そのまま配置すると `kagetra` の deploy 権限が丸ごと消え、復旧するまで auto-deploy が動かなくなる。
+
+```bash
+set -euo pipefail   # §0 のコマンドはこの下で実行する
+
+cd /opt/kagetra
+git fetch origin
+SRC=$(mktemp)
+if ! git show "origin/<ブランチ名>:infra/sudoers/kagetra-deploy" > "$SRC"; then
+  rm -f "$SRC"; echo "sudoers source extraction failed" >&2; exit 1
+fi
+test -s "$SRC" || { rm -f "$SRC"; echo "sudoers source is empty" >&2; exit 1; }
+```
+
+**マージ後** — `/ship` がリモートブランチを削除するため、上の `git show origin/<ブランチ名>:...` は**使わない**。`git fetch origin` は `fetch.prune=true` を設定していない限り削除済みブランチの remote-tracking ref を消さないので、「失敗するから気づける」とは限らず、**stale な ref から古い sudoers を引いてしまう**方が危険。取得元は決定論的に `origin/main`（または確認済みの merge commit SHA）を指すか、host の checkout を直接使う。
 
 ```bash
 cd /opt/kagetra
-git fetch origin
-tmp=$(mktemp)
-git show origin/feature/entry-overdue-alert:infra/sudoers/kagetra-deploy > "$tmp"
-sudo install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/kagetra-deploy
-sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # syntax check
-rm -f "$tmp"
+git fetch origin main
+git log --oneline -1 origin/main   # 目的の unit を含むコミットに達しているか確認
+
+# (a) host の checkout をそのまま使う（git pull 済みの場合）
+SRC=/opt/kagetra/infra/sudoers/kagetra-deploy
+# (b) checkout の状態に依存させたくない場合は origin/main から取り出す
+# SRC=$(mktemp)
+# if ! git show "origin/main:infra/sudoers/kagetra-deploy" > "$SRC"; then
+#   rm -f "$SRC"; echo "sudoers source extraction failed" >&2; exit 1
+# fi
+
+test -s "$SRC"   # 空でないこと
+```
+
+### 0-c. 配置
+
+0-a の検証が通ってから実行する。**live ファイルへ直接 `install` しない** — 途中で中断・容量不足になると `/etc/sudoers.d/kagetra-deploy` が部分書き込みのまま残り、そのまま sudo が壊れる。同一ファイルシステム内のステージングファイルへ置いてから `mv` でアトミックに差し替える。ステージング名は**先頭ドット付き**にする（`#includedir` は名前に `.` を含むファイルを読み飛ばすため、途中状態でも sudo に影響しない）。
+
+```bash
+STAGE=/etc/sudoers.d/.kagetra-deploy.staging
+sudo install -m 0440 -o root -g root "$SRC" "$STAGE"
+sudo visudo -c -f "$STAGE"                        # ステージング状態で検証
+sudo mv "$STAGE" /etc/sudoers.d/kagetra-deploy    # 同一 fs なのでアトミック
+sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # 配置後の再確認
+sudo -n true && echo "SUDO_STILL_WORKS"           # sudo が壊れていないことの確認
+if [ "$SRC" != /opt/kagetra/infra/sudoers/kagetra-deploy ]; then rm -f "$SRC"; fi
 
 # 作業ツリーが汚れていないことを確認（空であること）
 git status --porcelain --untracked-files=no
 ```
 
-（マージ後は通常どおり `git pull` すれば `/opt/kagetra/infra/sudoers/kagetra-deploy` が main の内容になる。`/etc/sudoers.d/` 側は既に同内容なので再配置は不要。）
+`SUDO_STILL_WORKS` が出るまで、0-a で確保した root shell を閉じないこと。
+
+### 0-d. allowlist が deploy ユーザーに効いているかの確認
+
+`ubuntu` の全権 sudo で unit を置いてしまうと allowlist の検証にならず、次に systemd unit を触る PR で同じ失敗を繰り返す。**deploy ユーザー（`kagetra`）として**確認する。
+
+**マージ前は `sudo -n -l` でポリシー一致だけを見る。** この時点の本番 checkout はまだ旧 main なので `apps/web/systemd/kagetra-entry-overdue-alert.service` が存在せず、実 install は allowlist が正しくても source missing で失敗する（allowlist 不一致と誤認しやすい）。
+
+```bash
+sudo -u kagetra sudo -n -l /usr/bin/install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service \
+  /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_POLICY_OK
+```
+
+**マージ後**（unit ファイルが checkout に現れてから）は実 install で確認する。**§3 では兼用できない** — §3 のコマンドは操作ユーザー（`ubuntu` 等）の全権 sudo で実行するため、`kagetra` 用の allowlist が欠落・不一致でも成功してしまい検証にならない。下記を必ず別途実行すること（あるいは §3 の install / daemon-reload / enable / restart / is-active をすべて `sudo -u kagetra sudo -n /usr/bin/...` の形で実行すれば兼用できる）。
+
+```bash
+sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
+  /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service \
+  /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_OK
+```
+
+いずれも `a password is required` や `not allowed to execute` が出たら allowlist のエントリが一致していない（パスやオプションの綴り違い）。内側の `sudo` に `-n` を付けているので、不一致でも対話プロンプトは出ずエラーで即終了する。
+
+### 0-e. 先に auto-deploy を失敗させてしまった場合の復旧範囲
+
+sudoers 未反映のままマージすると auto-deploy は fail するが、**失敗するのは systemd unit の `install` 段階**である。それより前の工程は完了している:
+
+| 工程 | 状態 |
+|---|---|
+| `git pull` / `pnpm install` | 完了 |
+| build（`.next/standalone` 更新） | 完了 |
+| **migration（`db:migrate`）** | **適用済み** |
+| systemd unit の install | ← ここで停止 |
+| web の restart | **未実行** |
+
+したがって復旧は **§0（sudoers 配置）→ §3（unit 配置・timer 有効化）→ §2 の `systemctl restart kagetra-web`** で足りる。**migration の再実行も再ビルドも不要**（build 成功ログと `.next` の mtime が失敗したデプロイの時刻になっていることで確認できる。確認できなければ §2 のリビルドから行う）。
+
+**ただし「restart するまで旧コードで安全に動き続ける」とは考えないこと。** auto-deploy は稼働中の web プロセスを止めずに同じ `.next` 配下を置き換えるため、プロセス自体は旧プロセスでも、まだロードしていない route chunk や manifest は更新後のディスクから読まれうる（＝新旧が混在した状態になりうる）。**§0・§3 を終えたら速やかに restart と healthcheck まで行うこと。** 放置して様子を見る、という判断はしない。
+
+なお auto-deploy の `CHANGED` は pull 前後の差分から算出されるため、host が既に `origin/main` に達している状態でワークフローを再実行しても `already up to date` で NOOP になる。**復旧はワークフロー再実行ではなく上記の手順で行うこと。**
 
 ## 1. コード取得 → 依存解決 → マイグレーション
 
