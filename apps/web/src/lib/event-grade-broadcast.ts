@@ -273,23 +273,34 @@ const LINE_PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push'
 const PUSH_TIMEOUT_MS = 30_000
 const MAX_RATE_LIMIT_RETRIES = 3
 
+/**
+ * push の結末は 3 値で扱う（review R3 blocker）。
+ *
+ * - `accepted`: LINE が受理した（2xx、または同一 retry key の 409）。確定してよい
+ * - `failed`: **受理されていないことが確か**（429 を除く 4xx 等）。claim を取り消して
+ *   未送信へ戻してよい
+ * - `unknown`: 受理されたかどうか分からない（タイムアウト・5xx・リトライ切れの 429）。
+ *   **claim と retry_key を残す**。消して次回新しいキーで送ると、最初の要求が実は
+ *   受理されていた場合に二重配信になる。LINE 公式も timeout / 5xx は同じ retry key で
+ *   再試行するよう定めている
+ */
+type PushOutcome = 'accepted' | 'failed' | 'unknown'
+
 interface PushGradeResult {
-  ok: boolean
+  outcome: PushOutcome
   httpStatus: number | null
   reason?: string
 }
 
 /**
- * LINE の `X-Line-Retry-Key`（UUID 形式）を claim 行の id 集合から決定的に導く。
+ * 新規 claim 用の `X-Line-Retry-Key`（UUID）を1つ発行する。
  *
- * review r1 blocker: push が LINE に受理された後で確定 (`sent_at`) に失敗する、
- * あるいはリース失効後に再 claim される経路では、同じ内容が再送されうる。
- * LINE はこのヘッダで push を冪等化する（同じキーの再送は実配信されず、409 で
- * 元の結果が返る）ので、その窓を塞ぐ。
+ * キーの**安定性は DB 側で担保する**: `claimBroadcast` は既存の `retry_key` が
+ * あれば絶対に振り直さず（`COALESCE`）、再 claim でも当時のキーをそのまま返す。
+ * したがってここで生成した値が使われるのは「まだ一度も push していない行」だけ。
  *
- * claim 行は `(event_id, grade)` に対して upsert で**同一行が使い回される**ため
- * id は安定で、「同じ内容の再送」は必ず同じキーになる。逆に対象 event の集合が
- * 変われば（新しい大会が加わった等）別キーになり、正しく別配信として届く。
+ * push が受理された後で確定 (`sent_at`) に失敗した／受理されたか不明なまま終わった
+ * 場合も、次の試行は同じキーで送られるため LINE 側が重複排除する。
  *
  * `node:crypto` を使わず Web Crypto グローバルで書く（クライアントから import
  * され得るコードで node: を使わない、という規約に合わせる）。
@@ -318,13 +329,28 @@ async function pushGradeText(
 ): Promise<PushGradeResult> {
   if (process.env.LINE_NOTIFY_DRY_RUN === '1') {
     logger.info('LINE_NOTIFY_DRY_RUN=1; skipping grade broadcast push', { to })
-    return { ok: true, httpStatus: null }
+    return { outcome: 'accepted', httpStatus: null }
   }
 
   // review R2 should_fix: 1 回の承認で同じ級に多数の大会が該当すると、束ねた本文が
   // LINE の 5000 文字上限を超えて恒久的に送信不能になる（再送も同じ入力で失敗する）。
   // 既存の splitForLine で分割し、1 リクエストに最大 5 通まで載せる。
-  const chunks = splitForLine(text).slice(0, LINE_MAX_MESSAGES_PER_PUSH)
+  //
+  // review R3 should_fix: 5 通に収まらない場合に切り捨ててはいけない。切り捨てたまま
+  // 確定すると、末尾の大会が**一度も送られないのに送信済み**になり再送でも復旧できない。
+  // 送らずに失敗として返し、claim を未送信へ戻す（運用では承認単位を分けて対処する）。
+  const chunks = splitForLine(text)
+  if (chunks.length > LINE_MAX_MESSAGES_PER_PUSH) {
+    logger.warn('grade broadcast message exceeds LINE per-request limit; not sending', {
+      to,
+      chunkCount: chunks.length,
+    })
+    return {
+      outcome: 'failed',
+      httpStatus: null,
+      reason: `本文が LINE の 1 リクエスト上限 (${LINE_MAX_MESSAGES_PER_PUSH} 通) を超えました`,
+    }
+  }
   const messages = chunks.map((chunk) => ({ type: 'text' as const, text: chunk }))
 
   let attempt = 0
@@ -343,14 +369,14 @@ async function pushGradeText(
         signal: controller.signal,
       })
       clearTimeout(timer)
-      if (res.ok) return { ok: true, httpStatus: res.status }
+      if (res.ok) return { outcome: 'accepted', httpStatus: res.status }
 
       // 409 = 同じ retry key の push を LINE が既に受理済み。実配信は 1 回だけ
       // 行われているので「送信成功」として扱う（ここで失敗にすると claim を
       // 巻き戻して、次回さらに送ろうとしてしまう）。
       if (res.status === 409) {
         logger.info('grade broadcast push deduplicated by LINE (409)', { to })
-        return { ok: true, httpStatus: res.status }
+        return { outcome: 'accepted', httpStatus: res.status }
       }
 
       if (res.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
@@ -368,8 +394,13 @@ async function pushGradeText(
 
       const body = await res.text().catch(() => '')
       logger.warn('grade broadcast push failed', { httpStatus: res.status })
+      // 5xx とリトライを使い切った 429 は「受理されたか不明」。claim と retry_key を
+      // 残し、次回**同じキー**で再試行させる（消して新しいキーで送ると、最初の要求が
+      // 実は受理されていた場合に二重配信になる）。それ以外の 4xx は受理されていないと
+      // 確定できるので claim を取り消してよい。
+      const ambiguous = res.status >= 500 || res.status === 429
       return {
-        ok: false,
+        outcome: ambiguous ? 'unknown' : 'failed',
         httpStatus: res.status,
         reason: `LINE push failed: ${res.status} ${body.slice(0, 200)}`,
       }
@@ -382,7 +413,10 @@ async function pushGradeText(
           ? err.message
           : String(err)
       logger.warn('grade broadcast push failed', { error: reason })
-      return { ok: false, httpStatus: null, reason }
+      // タイムアウト・ネットワーク断は受理されたか分からない。claim と retry_key を
+      // 残して、同じキーでの再試行に委ねる（LINE 公式もこの経路は同一 retry key での
+      // 再試行を求めている）。
+      return { outcome: 'unknown', httpStatus: null, reason }
     }
   }
 }
@@ -541,19 +575,20 @@ export async function broadcastEventsToGradeGroups(
     // 紐付けの有無で判定すると、要綱添付が1件も無い（＝文面に URL 行が出ない）
     // 配信まで PUBLIC_BASE_URL 未設定で全滅する。手動作成の大会は常に添付なしなので、
     // その経路が env 不備で丸ごと落ちるのは実害が大きい。
+    // review R3 should_fix: 失敗の巻き込み範囲は**級単位**にする。1件でも添付が
+    // あるだけで全級を止めると、添付付き A 級と添付なし B 級を同時承認したときに
+    // URL を必要としない B 級まで送られない（級ごとに失敗を分離する他の箇所とも不整合）。
     const needsBaseUrl = rows.some((row) => row.gradeBroadcastAttachmentId != null)
     let baseUrl: string | null = null
-    let baseUrlFailed = false
+    let baseUrlError: string | null = null
     if (bindings.size > 0 && needsBaseUrl) {
       try {
         baseUrl = resolveBaseUrl(options.baseUrl)
       } catch (err) {
+        baseUrlError = err instanceof Error ? err.message : String(err)
         logger.warn('broadcastEventsToGradeGroups: baseUrl resolution failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: baseUrlError,
         })
-        // 要綱 URL を解決できず紐付け済みの級へは1つも送れないため、全て失敗として扱う。
-        baseUrlFailed = true
-        for (const grade of bindings.keys()) result.failedGrades.push(grade)
       }
     }
 
@@ -565,7 +600,12 @@ export async function broadcastEventsToGradeGroups(
         result.skippedGrades.push(grade)
         continue
       }
-      if (baseUrlFailed) continue // 上で baseUrl 解決失敗として既に failedGrades 済み
+      // baseUrl の解決に失敗していても、**その級に要綱添付が無ければ**文面に URL 行は
+      // 出ないので普通に送れる。止めるのは URL を実際に必要とする級だけ。
+      if (baseUrlError != null && gradeEvents.some((e) => e.gradeBroadcastAttachmentId != null)) {
+        result.failedGrades.push(grade)
+        continue
+      }
 
       const claimed: { row: ClaimedRow; event: TargetEventRow }[] = []
       // review r1 blocker: LINE が push を受理したかどうかを catch 側からも見る。
@@ -621,9 +661,9 @@ export async function broadcastEventsToGradeGroups(
             logger,
             retryKey,
           )
-          if (pushResult.ok) anyPushAccepted = true
+          if (pushResult.outcome === 'accepted') anyPushAccepted = true
 
-          if (pushResult.ok) {
+          if (pushResult.outcome === 'accepted') {
             // ownership CAS: claim 取得時の claimed_at と一致する行だけ確定する。
             // リース失効で別プロセスが再 claim していたら 0 件になり、そちらの
             // 処理を壊さない。
@@ -638,11 +678,21 @@ export async function broadcastEventsToGradeGroups(
                   ),
                 )
             }
-          } else {
-            // 未送信のまま残す（紐付けは解除しない）。後から再送できるようにする
-            // (AC-9 / AC-21)。ここも ownership CAS 付きで消す。
+          } else if (pushResult.outcome === 'failed') {
+            // 受理されていないことが確かなので claim を取り消し、未送信のまま残す
+            // （紐付けは解除しない）。後から再送できるようにする (AC-9 / AC-21)。
+            // ここも ownership CAS 付きで消す。
             anyGroupFailed = true
             await deleteOwnedClaims(db, group.map((g) => g.row))
+          } else {
+            // outcome === 'unknown': 受理されたか不明。**claim も retry_key も消さない**。
+            // リース失効後の再試行が同じキーで送るので、実は受理されていた場合は LINE が
+            // 重複排除する。ここで消すと次回は新しいキーになり二重配信になる。
+            anyGroupFailed = true
+            logger.warn('grade broadcast push outcome unknown; keeping claim for same-key retry', {
+              grade,
+              httpStatus: pushResult.httpStatus,
+            })
           }
         }
         if (anyGroupFailed) result.failedGrades.push(grade)

@@ -131,7 +131,10 @@ function okFetch() {
   )
 }
 
-function failFetch(status = 500) {
+function failFetch(status = 400) {
+  // 既定は 400（＝受理されていないことが確かな失敗）。5xx / タイムアウトは
+  // 「受理されたか不明」で claim を残す別扱いになるため、claim が取り消される
+  // ことを検証するテストは必ず 4xx を使う。
   return vi.fn<typeof fetch>(
     async () =>
       ({
@@ -405,7 +408,10 @@ describe('broadcastEventsToGradeGroups — DB', () => {
       const ok = body.to === 'GA'
       return {
         ok,
-        status: ok ? 200 : 500,
+        // B 級は 400（受理されていないことが確かな失敗）にする。5xx にすると
+        // 「受理されたか不明」となり claim を残す仕様なので、この AC の検証
+        // （失敗した級は記録を残さない）とは別の経路になる。
+        status: ok ? 200 : 400,
         headers: { get: () => null },
         text: async () => 'error',
       } as unknown as Response
@@ -685,7 +691,7 @@ describe('broadcastEventsToGradeGroups — DB', () => {
     })
 
     // 再 claim → push 失敗 → 自分の claim だけを消す。
-    const fetchImpl = failFetch(500)
+    const fetchImpl = failFetch(400)
     await broadcastEventsToGradeGroups(testDb, [event.id], {
       fetchImpl,
       baseUrl: BASE_URL,
@@ -696,6 +702,124 @@ describe('broadcastEventsToGradeGroups — DB', () => {
       .select()
       .from(eventGradeBroadcasts)
       .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows).toHaveLength(0)
+  })
+
+  // review R3 blocker: タイムアウト・5xx は「受理されたか不明」。claim と retry_key を
+  // 消すと、次回は新しいキーで送られ、最初の要求が実は受理されていた場合に二重配信になる。
+  it('タイムアウトでは claim と retry_key を残し、次回も同じキーで再試行する', async () => {
+    await seedGradeBinding('A')
+    const event = await createEvent({ eligibleGrades: ['A'] })
+
+    const timeoutFetch = vi.fn<typeof fetch>(async () => {
+      const err = new Error('The operation was aborted')
+      err.name = 'AbortError'
+      throw err
+    })
+    const first = await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: timeoutFetch,
+      baseUrl: BASE_URL,
+    })
+    expect(first.failedGrades).toEqual(['A'])
+
+    // claim は残っている（消すと次回別キーになる）。
+    const afterTimeout = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(afterTimeout).toHaveLength(1)
+    expect(afterTimeout[0]!.sentAt).toBeNull()
+    const keptKey = afterTimeout[0]!.retryKey
+    expect(keptKey).not.toBeNull()
+
+    // リース失効後の再試行は同じキーで送る。
+    await testDb
+      .update(eventGradeBroadcasts)
+      .set({ claimedAt: sql`now() - interval '1 hour'` })
+    const retry = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: retry,
+      baseUrl: BASE_URL,
+    })
+    expect(retryKeyOf(retry)).toBe(keptKey)
+  })
+
+  it('5xx でも claim を残す（受理されたか不明なため）', async () => {
+    await seedGradeBinding('A')
+    const event = await createEvent({ eligibleGrades: ['A'] })
+
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: failFetch(503),
+      baseUrl: BASE_URL,
+    })
+
+    const rows = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.sentAt).toBeNull()
+  })
+
+  it('4xx（受理されていないことが確か）では claim を取り消す', async () => {
+    await seedGradeBinding('A')
+    const event = await createEvent({ eligibleGrades: ['A'] })
+
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl: failFetch(400),
+      baseUrl: BASE_URL,
+    })
+
+    const rows = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows).toHaveLength(0)
+  })
+
+  // review R3 should_fix: URL 設定の不備で、URL を必要としない級まで止めない。
+  it('要綱ありの級だけ baseUrl 不備で失敗し、添付なしの級は配信される', async () => {
+    await seedGradeBinding('A')
+    await seedGradeBinding('B')
+    const attachment = await seedGuidelineAttachment()
+    const withAttachment = await createEvent({
+      eligibleGrades: ['A'],
+      gradeBroadcastAttachmentId: attachment.id,
+    })
+    const withoutAttachment = await createEvent({ eligibleGrades: ['B'] })
+    const fetchImpl = okFetch()
+
+    // baseUrl は渡さず env も未設定 → 解決失敗。
+    const result = await broadcastEventsToGradeGroups(
+      testDb,
+      [withAttachment.id, withoutAttachment.id],
+      { fetchImpl },
+    )
+
+    expect(result.failedGrades).toEqual(['A'])
+    expect(result.sentGrades).toEqual(['B'])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('5 通に収まらない本文は切り捨てず、送信失敗として claim を戻す', async () => {
+    await seedGradeBinding('A')
+    const longTitle = 'あ'.repeat(195)
+    const eventIds: number[] = []
+    for (let i = 0; i < 200; i++) {
+      const ev = await createEvent({ eligibleGrades: ['A'], title: `${longTitle}${i}` })
+      eventIds.push(ev.id)
+    }
+    const fetchImpl = okFetch()
+
+    const result = await broadcastEventsToGradeGroups(testDb, eventIds, {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    // 切り捨てて送ると、末尾の大会が一度も送られないまま送信済みになる。
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(result.failedGrades).toEqual(['A'])
+    const rows = await testDb.select().from(eventGradeBroadcasts)
     expect(rows).toHaveLength(0)
   })
 
