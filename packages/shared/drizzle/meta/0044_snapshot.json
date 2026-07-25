@@ -1,5 +1,5 @@
 {
-  "id": "bd741e4f-8a47-479e-b731-3e77e04a0ec7",
+  "id": "74924606-b18f-44f4-850e-4f65ded13353",
   "prevId": "505ffaa4-11be-4362-8201-ba3c01e68915",
   "version": "7",
   "dialect": "postgresql",
@@ -2669,6 +2669,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "retry_key": {
+          "name": "retry_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "sent_at": {
           "name": "sent_at",

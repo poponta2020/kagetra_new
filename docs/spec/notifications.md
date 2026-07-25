@@ -83,6 +83,14 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 **冪等性**は `event_grade_broadcasts`（`UNIQUE(event_id, grade)`）の **claim → push → 確定/取消**で担保する。claim はリースつき upsert（`ON CONFLICT DO UPDATE ... WHERE sent_at IS NULL AND claimed_at < now() - interval '5 minutes'`）で、push 成功なら `sent_at` を刻み、失敗なら claim 行を削除して未送信のまま残す（後から紐付け直して再送できる）。単純な `ON CONFLICT DO NOTHING` にしないのは、push 途中でプロセスが落ちると `sent_at IS NULL` の claim が残り、その `(大会, 級)` が永久に送信不能になる（再送ボタンも静かにスキップする）ため。
 
+外部送信と DB 更新の間で落ちる窓は、次の3点で塞ぐ:
+
+- **LINE が push を受理した後は claim を巻き戻さない。** 受理済みの claim を「失敗」として消すと、次回同じ本文が再び届く
+- **`retry_key`（LINE の `X-Line-Retry-Key`）を claim 行に永続化し、一度決めたら変えない。** 同じ push にまとめた行が同じキーを共有するため、「まとめて送ったが確定だけ失敗し、後から一部の大会だけ再送する」場合でも元の送信と同じキーで再開でき、LINE 側が重複排除する（409 は「受理済み」＝送信成功として扱う）。キーをその場の行集合から導くと、再送で集合が変わった瞬間に別キーになり重複排除がすり抜ける。push は retry_key ごとにまとめるので、通常は級ごと1通のまま
+- **確定・取消は claim 取得時の `claimed_at` との一致を条件にする（ownership CAS）。** リース失効で別プロセスが再 claim した行を、古いプロセスが後から消してしまう race を弾く
+
+束ねた本文が LINE の 5000 文字上限を超える場合は既存 `splitForLine` で分割し、**同一リクエストに最大5通まで載せる**（リクエストを分けると retry key を共有できず冪等性が崩れる）。
+
 **文面**は `M/D(曜) <title>の案内が来ました！` ＋ 要綱URL行 ＋ 空行と `締切 はM/Dです。`。要綱（`events.grade_broadcast_attachment_id`、承認フォームで1件選択・既定は未選択）と会内締切（`internal_deadline`）は無ければ行ごと省略する。要綱URLは既存の署名トークン方式（`/api/line-broadcast/attachments/[token]`、60日）をそのまま使い、新しい公開エンドポイントは作らない（級グループには未登録会員がいる可能性があるため未認証のまま維持する）。対象級は `events.eligible_grades`、**null または空なら全5級**（`isGradeEligible` と同ルール）。
 
 **未紐付けでスキップした級と push に失敗した級は集計して管理者の個人LINEへ1通通知する**（`entry-overdue-alert.ts` の `loadSystemChannel`/`pushSystemText` を再利用）。無言でスキップすると「特定の級だけ永久に届いていない」状態に誰も気づけないため。

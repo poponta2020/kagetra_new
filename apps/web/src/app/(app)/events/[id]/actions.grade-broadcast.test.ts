@@ -22,14 +22,16 @@ const ADMIN = { id: 'admin-1', role: 'admin' as const }
 const VICE_ADMIN = { id: 'vice-1', role: 'vice_admin' as const }
 const MEMBER = { id: 'member-1', role: 'member' as const }
 
-let savedDryRun: string | undefined
-let savedBaseUrl: string | undefined
+// review R2 should_fix: 退避はモジュール初期化時に**一度だけ**行う。beforeEach で
+// 退避すると 2 回目以降は自分が設定した値を保存してしまい、afterAll が元の値では
+// なく '1' / 'https://example.test' を残す。同じ vitest worker で後続ファイルの
+// push テストが order-dependent になる。
+const savedDryRun = process.env.LINE_NOTIFY_DRY_RUN
+const savedBaseUrl = process.env.PUBLIC_BASE_URL
 
 beforeEach(async () => {
   await truncateAll()
   await setAuthSession(ADMIN)
-  savedDryRun = process.env.LINE_NOTIFY_DRY_RUN
-  savedBaseUrl = process.env.PUBLIC_BASE_URL
   process.env.LINE_NOTIFY_DRY_RUN = '1'
   process.env.PUBLIC_BASE_URL = 'https://example.test'
 })

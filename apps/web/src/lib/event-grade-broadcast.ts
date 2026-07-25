@@ -5,6 +5,7 @@ import type { db as appDb } from '@/lib/db'
 import { formatEventDate } from '@/app/(app)/events/event-list-utils'
 import { getOrCreateShareToken } from '@/lib/attachment-image-render'
 import { loadSystemChannel, pushSystemText } from '@/lib/entry-overdue-alert'
+import { splitForLine } from '@/lib/text-splitter'
 
 /**
  * event-grade-group-broadcast: 級別 (A〜E) LINE グループへ大会概要を自動配信する
@@ -197,22 +198,70 @@ async function loadLinkedBindings(
  * `event-grade-broadcasts.ts` の docstring に定義された契約どおりのリースつき
  * upsert（単純な `ON CONFLICT DO NOTHING` にしない理由もそちらに記載）。
  */
+interface ClaimedRow {
+  id: number
+  /** claim の ownership。確定・取消はこの値との一致を条件にする。 */
+  claimedAt: Date
+  /**
+   * この行が属する送信試行の retry key。新規 claim では `freshKey` が入り、
+   * 既に push 済み（確定だけ失敗した）行を再 claim した場合は**当時のキーが
+   * そのまま返る**。同じキーで送り直せば LINE 側が重複排除する。
+   */
+  retryKey: string
+}
+
 async function claimBroadcast(
   dbc: DbOrTx,
   eventId: number,
   grade: Grade,
   leaseMs: number,
-): Promise<number | null> {
+  freshKey: string,
+): Promise<ClaimedRow | null> {
+  // `claimed_at` は ownership の比較キーとして JS へ往復させる。Postgres の
+  // timestamptz はマイクロ秒精度だが JS の Date はミリ秒までしか持たないため、
+  // 素の `now()` だと往復で値が落ちて CAS が永久に一致しない。ミリ秒へ丸めて
+  // 無損失に往復させる（リース判定は丸めても影響しない）。
+  const claimNow = sql`date_trunc('milliseconds', now())`
   const rows = await dbc
     .insert(eventGradeBroadcasts)
-    .values({ eventId, grade })
+    .values({ eventId, grade, retryKey: freshKey, claimedAt: claimNow })
     .onConflictDoUpdate({
       target: [eventGradeBroadcasts.eventId, eventGradeBroadcasts.grade],
-      set: { claimedAt: sql`now()` },
+      set: {
+        claimedAt: claimNow,
+        // 既にキーがあるなら**絶対に振り直さない**（過去の push と同じ試行として
+        // 再開する）。無い場合だけ今回のキーを入れる。
+        retryKey: sql`COALESCE(${eventGradeBroadcasts.retryKey}, EXCLUDED.retry_key)`,
+      },
       setWhere: sql`${eventGradeBroadcasts.sentAt} IS NULL AND ${eventGradeBroadcasts.claimedAt} < now() - (${leaseMs} * interval '1 millisecond')`,
     })
-    .returning({ id: eventGradeBroadcasts.id })
-  return rows[0]?.id ?? null
+    .returning({
+      id: eventGradeBroadcasts.id,
+      claimedAt: eventGradeBroadcasts.claimedAt,
+      retryKey: eventGradeBroadcasts.retryKey,
+    })
+  const row = rows[0]
+  if (!row) return null
+  return { id: row.id, claimedAt: row.claimedAt, retryKey: row.retryKey ?? freshKey }
+}
+
+/**
+ * claim を取り消す。**自分が取った claim（`claimed_at` 一致）だけ**を消す。
+ * id だけを条件にすると、リース失効で別プロセスが再 claim した行を古いプロセスが
+ * 消してしまい、そちらの送信が「未 claim」状態に戻る（review R2 blocker）。
+ */
+async function deleteOwnedClaims(dbc: DbOrTx, rows: ClaimedRow[]): Promise<void> {
+  for (const row of rows) {
+    await dbc
+      .delete(eventGradeBroadcasts)
+      .where(
+        and(
+          eq(eventGradeBroadcasts.id, row.id),
+          eq(eventGradeBroadcasts.claimedAt, row.claimedAt),
+          sql`${eventGradeBroadcasts.sentAt} IS NULL`,
+        ),
+      )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,22 +294,19 @@ interface PushGradeResult {
  * `node:crypto` を使わず Web Crypto グローバルで書く（クライアントから import
  * され得るコードで node: を使わない、という規約に合わせる）。
  */
-async function buildRetryKey(claimedIds: number[]): Promise<string> {
-  const payload = [...claimedIds].sort((a, b) => a - b).join(',')
-  const digest = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)),
-  )
-  const hex = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
-  // UUID v4 の形（version=4 / variant=8..b）に整形する。LINE は UUID 形式のみ受け付ける。
-  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    `4${hex.slice(13, 16)}`,
-    `${variant}${hex.slice(17, 20)}`,
-    hex.slice(20, 32),
-  ].join('-')
+function newRetryKey(): string {
+  // LINE は UUID 形式のみ受け付ける。`node:crypto` を使わず Web Crypto
+  // グローバルで生成する（クライアントから import され得るコードで node: を
+  // 使わない、という規約に合わせる）。
+  return crypto.randomUUID()
 }
+
+/**
+ * LINE の 1 リクエストあたりのメッセージ数上限。1 text = 5000 文字上限なので、
+ * 束ねた本文が長い場合は分割してこの上限まで**同一リクエスト**に載せる
+ * （リクエストを分けると retry key を共有できず冪等性が崩れる）。
+ */
+const LINE_MAX_MESSAGES_PER_PUSH = 5
 
 async function pushGradeText(
   fetchImpl: typeof fetch,
@@ -275,6 +321,12 @@ async function pushGradeText(
     return { ok: true, httpStatus: null }
   }
 
+  // review R2 should_fix: 1 回の承認で同じ級に多数の大会が該当すると、束ねた本文が
+  // LINE の 5000 文字上限を超えて恒久的に送信不能になる（再送も同じ入力で失敗する）。
+  // 既存の splitForLine で分割し、1 リクエストに最大 5 通まで載せる。
+  const chunks = splitForLine(text).slice(0, LINE_MAX_MESSAGES_PER_PUSH)
+  const messages = chunks.map((chunk) => ({ type: 'text' as const, text: chunk }))
+
   let attempt = 0
   for (;;) {
     const controller = new AbortController()
@@ -287,7 +339,7 @@ async function pushGradeText(
           'Content-Type': 'application/json',
           'X-Line-Retry-Key': retryKey,
         },
-        body: JSON.stringify({ to, messages: [{ type: 'text', text }] }),
+        body: JSON.stringify({ to, messages }),
         signal: controller.signal,
       })
       clearTimeout(timer)
@@ -515,61 +567,86 @@ export async function broadcastEventsToGradeGroups(
       }
       if (baseUrlFailed) continue // 上で baseUrl 解決失敗として既に failedGrades 済み
 
-      const claimed: { id: number; event: TargetEventRow }[] = []
+      const claimed: { row: ClaimedRow; event: TargetEventRow }[] = []
       // review r1 blocker: LINE が push を受理したかどうかを catch 側からも見る。
       // 受理済みの claim を「失敗」として巻き戻すと、次回同じ本文を再送してしまう
       // （AC-8 違反）。確定 (`sent_at`) に失敗した曖昧な claim は**消さずに残す**。
-      let pushAccepted = false
+      let anyPushAccepted = false
       try {
+        const freshKey = newRetryKey()
         for (const event of gradeEvents) {
-          const claimId = await claimBroadcast(db, event.id, grade, leaseMs)
-          if (claimId != null) claimed.push({ id: claimId, event })
+          const row = await claimBroadcast(db, event.id, grade, leaseMs, freshKey)
+          if (row != null) claimed.push({ row, event })
         }
         // 既に全て送信済み、または別プロセスがリース中 — 二重送信を避けるため何もしない。
         if (claimed.length === 0) continue
 
-        const entries: GradeBroadcastEntry[] = []
-        for (const { event } of claimed) {
-          let guidelineUrl: string | null = null
-          if (event.gradeBroadcastAttachmentId != null && baseUrl != null) {
-            const { token } = await getOrCreateShareToken(db, event.gradeBroadcastAttachmentId, {
-              now: options.now,
+        // review R2 blocker: retry key ごとに push をまとめる。通常は全件が
+        // `freshKey` の 1 グループ（＝級ごと 1 通・AC-10）。「まとめて送ったが確定に
+        // 失敗した行」を後から一部だけ再送する場合だけ、その行は当時のキーを持つので
+        // 別グループになり、元の送信と同じキーで送り直される（LINE が重複排除する）。
+        // キーをその場の行集合から導くと、再送で集合が変わった瞬間に別キーとなり
+        // 重複排除がすり抜ける。
+        const byKey = new Map<string, typeof claimed>()
+        for (const item of claimed) {
+          const list = byKey.get(item.row.retryKey)
+          if (list) list.push(item)
+          else byKey.set(item.row.retryKey, [item])
+        }
+
+        let anyGroupFailed = false
+        for (const [retryKey, group] of byKey) {
+          const entries: GradeBroadcastEntry[] = []
+          for (const { event } of group) {
+            let guidelineUrl: string | null = null
+            if (event.gradeBroadcastAttachmentId != null && baseUrl != null) {
+              const { token } = await getOrCreateShareToken(db, event.gradeBroadcastAttachmentId, {
+                now: options.now,
+              })
+              guidelineUrl = `${baseUrl}/api/line-broadcast/attachments/${token}`
+            }
+            entries.push({
+              eventDate: event.eventDate,
+              title: event.title,
+              guidelineUrl,
+              internalDeadline: event.internalDeadline,
             })
-            guidelineUrl = `${baseUrl}/api/line-broadcast/attachments/${token}`
           }
-          entries.push({
-            eventDate: event.eventDate,
-            title: event.title,
-            guidelineUrl,
-            internalDeadline: event.internalDeadline,
-          })
-        }
-        const text = buildGradeBroadcastMessage(entries)
-        const claimedIds = claimed.map((c) => c.id)
 
-        const pushResult = await pushGradeText(
-          fetchImpl,
-          binding.channelAccessToken,
-          binding.lineGroupId,
-          text,
-          logger,
-          await buildRetryKey(claimedIds),
-        )
-        pushAccepted = pushResult.ok
+          const pushResult = await pushGradeText(
+            fetchImpl,
+            binding.channelAccessToken,
+            binding.lineGroupId,
+            buildGradeBroadcastMessage(entries),
+            logger,
+            retryKey,
+          )
+          if (pushResult.ok) anyPushAccepted = true
 
-        if (pushResult.ok) {
-          await db
-            .update(eventGradeBroadcasts)
-            .set({ sentAt: sql`now()` })
-            .where(inArray(eventGradeBroadcasts.id, claimedIds))
-          result.sentGrades.push(grade)
-        } else {
-          // 未送信のまま残す（紐付けは解除しない）。後から再送できるようにする (AC-9 / AC-21)。
-          await db
-            .delete(eventGradeBroadcasts)
-            .where(and(inArray(eventGradeBroadcasts.id, claimedIds), sql`${eventGradeBroadcasts.sentAt} IS NULL`))
-          result.failedGrades.push(grade)
+          if (pushResult.ok) {
+            // ownership CAS: claim 取得時の claimed_at と一致する行だけ確定する。
+            // リース失効で別プロセスが再 claim していたら 0 件になり、そちらの
+            // 処理を壊さない。
+            for (const { row } of group) {
+              await db
+                .update(eventGradeBroadcasts)
+                .set({ sentAt: sql`now()` })
+                .where(
+                  and(
+                    eq(eventGradeBroadcasts.id, row.id),
+                    eq(eventGradeBroadcasts.claimedAt, row.claimedAt),
+                  ),
+                )
+            }
+          } else {
+            // 未送信のまま残す（紐付けは解除しない）。後から再送できるようにする
+            // (AC-9 / AC-21)。ここも ownership CAS 付きで消す。
+            anyGroupFailed = true
+            await deleteOwnedClaims(db, group.map((g) => g.row))
+          }
         }
+        if (anyGroupFailed) result.failedGrades.push(grade)
+        else result.sentGrades.push(grade)
       } catch (err) {
         logger.warn('broadcastEventsToGradeGroups: grade processing failed', {
           grade,
@@ -577,26 +654,13 @@ export async function broadcastEventsToGradeGroups(
         })
         // push が既に受理されている場合は claim を消さない。消すと「LINE には
         // 届いたが未送信扱い」になり、次回の配信・再送で二重に届く。確定だけが
-        // 失敗した claim は残しておけば、リース失効後の再試行でも retry key に
-        // より LINE 側で冪等化される。
-        if (pushAccepted) {
-          result.failedGrades.push(grade)
-          continue
-        }
-        // ここまでに claim できていた分だけ後始末する（claim 前に落ちていれば空配列）。
-        if (claimed.length > 0) {
-          await db
-            .delete(eventGradeBroadcasts)
-            .where(
-              and(
-                inArray(
-                  eventGradeBroadcasts.id,
-                  claimed.map((c) => c.id),
-                ),
-                sql`${eventGradeBroadcasts.sentAt} IS NULL`,
-              ),
-            )
-            .catch(() => undefined)
+        // 失敗した claim は残しておけば、再 claim 時に**同じ retry key が返る**ので
+        // LINE 側で冪等化される。
+        if (!anyPushAccepted && claimed.length > 0) {
+          await deleteOwnedClaims(
+            db,
+            claimed.map((c) => c.row),
+          ).catch(() => undefined)
         }
         result.failedGrades.push(grade)
       }

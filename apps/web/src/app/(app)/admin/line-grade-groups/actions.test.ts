@@ -61,6 +61,11 @@ describe('generateGradeInviteCode', () => {
       where: eq(lineChannels.id, channelId),
     })
     expect(channel?.purpose).toBe('grade_broadcast')
+    // review R2 blocker: status を available のまま残すと、並行する大会用の
+    // reserveAvailableChannel（status='available' だけを見る）が同じ Bot を
+    // 大会へ割り当ててしまい、1 Bot が級と大会を兼ねる。転換と同時にプールから
+    // 外れていること。
+    expect(channel?.status).not.toBe('available')
 
     const binding = await testDb.query.lineGradeGroupBindings.findFirst({
       where: eq(lineGradeGroupBindings.grade, 'A'),

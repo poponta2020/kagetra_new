@@ -22,6 +22,7 @@ CREATE TABLE "event_grade_broadcasts" (
 	"event_id" integer NOT NULL,
 	"grade" "grade" NOT NULL,
 	"claimed_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"retry_key" text,
 	"sent_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );

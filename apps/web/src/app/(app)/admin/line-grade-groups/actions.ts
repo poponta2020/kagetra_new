@@ -45,9 +45,11 @@ export interface GeneratedGradeInviteCode {
  *
  * - If a binding row already exists for this grade, it is reused in place
  *   (grade has a UNIQUE constraint, so a fresh INSERT would violate it).
- *   Re-issuing tears down whatever state the row was in (including a live
- *   `linked` group) — the operator must re-invite the Bot to the group and
- *   speak the new code.
+ *   **A `linked` binding is never overwritten**: re-issuing would silently drop
+ *   the grade out of the broadcast set, so it is rejected and the operator has
+ *   to go through the confirmed 「解除」 first. Re-issuing over any other state
+ *   (invite_pending / joined_waiting_code / revoked) resets the row and the
+ *   operator re-invites the Bot and speaks the new code.
  * - If no binding exists yet, an `available` channel from the
  *   `event_broadcast` pool is optimistically claimed and converted to
  *   `purpose='grade_broadcast'` in the same transaction. Once converted, a
@@ -60,9 +62,21 @@ export async function generateGradeInviteCode(
   assertGrade(grade)
 
   const reservation = await db.transaction(async (tx) => {
-    const existing = await tx.query.lineGradeGroupBindings.findFirst({
-      where: eq(lineGradeGroupBindings.grade, grade),
-    })
+    // review R2 blocker: ここを素の SELECT にすると linked ガードが TOCTOU に
+    // なる。読み取り直後に webhook（6桁コード発言）が linked へ遷移させると、
+    // 後続の UPDATE が有効な紐付けを invite_pending へ巻き戻して lineGroupId /
+    // linkedAt を消してしまう。行を FOR UPDATE でロックしてから判定し、以降の
+    // UPDATE もこのロック下で行う（webhook 側は別トランザクションなので待たされる）。
+    const lockedRows = await tx
+      .select({
+        id: lineGradeGroupBindings.id,
+        status: lineGradeGroupBindings.status,
+        lineChannelId: lineGradeGroupBindings.lineChannelId,
+      })
+      .from(lineGradeGroupBindings)
+      .where(eq(lineGradeGroupBindings.grade, grade))
+      .for('update')
+    const existing = lockedRows[0] ?? null
 
     // review r1 blocker: 紐付け済み (linked) の級で再発行を許すと、単なる
     // 「招待コードを再発行」の1操作で lineGroupId / linkedAt が消え、その級が
@@ -99,9 +113,19 @@ export async function generateGradeInviteCode(
 
       let claimedId: number | null = null
       for (const candidate of candidates) {
+        // review R2 blocker: purpose だけ変えて status='available' のまま残すと、
+        // 並行する大会用 reserveAvailableChannel が（status='available' だけを見て
+        // いるため）同じ Bot を大会へ割り当ててしまう。1 つの Bot が級紐付けと
+        // 大会紐付けを兼ねると、webhook は級用へルーティングされ大会側の招待コードが
+        // 一切処理できなくなる。**status も同一 UPDATE で available から外す**ことで、
+        // 既存プール側のコードを一切変えずに競合を閉じる。
         const claimed = await tx
           .update(lineChannels)
-          .set({ purpose: 'grade_broadcast', updatedAt: sql`now()` })
+          .set({
+            purpose: 'grade_broadcast',
+            status: 'assigned',
+            updatedAt: sql`now()`,
+          })
           .where(
             and(
               eq(lineChannels.id, candidate.id),
@@ -152,7 +176,13 @@ export async function generateGradeInviteCode(
                 revokeReason: null,
                 updatedAt: sql`now()`,
               })
-              .where(eq(lineGradeGroupBindings.id, existing.id))
+              // FOR UPDATE 下だが、条件を再掲して linked を絶対に上書きしない。
+              .where(
+                and(
+                  eq(lineGradeGroupBindings.id, existing.id),
+                  sql`${lineGradeGroupBindings.status} <> 'linked'`,
+                ),
+              )
           } else {
             await sp.insert(lineGradeGroupBindings).values({
               grade,

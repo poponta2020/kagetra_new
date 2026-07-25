@@ -1,4 +1,4 @@
-import { integer, pgTable, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { integer, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 import { gradeEnum } from './enums'
 import { events } from './events'
 
@@ -46,9 +46,19 @@ export const eventGradeBroadcasts = pgTable(
       .references(() => events.id, { onDelete: 'cascade' }),
     grade: gradeEnum('grade').notNull(),
     // claim を取った時刻。リースの基準なので NOT NULL。
+    // 確定 (`sent_at`) / 取消 (DELETE) はこの値との一致を条件にする（claim の
+    // ownership）。リース失効で別プロセスが再 claim すると `claimed_at` が変わるため、
+    // 古いプロセスが後から新しい claim を消してしまう race を弾ける。
     claimedAt: timestamp('claimed_at', { mode: 'date', withTimezone: true })
       .notNull()
       .defaultNow(),
+    // LINE の `X-Line-Retry-Key`（UUID）。**claim 行に永続化し、一度決めたら
+    // 変えない**のが要点。同じ push にまとめた行は同じキーを共有するので、
+    // 「まとめて送った後に確定だけ失敗し、後から一部の大会だけ再送する」場合でも
+    // 元の送信と同じキーで再開でき、LINE 側の重複排除が効く。
+    // キーを都度その場の行集合から導くと、再送で集合が変わった瞬間に別キーになり
+    // 重複排除がすり抜ける（review R2 blocker）。
+    retryKey: text('retry_key'),
     // push 成功時にだけ刻まれる。NULL = claim 中（または放置された claim）。
     sentAt: timestamp('sent_at', { mode: 'date', withTimezone: true }),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })

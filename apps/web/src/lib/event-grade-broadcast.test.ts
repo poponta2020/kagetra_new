@@ -143,6 +143,13 @@ function failFetch(status = 500) {
   )
 }
 
+function retryKeyOf(fetchImpl: ReturnType<typeof okFetch>, callIndex = 0): string {
+  const call = fetchImpl.mock.calls[callIndex]
+  if (!call) throw new Error(`no fetch call at index ${callIndex}`)
+  const headers = (call[1] as RequestInit).headers as Record<string, string>
+  return headers['X-Line-Retry-Key']!
+}
+
 function bodyOf(fetchImpl: ReturnType<typeof okFetch>, callIndex = 0): { to: string; messages: { text: string }[] } {
   const call = fetchImpl.mock.calls[callIndex]
   if (!call) throw new Error(`no fetch call at index ${callIndex}`)
@@ -592,9 +599,9 @@ describe('broadcastEventsToGradeGroups — DB', () => {
       fetchImpl: first,
       baseUrl: BASE_URL,
     })
-    const firstKey = (first.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+    const firstKey = retryKeyOf(first)
 
-    // claim を放置状態へ戻し（プロセス停止相当）、リースを 0 にして再 claim させる。
+    // claim を放置状態へ戻し（プロセス停止相当）、リースを過ぎさせて再 claim させる。
     await testDb
       .update(eventGradeBroadcasts)
       .set({ sentAt: null, claimedAt: sql`now() - interval '1 hour'` })
@@ -605,13 +612,116 @@ describe('broadcastEventsToGradeGroups — DB', () => {
       fetchImpl: second,
       baseUrl: BASE_URL,
     })
-    const secondKey = (second.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
 
-    expect(firstKey['X-Line-Retry-Key']).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    expect(firstKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     )
-    // claim 行は upsert で使い回されるので、同じ内容の再送はキーが一致する。
-    expect(secondKey['X-Line-Retry-Key']).toBe(firstKey['X-Line-Retry-Key'])
+    // retry key は claim 行に永続化されるので、再 claim でも同じキーが返る。
+    expect(retryKeyOf(second)).toBe(firstKey)
+  })
+
+  // review R2 blocker: キーを「その場の claim 行集合」から導くと、まとめて送った後に
+  // 一部だけ再送した瞬間に別キーになり、LINE の重複排除がすり抜ける。
+  it('まとめて送った後に一部の大会だけ再送しても、元の送信と同じ retry key を使う', async () => {
+    await seedGradeBinding('A')
+    const eventA = await createEvent({ eligibleGrades: ['A'], title: '大会A' })
+    const eventB = await createEvent({ eligibleGrades: ['A'], title: '大会B' })
+
+    // 1 回目: 2 件をまとめて 1 通で送る（AC-10）。
+    const first = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [eventA.id, eventB.id], {
+      fetchImpl: first,
+      baseUrl: BASE_URL,
+    })
+    expect(first).toHaveBeenCalledTimes(1)
+    const batchKey = retryKeyOf(first)
+
+    // 確定だけ失敗した状態を再現（LINE には届いている / sent_at は NULL のまま）。
+    await testDb
+      .update(eventGradeBroadcasts)
+      .set({ sentAt: null, claimedAt: sql`now() - interval '1 hour'` })
+
+    // 2 回目: 個別画面から eventA だけ再送する。
+    const second = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [eventA.id], {
+      fetchImpl: second,
+      baseUrl: BASE_URL,
+    })
+
+    // 集合が [A,B] から [A] に変わってもキーは変わらない = LINE が重複排除できる。
+    expect(retryKeyOf(second)).toBe(batchKey)
+  })
+
+  it('新しく作られた大会は別の retry key で送られる（重複排除に巻き込まれない）', async () => {
+    await seedGradeBinding('A')
+    const eventA = await createEvent({ eligibleGrades: ['A'], title: '大会A' })
+
+    const first = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [eventA.id], {
+      fetchImpl: first,
+      baseUrl: BASE_URL,
+    })
+
+    const eventB = await createEvent({ eligibleGrades: ['A'], title: '大会B' })
+    const second = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [eventB.id], {
+      fetchImpl: second,
+      baseUrl: BASE_URL,
+    })
+
+    expect(retryKeyOf(second)).not.toBe(retryKeyOf(first))
+  })
+
+  it('リース失効で別プロセスに再 claim された行を、古い処理は削除しない', async () => {
+    await seedGradeBinding('A')
+    const event = await createEvent({ eligibleGrades: ['A'] })
+
+    // 先行プロセスが claim した状態を作る（claimed_at は古い）。
+    await testDb.insert(eventGradeBroadcasts).values({
+      eventId: event.id,
+      grade: 'A',
+      claimedAt: sql`now() - interval '1 hour'`,
+      retryKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    })
+
+    // 再 claim → push 失敗 → 自分の claim だけを消す。
+    const fetchImpl = failFetch(500)
+    await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    // 自分が取り直した claim なので消えている（孤児を残さない）。
+    const rows = await testDb
+      .select()
+      .from(eventGradeBroadcasts)
+      .where(eq(eventGradeBroadcasts.eventId, event.id))
+    expect(rows).toHaveLength(0)
+  })
+
+  it('束ねた本文が 5000 文字を超えても複数メッセージに分割して 1 リクエストで送る', async () => {
+    await seedGradeBinding('A')
+    const longTitle = 'あ'.repeat(190)
+    const eventIds: number[] = []
+    for (let i = 0; i < 30; i++) {
+      const ev = await createEvent({ eligibleGrades: ['A'], title: `${longTitle}${i}` })
+      eventIds.push(ev.id)
+    }
+    const fetchImpl = okFetch()
+
+    const result = await broadcastEventsToGradeGroups(testDb, eventIds, {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    expect(result.sentGrades).toEqual(['A'])
+    // リクエストは 1 回（retry key を共有するため分割してもリクエストは分けない）。
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const body = bodyOf(fetchImpl)
+    expect(body.messages.length).toBeGreaterThan(1)
+    for (const m of body.messages) {
+      expect(m.text.length).toBeLessThanOrEqual(5000)
+    }
   })
 
   it('LINE が 409（同一 retry key で受理済み）を返したら送信成功として扱う', async () => {

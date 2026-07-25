@@ -185,7 +185,8 @@
 | id | integer | NOT NULL | identity | PK |
 | event_id | integer | NOT NULL | — | FK→events.id ON DELETE CASCADE |
 | grade | grade (enum) | NOT NULL | — | |
-| claimed_at | timestamptz | NOT NULL | `now()` | リースの基準時刻 |
+| claimed_at | timestamptz | NOT NULL | `now()` | リースの基準時刻。確定/取消はこの値との一致（ownership CAS）を条件にする。JS の Date と往復させるためミリ秒に丸めて書く |
+| retry_key | text | NULL | — | LINEの`X-Line-Retry-Key`(UUID)。**一度決めたら変えない**。同じpushにまとめた行が共有し、一部だけ再送しても元の送信と同じキーで再開できる |
 | sent_at | timestamptz | NULL | — | push成功時のみ。NULL=claim中/放置claim |
 | created_at | timestamptz | NOT NULL | `now()` | |
 
