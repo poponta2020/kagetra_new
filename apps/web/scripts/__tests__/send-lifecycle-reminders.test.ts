@@ -170,6 +170,22 @@ describe('send-lifecycle-reminders — candidate selection', () => {
 
     expect(await candidateKeys()).toHaveLength(0)
   })
+
+  it('not_applying は申込締切リマインドの対象外（entry-overdue-alert AC-16）', async () => {
+    // 3 値目 not_applying を足したことで、eq(entryStatus, 'not_applied') の
+    // 条件式を一切変えずに見送った大会が自動で外れる、という設計への回帰。
+    // この条件を「applied 以外」に緩めるとここが落ちる。
+    await seedEvent(
+      { title: 'NotApplying advance', entryDeadline: ADVANCE, entryStatus: 'not_applying' },
+      { linked: true },
+    )
+    await seedEvent(
+      { title: 'NotApplying day', entryDeadline: TODAY, entryStatus: 'not_applying' },
+      { linked: true },
+    )
+
+    expect(await candidateKeys()).toHaveLength(0)
+  })
 })
 
 describe('send-lifecycle-reminders — sending', () => {

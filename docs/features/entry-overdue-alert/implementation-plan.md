@@ -114,7 +114,7 @@ status: completed
 ---
 
 ### タスク5: 日次バッチ + systemd ユニット + デプロイ手順
-- [ ] 完了
+- [x] 完了
 - **目的:** タスク2 のライブラリを毎朝 1 回起動する運用形にする
 - **対応AC:** AC-21（本番実機は出荷後の manual 確認）
 - **主な変更領域:** `apps/web/scripts/send-entry-overdue-alert.ts`（新規）、`apps/web/scripts/__tests__/send-entry-overdue-alert.test.ts`（新規）、`apps/web/systemd/kagetra-entry-overdue-alert.service`・`.timer`（新規）、`docs/deploy/entry-overdue-alert.md`（新規）
