@@ -39,11 +39,18 @@ sudo visudo -c -f <SRC>
 
 **マージ前**（推奨）— 対象ブランチはまだ存在する。本番 checkout を汚さないよう一時ファイルへ書き出す。`git checkout <ref> -- <path>` は index にも書き込むため、`auto-deploy.sh` 冒頭の作業ツリークリーン検査（`git status --porcelain --untracked-files=no` が空でなければ `tracked local changes present on host` で中断）に引っかかり、次回デプロイが開始直後に必ず失敗する。**`git show` を使うこと。**
 
+**取得失敗と空ファイルを必ず弾くこと。** `> "$SRC"` のリダイレクトは `git show` の実行**前**にファイルを作るため、ブランチ名の誤記やブランチ削除との競合で `git show` が失敗しても空ファイルが残る。**空ファイルは `visudo -c` を通過する**ので、そのまま配置すると `kagetra` の deploy 権限が丸ごと消え、復旧するまで auto-deploy が動かなくなる。
+
 ```bash
+set -euo pipefail   # §0 のコマンドはこの下で実行する
+
 cd /opt/kagetra
 git fetch origin
 SRC=$(mktemp)
-git show origin/<ブランチ名>:infra/sudoers/kagetra-deploy > "$SRC"
+if ! git show "origin/<ブランチ名>:infra/sudoers/kagetra-deploy" > "$SRC"; then
+  rm -f "$SRC"; echo "sudoers source extraction failed" >&2; exit 1
+fi
+test -s "$SRC" || { rm -f "$SRC"; echo "sudoers source is empty" >&2; exit 1; }
 ```
 
 **マージ後** — `/ship` がリモートブランチを削除するので上の `git show origin/<ブランチ名>:...` は**失敗する**。マージ後は host の checkout に実体があるのでそれを直接使う。
@@ -51,6 +58,7 @@ git show origin/<ブランチ名>:infra/sudoers/kagetra-deploy > "$SRC"
 ```bash
 cd /opt/kagetra
 SRC=/opt/kagetra/infra/sudoers/kagetra-deploy   # git pull 済みなら main の内容
+test -s "$SRC"         # 空でないこと
 git log --oneline -1   # 目的の unit を含むコミットに達しているか確認
 ```
 
@@ -65,7 +73,7 @@ sudo visudo -c -f "$STAGE"                        # ステージング状態で�
 sudo mv "$STAGE" /etc/sudoers.d/kagetra-deploy    # 同一 fs なのでアトミック
 sudo visudo -c -f /etc/sudoers.d/kagetra-deploy   # 配置後の再確認
 sudo -n true && echo "SUDO_STILL_WORKS"           # sudo が壊れていないことの確認
-[ "$SRC" != /opt/kagetra/infra/sudoers/kagetra-deploy ] && rm -f "$SRC"
+if [ "$SRC" != /opt/kagetra/infra/sudoers/kagetra-deploy ]; then rm -f "$SRC"; fi
 
 # 作業ツリーが汚れていないことを確認（空であること）
 git status --porcelain --untracked-files=no
@@ -93,7 +101,7 @@ sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
   /etc/systemd/system/kagetra-entry-overdue-alert.service && echo ALLOWLIST_OK
 ```
 
-いずれもパスワードを求められたら allowlist のエントリが一致していない（パスやオプションの綴り違い）。
+いずれも `a password is required` や `not allowed to execute` が出たら allowlist のエントリが一致していない（パスやオプションの綴り違い）。内側の `sudo` に `-n` を付けているので、不一致でも対話プロンプトは出ずエラーで即終了する。
 
 ### 0-e. 先に auto-deploy を失敗させてしまった場合の復旧範囲
 
