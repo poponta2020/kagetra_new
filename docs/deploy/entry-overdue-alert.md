@@ -73,7 +73,7 @@ git status --porcelain --untracked-files=no
 
 `SUDO_STILL_WORKS` が出るまで、0-a で確保した root shell を閉じないこと。
 
-### 0-e. allowlist が deploy ユーザーに効いているかの確認
+### 0-d. allowlist が deploy ユーザーに効いているかの確認
 
 `ubuntu` の全権 sudo で unit を置いてしまうと allowlist の検証にならず、次に systemd unit を触る PR で同じ失敗を繰り返す。**deploy ユーザー（`kagetra`）として**確認する。
 
@@ -95,7 +95,7 @@ sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root \
 
 いずれもパスワードを求められたら allowlist のエントリが一致していない（パスやオプションの綴り違い）。
 
-### 0-d. 先に auto-deploy を失敗させてしまった場合の復旧範囲
+### 0-e. 先に auto-deploy を失敗させてしまった場合の復旧範囲
 
 sudoers 未反映のままマージすると auto-deploy は fail するが、**失敗するのは systemd unit の `install` 段階**である。それより前の工程は完了している:
 
