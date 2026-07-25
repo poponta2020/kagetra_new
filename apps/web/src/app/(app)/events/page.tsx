@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import { events, eventAttendances, users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, asc, eq, gte, inArray } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, ne } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { surname } from '@/lib/surname'
 import { EventListClient } from './EventListClient'
@@ -30,8 +30,12 @@ export default async function EventsPage() {
   // Fetch event list first so the attendance join can be scoped to the visible
   // IDs — otherwise we'd scan every row in event_attendances, including rows for
   // archived events rendered on /events-archive. id is a stable secondary sort.
+  // 「申し込まない」（entry_status='not_applying'）は一覧から除外する。
+  // 取得後フィルタではなくクエリ条件にする（件数表示・フィルタ・並び替えの
+  // 母集団を揃えるため）。entryStatus は NOT NULL なので ne() で NULL 行が
+  // 落ちる心配はない。/events-archive は変更しない（開催日経過後は従来どおり出す）。
   const eventList = await db.query.events.findMany({
-    where: gte(events.eventDate, todayStr),
+    where: and(gte(events.eventDate, todayStr), ne(events.entryStatus, 'not_applying')),
     orderBy: [asc(events.eventDate), asc(events.id)],
   })
   const visibleEventIds = eventList.map((e) => e.id)

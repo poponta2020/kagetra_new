@@ -57,7 +57,7 @@ status: completed
 ---
 
 ### タスク2: 毎日アラートの本体ライブラリ
-- [ ] 完了
+- [x] 完了
 - **目的:** 対象抽出・文面生成・system_notify チャネルへの push を、テスト可能な純粋関数＋薄い I/O に分けて実装する
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11
 - **主な変更領域:** `apps/web/src/lib/entry-overdue-alert.ts`（新規）、`apps/web/src/lib/entry-overdue-alert.test.ts`（新規）
@@ -82,7 +82,7 @@ status: completed
 ---
 
 ### タスク3: 進行管理の 3 状態化（Server Action + UI）
-- [ ] 完了
+- [x] 完了
 - **目的:** `/events/[id]` の進行管理から「申し込まない」を設定・解除できるようにし、進行状態ピルに「申込なし」を追加する
 - **対応AC:** AC-12, AC-13, AC-15, AC-18, AC-20
 - **主な変更領域:** `apps/web/src/app/(app)/events/[id]/actions.ts`（`setEntryApplied` の遷移ガード変更 + `setEntryNotApplying` 新規）、`apps/web/src/components/events/EventLifecycleSection.tsx`、`apps/web/src/components/events/LifecycleStatusBadge.tsx`、`apps/web/src/app/(app)/events/[id]/page.tsx`（props の型追従が必要な場合のみ）、および各 `.test.ts(x)`
@@ -101,7 +101,7 @@ status: completed
 ---
 
 ### タスク4: `/events` 一覧から `not_applying` を除外
-- [ ] 完了
+- [x] 完了
 - **目的:** 「申し込まない」にした大会を大会申込一覧から消す（`/events-archive` は従来どおり）
 - **対応AC:** AC-14
 - **主な変更領域:** `apps/web/src/app/(app)/events/page.tsx`（一覧クエリの `where`）、`apps/web/src/app/(app)/events/*.test.ts(x)`。`events-archive/page.tsx` は**変更しない**
