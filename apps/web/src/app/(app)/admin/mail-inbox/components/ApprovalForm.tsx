@@ -9,6 +9,16 @@ import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
 import { addDays } from '@/lib/jst-date'
+// entry-groups タスク7: クラスタ規則は backfill / 承認フォームの自動提案で同一
+// (clusterEventsByEntryGroup が正)。ここでは提案の「初期値」だけを計算する — 実際に
+// events / entry_groups を作るのはサーバー側 (admin/mail-inbox/actions.ts) で、そちらが
+// 同じ関数を使って部分承認の収束まで行う。
+//
+// ★import 元は `@/lib/entry-group-cluster`（DB 非依存の leaf モジュール）であること。
+// `@/lib/entry-groups` は `@kagetra/shared/schema` と drizzle を**値** import するので、
+// この `'use client'` ファイルから引くと schema がクライアントバンドルへ載る
+// （eslint / vitest / check-types では検知できず `next build` で初めて壊れる種類の事故）。
+import { clusterEventsByEntryGroup } from '@/lib/entry-group-cluster'
 import type { SeriesRow, TournamentKind } from '@/lib/edition/match'
 import type { AttachmentChip } from './AttachmentList'
 import {
@@ -163,15 +173,35 @@ export function ApprovalForm({
   const registeredMap = new Map(
     registeredUnitKeys.map((r) => [r.unitKey, r.eventId]),
   )
+  // まだ events 化されていない（＝これから登録する）ユニットだけがグループ割当の対象。
+  const editableUnits = units.filter((u) => !registeredMap.has(u.unit_key))
 
   // register state for the not-yet-materialized units only (registered units
   // render read-only and don't participate in the submit).
   const [registered, setRegistered] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(
-      units
-        .filter((u) => !registeredMap.has(u.unit_key))
-        .map((u) => [u.unit_key, true]),
-    ),
+    Object.fromEntries(editableUnits.map((u) => [u.unit_key, true])),
+  )
+
+  // entry-groups タスク7: 自動グループ提案の初期値。承認フォームのユニットは同一 draft
+  // なので、clusterEventsByEntryGroup の効果は実質「申込締切が同じユニットをまとめる」
+  // になる（tournamentDraftId は全ユニットに固定値を渡す）。エラーケース: ユニットが
+  // 1件だけなら UI を出さない（シングルトン自動生成のまま）。
+  const [groupKeyByUnit, setGroupKeyByUnit] = useState<Record<string, string>>(
+    () => {
+      if (editableUnits.length <= 1) return {}
+      const clusters = clusterEventsByEntryGroup(
+        editableUnits.map((u) => ({
+          unitKey: u.unit_key,
+          tournamentDraftId: 0,
+          entryDeadline: u.entry_deadline ?? null,
+        })),
+      )
+      const map: Record<string, string> = {}
+      clusters.forEach((cluster, i) => {
+        for (const u of cluster) map[u.unitKey] = `g${i}`
+      })
+      return map
+    },
   )
 
   // Legacy title fallback: when there's no stem (old payload), use the AI's
@@ -416,6 +446,79 @@ export function ApprovalForm({
             )}
           </div>
         </Card>
+
+        {/* entry-groups タスク7: 同一 draft × 同一申込締切での自動グループ提案
+            （AC-20）。ユニットが1件だけなら出さない（§エラーケース。シングルトン
+            自動生成のまま）。「開催紐付け」「要綱選択」の Card と同列の配置。 */}
+        {editableUnits.length > 1 && (
+          <Card>
+            <div className="flex flex-col gap-3">
+              <span className="text-sm font-semibold text-ink">申込グループ</span>
+              <p className="text-[13px] text-ink-meta">
+                同じ申込締切のユニットは自動的に同じグループに提案されます。
+                ユニットごとに割当先を変更できます。
+              </p>
+              <div className="flex flex-col gap-2">
+                {editableUnits.map((unit) => {
+                  const stem = (shortNameStem ?? '').trim()
+                  const unitLabel =
+                    stem !== ''
+                      ? composeTitle(shortNameStem, unit.eligible_grades)
+                      : (legacyTitle ??
+                        composeTitle(shortNameStem, unit.eligible_grades))
+                  const currentKey =
+                    groupKeyByUnit[unit.unit_key] ?? `solo:${unit.unit_key}`
+                  const optionKeys = Array.from(
+                    new Set(Object.values(groupKeyByUnit)),
+                  )
+                  if (!optionKeys.includes(currentKey)) {
+                    optionKeys.push(currentKey)
+                  }
+                  const labelByKey = new Map(
+                    optionKeys.map((key, i) => [key, `グループ${i + 1}`]),
+                  )
+                  return (
+                    <div
+                      key={unit.unit_key}
+                      className="flex items-center justify-between gap-2 text-sm text-ink-2"
+                    >
+                      <span className="min-w-0 truncate">
+                        {unitLabel || '(無題)'}
+                        {unit.entry_deadline && (
+                          <span className="ml-1 text-[13px] text-ink-meta">
+                            (締切: {unit.entry_deadline})
+                          </span>
+                        )}
+                      </span>
+                      <select
+                        name={`${unit.unit_key}__group_key`}
+                        value={currentKey}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setGroupKeyByUnit((s) => ({
+                            ...s,
+                            [unit.unit_key]:
+                              value === '__new__'
+                                ? `solo:${unit.unit_key}`
+                                : value,
+                          }))
+                        }}
+                        className="rounded-md border border-border bg-canvas px-2 py-1 text-[13px] text-ink"
+                      >
+                        {optionKeys.map((key) => (
+                          <option key={key} value={key}>
+                            {labelByKey.get(key)}
+                          </option>
+                        ))}
+                        <option value="__new__">新規グループ</option>
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </Card>
+        )}
 
         {units.map((unit) => {
           const registeredEventId = registeredMap.get(unit.unit_key)

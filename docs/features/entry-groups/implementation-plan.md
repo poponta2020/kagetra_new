@@ -159,7 +159,9 @@ status: completed
 - **対応Issue:** #365
 
 ### タスク7: 承認フォームの自動グループ提案
-- [ ] 完了
+- [x] 完了（クラスタ純関数は `lib/entry-group-cluster.ts`〔DB 非依存 leaf〕へ分離し、
+  `'use client'` の ApprovalForm はそこから import する。CI は `build` を回さないので
+  client バンドル汚染は**ローカルの `next build` でしか検知できない**）
 - **目的:** AI 承認時に同 draft×同申込締切でグループを自動提案し、ユニットごとに割当変更できるようにする
 - **対応AC:** AC-20
 - **主な変更領域:**

@@ -710,4 +710,118 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     ).toBeNull()
     expect(screen.getByText('添付がありません')).toBeDefined()
   })
+
+  // entry-groups タスク7: 承認フォームの自動グループ提案 (AC-20) ──────────
+  describe('申込グループの自動提案', () => {
+    it('ユニットが2件以上: 同じ申込締切のユニットは同じグループ提案、異なる締切は別グループになる', () => {
+      const payload = buildPayload([
+        buildUnit({
+          unit_key: 'u1',
+          eligible_grades: ['A'],
+          event_date: '2031-01-11',
+          entry_deadline: '2031-01-01',
+        }),
+        buildUnit({
+          unit_key: 'u2',
+          eligible_grades: ['B'],
+          event_date: '2031-01-11',
+          entry_deadline: '2031-01-01',
+        }),
+        buildUnit({
+          unit_key: 'u3',
+          eligible_grades: ['C'],
+          event_date: '2031-01-20',
+          entry_deadline: '2031-01-15',
+        }),
+      ])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="大阪"
+          registeredUnitKeys={[]}
+          editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+          action={noop}
+        />,
+      )
+
+      const select = (unitKey: string) =>
+        container.querySelector(
+          `select[name="${unitKey}__group_key"]`,
+        ) as HTMLSelectElement
+
+      expect(screen.getByText('申込グループ')).toBeDefined()
+      expect(select('u1').value).toBe(select('u2').value)
+      expect(select('u3').value).not.toBe(select('u1').value)
+    })
+
+    it('ユニットが1件のみ: グループ提案 UI を出さない（エラーケース＝シングルトン自動生成のまま）', () => {
+      const payload = buildPayload([buildUnit()])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="大阪"
+          registeredUnitKeys={[]}
+          editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+          action={noop}
+        />,
+      )
+
+      expect(container.querySelector('select[name="u1__group_key"]')).toBeNull()
+      expect(screen.queryByText('申込グループ')).toBeNull()
+    })
+
+    it('割当を「新規グループ」に変更すると group_key の値が変わる（別グループへ移動できる）', () => {
+      const payload = buildPayload([
+        buildUnit({ unit_key: 'u1', event_date: '2031-01-11', entry_deadline: '2031-01-01' }),
+        buildUnit({ unit_key: 'u2', event_date: '2031-01-11', entry_deadline: '2031-01-01' }),
+      ])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="大阪"
+          registeredUnitKeys={[]}
+          editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+          action={noop}
+        />,
+      )
+
+      const u1Select = container.querySelector(
+        'select[name="u1__group_key"]',
+      ) as HTMLSelectElement
+      const u2Select = container.querySelector(
+        'select[name="u2__group_key"]',
+      ) as HTMLSelectElement
+      // 同じ申込締切 → 自動提案は同じグループ。
+      expect(u1Select.value).toBe(u2Select.value)
+
+      fireEvent.change(u2Select, { target: { value: '__new__' } })
+      expect(u2Select.value).not.toBe(u1Select.value)
+    })
+
+    it('登録済み単位はグループ提案の対象に含めない', () => {
+      const payload = buildPayload([
+        buildUnit({ unit_key: 'u1', event_date: '2031-01-11' }),
+        buildUnit({ unit_key: 'u2', event_date: '2031-01-11' }),
+        buildUnit({ unit_key: 'u3', event_date: '2031-01-11' }),
+      ])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="大阪"
+          registeredUnitKeys={[{ unitKey: 'u1', eventId: 1 }]}
+          editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+          action={noop}
+        />,
+      )
+
+      // u1 は登録済みなのでグループ提案の対象外。u2/u3 だけが編集対象として残る。
+      expect(container.querySelector('select[name="u1__group_key"]')).toBeNull()
+      expect(
+        container.querySelector('select[name="u2__group_key"]'),
+      ).not.toBeNull()
+      expect(
+        container.querySelector('select[name="u3__group_key"]'),
+      ).not.toBeNull()
+    })
+  })
 })

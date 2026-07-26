@@ -9,7 +9,6 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import * as schema from '@kagetra/shared/schema'
 import {
-  entryGroups,
   events,
   mailAttachments,
   mailMessages,
@@ -44,7 +43,11 @@ import {
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
-import { createEntryGroup } from '@/lib/entry-groups'
+import {
+  clusterEventsByEntryGroup,
+  createEntryGroup,
+  deleteGroupIfEmpty,
+} from '@/lib/entry-groups'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
@@ -347,6 +350,9 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     unitKey: unit.unitKey,
     eligibleGrades: unit.eligibleGrades,
     parsed: eventFormSchema.parse(unit.data),
+    // entry-groups タスク7: `${unitKey}__group_key`。無い/1ユニットのみ (フォームが
+    // グループ UI を出さなかった場合) は null → 従来どおりシングルトン。
+    groupKey: unit.groupKey,
   }))
 
   // tournament-entry-rosters flow①: 既存系列は検索 UI が送る ID だけで確定する。
@@ -473,8 +479,16 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       lockedRow.messageId,
     )
 
+    // entry-groups タスク7: entryGroupId / entryDeadline も併せて読む。部分承認の
+    // 収束（後続バッチの unit を、既に承認済みの events とクラスタ規則で照合して
+    // 既存グループへ合流させる）に使う。
     const existingDraftEvents = await tx
-      .select({ kind: events.kind, editionId: events.editionId })
+      .select({
+        kind: events.kind,
+        editionId: events.editionId,
+        entryGroupId: events.entryGroupId,
+        entryDeadline: events.entryDeadline,
+      })
       .from(events)
       .where(eq(events.tournamentDraftId, draftId))
 
@@ -536,7 +550,78 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       resolvedEditionId = existingEditionIds[0]
     }
 
-    for (const { unitKey, eligibleGrades, parsed } of parsedUnits) {
+    // entry-groups タスク7: `group_key` ごとにグループを解決する。
+    //
+    // - この呼び出し (バッチ) 内で同じ group_key を持つ unit は、entry_group を
+    //   1 つだけ作って共有する（`resolvedGroupIdByKey` でキャッシュ）。
+    // - 部分承認の収束: 新しく作る前に、同 draft の**既に承認済みの events**を
+    //   clusterEventsByEntryGroup（規則の正・再実装しない）で照合し、同じクラスタに
+    //   落ちる既存グループがあればそこへ合流する（新規作成しない）。
+    // - 1 つの既存グループは、このバッチ内で高々 1 つの group_key にしか
+    //   合流させない（`claimedExistingGroupIds`）。同じ締切を持つ 2 つの別
+    //   group_key（= 操作者が意図的に割当を分割したケース）が、収束ロジックの
+    //   せいで同じ既存グループへ再合流してしまう（= 操作者の分割指示を無視する）
+    //   事故を防ぐ。
+    const resolvedGroupIdByKey = new Map<string, number>()
+    const claimedExistingGroupIds = new Set<number>()
+    // このバッチで新規に createEntryGroup したグループ id（group_key 共有により
+    // 複数 unit が同じ id を指し得る）。conflict でどの unit の INSERT も刺さらな
+    // かった場合の後始末はループ完了後にまとめて行う（下記コメント参照）。
+    const freshlyCreatedGroupIds = new Set<number>()
+
+    async function resolveGroupIdForKey(
+      groupKey: string,
+      entryDeadlineForKey: string | null,
+    ): Promise<number> {
+      const cached = resolvedGroupIdByKey.get(groupKey)
+      if (cached != null) return cached
+
+      type ClusterProbe = {
+        marker: 'existing' | 'new'
+        tournamentDraftId: number
+        entryDeadline: string | null
+        entryGroupId?: number
+      }
+      // tournamentDraftId は全 probe で draftId 固定（この draft 由来の events /
+      // これから作る event はすべて同じ draft）。クラスタ規則自体は
+      // clusterEventsByEntryGroup に委譲する — ここで再実装しない。
+      const probes: ClusterProbe[] = [
+        ...existingDraftEvents.map((e) => ({
+          marker: 'existing' as const,
+          tournamentDraftId: draftId,
+          entryDeadline: e.entryDeadline,
+          entryGroupId: e.entryGroupId,
+        })),
+        {
+          marker: 'new' as const,
+          tournamentDraftId: draftId,
+          entryDeadline: entryDeadlineForKey,
+        },
+      ]
+      const clusters = clusterEventsByEntryGroup(probes)
+      const matchedCluster = clusters.find((c) =>
+        c.some((p) => p.marker === 'new'),
+      )
+      const matchedExisting = matchedCluster?.find(
+        (p) =>
+          p.marker === 'existing' &&
+          p.entryGroupId != null &&
+          !claimedExistingGroupIds.has(p.entryGroupId),
+      )
+
+      let resolvedId: number
+      if (matchedExisting?.entryGroupId != null) {
+        resolvedId = matchedExisting.entryGroupId
+        claimedExistingGroupIds.add(resolvedId)
+      } else {
+        resolvedId = await createEntryGroup(tx)
+        freshlyCreatedGroupIds.add(resolvedId)
+      }
+      resolvedGroupIdByKey.set(groupKey, resolvedId)
+      return resolvedId
+    }
+
+    for (const { unitKey, eligibleGrades, parsed, groupKey } of parsedUnits) {
       // Idempotency: a unit already materialized for this draft (e.g. a
       // double-submit, or the operator re-opening the page and re-registering
       // an already-created unit) must not insert a second event row.
@@ -558,9 +643,17 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       // hard guarantee; onConflictDoNothing makes the race lose silently. On a
       // conflict `returning` is empty → this unit was already materialized by
       // the other writer, so skip it (do NOT count it as newly created).
-      // entry-groups タスク1: この段階では unit ごとにシングルトングループを作る
-      // （同 draft × 同申込締切のクラスタ提案は タスク7 で入れる）。
-      const entryGroupId = await createEntryGroup(tx)
+      // entry-groups タスク7: group_key が無い（フォームがグループ UI を出さなかった
+      // = ユニット1件のみ）unit は、従来どおり独立したシングルトングループを作る。
+      // group_key があれば、上の resolveGroupIdForKey で解決した（バッチ内共有 /
+      // 部分承認収束を経た）グループを使う。
+      let entryGroupId: number
+      if (groupKey == null) {
+        entryGroupId = await createEntryGroup(tx)
+        freshlyCreatedGroupIds.add(entryGroupId)
+      } else {
+        entryGroupId = await resolveGroupIdForKey(groupKey, parsed.entryDeadline)
+      }
       const inserted = await tx
         .insert(events)
         .values({
@@ -590,14 +683,25 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       const newEventId = inserted[0]?.id
       // Empty returning here means the unique index rejected the row (a
       // concurrent insert won the race). Not an error — just skip.
-      if (newEventId == null) {
-        // entry-groups: 競合で INSERT が落ちた場合、直前に作ったグループは
-        // どの event からも参照されない空グループとして残ってしまう。同一 tx 内で
-        // 作ったばかりで参照ゼロが自明なので、ここで確実に片付ける。
-        await tx.delete(entryGroups).where(eq(entryGroups.id, entryGroupId))
-        continue
-      }
+      //
+      // entry-groups タスク7: ここでは entryGroupId をすぐには片付けない。
+      // group_key の共有により、同じ entryGroupId をこのバッチの**他の unit**
+      // (まだこの for ループで処理されていないもの) がこの後まさに使う可能性がある
+      // ため、ここで空判定して DELETE すると、後続 unit の INSERT が
+      // 「存在しない entry_group を参照する」FK 違反になりかねない。片付けは
+      // 全 unit を処理し終えた後にまとめて行う（下記 freshlyCreatedGroupIds ループ）。
+      if (newEventId == null) continue
       createdEventIds.push(newEventId)
+    }
+
+    // entry-groups タスク7: このバッチで新規作成したが、結局どの event からも
+    // 参照されなかったグループを片付ける（`deleteGroupIfEmpty` が entry_groups
+    // 削除の唯一の経路）。同じ group_key を共有する複数 unit のうち「最後の1件が
+    // 落ちたときだけ削除される」——他の unit の events が1件でも残っていれば
+    // no-op。合流先の既存グループ（`claimedExistingGroupIds`）はここに含まれない
+    // （そもそも空になり得ない）ので対象外。
+    for (const groupId of freshlyCreatedGroupIds) {
+      await deleteGroupIfEmpty(tx, groupId)
     }
 
     // flow① blocker fix (Codex R1): edition は draft 単位（events:edition は N:1）。今回 INSERT
