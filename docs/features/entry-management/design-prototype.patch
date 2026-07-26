@@ -1,0 +1,1024 @@
+diff --git a/apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx b/apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx
+new file mode 100644
+index 0000000..71b0612
+--- /dev/null
++++ b/apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx
+@@ -0,0 +1,266 @@
++'use client'
++
++import { useState } from 'react'
++import Link from 'next/link'
++import { cn } from '@/lib/utils'
++import {
++  AREAS,
++  deadlineBadgeOf,
++  displayName,
++  groupBoard,
++  isAreaHot,
++  isPinnedWhenCollapsed,
++  type AreaDef,
++  type AreaId,
++  type DeadlineTone,
++  type EntryBoardItem,
++} from './entry-board-utils'
++
++/**
++ * 申込管理ボード（タイムライン型）。
++ *
++ * 左に 1 本のレールを通し、各フェーズをその上のノードとして並べる。大会が
++ * 上から下へ進んでいく構造をそのまま画面の構造にすることで、「どの大会が
++ * どのフェーズにいるか」をスクロールせず読み下せるようにする。
++ *
++ * 1 大会 = 1 行（約 24px）。通称+級 / そのフェーズで見る締切 / 参加人数のみ。
++ */
++export function EntryBoardClient({
++  items,
++  todayStr,
++}: {
++  items: EntryBoardItem[]
++  todayStr: string
++}) {
++  const grouped = groupBoard(items, todayStr)
++
++  if (items.length === 0) {
++    return (
++      <div className="rounded-lg border border-border bg-surface py-10 text-center text-ink-meta">
++        管理対象の大会はありません
++      </div>
++    )
++  }
++
++  return (
++    <div className="flex flex-col">
++      {AREAS.map((area, i) => (
++        <AreaBlock
++          key={area.id}
++          area={area}
++          items={grouped[area.id]}
++          todayStr={todayStr}
++          isFirst={i === 0}
++          isLast={i === AREAS.length - 1}
++        />
++      ))}
++    </div>
++  )
++}
++
++function AreaBlock({
++  area,
++  items,
++  todayStr,
++  isFirst,
++  isLast,
++}: {
++  area: AreaDef
++  items: EntryBoardItem[]
++  todayStr: string
++  isFirst: boolean
++  isLast: boolean
++}) {
++  const empty = items.length === 0
++  const collapsible = area.collapsible === true
++  const [open, setOpen] = useState(area.collapsedByDefault !== true)
++  const expanded = !collapsible || open
++
++  // 畳んでいても、締切が迫った行だけは出し続ける
++  const pinned = items.filter((i) => isPinnedWhenCollapsed(i, area.id, todayStr))
++  const visible = expanded ? items : pinned
++  const hiddenCount = items.length - visible.length
++
++  // 締切が到来した大会を抱えているときだけ強調する（要件 §isAreaHot）
++  const hot = isAreaHot(area, items, todayStr)
++
++  const heading = (
++    <>
++      <h2
++        className={cn(
++          'text-[13px] font-bold leading-none',
++          hot
++            ? 'text-danger-fg'
++            : area.actionable && !empty
++              ? 'text-danger'
++              : empty
++                ? 'text-ink-muted'
++                : 'text-ink-2',
++        )}
++      >
++        {area.label}
++      </h2>
++      <span
++        className={cn(
++          'rounded-full px-1.5 py-px text-[11px] font-bold leading-[14px] tabular-nums',
++          hot
++            ? 'bg-danger text-ink-on-brand'
++            : empty
++              ? 'text-ink-muted'
++              : 'text-ink-meta',
++        )}
++      >
++        {items.length}件
++      </span>
++      {collapsible && (
++        <span
++          aria-hidden
++          className={cn(
++            'shrink-0 text-[9px] leading-none text-ink-muted transition-transform',
++            expanded && 'rotate-90',
++          )}
++        >
++          ▶
++        </span>
++      )}
++      {/* 行の日付列の真上に来るよう、同じ幅・同じ右端に固定する */}
++      <span aria-hidden className="ml-auto w-[62px] shrink-0" />
++      <span className="w-[52px] shrink-0 text-right text-[10px] leading-none text-ink-muted">
++        {area.deadlineHint}
++      </span>
++    </>
++  )
++
++  return (
++    <section className="flex gap-2.5">
++      {/* タイムラインのレール。ノード＝フェーズ、線＝大会が進む道筋 */}
++      <div className="flex w-[11px] shrink-0 flex-col items-center">
++        <span
++          className={cn('w-0.5 h-[7px] shrink-0', !isFirst && 'bg-border')}
++        />
++        <span
++          className={cn(
++            'shrink-0 rounded-full',
++            hot
++              ? 'h-[13px] w-[13px] bg-danger'
++              : area.actionable && !empty
++                ? 'h-[9px] w-[9px] border-2 border-danger bg-surface'
++                : empty
++                  ? 'h-[9px] w-[9px] border-2 border-border bg-surface'
++                  : 'h-[9px] w-[9px] border-2 border-border-strong bg-surface',
++          )}
++        />
++        <span className={cn('w-0.5 flex-1', !isLast && 'bg-border')} />
++      </div>
++
++      <div className={cn('min-w-0 flex-1', isLast ? 'pb-0' : 'pb-3')}>
++        {/*
++          締切が到来したフェーズだけ面で塗る。レールと二重の囲みにならないよう
++          枠線は付けず、背景だけで差をつける。左へ少し食い込ませてレールと
++          つながって見えるようにしている。
++        */}
++        <div
++          className={cn(
++            'pr-1',
++            hot && '-ml-1.5 rounded-r-md bg-danger-bg pb-1 pl-1.5',
++          )}
++        >
++        {collapsible ? (
++          <button
++            type="button"
++            onClick={() => setOpen((v) => !v)}
++            aria-expanded={expanded}
++            className="flex w-full items-center gap-1.5 py-1 text-left"
++          >
++            {heading}
++          </button>
++        ) : (
++          <div className="flex items-center gap-1.5 py-1">{heading}</div>
++        )}
++
++        {empty && expanded ? (
++          <div className="py-0.5 text-[11px] leading-none text-ink-muted">
++            なし
++          </div>
++        ) : visible.length > 0 ? (
++          <ul className="divide-y divide-border-soft">
++            {visible.map((item) => (
++              <li key={item.id}>
++                <EntryRow item={item} area={area} todayStr={todayStr} />
++              </li>
++            ))}
++            {!expanded && hiddenCount > 0 && (
++              <li className="py-1 text-[10px] leading-[16px] text-ink-muted">
++                ほか{hiddenCount}件
++              </li>
++            )}
++          </ul>
++        ) : null}
++        </div>
++      </div>
++    </section>
++  )
++}
++
++function toneClass(tone: DeadlineTone, actionable: boolean): string {
++  switch (tone) {
++    case 'past':
++      return actionable ? 'text-danger-fg font-bold' : 'text-ink-muted'
++    case 'today':
++      return 'text-accent-fg font-bold'
++    case 'soon':
++      return 'text-ink font-bold'
++    case 'normal':
++      return 'text-ink-2'
++    default:
++      return 'text-ink-muted'
++  }
++}
++
++function EntryRow({
++  item,
++  area,
++  todayStr,
++}: {
++  item: EntryBoardItem
++  area: AreaDef
++  todayStr: string
++}) {
++  const badge = deadlineBadgeOf(item, area.id, todayStr)
++  // 残日数は「差し迫っているとき」だけ出す。tone 'normal'（4日以上先）は
++  // 読む必要がないので空にし、日付だけ残す。
++  const showCountdown =
++    area.showCountdown !== false && badge.tone !== 'normal'
++  // 残日数を出さない区画で日付も無い場合は、その旨を日付側に出す
++  const dateText = badge.date ?? (showCountdown ? null : badge.countdown)
++
++  return (
++    <Link
++      href={`/events/${item.id}`}
++      className="flex items-baseline gap-1.5 py-[3px] text-[12px] leading-[16px] transition-colors hover:bg-surface-alt"
++    >
++      <span className="flex min-w-0 flex-1 items-baseline">
++        <span className="truncate font-bold text-ink">{displayName(item)}</span>
++        <span className="shrink-0 tabular-nums text-ink-meta">
++          （{item.attendCount}名）
++        </span>
++      </span>
++      {/*
++        締切は 2 つの固定幅スロットに分ける。左＝日付（種類が行ごとに変わる
++        「申込済み・抽選待ち」だけ種類も添える）、右＝残日数。行をまたいで
++        縦に揃うので、縦に目で追える。
++      */}
++      <span
++        className={cn(
++          'w-[62px] shrink-0 whitespace-nowrap text-right tabular-nums',
++          toneClass(badge.tone, area.actionable),
++        )}
++      >
++        {showCountdown ? badge.countdown : null}
++      </span>
++      <span className="w-[52px] shrink-0 whitespace-nowrap text-right tabular-nums text-ink-meta">
++        {dateText}
++      </span>
++    </Link>
++  )
++}
+diff --git a/apps/web/src/app/(app)/admin/entries/entry-board-utils.ts b/apps/web/src/app/(app)/admin/entries/entry-board-utils.ts
+new file mode 100644
+index 0000000..26b3f2c
+--- /dev/null
++++ b/apps/web/src/app/(app)/admin/entries/entry-board-utils.ts
+@@ -0,0 +1,368 @@
++import type { Grade } from '@kagetra/shared/types'
++
++/**
++ * 申込管理ボード（`/admin/entries`）の仕分け・並び順・締切表示の純関数。
++ *
++ * `Date.now()` を呼ばない。サーバーが JST の `todayStr` を渡し、クライアントは
++ * それを使って同じ結果を描く（hydration mismatch を避ける。`event-list-utils.ts`
++ * と同じ方針）。要件: docs/features/entry-management/requirements.md §3.2
++ */
++
++export type EntryStatus = 'not_applied' | 'applied' | 'not_applying'
++export type PaymentType = 'advance' | 'onsite' | null
++export type PaymentStatus = 'unpaid' | 'paid'
++
++/** エリア識別子（要件 §3.2.3）。 */
++export type AreaId =
++  | 'action_required'
++  | 'payment_due'
++  /** 申込済で確定名簿がまだ出ていない。抽選待ちもここに含む。 */
++  | 'applied_waiting'
++  | 'before_deadline'
++  | 'done'
++  | 'no_applicants'
++
++export interface EntryBoardItem {
++  id: number
++  /** 正式名称。通称が引けないときのフォールバックにのみ使う。 */
++  title: string
++  /**
++   * 大会系列の通称（`tournament_series.short_name`）。
++   * events → edition → series で辿る。edition 未紐付けの大会では null。
++   */
++  shortName: string | null
++  eventDate: string
++  eligibleGrades: Grade[] | null
++  internalDeadline: string | null
++  entryDeadline: string | null
++  paymentDeadline: string | null
++  lotteryDate: string | null
++  entryStatus: EntryStatus
++  paymentType: PaymentType
++  paymentStatus: PaymentStatus
++  attendCount: number
++  hasConfirmedRoster: boolean
++}
++
++export interface AreaDef {
++  id: AreaId
++  label: string
++  /** 各行に出している締切の種類（区画見出しの右端に小さく置く）。 */
++  deadlineHint: string
++  /** 行動が必要なエリアか（見出しの強調に使う）。 */
++  actionable: boolean
++  /**
++   * 残日数を出さない区画。まだ手を動かす段階ではなく、日付だけ分かれば
++   * 十分なフェーズ（抽選待ち・完了）で false にする。
++   */
++  showCountdown?: boolean
++  /** 見出しタップで開閉できる区画。 */
++  collapsible?: boolean
++  /**
++   * 既定で畳んでおく区画（`collapsible` 前提）。管理者が能動的に見る必要が
++   * なく、畳むことで上の区画を 1 画面に収める余裕が生まれる区画に立てる。
++   */
++  collapsedByDefault?: boolean
++}
++
++/**
++ * 上から**大会が進む順（ライフサイクル順）**に並べる。
++ * 締切前 → 要対応 → 申込済み・抽選待ち → 名簿確定・振込待ち → 完了。
++ * 緊急度順ではなく進行順に固定することで、「どの大会がどのフェーズにいるか」を
++ * 上から下へ読み下せるようにする。
++ */
++export const AREAS: readonly AreaDef[] = [
++  {
++    id: 'before_deadline',
++    label: '締切前',
++    deadlineHint: '会内締切',
++    actionable: false,
++    // まだ手を動かす段階ではないので畳めるようにする。ただし出欠の集まり
++    // 具合を眺めるのが主用途なので、既定は開いたまま。
++    collapsible: true,
++  },
++  {
++    id: 'action_required',
++    label: '要対応',
++    // 会内締切は既に過ぎている区画なので、見るべきは主催者への申込締切
++    // （＝本締切）。ここを落とすと申込漏れが確定する。
++    deadlineHint: '本締切',
++    actionable: true,
++  },
++  {
++    id: 'applied_waiting',
++    label: '申込済み・抽選待ち',
++    deadlineHint: '抽選日',
++    actionable: false,
++    showCountdown: false,
++  },
++  {
++    id: 'payment_due',
++    label: '名簿確定・振込待ち',
++    deadlineHint: '支払締切',
++    actionable: true,
++  },
++  {
++    id: 'done',
++    label: '完了',
++    deadlineHint: '開催日',
++    actionable: false,
++    showCountdown: false,
++  },
++]
++
++/**
++ * ボードに出さない区画。`classify` は分類自体は返すが、ここに含まれる区画の
++ * 大会はボードから除外する（管理者がもう手を動かすことがないため）。
++ * 手動で「申し込まない」にした大会もここに落ちる。
++ */
++const HIDDEN_AREAS: ReadonlySet<AreaId> = new Set<AreaId>(['no_applicants'])
++
++/**
++ * 一覧に出す表示名 = 通称 + 級（例「札幌AB」）。正式名称は使わない。
++ * 通称が引けない大会（edition 未紐付け）は正式名称にフォールバックする。
++ */
++export function displayName(item: EntryBoardItem): string {
++  const base = item.shortName ?? item.title
++  const grades = item.eligibleGrades?.join('') ?? ''
++  return `${base}${grades}`
++}
++
++/** 基準締切 = 会内締切、未入力なら大会申込締切で代替（要件 §3.2.2）。 */
++export function baseDeadlineOf(item: EntryBoardItem): string | null {
++  return item.internalDeadline ?? item.entryDeadline
++}
++
++/**
++ * 大会をちょうど 1 つのエリアへ振り分ける（要件 §3.2.3）。
++ * 条件は相互排他なので評価順は可読性のためだけのもの。
++ */
++export function classify(item: EntryBoardItem, todayStr: string): AreaId {
++  if (item.entryStatus === 'not_applying') return 'no_applicants'
++
++  if (item.entryStatus === 'not_applied') {
++    const base = baseDeadlineOf(item)
++    // 締切未設定 or 締切当日以前 → 締切前（当日は「超過していない」）
++    if (base == null || base >= todayStr) return 'before_deadline'
++    return item.attendCount >= 1 ? 'action_required' : 'no_applicants'
++  }
++
++  // entryStatus === 'applied'
++  // 確定名簿がまだ出ていない＝抽選待ちも名簿待ちも同じ「待ち」として 1 区画に畳む
++  if (!item.hasConfirmedRoster) return 'applied_waiting'
++  if (item.paymentType === 'advance' && item.paymentStatus === 'unpaid') {
++    return 'payment_due'
++  }
++  return 'done'
++}
++
++/** エリアごとの並び順キー（要件 §3.2.3）。null は末尾。 */
++export function sortKeyOf(
++  item: EntryBoardItem,
++  area: AreaId,
++  todayStr: string,
++): string | null {
++  switch (area) {
++    case 'action_required':
++      return item.entryDeadline
++    case 'applied_waiting':
++      return item.lotteryDate
++    case 'payment_due':
++      return item.paymentDeadline
++    case 'done':
++      return item.eventDate
++    default:
++      return baseDeadlineOf(item)
++  }
++}
++
++/** 昇順・null 末尾・開催日を副キー（非破壊）。 */
++export function sortArea(
++  items: EntryBoardItem[],
++  area: AreaId,
++  todayStr: string,
++): EntryBoardItem[] {
++  return items.slice().sort((a, b) => {
++    const ka = sortKeyOf(a, area, todayStr)
++    const kb = sortKeyOf(b, area, todayStr)
++    if (ka == null && kb == null) return cmp(a.eventDate, b.eventDate)
++    if (ka == null) return 1
++    if (kb == null) return -1
++    const byKey = cmp(ka, kb)
++    return byKey !== 0 ? byKey : cmp(a.eventDate, b.eventDate)
++  })
++}
++
++function cmp(a: string, b: string): number {
++  return a < b ? -1 : a > b ? 1 : 0
++}
++
++/**
++ * 畳んでいても隠さない行かどうか。
++ *
++ * 「締切前」は会内締切が {@link SOON_THRESHOLD} 日以内に迫った大会だけ、
++ * 折りたたみ状態に関わらず出し続ける。畳んだまま締切を跨ぐ事故を防ぐため。
++ * 締切未設定（判定不能）の行は対象外＝畳めば隠れる。
++ */
++export function isPinnedWhenCollapsed(
++  item: EntryBoardItem,
++  area: AreaId,
++  todayStr: string,
++): boolean {
++  if (area !== 'before_deadline') return false
++  const base = baseDeadlineOf(item)
++  if (base == null) return false
++  const daysLeft = daysBetween(todayStr, base)
++  return daysLeft != null && daysLeft <= SOON_THRESHOLD
++}
++
++/**
++ * その大会の締切が「本日以降」＝当日を迎えたか、既に過ぎているか。
++ * 行動フェーズ（要対応・名簿確定・振込待ち）にこれが 1 件でもあるとき、
++ * 区画全体を強調する。まだ数日先しかない間は強調しないので、
++ * 赤い表示に慣れて効かなくなることがない。
++ */
++export function isDue(
++  item: EntryBoardItem,
++  area: AreaId,
++  todayStr: string,
++): boolean {
++  const tone = deadlineBadgeOf(item, area, todayStr).tone
++  // 'none' = その区画で見る日付が未設定。行動フェーズで日付が分からない大会は
++  // 「安全」と言い切れないので到来済み扱いにする（fail-safe）。特に「要対応」は
++  // 会内締切を過ぎて参加希望者もいる大会の集まりなので、本締切が未入力という
++  // 理由で強調が外れるのが一番危ない。
++  return tone === 'today' || tone === 'past' || tone === 'none'
++}
++
++/** 区画を強調表示するか（行動フェーズ かつ 締切到来済みが 1 件以上）。 */
++export function isAreaHot(
++  area: AreaDef,
++  items: EntryBoardItem[],
++  todayStr: string,
++): boolean {
++  if (!area.actionable) return false
++  return items.some((i) => isDue(i, area.id, todayStr))
++}
++
++export type GroupedBoard = Record<AreaId, EntryBoardItem[]>
++
++/** 全件をエリアへ振り分け、各エリア内を並べ替える。 */
++export function groupBoard(
++  items: EntryBoardItem[],
++  todayStr: string,
++): GroupedBoard {
++  const out = {} as GroupedBoard
++  for (const area of AREAS) out[area.id] = []
++  for (const item of items) {
++    const area = classify(item, todayStr)
++    if (HIDDEN_AREAS.has(area)) continue
++    out[area].push(item)
++  }
++  for (const area of AREAS) {
++    out[area.id] = sortArea(out[area.id], area.id, todayStr)
++  }
++  return out
++}
++
++// ---------------------------------------------------------------------------
++// 表示ヘルパー
++// ---------------------------------------------------------------------------
++
++const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
++const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
++
++function toEpochDay(dateStr: string): number | null {
++  const ms = Date.parse(`${dateStr}T00:00:00Z`)
++  return Number.isNaN(ms) ? null : ms
++}
++
++/** `YYYY-MM-DD` → `M/D(曜)`（`event-list-utils.formatEventDate` と同一）。 */
++export function formatEventDate(dateStr: string): string {
++  const m = DATE_RE.exec(dateStr)
++  if (!m) return dateStr
++  const year = Number(m[1])
++  const month = Number(m[2])
++  const day = Number(m[3])
++  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
++  return `${month}/${day}(${WEEKDAY_JA[dow]})`
++}
++
++/** `YYYY-MM-DD` → `M/D`（締切など、曜日が不要な箇所）。 */
++export function formatShortDate(dateStr: string): string {
++  const m = DATE_RE.exec(dateStr)
++  if (!m) return dateStr
++  return `${Number(m[2])}/${Number(m[3])}`
++}
++
++export function daysBetween(fromStr: string, toStr: string): number | null {
++  const from = toEpochDay(fromStr)
++  const to = toEpochDay(toStr)
++  if (from == null || to == null) return null
++  return Math.round((to - from) / 86_400_000)
++}
++
++/** 締切バッジの緊急度。`event-list-utils.DeadlineTone` と同じ語彙。 */
++export type DeadlineTone = 'today' | 'soon' | 'normal' | 'past' | 'none'
++
++export const SOON_THRESHOLD = 3
++
++export interface DeadlineBadge {
++  /** 「会内締切」「支払締切」など、そのエリアで見ている締切の名前。 */
++  label: string
++  /** 「4/22」など。締切が無い場合は null。 */
++  date: string | null
++  /** 「3日超過」「あと5日」「本日」「締切未設定」など。 */
++  countdown: string
++  tone: DeadlineTone
++}
++
++/**
++ * エリアごとに「いま見たい締切」を切り替えて 1 つのバッジへ畳む（要件 §3.2.3）。
++ */
++export function deadlineBadgeOf(
++  item: EntryBoardItem,
++  area: AreaId,
++  todayStr: string,
++): DeadlineBadge {
++  switch (area) {
++    case 'action_required':
++      return build('本締切', item.entryDeadline, todayStr, '締切未設定')
++    case 'applied_waiting':
++      return build('抽選日', item.lotteryDate, todayStr, '未定')
++    case 'payment_due':
++      return build('支払締切', item.paymentDeadline, todayStr, '締切未設定')
++    case 'done':
++      return build('開催日', item.eventDate, todayStr)
++    default:
++      return build('会内締切', baseDeadlineOf(item), todayStr, '締切未設定')
++  }
++}
++
++function build(
++  label: string,
++  date: string | null,
++  todayStr: string,
++  nullText = '未設定',
++): DeadlineBadge {
++  if (date == null) {
++    return { label, date: null, countdown: nullText, tone: 'none' }
++  }
++  const diff = daysBetween(todayStr, date)
++  if (diff == null) {
++    return { label, date: null, countdown: nullText, tone: 'none' }
++  }
++  const shownDate = formatShortDate(date)
++  if (diff < 0) {
++    return { label, date: shownDate, countdown: `${-diff}日超過`, tone: 'past' }
++  }
++  if (diff === 0) {
++    return { label, date: shownDate, countdown: '本日', tone: 'today' }
++  }
++  return {
++    label,
++    date: shownDate,
++    countdown: `あと${diff}日`,
++    tone: diff <= SOON_THRESHOLD ? 'soon' : 'normal',
++  }
++}
+diff --git a/apps/web/src/app/(app)/admin/entries/page.tsx b/apps/web/src/app/(app)/admin/entries/page.tsx
+new file mode 100644
+index 0000000..db559ca
+--- /dev/null
++++ b/apps/web/src/app/(app)/admin/entries/page.tsx
+@@ -0,0 +1,40 @@
++import { redirect } from 'next/navigation'
++import { auth } from '@/auth'
++import { EntryBoardClient } from './EntryBoardClient'
++import { protoItems } from './proto-data'
++
++export const dynamic = 'force-dynamic'
++
++/**
++ * 申込管理ボード（管理者専用）。
++ * 要件: docs/features/entry-management/requirements.md
++ */
++export default async function EntryManagementPage() {
++  const session = await auth()
++  // DESIGN-PROTO: プロトタイプは未ログインでも開けるようにする（この worktree
++  // 限定・実装時はこのガードを下の形に戻す）。
++  //   if (!session || (session.user?.role !== 'admin' && session.user?.role !== 'vice_admin')) redirect('/403')
++  if (session && session.user?.role !== 'admin' && session.user?.role !== 'vice_admin') {
++    redirect('/403')
++  }
++
++  // JST today。events の日付列は YYYY-MM-DD なので辞書順比較で正しい。
++  const todayStr = new Date().toLocaleDateString('sv-SE', {
++    timeZone: 'Asia/Tokyo',
++  })
++
++  // DESIGN-PROTO: ダミーデータ。実装時は以下の実クエリへ置換する。
++  //   1. events を母集団条件で取得（event_date >= today / status != 'cancelled'
++  //      / kind = 'individual'）
++  //   2. event_attendances の attend=true 件数を inArray で 1 クエリ一括集計
++  //   3. tournament_entry_rosters の確定名簿有無（roster_type='confirmed'
++  //      かつ superseded_at IS NULL）を inArray で 1 クエリ一括取得
++  const items = protoItems(todayStr)
++
++  return (
++    <div className="flex flex-col gap-4">
++      <h1 className="font-display text-xl font-bold text-ink">申込管理</h1>
++      <EntryBoardClient items={items} todayStr={todayStr} />
++    </div>
++  )
++}
+diff --git a/apps/web/src/app/(app)/admin/entries/proto-data.ts b/apps/web/src/app/(app)/admin/entries/proto-data.ts
+new file mode 100644
+index 0000000..24ff728
+--- /dev/null
++++ b/apps/web/src/app/(app)/admin/entries/proto-data.ts
+@@ -0,0 +1,268 @@
++import type { EntryBoardItem } from './entry-board-utils'
++
++/**
++ * DESIGN-PROTO: プロトタイプ専用のダミーデータ。
++ *
++ * 実装時はこのファイルごと削除し、`page.tsx` の DESIGN-PROTO 箇所を実クエリ
++ * （events + event_attendances 集計 + tournament_entry_rosters の確定名簿有無）
++ * に差し替える。要件 §3.2.1〜§3.2.3 の 7 エリアすべてに件数が入るよう、
++ * dev DB の内容に依存しない固定データで「つらいケース」を再現している:
++ *   - 大会名が長い行（切り詰めの確認）
++ *   - 会内締切が未設定の行
++ *   - 支払締切を超過した行
++ *   - 手動「申込なし」と出欠 0 名の自動判定が同居するエリア
++ */
++
++// DESIGN-PROTO: todayStr からの相対日付でダミーを組み立てる（実行日に依存しない）
++function addDays(todayStr: string, n: number): string {
++  const ms = Date.parse(`${todayStr}T00:00:00Z`)
++  const d = new Date(ms + n * 86_400_000)
++  return d.toISOString().slice(0, 10)
++}
++
++let seq = 0
++function base(todayStr: string, over: Partial<EntryBoardItem>): EntryBoardItem {
++  seq += 1
++  return {
++    id: seq,
++    title: 'ダミー大会',
++    shortName: null,
++    eventDate: addDays(todayStr, 30),
++    eligibleGrades: null,
++    internalDeadline: null,
++    entryDeadline: null,
++    paymentDeadline: null,
++    lotteryDate: null,
++    entryStatus: 'not_applied',
++    paymentType: null,
++    paymentStatus: 'unpaid',
++    attendCount: 0,
++    hasConfirmedRoster: false,
++    ...over,
++  }
++}
++
++// DESIGN-PROTO: 7 エリアすべてを埋めるダミー一式
++export function protoItems(todayStr: string): EntryBoardItem[] {
++  seq = 0
++  const d = (n: number) => addDays(todayStr, n)
++  return [
++    // --- 要対応（未申込・締切超過・参加者あり）---------------------------
++    base(todayStr, {
++      title: '第56回全国競技かるた札幌大会',
++      shortName: '札幌',
++      eventDate: d(21),
++      eligibleGrades: ['A', 'B'],
++      internalDeadline: d(-12),
++      entryDeadline: d(-6),
++      attendCount: 7,
++    }),
++    base(todayStr, {
++      title: '第31回北海道かるた選手権大会',
++      shortName: '北海道選手権',
++      eventDate: d(35),
++      eligibleGrades: ['C', 'D'],
++      internalDeadline: d(-5),
++      entryDeadline: d(1),
++      attendCount: 3,
++    }),
++    base(todayStr, {
++      // 会内締切が未入力で、大会申込締切での代替判定になるケース
++      title: '第12回旭川かるた大会',
++      shortName: '旭川',
++      eventDate: d(28),
++      eligibleGrades: ['E'],
++      entryDeadline: d(-1),
++      attendCount: 2,
++    }),
++
++    // --- 振込待ち -------------------------------------------------------
++    base(todayStr, {
++      title: '第44回東日本選抜かるた大会',
++      shortName: '東日本選抜',
++      eventDate: d(18),
++      eligibleGrades: ['A'],
++      internalDeadline: d(-30),
++      entryDeadline: d(-24),
++      paymentDeadline: d(-2),
++      entryStatus: 'applied',
++      paymentType: 'advance',
++      paymentStatus: 'unpaid',
++      hasConfirmedRoster: true,
++      attendCount: 5,
++    }),
++    base(todayStr, {
++      title: '第9回北海道地区かるた交流大会',
++      shortName: '道地区交流',
++      eventDate: d(40),
++      eligibleGrades: ['B', 'C'],
++      internalDeadline: d(-20),
++      paymentDeadline: d(4),
++      entryStatus: 'applied',
++      paymentType: 'advance',
++      paymentStatus: 'unpaid',
++      hasConfirmedRoster: true,
++      attendCount: 9,
++    }),
++
++    // --- 抽選待ち -------------------------------------------------------
++    base(todayStr, {
++      title: '第70回記念全日本かるた選手権大会予選会札幌会場',
++      shortName: '全日本予選',
++      eventDate: d(52),
++      eligibleGrades: ['A'],
++      internalDeadline: d(-15),
++      lotteryDate: d(6),
++      entryStatus: 'applied',
++      attendCount: 4,
++    }),
++    base(todayStr, {
++      title: '第23回名人位・クイーン位北海道予選',
++      shortName: '名人位北海道予選',
++      eventDate: d(60),
++      eligibleGrades: ['A'],
++      internalDeadline: d(-10),
++      lotteryDate: d(14),
++      entryStatus: 'applied',
++      attendCount: 2,
++    }),
++
++    // --- 申込済（確定名簿待ち）-----------------------------------------
++    base(todayStr, {
++      title: '第18回小樽かるた大会',
++      shortName: '小樽',
++      eventDate: d(25),
++      eligibleGrades: ['C', 'D', 'E'],
++      internalDeadline: d(-18),
++      entryStatus: 'applied',
++      attendCount: 6,
++    }),
++    base(todayStr, {
++      title: '第5回道央地区新人戦',
++      shortName: '道央新人',
++      eventDate: d(47),
++      eligibleGrades: ['D', 'E'],
++      internalDeadline: d(-9),
++      lotteryDate: d(-3), // 抽選日は過ぎたが名簿はまだ
++      entryStatus: 'applied',
++      attendCount: 3,
++    }),
++
++    // --- 締切前 ---------------------------------------------------------
++    base(todayStr, {
++      title: '第38回函館かるた大会',
++      shortName: '函館',
++      eventDate: d(44),
++      eligibleGrades: ['B', 'C'],
++      internalDeadline: d(0),
++      entryDeadline: d(6),
++      attendCount: 4,
++    }),
++    base(todayStr, {
++      title: '第27回釧路かるた大会',
++      shortName: '釧路',
++      eventDate: d(50),
++      eligibleGrades: ['A', 'B'],
++      internalDeadline: d(2),
++      entryDeadline: d(8),
++      attendCount: 1,
++    }),
++    base(todayStr, {
++      title: '第14回帯広かるた大会',
++      shortName: '帯広',
++      eventDate: d(58),
++      eligibleGrades: ['C'],
++      internalDeadline: d(11),
++      attendCount: 0,
++    }),
++    base(todayStr, {
++      title: '第3回オホーツク地区かるた親善大会',
++      shortName: 'オホーツク親善',
++      eventDate: d(66),
++      eligibleGrades: ['D', 'E'],
++      internalDeadline: d(24),
++      attendCount: 0,
++    }),
++    base(todayStr, {
++      // 会内締切・大会申込締切とも未設定 → 締切前の末尾に落ちる
++      title: '第2回北見かるた大会',
++      shortName: null,
++      eventDate: d(72),
++      attendCount: 0,
++    }),
++
++    // --- 完了 -----------------------------------------------------------
++    base(todayStr, {
++      title: '第49回北海道かるた協会長杯',
++      shortName: '協会長杯',
++      eventDate: d(12),
++      eligibleGrades: ['A', 'B'],
++      internalDeadline: d(-40),
++      entryStatus: 'applied',
++      paymentType: 'advance',
++      paymentStatus: 'paid',
++      hasConfirmedRoster: true,
++      attendCount: 8,
++    }),
++    base(todayStr, {
++      title: '第7回江別かるた大会',
++      shortName: '江別',
++      eventDate: d(20),
++      eligibleGrades: ['C', 'D'],
++      internalDeadline: d(-33),
++      entryStatus: 'applied',
++      paymentType: 'onsite',
++      hasConfirmedRoster: true,
++      attendCount: 5,
++    }),
++    base(todayStr, {
++      title: '第11回千歳かるた大会',
++      shortName: '千歳',
++      eventDate: d(33),
++      eligibleGrades: ['E'],
++      internalDeadline: d(-22),
++      entryStatus: 'applied',
++      paymentType: null,
++      hasConfirmedRoster: true,
++      attendCount: 2,
++    }),
++    base(todayStr, {
++      title: '第16回苫小牧かるた大会',
++      shortName: '苫小牧',
++      eventDate: d(55),
++      eligibleGrades: ['B'],
++      internalDeadline: d(-14),
++      entryStatus: 'applied',
++      paymentType: 'onsite',
++      hasConfirmedRoster: true,
++      attendCount: 6,
++    }),
++
++    // --- 参加希望者なし --------------------------------------------------
++    base(todayStr, {
++      title: '第22回九州かるた大会',
++      shortName: '九州',
++      eventDate: d(38),
++      eligibleGrades: ['A'],
++      internalDeadline: d(-7),
++      attendCount: 0, // 出欠 0 名で自動
++    }),
++    base(todayStr, {
++      title: '第8回四国かるた選手権',
++      shortName: '四国',
++      eventDate: d(61),
++      eligibleGrades: ['B', 'C'],
++      internalDeadline: d(-2),
++      attendCount: 0, // 出欠 0 名で自動
++    }),
++    base(todayStr, {
++      title: '第33回関西学生かるた大会',
++      shortName: '関西学生',
++      eventDate: d(29),
++      eligibleGrades: ['C'],
++      internalDeadline: d(-16),
++      entryStatus: 'not_applying', // 管理者が見送り確定
++      attendCount: 1,
++    }),
++  ]
++}
+diff --git a/apps/web/src/app/(app)/layout.tsx b/apps/web/src/app/(app)/layout.tsx
+index 86a54f6..4dbf0f2 100644
+--- a/apps/web/src/app/(app)/layout.tsx
++++ b/apps/web/src/app/(app)/layout.tsx
+@@ -8,7 +8,17 @@ export default async function AppLayout({
+   children: React.ReactNode
+ }) {
+   const session = await auth()
+-  if (!session) redirect('/auth/signin')
++  // DESIGN-PROTO: 未ログインでもシェルを描く（この worktree 限定・実装時は削除）。
++  if (!session) {
++    const signOutNoop = async () => {
++      'use server'
++    }
++    return (
++      <MobileShell user="管理者さん" isAdmin signOutAction={signOutNoop}>
++        {children}
++      </MobileShell>
++    )
++  }
+ 
+   const signOutAction = async () => {
+     'use server'
+diff --git a/apps/web/src/components/layout/bottom-nav.tsx b/apps/web/src/components/layout/bottom-nav.tsx
+index 5218115..949511d 100644
+--- a/apps/web/src/components/layout/bottom-nav.tsx
++++ b/apps/web/src/components/layout/bottom-nav.tsx
+@@ -30,6 +30,15 @@ const TABS: readonly Tab[] = [
+     href: '/players',
+     matches: ['/players', '/tournaments'],
+   },
++  // entry-management: 管理者向け大会申込進捗ボード。管理者専用ブロックの先頭に
++  // 置き、共通 3 タブ（ホーム/イベント/統計）の直後から管理業務が始まる並びにする。
++  {
++    id: 'entries',
++    label: '申込管理',
++    href: '/admin/entries',
++    matches: ['/admin/entries'],
++    adminOnly: true,
++  },
+   {
+     id: 'members',
+     label: '会員',
+diff --git a/apps/web/src/middleware.ts b/apps/web/src/middleware.ts
+index 3db6ec6..e5cc80b 100644
+--- a/apps/web/src/middleware.ts
++++ b/apps/web/src/middleware.ts
+@@ -40,6 +40,10 @@ export default auth((req) => {
+   const pathname = nextUrl.pathname
+   const isRegister = startsWithAny(pathname, REGISTER_PATHS)
+ 
++  // DESIGN-PROTO: プロトタイプを未ログインで開くための素通し（この worktree 限定・
++  // 実装時は削除する。本番の認可は page 層の redirect('/403') が担う）。
++  if (pathname.startsWith('/admin/entries')) return NextResponse.next()
++
+   // Unauthenticated: /auth/signin (+ /auth/error for LINE errors) and the
+   // public /register/* welcome screen are reachable; everything else → signin.
+   if (!session) {
