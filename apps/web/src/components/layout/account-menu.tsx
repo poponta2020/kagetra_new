@@ -5,20 +5,14 @@ import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Pill } from '@/components/ui'
-import { roleViewLabel, type UserRole } from '@/lib/role-preview'
+import { roleViewLabel } from '@/lib/role-preview'
+import type { RolePreviewSelection } from '@/lib/role-preview'
 
 /**
- * 「表示ロール」セクションの入力。`(app)/layout.tsx` が算出して渡す
- * (role-preview.ts の純関数の戻り値をそのまま束ねたもの)。
+ * 「表示ロール」セクションの入力。`(app)/layout.tsx` が
+ * `buildRolePreviewSelection()` で算出して渡す。
  */
-export interface RolePreviewProps {
-  /** 現在の実効ロール（aria-current を付ける対象）。 */
-  current: UserRole
-  /** 本物のロール。 */
-  real: UserRole
-  /** 選択できるロール（上位から）。 */
-  selectable: UserRole[]
-}
+export type RolePreviewProps = RolePreviewSelection
 
 export interface AccountMenuProps {
   /**

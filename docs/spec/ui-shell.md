@@ -69,6 +69,11 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 - `メール通知`（`/settings/notifications` へのリンク）— `isAdmin` のときのみ表示。中身は [spec/notifications.md](notifications.md) 参照
 - `LINE アカウント切替`（`/settings/line-link` へのリンク）— 全ユーザーに表示。中身は [spec/auth-admin.md](auth-admin.md) 参照
 - `ログアウト`（`signOutAction` を叩く `<form>` の submit ボタン）
+- `表示ロール`（`setRolePreviewAction` を叩く `<form>` 内に、選べるロールぶんの submit ボタンを並べたセクション）— `rolePreview` が非 null のときのみ表示。現在の実効ロールのボタンに `aria-current="true"` が付く。ロールの意味・許可条件・認可規律は [spec/auth-admin.md](auth-admin.md) 参照
+
+`rolePreview`（セクションの入力）と `previewBadge`（バッジ文言）は `(app)/layout.tsx` がサーバー側で算出し、`signOutAction` と同じ経路でバケツリレーされる。いずれも optional（既定 `null`）で、プレビューを使わない場合の描画は従来と変わらない。プレビュー中はトリガーボタンの中に `Pill`（`tone="brand"` / `size="sm"`）でビュー名のバッジが出る（`[会員ビュー] 山田さん`）。ボタン全体が既にシートを開くので、バッジのタップにも追加配線は要らない。
+
+「表示ロール」の submit ボタンに `onClick` でシートを閉じる処理を足してはならない。クリック処理の中で `createPortal` ごと `<form>` が DOM から外れると、ブラウザが既定動作（フォーム送信）を中止して「押しても何も起きない」になる。シートはサーバー再描画後に実効ロールが変わったことを `useEffect` で検知して閉じる。
 
 パネルは `pb-[calc(1rem_+_env(safe-area-inset-bottom))]`（モバイル時）で iOS ホームインジケータ領域を避ける。sm 以上ではボトムシートではなく画面中央のダイアログとして表示される（`items-end sm:items-center`）。
 

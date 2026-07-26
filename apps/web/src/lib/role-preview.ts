@@ -90,6 +90,45 @@ export function roleViewLabel(role: UserRole): string {
   return ROLE_VIEW_LABEL[role]
 }
 
+/** 設定シートの「表示ロール」セクションの入力。 */
+export interface RolePreviewSelection {
+  /** 現在の実効ロール (aria-current を付ける対象)。 */
+  current: UserRole
+  /** 本物のロール。 */
+  real: UserRole
+  /** 選択できるロール (上位から)。 */
+  selectable: UserRole[]
+}
+
+/**
+ * `(app)/layout.tsx` が `AccountMenu` へ渡す「表示ロール」セクションの入力を
+ * 組み立てる。null なら**セクションごと描画しない**。
+ *
+ * ⚠️ 許可リストから外れていても、**プレビュー中なら本物のロールへ戻す 1 択
+ * だけは残す**。ここで一律 null にすると、運用中に env から自分の id を
+ * 外した瞬間に復帰導線が消えてログアウト以外に戻る手段が無くなる
+ * （AC-9 と同じ失敗クラス。切替 Server Action 側も同様に、解除だけは許可
+ * リスト判定を通さない）。
+ */
+export function buildRolePreviewSelection(
+  userId: string | null | undefined,
+  realRole: UserRole | null | undefined,
+  effectiveRole: UserRole | null | undefined,
+  rawEnv: string | undefined | null,
+): RolePreviewSelection | null {
+  const real = parseUserRole(realRole)
+  const current = parseUserRole(effectiveRole)
+  if (!real || !current) return null
+  const allowed = isRolePreviewAllowed(userId, rawEnv)
+  const isPreviewing = current !== real
+  if (!allowed && !isPreviewing) return null
+  return {
+    current,
+    real,
+    selectable: allowed ? selectableRoles(real) : [real],
+  }
+}
+
 /**
  * ヘッダーバッジの文言。非プレビュー時 (実効 === 本物) は null を返し、
  * バッジそのものを描画させない。

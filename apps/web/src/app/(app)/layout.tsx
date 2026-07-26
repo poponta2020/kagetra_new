@@ -3,9 +3,8 @@ import { redirect } from 'next/navigation'
 import { MobileShell } from '@/components/layout/mobile-shell'
 import { setRolePreviewAction } from './role-preview-actions'
 import {
-  isRolePreviewAllowed,
+  buildRolePreviewSelection,
   previewBadgeLabel,
-  selectableRoles,
 } from '@/lib/role-preview'
 
 export default async function AppLayout({
@@ -28,21 +27,13 @@ export default async function AppLayout({
   // トップで読むとビルド時にインライン化され、本番で再起動しても値が
   // 反映されなくなる）。
   const realRole = session.user?.realRole ?? session.user?.role
-  const previewEnabled = isRolePreviewAllowed(
+  const rolePreview = buildRolePreviewSelection(
     session.user?.id,
+    realRole,
+    session.user?.role,
     process.env.ROLE_PREVIEW_USER_IDS,
   )
   const previewBadge = previewBadgeLabel(realRole, session.user?.role)
-  const rolePreview =
-    realRole && (previewEnabled || previewBadge !== null)
-      ? {
-          current: session.user.role,
-          real: realRole,
-          // ⚠️ de-list 中（許可リストから外れたがプレビュー中）は「本物の
-          // ロールへ戻す」1択だけ残す（締め出し防止）。
-          selectable: previewEnabled ? selectableRoles(realRole) : [realRole],
-        }
-      : null
 
   return (
     <MobileShell

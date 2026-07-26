@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  buildRolePreviewSelection,
   isRolePreviewAllowed,
   parseUserRole,
   previewBadgeLabel,
@@ -136,6 +137,54 @@ describe('previewBadgeLabel', () => {
   it('ロールが未解決なら null', () => {
     expect(previewBadgeLabel(undefined, 'member')).toBeNull()
     expect(previewBadgeLabel('admin', undefined)).toBeNull()
+  })
+})
+
+describe('buildRolePreviewSelection', () => {
+  it('許可された admin は 3 択（AC-3）', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'admin', 'u1')).toEqual({
+      current: 'admin',
+      real: 'admin',
+      selectable: ['admin', 'vice_admin', 'member'],
+    })
+  })
+
+  it('許可された vice_admin は 2 択で admin を含まない（AC-4）', () => {
+    expect(buildRolePreviewSelection('u1', 'vice_admin', 'vice_admin', 'u1')).toEqual({
+      current: 'vice_admin',
+      real: 'vice_admin',
+      selectable: ['vice_admin', 'member'],
+    })
+  })
+
+  it('env 未設定なら null＝セクションを描画しない（AC-1）', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'admin', undefined)).toBeNull()
+    expect(buildRolePreviewSelection('u1', 'admin', 'admin', '')).toBeNull()
+  })
+
+  it('許可リスト外・非プレビューなら null（AC-2）', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'admin', 'someone-else')).toBeNull()
+  })
+
+  it('プレビュー中は current が実効ロールになる', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'member', 'u1')).toEqual({
+      current: 'member',
+      real: 'admin',
+      selectable: ['admin', 'vice_admin', 'member'],
+    })
+  })
+
+  it('de-list されてもプレビュー中なら「本物のロールへ戻す」1択だけ残す（AC-10b 締め出し防止）', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'member', 'someone-else')).toEqual({
+      current: 'member',
+      real: 'admin',
+      selectable: ['admin'],
+    })
+  })
+
+  it('ロールが未解決なら null', () => {
+    expect(buildRolePreviewSelection('u1', undefined, undefined, 'u1')).toBeNull()
+    expect(buildRolePreviewSelection('u1', 'admin', undefined, 'u1')).toBeNull()
   })
 })
 
