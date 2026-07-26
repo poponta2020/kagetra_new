@@ -1,11 +1,13 @@
 ---
 name: feedback_shared_test_db_worktree_push_race
-description: 並行 worktree が共有 test DB(5434) に push し合うとスキーマが衝突しテストが 42P01 で落ちる。隔離 DB を使う
+description: 並行 worktree の test DB 衝突は自動隔離で解決済み（vitest が worktree ごとに DB を導出・自動作成）。手動 createdb は不要
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: c9cb1b98-a35e-454a-97c5-8ccec1f015d5
 ---
+
+**【解決済み 2026-07-26】** vitest は `@kagetra/shared/test-db`（`packages/shared/src/test-db.ts`）で **worktree パスから DB 名を自動導出し、postgres-test(5434) 上に自動作成**するようになった。`TEST_DATABASE_URL` 未設定なら worktree ごとに別 DB になるため、以下の衝突は通常発生しない。手動の `createdb`・`TEST_DATABASE_URL` 設定は不要（明示すれば上書き可能。CI は明示している）。同一 worktree 内での vitest 並行起動だけは今も競合する（`## parallel` の worker_verify: none を維持）。以下は経緯の記録:
 
 vitest の global-setup は `drizzle-kit push --force` で **共有 test DB（`localhost:5434/kagetra_test`）** にスキーマを焼く。**2 つの worktree が同時にテストを走らせると、互いの push がスキーマを上書きし合う**（片方が新表を足し、もう片方が旧 schema を push して消す）→ truncateAll や query が存在しない表を引いて `42P01 (relation does not exist)` で大量 fail。
 

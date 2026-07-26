@@ -22,7 +22,7 @@ DEVFLOW_CI_COVERS=("test" "lint" "typecheck")
 ## run
 
 - Web 起動: `pnpm dev:web`（Next.js。ローカル DB は `docker/docker-compose.yml` の postgres）
-- テスト DB: `pnpm test:db:up`（127.0.0.1:5434）→ `pnpm test:db:push`
+- テスト DB: `pnpm test:db:up`（127.0.0.1:5434）。DB の作成と schema push は vitest の global-setup が **worktree ごとに自動実行**する（`@kagetra/shared/test-db`。`pnpm test:db:push` の手動実行は E2E 用の固定 DB `kagetra_test` にのみ必要）
 - 詳細な /verify 用起動レシピは未整備 — 初回の /verify 時に `/run-skill-generator` で整備すること
 
 ## worktree
@@ -36,11 +36,9 @@ max_workers: 3
 worker_verify: none
 ```
 
-**`worker_verify: none` の理由（テストは並行実行できない）**: `apps/web/vitest.global-setup.ts` は vitest 起動のたびに `drizzle-kit push --force` を共有テスト DB（`127.0.0.1:5434` / `kagetra_test`）へ**無条件に**実行する。DB を使わない純関数・jsdom テストでも走る。`vitest.config.mts` の `fileParallelism: false` はプロセス内の直列化しかしないため、複数ワーカーが同時に vitest を起動すると push 同士・push と `truncateAll` が競合する（entry-management 実装中に実際に `deadlock detected` (40P01) を踏んだ）。
+**`worker_verify: none` の理由（テストは並行実行できない）**: `apps/web/vitest.global-setup.ts` は vitest 起動のたびに `drizzle-kit push --force` をテスト DB へ**無条件に**実行する。DB を使わない純関数・jsdom テストでも走る。テスト DB は worktree ごとに自動導出されるため（`@kagetra/shared/test-db`）**別 worktree・別セッションとは隔離済み**だが、Wave のワーカーは**同一 worktree を共有する**ため DB も1つで、複数ワーカーが同時に vitest を起動すると push 同士・push と `truncateAll` が競合する（`vitest.config.mts` の `fileParallelism: false` はプロセス内の直列化しかしない。entry-management 実装中に実際に `deadlock detected` (40P01) を踏んだ）。
 
 したがって Wave 中のワーカーには**検証コマンドを渡さない**。ワーカーは実装とテストを**書くだけ**で、テスト実行はバリア後に main が直列で行う。ワーカー自身の判断でテストコマンドを実行することも禁止する。
-
-なお `## database` の `TEST_DATABASE_URL` による隔離はここでは効かない — Wave のワーカーは**同一 worktree を共有する**ため DB URL も1つで、隔離できるのは worktree 単位（並行機能開発）だけである。
 
 **ワーカーに渡してよい唯一の検証コマンド**: ファイルスコープの eslint — `pnpm --filter=@kagetra/web exec eslint <file>`。DB に触れないためワーカー同士で競合せず、並行実行してよい。
 
@@ -53,7 +51,7 @@ worker_verify: none
 ## database
 
 - ローカル開発 DB: `docker exec kagetra-db psql`（Docker Compose）
-- テスト DB: `127.0.0.1:5434`（`localhost` は IPv6 で ECONNRESET になるため IP 直指定）。並行 worktree は `TEST_DATABASE_URL` で隔離
+- テスト DB: `127.0.0.1:5434`（`localhost` は IPv6 で ECONNRESET になるため IP 直指定）。並行 worktree は**自動隔離** — vitest が worktree パスから DB 名を導出し `postgres-test` 上に自動作成する（`packages/shared/src/test-db.ts`。`TEST_DATABASE_URL` 明示で上書き可。手動での `createdb` は不要）
 - スキーマ管理: Drizzle ORM（`pnpm db:generate` / `db:migrate`）。**本番 DB への直接操作・db:push はユーザー確認必須**
 - 実装ワーカーの DB 書き込みは**テスト DB 限定**
 

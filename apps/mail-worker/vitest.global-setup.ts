@@ -1,18 +1,18 @@
 import { execSync } from 'node:child_process'
+import { ensureTestDatabase, resolveTestDatabaseUrl } from '@kagetra/shared/test-db'
 
 /**
- * Vitest global setup. Pushes the current Drizzle schema to the test DB once
- * before any test file. Mirrors apps/web/vitest.global-setup.ts so we can
- * rely on `mail_messages` existing without needing an explicit migration step
- * in CI.
+ * Vitest global setup. Pushes the current Drizzle schema to the (per-worktree)
+ * test DB once before any test file. Mirrors apps/web/vitest.global-setup.ts so
+ * we can rely on `mail_messages` existing without needing an explicit migration
+ * step in CI.
  */
 export default async function setup() {
-  const dbUrl =
-    process.env.TEST_DATABASE_URL ??
-    'postgresql://kagetra:kagetra_dev@localhost:5434/kagetra_test'
+  const dbUrl = resolveTestDatabaseUrl()
 
-  // eslint-disable-next-line no-console
   console.log('[mail-worker test-setup] Applying schema to', dbUrl)
+
+  await ensureTestDatabase(dbUrl)
 
   execSync(
     'pnpm --filter @kagetra/shared exec drizzle-kit push --force --config=drizzle.config.ts',
