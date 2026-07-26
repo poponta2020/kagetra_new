@@ -24,7 +24,7 @@ git apply --exclude=apps/web/src/middleware.ts --exclude='apps/web/src/app/(app)
 ## 実装タスク
 
 ### タスク1: 仕分けロジックの純関数とテスト（#323）
-- [ ] 完了
+- [x] 完了
 - **目的:** 区画判定・並び順・日付バッジ・強調判定・折りたたみ残留判定を、DB に触れない純関数として確定させ、要件の分岐をすべてユニットテストで固定する。
 - **対応AC:** AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12, AC-13, AC-14, AC-15, AC-18, AC-19, AC-20, AC-21, AC-21b, AC-27
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts`（patch から取り込み）＋ 同ディレクトリに `entry-board-utils.test.ts` を新規作成
