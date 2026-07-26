@@ -44,10 +44,14 @@ export function DeleteMemberSection({
         className="mt-3"
       >
         <input type="hidden" name="userId" value={userId} />
+        {/* hover は opacity ではなく brightness で当てる。disabled:opacity-60 と
+            同じ property を奪い合うと、どちらが勝つかが Tailwind の出力順依存に
+            なり className の順では制御できない（globals.css の .mobile-shell-h
+            と同じ罠）。property を分けておけば衝突しようがない。 */}
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-accent px-4 py-2 text-sm text-ink-on-brand hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-accent px-4 py-2 text-sm text-ink-on-brand hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? '削除中…' : 'この会員を削除する'}
         </button>
