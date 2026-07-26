@@ -1,0 +1,1308 @@
+diff --git a/apps/web/src/app/(app)/admin/entries/page.tsx b/apps/web/src/app/(app)/admin/entries/page.tsx
+index 4fa09d1..eaa6ed9 100644
+--- a/apps/web/src/app/(app)/admin/entries/page.tsx
++++ b/apps/web/src/app/(app)/admin/entries/page.tsx
+@@ -135,7 +135,7 @@ export default async function EntryManagementPage() {
+   }))
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <h1 className="font-display text-xl font-bold text-ink">申込管理</h1>
+       <EntryBoardClient items={items} todayStr={todayStr} />
+     </div>
+diff --git a/apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx b/apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx
+index ab2be75..6d36824 100644
+--- a/apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx
++++ b/apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx
+@@ -282,7 +282,7 @@ export default async function MailDraftDetailPage({
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div>
+         <Link
+           href="/admin/mail-inbox"
+diff --git a/apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx b/apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx
+index f507c68..2123f03 100644
+--- a/apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx
++++ b/apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx
+@@ -198,7 +198,7 @@ export default async function MailDetailPage({
+       : []
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div>
+         <Link href="/admin/mail-inbox" className="text-sm text-brand-fg underline">
+           ← メール受信箱
+diff --git a/apps/web/src/app/(app)/admin/mail-inbox/page.tsx b/apps/web/src/app/(app)/admin/mail-inbox/page.tsx
+index e90a76f..72855e4 100644
+--- a/apps/web/src/app/(app)/admin/mail-inbox/page.tsx
++++ b/apps/web/src/app/(app)/admin/mail-inbox/page.tsx
+@@ -244,7 +244,7 @@ export default async function MailInboxPage() {
+   const hasAnyActive = unprocessed.length > 0
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div className="flex items-center justify-between">
+         <h1 className="font-display text-xl font-bold text-ink">メール受信箱</h1>
+         <TriggerFetchButton />
+diff --git a/apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/page.tsx b/apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/page.tsx
+index 3562164..3366291 100644
+--- a/apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/page.tsx
++++ b/apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/page.tsx
+@@ -113,7 +113,7 @@ export default async function ResultDraftReviewPage({
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div>
+         <Link
+           href={draft.mail ? `/admin/mail-inbox/mail/${draft.mail.id}` : '/admin/mail-inbox'}
+diff --git a/apps/web/src/app/(app)/admin/mail-inbox/roster-drafts/[id]/page.tsx b/apps/web/src/app/(app)/admin/mail-inbox/roster-drafts/[id]/page.tsx
+index fa0b380..4299408 100644
+--- a/apps/web/src/app/(app)/admin/mail-inbox/roster-drafts/[id]/page.tsx
++++ b/apps/web/src/app/(app)/admin/mail-inbox/roster-drafts/[id]/page.tsx
+@@ -163,7 +163,7 @@ export default async function RosterDraftReviewPage({
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <Link
+         href={draft.sourceMail ? `/admin/mail-inbox/mail/${draft.sourceMail.id}` : '/admin/mail-inbox'}
+         className="text-sm text-brand-fg underline"
+diff --git a/apps/web/src/app/(app)/admin/members/[id]/edit/page.tsx b/apps/web/src/app/(app)/admin/members/[id]/edit/page.tsx
+index f495e56..a5828ed 100644
+--- a/apps/web/src/app/(app)/admin/members/[id]/edit/page.tsx
++++ b/apps/web/src/app/(app)/admin/members/[id]/edit/page.tsx
+@@ -57,7 +57,7 @@ export default async function EditMemberPage({
+   if (!member) notFound()
+ 
+   return (
+-    <div className="space-y-6">
++    <div className="space-y-6 p-4">
+       <div>
+         <Link
+           href="/admin/members"
+diff --git a/apps/web/src/app/(app)/admin/members/page.tsx b/apps/web/src/app/(app)/admin/members/page.tsx
+index 204345d..720117c 100644
+--- a/apps/web/src/app/(app)/admin/members/page.tsx
++++ b/apps/web/src/app/(app)/admin/members/page.tsx
+@@ -70,7 +70,7 @@ export default async function MembersPage() {
+   ])
+ 
+   return (
+-    <div className="space-y-4">
++    <div className="space-y-4 p-4">
+       <h2 className="text-xl font-bold">会員管理</h2>
+       <NewMemberForm />
+       <RegistrationInviteSection activeInvites={activeInvites} />
+diff --git a/apps/web/src/app/(app)/dashboard/page.tsx b/apps/web/src/app/(app)/dashboard/page.tsx
+index f710a5c..f501d5e 100644
+--- a/apps/web/src/app/(app)/dashboard/page.tsx
++++ b/apps/web/src/app/(app)/dashboard/page.tsx
+@@ -8,7 +8,7 @@ export default async function DashboardPage() {
+   const { label, tone } = roleLabel(session?.user?.role)
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <h1 className="font-display text-xl font-bold text-ink">
+         ようこそ、{name}さん
+       </h1>
+diff --git a/apps/web/src/app/(app)/events-archive/page.tsx b/apps/web/src/app/(app)/events-archive/page.tsx
+index 9ebd72c..d1c4079 100644
+--- a/apps/web/src/app/(app)/events-archive/page.tsx
++++ b/apps/web/src/app/(app)/events-archive/page.tsx
+@@ -37,7 +37,7 @@ export default async function EventsArchivePage() {
+   const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div className="flex items-center justify-between">
+         <h1 className="font-display text-xl font-bold text-ink">
+           過去のイベント
+diff --git a/apps/web/src/app/(app)/events/[id]/edit/page.tsx b/apps/web/src/app/(app)/events/[id]/edit/page.tsx
+index 6bfda4f..39a9eee 100644
+--- a/apps/web/src/app/(app)/events/[id]/edit/page.tsx
++++ b/apps/web/src/app/(app)/events/[id]/edit/page.tsx
+@@ -76,7 +76,7 @@ export default async function EditEventPage({
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <h1 className="font-display text-xl font-bold text-ink mb-4">イベント編集</h1>
+       <EventForm
+         mode="edit"
+diff --git a/apps/web/src/app/(app)/events/[id]/page.tsx b/apps/web/src/app/(app)/events/[id]/page.tsx
+index ab14c7d..6edc301 100644
+--- a/apps/web/src/app/(app)/events/[id]/page.tsx
++++ b/apps/web/src/app/(app)/events/[id]/page.tsx
+@@ -446,7 +446,7 @@ export default async function EventDetailPage({
+   ]
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <div className="flex items-center justify-between">
+         <Link href="/events" className="text-sm text-brand">
+           ← イベント一覧
+diff --git a/apps/web/src/app/(app)/events/new/page.tsx b/apps/web/src/app/(app)/events/new/page.tsx
+index b65d7ea..52774c2 100644
+--- a/apps/web/src/app/(app)/events/new/page.tsx
++++ b/apps/web/src/app/(app)/events/new/page.tsx
+@@ -70,7 +70,7 @@ export default async function NewEventPage() {
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <h1 className="font-display text-xl font-bold text-ink mb-4">イベント作成</h1>
+       <EventForm
+         mode="create"
+diff --git a/apps/web/src/app/(app)/layout.tsx b/apps/web/src/app/(app)/layout.tsx
+index 172879a..f40e39b 100644
+--- a/apps/web/src/app/(app)/layout.tsx
++++ b/apps/web/src/app/(app)/layout.tsx
+@@ -1,11 +1,7 @@
+-import { auth, signOut } from '@/auth'
++import { auth } from '@/auth'
+ import { redirect } from 'next/navigation'
+ import { MobileShell } from '@/components/layout/mobile-shell'
+-import { setRolePreviewAction } from './role-preview-actions'
+-import {
+-  buildRolePreviewSelection,
+-  previewBadgeLabel,
+-} from '@/lib/role-preview'
++import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
+ 
+ export default async function AppLayout({
+   children,
+@@ -15,11 +11,6 @@ export default async function AppLayout({
+   const session = await auth()
+   if (!session) redirect('/auth/signin')
+ 
+-  const signOutAction = async () => {
+-    'use server'
+-    await signOut({ redirectTo: '/auth/signin' })
+-  }
+-
+   const role = session.user?.role
+   const isAdmin = role === 'admin' || role === 'vice_admin'
+ 
+@@ -33,17 +24,17 @@ export default async function AppLayout({
+     session.user?.role,
+     process.env.ROLE_PREVIEW_USER_IDS,
+   )
+-  const previewBadge = previewBadgeLabel(realRole, session.user?.role)
++  // nav-settings-hub: プレビュー中だけ「設定」タブにバッジを出す。上部バーの
++  // ワードマーク横に出していたバッジの移設先。タブ幅 62.5px（管理者 6 タブ）に
++  // 収める必要があるので、`roleViewLabel`（管理者 / 副管理者 / 一般会員）の
++  // 短い方を使う。
++  const previewRoleLabel =
++    rolePreview && rolePreview.current !== rolePreview.real
++      ? roleViewLabel(rolePreview.current)
++      : null
+ 
+   return (
+-    <MobileShell
+-      user={session.user?.name ? `${session.user.name}さん` : ''}
+-      isAdmin={isAdmin}
+-      signOutAction={signOutAction}
+-      rolePreview={rolePreview}
+-      previewBadge={previewBadge}
+-      setRolePreviewAction={setRolePreviewAction}
+-    >
++    <MobileShell isAdmin={isAdmin} previewRoleLabel={previewRoleLabel}>
+       {children}
+     </MobileShell>
+   )
+diff --git a/apps/web/src/app/settings/line-link/actions.ts b/apps/web/src/app/(app)/settings/line-link/actions.ts
+similarity index 100%
+rename from apps/web/src/app/settings/line-link/actions.ts
+rename to apps/web/src/app/(app)/settings/line-link/actions.ts
+diff --git a/apps/web/src/app/settings/line-link/page.tsx b/apps/web/src/app/(app)/settings/line-link/page.tsx
+similarity index 73%
+rename from apps/web/src/app/settings/line-link/page.tsx
+rename to apps/web/src/app/(app)/settings/line-link/page.tsx
+index 73690cd..827d88f 100644
+--- a/apps/web/src/app/settings/line-link/page.tsx
++++ b/apps/web/src/app/(app)/settings/line-link/page.tsx
+@@ -1,5 +1,5 @@
+ import { redirect } from 'next/navigation'
+-import Link from 'next/link'
++
+ import { auth } from '@/auth'
+ import { db } from '@/lib/db'
+ import { users } from '@kagetra/shared/schema'
+@@ -45,11 +45,16 @@ export default async function LineLinkPage({
+     ? ERROR_MESSAGES[errorCode] ?? '処理に失敗しました。'
+     : null
+ 
++  // nav-settings-hub: `(app)` グループへ移設したため、シェル（ボトムナビ）の
++  // 内側に収まる通常ページのレイアウトにする。以前はシェル外の孤児ページで、
++  // 中央寄せカード＋「ダッシュボードへ戻る」だけが脱出口だった。
+   return (
+-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+-      <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-8 shadow-lg">
++    <div className="flex flex-col gap-5 p-4">
++      <div className="space-y-6">
+         <div>
+-          <h1 className="text-xl font-bold">LINE アカウント切替</h1>
++          <h1 className="font-display text-xl font-bold text-ink">
++            LINE アカウント切替
++          </h1>
+           <p className="mt-2 text-sm text-ink-2">
+             通知を受け取る LINE アカウントを変更できます。機種変更などで
+             LINE アカウントが変わった場合にご利用ください。
+@@ -67,22 +72,16 @@ export default async function LineLinkPage({
+           <p className="font-mono text-ink">{maskLineUserId(user.lineUserId)}</p>
+         </div>
+ 
+-        <div className="flex gap-3">
+-          <Link
+-            href="/"
+-            className="rounded-md bg-surface-alt px-4 py-2 text-sm text-ink-2 hover:bg-border-soft"
++        {/* nav-settings-hub: 戻る導線はボトムナビ（設定タブ）が担うので、
++            「ダッシュボードへ戻る」リンクは置かない。 */}
++        <form action={startLineLink}>
++          <button
++            type="submit"
++            className="rounded-md bg-line px-4 py-2 text-sm font-semibold text-white hover:bg-line-hover"
+           >
+-            ダッシュボードへ戻る
+-          </Link>
+-          <form action={startLineLink}>
+-            <button
+-              type="submit"
+-              className="rounded-md bg-line px-4 py-2 text-sm font-semibold text-white hover:bg-line-hover"
+-            >
+-              別の LINE に切り替える
+-            </button>
+-          </form>
+-        </div>
++            別の LINE に切り替える
++          </button>
++        </form>
+       </div>
+     </div>
+   )
+diff --git a/apps/web/src/app/(app)/settings/notifications/page.tsx b/apps/web/src/app/(app)/settings/notifications/page.tsx
+index 0df15ab..f3fddce 100644
+--- a/apps/web/src/app/(app)/settings/notifications/page.tsx
++++ b/apps/web/src/app/(app)/settings/notifications/page.tsx
+@@ -21,7 +21,7 @@ export default async function NotificationSettingsPage() {
+   }
+ 
+   return (
+-    <div className="flex flex-col gap-4">
++    <div className="flex flex-col gap-4 p-4">
+       <h1 className="font-display text-xl font-bold text-ink">メール通知</h1>
+       <Card>
+         <div className="flex flex-col gap-3">
+diff --git a/apps/web/src/app/(app)/settings/page.tsx b/apps/web/src/app/(app)/settings/page.tsx
+new file mode 100644
+index 0000000..44de85a
+--- /dev/null
++++ b/apps/web/src/app/(app)/settings/page.tsx
+@@ -0,0 +1,177 @@
++import Link from 'next/link'
++import { redirect } from 'next/navigation'
++import { auth, signOut } from '@/auth'
++import { Pill, SectionLabel } from '@/components/ui'
++import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
++import { setRolePreviewAction } from '../role-preview-actions'
++
++interface SettingsLink {
++  href: string
++  label: string
++  /** 補足の 1 行説明。項目名だけでは何が起きるか分からないものに付ける。 */
++  description?: string
++}
++
++/**
++ * nav-settings-hub: 設定ハブ。
++ *
++ * 上部バー（44px）の `{name}さん` タップで開いていたボトムシートを廃止し、
++ * その中身をボトムナビ「設定」タブから開く独立ページへ移した。あわせて
++ * 日常動線ではない管理導線（会員 / Bot）をナビから引き取っている。
++ *
++ * 行のスタイルは廃止した設定シートのリスト行（`px-2 py-3` ＋ 右端 `›`）を
++ * 引き継ぎ、Card では包まずに区切り線でグループ化する。項目数が少なく、
++ * Card で囲うと余白ばかりの画面になるため。
++ */
++export default async function SettingsPage() {
++  const session = await auth()
++  if (!session?.user?.id) redirect('/auth/signin')
++
++  const role = session.user.role
++  const isAdmin = role === 'admin' || role === 'vice_admin'
++  const userLabel = session.user.name ? `${session.user.name}さん` : ''
++
++  const realRole = session.user.realRole ?? session.user.role
++  const rolePreview = buildRolePreviewSelection(
++    session.user.id,
++    realRole,
++    session.user.role,
++    process.env.ROLE_PREVIEW_USER_IDS,
++  )
++  const isPreviewing =
++    !!rolePreview && rolePreview.current !== rolePreview.real
++
++  const signOutAction = async () => {
++    'use server'
++    await signOut({ redirectTo: '/auth/signin' })
++  }
++
++  const accountLinks: SettingsLink[] = [
++    {
++      href: '/settings/line-link',
++      label: 'LINE アカウント切替',
++      description: '通知を受け取る LINE アカウントを変更します',
++    },
++  ]
++
++  // メール通知 (Web Push) はページ側も /403 で管理者に絞られている。
++  // ここで隠すのは導線の整合であって認可ではない（認可は各ページが持つ）。
++  const adminLinks: SettingsLink[] = isAdmin
++    ? [
++        {
++          href: '/admin/members',
++          label: '会員',
++          description: '会員の追加・編集・招待リンクの発行',
++        },
++        {
++          href: '/settings/notifications',
++          label: 'メール通知',
++          description: '新着メールのプッシュ通知',
++        },
++        {
++          href: '/admin/line-channels',
++          label: 'Bot',
++          description: 'LINE Bot プールとグループの紐付け',
++        },
++      ]
++    : []
++
++  return (
++    <div className="flex flex-col gap-5 p-4">
++      <div className="flex flex-col gap-1">
++        <h1 className="font-display text-xl font-bold text-ink">設定</h1>
++        {userLabel ? (
++          <p className="text-[13px] text-ink-meta">{userLabel}</p>
++        ) : null}
++      </div>
++
++      <section>
++        <SectionLabel>アカウント</SectionLabel>
++        <SettingsLinkList items={accountLinks} />
++      </section>
++
++      {adminLinks.length > 0 ? (
++        <section>
++          <SectionLabel>管理</SectionLabel>
++          <SettingsLinkList items={adminLinks} />
++        </section>
++      ) : null}
++
++      {rolePreview ? (
++        <section>
++          <SectionLabel>表示ロール</SectionLabel>
++          <div className="divide-y divide-border border-y border-border bg-surface">
++            <form action={setRolePreviewAction} className="flex flex-col">
++              {/* nav-settings-hub: 設定ページ内で切り替えるので、切替後も
++                  この画面に留まる。以前は「シートを開いた画面」へ戻していたが、
++                  それはシートが全画面から開けた前提の設計だった。 */}
++              <input type="hidden" name="returnTo" value="/settings" />
++              {rolePreview.selectable.map((r) => {
++                const current = rolePreview.current === r
++                return (
++                  <button
++                    key={r}
++                    type="submit"
++                    name="role"
++                    value={r}
++                    aria-current={current ? 'true' : undefined}
++                    className="flex items-center justify-between gap-3 px-4 py-3 text-left text-sm text-ink-1 transition-colors hover:bg-surface-alt"
++                  >
++                    <span className={current ? 'font-semibold text-brand' : undefined}>
++                      {roleViewLabel(r)}
++                    </span>
++                    {current ? (
++                      <Pill tone="brand" size="sm">
++                        {isPreviewing ? '表示中' : '本来のロール'}
++                      </Pill>
++                    ) : null}
++                  </button>
++                )
++              })}
++            </form>
++          </div>
++          {isPreviewing ? (
++            <p className="px-1 pt-2 text-xs text-ink-meta">
++              いま {roleViewLabel(rolePreview.current)}
++              として表示しています。元に戻すには
++              {roleViewLabel(rolePreview.real)}を選んでください。
++            </p>
++          ) : null}
++        </section>
++      ) : null}
++
++      <form action={signOutAction} className="pt-1">
++        <button
++          type="submit"
++          className="w-full rounded-md border border-border bg-surface px-4 py-3 text-sm font-medium text-ink-2 transition-colors hover:bg-surface-alt"
++        >
++          ログアウト
++        </button>
++      </form>
++    </div>
++  )
++}
++
++function SettingsLinkList({ items }: { items: SettingsLink[] }) {
++  return (
++    <nav className="divide-y divide-border border-y border-border bg-surface">
++      {items.map((item) => (
++        <Link
++          key={item.href}
++          href={item.href}
++          className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-alt"
++        >
++          <span className="flex flex-col gap-0.5">
++            <span className="text-sm text-ink-1">{item.label}</span>
++            {item.description ? (
++              <span className="text-xs text-ink-meta">{item.description}</span>
++            ) : null}
++          </span>
++          <span aria-hidden className="text-ink-meta">
++            ›
++          </span>
++        </Link>
++      ))}
++    </nav>
++  )
++}
+diff --git a/apps/web/src/components/layout/account-menu.test.tsx b/apps/web/src/components/layout/account-menu.test.tsx
+deleted file mode 100644
+index 0a7ce22..0000000
+--- a/apps/web/src/components/layout/account-menu.test.tsx
++++ /dev/null
+@@ -1,275 +0,0 @@
+-import { describe, it, expect } from 'vitest'
+-import { render, screen, fireEvent } from '@testing-library/react'
+-import { AccountMenu } from './account-menu'
+-
+-describe('AccountMenu', () => {
+-  const noopSignOut = async () => {}
+-
+-  it('トリガーに表示名を出し、初期状態ではシートを開かない', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    expect(screen.getByRole('button', { name: '山田さん' })).toBeTruthy()
+-    expect(screen.queryByRole('dialog')).toBeNull()
+-  })
+-
+-  it('トリガーをタップするとシート(dialog)が開く', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    expect(screen.getByRole('dialog', { name: '設定' })).toBeTruthy()
+-  })
+-
+-  it('管理者にはメール通知リンク(/settings/notifications)が出る', () => {
+-    render(<AccountMenu user="山田さん" isAdmin signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    const link = screen.getByRole('link', { name: /メール通知/ })
+-    expect(link.getAttribute('href')).toBe('/settings/notifications')
+-  })
+-
+-  it('一般会員にはメール通知リンクが出ない', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    expect(screen.queryByRole('link', { name: /メール通知/ })).toBeNull()
+-  })
+-
+-  it('LINE アカウント切替リンク(/settings/line-link)は全員に出る', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    const link = screen.getByRole('link', { name: /LINE アカウント切替/ })
+-    expect(link.getAttribute('href')).toBe('/settings/line-link')
+-  })
+-
+-  it('ログアウトは form 内の submit ボタンとして描画される', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    const logout = screen.getByRole('button', { name: 'ログアウト' }) as HTMLButtonElement
+-    expect(logout.type).toBe('submit')
+-    expect(logout.closest('form')).not.toBeNull()
+-  })
+-
+-  it('× ボタンでシートを閉じる', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }))
+-    expect(screen.queryByRole('dialog')).toBeNull()
+-  })
+-
+-  it('背景クリックでシートを閉じる', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    fireEvent.click(screen.getByRole('dialog'))
+-    expect(screen.queryByRole('dialog')).toBeNull()
+-  })
+-
+-  it('Escape キーでシートを閉じる', () => {
+-    render(<AccountMenu user="山田さん" isAdmin={false} signOutAction={noopSignOut} />)
+-    fireEvent.click(screen.getByRole('button', { name: '山田さん' }))
+-    fireEvent.keyDown(window, { key: 'Escape' })
+-    expect(screen.queryByRole('dialog')).toBeNull()
+-  })
+-
+-  it('表示名が空でもトリガー(メニュー)を描画する', () => {
+-    render(<AccountMenu user="" isAdmin={false} signOutAction={noopSignOut} />)
+-    expect(screen.getByRole('button', { name: 'メニュー' })).toBeTruthy()
+-  })
+-
+-  describe('role-preview-switch: 表示ロールセクション', () => {
+-    const noopSetRolePreview = async () => {}
+-
+-    it('rolePreview が null のとき「表示ロール」が表示されない(AC-1, AC-2)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin={false}
+-          signOutAction={noopSignOut}
+-          rolePreview={null}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.queryByText('表示ロール')).toBeNull()
+-    })
+-
+-    it('admin の rolePreview では 管理者/副管理者/一般会員 の3ボタンが出る(AC-3)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.getByRole('button', { name: '管理者' })).toBeTruthy()
+-      expect(screen.getByRole('button', { name: '副管理者' })).toBeTruthy()
+-      expect(screen.getByRole('button', { name: '一般会員' })).toBeTruthy()
+-    })
+-
+-    it('vice_admin の rolePreview では 副管理者/一般会員 の2ボタンのみで「管理者」が無い(AC-4)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'vice_admin', real: 'vice_admin', selectable: ['vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.getByRole('button', { name: '副管理者' })).toBeTruthy()
+-      expect(screen.getByRole('button', { name: '一般会員' })).toBeTruthy()
+-      expect(screen.queryByRole('button', { name: '管理者' })).toBeNull()
+-    })
+-
+-    it('previewBadge があるとトリガー内にバッジが描画され、タップでシートが開く(AC-13, AC-14)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin={false}
+-          signOutAction={noopSignOut}
+-          previewBadge="会員ビュー"
+-        />,
+-      )
+-      const trigger = screen.getByRole('button', { name: /会員ビュー/ })
+-      expect(trigger.textContent).toContain('会員ビュー')
+-      fireEvent.click(trigger)
+-      expect(screen.getByRole('dialog', { name: '設定' })).toBeTruthy()
+-    })
+-
+-    it('previewBadge が null のときバッジが描画されない(AC-13)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin={false}
+-          signOutAction={noopSignOut}
+-          previewBadge={null}
+-        />,
+-      )
+-      expect(screen.queryByText(/ビュー/)).toBeNull()
+-    })
+-
+-    it('プレビュー中(isAdmin=false)でも「管理者」ボタンが描画される(AC-9)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin={false}
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'member', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.getByRole('button', { name: '管理者' })).toBeTruthy()
+-    })
+-
+-    it('de-list 中(isAdmin=false・selectable=[admin]のみ)でも「管理者」ボタンが1つだけ描画される(締め出し防止)', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin={false}
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'member', real: 'admin', selectable: ['admin'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.getAllByRole('button', { name: '管理者' })).toHaveLength(1)
+-    })
+-
+-    it('切替ボタンは onClick でシートを閉じない（クリック処理中に form が外れると送信が中止されるため）', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      fireEvent.click(screen.getByRole('button', { name: '一般会員' }))
+-      expect(screen.queryByRole('dialog', { name: '設定' })).not.toBeNull()
+-    })
+-
+-    it('サーバー側の再描画で実効ロールが変わるとシートが閉じる', () => {
+-      const props = {
+-        user: '山田さん',
+-        signOutAction: noopSignOut,
+-        setRolePreviewAction: noopSetRolePreview,
+-      }
+-      const { rerender } = render(
+-        <AccountMenu
+-          {...props}
+-          isAdmin
+-          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      expect(screen.getByRole('dialog', { name: '設定' })).toBeTruthy()
+-      rerender(
+-        <AccountMenu
+-          {...props}
+-          isAdmin={false}
+-          previewBadge="会員ビュー"
+-          rolePreview={{ current: 'member', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-        />,
+-      )
+-      expect(screen.queryByRole('dialog', { name: '設定' })).toBeNull()
+-    })
+-
+-    it('現在の実効ロールのボタンに aria-current="true" が付く', () => {
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'vice_admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      const current = screen.getByRole('button', { name: '副管理者' })
+-      expect(current.getAttribute('aria-current')).toBe('true')
+-      const other = screen.getByRole('button', { name: '管理者' })
+-      expect(other.getAttribute('aria-current')).toBeNull()
+-    })
+-
+-    it('returnTo の hidden input が form 内に存在する', () => {
+-      window.history.replaceState({}, '', '/')
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      const hidden = document.querySelector(
+-        'input[type="hidden"][name="returnTo"]',
+-      ) as HTMLInputElement
+-      expect(hidden).not.toBeNull()
+-      expect(hidden.value).toBe('/')
+-      expect(hidden.closest('form')).not.toBeNull()
+-    })
+-
+-    it('returnTo にクエリ文字列も含める（切替でフィルタ条件を失わない）', () => {
+-      window.history.replaceState({}, '', '/players/ranking?grade=A&years=5')
+-      render(
+-        <AccountMenu
+-          user="山田さん"
+-          isAdmin
+-          signOutAction={noopSignOut}
+-          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+-          setRolePreviewAction={noopSetRolePreview}
+-        />,
+-      )
+-      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+-      const hidden = document.querySelector(
+-        'input[type="hidden"][name="returnTo"]',
+-      ) as HTMLInputElement
+-      expect(hidden.value).toBe('/players/ranking?grade=A&years=5')
+-      window.history.replaceState({}, '', '/')
+-    })
+-  })
+-})
+diff --git a/apps/web/src/components/layout/account-menu.tsx b/apps/web/src/components/layout/account-menu.tsx
+deleted file mode 100644
+index c4c48de..0000000
+--- a/apps/web/src/components/layout/account-menu.tsx
++++ /dev/null
+@@ -1,220 +0,0 @@
+-'use client'
+-
+-import { useEffect, useState } from 'react'
+-import { createPortal } from 'react-dom'
+-import Link from 'next/link'
+-import { Pill } from '@/components/ui'
+-import { roleViewLabel } from '@/lib/role-preview'
+-import type { RolePreviewSelection } from '@/lib/role-preview'
+-
+-/**
+- * 「表示ロール」セクションの入力。`(app)/layout.tsx` が
+- * `buildRolePreviewSelection()` で算出して渡す。
+- */
+-export type RolePreviewProps = RolePreviewSelection
+-
+-export interface AccountMenuProps {
+-  /**
+-   * Formatted display label shown as the trigger, e.g. `'山田さん'`. May be
+-   * an empty string when the session has no display name — a `メニュー`
+-   * fallback label keeps the tap target usable.
+-   */
+-  user: string
+-  /**
+-   * Whether the signed-in user is admin/vice_admin. Gates the admin-only
+-   * メール通知 (Web Push) entry so the sheet mirrors the
+-   * `/settings/notifications` page's own /403 gate.
+-   */
+-  isAdmin: boolean
+-  /** Logout Server Action, forwarded from `(app)/layout.tsx`. */
+-  signOutAction: () => Promise<void>
+-  /**
+-   * role-preview-switch: 表示ロール切替セクションの入力。`ROLE_PREVIEW_USER_IDS`
+-   * で許可されたユーザー以外は `null`（このときセクション自体を描画しない）。
+-   */
+-  rolePreview?: RolePreviewProps | null
+-  /**
+-   * role-preview-switch: プレビュー中のみ非 null。トリガーボタン内にバッジ
+-   * として表示する（AC-13）。
+-   */
+-  previewBadge?: string | null
+-  /**
+-   * role-preview-switch: 表示ロール切替の Server Action。`rolePreview` が
+-   * 非 null のときだけ「表示ロール」セクションを描画する条件に使う。
+-   */
+-  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
+-}
+-
+-/**
+- * Header account/settings entry point. Renders the `{name}さん` label as a
+- * tappable trigger that opens a bottom sheet — the settings affordance
+- * specified in `docs/design/design.md` §3 ("設定は `{name}さん` をタップして
+- * シート"). Until now the label was static text and the two settings pages
+- * (`/settings/notifications`, `/settings/line-link`) had no UI entry point.
+- *
+- * Follows the hand-rolled bottom-sheet pattern of `InviteCodeModal` /
+- * `ManualLinkModal` (no Radix/shadcn dependency): a `bg-black/40` backdrop
+- * with a panel pinned to the bottom on mobile (`items-end`) and centered on
+- * `sm+`. The panel reserves `env(safe-area-inset-bottom)` on mobile so its
+- * contents clear the iOS home indicator (the sheet sits flush to the bottom
+- * edge there). The safe-area inset is composed inside a Tailwind arbitrary
+- * value with `_`-escaped spaces so it survives as valid CSS.
+- *
+- * Client component: owns the open/close state and a keydown listener.
+- */
+-export function AccountMenu({
+-  user,
+-  isAdmin,
+-  signOutAction,
+-  rolePreview = null,
+-  previewBadge = null,
+-  setRolePreviewAction = null,
+-}: AccountMenuProps) {
+-  const [open, setOpen] = useState(false)
+-  // 表示ロール切替後に戻すパス。`usePathname()` はクエリ文字列を落とすため
+-  // 使わない（ランキング・大会統計・選手検索は searchParams が状態の唯一の
+-  // ソースなので、切替でフィルタが消えてしまう）。`useSearchParams()` は
+-  // このコンポーネントが (app) レイアウト直下にある都合上、配下の全ページに
+-  // Suspense 境界を要求してしまうのでこれも使わない。シートはクリック起点
+-  // でしか開かず SSR されないため、開く瞬間に window から読めば足りる。
+-  const [returnTo, setReturnTo] = useState('/')
+-
+-  // Dismiss on Escape. InviteCodeModal/ManualLinkModal only close on backdrop
+-  // + ×; this sheet is reachable from every screen's header, so keyboard
+-  // dismissal is worth the extra listener.
+-  useEffect(() => {
+-    if (!open) return
+-    function onKeyDown(e: KeyboardEvent) {
+-      if (e.key === 'Escape') setOpen(false)
+-    }
+-    window.addEventListener('keydown', onKeyDown)
+-    return () => window.removeEventListener('keydown', onKeyDown)
+-  }, [open])
+-
+-  // 表示ロールを切り替えたらシートを閉じる。切替ボタンの onClick で
+-  // close() を呼ぶことはできない — クリック処理の中で portal ごと form が
+-  // DOM から外れると、ブラウザが既定動作（フォーム送信）を中止してしまい
+-  // 「押しても何も起きない」になる。サーバー側の再描画で current が
+-  // 変わったことを検知して閉じる。
+-  const currentPreviewRole = rolePreview?.current
+-  useEffect(() => {
+-    setOpen(false)
+-  }, [currentPreviewRole])
+-
+-  const close = () => setOpen(false)
+-
+-  return (
+-    <>
+-      <button
+-        type="button"
+-        onClick={() => {
+-          setReturnTo(`${window.location.pathname}${window.location.search}`)
+-          setOpen(true)
+-        }}
+-        aria-haspopup="dialog"
+-        aria-expanded={open}
+-        className="flex items-center gap-1.5 text-xs text-ink-meta hover:text-brand transition-colors"
+-      >
+-        {previewBadge ? (
+-          <Pill tone="brand" size="sm">
+-            {previewBadge}
+-          </Pill>
+-        ) : null}
+-        {user || 'メニュー'}
+-      </button>
+-
+-      {/* Portal + .modal-overlay-h (svh cascade): 祖先の stacking context を脱出し、
+-          iOS viewport-fit=cover の dvh 罠を svh で回避（RankingFilterBar の同コメント参照）。
+-          open はクリック起点でしか true にならないので SSR で portal は走らない。 */}
+-      {open ? createPortal(
+-        <div
+-          role="dialog"
+-          aria-modal="true"
+-          aria-label="設定"
+-          className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+-          onClick={close}
+-        >
+-          <div
+-            className="max-h-full overflow-y-auto w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] sm:pb-4 flex flex-col gap-1"
+-            onClick={(e) => e.stopPropagation()}
+-          >
+-            <header className="flex items-center justify-between gap-3 pb-2">
+-              <div className="flex flex-col">
+-                <h2 className="text-base font-semibold text-ink-1">設定</h2>
+-                {user ? (
+-                  <span className="text-[11px] text-ink-meta">{user}</span>
+-                ) : null}
+-              </div>
+-              <button
+-                type="button"
+-                onClick={close}
+-                aria-label="閉じる"
+-                className="text-ink-meta hover:text-ink-1 text-xl leading-none"
+-              >
+-                ×
+-              </button>
+-            </header>
+-
+-            <nav className="flex flex-col">
+-              {isAdmin ? (
+-                <Link
+-                  href="/settings/notifications"
+-                  onClick={close}
+-                  className="flex items-center justify-between rounded-lg px-2 py-3 text-sm text-ink-1 hover:bg-surface-alt transition-colors"
+-                >
+-                  メール通知
+-                  <span aria-hidden className="text-ink-meta">
+-                    ›
+-                  </span>
+-                </Link>
+-              ) : null}
+-              <Link
+-                href="/settings/line-link"
+-                onClick={close}
+-                className="flex items-center justify-between rounded-lg px-2 py-3 text-sm text-ink-1 hover:bg-surface-alt transition-colors"
+-              >
+-                LINE アカウント切替
+-                <span aria-hidden className="text-ink-meta">
+-                  ›
+-                </span>
+-              </Link>
+-            </nav>
+-
+-            {rolePreview && setRolePreviewAction ? (
+-              <div className="mt-1 border-t border-border pt-2">
+-                <p className="px-2 pb-1 text-xs text-ink-meta">表示ロール</p>
+-                <form action={setRolePreviewAction} className="flex flex-col">
+-                  <input type="hidden" name="returnTo" value={returnTo} />
+-                  {rolePreview.selectable.map((role) => (
+-                    <button
+-                      key={role}
+-                      type="submit"
+-                      name="role"
+-                      value={role}
+-                      aria-current={rolePreview.current === role ? 'true' : undefined}
+-                      className="flex items-center justify-between rounded-lg px-2 py-3 text-left text-sm text-ink-1 hover:bg-surface-alt transition-colors"
+-                    >
+-                      {roleViewLabel(role)}
+-                    </button>
+-                  ))}
+-                </form>
+-              </div>
+-            ) : null}
+-
+-            <div className="mt-1 border-t border-border pt-1">
+-              <form action={signOutAction}>
+-                <button
+-                  type="submit"
+-                  className="w-full rounded-lg px-2 py-3 text-left text-sm text-ink-2 hover:bg-surface-alt transition-colors"
+-                >
+-                  ログアウト
+-                </button>
+-              </form>
+-            </div>
+-          </div>
+-        </div>,
+-        document.body,
+-      ) : null}
+-    </>
+-  )
+-}
+diff --git a/apps/web/src/components/layout/app-bar-main.tsx b/apps/web/src/components/layout/app-bar-main.tsx
+deleted file mode 100644
+index 8d8c321..0000000
+--- a/apps/web/src/components/layout/app-bar-main.tsx
++++ /dev/null
+@@ -1,68 +0,0 @@
+-import { AccountMenu, type RolePreviewProps } from './account-menu'
+-
+-export interface AppBarMainProps {
+-  /**
+-   * Trailing identifier text — typically `'{name}さん'`. The caller is
+-   * responsible for formatting (empty string is acceptable when the
+-   * session has no display name).
+-   */
+-  user: string
+-  /**
+-   * Whether the signed-in user is admin/vice_admin. Forwarded to
+-   * `AccountMenu` to gate the admin-only メール通知 settings entry.
+-   */
+-  isAdmin: boolean
+-  /**
+-   * Logout Server Action. Passed through from `(app)/layout.tsx` via
+-   * `MobileShell` and consumed inside `AccountMenu`'s settings sheet.
+-   */
+-  signOutAction: () => Promise<void>
+-  /**
+-   * role-preview-switch: 表示ロール切替セクションの入力。素通しするだけ。
+-   * `null`（既定）ならセクション自体を表示しない。
+-   */
+-  rolePreview?: RolePreviewProps | null
+-  /**
+-   * role-preview-switch: プレビュー中のみ非 null。素通しするだけ。
+-   */
+-  previewBadge?: string | null
+-  /**
+-   * role-preview-switch: 表示ロール切替の Server Action。素通しするだけ。
+-   */
+-  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
+-}
+-
+-/**
+- * Sticky mobile top bar (44px tall). Renders the wordmark on the left and
+- * the `{name}さん` account trigger on the right. Tapping the name opens the
+- * settings sheet (`AccountMenu`) — the affordance specified in
+- * `docs/design/design.md` §3 ("設定は `{name}さん` をタップしてシート").
+- * Logout now lives inside that sheet rather than as a separate bar button.
+- *
+- * Server component on purpose — it forwards the logout Server Action down to
+- * the client `AccountMenu` without itself becoming a client boundary.
+- */
+-export function AppBarMain({
+-  user,
+-  isAdmin,
+-  signOutAction,
+-  rolePreview = null,
+-  previewBadge = null,
+-  setRolePreviewAction = null,
+-}: AppBarMainProps) {
+-  return (
+-    <div className="h-11 flex-shrink-0 flex items-center justify-between bg-surface border-b border-border px-4">
+-      <div className="font-display font-bold text-base text-brand tracking-[0.02em]">
+-        かげとら
+-      </div>
+-      <AccountMenu
+-        user={user}
+-        isAdmin={isAdmin}
+-        signOutAction={signOutAction}
+-        rolePreview={rolePreview}
+-        previewBadge={previewBadge}
+-        setRolePreviewAction={setRolePreviewAction}
+-      />
+-    </div>
+-  )
+-}
+diff --git a/apps/web/src/components/layout/bottom-nav.tsx b/apps/web/src/components/layout/bottom-nav.tsx
+index 949511d..e62ad8f 100644
+--- a/apps/web/src/components/layout/bottom-nav.tsx
++++ b/apps/web/src/components/layout/bottom-nav.tsx
+@@ -39,18 +39,8 @@ const TABS: readonly Tab[] = [
+     matches: ['/admin/entries'],
+     adminOnly: true,
+   },
+-  {
+-    id: 'members',
+-    label: '会員',
+-    href: '/admin/members',
+-    // Admin-only until a non-admin `/members` view exists. Showing this
+-    // to general members regressed their nav to a 403 loop.
+-    matches: ['/admin/members', '/members'],
+-    adminOnly: true,
+-  },
+   // mail-tournament-import (PR1): admin-only inbox of mails fetched by
+-  // apps/mail-worker. Hidden for general members so the BottomNav stays at
+-  // 3 tabs for them; admins see 6.
++  // apps/mail-worker. 未処理バッジを持つ日常動線なのでナビに残す。
+   {
+     id: 'mail-inbox',
+     label: 'メール',
+@@ -58,15 +48,16 @@ const TABS: readonly Tab[] = [
+     matches: ['/admin/mail-inbox'],
+     adminOnly: true,
+   },
+-  // event-line-broadcast (PR2-r1): admin-only LINE Bot pool management.
+-  // Shown alongside メール so admins can jump between the mail approval and
+-  // the broadcast Bot pool with one tap.
++  // nav-settings-hub: 上部バー（ワードマーク＋`{name}さん` タップの設定シート）
++  // 廃止に伴う設定の受け皿。会員 (`/admin/members`) と Bot
++  // (`/admin/line-channels`) は独立タブをやめて設定ハブ経由の導線にしたため、
++  // その配下にいる間もこのタブを active にして「設定から辿った先」だと分かる
++  // ようにする。常に最後尾。
+   {
+-    id: 'line-channels',
+-    label: 'Bot',
+-    href: '/admin/line-channels',
+-    matches: ['/admin/line-channels'],
+-    adminOnly: true,
++    id: 'settings',
++    label: '設定',
++    href: '/settings',
++    matches: ['/settings', '/admin/members', '/admin/line-channels'],
+   },
+ ]
+ 
+@@ -77,17 +68,23 @@ function matchesPath(pathname: string, prefix: string): boolean {
+ export interface BottomNavProps {
+   /**
+    * Whether the current user is admin/vice_admin. Controls visibility of
+-   * admin-only tabs (currently 会員).
++   * admin-only tabs (申込管理 / メール).
+    */
+   isAdmin: boolean
++  /**
++   * role-preview-switch: プレビュー中の表示ロール名（例 `'一般会員'`）。
++   * 非プレビュー時は null。上部バー廃止でバッジの居場所が無くなったため、
++   * 切替を行う場所と同じ「設定」タブの上に出す。
++   */
++  previewRoleLabel?: string | null
+ }
+ 
+ /**
+  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
+  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
+  * extends into the iOS home-indicator area without compressing the tap
+- * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント / 統計,
+- * plus 会員 / メール / Bot for admins.
++ * targets. Tabs: ホーム / イベント / 統計 / 設定 を全員に、申込管理 / メール を
++ * 管理者に追加（一般会員 4 タブ・管理者 6 タブ）。
+  *
+  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
+  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +
+@@ -101,7 +98,10 @@ export interface BottomNavProps {
+  * Client component because it reads the current pathname via
+  * `usePathname()` to highlight the active tab.
+  */
+-export function BottomNav({ isAdmin }: BottomNavProps) {
++export function BottomNav({
++  isAdmin,
++  previewRoleLabel = null,
++}: BottomNavProps) {
+   const pathname = usePathname() ?? ''
+   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
+   return (
+@@ -110,17 +110,28 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
+         const active = tab.matches.some((prefix) =>
+           matchesPath(pathname, prefix),
+         )
++        const showPreviewBadge = tab.id === 'settings' && !!previewRoleLabel
+         return (
+           <Link
+             key={tab.id}
+             href={tab.href}
++            aria-label={
++              showPreviewBadge
++                ? `${tab.label}（${previewRoleLabel}として表示中）`
++                : undefined
++            }
+             className={cn(
+-              'h-[52px] flex-1 flex items-center justify-center text-[11px] font-medium border-t-2 transition-colors',
++              'h-[52px] flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium border-t-2 transition-colors',
+               active
+                 ? 'border-brand text-brand'
+                 : 'border-transparent text-ink-meta',
+             )}
+           >
++            {showPreviewBadge ? (
++              <span className="inline-flex max-w-full items-center rounded-full bg-brand-bg px-1.5 py-px text-[9px] font-medium leading-tight text-brand-fg whitespace-nowrap">
++                {previewRoleLabel}
++              </span>
++            ) : null}
+             {tab.label}
+           </Link>
+         )
+diff --git a/apps/web/src/components/layout/index.ts b/apps/web/src/components/layout/index.ts
+index 654fa97..24df5ca 100644
+--- a/apps/web/src/components/layout/index.ts
++++ b/apps/web/src/components/layout/index.ts
+@@ -1,7 +1,4 @@
+ export { MobileShell } from './mobile-shell'
+ export type { MobileShellProps } from './mobile-shell'
+ 
+-export { AppBarMain } from './app-bar-main'
+-export type { AppBarMainProps } from './app-bar-main'
+-
+ export { BottomNav } from './bottom-nav'
+diff --git a/apps/web/src/components/layout/mobile-shell.tsx b/apps/web/src/components/layout/mobile-shell.tsx
+index 869e8b7..add14dc 100644
+--- a/apps/web/src/components/layout/mobile-shell.tsx
++++ b/apps/web/src/components/layout/mobile-shell.tsx
+@@ -1,47 +1,31 @@
+ import type { ReactNode } from 'react'
+-import { AppBarMain } from './app-bar-main'
+ import { BottomNav } from './bottom-nav'
+-import type { RolePreviewProps } from './account-menu'
+ 
+ export interface MobileShellProps {
+-  /**
+-   * Display label for the authenticated user, already formatted by the
+-   * caller (e.g. `'山田さん'`). Pass an empty string when unavailable.
+-   */
+-  user: string
+   /**
+    * Whether the signed-in user has admin/vice_admin privileges. Forwarded
+    * to `BottomNav` to gate admin-only tabs.
+    */
+   isAdmin: boolean
+-  /** Server Action forwarded to the top bar's logout form. */
+-  signOutAction: () => Promise<void>
+-  /**
+-   * role-preview-switch: 表示ロール切替セクションの入力。`AppBarMain` へ
+-   * 素通しするだけ。`null`（既定）ならセクション自体を表示しない。
+-   */
+-  rolePreview?: RolePreviewProps | null
+   /**
+-   * role-preview-switch: プレビュー中のみ非 null。`AppBarMain` へ素通しする
+-   * だけ。
++   * role-preview-switch: プレビュー中の表示ロール名（例 `'一般会員'`）。
++   * `BottomNav` の「設定」タブのバッジへ素通しするだけ。非プレビュー時は null。
+    */
+-  previewBadge?: string | null
+-  /**
+-   * role-preview-switch: 表示ロール切替の Server Action。`AppBarMain` へ
+-   * 素通しするだけ。
+-   */
+-  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
++  previewRoleLabel?: string | null
+   children: ReactNode
+ }
+ 
+ /**
+  * Mobile-first application shell. Fits the visible viewport via `h-dvh`
+- * (with `h-screen` fallback for older browsers) so AppBar and BottomNav
+- * stay pinned at the flex edges and only `<main>` scrolls — keeping the
+- * 44px top bar and 52px bottom tab bar visible regardless of page length
+- * or iOS Safari URL-bar collapse. Matches the `MobileFrame` prototype in
+- * `docs/design/ui_kits/kagetra-mobile/primitives.jsx` and §3 of
+- * `docs/design/design.md`.
++ * (with `h-screen` fallback for older browsers) so BottomNav stays pinned
++ * at the bottom flex edge and only `<main>` scrolls — keeping the 52px
++ * bottom tab bar visible regardless of page length or iOS Safari URL-bar
++ * collapse.
++ *
++ * nav-settings-hub: かつて上端にあった 44px の AppBar（ワードマーク＋
++ * `{name}さん` の設定シートトリガー）は廃止した。中身の情報価値に対して
++ * 常時 44px を占有するコストが見合わず、設定は「設定」タブ →`/settings`
++ * へ移した。シェルの子は `<main>` と `<nav>` の 2 つだけ。
+  *
+  * Intentionally NO responsive (`md:` / `lg:`) modifiers and NO `max-w-*`
+  * constraints — the design is mobile-only by specification. Admin tables
+@@ -51,12 +35,8 @@ export interface MobileShellProps {
+  * live inside `BottomNav`.
+  */
+ export function MobileShell({
+-  user,
+   isAdmin,
+-  signOutAction,
+-  rolePreview = null,
+-  previewBadge = null,
+-  setRolePreviewAction = null,
++  previewRoleLabel = null,
+   children,
+ }: MobileShellProps) {
+   // Height is supplied by the `.mobile-shell-h` rule in globals.css, which
+@@ -78,24 +58,16 @@ export function MobileShell({
+   // cost of an extra empty band when the URL bar later collapses.
+   return (
+     <div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
+-      <AppBarMain
+-        user={user}
+-        isAdmin={isAdmin}
+-        signOutAction={signOutAction}
+-        rolePreview={rolePreview}
+-        previewBadge={previewBadge}
+-        setRolePreviewAction={setRolePreviewAction}
+-      />
+       {/*
+         `min-h-0` is required: flex items default to `min-height: auto`,
+         which prevents <main> from shrinking below its content height even
+         with `overflow-y-auto`. Without it the inner content pushes <main>
+         past the shell, the shell bleeds past h-dvh, and body scroll
+-        carries AppBar/BottomNav off-screen — exactly the bug we are trying
++        carries BottomNav off-screen — exactly the bug we are trying
+         to fix. See https://developer.mozilla.org/en-US/docs/Web/CSS/min-height#values
+       */}
+       <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+-      <BottomNav isAdmin={isAdmin} />
++      <BottomNav isAdmin={isAdmin} previewRoleLabel={previewRoleLabel} />
+     </div>
+   )
+ }

@@ -189,3 +189,5 @@
 - [大会申込一覧リデザイン 要件定義](project_event_list_redesign_def.md) — 親Issue #340・デザイン確定/実装未着手
 - [event-list-redesign 実装](impl_event_list_redesign.md) — /events 一覧の再リデザイン。締切済非表示+参加者全員表示+色帯。Wave構成と可視0件の空表示判断
 - [大会申込一覧リデザイン 出荷](project_ship-event-list-redesign.md) — shipped: PR #345。残DoD=本番375pxでの実機確認(AC-15の10項目目)
+- [nav-settings-hub 要件定義](project_nav_settings_hub_def.md) — 親Issue #346・上部バー廃止/設定ハブ・design-spec locked
+- [/design-screen Path L のローカル環境](reference_design_screen_path_l_env.md) — worktreeは design-live-kagetra・ジャンクション必須・cookie注入はHTMLページで
