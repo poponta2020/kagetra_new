@@ -36,9 +36,13 @@
 
 ### 一覧の表示・並び替え・フィルタ
 
-`/events` はサーバー（`page.tsx`）が最小データ（`EventListItem`: id / title / eventDate / internalDeadline / status / canApply / attendCount / chipSurnames）に畳んでクライアント（`EventListClient`）へ渡す。並び替え軸は「開催日順」「締切日順」の 2 種（既定は締切日順、`sortEvents`）。「申込可能のみ」トグルは `canApply`（サーバーで `isGradeEligible(eligibleGrades, myGrade)` により算出済み。管理者バイパスなし、`grade=null` は対象級ありの大会で不可）でクライアント側フィルタする。ソート/フィルタ状態は画面内のみで永続化しない。
+`/events` はサーバー（`page.tsx`）が最小データ（`EventListItem`: id / title / eventDate / internalDeadline / status / canApply / attendCount / attendeeSurnames / viewerAttending）に畳んでクライアント（`EventListClient`）へ渡す。`attendeeSurnames` は `attend=true` 参加者**全員**の姓（`surname()`）を級昇順（未設定は末尾）で並べたもの、`viewerAttending` は閲覧者自身が `attend=true` かどうか。`viewerAttending` は参加者取得の 1 クエリに `event_attendances.user_id` を足して判定し、追加クエリを発生させない（クライアントへ渡すのは苗字のみで、`user_id` は境界を越えない）。
 
-締切カウントダウン（`formatDeadlineCountdown`）は `internalDeadline − todayStr` の日数差で 5 段階に分類する: `null` → `—`（none）、負 → 「締切済」（past）、`0` → 「本日」（today、強調）、`1〜3` → 「あとN日」（soon、強調。しきい値は `SOON_THRESHOLD=3`）、それ以上 → 「あとN日」（normal）。参加者チップは `attendCount` のうち先頭 `CHIP_LIMIT=5` 名の姓（`surname()`）を級昇順で表示し、残りは「他N名」に畳む。
+クライアントは **可視判定 → 「申込可能のみ」フィルタ → ソート** の順に適用する。可視判定（`isRowVisible`）は会内締切を過ぎた行（`isPastDeadline`＝`formatDeadlineCountdown` の `past` tone を単一の真実として判定）を一覧から外すが、**閲覧者自身が `attend=true` の行だけは残す** — 締切後に「自分が申し込んだか」を確認する導線を一覧に維持するため。締切当日（`daysLeft=0`）と締切未設定（`null`）は `past` ではないので表示される。この除外をサーバーの母集団条件にしないのは、自分の出欠状態で行集合がユーザーごとに変わるため（件数・ソートの母集団は可視判定後で揃える）。空表示の母集団も可視判定後で、可視 0 件なら「現在のイベントはありません」（コントロール非表示）、「申込可能のみ」で 0 件になったときだけ「申込可能な大会はありません」を出す。並び替え軸は「開催日順」「締切日順」の 2 種（既定は締切日順、`sortEvents`）。「申込可能のみ」トグルは `canApply`（サーバーで `isGradeEligible(eligibleGrades, myGrade)` により算出済み。管理者バイパスなし、`grade=null` は対象級ありの大会で不可）でクライアント側フィルタする。ソート/フィルタ状態は画面内のみで永続化しない。
+
+締切カウントダウン（`formatDeadlineCountdown`）は `internalDeadline − todayStr` の日数差で 5 段階に分類する: `null` → `—`（none）、負 → 「締切済」（past）、`0` → 「本日」（today、強調）、`1〜3` → 「あとN日」（soon、強調。しきい値は `SOON_THRESHOLD=3`）、それ以上 → 「あとN日」（normal）。表示は日数の**数字だけ**を周囲の「あと」「日」より大きく描画し（normal 15px / soon 19px）、soon は色を落とさず墨のまま、朱（accent）の塗りピルは **today だけ**に使う（朱＝本当に急ぐ行、というシグナルを薄めないため）。
+
+各行の左端には 3px の縦帯があり、`isOpenForEntry`（`canApply && 中止でない && 締切超過でない`＝「今この行から申し込める」）が真なら藍（brand）、それ以外は砂（border）。`canApply` 自体の判定（級のみ）は変えず、中止と締切超過を帯の表示側で重ねている。参加者は `attendCount ≥ 1` の行だけ meta 行を描画し（0 名の行は行ごと出さない）、人数を藍で大きく、苗字を「・」区切りで全員表示する（上限・「他N名」の畳み込みは廃止）。ページ余白 16px は `/events` の `page.tsx` 側で持ち、共通シェル（`mobile-shell.tsx` の `<main>`）には入れない — 自前で `p-4` を持つ既存ページが二重余白になるため。
 
 過去イベント一覧（`/events-archive`）は並び替え/フィルタ UI を持たず、開催日降順の単純なカードリストで、タイトル・公認バッジ（`official`）・開催日・会場（設定時）・ステータスピル・参加人数（`attend=true` の集計）を表示する。
 
