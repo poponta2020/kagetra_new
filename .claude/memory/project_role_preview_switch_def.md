@@ -28,9 +28,12 @@ LINE ログイン一本のため、一般会員としての実機確認に別 LI
 2. **復帰導線・切替アクションの認可を実効 role で判定すると、プレビュー中に自分を締め出して管理者に戻れなくなる**。必ず realRole で判定する（AC-9 がこれを固定）
 3. token.role は本物のロールとして保持し、プレビュー値で上書きしない。nodeJwtCallback の毎リクエスト経路は role を再同期しない既存の非対称性があるため、それに依存しない設計にした
 4. AccountMenu は 'use client'。process.env をサーバー側で解決して props で渡す
+5. **auth() はリクエストの cookie を読み unstable_update はレスポンスの cookie を書く**ため、同一レスポンス内の revalidatePath 再描画が stale になりうる（症状=押しても変わらず遷移して初めて反映）。効かなければ update 直後に現在パスへ redirect
+6. **test-utils/auth-mock.ts に realRole を足さないとタスク3のテストが書けない**。buildMockSession で `realRole: user.realRole ?? user.role` を既定値にすると既存の全 setAuthSession 呼び出しが非プレビューの正しいベースラインになる。読み出し側も `realRole ?? role` のフォールバック形に統一する
+7. **env から de-list されると締め出される**（表示ロールのセクションが消える）。解除（realRole と同値の指定）だけは許可リスト判定を通さない＝AC-10b。実効ロールは下がる方向にしか動かないので権限は広がらない
 
 ## AC / タスク
-AC 19件（auto-test 15 / verify 4 / manual 0）。回帰 AC-18「プレビュー未使用時は従来どおり」を含む。
+AC 20件（auto-test 16 / verify 4 / manual 0）。回帰 AC-18「プレビュー未使用時は従来どおり」を含む。
 親 Issue #327 https://github.com/poponta2020/kagetra_new/issues/327
 子 #328(純関数+型) / #329(auth配線) / #330(Server Action認可) / #331(UI配線) / #332(env+docs)
 Wave 1=#328 → Wave 2=#329,#330,#332（並行可） → Wave 3=#331
@@ -41,4 +44,4 @@ feature/entry-management（未マージ）が bottom-nav.tsx を変更済み。�
 ## 出荷後の残 DoD（本番手作業）
 /opt/kagetra/.env.production に ROLE_PREVIEW_USER_IDS=<popon の users.id> を追記 → web 再起動（再ビルド不要）→ 実機で AC-14/15/17 を確認。
 
-成果物は定義時点で commit 済み（commit 7716082）。
+成果物は定義時点で commit 済み・push 済み（7716082 / e32a39a / b08bc87）。
