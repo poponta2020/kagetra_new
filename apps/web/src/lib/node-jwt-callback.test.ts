@@ -3,6 +3,7 @@ import type { JWT } from 'next-auth/jwt'
 import { closeTestDb, truncateAll } from '@/test-utils/db'
 import { createUser } from '@/test-utils/seed'
 import { nodeJwtCallback } from './node-jwt-callback'
+import { resolveEffectiveRole } from './role-preview'
 
 // Stand-in for the edge-safe jwt callback from auth.config.ts. On first LINE
 // sign-in the real base stashes `account.providerAccountId` (= profile.sub)
@@ -214,5 +215,52 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     )
     expect(result).not.toBeNull()
     expect((result as JWT).id).toBeUndefined()
+  })
+
+  it('DB で降格された管理者は token.role が DB 値へ同期される（role-preview の realRole が古いまま残らない）', async () => {
+    // role-preview-switch 以降、token.role は「本物のロール」として切替の
+    // 認可判定に使われる (session コールバックが realRole として公開する)。
+    // ここを同期しないと、降格された管理者が降格前の realRole を根拠に
+    // 上位の実効ロールを取り続けられてしまう。
+    const user = await createUser({
+      name: 'demoted',
+      lineUserId: 'Udemoted',
+      role: 'member',
+    })
+    const result = await nodeJwtCallback(
+      {
+        token: { id: user.id, sub: user.id, role: 'admin', lineUserId: 'Udemoted' } as JWT,
+        user: undefined,
+        trigger: undefined,
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).role).toBe('member')
+  })
+
+  it('降格後は残っている viewAsRole も DB の role 以下へ丸められる', async () => {
+    const user = await createUser({
+      name: 'demoted-previewing',
+      lineUserId: 'Udemoted2',
+      role: 'member',
+    })
+    const result = await nodeJwtCallback(
+      {
+        token: {
+          id: user.id,
+          sub: user.id,
+          role: 'admin',
+          viewAsRole: 'vice_admin',
+          lineUserId: 'Udemoted2',
+        } as JWT,
+        user: undefined,
+        trigger: undefined,
+      },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    const jwt = result as JWT
+    expect(jwt.role).toBe('member')
+    expect(resolveEffectiveRole(jwt.role, jwt.viewAsRole)).toBe('member')
   })
 })

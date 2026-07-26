@@ -122,7 +122,8 @@ design_required: false
 - **本物のロールを壊さない**: JWT の `token.role` は常に本物のロールを保持し、プレビュー値で上書きしない。実効ロールは `viewAsRole ?? realRole` の導出として表現する。
 - **セッション公開契約の追加**: `Session['user']` に `realRole`（本物のロール）を追加する。既存の `role` の意味は「実効ロール」に変わるが、非プレビュー時は従来と同値。
 - **`unstable_update` のパッチ許可リスト**: `auth.config.ts` の `jwt` コールバックは `trigger === 'update'` で `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` の 3 フィールドしか転記しない。新しいクレームを**明示的に追加しないと黙って捨てられる**。
-- **`nodeJwtCallback` の毎リクエスト経路**: 現状 `token.role` は `token.id` 未解決時にしか DB から取り込まれない。実効ロールの丸め込み（AC-12）は、この非対称性に依存しない形で実装すること。
+- **`nodeJwtCallback` の毎リクエスト経路**: 定義時点では `token.role` は `token.id` 未解決時にしか DB から取り込まれなかった。実効ロールの丸め込み（AC-12）はこの非対称性に依存しない形で実装すること。（実装時追記: `realRole` が切替の認可根拠になったため、毎リクエスト経路にも `users.role` の同期を追加して非対称性そのものを解消した。丸め込みは引き続き無条件。）
+- **`unstable_update` 以外の update 経路**: Auth.js の `POST /api/auth/session`（`useSession().update()` と同じエンドポイント）は、認証済みクライアントが送った任意のペイロードを `jwt` コールバックの `trigger === 'update'` 分岐へそのまま渡す。したがって切替の認可は Server Action だけでなく **`jwt` コールバックにも置く**（Server Action 側だけでは R1 の許可リストが迂回できる）。`viewAsRole: null`（解除）はどちらの層でも許可リスト判定を通さない。
 - **middleware は DB 不可・Edge**: 現状ロールを見ていないため変更不要。今後もロール判定を持ち込まない。
 - **環境変数**: `ROLE_PREVIEW_USER_IDS`（カンマ区切りの `users.id` UUID）。Node 側でのみ参照する。未設定＝無効（fail-closed）。本番でも設定すれば有効になる（`NODE_ENV` では制限しない — 実機確認が目的のため）。
 - **セキュリティ要件**: 切替アクションの認可は「許可リスト所属」かつ「本物のロール以下への切替」の二重条件。実効ロールを認可に使ってはならない。
@@ -135,3 +136,11 @@ design_required: false
 - **なぜ本物のロールを別クレームに保つか**: プレビュー中に実効ロールで認可すると、復帰操作が自分自身を拒否して**管理者に戻れなくなる**。本物のロールを独立して保持することがこの機能の安全装置。
 - **なぜ書き込みを許すか**: 「会員がこの画面でどう操作するか」の検証が目的の一つであり、読み取り専用では申込フローの検証ができない。データは popon 自身の行に限られ、管理者操作は R2 により封じられているため、被害範囲が自分の行に閉じる。
 - **なぜ 3 状態か**: 副管理者は現状 3 層権限の中間で、admin だけに見えるもの／vice_admin にも見えるものの差分が実機で確認できていない。JWT クレームが enum になるだけで実装コストはほぼ変わらない。
+
+## 8. 本番有効化手順（出荷後の残 DoD）
+
+1. 対象ユーザーの `users.id` を確認する（`SELECT id, name FROM users WHERE name = '...'`）。
+2. `/opt/kagetra/.env.production` に `ROLE_PREVIEW_USER_IDS=<users.id>` を追記する。
+3. web サービスを再起動する（`systemctl restart` — Node 側で `process.env` を読むだけなので再ビルドは不要）。
+4. 実機（PWA）で AC-14 / AC-15 / AC-17 を確認する。
+5. 無効化したいときは値を空にして再起動するだけでよい（fail-closed）。

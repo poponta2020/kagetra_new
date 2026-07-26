@@ -84,6 +84,7 @@ export async function nodeJwtCallback(
       columns: {
         id: true,
         deactivatedAt: true,
+        role: true,
         lineUserId: true,
         lineLinkedAt: true,
         lineLinkedMethod: true,
@@ -96,6 +97,13 @@ export async function nodeJwtCallback(
       // with `?error=deactivated`.
       return null
     }
+    // role も同じ自己修復の対象にする。role-preview-switch 以降、`token.role`
+    // は「本物のロール」として切替の**認可判定に使われる**（session
+    // コールバックが `session.user.realRole` として公開する）。ここを同期
+    // しないと、DB で降格された管理者が降格前の realRole を根拠に上位の
+    // 実効ロールを取り続けられてしまう。既に毎リクエスト走っているクエリに
+    // 1 列足すだけなので追加コストは無い。
+    if (token.role !== row.role) token.role = row.role
     const dbLineLinkedAt = row.lineLinkedAt ? row.lineLinkedAt.toISOString() : null
     if (token.lineUserId !== row.lineUserId) token.lineUserId = row.lineUserId
     if (token.lineLinkedAt !== dbLineLinkedAt) token.lineLinkedAt = dbLineLinkedAt

@@ -3,6 +3,15 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
+import { Pill } from '@/components/ui'
+import { roleViewLabel } from '@/lib/role-preview'
+import type { RolePreviewSelection } from '@/lib/role-preview'
+
+/**
+ * 「表示ロール」セクションの入力。`(app)/layout.tsx` が
+ * `buildRolePreviewSelection()` で算出して渡す。
+ */
+export type RolePreviewProps = RolePreviewSelection
 
 export interface AccountMenuProps {
   /**
@@ -19,6 +28,21 @@ export interface AccountMenuProps {
   isAdmin: boolean
   /** Logout Server Action, forwarded from `(app)/layout.tsx`. */
   signOutAction: () => Promise<void>
+  /**
+   * role-preview-switch: 表示ロール切替セクションの入力。`ROLE_PREVIEW_USER_IDS`
+   * で許可されたユーザー以外は `null`（このときセクション自体を描画しない）。
+   */
+  rolePreview?: RolePreviewProps | null
+  /**
+   * role-preview-switch: プレビュー中のみ非 null。トリガーボタン内にバッジ
+   * として表示する（AC-13）。
+   */
+  previewBadge?: string | null
+  /**
+   * role-preview-switch: 表示ロール切替の Server Action。`rolePreview` が
+   * 非 null のときだけ「表示ロール」セクションを描画する条件に使う。
+   */
+  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
 }
 
 /**
@@ -38,8 +62,22 @@ export interface AccountMenuProps {
  *
  * Client component: owns the open/close state and a keydown listener.
  */
-export function AccountMenu({ user, isAdmin, signOutAction }: AccountMenuProps) {
+export function AccountMenu({
+  user,
+  isAdmin,
+  signOutAction,
+  rolePreview = null,
+  previewBadge = null,
+  setRolePreviewAction = null,
+}: AccountMenuProps) {
   const [open, setOpen] = useState(false)
+  // 表示ロール切替後に戻すパス。`usePathname()` はクエリ文字列を落とすため
+  // 使わない（ランキング・大会統計・選手検索は searchParams が状態の唯一の
+  // ソースなので、切替でフィルタが消えてしまう）。`useSearchParams()` は
+  // このコンポーネントが (app) レイアウト直下にある都合上、配下の全ページに
+  // Suspense 境界を要求してしまうのでこれも使わない。シートはクリック起点
+  // でしか開かず SSR されないため、開く瞬間に window から読めば足りる。
+  const [returnTo, setReturnTo] = useState('/')
 
   // Dismiss on Escape. InviteCodeModal/ManualLinkModal only close on backdrop
   // + ×; this sheet is reachable from every screen's header, so keyboard
@@ -53,17 +91,35 @@ export function AccountMenu({ user, isAdmin, signOutAction }: AccountMenuProps) 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open])
 
+  // 表示ロールを切り替えたらシートを閉じる。切替ボタンの onClick で
+  // close() を呼ぶことはできない — クリック処理の中で portal ごと form が
+  // DOM から外れると、ブラウザが既定動作（フォーム送信）を中止してしまい
+  // 「押しても何も起きない」になる。サーバー側の再描画で current が
+  // 変わったことを検知して閉じる。
+  const currentPreviewRole = rolePreview?.current
+  useEffect(() => {
+    setOpen(false)
+  }, [currentPreviewRole])
+
   const close = () => setOpen(false)
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setReturnTo(`${window.location.pathname}${window.location.search}`)
+          setOpen(true)
+        }}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="text-xs text-ink-meta hover:text-brand transition-colors"
+        className="flex items-center gap-1.5 text-xs text-ink-meta hover:text-brand transition-colors"
       >
+        {previewBadge ? (
+          <Pill tone="brand" size="sm">
+            {previewBadge}
+          </Pill>
+        ) : null}
         {user || 'メニュー'}
       </button>
 
@@ -123,6 +179,27 @@ export function AccountMenu({ user, isAdmin, signOutAction }: AccountMenuProps) 
                 </span>
               </Link>
             </nav>
+
+            {rolePreview && setRolePreviewAction ? (
+              <div className="mt-1 border-t border-border pt-2">
+                <p className="px-2 pb-1 text-xs text-ink-meta">表示ロール</p>
+                <form action={setRolePreviewAction} className="flex flex-col">
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  {rolePreview.selectable.map((role) => (
+                    <button
+                      key={role}
+                      type="submit"
+                      name="role"
+                      value={role}
+                      aria-current={rolePreview.current === role ? 'true' : undefined}
+                      className="flex items-center justify-between rounded-lg px-2 py-3 text-left text-sm text-ink-1 hover:bg-surface-alt transition-colors"
+                    >
+                      {roleViewLabel(role)}
+                    </button>
+                  ))}
+                </form>
+              </div>
+            ) : null}
 
             <div className="mt-1 border-t border-border pt-1">
               <form action={signOutAction}>

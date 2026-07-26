@@ -6,13 +6,15 @@ vi.mock('./app-bar-main', () => ({
   AppBarMain: ({
     user,
     isAdmin,
+    previewBadge,
   }: {
     user: string
     isAdmin: boolean
     signOutAction: () => Promise<void>
+    previewBadge?: string | null
   }) => (
     <div data-testid="app-bar-main">
-      app-bar:{user}:{String(isAdmin)}
+      app-bar:{user}:{String(isAdmin)}:{previewBadge ?? 'none'}
     </div>
   ),
 }))
@@ -110,5 +112,19 @@ describe('MobileShell', () => {
       </MobileShell>,
     )
     expect(screen.getByTestId('bottom-nav').textContent).toBe('bottom-nav:true')
+  })
+
+  it('role-preview-switch: previewBadge が AppBarMain へ透過される', () => {
+    render(
+      <MobileShell
+        user="山田さん"
+        isAdmin={false}
+        signOutAction={noopSignOut}
+        previewBadge="会員ビュー"
+      >
+        <div>child</div>
+      </MobileShell>,
+    )
+    expect(screen.getByTestId('app-bar-main').textContent).toContain('会員ビュー')
   })
 })

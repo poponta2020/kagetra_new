@@ -64,6 +64,12 @@
 - **ページ（Server Component）**: ページ関数の先頭で `await auth()` し、条件を満たさなければ `redirect('/403')`（例: `admin/members/page.tsx`、`admin/members/[id]/edit/page.tsx`）。`/403` はロール不足時の汎用エラーページで、メッセージ・アクションは持たない静的表示のみ。
 - 一覧・編集ページの `role` 表示ラベルは `apps/web/src/lib/role-label.ts` の `roleLabel()` が担う。`admin` → 管理者、`vice_admin` → 副管理者、それ以外（`member` 含む null/未知値）は一律「会員」にフォールバックする。
 
+**role-preview-switch（表示ロールの一時プレビュー）**: `session.user.role` は上記の認可判定がそのまま参照する**実効ロール**であり、`session.user.realRole` が DB 由来の**本物のロール**を保持する。両者は通常時（プレビュー未使用）は同値。環境変数 `ROLE_PREVIEW_USER_IDS`（カンマ区切りの `users.id`）で許可されたユーザーだけが、実効ロールを本物のロール以下へ一時的に落とせる（JWT クレーム `viewAsRole` として保持。DB の `users.role` は変更しない）。実効ロールの生成点は `apps/web/src/auth.config.ts` の `session` コールバック 1 箇所のみで、ここが UI の出し分けと Server Action / route handler の認可判定の両方に同時に反映される。プレビューの開始・終了を認可する条件（許可リスト所属・切替先が本物のロール以下）は**必ず `realRole` で判定し、実効ロール（`role`）を使わない**。実効ロールで判定すると、プレビュー中に自分自身を締め出して管理者へ戻れなくなるため。切替 Server Action は `apps/web/src/app/(app)/role-preview-actions.ts`。
+
+この認可は Server Action と JWT の update コールバック（`auth.config.ts`）の**両方**に置く。Auth.js の `POST /api/auth/session`（`useSession().update()` と同じエンドポイント）は認証済みクライアントが送った任意のペイロードを update コールバックへそのまま渡すため、Server Action 側だけの検査では迂回できてしまう。`viewAsRole: null`（プレビュー解除）だけは、どちらの層でも許可リスト判定を通さず常に受け付ける（運用中に許可リストから外れたユーザーの締め出し防止。実効ロールは下がる方向にしか動かないので権限は広がらない）。
+
+`token.role`（＝`realRole`）は `apps/web/src/lib/node-jwt-callback.ts` の毎リクエスト DB 照合で `users.role` へ同期される。降格された管理者が降格前の `realRole` を根拠に上位の実効ロールを取り続けないようにするため。
+
 ### 招待・登録
 
 会員登録には2つの経路があり、どちらも `users.role = 'member'` を強制する。
@@ -141,6 +147,8 @@
   - `unlinkLine(formData)` — LINE 紐付け解除。**admin のみ**。
 - `apps/web/src/app/register/[token]/actions.ts`
   - `registerViaInvite(token, prevState, formData)` — 招待リンク経由の自己登録完了。認可は「有効な招待トークン + LINE ログイン済み」であることそのもの（ロールチェックは無い）。
+- `apps/web/src/app/(app)/role-preview-actions.ts`
+  - `setRolePreviewAction(formData)` — 表示ロールのプレビュー切替/解除。認可は `ROLE_PREVIEW_USER_IDS` 許可リスト所属 + 本物のロール以下への切替（`realRole` で判定、実効ロールは使わない）。
 
 ## route handler
 
