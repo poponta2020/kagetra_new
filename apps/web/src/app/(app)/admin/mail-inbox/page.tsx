@@ -244,7 +244,7 @@ export default async function MailInboxPage() {
   const hasAnyActive = unprocessed.length > 0
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">メール受信箱</h1>
         <TriggerFetchButton />

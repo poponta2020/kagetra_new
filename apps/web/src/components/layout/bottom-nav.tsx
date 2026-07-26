@@ -39,18 +39,8 @@ const TABS: readonly Tab[] = [
     matches: ['/admin/entries'],
     adminOnly: true,
   },
-  {
-    id: 'members',
-    label: '会員',
-    href: '/admin/members',
-    // Admin-only until a non-admin `/members` view exists. Showing this
-    // to general members regressed their nav to a 403 loop.
-    matches: ['/admin/members', '/members'],
-    adminOnly: true,
-  },
   // mail-tournament-import (PR1): admin-only inbox of mails fetched by
-  // apps/mail-worker. Hidden for general members so the BottomNav stays at
-  // 3 tabs for them; admins see 6.
+  // apps/mail-worker. 未処理バッジを持つ日常動線なのでナビに残す。
   {
     id: 'mail-inbox',
     label: 'メール',
@@ -58,15 +48,16 @@ const TABS: readonly Tab[] = [
     matches: ['/admin/mail-inbox'],
     adminOnly: true,
   },
-  // event-line-broadcast (PR2-r1): admin-only LINE Bot pool management.
-  // Shown alongside メール so admins can jump between the mail approval and
-  // the broadcast Bot pool with one tap.
+  // nav-settings-hub: 上部バー（ワードマーク＋`{name}さん` タップの設定シート）
+  // 廃止に伴う設定の受け皿。会員 (`/admin/members`) と Bot
+  // (`/admin/line-channels`) は独立タブをやめて設定ハブ経由の導線にしたため、
+  // その配下にいる間もこのタブを active にして「設定から辿った先」だと分かる
+  // ようにする。常に最後尾。
   {
-    id: 'line-channels',
-    label: 'Bot',
-    href: '/admin/line-channels',
-    matches: ['/admin/line-channels'],
-    adminOnly: true,
+    id: 'settings',
+    label: '設定',
+    href: '/settings',
+    matches: ['/settings', '/admin/members', '/admin/line-channels'],
   },
 ]
 
@@ -77,17 +68,23 @@ function matchesPath(pathname: string, prefix: string): boolean {
 export interface BottomNavProps {
   /**
    * Whether the current user is admin/vice_admin. Controls visibility of
-   * admin-only tabs (currently 会員).
+   * admin-only tabs (申込管理 / メール).
    */
   isAdmin: boolean
+  /**
+   * role-preview-switch: プレビュー中の表示ロール名（例 `'一般会員'`）。
+   * 非プレビュー時は null。上部バー廃止でバッジの居場所が無くなったため、
+   * 切替を行う場所と同じ「設定」タブの上に出す。
+   */
+  previewRoleLabel?: string | null
 }
 
 /**
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs per `docs/design/design.md` §3 — ホーム / イベント / 統計,
- * plus 会員 / メール / Bot for admins.
+ * targets. Tabs: ホーム / イベント / 統計 / 設定 を全員に、申込管理 / メール を
+ * 管理者に追加（一般会員 4 タブ・管理者 6 タブ）。
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +
@@ -101,7 +98,10 @@ export interface BottomNavProps {
  * Client component because it reads the current pathname via
  * `usePathname()` to highlight the active tab.
  */
-export function BottomNav({ isAdmin }: BottomNavProps) {
+export function BottomNav({
+  isAdmin,
+  previewRoleLabel = null,
+}: BottomNavProps) {
   const pathname = usePathname() ?? ''
   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
   return (
@@ -110,17 +110,28 @@ export function BottomNav({ isAdmin }: BottomNavProps) {
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),
         )
+        const showPreviewBadge = tab.id === 'settings' && !!previewRoleLabel
         return (
           <Link
             key={tab.id}
             href={tab.href}
+            aria-label={
+              showPreviewBadge
+                ? `${tab.label}（${previewRoleLabel}として表示中）`
+                : undefined
+            }
             className={cn(
-              'h-[52px] flex-1 flex items-center justify-center text-[11px] font-medium border-t-2 transition-colors',
+              'h-[52px] flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium border-t-2 transition-colors',
               active
                 ? 'border-brand text-brand'
                 : 'border-transparent text-ink-meta',
             )}
           >
+            {showPreviewBadge ? (
+              <span className="inline-flex max-w-full items-center rounded-full bg-brand-bg px-1.5 py-px text-[9px] font-medium leading-tight text-brand-fg whitespace-nowrap">
+                {previewRoleLabel}
+              </span>
+            ) : null}
             {tab.label}
           </Link>
         )

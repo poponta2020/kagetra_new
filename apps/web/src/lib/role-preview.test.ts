@@ -3,7 +3,6 @@ import {
   buildRolePreviewSelection,
   isRolePreviewAllowed,
   parseUserRole,
-  previewBadgeLabel,
   resolveEffectiveRole,
   roleViewLabel,
   sanitizeReturnPath,
@@ -117,26 +116,6 @@ describe('roleViewLabel', () => {
     expect(roleViewLabel('admin')).toBe('管理者')
     expect(roleViewLabel('vice_admin')).toBe('副管理者')
     expect(roleViewLabel('member')).toBe('一般会員')
-  })
-})
-
-describe('previewBadgeLabel', () => {
-  it('非プレビュー時（実効 === 本物）は null（AC-13）', () => {
-    expect(previewBadgeLabel('admin', 'admin')).toBeNull()
-    expect(previewBadgeLabel('member', 'member')).toBeNull()
-  })
-
-  it('member プレビュー中は 会員ビュー', () => {
-    expect(previewBadgeLabel('admin', 'member')).toBe('会員ビュー')
-  })
-
-  it('vice_admin プレビュー中は 副管理者ビュー', () => {
-    expect(previewBadgeLabel('admin', 'vice_admin')).toBe('副管理者ビュー')
-  })
-
-  it('ロールが未解決なら null', () => {
-    expect(previewBadgeLabel(undefined, 'member')).toBeNull()
-    expect(previewBadgeLabel('admin', undefined)).toBeNull()
   })
 })
 

@@ -1,16 +1,15 @@
 # モバイルシェル・PWA・設定UI (UI Shell)
 
-> **責務:** 全画面共通の外枠（トップバー・ボトムナビ・スクロール領域）、PWA（manifest・Service Worker登録・standalone対応・ピンチズーム抑制）、設定シート（AccountMenu）の骨格、ボトムシート/モーダルの共通CSS規約
-> **関連画面:** 認証済み全画面（`(app)` ルートグループ配下）に共通適用。設定シート自体はどの画面のヘッダからも開ける
+> **責務:** 全画面共通の外枠（ボトムナビ・スクロール領域。上部バーは廃止済み）、PWA（manifest・Service Worker登録・standalone対応・ピンチズーム抑制）、設定ハブ（`/settings`）、ボトムシート/モーダルの共通CSS規約
+> **関連画面:** 認証済み全画面（`(app)` ルートグループ配下）に共通適用。設定はボトムナビの「設定」タブから独立ページ `/settings` として開く
 > **主要実装:**
 > - `apps/web/src/app/layout.tsx`（RootLayout。フォント・`metadata`・`viewport`・`ServiceWorkerRegister` 設置）
 > - `apps/web/src/app/(app)/layout.tsx`（認証ガード＋`MobileShell` へのユーザー情報受け渡し）
 > - `apps/web/src/components/layout/mobile-shell.tsx`（縦積みシェル本体）
-> - `apps/web/src/components/layout/app-bar-main.tsx`（上部44pxバー）
 > - `apps/web/src/components/layout/bottom-nav.tsx`（下部タブバー）
-> - `apps/web/src/components/layout/account-menu.tsx`（設定ボトムシート）
 > - `apps/web/src/components/layout/index.ts`（re-export）
-> - `apps/web/src/components/ui/app-bar.tsx`（画面内ヘッダ。シェルの `AppBarMain` とは別物）
+> - `apps/web/src/app/(app)/settings/page.tsx`（設定ハブ。アカウント / 管理 / 表示ロール / ログアウト）
+> - `apps/web/src/components/ui/app-bar.tsx`（画面内ヘッダ。詳細画面でシェルのクロムを保ったままタイトル＋戻る導線を出す用途）
 > - `apps/web/src/components/ServiceWorkerRegister.tsx`（`/sw.js` 登録。前景バッジ同期の詳細は [spec/notifications.md](notifications.md) 参照）
 > - `apps/web/public/manifest.webmanifest` / `apps/web/public/icons/` / `apps/web/public/apple-touch-icon.png`
 > - `apps/web/public/sw.js`（Web Push 受信本体。詳細は [spec/notifications.md](notifications.md) 参照）
@@ -20,9 +19,9 @@
 
 ### アプリシェルの構成
 
-`(app)/layout.tsx` はサーバーコンポーネントで、`auth()` によるセッションチェック（未認証は `/auth/signin` へ `redirect`）とログアウト用 Server Action の生成のみを担い、実際の外枠描画は `MobileShell` に委譲する。`session.user.role` が `admin` または `vice_admin` のとき `isAdmin` を `true` として渡し、管理者専用タブ・設定項目の出し分けに使う。
+`(app)/layout.tsx` はサーバーコンポーネントで、`auth()` によるセッションチェック（未認証は `/auth/signin` へ `redirect`）と `rolePreview` の算出のみを担い、実際の外枠描画は `MobileShell` に委譲する。`session.user.role` が `admin` または `vice_admin` のとき `isAdmin` を `true` として渡し、管理者専用タブの出し分けに使う。ログアウト用 Server Action は `(app)/settings/page.tsx` 内の inline `'use server'` 関数として定義されており、layout からはバケツリレーされない。
 
-`MobileShell` は `AppBarMain` → `<main>`（子要素）→ `BottomNav` の縦積み `flex flex-col` 構造で、`<main>` だけがスクロールする（`flex-1 min-h-0 overflow-y-auto`）。`min-h-0` は必須で、無いと flex の既定 `min-height: auto` により `<main>` がコンテンツ高まで伸び、シェル全体がビューポートを超えて body スクロールが発生し、上下バーが画面外へ流れる（iOS Safari で実際に発生した回帰）。
+`MobileShell` は `<main>`（子要素）→ `BottomNav` の縦積み `flex flex-col` 構造で、`<main>` だけがスクロールする（`flex-1 min-h-0 overflow-y-auto`）。`min-h-0` は必須で、無いと flex の既定 `min-height: auto` により `<main>` がコンテンツ高まで伸び、シェル全体がビューポートを超えて body スクロールが発生し、下部バーが画面外へ流れる（iOS Safari で実際に発生した回帰）。かつて上端にあった44pxの上部バー（ワードマーク＋設定シートトリガー）は廃止済みで、シェルの子は `<main>` と `<nav>` の2つだけになった。
 
 デザインはモバイル専用（`docs/design/design.md` §3・`docs/design/ui_kits/kagetra-mobile/primitives.jsx` の `MobileFrame` に準拠）で、`MobileShell` 自体には `md:` 等のレスポンシブ修飾子や `max-w-*` 制約を意図的に付けない。より広い表示が必要な管理画面（テーブル等）は各ページ側で個別に `max-w-5xl` 等を指定する。
 
@@ -38,13 +37,13 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 の順で列挙する専用クラスを用意し、カスケードの「最後に理解できた宣言が勝つ」性質を利用して確定的に `100svh` を勝たせている。`viewport-fit=cover` 指定時、iOS Safari の `100dvh` は下部URLバーのオーバーレイ領域を含んだ値を返すため、`dvh` のままだとシェルやモーダルの実際の高さがビューポートの表示可能域より大きくなり、BottomNav やシート下部のボタンがURLバーの下に隠れる。`100svh` はUAクロームが常に表示された状態の保守的な高さで、URLバーが後で縮んでも上下バーが隠れないことを優先し、代わりにURLバー縮小時に余白帯ができるトレードオフを取る。
 
-このクラスは `MobileShell` のルート `div`（`.mobile-shell-h`）と、共有ボトムシート/モーダル群（`RankingFilterBar`・`StatsPeriodFilter`・`AccountMenu`・`InviteCodeModal`・`RegistrationInviteModal`・`ManualLinkModal`・`ExistingEventLinkSheet` 等、各ドメインの正典に実装詳細がある）の `.modal-overlay-h` に共通適用される。
+このクラスは `MobileShell` のルート `div`（`.mobile-shell-h`）と、共有ボトムシート/モーダル群（`RankingFilterBar`・`StatsPeriodFilter`・`InviteCodeModal`・`RegistrationInviteModal`・`ManualLinkModal`・`ExistingEventLinkSheet` 等、各ドメインの正典に実装詳細がある）の `.modal-overlay-h` に共通適用される。
 
 ### ボトムナビ（`BottomNav`）
 
 `usePathname()` でアクティブタブを判定するクライアントコンポーネント。タブ定義は `bottom-nav.tsx` 内の `TABS` 配列にハードコードされており、各タブは `matches`（アクティブ判定用パスプレフィックスの配列）を持つ。判定はセグメント境界を意識し、`pathname === prefix || pathname.startsWith(prefix + '/')` で一致させる。これは単純な `startsWith` 判定だと `/events-archive` が `/events` タブを誤って光らせてしまう回帰を修正したもの。
 
-現在のタブ構成（共有3種＋管理者専用4種）:
+現在のタブ構成（一般会員4タブ・管理者6タブ。`設定` は常に最後尾）:
 
 | id | ラベル | href | active 判定 matches | 表示条件 |
 |---|---|---|---|---|
@@ -52,36 +51,30 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 | `events` | イベント | `/events` | `/events` | 全員 |
 | `players` | 統計 | `/players` | `/players`, `/tournaments` | 全員 |
 | `entries` | 申込管理 | `/admin/entries` | `/admin/entries` | 管理者のみ |
-| `members` | 会員 | `/admin/members` | `/admin/members`, `/members` | 管理者のみ |
 | `mail-inbox` | メール | `/admin/mail-inbox` | `/admin/mail-inbox` | 管理者のみ |
-| `line-channels` | Bot | `/admin/line-channels` | `/admin/line-channels` | 管理者のみ |
+| `settings` | 設定 | `/settings` | `/settings`, `/admin/members`, `/admin/line-channels` | 全員 |
 
-各タブの機能自体（何が表示されるか）は対応ドメインの正典（events-attendance / stats / auth-admin / notifications 等）を参照。`統計` タブは `/players` と `/tournaments` の2基底配下すべてでアクティブになる（選手検索・大会結果・ランキング・大会統計の4セクションがこの2ルートに分かれているため）。一般会員には `申込管理` `会員` `メール` `Bot` タブが非表示になる（管理者専用ページへのアクセスで `/403` に弾かれる UX を防ぐため）。`申込管理` は管理者専用ブロックの先頭（統計の直後・会員の前）に置き、共有3タブの直後から管理業務が始まる並びにしている。
+各タブの機能自体（何が表示されるか）は対応ドメインの正典（events-attendance / stats / auth-admin / notifications 等）を参照。`統計` タブは `/players` と `/tournaments` の2基底配下すべてでアクティブになる（選手検索・大会結果・ランキング・大会統計の4セクションがこの2ルートに分かれているため）。一般会員には `申込管理` `メール` タブが非表示になる（管理者専用ページへのアクセスで `/403` に弾かれる UX を防ぐため）。`申込管理` は管理者専用ブロックの先頭（統計の直後）に置き、共有3タブの直後から管理業務が始まる並びにしている。`設定` タブは会員 (`/admin/members`) と Bot (`/admin/line-channels`) の独立タブを廃止した受け皿を兼ねるため、これらのパス配下にいる間も active になる（「設定から辿った先」だと分かるように）。表示ロールをプレビュー中は `設定` タブの上にロール名バッジ（`previewRoleLabel`）が出る。
 
 `<nav>` は `min-h-[calc(52px_+_env(safe-area-inset-bottom))]` と `pb-[env(safe-area-inset-bottom)]` を持つ。Tailwind の既定 `box-sizing: border-box` により `min-h` は border+padding+content を含む外側の高さとして扱われるため、`min-h-[52px]` のまま safe-area の padding-bottom（iPhone で約34px）を足すとタップ領域が約18pxまで潰れ、52px の `<Link>` 子要素がはみ出す。padding 分をあらかじめ `min-h` に加算する（`calc(52px + env(safe-area-inset-bottom))`）ことで、safe-area 分を差し引いた後も内容領域が52px確保される。
 
-### 上部バー（`AppBarMain` / `AccountMenu`）
+### 設定ハブ（`/settings`）
 
-`AppBarMain` は44px高のサーバーコンポーネントで、左にワードマーク「かげとら」、右に `{name}さん`（未取得時は空文字）をトリガーとする `AccountMenu` を配置する。ログアウト用 Server Action は `(app)/layout.tsx` → `MobileShell` → `AppBarMain` → `AccountMenu` の順にバケツリレーされ、`AccountMenu` 内の `<form action={signOutAction}>` から呼ばれる。
+上部バー（44px、ワードマーク＋ `{name}さん` トリガーの設定シート）は廃止済み。設定はボトムナビの「設定」タブから開く独立ページ `apps/web/src/app/(app)/settings/page.tsx`（サーバーコンポーネント）に集約されている。ログアウト用 Server Action はこのページ内の `<form action={signOutAction}>` に対する inline `'use server'` 関数で、以前のような `(app)/layout.tsx` → `MobileShell` → … のバケツリレーは無くなった。
 
-`AccountMenu` はクライアントコンポーネントで、トリガーがタップされるまで `createPortal(document.body)` は実行されない（SSR時にポータルは走らない）。開いたシートは `role="dialog"` `aria-modal="true"` で、閉じる操作は次の3通り: 背景（オーバーレイ）クリック、`×` ボタン、`Escape` キー（`open` が true の間だけ `keydown` リスナーを張る）。シート内のメニュー項目:
+ページ構成は上から: 見出し「設定」＋ `${name}さん`、「アカウント」セクション、「管理」セクション（`isAdmin` のときのみ描画）、「表示ロール」セクション（`rolePreview` が非 null のときのみ描画）、ログアウトボタン。
 
-- `メール通知`（`/settings/notifications` へのリンク）— `isAdmin` のときのみ表示。中身は [spec/notifications.md](notifications.md) 参照
-- `LINE アカウント切替`（`/settings/line-link` へのリンク）— 全ユーザーに表示。中身は [spec/auth-admin.md](auth-admin.md) 参照
-- `ログアウト`（`signOutAction` を叩く `<form>` の submit ボタン）
-- `表示ロール`（`setRolePreviewAction` を叩く `<form>` 内に、選べるロールぶんの submit ボタンを並べたセクション）— `rolePreview` が非 null のときのみ表示。現在の実効ロールのボタンに `aria-current="true"` が付く。ロールの意味・許可条件・認可規律は [spec/auth-admin.md](auth-admin.md) 参照
+- アカウント: `LINE アカウント切替`（`/settings/line-link` へのリンク）— 全ユーザーに表示。中身は [spec/auth-admin.md](auth-admin.md) 参照
+- 管理（`isAdmin` のみ）: `会員`（`/admin/members`）、`メール通知`（`/settings/notifications`。中身は [spec/notifications.md](notifications.md) 参照）、`Bot`（`/admin/line-channels`）
+- 表示ロール: `setRolePreviewAction` を叩く `<form>` 内に、選べるロールぶんの submit ボタンを並べたセクション。現在の実効ロールのボタンに `aria-current="true"` が付く。フォームは `<input type="hidden" name="returnTo" value="/settings">` を持ち、切替後もこのページに留まる（以前はシートを開いた画面へ戻す設計だったが、シートが全画面から開ける前提が無くなったため）。ロールの意味・許可条件・認可規律は [spec/auth-admin.md](auth-admin.md) 参照
 
-`rolePreview`（セクションの入力）と `previewBadge`（バッジ文言）は `(app)/layout.tsx` がサーバー側で算出し、`signOutAction` と同じ経路でバケツリレーされる。いずれも optional（既定 `null`）で、プレビューを使わない場合の描画は従来と変わらない。プレビュー中はトリガーボタンの中に `Pill`（`tone="brand"` / `size="sm"`）でビュー名のバッジが出る（`[会員ビュー] 山田さん`）。ボタン全体が既にシートを開くので、バッジのタップにも追加配線は要らない。
-
-「表示ロール」の submit ボタンに `onClick` でシートを閉じる処理を足してはならない。クリック処理の中で `createPortal` ごと `<form>` が DOM から外れると、ブラウザが既定動作（フォーム送信）を中止して「押しても何も起きない」になる。シートはサーバー再描画後に実効ロールが変わったことを `useEffect` で検知して閉じる。
-
-パネルは `pb-[calc(1rem_+_env(safe-area-inset-bottom))]`（モバイル時）で iOS ホームインジケータ領域を避ける。sm 以上ではボトムシートではなく画面中央のダイアログとして表示される（`items-end sm:items-center`）。
+`rolePreview` は `(app)/settings/page.tsx` がサーバー側で `session.user` と `process.env.ROLE_PREVIEW_USER_IDS` から都度算出する（`(app)/layout.tsx` 側でも別途算出し、`BottomNav` の設定タブバッジ用に `previewRoleLabel` として渡す — 2 箇所での算出はどちらも `buildRolePreviewSelection` を通すため不整合は生じない）。プレビュー中は設定タブの上に `previewRoleLabel` のバッジが表示される（ボトムナビ節を参照）。
 
 ### 設定ページの配置と `(app)` グループの内外
 
-`/settings/notifications` は `(app)` ルートグループ配下（`apps/web/src/app/(app)/settings/notifications/page.tsx`）にあり、`MobileShell` の内側（上下バー付き）で描画される。一方 `/settings/line-link`（`apps/web/src/app/settings/line-link/page.tsx`）は `(app)` グループの**外**にあり、`MobileShell` を経由しない独立ページとして自前のレイアウト（中央寄せカード）を描画する。これは LINE OAuth のリダイレクトを伴う切り替えフローのための構成で、シェル自体の責務ではなく各ページの配置判断である（ページ内容は [spec/notifications.md](notifications.md) と [spec/auth-admin.md](auth-admin.md) にそれぞれ委譲）。
+`/settings`・`/settings/notifications`・`/settings/line-link` はいずれも `(app)` ルートグループ配下にあり、`MobileShell` の内側（ボトムナビ付き）で描画される。`/settings/line-link`（`apps/web/src/app/(app)/settings/line-link/page.tsx`）は LINE OAuth のリダイレクトを伴う切り替えフローだが、URL は移設前と変わらず、シェル内ページとして描画される点だけが変わった（以前は `(app)` グループの外にある独立ページで、遷移するとボトムナビへ戻る手段が無かった）。ページ内容は [spec/notifications.md](notifications.md) と [spec/auth-admin.md](auth-admin.md) にそれぞれ委譲する。
 
-`apps/web/src/components/ui/app-bar.tsx` の `AppBar` は `MobileShell` の `AppBarMain`（シェル外枠の固定上部バー）とは別物で、詳細画面がシェルのクロムを維持したまま画面内タイトル＋戻る導線を出したいときに使う画面内ヘッダコンポーネントである。
+`apps/web/src/components/ui/app-bar.tsx` の `AppBar` は、詳細画面がシェルのクロムを維持したまま画面内タイトル＋戻る導線を出したいときに使う画面内ヘッダコンポーネントである。
 
 ### PWA（manifest・Service Worker・standalone）
 

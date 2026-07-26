@@ -37,7 +37,7 @@ export default async function EventsArchivePage() {
   const attendCountMap = new Map(attendCounts.map((c) => [c.eventId, c.count]))
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">
           過去のイベント

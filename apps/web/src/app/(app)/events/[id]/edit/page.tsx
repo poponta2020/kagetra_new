@@ -76,7 +76,7 @@ export default async function EditEventPage({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <h1 className="font-display text-xl font-bold text-ink mb-4">イベント編集</h1>
       <EventForm
         mode="edit"

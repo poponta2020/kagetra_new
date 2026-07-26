@@ -1,11 +1,7 @@
-import { auth, signOut } from '@/auth'
+import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { MobileShell } from '@/components/layout/mobile-shell'
-import { setRolePreviewAction } from './role-preview-actions'
-import {
-  buildRolePreviewSelection,
-  previewBadgeLabel,
-} from '@/lib/role-preview'
+import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
 
 export default async function AppLayout({
   children,
@@ -14,11 +10,6 @@ export default async function AppLayout({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
-
-  const signOutAction = async () => {
-    'use server'
-    await signOut({ redirectTo: '/auth/signin' })
-  }
 
   const role = session.user?.role
   const isAdmin = role === 'admin' || role === 'vice_admin'
@@ -33,17 +24,17 @@ export default async function AppLayout({
     session.user?.role,
     process.env.ROLE_PREVIEW_USER_IDS,
   )
-  const previewBadge = previewBadgeLabel(realRole, session.user?.role)
+  // nav-settings-hub: プレビュー中だけ「設定」タブにバッジを出す。上部バーの
+  // ワードマーク横に出していたバッジの移設先。タブ幅 62.5px（管理者 6 タブ）に
+  // 収める必要があるので、`roleViewLabel`（管理者 / 副管理者 / 一般会員）の
+  // 短い方を使う。
+  const previewRoleLabel =
+    rolePreview && rolePreview.current !== rolePreview.real
+      ? roleViewLabel(rolePreview.current)
+      : null
 
   return (
-    <MobileShell
-      user={session.user?.name ? `${session.user.name}さん` : ''}
-      isAdmin={isAdmin}
-      signOutAction={signOutAction}
-      rolePreview={rolePreview}
-      previewBadge={previewBadge}
-      setRolePreviewAction={setRolePreviewAction}
-    >
+    <MobileShell isAdmin={isAdmin} previewRoleLabel={previewRoleLabel}>
       {children}
     </MobileShell>
   )

@@ -198,7 +198,7 @@ export default async function MailDetailPage({
       : []
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div>
         <Link href="/admin/mail-inbox" className="text-sm text-brand-fg underline">
           ← メール受信箱

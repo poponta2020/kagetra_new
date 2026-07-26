@@ -30,7 +30,7 @@
 | 認証・会員管理 | LINE 認証（Auth.js v5・招待制）・RBAC 3層・招待リンク登録・会員管理 | [spec/auth-admin.md](spec/auth-admin.md) |
 | メール取込 | IMAP 取込・AI 大会案内抽出・管理者承認・受信箱 UI・添付プレビュー配信 | [spec/mail-worker.md](spec/mail-worker.md) |
 | 通知・LINE・Push | 大会単位 LINE グループ配信（Bot プール）・ライフサイクル通知・LINE アカウント切替・Web Push バッジ | [spec/notifications.md](spec/notifications.md) |
-| UI シェル | 共通外枠（トップバー・ボトムナビ）・PWA・設定シート・モーダル/ボトムシート CSS 規約 | [spec/ui-shell.md](spec/ui-shell.md) |
+| UI シェル | 共通外枠（ボトムナビ）・PWA・設定ハブ（`/settings`）・モーダル/ボトムシート CSS 規約 | [spec/ui-shell.md](spec/ui-shell.md) |
 
 ## 横断ドキュメント
 
