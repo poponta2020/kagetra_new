@@ -23,6 +23,8 @@ import {
   mailAttachments,
   mailMessages,
   tournamentDrafts,
+  tournamentEntryRosterEntries,
+  tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import { db } from './db'
@@ -49,6 +51,11 @@ async function resetDb() {
   await db.delete(lineGradeGroupBindings)
   await db.delete(eventGradeBroadcasts)
   await db.delete(lineChannels)
+  // entry-groups: 名簿は entry_groups を **RESTRICT** で参照する（旧: events を cascade）。
+  // events を消してもグループには追従しないので、entry_groups の前に明示的に消さないと
+  // 他ファイルが残した名簿行で FK 違反になる（CI の並行実行で実際に落ちた）。
+  await db.delete(tournamentEntryRosterEntries)
+  await db.delete(tournamentEntryRosters)
   await db.delete(tournamentDrafts)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)
