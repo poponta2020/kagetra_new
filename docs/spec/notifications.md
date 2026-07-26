@@ -109,6 +109,16 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
 - **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
+- **entry-groups タスク4: 進行操作の一括化**（`setEntryApplied` / `setPaymentPaid` / `setPaymentType` は
+  それぞれ `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes`（複数 `eventId` を取る）への
+  薄いラッパー。単一 `eventId` を渡した場合の文面・claim・revalidate 挙動は従来と完全に同一）。
+  同グループの複数日を選んで一括トグルすると、id昇順ソート→各日ガード付きUPDATE（`cancelled` は
+  ここで再ガードしてclaim対象から除外）→**flipできた日のうちclaimできた集合だけ**で参加者向け・
+  会計向けそれぞれ1通に集約してpushする（`sendClaimedNotificationBulk`。後から追加の日だけ
+  claimできた場合はその分だけの1通になる）。`buildLifecycleMessage` は選択日が2件以上のとき
+  `M/D(曜)<日別ラベル>` を`・`で連結した文面へ切り替わる（1件のときは既存文面と同一）。
+  会計向けは振込期限・方法・詳細が全日同値なら1回だけ表記し、差があれば日別行にする
+  （`apps/web/src/lib/event-lifecycle-notify.ts` の `days` パラメータ）。
 - **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
   - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件

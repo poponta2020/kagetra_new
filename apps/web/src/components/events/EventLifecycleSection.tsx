@@ -3,15 +3,26 @@
 import { useState, useTransition } from 'react'
 import { Btn } from '@/components/ui'
 import { formatEventDate } from '@/lib/event-date'
+import type { GroupSiblingEvent } from '@/lib/entry-groups'
 import {
   DisclosureActions,
   DisclosureRow,
   FlatTable,
+  GroupToggleDialog,
   LinkAction,
   SectionRule,
   type FlatTableRow,
+  type GroupToggleDialogOption,
 } from './detail'
 import type { EntryStatus, PaymentStatus, PaymentType } from './LifecycleStatusBadge'
+
+type BulkDialogKind = 'entryApplied' | 'paymentPaid' | 'paymentType'
+
+const BULK_DIALOG_HEADING: Record<BulkDialogKind, string> = {
+  entryApplied: '申込済にする対象の日を選択',
+  paymentPaid: '支払済にする対象の日を選択',
+  paymentType: '支払いタイプ変更の対象の日を選択',
+}
 
 export interface EventLifecycleSectionProps {
   eventId: number
@@ -41,6 +52,23 @@ export interface EventLifecycleSectionProps {
     type: 'advance' | 'onsite' | null,
   ) => Promise<void>
   setPaymentPaidAction: (eventId: number, paid: boolean) => Promise<void>
+  /**
+   * entry-groups タスク4 (AC-8/9/10/11/16): 同グループの他の日
+   * （開催日昇順・自分を含む）。2件以上のときだけ一括ダイアログを出す。
+   * 未指定/1件以下は既存の単一トグル動作（このコンポーネントの
+   * 既存テストが固定している window.confirm→scalar action 呼び出し）を
+   * 一切変更しない。
+   */
+  groupSiblings?: readonly GroupSiblingEvent[]
+  /** 申込済一括トグル（AC-8/9）。`groupSiblings.length > 1` のときのみ使う。 */
+  setEntriesAppliedAction?: (eventIds: number[], applied: boolean) => Promise<void>
+  /** 支払済一括トグル（AC-10）。`groupSiblings.length > 1` のときのみ使う。 */
+  setPaymentsPaidAction?: (eventIds: number[], paid: boolean) => Promise<void>
+  /** 支払いタイプ一括設定（AC-10）。`groupSiblings.length > 1` のときのみ使う。 */
+  setPaymentTypesAction?: (
+    eventIds: number[],
+    type: 'advance' | 'onsite' | null,
+  ) => Promise<void>
 }
 
 // design-spec §9「既存プリミティブを変更せず、この画面用の派生として実装
@@ -92,9 +120,27 @@ export function EventLifecycleSection({
   setEntryNotApplyingAction,
   setPaymentTypeAction,
   setPaymentPaidAction,
+  groupSiblings = [],
+  setEntriesAppliedAction,
+  setPaymentsPaidAction,
+  setPaymentTypesAction,
 }: EventLifecycleSectionProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // entry-groups タスク4: 一括ダイアログの開閉状態。paymentType のときだけ
+  // 選ばれた値を保持する（select の onChange 時点で値は確定しているため）。
+  const [bulkDialog, setBulkDialog] = useState<{
+    kind: BulkDialogKind
+    paymentTypeValue?: 'advance' | 'onsite' | null
+  } | null>(null)
+  // 2件以上あるときだけ一括ダイアログを出す（1件=自分のみ、なら従来どおり）。
+  const hasGroupDialog = groupSiblings.length > 1
+  const bulkDialogOptions: GroupToggleDialogOption[] = groupSiblings.map((s) => ({
+    id: s.id,
+    title: s.title,
+    eventDate: s.eventDate,
+    disabled: s.status === 'cancelled',
+  }))
 
   /**
    * Run a state-change action. When `willNotify` and the group is linked, ask
@@ -134,6 +180,39 @@ export function EventLifecycleSection({
     startTransition(async () => {
       try {
         await setEntryNotApplyingAction(eventId)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '更新に失敗しました')
+      }
+    })
+  }
+
+  /**
+   * entry-groups タスク4: 一括ダイアログで選択が確定したときの実行部。
+   * `entryApplied` / `paymentPaid` は通知を伴うので、既存の `run` と同じ
+   * window.confirm を手前に挟む。`paymentType` は通知を送らないので確認なし。
+   */
+  function confirmBulkDialog(selectedIds: number[]) {
+    if (!bulkDialog) return
+    const willNotify = bulkDialog.kind !== 'paymentType'
+    if (willNotify && isLineLinked && typeof window !== 'undefined') {
+      const ok = window.confirm(
+        '参加者の LINE グループに通知が送られます。よろしいですか？',
+      )
+      if (!ok) return
+    }
+    const kind = bulkDialog.kind
+    const paymentTypeValue = bulkDialog.paymentTypeValue ?? null
+    setBulkDialog(null)
+    setError(null)
+    startTransition(async () => {
+      try {
+        if (kind === 'entryApplied') {
+          await setEntriesAppliedAction?.(selectedIds, true)
+        } else if (kind === 'paymentPaid') {
+          await setPaymentsPaidAction?.(selectedIds, true)
+        } else {
+          await setPaymentTypesAction?.(selectedIds, paymentTypeValue)
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : '更新に失敗しました')
       }
@@ -198,9 +277,13 @@ export function EventLifecycleSection({
                 size="sm"
                 className="h-[30px] rounded-md"
                 disabled={isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (hasGroupDialog) {
+                    setBulkDialog({ kind: 'entryApplied' })
+                    return
+                  }
                   run(() => setEntryAppliedAction(eventId, true), true)
-                }
+                }}
               >
                 申込済にする
               </Btn>
@@ -232,6 +315,10 @@ export function EventLifecycleSection({
             onChange={(e) => {
               const next =
                 e.target.value === '' ? null : (e.target.value as PaymentType)
+              if (hasGroupDialog) {
+                setBulkDialog({ kind: 'paymentType', paymentTypeValue: next })
+                return
+              }
               run(() => setPaymentTypeAction(eventId, next), false)
             }}
           >
@@ -246,12 +333,14 @@ export function EventLifecycleSection({
               size="sm"
               className="h-[30px] rounded-md"
               disabled={isPending}
-              onClick={() =>
-                run(
-                  () => setPaymentPaidAction(eventId, !paymentPaid),
-                  !paymentPaid,
-                )
-              }
+              onClick={() => {
+                const next = !paymentPaid
+                if (next && hasGroupDialog) {
+                  setBulkDialog({ kind: 'paymentPaid' })
+                  return
+                }
+                run(() => setPaymentPaidAction(eventId, next), next)
+              }}
             >
               {paymentPaid ? '未払に戻す' : '支払済にする'}
             </Btn>
@@ -260,6 +349,16 @@ export function EventLifecycleSection({
       </DisclosureRow>
 
       {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
+
+      {bulkDialog && (
+        <GroupToggleDialog
+          heading={BULK_DIALOG_HEADING[bulkDialog.kind]}
+          options={bulkDialogOptions}
+          pending={isPending}
+          onCancel={() => setBulkDialog(null)}
+          onConfirm={confirmBulkDialog}
+        />
+      )}
     </SectionRule>
   )
 }

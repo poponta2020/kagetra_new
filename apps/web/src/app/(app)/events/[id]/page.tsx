@@ -27,9 +27,11 @@ import type { GradeBroadcastRow } from '@/components/events/GradeBroadcastSectio
 import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
 import {
   EventDetailHeader,
+  GroupDayLinks,
   LinkActionLink,
   SectionRule,
 } from '@/components/events/detail'
+import { listGroupSiblings } from '@/lib/entry-groups'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
@@ -39,11 +41,14 @@ import {
   resendGradeBroadcast,
   resendGuidelines,
   revokeBroadcast,
+  setEntriesApplied,
   setEntryApplied,
   setEntryNotApplying,
   setGuidelineAttachments,
   setPaymentPaid,
+  setPaymentsPaid,
   setPaymentType,
+  setPaymentTypes,
   submitAttendance,
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
@@ -117,6 +122,11 @@ export default async function EventDetailPage({
   })
 
   if (!event) notFound()
+
+  // entry-groups タスク4 (AC-16): 同じ申込グループの日一覧（開催日昇順・自分を
+  // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
+  // ダイアログの両方が使う。
+  const groupSiblings = await listGroupSiblings(db, event.id)
 
   // event-line-broadcast: 紐付け状態と配信履歴を取得する。
   //
@@ -399,6 +409,10 @@ export default async function EventDetailPage({
         canEdit={isAdmin}
       />
 
+      {/* entry-groups タスク4 (AC-16): 全ロールに表示。sticky ヘッダーの外に
+          置く（design-spec の明示指定。ヘッダーのラッパー内では分割しない）。 */}
+      <GroupDayLinks siblings={groupSiblings} currentEventId={event.id} />
+
       {isAdmin && (
         <EventLifecycleSection
           eventId={event.id}
@@ -416,6 +430,10 @@ export default async function EventDetailPage({
           setEntryNotApplyingAction={setEntryNotApplying}
           setPaymentTypeAction={setPaymentType}
           setPaymentPaidAction={setPaymentPaid}
+          groupSiblings={groupSiblings}
+          setEntriesAppliedAction={setEntriesApplied}
+          setPaymentsPaidAction={setPaymentsPaid}
+          setPaymentTypesAction={setPaymentTypes}
         />
       )}
 

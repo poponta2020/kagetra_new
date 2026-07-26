@@ -320,3 +320,129 @@ describe('EventLifecycleSection — AC-27 回帰: 状態遷移と confirm', () =
     })
   })
 })
+
+describe('EventLifecycleSection — entry-groups タスク4: 一括ダイアログ', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const siblings = [
+    { id: 1, title: 'C級', eventDate: '2026-08-01', eligibleGrades: null, status: 'published' as const },
+    { id: 2, title: 'D級', eventDate: '2026-08-08', eligibleGrades: null, status: 'published' as const },
+  ]
+
+  it('groupSiblings が1件以下のときは従来どおり（ダイアログを出さず直接 action を呼ぶ）', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const setEntryAppliedAction = vi.fn().mockResolvedValue(undefined)
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          eventId: 1,
+          entryStatus: 'not_applied',
+          setEntryAppliedAction,
+          groupSiblings: [siblings[0]!],
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    fireEvent.click(screen.getByRole('button', { name: '申込済にする' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await waitFor(() => {
+      expect(setEntryAppliedAction).toHaveBeenCalledWith(1, true)
+    })
+  })
+
+  it('groupSiblings が2件以上のとき「申込済にする」でダイアログが開く（scalar action は呼ばれない）', async () => {
+    const setEntryAppliedAction = vi.fn().mockResolvedValue(undefined)
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryStatus: 'not_applied',
+          setEntryAppliedAction,
+          groupSiblings: siblings,
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    fireEvent.click(screen.getByRole('button', { name: '申込済にする' }))
+
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(setEntryAppliedAction).not.toHaveBeenCalled()
+    expect(screen.getByText(/C級/)).toBeTruthy()
+    expect(screen.getByText(/D級/)).toBeTruthy()
+  })
+
+  it('cancelled の日はチェックボックスが disabled で既定チェックにも含まれない', async () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryStatus: 'not_applied',
+          groupSiblings: [
+            siblings[0]!,
+            { ...siblings[1]!, status: 'cancelled' as const },
+          ],
+        })}
+      />,
+    )
+    openAllDetails(container)
+    fireEvent.click(screen.getByRole('button', { name: '申込済にする' }))
+
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    expect(checkboxes).toHaveLength(2)
+    const cancelledCheckbox = checkboxes.find((cb) => !cb.checked)
+    expect(cancelledCheckbox?.disabled).toBe(true)
+  })
+
+  it('ダイアログで確定すると通知 confirm 後に setEntriesAppliedAction が選択 id 配列で呼ばれる（AC-8）', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const setEntriesAppliedAction = vi.fn().mockResolvedValue(undefined)
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryStatus: 'not_applied',
+          isLineLinked: true,
+          groupSiblings: siblings,
+          setEntriesAppliedAction,
+        })}
+      />,
+    )
+    openAllDetails(container)
+    fireEvent.click(screen.getByRole('button', { name: '申込済にする' }))
+    fireEvent.click(screen.getByRole('button', { name: '実行' }))
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      '参加者の LINE グループに通知が送られます。よろしいですか？',
+    )
+    await waitFor(() => {
+      expect(setEntriesAppliedAction).toHaveBeenCalledWith([1, 2], true)
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('支払いタイプ変更（select）は通知確認なしでダイアログ経由 setPaymentTypesAction を呼ぶ（AC-10）', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    const setPaymentTypesAction = vi.fn().mockResolvedValue(undefined)
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryStatus: 'applied',
+          groupSiblings: siblings,
+          setPaymentTypesAction,
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'advance' } })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '実行' }))
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(setPaymentTypesAction).toHaveBeenCalledWith([1, 2], 'advance')
+    })
+  })
+})

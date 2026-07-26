@@ -9,7 +9,12 @@ import {
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import {
+  createEntryGroup,
+  createEvent,
+  createEventAttendance,
+  createUser,
+} from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 /**
@@ -410,6 +415,47 @@ describe('/events/[id] — ページ余白 (AC-23)', () => {
     const { container } = render(await renderPage(ev.id))
 
     expect(container.firstElementChild?.className).toMatch(/\bp-4\b/)
+  })
+})
+
+describe('/events/[id] — グループ日リンク (entry-groups タスク4 AC-16)', () => {
+  it('同グループの他の日があれば一般会員にもリンクが表示される（現在地はリンクにしない）', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const { id: entryGroupId } = await createEntryGroup()
+    const day1 = await createEvent({
+      title: '多摩A',
+      eventDate: addDays(todayJst(), 20),
+      entryGroupId,
+    })
+    await createEvent({
+      title: '多摩B',
+      eventDate: addDays(todayJst(), 25),
+      entryGroupId,
+    })
+
+    const { container } = render(await renderPage(day1.id))
+
+    // 多摩A（現在の日）は h1 見出しにも出るので重複マッチを避け textContent で見る。
+    expect(container.textContent).toContain('多摩A')
+    expect(container.textContent).toContain('多摩B')
+    // 現在見ている日（多摩A）はリンクにならない。
+    expect(screen.queryByRole('link', { name: /多摩A/ })).toBeNull()
+    // 別の日（多摩B）はリンク。
+    const otherLink = screen.getByRole('link', { name: /多摩B/ })
+    expect(otherLink.getAttribute('href')).toMatch(/^\/events\/\d+$/)
+  })
+
+  it('シングルトングループ（1件のみ）ではグループ日リンクを表示しない', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ title: '単独大会', eventDate: addDays(todayJst(), 30) })
+
+    render(await renderPage(ev.id))
+
+    expect(
+      screen.queryByRole('navigation', { name: '同じ申込グループの日程' }),
+    ).toBeNull()
   })
 })
 
