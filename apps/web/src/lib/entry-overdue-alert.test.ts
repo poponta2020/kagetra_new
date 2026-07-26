@@ -168,9 +168,27 @@ describe('entry-overdue-alert — DB', () => {
     await closeTestDb()
   })
 
+  /**
+   * 大会を 1 件作り、参加希望者を 1 名登録して返す。
+   *
+   * entry-management（§3.2.9）で抽出条件に `attendCount >= 1` が加わったため、
+   * 出欠 0 名のフィクスチャは「その条件だけ」で対象外になる。対象になるべき
+   * ケースだけでなく**対象外を確認するケースにも参加者を足す** — でないと
+   * cancelled / 過去開催 / applied などのテストが、自分が切り分けたい条件では
+   * なく「出欠 0 名」を理由に通ってしまい、条件を分離しなくなる（AC-29）。
+   */
+  async function createEventWithAttendee(
+    overrides: Parameters<typeof createEvent>[0] = {},
+  ) {
+    const event = await createEvent(overrides)
+    const user = await createUser()
+    await createEventAttendance({ eventId: event.id, userId: user.id, attend: true })
+    return event
+  }
+
   describe('collectOverdueEntries', () => {
     it('AC-1: 会内締切超過・開催日未来・not_applied・非中止は対象になる', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '対象大会',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -185,7 +203,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-3: 基準締切が今日と同日は対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '締切当日',
         eventDate: '2030-01-01',
         internalDeadline: today,
@@ -196,7 +214,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-3: 基準締切の翌日からは対象になる', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '翌日から対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-09',
@@ -207,7 +225,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-2: internal_deadline が NULL なら entry_deadline を基準締切として判定する', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: 'entry_deadline 代替',
         eventDate: '2030-01-01',
         internalDeadline: null,
@@ -222,7 +240,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-2: internal_deadline / entry_deadline が両方 NULL なら対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '両方未設定',
         eventDate: '2030-01-01',
         internalDeadline: null,
@@ -234,7 +252,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-4: entry_status=applied は対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '申込済',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -245,7 +263,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-4: entry_status=not_applying は対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '申込なし',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -256,7 +274,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-4: status=cancelled は対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '中止大会',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -268,7 +286,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-4: event_date が過去は対象外', async () => {
-      const event = await createEvent({
+      const event = await createEventWithAttendee({
         title: '過去開催',
         eventDate: '2020-01-01',
         internalDeadline: '2019-12-01',
@@ -279,7 +297,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-5: LINE グループ未紐付けの大会も対象に含まれる（event_line_broadcasts に一切依存しない）', async () => {
-      const unlinked = await createEvent({
+      const unlinked = await createEventWithAttendee({
         title: '未紐付け',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -287,7 +305,7 @@ describe('entry-overdue-alert — DB', () => {
       })
       // revoked（非 linked）の broadcast 行を持つ大会も対象に含まれることを確認する。
       // ここで LEFT JOIN していれば、この行の有無で結果セットが変わってしまうはず。
-      const revokedTarget = await createEvent({
+      const revokedTarget = await createEventWithAttendee({
         title: '解除済みグループあり',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -334,6 +352,46 @@ describe('entry-overdue-alert — DB', () => {
       const hit = rows.find((r) => r.eventId === event.id)!
       expect(hit.attendCount).toBe(2)
     })
+
+    // entry-management §3.2.9 / AC-28: 画面（/admin/entries）が「会内締切超過で
+    // 参加希望者 0 名」を非表示にするので、LINE も同じ定義で黙る。定義が 2 つに
+    // 割れると、片方が鳴らしている大会をもう片方が消していることになり、管理者は
+    // どちらも信用しなくなる。
+    it('AC-28: 参加希望者 0 名の未申込・締切超過大会は対象外', async () => {
+      const event = await createEvent({
+        title: '出欠0名',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const rows = await collectOverdueEntries(testDb, { today })
+      expect(rows.map((r) => r.eventId)).not.toContain(event.id)
+    })
+
+    it('AC-28: attend=false しかいない大会も対象外（行の有無ではなく attend=true の件数で判定する）', async () => {
+      const event = await createEvent({
+        title: '全員不参加',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const user = await createUser()
+      await createEventAttendance({ eventId: event.id, userId: user.id, attend: false })
+
+      const rows = await collectOverdueEntries(testDb, { today })
+      expect(rows.map((r) => r.eventId)).not.toContain(event.id)
+    })
+
+    it('AC-28: 参加希望者が 1 名なら対象に含まれる（境界）', async () => {
+      const event = await createEventWithAttendee({
+        title: '出欠1名',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const rows = await collectOverdueEntries(testDb, { today })
+      expect(rows.map((r) => r.eventId)).toContain(event.id)
+    })
   })
 
   describe('loadSystemChannel', () => {
@@ -377,8 +435,28 @@ describe('entry-overdue-alert — DB', () => {
       expect(fetchImpl).not.toHaveBeenCalled()
     })
 
-    it('AC-6: 対象 1 件以上なら push は 1 回だけ', async () => {
+    // AC-28 を送信経路まで通して確認する。抽出で落ちるので「対象 0 件」に
+    // 合流し、push は起きない。
+    it('AC-28: 出欠 0 名の締切超過大会しか無ければ push されない', async () => {
       await createEvent({
+        title: '出欠0名',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      await seedSystemChannel()
+      const fetchImpl = okFetch()
+      const result = await sendEntryOverdueAlert(testDb, {
+        today,
+        baseUrl: 'https://kagetra.example.com',
+        fetchImpl,
+      })
+      expect(result).toEqual({ skipped: 'no-candidates' })
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('AC-6: 対象 1 件以上なら push は 1 回だけ', async () => {
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -396,7 +474,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-11: system_notify チャネル未設定は throw せずスキップ＋警告', async () => {
-      await createEvent({
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -416,7 +494,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-11: notification_line_user_id 未設定は throw せずスキップ＋警告', async () => {
-      await createEvent({
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -437,7 +515,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('PUBLIC_BASE_URL 未設定は例外', async () => {
-      await createEvent({
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -452,7 +530,7 @@ describe('entry-overdue-alert — DB', () => {
     it.each(['new.hokudaicarta.com', 'http://kagetra.example.com', 'ftp://x'])(
       'PUBLIC_BASE_URL が https:// でない (%s) と例外',
       async (badUrl) => {
-        await createEvent({
+        await createEventWithAttendee({
           title: '対象',
           eventDate: '2030-01-01',
           internalDeadline: '2026-06-01',
@@ -469,7 +547,7 @@ describe('entry-overdue-alert — DB', () => {
     )
 
     it('チャネル未設定のケースでは PUBLIC_BASE_URL 未設定に到達しない（throw しない）', async () => {
-      await createEvent({
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',
@@ -481,7 +559,7 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-10: 同じ引数で 2 回実行すると push は 2 回とも走り、event_lifecycle_notifications に行は増えない', async () => {
-      await createEvent({
+      await createEventWithAttendee({
         title: '対象',
         eventDate: '2030-01-01',
         internalDeadline: '2026-06-01',

@@ -44,18 +44,19 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 `usePathname()` でアクティブタブを判定するクライアントコンポーネント。タブ定義は `bottom-nav.tsx` 内の `TABS` 配列にハードコードされており、各タブは `matches`（アクティブ判定用パスプレフィックスの配列）を持つ。判定はセグメント境界を意識し、`pathname === prefix || pathname.startsWith(prefix + '/')` で一致させる。これは単純な `startsWith` 判定だと `/events-archive` が `/events` タブを誤って光らせてしまう回帰を修正したもの。
 
-現在のタブ構成（共有3種＋管理者専用3種）:
+現在のタブ構成（共有3種＋管理者専用4種）:
 
 | id | ラベル | href | active 判定 matches | 表示条件 |
 |---|---|---|---|---|
 | `home` | ホーム | `/dashboard` | `/dashboard` | 全員 |
 | `events` | イベント | `/events` | `/events` | 全員 |
 | `players` | 統計 | `/players` | `/players`, `/tournaments` | 全員 |
+| `entries` | 申込管理 | `/admin/entries` | `/admin/entries` | 管理者のみ |
 | `members` | 会員 | `/admin/members` | `/admin/members`, `/members` | 管理者のみ |
 | `mail-inbox` | メール | `/admin/mail-inbox` | `/admin/mail-inbox` | 管理者のみ |
 | `line-channels` | Bot | `/admin/line-channels` | `/admin/line-channels` | 管理者のみ |
 
-各タブの機能自体（何が表示されるか）は対応ドメインの正典（events-attendance / stats / auth-admin / notifications 等）を参照。`統計` タブは `/players` と `/tournaments` の2基底配下すべてでアクティブになる（選手検索・大会結果・ランキング・大会統計の4セクションがこの2ルートに分かれているため）。一般会員には `会員` `メール` `Bot` タブが非表示になる（管理者専用ページへのアクセスで `/403` に弾かれる UX を防ぐため）。
+各タブの機能自体（何が表示されるか）は対応ドメインの正典（events-attendance / stats / auth-admin / notifications 等）を参照。`統計` タブは `/players` と `/tournaments` の2基底配下すべてでアクティブになる（選手検索・大会結果・ランキング・大会統計の4セクションがこの2ルートに分かれているため）。一般会員には `申込管理` `会員` `メール` `Bot` タブが非表示になる（管理者専用ページへのアクセスで `/403` に弾かれる UX を防ぐため）。`申込管理` は管理者専用ブロックの先頭（統計の直後・会員の前）に置き、共有3タブの直後から管理業務が始まる並びにしている。
 
 `<nav>` は `min-h-[calc(52px_+_env(safe-area-inset-bottom))]` と `pb-[env(safe-area-inset-bottom)]` を持つ。Tailwind の既定 `box-sizing: border-box` により `min-h` は border+padding+content を含む外側の高さとして扱われるため、`min-h-[52px]` のまま safe-area の padding-bottom（iPhone で約34px）を足すとタップ領域が約18pxまで潰れ、52px の `<Link>` 子要素がはみ出す。padding 分をあらかじめ `min-h` に加算する（`calc(52px + env(safe-area-inset-bottom))`）ことで、safe-area 分を差し引いた後も内容領域が52px確保される。
 

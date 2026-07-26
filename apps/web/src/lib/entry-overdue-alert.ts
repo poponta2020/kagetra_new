@@ -62,8 +62,15 @@ export interface OverdueEntryRow {
 }
 
 /**
- * 要件 §3.2.1 の 4 条件で対象 events 行を抽出する。`event_line_broadcasts` へは
- * 一切 JOIN しない（AC-5: LINE グループの紐付け有無に依存させない）。
+ * 要件 §3.2.1 の 4 条件 + 参加希望者 1 名以上で対象 events 行を抽出する。
+ * `event_line_broadcasts` へは一切 JOIN しない（AC-5: LINE グループの紐付け
+ * 有無に依存させない）。
+ *
+ * entry-management（§3.2.9）で 5 つ目の条件 `attendCount >= 1` を追加した。
+ * 申込管理ボード `/admin/entries` が「会内締切を過ぎて参加希望者が 0 名」の
+ * 大会を非表示にするため、同じ大会を LINE が「申込漏れ」と鳴らし続けると
+ * 画面と通知の定義が食い違い、管理者がどちらも信用しなくなる。既存 4 条件
+ * （cancelled 除外 / 開催日未来 / not_applied / 基準締切超過）は変えない。
  *
  * SQL 側にも決定的な ORDER BY を付ける（Postgres の行順は保証されないため）。
  * 表示用のソート・tie-break は `buildOverdueAlertMessage` が純関数として担う。
@@ -103,6 +110,10 @@ export async function collectOverdueEntries(
         eq(events.entryStatus, 'not_applied'),
         sql`${baseDeadlineExpr} is not null`,
         sql`${baseDeadlineExpr} < ${today}`,
+        // entry-management §3.2.9: 参加希望者が 0 名の大会は申し込む理由が
+        // ないので鳴らさない。SELECT と同じ相関サブクエリを WHERE でも
+        // 評価する（数十行規模なので二重評価のコストは無視できる）。
+        sql`${attendCountExpr} >= 1`,
       ),
     )
     .orderBy(sql`${baseDeadlineExpr} asc`, asc(events.eventDate), asc(events.id))

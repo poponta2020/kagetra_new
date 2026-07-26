@@ -127,7 +127,9 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 | 冪等性 | once-ever（`UNIQUE(eventId, type)`） | **なし**（毎日繰り返すことが要件） |
 | 配信時刻 | JST 00:00 | JST 07:00 |
 
-**対象条件**（JST基準・すべて満たす大会）: `status != 'cancelled'` ／ `eventDate >= 今日` ／ `entryStatus = 'not_applied'` ／ 基準締切 `COALESCE(internalDeadline, entryDeadline)` が非NULLかつ今日より前。基準締切が今日と等しい（締切当日）は対象外で、超過した翌日から鳴り始める。会内締切は手入力のため未入力が起こりうるので、未入力なら大会申込締切で代替する（「未入力だから黙る」では締切を入れ忘れた大会＝最も危ない大会を検知できないため）。
+**対象条件**（JST基準・すべて満たす大会）: `status != 'cancelled'` ／ `eventDate >= 今日` ／ `entryStatus = 'not_applied'` ／ 基準締切 `COALESCE(internalDeadline, entryDeadline)` が非NULLかつ今日より前 ／ **出欠「参加」が1名以上**。基準締切が今日と等しい（締切当日）は対象外で、超過した翌日から鳴り始める。会内締切は手入力のため未入力が起こりうるので、未入力なら大会申込締切で代替する（「未入力だから黙る」では締切を入れ忘れた大会＝最も危ない大会を検知できないため）。
+
+参加希望者0名を対象外にするのは、申込管理ボード `/admin/entries` が同じ大会を「申し込む理由がない」として画面から外すため（[spec/events-attendance.md](events-attendance.md)）。画面が消した大会をLINEが鳴らし続けると定義が2つに割れ、管理者がどちらも信用しなくなる。副作用として、参加予定者がいるのに出欠登録されていないだけの大会もLINEで黙る — 移行過渡期のリスクとして明示的に受容している。
 
 **`event_line_broadcasts` へは一切JOINしない。** LINEグループが未紐付けの大会も対象に含める設計で、これが event-lifecycle-notify のリマインドとの決定的な違い。既存リマインドは `linked` なグループを前提にしているため、グループ未紐付けの大会には1通も飛ばない — 申込漏れが最も起きやすいのはまさにその層である。
 

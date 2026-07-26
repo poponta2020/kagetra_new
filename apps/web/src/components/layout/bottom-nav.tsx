@@ -30,6 +30,15 @@ const TABS: readonly Tab[] = [
     href: '/players',
     matches: ['/players', '/tournaments'],
   },
+  // entry-management: 管理者向け大会申込進捗ボード。管理者専用ブロックの先頭に
+  // 置き、共通 3 タブ（ホーム/イベント/統計）の直後から管理業務が始まる並びにする。
+  {
+    id: 'entries',
+    label: '申込管理',
+    href: '/admin/entries',
+    matches: ['/admin/entries'],
+    adminOnly: true,
+  },
   {
     id: 'members',
     label: '会員',
