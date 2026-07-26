@@ -2894,3 +2894,21 @@ PR #312 のマージで走った auto-deploy は sudoers 未反映で failure（
 **AC-21 は未完了**: 深夜の実送信を避け、2026-07-26 07:00 JST の自動発火に委ねた（`systemctl list-timers` で NEXT を確認済み）。朝に管理者 LINE へサマリが届けば完了。
 
 手順書の不備（検証と配置の順序 / マージ後の経路 / 失敗時の復旧範囲）は PR #320 で修正・出荷済み。
+- 2026-07-26 /auto-review-loop PR #321: 3R, verdict=needs_changes(修正済・再レビュー未実施), effort=h→h→h, tokens=736708/500000, result=token-budget
+- 2026-07-26 /auto-review-loop PR #321: 5R, verdict=needs_changes(全21指摘対応済), effort=h×5, tokens=1256580, result=user-shipped（R6途中でユーザー判断により打ち切り→ship）
+
+## 2026-07-26 event-grade-group-broadcast 出荷 (PR #321)
+
+新規大会の概要を級別LINEグループ(A〜E)へ Messaging API Push で自動配信。親Issue #313 / 子 #314-319 全クローズ。migration 0044。merge commit 78a26cb。
+
+- 新テーブル line_grade_group_bindings(級⇔グループの常設紐付け・grade UNIQUE/line_channel_id UNIQUE) + event_grade_broadcasts((大会,級)送信記録)
+- line_channel_purpose に grade_broadcast 追加。既存30プールから5個を招待コード発行時に転換(status もプールから外す)
+- webhook はチャネルの purpose で振り分け。級グループ用は専用ハンドラ(line_channels を触らない/要綱送信しない/leave でプールへ戻さない)
+- /admin/line-grade-groups は admin のみ。導線は /admin/line-channels 内のリンク(ボトムナビは6タブ埋まり)
+- トリガーは承認・手動作成・再送の3経路(after() で並行起動)。編集経路には配線しない
+
+レビュー7ラウンド・全21指摘対応。**二重配信/サイレントな配信欠落が5ラウンド連続で形を変えて出た**(外部API送信とDB確定の間の障害は1回のレビューでは詰めきれない実例)。最終設計: retry_key を claim 行へ永続化して変えない/再試行は同一キーの未送信行を全て呼び戻して元バッチ復元・全件claimできなければ1件も送らない/push結末は accepted・failed・unknown の3値で unknown では claim と key を残す/確定・取消は claimed_at 一致の ownership CAS/retry key の 24h TTL 超過は自動再送せず管理者へ通知。
+
+DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-dod**(R7 打ち切り。ただし R6 は blockers=0 で should_fix 2件も修正済 38aa441)。D2 FAIL は誤検出(ゲート実行時の PR 差分取得が古く docs 変更を拾えず)。
+
+残: **AC-26/AC-27 の実機確認**と本番 migration 0044 適用(db:migrate。db:push は使わない)。運用手順は memory の project_ship-event-grade-group-broadcast.md 参照。

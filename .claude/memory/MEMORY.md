@@ -168,3 +168,7 @@
 - [event-grade-group-broadcast 要件定義](project_event_grade_group_broadcast_def.md) — 親Issue #313・Playwright/OAM方式を調べた末に不採用→級別グループ×Bot5個のPush方式へ
 - [auto-review PR #320](auto-review-round-pr320.md) — 4R pass。運用手順書は実行して初めて誤りが出る
 - [entry-overdue-alert 本番デプロイ(2026-07-26)](project_deploy-entry-overdue-alert.md) — auto-deploy が sudoers 未反映で失敗→手動復旧。AC-21 は 07:00 の自動発火待ち
+- [event-grade-group-broadcast 実装完了(2026-07-26)](impl_event_grade_group_broadcast.md) — 全6タスク実装・PR前。claim のリース化/候補ソース修正/クロックずれ罠/vice_admin 混入注意
+- [auto-review PR #321](auto-review-round-pr321.md) — R1-R5 全対応。二重配信/配信欠落が5回形を変えて出た（retry key=バッチの不変性）
+- [fix PR #321](impl_fix-pr321.md) — review 指摘の修正（二重配信・再発行の破壊が本命）
+- [新規大会の概要を級別LINEグループへ自動配信](project_ship-event-grade-group-broadcast.md) — shipped: PR #321（DoD C1 はユーザー指示でskip・R6 blockers=0）
