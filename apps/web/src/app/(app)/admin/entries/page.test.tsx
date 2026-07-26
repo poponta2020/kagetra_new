@@ -8,6 +8,7 @@ import {
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
+  createEntryGroup,
   createEvent,
   createEventAttendance,
   createUser,
@@ -387,6 +388,42 @@ describe('/admin/entries（申込管理ボード）', () => {
         expect(screen.getByRole('heading', { name: label })).toBeTruthy()
       }
       expect(screen.queryByText('管理対象の大会はありません')).toBeNull()
+    })
+  })
+
+  // タスク6（AC-14/AC-15）: entry_group_id が同じ複数日は 1 グループ=1カードに
+  // 集約されて描画される。母集団クエリの entryGroupId の取り回し自体を固定する。
+  describe('申込グループのカード集約（AC-14, AC-15）', () => {
+    beforeEach(async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+    })
+
+    it('同じ entry_group_id の複数日は1枚のカードにまとまり、代表イベントへのリンクを持つ', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      const nearer = await createEvent({
+        entryGroupId: group.id,
+        title: '多摩A',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, 5), // 今日以降で最も近い → 代表
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩B',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // グループ表示名（多摩A+多摩B → 多摩AB）は1回だけ
+      expect(within(section).getAllByText('多摩AB')).toHaveLength(1)
+      const headerLink = within(section).getByText('多摩AB').closest('a')
+      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
     })
   })
 

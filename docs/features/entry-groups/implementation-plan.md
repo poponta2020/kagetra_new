@@ -123,7 +123,9 @@ status: completed
 - **対応Issue:** #363
 
 ### タスク5: リマインダー・管理者アラートのグループ集約
-- [ ] 完了
+- [x] 完了（バケット claim は raw `INSERT ... SELECT` ではなく drizzle の複数行 VALUES +
+  `onConflictDoNothing` + `RETURNING`。単一 atomic statement・UNIQUE による二重claim防止・
+  claim集合の取得という要件は同じで、raw SQL の enum キャストのリスクを避けられるため main が承認）
 - **目的:** 締切リマインドを（グループ, 種別, 締切日）単位1通に、entry-overdue-alert をグループ1行に集約する
 - **対応AC:** AC-12, AC-13
 - **主な変更領域:**
@@ -139,7 +141,10 @@ status: completed
 - **対応Issue:** #364
 
 ### タスク6: 申込管理ボードのグループカード化
-- [ ] 完了
+- [x] 完了（`deriveEntryGroupName`/`selectRepresentativeEvent` の呼び出しは
+  `entry-board-utils.ts` ではなく **page.tsx（サーバー）**で行い、結果を平らな値で
+  `EntryBoardItem` に持たせる形へ変更。`EntryBoardClient` が `'use client'` で、
+  `@/lib/entry-groups` は schema を値 import するため client バンドルが汚れる）
 - **目的:** /admin/entries を1グループ=1カード（グループ共通の締切/抽選日+日別進行行）にし、代表イベント詳細へ遷移させる
 - **対応AC:** AC-14, AC-15
 - **主な変更領域:**

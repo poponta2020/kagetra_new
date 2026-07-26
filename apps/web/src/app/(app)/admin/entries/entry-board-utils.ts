@@ -9,6 +9,22 @@ import type {
 } from '@/components/events/LifecycleStatusBadge'
 
 /**
+ * entry-groups タスク6: 表示名導出・代表イベント選定は `@/lib/entry-groups` の
+ * `deriveEntryGroupName` / `selectRepresentativeEvent` が唯一の実装
+ * （呼び出し側で再実装しない。requirements タスク6 依存タスク2）。
+ *
+ * ただし **このファイルからは lib を import しない**。`entry-board-utils.ts` は
+ * `EntryBoardClient.tsx`（`'use client'`）から import される唯一の非コンポーネント
+ * モジュールで、`@/lib/entry-groups` は `@kagetra/shared/schema` と `drizzle-orm`
+ * を値 import している（DB 層）。ここで import すると初めて client バンドルへ
+ * DB 依存が漏れる（eslint / vitest / check-types は検知できず `next build` で
+ * 初めて壊れる）。そのため page.tsx（サーバー）が group ごとに一度だけ
+ * `deriveEntryGroupName` / `selectRepresentativeEvent` を呼び、結果を
+ * `EntryBoardItem.groupName` / `groupRepresentativeEventId` として
+ * 平らな値で渡す。`groupBoard` はそれを読むだけ（計算しない）。
+ */
+
+/**
  * 申込管理ボード（`/admin/entries`）の仕分け・並び順・締切表示の純関数。
  *
  * `Date.now()` を呼ばない。サーバーが JST の `todayStr` を渡し、クライアントは
@@ -36,6 +52,20 @@ export type VisibleAreaId = Exclude<AreaId, 'no_applicants'>
 
 export interface EntryBoardItem {
   id: number
+  /** `events.entry_group_id`。タスク6: カード集約のキー。 */
+  entryGroupId: number
+  /**
+   * タスク6: グループ表示名（`deriveEntryGroupName` の結果。null なら代表イベントの
+   * タイトルへフォールバック済み）。**page.tsx がグループごとに一度だけ計算し、
+   * 同じグループの全行に同じ値をコピーする**（このファイルは lib を import しない
+   * ——上の import コメント参照）。同一グループ内では常に同じ値になる。
+   */
+  groupName: string
+  /**
+   * タスク6: グループの代表イベント id（`selectRepresentativeEvent` の結果）。
+   * `groupName` と同様、page.tsx がグループごとに一度だけ計算する。
+   */
+  groupRepresentativeEventId: number
   /** 正式名称。通称が引けないときのフォールバックにのみ使う。 */
   title: string
   /**
@@ -176,6 +206,24 @@ export function classify(item: EntryBoardItem, todayStr: string): AreaId {
   return 'done'
 }
 
+/**
+ * 日別行に出す「その日自身の」進行状態ラベル（AC-14: 日別の進行状態）。
+ *
+ * カード全体が載る区画（{@link EntryBoardGroup.area}）は「グループ内で最も
+ * 対応が必要な区画」に寄せた1つの値だが、日別行はそれとは独立に**その日自身の
+ * `classify` 結果**をラベルとして出す——そうしないと、カードが `action_required`
+ * に居るせいで実は `done` の日まで「対応が必要」に見えてしまう（設計判断2の
+ * 前提を裏切らないための描画側の担保）。
+ *
+ * `classify` が `no_applicants`（非表示）を返すことは想定しない
+ * （呼び出し側は非表示日をあらかじめ除いた `EntryBoardGroup.days` にしか
+ * 使わない契約）。万一渡された場合は空文字を返す。
+ */
+export function dayStatusLabel(item: EntryBoardItem, todayStr: string): string {
+  const area = classify(item, todayStr)
+  return AREAS.find((a) => a.id === area)?.label ?? ''
+}
+
 /** エリアごとの並び順キー（要件 §3.2.3）。null は末尾。 */
 export function sortKeyOf(
   item: EntryBoardItem,
@@ -266,27 +314,188 @@ export function isAreaHot(
 }
 
 /**
- * 描画する区画だけを持つ。非表示に落ちた大会はどのキーにも入らないので、
- * 全キーの合計 = ボードに実際に並ぶ件数になる（空状態の判定に使える）。
+ * ボードの1カードに相当する「申込グループ」。
+ *
+ * タスク6（要件 §3.1, AC-14/AC-15）: `/admin/entries` は 1 グループ = 1 カード
+ * で表示する。カードが載る区画・共通の締切/抽選日の出し分け・並び順はすべて
+ * この型を介して {@link groupBoard} が計算する。実際の描画（カード内の
+ * ヘッダーと日別行の組み立て）は EntryBoardClient.tsx が持つ。
  */
-export type GroupedBoard = Record<VisibleAreaId, EntryBoardItem[]>
+export interface EntryBoardGroup {
+  groupId: number
+  /** `EntryBoardItem.groupName`（設計判断5）をそのまま転記したもの。 */
+  name: string
+  /** カードタップの遷移先。`EntryBoardItem.groupRepresentativeEventId`（設計判断4）。 */
+  representativeEventId: number
+  /** カードが載る区画（{@link pickGroupArea} 参照）。 */
+  area: VisibleAreaId
+  /**
+   * 日別行。非表示区画（`no_applicants`）に分類された日は含まない
+   * （そのグループのメンバーであっても個別の「申し込まない」大会はボードに出さない、
+   * という単一イベント時の既存挙動を維持する）。開催日昇順・同日は id 昇順。
+   */
+  days: EntryBoardItem[]
+}
 
-/** 全件をエリアへ振り分け、各エリア内を並べ替える。 */
+/**
+ * グループ内で日別 classify が食い違うとき、カード全体をどの区画に置くかの
+ * 優先順位（設計判断2）。上ほど「対応が必要」＝管理者が見落とすと実害が出る:
+ *
+ * - `action_required`: 会内締切を過ぎてまだ本申込していない。放置すると申込漏れが確定する
+ * - `payment_due`: 名簿確定済みで振込がまだ。放置すると入金遅延になる
+ * - `applied_waiting`: 抽選待ち等。行動は不要だが進行を追う必要がある
+ * - `before_deadline`: まだ締切前
+ * - `done`: 完了
+ *
+ * `no_applicants` は非表示区画なので候補にならない（呼び出し側で先に除外する）。
+ * カードは「最も対応が必要な区画」1つにだけ載り、そこに全ての非表示日が
+ * 日別行として並ぶ（設計判断2）。
+ */
+const GROUP_AREA_PRIORITY: readonly VisibleAreaId[] = [
+  'action_required',
+  'payment_due',
+  'applied_waiting',
+  'before_deadline',
+  'done',
+]
+
+/** `dayAreas`（非表示を除いた各日の classify 結果）からカードの区画を1つ選ぶ。 */
+function pickGroupArea(dayAreas: readonly AreaId[]): VisibleAreaId {
+  for (const area of GROUP_AREA_PRIORITY) {
+    if (dayAreas.includes(area)) return area
+  }
+  // 呼び出し側が非表示日を除いてから渡す契約なので、ここに来るのは呼び出しの
+  // バグ（空配列を渡した等）。fail-fast で気付けるようにする。
+  throw new Error('assertion failed: グループの区画候補が空です（非表示日しか無い）')
+}
+
+/**
+ * 描画する区画だけを持つ。非表示に落ちたグループはどのキーにも入らないので、
+ * 全キーの合計件数 = ボードに実際に並ぶカード数になる（空状態の判定に使える）。
+ */
+export type GroupedBoard = Record<VisibleAreaId, EntryBoardGroup[]>
+
+/**
+ * 全件を申込グループへ集約し、各カードを1区画へ振り分けて、各区画内を並べ替える。
+ *
+ * 母集団クエリの条件（§3.2.1）は変えない。ここでの集約は「同じ entryGroupId を
+ * 1枚のカードにまとめる」だけで、どのイベントが母集団に載るかには関与しない。
+ *
+ * 設計判断4/5（グループ名・代表イベント）: `groupName` / `groupRepresentativeEventId`
+ * は**グループの全メンバー**（可視・非表示を問わない）から page.tsx が一度だけ
+ * 計算した値なので、ここではメンバーの誰か1件（`members[0]`）から読めば十分
+ * ——同じグループなら誰から読んでも同じ値になる。したがって、グループの中で
+ * 今日以降に最も近い日が「申し込まない」で非表示になっていても、カードの
+ * 遷移先はその日を指しうる（そのグループの代表イベントという概念自体が
+ * ボードの表示可否と独立しているため。意図的な選択——グループ名・代表は
+ * 「ボードに見えている行」ではなく「グループというまとまり」のプロパティ）。
+ */
 export function groupBoard(
   items: EntryBoardItem[],
   todayStr: string,
 ): GroupedBoard {
   const out = {} as GroupedBoard
   for (const area of AREAS) out[area.id] = []
+
+  const membersByGroup = new Map<number, EntryBoardItem[]>()
   for (const item of items) {
-    const area = classify(item, todayStr)
-    if (isHiddenArea(area)) continue
-    out[area].push(item)
+    const arr = membersByGroup.get(item.entryGroupId)
+    if (arr) arr.push(item)
+    else membersByGroup.set(item.entryGroupId, [item])
   }
+
+  const groups: EntryBoardGroup[] = []
+  for (const [groupId, members] of membersByGroup) {
+    const visibleDays = members
+      .filter((m) => !isHiddenArea(classify(m, todayStr)))
+      .slice()
+      .sort((a, b) => cmp(a.eventDate, b.eventDate) || a.id - b.id)
+    if (visibleDays.length === 0) continue // グループ全体が非表示（全日 no_applicants）
+
+    const area = pickGroupArea(visibleDays.map((d) => classify(d, todayStr)))
+    const anyMember = members[0]!
+
+    groups.push({
+      groupId,
+      name: anyMember.groupName,
+      representativeEventId: anyMember.groupRepresentativeEventId,
+      area,
+      days: visibleDays,
+    })
+  }
+
+  for (const group of groups) out[group.area].push(group)
   for (const area of AREAS) {
-    out[area.id] = sortArea(out[area.id], area.id, todayStr)
+    out[area.id] = sortGroupsInArea(out[area.id], area.id, todayStr)
   }
   return out
+}
+
+/**
+ * カードの並び順キー = カードの区画（`area`）の観点で見た締切/抽選日のうち、
+ * 日別行の中で最も早いもの（null は無視。全日 null ならキー無し＝末尾）。
+ * 「最も差し迫っている日」でカード全体の緊急度を代表させる。
+ */
+function groupSortKey(
+  group: EntryBoardGroup,
+  area: VisibleAreaId,
+  todayStr: string,
+): string | null {
+  let best: string | null = null
+  for (const day of group.days) {
+    const key = sortKeyOf(day, area, todayStr)
+    if (key == null) continue
+    if (best == null || key < best) best = key
+  }
+  return best
+}
+
+function minEventDate(group: EntryBoardGroup): string {
+  return group.days.reduce(
+    (min, d) => (d.eventDate < min ? d.eventDate : min),
+    group.days[0]!.eventDate,
+  )
+}
+
+/** 昇順・null 末尾・（日別行のうち最も早い）開催日を副キー（非破壊）。 */
+function sortGroupsInArea(
+  groups: EntryBoardGroup[],
+  area: VisibleAreaId,
+  todayStr: string,
+): EntryBoardGroup[] {
+  return groups.slice().sort((a, b) => {
+    const ka = groupSortKey(a, area, todayStr)
+    const kb = groupSortKey(b, area, todayStr)
+    if (ka == null && kb == null) return cmp(minEventDate(a), minEventDate(b))
+    if (ka == null) return 1
+    if (kb == null) return -1
+    const byKey = cmp(ka, kb)
+    return byKey !== 0 ? byKey : cmp(minEventDate(a), minEventDate(b))
+  })
+}
+
+/**
+ * カード共通の締切/抽選日バッジ（設計判断3）。
+ *
+ * カードの区画（`group.area`）の観点で見た締切/抽選日（`deadlineBadgeOf` と
+ * 同じ、区画ごとに固定の1フィールド）が全日別行で同一なら、そのバッジを返す
+ * （カードヘッダーに1回だけ表示する）。1件でも異なれば `null` を返し、
+ * 呼び出し側は共通表示をやめて日別行それぞれに `deadlineBadgeOf` を出す。
+ *
+ * シングルトン（`days.length === 1`）は比較対象が1件しかないので必ず非 null
+ * になる——単一イベント時の「1回だけ表示」する既存の見え方と同じ結果になる。
+ */
+export function commonDeadlineBadge(
+  group: EntryBoardGroup,
+  todayStr: string,
+): DeadlineBadge | null {
+  const badges = group.days.map((d) => deadlineBadgeOf(d, group.area, todayStr))
+  const first = badges[0]
+  if (!first) return null
+  const allSame = badges.every(
+    (b) => b.date === first.date && b.countdown === first.countdown && b.tone === first.tone,
+  )
+  return allSame ? first : null
 }
 
 // ---------------------------------------------------------------------------
