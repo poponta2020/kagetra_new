@@ -78,14 +78,14 @@ export default async function MembersPage() {
         <table className="min-w-full divide-y divide-border-soft">
           <thead className="bg-surface-alt">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">名前</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">ロール</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">級</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">招待状態</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">登録日</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">LINE 紐付け日時</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">方法</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">操作</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">名前</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">ロール</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">級</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">招待状態</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">登録日</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">LINE 紐付け日時</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">方法</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-fg">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-soft">

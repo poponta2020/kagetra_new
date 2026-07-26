@@ -142,7 +142,7 @@ export function EditMemberForm({
               type="text"
               value={name}
               readOnly
-              className="mt-1 w-full rounded-md border border-border-soft bg-surface-alt px-3 py-2 text-sm text-ink-meta"
+              className="mt-1 w-full rounded-md border border-border-soft bg-surface-alt px-3 py-2 text-sm text-neutral-fg"
             />
             <p className="mt-1 text-xs text-ink-meta">
               ユーザー名はログインに使われるため、この画面からは変更できません。

@@ -63,7 +63,7 @@ export default async function LineLinkPage({
         )}
 
         <div className="space-y-1 rounded-md bg-surface-alt p-4 text-sm">
-          <p className="text-ink-meta">現在連携中の LINE アカウント</p>
+          <p className="text-neutral-fg">現在連携中の LINE アカウント</p>
           <p className="font-mono text-ink">{maskLineUserId(user.lineUserId)}</p>
         </div>
 
