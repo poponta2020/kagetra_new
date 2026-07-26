@@ -184,12 +184,15 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
     tone: 'neutral' as const,
   }
 
-  // r-final-4 blocker: 詳細画面が見ていた紐付け先 eventId を一緒に
-  // 渡すことで、stale な操作で別 event の Bot を誤って解放しないようにする。
-  const expectedReleaseEventId = currentBinding?.eventId ?? null
+  // r-final-4 blocker: 詳細画面が見ていた紐付け先を一緒に渡すことで、stale な操作で
+  // 別グループへ再割当済みの Bot を誤って解放しないようにする。
+  // r2 review blocker: トークンは代表イベント id ではなく **entry_group_id**。
+  // イベント0件のグループ（付け替えで空になったが紐付けは残る）では代表イベントが
+  // 無く、id だと null に落ちて競合検出なしの broad release になってしまう。
+  const expectedReleaseEntryGroupId = currentBinding?.entryGroupId ?? null
   async function handleReleaseAction() {
     'use server'
-    await releaseChannel(channelId, expectedReleaseEventId)
+    await releaseChannel(channelId, expectedReleaseEntryGroupId)
   }
   async function handleDisableAction() {
     'use server'

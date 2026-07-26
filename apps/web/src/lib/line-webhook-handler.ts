@@ -9,7 +9,8 @@ import {
 import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
-import { deriveEntryGroupName } from '@/lib/entry-groups'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { todayInJst } from '@/lib/jst-date'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -574,16 +575,22 @@ async function handleInviteCode(
 
   // entry-groups タスク3: 紐付け先はグループなので、reply の大会名はグループ内
   // 全イベントのタイトルから導出する（deriveEntryGroupName、entry-groups.ts の
-  // 表示名規則と同じ）。導出不能なときは開催日が最も早いイベントのタイトルへ
-  // フォールバックする。
+  // 表示名規則と同じ）。
+  //
+  // 導出不能なときは **代表イベント**（今日以降で最も近い開催日、無ければ最新）の
+  // タイトルへフォールバックする（r2 review should_fix）。id 昇順の先頭では、作成順と
+  // 開催日順が食い違うグループで他画面と別の大会名が出てしまう。
   const groupEvents = await db
-    .select({ id: events.id, title: events.title })
+    .select({ id: events.id, title: events.title, eventDate: events.eventDate })
     .from(events)
     .where(eq(events.entryGroupId, candidate.entryGroupId))
     .orderBy(asc(events.id))
   const groupTitles = groupEvents.map((e) => e.title)
+  const representative = selectRepresentativeEvent(groupEvents, todayInJst())
   const groupName =
-    deriveEntryGroupName(groupTitles) ?? groupEvents[0]?.title ?? String(candidate.entryGroupId)
+    deriveEntryGroupName(groupTitles) ??
+    representative?.title ??
+    String(candidate.entryGroupId)
 
   if (event.replyToken) {
     await replyClient.reply({

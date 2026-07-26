@@ -236,6 +236,33 @@ export async function deleteGroupIfEmpty(tx: DbLike, groupId: number): Promise<v
   await tx.delete(entryGroups).where(eq(entryGroups.id, groupId))
 }
 
+/**
+ * グループ内イベントの**一括 UPDATE の前に**、対象行を id 昇順で FOR UPDATE ロックする。
+ *
+ * ★`inArray()` を使った単一 UPDATE のロック順は、渡した配列の順序では決まらない
+ * （実行計画次第で物理順・任意順になり得る）。「id 昇順で1件ずつ UPDATE」する経路
+ * （`setEntriesApplied(true)` / `setPaymentsPaid(true)`）と組み合わさると逆順ロック＝
+ * デッドロックが起こり得るため、先に昇順ロックを取って順序を実行計画から切り離す。
+ * `ORDER BY` は `FOR UPDATE` より先に評価される（LockRows が Sort の上）ので、
+ * ロックは必ずソート順に取得される。
+ *
+ * グループ再検証（`entry_group_id` 一致）も併記する — ロック対象を後続 UPDATE の WHERE と
+ * 完全に一致させ、クライアント申告のグループ外 id を掴まないため（fail-closed）。
+ */
+export async function lockEventRowsAscending(
+  tx: DbLike,
+  ids: readonly number[],
+  entryGroupId: number,
+): Promise<void> {
+  if (ids.length === 0) return
+  await tx
+    .select({ id: events.id })
+    .from(events)
+    .where(and(inArray(events.id, [...ids]), eq(events.entryGroupId, entryGroupId)))
+    .orderBy(asc(events.id))
+    .for('update')
+}
+
 export type EntryGroupFormAction = 'keep' | 'standalone' | 'merge'
 
 export interface ApplyEntryGroupChangeResult {
@@ -372,14 +399,20 @@ export interface PropagateFieldsInput {
  * （`WHERE entryGroupId = groupId` を必ず併記。クライアントの申告を信用しない —
  * 一致しない id は無条件に UPDATE 対象から外れる、fail-closed）。
  * `changed` が空、または対象 id が無ければ no-op。
+ *
+ * 一括 UPDATE なので、`lockEventRowsAscending` で先に id 昇順ロックを取る
+ * （編集保存 tx が、進行状態トグルの昇順1件ずつ更新経路とデッドロックしないため）。
  */
 export async function propagateFieldsToGroup(
   tx: DbLike,
   input: PropagateFieldsInput,
 ): Promise<void> {
-  const ids = input.targetEventIds.filter((id) => id !== input.excludeEventId)
+  const ids = Array.from(
+    new Set(input.targetEventIds.filter((id) => id !== input.excludeEventId)),
+  ).sort((a, b) => a - b)
   if (ids.length === 0 || Object.keys(input.changed).length === 0) return
 
+  await lockEventRowsAscending(tx, ids, input.groupId)
   await tx
     .update(events)
     .set({ ...input.changed, updatedAt: new Date() })

@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { eventLineBroadcasts, lineChannels } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEvent } from '@/test-utils/seed'
+import { createEntryGroup, createEvent } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 type GuidelineResult = {
@@ -28,7 +28,7 @@ vi.mock('@/lib/line-broadcast-guidelines', () => ({
   sendGuidelinesOnLink: sendGuidelinesOnLinkMock,
 }))
 
-const { manualLinkGroup } = await import('./actions')
+const { manualLinkGroup, releaseChannel } = await import('./actions')
 
 const ADMIN = { id: 'admin-1', role: 'admin' as const }
 
@@ -150,5 +150,84 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
       manualLinkGroup({ channelId, eventId: ev.id, lineGroupId: 'Cx' }),
     ).rejects.toThrow(/Forbidden/)
     expect(sendGuidelinesOnLinkMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * r2 review blocker: 強制解放の競合検出トークンは **entry_group_id**。
+ * 以前は画面が見ていた代表イベント id で、イベント0件のグループ（付け替えで空に
+ * なったが紐付けは残る）ではトークンが null に落ち、競合検出なしの broad release
+ * に化けていた。
+ */
+describe('releaseChannel — 競合検出トークンは entry_group_id', () => {
+  beforeEach(async () => {
+    await truncateAll()
+    await setAuthSession(ADMIN)
+  })
+
+  it('イベント0件のグループでも指定グループの紐付けだけを解除する', async () => {
+    const group = await createEntryGroup()
+    const channelId = await seedAvailableChannel('tok-empty')
+    await testDb
+      .update(lineChannels)
+      .set({ status: 'active', assignedEntryGroupId: group.id })
+      .where(eq(lineChannels.id, channelId))
+    await testDb.insert(eventLineBroadcasts).values({
+      entryGroupId: group.id,
+      lineChannelId: channelId,
+      status: 'linked',
+      lineGroupId: 'Cempty',
+      linkedAt: new Date(),
+    })
+
+    await releaseChannel(channelId, group.id)
+
+    const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.entryGroupId, group.id),
+    })
+    expect(broadcast?.status).toBe('revoked')
+    const channel = await testDb.query.lineChannels.findFirst({
+      where: eq(lineChannels.id, channelId),
+    })
+    expect(channel?.status).toBe('available')
+    expect(channel?.assignedEntryGroupId).toBeNull()
+  })
+
+  it('stale なトークン（既に別グループへ再割当済み）では新しい紐付けを解除しない', async () => {
+    const oldGroup = await createEntryGroup()
+    const channelId = await seedAvailableChannel('tok-stale')
+    // 旧グループの紐付けは既に revoked、チャネルは新グループへ再割当済み。
+    await testDb.insert(eventLineBroadcasts).values({
+      entryGroupId: oldGroup.id,
+      lineChannelId: channelId,
+      status: 'revoked',
+      lineGroupId: 'Cold',
+      revokedAt: new Date(),
+    })
+    const newEvent = await createEvent({ title: '新しい大会' })
+    await testDb
+      .update(lineChannels)
+      .set({ status: 'active', assignedEntryGroupId: newEvent.entryGroupId })
+      .where(eq(lineChannels.id, channelId))
+    await testDb.insert(eventLineBroadcasts).values({
+      entryGroupId: newEvent.entryGroupId,
+      lineChannelId: channelId,
+      status: 'linked',
+      lineGroupId: 'Cnew',
+      linkedAt: new Date(),
+    })
+
+    // 画面が見ていたのは旧グループ。no-op になるべき。
+    await releaseChannel(channelId, oldGroup.id)
+
+    const newBinding = await testDb.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.entryGroupId, newEvent.entryGroupId),
+    })
+    expect(newBinding?.status).toBe('linked')
+    const channel = await testDb.query.lineChannels.findFirst({
+      where: eq(lineChannels.id, channelId),
+    })
+    expect(channel?.status).toBe('active')
+    expect(channel?.assignedEntryGroupId).toBe(newEvent.entryGroupId)
   })
 })

@@ -39,24 +39,27 @@ async function revalidateGroupEventPaths(eventId: number): Promise<void> {
  * Always runs in a transaction so the channel and its broadcast row stay
  * consistent.
  *
- * r-final-4 blocker: stale な詳細画面操作で「別 event に再割当済みの
- * Bot」を誤って解放しないよう、操作者が見ていた紐付け先 eventId を
- * `expectedEventId` で渡し、現在の DB 状態と一致する場合のみ実行する。
- * UI 経由でない直接呼出 (旧 action パス) では `expectedEventId` を
- * 省略してこれまで通りの broad release が走る。
+ * r-final-4 blocker: stale な詳細画面操作で「別グループに再割当済みの
+ * Bot」を誤って解放しないよう、操作者が見ていた紐付け先を
+ * `expectedEntryGroupId` で渡し、現在の DB 状態と一致する場合のみ実行する。
+ * UI 経由でない直接呼出 (旧 action パス) では省略してこれまで通りの
+ * broad release が走る。
+ *
+ * ★トークンは **entry_group_id**（r2 review blocker）。以前は画面が見ていた
+ * 代表イベントの id を渡していたが、付け替えで**イベント0件になったグループ**が
+ * 紐付けを持って残る仕様（要件 §3.2.6）では代表イベントが存在せず、トークンが
+ * null に落ちて競合検出のない broad release 経路へ入ってしまう。その状態で古い
+ * フォームを送ると、同じ Bot が別グループへ再割当された後の**新しい紐付けを
+ * revoke** し得た。帰属そのもの（グループ id）をトークンにすればイベント0件でも
+ * 欠落しない。
  */
 export async function releaseChannel(
   channelId: number,
-  expectedEventId?: number | null,
+  expectedEntryGroupId?: number | null,
 ): Promise<void> {
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
-    // entry-groups タスク3: 呼び出しシグネチャは eventId のまま維持し、
-    // 内部でグループへ解決する（帰属は entry_group_id）。
-    const expectedEntryGroupId =
-      expectedEventId != null ? await resolveEntryGroupId(tx, expectedEventId) : null
-
     // Mark any active/joined-waiting broadcast for this channel as revoked.
     // We do NOT delete the row — the audit trail (linked_at, line_group_id)
     // stays for operator review. invite_code は null に戻して partial

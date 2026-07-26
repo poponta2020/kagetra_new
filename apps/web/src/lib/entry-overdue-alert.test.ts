@@ -202,8 +202,11 @@ describe('buildOverdueAlertMessage', () => {
       // 代表イベントもグループ全体から選ぶ（対象外の 8/11 が真の代表）
       expect(text).toContain(`${baseUrl}/events/12`)
       expect(text).not.toContain(`${baseUrl}/events/11`)
-      // 締切明細は超過対象の日だけ（対象外の日の締切行は出さない）
+      // 代表 URL が非対象日を指すので、どの日が超過かを日別ラベルで明示する
+      expect(text).toContain('8/15(木)多摩A')
+      // 締切明細は超過対象の日だけ（対象外の 8/11 の締切行は出さない）
       expect(text).toContain('（5日超過）')
+      expect(text).not.toContain('8/11(日)多摩B')
       expect(text).toContain('参加 3名')
     })
 

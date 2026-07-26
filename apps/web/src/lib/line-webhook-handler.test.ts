@@ -1019,6 +1019,56 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     expect(res.status).toBe(404)
   })
 
+  // r2 review should_fix: 表示名が導出不能なグループでは **代表イベント**
+  // （今日以降で最も近い開催日、無ければ最新）のタイトルへフォールバックする。
+  // id 昇順の先頭では、作成順と開催日順が食い違うグループで他画面と別名になる。
+  it('r2: 表示名が導出不能なとき、id 先頭ではなく代表イベントのタイトルを返す', async () => {
+    const jstDate = (offsetDays: number) =>
+      new Date(Date.now() + offsetDays * 86_400_000).toLocaleDateString('sv-SE', {
+        timeZone: 'Asia/Tokyo',
+      })
+
+    const { id: entryGroupId } = await createEntryGroup()
+    // 先に作る（= id が小さい）のは開催日が遠い方。共通接頭辞が無いので
+    // deriveEntryGroupName は null になる。
+    await db.insert(events).values({
+      entryGroupId,
+      title: 'ベータ大会',
+      eventDate: jstDate(20),
+    })
+    await db.insert(events).values({
+      entryGroupId,
+      title: 'アルファ大会',
+      eventDate: jstDate(10),
+    })
+
+    const channel = await insertChannel({ purpose: 'event_broadcast', status: 'assigned' })
+    await insertBroadcast(entryGroupId, channel.id, {
+      status: 'joined_waiting_code',
+      inviteCode: '135791',
+      inviteCodeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      lineGroupId: 'C-rep-name',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'rep-name-1',
+          source: { type: 'group', groupId: 'C-rep-name' },
+          message: { type: 'text', text: '135791' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client)
+
+    // 代表 = 今日以降で最も近い「アルファ大会」（id は後発で大きい）。
+    expect(reply.captured[0]!.text).toContain('大会「アルファ大会」と紐付けました')
+    expect(reply.captured[0]!.text).not.toContain('ベータ大会')
+  })
+
   it('event_broadcast チャネル宛の既存挙動は grade_broadcast チャネルが同時に存在しても変わらない（回帰）', async () => {
     // 同時に級グループチャネルを1つ用意しておき、大会用フローが誤って
     // line_grade_group_bindings 側を触らないこと・grade 側の存在に影響されない

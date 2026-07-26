@@ -20,7 +20,11 @@ import {
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
-import { listGroupSiblings, resolveEntryGroupId } from '@/lib/entry-groups'
+import {
+  listGroupSiblings,
+  lockEventRowsAscending,
+  resolveEntryGroupId,
+} from '@/lib/entry-groups'
 import {
   loadGuidelineCandidates,
   loadSelectedGuidelineAttachmentIds,
@@ -733,35 +737,6 @@ function buildTreasurerAppliedMessage(rows: readonly AppliedFlipRow[]): string {
     paymentInfo: r.paymentInfo,
   }))
   return buildLifecycleMessage('entry_applied_treasurer', { title: '', days })
-}
-
-/** `lockEventRowsAscending` / 一括更新で使う tx ハンドル。 */
-type EventsTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
-
-/**
- * 一括 UPDATE の前に、対象行を **id 昇順で明示的に FOR UPDATE ロック**する。
- *
- * ★`inArray()` を使った単一 UPDATE のロック順は、渡した配列の順序では決まらない
- * （r1 review should_fix）。実行計画（bitmap heap scan 等）次第で物理順・任意順に
- * なり得るため、`applied=true` 側の「id 昇順で1件ずつ UPDATE」する経路と組み合わ
- * さると逆順ロック＝デッドロックが起こり得る。`ORDER BY id FOR UPDATE` で先に
- * 昇順ロックを取ってしまえば、以降の一括 UPDATE は既得ロックの再取得になるので
- * 順序が実行計画に依存しなくなる。
- *
- * グループ再検証（`entry_group_id` 一致）もここで併記する — ロック対象を
- * 後続 UPDATE の WHERE と完全に一致させ、グループ外 id を掴まないため。
- */
-async function lockEventRowsAscending(
-  tx: EventsTx,
-  ids: readonly number[],
-  entryGroupId: number,
-): Promise<void> {
-  await tx
-    .select({ id: events.id })
-    .from(events)
-    .where(and(inArray(events.id, [...ids]), eq(events.entryGroupId, entryGroupId)))
-    .orderBy(asc(events.id))
-    .for('update')
 }
 
 /**

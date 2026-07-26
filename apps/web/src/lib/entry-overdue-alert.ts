@@ -270,6 +270,13 @@ interface OverdueGroupSummary {
   name: string
   /** 代表イベント（今日以降で最も近い開催日、無ければ最新）の id。詳細 URL に使う。 */
   representativeEventId: number
+  /**
+   * 名前・代表イベントの導出母集団（＝グループ全体、無ければ対象日）の件数。
+   * 日別ラベルを出すかどうかの判定に使う — **対象日の数ではなくこちらで判定する**。
+   * 表示名と URL がグループ全体基準になった以上、対象日が1件でも「どの日が超過か」を
+   * 明示しないと、代表 URL が超過していない日を指したまま本文から日が消えてしまう。
+   */
+  groupEventCount: number
   /** グループ内の対象日のうち最大の超過日数。グループの並び替えキー。 */
   maxOverdueDays: number
   /** event_attendances.attend=true の最大値（同一会員の複数日出席を合算しない）。 */
@@ -325,7 +332,15 @@ function groupOverdueRows(
     // 参加人数は「延べ」ではなく最大値 — 同一会員が複数日に参加希望すると
     // 合計では二重に数えてしまう。
     const attendCount = Math.max(...groupRows.map((r) => r.attendCount))
-    return { entryGroupId, name, representativeEventId, maxOverdueDays, attendCount, rows: groupRows }
+    return {
+      entryGroupId,
+      name,
+      representativeEventId,
+      groupEventCount: namingPool.length,
+      maxOverdueDays,
+      attendCount,
+      rows: groupRows,
+    }
   })
 }
 
@@ -363,7 +378,9 @@ export function buildOverdueAlertMessage(
     lines.push('')
     lines.push(`・${truncateLine(group.name, TITLE_MAX_CODEPOINTS)}`)
     for (const row of group.rows) {
-      if (group.rows.length > 1) {
+      // グループが複数日なら、対象日が1件でも日別ラベルを出す（表示名・URL が
+      // グループ全体基準なので、これが無いと「どの日の締切超過か」が本文から消える）。
+      if (group.groupEventCount > 1) {
         lines.push(`${formatEventDate(row.eventDate)}${row.title}`)
       }
       lines.push(formatBaseDeadlineLine(row))
