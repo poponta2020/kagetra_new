@@ -232,20 +232,19 @@ export async function approveDraft(draftId: number, formData: FormData) {
     const mailMessageId = approvedMailMessageId
     const isCorrection = approvedIsCorrection
     after(async () => {
-      try {
-        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
-      } catch (err) {
-        console.error('[approveDraft] broadcastMailToEvent failed', err)
-      }
-      // event-grade-group-broadcast: 級別グループへの概要配信。大会別グループ
-      // 配信（上）とは読み手も経路も別なので、片方の失敗が他方を止めないよう
-      // 独立して起こす。broadcastEventsToGradeGroups は throw しない契約だが、
-      // 承認を巻き戻さないため防御的に囲う。
-      try {
-        await broadcastEventsToGradeGroups(db, [eventId])
-      } catch (err) {
-        console.error('[approveDraft] broadcastEventsToGradeGroups failed', err)
-      }
+      // event-grade-group-broadcast: 大会別グループ配信と級別グループ配信は
+      // 読み手も経路も別系統。**直列にしない** — 既存の配信は本文の PDF 変換等で
+      // 数十秒かかり得るため、待ってから級別配信を始めると「即時配信」の意図に
+      // 反して大きく遅れ、after が途中で切られると級別側は claim すら作れない
+      // （review R5 should_fix）。個別に catch して並行で走らせる。
+      await Promise.allSettled([
+        broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection }).catch((err) => {
+          console.error('[approveDraft] broadcastMailToEvent failed', err)
+        }),
+        broadcastEventsToGradeGroups(db, [eventId]).catch((err) => {
+          console.error('[approveDraft] broadcastEventsToGradeGroups failed', err)
+        }),
+      ])
     })
   }
 }
@@ -677,15 +676,18 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     const mailMessageId = approvedMailMessageId ?? lockedMessageId
     const isCorrection = didFinalize ? approvedIsCorrection : lockedIsCorrection
     after(async () => {
-      await broadcastApprovedUnits(eventIds, mailMessageId, isCorrection)
-      // event-grade-group-broadcast: 今回作成した全 event を**1回でまとめて**渡す。
-      // event ごとに呼ぶと、同じ級に複数件該当したとき級グループへ複数通届いて
-      // しまう（AC-10 は「級ごと1通」）。
-      try {
-        await broadcastEventsToGradeGroups(db, eventIds)
-      } catch (err) {
-        console.error('[approveDraftUnits] broadcastEventsToGradeGroups failed', err)
-      }
+      // 2 系統は独立。直列にすると級別配信が既存配信（PDF 変換等で数十秒）の
+      // 完了待ちになる（review R5 should_fix）。個別に catch して並行で走らせる。
+      //
+      // 級別配信には今回作成した全 event を**1回でまとめて**渡す。event ごとに
+      // 呼ぶと、同じ級に複数件該当したとき級グループへ複数通届いてしまう
+      // （AC-10 は「級ごと1通」）。
+      await Promise.allSettled([
+        broadcastApprovedUnits(eventIds, mailMessageId, isCorrection),
+        broadcastEventsToGradeGroups(db, eventIds).catch((err) => {
+          console.error('[approveDraftUnits] broadcastEventsToGradeGroups failed', err)
+        }),
+      ])
     })
   }
 }

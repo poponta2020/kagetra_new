@@ -707,13 +707,23 @@ export async function broadcastEventsToGradeGroups(
         const preexistingKeys = [
           ...new Set(claimed.filter((c) => c.row.retryKey !== freshKey).map((c) => c.row.retryKey)),
         ]
+        // review R5 blocker: 兄弟行を**全件**取れなければ、そのキーでは1件も push しない。
+        // 1行ずつ取れた分だけ送ると、2プロセスが A と B を分け取ったときに双方が
+        // 部分本文を同じキーで送り、片方が受理・片方が 409 になる。その後どちらも
+        // sent_at を確定するため、実際には届いていない大会が送信済みになる（配信欠落）。
+        const incompleteKeys = new Set<string>()
         for (const key of preexistingKeys) {
           const known = new Set(claimed.map((c) => c.event.id))
           const siblings = await loadSiblingEventsForRetryKey(db, grade, key, known)
           for (const sibling of siblings) {
             const row = await claimBroadcast(db, sibling.id, grade, leaseMs, freshKey)
-            // 取れなければ別プロセスがリース中。そちらに任せる（今回は送らない）。
-            if (row != null) claimed.push({ row, event: sibling })
+            if (row == null) {
+              // 別プロセスがリース中。バッチを完全には復元できないので、このキーは
+              // 今回見送る（相手がリースを手放した後、誰かが全件揃えて送り直す）。
+              incompleteKeys.add(key)
+              continue
+            }
+            claimed.push({ row, event: sibling })
           }
         }
 
@@ -735,6 +745,19 @@ export async function broadcastEventsToGradeGroups(
           // 本文は event id 昇順で組み立てて、再試行時に元と同じ内容になるようにする
           // （LINE は同一キーで本文・宛先を変えないことを求めている）。
           group.sort((a, b) => a.event.id - b.event.id)
+
+          // 元バッチを完全に復元できなかったキーは送らない（部分本文を同じキーで
+          // 送ると、もう片方が 409 で「届いていないのに送信済み」になる）。claim は
+          // 残し、リースが空いた後に全件揃えて送り直させる。
+          if (incompleteKeys.has(retryKey)) {
+            anyGroupFailed = true
+            for (const { row } of group) protectedRowIds.add(row.id)
+            logger.warn('grade broadcast retry batch incomplete; skipping this key', {
+              grade,
+              claimedInGroup: group.length,
+            })
+            continue
+          }
 
           // review R4 blocker: LINE の retry key 保持期間 (24h) を超えた「受理不明」の
           // 送信は、同じキーでもう一度送ると新規リクエスト扱いになり、元が受理済み

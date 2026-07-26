@@ -623,6 +623,46 @@ describe('broadcastEventsToGradeGroups — DB', () => {
     expect(after.every((r) => r.sentAt != null)).toBe(true)
   })
 
+  it('兄弟行を全件 claim できない場合は、そのキーでは1件も送らない（部分本文で確定しない）', async () => {
+    await seedGradeBinding('A')
+    const eventA = await createEvent({ eligibleGrades: ['A'], title: '大会A' })
+    const eventB = await createEvent({ eligibleGrades: ['A'], title: '大会B' })
+
+    // A+B をまとめた push がタイムアウト（受理不明）。
+    const timeoutFetch = vi.fn<typeof fetch>(async () => {
+      const err = new Error('The operation was aborted')
+      err.name = 'AbortError'
+      throw err
+    })
+    await broadcastEventsToGradeGroups(testDb, [eventA.id, eventB.id], {
+      fetchImpl: timeoutFetch,
+      baseUrl: BASE_URL,
+    })
+
+    // A のリースだけ失効させ、B は別プロセスがリース中（＝今 claim できない）状態にする。
+    await testDb
+      .update(eventGradeBroadcasts)
+      .set({ claimedAt: sql`now() - interval '1 hour'` })
+      .where(eq(eventGradeBroadcasts.eventId, eventA.id))
+
+    const retry = okFetch()
+    const result = await broadcastEventsToGradeGroups(testDb, [eventA.id], {
+      fetchImpl: retry,
+      baseUrl: BASE_URL,
+    })
+
+    // 元バッチを復元できないので送らない。A だけを同じキーで送ると、後で B を
+    // 送ろうとしたときに 409 になり「B は届いていないのに送信済み」になる。
+    expect(retry).not.toHaveBeenCalled()
+    expect(result.sentGrades).toEqual([])
+    expect(result.failedGrades).toEqual(['A'])
+
+    // claim は残す（リースが空いた後に全件揃えて送り直す）。
+    const rows = await testDb.select().from(eventGradeBroadcasts)
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.sentAt == null)).toBe(true)
+  })
+
   it('retry key の保持期間(24h)を過ぎた受理不明の送信は自動再送せず管理者へ回す', async () => {
     const { binding } = await seedGradeBinding('A')
     expect(binding.grade).toBe('A')

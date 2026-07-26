@@ -180,7 +180,12 @@ export function GradeGroupList({
   const [pendingAction, setPendingAction] = useState<'generate' | 'revoke' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [modalState, setModalState] = useState<ModalState | null>(null)
-  const [, startTransition] = useTransition()
+  // review R5 should_fix: pendingGrade は最後に開始した1操作しか保持しないため、
+  // 別の級の操作が先に完了するとその finally が状態を無条件に null へ戻し、
+  // まだ処理中の級のボタンが再び押せてしまう（同じ級の再発行が重なり、応答順に
+  // よってはモーダルへ古い＝無効なコードが表示される）。isPending で**処理中は
+  // 全操作を無効化**して、この取り違えを構造的に潰す。
+  const [isPending, startTransition] = useTransition()
 
   function handleGenerate(grade: Grade) {
     setError(null)
@@ -224,7 +229,9 @@ export function GradeGroupList({
       <ul className="divide-y divide-border/60">
         {rows.map((row) => {
           const statusLabel = STATUS_LABEL[row.status]
+          // 表示（「発行中…」等）は操作対象の級だけ、無効化は全級に効かせる。
           const isBusy = pendingGrade === row.grade
+          const disabled = isPending || pendingGrade != null
           return (
             <li key={row.grade} className="px-3 py-3 flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
@@ -263,7 +270,7 @@ export function GradeGroupList({
                     kind="primary"
                     size="sm"
                     onClick={() => handleGenerate(row.grade)}
-                    disabled={isBusy}
+                    disabled={disabled}
                   >
                     {isBusy && pendingAction === 'generate'
                       ? '発行中…'
@@ -278,7 +285,7 @@ export function GradeGroupList({
                     kind="ghost"
                     size="sm"
                     onClick={() => handleRevoke(row.grade)}
-                    disabled={isBusy}
+                    disabled={disabled}
                   >
                     {isBusy && pendingAction === 'revoke' ? '解除中…' : '解除'}
                   </Btn>
