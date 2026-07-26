@@ -179,7 +179,7 @@ status: completed
 - **対応Issue:** #366
 
 ### タスク8: 名簿のグループ化 + migration 0047 + lottery 回帰
-- [ ] 完了
+- [x] 完了（migration は **0048 + 0049** の2本。上の「migration 番号の実績」参照）
 - **目的:** tournament_entry_rosters の帰属を entry_group へ移し、名簿 UI・採用フロー・lottery 系集計を追随させる
 - **対応AC:** AC-17, AC-22（AC-21/23 は全タスク横断の回帰）
 - **主な変更領域:**

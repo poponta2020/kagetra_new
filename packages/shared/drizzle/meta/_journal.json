@@ -337,6 +337,20 @@
       "when": 1785091228296,
       "tag": "0047_long_la_nuit",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785101898628,
+      "tag": "0048_spooky_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785101984661,
+      "tag": "0049_sour_karma",
+      "breakpoints": true
     }
   ]
 }

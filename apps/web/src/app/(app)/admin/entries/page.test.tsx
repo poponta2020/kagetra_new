@@ -281,7 +281,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         entryStatus: 'applied',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: applicantOnly.id,
+        entryGroupId: applicantOnly.entryGroupId,
         rosterType: 'applicant',
       })
 
@@ -291,7 +291,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         entryStatus: 'applied',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: supersededOnly.id,
+        entryGroupId: supersededOnly.entryGroupId,
         rosterType: 'confirmed',
         supersededAt: new Date(),
       })
@@ -304,7 +304,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         paymentStatus: 'unpaid',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: confirmed.id,
+        entryGroupId: confirmed.entryGroupId,
         rosterType: 'confirmed',
       })
 
@@ -327,8 +327,8 @@ describe('/admin/entries（申込管理ボード）', () => {
         paymentType: 'onsite',
       })
       await testDb.insert(tournamentEntryRosters).values([
-        { eventId: event.id, rosterType: 'confirmed', version: 1, supersededAt: new Date() },
-        { eventId: event.id, rosterType: 'confirmed', version: 2 },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', version: 1, supersededAt: new Date() },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', version: 2 },
       ])
 
       await renderPage()

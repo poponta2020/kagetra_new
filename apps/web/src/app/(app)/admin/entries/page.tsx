@@ -102,22 +102,25 @@ export default async function EntryManagementPage() {
   }
 
   // ③ 確定名簿の有無。roster_type='confirmed' かつ superseded_at IS NULL の行が
-  //    1 つでもあれば true（申込者名簿・差し替え済みの版は数えない）。
+  //    1 つでもあれば true（申込者名簿・差し替え済みの版は数えない）。名簿の帰属は
+  //    event → entry_group へ移った（entry-groups タスク8）ので、グループ単位で
+  //    判定する — グループ内のどの日から見ても確定名簿の有無が同じになる（AC-17）。
+  const groupIds = [...new Set(eventRows.map((e) => e.entryGroupId))]
   const rosterRows =
-    eventIds.length === 0
+    groupIds.length === 0
       ? []
       : await db
-          .select({ eventId: tournamentEntryRosters.eventId })
+          .select({ entryGroupId: tournamentEntryRosters.entryGroupId })
           .from(tournamentEntryRosters)
           .where(
             and(
-              inArray(tournamentEntryRosters.eventId, eventIds),
+              inArray(tournamentEntryRosters.entryGroupId, groupIds),
               eq(tournamentEntryRosters.rosterType, 'confirmed'),
               isNull(tournamentEntryRosters.supersededAt),
             ),
           )
 
-  const eventIdsWithConfirmedRoster = new Set(rosterRows.map((r) => r.eventId))
+  const groupIdsWithConfirmedRoster = new Set(rosterRows.map((r) => r.entryGroupId))
 
   // ④ タスク6: グループ表示名・代表イベントはグループごとに一度だけ計算する
   //    （`@/lib/entry-groups` の正典実装。呼び出し側で再実装しない）。
@@ -168,7 +171,7 @@ export default async function EntryManagementPage() {
       paymentType: e.paymentType,
       paymentStatus: e.paymentStatus,
       attendCount: attendCountByEvent.get(e.id) ?? 0,
-      hasConfirmedRoster: eventIdsWithConfirmedRoster.has(e.id),
+      hasConfirmedRoster: groupIdsWithConfirmedRoster.has(e.entryGroupId),
     }
   })
 

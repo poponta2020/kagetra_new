@@ -75,7 +75,7 @@ describe('materializeRoster', () => {
           entry('札幌太郎', { grade: 'A', rawAffiliation: '札幌', seqNo: 1 }),
           entry('他県次郎', { grade: 'B', rawAffiliation: '他県', seqNo: 2 }),
         ]),
-        { eventId: event.id, rosterType: 'applicant', revision: { kind: 'initial' } },
+        { entryGroupId: event.entryGroupId, rosterType: 'applicant', revision: { kind: 'initial' } },
       ),
     )
     expect(res.entryCount).toBe(2)
@@ -104,14 +104,14 @@ describe('materializeRoster', () => {
     const event = await createEvent()
     const first = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎'), entry('B次郎')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'initial' },
       }),
     )
     const res2 = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎', { statusText: '繰上' })]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'correction', targetRosterId: first.rosterId },
       }),
@@ -119,7 +119,7 @@ describe('materializeRoster', () => {
     const rosters = await testDb
       .select()
       .from(tournamentEntryRosters)
-      .where(eq(tournamentEntryRosters.eventId, event.id))
+      .where(eq(tournamentEntryRosters.entryGroupId, event.entryGroupId))
     expect(rosters).toHaveLength(2)
     expect(rosters.find((r) => r.id === first.rosterId)?.supersededAt).not.toBeNull()
     expect(rosters.find((r) => r.id === res2.rosterId)).toMatchObject({
@@ -146,14 +146,14 @@ describe('materializeRoster', () => {
     const event = await createEvent()
     await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'applicant',
         revision: { kind: 'initial' },
       }),
     )
     await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'initial' },
       }),
@@ -161,7 +161,7 @@ describe('materializeRoster', () => {
     const rosters = await testDb
       .select()
       .from(tournamentEntryRosters)
-      .where(eq(tournamentEntryRosters.eventId, event.id))
+      .where(eq(tournamentEntryRosters.entryGroupId, event.entryGroupId))
     expect(rosters).toHaveLength(2)
     // player は同一人物で 1 行（get-or-create）
     expect(await testDb.select().from(players)).toHaveLength(1)
@@ -179,14 +179,14 @@ describe('materializeRoster', () => {
             selectionExempt: true,
           }),
         ]),
-        { eventId: event.id, rosterType: 'confirmed', revision: { kind: 'initial' } },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', revision: { kind: 'initial' } },
       ),
     )
     const additional = await testDb.transaction((tx) =>
       materializeRoster(
         tx,
         roster([entry('B次郎', { grade: 'A', selectionOutcome: 'waitlisted' })]),
-        { eventId: event.id, rosterType: 'confirmed', revision: { kind: 'additional' } },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', revision: { kind: 'additional' } },
       ),
     )
 
@@ -209,21 +209,21 @@ describe('materializeRoster', () => {
     const event = await createEvent()
     const first = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('初版')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'initial' },
       }),
     )
     const additional = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('追加版')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'additional' },
       }),
     )
     const correction = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('初版の訂正版')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'correction', targetRosterId: first.rosterId },
       }),
@@ -244,7 +244,7 @@ describe('materializeRoster', () => {
     const event = await createEvent()
     const first = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('山田太郎')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'applicant',
         revision: { kind: 'initial' },
       }),
@@ -254,7 +254,7 @@ describe('materializeRoster', () => {
     await createUser({ name: '山田太郎' })
     await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('山田 太郎')]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'applicant',
         revision: { kind: 'correction', targetRosterId: first.rosterId },
       }),
@@ -280,14 +280,14 @@ describe('materializeRoster', () => {
     const event = await createEvent({ editionId: edition!.id })
     const applicant = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('A太郎', { grade: 'A' })]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'applicant',
         revision: { kind: 'initial' },
       }),
     )
     const confirmed = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('B次郎', { grade: 'A' })]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
         revision: { kind: 'initial' },
       }),
@@ -326,7 +326,7 @@ describe('materializeRoster', () => {
     const event = await createEvent({ editionId: edition!.id })
     const applicant = await testDb.transaction((tx) =>
       materializeRoster(tx, roster([entry('発表日太郎', { grade: 'A' })]), {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType: 'applicant',
         revision: { kind: 'initial' },
       }),

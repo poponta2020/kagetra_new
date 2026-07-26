@@ -54,8 +54,8 @@ describe('tournament-lottery-trends schema', () => {
     expect(tournamentEntryRosterEntries.selectionExempt.default).toBe(false)
   })
 
-  it('defines versioning and audit columns without changing the event-owned roster contract', () => {
-    expect(tournamentEntryRosters.eventId.notNull).toBe(true)
+  it('defines versioning and audit columns without changing the entry-group-owned roster contract', () => {
+    expect(tournamentEntryRosters.entryGroupId.notNull).toBe(true)
     expect(tournamentEntryRosters.sourceMailMessageId.name).toBe('source_mail_message_id')
     expect(tournamentEntryRosters.supersedesRosterId.name).toBe('supersedes_roster_id')
     expect(tournamentEntryRosters.supersededAt.name).toBe('superseded_at')

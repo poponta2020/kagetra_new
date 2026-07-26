@@ -73,7 +73,7 @@ async function createEdition(
 }
 
 async function createRoster(
-  eventId: number,
+  entryGroupId: number,
   rosterType: 'applicant' | 'confirmed',
   grade: Grade,
   entries: Array<{
@@ -86,7 +86,7 @@ async function createRoster(
 ) {
   const [roster] = await testDb
     .insert(tournamentEntryRosters)
-    .values({ eventId, rosterType, version, approvedAt: new Date() })
+    .values({ entryGroupId, rosterType, version, approvedAt: new Date() })
     .returning()
   if (entries.length > 0) {
     const rosterEntryStatus: 'applied' | 'confirmed' =
@@ -163,7 +163,7 @@ async function addHistoricalAppearance(
 ) {
   const { edition, event } = await createEdition(seriesId, editionNumber, eventDate)
   const roster = await createRoster(
-    event.id,
+    event.entryGroupId,
     'confirmed',
     'A',
     playerIds.map((playerId) => ({ name: `履歴${playerId}`, playerId, outcome: 'accepted' })),
@@ -204,8 +204,8 @@ describe('getSeriesLotteryMetrics', () => {
   it('keeps A-E separate and freezes the lottery ratio at the active source pointers', async () => {
     const series = await createSeries()
     const { edition, event } = await createEdition(series.id, 1, '2025-02-01')
-    const applicants = await createRoster(event.id, 'applicant', 'B', entries(150, '申込'))
-    const selection = await createRoster(event.id, 'confirmed', 'B', [
+    const applicants = await createRoster(event.entryGroupId, 'applicant', 'B', entries(150, '申込'))
+    const selection = await createRoster(event.entryGroupId, 'confirmed', 'B', [
       ...entries(100, '当選', 'accepted'),
       ...entries(25, '待機', 'waitlisted'),
       ...entries(25, '落選', 'rejected'),
@@ -232,7 +232,7 @@ describe('getSeriesLotteryMetrics', () => {
     })
     expect(first.points.some((item) => item.grade === 'A')).toBe(false)
 
-    const later = await createRoster(event.id, 'confirmed', 'B', entries(40, '後日確定', 'accepted'), 2)
+    const later = await createRoster(event.entryGroupId, 'confirmed', 'B', entries(40, '後日確定', 'accepted'), 2)
     await testDb.insert(tournamentConfirmedRosterPublications).values({
       editionId: edition.id,
       grade: 'B',
@@ -249,7 +249,7 @@ describe('getSeriesLotteryMetrics', () => {
     const series = await createSeries()
     const under = await createEdition(series.id, 1, '2025-02-01')
     const underApplicants = await createRoster(
-      under.event.id,
+      under.event.entryGroupId,
       'applicant',
       'C',
       entries(80, 'C申込'),
@@ -267,7 +267,7 @@ describe('getSeriesLotteryMetrics', () => {
       capacityA: 100,
     })
     const unlimitedApplicants = await createRoster(
-      unlimited.event.id,
+      unlimited.event.entryGroupId,
       'applicant',
       'D',
       entries(30, 'D申込'),
@@ -309,7 +309,7 @@ describe('getSeriesLotteryMetrics', () => {
       const player = await createPlayer(`定員未満${index + 1}`)
       applicantRows.push({ name: player.displayName, playerId: player.id })
     }
-    const applicants = await createRoster(target.event.id, 'applicant', 'A', applicantRows)
+    const applicants = await createRoster(target.event.entryGroupId, 'applicant', 'A', applicantRows)
     await createFact({
       editionId: target.edition.id,
       grade: 'A',
@@ -339,7 +339,7 @@ describe('getSeriesLotteryMetrics', () => {
     const series = await createSeries()
 
     const duplicateEdition = await createEdition(series.id, 1, '2024-06-01')
-    const duplicateRoster = await createRoster(duplicateEdition.event.id, 'applicant', 'C', [
+    const duplicateRoster = await createRoster(duplicateEdition.event.entryGroupId, 'applicant', 'C', [
       { name: '重 複' },
       { name: '重複' },
     ])
@@ -352,9 +352,9 @@ describe('getSeriesLotteryMetrics', () => {
     })
 
     const zeroEdition = await createEdition(series.id, 2, '2024-07-01')
-    const zeroApplicants = await createRoster(zeroEdition.event.id, 'applicant', 'B', entries(2, '申込'))
+    const zeroApplicants = await createRoster(zeroEdition.event.entryGroupId, 'applicant', 'B', entries(2, '申込'))
     const zeroSelection = await createRoster(
-      zeroEdition.event.id,
+      zeroEdition.event.entryGroupId,
       'confirmed',
       'B',
       entries(2, '落選', 'rejected'),
@@ -398,8 +398,8 @@ describe('getSeriesLotteryMetrics', () => {
   it('uses only the active fact revision and changes the ratio after an explicit correction', async () => {
     const series = await createSeries()
     const { edition, event } = await createEdition(series.id, 1, '2025-02-01')
-    const oldApplicants = await createRoster(event.id, 'applicant', 'B', entries(150, '旧申込'))
-    const oldSelection = await createRoster(event.id, 'confirmed', 'B', entries(100, '旧当選', 'accepted'))
+    const oldApplicants = await createRoster(event.entryGroupId, 'applicant', 'B', entries(150, '旧申込'))
+    const oldSelection = await createRoster(event.entryGroupId, 'confirmed', 'B', entries(100, '旧当選', 'accepted'))
     const oldFact = await createFact({
       editionId: edition.id,
       grade: 'B',
@@ -412,8 +412,8 @@ describe('getSeriesLotteryMetrics', () => {
       .set({ validTo: new Date() })
       .where(eq(tournamentEditionGradeLotteryFacts.id, oldFact.id))
 
-    const newApplicants = await createRoster(event.id, 'applicant', 'B', entries(120, '新申込'), 2)
-    const newSelection = await createRoster(event.id, 'confirmed', 'B', entries(60, '新当選', 'accepted'), 2)
+    const newApplicants = await createRoster(event.entryGroupId, 'applicant', 'B', entries(120, '新申込'), 2)
+    const newSelection = await createRoster(event.entryGroupId, 'confirmed', 'B', entries(60, '新当選', 'accepted'), 2)
     await createFact({
       editionId: edition.id,
       grade: 'B',
@@ -436,8 +436,8 @@ describe('getSeriesLotteryMetrics', () => {
     const series = await createSeries()
     const target = await createEdition(series.id, 1, '2025-02-01')
     const other = await createEdition(series.id, 2, '2025-03-01')
-    const wrongApplicant = await createRoster(other.event.id, 'applicant', 'B', entries(10, '別開催'))
-    const wrongSelectionType = await createRoster(target.event.id, 'applicant', 'B', entries(5, '申込型'), 1)
+    const wrongApplicant = await createRoster(other.event.entryGroupId, 'applicant', 'B', entries(10, '別開催'))
+    const wrongSelectionType = await createRoster(target.event.entryGroupId, 'applicant', 'B', entries(5, '申込型'), 1)
     await createFact({
       editionId: target.edition.id,
       grade: 'B',
@@ -470,8 +470,8 @@ describe('getSeriesLotteryMetrics', () => {
       { name: zero.displayName, playerId: zero.id },
       { name: one.displayName, playerId: one.id },
     ]
-    const applicants = await createRoster(target.event.id, 'applicant', 'A', applicantRows)
-    const selection = await createRoster(target.event.id, 'confirmed', 'A', applicantRows.map((entry) => ({
+    const applicants = await createRoster(target.event.entryGroupId, 'applicant', 'A', applicantRows)
+    const selection = await createRoster(target.event.entryGroupId, 'confirmed', 'A', applicantRows.map((entry) => ({
       ...entry,
       outcome: 'accepted' as const,
     })))
@@ -530,8 +530,8 @@ describe('getSeriesLotteryMetrics', () => {
       { name: twoWaitlisted.displayName, playerId: twoWaitlisted.id },
       { name: twoRejected.displayName, playerId: twoRejected.id },
     ]
-    const applicants = await createRoster(target.event.id, 'applicant', 'A', applicantRows)
-    const selection = await createRoster(target.event.id, 'confirmed', 'A', [
+    const applicants = await createRoster(target.event.entryGroupId, 'applicant', 'A', applicantRows)
+    const selection = await createRoster(target.event.entryGroupId, 'confirmed', 'A', [
       { ...applicantRows[0]!, outcome: 'accepted' },
       { ...applicantRows[1]!, outcome: 'accepted' },
       { ...applicantRows[2]!, outcome: 'accepted' },

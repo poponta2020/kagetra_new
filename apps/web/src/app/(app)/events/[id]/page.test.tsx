@@ -256,7 +256,7 @@ describe('/events/[id] — 名簿の内部列を RSC payload へ載せない', (
     const rosterRows = await testDb
       .insert(tournamentEntryRosters)
       .values({
-        eventId: ev.id,
+        entryGroupId: ev.entryGroupId,
         rosterType: 'applicant',
         version: 1,
         publishedAt: '2026-07-22',

@@ -119,14 +119,14 @@ interface CoreRow extends Record<string, unknown> {
   applicant_roster_id: number | null
   applicant_roster_type: string | null
   applicant_superseded_at: Date | null
-  applicant_event_edition_id: number | null
+  applicant_event_matches: boolean
   applicant_count: number
   applicant_distinct_count: number
   applicant_null_player_count: number
   selection_roster_id: number | null
   selection_roster_type: string | null
   selection_superseded_at: Date | null
-  selection_event_edition_id: number | null
+  selection_event_matches: boolean
   selection_count: number
   selection_distinct_count: number
   accepted_count: number
@@ -175,14 +175,26 @@ function coreQuery(seriesId: number) {
            ar.id AS applicant_roster_id,
            ar.roster_type AS applicant_roster_type,
            ar.superseded_at AS applicant_superseded_at,
-           aev.edition_id AS applicant_event_edition_id,
+           -- entry-groups タスク8: 名簿の帰属は event → entry_group。ここでの整合性
+           -- チェックは「この名簿のグループに、この edition を指す event が存在するか」
+           -- の boolean（edition_id を非正規化コピーしない。approveDraftUnits の
+           -- 後付け紐付けで stale になるため）。
+           EXISTS (
+             SELECT 1 FROM events aev
+             WHERE aev.entry_group_id = ar.entry_group_id
+               AND aev.edition_id = f.edition_id
+           ) AS applicant_event_matches,
            COALESCE(app.count, 0)::integer AS applicant_count,
            COALESCE(app.distinct_count, 0)::integer AS applicant_distinct_count,
            COALESCE(app.null_player_count, 0)::integer AS applicant_null_player_count,
            sr.id AS selection_roster_id,
            sr.roster_type AS selection_roster_type,
            sr.superseded_at AS selection_superseded_at,
-           sev.edition_id AS selection_event_edition_id,
+           EXISTS (
+             SELECT 1 FROM events sev
+             WHERE sev.entry_group_id = sr.entry_group_id
+               AND sev.edition_id = f.edition_id
+           ) AS selection_event_matches,
            COALESCE(sel.count, 0)::integer AS selection_count,
            COALESCE(sel.distinct_count, 0)::integer AS selection_distinct_count,
            COALESCE(sel.accepted_count, 0)::integer AS accepted_count,
@@ -191,7 +203,6 @@ function coreQuery(seriesId: number) {
            COALESCE(sel.unknown_count, 0)::integer AS unknown_count
     FROM scoped_facts f
     LEFT JOIN tournament_entry_rosters ar ON ar.id = f.applicant_roster_id
-    LEFT JOIN events aev ON aev.id = ar.event_id
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::integer AS count,
              COUNT(DISTINCT COALESCE(
@@ -204,7 +215,6 @@ function coreQuery(seriesId: number) {
         AND entry.grade = f.grade
     ) app ON true
     LEFT JOIN tournament_entry_rosters sr ON sr.id = f.selection_result_roster_id
-    LEFT JOIN events sev ON sev.id = sr.event_id
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::integer AS count,
              COUNT(DISTINCT COALESCE(
@@ -304,6 +314,9 @@ function cutoffQuery(seriesId: number) {
         ON fact.edition_id = candidate.edition_id
        AND fact.valid_to IS NULL
     ),
+    -- entry-groups タスク8: 名簿の帰属は event → entry_group。roster.event_id は
+    -- 撤去されたので、旧 JOIN の代わりにグループ内に一致 event が存在するかを
+    -- EXISTS で判定する（edition_id の非正規化はしない）。
     eligible_publications AS (
       SELECT candidate.target_edition_id,
              publication.id,
@@ -317,9 +330,11 @@ function cutoffQuery(seriesId: number) {
       JOIN tournament_entry_rosters roster
         ON roster.id = publication.roster_id
        AND roster.superseded_at IS NULL
-      JOIN events roster_event
-        ON roster_event.id = roster.event_id
-       AND roster_event.edition_id = publication.edition_id
+      WHERE EXISTS (
+        SELECT 1 FROM events roster_event
+        WHERE roster_event.entry_group_id = roster.entry_group_id
+          AND roster_event.edition_id = publication.edition_id
+      )
     ),
     expected_grades AS (
       SELECT DISTINCT candidate.target_edition_id,
@@ -535,12 +550,12 @@ function buildCoreMetric(row: CoreRow): SeriesGradeLotteryMetric {
   const applicantValid = applicantId !== null &&
     row.applicant_roster_type === 'applicant' &&
     row.applicant_superseded_at == null &&
-    intOrNull(row.applicant_event_edition_id) === int(row.edition_id)
+    row.applicant_event_matches === true
   const selectionId = intOrNull(row.selection_roster_id)
   const selectionValid = selectionId !== null &&
     row.selection_roster_type === 'confirmed' &&
     row.selection_superseded_at == null &&
-    intOrNull(row.selection_event_edition_id) === int(row.edition_id)
+    row.selection_event_matches === true
 
   if (row.selection_status === 'unknown') reasons.push('unknown_selection_status')
   if (applicantId === null) reasons.push('missing_applicant_roster')
@@ -634,11 +649,11 @@ function buildCutoff(
   const applicantSourceValid = core.applicant_roster_id != null &&
     core.applicant_roster_type === 'applicant' &&
     core.applicant_superseded_at == null &&
-    intOrNull(core.applicant_event_edition_id) === int(core.edition_id)
+    core.applicant_event_matches === true
   const selectionSourceValid = core.selection_roster_id != null &&
     core.selection_roster_type === 'confirmed' &&
     core.selection_superseded_at == null &&
-    intOrNull(core.selection_event_edition_id) === int(core.edition_id)
+    core.selection_event_matches === true
   if (!applicantSourceValid || (core.selection_status === 'lottery' && !selectionSourceValid)) {
     reasons.push('invalid_adopted_input')
   }

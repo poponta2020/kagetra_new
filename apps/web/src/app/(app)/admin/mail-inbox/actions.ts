@@ -47,6 +47,7 @@ import {
   clusterEventsByEntryGroup,
   createEntryGroup,
   deleteGroupIfEmpty,
+  listGroupSiblings,
 } from '@/lib/entry-groups'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
@@ -1995,7 +1996,12 @@ export async function approveRosterImportDraft(
       }
 
       const [event] = await tx
-        .select({ id: events.id, editionId: events.editionId, eligibleGrades: events.eligibleGrades })
+        .select({
+          id: events.id,
+          entryGroupId: events.entryGroupId,
+          editionId: events.editionId,
+          eligibleGrades: events.eligibleGrades,
+        })
         .from(events)
         .where(eq(events.id, input.eventId))
         .limit(1)
@@ -2052,7 +2058,7 @@ export async function approveRosterImportDraft(
           ? { kind: 'additional' as const }
           : { kind: 'initial' as const }
       const roster = await materializeRoster(tx, parsedRoster, {
-        eventId: event.id,
+        entryGroupId: event.entryGroupId,
         rosterType,
         publishedAt: input.publishedAt,
         sourceAttachmentId: draft.sourceAttachmentId,
@@ -2119,7 +2125,12 @@ export async function approveRosterImportDraft(
     revalidatePath('/admin/mail-inbox')
     revalidatePath(`/admin/mail-inbox/roster-drafts/${draftId}`)
     if (adopted.mailId != null) revalidatePath(`/admin/mail-inbox/mail/${adopted.mailId}`)
-    revalidatePath(`/events/${adopted.eventId}`)
+    // entry-groups タスク8 (AC-17): 名簿はグループ単位で見えるので、グループ内の
+    // 全日の詳細を revalidate する（events/[id]/actions.ts の
+    // revalidateGroupEventPaths と同じパターン）。
+    const groupSiblings = await listGroupSiblings(db, adopted.eventId)
+    const groupEventIds = groupSiblings.length > 0 ? groupSiblings.map((s) => s.id) : [adopted.eventId]
+    for (const id of groupEventIds) revalidatePath(`/events/${id}`)
     revalidatePath(`/tournaments/series/${adopted.seriesId}`)
     return { ok: true, rosterId: adopted.rosterId }
   } catch (error) {

@@ -25,10 +25,10 @@ async function createEdition() {
   return edition
 }
 
-async function createRoster(eventId: number, version = 1) {
+async function createRoster(entryGroupId: number, version = 1) {
   const [roster] = await testDb
     .insert(tournamentEntryRosters)
-    .values({ eventId, rosterType: 'applicant', version })
+    .values({ entryGroupId, rosterType: 'applicant', version })
     .returning()
   if (!roster) throw new Error('failed to create roster')
   return roster
@@ -40,17 +40,17 @@ describe('tournament-lottery-trends schema constraints', () => {
 
   it('keeps multiple roster versions while rejecting a duplicate version', async () => {
     const event = await createEvent()
-    await createRoster(event.id, 1)
-    await createRoster(event.id, 2)
+    await createRoster(event.entryGroupId, 1)
+    await createRoster(event.entryGroupId, 2)
 
     expect(await testDb.select().from(tournamentEntryRosters)).toHaveLength(2)
-    await expect(createRoster(event.id, 2)).rejects.toThrow()
+    await expect(createRoster(event.entryGroupId, 2)).rejects.toThrow()
   })
 
   it('allows an applicant roster to serve as an explicit confirmed publication', async () => {
     const edition = await createEdition()
     const event = await createEvent({ editionId: edition.id })
-    const roster = await createRoster(event.id)
+    const roster = await createRoster(event.entryGroupId)
 
     await testDb.insert(tournamentConfirmedRosterPublications).values({
       editionId: edition.id,
@@ -100,7 +100,7 @@ describe('tournament-lottery-trends schema constraints', () => {
   it('preserves audit rows and nulls source pointers when a roster is deleted', async () => {
     const edition = await createEdition()
     const event = await createEvent({ editionId: edition.id })
-    const roster = await createRoster(event.id)
+    const roster = await createRoster(event.entryGroupId)
     await testDb.insert(tournamentConfirmedRosterPublications).values({
       editionId: edition.id,
       grade: 'A',
