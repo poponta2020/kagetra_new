@@ -262,8 +262,8 @@ export function RosterSection({
       aux={`申込者 ${countLabel(applicant)} / 確定 ${countLabel(confirmed)}`}
       nested
       // セクション間余白（モックの `.sec{padding:34px 0 0}`）は自前で持つ。
-      // 団体戦・名簿ゼロ件では上で null を返すので、呼び出し側がラッパーで
-      // 付けると空の 34px が残ってしまう。
+      // 団体戦では上で null を返すので、呼び出し側がラッパー div で付けると
+      // 空の 34px が残ってしまう。
       className="pt-[34px]"
     >
       <RosterList title="申込者名簿" roster={applicant} currentUserId={currentUserId} />
