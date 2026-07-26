@@ -132,7 +132,7 @@
 - [drizzle raw SQLのint[]はANY(ARRAY[...])](feedback_drizzle_sql_int_array_binding.md) — 要素展開かinArray。空配列early-return
 - [公開添付routeはblocklist+attachment固定](feedback_attachment_mime_blocklist.md)
 - [vitestは--no-file-parallelism](feedback_vitest_no_file_parallelism.md) — 時刻境界テストのflaky回避
-- [並行worktreeの共有test DB push衝突](feedback_shared_test_db_worktree_push_race.md) — TEST_DATABASE_URLで隔離
+- [並行worktreeのtest DB衝突は自動隔離で解決済み](feedback_shared_test_db_worktree_push_race.md) — worktreeごとにDB自動導出・手動createdb不要
 - [module-level stateはglobalThis pin必須](feedback_nextjs_module_state_globalthis_pin.md) — chunk splittingで別instance化
 - [git textconvが.doc入りdiffを非UTF-8化](feedback_git_textconv_doc_no_utf8_diff.md) — --no-textconvで生成
 - [iOS PWAはattachment dispositionで白画面死](feedback_ios_pwa_attachment_disposition.md) — inline fail-closed allowlist
