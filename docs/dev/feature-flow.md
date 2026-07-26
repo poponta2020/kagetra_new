@@ -62,6 +62,10 @@
 | レビュー | Codex（auto-review-loop）に一本化 | Sonnet 前段セルフレビューは不採用（2026-07-04 ユーザー判断: Codex で充足・Claude 使用量を割かない） |
 | prepare-pr / ship（side-effect） | スキル＋`disable-model-invocation: true` | 手動トリガー必須。「Claudeが勝手に deploy しない」公式パターン |
 
+**CI 側に Codex レビューは置かない。** レビューはローカルの `/auto-review-loop`（`codex` CLI）一本で、GitHub Actions では走らせない。devflow 同梱のテンプレート `.github/workflows/codex-review.yml` は 2026-07-26 に削除した。理由は、呼び出し先の共有ワークフロー（`poponta2020/claude-devflow`）が `OPENAI_API_KEY` を `required: true` で宣言しており、**secret 未設定のリポジトリでは `vars.CODEX_REVIEW_ENABLED` による opt-in 判定より前（ジョブ生成前）に startup failure する**ため。0 秒・ジョブ 0 件の赤が全 PR に付き、`gate-dod.sh` の B1（CI チェック）が恒常的に誤 FAIL して出荷を止めていた。
+
+CI 側レビューを使いたくなったら: (1) リポジトリに `OPENAI_API_KEY` secret を登録、(2) リポジトリ変数 `CODEX_REVIEW_ENABLED=true` を設定、(3) 削除したワークフローを復元（`git log -- .github/workflows/codex-review.yml` から取得できる）。ローカルの auto-review-loop と二重に課金される点に注意。なお共有ワークフロー側の `required: true` は「opt-in なのに未設定だと赤くなる」設計上の不具合なので、上流（claude-devflow）で `required: false` ＋ キー空なら skip に直すのが本筋。
+
 **スキルがエージェントを呼ぶ = `context: fork`（＋逆方向はサブの `skills:` フィールドで知識先読み）が公式機構。** カスタムエージェント方針は [proposed-agents.md](proposed-agents.md) を参照（code-reviewer-jp は不採用・`task-implementer` を採用、経緯は同ファイルの 2026-07-04 追記）。
 
 ### モデル階層（葉ステップに割り当てるモデル）
