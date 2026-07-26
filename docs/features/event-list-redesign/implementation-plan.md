@@ -21,7 +21,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 純関数・型の拡張（event-list-utils）
-- [ ] 完了
+- [x] 完了
 - **目的:** 表示判定ロジックを純関数として確定させ、後続2タスクが同じ契約に乗れるようにする
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-8, AC-9
 - **主な変更領域:** `apps/web/src/app/(app)/events/event-list-utils.ts` および `event-list-utils.test.ts`
