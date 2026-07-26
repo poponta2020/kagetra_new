@@ -38,4 +38,4 @@
 - `tournament-lottery-trends` — 大会系列ごとの申込者数・倍率推移とA級の出場回数別当落線を表示する（主要領域: apps/web, apps/mail-worker, packages/shared）[shipped: PR #304]
 - `entry-overdue-alert` — 会内締切超過の未申込大会を管理者個人LINEへ毎朝アラート＋進行管理に「申込なし」を追加（主要領域: apps/web, packages/shared）[shipped: PR #312]
 - `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: apps/web, packages/shared）[shipped: PR #321]
-- `entry-management` — 管理者向け大会申込進捗ボード（7エリア自動仕分け）＋ボトムナビ導線（主要領域: apps/web）
+- `entry-management` — 管理者向け大会申込進捗ボード（5区画へ自動仕分け）＋ボトムナビ導線（主要領域: apps/web）

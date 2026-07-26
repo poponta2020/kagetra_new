@@ -1,9 +1,12 @@
 # イベント・出欠
 
-> **責務:** 大会申込イベントの一覧・詳細・作成/編集・出欠回答・進行管理（申込/支払い状態のトグル）・過去イベントアーカイブの仕様
-> **関連画面:** `/events`（大会申込一覧）、`/events/new`（新規作成・管理者専用）、`/events/[id]`（詳細・出欠回答）、`/events/[id]/edit`（編集・管理者専用）、`/events-archive`（過去のイベント）、`/dashboard`（ホーム）
+> **責務:** 大会申込イベントの一覧・詳細・作成/編集・出欠回答・進行管理（申込/支払い状態のトグル）・申込進捗ボード・過去イベントアーカイブの仕様
+> **関連画面:** `/events`（大会申込一覧）、`/events/new`（新規作成・管理者専用）、`/events/[id]`（詳細・出欠回答）、`/events/[id]/edit`（編集・管理者専用）、`/admin/entries`（申込管理ボード・管理者専用）、`/events-archive`（過去のイベント）、`/dashboard`（ホーム）
 > **主要実装:**
 > - `apps/web/src/app/(app)/events/page.tsx`
+> - `apps/web/src/app/(app)/admin/entries/page.tsx`
+> - `apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx`
+> - `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts`
 > - `apps/web/src/app/(app)/events/EventListClient.tsx`
 > - `apps/web/src/app/(app)/events/event-list-utils.ts`
 > - `apps/web/src/app/(app)/events/new/page.tsx`
@@ -92,6 +95,30 @@
 ### `/events/[id]/edit` 編集
 
 管理者・副管理者のみ。既存イベントを `EventForm`（`mode="edit"`）に事前入力し、edition 紐付けの現況（`editionDefault`）も渡す。`mode="edit"` のときのみステータス選択（公開(通常)/中止/終了）を表示し、中止からの復帰は「公開(通常)」を選ぶ。更新後は詳細画面へリダイレクトする。
+
+### `/admin/entries` 申込管理ボード
+
+管理者・副管理者のみアクセス可（それ以外は `/403` へリダイレクト）。会レベルの申込進捗を大会単位で一望する**表示専用**画面で、状態を変える操作は持たない（変更はすべて `/events/[id]` の進行管理パネル）。ボトムナビの `申込管理` タブから入る。
+
+母集団は「開催日が JST 今日以降」「`status != 'cancelled'`」「`kind = 'individual'`」を満たす `events` から、**非表示条件**（`entryStatus='not_applying'` ／ 基準締切が非NULLかつ超過済みで出欠「参加」0名）に該当するものを引いたもの。団体戦を外すのは確定名簿が個人戦専用の仕様で、含めると「確定名簿が永遠に出ない」大会が申込済み区画に滞留するため。
+
+進行フェーズは**永続カラムを持たず既存列から毎回導出する**。各大会はちょうど1つの区画に入る（ライフサイクル順）:
+
+| 区画 | 条件 | 表示・整列に使う日付 |
+|---|---|---|
+| 締切前 | `not_applied` かつ 基準締切がNULLまたは今日以降 | 会内締切（`COALESCE(internalDeadline, entryDeadline)`） |
+| 要対応 | `not_applied` かつ 基準締切が今日より前 かつ 参加1名以上 | **本締切**（`entryDeadline`） |
+| 申込済み・抽選待ち | `applied` かつ 確定名簿なし | 抽選日（`lotteryDate`） |
+| 名簿確定・振込待ち | `applied` かつ 確定名簿あり かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` | 支払締切（`paymentDeadline`） |
+| 完了 | `applied` かつ 確定名簿あり（上記以外） | 開催日（`eventDate`） |
+
+確定名簿ありの判定は `tournament_entry_rosters` に `rosterType='confirmed'` かつ `supersededAt IS NULL` の行が存在すること（＝メール取込フローで承認した時点）。「要対応」だけ会内締切ではなく本締切を見るのは、その区画が会内締切を既に過ぎた大会の集まりであり、行動を決めるのは主催者への申込締切だから。並び順はいずれも昇順・NULL末尾・開催日を副キー。
+
+1大会=1行で、通称（`tournament_series.short_name`。edition 未紐付けは `title` フォールバック）+ 対象級 + 参加希望者数 `（N名）`、残日数、日付を出す。参加希望者数は `attend=true` の素通し件数で `/events` 一覧と同じセマンティクス（対象級で絞ると対象級外の表明で0名と判定され、大会が自動的に非表示になってしまうため安全側に倒している）。残日数は超過・当日・3日以内のときだけ出し、「申込済み・抽選待ち」「完了」では一切出さない。日付の種類名は各区画の見出しに1回だけ置く。
+
+「要対応」「名簿確定・振込待ち」の2区画のみ、その区画で見ている日付が**今日以前または未設定**の大会を1件以上抱えるとき強調表示する（未設定を到来済み扱いにするのは fail-safe）。常時強調しないのは赤が背景と化して効かなくなるのを防ぐため。「締切前」区画だけ見出しタップで開閉でき（既定は開・永続化しない）、畳んでも会内締切3日以内の行は残して隠れた件数を `ほかN件` で示す。0件の区画は見出しを残して `なし` を出し、区画自体は消さない（位置が件数で動くと一目性が失われる）。母集団が0件のときだけ画面全体を空状態に差し替える。
+
+日付判定はサーバーで確定した JST の `YYYY-MM-DD` を渡して文字列比較する（クライアントで `Date.now()` を呼ぶと hydration mismatch になる）。仕分け・並び順・日付バッジ・強調判定は `admin/entries/entry-board-utils.ts` の純関数。毎朝の `entry-overdue-alert` も「要対応」と同じ対象定義を使う（[spec/notifications.md](notifications.md)）。
 
 ### `/events-archive` 過去のイベント
 

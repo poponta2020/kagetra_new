@@ -1,0 +1,370 @@
+import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { EntryBoardClient } from './EntryBoardClient'
+import type { EntryBoardItem } from './entry-board-utils'
+
+// 描画側の要件（区画の常設・折りたたみ・強調・残日数の出し分け・遷移先）を固定する。
+// 仕分けと日付計算そのものは entry-board-utils.test.ts が持つ。
+
+const TODAY = '2026-07-10'
+
+function makeItem(overrides: Partial<EntryBoardItem> = {}): EntryBoardItem {
+  return {
+    id: 1,
+    title: '大会',
+    shortName: null,
+    eventDate: '2026-08-01',
+    eligibleGrades: null,
+    internalDeadline: null,
+    entryDeadline: null,
+    paymentDeadline: null,
+    lotteryDate: null,
+    entryStatus: 'not_applied',
+    paymentType: null,
+    paymentStatus: 'unpaid',
+    attendCount: 0,
+    hasConfirmedRoster: false,
+    ...overrides,
+  }
+}
+
+/** 区画見出しの h2 から、その区画の <section> を取る。 */
+function sectionOf(label: string): HTMLElement {
+  const heading = screen.getByRole('heading', { name: label })
+  const section = heading.closest('section')
+  if (!section) throw new Error(`section not found for ${label}`)
+  return section
+}
+
+/** 強調（面の塗り）が掛かっているか。design-spec §3-6: 塗りだけで枠線は付けない。 */
+function isHot(label: string): boolean {
+  return sectionOf(label).querySelector('.bg-danger-bg') !== null
+}
+
+const AREA_LABELS = [
+  '締切前',
+  '要対応',
+  '申込済み・抽選待ち',
+  '名簿確定・振込待ち',
+  '完了',
+] as const
+
+describe('EntryBoardClient', () => {
+  // AC-25 後段: 区画は件数で消えない。位置が動くと「いつも同じ場所を見れば
+  // 同じフェーズが分かる」という一目性が失われる。
+  it('AC-25: 0 件の区画も見出しを残して「なし」を出す（区画は消えない）', () => {
+    render(
+      <EntryBoardClient
+        items={[makeItem({ id: 1, internalDeadline: '2026-07-20' })]}
+        todayStr={TODAY}
+      />,
+    )
+
+    for (const label of AREA_LABELS) {
+      expect(screen.getByRole('heading', { name: label })).toBeTruthy()
+    }
+    // 「締切前」以外の 4 区画は 0 件なので「なし」が出る
+    expect(screen.getAllByText('なし')).toHaveLength(4)
+    expect(within(sectionOf('締切前')).queryByText('なし')).toBeNull()
+  })
+
+  // AC-25 前段。母集団は非表示条件を引いた後の件数なので、取得行が
+  // あっても全件が非表示に落ちたら空状態を出す。
+  it('AC-25: 母集団 0 件なら空状態メッセージを出す', () => {
+    render(<EntryBoardClient items={[]} todayStr={TODAY} />)
+    expect(screen.getByText('管理対象の大会はありません')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '締切前' })).toBeNull()
+  })
+
+  it('AC-25: 取得行はあっても全件が非表示条件に該当するなら空状態を出す', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({ id: 1, entryStatus: 'not_applying' }),
+          // 締切超過かつ出欠 0 名
+          makeItem({ id: 2, internalDeadline: '2026-06-01', attendCount: 0 }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+    expect(screen.getByText('管理対象の大会はありません')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '締切前' })).toBeNull()
+  })
+
+  // AC-20: 日付の種類名は区画見出しに 1 回だけ。全行に出すと 375px で幅が足りない。
+  it('AC-20: 日付の種類名が区画見出しに 1 回だけ出て、行には出ない', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({ id: 1, internalDeadline: '2026-07-20', attendCount: 2 }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    for (const hint of ['会内締切', '本締切', '抽選日', '支払締切', '開催日']) {
+      expect(screen.getAllByText(hint)).toHaveLength(1)
+    }
+    const row = screen.getByRole('link')
+    expect(row.textContent).not.toContain('会内締切')
+  })
+
+  it('AC-16: 行に「通称+級（N名）」が出る（通称なしは title へフォールバック）', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({
+            id: 1,
+            shortName: '札幌',
+            eligibleGrades: ['A', 'B'],
+            attendCount: 3,
+            internalDeadline: '2026-07-20',
+          }),
+          makeItem({
+            id: 2,
+            title: '第10回とても長い名前の大会',
+            shortName: null,
+            eligibleGrades: null,
+            attendCount: 0,
+            internalDeadline: '2026-07-21',
+          }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    const links = screen.getAllByRole('link')
+    expect(links[0]?.textContent).toContain('札幌AB')
+    expect(links[0]?.textContent).toContain('（3名）')
+    expect(links[1]?.textContent).toContain('第10回とても長い名前の大会')
+    expect(links[1]?.textContent).toContain('（0名）')
+  })
+
+  // AC-26: 表示専用。状態変更は /events/[id] の進行管理パネルに一本化されており、
+  // 一覧から直接押せると LINE 通知 2 通が飛ぶ操作を誤タップできてしまう。
+  it('AC-26: 行タップで /events/[id] へ遷移し、状態を変える操作は存在しない', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({ id: 42, internalDeadline: '2026-07-20' }),
+          makeItem({ id: 7, entryStatus: 'applied' }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'))
+    expect(hrefs).toEqual(['/events/42', '/events/7'])
+
+    // ボタンは「締切前」の折りたたみトグルだけ。フォーム要素も無い。
+    const buttons = screen.getAllByRole('button')
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]?.textContent).toContain('締切前')
+    expect(document.querySelectorAll('form, input, select')).toHaveLength(0)
+  })
+
+  // AC-23: 折りたためるのは「締切前」だけ。既定は開（出欠の集まり具合を
+  // 眺めるのが主用途のため）。
+  it('AC-23: 「締切前」だけ開閉でき、既定は開いた状態', () => {
+    render(
+      <EntryBoardClient
+        items={[makeItem({ id: 1, internalDeadline: '2026-07-20' })]}
+        todayStr={TODAY}
+      />,
+    )
+
+    const toggle = screen.getByRole('button')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(within(sectionOf('締切前')).getByRole('link')).toBeTruthy()
+
+    // 他 4 区画の見出しはボタンではない
+    for (const label of AREA_LABELS.filter((l) => l !== '締切前')) {
+      expect(within(sectionOf(label)).queryByRole('button')).toBeNull()
+    }
+  })
+
+  // AC-24: 畳んだまま締切を跨ぐ事故を防ぐため、3 日以内の行は残す。
+  it('AC-24: 畳んでも会内締切 3 日以内の行は残り、隠れた行数が「ほかN件」で出る', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          // 3 日以内 → 畳んでも残る
+          makeItem({ id: 1, shortName: '近い', internalDeadline: '2026-07-13' }),
+          // 4 日以上先 → 隠れる
+          makeItem({ id: 2, shortName: '遠い', internalDeadline: '2026-07-14' }),
+          // 締切未設定 → 判定不能なので隠れる
+          makeItem({ id: 3, shortName: '未設定' }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button'))
+
+    const section = sectionOf('締切前')
+    expect(within(section).getByText('近い')).toBeTruthy()
+    expect(within(section).queryByText('遠い')).toBeNull()
+    expect(within(section).queryByText('未設定')).toBeNull()
+    expect(within(section).getByText('ほか2件')).toBeTruthy()
+    // 件数ピルは畳んでも母数のまま
+    expect(within(section).getByText('3件')).toBeTruthy()
+  })
+
+  // AC-21 / AC-22: 強調は行動フェーズ 2 区画に限り、締切到来済みが 1 件以上
+  // あるときだけ。常時赤いと赤が背景と化して効かなくなる。
+  it('AC-21: 「要対応」は締切到来済みが 1 件以上あるときだけ強調される', () => {
+    const overdue = makeItem({
+      id: 1,
+      internalDeadline: '2026-06-01',
+      entryDeadline: '2026-07-09',
+      attendCount: 1,
+    })
+    const { unmount } = render(
+      <EntryBoardClient items={[overdue]} todayStr={TODAY} />,
+    )
+    expect(isHot('要対応')).toBe(true)
+    unmount()
+
+    // 本締切がまだ 4 日以上先なら強調しない
+    render(
+      <EntryBoardClient
+        items={[{ ...overdue, entryDeadline: '2026-07-20' }]}
+        todayStr={TODAY}
+      />,
+    )
+    expect(isHot('要対応')).toBe(false)
+  })
+
+  it('AC-21b: 「要対応」に本締切未設定の大会が 1 件でもあれば強調される（fail-safe）', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({
+            id: 1,
+            internalDeadline: '2026-06-01',
+            entryDeadline: null,
+            attendCount: 1,
+          }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+    expect(isHot('要対応')).toBe(true)
+  })
+
+  it('AC-21: 「名簿確定・振込待ち」も支払締切が到来していれば強調される', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({
+            id: 1,
+            entryStatus: 'applied',
+            hasConfirmedRoster: true,
+            paymentType: 'advance',
+            paymentStatus: 'unpaid',
+            paymentDeadline: '2026-07-10',
+          }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+    expect(isHot('名簿確定・振込待ち')).toBe(true)
+  })
+
+  it('AC-22: 行動フェーズ以外の 3 区画は締切が超過していても強調されない', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          // 締切前（会内締切は今日）
+          makeItem({ id: 1, internalDeadline: TODAY }),
+          // 抽選待ち（抽選日が過去）
+          makeItem({
+            id: 2,
+            entryStatus: 'applied',
+            lotteryDate: '2026-06-01',
+          }),
+          // 完了（開催日が今日）
+          makeItem({
+            id: 3,
+            entryStatus: 'applied',
+            hasConfirmedRoster: true,
+            paymentType: 'onsite',
+            eventDate: TODAY,
+          }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    expect(isHot('締切前')).toBe(false)
+    expect(isHot('申込済み・抽選待ち')).toBe(false)
+    expect(isHot('完了')).toBe(false)
+  })
+
+  // AC-19: まだ手を動かす段階ではないフェーズに残日数を出さない。
+  it('AC-19: 「申込済み・抽選待ち」と「完了」の行には残日数が出ない', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({
+            id: 1,
+            shortName: '抽選',
+            entryStatus: 'applied',
+            lotteryDate: '2026-07-11',
+          }),
+          makeItem({
+            id: 2,
+            shortName: '完了',
+            entryStatus: 'applied',
+            hasConfirmedRoster: true,
+            paymentType: 'onsite',
+            eventDate: '2026-07-11',
+          }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    for (const label of ['申込済み・抽選待ち', '完了']) {
+      const row = within(sectionOf(label)).getByRole('link')
+      expect(row.textContent).not.toContain('あと')
+      expect(row.textContent).not.toContain('本日')
+      expect(row.textContent).not.toContain('超過')
+      expect(row.textContent).toContain('7/11')
+    }
+  })
+
+  it('抽選日が未設定の行は日付列に「未定」を出す', () => {
+    render(
+      <EntryBoardClient
+        items={[makeItem({ id: 1, entryStatus: 'applied', lotteryDate: null })]}
+        todayStr={TODAY}
+      />,
+    )
+    const row = within(sectionOf('申込済み・抽選待ち')).getByRole('link')
+    expect(row.textContent).toContain('未定')
+  })
+
+  // AC-18: 4 日以上先の残日数は読む必要がないので出さない（日付だけ残す）。
+  it('AC-18: 残日数は超過・本日・あと1〜3日のときだけ出る', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({ id: 1, shortName: '当日大会', internalDeadline: TODAY }),
+          makeItem({ id: 2, shortName: '三日後大会', internalDeadline: '2026-07-13' }),
+          makeItem({ id: 3, shortName: '四日後大会', internalDeadline: '2026-07-14' }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    const section = sectionOf('締切前')
+    const rowOf = (name: string) =>
+      within(section).getByText(name).closest('a')!.textContent ?? ''
+
+    expect(rowOf('当日大会')).toContain('本日')
+    expect(rowOf('三日後大会')).toContain('あと3日')
+    expect(rowOf('四日後大会')).not.toContain('あと4日')
+    expect(rowOf('四日後大会')).toContain('7/14')
+  })
+})

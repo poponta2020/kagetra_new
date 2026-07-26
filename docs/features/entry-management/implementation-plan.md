@@ -72,7 +72,7 @@ git apply --exclude=apps/web/src/middleware.ts --exclude='apps/web/src/app/(app)
 - **対応Issue:** #325
 
 ### タスク4: 申込管理ボードのデータ取得と画面（#326）
-- [ ] 完了
+- [x] 完了
 - **目的:** `/admin/entries` を実データで動かす。
 - **対応AC:** AC-1, AC-4, AC-16, AC-17, AC-22, AC-23, AC-24, AC-25, AC-26, AC-27
 - **主な変更領域:**
