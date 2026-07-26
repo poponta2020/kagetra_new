@@ -1,0 +1,314 @@
+<!-- @dsCard group="大会申込リデザイン" name="リデザイン案 — 参加可否の色帯" subtitle="藍=参加可能 / 砂=対象外・締切済は非表示・締切間近の状態も併記" viewport="1240x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<style>
+/* ============================================================
+   大会申込 — リデザイン案（Round 3: ユーザー決定を反映）
+   変更点（現状 current.html からの差分）:
+     1. 行の左端に 3px の色帯。藍=自分が参加可能 / 砂=級が対象外
+        （Round 2 では朱だったが、ブランド規約=参加は藍に準拠して藍へ変更）
+     2. 「参加 0名」は非表示（全行同値でノイズになるため）。
+        参加者がいる行だけ人数＋苗字を出す（全員表示・上限なし）
+     3. 締切済（会内締切超過）の大会は一覧に表示しない（仕様変更・要件へ）
+   その他（ナビ、骨格）は現状を踏襲。
+   想定ユーザー: poponさん = C級
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--kg-font-sans);display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:22px;padding:24px 12px;color:var(--kg-fg)}
+
+.phone{width:375px;height:812px;display:flex;flex-direction:column;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;overflow:hidden;font-size:var(--kg-text-base);line-height:var(--kg-leading-normal);box-shadow:var(--kg-shadow-md)}
+
+.appbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;background:var(--kg-surface);border-bottom:1px solid var(--kg-border);padding:0 16px}
+.appbar .wordmark{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:16px;color:var(--kg-brand);letter-spacing:.02em}
+.appbar .who{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+
+.main{flex:1;min-height:0;overflow-y:auto;padding:16px;scrollbar-width:none;-ms-overflow-style:none}
+.main::-webkit-scrollbar{display:none}
+.page{display:flex;flex-direction:column;gap:16px}
+
+.headrow{display:flex;align-items:center;justify-content:space-between}
+.headrow h1{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:20px;color:var(--kg-fg)}
+.headrow .links{display:flex;align-items:center;gap:12px}
+.headrow .arch{font-size:14px;color:var(--kg-brand)}
+.headrow .newbtn{display:inline-flex;align-items:center;height:32px;padding:0 12px;font-size:var(--kg-text-xs);font-weight:var(--kg-w-semibold);color:#fff;background:var(--kg-brand);border-radius:var(--kg-radius-lg)}
+
+.client{display:flex;flex-direction:column;gap:12px}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.seg{display:flex;align-items:stretch;border:1px solid var(--kg-border);background:var(--kg-surface);border-radius:var(--kg-radius-full);padding:2px;font-size:13px}
+.seg .tab{flex:1;border-radius:var(--kg-radius-full);padding:6px 12px;font-weight:var(--kg-w-medium);white-space:nowrap;color:var(--kg-fg-3)}
+.seg .tab.active{background:var(--kg-brand);color:#fff}
+.filter{display:flex;flex-shrink:0;align-items:center;gap:8px}
+.filter .flabel{font-size:13px;color:var(--kg-fg-3)}
+.switch{position:relative;width:44px;height:24px;flex:none;border-radius:var(--kg-radius-full);background:var(--kg-neutral-bg)}
+.switch .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:var(--kg-shadow-sm)}
+
+/* リスト — 行に色帯を追加 */
+.list{border-top:1px solid var(--kg-border-soft);border-bottom:1px solid var(--kg-border-soft)}
+.row{display:flex;align-items:stretch;gap:0;padding:13px 0}
+.row+.row{border-top:1px solid var(--kg-border-soft)}
+/* 色帯: 藍=参加可能 / 砂=級が対象外（参加=藍のブランド規約に準拠） */
+.bar{flex:none;width:3px;border-radius:2px;background:var(--kg-border)}
+.bar.open{background:var(--kg-brand)}
+.rbody{flex:1;min-width:0;padding-left:11px}
+
+.top{display:flex;align-items:baseline;gap:8px}
+.date{flex:none;font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:13.5px;color:var(--kg-fg-2);font-variant-numeric:tabular-nums}
+.title{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--kg-font-display);font-size:18px;font-weight:var(--kg-w-bold);color:var(--kg-fg)}
+.title.cancelled{color:var(--kg-fg-3)}
+.pill-danger{display:inline-flex;align-items:center;border-radius:var(--kg-radius-full);font-size:10px;font-weight:var(--kg-w-medium);padding:1px 6px;white-space:nowrap;background:var(--kg-danger-bg);color:var(--kg-danger-fg)}
+.ddl{flex:none;white-space:nowrap;margin-left:auto;padding-left:8px}
+.ddl .lab{font-size:10px;color:var(--kg-fg-muted);margin-right:4px}
+.ddl .val{font-size:var(--kg-text-xs);color:var(--kg-fg-muted)}
+.ddl.normal .val{color:var(--kg-fg-2)}
+.ddl.soon .val{font-size:var(--kg-text-xs);color:var(--kg-fg)}
+.ddl .val em{font-style:normal;font-family:var(--kg-font-display);font-size:15px;font-weight:var(--kg-w-bold);color:var(--kg-fg-2);margin:0 1px}
+.ddl.soon .val em{font-size:19px;color:var(--kg-fg)}
+.ddl.today .lab{color:var(--kg-accent-fg)}
+.ddl.today .val{display:inline-block;font-size:15px;font-weight:var(--kg-w-bold);color:#fff;background:var(--kg-accent);border-radius:var(--kg-radius-full);padding:1px 9px}
+
+/* meta: 参加者がいる行だけ出す */
+.meta{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.pcount{font-size:11px;color:var(--kg-fg-3)}
+.pcount b{font-family:var(--kg-font-display);font-size:16.5px;font-weight:var(--kg-w-bold);color:var(--kg-fg);margin-right:1px}
+.dnum{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1}
+.dnum .big{flex:none;font-family:var(--kg-font-display);font-size:19px;font-weight:var(--kg-w-bold);color:var(--kg-brand);line-height:1}
+.dnum .big small{font-size:11px;font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-left:1px}
+.dnum .who{flex:1;min-width:0;font-size:var(--kg-text-xs);line-height:1.65;color:var(--kg-neutral-fg)}
+.dnum .who span{white-space:nowrap}
+.dnum .who i{font-style:normal;color:var(--kg-fg-muted);margin:0 4px}
+
+.bottomnav{height:52px;flex:none;display:flex;align-items:stretch;background:var(--kg-surface);border-top:1px solid var(--kg-border)}
+.bottomnav .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:var(--kg-w-medium);border-top:2px solid transparent;color:var(--kg-fg-3)}
+.bottomnav .tab.active{border-top-color:var(--kg-brand);color:var(--kg-brand)}
+
+.note{width:375px;font-size:12.5px;line-height:1.75;color:var(--kg-fg-2)}
+.phwrap{display:flex;flex-direction:column;gap:9px}
+.phwrap .lbl{font-family:var(--kg-font-display);font-size:14px;font-weight:var(--kg-w-bold);color:var(--kg-fg)}
+.phwrap .lbl small{display:block;font-family:var(--kg-font-sans);font-size:11.5px;font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-top:2px}
+.note b{color:var(--kg-fg)}
+.note h3{font-family:var(--kg-font-display);font-size:14px;color:var(--kg-fg);margin-bottom:6px}
+.note .legend{display:flex;flex-direction:column;gap:7px;margin:10px 0 14px;padding:11px 13px;background:var(--kg-surface);border:1px solid var(--kg-border);border-radius:8px}
+.note .lrow{display:flex;align-items:center;gap:9px;font-size:12px}
+.note .sw{flex:none;width:3px;height:26px;border-radius:2px}
+.note ul{margin:7px 0 0 17px}
+.note li{margin-bottom:4px}
+a{color:var(--kg-brand)}a:hover{color:var(--kg-brand-hover)}
+</style>
+</head>
+<body>
+
+<div class="phwrap">
+<div class="lbl">実データ（2026-07-26）<small>締切済6件は非表示（仕様）・残り9件は全件5日以上先</small></div>
+<div class="phone">
+  <div class="appbar"><span class="wordmark">かげとら</span><span class="who">poponさん</span></div>
+  <div class="main">
+    <div class="page">
+
+      <div class="headrow">
+        <h1>大会申込</h1>
+        <div class="links"><span class="arch">過去のイベント →</span><span class="newbtn">新規作成</span></div>
+      </div>
+
+      <div class="client">
+        <div class="controls">
+          <div class="seg"><span class="tab">開催日順</span><span class="tab active">締切日順</span></div>
+          <div class="filter"><span class="flabel">申込可能のみ</span><span class="switch"><span class="knob"></span></span></div>
+        </div>
+
+        <div class="list">
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">広島CDE</span><span class="date">9/6(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>5</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">3<small>名</small></span><span class="who"><span>山田</span><i>・</i><span>佐藤</span><i>・</i><span>吉田</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">東京吉野会C</span><span class="date">8/29(土)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">1<small>名</small></span><span class="who"><span>鈴木</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並B</span><span class="date">9/5(土)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並A</span><span class="date">9/6(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">宇都宮E</span><span class="date">9/6(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>13</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">大阪CD</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>21</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">8<small>名</small></span><span class="who"><span>中村</span><i>・</i><span>小林</span><i>・</i><span>加藤</span><i>・</i><span>渡辺</span><i>・</i><span>伊藤</span><i>・</i><span>山本</span><i>・</i><span>中島</span><i>・</i><span>清水</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">鳳玉CDE</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>23</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">椿杯ABC</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>24</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">2<small>名</small></span><span class="who"><span>高橋</span><i>・</i><span>伊藤</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">秋田DE</span><span class="date">9/20(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>29</em>日</span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="bottomnav">
+    <span class="tab">ホーム</span>
+    <span class="tab active">イベント</span>
+    <span class="tab">統計</span>
+    <span class="tab">会員</span>
+    <span class="tab">メール</span>
+    <span class="tab">Bot</span>
+  </div>
+</div>
+</div>
+
+<div class="phwrap">
+<div class="lbl">締切間近の状態<small>上3行を 本日 / あと2日 / あと3日 に差し替えたもの</small></div>
+<div class="phone">
+  <div class="appbar"><span class="wordmark">かげとら</span><span class="who">poponさん</span></div>
+  <div class="main">
+    <div class="page">
+
+      <div class="headrow">
+        <h1>大会申込</h1>
+        <div class="links"><span class="arch">過去のイベント →</span><span class="newbtn">新規作成</span></div>
+      </div>
+
+      <div class="client">
+        <div class="controls">
+          <div class="seg"><span class="tab">開催日順</span><span class="tab active">締切日順</span></div>
+          <div class="filter"><span class="flabel">申込可能のみ</span><span class="switch"><span class="knob"></span></span></div>
+        </div>
+
+        <div class="list">
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">広島CDE</span><span class="date">7/28(火)</span><span class="ddl today"><span class="lab">締切</span><span class="val">本日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">3<small>名</small></span><span class="who"><span>山田</span><i>・</i><span>佐藤</span><i>・</i><span>吉田</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">東京吉野会C</span><span class="date">8/2(日)</span><span class="ddl soon"><span class="lab">締切</span><span class="val">あと<em>2</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">1<small>名</small></span><span class="who"><span>鈴木</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並B</span><span class="date">9/5(土)</span><span class="ddl soon"><span class="lab">締切</span><span class="val">あと<em>3</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並A</span><span class="date">9/6(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">宇都宮E</span><span class="date">9/6(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>13</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">大阪CD</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>21</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">8<small>名</small></span><span class="who"><span>中村</span><i>・</i><span>小林</span><i>・</i><span>加藤</span><i>・</i><span>渡辺</span><i>・</i><span>伊藤</span><i>・</i><span>山本</span><i>・</i><span>中島</span><i>・</i><span>清水</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">鳳玉CDE</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>23</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">椿杯ABC</span><span class="date">9/22(火)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>24</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">2<small>名</small></span><span class="who"><span>高橋</span><i>・</i><span>伊藤</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="rbody">
+              <div class="top"><span class="title">秋田DE</span><span class="date">9/20(日)</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>29</em>日</span></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="bottomnav">
+    <span class="tab">ホーム</span>
+    <span class="tab active">イベント</span>
+    <span class="tab">統計</span>
+    <span class="tab">会員</span>
+    <span class="tab">メール</span>
+    <span class="tab">Bot</span>
+  </div>
+</div>
+</div>
+
+<div class="note">
+  <h3>リデザイン案 — 参加可否の色帯</h3>
+  <p>現状からの変更は<b>7点</b>です。ナビと全体の骨格はそのまま踏襲しています。</p>
+
+  <div class="legend">
+    <div class="lrow"><span class="sw" style="background:var(--kg-brand)"></span><span><b>藍 — 自分が参加できる大会</b><br>級が対象に含まれる（poponさん＝C級なら C を含む大会）。参加=藍のブランド規約に準拠</span></div>
+    <div class="lrow"><span class="sw" style="background:var(--kg-border)"></span><span><b>砂 — 対象外</b><br>級が合わないので申し込めない</span></div>
+  </div>
+
+  <p><b>1. 左端の色帯</b>：締切の近さではなく<b>「自分が出られるかどうか」</b>を示します。締切順に並んだリストを上から流し見して、藍の行だけ追えばよい状態になります。色でも軸が分かれます：<b>藍＝出られるか、朱＝締切が迫っているか</b>。</p>
+  <p style="margin-top:8px"><b>2. 参加者は「人数＋苗字」で表示</b>：現状の「参加 0名」は全9行が同じ値でノイズにしかなっていなかったため、<b>0名の行は meta 行ごと非表示</b>にしました。参加者がいる行は、人数を藍で大きく出し、苗字は淡いテキストで添えます（苗字チップは面積が出て大会名より目立つためやめました）。人数が多い場合は折り返して全員分表示します。</p>
+  <p style="margin-top:8px"><b>3. 左右に 16px の余白</b>：現状はページ余白が 0 でコンテンツが画面端まで届いていました。デザインシステムのモバイル標準ガター（<b>16px</b>）を入れています。</p>
+  <p style="margin-top:8px"><b>4. 「大会名 → 日付」の順に入れ替え</b>：現状は日付が先頭でした。探すときの手がかりは大会名なので、大会名を左端に、日付はその直後に置いています。あわせて日付は 13.5px・淡い墨に落として従属させました（現状は本文サイズ・濃い墨）。</p>
+  <p style="margin-top:8px"><b>5. 締切間近を朱で強調</b>：現状は 3日以内が墨の太字・当日が朱の文字でした。3日以内は<b>数字を 19px に大きくするだけ</b>（色は黒・「あと」「日」は通常サイズ）、当日のみ<b>朱の塗りピル</b>で強調しています。朱を当日だけに絞ることで、本当に急ぐ行が一目で分かります。</p>
+  <p style="margin-top:8px"><b>6. 締切の数字だけ大きく</b>：現状は「あと21日」が一律のサイズでした。いちばん知りたいのは<b>日数</b>なので、数字だけ一段大きくしています（通常 15px／3日以内 19px。ラベルの「あと」「日」は小さいまま）。</p>
+  <p style="margin-top:8px"><b>7. 締切済の大会は表示しない</b>：現状は会内締切を過ぎた大会が「締切済」として一覧に残り、締切日順では先頭に固まっていました（実データでは 15行中 6行）。申し込めない行が一等地を占めるため、<b>一覧から外します</b>（仕様変更として要件定義へ）。</p>
+
+  <p style="margin-top:10px"><b>参加者の表示を確認するため、上のモックにはダミーの参加者を入れてあります</b>（4行：広島CDE 3名・東京吉野会C 1名・大阪CD 8名・椿杯ABC 2名）。苗字は<b>人数が多くても全員分表示</b>し、入り切らなければ折り返します（大阪CD の例）。折り返しても苗字の途中では切れません。参加者 0名の行は meta 行ごと出ません。</p>
+  <p style="margin-top:8px">※ 右のモックは<b>締切間近の表示確認用</b>です。締切の強調は3段階：</p>
+  <div class="legend">
+    <div class="lrow"><span class="ddl today"><span class="lab">締切</span><span class="val">本日</span></span><span>当日 — <b>朱の塗りピル</b>（数字なし）</span></div>
+    <div class="lrow"><span class="ddl soon"><span class="lab">締切</span><span class="val">あと<em>2</em>日</span></span><span>3日以内 — 数字のみ 19px（色は黒のまま）</span></div>
+    <div class="lrow"><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>21</em>日</span></span><span>通常 — 数字 15px・ラベル 12px グレー</span></div>
+  </div>
+  <p>左端の色帯（参加可否）とは<b>別軸</b>です。色帯＝出られるか、締切の文字＝いつまでか。</p>
+</div>
+
+</body></html>

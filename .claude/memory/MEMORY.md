@@ -183,3 +183,4 @@
 - [テスト DB の worktree 自動分離](project_ship-test-db-isolation.md) — shipped: PR #337
 - [bug-fix: entry-board-grade-duplicate](impl_bug-entry-board-grade-duplicate.md) — PR #338
 - [quickfix: entry-board-hide-zero-count](quickfix_entry-board-hide-zero-count.md) — PR #339
+- [大会申込一覧リデザイン 要件定義](project_event_list_redesign_def.md) — 親Issue #340・デザイン確定/実装未着手

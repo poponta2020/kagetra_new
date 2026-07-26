@@ -40,3 +40,4 @@
 - `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: apps/web, packages/shared）[shipped: PR #321]
 - `entry-management` — 管理者向け大会申込進捗ボード（5区画へ自動仕分け）＋ボトムナビ導線（主要領域: apps/web）[shipped: PR #334]
 - `role-preview-switch` — 許可された管理者だけが表示ロール（管理者/副管理者/一般会員）をUIから切り替え、会員としての見え方・触れ方を実機確認できるようにする（主要領域: apps/web）
+- `event-list-redesign` — /events 大会申込一覧の再リデザイン（Claude Design 往復・作業中）（主要領域: apps/web events）
