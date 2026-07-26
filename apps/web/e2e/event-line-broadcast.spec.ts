@@ -44,6 +44,14 @@ async function seedEventBroadcastChannel(status: 'available' | 'assigned' | 'act
 
 test.describe.configure({ mode: 'serial' })
 
+/**
+ * event-detail-redesign: LINE 配信は `<details>`（既定=閉）に畳まれた。中の
+ * 「LINE 配信を有効化」は閉じている間 not visible なので、先に開く。
+ */
+async function openLineBroadcastToggle(page: import('@playwright/test').Page) {
+  await page.locator('summary').filter({ hasText: 'LINE 配信' }).first().click()
+}
+
 test.describe('/events/[id] LINE 配信セクション', () => {
   test.beforeEach(async () => {
     await truncateAll()
@@ -58,6 +66,7 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     await page.goto(`/events/${event.id}`)
     await expect(page.getByRole('heading', { name: 'E2Eテスト大会' })).toBeVisible()
 
+    await openLineBroadcastToggle(page)
     await page.getByRole('button', { name: 'LINE 配信を有効化' }).click()
     // Modal heading "招待コード"
     await expect(page.getByRole('heading', { name: '招待コード' })).toBeVisible()
@@ -82,6 +91,7 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     await addSessionCookie(context, session.sessionToken)
 
     await page.goto(`/events/${event.id}`)
+    await openLineBroadcastToggle(page)
     await page.getByRole('button', { name: 'LINE 配信を有効化' }).click()
 
     // The section's error pane renders the server-side message; we look for

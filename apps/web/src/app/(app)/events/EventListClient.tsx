@@ -4,9 +4,9 @@ import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import { Card, StatusPill } from '@/components/ui'
 import { cn } from '@/lib/utils'
+import { formatEventDate } from '@/lib/event-date'
 import {
   formatDeadlineCountdown,
-  formatEventDate,
   isOpenForEntry,
   isRowVisible,
   sortEvents,

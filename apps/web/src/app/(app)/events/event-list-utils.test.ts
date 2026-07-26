@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { EventStatus, Grade } from '@kagetra/shared/types'
 import {
-  formatEventDate,
   formatDeadlineCountdown,
   isGradeEligible,
   isOpenForEntry,
@@ -9,27 +8,6 @@ import {
   isRowVisible,
   sortEvents,
 } from './event-list-utils'
-
-describe('formatEventDate', () => {
-  it('formats as M/D(曜) without zero-padding (requirement example)', () => {
-    // 2026-07-12 is a Sunday.
-    expect(formatEventDate('2026-07-12')).toBe('7/12(日)')
-  })
-
-  it('drops leading zeros on both month and day', () => {
-    // 2026-01-05 is a Monday.
-    expect(formatEventDate('2026-01-05')).toBe('1/5(月)')
-  })
-
-  it('computes Saturday (weekday index 6)', () => {
-    // 2026-07-11 is a Saturday.
-    expect(formatEventDate('2026-07-11')).toBe('7/11(土)')
-  })
-
-  it('returns the input unchanged when not a YYYY-MM-DD string', () => {
-    expect(formatEventDate('not-a-date')).toBe('not-a-date')
-  })
-})
 
 describe('formatDeadlineCountdown', () => {
   const today = '2026-07-10'

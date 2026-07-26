@@ -1,8 +1,15 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Btn, Card, Pill, SectionLabel } from '@/components/ui'
 import type { Grade } from '@kagetra/shared/types'
+import { formatDateTimeShort } from '@/lib/event-date'
+import {
+  DisclosureActions,
+  DisclosureRow,
+  FlatTable,
+  LinkAction,
+  type FlatTableRow,
+} from './detail'
 
 export interface GradeBroadcastRow {
   grade: Grade
@@ -22,23 +29,14 @@ export interface GradeBroadcastSectionProps {
   resendAction: (eventId: number) => Promise<void>
 }
 
-function formatDateTime(date: Date | string | null | undefined): string {
-  if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
-  if (Number.isNaN(d.getTime())) return '—'
-  const m = d.getMonth() + 1
-  const day = d.getDate()
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${m}/${day} ${hh}:${mm}`
-}
-
 /**
  * event-grade-group-broadcast: 級別グループへの配信状況と再送導線。
  *
- * 大会別グループ配信（`LineBroadcastSection`）とは読み手も経路も別物なので、
- * セクションを分けて併記する。表示・操作とも **admin 限定**（AC-22）なので、
- * 呼び出し側で admin 以外には描画しないこと。
+ * event-detail-redesign タスク5で独立セクションをやめ、`LineBroadcastSection`
+ * の中の 1 項目（{@link DisclosureRow}）へ移した。表示・操作とも admin 限定
+ * （AC-13c / AC-29）だが、そのガードは呼び出し側（page.tsx →
+ * `LineBroadcastSection` の `gradeBroadcast` prop）が担う。このコンポーネント
+ * 自身は admin チェックを行わない（現行どおり）。
  */
 export function GradeBroadcastSection({
   eventId,
@@ -48,8 +46,16 @@ export function GradeBroadcastSection({
   const [error, setError] = useState<string | null>(null)
   const [isPending, startResend] = useTransition()
 
-  const unsentCount = rows.filter((r) => !r.sentAt).length
-  const sentCount = rows.length - unsentCount
+  const sentCount = rows.filter((r) => r.sentAt).length
+  const unsentCount = rows.length - sentCount
+  const unlinkedRows = rows.filter((r) => !r.sentAt && !r.linked)
+
+  const aux =
+    unlinkedRows.length === 0
+      ? undefined
+      : unlinkedRows.length === 1
+        ? `${unlinkedRows[0]?.grade}級 未紐付け`
+        : `${unlinkedRows.length}級 未紐付け`
 
   function handleResend() {
     setError(null)
@@ -62,54 +68,51 @@ export function GradeBroadcastSection({
     })
   }
 
+  const tableRows: FlatTableRow[] = rows.map((row) => {
+    if (row.sentAt) {
+      return {
+        key: row.grade,
+        label: `${row.grade}級`,
+        value: `送信済み ${formatDateTimeShort(row.sentAt)}`,
+        variant: 'date',
+      }
+    }
+    if (row.linked) {
+      return {
+        key: row.grade,
+        label: `${row.grade}級`,
+        value: '未送信',
+        valueClassName: 'text-ink-meta',
+      }
+    }
+    return {
+      key: row.grade,
+      label: `${row.grade}級`,
+      value: '未紐付け',
+      valueClassName: 'text-accent-fg',
+    }
+  })
+
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <SectionLabel>級別グループ配信</SectionLabel>
-        <Pill tone={unsentCount === 0 ? 'success' : 'neutral'} size="sm">
-          {sentCount} / {rows.length} 送信済み
-        </Pill>
-      </div>
-
-      <Card className="px-3 py-3 flex flex-col gap-3 text-xs text-ink-2">
-        <p className="text-[11px] text-ink-meta">
-          対象級の LINE グループへ、この大会の概要を1通ずつ配信します。
-        </p>
-
-        <ul className="flex flex-col gap-1">
-          {rows.map((row) => (
-            <li key={row.grade} className="flex items-center justify-between gap-2">
-              <span className="font-medium text-ink-1">{row.grade}級</span>
-              {row.sentAt ? (
-                <span className="tabular-nums text-ink-meta">
-                  送信済み {formatDateTime(row.sentAt)}
-                </span>
-              ) : row.linked ? (
-                <span className="text-ink-meta">未送信</span>
-              ) : (
-                <span className="text-warn-fg">未紐付け</span>
-              )}
-            </li>
-          ))}
-        </ul>
-
-        {error ? <p className="text-danger-fg">{error}</p> : null}
-
-        <div>
-          <Btn
-            type="button"
-            kind="secondary"
-            size="sm"
-            onClick={handleResend}
-            disabled={isPending || unsentCount === 0}
-          >
-            {isPending ? '送信中…' : '級グループへ再送'}
-          </Btn>
-          <p className="mt-1 text-[11px] text-ink-meta">
-            送信済みの級には送りません（未送信の級だけに届きます）。
-          </p>
-        </div>
-      </Card>
-    </section>
+    <DisclosureRow
+      label="級別グループ配信"
+      value={`${sentCount} / ${rows.length} 送信済み`}
+      aux={aux}
+      auxTone="warn"
+    >
+      <FlatTable rows={tableRows} />
+      <p className="mt-2 text-xs text-neutral-fg">
+        送信済みの級には送りません（未送信の級だけに届きます）。
+      </p>
+      {error ? <p className="mt-1 text-xs text-danger-fg">{error}</p> : null}
+      <DisclosureActions>
+        <LinkAction
+          disabled={isPending || unsentCount === 0}
+          onClick={handleResend}
+        >
+          {isPending ? '送信中…' : '未送信の級へ配信'}
+        </LinkAction>
+      </DisclosureActions>
+    </DisclosureRow>
   )
 }

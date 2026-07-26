@@ -1,5 +1,5 @@
+import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import { db } from '@/lib/db'
 import {
   eventBroadcastGuidelineAttachments,
@@ -17,28 +17,22 @@ import type { Grade } from '@kagetra/shared/types'
 import { and, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { auth } from '@/auth'
-import {
-  AttendanceCounts,
-  Btn,
-  Card,
-  DescList,
-  type DescListItem,
-  GradePill,
-  Pill,
-  SectionLabel,
-  StatusPill,
-} from '@/components/ui'
+import { Btn } from '@/components/ui'
 import {
   LineBroadcastSection,
   type LineBroadcastBindingStatus,
 } from '@/components/events/LineBroadcastSection'
 import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
-import {
-  GradeBroadcastSection,
-  type GradeBroadcastRow,
-} from '@/components/events/GradeBroadcastSection'
+import type { GradeBroadcastRow } from '@/components/events/GradeBroadcastSection'
 import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
-import { LifecycleStatusBadge } from '@/components/events/LifecycleStatusBadge'
+import {
+  EventDetailHeader,
+  LinkActionLink,
+  SectionRule,
+} from '@/components/events/detail'
+import { buildEntryFlow } from '@/lib/events/entry-flow'
+import { formatFlowDate } from '@/lib/event-date'
+import { todayInJst } from '@/lib/jst-date'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
@@ -62,11 +56,18 @@ const ACTIVE_BROADCAST_STATUSES = [
   'linked',
 ] as const
 
-// Mirrors EventForm's CANCEL_LINK_CLASS but at size sm so the edit affordance
-// matches the back link's visual weight in the in-page header bar.
-const EDIT_LINK_CLASS =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-surface text-ink-2 border border-border hover:bg-surface-alt'
-
+/**
+ * 大会申込詳細。event-detail-redesign: 罫線＋余白主導（脱カード）へ作り替えた。
+ * カードを使うのは関連メールの1件ずつだけで、運営操作は `<details>`（既定=閉）に
+ * 畳む。既定表示では会員も管理者も「どの大会か・今どの段階か・自分は出るか」
+ * だけが見える。要件は docs/features/event-detail-redesign/requirements.md、
+ * 視覚の正は同ディレクトリの design-spec.md / design-mock/redesign.html。
+ *
+ * ★このファイルにヘルパーコンポーネントを増やさないこと。`page-padding.test.ts`
+ * （AC-23）が「ファイル全体で `  return (` がちょうど1本・その次行が padding
+ * utility」を機械的に検査しており、2 スペースインデントの `return (` が増えると
+ * アンカーが曖昧になって落ちる。分割するなら components/events/detail/ へ。
+ */
 export default async function EventDetailPage({
   params,
 }: {
@@ -86,11 +87,28 @@ export default async function EventDetailPage({
         with: { user: true },
       },
       // tournament-entry-rosters PR-3/4: 申込/確定名簿＋各行（会員突合は entry.user 経由）。
+      //
+      // ★`columns` で表示に使う列だけを明示的に取る。event-detail-redesign で
+      // `RosterSection` を client component 化したため、この結果は **RSC payload
+      // としてブラウザへ直列化される**。TypeScript の `RosterView` 型は実行時に
+      // 余剰プロパティを落とさないので、列を絞らないと note（管理メモ）/
+      // approvedByUserId / source_*（取込元メール・添付）/ rawKana / rawDan /
+      // selectionOutcome（抽選結果）等の内部列と非表示の個人情報が一般会員へ
+      // 渡ってしまう（Server Component だった従来は直列化されなかった）。
       rosters: {
         where: isNull(tournamentEntryRosters.supersededAt),
         orderBy: [desc(tournamentEntryRosters.version)],
+        columns: { id: true, rosterType: true, version: true, publishedAt: true },
         with: {
           entries: {
+            columns: {
+              id: true,
+              rawName: true,
+              grade: true,
+              rawAffiliation: true,
+              status: true,
+              userId: true,
+            },
             with: { user: { columns: { id: true, name: true } } },
           },
         },
@@ -105,8 +123,9 @@ export default async function EventDetailPage({
   // rr2 review blocker: LineBroadcastSection は `use client` なので、
   // props は RSC payload としてブラウザに必ず届く。非管理者には Bot 名 /
   // グループ ID 末尾 / 配信履歴 / エラーメッセージなど管理者専用情報を
-  // **そもそも送らない** こと。一般会員には「LINE 配信中かどうか」だけ
-  // 分かれば十分なので、status のみのスタブを返す。
+  // **そもそも送らない** こと（AC-28）。event-detail-redesign 後の
+  // LineBroadcastSection は非管理者に何も描画しないが、status のみスタブを
+  // 渡す遮断方式は要件 §6 の契約としてそのまま維持する。
   const broadcastStatusRow = await db
     .select({ status: eventLineBroadcasts.status })
     .from(eventLineBroadcasts)
@@ -119,7 +138,7 @@ export default async function EventDetailPage({
     .limit(1)
   const activeBroadcastStatus = broadcastStatusRow[0]?.status ?? null
   // Lifecycle notifications only fire on a live (linked) group. Drives the
-  // confirm prompt + no-binding notice in the 進行管理 section.
+  // confirm prompt in the 進行管理 section.
   const isLineLinked = activeBroadcastStatus === 'linked'
 
   let broadcastBinding:
@@ -250,10 +269,11 @@ export default async function EventDetailPage({
     }
   }
 
-  // event-grade-group-broadcast: 級別グループへの配信状況（AC-22 により admin 限定。
+  // event-grade-group-broadcast: 級別グループへの配信状況（AC-29 により admin 限定。
   // vice_admin にも渡さないので、page 冒頭の isAdmin（vice_admin を含む）ではなく
-  // role を直接見る）。GradeBroadcastSection は `use client` なので、非 admin には
-  // props ごと送らない。
+  // role を直接見る）。event-detail-redesign 後は独立セクションをやめ、
+  // LineBroadcastSection の `gradeBroadcast` prop 経由で LINE 配信トグルの中に
+  // 描画する。非 admin には props ごと渡さない。
   const isStrictAdmin = session?.user.role === 'admin'
   let gradeBroadcastRows: GradeBroadcastRow[] = []
   if (isStrictAdmin) {
@@ -286,8 +306,9 @@ export default async function EventDetailPage({
     }))
   }
 
-  // Unanswered count must only consider invited users; the users table may contain
-  // legacy/migration rows with isInvited=false that should not count toward the denominator.
+  // 対象会員（分母）。event-detail-redesign で不参加人数の算出はやめたが、この
+  // クエリ自体は残す — 参加者一覧から対象級外の stale な attend=true 行を除外する
+  // のに必要（AC-26）。isInvited=false の旧データ行も同時に除外される。
   const eligibleUsers = await db.query.users.findMany({
     columns: { id: true, name: true },
     where: event.eligibleGrades?.length
@@ -295,22 +316,13 @@ export default async function EventDetailPage({
       : eq(users.isInvited, true),
   })
 
-  // Domain rule (CLAUDE.md): 未回答 = 不参加扱い. Both the participant chips and
-  // the count cards are scoped to currently-eligible attendees so that 参加 +
-  // (不参加 + 未回答) always equals the eligible denominator. Stale attend=true
-  // rows from non-eligible users (e.g. grade changed, or admin-override answers
-  // for a different cohort) are excluded from the displayed totals.
   const eligibleUserIdSet = new Set(eligibleUsers.map((u) => u.id))
   const eligibleAttendingList = event.attendances.filter(
     (a) => a.attend && eligibleUserIdSet.has(a.userId),
   )
-  const nonAttendingCount = Math.max(
-    0,
-    eligibleUsers.length - eligibleAttendingList.length,
-  )
 
   // Check if current user can respond to attendance (JST-based comparison)
-  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })
+  const todayStr = todayInJst()
   const isBeforeDeadline = !event.internalDeadline || event.internalDeadline >= todayStr
   const myAttendance = session
     ? event.attendances.find((a) => a.userId === session.user.id)
@@ -333,8 +345,7 @@ export default async function EventDetailPage({
   // Admins/vice-admins bypass deadline/grade/invite checks (administrative override).
   // For non-admins, isInvited is required because Auth.js signIn allows returning users
   // (with already-linked accounts) to skip the isInvited gate — so the app must re-check here.
-  // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades;
-  // there is no self-service grade UI in this PR, so such users must ask an admin to set it.
+  // Non-admin users with grade=null are considered ineligible when the event has eligibleGrades.
   const canRespond =
     session && (isAdmin || (currentUserIsInvited && isBeforeDeadline && isEligible))
   const boundSubmitAttendance = submitAttendance.bind(null, event.id)
@@ -344,8 +355,6 @@ export default async function EventDetailPage({
     .slice()
     .sort((a, b) => (a.user.grade ?? 'Z').localeCompare(b.user.grade ?? 'Z'))
 
-  // Per-grade capacity is shown only when at least one grade-level cap is set,
-  // so events without bracketed entry caps stay uncluttered.
   const perGradeCapacities: Array<{ grade: Grade; capacity: number }> = (
     [
       ['A', event.capacityA],
@@ -355,176 +364,144 @@ export default async function EventDetailPage({
       ['E', event.capacityE],
     ] as const
   ).flatMap(([g, c]) => (c != null ? [{ grade: g as Grade, capacity: c }] : []))
+  const capacityTotal = perGradeCapacities.reduce((sum, c) => sum + c.capacity, 0)
+  // 旧「対象級」行は級別定員セクションへ統合した（requirements §3.2.4）。定員が
+  // 1つも設定されていない大会では eligibleGrades の級だけを数字なしで並べ、
+  // どちらも無い（全級対象・定員未設定）なら セクションごと出さない（AC-17/18）。
+  const eligibleGradeList: Grade[] = event.eligibleGrades ?? []
+  const showCapacitySection =
+    perGradeCapacities.length > 0 || eligibleGradeList.length > 0
 
-  const detailItems: DescListItem[] = [
-    ...(event.formalName
-      ? [{ label: '正式名称', value: event.formalName }]
-      : []),
-    {
-      label: '日付',
-      value: <>{event.eventDate}</>,
-    },
-    ...(event.location ? [{ label: '会場', value: event.location }] : []),
-    ...(event.eligibleGrades?.length
-      ? [
-          {
-            label: '対象級',
-            value: (
-              <div className="flex flex-wrap gap-1.5">
-                {event.eligibleGrades.map((g) => (
-                  <GradePill key={g} grade={g} size="sm" />
-                ))}
-              </div>
-            ),
-          },
-        ]
-      : []),
-    ...(event.capacity != null
-      ? [{ label: '定員', value: `${event.capacity}名` }]
-      : []),
-    ...(perGradeCapacities.length
-      ? [
-          {
-            label: '級別定員',
-            value: (
-              <div className="flex flex-wrap gap-1.5">
-                {perGradeCapacities.map(({ grade, capacity }) => (
-                  <span
-                    key={grade}
-                    className="inline-flex items-center gap-1 rounded-full bg-neutral-bg px-2 py-0.5 text-xs text-neutral-fg"
-                  >
-                    <GradePill grade={grade} size="sm" />
-                    {capacity}名
-                  </span>
-                ))}
-              </div>
-            ),
-          },
-        ]
-      : []),
-    ...(event.entryDeadline
-      ? [{ label: '大会申込締切', value: event.entryDeadline }]
-      : []),
-    ...(event.internalDeadline
-      ? [{ label: '会内締切', value: event.internalDeadline }]
-      : []),
-    // entry-notify-lottery-treasurer: 抽選日（NULL=抽選なし）。会員にも参照のみ表示する（要件 §3.1.2）。
-    ...(event.lotteryDate ? [{ label: '抽選日', value: event.lotteryDate }] : []),
-    ...(event.organizer ? [{ label: '主催', value: event.organizer }] : []),
-    ...(event.entryMethod
-      ? [{ label: '申込方法', value: event.entryMethod }]
-      : []),
-    ...(event.feeJpy != null
-      ? [{ label: '参加費', value: `${event.feeJpy.toLocaleString('ja-JP')}円` }]
-      : []),
-    ...(event.paymentDeadline
-      ? [{ label: '支払締切', value: event.paymentDeadline }]
-      : []),
-    ...(event.paymentMethod
-      ? [{ label: '支払方法', value: event.paymentMethod }]
-      : []),
-    ...(event.paymentInfo
-      ? [
-          {
-            label: '支払情報',
-            value: (
-              <span className="whitespace-pre-wrap">{event.paymentInfo}</span>
-            ),
-          },
-        ]
-      : []),
-    // draft 廃止: 通常状態 (published) はステータス行自体を出さない（StatusPill が
-    // null を返すため、無条件追加だとラベルだけで値が空の行になる）。中止/終了のみ表示。
-    ...(event.status !== 'published'
-      ? [
-          {
-            label: 'ステータス',
-            value: <StatusPill status={event.status} size="sm" />,
-          },
-        ]
-      : []),
-  ]
+  // 申込フロー（両ビュー共通）。判定は純関数へ切り出してある（AC-1〜9）。
+  const flowSteps = buildEntryFlow({
+    internalDeadline: event.internalDeadline,
+    entryDeadline: event.entryDeadline,
+    lotteryDate: event.lotteryDate,
+    paymentDeadline: event.paymentDeadline,
+    eventDate: event.eventDate,
+    entryStatus: event.entryStatus,
+    paymentType: event.paymentType,
+    paymentStatus: event.paymentStatus,
+    todayStr,
+  })
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <Link href="/events" className="text-sm text-brand">
-          ← イベント一覧
-        </Link>
-        {isAdmin && (
-          <Link href={`/events/${event.id}/edit`} className={EDIT_LINK_CLASS}>
-            編集
-          </Link>
-        )}
-      </div>
+    <div className="flex min-h-full flex-col p-4">
+      <EventDetailHeader
+        eventId={event.id}
+        title={event.title}
+        eventDate={event.eventDate}
+        location={event.location}
+        steps={flowSteps}
+        canEdit={isAdmin}
+      />
 
-      <div>
-        <h1 className="font-display text-[28px] font-bold text-ink leading-tight">
-          {event.title}
-        </h1>
-        {event.official && (
-          <div className="mt-1.5">
-            <Pill tone="success" size="sm">
-              公認
-            </Pill>
-          </div>
-        )}
-      </div>
-
-      <Card>
-        <DescList items={detailItems} />
-      </Card>
-
-      {event.description && (
-        <Card>
-          <SectionLabel>詳細</SectionLabel>
-          <div className="whitespace-pre-wrap text-sm text-ink">
-            {event.description}
-          </div>
-        </Card>
-      )}
-
-      <Card>
-        <SectionLabel>出欠状況</SectionLabel>
-        <AttendanceCounts
-          ev={{
-            attendIds: eligibleAttendingList.map((a) => a.userId),
-            nonAttendingCount,
-          }}
-          variant="cards"
-        />
-      </Card>
-
-      {isAdmin ? (
+      {isAdmin && (
         <EventLifecycleSection
           eventId={event.id}
           entryStatus={event.entryStatus}
-          entryAppliedAt={event.entryAppliedAt}
           paymentType={event.paymentType}
           paymentStatus={event.paymentStatus}
-          paymentPaidAt={event.paymentPaidAt}
           feeJpy={event.feeJpy}
           entryDeadline={event.entryDeadline}
           paymentDeadline={event.paymentDeadline}
+          entryMethod={event.entryMethod}
+          paymentMethod={event.paymentMethod}
+          paymentInfo={event.paymentInfo}
           isLineLinked={isLineLinked}
           setEntryAppliedAction={setEntryApplied}
           setEntryNotApplyingAction={setEntryNotApplying}
           setPaymentTypeAction={setPaymentType}
           setPaymentPaidAction={setPaymentPaid}
         />
-      ) : (
-        <Card>
-          <SectionLabel>進行状況</SectionLabel>
-          <div className="mt-1">
-            <LifecycleStatusBadge
-              entryStatus={event.entryStatus}
-              paymentType={event.paymentType}
-              paymentStatus={event.paymentStatus}
-            />
-          </div>
-        </Card>
       )}
 
+      {/* 出欠状況カード（参加/不参加の2枚）は廃止し、参加人数を見出しへ移した。 */}
+      <SectionRule
+        title="参加者"
+        count={eligibleAttendingList.length}
+        countUnit="名"
+      >
+        {sortedAttending.length > 0 ? (
+          <p className="min-w-0 text-xs leading-[1.7] text-neutral-fg">
+            {sortedAttending.map((a, i) => (
+              <Fragment key={a.userId}>
+                {i > 0 && <em className="mx-1 not-italic text-ink-meta">・</em>}
+                <span className="whitespace-nowrap">
+                  {surname(a.user.name)}
+                  {a.user.grade && (
+                    <i className="ml-0.5 font-mono not-italic text-ink-meta">
+                      {a.user.grade}
+                    </i>
+                  )}
+                </span>
+              </Fragment>
+            ))}
+          </p>
+        ) : (
+          <p className="text-xs text-neutral-fg">まだ参加者がいません。</p>
+        )}
+      </SectionRule>
+
+      {showCapacitySection && (
+        <SectionRule
+          title="級別定員"
+          sub={
+            event.lotteryDate
+              ? `（抽選日：${formatFlowDate(event.lotteryDate)}）`
+              : undefined
+          }
+          aux={perGradeCapacities.length > 0 ? `計 ${capacityTotal}名` : undefined}
+        >
+          <div className="flex flex-wrap items-baseline gap-x-[26px] gap-y-2">
+            {perGradeCapacities.length > 0
+              ? perGradeCapacities.map(({ grade, capacity }) => (
+                  <span key={grade} className="flex items-baseline gap-1">
+                    <span className="font-mono text-[16px] font-bold text-ink-2">
+                      {grade}
+                    </span>
+                    <span className="font-display text-[18px] font-bold leading-none tabular-nums text-ink">
+                      {capacity}
+                    </span>
+                    <span className="text-xs text-ink-meta">名</span>
+                  </span>
+                ))
+              : eligibleGradeList.map((grade) => (
+                  <span
+                    key={grade}
+                    className="font-mono text-[16px] font-bold text-ink-2"
+                  >
+                    {grade}
+                  </span>
+                ))}
+          </div>
+        </SectionRule>
+      )}
+
+      {event.description && (
+        <SectionRule
+          title="備考"
+          aux={
+            isAdmin ? (
+              <LinkActionLink href={`/events/${event.id}/edit`}>
+                編集
+              </LinkActionLink>
+            ) : undefined
+          }
+        >
+          <div className="whitespace-pre-wrap font-display text-[16px] leading-[1.9] text-ink-2">
+            {event.description}
+          </div>
+        </SectionRule>
+      )}
+
+      {/* 以下3セクションはセクション間余白（34px）を自前で持つ。ここで
+          ラッパー div に付けると、条件を満たさず null を返したときに空の
+          34px が残ってしまうため（非管理者の LINE 配信・団体戦の名簿・
+          0件の関連メール）。 */}
+
+      {/* 非管理者には何も描画しない（AC-13b）。級別グループ配信は
+          gradeBroadcast prop でこの中の1項目として描画される（AC-13c）。 */}
       <LineBroadcastSection
         eventId={event.id}
         eventTitle={event.title}
@@ -536,107 +513,43 @@ export default async function EventDetailPage({
         manualBroadcastAction={manualBroadcast}
         setGuidelineAttachmentsAction={setGuidelineAttachments}
         resendGuidelinesAction={resendGuidelines}
+        gradeBroadcast={
+          isStrictAdmin && gradeBroadcastRows.length > 0
+            ? { rows: gradeBroadcastRows, resendAction: resendGradeBroadcast }
+            : null
+        }
       />
 
-      {/* event-grade-group-broadcast: 級別グループ配信の状況と再送。大会別グループ
-          配信とは読み手（会員全体 vs 申込者）が違う別系統なので併記する。 */}
-      {isStrictAdmin && gradeBroadcastRows.length > 0 && (
-        <GradeBroadcastSection
-          eventId={event.id}
-          rows={gradeBroadcastRows}
-          resendAction={resendGradeBroadcast}
-        />
-      )}
-
       {/* tournament-entry-rosters PR-4: 申込/確定名簿＋会員突合（個人戦のみ）。
-          一般会員は確定名簿と自分の掲載状況を閲覧、管理者は取込フォームも表示。 */}
+          Excel 取込は廃止し、この画面は閲覧専用（名簿はメール取込経由のみ）。 */}
       <RosterSection
-        eventId={event.id}
         kind={event.kind}
         rosters={event.rosters}
-        isAdmin={isAdmin}
         currentUserId={session?.user.id ?? null}
       />
 
-      {/* mail-inbox-mailer タスク5: 関連メール（AI 抽出経由 + 既存イベント結びつけ
-          経由）。リンク先が /admin/mail-inbox/mail/[id] (管理者専用) なので、
-          一般会員には表示しない。 */}
+      {/* mail-inbox-mailer タスク5: 関連メール。リンク先が
+          /admin/mail-inbox/mail/[id] (管理者専用) なので一般会員には出さない。 */}
       {isAdmin && <EventRelatedMails eventId={idNum} />}
 
-      {eligibleAttendingList.length > 0 && (
-        <Card>
-          <SectionLabel>参加者 ({eligibleAttendingList.length}名)</SectionLabel>
-          <div className="flex flex-wrap gap-2">
-            {sortedAttending.map((a) => (
-              <span
-                key={a.userId}
-                className="inline-flex items-center gap-1.5 rounded-full bg-neutral-bg px-2 py-0.5 text-xs text-neutral-fg"
-              >
-                {surname(a.user.name)}
-                {a.user.grade && <GradePill grade={a.user.grade} size="sm" />}
-              </span>
-            ))}
-          </div>
-        </Card>
-      )}
-
       {!canRespond && session && (
-        <Card>
-          <div className="text-sm text-ink-meta">
-            {!currentUserIsInvited && '出欠回答の対象外です'}
-            {currentUserIsInvited &&
-              !isBeforeDeadline &&
-              '会内締切を過ぎています'}
-            {currentUserIsInvited &&
-              isBeforeDeadline &&
-              currentUserGrade == null &&
-              '級が未設定のため回答できません'}
-            {currentUserIsInvited &&
-              isBeforeDeadline &&
-              currentUserGrade != null &&
-              !isEligible &&
-              '対象外の級です'}
-          </div>
-        </Card>
+        <p className="pt-[34px] text-xs text-ink-meta">
+          {!currentUserIsInvited && '出欠回答の対象外です'}
+          {currentUserIsInvited && !isBeforeDeadline && '会内締切を過ぎています'}
+          {currentUserIsInvited &&
+            isBeforeDeadline &&
+            currentUserGrade == null &&
+            '級が未設定のため回答できません'}
+          {currentUserIsInvited &&
+            isBeforeDeadline &&
+            currentUserGrade != null &&
+            !isEligible &&
+            '対象外の級です'}
+        </p>
       )}
 
       {canRespond && (
-        <Card>
-          {/* Comment editor is intentionally separated from the sticky toggle so
-              the toggle can keep submitting only `attend` (preserves an existing
-              comment via submitAttendance's omitted-field guard), while this
-              form explicitly sends `comment` when the user wants to edit it. */}
-          <details>
-            <summary className="cursor-pointer text-xs font-semibold text-ink-meta tracking-[0.02em]">
-              コメント{myAttendance?.comment ? '（記入済み）' : ''}
-            </summary>
-            <form
-              action={boundSubmitAttendance}
-              className="mt-3 flex flex-col gap-2"
-            >
-              <input
-                type="hidden"
-                name="attend"
-                value={myAttendance?.attend === true ? 'true' : 'false'}
-              />
-              <textarea
-                name="comment"
-                rows={2}
-                defaultValue={myAttendance?.comment ?? ''}
-                className="block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30"
-              />
-              <div className="flex justify-end">
-                <Btn type="submit" kind="secondary" size="sm">
-                  コメントを保存
-                </Btn>
-              </div>
-            </form>
-          </details>
-        </Card>
-      )}
-
-      {canRespond && (
-        <div className="sticky bottom-0 bg-canvas/95 backdrop-blur border-t border-border-soft p-3">
+        <div className="sticky bottom-0 -mx-4 mt-auto border-t border-border bg-canvas/95 px-4 py-3 backdrop-blur">
           <form action={boundSubmitAttendance}>
             <input
               type="hidden"

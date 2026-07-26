@@ -2,11 +2,24 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { Btn, Card, Pill, SectionLabel } from '@/components/ui'
+import { Btn } from '@/components/ui'
+import { formatDateTimeFull, formatDateTimeShort } from '@/lib/event-date'
+import {
+  DisclosureActions,
+  DisclosureRow,
+  DisclosureSection,
+  FlatTable,
+  LinkAction,
+  type FlatTableRow,
+} from './detail'
 import {
   BroadcastHistoryTable,
   type BroadcastHistoryRow,
 } from './BroadcastHistoryTable'
+import {
+  GradeBroadcastSection,
+  type GradeBroadcastRow,
+} from './GradeBroadcastSection'
 import {
   InviteCodeModal,
   type InviteCodePayload,
@@ -22,9 +35,8 @@ export interface LineBroadcastSectionProps {
   eventId: number
   eventTitle: string
   /**
-   * When false, the section renders a single read-only line so general
-   * members can see that LINE delivery is in place without exposing the
-   * channel ID / group ID.
+   * event-detail-redesign タスク5: 非管理者には何も描画しない
+   * （AC-13b / AC-28。一般会員向けの案内文は廃止）。
    */
   isAdmin: boolean
   binding:
@@ -55,23 +67,23 @@ export interface LineBroadcastSectionProps {
     attachmentIds: number[],
   ) => Promise<void>
   resendGuidelinesAction: (eventId: number) => Promise<void>
+  /**
+   * event-grade-group-broadcast: 級別グループ配信。**admin 限定**（vice_admin
+   * には渡さない）ため、page.tsx が strict admin のときだけ値を渡す。
+   * null/undefined のときは級別配信の行を描画しない（props ごと届かない＝
+   * AC-29）。
+   */
+  gradeBroadcast?: {
+    rows: readonly GradeBroadcastRow[]
+    resendAction: (eventId: number) => Promise<void>
+  } | null
 }
 
-function formatDateTime(date: Date | string | null | undefined): string {
-  if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
-}
-
-const STATUS_LABEL: Record<
-  LineBroadcastBindingStatus,
-  { label: string; tone: 'neutral' | 'info' | 'brand' }
-> = {
-  unbound: { label: '未連携', tone: 'neutral' },
-  invite_pending: { label: '招待コード発行中', tone: 'info' },
-  joined_waiting_code: { label: 'Bot 入室済み（コード待ち）', tone: 'info' },
-  linked: { label: '配信中', tone: 'brand' },
+const STATUS_LABEL: Record<LineBroadcastBindingStatus, string> = {
+  unbound: '未連携',
+  invite_pending: '招待コード発行中',
+  joined_waiting_code: 'Bot 入室済み（コード待ち）',
+  linked: '配信中',
 }
 
 export function LineBroadcastSection({
@@ -85,6 +97,7 @@ export function LineBroadcastSection({
   manualBroadcastAction,
   setGuidelineAttachmentsAction,
   resendGuidelinesAction,
+  gradeBroadcast,
 }: LineBroadcastSectionProps) {
   const [pendingGenerate, startGenerate] = useTransition()
   const [pendingRevoke, startRevoke] = useTransition()
@@ -92,22 +105,11 @@ export function LineBroadcastSection({
   const [error, setError] = useState<string | null>(null)
   const [modalPayload, setModalPayload] = useState<InviteCodePayload | null>(null)
 
+  // AC-13b/AC-28: 非管理者には何も描画しない（一般会員向けの案内文は廃止）。
+  if (!isAdmin) return null
+
   const status: LineBroadcastBindingStatus = binding?.status ?? 'unbound'
   const statusLabel = STATUS_LABEL[status]
-
-  if (!isAdmin) {
-    if (status === 'linked') {
-      return (
-        <section className="flex flex-col gap-2">
-          <SectionLabel>LINE 配信</SectionLabel>
-          <Card className="px-3 py-3 text-xs text-ink-2">
-            この大会は LINE グループに自動配信されています。
-          </Card>
-        </section>
-      )
-    }
-    return null
-  }
 
   function handleGenerate() {
     setError(null)
@@ -147,144 +149,161 @@ export function LineBroadcastSection({
     })
   }
 
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <SectionLabel>LINE 配信</SectionLabel>
-        <Pill tone={statusLabel.tone} size="sm">
-          {statusLabel.label}
-        </Pill>
-      </div>
+  // 完全失敗（failed）と部分失敗（partial）は深刻度が違うので集計を分ける。
+  // 一緒に数えて「部分失敗」と表示すると、トグルを閉じている管理者に完全失敗が
+  // 部分失敗として見え、障害の深刻度を誤認させる。
+  const failedCount = history.filter((r) => r.status === 'failed').length
+  const partialCount = history.filter((r) => r.status === 'partial').length
+  const historyAux =
+    failedCount > 0 && partialCount > 0
+      ? `失敗 ${failedCount}件・部分失敗 ${partialCount}件`
+      : failedCount > 0
+        ? `${failedCount}件 失敗`
+        : partialCount > 0
+          ? `${partialCount}件 部分失敗`
+          : undefined
 
-      <Card className="px-3 py-3 flex flex-col gap-3 text-xs text-ink-2">
-        {status === 'unbound' ? (
-          <>
-            <p>
-              この大会の参加者 LINE グループへ、承認したメールを自動配信します。
-            </p>
-            <p className="text-[11px] text-ink-meta">
-              まずは招待コードを発行し、Bot をグループに招待してください。
-            </p>
-            <div>
-              <Btn
-                type="button"
-                kind="primary"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={pendingGenerate}
-              >
-                {pendingGenerate ? '発行中…' : 'LINE 配信を有効化'}
-              </Btn>
-            </div>
-          </>
-        ) : status === 'linked' ? (
-          <>
-            <dl className="flex flex-col gap-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-ink-meta">連携 Bot</dt>
-                <dd className="text-ink-1 truncate">{binding?.botLabel ?? '—'}</dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-ink-meta">LINE グループ</dt>
-                <dd className="text-ink-1 font-mono text-[11px]">
-                  {binding?.lineGroupIdTail
-                    ? `…${binding.lineGroupIdTail}`
-                    : '—'}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-ink-meta">紐付け日時</dt>
-                <dd className="text-ink-1">{formatDateTime(binding?.linkedAt)}</dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-ink-meta">最終配信</dt>
-                <dd className="text-ink-1">
-                  {formatDateTime(binding?.lastBroadcastAt)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <dt className="text-ink-meta">要綱</dt>
-                <dd className="text-ink-1">
-                  {binding?.guidelineCount ?? 0}件選択済み
-                  {binding?.guidelinesSentAt
-                    ? `（最終送信 ${formatDateTime(binding.guidelinesSentAt)}）`
-                    : ''}
-                </dd>
-              </div>
-            </dl>
-            <div className="flex justify-end gap-2">
-              {(binding?.guidelineCount ?? 0) > 0 ? (
-                <Btn
-                  type="button"
-                  kind="secondary"
-                  size="sm"
-                  onClick={handleResend}
-                  disabled={pendingResend}
-                >
-                  {pendingResend ? '送信中…' : '要綱を再送'}
-                </Btn>
+  const bindingRows: FlatTableRow[] = binding
+    ? [
+        {
+          label: 'グループ',
+          value: binding.lineGroupIdTail ? `…${binding.lineGroupIdTail}` : '—',
+          valueClassName: 'font-mono text-xs',
+        },
+        {
+          label: '紐付け',
+          value: formatDateTimeFull(binding.linkedAt),
+          variant: 'date',
+        },
+        {
+          label: '最終配信',
+          value: formatDateTimeFull(binding.lastBroadcastAt),
+          variant: 'date',
+        },
+        {
+          label: '要綱',
+          value: (
+            <>
+              {binding.guidelineCount}件選択済み
+              {binding.guidelinesSentAt ? (
+                <div className="mt-[3px] text-xs text-neutral-fg">
+                  最終送信 {formatDateTimeShort(binding.guidelinesSentAt)}
+                </div>
               ) : null}
-              <Btn
-                type="button"
-                kind="danger"
-                size="sm"
+            </>
+          ),
+        },
+      ]
+    : []
+
+  return (
+    <DisclosureSection
+      title="LINE 配信"
+      aux={statusLabel}
+      auxTone={status === 'unbound' ? 'warn' : 'meta'}
+      nested
+      // セクション間余白（モックの `.sec{padding:34px 0 0}`）は自前で持つ。
+      // 非管理者では上で null を返すので、呼び出し側がラッパーで付けると
+      // 空の 34px が残ってしまう。
+      className="pt-[34px]"
+    >
+      {status === 'unbound' ? (
+        <>
+          <p className="text-xs leading-[1.75] text-neutral-fg">
+            この大会の参加者 LINE グループへ、承認したメールを自動配信します。まず招待コードを発行し、Bot をグループに招待してください。
+          </p>
+          <DisclosureActions>
+            <Btn
+              type="button"
+              size="sm"
+              className="h-[30px] rounded-md"
+              onClick={handleGenerate}
+              disabled={pendingGenerate}
+            >
+              {pendingGenerate ? '発行中…' : 'LINE 配信を有効化'}
+            </Btn>
+          </DisclosureActions>
+        </>
+      ) : status === 'linked' ? (
+        <>
+          <DisclosureRow label="連携状況" value={binding?.botLabel ?? '—'}>
+            <FlatTable rows={bindingRows} />
+            <DisclosureActions>
+              {(binding?.guidelineCount ?? 0) > 0 ? (
+                <LinkAction onClick={handleResend} disabled={pendingResend}>
+                  {pendingResend ? '送信中…' : '要綱を再送'}
+                </LinkAction>
+              ) : null}
+              <LinkAction
+                tone="danger"
                 onClick={handleRevoke}
                 disabled={pendingRevoke}
               >
                 {pendingRevoke ? '解除中…' : '連携解除'}
-              </Btn>
-            </div>
-          </>
-        ) : (
-          <>
-            <p>
-              招待コードを発行済みです。Bot をグループに招待し、コードを発言すると
-              紐付けが完了します。
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Btn
-                type="button"
-                kind="primary"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={pendingGenerate}
-              >
-                {pendingGenerate ? '再発行中…' : '招待コードを再発行'}
-              </Btn>
-              <Btn
-                type="button"
-                kind="ghost"
-                size="sm"
-                onClick={handleRevoke}
-                disabled={pendingRevoke}
-              >
-                {pendingRevoke ? '解除中…' : '取り消し'}
-              </Btn>
-            </div>
-            <p className="text-[10px] text-ink-meta">
-              うまくいかない場合は
-              {' '}
-              <Link href="/admin/line-channels" className="text-brand hover:underline">
-                /admin/line-channels
-              </Link>
-              {' '}
-              から手動紐付けが可能です。
-            </p>
-          </>
-        )}
+              </LinkAction>
+            </DisclosureActions>
+          </DisclosureRow>
 
-        {error ? <p className="text-xs text-danger-fg">{error}</p> : null}
-      </Card>
+          <DisclosureRow
+            label="配信履歴"
+            value={`${history.length}件`}
+            aux={historyAux}
+            auxTone="warn"
+          >
+            <BroadcastHistoryTable
+              rows={history}
+              eventId={eventId}
+              manualBroadcastAction={manualBroadcastAction}
+            />
+          </DisclosureRow>
 
-      {status === 'linked' ? (
-        <Card className="overflow-hidden">
-          <BroadcastHistoryTable
-            rows={history}
-            eventId={eventId}
-            manualBroadcastAction={manualBroadcastAction}
-          />
-        </Card>
+        </>
+      ) : (
+        <>
+          <p className="text-xs leading-[1.75] text-neutral-fg">
+            Bot をグループに招待し、コードを発言すると紐付けが完了します。うまくいかない場合は
+            {' '}
+            <Link href="/admin/line-channels" className="text-brand hover:underline">
+              /admin/line-channels
+            </Link>
+            {' '}
+            から手動で紐付けできます。
+          </p>
+          <DisclosureActions>
+            <LinkAction
+              tone="danger"
+              onClick={handleRevoke}
+              disabled={pendingRevoke}
+            >
+              {pendingRevoke ? '解除中…' : '取り消し'}
+            </LinkAction>
+            <Btn
+              type="button"
+              size="sm"
+              className="h-[30px] rounded-md"
+              onClick={handleGenerate}
+              disabled={pendingGenerate}
+            >
+              {pendingGenerate ? '再発行中…' : '招待コードを再発行'}
+            </Btn>
+          </DisclosureActions>
+        </>
+      )}
+
+      {/* 級別グループ配信は「会員全体へ大会の存在を周知する」別系統で、紐付けは
+          大会単位ではなく**常設**（spec/notifications.md）。したがって大会参加者
+          グループの連携状態（unbound / invite_pending / joined_waiting_code /
+          linked）に**関係なく**描画する — status 分岐の中に入れると、未連携の
+          新規大会で管理者が級別配信の状況確認・再送に到達できなくなる。 */}
+      {gradeBroadcast && gradeBroadcast.rows.length > 0 ? (
+        <GradeBroadcastSection
+          eventId={eventId}
+          rows={gradeBroadcast.rows}
+          resendAction={gradeBroadcast.resendAction}
+        />
       ) : null}
+
+      {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
 
       <InviteCodeModal
         eventId={eventId}
@@ -293,6 +312,6 @@ export function LineBroadcastSection({
         onClose={() => setModalPayload(null)}
         setGuidelineAttachmentsAction={setGuidelineAttachmentsAction}
       />
-    </section>
+    </DisclosureSection>
   )
 }

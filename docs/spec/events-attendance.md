@@ -50,13 +50,13 @@
 
 `events.status`（`published` / `cancelled` / `done`）はイベント自体の開催状態。draft は廃止済みで、作成経路は必ず `published` から始まる。`eventStatus()`（`event-status.ts`）は `cancelled` → 「中止」（danger）、`done` → 「終了」（info）のピルを返し、`published` を含むそれ以外はピル非表示（`null`）を返す — 通常運転中の大会にステータス行を出さない設計。
 
-`entryStatus`（`not_applied` / `applied` / `not_applying`）、`paymentType`（`advance` / `onsite` / `null`）、`paymentStatus`（`unpaid` / `paid`）は「会として主催者に対して行う 1 アクション」の進行状態で、会員個々の出欠とは独立している。これらのトグルと、初回遷移時の LINE 完了通知トリガーは `apps/web/src/app/(app)/events/[id]/actions.ts` の `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` が持つが、実際の通知組み立て・送信（`buildLifecycleMessage` / `claimLifecycleNotification` / `sendClaimedNotification`、`apps/web/src/lib/event-lifecycle-notify.ts`）は [spec/notifications.md](notifications.md) の管轄。`LifecycleStatusBadge` は誰でも見える読み取り専用ピル（`not_applied`=neutral「未申込」／`applied`=success「申込済」／`not_applying`=info「申込なし」。`not_applying` のときは支払いピルを描画しない — 申し込まない大会に支払い状態は無意味なため）、`EventLifecycleSection` は管理者専用の操作パネルで、`isAdmin` により `/events/[id]` で出し分けている。
+`entryStatus`（`not_applied` / `applied` / `not_applying`）、`paymentType`（`advance` / `onsite` / `null`）、`paymentStatus`（`unpaid` / `paid`）は「会として主催者に対して行う 1 アクション」の進行状態で、会員個々の出欠とは独立している。これらのトグルと、初回遷移時の LINE 完了通知トリガーは `apps/web/src/app/(app)/events/[id]/actions.ts` の `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` が持つが、実際の通知組み立て・送信（`buildLifecycleMessage` / `claimLifecycleNotification` / `sendClaimedNotification`、`apps/web/src/lib/event-lifecycle-notify.ts`）は [spec/notifications.md](notifications.md) の管轄。`EventLifecycleSection` は管理者専用の操作パネル（「申込状態」「支払状態」の2トグル）で、`isAdmin` のときだけ `/events/[id]` に描画される。一般会員向けの読み取り専用ピルは廃止した — 進行段階は両ビュー共通の「申込フロー」が表す。`LifecycleStatusBadge` はこの画面では使わなくなったが、進行状態3型（`EntryStatus` / `PaymentStatus` / `PaymentType`）の**型の正典**として残っており `/admin/entries` の `entry-board-utils.ts` が import している。
 
 `not_applying`（申込なし）は「申込者がいないため、会として今回は主催者へ申し込まない」という終端判断を記録する状態。設定・解除で LINE 通知は一切送らない（対外アクションを伴わない内部判断のため）。遷移は `not_applied → not_applying` と `applied → not_applying`（取り下げ。想定は低いが状態機械として塞がない）、および解除の `not_applying → not_applied` の3方向で、**`not_applying → applied` の直接遷移は UI に用意しない** — 復帰は必ず `not_applied` を経由させ、`setEntryApplied` の遷移ガード `WHERE entry_status = 'not_applied'` を変更せずに済ませる（2ステップ目は既存経路そのものなので、申込完了通知2通と once-ever は既存挙動のまま）。出欠回答の可否は `not_applying` でも変わらない（従来どおり会内締切・対象級・`isInvited` で判定する）。
 
 ### 出欠登録ルール
 
-ドメインルール「未回答 = 不参加」: `event_attendances` に行がない会員は出欠状況の集計上「不参加」として扱われる（明示的な `attend=false` の行があるわけではない）。`/events/[id]` の出欠状況カードは「対象会員（`eligibleUsers`）」を分母に、`参加人数 = attend=true`件、`不参加+未回答人数 = 分母 - 参加人数` として常に一致するよう算出する。
+ドメインルール「未回答 = 不参加」: `event_attendances` に行がない会員は出欠状況の集計上「不参加」として扱われる（明示的な `attend=false` の行があるわけではない）。`/events/[id]` は参加人数（`attend=true` かつ現在の対象級）だけを「参加者」セクションの見出しに出す。不参加人数の算出・表示は廃止した（分母を示す出欠状況カード自体を廃止したため）。`eligibleUsers`（対象会員）のクエリは残っており、参加者一覧から対象級外の stale な `attend=true` 行を除外する役割を担う。
 
 出欠回答が可能（`canRespond`）な条件は、ログイン済みかつ次のいずれか:
 - 管理者・副管理者（`isAdmin`）: 締切・級・招待有無を無視して常に回答可能
@@ -64,7 +64,7 @@
 
 `isInvited` の再チェックは、Auth.js の signIn が既に紐付いたアカウントの再ログインを `isInvited` ゲート無しで許容するため、画面側で必ず DB から再取得して確認している。級未設定（`grade=null`）の会員は対象級ありの大会には回答不可（自己サービスでの級設定 UI は無く、管理者に設定を依頼する）。
 
-`submitAttendance` サーバーアクションはこれらのガードをサーバー側でも再検証し（管理者はバイパス）、`event_attendances`（`eventId, userId` の UNIQUE）へ `onConflictDoUpdate` で upsert する。出欠のトグル（参加する/参加をキャンセル）ボタンは `attend` のみを送信し、コメント欄（`<details>` で折り畳み）は別フォームで明示的に送信したときだけ `comment` を更新する — トグル操作で既存コメントを消さないための分離。
+`submitAttendance` サーバーアクションはこれらのガードをサーバー側でも再検証し（管理者はバイパス）、`event_attendances`（`eventId, userId` の UNIQUE）へ `onConflictDoUpdate` で upsert する。出欠のトグル（参加する/参加をキャンセル）ボタンは `attend` のみを送信する。`comment` は `formData` に当該キーがあるときだけ更新されるため、トグル操作で既存コメントは消えない。**出欠コメントの入力 UI は `/events/[id]` から廃止した**（`event_attendances.comment` のデータと `submitAttendance` の comment 更新経路は残っているが、この画面から呼ぶフォームは無い）。
 
 ### 対象者・対象級の絞り込み
 
@@ -72,7 +72,7 @@
 
 ### 定員
 
-`capacity`（総定員）と `capacityA`〜`capacityE`（級別定員）は `/events/[id]` 詳細・編集フォームに保持・表示されるが、確認できた範囲では出欠登録時に定員超過を拒否する処理は無い（表示専用の参考情報）。
+`capacityA`〜`capacityE`（級別定員）は `/events/[id]` 詳細の「級別定員」セクションに表示する。同セクションは旧「対象級」行を吸収しており、3分岐する: 定員が1つ以上あれば級＋定員数（＋合計）／定員が全て未設定なら `eligibleGrades` の級だけを数字なしで並べる／`eligibleGrades` も定員も無ければセクションごと非表示。`capacity`（総定員）は編集フォームにのみ保持し、詳細では表示しない。確認できた範囲では出欠登録時に定員超過を拒否する処理は無い（表示専用の参考情報）。
 
 ### ホーム画面（ダッシュボード）
 
@@ -92,7 +92,13 @@
 
 ### `/events/[id]` 詳細
 
-イベント基本情報（`DescList`）、説明、出欠状況カード、進行管理（管理者は `EventLifecycleSection`、一般会員は `LifecycleStatusBadge` のみ）、LINE 配信セクション（[spec/notifications.md](notifications.md)）、名簿セクション（`RosterSection`。個人戦のみ・[spec/tournaments-results.md](tournaments-results.md)）、関連メール（管理者のみ・[spec/mail-worker.md](mail-worker.md)）、参加者一覧、出欠回答フォーム（コメント欄＋ sticky なトグルボタン）を上から順に描画する。管理者のみ右上に「編集」リンクを表示する。
+**罫線＋余白主導（脱カード）**の画面。カードを使うのは関連メールの1件ずつだけで、他は下線付き見出し＋余白＋ヘアライン罫線で構造を作る。運営操作は `<details>` に畳み（**既定=閉**）、既定表示では会員も管理者も「どの大会か・今どの段階か・自分は出るか」だけが見える状態にする。ルート要素は `p-4` を持ち、`<main>`（共通シェル）には padding を足さない。
+
+上から: **固定ヘッダー**（`EventDetailHeader`。日付+大会名+会場+申込フローを1つのラッパーで sticky にする。分割するとオフセット計算が壊れる）→ 進行管理（管理者のみ・`EventLifecycleSection`）→ 参加者（人数を見出しに出し、苗字を級の添え字つきで羅列）→ 級別定員 → 備考 → LINE 配信（管理者のみ・級別グループ配信を内包・[spec/notifications.md](notifications.md)）→ 名簿（`RosterSection`。個人戦のみ・級タブつき・[spec/tournaments-results.md](tournaments-results.md)）→ 関連メール（管理者のみ・[spec/mail-worker.md](mail-worker.md)）→ sticky な出欠トグルボタン。管理者は大会名の脇と備考見出しに「編集」リンクを持つ。
+
+**申込フロー**（`EntryFlow` ＋ 判定は `lib/events/entry-flow.ts` の `buildEntryFlow`）は 会内締切 → 大会申込 → 抽選 → 支払 → 開催 の5ステップを横一列に描く両ビュー共通の表示で、`events.entryStatus` / `paymentStatus` が「会としての進行」を表すため会員にも同じマイルストーンを見せる。**5ステップは日付が NULL でも消さず**、日付欄に「未定」と出す（ステップ数が大会ごとに変わると横並びの目安として機能しなくなるため）。判定はハイブリッドで、大会申込は `entryStatus==='applied'`、支払は `paymentType==='advance'` かつ `paymentStatus==='paid'`、残り3つは対応する日付が JST の今日より前かで完了を決める。事前払い以外の支払と `not_applying` 時の 大会申込〜支払 は**中立**（完了・警告・現在地のいずれにもならない）。現在地は「完了でも中立でもない」最先頭の高々1つで、`not_applying` のときは出さない。警告（朱）は**期限超過かつ未完了**のときだけで、単なる未払を警告にはしない。
+
+一般会員には 参加費・支払締切・支払方法・支払情報・申込方法 を描画しない（RSC payload にも載せない）。これらは管理者の「支払状態」「申込状態」トグル内に集約されており、会員向けの周知は LINE グループへ配信される要綱に委ねている。日付は生 ISO を出さず、文脈ごとに `9/6(日)`（見出し・フラット表）／`7/31`（申込フロー・曜日なし）／`2026/07/20 14:32`（LINE 連携状況）／`7/25 18:02`（配信履歴・名簿の発行日）を使い分ける（整形は `lib/event-date.ts`）。
 
 出欠回答不可の会員には理由（対象外／会内締切超過／級未設定／対象外の級）をカードで示す。
 
@@ -149,7 +155,7 @@
 
 ### 進行管理（申込/支払い状態）フロー
 
-1. 管理者が `/events/[id]` の「進行管理」パネルで「申込済にする」等をクリック。申込状態行のボタン構成は状態で変わる: `not_applied` → 「申込済にする」＋「申し込まない」、`applied` → 「未申込に戻す」＋「申し込まない」、`not_applying` → 「未申込に戻す」のみ
+1. 管理者が `/events/[id]` の「進行管理」→「申込状態」トグルを開いて「申込済にする」等をクリック。ボタン構成は状態で変わる: `not_applied` → 「申込済にする」＋「申し込まない」、`applied` → 「未申込に戻す」のみ、`not_applying` → 「未申込に戻す」のみ。**「申し込まない」は `not_applied` のときだけ出す** — `applied` から直接 `not_applying` へは遷移させず「未申込に戻す」を経由する2手順にして、状態機械を単純に保つ
 2. LINE グループが紐付き済み（`isLineLinked`）かつ通知を伴う操作（申込済化・支払済化。取り消し方向や支払いタイプ変更は通知なし）なら、クライアントで `window.confirm` による確認を挟む。「申し込まない」は LINE 通知を伴わないが `/events` 一覧から消える不可視化を伴うため、`isLineLinked` に関係なく別文言の確認を必ず出す（解除側は確認なし）
 3. `setEntryApplied` / `setPaymentPaid` が対象トランザクション内で状態を `not_applied → applied` 等の初回遷移でのみ更新し、同一トランザクションで通知 claim（`claimLifecycleNotification`）を行う。再トグルや二重呼び出しでは 2 回目以降は通知されない（once-ever）
 4. コミット後、push 送信は best-effort（失敗しても状態変更はロールバックしない）

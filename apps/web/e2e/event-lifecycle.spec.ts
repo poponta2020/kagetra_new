@@ -59,6 +59,19 @@ async function seedLinkedEvent(title: string) {
 
 test.describe.configure({ mode: 'serial' })
 
+/**
+ * event-detail-redesign: 運営操作は `<details>`（既定=閉）に畳まれた。中の
+ * ボタンは閉じている間 not visible なので、クリック前に summary を開く。
+ */
+async function openToggle(page: import('@playwright/test').Page, label: string) {
+  await page.locator('summary').filter({ hasText: label }).first().click()
+}
+
+/** 申込状態トグルの summary（開閉に関わらず常に見える現在値）。 */
+function entrySummary(page: import('@playwright/test').Page) {
+  return page.locator('summary').filter({ hasText: '申込状態' }).first()
+}
+
 test.describe('/events/[id] 進行管理セクション', () => {
   test.beforeEach(async () => {
     await truncateAll()
@@ -71,11 +84,15 @@ test.describe('/events/[id] 進行管理セクション', () => {
 
     await page.goto(`/events/${event.id}`)
     await expect(page.getByText('進行管理', { exact: true })).toBeVisible()
-    await expect(page.getByText(/通知は送られません/)).toBeVisible()
+    // 「LINE グループ未紐付けのため通知は送られません」の注記は廃止された
+    // （requirements §3.2.3(b)）。
+    await expect(page.getByText(/通知は送られません/)).toHaveCount(0)
+    await expect(entrySummary(page)).toContainText('未申込')
 
+    await openToggle(page, '申込状態')
     await page.getByRole('button', { name: '申込済にする' }).click()
-    // After revalidatePath the server re-renders and the label flips.
-    await expect(page.getByRole('button', { name: '未申込に戻す' })).toBeVisible()
+    // revalidatePath 後、summary の現在値が反転する（トグルの開閉状態に依存しない）。
+    await expect(entrySummary(page)).toContainText('申込済')
 
     const row = await testDb.query.events.findFirst({ where: eq(events.id, event.id) })
     expect(row?.entryStatus).toBe('applied')
@@ -94,23 +111,30 @@ test.describe('/events/[id] 進行管理セクション', () => {
       void dialog.accept()
     })
 
+    await openToggle(page, '申込状態')
     await page.getByRole('button', { name: '申込済にする' }).click()
-    await expect(page.getByRole('button', { name: '未申込に戻す' })).toBeVisible()
+    await expect(entrySummary(page)).toContainText('申込済')
     expect(dialogMessage).toContain('通知が送られます')
 
     const row = await testDb.query.events.findFirst({ where: eq(events.id, event.id) })
     expect(row?.entryStatus).toBe('applied')
   })
 
-  test('一般会員: 参照バッジのみでトグルボタンは出ない', async ({ context, page }) => {
+  test('一般会員: 進行管理セクションごと出ず、申込フローで段階を見る', async ({ context, page }) => {
     const event = await createEvent({ title: '会員参照E2E', eventDate: '2026-12-01' })
     const session = await seedMemberSession()
     await addSessionCookie(context, session.sessionToken)
 
     await page.goto(`/events/${event.id}`)
-    await expect(page.getByText('進行状況', { exact: true })).toBeVisible()
-    await expect(page.getByText('未申込')).toBeVisible()
+    // 読み取り専用の進行状況バッジは廃止し、申込フローが役割を引き継いだ
+    // （requirements §3.2.3(a)）。
+    await expect(page.getByText('進行状況', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('進行管理', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '申込済にする' })).toHaveCount(0)
+    // 申込フローは両ビュー共通で 5 ステップを常に描く。
+    for (const step of ['会内締切', '大会申込', '抽選', '支払', '開催']) {
+      await expect(page.getByText(step, { exact: true })).toBeVisible()
+    }
   })
 
   // entry-notify-lottery-treasurer (タスク5 E2E) ----------------------------
@@ -128,14 +152,17 @@ test.describe('/events/[id] 進行管理セクション', () => {
     await page.getByRole('button', { name: '更新' }).click()
     await page.waitForURL(`**/events/${event.id}`)
 
-    // 2) 詳細画面に抽選日が表示される（参加費・締切と並ぶ参照行）
-    await expect(page.getByText('抽選日', { exact: true })).toBeVisible()
-    await expect(page.getByText('2026-01-20', { exact: true })).toBeVisible()
+    // 2) 詳細画面の申込フロー「抽選」ステップに日付が出る。旧「抽選日」参照行は
+    //    詳細表ごと廃止され、日付は生 ISO ではなく M/D 表記になった（AC-22）。
+    await expect(page.getByText('抽選', { exact: true })).toBeVisible()
+    await expect(page.getByText('1/20', { exact: true })).toBeVisible()
+    await expect(page.getByText('2026-01-20')).toHaveCount(0)
 
     // 3) 申込済トグル — linked 大会なので確認ダイアログを accept
     page.on('dialog', (dialog) => void dialog.accept())
+    await openToggle(page, '申込状態')
     await page.getByRole('button', { name: '申込済にする' }).click()
-    await expect(page.getByRole('button', { name: '未申込に戻す' })).toBeVisible()
+    await expect(entrySummary(page)).toContainText('申込済')
 
     // 4) DB: entry_applied と entry_applied_treasurer の 2 種別ログが作成される
     //    （DRY_RUN 下では push は飛ばないが claim → finalize は走るので sent で記録される）
@@ -149,7 +176,7 @@ test.describe('/events/[id] 進行管理セクション', () => {
     )
   })
 
-  test('一般会員: 抽選日が参照のみで表示される（編集導線は出ない）', async ({ context, page }) => {
+  test('一般会員: 抽選日が申込フローに出る（編集導線は出ない）', async ({ context, page }) => {
     const event = await createEvent({
       title: '会員抽選参照E2E',
       eventDate: '2026-12-01',
@@ -159,8 +186,10 @@ test.describe('/events/[id] 進行管理セクション', () => {
     await addSessionCookie(context, session.sessionToken)
 
     await page.goto(`/events/${event.id}`)
-    await expect(page.getByText('抽選日', { exact: true })).toBeVisible()
-    await expect(page.getByText('2026-01-20', { exact: true })).toBeVisible()
+    await expect(page.getByText('抽選', { exact: true })).toBeVisible()
+    await expect(page.getByText('1/20', { exact: true })).toBeVisible()
+    // 生 ISO 表記は画面に出さない（AC-22）。
+    await expect(page.getByText('2026-01-20')).toHaveCount(0)
     // 編集導線は admin/vice_admin のみ（会員には出ない）
     await expect(page.getByRole('link', { name: '編集' })).toHaveCount(0)
   })

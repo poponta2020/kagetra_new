@@ -3,10 +3,14 @@ import { desc, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { mailMessages } from '@kagetra/shared/schema'
 import { collectRelatedMailIds } from '@/lib/event-related-mails'
-import { Card } from '@/components/ui'
+import { formatDateTimeShort } from '@/lib/event-date'
+import { DisclosureSection } from '@/components/events/detail'
 
 /**
- * mail-inbox-mailer タスク5: events 詳細「関連メール」セクション (Server Component)。
+ * mail-inbox-mailer タスク5 / event-detail-redesign タスク4:
+ * events 詳細「関連メール」セクション (Server Component)。開閉トグル化
+ * （既定=閉。管理者のみは維持——呼び出し元 page.tsx が isAdmin 判定で
+ * このコンポーネント自体を出し分ける）。
  *
  * 要件 §3.1.7 — 3 経路 UNION:
  *   (A) `mail_messages.linked_event_id = :eventId`
@@ -35,43 +39,34 @@ export async function EventRelatedMails({ eventId }: { eventId: number }) {
     .orderBy(desc(mailMessages.receivedAt))
 
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="font-display text-sm font-semibold text-ink-2">
-        関連メール ({rows.length})
-      </h2>
-      <div className="flex flex-col gap-1.5">
-        {rows.map((row) => (
-          <Link key={row.id} href={`/admin/mail-inbox/mail/${row.id}`}>
-            <Card className="hover:bg-surface-alt">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium text-ink">
-                    {row.subject || '(件名なし)'}
-                  </span>
-                  <span className="shrink-0 text-xs text-ink-meta">
-                    {formatJstShort(row.receivedAt)}
-                  </span>
-                </div>
-                <span className="truncate text-xs text-ink-meta">
-                  {row.fromName
-                    ? `${row.fromName} <${row.fromAddress}>`
-                    : row.fromAddress}
-                </span>
-              </div>
-            </Card>
-          </Link>
-        ))}
-      </div>
-    </section>
+    <DisclosureSection
+      title="関連メール"
+      aux={`${rows.length}件`}
+      nested
+      // セクション間余白（モックの `.sec{padding:34px 0 0}`）は自前で持つ。
+      // 0 件では上で null を返すので、呼び出し側がラッパーで付けると空の
+      // 34px が残ってしまう。
+      className="pt-[34px]"
+    >
+      {rows.map((row) => (
+        <Link
+          key={row.id}
+          href={`/admin/mail-inbox/mail/${row.id}`}
+          className="mt-[7px] block rounded-lg border border-border-soft bg-surface px-3 py-[10px] shadow-sm first:mt-[10px]"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate text-[13px] font-medium text-ink">
+              {row.subject || '(件名なし)'}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-neutral-fg">
+              {formatDateTimeShort(row.receivedAt)}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-ink-meta">
+            {row.fromName ?? row.fromAddress}
+          </div>
+        </Link>
+      ))}
+    </DisclosureSection>
   )
-}
-
-function formatJstShort(date: Date): string {
-  return date.toLocaleString('ja-JP', {
-    timeZone: 'Asia/Tokyo',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
