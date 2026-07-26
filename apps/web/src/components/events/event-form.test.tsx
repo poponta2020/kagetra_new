@@ -214,4 +214,48 @@ describe('EventForm', () => {
     const optionValues = Array.from(select.options).map((o) => o.value)
     expect(optionValues).toContain('published')
   })
+
+  // entry-groups タスク2: 申込グループ欄 / 伝播 submit ボタンの差し込み --------
+  it("mode='edit'（非 embedded）で entryGroupSection が描画される", () => {
+    render(
+      <EventForm
+        mode="edit"
+        action={noop}
+        cancelHref="/events/1"
+        entryGroupSection={<div data-testid="entry-group-section">group ui</div>}
+      />,
+    )
+    expect(screen.getByTestId('entry-group-section')).toBeTruthy()
+  })
+
+  it('embedded（承認画面）モードでは entryGroupSection を渡しても描画しない', () => {
+    render(
+      <EventForm
+        mode="create"
+        action={noop}
+        cancelHref="/events"
+        fieldPrefix="u1__"
+        entryGroupSection={<div data-testid="entry-group-section">group ui</div>}
+      />,
+    )
+    expect(screen.queryByTestId('entry-group-section')).toBeNull()
+  })
+
+  it('submitButton を渡すと既定の「更新」ボタンの代わりに描画される', () => {
+    render(
+      <EventForm
+        mode="edit"
+        action={noop}
+        cancelHref="/events/1"
+        submitButton={<button type="submit">カスタム保存</button>}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: '更新' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'カスタム保存' })).toBeTruthy()
+  })
+
+  it('submitButton を渡さない場合は既定の「更新」ボタンが描画される（回帰）', () => {
+    render(<EventForm mode="edit" action={noop} cancelHref="/events/1" />)
+    expect(screen.getByRole('button', { name: '更新' })).toBeTruthy()
+  })
 })

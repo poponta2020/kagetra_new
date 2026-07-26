@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { EventKind, EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
@@ -50,6 +51,17 @@ export interface EventFormProps {
     capacityD?: number | null
     capacityE?: number | null
   }
+  /**
+   * entry-groups: 「申込グループ」欄（現グループの日一覧・単独化・合流先選択）。
+   * standalone（非 embedded）の編集画面だけに差し込む — 承認フォーム（embedded）には
+   * 出さない。呼び出し側（events/[id]/edit）が組み立てて渡す。
+   */
+  entryGroupSection?: ReactNode
+  /**
+   * entry-groups: 締切・支払い系フィールドの伝播確認を行う submit ボタン。指定時は
+   * 既定の「更新」ボタンをこれに置き換える（events/[id]/edit が `EventEditSubmit` を渡す）。
+   */
+  submitButton?: ReactNode
 }
 
 const LABEL_CLASS = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
@@ -76,6 +88,8 @@ export function EventForm({
   fieldPrefix = '',
   defaultValues,
   editionDefault,
+  entryGroupSection,
+  submitButton,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
@@ -418,6 +432,10 @@ export function EventForm({
             </select>
           </div>
         )}
+
+        {/* entry-groups: standalone（非 embedded）の編集画面だけに差し込む。
+            承認フォーム（embedded）には ApprovalForm 側の別 UI を出さない設計なので出さない。 */}
+        {!embedded && entryGroupSection}
     </>
   )
 
@@ -435,9 +453,11 @@ export function EventForm({
           <Link href={cancelHref} className={CANCEL_LINK_CLASS}>
             キャンセル
           </Link>
-          <Btn type="submit" kind="primary" size="md">
-            {submitLabel}
-          </Btn>
+          {submitButton ?? (
+            <Btn type="submit" kind="primary" size="md">
+              {submitLabel}
+            </Btn>
+          )}
         </div>
       </form>
     </Card>
