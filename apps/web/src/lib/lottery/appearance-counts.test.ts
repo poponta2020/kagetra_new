@@ -14,7 +14,7 @@ import {
   tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createUser } from '@/test-utils/seed'
+import { createUser, createEntryGroup } from '@/test-utils/seed'
 import {
   APPEARANCE_COUNT_RULE_VERSION,
   buildAppearanceCountsQuery,
@@ -63,6 +63,7 @@ async function createEdition(input: {
   const [event] = await testDb
     .insert(events)
     .values({
+      entryGroupId: (await createEntryGroup()).id,
       title: `edition-${input.editionNumber}`,
       eventDate: input.eventDate,
       editionId: edition.id,

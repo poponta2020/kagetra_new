@@ -8,6 +8,7 @@ import {
   vi,
 } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { createEntryGroup } from '@/test-utils/seed'
 import { broadcastMailToEvent } from './line-broadcast'
 import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import {
@@ -109,7 +110,8 @@ async function buildLinkedFixture(): Promise<Fixtures> {
 
   const eventInsert = await db
     .insert(events)
-    .values({ title: 'テスト大会', eventDate: '2026-06-01' })
+    .values({
+      entryGroupId: (await createEntryGroup()).id, title: 'テスト大会', eventDate: '2026-06-01' })
     .returning({ id: events.id })
   const eventId = eventInsert[0]!.id
 
@@ -189,7 +191,8 @@ describe('broadcastMailToEvent', () => {
       .returning()
     const eventInsert = await db
       .insert(events)
-      .values({ title: 'no-binding', eventDate: '2026-06-01' })
+      .values({
+        entryGroupId: (await createEntryGroup()).id, title: 'no-binding', eventDate: '2026-06-01' })
       .returning({ id: events.id })
     const eventId = eventInsert[0]!.id
     const mailInsert = await db

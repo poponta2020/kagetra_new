@@ -1,6 +1,8 @@
 export * from './enums'
 export * from './auth'
 export * from './registration-invites'
+// entry-groups: 申込グループ（events の親。events より先に export する）
+export * from './entry-groups'
 export * from './events'
 export * from './event-attendances'
 // Legacy DB schema only. It is not an application feature and will be removed

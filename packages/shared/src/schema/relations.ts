@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm'
 import { users } from './auth'
+import { entryGroups } from './entry-groups'
 import { events } from './events'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
@@ -57,7 +58,18 @@ export const tournamentSeriesEditionsRelations = relations(
   }),
 )
 
+// entry-groups: 申込グループ 1:N events。グループ側から日一覧を引く経路
+// （詳細画面の日リンク・申込管理ボードのカード・リマインダーの集約）で使う。
+export const entryGroupsRelations = relations(entryGroups, ({ many }) => ({
+  events: many(events),
+}))
+
 export const eventsRelations = relations(events, ({ one, many }) => ({
+  // entry-groups: 所属する申込グループ（NOT NULL なので必ず 1 件）。
+  entryGroup: one(entryGroups, {
+    fields: [events.entryGroupId],
+    references: [entryGroups.id],
+  }),
   // tournament-entry-rosters: 開催（edition）。flow①（案内承認）で設定。
   // 旧 eventGroup relation は PR-1b で撤去（束ねは edition に一本化）。
   edition: one(tournamentSeriesEditions, {

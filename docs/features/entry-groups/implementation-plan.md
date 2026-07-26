@@ -25,7 +25,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: entry_groups 基盤スキーマ + migration 0045 + events INSERT 全経路のシングルトン化
-- [ ] 完了
+- [x] 完了
 - **目的:** entry_groups テーブルと `events.entry_group_id NOT NULL` を導入し「全イベントは必ずグループに属する」を確立する。この時点では既存挙動は不変（backfill クラスタ+シングルトン）
 - **対応AC:** AC-1, AC-2
 - **主な変更領域:**

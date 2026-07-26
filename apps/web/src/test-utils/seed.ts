@@ -1,6 +1,7 @@
 import type { InferInsertModel } from 'drizzle-orm'
 import {
   users,
+  entryGroups,
   events,
   eventAttendances,
   mailMessages,
@@ -48,10 +49,25 @@ export async function createViceAdmin(overrides: Partial<NewUser> = {}) {
 }
 
 /**
+ * entry-groups: 申込グループを1件作って id を返す。複数イベントを**同じグループ**に
+ * 入れたいテストは、これで作った id を `createEvent({ entryGroupId })` へ渡す。
+ */
+export async function createEntryGroup() {
+  const [group] = await testDb.insert(entryGroups).values({}).returning()
+  if (!group) throw new Error('Failed to insert test entry group')
+  return group
+}
+
+/**
  * Create an event. Required columns in schema: title, eventDate.
  * kind defaults to 'individual', status defaults to 'published', official defaults to true.
+ *
+ * entry-groups: `events.entry_group_id` は NOT NULL。**既定ではシングルトングループを
+ * 自動生成する**ので、グループを意識しないテストは今までどおり `createEvent()` だけで動く。
+ * 同一グループの複数日を作るテストだけが `entryGroupId` を明示する。
  */
 export async function createEvent(overrides: Partial<NewEvent> = {}) {
+  const entryGroupId = overrides.entryGroupId ?? (await createEntryGroup()).id
   const [event] = await testDb
     .insert(events)
     .values({
@@ -59,6 +75,7 @@ export async function createEvent(overrides: Partial<NewEvent> = {}) {
       eventDate: '2030-01-01',
       kind: 'individual',
       ...overrides,
+      entryGroupId,
     })
     .returning()
   if (!event) throw new Error('Failed to insert test event')

@@ -9,6 +9,7 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import * as schema from '@kagetra/shared/schema'
 import {
+  entryGroups,
   events,
   mailAttachments,
   mailMessages,
@@ -43,6 +44,7 @@ import {
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
+import { createEntryGroup } from '@/lib/entry-groups'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
@@ -151,6 +153,9 @@ export async function approveDraft(draftId: number, formData: FormData) {
       draftRow[0]!.messageId,
     )
 
+    // entry-groups: この経路（1 draft → 1 event の旧フロー）は単独イベントなので
+    // シングルトングループを作る。複数ユニットのクラスタ提案は approveDraftUnits 側。
+    const entryGroupId = await createEntryGroup(tx)
     const inserted = await tx
       .insert(events)
       .values({
@@ -158,6 +163,7 @@ export async function approveDraft(draftId: number, formData: FormData) {
         eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
         createdBy: session.user.id,
         gradeBroadcastAttachmentId,
+        entryGroupId,
       })
       .returning({ id: events.id })
     const newEventId = inserted[0]?.id
@@ -548,6 +554,9 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       // hard guarantee; onConflictDoNothing makes the race lose silently. On a
       // conflict `returning` is empty → this unit was already materialized by
       // the other writer, so skip it (do NOT count it as newly created).
+      // entry-groups タスク1: この段階では unit ごとにシングルトングループを作る
+      // （同 draft × 同申込締切のクラスタ提案は タスク7 で入れる）。
+      const entryGroupId = await createEntryGroup(tx)
       const inserted = await tx
         .insert(events)
         .values({
@@ -561,6 +570,7 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
           // タスク6: 承認フォーム全体で 1 件の選択を、今回作られる全 unit の
           // events に同じ値で入れる（分割承認でも回ごとに同じ値になる）。
           gradeBroadcastAttachmentId,
+          entryGroupId,
         })
         // `where` is REQUIRED here: the unique index is PARTIAL (WHERE both
         // columns NOT NULL), and Postgres only treats a partial index as the
@@ -576,7 +586,13 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       const newEventId = inserted[0]?.id
       // Empty returning here means the unique index rejected the row (a
       // concurrent insert won the race). Not an error — just skip.
-      if (newEventId == null) continue
+      if (newEventId == null) {
+        // entry-groups: 競合で INSERT が落ちた場合、直前に作ったグループは
+        // どの event からも参照されない空グループとして残ってしまう。同一 tx 内で
+        // 作ったばかりで参照ゼロが自明なので、ここで確実に片付ける。
+        await tx.delete(entryGroups).where(eq(entryGroups.id, entryGroupId))
+        continue
+      }
       createdEventIds.push(newEventId)
     }
 

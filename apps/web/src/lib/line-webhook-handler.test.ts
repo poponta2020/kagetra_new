@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createEntryGroup } from '@/test-utils/seed'
 import { createHmac } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
@@ -122,6 +123,7 @@ async function insertEvent(): Promise<number> {
   const rows = await db
     .insert(events)
     .values({
+      entryGroupId: (await createEntryGroup()).id,
       title: 'テスト大会',
       eventDate: '2026-06-01',
     })

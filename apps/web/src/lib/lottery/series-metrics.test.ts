@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { createEntryGroup } from '@/test-utils/seed'
 import { eq } from 'drizzle-orm'
 import {
   events,
@@ -59,6 +60,7 @@ async function createEdition(
   const [event] = await testDb
     .insert(events)
     .values({
+      entryGroupId: (await createEntryGroup()).id,
       title: `${editionNumber}回大会`,
       eventDate,
       editionId: edition!.id,

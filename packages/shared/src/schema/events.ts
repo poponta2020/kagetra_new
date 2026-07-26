@@ -19,10 +19,18 @@ import {
   eventPaymentStatusEnum,
 } from './enums'
 import { users } from './auth'
+import { entryGroups } from './entry-groups'
 import { tournamentSeriesEditions } from './tournament-series-editions'
 
 export const events = pgTable('events', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  // entry-groups: 申込グループ。**NOT NULL** — 全イベントが必ず1グループに属する
+  // （単独イベントもシングルトングループを持つ）。ON DELETE RESTRICT は、まだ日が
+  // 残っているグループを消せないようにする DB 側のバックストップ（空グループの削除は
+  // `deleteGroupIfEmpty` が events / broadcasts / rosters の 0 件を確認して行う）。
+  entryGroupId: integer('entry_group_id')
+    .notNull()
+    .references(() => entryGroups.id, { onDelete: 'restrict' }),
   title: text('title').notNull(),
   description: text('description'),
   eventDate: date('event_date', { mode: 'string' }).notNull(),
@@ -111,4 +119,8 @@ export const events = pgTable('events', {
   // 削除のたびに PostgreSQL が events を全走査する（既存の添付参照テーブルも同じ理由で
   // 参照列 index を張っている）。
   index('events_grade_broadcast_attachment_id_idx').on(table.gradeBroadcastAttachmentId),
+  // entry-groups: FK 列に PG は自動 index を作らない。グループ→日一覧の引き当ては
+  // 詳細画面・申込管理ボード・リマインダー・LINE 配信のすべてで走る主要経路なので
+  // 明示 index を張る（events_edition_id_idx と同じ規約）。
+  index('events_entry_group_id_idx').on(table.entryGroupId),
 ])

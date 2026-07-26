@@ -6,6 +6,7 @@ import { events } from '@kagetra/shared/schema'
 import { eventFormSchema, extractEventFormData } from '@/lib/form-schemas'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { resolveEditionFromForm } from '@/lib/edition/resolve'
+import { createEntryGroup } from '@/lib/entry-groups'
 import { EventForm } from '@/components/events/event-form'
 
 export default async function NewEventPage() {
@@ -39,6 +40,10 @@ export default async function NewEventPage() {
         year: editionYear,
         status: 'unconfirmed',
       })
+      // entry-groups: 手動作成は常に単独イベントなので、シングルトングループを
+      // 自動生成して紐付ける（events.entry_group_id は NOT NULL）。同じ大会の
+      // 別の日と束ねたい場合は、作成後に編集画面の「申込グループ」欄で合流させる。
+      const entryGroupId = await createEntryGroup(tx)
       const result = await tx
         .insert(events)
         .values({
@@ -46,6 +51,7 @@ export default async function NewEventPage() {
           createdBy: session.user.id,
           eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
           editionId,
+          entryGroupId,
         })
         .returning({ id: events.id })
       return result[0]!

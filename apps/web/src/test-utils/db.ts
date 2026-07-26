@@ -55,6 +55,9 @@ export async function truncateAll() {
       event_attendances,
       schedule_items,
       events,
+      -- entry-groups: events の親。CASCADE では消えない側（events → entry_groups の
+      -- FK は RESTRICT）なので、明示列挙しないとグループ行がテスト間で溜まり続ける。
+      entry_groups,
       registration_invites,
       sessions,
       accounts,
