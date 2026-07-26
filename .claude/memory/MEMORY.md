@@ -176,3 +176,6 @@
 - [entry-management Wave 1（タスク1・2）](impl_entry-management-wave1.md) — 純関数+テスト / ボトムナビ7タブ。並行ワーカーに vitest を渡さない理由と GroupedBoard 型の穴
 - [entry-management タスク3・4](impl_entry-management-task34.md) — 毎朝アラートの条件追加で既存テストの意図を守る方法／プロトタイプの空状態バグ
 - [role-preview-switch 要件定義](project_role_preview_switch_def.md) — 親Issue #327・実装未着手
+- [auto-review PR #333](auto-review-round-pr333.md) — R2 verdict=pass（R1はWCAG AA回帰3件）
+- [auto-review PR #334](auto-review-round-pr334.md) — R2 verdict=pass。R1 blocker=畳んだ区画の「ほかN件」欠落（プロトタイプ由来）
+- [配色のデザイントークン一元化](project_ship-unify-color-tokens.md) — shipped: PR #333
