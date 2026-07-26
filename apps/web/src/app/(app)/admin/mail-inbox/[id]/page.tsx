@@ -282,7 +282,7 @@ export default async function MailDraftDetailPage({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div>
         <Link
           href="/admin/mail-inbox"

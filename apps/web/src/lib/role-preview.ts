@@ -1,10 +1,10 @@
 /**
  * role-preview-switch の純関数モジュール。
  *
- * 実効ロール (session.user.role) の導出・許可判定・選択肢生成・バッジ文言を
+ * 実効ロール (session.user.role) の導出・許可判定・選択肢生成・ロール名文言を
  * すべてここに閉じ込める。**DB / process.env / next-auth を一切 import しない**:
  *   - auth.config.ts は Edge でも動くため Node 専用 API を持ち込めない
- *   - AccountMenu ('use client') 側から間接的に参照されてもクライアント
+ *   - クライアントコンポーネント側から間接的に参照されてもクライアント
  *     バンドルを汚さない
  *   - env 値は呼び出し側 (Server Action / layout) が読んで引数で渡す
  *
@@ -29,12 +29,6 @@ const ROLE_VIEW_LABEL: Record<UserRole, string> = {
   admin: '管理者',
   vice_admin: '副管理者',
   member: '一般会員',
-}
-
-const PREVIEW_BADGE_LABEL: Record<UserRole, string> = {
-  admin: '管理者ビュー',
-  vice_admin: '副管理者ビュー',
-  member: '会員ビュー',
 }
 
 /** enum 外の値 (改竄された JWT クレーム・FormData の任意文字列) は null。 */
@@ -90,7 +84,7 @@ export function roleViewLabel(role: UserRole): string {
   return ROLE_VIEW_LABEL[role]
 }
 
-/** 設定シートの「表示ロール」セクションの入力。 */
+/** 設定ページの「表示ロール」セクションの入力。 */
 export interface RolePreviewSelection {
   /** 現在の実効ロール (aria-current を付ける対象)。 */
   current: UserRole
@@ -101,7 +95,7 @@ export interface RolePreviewSelection {
 }
 
 /**
- * `(app)/layout.tsx` が `AccountMenu` へ渡す「表示ロール」セクションの入力を
+ * `(app)/settings/page.tsx` が描画する「表示ロール」セクションの入力を
  * 組み立てる。null なら**セクションごと描画しない**。
  *
  * ⚠️ 許可リストから外れていても、**プレビュー中なら本物のロールへ戻す 1 択
@@ -127,20 +121,6 @@ export function buildRolePreviewSelection(
     real,
     selectable: allowed ? selectableRoles(real) : [real],
   }
-}
-
-/**
- * ヘッダーバッジの文言。非プレビュー時 (実効 === 本物) は null を返し、
- * バッジそのものを描画させない。
- */
-export function previewBadgeLabel(
-  realRole: UserRole | null | undefined,
-  effectiveRole: UserRole | null | undefined,
-): string | null {
-  const real = parseUserRole(realRole)
-  const effective = parseUserRole(effectiveRole)
-  if (!real || !effective || real === effective) return null
-  return PREVIEW_BADGE_LABEL[effective]
 }
 
 /**

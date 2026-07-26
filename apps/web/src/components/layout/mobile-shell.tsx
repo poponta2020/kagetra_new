@@ -1,47 +1,31 @@
 import type { ReactNode } from 'react'
-import { AppBarMain } from './app-bar-main'
 import { BottomNav } from './bottom-nav'
-import type { RolePreviewProps } from './account-menu'
 
 export interface MobileShellProps {
-  /**
-   * Display label for the authenticated user, already formatted by the
-   * caller (e.g. `'山田さん'`). Pass an empty string when unavailable.
-   */
-  user: string
   /**
    * Whether the signed-in user has admin/vice_admin privileges. Forwarded
    * to `BottomNav` to gate admin-only tabs.
    */
   isAdmin: boolean
-  /** Server Action forwarded to the top bar's logout form. */
-  signOutAction: () => Promise<void>
   /**
-   * role-preview-switch: 表示ロール切替セクションの入力。`AppBarMain` へ
-   * 素通しするだけ。`null`（既定）ならセクション自体を表示しない。
+   * role-preview-switch: プレビュー中の表示ロール名（例 `'一般会員'`）。
+   * `BottomNav` の「設定」タブのバッジへ素通しするだけ。非プレビュー時は null。
    */
-  rolePreview?: RolePreviewProps | null
-  /**
-   * role-preview-switch: プレビュー中のみ非 null。`AppBarMain` へ素通しする
-   * だけ。
-   */
-  previewBadge?: string | null
-  /**
-   * role-preview-switch: 表示ロール切替の Server Action。`AppBarMain` へ
-   * 素通しするだけ。
-   */
-  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
+  previewRoleLabel?: string | null
   children: ReactNode
 }
 
 /**
  * Mobile-first application shell. Fits the visible viewport via `h-dvh`
- * (with `h-screen` fallback for older browsers) so AppBar and BottomNav
- * stay pinned at the flex edges and only `<main>` scrolls — keeping the
- * 44px top bar and 52px bottom tab bar visible regardless of page length
- * or iOS Safari URL-bar collapse. Matches the `MobileFrame` prototype in
- * `docs/design/ui_kits/kagetra-mobile/primitives.jsx` and §3 of
- * `docs/design/design.md`.
+ * (with `h-screen` fallback for older browsers) so BottomNav stays pinned
+ * at the bottom flex edge and only `<main>` scrolls — keeping the 52px
+ * bottom tab bar visible regardless of page length or iOS Safari URL-bar
+ * collapse.
+ *
+ * nav-settings-hub: かつて上端にあった 44px の AppBar（ワードマーク＋
+ * `{name}さん` の設定シートトリガー）は廃止した。中身の情報価値に対して
+ * 常時 44px を占有するコストが見合わず、設定は「設定」タブ →`/settings`
+ * へ移した。シェルの子は `<main>` と `<nav>` の 2 つだけ。
  *
  * Intentionally NO responsive (`md:` / `lg:`) modifiers and NO `max-w-*`
  * constraints — the design is mobile-only by specification. Admin tables
@@ -51,12 +35,8 @@ export interface MobileShellProps {
  * live inside `BottomNav`.
  */
 export function MobileShell({
-  user,
   isAdmin,
-  signOutAction,
-  rolePreview = null,
-  previewBadge = null,
-  setRolePreviewAction = null,
+  previewRoleLabel = null,
   children,
 }: MobileShellProps) {
   // Height is supplied by the `.mobile-shell-h` rule in globals.css, which
@@ -78,24 +58,16 @@ export function MobileShell({
   // cost of an extra empty band when the URL bar later collapses.
   return (
     <div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
-      <AppBarMain
-        user={user}
-        isAdmin={isAdmin}
-        signOutAction={signOutAction}
-        rolePreview={rolePreview}
-        previewBadge={previewBadge}
-        setRolePreviewAction={setRolePreviewAction}
-      />
       {/*
         `min-h-0` is required: flex items default to `min-height: auto`,
         which prevents <main> from shrinking below its content height even
         with `overflow-y-auto`. Without it the inner content pushes <main>
         past the shell, the shell bleeds past h-dvh, and body scroll
-        carries AppBar/BottomNav off-screen — exactly the bug we are trying
+        carries BottomNav off-screen — exactly the bug we are trying
         to fix. See https://developer.mozilla.org/en-US/docs/Web/CSS/min-height#values
       */}
       <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
-      <BottomNav isAdmin={isAdmin} />
+      <BottomNav isAdmin={isAdmin} previewRoleLabel={previewRoleLabel} />
     </div>
   )
 }

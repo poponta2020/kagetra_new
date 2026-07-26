@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
+
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
@@ -45,11 +45,16 @@ export default async function LineLinkPage({
     ? ERROR_MESSAGES[errorCode] ?? '処理に失敗しました。'
     : null
 
+  // nav-settings-hub: `(app)` グループへ移設したため、シェル（ボトムナビ）の
+  // 内側に収まる通常ページのレイアウトにする。以前はシェル外の孤児ページで、
+  // 中央寄せカード＋「ダッシュボードへ戻る」だけが脱出口だった。
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
-      <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-8 shadow-lg">
+    <div className="flex flex-col gap-5 p-4">
+      <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-bold">LINE アカウント切替</h1>
+          <h1 className="font-display text-xl font-bold text-ink">
+            LINE アカウント切替
+          </h1>
           <p className="mt-2 text-sm text-ink-2">
             通知を受け取る LINE アカウントを変更できます。機種変更などで
             LINE アカウントが変わった場合にご利用ください。
@@ -67,22 +72,16 @@ export default async function LineLinkPage({
           <p className="font-mono text-ink">{maskLineUserId(user.lineUserId)}</p>
         </div>
 
-        <div className="flex gap-3">
-          <Link
-            href="/"
-            className="rounded-md bg-surface-alt px-4 py-2 text-sm text-ink-2 hover:bg-border-soft"
+        {/* nav-settings-hub: 戻る導線はボトムナビ（設定タブ）が担うので、
+            「ダッシュボードへ戻る」リンクは置かない。 */}
+        <form action={startLineLink}>
+          <button
+            type="submit"
+            className="rounded-md bg-line px-4 py-2 text-sm font-semibold text-white hover:bg-line-hover"
           >
-            ダッシュボードへ戻る
-          </Link>
-          <form action={startLineLink}>
-            <button
-              type="submit"
-              className="rounded-md bg-line px-4 py-2 text-sm font-semibold text-white hover:bg-line-hover"
-            >
-              別の LINE に切り替える
-            </button>
-          </form>
-        </div>
+            別の LINE に切り替える
+          </button>
+        </form>
       </div>
     </div>
   )

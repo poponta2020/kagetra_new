@@ -163,7 +163,7 @@ export default async function RosterDraftReviewPage({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <Link
         href={draft.sourceMail ? `/admin/mail-inbox/mail/${draft.sourceMail.id}` : '/admin/mail-inbox'}
         className="text-sm text-brand-fg underline"

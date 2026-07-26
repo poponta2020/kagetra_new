@@ -70,7 +70,7 @@ export default async function MembersPage() {
   ])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4">
       <h2 className="text-xl font-bold">会員管理</h2>
       <NewMemberForm />
       <RegistrationInviteSection activeInvites={activeInvites} />

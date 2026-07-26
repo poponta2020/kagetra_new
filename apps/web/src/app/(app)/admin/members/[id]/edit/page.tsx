@@ -57,7 +57,7 @@ export default async function EditMemberPage({
   if (!member) notFound()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4">
       <div>
         <Link
           href="/admin/members"

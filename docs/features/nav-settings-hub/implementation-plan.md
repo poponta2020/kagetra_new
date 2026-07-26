@@ -30,7 +30,7 @@ patch は `check-types` を green にするために以下のテスト側後始�
 ## 実装タスク
 
 ### タスク1: patch の適用とシェル・設定ハブの productionize
-- [ ] 完了
+- [x] 完了
 - **目的:** 上部バー廃止・ボトムナビ再編・`/settings` 新設・`/settings/line-link` 移設・
   14 ページの `p-4` を実コードに入れ、型チェックと lint を通す。
 - **対応AC:** AC-1〜AC-19（AC-16b 含む）の実装側。検証は タスク2・3 が担う
@@ -119,7 +119,9 @@ patch は `check-types` を green にするために以下のテスト側後始�
 - **目的:** 「ヘッダーのボタン → dialog」という前提が無効になった E2E を新導線に置き換え、
   コード側コメントが参照している `docs/design/design.md` §3 を現状に合わせる。
 - **対応AC:** AC-7, AC-15, AC-17, AC-20
-- **主な変更領域:** `apps/web/e2e/settings-entry.spec.ts`、`docs/design/design.md`
+- **主な変更領域:** `apps/web/e2e/settings-entry.spec.ts`、`docs/design/design.md`、
+  `docs/spec/ui-shell.md`（実装時に追加 — docs レジストリ上「画面・シェルの機能仕様」の
+  正典はこちらで、`AppBarMain` / `AccountMenu` / 旧タブ構成の記述が丸ごと古くなる）
 - **依存タスク:** タスク1
 - **必要なテスト:**
   - E2E: ボトムナビ「設定」タップ → `/settings` → 「メール通知」タップ → `/settings/notifications`
