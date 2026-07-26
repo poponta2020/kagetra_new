@@ -141,6 +141,8 @@ export default async function AttachmentViewerPage({
     body = (
       // 認証つき動的ルートの生バイト表示。next/image の optimizer は
       // Cookie なしでサーバー側 fetch するため 401 になり使えない。
+      // 背景は意図的に純白（和紙トークンにしない）。透過 PNG や紙面より
+      // 小さい画像で、白い紙面の周囲だけ和紙色が覗くのを避けるため。
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={binaryUrl}
@@ -166,7 +168,7 @@ export default async function AttachmentViewerPage({
     body = (
       <div className="flex flex-col gap-2">
         {Array.from({ length: docMeta.pageCount }, (_, i) => (
-          // 認証つき動的ルートの生バイト表示 (上の image kind と同じ理由)。
+          // 認証つき動的ルートの生バイト表示・純白背景とも上の image kind と同じ理由。
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={i + 1}

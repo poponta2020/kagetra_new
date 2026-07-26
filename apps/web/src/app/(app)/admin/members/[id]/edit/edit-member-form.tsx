@@ -33,13 +33,13 @@ function NameEditForm({ userId, name }: { userId: string; name: string }) {
   return (
     <form
       action={formAction}
-      className="space-y-3 rounded-lg bg-white p-4 shadow-sm"
+      className="space-y-3 rounded-lg bg-surface p-4 shadow-sm"
     >
       <input type="hidden" name="userId" value={userId} />
       <div>
         <label
           htmlFor="member-name"
-          className="block text-sm font-medium text-gray-700"
+          className="block text-sm font-medium text-ink-2"
         >
           名前
         </label>
@@ -51,20 +51,20 @@ function NameEditForm({ userId, name }: { userId: string; name: string }) {
           maxLength={50}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
         />
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-ink-meta">
           LINE 紐付け前のため修正できます。
         </p>
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {state.error}
         </p>
       )}
       {state.success && (
-        <p role="status" className="text-sm text-green-600">
+        <p role="status" className="text-sm text-success">
           名前を変更しました。
         </p>
       )}
@@ -72,7 +72,7 @@ function NameEditForm({ userId, name }: { userId: string; name: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-ink-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? '保存中…' : '名前を保存'}
       </button>
@@ -132,30 +132,30 @@ export function EditMemberForm({
   return (
     <>
       {nameEditable && <NameEditForm userId={userId} name={name} />}
-      <form action={formAction} className="space-y-4 rounded-lg bg-white p-4 shadow-sm">
+      <form action={formAction} className="space-y-4 rounded-lg bg-surface p-4 shadow-sm">
         <input type="hidden" name="userId" value={userId} />
 
         {!nameEditable && (
           <div>
-            <label className="block text-sm font-medium text-gray-700">名前</label>
+            <label className="block text-sm font-medium text-ink-2">名前</label>
             <input
               type="text"
               value={name}
               readOnly
-              className="mt-1 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500"
+              className="mt-1 w-full rounded-md border border-border-soft bg-surface-alt px-3 py-2 text-sm text-neutral-fg"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-ink-meta">
               ユーザー名はログインに使われるため、この画面からは変更できません。
             </p>
           </div>
         )}
 
         <fieldset className="grid grid-cols-2 gap-3">
-          <legend className="mb-1 text-sm font-medium text-gray-700">
+          <legend className="mb-1 text-sm font-medium text-ink-2">
             氏名・ふりがな（任意）
           </legend>
           <div>
-            <label htmlFor="familyName" className="block text-xs text-gray-600">
+            <label htmlFor="familyName" className="block text-xs text-ink-2">
               姓（漢字）
             </label>
             <input
@@ -164,11 +164,11 @@ export function EditMemberForm({
               type="text"
               maxLength={20}
               defaultValue={familyName}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="givenName" className="block text-xs text-gray-600">
+            <label htmlFor="givenName" className="block text-xs text-ink-2">
               名（漢字）
             </label>
             <input
@@ -177,11 +177,11 @@ export function EditMemberForm({
               type="text"
               maxLength={20}
               defaultValue={givenName}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="familyKana" className="block text-xs text-gray-600">
+            <label htmlFor="familyKana" className="block text-xs text-ink-2">
               せい（ふりがな）
             </label>
             <input
@@ -190,11 +190,11 @@ export function EditMemberForm({
               type="text"
               maxLength={30}
               defaultValue={familyKana}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="givenKana" className="block text-xs text-gray-600">
+            <label htmlFor="givenKana" className="block text-xs text-ink-2">
               めい（ふりがな）
             </label>
             <input
@@ -203,10 +203,10 @@ export function EditMemberForm({
               type="text"
               maxLength={30}
               defaultValue={givenKana}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
-          <p className="col-span-2 text-xs text-gray-500">
+          <p className="col-span-2 text-xs text-ink-meta">
             表示名（ログイン名）は上の「名前」が正典で、ここでは変更されません。
           </p>
         </fieldset>
@@ -214,7 +214,7 @@ export function EditMemberForm({
         <div>
           <label
             htmlFor="grade"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-ink-2"
           >
             級
           </label>
@@ -222,7 +222,7 @@ export function EditMemberForm({
             id="grade"
             name="grade"
             defaultValue={grade ?? ''}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
           >
             <option value="">未設定</option>
             {grades.map((g) => (
@@ -236,7 +236,7 @@ export function EditMemberForm({
         <div>
           <label
             htmlFor="gender"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-ink-2"
           >
             性別
           </label>
@@ -244,7 +244,7 @@ export function EditMemberForm({
             id="gender"
             name="gender"
             defaultValue={gender ?? ''}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
           >
             <option value="">未設定</option>
             {genders.map((g) => (
@@ -258,7 +258,7 @@ export function EditMemberForm({
         <div>
           <label
             htmlFor="affiliation"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-ink-2"
           >
             所属（学校名 / 社会人 など）
           </label>
@@ -267,14 +267,14 @@ export function EditMemberForm({
             name="affiliation"
             type="text"
             defaultValue={affiliation}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
           />
         </div>
 
         <div>
           <label
             htmlFor="dan"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-ink-2"
           >
             段位（0〜9）
           </label>
@@ -285,7 +285,7 @@ export function EditMemberForm({
             min={0}
             max={9}
             defaultValue={dan ?? ''}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
           />
         </div>
 
@@ -297,17 +297,17 @@ export function EditMemberForm({
             defaultChecked={zenNichikyo}
             className="h-4 w-4"
           />
-          <label htmlFor="zenNichikyo" className="text-sm font-medium text-gray-700">
+          <label htmlFor="zenNichikyo" className="text-sm font-medium text-ink-2">
             全日協会員
           </label>
         </div>
 
-        <fieldset className="space-y-3 border-t border-gray-200 pt-4">
-          <legend className="text-sm font-medium text-gray-700">
+        <fieldset className="space-y-3 border-t border-border-soft pt-4">
+          <legend className="text-sm font-medium text-ink-2">
             全日協登録情報（任意・管理者のみ閲覧）
           </legend>
           <div>
-            <label htmlFor="birthDate" className="block text-xs text-gray-600">
+            <label htmlFor="birthDate" className="block text-xs text-ink-2">
               生年月日
             </label>
             <input
@@ -315,11 +315,11 @@ export function EditMemberForm({
               name="birthDate"
               type="date"
               defaultValue={birthDate}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="phone" className="block text-xs text-gray-600">
+            <label htmlFor="phone" className="block text-xs text-ink-2">
               電話番号
             </label>
             <input
@@ -328,11 +328,11 @@ export function EditMemberForm({
               type="tel"
               inputMode="tel"
               defaultValue={phone}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="postalCode" className="block text-xs text-gray-600">
+            <label htmlFor="postalCode" className="block text-xs text-ink-2">
               郵便番号
             </label>
             <input
@@ -340,11 +340,11 @@ export function EditMemberForm({
               name="postalCode"
               inputMode="numeric"
               defaultValue={postalCode}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="address1" className="block text-xs text-gray-600">
+            <label htmlFor="address1" className="block text-xs text-ink-2">
               住所1（丁目・番地まで）
             </label>
             <input
@@ -353,11 +353,11 @@ export function EditMemberForm({
               type="text"
               maxLength={100}
               defaultValue={address1}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="address2" className="block text-xs text-gray-600">
+            <label htmlFor="address2" className="block text-xs text-ink-2">
               住所2（建物名・部屋番号）
             </label>
             <input
@@ -366,18 +366,18 @@ export function EditMemberForm({
               type="text"
               maxLength={100}
               defaultValue={address2}
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
         </fieldset>
 
         {state.error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger">
             {state.error}
           </p>
         )}
         {state.success && (
-          <p role="status" className="text-sm text-green-600">
+          <p role="status" className="text-sm text-success">
             更新しました。
           </p>
         )}
@@ -385,7 +385,7 @@ export function EditMemberForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-ink-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? '更新中…' : '保存'}
         </button>

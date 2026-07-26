@@ -32,19 +32,19 @@ export function CandidateList({ candidates }: { candidates: Candidate[] }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="お名前で検索"
           autoComplete="off"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
         />
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-md bg-gray-50 p-3 text-sm text-gray-600">
+        <p className="rounded-md bg-surface-alt p-3 text-sm text-ink-2">
           一致する会員が見つかりません。
         </p>
       ) : (
-        <ul className="max-h-80 divide-y divide-gray-100 overflow-y-auto rounded-md border border-gray-200">
+        <ul className="max-h-80 divide-y divide-border-soft overflow-y-auto rounded-md border border-border-soft">
           {filtered.map((c) => (
             <li key={c.id}>
-              <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-gray-50">
+              <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-surface-alt">
                 <input
                   type="radio"
                   name="userId"
@@ -52,7 +52,7 @@ export function CandidateList({ candidates }: { candidates: Candidate[] }) {
                   required
                   className="h-4 w-4"
                 />
-                <span className="text-sm text-gray-900">
+                <span className="text-sm text-ink">
                   {c.name ?? '(名前未設定)'}
                 </span>
               </label>
@@ -63,7 +63,7 @@ export function CandidateList({ candidates }: { candidates: Candidate[] }) {
 
       <button
         type="submit"
-        className="w-full rounded-md bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand/90"
+        className="w-full rounded-md bg-brand px-4 py-3 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover"
       >
         このメンバーとして続ける
       </button>

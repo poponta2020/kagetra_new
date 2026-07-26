@@ -23,7 +23,7 @@ export interface AttendanceCountsProps {
 interface SegmentSpec {
   key: 'attend' | 'nonAttending'
   value: number
-  /** Inline `background` value — CSS variable for brand, literal hex for others. */
+  /** Inline `background` value — always a design-token CSS variable. */
   background: string
 }
 
@@ -57,7 +57,7 @@ export function AttendanceCounts({
       {
         key: 'nonAttending',
         value: ev.nonAttendingCount,
-        background: '#F3B4B4',
+        background: 'var(--kg-nonattend)',
       },
     ]
     return (

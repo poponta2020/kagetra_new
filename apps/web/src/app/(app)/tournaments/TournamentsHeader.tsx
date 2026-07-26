@@ -80,7 +80,7 @@ function ToggleLink({ href, active, label }: { href: string; active: boolean; la
       aria-selected={active}
       className={cn(
         'flex flex-1 items-center justify-center rounded-full py-1.5 font-medium transition-colors',
-        active ? 'bg-brand text-white' : 'text-ink-meta hover:bg-surface-alt',
+        active ? 'bg-brand text-ink-on-brand' : 'text-ink-meta hover:bg-surface-alt',
       )}
     >
       {label}

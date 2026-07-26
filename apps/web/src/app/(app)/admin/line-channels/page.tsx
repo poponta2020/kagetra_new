@@ -179,7 +179,7 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
               href={href}
               className={
                 active
-                  ? 'px-3 py-1 rounded-full bg-brand text-white'
+                  ? 'px-3 py-1 rounded-full bg-brand text-ink-on-brand'
                   : 'px-3 py-1 rounded-full border border-border text-ink-2 hover:bg-surface-alt'
               }
             >
