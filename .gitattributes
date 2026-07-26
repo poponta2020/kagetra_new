@@ -9,3 +9,7 @@
 infra/sudoers/* text eol=lf
 apps/*/systemd/*.service text eol=lf
 apps/*/systemd/*.timer text eol=lf
+
+# design-prototype.patch は /implement が `git apply` にかける。CRLF に変換されると
+# apply が corrupt patch で失敗するため LF を強制する（core.autocrlf=true の環境対策）。
+*.patch text eol=lf
