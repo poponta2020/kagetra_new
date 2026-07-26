@@ -22,3 +22,6 @@ scripts/大会結果取り込み/
 .claude/.devflow-state
 # 使い捨て診断スクリプト置き場
 scripts/diagnostics/
+
+# /design-screen ライブプロト worktree (C:/tmp/design-live-kagetra) へのジャンクション
+.design-live

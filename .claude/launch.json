@@ -22,7 +22,7 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "corepack", "pnpm", "exec", "next", "dev", "--port", "3100"],
       "port": 3100,
-      "cwd": "C:/tmp/design-live/apps/web",
+      "cwd": ".design-live/apps/web",
       "env": { "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0" }
     },
     {

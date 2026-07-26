@@ -35,17 +35,23 @@ URL until the browser aborts with `ERR_TOO_MANY_REDIRECTS`, landing on a dead
 
 ## Ignore preview-runner "dev server failed" errors that aren't about `web`
 
-`.claude/launch.json` also defines `design-live` (cwd `C:/tmp/design-live/...`, an external
-worktree) and `postgres` (port 5433, permanently owned by the docker DB). Both are
-**categorically incompatible with the preview runner** — it rejects an external cwd, and it can't
-bind a port docker already holds. When the pane opens, the harness may try them and surface generic
-**"dev server failed"** popups naming `cwd must be a relative path` / `port 5433 (or 3100) in use`.
+`.claude/launch.json` also defines `design-live` (the `/design-screen` prototype server on 3100) and
+`postgres` (port 5433, permanently owned by the docker DB). When the pane opens, the harness may try
+them and surface generic **"dev server failed"** popups naming `port 5433 in use` (postgres — docker
+already holds it; expected and unfixable here).
 
 - **These are NOT about `web`.** `preview_start web` starts cleanly on 3000 with those entries
-  present (verified 2026-07-13). Do **not** investigate them and do **not** edit `launch.json` in
-  response — that rabbit hole cost the last run ~10 minutes. (If the popups ever become annoying,
-  the only real fix is deleting those two entries and launching `design-live` outside this file —
-  a separate decision, not part of this command.)
+  present (verified 2026-07-13). Do **not** investigate them as part of this command.
+- `design-live` used to fail too, with `cwd must be a relative path` — the preview runner rejects an
+  absolute cwd. Fixed 2026-07-26: the entry now points at `.design-live/apps/web`, a gitignored
+  junction to `C:/tmp/design-live-kagetra`. Don't "fix" it back to an absolute path.
+  **The junction is per-machine and not in git** — on a fresh clone (or the other of the two dev
+  machines) create it once before using `/design-screen`:
+  ```
+  cmd /c mklink /J ".design-live" "C:\tmp\design-live-kagetra"
+  ```
+  The target is the kagetra design worktree — **not** `C:/tmp/design-live`, which belongs to a
+  different repository (match-tracker) that grabbed the name first.
 
 ## Steps
 
@@ -116,6 +122,13 @@ bind a port docker already holds. When the pane opens, the harness may try them 
    Expect JSON with the user (not `null`). JS can set the cookie only because there's no
    pre-existing HttpOnly session cookie; if the session isn't null here, sign out first
    (`/api/auth/signout`) or clear cookies, then re-inject.
+   - **If the session stays `null` after injecting on `/sw.js`, inject on an HTML page instead.**
+     Observed 2026-07-26 (port 3100): `document.cookie = ...` on the `/sw.js` document reports
+     success but the cookie never reaches the server, so every later navigate hits the redirect
+     loop. Fix: `navigate` to `/auth/signin` (HTML, 200 while unauthenticated — do this **from a
+     healthy page**, not from the dead chrome-error page), inject there, verify
+     `/api/auth/session` returns the user, then continue to step 7. `curl` with an explicit
+     `Cookie:` header is the quick way to prove the token itself is valid before blaming it.
 
 7. **Navigate to the target route**: `route = $2 || "/dashboard"`; `navigate` to
    `http://localhost:3000` + `route`. **Assert `route` starts with `/` and is not `/`** (a bare host
