@@ -182,3 +182,4 @@
 - [申込管理ボード /admin/entries 出荷](project_ship-entry-management.md) — shipped: PR #334。残DoD=AC-32(本番実機)。★DIRTY な PR は CI が起動せず gate-dod が誤判定
 - [テスト DB の worktree 自動分離](project_ship-test-db-isolation.md) — shipped: PR #337
 - [bug-fix: entry-board-grade-duplicate](impl_bug-entry-board-grade-duplicate.md) — PR #338
+- [quickfix: entry-board-hide-zero-count](quickfix_entry-board-hide-zero-count.md) — PR #339

@@ -2920,3 +2920,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-07-26 出荷: PR #337 テスト DB を worktree ごとに自動分離（@kagetra/shared/test-db 新設・手動 createdb 廃止・既定ホスト 127.0.0.1 化）。PR #334 出荷時の共有 test DB 汚染（偽陽性58件×2回）のポストモーテム対応。Codex R1→fix→R2 pass（medium・85k tokens）・CI green 13m56s。devflow 側は v0.13.0 で DIRTY PR 早期検出＋レビュー差分 docs 除外
 - 2026-07-26 /auto-review-loop PR #338: 1R, verdict=pass, effort=medium, tokens=31573/500000, result=pass
 - 2026-07-26 /ship PR #338: 申込管理ボードの大会表示名の級重複（多摩AA・鳳玉CDCD）修正を出荷。Issue #335 クローズ
+- 2026-07-26 /auto-review-loop PR #339: 1R, verdict=pass, effort=medium, tokens=20737/500000, result=pass
+- 2026-07-26 /ship PR #339: 申込管理ボードで参加者0名の大会は「（0名）」を表示しない修正を出荷。Codex 1R pass(medium・20.7k tokens)・CI green
