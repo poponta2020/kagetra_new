@@ -13,10 +13,13 @@ import { broadcastMailToEvent } from './line-broadcast'
 import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import {
   attachmentShareTokens,
+  entryGroups,
   eventBroadcastMessages,
+  eventGradeBroadcasts,
   eventLineBroadcasts,
   events,
   lineChannels,
+  lineGradeGroupBindings,
   mailAttachments,
   mailMessages,
   tournamentDrafts,
@@ -39,11 +42,18 @@ async function resetDb() {
   await db.delete(eventBroadcastMessages)
   await db.delete(attachmentShareTokens)
   await db.delete(eventLineBroadcasts)
+  // entry-groups: このファイルは truncateAll ではなく自前の削除リストを持っている。
+  // line_grade_group_bindings と event_grade_broadcasts は line_channels / events を
+  // 参照しているので、**それらより先に**消さないと FK 違反で落ちる（前のテストファイルが
+  // 残した行に引っかかる。実行順が変わったときだけ露出する脆さだった）。
+  await db.delete(lineGradeGroupBindings)
+  await db.delete(eventGradeBroadcasts)
   await db.delete(lineChannels)
   await db.delete(tournamentDrafts)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)
   await db.delete(events)
+  await db.delete(entryGroups)
   await db.delete(users)
 }
 
