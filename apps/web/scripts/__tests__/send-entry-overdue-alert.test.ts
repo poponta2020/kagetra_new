@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lineChannels } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEvent } from '@/test-utils/seed'
+import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
 import { addDays, todayInJst } from '@/lib/jst-date'
 import { dryRun, main } from '../send-entry-overdue-alert'
 
@@ -17,15 +17,23 @@ const BASE_URL = 'https://example.test'
 // 相対で作る（固定日付にすると開催日が過去になった時点で対象から外れて落ちる）。
 const TODAY = todayInJst()
 
-/** 会内締切超過・未申込・開催日は未来 — アラート対象になる最小の 1 件。 */
+/**
+ * 会内締切超過・未申込・開催日は未来・参加希望者 1 名 — アラート対象になる最小の 1 件。
+ *
+ * entry-management（§3.2.9）で抽出条件に「参加希望者 1 名以上」が加わったため、
+ * 出欠を積まない大会は候補にならない。
+ */
 async function seedOverdueEvent(title = '締切超過大会') {
-  return createEvent({
+  const event = await createEvent({
     title,
     eventDate: addDays(TODAY, 30),
     internalDeadline: addDays(TODAY, -5),
     entryDeadline: addDays(TODAY, 10),
     entryStatus: 'not_applied',
   })
+  const user = await createUser()
+  await createEventAttendance({ eventId: event.id, userId: user.id, attend: true })
+  return event
 }
 
 async function seedSystemChannel() {
