@@ -44,7 +44,7 @@ git apply --exclude=apps/web/src/middleware.ts --exclude='apps/web/src/app/(app)
 - **対応Issue:** #323
 
 ### タスク2: ボトムナビへの「申込管理」タブ追加（#324）
-- [ ] 完了
+- [x] 完了
 - **目的:** 管理者だけに `/admin/entries` への導線を出す。
 - **対応AC:** AC-2, AC-3
 - **主な変更領域:** `apps/web/src/components/layout/bottom-nav.tsx`（`TABS` に `adminOnly` の 7 個目を追加。位置は `players`（統計）の直後・`members`（会員）の前）、`apps/web/src/components/layout/bottom-nav.test.tsx`

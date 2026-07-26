@@ -21,9 +21,22 @@ describe('BottomNav', () => {
     expect(screen.queryByText('予定')).toBeNull()
     // senseki-stats PR-2: 戦績 → 統計 に改称。全ユーザー共有タブ。
     expect(screen.getByText('統計')).toBeTruthy()
+    // entry-management: 管理者専用ブロックの先頭（統計の直後・会員の前）に追加。
+    expect(screen.getByText('申込管理')).toBeTruthy()
     expect(screen.getByText('会員')).toBeTruthy()
     expect(screen.getByText('メール')).toBeTruthy()
     expect(screen.getByText('Bot')).toBeTruthy()
+  })
+
+  // AC-2: 管理者に 7 タブ / 一般会員に 3 タブ（既存 3 つのまま）。
+  it('isAdmin=true のとき タブが 7 個ちょうど表示される', () => {
+    render(<BottomNav isAdmin />)
+    expect(screen.getAllByRole('link')).toHaveLength(7)
+  })
+
+  it('isAdmin=false のとき タブが 3 個ちょうど表示される', () => {
+    render(<BottomNav isAdmin={false} />)
+    expect(screen.getAllByRole('link')).toHaveLength(3)
   })
 
   // Regression: non-admins previously saw 会員 tab and were bounced to /403
@@ -36,6 +49,8 @@ describe('BottomNav', () => {
     expect(screen.queryByText('予定')).toBeNull()
     // senseki-stats PR-2: 統計 は会員でも見える共有タブ。
     expect(screen.getByText('統計')).toBeTruthy()
+    // AC-2: 申込管理タブは管理者専用。一般会員には表示されない。
+    expect(screen.queryByText('申込管理')).toBeNull()
     expect(screen.queryByText('会員')).toBeNull()
     expect(screen.queryByText('メール')).toBeNull()
   })
@@ -75,6 +90,37 @@ describe('BottomNav', () => {
     render(<BottomNav isAdmin />)
     const link = screen.getByText('メール').closest('a')
     expect(link?.className).toContain('border-brand')
+  })
+
+  // AC-2 / AC-3: entry-management で追加した「申込管理」タブの active 判定と、
+  // /admin/entries を開いたとき他タブが誤って光らないことの実効的な検証。
+  it('pathname=/admin/entries で 申込管理 タブが active になる', () => {
+    mockUsePathname.mockReturnValue('/admin/entries')
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('申込管理').closest('a')
+    expect(link?.className).toContain('border-brand')
+  })
+
+  it('pathname=/admin/entries/42 のような詳細パスでも 申込管理 タブが active', () => {
+    mockUsePathname.mockReturnValue('/admin/entries/42')
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('申込管理').closest('a')
+    expect(link?.className).toContain('border-brand')
+  })
+
+  it('pathname=/admin/entries では 申込管理 以外の 6 タブすべてが active にならない（会員タブへの誤爆を含む）', () => {
+    mockUsePathname.mockReturnValue('/admin/entries')
+    render(<BottomNav isAdmin />)
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(7)
+    const activeLinks = links.filter((link) =>
+      link.className.includes('border-brand'),
+    )
+    expect(activeLinks).toHaveLength(1)
+    expect(activeLinks[0]?.textContent).toBe('申込管理')
+    expect(screen.getByText('会員').closest('a')?.className).not.toContain(
+      'border-brand',
+    )
   })
 
   it('pathname=/events で イベント タブが active になる', () => {
@@ -142,5 +188,30 @@ describe('BottomNav', () => {
     // Plain `min-h-[52px]` reintroduces the clipping bug — guard against
     // an accidental revert.
     expect(nav.className).not.toMatch(/(?<!\+)min-h-\[52px\]/)
+  })
+
+  // AC-3（回帰）: entry-management のタブ追加で既存 6 タブの id・ラベル・href
+  // が変わっていないことを確認する。id は DOM に出ないため、ラベルと href の
+  // 対応で代替検証する。
+  it('既存 6 タブのラベルと href の対応が変わっていない（回帰）', () => {
+    render(<BottomNav isAdmin />)
+    const expected: ReadonlyArray<[string, string]> = [
+      ['ホーム', '/dashboard'],
+      ['イベント', '/events'],
+      ['統計', '/players'],
+      ['会員', '/admin/members'],
+      ['メール', '/admin/mail-inbox'],
+      ['Bot', '/admin/line-channels'],
+    ]
+    for (const [label, href] of expected) {
+      const link = screen.getByText(label).closest('a')
+      expect(link?.getAttribute('href')).toBe(href)
+    }
+  })
+
+  it('申込管理 タブの href は /admin/entries', () => {
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('申込管理').closest('a')
+    expect(link?.getAttribute('href')).toBe('/admin/entries')
   })
 })
