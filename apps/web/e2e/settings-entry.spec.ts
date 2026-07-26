@@ -65,7 +65,16 @@ test.describe('Settings entry point (bottom nav → /settings)', () => {
   test('管理者: /settings/line-link はシェル内ページでボトムナビが孤児化しない', async ({
     browser,
   }) => {
-    const admin = await seedAdminSession({ name: 'Admin User' })
+    // `/settings/line-link` は「既に LINE 連携済みの会員が別アカウントへ
+    // 切り替える」画面なので、lineUserId が null だとページ側のガードで
+    // /self-identify →（id 済みのため）/dashboard へ弾かれる。createUser の
+    // 既定は lineUserId: null なので、ここでは明示的に連携済みで作る。
+    const admin = await seedAdminSession({
+      name: 'Admin User',
+      lineUserId: `Utest-${crypto.randomUUID()}`,
+      lineLinkedAt: new Date(),
+      lineLinkedMethod: 'self_identify',
+    })
     const context = await browser.newContext()
     await addSessionCookie(context, admin.sessionToken)
     const page = await context.newPage()
