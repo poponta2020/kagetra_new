@@ -42,13 +42,20 @@ Wave 1 = #347 単独（全ての土台）。Wave 2 = #348/#349/#350 の 3 並行
 
 ## デザイン
 Path L（ライブプロト）で確定。design-spec.md は `status: locked`、視覚の正＝
-`docs/features/nav-settings-hub/design-prototype.patch`（基点 664454d・`git apply --check` 通過）。
+`docs/features/nav-settings-hub/design-prototype.patch`（基点 c67f467 = 現 main・`git apply --check` 通過・27ファイル）。
 DESIGN-PROTO スタブは確定前に除去済みで patch に残っていない。
 **実装は patch 適用が主で、タスクの実体はテスト書き換えとドキュメント整合。**
 
 ## 実装時の注意
-- patch 適用時点で `mobile-shell.test.tsx`（AppBarMain を mock）と `role-preview.test.ts`
-  （previewBadgeLabel）は red になる。#348 完了までは red が正常。
+- **patch 適用直後の実測（design worktree で確認済み）: `check-types` green / `lint` green /
+  ユニットテストは `bottom-nav.test.tsx` の 7 件だけ red**（旧 7/3 タブ前提）。それ以外が red なら
+  移植ミスを疑う。
+- 型チェックのスクリプト名は `typecheck` ではなく **`check-types`**（`tsc --noEmit`）。
+  **テストファイルも対象**なので、消えた prop を渡す `mobile-shell.test.tsx` を残すと通らない。
+  patch は同ファイルの削除と `previewBadgeLabel`/`PREVIEW_BADGE_LABEL` の除去を同梱しており、
+  #348 で mobile-shell.test.tsx を作り直す。
+- 旧 bottom-nav テストの「`/members` で会員タブ active」は**復元しない** — `/members` は実在
+  しないルートで、旧 TABS の死んだ match だった。
 - `e2e/settings-entry.spec.ts` は「ヘッダーボタン→dialog」という前提が丸ごと無効。
 - `docs/design/design.md` §3 が上部バー・タブ一覧の正典としてコード側コメントから参照されている。
 - ローカル dev DB は移行台帳が 3/45 しか無く（dump 復元由来）`mail_messages.triage_status` が

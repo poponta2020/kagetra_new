@@ -10,7 +10,7 @@ mock_dir: null
 design_project: null
 
 prototype_branch: design/nav-settings-hub
-prototype_base: 664454d140f17313401a66d4d0ff44f48765d307
+prototype_base: c67f4678af79fbb950ff3550449514d9ff6a4d27
 ---
 # ナビゲーション再編（上部バー廃止・設定ハブ） デザイン仕様（design-spec）
 
@@ -29,7 +29,7 @@ prototype_base: 664454d140f17313401a66d4d0ff44f48765d307
 - **不採用案と理由:**
   - バーを残して画面タイトルを出す → 全画面のタイトル定義が必要でスコープが膨張。各ページは既に `<h1>` を持つため重複
   - タブで従来のシートを開く → 「遷移」ではなくタブのアクティブ表示ができない
-- **視覚の正:** `design-prototype.patch`（基点 `664454d`）
+- **視覚の正:** `design-prototype.patch`（基点 `c67f467` = 現 main）
 - **最終確認時の状態:** `/settings`（管理者）、`/settings`（一般会員 = 4タブ）、`/dashboard`（上端余白）、`/settings/line-link`
 
 ## 3. 視覚の正に現れない設計判断
@@ -49,7 +49,7 @@ prototype_base: 664454d140f17313401a66d4d0ff44f48765d307
 - **通常（一般会員）:** ボトムナビ 4 タブ。設定ページは LINE アカウント切替 とログアウトのみ（管理セクションごと非表示）
 - **表示ロールプレビュー中:** 設定タブの上にロール名バッジ。設定ページ末尾に「いま◯◯として表示しています」の補足
 - **`rolePreview` が null:** 表示ロールセクションごと非描画
-- **各状態の確認先:** `/settings`（admin セッション / member セッション）。バッジは DESIGN-PROTO の cookie `design_proto_preview_role` で強制表示
+- **各状態の確認先:** `/settings`（admin セッション / member セッション）。バッジは確定前に cookie による強制表示で実測済み（そのスタブは patch に残していない）
 
 ## 6. 必要データ
 - **表示フィールド:** `session.user.name`（`◯◯さん`）、`session.user.role` / `realRole`、`buildRolePreviewSelection()` の結果。すべて既存
@@ -79,10 +79,29 @@ prototype_base: 664454d140f17313401a66d4d0ff44f48765d307
 
 ## 10. 残課題・実装への申し送り
 - **DESIGN-PROTO スタブ:** なし（確定前に除去済み）。patch はそのまま productionize の土台にできる
-- **テストは未更新（patch に壊れたテストが含まれる）:** `mobile-shell.test.tsx` は削除済みの `AppBarMain` を mock しており、そのままでは落ちる。`account-menu.test.tsx` は削除済み。`e2e/settings-entry.spec.ts` はヘッダーボタン→dialog という前提が無効。実装タスクで書き換える
-- **`previewBadgeLabel` が未使用になる:** バッジ文言を `roleViewLabel` に切り替えたため、`lib/role-preview.ts` の `previewBadgeLabel` とそのテストが宙に浮く。実装時に削除するか判断する
-- **ローカル dev DB がマイグレーション未同期:** 台帳が 3/45 しか記録されておらず（dump 復元由来）`mail_messages.triage_status` が無いため `/events`・`/admin/*` はローカルで 500。**今回の変更とは無関係**。これらのページの見た目確認は出荷後の実機で行う
-- **patch の apply:** 基点 `664454d` に対し `git apply --check` 通過を確認済み（2026-07-26）。`(app)/layout.tsx`・`bottom-nav.tsx`・`mobile-shell.tsx` と 14 ページの根要素 `p-4` に触れているため、main が進むと衝突しうる。その場合は patch を読んで手動移植する
+- **patch 適用後の実測状態（2026-07-26 に design worktree で実行）:**
+  - `pnpm --filter @kagetra/web check-types` → **green**（スクリプト名は `typecheck` ではなく `check-types`）
+  - `pnpm --filter @kagetra/web lint` → **green**（`No ESLint warnings or errors`）
+  - `vitest run --no-file-parallelism src/components/layout src/lib/role-preview.test.ts`
+    → **7 failed / 42 passed**。落ちるのは `bottom-nav.test.tsx` の 7 件のみで、すべて
+    旧 7/3 タブ構成を前提にしたもの（下記）。`role-preview.test.ts` は全 green
+- **patch が同梱しているテスト側の後始末（`check-types` を green にするために必要だった分）:**
+  - `mobile-shell.test.tsx` を**削除**（`user` / `signOutAction` 等の消えた prop を渡しており
+    9 件の TS2322 になる。tsc はテストも対象なので残すと型チェックが通らない）→ 実装タスクで作り直す
+  - `previewBadgeLabel` と `PREVIEW_BADGE_LABEL` を `lib/role-preview.ts` から削除し、
+    `role-preview.test.ts` の import と describe ブロックも同時に削除（未使用になるため）
+  - `account-menu.tsx` / `account-menu.test.tsx` / `app-bar-main.tsx` を削除
+- **実装タスクが直す既知の red（bottom-nav.test.tsx の 7 件）:**
+  「isAdmin=true で全タブ表示」「管理者 7 個ちょうど」「一般 3 個ちょうど」
+  「/admin/entries で他 6 タブが active にならない」「/members で会員タブが active」
+  「/admin/members/42/edit で会員タブが active」「既存 6 タブのラベルと href の対応（回帰）」
+  - ★このうち `/members` は**実在しないルート**（`(app)` 配下に `members/` は無く `/admin/members`
+    のみ）。旧 TABS の死んだ match だったので新実装では復元しない
+- **ローカル dev DB がマイグレーション未同期:** 台帳が 3/45 しか記録されておらず（dump 復元由来）
+  `mail_messages.triage_status` が無いため `/events`・`/admin/*` はローカルで 500。**今回の変更とは
+  無関係**。これらのページの見た目確認は出荷後の実機で行う
+- **patch の apply:** 現 main `c67f467` に対し `git apply --check` 通過を確認済み（2026-07-26・27 ファイル・
+  すべて `apps/web` 配下）。main がさらに進んで衝突する場合は patch を読んで手動移植する
 
 ## 11. 要件への宿題（→ /define-feature nav-settings-hub）
 - （なし。requirements.md の「デザインへの宿題」4件はすべて本 spec 内で解決済み）

@@ -1201,6 +1201,157 @@ index 654fa97..24df5ca 100644
 -export type { AppBarMainProps } from './app-bar-main'
 -
  export { BottomNav } from './bottom-nav'
+diff --git a/apps/web/src/components/layout/mobile-shell.test.tsx b/apps/web/src/components/layout/mobile-shell.test.tsx
+deleted file mode 100644
+index c362930..0000000
+--- a/apps/web/src/components/layout/mobile-shell.test.tsx
++++ /dev/null
+@@ -1,145 +0,0 @@
+-import { describe, it, expect, vi } from 'vitest'
+-import { render, screen } from '@testing-library/react'
+-import { MobileShell } from './mobile-shell'
+-
+-vi.mock('./app-bar-main', () => ({
+-  AppBarMain: ({
+-    user,
+-    isAdmin,
+-    previewBadge,
+-  }: {
+-    user: string
+-    isAdmin: boolean
+-    signOutAction: () => Promise<void>
+-    previewBadge?: string | null
+-  }) => (
+-    <div data-testid="app-bar-main">
+-      app-bar:{user}:{String(isAdmin)}:{previewBadge ?? 'none'}
+-    </div>
+-  ),
+-}))
+-
+-vi.mock('./bottom-nav', () => ({
+-  BottomNav: ({ isAdmin }: { isAdmin: boolean }) => (
+-    <div data-testid="bottom-nav">bottom-nav:{String(isAdmin)}</div>
+-  ),
+-}))
+-
+-describe('MobileShell', () => {
+-  const noopSignOut = async () => {}
+-
+-  // Regression guard: shell uses the `.mobile-shell-h` rule from
+-  // globals.css, which declares `height: 100vh; height: 100dvh; height:
+-  // 100svh;` in that order inside a SINGLE CSS rule so the cascade is
+-  // deterministic. Composing this via Tailwind utilities (`h-screen
+-  // h-dvh h-svh`) is unsafe — Tailwind's utility output order is NOT
+-  // controlled by className order, so the winning value can't be
+-  // guaranteed (PR #68 R1 Codex blocker). Reverting to utilities
+-  // re-introduces the iOS Safari BottomNav-under-URL-bar bug (#53).
+-  it('シェルが mobile-shell-h クラス + flex 縦並びで構成される', () => {
+-    const { container } = render(
+-      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    const shell = container.firstChild as HTMLElement
+-    expect(shell.className).toContain('mobile-shell-h')
+-    expect(shell.className).toContain('flex')
+-    expect(shell.className).toContain('flex-col')
+-    // Defensive: ensure no Tailwind height utility leaked back in. Any
+-    // of these would compete with the deterministic cascade in
+-    // globals.css and the winner becomes undefined.
+-    expect(shell.className).not.toMatch(/\bh-screen\b/)
+-    expect(shell.className).not.toMatch(/\bh-dvh\b/)
+-    expect(shell.className).not.toMatch(/\bh-svh\b/)
+-  })
+-
+-  it('<main> が flex-1 min-h-0 overflow-y-auto を持ち、children を描画する', () => {
+-    render(
+-      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+-        <div data-testid="child">child-content</div>
+-      </MobileShell>,
+-    )
+-    const main = screen.getByRole('main')
+-    expect(main.className).toContain('flex-1')
+-    // Regression guard: without `min-h-0`, flex items default to
+-    // `min-height: auto` which lets <main> grow past the shell, the shell
+-    // exceeds h-dvh, and body scroll carries AppBar/BottomNav off-screen
+-    // on iOS Safari. Removing this class re-introduces the PR #64 followup
+-    // bug (BottomNav disappears while scrolling).
+-    expect(main.className).toContain('min-h-0')
+-    expect(main.className).toContain('overflow-y-auto')
+-    expect(screen.getByTestId('child').textContent).toBe('child-content')
+-  })
+-
+-  // event-list-redesign AC-14: /events はページ余白 16px を自前で持つ
+-  // （`page.tsx` の `p-4`）。同じ余白を共通シェルの <main> に足すと、すでに
+-  // `p-4` を自前で持つ /tournaments・/players/[id] 等が二重余白になる。
+-  // 余白はページ側で完結させる、というこの境界を機械的に固定する。
+-  it('<main> は padding を持たない（余白は各ページ側で完結させる）', () => {
+-    render(
+-      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    const main = screen.getByRole('main')
+-    // p-4 / px-4 / py-4 / pt-4 ... いずれの padding utility も入れない。
+-    expect(main.className).not.toMatch(/\bp[xytrbl]?-/)
+-  })
+-
+-  it('AppBarMain に user prop が透過される', () => {
+-    render(
+-      <MobileShell user="山田さん" isAdmin={false} signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('app-bar-main').textContent).toContain('app-bar:山田さん')
+-  })
+-
+-  it('AppBarMain に isAdmin が透過される（設定シートのメール通知出し分け用）', () => {
+-    const { rerender } = render(
+-      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('app-bar-main').textContent).toContain(':true')
+-    rerender(
+-      <MobileShell user="山田さん" isAdmin={false} signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('app-bar-main').textContent).toContain(':false')
+-  })
+-
+-  it('BottomNav に isAdmin=false が透過される', () => {
+-    render(
+-      <MobileShell user="" isAdmin={false} signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('bottom-nav').textContent).toBe('bottom-nav:false')
+-  })
+-
+-  it('BottomNav に isAdmin=true が透過される', () => {
+-    render(
+-      <MobileShell user="" isAdmin signOutAction={noopSignOut}>
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('bottom-nav').textContent).toBe('bottom-nav:true')
+-  })
+-
+-  it('role-preview-switch: previewBadge が AppBarMain へ透過される', () => {
+-    render(
+-      <MobileShell
+-        user="山田さん"
+-        isAdmin={false}
+-        signOutAction={noopSignOut}
+-        previewBadge="会員ビュー"
+-      >
+-        <div>child</div>
+-      </MobileShell>,
+-    )
+-    expect(screen.getByTestId('app-bar-main').textContent).toContain('会員ビュー')
+-  })
+-})
 diff --git a/apps/web/src/components/layout/mobile-shell.tsx b/apps/web/src/components/layout/mobile-shell.tsx
 index 869e8b7..add14dc 100644
 --- a/apps/web/src/components/layout/mobile-shell.tsx
@@ -1306,3 +1457,80 @@ index 869e8b7..add14dc 100644
      </div>
    )
  }
+diff --git a/apps/web/src/lib/role-preview.test.ts b/apps/web/src/lib/role-preview.test.ts
+index 1ae76f2..4714c5a 100644
+--- a/apps/web/src/lib/role-preview.test.ts
++++ b/apps/web/src/lib/role-preview.test.ts
+@@ -3,7 +3,6 @@ import {
+   buildRolePreviewSelection,
+   isRolePreviewAllowed,
+   parseUserRole,
+-  previewBadgeLabel,
+   resolveEffectiveRole,
+   roleViewLabel,
+   sanitizeReturnPath,
+@@ -120,26 +119,6 @@ describe('roleViewLabel', () => {
+   })
+ })
+ 
+-describe('previewBadgeLabel', () => {
+-  it('非プレビュー時（実効 === 本物）は null（AC-13）', () => {
+-    expect(previewBadgeLabel('admin', 'admin')).toBeNull()
+-    expect(previewBadgeLabel('member', 'member')).toBeNull()
+-  })
+-
+-  it('member プレビュー中は 会員ビュー', () => {
+-    expect(previewBadgeLabel('admin', 'member')).toBe('会員ビュー')
+-  })
+-
+-  it('vice_admin プレビュー中は 副管理者ビュー', () => {
+-    expect(previewBadgeLabel('admin', 'vice_admin')).toBe('副管理者ビュー')
+-  })
+-
+-  it('ロールが未解決なら null', () => {
+-    expect(previewBadgeLabel(undefined, 'member')).toBeNull()
+-    expect(previewBadgeLabel('admin', undefined)).toBeNull()
+-  })
+-})
+-
+ describe('buildRolePreviewSelection', () => {
+   it('許可された admin は 3 択（AC-3）', () => {
+     expect(buildRolePreviewSelection('u1', 'admin', 'admin', 'u1')).toEqual({
+diff --git a/apps/web/src/lib/role-preview.ts b/apps/web/src/lib/role-preview.ts
+index e1c1f9b..0862bbc 100644
+--- a/apps/web/src/lib/role-preview.ts
++++ b/apps/web/src/lib/role-preview.ts
+@@ -31,12 +31,6 @@ const ROLE_VIEW_LABEL: Record<UserRole, string> = {
+   member: '一般会員',
+ }
+ 
+-const PREVIEW_BADGE_LABEL: Record<UserRole, string> = {
+-  admin: '管理者ビュー',
+-  vice_admin: '副管理者ビュー',
+-  member: '会員ビュー',
+-}
+-
+ /** enum 外の値 (改竄された JWT クレーム・FormData の任意文字列) は null。 */
+ export function parseUserRole(value: unknown): UserRole | null {
+   return value === 'admin' || value === 'vice_admin' || value === 'member'
+@@ -129,20 +123,6 @@ export function buildRolePreviewSelection(
+   }
+ }
+ 
+-/**
+- * ヘッダーバッジの文言。非プレビュー時 (実効 === 本物) は null を返し、
+- * バッジそのものを描画させない。
+- */
+-export function previewBadgeLabel(
+-  realRole: UserRole | null | undefined,
+-  effectiveRole: UserRole | null | undefined,
+-): string | null {
+-  const real = parseUserRole(realRole)
+-  const effective = parseUserRole(effectiveRole)
+-  if (!real || !effective || real === effective) return null
+-  return PREVIEW_BADGE_LABEL[effective]
+-}
+-
+ /**
+  * 切替後に戻すパスの検証。切替 Server Action は `unstable_update` の直後に
+  * ここで得たパスへ `redirect()` する (レスポンス cookie を載せた新しい

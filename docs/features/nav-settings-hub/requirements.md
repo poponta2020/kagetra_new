@@ -156,7 +156,7 @@ approved_at: 2026-07-26
 | AC-17 | `/settings/line-link` の URL が変わらず、シェル内（ボトムナビあり）で表示される | auto-test |
 | AC-18 | `/settings` のログアウトボタンでサインアウトでき、`/auth/signin` へ遷移する | auto-test |
 | AC-19 | 削除した `app-bar-main.tsx` / `account-menu.tsx` への参照がリポジトリに残っていない（`layout/index.ts` の re-export 含む） | auto-test |
-| AC-20 | 既存テスト・lint・typecheck が CI で green（`settings-entry.spec.ts` は新しい導線に合わせて更新済み） | auto-test |
+| AC-20 | 既存テスト・`lint`・`check-types` が CI で green（`settings-entry.spec.ts` は新しい導線に合わせて更新済み。型チェックのスクリプト名は `check-types`） | auto-test |
 | AC-21 | 実機 375px でボトムナビ 6 タブのラベルが折り返さず、設定ページが崩れず表示される | manual |
 
 ---
@@ -188,8 +188,12 @@ approved_at: 2026-07-26
 - **`RolePreviewSelection`** の公開 API は変えない。
 - **バッジ文言は `previewBadgeLabel` ではなく `roleViewLabel` を使う**（デザイン収束ループでの決定）。
   タブ幅 63px に「副管理者ビュー」は収まらないため、`管理者 / 副管理者 / 一般会員` の短い方を採る。
-  結果として `previewBadgeLabel` は未使用になるので、実装時に削除する（テストも同時に外す）。
+  結果として `previewBadgeLabel` は未使用になるので削除する（`PREVIEW_BADGE_LABEL` と
+  `role-preview.test.ts` の describe も同時に外す。**この除去は既に patch に同梱済み** —
+  残すと `check-types` が通らないため）。
   プレビュー中かどうかの判定は `rolePreview.current !== rolePreview.real` で行う。
+- **`check-types` はテストファイルも対象**（`tsc --noEmit`）。消えた prop を渡している
+  `mobile-shell.test.tsx` は patch で削除済みで、実装タスクで作り直す。
 - **権限ゲート**: 設定ページの管理者項目は `isAdmin`（`admin` / `vice_admin`）で出し分ける。
   リンク先ページ側の既存 403 ゲートは維持（多層防御）。
 - **`/settings/line-link` の移設**は route group の付け替えのみで URL 不変。`actions.ts` も一緒に移動する。
