@@ -86,7 +86,7 @@ UI の出し分け／Server Action・route handler の権限チェック
 ---
 
 ### タスク3: 切替 Server Action（認可） — 対応Issue: #330
-- [ ] 完了
+- [x] 完了
 - **目的:** 表示ロールを切り替える Server Action を実装し、許可リストと本物のロールによる二重認可を効かせる。
 - **対応AC:** AC-9, AC-10, AC-11, AC-15
 - **主な変更領域:**
