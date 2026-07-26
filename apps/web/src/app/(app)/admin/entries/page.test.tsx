@@ -263,8 +263,8 @@ describe('/admin/entries（申込管理ボード）', () => {
 
       await renderPage()
 
-      // 表示名は「通称（なければ title）+ 対象級」なので A 級が連結される
-      const row = screen.getByText('人数集計大会A').closest('a')
+      // 通称が引けない大会は title をそのまま表示（級は連結しない。Issue #335）
+      const row = screen.getByText('人数集計大会').closest('a')
       expect(row?.textContent).toContain('（3名）')
     })
 
