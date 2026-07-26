@@ -1,33 +1,40 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Btn, Card, SectionLabel } from '@/components/ui'
+import { Btn } from '@/components/ui'
+import { formatEventDate } from '@/lib/event-date'
 import {
-  LifecycleStatusBadge,
-  type EntryStatus,
-  type PaymentStatus,
-  type PaymentType,
-} from './LifecycleStatusBadge'
+  DisclosureActions,
+  DisclosureRow,
+  FlatTable,
+  LinkAction,
+  SectionRule,
+  type FlatTableRow,
+} from './detail'
+import type { EntryStatus, PaymentStatus, PaymentType } from './LifecycleStatusBadge'
 
 export interface EventLifecycleSectionProps {
   eventId: number
   entryStatus: EntryStatus
-  entryAppliedAt: Date | string | null
   paymentType: PaymentType | null
   paymentStatus: PaymentStatus
-  paymentPaidAt: Date | string | null
   feeJpy: number | null
   entryDeadline: string | null
   paymentDeadline: string | null
+  // event-detail-redesign タスク5: 一般会員から隠して管理者トグル内へ集約
+  // する情報（requirements §3.2.2）。
+  entryMethod: string | null
+  paymentMethod: string | null
+  paymentInfo: string | null
   /**
    * Whether the event has a live (`linked`) LINE group. Drives the "通知が
-   * 送られます" confirmation and the no-binding notice. State changes are always
-   * persisted; the notification only fires when linked.
+   * 送られます" confirmation. State changes are always persisted; the
+   * notification only fires when linked.
    */
   isLineLinked: boolean
   setEntryAppliedAction: (eventId: number, applied: boolean) => Promise<void>
-  // entry-overdue-alert: 3 値目「申し込まない」。not_applied / applied の
-  // どちらからでも呼べる（not_applying → applied の直接遷移は UI に無い）。
+  // entry-overdue-alert: 3 値目「申し込まない」。not_applied のときだけ
+  // 呼べる（not_applying → applied の直接遷移は UI に無い）。
   setEntryNotApplyingAction: (eventId: number) => Promise<void>
   setPaymentTypeAction: (
     eventId: number,
@@ -36,32 +43,50 @@ export interface EventLifecycleSectionProps {
   setPaymentPaidAction: (eventId: number, paid: boolean) => Promise<void>
 }
 
-function formatDateTime(date: Date | string | null | undefined): string {
-  if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
+// design-spec §9「既存プリミティブを変更せず、この画面用の派生として実装
+// する」— モックの下線だけの `<select>`（枠なし）。
+const SELECT_CLASS =
+  'border-b border-border-strong bg-transparent px-px py-0.5 text-[13px] text-ink'
+
+const ENTRY_SUMMARY: Record<
+  EntryStatus,
+  { label: string; tone: 'plain' | 'ok' | 'ng' }
+> = {
+  not_applied: { label: '未申込', tone: 'plain' },
+  applied: { label: '申込済', tone: 'ok' },
+  not_applying: { label: '申込なし', tone: 'plain' },
 }
 
-const SELECT_CLASS =
-  'rounded-md border border-border bg-canvas px-2 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-brand/30'
+function paymentSummary(
+  paymentType: PaymentType | null,
+  paymentStatus: PaymentStatus,
+): { label: string; tone: 'plain' | 'ok' | 'ng' } {
+  if (paymentType === 'advance') {
+    return paymentStatus === 'paid'
+      ? { label: '支払済', tone: 'ok' }
+      : { label: '未払', tone: 'ng' }
+  }
+  if (paymentType === 'onsite') return { label: '現地払い', tone: 'plain' }
+  return { label: '未設定', tone: 'ng' }
+}
 
 /**
- * Admin-only 進行管理 section on /events/[id]: toggle 申込/支払 state, pick the
- * payment type, and (when linked) confirm before a group notification fires.
- * Renders the read-only LifecycleStatusBadge inline so the operator sees the
- * same pills members see.
+ * Admin-only 進行管理 section on /events/[id]: 申込状態／支払状態を独立した
+ * 開閉トグル 2 つに畳む（design-spec §4）。参加費・支払締切・支払方法・
+ * 振込先など一般会員に見せない情報は支払トグルの中に集約する
+ * （requirements §3.2.2）。
  */
 export function EventLifecycleSection({
   eventId,
   entryStatus,
-  entryAppliedAt,
   paymentType,
   paymentStatus,
-  paymentPaidAt,
   feeJpy,
   entryDeadline,
   paymentDeadline,
+  entryMethod,
+  paymentMethod,
+  paymentInfo,
   isLineLinked,
   setEntryAppliedAction,
   setEntryNotApplyingAction,
@@ -115,86 +140,98 @@ export function EventLifecycleSection({
     })
   }
 
-  const entryApplied = entryStatus === 'applied'
   const paymentPaid = paymentStatus === 'paid'
+  const entrySummary = ENTRY_SUMMARY[entryStatus]
+  const paySummary = paymentSummary(paymentType, paymentStatus)
+
+  const entryRows: FlatTableRow[] = []
+  if (entryMethod != null) {
+    entryRows.push({ label: '申込方法', value: entryMethod })
+  }
+  entryRows.push({
+    label: '大会申込締切',
+    value: entryDeadline ? formatEventDate(entryDeadline) : '未定',
+    variant: 'date',
+  })
+
+  const paymentRows: FlatTableRow[] = []
+  if (feeJpy != null) {
+    paymentRows.push({
+      label: '参加費',
+      value: `${feeJpy.toLocaleString('ja-JP')}円`,
+    })
+  }
+  if (paymentDeadline != null) {
+    paymentRows.push({
+      label: '支払締切',
+      value: formatEventDate(paymentDeadline),
+      variant: 'date',
+    })
+  }
+  if (paymentMethod != null) {
+    paymentRows.push({ label: '支払方法', value: paymentMethod })
+  }
+  if (paymentInfo != null) {
+    paymentRows.push({
+      label: '振込先',
+      value: paymentInfo,
+      variant: 'prewrap',
+    })
+  }
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <SectionLabel>進行管理</SectionLabel>
-        <LifecycleStatusBadge
-          entryStatus={entryStatus}
-          paymentType={paymentType}
-          paymentStatus={paymentStatus}
-        />
-      </div>
-
-      <Card className="px-3 py-3 flex flex-col gap-4 text-xs text-ink-2">
-        {/* 申込状態
-            entry-overdue-alert: 3 状態化。not_applying からは「未申込に戻す」
-            のみを出し、直接「申込済にする」へは進ませない（必ず not_applied
-            を経由させ、状態機械を単純に保つ）。 */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-ink-meta">申込状態</span>
-            <div className="flex items-center gap-1.5">
-              {entryStatus === 'not_applying' ? (
-                <Btn
-                  type="button"
-                  kind="secondary"
-                  size="sm"
-                  disabled={isPending}
-                  onClick={() =>
-                    run(() => setEntryAppliedAction(eventId, false), false)
-                  }
-                >
-                  未申込に戻す
-                </Btn>
-              ) : (
-                <>
-                  <Btn
-                    type="button"
-                    kind={entryApplied ? 'secondary' : 'primary'}
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() =>
-                      run(
-                        () => setEntryAppliedAction(eventId, !entryApplied),
-                        !entryApplied,
-                      )
-                    }
-                  >
-                    {entryApplied ? '未申込に戻す' : '申込済にする'}
-                  </Btn>
-                  <Btn
-                    type="button"
-                    kind="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={runNotApplying}
-                  >
-                    申し込まない
-                  </Btn>
-                </>
-              )}
-            </div>
-          </div>
-          {entryApplied && (
-            <p className="text-[11px] text-ink-meta">
-              申込日時: {formatDateTime(entryAppliedAt)}
-            </p>
+    <SectionRule title="進行管理">
+      <DisclosureRow
+        label="申込状態"
+        value={entrySummary.label}
+        valueTone={entrySummary.tone}
+      >
+        <FlatTable rows={entryRows} />
+        <DisclosureActions>
+          {entryStatus === 'not_applied' ? (
+            <>
+              <LinkAction disabled={isPending} onClick={runNotApplying}>
+                申し込まない
+              </LinkAction>
+              <Btn
+                type="button"
+                size="sm"
+                className="h-[30px] rounded-md"
+                disabled={isPending}
+                onClick={() =>
+                  run(() => setEntryAppliedAction(eventId, true), true)
+                }
+              >
+                申込済にする
+              </Btn>
+            </>
+          ) : (
+            <LinkAction
+              disabled={isPending}
+              onClick={() =>
+                run(() => setEntryAppliedAction(eventId, false), false)
+              }
+            >
+              未申込に戻す
+            </LinkAction>
           )}
-        </div>
+        </DisclosureActions>
+      </DisclosureRow>
 
-        {/* 支払いタイプ */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-meta">支払いタイプ</span>
+      <DisclosureRow
+        label="支払状態"
+        value={paySummary.label}
+        valueTone={paySummary.tone}
+      >
+        <FlatTable rows={paymentRows} />
+        <DisclosureActions>
           <select
             className={SELECT_CLASS}
             value={paymentType ?? ''}
             disabled={isPending}
             onChange={(e) => {
-              const next = e.target.value === '' ? null : (e.target.value as PaymentType)
+              const next =
+                e.target.value === '' ? null : (e.target.value as PaymentType)
               run(() => setPaymentTypeAction(eventId, next), false)
             }}
           >
@@ -202,58 +239,27 @@ export function EventLifecycleSection({
             <option value="advance">事前払い</option>
             <option value="onsite">現地払い</option>
           </select>
-        </div>
+          {paymentType === 'advance' && (
+            <Btn
+              type="button"
+              kind={paymentPaid ? 'secondary' : 'primary'}
+              size="sm"
+              className="h-[30px] rounded-md"
+              disabled={isPending}
+              onClick={() =>
+                run(
+                  () => setPaymentPaidAction(eventId, !paymentPaid),
+                  !paymentPaid,
+                )
+              }
+            >
+              {paymentPaid ? '未払に戻す' : '支払済にする'}
+            </Btn>
+          )}
+        </DisclosureActions>
+      </DisclosureRow>
 
-        {/* 支払状態 (事前払いのみ) */}
-        {paymentType === 'advance' && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-ink-meta">支払状態</span>
-              <Btn
-                type="button"
-                kind={paymentPaid ? 'secondary' : 'primary'}
-                size="sm"
-                disabled={isPending}
-                onClick={() =>
-                  run(() => setPaymentPaidAction(eventId, !paymentPaid), !paymentPaid)
-                }
-              >
-                {paymentPaid ? '未払に戻す' : '支払済にする'}
-              </Btn>
-            </div>
-            {paymentPaid && (
-              <p className="text-[11px] text-ink-meta">
-                支払日時: {formatDateTime(paymentPaidAt)}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* 締切・料金の参照（編集はイベント編集フォーム側） */}
-        <dl className="flex flex-col gap-1 border-t border-border-soft pt-2 text-[11px]">
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-ink-meta">大会申込締切</dt>
-            <dd className="text-ink-1">{entryDeadline ?? '—'}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-ink-meta">支払締切</dt>
-            <dd className="text-ink-1">{paymentDeadline ?? '—'}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-ink-meta">参加費</dt>
-            <dd className="text-ink-1">
-              {feeJpy != null ? `${feeJpy.toLocaleString('ja-JP')}円` : '—'}
-            </dd>
-          </div>
-        </dl>
-
-        {!isLineLinked && (
-          <p className="text-[10px] text-ink-meta">
-            ※ LINE グループ未紐付けのため、状態を変更しても通知は送られません。
-          </p>
-        )}
-        {error ? <p className="text-xs text-danger-fg">{error}</p> : null}
-      </Card>
-    </section>
+      {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
+    </SectionRule>
   )
 }

@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Btn, Pill, type PillTone } from '@/components/ui'
+import { cn } from '@/lib/utils'
+import { formatDateTimeShort } from '@/lib/event-date'
+import { LinkAction } from './detail'
 
 export interface BroadcastHistoryRow {
   id: number
@@ -30,25 +32,24 @@ export interface BroadcastHistoryTableProps {
   ) => Promise<void>
 }
 
-const STATUS_LABEL: Record<BroadcastHistoryRow['status'], { label: string; tone: PillTone }> = {
-  pending: { label: '未配信', tone: 'neutral' },
-  sending: { label: '配信中', tone: 'info' },
-  sent: { label: '配信済み', tone: 'success' },
-  partial: { label: '部分失敗', tone: 'warn' },
-  failed: { label: '失敗', tone: 'danger' },
+const STATUS_LABEL: Record<BroadcastHistoryRow['status'], string> = {
+  pending: '未配信',
+  sending: '配信中',
+  sent: '配信済み',
+  partial: '部分失敗',
+  failed: '失敗',
 }
 
-function formatDateTime(date: Date | string | null | undefined): string {
-  if (!date) return '—'
-  const d = typeof date === 'string' ? new Date(date) : date
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' })
+function metricsText(row: BroadcastHistoryRow): string {
+  let text = `テキスト${row.sentTextCount}・画像${row.sentImageCount}`
+  if (row.fallbackLinkCount > 0) text += `・リンク${row.fallbackLinkCount}`
+  return text
 }
 
 /**
- * Per-event delivery audit. r-final-11 should_fix: failed / partial 行に
- * 「再配信」ボタンを表示して manualBroadcast action を起動できるように
- * する (UI に接続)。
+ * Per-event delivery audit. event-detail-redesign タスク5で罫線リストへ
+ * 置き換え（脱カード・脱チップ）。r-final-11 should_fix: failed / partial 行に
+ * 「再配信」を表示して manualBroadcast action を起動できるようにする。
  */
 export function BroadcastHistoryTable({
   rows,
@@ -57,13 +58,13 @@ export function BroadcastHistoryTable({
 }: BroadcastHistoryTableProps) {
   if (rows.length === 0) {
     return (
-      <p className="text-xs text-ink-meta px-3 py-4 text-center">
+      <p className="py-3 text-center text-xs text-neutral-fg">
         配信履歴はまだありません。
       </p>
     )
   }
   return (
-    <ul className="divide-y divide-border/60">
+    <ul className="divide-y divide-border-soft">
       {rows.map((row) => (
         <HistoryRow
           key={row.id}
@@ -88,12 +89,12 @@ function HistoryRow({
     mailMessageId: number,
   ) => Promise<void>
 }) {
-  const status = STATUS_LABEL[row.status]
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const canResend =
     manualBroadcastAction != null &&
     (row.status === 'failed' || row.status === 'partial')
+  const isWarn = row.status === 'partial' || row.status === 'failed'
 
   function handleResend() {
     if (!manualBroadcastAction) return
@@ -108,49 +109,35 @@ function HistoryRow({
   }
 
   return (
-    <li className="px-3 py-3 flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {row.isCorrection ? (
-            <Pill tone="warn" size="sm">
-              訂正
-            </Pill>
-          ) : null}
-          <span className="text-xs text-ink-1 truncate">
-            {row.subject ?? `mail #${row.mailMessageId}`}
-          </span>
-        </div>
-        <Pill tone={status.tone} size="sm">
-          {status.label}
-        </Pill>
-      </div>
-      <div className="text-[10px] text-ink-meta tabular-nums flex flex-wrap gap-x-3 gap-y-1">
-        <span>受信: {formatDateTime(row.receivedAt)}</span>
-        <span>配信: {formatDateTime(row.sentAt)}</span>
-        <span>
-          テキスト {row.sentTextCount} / 画像 {row.sentImageCount}
-          {row.fallbackLinkCount > 0 ? ` / リンク ${row.fallbackLinkCount}` : ''}
+    <li className="py-[10px]">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+          {row.isCorrection ? <span className="text-ink-meta">訂正 </span> : null}
+          {row.subject ?? `mail #${row.mailMessageId}`}
+        </span>
+        <span
+          className={cn(
+            'flex-none text-xs',
+            isWarn ? 'text-accent-fg' : 'text-ink-meta',
+          )}
+        >
+          {STATUS_LABEL[row.status]}
         </span>
       </div>
+      <div className="mt-[3px] flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-neutral-fg">
+        <span>受信 {formatDateTimeShort(row.receivedAt)}</span>
+        <span>配信 {formatDateTimeShort(row.sentAt)}</span>
+        <span>{metricsText(row)}</span>
+      </div>
       {row.errorMessage ? (
-        <p className="text-[10px] text-danger-fg truncate">
-          {row.errorMessage}
-        </p>
+        <p className="mt-[3px] text-xs text-accent-fg">{row.errorMessage}</p>
       ) : null}
-      {error ? (
-        <p className="text-[10px] text-danger-fg">{error}</p>
-      ) : null}
+      {error ? <p className="mt-[3px] text-xs text-accent-fg">{error}</p> : null}
       {canResend ? (
-        <div className="flex justify-end">
-          <Btn
-            type="button"
-            kind="secondary"
-            size="sm"
-            onClick={handleResend}
-            disabled={pending}
-          >
+        <div className="mt-[5px]">
+          <LinkAction onClick={handleResend} disabled={pending}>
             {pending ? '再配信中…' : '再配信'}
-          </Btn>
+          </LinkAction>
         </div>
       ) : null}
     </li>

@@ -10,13 +10,14 @@ const baseProps = (
 ): EventLifecycleSectionProps => ({
   eventId: 1,
   entryStatus: 'not_applied',
-  entryAppliedAt: null,
   paymentType: null,
   paymentStatus: 'unpaid',
-  paymentPaidAt: null,
   feeJpy: null,
   entryDeadline: null,
   paymentDeadline: null,
+  entryMethod: null,
+  paymentMethod: null,
+  paymentInfo: null,
   isLineLinked: true,
   setEntryAppliedAction: vi.fn().mockResolvedValue(undefined),
   setEntryNotApplyingAction: vi.fn().mockResolvedValue(undefined),
@@ -25,40 +26,214 @@ const baseProps = (
   ...over,
 })
 
-describe('EventLifecycleSection — 申込状態 3 状態化 (entry-overdue-alert)', () => {
+/** `<details>` は既定=閉なので、中身を assert する前に開いておく。 */
+function openAllDetails(container: HTMLElement) {
+  container.querySelectorAll('details').forEach((d) => {
+    d.open = true
+  })
+}
+
+describe('EventLifecycleSection — AC-12: 「申し込まない」の表示条件', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('not_applied: 「申込済にする」と「申し込まない」の 2 ボタンが出る', () => {
-    render(<EventLifecycleSection {...baseProps({ entryStatus: 'not_applied' })} />)
-    expect(screen.getByRole('button', { name: '申込済にする' })).toBeTruthy()
+  it('not_applied のときだけ「申し込まない」が出る', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryStatus: 'not_applied' })} />,
+    )
+    openAllDetails(container)
     expect(screen.getByRole('button', { name: '申し込まない' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '申込済にする' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '未申込に戻す' })).toBeNull()
   })
 
-  it('applied: 「未申込に戻す」と「申し込まない」の 2 ボタンが出る', () => {
-    render(<EventLifecycleSection {...baseProps({ entryStatus: 'applied' })} />)
+  it('applied のときは「申し込まない」が出ない（未申込に戻すのみ）', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryStatus: 'applied' })} />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByRole('button', { name: '申し込まない' })).toBeNull()
     expect(screen.getByRole('button', { name: '未申込に戻す' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '申し込まない' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '申込済にする' })).toBeNull()
   })
 
-  it('not_applying: 「未申込に戻す」のみが出る（申込済にする・申し込まないは出ない）', () => {
-    render(<EventLifecycleSection {...baseProps({ entryStatus: 'not_applying' })} />)
+  it('not_applying のときは「申し込まない」が出ない（未申込に戻すのみ）', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryStatus: 'not_applying' })} />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByRole('button', { name: '申し込まない' })).toBeNull()
     expect(screen.getByRole('button', { name: '未申込に戻す' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '申込済にする' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '申し込まない' })).toBeNull()
+  })
+})
+
+describe('EventLifecycleSection — summary の value/tone', () => {
+  it('申込状態: applied=申込済 / not_applied=未申込 / not_applying=申込なし', () => {
+    const { rerender } = render(
+      <EventLifecycleSection {...baseProps({ entryStatus: 'applied' })} />,
+    )
+    expect(screen.getByText('申込済')).toBeTruthy()
+    rerender(<EventLifecycleSection {...baseProps({ entryStatus: 'not_applied' })} />)
+    expect(screen.getByText('未申込')).toBeTruthy()
+    rerender(<EventLifecycleSection {...baseProps({ entryStatus: 'not_applying' })} />)
+    expect(screen.getByText('申込なし')).toBeTruthy()
+  })
+
+  it('支払状態: advance&paid=支払済 / advance&unpaid=未払 / onsite=現地払い / null=未設定', () => {
+    // 「現地払い」「未設定」は支払いタイプの <select> の option にも同じ文字列で
+    // 現れるため、screen.getByText では複数マッチになる。summary（2つ目の
+    // <details> = 支払状態）のテキストに絞って検証する。
+    function paymentSummaryText(container: HTMLElement): string {
+      const details = container.querySelectorAll('details')
+      return details[1]?.querySelector('summary')?.textContent ?? ''
+    }
+
+    const { container, rerender } = render(
+      <EventLifecycleSection
+        {...baseProps({ paymentType: 'advance', paymentStatus: 'paid' })}
+      />,
+    )
+    expect(paymentSummaryText(container)).toContain('支払済')
+    rerender(
+      <EventLifecycleSection
+        {...baseProps({ paymentType: 'advance', paymentStatus: 'unpaid' })}
+      />,
+    )
+    expect(paymentSummaryText(container)).toContain('未払')
+    rerender(<EventLifecycleSection {...baseProps({ paymentType: 'onsite' })} />)
+    expect(paymentSummaryText(container)).toContain('現地払い')
+    rerender(<EventLifecycleSection {...baseProps({ paymentType: null })} />)
+    expect(paymentSummaryText(container)).toContain('未設定')
+  })
+})
+
+describe('EventLifecycleSection — AC-11: 支払トグル内のフィールド', () => {
+  it('参加費・支払締切・支払方法・振込先が表示される', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          feeJpy: 2000,
+          paymentDeadline: '2026-08-20',
+          paymentMethod: '事前振込（会の口座へ）',
+          paymentInfo: 'ゆうちょ銀行 一二三支店\n普通 1234567 ホクダイカルタカイ',
+        })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.getByText('参加費')).toBeTruthy()
+    expect(screen.getByText('2,000円')).toBeTruthy()
+    expect(screen.getByText('支払締切')).toBeTruthy()
+    expect(screen.getByText('8/20(木)')).toBeTruthy()
+    expect(screen.getByText('支払方法')).toBeTruthy()
+    expect(screen.getByText('事前振込（会の口座へ）')).toBeTruthy()
+    expect(screen.getByText('振込先')).toBeTruthy()
+    expect(
+      screen.getByText(/ゆうちょ銀行 一二三支店/),
+    ).toBeTruthy()
+  })
+
+  it('feeJpy/paymentMethod/paymentInfo が null の行は出ない', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          feeJpy: null,
+          paymentDeadline: null,
+          paymentMethod: null,
+          paymentInfo: null,
+        })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText('参加費')).toBeNull()
+    expect(screen.queryByText('支払締切')).toBeNull()
+    expect(screen.queryByText('支払方法')).toBeNull()
+    expect(screen.queryByText('振込先')).toBeNull()
+  })
+
+  it('entryMethod が null のとき申込方法の行が出ない', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryMethod: null })} />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText('申込方法')).toBeNull()
+  })
+
+  it('entryMethod がある場合は申込方法の行が出る', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({ entryMethod: '会でとりまとめて申込' })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.getByText('申込方法')).toBeTruthy()
+    expect(screen.getByText('会でとりまとめて申込')).toBeTruthy()
+  })
+
+  it('entryDeadline が null のとき「未定」と表示される', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryDeadline: null })} />,
+    )
+    openAllDetails(container)
+    expect(screen.getByText('未定')).toBeTruthy()
+  })
+})
+
+describe('EventLifecycleSection — AC-13b: 読み取りピル・注記の廃止', () => {
+  it('LifecycleStatusBadge 由来の読み取りピル（未払等）は描画されない', () => {
+    render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryStatus: 'applied',
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+        })}
+      />,
+    )
+    // Pill はロール button ではなく、開いていない details の外に表示されない。
+    // summary の value（未払）以外に重複した「未払」ピルが無いことを確認する。
+    expect(screen.getAllByText('未払')).toHaveLength(1)
+  })
+
+  it('申込日時・支払日時が表示されない', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({ entryStatus: 'applied', paymentStatus: 'paid' })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText(/申込日時/)).toBeNull()
+    expect(screen.queryByText(/支払日時/)).toBeNull()
+  })
+
+  it('LINE グループ未紐付けの注記が表示されない', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ isLineLinked: false })} />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText(/LINE グループ未紐付け/)).toBeNull()
+  })
+})
+
+describe('EventLifecycleSection — AC-27 回帰: 状態遷移と confirm', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('「申し込まない」押下で window.confirm が出て、OK なら setEntryNotApplyingAction が eventId 付きで呼ばれる', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const setEntryNotApplyingAction = vi.fn().mockResolvedValue(undefined)
-    render(
+    const { container } = render(
       <EventLifecycleSection
         {...baseProps({ eventId: 42, entryStatus: 'not_applied', setEntryNotApplyingAction })}
       />,
     )
+    openAllDetails(container)
 
     fireEvent.click(screen.getByRole('button', { name: '申し込まない' }))
 
@@ -73,48 +248,45 @@ describe('EventLifecycleSection — 申込状態 3 状態化 (entry-overdue-aler
   it('「申し込まない」押下で confirm をキャンセルすると setEntryNotApplyingAction は呼ばれない', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     const setEntryNotApplyingAction = vi.fn().mockResolvedValue(undefined)
-    render(
+    const { container } = render(
       <EventLifecycleSection
         {...baseProps({ entryStatus: 'not_applied', setEntryNotApplyingAction })}
       />,
     )
+    openAllDetails(container)
 
     fireEvent.click(screen.getByRole('button', { name: '申し込まない' }))
 
     expect(setEntryNotApplyingAction).not.toHaveBeenCalled()
   })
 
-  it('「申し込まない」の confirm は isLineLinked=false でも出る（LINE 通知 confirm とは別種）', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const setEntryNotApplyingAction = vi.fn().mockResolvedValue(undefined)
-    render(
+  it('「未申込に戻す」(applied から) は通知 confirm を出さず setEntryAppliedAction(id, false) を呼ぶ', async () => {
+    const setEntryAppliedAction = vi.fn().mockResolvedValue(undefined)
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    const { container } = render(
       <EventLifecycleSection
-        {...baseProps({
-          entryStatus: 'applied',
-          isLineLinked: false,
-          setEntryNotApplyingAction,
-        })}
+        {...baseProps({ eventId: 7, entryStatus: 'applied', setEntryAppliedAction })}
       />,
     )
+    openAllDetails(container)
 
-    fireEvent.click(screen.getByRole('button', { name: '申し込まない' }))
+    fireEvent.click(screen.getByRole('button', { name: '未申込に戻す' }))
 
-    expect(window.confirm).toHaveBeenCalledWith(
-      'この大会は大会申込一覧に表示されなくなります。よろしいですか？',
-    )
+    expect(confirmSpy).not.toHaveBeenCalled()
     await waitFor(() => {
-      expect(setEntryNotApplyingAction).toHaveBeenCalled()
+      expect(setEntryAppliedAction).toHaveBeenCalledWith(7, false)
     })
   })
 
   it('「未申込に戻す」(not_applying から) は confirm を出さず setEntryAppliedAction(id, false) を呼ぶ', async () => {
     const setEntryAppliedAction = vi.fn().mockResolvedValue(undefined)
     const confirmSpy = vi.spyOn(window, 'confirm')
-    render(
+    const { container } = render(
       <EventLifecycleSection
         {...baseProps({ eventId: 7, entryStatus: 'not_applying', setEntryAppliedAction })}
       />,
     )
+    openAllDetails(container)
 
     fireEvent.click(screen.getByRole('button', { name: '未申込に戻す' }))
 
@@ -127,7 +299,7 @@ describe('EventLifecycleSection — 申込状態 3 状態化 (entry-overdue-aler
   it('「申込済にする」(not_applied から, linked) は既存どおり通知 confirm を出す', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const setEntryAppliedAction = vi.fn().mockResolvedValue(undefined)
-    render(
+    const { container } = render(
       <EventLifecycleSection
         {...baseProps({
           entryStatus: 'not_applied',
@@ -136,6 +308,7 @@ describe('EventLifecycleSection — 申込状態 3 状態化 (entry-overdue-aler
         })}
       />,
     )
+    openAllDetails(container)
 
     fireEvent.click(screen.getByRole('button', { name: '申込済にする' }))
 

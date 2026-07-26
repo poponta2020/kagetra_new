@@ -183,7 +183,7 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 - **`/(app)/admin/line-grade-groups`**: 級別グループ紐付けの管理（**admin のみ。vice_admin は不可**）。A〜Eの5行固定で、各行に状態（未紐付け/招待コード発行済み/参加済みコード待ち/紐付け済み）と操作（招待コード発行・解除）を出す。招待コード発行時に `event_broadcast` の空きチャネルを1個確保して `grade_broadcast` へ転換するため、転換後のチャネルは `/admin/line-channels` の一覧（`purpose='event_broadcast'` 固定）から自動的に消える。導線は `/admin/line-channels` からのリンク（ボトムナビは admin 時点で既に6タブのため追加しない）。
 - **`/(app)/admin/line-channels/[id]`**: 個別Botの詳細。現在の紐付け先、紐付け履歴（直近20件）、操作ボタン（強制解放/無効化/有効化/手動紐付けモーダル `ManualLinkModal`）。手動紐付けは、Webhookが `join`/コード発言を受け取れなかった場合の運用フォールバックで、対象イベント・LINEグループIDを直接入力してその場で `linked` にする。
 
-大会単体の配信状況（配信履歴テーブル・招待コード発行UI・現在の紐付け状態表示等）は `/events/[id]` ページの一部（`LineBroadcastSection` / `BroadcastHistoryTable` コンポーネント）として表示されるが、これは大会本体の画面構成に属するため詳細は `spec/events-attendance.md` を参照。
+大会単体の配信状況（配信履歴・招待コード発行UI・現在の紐付け状態）は `/events/[id]` の「LINE 配信」開閉トグル（`LineBroadcastSection` / `BroadcastHistoryTable`）として表示される。**管理者以外には何も描画しない** — 会員向けの「この大会は LINE グループに自動配信されています」という案内は event-detail-redesign で廃止した。級別グループ配信（`GradeBroadcastSection`）も独立セクションをやめ、この LINE 配信トグルの中の1項目へ移した（`role === 'admin'` 限定は維持し、`vice_admin` には props ごと渡さない）。これらは大会本体の画面構成に属するため詳細は `spec/events-attendance.md` を参照。
 
 ## フロー
 
@@ -201,7 +201,7 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 2. その級のLINEグループへBotを招待 → Webhook `join` を受けて `joined_waiting_code`。
 3. グループ内で6桁コードを発言 → `linked`。以降この紐付けは常設で、大会ごとに解放されない。
 4. 大会が新規登録される（AI下書き承認 / 手動作成）たびに、対象級のグループへ概要が1通届く。未紐付け・送信失敗の級は管理者の個人LINEへまとめて通知される。
-5. 取りこぼしは `/events/[id]` の「級グループへ再送」で復旧できる（未送信の級にだけ届く）。
+5. 取りこぼしは `/events/[id]` の「LINE 配信」→「級別グループ配信」トグル内の「未送信の級へ配信」で復旧できる（未送信の級にだけ届く）。
 
 ### イベントライフサイクル通知
 
