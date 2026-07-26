@@ -125,11 +125,22 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
   - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件
   - リード日数は既定3日（`EVENT_LIFECYCLE_REMINDER_LEAD_DAYS` env で上書き可）。日付判定はすべてJSTの `YYYY-MM-DD` 文字列比較（`jstTodayIso`）で行う。
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
+  - **entry-groups: 送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーで
+    バケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` +
+    `RETURNING`** で claim して、claim できた日を列挙した1通を push する。once-ever の単位は
+    `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」
+    だけが追加で1通送られる。グループ内で締切が同じ日同士が1通にまとまり、（伝播を外して）
+    締切が異なる日は別バケット＝別通になる。バケットが1件のときは単一日ロジックで組んだ文面を
+    そのまま使うので、従来の文面とバイト互換。
+  - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id`
+    かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない —
+    claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。紐付けがグループ単位に
+    なったことで、従来未紐付けだった日（多摩 B/D/E 等）のリマインドも同じ LINE グループへ届く。
 - push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、その他4xx→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール。将来的な統合はrequirements §6.9で「マージ後リファクタ」として据え置かれている）。
 
 ### entry-overdue-alert: 管理者向け毎日アラート
 
-会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
+会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。**entry-groups: 明細は申込グループ単位で1行**に集約し（グループ内の該当日をまとめる）、グループ表示名は `deriveEntryGroupName`（導出できないときは代表イベントのタイトル）を使う。単独グループのときは従来の「1行1大会」と同じ文面になる。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
 
 | 軸 | event-lifecycle-notify | entry-overdue-alert |
 |---|---|---|

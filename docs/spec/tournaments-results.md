@@ -85,13 +85,19 @@
 
 `apps/web/src/lib/roster-import/parser.ts`（`parseRosterGrid`）が名簿 Excel の氏名表を持つ全シートをヘッダ語検出で解析する。氏名/姓+名・ふりがな・A〜E級・所属・段位・出場状態・当落区分・抽選除外列を任意組み合わせで許容し、行に級がなければ明示的なシート名から補う。自己申告の出場回数列は集計入力に使わない。同一級で正規化氏名が重複した場合は自動除外せず検証エラーにする。`materialize.ts`（`materializeRoster`）が `tournament_entry_rosters` / `tournament_entry_roster_entries` へ確定保存する。
 
-- **再取込は版管理**: event行をロックして同一 `(event_id, roster_type)` のversionを採番する。訂正は明示した有効版だけをsupersededにし、旧名簿とentriesを削除しない。後日の追加発表は旧版をsupersedeせず併存できる。大会詳細はsupersededを除外し、種別ごとの最大versionだけを表示する
+- **entry-groups: 名簿の帰属は event ではなく申込グループ**（`tournament_entry_rosters.entry_group_id`）。
+  名簿・抽選結果メールが「同じ案内メール × 同じ申込締切」のクラスタ単位で届く実態に合わせたもので、
+  グループ内のどの日の大会詳細からも**同一の名簿**が見える。版管理の一意性も
+  `(entry_group_id, roster_type, version)` へ読み替えている。FK は **ON DELETE RESTRICT**
+  （events からの旧 FK は cascade だった）— 空グループの削除が名簿を道連れにしないための
+  DB 側バックストップで、削除は `deleteGroupIfEmpty` が rosters 0件を確認してから行う。
+- **再取込は版管理**: entry_groups行をロックして同一 `(entry_group_id, roster_type)` のversionを採番する。訂正は明示した有効版だけをsupersededにし、旧名簿とentriesを削除しない。後日の追加発表は旧版をsupersedeせず併存できる。大会詳細はsupersededを除外し、種別ごとの最大versionだけを表示する
 - 確定名簿発表は `publishConfirmedRoster` で既存rosterへ明示的に関連付ける。無抽選で申込名簿を確定名簿として兼用する場合もrosterを複製せず参照でき、後日の別発表も併存できる
 - 各行の選手も `result-import` と同型の get-or-create（正規化姓名キーのみ、`onConflictDoNothing`）で `players` に解決する
 - 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` と `players.userId` を張る。0件または複数一致では両方を `null` にし、既存の曖昧な自動リンクも解除する
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
-取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
+取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
 
 ## 画面
 
@@ -104,6 +110,13 @@
 ### `/tournaments/series`・`/tournaments/series/[id]`（大会別＝系列一覧・詳細）
 
 系列を1行に束ねて累計開催回数・回次範囲・直近年・状態内訳（開催/中止/未確定）を表示する一覧と、系列詳細（回次一覧＋参加者数推移チャート）。回次一覧は結果データのある回（`tournamentId` あり）のみ大会詳細へタップ可能で、中止・記録なしの回は非タップ表示にする。
+
+entry-groups で名簿がグループ帰属になったため、edition 基準の整合性チェック
+（`appearance-counts.ts` / `series-metrics.ts` / mail-worker の `coverage-report.ts`）は
+`roster.event_id = events.id` の JOIN から
+`EXISTS (SELECT 1 FROM events e WHERE e.entry_group_id = roster.entry_group_id AND e.edition_id = publication.edition_id)`
+へ書き換えた。**`edition_id` を roster 側へ非正規化してはならない** — 承認フローが後から
+edition を紐付けるため、コピーすると stale になる。集計結果そのものは不変（回帰テストで担保）。
 
 系列詳細の「申込・抽選の推移」は A〜E 級のタブを持ち、級ごとに申込者数の推移と、抽選時は倍率（小数第2位）・分子/分母、定員未満時は残り枠・定員充足率、定員設定なし時は専用状態を表示する。原本不足などで集計が不完全な回は理由だけを示し、取得済みの部分値を一般画面へ出さない。A級は主催者枠と年度開始時点の出場回数層を積み上げ、完全な履歴がある場合だけ定員線と当落境界を表示する。公開レスポンスと画面には氏名、会員・選手・名簿の内部ID、原本情報を含めない。長い系列は横軸ラベルを間引き、375px幅とダークモードでも既存の級別詳細・回次リンクを損なわない。
 
