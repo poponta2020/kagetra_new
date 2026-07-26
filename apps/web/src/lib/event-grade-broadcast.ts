@@ -38,6 +38,22 @@ interface Logger {
 }
 const NOOP_LOGGER: Logger = { info: () => undefined, warn: () => undefined }
 
+/**
+ * `broadcastEventsToGradeGroups` の既定ロガー。
+ *
+ * review R6 should_fix: この関数は想定外の例外も内部で捕捉して throw しない契約
+ * （`after()` の呼び出し側を壊さないため）。既定を no-op にすると、本番の全呼び出しは
+ * logger を渡さないので、配信が丸ごと失われても LINE 通知にもアプリケーションログにも
+ * 痕跡が残らない。`warn` だけは運用ログへ出す。
+ *
+ * ctx に配信本文・チャネルアクセストークンを入れないこと（要件のセキュリティ制約）。
+ * 現状 ctx に載るのは grade / httpStatus / error message / 宛先 group id のみ。
+ */
+const DEFAULT_LOGGER: Logger = {
+  info: () => undefined,
+  warn: (msg, ctx) => console.warn(`[event-grade-broadcast] ${msg}`, ctx ?? {}),
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
@@ -604,7 +620,7 @@ export async function broadcastEventsToGradeGroups(
   eventIds: number[],
   options: BroadcastEventsToGradeGroupsOptions = {},
 ): Promise<BroadcastEventsToGradeGroupsResult> {
-  const logger = options.logger ?? NOOP_LOGGER
+  const logger = options.logger ?? DEFAULT_LOGGER
   const fetchImpl = options.fetchImpl ?? fetch
   const leaseMs = options.claimLeaseMs ?? CLAIM_LEASE_MS
   const nowMs = (options.now ?? new Date()).getTime()

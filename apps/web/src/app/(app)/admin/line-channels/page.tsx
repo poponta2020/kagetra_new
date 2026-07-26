@@ -138,14 +138,20 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
       {/* event-grade-group-broadcast: 級別グループ (A〜E) の常設紐付けは別画面。
           ボトムナビは admin 時点で既に6タブ埋まっており、7タブ目を足すと1タブの
           幅が縮んでレイアウトが壊れるため、同じ LINE Bot 管理どうしをここから
-          辿らせる。級用チャネルはこの一覧 (purpose='event_broadcast') には出ない。 */}
-      <Link
-        href="/admin/line-grade-groups"
-        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-ink-2 hover:bg-surface-alt"
-      >
-        <span>級別グループ配信の紐付け（A〜E）</span>
-        <span aria-hidden="true">›</span>
-      </Link>
+          辿らせる。級用チャネルはこの一覧 (purpose='event_broadcast') には出ない。
+
+          この画面は vice_admin も見られるが、遷移先は admin 専用 (AC-22)。
+          無条件に出すと vice_admin には「押せるのに 403 へ飛ぶ」導線になるため、
+          admin のときだけ描画する (review R6 should_fix)。 */}
+      {session.user?.role === 'admin' && (
+        <Link
+          href="/admin/line-grade-groups"
+          className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-ink-2 hover:bg-surface-alt"
+        >
+          <span>級別グループ配信の紐付け（A〜E）</span>
+          <span aria-hidden="true">›</span>
+        </Link>
+      )}
 
       {showPoolAlert ? (
         <Card className="px-3 py-2 flex items-center gap-2 bg-warn-bg/40 border-warn-fg/30">
