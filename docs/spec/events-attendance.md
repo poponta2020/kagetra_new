@@ -47,7 +47,11 @@
   名簿（[spec/tournaments-results.md](tournaments-results.md)）。締切カラムは events に残し、
   「同じ締切」は生成規則＋伝播ダイアログで運用的に維持する
 - 空グループは条件付きで自動削除（`deleteGroupIfEmpty`。events / event_line_broadcasts /
-  tournament_entry_rosters が全て0件のときだけ。削除条件はこの関数に集約されている）
+  tournament_entry_rosters / line_channels.assigned_entry_group_id が**全て0件のときだけ**。
+  削除条件はこの関数に集約されている）。LINE 紐付けや名簿は付け替え時に移動元グループへ
+  残る仕様なので、それらを持つグループはイベント0件でも残る（FK は RESTRICT のため、
+  削除を試みると付け替えトランザクション自体がロールバックする）。残ったグループの Bot は
+  日次の自動解放バッチが回収する（[spec/notifications.md](notifications.md)）
 
 ### イベントとは
 
