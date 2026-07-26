@@ -181,3 +181,4 @@
 - [配色のデザイントークン一元化](project_ship-unify-color-tokens.md) — shipped: PR #333
 - [申込管理ボード /admin/entries 出荷](project_ship-entry-management.md) — shipped: PR #334。残DoD=AC-32(本番実機)。★DIRTY な PR は CI が起動せず gate-dod が誤判定
 - [テスト DB の worktree 自動分離](project_ship-test-db-isolation.md) — shipped: PR #337
+- [bug-fix: entry-board-grade-duplicate](impl_bug-entry-board-grade-duplicate.md) — PR #338
