@@ -45,7 +45,7 @@ status: completed
 - **対応Issue:** #353
 
 ### タスク2: 申込フロー判定の純関数
-- [ ] 完了
+- [x] 完了
 - **目的:** 5ステップの done / now / warn / neutral / goal を決めるロジックを、UI から独立した
   純関数として実装する（requirements §3.2.1 が仕様の正）
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9
