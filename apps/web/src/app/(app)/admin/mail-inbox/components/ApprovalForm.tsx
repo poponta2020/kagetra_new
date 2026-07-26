@@ -530,7 +530,7 @@ export function ApprovalForm({
         <div className="flex justify-end pt-1">
           <button
             type="submit"
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-hover"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover"
           >
             選択したイベントを登録
           </button>

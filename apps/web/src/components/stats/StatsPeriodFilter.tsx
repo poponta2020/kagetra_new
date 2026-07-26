@@ -160,7 +160,7 @@ export function StatsPeriodFilter({
               <button
                 type="button"
                 onClick={apply}
-                className="ml-auto rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white hover:bg-brand-hover"
+                className="ml-auto rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover"
               >
                 適用
               </button>

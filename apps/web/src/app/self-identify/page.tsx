@@ -44,11 +44,11 @@ export default async function SelfIdentifyPage({
     : null
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-8">
-      <div className="w-full max-w-md space-y-6 rounded-lg bg-white p-6 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4 py-8">
+      <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-6 shadow-lg">
         <div>
           <h1 className="text-xl font-bold">あなたは誰ですか？</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-ink-2">
             会員一覧から、ご自身のお名前を選んでください。一度選ぶと、この
             LINE アカウントと紐付きます。
           </p>
@@ -57,21 +57,21 @@ export default async function SelfIdentifyPage({
         {errorMessage && (
           <p
             role="alert"
-            className="rounded-md bg-red-50 p-3 text-sm text-red-700"
+            className="rounded-md bg-danger-bg p-3 text-sm text-danger-fg"
           >
             {errorMessage}
           </p>
         )}
 
         {candidates.length === 0 ? (
-          <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="rounded-md bg-warn-bg p-3 text-sm text-warn-fg">
             選択可能な会員がいません。管理者にご連絡ください。
           </p>
         ) : (
           <CandidateList candidates={candidates} />
         )}
 
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-ink-meta">
           一覧にお名前がない場合は管理者にご連絡ください。
         </p>
       </div>

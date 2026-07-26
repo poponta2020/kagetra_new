@@ -46,38 +46,38 @@ export default async function LineLinkPage({
     : null
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md space-y-6 rounded-lg bg-white p-8 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-8 shadow-lg">
         <div>
           <h1 className="text-xl font-bold">LINE アカウント切替</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-ink-2">
             通知を受け取る LINE アカウントを変更できます。機種変更などで
             LINE アカウントが変わった場合にご利用ください。
           </p>
         </div>
 
         {errorMessage && (
-          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+          <p role="alert" className="rounded-md bg-danger-bg p-3 text-sm text-danger-fg">
             {errorMessage}
           </p>
         )}
 
-        <div className="space-y-1 rounded-md bg-gray-50 p-4 text-sm">
-          <p className="text-gray-500">現在連携中の LINE アカウント</p>
-          <p className="font-mono text-gray-900">{maskLineUserId(user.lineUserId)}</p>
+        <div className="space-y-1 rounded-md bg-surface-alt p-4 text-sm">
+          <p className="text-ink-meta">現在連携中の LINE アカウント</p>
+          <p className="font-mono text-ink">{maskLineUserId(user.lineUserId)}</p>
         </div>
 
         <div className="flex gap-3">
           <Link
             href="/"
-            className="rounded-md bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+            className="rounded-md bg-surface-alt px-4 py-2 text-sm text-ink-2 hover:bg-border-soft"
           >
             ダッシュボードへ戻る
           </Link>
           <form action={startLineLink}>
             <button
               type="submit"
-              className="rounded-md bg-[#06c755] px-4 py-2 text-sm font-semibold text-white hover:bg-[#05a648]"
+              className="rounded-md bg-line px-4 py-2 text-sm font-semibold text-white hover:bg-line-hover"
             >
               別の LINE に切り替える
             </button>

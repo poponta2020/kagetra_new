@@ -235,7 +235,7 @@ export function RegisterForm({ token }: { token: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-[4px] bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-[4px] bg-brand px-4 py-3 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? '登録中…' : '登録する'}
       </button>

@@ -133,6 +133,12 @@
   --kg-neutral-bg: #ebe3ce;
   --kg-neutral-fg: #5b4f33;
 
+  /* Attendance bar — 不参加セグメント。danger 系より淡い専用の朱で、
+     細い積み上げバーの中でも 参加(藍) と潰れずに読み分けられる。
+     Tailwind ユーティリティは不要（inline style から var() で参照）。
+     消費元: components/ui/attendance-counts.tsx (variant="bar") */
+  --kg-nonattend: #f3b4b4;
+
   /* Status pill pairs */
   --kg-pill-success-bg: var(--kg-success-bg);
   --kg-pill-success-fg: var(--kg-success-fg);

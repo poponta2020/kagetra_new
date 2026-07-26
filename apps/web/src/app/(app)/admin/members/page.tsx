@@ -74,32 +74,32 @@ export default async function MembersPage() {
       <h2 className="text-xl font-bold">会員管理</h2>
       <NewMemberForm />
       <RegistrationInviteSection activeInvites={activeInvites} />
-      <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="overflow-x-auto rounded-lg bg-surface shadow-sm">
+        <table className="min-w-full divide-y divide-border-soft">
+          <thead className="bg-surface-alt">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">名前</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ロール</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">級</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">招待状態</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">登録日</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">LINE 紐付け日時</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">方法</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">操作</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">名前</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">ロール</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">級</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">招待状態</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">登録日</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">LINE 紐付け日時</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">方法</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-ink-meta">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-border-soft">
             {memberList.map((member) => {
               const deactivated = member.deactivatedAt != null
               const rowClass = deactivated
-                ? 'text-gray-400'
-                : 'text-gray-900'
+                ? 'text-ink-muted'
+                : 'text-ink'
               return (
                 <tr key={member.id} className={rowClass}>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {member.name ?? '未設定'}
                     {deactivated && (
-                      <span className="ml-2 inline-block rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">
+                      <span className="ml-2 inline-block rounded bg-neutral-bg px-1.5 py-0.5 text-[10px] font-medium text-neutral-fg">
                         退会
                       </span>
                     )}
@@ -111,7 +111,7 @@ export default async function MembersPage() {
                       <select
                         name="grade"
                         defaultValue={member.grade ?? ''}
-                        className="rounded-md border border-gray-300 px-2 py-1 text-sm"
+                        className="rounded-md border border-border px-2 py-1 text-sm"
                         aria-label={`${member.name ?? member.id} の級`}
                       >
                         <option value="">未設定</option>
@@ -121,7 +121,7 @@ export default async function MembersPage() {
                       </select>
                       <button
                         type="submit"
-                        className="rounded-md bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+                        className="rounded-md bg-surface-alt px-3 py-1 text-xs hover:bg-border-soft"
                       >
                         保存
                       </button>

@@ -15,7 +15,7 @@ import {
 // Btn primary mirrored as a Link className since wrapping <Link> in <Btn>
 // would nest it inside a <button>.
 const NEW_LINK_CLASS =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-brand text-white hover:bg-brand-hover'
+  'inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold transition-colors h-8 px-3 text-xs bg-brand text-ink-on-brand hover:bg-brand-hover'
 
 export default async function EventsPage() {
   const session = await auth()
