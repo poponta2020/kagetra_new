@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { AppBarMain } from './app-bar-main'
 import { BottomNav } from './bottom-nav'
+import type { RolePreviewProps } from './account-menu'
 
 export interface MobileShellProps {
   /**
@@ -15,6 +16,21 @@ export interface MobileShellProps {
   isAdmin: boolean
   /** Server Action forwarded to the top bar's logout form. */
   signOutAction: () => Promise<void>
+  /**
+   * role-preview-switch: 表示ロール切替セクションの入力。`AppBarMain` へ
+   * 素通しするだけ。`null`（既定）ならセクション自体を表示しない。
+   */
+  rolePreview?: RolePreviewProps | null
+  /**
+   * role-preview-switch: プレビュー中のみ非 null。`AppBarMain` へ素通しする
+   * だけ。
+   */
+  previewBadge?: string | null
+  /**
+   * role-preview-switch: 表示ロール切替の Server Action。`AppBarMain` へ
+   * 素通しするだけ。
+   */
+  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
   children: ReactNode
 }
 
@@ -38,6 +54,9 @@ export function MobileShell({
   user,
   isAdmin,
   signOutAction,
+  rolePreview = null,
+  previewBadge = null,
+  setRolePreviewAction = null,
   children,
 }: MobileShellProps) {
   // Height is supplied by the `.mobile-shell-h` rule in globals.css, which
@@ -59,7 +78,14 @@ export function MobileShell({
   // cost of an extra empty band when the URL bar later collapses.
   return (
     <div className="mobile-shell-h flex flex-col bg-canvas text-ink font-sans">
-      <AppBarMain user={user} isAdmin={isAdmin} signOutAction={signOutAction} />
+      <AppBarMain
+        user={user}
+        isAdmin={isAdmin}
+        signOutAction={signOutAction}
+        rolePreview={rolePreview}
+        previewBadge={previewBadge}
+        setRolePreviewAction={setRolePreviewAction}
+      />
       {/*
         `min-h-0` is required: flex items default to `min-height: auto`,
         which prevents <main> from shrinking below its content height even

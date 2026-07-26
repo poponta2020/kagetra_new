@@ -1,4 +1,4 @@
-import { AccountMenu } from './account-menu'
+import { AccountMenu, type RolePreviewProps } from './account-menu'
 
 export interface AppBarMainProps {
   /**
@@ -17,6 +17,19 @@ export interface AppBarMainProps {
    * `MobileShell` and consumed inside `AccountMenu`'s settings sheet.
    */
   signOutAction: () => Promise<void>
+  /**
+   * role-preview-switch: 表示ロール切替セクションの入力。素通しするだけ。
+   * `null`（既定）ならセクション自体を表示しない。
+   */
+  rolePreview?: RolePreviewProps | null
+  /**
+   * role-preview-switch: プレビュー中のみ非 null。素通しするだけ。
+   */
+  previewBadge?: string | null
+  /**
+   * role-preview-switch: 表示ロール切替の Server Action。素通しするだけ。
+   */
+  setRolePreviewAction?: ((formData: FormData) => Promise<void>) | null
 }
 
 /**
@@ -29,13 +42,27 @@ export interface AppBarMainProps {
  * Server component on purpose — it forwards the logout Server Action down to
  * the client `AccountMenu` without itself becoming a client boundary.
  */
-export function AppBarMain({ user, isAdmin, signOutAction }: AppBarMainProps) {
+export function AppBarMain({
+  user,
+  isAdmin,
+  signOutAction,
+  rolePreview = null,
+  previewBadge = null,
+  setRolePreviewAction = null,
+}: AppBarMainProps) {
   return (
     <div className="h-11 flex-shrink-0 flex items-center justify-between bg-surface border-b border-border px-4">
       <div className="font-display font-bold text-base text-brand tracking-[0.02em]">
         かげとら
       </div>
-      <AccountMenu user={user} isAdmin={isAdmin} signOutAction={signOutAction} />
+      <AccountMenu
+        user={user}
+        isAdmin={isAdmin}
+        signOutAction={signOutAction}
+        rolePreview={rolePreview}
+        previewBadge={previewBadge}
+        setRolePreviewAction={setRolePreviewAction}
+      />
     </div>
   )
 }
