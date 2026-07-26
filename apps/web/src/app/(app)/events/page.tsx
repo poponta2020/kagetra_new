@@ -6,11 +6,7 @@ import { and, asc, eq, gte, inArray, ne } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { surname } from '@/lib/surname'
 import { EventListClient } from './EventListClient'
-import {
-  CHIP_LIMIT,
-  isGradeEligible,
-  type EventListItem,
-} from './event-list-utils'
+import { isGradeEligible, type EventListItem } from './event-list-utils'
 
 // Btn primary mirrored as a Link className since wrapping <Link> in <Btn>
 // would nest it inside a <button>.
@@ -48,6 +44,7 @@ export default async function EventsPage() {
       : await db
           .select({
             eventId: eventAttendances.eventId,
+            userId: eventAttendances.userId,
             name: users.name,
             grade: users.grade,
           })
@@ -61,9 +58,10 @@ export default async function EventsPage() {
           )
 
   // イベント別にまとめ、級昇順（未設定は末尾）で並べる（詳細画面の参加者表示に合わせる）。
+  // userId も保持しておき、後段で「自分が attend=true か」を追加クエリなしで判定する。
   const participantsByEvent = new Map<
     number,
-    Array<{ name: string | null; grade: Grade | null }>
+    Array<{ userId: string; name: string | null; grade: Grade | null }>
   >()
   for (const row of participantRows) {
     const list = participantsByEvent.get(row.eventId)
@@ -85,7 +83,9 @@ export default async function EventsPage() {
   }
 
   // クライアントへ渡す最小データ。location/official/eligibleGrades/grade はカードに
-  // 渡さず、①⑤は表示から落とし、⑦は canApply に畳む。
+  // 渡さず、①⑤は表示から落とし、⑦は canApply に畳む。userId はサーバー内の
+  // viewerAttending 判定にのみ使い、items には含めない（個人情報は苗字のみ渡す）。
+  const viewerId = session?.user.id
   const items: EventListItem[] = eventList.map((e) => {
     const parts = participantsByEvent.get(e.id) ?? []
     return {
@@ -96,12 +96,13 @@ export default async function EventsPage() {
       status: e.status,
       canApply: isGradeEligible(e.eligibleGrades, myGrade),
       attendCount: parts.length,
-      chipSurnames: parts.slice(0, CHIP_LIMIT).map((p) => surname(p.name)),
+      attendeeSurnames: parts.map((p) => surname(p.name)),
+      viewerAttending: viewerId != null && parts.some((p) => p.userId === viewerId),
     }
   })
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">大会申込</h1>
         <div className="flex items-center gap-3">
