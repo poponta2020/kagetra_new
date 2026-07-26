@@ -17,6 +17,12 @@ export type {
   DisclosureValueTone,
 } from './DisclosureRow'
 
+export { EntryFlow } from './EntryFlow'
+export type { EntryFlowProps } from './EntryFlow'
+
+export { EventDetailHeader } from './EventDetailHeader'
+export type { EventDetailHeaderProps } from './EventDetailHeader'
+
 export { LinkAction, LinkActionLink, linkActionClass } from './LinkAction'
 export type {
   LinkActionLinkProps,
