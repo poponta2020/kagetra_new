@@ -5,6 +5,7 @@
 
 ## Project
 
+- [他かるた会への配布可能性調査(2026-07-26)](project_third_party_distribution_assessment.md) — 正典=docs/audits/third-party-club-deployment-assessment.md。公開は履歴なしスナップショット新規リポ一択(docs/data-quality実名+.claude/memory本番情報がtracked)。LICENSE無し・CI deployがfork時に当方本番へSSH試行・db:migrate経路CI未検証
 - [Tournament lottery trends PR #304](impl_tournament_lottery_trends-pr304.md) — Delivery notes, review fixes, and production-operation safety boundaries
 - [/show-app + dev:session Cookieヘルパー(2026-07-15)](impl_show_app_dev_session_helper.md) — 認証済みアプリ画面を in-app pane にライブ表示する開発補助。dev:session は既存ユーザーSELECTのみ(prod安全)。PR #277 merge・Codex 1R pass
 - [devflow v0.8.0〜v0.9.0 レビュー軽量化(2026-07-14)](project_devflow_v090_lean_review.md) — AC適合・追加code-review・/verify・マージ前CI待ちを標準ループから除外、pass即終了。E2Eの網はマージ後main CIに移る点に注意。再装着条件あり
@@ -194,3 +195,6 @@
 - [nav-settings-hub タスク1](impl_nav-settings-hub-task1.md) — patch productionize・上部バー廃止/設定ハブ新設。死んだコメント参照3件とui-shell.md陳腐化を発見
 - [nav-settings-hub Wave 2（タスク2-4）](impl_nav-settings-hub-wave2.md) — 3ワーカー並行。★ソース読みテストのCRLF罠とjsdomのfileURLToPath罠、worker_verify:none では型エラーがバリアまで残る
 - [大会申込詳細リデザイン design-spec 確定(2026-07-26)](project_design_event_detail_redesign.md) — 脱カード方向で locked。削除12項目確認済・オープンチャットは別スコープ・次は define-feature 改修モード
+- [ナビゲーション再編（上部バー廃止・設定ハブ新設）](project_ship-nav-settings-hub.md) — shipped: PR #351。残DoD=375px実機確認(AC-21)
+- [auto-review PR #351](auto-review-round-pr351.md) — R1 high pass→CI赤(E2Eシード前提)→R2 medium pass。累計241k
+- [大会申込詳細リデザイン 要件定義(2026-07-26)](project_feature_def_event_detail_redesign.md) — 親Issue #352。★#346 出荷後に着手。フロー判定はハイブリッド+中立状態
