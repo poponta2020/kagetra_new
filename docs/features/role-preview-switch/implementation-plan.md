@@ -41,7 +41,12 @@ UI の出し分け／Server Action・route handler の権限チェック
   - 新規 `apps/web/src/lib/role-preview.ts`
   - 新規 `apps/web/src/lib/role-preview.test.ts`
   - `apps/web/src/next-auth.d.ts`（`Session['user'].realRole` / `JWT.viewAsRole` を追加）
+  - `apps/web/src/test-utils/auth-mock.ts`（**必須**。下記参照）
 - **依存タスク:** なし
+- **⚠️ `auth-mock.ts` の拡張（これが無いとタスク3のテストが書けない）:**
+  - `MockSessionUser` に `realRole?: UserRole` を追加
+  - `buildMockSession` で `realRole: user.realRole ?? user.role` と**既定値を入れる** — これにより既存の全 `setAuthSession({id, role})` 呼び出しが「非プレビュー状態の正しいベースライン」になり（AC-18 の回帰）、タスク3 は `{id, role:'member', realRole:'admin'}` でプレビュー中を再現できる
+  - **読み出し側は全箇所で `session.user.realRole ?? session.user.role` のフォールバック形に統一する**（`realRole` が undefined の JWT が残っていても壊れない）
 - **公開する関数（署名は目安。`process.env` は一切読まない）:**
   - `parseUserRole(value: unknown): UserRole | null` — enum 外は null
   - `resolveEffectiveRole(realRole: UserRole, viewAsRole: UserRole | null | undefined): UserRole` — `viewAsRole` を `realRole` 以下へ丸める
@@ -75,6 +80,7 @@ UI の出し分け／Server Action・route handler の権限チェック
   - `session` コールバック: `viewAsRole` 未設定 → `role === realRole`（AC-18 の回帰）／`viewAsRole='member'` かつ `role='admin'` → `session.user.role==='member'` かつ `realRole==='admin'`（AC-5）／`viewAsRole='admin'` かつ `role='vice_admin'` → `role==='vice_admin'`（AC-12）
   - `jwt` コールバック update 経路: `{ user: { viewAsRole: 'member' } }` → `token.viewAsRole==='member'`／`{ viewAsRole: null }` → `token.viewAsRole===null`／enum 外文字列 → token 不変（AC-11）／既存 3 フィールドの転記が壊れていない（回帰）
   - 新規サインイン経路（`user` + `account.provider==='line'`）で `token.viewAsRole` が付かない＝再ログインでプレビューが解除される（AC-16）
+  - **合成テスト（AC-7 / AC-8 の実証。ユニットテストだけでは未検証になる）:** 既存の管理者専用 Server Action を 1 つ選び、`setAuthSession({ id, role: 'member', realRole: 'admin' })` の状態で呼んで**拒否される**ことをアサートする。「既存ガードが member を弾くから大丈夫」を推論で済ませず 1 本の実測に落とす
 - **完了条件:** 新規テスト green・既存 `node-jwt-callback.test.ts` が無変更で green・typecheck 通過
 
 ---
@@ -89,14 +95,17 @@ UI の出し分け／Server Action・route handler の権限チェック
 - **依存タスク:** タスク1
 - **実装の要点:**
   - `export async function setRolePreviewAction(formData: FormData): Promise<void>`
-  - 手順: `await auth()` → セッション無し/`user.id` 無しなら `redirect('/403')` → `isRolePreviewAllowed(session.user.id, process.env.ROLE_PREVIEW_USER_IDS)` が false なら `redirect('/403')` → `parseUserRole(formData.get('role'))` が null なら `redirect('/403')` → **`session.user.realRole`**（実効 `role` ではない）以下でなければ `redirect('/403')`
+  - 手順: `await auth()` → セッション無し/`user.id` 無しなら `redirect('/403')` → `isRolePreviewAllowed(session.user.id, process.env.ROLE_PREVIEW_USER_IDS)` が false なら `redirect('/403')` → `parseUserRole(formData.get('role'))` が null なら `redirect('/403')` → **`session.user.realRole ?? session.user.role`**（実効 `role` 単独ではない）以下でなければ `redirect('/403')`
   - 選択が `realRole` と同値なら `viewAsRole: null`（解除）、そうでなければ選択ロールを `unstable_update({ user: { viewAsRole } })` で書く
+  - **解除だけは許可リスト判定を通さない**（`parseUserRole` の結果が `realRole` と同値なら、許可リストに載っていなくても `viewAsRole: null` を書いて良い）。プレビュー中に env から de-list されたときの締め出しを防ぐため。**実効ロールは下がる方向にしか動かないので AC-10（許可外は実効ロールが変化しない）は保たれる** — 許可外ユーザーにとって解除は常に no-op
   - `revalidatePath('/', 'layout')` でシェル全体を再描画（既存 `self-identify/actions.ts` の `unstable_update` + `revalidatePath` パターンを踏襲）
   - `process.env.ROLE_PREVIEW_USER_IDS` は**関数内で読む**
   - **拒否時は `unstable_update` を呼ばない**（状態不変を保証）
+  - ⚠️ **同一レスポンス内の stale セッション罠**: `auth()` は**リクエスト**の cookie を読み、`unstable_update` は**レスポンス**の cookie を書く。そのため `revalidatePath('/', 'layout')` による同一レスポンス内の再描画が**古いセッションのまま**になりうる（症状＝「一般会員を押しても画面が変わらず、別画面へ遷移して初めて反映される」）。revalidate だけで反映されない場合は、update の直後に現在パスへ `redirect()` して新しい cookie を載せたリクエストを踏ませる
 - **必要なテスト（テストファースト）:** `vi.mock('@/auth', …)` + `mod.unstable_update = vi.fn()`、`vi.mock('next/cache')`、`vi.mock('next/navigation')` で `redirect` を捕捉。env は `vi.stubEnv` で操作する。
   - env 未設定 → 拒否・`unstable_update` 未呼び出し（AC-1）
-  - 許可リスト外の admin → 拒否・状態不変（AC-10）
+  - 許可リスト外の admin が `member` を指定 → 拒否・状態不変（AC-10）
+  - **プレビュー中に de-list された admin（`role='member'`, `realRole='admin'`, env 非該当）が `admin` を指定 → 解除できる**（締め出し防止）
   - 許可された admin が `member` を指定 → `unstable_update({user:{viewAsRole:'member'}})` が 1 回
   - **許可された admin がプレビュー中（`role==='member'`, `realRole==='admin'`）に `admin` を指定 → 拒否されず `viewAsRole: null` で解除される（AC-9 の核心）**
   - 許可された `vice_admin` が `admin` を指定 → 拒否・状態不変（AC-11）
@@ -132,6 +141,7 @@ UI の出し分け／Server Action・route handler の権限チェック
   - **バッジはトリガーボタンの中**に置く（`[会員ビュー] popontaさん`）。ボタン全体が既にシートを開くので AC-14 は追加配線なしで満たせる。バッジは既存 `Pill`（`tone="brand"`, 最小サイズ）を使う。
   - 「表示ロール」セクションは `<form action={setRolePreviewAction}>` 内に `<button name="role" value="admin|vice_admin|member">` を並べる。現在の実効ロールに `aria-current="true"` を付ける。クライアント JS は不要。
   - `rolePreview === null` のときはセクションごと描画しない（AC-1/AC-2）。
+  - ⚠️ **de-list による締め出し防止**: プレビュー中に `ROLE_PREVIEW_USER_IDS` から自分の id が外れると `rolePreview` が null になり、「表示ロール」セクションが消えてログアウト以外に戻る手段が無くなる（AC-9 と同じ失敗クラス）。**`previewEnabled || previewBadge !== null` のときはセクションを描画する**（許可外でも「本物のロールへ戻す」だけは常に可能にする。タスク3 側も同様に、解除（realRole と同値の指定）は許可リスト判定より前に通す）。
 - **必要なテスト（テストファースト。既存 `account-menu.test.tsx` の記法に合わせる）:**
   - `rolePreview={null}` → 「表示ロール」が DOM に存在しない（AC-1, AC-2）
   - admin の `rolePreview` → 3 ボタン（管理者/副管理者/一般会員）が出る（AC-3）
