@@ -39,11 +39,17 @@ const NEGATIVE_STATUS_LABEL: Record<'cancelled' | 'carry_up_declined', string> =
 }
 
 /**
- * `.rost` の開閉マーカー（▸/▾）。design-spec 準拠だが、この2箇所は summary の
+ * `.rost` の開閉マーカー。design-spec 準拠だが、この2箇所は summary の
  * スロット構成が `DisclosureRow` と違うためローカル実装（design-mock 移植判断）。
+ *
+ * 開いた状態の `▾` は `MARKER_OPEN_CLASS` を **details 側**に当てて上書きする。
+ * `group-open:` は使えない — 「開いている任意の `.group` 祖先」に一致するため、
+ * 外側の「名簿」トグルを開いただけで、閉じている申込者/確定名簿のマーカーまで
+ * `▾` になってしまう。
  */
 const MARKER_BEFORE_CLASS =
-  "before:content-['▸'] before:flex-none before:text-[10px] before:text-ink-meta group-open:before:content-['▾']"
+  "before:content-['▸'] before:flex-none before:text-[10px] before:text-ink-meta"
+const MARKER_OPEN_CLASS = "[&[open]>summary]:before:content-['▾']"
 
 function tabClass(active: boolean) {
   return cn(
@@ -74,7 +80,12 @@ function RosterList({
 
   if (!roster || roster.entries.length === 0) {
     return (
-      <details className="group border-t border-border-soft first-of-type:border-t-0">
+      <details
+        className={cn(
+          'border-t border-border-soft first-of-type:border-t-0',
+          MARKER_OPEN_CLASS,
+        )}
+      >
         <summary
           className={cn(
             'flex cursor-pointer list-none items-baseline gap-2 py-[11px]',
@@ -106,7 +117,12 @@ function RosterList({
     currentUserId != null && roster.entries.some((e) => e.userId === currentUserId)
 
   return (
-    <details className="group border-t border-border-soft first-of-type:border-t-0">
+    <details
+      className={cn(
+        'border-t border-border-soft first-of-type:border-t-0',
+        MARKER_OPEN_CLASS,
+      )}
+    >
       <summary
         className={cn(
           'flex cursor-pointer list-none items-baseline gap-2 py-[11px]',

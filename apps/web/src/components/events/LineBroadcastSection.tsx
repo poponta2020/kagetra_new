@@ -149,9 +149,19 @@ export function LineBroadcastSection({
     })
   }
 
-  const partialOrFailedCount = history.filter(
-    (r) => r.status === 'partial' || r.status === 'failed',
-  ).length
+  // 完全失敗（failed）と部分失敗（partial）は深刻度が違うので集計を分ける。
+  // 一緒に数えて「部分失敗」と表示すると、トグルを閉じている管理者に完全失敗が
+  // 部分失敗として見え、障害の深刻度を誤認させる。
+  const failedCount = history.filter((r) => r.status === 'failed').length
+  const partialCount = history.filter((r) => r.status === 'partial').length
+  const historyAux =
+    failedCount > 0 && partialCount > 0
+      ? `失敗 ${failedCount}件・部分失敗 ${partialCount}件`
+      : failedCount > 0
+        ? `${failedCount}件 失敗`
+        : partialCount > 0
+          ? `${partialCount}件 部分失敗`
+          : undefined
 
   const bindingRows: FlatTableRow[] = binding
     ? [
@@ -237,11 +247,7 @@ export function LineBroadcastSection({
           <DisclosureRow
             label="配信履歴"
             value={`${history.length}件`}
-            aux={
-              partialOrFailedCount > 0
-                ? `${partialOrFailedCount}件 部分失敗`
-                : undefined
-            }
+            aux={historyAux}
             auxTone="warn"
           >
             <BroadcastHistoryTable

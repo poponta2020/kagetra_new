@@ -118,3 +118,53 @@ describe('DisclosureActions', () => {
     expect(screen.getByText('未申込に戻す')).toBeTruthy()
   })
 })
+
+describe('開閉マーカーは自分の details の open だけを見る（入れ子の誤表示ガード）', () => {
+  // Tailwind の `group-open:` は「開いている**任意の** .group 祖先」に一致するため、
+  // 外側の DisclosureSection を開くと中の閉じた DisclosureRow まで ▾ になっていた。
+  // 直接子セレクタ（`[&[open]>summary]:before:...`）へ変更したことを固定する。
+  // jsdom は ::before の content を計算しないので、クラス契約として検証する。
+  const OPEN_MARKER = "[&[open]>summary]:before:content-['▾']"
+
+  it('DisclosureRow は open マーカーを details 側に持ち、group / group-open を使わない', () => {
+    const { container } = render(
+      <DisclosureRow label="申込状態" value="申込済">
+        本文
+      </DisclosureRow>,
+    )
+    const details = container.querySelector('details') as HTMLDetailsElement
+    const summary = details.querySelector('summary') as HTMLElement
+
+    expect(details.className).toContain(OPEN_MARKER)
+    expect(summary.className).not.toContain('group-open')
+    // 祖先の group-open に巻き込まれないよう、details 自身が group であってはならない。
+    expect(details.classList.contains('group')).toBe(false)
+  })
+
+  it('DisclosureSection も同じ契約', () => {
+    const { container } = render(
+      <DisclosureSection title="LINE 配信">本文</DisclosureSection>,
+    )
+    const details = container.querySelector('details') as HTMLDetailsElement
+
+    expect(details.className).toContain(OPEN_MARKER)
+    expect(details.classList.contains('group')).toBe(false)
+    expect(
+      (details.querySelector('summary') as HTMLElement).className,
+    ).not.toContain('group-open')
+  })
+
+  it('外側を開いても内側の details の open 属性は変わらない（既定=閉のまま）', () => {
+    const { container } = render(
+      <DisclosureSection title="名簿" defaultOpen nested>
+        <DisclosureRow label="申込者名簿" value="12名">
+          本文
+        </DisclosureRow>
+      </DisclosureSection>,
+    )
+    const all = [...container.querySelectorAll('details')]
+    expect(all).toHaveLength(2)
+    expect(all[0]?.open).toBe(true)
+    expect(all[1]?.open).toBe(false)
+  })
+})

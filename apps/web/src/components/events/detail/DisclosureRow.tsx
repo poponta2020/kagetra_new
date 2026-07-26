@@ -15,12 +15,20 @@ const AUX_TONE_CLASS: Record<DisclosureAuxTone, string> = {
   warn: 'text-accent-fg',
 }
 
-/**
- * `<summary>` の開閉マーカー（▸/▾）＋見出しの共通クラス。`group-open:` は
- * 親の `<details className="group">` の open 属性に応じて切り替わる。
- */
+/** `<summary>` の開閉マーカーの静的スタイル（閉じている状態＝`▸`）。 */
 const MARKER_BEFORE_CLASS =
-  "before:content-['▸'] before:flex-none before:text-[10px] before:text-ink-meta group-open:before:content-['▾']"
+  "before:content-['▸'] before:flex-none before:text-[10px] before:text-ink-meta"
+
+/**
+ * 開いたときのマーカー（`▾`）。**`<details>` 側**に当てて summary の `▸` を上書きする。
+ *
+ * `group-open:` を使ってはいけない — Tailwind の `group-open:` は「開いている
+ * **任意の** `.group` 祖先」に一致するので、外側の {@link DisclosureSection} を
+ * 開いただけで、その中の**閉じた** {@link DisclosureRow} や名簿行のマーカーまで
+ * `▾` になってしまう（入れ子で開閉状態と食い違う）。直接子セレクタにして
+ * 「自分の details の open 属性」だけを見る。
+ */
+const MARKER_OPEN_CLASS = "[&[open]>summary]:before:content-['▾']"
 
 function bodyClass(nested: boolean) {
   return nested ? 'pl-3' : 'pt-[2px] pb-[13px]'
@@ -66,7 +74,8 @@ export function DisclosureRow({
     <details
       open={defaultOpen || undefined}
       className={cn(
-        'group border-t border-border-soft first-of-type:border-t-0',
+        'border-t border-border-soft first-of-type:border-t-0',
+        MARKER_OPEN_CLASS,
         className,
       )}
     >
@@ -119,7 +128,10 @@ export function DisclosureSection({
   children,
 }: DisclosureSectionProps) {
   return (
-    <details open={defaultOpen || undefined} className={cn('group', className)}>
+    <details
+      open={defaultOpen || undefined}
+      className={cn(MARKER_OPEN_CLASS, className)}
+    >
       <summary
         className={cn(
           'flex cursor-pointer list-none items-baseline gap-2 border-b border-border-strong pb-[7px]',
