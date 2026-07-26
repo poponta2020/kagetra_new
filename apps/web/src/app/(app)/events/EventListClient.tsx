@@ -78,6 +78,9 @@ export function EventListClient({
               applicableOnly ? 'bg-brand' : 'bg-neutral-bg',
             )}
           >
+            {/* つまみは意図的に純白のまま。OFF 時のトラックが bg-neutral-bg
+                (#ebe3ce) なので、bg-surface (#fbf7ed) だとコントラストが
+                足りずつまみの位置が読み取れない。 */}
             <span
               className={cn(
                 'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
@@ -124,7 +127,7 @@ function SortTab({
       onClick={onClick}
       className={cn(
         'flex-1 rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
-        active ? 'bg-brand text-white' : 'text-ink-meta hover:bg-surface-alt',
+        active ? 'bg-brand text-ink-on-brand' : 'text-ink-meta hover:bg-surface-alt',
       )}
     >
       {label}

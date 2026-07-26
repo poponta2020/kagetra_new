@@ -70,21 +70,21 @@ export function RegistrationInviteSection({
   }
 
   return (
-    <section className="space-y-3 rounded-lg bg-white p-4 shadow-sm">
+    <section className="space-y-3 rounded-lg bg-surface p-4 shadow-sm">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">招待リンク</h3>
-        <p className="mt-1 text-xs text-gray-500">
+        <h3 className="text-sm font-semibold text-ink">招待リンク</h3>
+        <p className="mt-1 text-xs text-ink-meta">
           URLを渡すだけで本人が会員登録できます。期限内なら複数の人が利用できます。
         </p>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-sm text-gray-700">
+        <label className="text-sm text-ink-2">
           有効期限
           <select
             value={preset}
             onChange={(e) => setPreset(e.target.value as RegistrationInviteExpiryPreset)}
-            className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            className="ml-2 rounded-md border border-border px-2 py-1 text-sm"
             aria-label="招待リンクの有効期限"
           >
             {EXPIRY_PRESET_OPTIONS.map((p) => (
@@ -98,35 +98,35 @@ export function RegistrationInviteSection({
           type="button"
           onClick={handleIssue}
           disabled={issuing}
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-ink-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {issuing ? '発行中…' : '招待リンクを発行'}
         </button>
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
 
       {activeInvites.length > 0 && (
         <div className="space-y-2">
-          <h4 className="text-xs font-semibold text-gray-700">現在有効な招待リンク</h4>
-          <ul className="divide-y divide-gray-200 rounded-md border border-gray-200">
+          <h4 className="text-xs font-semibold text-ink-2">現在有効な招待リンク</h4>
+          <ul className="divide-y divide-border-soft rounded-md border border-border-soft">
             {activeInvites.map((inv) => (
               <li
                 key={inv.id}
                 className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
               >
-                <span className="text-gray-600">
+                <span className="text-ink-2">
                   発行 {formatDateTime(inv.createdAt)} ／ 失効 {formatDateTime(inv.expiresAt)}
                 </span>
                 <button
                   type="button"
                   onClick={() => handleRevoke(inv.id)}
                   disabled={revokingId === inv.id}
-                  className="rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200 disabled:opacity-60"
+                  className="rounded-md bg-surface-alt px-3 py-1 text-xs text-ink-2 hover:bg-border-soft disabled:opacity-60"
                 >
                   {revokingId === inv.id ? '無効化中…' : '無効化'}
                 </button>

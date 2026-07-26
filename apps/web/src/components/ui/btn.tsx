@@ -12,7 +12,7 @@ export interface BtnProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const KIND_CLASS: Record<BtnKind, string> = {
-  primary: 'bg-brand text-white hover:bg-brand-hover',
+  primary: 'bg-brand text-ink-on-brand hover:bg-brand-hover',
   secondary:
     'bg-surface text-ink-2 border border-border hover:bg-surface-alt',
   ghost: 'bg-transparent text-brand hover:bg-brand-bg',

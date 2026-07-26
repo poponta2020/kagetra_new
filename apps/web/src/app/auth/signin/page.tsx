@@ -18,11 +18,11 @@ export default async function SignInPage({
     : null
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-md space-y-6 rounded-lg bg-white p-8 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-8 shadow-lg">
         <div>
           <h1 className="text-xl font-bold">かげとら ログイン</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-ink-2">
             LINE アカウントでログインします。
           </p>
         </div>
@@ -30,7 +30,7 @@ export default async function SignInPage({
         {errorMessage && (
           <p
             role="alert"
-            className="rounded-md bg-red-50 p-3 text-sm text-red-700"
+            className="rounded-md bg-danger-bg p-3 text-sm text-danger-fg"
           >
             {errorMessage}
           </p>
@@ -44,7 +44,7 @@ export default async function SignInPage({
         >
           <button
             type="submit"
-            className="w-full rounded-md bg-[#06c755] px-4 py-3 text-sm font-semibold text-white hover:bg-[#05a648]"
+            className="w-full rounded-md bg-line px-4 py-3 text-sm font-semibold text-white hover:bg-line-hover"
           >
             LINE でログイン
           </button>

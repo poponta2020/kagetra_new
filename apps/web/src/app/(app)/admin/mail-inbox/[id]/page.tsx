@@ -499,7 +499,7 @@ export default async function MailDraftDetailPage({
               </select>
               <button
                 type="submit"
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-hover"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-brand px-4 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover"
               >
                 紐付ける
               </button>

@@ -36,7 +36,7 @@ export function RankingMetricChips({
             className={cn(
               'shrink-0 rounded-full border px-3 py-1 text-[13px] font-medium whitespace-nowrap transition-colors',
               active
-                ? 'border-brand bg-brand text-white'
+                ? 'border-brand bg-brand text-ink-on-brand'
                 : 'border-border bg-surface text-ink-meta hover:bg-surface-alt',
             )}
           >

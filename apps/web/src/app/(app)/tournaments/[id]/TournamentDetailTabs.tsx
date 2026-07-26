@@ -62,7 +62,7 @@ function TabPill({
       onClick={onClick}
       className={cn(
         'shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors',
-        active ? 'bg-brand text-white' : 'border border-border bg-surface text-ink-meta hover:bg-surface-alt',
+        active ? 'bg-brand text-ink-on-brand' : 'border border-border bg-surface text-ink-meta hover:bg-surface-alt',
       )}
     >
       {label}
@@ -78,7 +78,7 @@ function blockBadge(b: ClassBlock): string {
 
 /** 順位ピルの藍濃淡（design-spec §3.5：p1=藍/p2=藍薄/p3=砂寄り中立/p4=面）。朱は不使用。 */
 const PLACE_PILL: Record<1 | 2 | 3 | 4, string> = {
-  1: 'bg-brand text-white',
+  1: 'bg-brand text-ink-on-brand',
   2: 'bg-brand-bg text-brand-fg',
   3: 'bg-neutral-bg text-neutral-fg',
   4: 'border border-border bg-surface text-ink-meta',

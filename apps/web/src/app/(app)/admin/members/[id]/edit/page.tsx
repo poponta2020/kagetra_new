@@ -61,7 +61,7 @@ export default async function EditMemberPage({
       <div>
         <Link
           href="/admin/members"
-          className="text-sm text-gray-500 hover:text-gray-700"
+          className="text-sm text-ink-meta hover:text-ink-2"
         >
           ← 会員一覧へ戻る
         </Link>
@@ -69,7 +69,7 @@ export default async function EditMemberPage({
           会員編集: {member.name ?? '未設定'}
         </h2>
         {member.deactivatedAt && (
-          <p className="mt-1 inline-block rounded bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700">
+          <p className="mt-1 inline-block rounded bg-neutral-bg px-2 py-0.5 text-xs font-medium text-neutral-fg">
             退会済み（{member.deactivatedAt.toLocaleDateString('ja-JP')}）
           </p>
         )}
@@ -98,9 +98,9 @@ export default async function EditMemberPage({
       />
 
       {member.lineUserId && (
-        <section className="rounded-lg bg-white p-4 shadow-sm">
+        <section className="rounded-lg bg-surface p-4 shadow-sm">
           <h3 className="text-sm font-semibold">LINE 紐付け</h3>
-          <dl className="mt-2 space-y-1 text-sm text-gray-600">
+          <dl className="mt-2 space-y-1 text-sm text-ink-2">
             <div>
               <dt className="inline font-medium">紐付け日時: </dt>
               <dd className="inline">
@@ -117,21 +117,21 @@ export default async function EditMemberPage({
               <input type="hidden" name="userId" value={member.id} />
               <button
                 type="submit"
-                className="rounded-md bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+                className="rounded-md bg-danger-bg px-3 py-1.5 text-sm text-danger-fg hover:opacity-90"
               >
                 LINE 紐付けを解除
               </button>
             </form>
           )}
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-ink-meta">
             解除すると本人の次回 LINE ログインで /self-identify から再選択できます。
           </p>
         </section>
       )}
 
-      <section className="rounded-lg bg-white p-4 shadow-sm">
+      <section className="rounded-lg bg-surface p-4 shadow-sm">
         <h3 className="text-sm font-semibold">退会処理</h3>
-        <p className="mt-1 text-xs text-gray-600">
+        <p className="mt-1 text-xs text-ink-2">
           退会処理するとログインできなくなります。取り消しで復帰できます。
         </p>
         <form action={toggleMemberDeactivation} className="mt-3">
@@ -140,8 +140,8 @@ export default async function EditMemberPage({
             type="submit"
             className={
               member.deactivatedAt
-                ? 'rounded-md bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700'
-                : 'rounded-md bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700'
+                ? 'rounded-md bg-brand px-4 py-2 text-sm text-ink-on-brand hover:bg-brand-hover'
+                : 'rounded-md bg-accent px-4 py-2 text-sm text-ink-on-brand hover:opacity-90'
             }
           >
             {member.deactivatedAt ? '退会を取り消す' : '退会処理する'}

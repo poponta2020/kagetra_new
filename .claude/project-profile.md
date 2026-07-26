@@ -29,6 +29,21 @@ DEVFLOW_CI_COVERS=("test" "lint" "typecheck")
 
 既定（Windows: /c/tmp、Linux: /tmp）。
 
+## parallel
+
+```
+max_workers: 3
+worker_verify: none
+```
+
+**`worker_verify: none` の理由（テストは並行実行できない）**: `apps/web/vitest.global-setup.ts` は vitest 起動のたびに `drizzle-kit push --force` を共有テスト DB（`127.0.0.1:5434` / `kagetra_test`）へ**無条件に**実行する。DB を使わない純関数・jsdom テストでも走る。`vitest.config.mts` の `fileParallelism: false` はプロセス内の直列化しかしないため、複数ワーカーが同時に vitest を起動すると push 同士・push と `truncateAll` が競合する（entry-management 実装中に実際に `deadlock detected` (40P01) を踏んだ）。
+
+したがって Wave 中のワーカーには**検証コマンドを渡さない**。ワーカーは実装とテストを**書くだけ**で、テスト実行はバリア後に main が直列で行う。ワーカー自身の判断でテストコマンドを実行することも禁止する。
+
+なお `## database` の `TEST_DATABASE_URL` による隔離はここでは効かない — Wave のワーカーは**同一 worktree を共有する**ため DB URL も1つで、隔離できるのは worktree 単位（並行機能開発）だけである。
+
+**ワーカーに渡してよい唯一の検証コマンド**: ファイルスコープの eslint — `pnpm --filter=@kagetra/web exec eslint <file>`。DB に触れないためワーカー同士で競合せず、並行実行してよい。
+
 ## branches
 
 - ベースブランチ: `main`（1人開発・保護なし）。機能は `feature/<slug>` ブランチ + PR
@@ -87,7 +102,7 @@ task-implementer（実装ワーカー）が厳守する実装規約:
 - 参照ゼロ確認→削除する処理は `FOR UPDATE` で直列化（既存実装を踏襲）
 - module-level の状態は `globalThis` に pin する（chunk splitting 対策）
 - クライアントから import され得るコードで `node:` import を使わない（Web Crypto グローバルを使う）
-- テスト実行: `pnpm --filter` で対象 package を直接指定。vitest は `--no-file-parallelism`
+- テスト実行（main がバリア後に直列で行う場合）: `pnpm --filter` で対象 package を直接指定。vitest は `--no-file-parallelism`。**Wave 中のワーカーはテストを実行しない**（`## parallel` の `worker_verify: none` を参照。書くだけ）
 - スキーマ変更・Drizzle migration 生成が必要と判明したら**停止して報告**（main が担当）
 - 使い捨て診断スクリプトは `scripts/diagnostics/`（リポジトリルート・gitignore 済）に作る。**apps/ 直下への生成禁止**
 

@@ -209,7 +209,7 @@ export function RankingFilterBar({
                       className={cn(
                         'flex-1 rounded-lg border py-2 text-sm font-medium transition-colors',
                         on
-                          ? 'border-brand bg-brand text-white'
+                          ? 'border-brand bg-brand text-ink-on-brand'
                           : 'border-border bg-surface text-ink-meta hover:bg-surface-alt',
                       )}
                     >
@@ -255,7 +255,7 @@ export function RankingFilterBar({
                         className={cn(
                           'flex-1 rounded-lg border py-2 text-sm font-medium transition-colors',
                           on
-                            ? 'border-brand bg-brand text-white'
+                            ? 'border-brand bg-brand text-ink-on-brand'
                             : 'border-border bg-surface text-ink-meta hover:bg-surface-alt',
                         )}
                       >
@@ -278,7 +278,7 @@ export function RankingFilterBar({
               <button
                 type="button"
                 onClick={apply}
-                className="ml-auto rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white hover:bg-brand-hover"
+                className="ml-auto rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover"
               >
                 適用
               </button>

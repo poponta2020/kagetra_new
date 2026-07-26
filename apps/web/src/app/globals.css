@@ -38,7 +38,13 @@
   --color-border: #d8cdb3;
   --color-border-strong: #b8aa8a;
 
-  /* Ink 墨 */
+  /* Ink 墨
+     コントラスト上の制約（本文サイズ = WCAG AA 4.5:1 基準）:
+       ink-meta on surface     4.67:1  OK
+       ink-meta on surface-alt 4.16:1  NG → surface-alt の上では neutral-fg (6.71:1) を使う
+       ink-meta on canvas      4.35:1  NG → 同上
+       ink-muted は本文には使わない（surface 上で 2.53:1）。退会行など
+       「読めなくてよい」装飾的に落とす用途に限る。 */
   --color-ink: #1e1b13;
   --color-ink-2: #3a342a;
   --color-ink-meta: #7a6e5a;
@@ -132,6 +138,12 @@
   --kg-warn-fg: #8f2d20;
   --kg-neutral-bg: #ebe3ce;
   --kg-neutral-fg: #5b4f33;
+
+  /* Attendance bar — 不参加セグメント。danger 系より淡い専用の朱で、
+     細い積み上げバーの中でも 参加(藍) と潰れずに読み分けられる。
+     Tailwind ユーティリティは不要（inline style から var() で参照）。
+     消費元: components/ui/attendance-counts.tsx (variant="bar") */
+  --kg-nonattend: #f3b4b4;
 
   /* Status pill pairs */
   --kg-pill-success-bg: var(--kg-success-bg);
