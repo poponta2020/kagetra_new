@@ -204,3 +204,6 @@
 - [event-detail-redesign Wave2-3(タスク4-6)完了](impl_event-detail-redesign-wave23.md) — 名簿級タブ・進行管理トグル・page全面書換。忠実度12/12実測(admin942px/member759px)・payload実検証
 - [auto-review PR #376](auto-review-round-pr376.md) — R3 pass。★client化でrosterの内部列がpayload漏洩・group-openが入れ子破綻・NULでテストがbinary化
 - [大会申込詳細リデザイン出荷](project_ship-event-detail-redesign.md) — shipped: PR #376。CI green。★client化でrosterの内部列がpayload漏洩をレビューで検出／E2E破壊を出荷前に自力修正
+- [entry-groups タスク1完了(残7)](impl_entry-groups-task1.md) — entry_groups基盤+migration0045。★vitestではmigrationが走らない→scratch DB実測が唯一の検証
+- [entry-groups タスク2完了(残6)](impl_entry-groups-task2.md) — グループcore lib+編集フォーム伝播。★伝播の再検証はUPDATEのWHERE・deleteGroupIfEmptyに条件集約
+- [drizzle-kit generate も rename で対話プロンプト](feedback_drizzle_generate_rename_prompt.md) — 非TTYで必ず失敗。FK列の付け替えは「新列ADDのみ→旧列DROP」の2パスに分ける（migrationが2本になり番号計画がずれる）
