@@ -58,7 +58,7 @@ git apply --exclude=apps/web/src/middleware.ts --exclude='apps/web/src/app/(app)
 - **対応Issue:** #324
 
 ### タスク3: 毎朝アラートの抽出条件に「参加者1名以上」を追加（#325）
-- [ ] 完了
+- [x] 完了
 - **目的:** 画面の「要対応」と LINE アラートの対象定義を一致させる。
 - **対応AC:** AC-28, AC-29
 - **主な変更領域:** `apps/web/src/lib/entry-overdue-alert.ts`（既存の相関サブクエリ `attendCountExpr` を `WHERE` 条件へ持ち込む）、`apps/web/src/lib/entry-overdue-alert.test.ts`
