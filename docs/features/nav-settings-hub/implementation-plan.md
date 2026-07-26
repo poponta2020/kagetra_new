@@ -58,7 +58,7 @@ patch は `check-types` を green にするために以下のテスト側後始�
 - **対応Issue:** #347
 
 ### タスク2: レイアウト系ユニットテストの再構築
-- [ ] 完了
+- [x] 完了
 - **目的:** シェル・ボトムナビの新しい契約と、ページ余白の規約を機械検証で固定する。
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-16, AC-16b, AC-19
 - **主な変更領域:** `apps/web/src/components/layout/mobile-shell.test.tsx`（**新規作成** —

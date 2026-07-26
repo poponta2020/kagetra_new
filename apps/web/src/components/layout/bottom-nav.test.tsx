@@ -14,45 +14,67 @@ describe('BottomNav', () => {
     mockUsePathname.mockReturnValue('/dashboard')
   })
 
-  it('isAdmin=true のとき 全タブ（共有 + 管理者）を表示する', () => {
-    render(<BottomNav isAdmin />)
-    expect(screen.getByText('ホーム')).toBeTruthy()
-    expect(screen.getByText('イベント')).toBeTruthy()
-    expect(screen.queryByText('予定')).toBeNull()
-    // senseki-stats PR-2: 戦績 → 統計 に改称。全ユーザー共有タブ。
-    expect(screen.getByText('統計')).toBeTruthy()
-    // entry-management: 管理者専用ブロックの先頭（統計の直後・会員の前）に追加。
-    expect(screen.getByText('申込管理')).toBeTruthy()
-    expect(screen.getByText('会員')).toBeTruthy()
-    expect(screen.getByText('メール')).toBeTruthy()
-    expect(screen.getByText('Bot')).toBeTruthy()
-  })
-
-  // AC-2: 管理者に 7 タブ / 一般会員に 3 タブ（既存 3 つのまま）。
-  it('isAdmin=true のとき タブが 7 個ちょうど表示される', () => {
-    render(<BottomNav isAdmin />)
-    expect(screen.getAllByRole('link')).toHaveLength(7)
-  })
-
-  it('isAdmin=false のとき タブが 3 個ちょうど表示される', () => {
+  // AC-4 / AC-6: 一般会員は ホーム/イベント/統計/設定 の 4 タブちょうど、
+  // かつこの並び順で表示される（設定タブは常に最後尾）。
+  it('isAdmin=false のとき ホーム/イベント/統計/設定 の 4 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin={false} />)
-    expect(screen.getAllByRole('link')).toHaveLength(3)
+    const links = screen.getAllByRole('link')
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      'ホーム',
+      'イベント',
+      '統計',
+      '設定',
+    ])
   })
 
-  // Regression: non-admins previously saw 会員 tab and were bounced to /403
-  // by the admin-only page guard — breaking their bottom-nav UX. メール
-  // (mail-inbox) follows the same admin-only convention.
-  it('isAdmin=false のとき 共有タブ（統計含む）のみ表示し 会員 / メール は出さない', () => {
-    render(<BottomNav isAdmin={false} />)
-    expect(screen.getByText('ホーム')).toBeTruthy()
-    expect(screen.getByText('イベント')).toBeTruthy()
-    expect(screen.queryByText('予定')).toBeNull()
-    // senseki-stats PR-2: 統計 は会員でも見える共有タブ。
-    expect(screen.getByText('統計')).toBeTruthy()
-    // AC-2: 申込管理タブは管理者専用。一般会員には表示されない。
-    expect(screen.queryByText('申込管理')).toBeNull()
+  // AC-5 / AC-6: 管理者は ホーム/イベント/統計/申込管理/メール/設定 の
+  // 6 タブちょうど（会員・Bot の独立タブは無い）、かつこの並び順。
+  it('isAdmin=true のとき ホーム/イベント/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
+    render(<BottomNav isAdmin />)
+    const links = screen.getAllByRole('link')
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      'ホーム',
+      'イベント',
+      '統計',
+      '申込管理',
+      'メール',
+      '設定',
+    ])
+  })
+
+  // nav-settings-hub: 会員 (`/admin/members`) と Bot (`/admin/line-channels`)
+  // は独立タブを廃止し、設定ハブ経由の導線に一本化した。DOM 上にラベルとして
+  // 残っていないことを確認する。
+  it('「会員」「Bot」という独立タブは存在しない', () => {
+    render(<BottomNav isAdmin />)
     expect(screen.queryByText('会員')).toBeNull()
-    expect(screen.queryByText('メール')).toBeNull()
+    expect(screen.queryByText('Bot')).toBeNull()
+    expect(screen.queryByText('予定')).toBeNull()
+  })
+
+  // AC-7: 設定ハブ配下の3ページのどれにいても「設定」タブが active になる。
+  it.each(['/settings', '/admin/members', '/admin/line-channels'])(
+    'pathname=%s で 設定 タブが active になる',
+    (pathname) => {
+      mockUsePathname.mockReturnValue(pathname)
+      render(<BottomNav isAdmin />)
+      const link = screen.getByText('設定').closest('a')
+      expect(link?.className).toContain('border-brand')
+    },
+  )
+
+  // AC-7: 詳細パスでも 設定 タブが active（設定ハブから辿った先だと分かる）。
+  // `/admin/members/42/edit` は会員タブ時代からの回帰ガードを設定タブへ
+  // 引き継いだもの。
+  it.each([
+    '/settings/notifications',
+    '/settings/line-link',
+    '/admin/members/42/edit',
+  ])('pathname=%s のような詳細パスでも 設定 タブが active', (pathname) => {
+    mockUsePathname.mockReturnValue(pathname)
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('設定').closest('a')
+    expect(link?.className).toContain('border-brand')
   })
 
   it('pathname=/players で 統計 タブが active になる', () => {
@@ -92,13 +114,23 @@ describe('BottomNav', () => {
     expect(link?.className).toContain('border-brand')
   })
 
-  // AC-2 / AC-3: entry-management で追加した「申込管理」タブの active 判定と、
-  // /admin/entries を開いたとき他タブが誤って光らないことの実効的な検証。
-  it('pathname=/admin/entries で 申込管理 タブが active になる', () => {
+  // AC-8（entry-management の実効的な検証を踏襲）: /admin/entries を開いた
+  // とき、申込管理 タブだけが active になり、設定タブを含む他タブは光らない
+  // （設定タブの matches に /admin/members・/admin/line-channels が入った
+  // ことで誤爆しないことも含めて確認）。
+  it('pathname=/admin/entries で 申込管理 タブが active になり、他タブは active にならない', () => {
     mockUsePathname.mockReturnValue('/admin/entries')
     render(<BottomNav isAdmin />)
-    const link = screen.getByText('申込管理').closest('a')
-    expect(link?.className).toContain('border-brand')
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(6)
+    const activeLinks = links.filter((link) =>
+      link.className.includes('border-brand'),
+    )
+    expect(activeLinks).toHaveLength(1)
+    expect(activeLinks[0]?.textContent?.trim()).toBe('申込管理')
+    expect(screen.getByText('設定').closest('a')?.className).not.toContain(
+      'border-brand',
+    )
   })
 
   it('pathname=/admin/entries/42 のような詳細パスでも 申込管理 タブが active', () => {
@@ -106,21 +138,6 @@ describe('BottomNav', () => {
     render(<BottomNav isAdmin />)
     const link = screen.getByText('申込管理').closest('a')
     expect(link?.className).toContain('border-brand')
-  })
-
-  it('pathname=/admin/entries では 申込管理 以外の 6 タブすべてが active にならない（会員タブへの誤爆を含む）', () => {
-    mockUsePathname.mockReturnValue('/admin/entries')
-    render(<BottomNav isAdmin />)
-    const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(7)
-    const activeLinks = links.filter((link) =>
-      link.className.includes('border-brand'),
-    )
-    expect(activeLinks).toHaveLength(1)
-    expect(activeLinks[0]?.textContent).toBe('申込管理')
-    expect(screen.getByText('会員').closest('a')?.className).not.toContain(
-      'border-brand',
-    )
   })
 
   it('pathname=/events で イベント タブが active になる', () => {
@@ -137,7 +154,7 @@ describe('BottomNav', () => {
     expect(link?.className).toContain('border-brand')
   })
 
-  // Regression: `startsWith('/events')` previously matched `/events-archive`
+  // AC-8（回帰）: `startsWith('/events')` previously matched `/events-archive`
   // and lit up the wrong tab. Segment-boundary matching fixes this.
   it('pathname=/events-archive では イベント タブが active にならない', () => {
     mockUsePathname.mockReturnValue('/events-archive')
@@ -145,20 +162,6 @@ describe('BottomNav', () => {
     const link = screen.getByText('イベント').closest('a')
     expect(link?.className).not.toContain('border-brand')
     expect(link?.className).toContain('border-transparent')
-  })
-
-  it('pathname=/members で 会員 タブが active (isAdmin=true)', () => {
-    mockUsePathname.mockReturnValue('/members')
-    render(<BottomNav isAdmin />)
-    const link = screen.getByText('会員').closest('a')
-    expect(link?.className).toContain('border-brand')
-  })
-
-  it('pathname=/admin/members/42/edit でも 会員 タブが active', () => {
-    mockUsePathname.mockReturnValue('/admin/members/42/edit')
-    render(<BottomNav isAdmin />)
-    const link = screen.getByText('会員').closest('a')
-    expect(link?.className).toContain('border-brand')
   })
 
   // sticky-mobile-shell: ensure the iOS home-indicator area gets bg-surface
@@ -190,18 +193,15 @@ describe('BottomNav', () => {
     expect(nav.className).not.toMatch(/(?<!\+)min-h-\[52px\]/)
   })
 
-  // AC-3（回帰）: entry-management のタブ追加で既存 6 タブの id・ラベル・href
-  // が変わっていないことを確認する。id は DOM に出ないため、ラベルと href の
-  // 対応で代替検証する。
-  it('既存 6 タブのラベルと href の対応が変わっていない（回帰）', () => {
+  it('各タブの href が正しい（ホーム/イベント/統計/申込管理/メール/設定）', () => {
     render(<BottomNav isAdmin />)
     const expected: ReadonlyArray<[string, string]> = [
       ['ホーム', '/dashboard'],
       ['イベント', '/events'],
       ['統計', '/players'],
-      ['会員', '/admin/members'],
+      ['申込管理', '/admin/entries'],
       ['メール', '/admin/mail-inbox'],
-      ['Bot', '/admin/line-channels'],
+      ['設定', '/settings'],
     ]
     for (const [label, href] of expected) {
       const link = screen.getByText(label).closest('a')
@@ -209,9 +209,38 @@ describe('BottomNav', () => {
     }
   })
 
-  it('申込管理 タブの href は /admin/entries', () => {
-    render(<BottomNav isAdmin />)
-    const link = screen.getByText('申込管理').closest('a')
-    expect(link?.getAttribute('href')).toBe('/admin/entries')
+  // AC-16: role-preview-switch。プレビュー中は「設定」タブにバッジが出る。
+  it('previewRoleLabel 指定時、設定タブにバッジと aria-label が表示される', () => {
+    render(<BottomNav isAdmin={false} previewRoleLabel="一般会員" />)
+    const link = screen.getByText('設定').closest('a')
+    expect(link).not.toBeNull()
+    expect(link?.textContent).toContain('一般会員')
+    expect(link?.getAttribute('aria-label')).toBe(
+      '設定（一般会員として表示中）',
+    )
+  })
+
+  // AC-16: 非プレビュー時（previewRoleLabel 省略・null）はバッジも
+  // aria-label も出ない。
+  it('previewRoleLabel 未指定時、設定タブにバッジが出ない', () => {
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('設定').closest('a')
+    expect(link?.textContent?.trim()).toBe('設定')
+    expect(link?.getAttribute('aria-label')).toBeNull()
+  })
+
+  it('previewRoleLabel=null 明示時もバッジが出ない', () => {
+    render(<BottomNav isAdmin={false} previewRoleLabel={null} />)
+    const link = screen.getByText('設定').closest('a')
+    expect(link?.textContent?.trim()).toBe('設定')
+    expect(link?.getAttribute('aria-label')).toBeNull()
+  })
+
+  // バッジは「設定」タブ専用。他タブに previewRoleLabel が漏れないこと。
+  it('previewRoleLabel 指定時でも 設定 以外のタブにはバッジが出ない', () => {
+    render(<BottomNav isAdmin previewRoleLabel="一般会員" />)
+    const homeLink = screen.getByText('ホーム').closest('a')
+    expect(homeLink?.textContent).not.toContain('一般会員')
+    expect(homeLink?.getAttribute('aria-label')).toBeNull()
   })
 })
