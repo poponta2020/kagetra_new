@@ -172,6 +172,50 @@ describe('buildOverdueAlertMessage', () => {
       expect(text).not.toContain('(')
     })
 
+    // r1 review should_fix: 表示名・代表イベントはグループ全体から導出する。
+    it('r1: 一部の日だけ超過でも、表示名と代表イベントはグループ全体から導出する', () => {
+      // 多摩AB のうち A(8/15) だけが超過。B(8/11) は申込済などで対象外。
+      const rows = [
+        row({
+          eventId: 11,
+          entryGroupId: 100,
+          title: '多摩A',
+          eventDate: '2030-08-15',
+          overdueDays: 5,
+          attendCount: 3,
+        }),
+      ]
+      const groupEvents = new Map([
+        [
+          100,
+          [
+            { id: 12, title: '多摩B', eventDate: '2030-08-11' },
+            { id: 11, title: '多摩A', eventDate: '2030-08-15' },
+          ],
+        ],
+      ])
+      const text = buildOverdueAlertMessage(rows, { today, baseUrl, groupEvents })
+
+      // 表示名はグループ全体から（多摩A だけを見た「多摩A」ではない）
+      const bulletLines = text.split('\n').filter((l) => l.startsWith('・'))
+      expect(bulletLines).toEqual(['・多摩AB'])
+      // 代表イベントもグループ全体から選ぶ（対象外の 8/11 が真の代表）
+      expect(text).toContain(`${baseUrl}/events/12`)
+      expect(text).not.toContain(`${baseUrl}/events/11`)
+      // 締切明細は超過対象の日だけ（対象外の日の締切行は出さない）
+      expect(text).toContain('（5日超過）')
+      expect(text).toContain('参加 3名')
+    })
+
+    it('r1: groupEvents 未指定なら従来どおり超過対象の日から導出する（フォールバック）', () => {
+      const rows = [
+        row({ eventId: 11, entryGroupId: 100, title: '多摩A', eventDate: '2030-08-15' }),
+      ]
+      const text = buildOverdueAlertMessage(rows, { today, baseUrl })
+      expect(text).toContain('・多摩A')
+      expect(text).toContain(`${baseUrl}/events/11`)
+    })
+
     it('超過日数の並び替えはグループ内最大値で行う', () => {
       const rows = [
         // グループ 200: 最大超過日数 20（並びで先頭に来るはず）。同一タイトルなので

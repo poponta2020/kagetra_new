@@ -356,6 +356,53 @@ describe('send-lifecycle-reminders — sending', () => {
     expect(rows.every((r) => r.status === 'sent')).toBe(true)
   })
 
+  // r1 review blocker: 1イベントが同日に複数種別の候補になる（申込締切日＝現地払い当日）
+  // ケース。以前は文面を eventId だけのキーの Map から引き直していたため、後の候補が
+  // 前の候補を上書きし、entry_deadline_day のバケットに現地払いの文面が乗っていた。
+  // 文面はバケットメンバー自身が持つ設計にしたので、種別と文面は必ず一致する。
+  it('r1: 同一イベントが同日に2種別の対象になっても、それぞれ正しい文面で1通ずつ送られる', async () => {
+    const sentTexts: string[] = []
+    delete process.env.LINE_NOTIFY_DRY_RUN // 実 fetch 経路を通して本文を観測する
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const parsed = JSON.parse(init.body) as { messages: { text: string }[] }
+        sentTexts.push(parsed.messages[0]!.text)
+        return { ok: true, status: 200, text: async () => '' }
+      }),
+    )
+    try {
+      const event = await seedEvent(
+        {
+          title: '同日2種別大会',
+          eventDate: TODAY, // → onsite_payment_day
+          entryDeadline: TODAY, // → entry_deadline_day
+          entryStatus: 'not_applied',
+          paymentType: 'onsite',
+          feeJpy: 3000,
+        },
+        { linked: true },
+      )
+
+      const result = await sendLifecycleReminders(testDb, { today: TODAY, leadDays: LEAD })
+      expect(result.sent).toBe(2)
+
+      const rows = await testDb
+        .select()
+        .from(eventLifecycleNotifications)
+        .where(eq(eventLifecycleNotifications.eventId, event.id))
+      expect(rows.map((r) => r.type).sort()).toEqual(['entry_deadline_day', 'onsite_payment_day'])
+
+      // 2通それぞれが自分の種別の文面であること（取り違えなし）。
+      expect(sentTexts).toHaveLength(2)
+      expect(sentTexts.filter((t) => t.includes('申込締切は本日'))).toHaveLength(1)
+      expect(sentTexts.filter((t) => t.includes('現地払い'))).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+      process.env.LINE_NOTIFY_DRY_RUN = '1'
+    }
+  })
+
   it('AC-12: 二重 claim なし（同じバケットを2回実行しても行数は増えない）', async () => {
     const group = await createEntryGroup()
     await createEvent({

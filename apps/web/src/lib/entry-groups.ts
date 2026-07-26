@@ -1,7 +1,13 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import * as schema from '@kagetra/shared/schema'
-import { entryGroups, events } from '@kagetra/shared/schema'
+import {
+  entryGroups,
+  eventLineBroadcasts,
+  events,
+  lineChannels,
+  tournamentEntryRosters,
+} from '@kagetra/shared/schema'
 import type { EventStatus } from '@kagetra/shared/types'
 import { diffDays } from './jst-date'
 // クラスタ規則の純関数は DB 非依存の leaf モジュールが持つ（client からも import
@@ -167,11 +173,23 @@ export async function listGroupSiblings(
  * 空になったグループを条件付きで削除する（requirements §3.2.6）。
  *
  * **この関数が entry_groups 削除の唯一の経路**であり、削除条件はここに集約する。
- * いまは `events` が0件かどうかだけを見る。`event_line_broadcasts` /
- * `tournament_entry_rosters` はまだ `events.id` に紐付いており（グループ帰属になるのは
- * タスク3/8）、events が0件ならこれらの表がそのグループを指すこともあり得ない
- * （行はイベントに追従して物理的に移動する）。タスク3/8 で両表がグループ帰属になったら、
- * それぞれの0件チェックを**ここに**追加する（削除条件を1箇所に保つ設計意図）。
+ * 判定するのは **4表すべてが0件**であること:
+ * `events` / `event_line_broadcasts` / `tournament_entry_rosters` /
+ * `line_channels.assigned_entry_group_id`。
+ *
+ * ★events だけを見てはならない（r1 review blocker）。タスク3/8 で LINE 紐付けと名簿の
+ * 帰属が entry_group になり、FK はいずれも **ON DELETE RESTRICT** になった。要件
+ * §3.2.6 は「付け替え時、移動元グループの LINE 紐付け・名簿はそのまま移動元に残る」と
+ * 定めているので、これらを持つグループは**イベントが0件でも削除しない**のが正しい
+ * （削除を試みると FK 違反で付け替えトランザクション全体がロールバックする）。
+ * §3.2.6 の「空グループは自動削除」は「依存行を持たない空グループの自動削除」と読む。
+ *
+ * `line_channels` の FK は SET NULL なので DELETE 自体は通るが、Bot の割当が黙って
+ * 解除されてしまうため同様に削除を見送る（プール管理の一貫性）。
+ *
+ * ※イベント0件のまま残ったグループの linked 紐付けは、UI からは辿れなくなるが
+ * `scripts/release-expired-broadcasts.ts` が「イベント0件のグループ」を期限切れ扱いで
+ * 解放するため、Bot チャンネルはプールへ戻る。
  *
  * 親行を FOR UPDATE でロックしてから判定する。events → entry_groups への FK 挿入/更新は
  * 親行の FOR KEY SHARE を要求するため、このロックと競合し、削除対象への同時アタッチと
@@ -191,6 +209,29 @@ export async function deleteGroupIfEmpty(tx: DbLike, groupId: number): Promise<v
     .where(eq(events.entryGroupId, groupId))
     .limit(1)
   if (remaining.length > 0) return
+
+  // RESTRICT FK を持つ依存表。1件でもあれば削除しない（残す方が要件に忠実）。
+  const broadcast = await tx
+    .select({ id: eventLineBroadcasts.id })
+    .from(eventLineBroadcasts)
+    .where(eq(eventLineBroadcasts.entryGroupId, groupId))
+    .limit(1)
+  if (broadcast.length > 0) return
+
+  const roster = await tx
+    .select({ id: tournamentEntryRosters.id })
+    .from(tournamentEntryRosters)
+    .where(eq(tournamentEntryRosters.entryGroupId, groupId))
+    .limit(1)
+  if (roster.length > 0) return
+
+  // SET NULL なので DELETE は通るが、黙って Bot 割当を解除しないために見送る。
+  const channel = await tx
+    .select({ id: lineChannels.id })
+    .from(lineChannels)
+    .where(eq(lineChannels.assignedEntryGroupId, groupId))
+    .limit(1)
+  if (channel.length > 0) return
 
   await tx.delete(entryGroups).where(eq(entryGroups.id, groupId))
 }

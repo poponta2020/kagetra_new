@@ -12,7 +12,9 @@
  * WHERE events.entry_group_id = ... + 30 days)` — 複数日グループでは
  * グループ内で最も遅い開催日を基準にする（1グループ1行なので events への
  * plain JOIN で計算すると同じ行が日数分に fan out してしまう。相関サブ
- * クエリで MAX(event_date) を単一値として引く）。30-day grace lets
+ * クエリで MAX(event_date) を単一値として引く）。**イベント0件のグループ**
+ * （付け替えで空になったが紐付けを残したグループ）は MAX が NULL になるため、
+ * extended_until が無ければ即解放対象とする。30-day grace lets
  * 打ち上げ / 反省連絡 chatter ride after the tournament ends, with
  * operator override via `extendBroadcastLifetime`.
  *
@@ -86,10 +88,23 @@ export async function releaseExpiredBroadcasts(
   // entry-groups タスク3: グループ内 MAX(event_date) を相関サブクエリで
   // 引く（events への plain JOIN だと複数日グループの1行が日数分に
   // fan out し、以降のループ処理が重複更新を試みてしまうため）。
-  const groupCutoffExpiredSql = sql`COALESCE(
-    ${eventLineBroadcasts.extendedUntil},
-    (SELECT MAX(e.event_date) FROM events e WHERE e.entry_group_id = ${eventLineBroadcasts.entryGroupId}) + INTERVAL '30 days'
-  ) < ${today}`
+  //
+  // ★イベント0件のグループも期限切れとして扱う（r1 review blocker の派生）。
+  // `deleteGroupIfEmpty` は LINE 紐付けを持つグループをイベント0件でも削除しない
+  // （要件 §3.2.6「紐付けは移動元に残る」）。この場合 MAX(event_date) が NULL に
+  // なり、COALESCE も NULL → 比較が NULL となって**永久に解放されない**＝Bot が
+  // プールへ戻らなくなる。イベントが1件も無いグループに配信対象は存在しないので、
+  // extended_until による明示的な延長が無ければ即解放してよい。
+  const groupCutoffExpiredSql = sql`(
+    COALESCE(
+      ${eventLineBroadcasts.extendedUntil},
+      (SELECT MAX(e.event_date) FROM events e WHERE e.entry_group_id = ${eventLineBroadcasts.entryGroupId}) + INTERVAL '30 days'
+    ) < ${today}
+    OR (
+      ${eventLineBroadcasts.extendedUntil} IS NULL
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry_group_id = ${eventLineBroadcasts.entryGroupId})
+    )
+  )`
 
   // dry-run は副作用を起こさないので、これだけ DB トランザクション外で
   // 件数 estimate を返す (read-only)。

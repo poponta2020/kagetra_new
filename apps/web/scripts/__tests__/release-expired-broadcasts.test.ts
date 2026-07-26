@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { eventLineBroadcasts, lineChannels } from '@kagetra/shared/schema'
+import { eventLineBroadcasts, events, lineChannels } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createEntryGroup, createEvent } from '@/test-utils/seed'
 import { releaseExpiredBroadcasts } from '../release-expired-broadcasts'
@@ -97,6 +97,46 @@ describe('releaseExpiredBroadcasts — entry-groups タスク3: グループ内 
     })
     expect(channel?.status).toBe('available')
     expect(channel?.assignedEntryGroupId).toBeNull()
+  })
+
+  // r1 review blocker の派生: 付け替えで events 0件になったグループは
+  // `deleteGroupIfEmpty` が削除しない（紐付けを残す要件）。MAX(event_date) が NULL に
+  // なるため、この分岐が無いと COALESCE も NULL → 比較不成立で永久に解放されず
+  // Bot がプールに戻らなくなる。
+  it('r1: イベント0件のグループ（付け替えで空になった）は即解放されて Bot がプールへ戻る', async () => {
+    const { broadcastId, channelId, entryGroupId } = await seedLinkedGroup(['2026-08-01'])
+    // 唯一のイベントを別グループへ移す（= 合流。移動元は空になるが紐付けは残る）。
+    const other = await createEntryGroup()
+    await testDb
+      .update(events)
+      .set({ entryGroupId: other.id })
+      .where(eq(events.entryGroupId, entryGroupId))
+
+    const result = await releaseExpiredBroadcasts(testDb, { today: '2026-08-02' })
+
+    expect(result.releasedBroadcastIds).toContain(broadcastId)
+    const channel = await testDb.query.lineChannels.findFirst({
+      where: eq(lineChannels.id, channelId),
+    })
+    expect(channel?.status).toBe('available')
+    expect(channel?.assignedEntryGroupId).toBeNull()
+  })
+
+  it('r1: イベント0件でも extended_until が未来なら解放しない（明示延長を尊重）', async () => {
+    const { broadcastId, entryGroupId } = await seedLinkedGroup(['2026-08-01'])
+    const other = await createEntryGroup()
+    await testDb
+      .update(events)
+      .set({ entryGroupId: other.id })
+      .where(eq(events.entryGroupId, entryGroupId))
+    await testDb
+      .update(eventLineBroadcasts)
+      .set({ extendedUntil: '2026-12-31' })
+      .where(eq(eventLineBroadcasts.id, broadcastId))
+
+    const result = await releaseExpiredBroadcasts(testDb, { today: '2026-08-02' })
+
+    expect(result.releasedBroadcastIds).not.toContain(broadcastId)
   })
 
   it('extended_until が設定されていれば MAX(event_date) より優先される', async () => {

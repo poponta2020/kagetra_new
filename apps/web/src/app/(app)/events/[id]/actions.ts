@@ -735,11 +735,42 @@ function buildTreasurerAppliedMessage(rows: readonly AppliedFlipRow[]): string {
   return buildLifecycleMessage('entry_applied_treasurer', { title: '', days })
 }
 
+/** `lockEventRowsAscending` / 一括更新で使う tx ハンドル。 */
+type EventsTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/**
+ * 一括 UPDATE の前に、対象行を **id 昇順で明示的に FOR UPDATE ロック**する。
+ *
+ * ★`inArray()` を使った単一 UPDATE のロック順は、渡した配列の順序では決まらない
+ * （r1 review should_fix）。実行計画（bitmap heap scan 等）次第で物理順・任意順に
+ * なり得るため、`applied=true` 側の「id 昇順で1件ずつ UPDATE」する経路と組み合わ
+ * さると逆順ロック＝デッドロックが起こり得る。`ORDER BY id FOR UPDATE` で先に
+ * 昇順ロックを取ってしまえば、以降の一括 UPDATE は既得ロックの再取得になるので
+ * 順序が実行計画に依存しなくなる。
+ *
+ * グループ再検証（`entry_group_id` 一致）もここで併記する — ロック対象を
+ * 後続 UPDATE の WHERE と完全に一致させ、グループ外 id を掴まないため。
+ */
+async function lockEventRowsAscending(
+  tx: EventsTx,
+  ids: readonly number[],
+  entryGroupId: number,
+): Promise<void> {
+  await tx
+    .select({ id: events.id })
+    .from(events)
+    .where(and(inArray(events.id, [...ids]), eq(events.entryGroupId, entryGroupId)))
+    .orderBy(asc(events.id))
+    .for('update')
+}
+
 /**
  * entry-groups タスク4 (AC-8/9/11): 申込状態一括トグル（admin/vice_admin のみ）。
  *
  * - `eventIds` は重複除去して **id 昇順にソート**してから処理する（デッドロック
- *   回避。`applyEntryGroupChange` 等の既存パターンと同じ規律）
+ *   回避。`applyEntryGroupChange` 等の既存パターンと同じ規律）。一括 UPDATE の
+ *   経路では配列順だけではロック順が決まらないので、`lockEventRowsAscending` で
+ *   先に昇順ロックを取る
  * - 先頭 id（昇順最小）から解決した `entry_group_id` を全 UPDATE の WHERE に
  *   併記する fail-closed（クライアント申告のグループ外 id は無条件に対象から
  *   外れる。`propagateFieldsToGroup` と同じ再検証パターン）
@@ -762,10 +793,13 @@ export async function setEntriesApplied(
   const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
 
   if (!applied) {
-    await db
-      .update(events)
-      .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
-      .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+    await db.transaction(async (tx) => {
+      await lockEventRowsAscending(tx, ids, entryGroupId)
+      await tx
+        .update(events)
+        .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
+        .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+    })
     for (const id of ids) revalidatePath(`/events/${id}`)
     // entry-overdue-alert: entry_status は /events 一覧の表示可否も左右する
     // ようになった（not_applying が除外条件）。この revert 分岐は
@@ -949,14 +983,17 @@ export async function setPaymentTypes(
   // 支払済にすると表示は支払済へ戻るが、UNIQUE(event_id,type) により LINE 完了通知は
   // 再送されない（参加者への重複通知を防ぐ）。完了通知をやり直したい運用は想定しない。
   const leavingAdvance = type !== 'advance'
-  await db
-    .update(events)
-    .set({
-      paymentType: type,
-      ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
-      updatedAt: sql`now()`,
-    })
-    .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+  await db.transaction(async (tx) => {
+    await lockEventRowsAscending(tx, ids, entryGroupId)
+    await tx
+      .update(events)
+      .set({
+        paymentType: type,
+        ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
+        updatedAt: sql`now()`,
+      })
+      .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+  })
   for (const id of ids) revalidatePath(`/events/${id}`)
 }
 
@@ -1016,16 +1053,19 @@ export async function setPaymentsPaid(
   const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
 
   if (!paid) {
-    await db
-      .update(events)
-      .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
-      .where(
-        and(
-          inArray(events.id, ids),
-          eq(events.paymentType, 'advance'),
-          eq(events.entryGroupId, entryGroupId),
-        ),
-      )
+    await db.transaction(async (tx) => {
+      await lockEventRowsAscending(tx, ids, entryGroupId)
+      await tx
+        .update(events)
+        .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
+        .where(
+          and(
+            inArray(events.id, ids),
+            eq(events.paymentType, 'advance'),
+            eq(events.entryGroupId, entryGroupId),
+          ),
+        )
+    })
     for (const id of ids) revalidatePath(`/events/${id}`)
     return
   }

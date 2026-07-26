@@ -269,6 +269,15 @@ export interface ReminderBucketMember {
   title: string
   eventDate: string
   feeJpy: number | null
+  /**
+   * `collectReminderCandidates` が組んだ**このメンバー自身の**単一日メッセージ。
+   *
+   * ★eventId をキーにした Map から後で引き直してはならない（r1 review blocker）。
+   * 1つのイベントは同日に複数の種別の候補になり得る（申込締切日＝現地払い当日など）ため、
+   * eventId だけのキーでは後の候補が前の候補を上書きし、N=1 バケットで別種別の文面を
+   * 送ってしまう。候補と1:1で持ち回ることで種別の取り違えを構造的に不可能にする。
+   */
+  message: string
 }
 
 export interface ReminderBucket {
@@ -305,6 +314,7 @@ export function bucketReminderCandidates(
       title: c.title,
       eventDate: c.eventDate,
       feeJpy: c.feeJpy,
+      message: c.message,
     })
   }
   return order.map((key) => byKey.get(key)!)
@@ -326,9 +336,10 @@ function formatMembersLabel(members: readonly ReminderBucketMember[]): string {
 /**
  * バケット（claim できたメンバーのみに絞り込み済み）から送信文面を組み立てる。
  *
- * - **1件のときは `candidatesByEventId` から元の単一日メッセージをそのまま返す**
+ * - **1件のときはそのメンバーが持つ元の単一日メッセージをそのまま返す**
  *   （`buildLifecycleMessage` を作り直さないので N=1 のバイト互換は自明に保たれる —
- *   タスク4が固めた性質を壊さないため、この経路を経由しない）
+ *   タスク4が固めた性質を壊さないため、この経路を経由しない）。文面はメンバー自身が
+ *   持っているので、eventId から引き直して別種別の文面を掴む余地がない
  * - 2件以上のときは event-lifecycle-notify.ts の `entry_applied` 等と同じ日別ラベル
  *   規則（`formatEventDate(eventDate)+title` を `・` 連結）でローカルに文面を組む。
  *   `buildLifecycleMessage` はリマインド系6種別の複数日分岐を持たない（タスク4は
@@ -343,13 +354,9 @@ function formatMembersLabel(members: readonly ReminderBucketMember[]): string {
  */
 function buildBucketMessage(
   bucket: Pick<ReminderBucket, 'type' | 'dateIso' | 'members'>,
-  candidatesByEventId: ReadonlyMap<number, ReminderCandidate>,
   leadDays: number,
 ): string {
-  if (bucket.members.length === 1) {
-    const only = candidatesByEventId.get(bucket.members[0]!.eventId)
-    if (only) return only.message
-  }
+  if (bucket.members.length === 1) return bucket.members[0]!.message
 
   const daysLabel = formatMembersLabel(bucket.members)
   const date = formatMMDD(bucket.dateIso)
@@ -423,7 +430,6 @@ export async function sendLifecycleReminders(
   const advanceDate = addDaysIso(today, leadDays)
 
   const candidates = await collectReminderCandidates(db, { today, advanceDate, leadDays })
-  const candidatesByEventId = new Map(candidates.map((c) => [c.eventId, c]))
   const buckets = bucketReminderCandidates(candidates)
 
   let sent = 0
@@ -447,7 +453,6 @@ export async function sendLifecycleReminders(
     const claimedMembers = bucket.members.filter((m) => claimedEventIds.has(m.eventId))
     const message = buildBucketMessage(
       { type: bucket.type, dateIso: bucket.dateIso, members: claimedMembers },
-      candidatesByEventId,
       leadDays,
     )
     const representativeEventId = claimedMembers[0]!.eventId

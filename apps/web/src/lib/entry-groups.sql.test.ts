@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { entryGroups, events } from '@kagetra/shared/schema'
+import {
+  entryGroups,
+  eventLineBroadcasts,
+  events,
+  lineChannels,
+  tournamentEntryRosters,
+} from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createEntryGroup, createEvent, createMailMessage, createTournamentDraft } from '@/test-utils/seed'
 import {
@@ -39,6 +45,36 @@ async function clusterViaSql(): Promise<string[][]> {
      ORDER BY min(title)
   `)
   return result.rows.map((r) => r.titles)
+}
+
+/** Bot チャンネルを1個作り、`entryGroupId` へ割り当てる（`assigned_entry_group_id` は UNIQUE）。 */
+async function seedAssignedChannel(entryGroupId: number) {
+  const unique = crypto.randomUUID()
+  const [channel] = await testDb
+    .insert(lineChannels)
+    .values({
+      channelId: `ch-${unique}`,
+      channelSecret: 'secret',
+      channelAccessToken: 'tok',
+      botId: '@bot',
+      purpose: 'event_broadcast',
+      status: 'active',
+      assignedEntryGroupId: entryGroupId,
+    })
+    .returning()
+  return channel!
+}
+
+/** グループへの linked な LINE 紐付け（`event_line_broadcasts.entry_group_id` は UNIQUE）。 */
+async function seedGroupBinding(entryGroupId: number) {
+  const channel = await seedAssignedChannel(entryGroupId)
+  await testDb.insert(eventLineBroadcasts).values({
+    entryGroupId,
+    lineChannelId: channel.id,
+    status: 'linked',
+    lineGroupId: `G${crypto.randomUUID().slice(0, 8)}`,
+    linkedAt: new Date(),
+  })
 }
 
 beforeEach(async () => {
@@ -185,6 +221,48 @@ describe('deleteGroupIfEmpty — 条件付き空グループ削除', () => {
       await expect(deleteGroupIfEmpty(tx, 999_999)).resolves.toBeUndefined()
     })
   })
+
+  // r1 review blocker: LINE 紐付け・名簿の FK は ON DELETE RESTRICT。events だけを見て
+  // DELETE すると FK 違反で**呼び出し元のトランザクション全体**（＝付け替え）が
+  // ロールバックする。要件 §3.2.6「紐付け・名簿はそのまま移動元に残る」に従い、
+  // これらを持つグループは events 0件でも削除しない。
+  it('r1: LINE 紐付けを持つグループは events 0件でも削除されない', async () => {
+    const group = await createEntryGroup()
+    await seedGroupBinding(group.id)
+
+    await testDb.transaction(async (tx) => {
+      await deleteGroupIfEmpty(tx, group.id)
+    })
+
+    const remaining = await testDb.select().from(entryGroups).where(eq(entryGroups.id, group.id))
+    expect(remaining).toHaveLength(1)
+  })
+
+  it('r1: 名簿を持つグループは events 0件でも削除されない', async () => {
+    const group = await createEntryGroup()
+    await testDb
+      .insert(tournamentEntryRosters)
+      .values({ entryGroupId: group.id, rosterType: 'applicant', version: 1 })
+
+    await testDb.transaction(async (tx) => {
+      await deleteGroupIfEmpty(tx, group.id)
+    })
+
+    const remaining = await testDb.select().from(entryGroups).where(eq(entryGroups.id, group.id))
+    expect(remaining).toHaveLength(1)
+  })
+
+  it('r1: Bot チャンネルが割当済みのグループは events 0件でも削除されない', async () => {
+    const group = await createEntryGroup()
+    await seedAssignedChannel(group.id)
+
+    await testDb.transaction(async (tx) => {
+      await deleteGroupIfEmpty(tx, group.id)
+    })
+
+    const remaining = await testDb.select().from(entryGroups).where(eq(entryGroups.id, group.id))
+    expect(remaining).toHaveLength(1)
+  })
 })
 
 describe('applyEntryGroupChange — 付け替え（単独化/合流）', () => {
@@ -250,6 +328,57 @@ describe('applyEntryGroupChange — 付け替え（単独化/合流）', () => {
       .from(entryGroups)
       .where(eq(entryGroups.id, oldGroupId))
     expect(remainingOldGroup).toEqual([])
+  })
+
+  // r1 review blocker: RESTRICT FK を持つ依存行があるシングルトンの合流。以前は
+  // 空グループの DELETE が FK 違反になり、合流そのものがロールバックしていた。
+  it('r1: LINE 紐付けを持つシングルトンの合流は成功し、移動元グループと紐付けが残る', async () => {
+    const target = await createEntryGroup()
+    await createEvent({ title: '合流先', entryGroupId: target.id })
+    const event = await createEvent({ title: '単独イベント' })
+    const oldGroupId = event.entryGroupId
+    await seedGroupBinding(oldGroupId)
+
+    const result = await testDb.transaction((tx) =>
+      applyEntryGroupChange(tx, event.id, 'merge', target.id),
+    )
+
+    // 合流はロールバックせずに成立する。
+    expect(result.entryGroupId).toBe(target.id)
+    const [updated] = await testDb.select().from(events).where(eq(events.id, event.id))
+    expect(updated!.entryGroupId).toBe(target.id)
+    // 移動元グループと紐付けは残る（要件 §3.2.6）。
+    const remainingOldGroup = await testDb
+      .select()
+      .from(entryGroups)
+      .where(eq(entryGroups.id, oldGroupId))
+    expect(remainingOldGroup).toHaveLength(1)
+    const binding = await testDb
+      .select()
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.entryGroupId, oldGroupId))
+    expect(binding).toHaveLength(1)
+  })
+
+  it('r1: 名簿を持つシングルトンの合流は成功し、名簿は移動元グループに残る', async () => {
+    const target = await createEntryGroup()
+    await createEvent({ title: '合流先', entryGroupId: target.id })
+    const event = await createEvent({ title: '単独イベント' })
+    const oldGroupId = event.entryGroupId
+    await testDb
+      .insert(tournamentEntryRosters)
+      .values({ entryGroupId: oldGroupId, rosterType: 'applicant', version: 1 })
+
+    const result = await testDb.transaction((tx) =>
+      applyEntryGroupChange(tx, event.id, 'merge', target.id),
+    )
+
+    expect(result.entryGroupId).toBe(target.id)
+    const rosters = await testDb
+      .select()
+      .from(tournamentEntryRosters)
+      .where(eq(tournamentEntryRosters.entryGroupId, oldGroupId))
+    expect(rosters).toHaveLength(1)
   })
 
   it('合流: 移動元に他のイベントが残っていれば移動元グループは削除されない', async () => {
