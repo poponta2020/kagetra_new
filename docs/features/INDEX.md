@@ -37,4 +37,4 @@
 - `tournament-title-grade-split` — 大会イベントのタイトル・級の分離入力（主要領域: apps/web, packages/shared）
 - `tournament-lottery-trends` — 大会系列ごとの申込者数・倍率推移とA級の出場回数別当落線を表示する（主要領域: apps/web, apps/mail-worker, packages/shared）[shipped: PR #304]
 - `entry-overdue-alert` — 会内締切超過の未申込大会を管理者個人LINEへ毎朝アラート＋進行管理に「申込なし」を追加（主要領域: apps/web, packages/shared）[shipped: PR #312]
-- `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: 未定）
+- `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: apps/web, packages/shared）

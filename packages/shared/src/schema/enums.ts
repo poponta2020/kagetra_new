@@ -97,9 +97,13 @@ export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', [
 ])
 
 // event-line-broadcast
+// event-grade-group-broadcast: `grade_broadcast` は級別グループ (A〜E) 常設配信用に
+// 既存プールから転換したチャネル。1 チャネル = 1 purpose なので、webhook の振り分けは
+// 解決したチャネルの purpose を見るだけで排他になる。
 export const lineChannelPurposeEnum = pgEnum('line_channel_purpose', [
   'system_notify',
   'event_broadcast',
+  'grade_broadcast',
 ])
 export const eventLineBroadcastStatusEnum = pgEnum('event_line_broadcast_status', [
   'invite_pending',
@@ -107,6 +111,15 @@ export const eventLineBroadcastStatusEnum = pgEnum('event_line_broadcast_status'
   'linked',
   'revoked',
   'released',
+])
+// event-grade-group-broadcast: 級グループ常設紐付けの状態。
+// eventLineBroadcastStatusEnum と値は似ているが `released`（大会終了で自動解放）を
+// 持たない — 級グループの紐付けは常設で、大会単位に解放されないため。
+export const lineGradeGroupStatusEnum = pgEnum('line_grade_group_status', [
+  'invite_pending',
+  'joined_waiting_code',
+  'linked',
+  'revoked',
 ])
 export const eventBroadcastMessageStatusEnum = pgEnum('event_broadcast_message_status', [
   'pending',

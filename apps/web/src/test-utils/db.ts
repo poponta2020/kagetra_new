@@ -25,9 +25,15 @@ export const testDb = drizzle(testPool, { schema })
 //
 // invite-link-registration added `registration_invites` (created_by ON DELETE
 // CASCADE — cleared with users anyway, but listed explicitly per convention).
+//
+// event-grade-group-broadcast added `line_grade_group_bindings` (FK→line_channels)
+// と `event_grade_broadcasts` (FK→events)。どちらも CASCADE で消えるが、identity を
+// 揃えるため同じ規約で明示列挙する。
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
+      line_grade_group_bindings,
+      event_grade_broadcasts,
       tournament_roster_import_drafts,
       tournament_confirmed_roster_publications,
       tournament_edition_grade_lottery_facts,

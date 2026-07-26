@@ -403,6 +403,7 @@ export default async function MailDraftDetailPage({
             registeredUnitKeys={registeredUnitKeys}
             editionSuggestion={editionSelection.suggestion}
             seriesOptions={editionSelection.seriesOptions}
+            attachmentCandidates={mail.attachments}
             action={approveDraftUnits.bind(null, draftId)}
           />
           {/* r3 blocker: 「残りは作らず完了」は一部登録後の残単位を閉じる導線。

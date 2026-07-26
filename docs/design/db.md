@@ -59,7 +59,7 @@
 | sessions | sessions | Auth.js セッション | schema/auth.ts |
 | verification_tokens | verificationTokens | Auth.js メール検証トークン（未使用機能だがアダプタ要件） | schema/auth.ts |
 | registration_invites | registrationInvites | 管理者発行の招待制自己登録リンク | schema/registration-invites.ts |
-| line_channels | lineChannels | LINE Messaging API チャネルのプール（system_notify/event_broadcast） | schema/line-channels.ts |
+| line_channels | lineChannels | LINE Messaging API チャネルのプール（system_notify/event_broadcast/grade_broadcast） | schema/line-channels.ts |
 | push_subscriptions | pushSubscriptions | Web Push 購読情報（未処理メールバッジ通知） | schema/push-subscriptions.ts |
 
 ### イベント・出欠・スケジュール・LINE配信（db-tables-events.md）
@@ -72,6 +72,8 @@
 | event_line_broadcasts | eventLineBroadcasts | イベント⇔LINEグループの1:1紐付け | schema/event-line-broadcasts.ts |
 | event_broadcast_messages | eventBroadcastMessages | 1メール→1LINEグループ配信の実行ログ | schema/event-broadcast-messages.ts |
 | event_lifecycle_notifications | eventLifecycleNotifications | 申込/支払いライフサイクル通知のonce-everログ | schema/event-lifecycle-notifications.ts |
+| line_grade_group_bindings | lineGradeGroupBindings | 級(A〜E)⇔級別LINEグループの常設1:1紐付け | schema/line-grade-group-bindings.ts |
+| event_grade_broadcasts | eventGradeBroadcasts | (大会,級)単位の級グループ配信記録（claim/送信済み） | schema/event-grade-broadcasts.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）
 

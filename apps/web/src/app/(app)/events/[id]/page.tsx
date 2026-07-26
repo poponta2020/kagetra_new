@@ -4,15 +4,18 @@ import { db } from '@/lib/db'
 import {
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
+  eventGradeBroadcasts,
   eventLineBroadcasts,
   events,
   lineChannels,
+  lineGradeGroupBindings,
   mailMessages,
   tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { auth } from '@/auth'
 import {
   AttendanceCounts,
@@ -30,11 +33,16 @@ import {
   type LineBroadcastBindingStatus,
 } from '@/components/events/LineBroadcastSection'
 import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
+import {
+  GradeBroadcastSection,
+  type GradeBroadcastRow,
+} from '@/components/events/GradeBroadcastSection'
 import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
 import { LifecycleStatusBadge } from '@/components/events/LifecycleStatusBadge'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
+  resendGradeBroadcast,
   resendGuidelines,
   revokeBroadcast,
   setEntryApplied,
@@ -240,6 +248,42 @@ export default async function EventDetailPage({
         guidelinesSentAt: null,
       }
     }
+  }
+
+  // event-grade-group-broadcast: 級別グループへの配信状況（AC-22 により admin 限定。
+  // vice_admin にも渡さないので、page 冒頭の isAdmin（vice_admin を含む）ではなく
+  // role を直接見る）。GradeBroadcastSection は `use client` なので、非 admin には
+  // props ごと送らない。
+  const isStrictAdmin = session?.user.role === 'admin'
+  let gradeBroadcastRows: GradeBroadcastRow[] = []
+  if (isStrictAdmin) {
+    const targetGrades = resolveTargetGrades(event.eligibleGrades)
+    const [sentRows, linkedRows] = await Promise.all([
+      db
+        .select({ grade: eventGradeBroadcasts.grade, sentAt: eventGradeBroadcasts.sentAt })
+        .from(eventGradeBroadcasts)
+        .where(eq(eventGradeBroadcasts.eventId, idNum)),
+      db
+        .select({ grade: lineGradeGroupBindings.grade })
+        .from(lineGradeGroupBindings)
+        .where(
+          and(
+            eq(lineGradeGroupBindings.status, 'linked'),
+            isNotNull(lineGradeGroupBindings.lineGroupId),
+          ),
+        ),
+    ])
+    // claim 中（sent_at NULL）の行は「未送信」として扱う — 送信が確定した級だけを
+    // 送信済みと表示する（コアロジックの claim 契約と同じ判定）。
+    const sentAtByGrade = new Map(
+      sentRows.filter((r) => r.sentAt != null).map((r) => [r.grade, r.sentAt]),
+    )
+    const linkedGrades = new Set(linkedRows.map((r) => r.grade))
+    gradeBroadcastRows = targetGrades.map((grade) => ({
+      grade,
+      sentAt: sentAtByGrade.get(grade) ?? null,
+      linked: linkedGrades.has(grade),
+    }))
   }
 
   // Unanswered count must only consider invited users; the users table may contain
@@ -493,6 +537,16 @@ export default async function EventDetailPage({
         setGuidelineAttachmentsAction={setGuidelineAttachments}
         resendGuidelinesAction={resendGuidelines}
       />
+
+      {/* event-grade-group-broadcast: 級別グループ配信の状況と再送。大会別グループ
+          配信とは読み手（会員全体 vs 申込者）が違う別系統なので併記する。 */}
+      {isStrictAdmin && gradeBroadcastRows.length > 0 && (
+        <GradeBroadcastSection
+          eventId={event.id}
+          rows={gradeBroadcastRows}
+          resendAction={resendGradeBroadcast}
+        />
+      )}
 
       {/* tournament-entry-rosters PR-4: 申込/確定名簿＋会員突合（個人戦のみ）。
           一般会員は確定名簿と自分の掲載状況を閲覧、管理者は取込フォームも表示。 */}

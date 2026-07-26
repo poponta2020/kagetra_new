@@ -1,11 +1,13 @@
 'use server'
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import * as schema from '@kagetra/shared/schema'
 import {
   events,
   mailAttachments,
@@ -40,6 +42,7 @@ import {
   extractEventUnitsFormData,
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
+import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
@@ -67,6 +70,51 @@ async function requireAdminSession() {
   return session
 }
 
+// Works for both NodePgDatabase (main db) and NodePgTransaction (inside a tx
+// callback) — same pattern as lib/result-import/materialize.ts.
+type DbLike = NodePgDatabase<typeof schema>
+
+/**
+ * event-grade-group-broadcast タスク6: 承認フォームで選ばれた「LINE告知に
+ * 載せる要綱」の添付 ID を検証する。
+ *
+ * 過去の r5 blocker（unit_key の事前検証をロック前の read に対して行い、
+ * 並行 reextract に古い集合ですり抜けられた事故）と同じ穴を作らないため、
+ * ここでの判定材料はページが渡した候補リストやトランザクション前の read
+ * ではなく、呼び出し側が tx 内で確定させた `lockedMessageId`（＝そのドラフト
+ * の元メール。ドラフト作成後に変わらない列）だけを使う。選択された添付が
+ * 実際にその元メールに属していることを、同じ tx 内の SELECT で確認する。
+ *
+ * 未選択（空文字 / 欠落）は null を返す（配信時に URL 行が省略される —
+ * lib/event-grade-broadcast.ts 側の既存挙動）。
+ */
+async function resolveGradeBroadcastAttachmentId(
+  tx: DbLike,
+  formData: FormData,
+  lockedMessageId: number,
+): Promise<number | null> {
+  const raw = formData.get('gradeBroadcastAttachmentId')
+  if (typeof raw !== 'string' || raw.trim() === '') return null
+  const attachmentId = Number(raw)
+  if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
+    throw new Error('入力が不正です: 要綱の添付を確認してください')
+  }
+  const rows = await tx
+    .select({ id: mailAttachments.id })
+    .from(mailAttachments)
+    .where(
+      and(
+        eq(mailAttachments.id, attachmentId),
+        eq(mailAttachments.mailMessageId, lockedMessageId),
+      ),
+    )
+    .limit(1)
+  if (rows.length === 0) {
+    throw new Error(`入力が不正です: 未知の要綱添付 (${attachmentId})`)
+  }
+  return attachmentId
+}
+
 export async function approveDraft(draftId: number, formData: FormData) {
   const session = await requireAdminSession()
 
@@ -87,12 +135,29 @@ export async function approveDraft(draftId: number, formData: FormData) {
   let approvedIsCorrection = false
 
   await db.transaction(async (tx) => {
+    // event-grade-group-broadcast タスク6: この経路 (approveDraft) は draft 行を
+    // FOR UPDATE しないが、messageId はドラフト作成後に変わらない列（変わるのは
+    // status / extracted_payload のみ）なので、tx 内で読めば同一トランザクション
+    // 内での検証として十分（unit_key のような並行 reextract レースが存在しない）。
+    const draftRow = await tx
+      .select({ messageId: tournamentDrafts.messageId })
+      .from(tournamentDrafts)
+      .where(eq(tournamentDrafts.id, draftId))
+      .limit(1)
+    if (draftRow.length === 0) throw new Error('draft not found')
+    const gradeBroadcastAttachmentId = await resolveGradeBroadcastAttachmentId(
+      tx,
+      formData,
+      draftRow[0]!.messageId,
+    )
+
     const inserted = await tx
       .insert(events)
       .values({
         ...parsed,
         eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
         createdBy: session.user.id,
+        gradeBroadcastAttachmentId,
       })
       .returning({ id: events.id })
     const newEventId = inserted[0]?.id
@@ -167,11 +232,19 @@ export async function approveDraft(draftId: number, formData: FormData) {
     const mailMessageId = approvedMailMessageId
     const isCorrection = approvedIsCorrection
     after(async () => {
-      try {
-        await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
-      } catch (err) {
-        console.error('[approveDraft] broadcastMailToEvent failed', err)
-      }
+      // event-grade-group-broadcast: 大会別グループ配信と級別グループ配信は
+      // 読み手も経路も別系統。**直列にしない** — 既存の配信は本文の PDF 変換等で
+      // 数十秒かかり得るため、待ってから級別配信を始めると「即時配信」の意図に
+      // 反して大きく遅れ、after が途中で切られると級別側は claim すら作れない
+      // （review R5 should_fix）。個別に catch して並行で走らせる。
+      await Promise.allSettled([
+        broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection }).catch((err) => {
+          console.error('[approveDraft] broadcastMailToEvent failed', err)
+        }),
+        broadcastEventsToGradeGroups(db, [eventId]).catch((err) => {
+          console.error('[approveDraft] broadcastEventsToGradeGroups failed', err)
+        }),
+      ])
     })
   }
 }
@@ -379,6 +452,17 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
       }
     }
 
+    // event-grade-group-broadcast タスク6: 「LINE告知に載せる要綱」は unit ごとで
+    // はなく承認フォーム全体で 1 件だけ選ぶ。ここで一度だけ解決し、今回の承認で
+    // 作られる全 events に同じ値を入れる。検証は lockedRow.messageId（FOR UPDATE
+    // ロック済み行から取得）に対して行う — unit_key と同じ理由で、ページが渡した
+    // 候補リストは信用しない。
+    const gradeBroadcastAttachmentId = await resolveGradeBroadcastAttachmentId(
+      tx,
+      formData,
+      lockedRow.messageId,
+    )
+
     const existingDraftEvents = await tx
       .select({ kind: events.kind, editionId: events.editionId })
       .from(events)
@@ -474,6 +558,9 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
           tournamentDraftUnitKey: unitKey,
           // flow①: 解決した開催。link OFF/未解決なら null。
           editionId: resolvedEditionId,
+          // タスク6: 承認フォーム全体で 1 件の選択を、今回作られる全 unit の
+          // events に同じ値で入れる（分割承認でも回ごとに同じ値になる）。
+          gradeBroadcastAttachmentId,
         })
         // `where` is REQUIRED here: the unique index is PARTIAL (WHERE both
         // columns NOT NULL), and Postgres only treats a partial index as the
@@ -589,7 +676,18 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
     const mailMessageId = approvedMailMessageId ?? lockedMessageId
     const isCorrection = didFinalize ? approvedIsCorrection : lockedIsCorrection
     after(async () => {
-      await broadcastApprovedUnits(eventIds, mailMessageId, isCorrection)
+      // 2 系統は独立。直列にすると級別配信が既存配信（PDF 変換等で数十秒）の
+      // 完了待ちになる（review R5 should_fix）。個別に catch して並行で走らせる。
+      //
+      // 級別配信には今回作成した全 event を**1回でまとめて**渡す。event ごとに
+      // 呼ぶと、同じ級に複数件該当したとき級グループへ複数通届いてしまう
+      // （AC-10 は「級ごと1通」）。
+      await Promise.allSettled([
+        broadcastApprovedUnits(eventIds, mailMessageId, isCorrection),
+        broadcastEventsToGradeGroups(db, eventIds).catch((err) => {
+          console.error('[approveDraftUnits] broadcastEventsToGradeGroups failed', err)
+        }),
+      ])
     })
   }
 }

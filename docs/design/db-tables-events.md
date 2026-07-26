@@ -42,6 +42,7 @@
 | payment_paid_at | timestamptz | NULL | — | |
 | tournament_draft_id | integer | NULL | — | AI取込元ドラフトへの参照。FK制約はmigrationのraw ALTERで付与（ON DELETE SET NULL） |
 | tournament_draft_unit_key | text | NULL | — | ドラフトpayload内の該当イベント単位キー |
+| grade_broadcast_attachment_id | integer | NULL | — | 級グループ告知に載せる要綱添付。承認フォームで1件選択（未選択=NULL→文面のURL行を省略）。FK→mail_attachments.idはmigrationのraw ALTERで付与（ON DELETE SET NULL） |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
@@ -149,6 +150,47 @@
 | created_at | timestamptz | NOT NULL | `now()` | |
 
 **制約**: UNIQUE `event_broadcast_guideline_attachments_uq` on (event_line_broadcast_id, mail_attachment_id) / INDEX `event_broadcast_guideline_attachments_mail_attachment_idx` on (mail_attachment_id)（FK ON DELETE CASCADE のカスケード探索用）
+
+## line_grade_group_bindings（TS: `lineGradeGroupBindings`）
+
+定義ファイル: `packages/shared/src/schema/line-grade-group-bindings.ts`
+
+級(A〜E)⇔級別LINEグループの**常設**1:1紐付け（event-grade-group-broadcast）。`event_line_broadcasts`は`event_id`がNOT NULL+UNIQUEで大会に属さない紐付けを表現できないため別テーブル。ライフサイクル: `invite_pending → joined_waiting_code → linked → revoked`（大会終了で解放される`released`は持たない）。**配信対象は`status='linked'`かつ`line_group_id IS NOT NULL`の行のみ**。push失敗でこの行を自動revokeしない。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| grade | grade (enum) | NOT NULL | — | UNIQUE（1級に2グループ不可） |
+| line_channel_id | integer | NOT NULL | — | UNIQUE（1 Botが2級を兼務不可）。FK→line_channels.id ON DELETE RESTRICT |
+| invite_code | text | NULL | — | 部分UNIQUE対象 |
+| invite_code_expires_at | timestamptz | NULL | — | |
+| line_group_id | text | NULL | — | join webhookで捕捉 |
+| status | line_grade_group_status (enum) | NOT NULL | 'invite_pending' | |
+| linked_at | timestamptz | NULL | — | |
+| revoked_at | timestamptz | NULL | — | |
+| revoke_reason | text | NULL | — | 自由記述（manual/bot_kicked） |
+| created_at | timestamptz | NOT NULL | `now()` | |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE(grade) / UNIQUE(line_channel_id) / 部分UNIQUE `line_grade_group_bindings_invite_code_active_uq` on (invite_code) WHERE invite_code IS NOT NULL
+
+## event_grade_broadcasts（TS: `eventGradeBroadcasts`）
+
+定義ファイル: `packages/shared/src/schema/event-grade-broadcasts.ts`
+
+`(大会, 級)`単位の級グループ配信記録。**claim → push → 確定/取消**方式で「二重送信しない」と「失敗した級は未送信のまま残して再送できる」を両立する。claimはリースつきupsert（`ON CONFLICT DO UPDATE ... WHERE sent_at IS NULL AND claimed_at < now() - interval '5 minutes' RETURNING id`）で、送信途中にプロセスが落ちても5分後に再claimできる。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| event_id | integer | NOT NULL | — | FK→events.id ON DELETE CASCADE |
+| grade | grade (enum) | NOT NULL | — | |
+| claimed_at | timestamptz | NOT NULL | `now()` | リースの基準時刻。確定/取消はこの値との一致（ownership CAS）を条件にする。JS の Date と往復させるためミリ秒に丸めて書く |
+| retry_key | text | NULL | — | LINEの`X-Line-Retry-Key`(UUID)。**一度決めたら変えない**。同じpushにまとめた行が共有し、一部だけ再送しても元の送信と同じキーで再開できる |
+| sent_at | timestamptz | NULL | — | push成功時のみ。NULL=claim中/放置claim |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE `event_grade_broadcasts_event_grade_uq` on (event_id, grade)
 
 ## event_lifecycle_notifications（TS: `eventLifecycleNotifications`）
 

@@ -10,6 +10,7 @@ import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
 import { addDays } from '@/lib/jst-date'
 import type { SeriesRow, TournamentKind } from '@/lib/edition/match'
+import type { AttachmentChip } from './AttachmentList'
 import {
   TournamentSeriesSelectSheet,
   type TournamentSeriesSelection,
@@ -48,6 +49,15 @@ export interface ApprovalFormProps {
     matched: boolean
   }
   seriesOptions?: SeriesRow[]
+  /**
+   * event-grade-group-broadcast タスク6: 「LINE告知に載せる要綱」の選択肢。
+   * 候補はこのドラフトの元メール（tournament_drafts.message_id）の添付そのもの
+   * （mail.attachments）。event スコープの loadGuidelineCandidates は承認前に
+   * event が存在しないため使えない — [id]/page.tsx が既に読み込んでいる
+   * mail.attachments をそのまま渡す。省略時は空配列（既存テストの互換のため
+   * optional。実画面では [id]/page.tsx が常に渡す）。
+   */
+  attachmentCandidates?: readonly AttachmentChip[]
   action: (formData: FormData) => void | Promise<void>
 }
 
@@ -146,6 +156,7 @@ export function ApprovalForm({
   registeredUnitKeys,
   editionSuggestion,
   seriesOptions = [],
+  attachmentCandidates = [],
   action,
 }: ApprovalFormProps) {
   const units = normalizeUnits(payload)
@@ -364,6 +375,47 @@ export function ApprovalForm({
             setSeriesSheetOpen(false)
           }}
         />
+
+        {/* event-grade-group-broadcast タスク6: 承認 1 回につき 1 件だけ選ぶ
+            （unit ごとではなくフォーム全体）。デフォルトは未選択（「選択しない」）。
+            候補が 0 件（元メールに添付が無い）なら空状態を出す。 */}
+        <Card>
+          <div className="flex flex-col gap-3">
+            <span className="text-sm font-semibold text-ink">
+              LINE告知に載せる要綱
+            </span>
+            {attachmentCandidates.length === 0 ? (
+              <p className="text-xs text-ink-meta">添付がありません</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm text-ink-2">
+                  <input
+                    type="radio"
+                    name="gradeBroadcastAttachmentId"
+                    value=""
+                    defaultChecked
+                    className="border-border"
+                  />
+                  選択しない
+                </label>
+                {attachmentCandidates.map((a) => (
+                  <label
+                    key={a.id}
+                    className="flex items-center gap-2 text-sm text-ink-2"
+                  >
+                    <input
+                      type="radio"
+                      name="gradeBroadcastAttachmentId"
+                      value={a.id}
+                      className="border-border"
+                    />
+                    <span className="truncate">{a.filename}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
 
         {units.map((unit) => {
           const registeredEventId = registeredMap.get(unit.unit_key)
