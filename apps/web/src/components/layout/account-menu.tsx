@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { Pill } from '@/components/ui'
 import { roleViewLabel } from '@/lib/role-preview'
 import type { RolePreviewSelection } from '@/lib/role-preview'
@@ -72,7 +71,13 @@ export function AccountMenu({
   setRolePreviewAction = null,
 }: AccountMenuProps) {
   const [open, setOpen] = useState(false)
-  const pathname = usePathname()
+  // 表示ロール切替後に戻すパス。`usePathname()` はクエリ文字列を落とすため
+  // 使わない（ランキング・大会統計・選手検索は searchParams が状態の唯一の
+  // ソースなので、切替でフィルタが消えてしまう）。`useSearchParams()` は
+  // このコンポーネントが (app) レイアウト直下にある都合上、配下の全ページに
+  // Suspense 境界を要求してしまうのでこれも使わない。シートはクリック起点
+  // でしか開かず SSR されないため、開く瞬間に window から読めば足りる。
+  const [returnTo, setReturnTo] = useState('/')
 
   // Dismiss on Escape. InviteCodeModal/ManualLinkModal only close on backdrop
   // + ×; this sheet is reachable from every screen's header, so keyboard
@@ -102,7 +107,10 @@ export function AccountMenu({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setReturnTo(`${window.location.pathname}${window.location.search}`)
+          setOpen(true)
+        }}
         aria-haspopup="dialog"
         aria-expanded={open}
         className="flex items-center gap-1.5 text-xs text-ink-meta hover:text-brand transition-colors"
@@ -176,7 +184,7 @@ export function AccountMenu({
               <div className="mt-1 border-t border-border pt-2">
                 <p className="px-2 pb-1 text-xs text-ink-meta">表示ロール</p>
                 <form action={setRolePreviewAction} className="flex flex-col">
-                  <input type="hidden" name="returnTo" value={pathname} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
                   {rolePreview.selectable.map((role) => (
                     <button
                       key={role}

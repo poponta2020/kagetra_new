@@ -1,8 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { AccountMenu } from './account-menu'
-
-vi.mock('next/navigation', () => ({ usePathname: () => '/' }))
 
 describe('AccountMenu', () => {
   const noopSignOut = async () => {}
@@ -236,6 +234,7 @@ describe('AccountMenu', () => {
     })
 
     it('returnTo の hidden input が form 内に存在する', () => {
+      window.history.replaceState({}, '', '/')
       render(
         <AccountMenu
           user="山田さん"
@@ -250,7 +249,27 @@ describe('AccountMenu', () => {
         'input[type="hidden"][name="returnTo"]',
       ) as HTMLInputElement
       expect(hidden).not.toBeNull()
+      expect(hidden.value).toBe('/')
       expect(hidden.closest('form')).not.toBeNull()
+    })
+
+    it('returnTo にクエリ文字列も含める（切替でフィルタ条件を失わない）', () => {
+      window.history.replaceState({}, '', '/players/ranking?grade=A&years=5')
+      render(
+        <AccountMenu
+          user="山田さん"
+          isAdmin
+          signOutAction={noopSignOut}
+          rolePreview={{ current: 'admin', real: 'admin', selectable: ['admin', 'vice_admin', 'member'] }}
+          setRolePreviewAction={noopSetRolePreview}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: /山田さん/ }))
+      const hidden = document.querySelector(
+        'input[type="hidden"][name="returnTo"]',
+      ) as HTMLInputElement
+      expect(hidden.value).toBe('/players/ranking?grade=A&years=5')
+      window.history.replaceState({}, '', '/')
     })
   })
 })

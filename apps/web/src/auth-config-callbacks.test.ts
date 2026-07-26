@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from 'next-auth'
 import type { JWT } from 'next-auth/jwt'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -108,6 +108,16 @@ describe('authConfig.callbacks.session — 実効ロールの生成点', () => {
 })
 
 describe('authConfig.callbacks.jwt — update パッチ経路', () => {
+  // この経路は Server Action 専用ではない。Auth.js の `POST /api/auth/session`
+  // が認証済みクライアントの任意ペイロードをそのまま渡してくるため、許可
+  // リスト判定はここにも要る。既定では許可ユーザーとして振る舞わせる。
+  beforeEach(() => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u1')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('{ user: { viewAsRole: "member" } } を転記する', async () => {
     const token = await callJwt({
       token: { id: 'u1', role: 'admin' } as JWT,
@@ -170,6 +180,54 @@ describe('authConfig.callbacks.jwt — update パッチ経路', () => {
     expect(token.lineUserId).toBe('Uxyz')
     expect(token.lineLinkedAt).toBe('2026-05-01T00:00:00.000Z')
     expect(token.lineLinkedMethod).toBe('account_switch')
+  })
+
+  it('許可リスト外のユーザーは POST /api/auth/session 相当の直接 update でもプレビューへ入れない（AC-1 / AC-2 / AC-10 の迂回防止）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'someone-else')
+    const token = await callJwt({
+      token: { id: 'u1', role: 'admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'member' } },
+    })
+    expect(token.viewAsRole).toBeUndefined()
+  })
+
+  it('env 未設定なら誰も直接 update でプレビューへ入れない（fail-closed）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+    const token = await callJwt({
+      token: { id: 'u1', role: 'admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'member' } },
+    })
+    expect(token.viewAsRole).toBeUndefined()
+  })
+
+  it('許可リスト外でも viewAsRole: null（解除）は常に通る（締め出し防止）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'someone-else')
+    const token = await callJwt({
+      token: { id: 'u1', role: 'admin', viewAsRole: 'member' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: null } },
+    })
+    expect(token.viewAsRole).toBeNull()
+  })
+
+  it('許可ユーザーでも本物のロールより上は書き込めない（AC-11 昇格不能）', async () => {
+    const token = await callJwt({
+      token: { id: 'u1', role: 'vice_admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'admin' } },
+    })
+    expect(token.viewAsRole).toBeUndefined()
+  })
+
+  it('token.id が無い（未紐付け）ユーザーは直接 update でプレビューへ入れない', async () => {
+    const token = await callJwt({
+      token: { sub: 'Uline-sub', role: 'admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'member' } },
+    })
+    expect(token.viewAsRole).toBeUndefined()
   })
 
   it('新規 LINE サインインでは viewAsRole が落ちる＝再ログインでプレビュー解除（AC-16）', async () => {

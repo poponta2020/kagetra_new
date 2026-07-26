@@ -1,6 +1,11 @@
 import type { NextAuthConfig } from 'next-auth'
 import Line from 'next-auth/providers/line'
-import { parseUserRole, resolveEffectiveRole } from '@/lib/role-preview'
+import {
+  isRolePreviewAllowed,
+  parseUserRole,
+  resolveEffectiveRole,
+  selectableRoles,
+} from '@/lib/role-preview'
 import type { UserRole } from '@/lib/role-preview'
 
 /**
@@ -85,15 +90,42 @@ export const authConfig = {
         ) {
           token.lineLinkedMethod = patch.lineLinkedMethod
         }
-        // role-preview-switch: null は「プレビュー解除」なので必ず受け付ける。
-        // enum 外の値は無視して token を変えない（改竄された patch で実効
-        // ロールが動かないこと = AC-11）。昇格の防止は session 側の
-        // resolveEffectiveRole による丸め込みが担う。
+        // role-preview-switch: ⚠️ この update 経路は Server Action 専用ではない。
+        // Auth.js の `POST /api/auth/session`（`useSession().update()` と同じ
+        // エンドポイント）は、認証済みクライアントが送った任意のペイロードを
+        // そのままここへ渡す。したがって切替 Server Action 側の許可リスト判定
+        // だけでは迂回できてしまう（fail-closed の AC-1 / AC-2 / AC-10 が破れる）。
+        // JWT を書き換えるこの一点でも許可リストと本物のロールを検査する。
+        //
+        // `null`（プレビュー解除）だけは無条件に受け付ける。運用中に env から
+        // de-list されたユーザーの締め出しを防ぐためで、実効ロールは下がる方向
+        // にしか動かないので権限が広がることはない。
+        //
+        // `process.env` はこの update 分岐の中でだけ読む。middleware（Edge）の
+        // `auth()` は trigger='update' を立てないためここには入らず、実際に
+        // 到達するのは `unstable_update`（Server Action）と `/api/auth/session`
+        // の route handler ＝いずれも Node ランタイム。
         if (patch.viewAsRole === null) {
           token.viewAsRole = null
         } else if (patch.viewAsRole !== undefined) {
-          const parsed = parseUserRole(patch.viewAsRole)
-          if (parsed) token.viewAsRole = parsed
+          const requested = parseUserRole(patch.viewAsRole)
+          // token.sub は LINE の profile.sub で users.id とは別名前空間なので
+          // 使わない（session コールバックの同旨コメント参照）。
+          const allowed = isRolePreviewAllowed(
+            token.id as string | undefined,
+            process.env.ROLE_PREVIEW_USER_IDS,
+          )
+          const realRole = parseUserRole(token.role)
+          if (
+            requested &&
+            allowed &&
+            realRole &&
+            selectableRoles(realRole).includes(requested)
+          ) {
+            token.viewAsRole = requested
+          }
+          // 上記を満たさない場合は token を一切変えない（AC-10 / AC-11 の
+          // 「拒否時は状態不変」）。
         }
       }
       return token
