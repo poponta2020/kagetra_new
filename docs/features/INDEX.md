@@ -42,5 +42,6 @@
 - `role-preview-switch` — 許可された管理者だけが表示ロール（管理者/副管理者/一般会員）をUIから切り替え、会員としての見え方・触れ方を実機確認できるようにする（主要領域: apps/web） [shipped: PR #336]
 - `event-list-redesign` — /events 大会申込一覧の再リデザイン（主要領域: apps/web events） [shipped: PR #345]
 - `nav-settings-hub` — 上部バー(かげとら＋ユーザー名)を廃止し、ボトムナビに設定タブ＋独立した設定ページを新設。会員・Botはナビから設定ハブへ移設（主要領域: apps/web layout） [shipped: PR #351]
-- `event-detail-redesign` — /events/[id] 大会申込詳細を管理者・一般会員とも「罫線＋余白主導（脱カード）」へ再設計（主要領域: apps/web events）
-- `entry-groups` — 開催日別イベントを「同メール×同締切」の申込グループで束ね、LINE紐付け・通知・進行操作をグループ単位に集約（主要領域: 未定）
+- `event-detail-redesign` — /events/[id] 大会申込詳細を管理者・一般会員とも「罫線＋余白主導（脱カード）」へ再設計（主要領域: apps/web events） [shipped: PR #376]
+- `entry-groups` — 開催日別イベントを「同メール×同締切」の申込グループで束ね、LINE紐付け・配信・名簿・リマインド・進行操作をグループ単位に集約（主要領域: packages/shared schema + apps/web events/admin/mail-inbox/scripts）
+- `senseki-boundary` — 統計・戦績ドメイン（統計4セクション・選手検索・戦績詳細・結果取込）を配布版から物理削除可能・再装着可能な疎結合境界へ再編（capability フラグ＋境界マニフェスト）（主要領域: apps/web, apps/mail-worker）
