@@ -172,3 +172,7 @@
 - [auto-review PR #321](auto-review-round-pr321.md) — R1-R5 全対応。二重配信/配信欠落が5回形を変えて出た（retry key=バッチの不変性）
 - [fix PR #321](impl_fix-pr321.md) — review 指摘の修正（二重配信・再発行の破壊が本命）
 - [新規大会の概要を級別LINEグループへ自動配信](project_ship-event-grade-group-broadcast.md) — shipped: PR #321（DoD C1 はユーザー指示でskip・R6 blockers=0）
+- [entry-management（申込管理）要件定義](project_entry_management_def.md) — 親Issue #322・5区画ボード・実装未着手
+- [entry-management Wave 1（タスク1・2）](impl_entry-management-wave1.md) — 純関数+テスト / ボトムナビ7タブ。並行ワーカーに vitest を渡さない理由と GroupedBoard 型の穴
+- [entry-management タスク3・4](impl_entry-management-task34.md) — 毎朝アラートの条件追加で既存テストの意図を守る方法／プロトタイプの空状態バグ
+- [role-preview-switch 要件定義](project_role_preview_switch_def.md) — 親Issue #327・実装未着手
