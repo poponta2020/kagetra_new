@@ -18,9 +18,6 @@ export type DeadlineTone = 'today' | 'soon' | 'normal' | 'past' | 'none'
 /** Days-left threshold below which the countdown is emphasised (soon bucket). */
 export const SOON_THRESHOLD = 3
 
-/** Max surname chips rendered per row before collapsing into "他N名". */
-export const CHIP_LIMIT = 5
-
 /** Minimal serialisable row the client list renders (see requirements §4.3). */
 export interface EventListItem {
   id: number
@@ -32,8 +29,18 @@ export interface EventListItem {
   canApply: boolean
   /** Total `attend=true` count (unchanged "参加 N名" semantics). */
   attendCount: number
-  /** Leading surnames (up to CHIP_LIMIT), grade-ascending. */
-  chipSurnames: string[]
+  /**
+   * Surnames of every `attend=true` participant, grade-ascending (unset last).
+   * event-list-redesign: the CHIP_LIMIT slice was dropped — rows render all of
+   * them, so there is no "他N名" remainder to compute.
+   */
+  attendeeSurnames: string[]
+  /**
+   * Whether the viewing user answered `attend=true` for this event. Only used
+   * to keep past-deadline rows visible for people who already applied
+   * (requirements §2.1) — it is not rendered anywhere.
+   */
+  viewerAttending: boolean
 }
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
@@ -69,21 +76,66 @@ export function formatEventDate(eventDate: string): string {
  *   - 0    → 「本日」      today (accent)
  *   - < 0  → 「締切済」    past (muted)
  *   - null → 「—」         none (row kept, dash)
+ *
+ * `daysLeft` is returned alongside `text` because the redesign renders the
+ * number at a larger size than the surrounding 「あと」「日」 (design-spec
+ * 忠実度チェックリスト). It is `null` whenever there is no countdown to show
+ * (`none`), and 0 on the 「本日」 pill which prints no digits.
  */
 export function formatDeadlineCountdown(
   internalDeadline: string | null,
   todayStr: string,
-): { text: string; tone: DeadlineTone } {
-  if (internalDeadline == null) return { text: '—', tone: 'none' }
+): { text: string; tone: DeadlineTone; daysLeft: number | null } {
+  if (internalDeadline == null) return { text: '—', tone: 'none', daysLeft: null }
   const deadline = toEpochDay(internalDeadline)
   const today = toEpochDay(todayStr)
-  if (deadline == null || today == null) return { text: '—', tone: 'none' }
+  if (deadline == null || today == null) return { text: '—', tone: 'none', daysLeft: null }
 
   const daysLeft = Math.round((deadline - today) / 86_400_000)
-  if (daysLeft < 0) return { text: '締切済', tone: 'past' }
-  if (daysLeft === 0) return { text: '本日', tone: 'today' }
-  if (daysLeft <= SOON_THRESHOLD) return { text: `あと${daysLeft}日`, tone: 'soon' }
-  return { text: `あと${daysLeft}日`, tone: 'normal' }
+  if (daysLeft < 0) return { text: '締切済', tone: 'past', daysLeft }
+  if (daysLeft === 0) return { text: '本日', tone: 'today', daysLeft }
+  if (daysLeft <= SOON_THRESHOLD) return { text: `あと${daysLeft}日`, tone: 'soon', daysLeft }
+  return { text: `あと${daysLeft}日`, tone: 'normal', daysLeft }
+}
+
+/**
+ * 会内締切が過ぎているか。`formatDeadlineCountdown` の `past` tone を**唯一の
+ * 真実**として使う（しきい値ロジックを二重化しない）。締切未設定（null）は
+ * 「超過していない」＝ false。
+ */
+export function isPastDeadline(internalDeadline: string | null, todayStr: string): boolean {
+  return formatDeadlineCountdown(internalDeadline, todayStr).tone === 'past'
+}
+
+/**
+ * 行を一覧に出すか（requirements §2.1）。締切超過の行は原則隠すが、閲覧者
+ * 自身が出欠回答済み（attend=true）の行は「申し込んだかの確認」導線として
+ * 残す。締切当日（daysLeft=0）・締切未設定（null）は past ではないので表示。
+ *
+ * 自分の attend 状態でユーザーごとに行集合が変わるため、サーバー側の母集団
+ * 条件ではなく表示フィルタとして適用する。
+ */
+export function isRowVisible(
+  item: Pick<EventListItem, 'internalDeadline' | 'viewerAttending'>,
+  todayStr: string,
+): boolean {
+  return !isPastDeadline(item.internalDeadline, todayStr) || item.viewerAttending
+}
+
+/**
+ * 行左端の色帯を藍にするか（design-spec Round 5）＝「今この行から申し込める」。
+ * `canApply`（級のみ判定）は不変のまま、中止と締切超過を重ねて判定する。
+ * false の行は砂帯。
+ */
+export function isOpenForEntry(
+  item: Pick<EventListItem, 'internalDeadline' | 'canApply' | 'status'>,
+  todayStr: string,
+): boolean {
+  return (
+    item.canApply &&
+    item.status !== 'cancelled' &&
+    !isPastDeadline(item.internalDeadline, todayStr)
+  )
 }
 
 /**

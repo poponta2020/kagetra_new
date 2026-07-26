@@ -72,6 +72,21 @@ describe('MobileShell', () => {
     expect(screen.getByTestId('child').textContent).toBe('child-content')
   })
 
+  // event-list-redesign AC-14: /events はページ余白 16px を自前で持つ
+  // （`page.tsx` の `p-4`）。同じ余白を共通シェルの <main> に足すと、すでに
+  // `p-4` を自前で持つ /tournaments・/players/[id] 等が二重余白になる。
+  // 余白はページ側で完結させる、というこの境界を機械的に固定する。
+  it('<main> は padding を持たない（余白は各ページ側で完結させる）', () => {
+    render(
+      <MobileShell user="山田さん" isAdmin signOutAction={noopSignOut}>
+        <div>child</div>
+      </MobileShell>,
+    )
+    const main = screen.getByRole('main')
+    // p-4 / px-4 / py-4 / pt-4 ... いずれの padding utility も入れない。
+    expect(main.className).not.toMatch(/\bp[xytrbl]?-/)
+  })
+
   it('AppBarMain に user prop が透過される', () => {
     render(
       <MobileShell user="山田さん" isAdmin={false} signOutAction={noopSignOut}>

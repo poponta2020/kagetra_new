@@ -21,7 +21,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 純関数・型の拡張（event-list-utils）
-- [ ] 完了
+- [x] 完了
 - **目的:** 表示判定ロジックを純関数として確定させ、後続2タスクが同じ契約に乗れるようにする
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-8, AC-9
 - **主な変更領域:** `apps/web/src/app/(app)/events/event-list-utils.ts` および `event-list-utils.test.ts`
@@ -36,7 +36,7 @@ status: completed
 - **対応Issue:** #341
 
 ### タスク2: サーバー側データ供給と余白（events/page.tsx）
-- [ ] 完了
+- [x] 完了
 - **目的:** 自分の参加有無を渡し、苗字を全員分渡し、ページ余白を入れる
 - **対応AC:** AC-2, AC-6, AC-7, AC-14
 - **主な変更領域:** `apps/web/src/app/(app)/events/page.tsx`（`participantRows` の select と items 組立、ページコンテナの className）
@@ -51,7 +51,7 @@ status: completed
 - **対応Issue:** #342
 
 ### タスク3: 一覧 UI の移植（EventListClient）
-- [ ] 完了
+- [x] 完了
 - **目的:** 確定デザインを実コンポーネントへ移植する
 - **対応AC:** AC-1, AC-5, AC-6, AC-8, AC-9, AC-10, AC-11, AC-12, AC-13
 - **主な変更領域:** `apps/web/src/app/(app)/events/EventListClient.tsx` および `EventListClient.test.tsx`
@@ -68,7 +68,7 @@ status: completed
 - **対応Issue:** #343
 
 ### タスク4: 忠実度の確認と余白の回帰ガード
-- [ ] 完了
+- [x] 完了
 - **目的:** 確定デザインが劣化していないことと、余白変更が他画面に波及していないことを機械的に固定する
 - **対応AC:** AC-14, AC-15, AC-16
 - **主な変更領域:** `apps/web/src/components/layout/mobile-shell.test.tsx`（padding 不在の assertion 追加のみ・本体は変更しない）

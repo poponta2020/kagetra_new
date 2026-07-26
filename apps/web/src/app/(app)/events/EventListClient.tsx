@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import { Card, StatusPill } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import {
   formatDeadlineCountdown,
   formatEventDate,
+  isOpenForEntry,
+  isRowVisible,
   sortEvents,
-  type DeadlineTone,
   type EventListItem,
   type SortAxis,
 } from './event-list-utils'
@@ -31,8 +32,14 @@ export function EventListClient({
   const [sort, setSort] = useState<SortAxis>('deadline')
   const [applicableOnly, setApplicableOnly] = useState(false)
 
-  // 全体 0 件：コントロールを出さず現状文言（＝未来イベント無し）。
-  if (items.length === 0) {
+  // 可視判定（締切超過は自分が attend=true でない限り隠す）→ 申込可能フィルタ
+  // → ソート、の順で適用する（実装手順書 タスク3）。
+  const visible = items.filter((e) => isRowVisible(e, todayStr))
+
+  // 可視 0 件：コントロールを出さず現状文言。締切超過で全行隠れた場合も
+  // ここに含まれる（オフシーズンで普通に起きるため、フィルタ 0 件の文言と
+  // 混同しない）。
+  if (visible.length === 0) {
     return (
       <Card>
         <div className="text-center text-ink-meta py-6">
@@ -42,7 +49,7 @@ export function EventListClient({
     )
   }
 
-  const filtered = applicableOnly ? items.filter((e) => e.canApply) : items
+  const filtered = applicableOnly ? visible.filter((e) => e.canApply) : visible
   const rows = sortEvents(filtered, sort)
 
   return (
@@ -135,13 +142,52 @@ function SortTab({
   )
 }
 
-/** tone → 締切カウントダウンの色/太さ/サイズ（design-spec §5）。 */
-const TONE_CLASS: Record<DeadlineTone, string> = {
-  today: 'text-accent-fg font-bold text-[15px]',
-  soon: 'text-ink font-bold text-[15px]',
-  normal: 'text-ink-2 text-xs',
-  past: 'text-ink-muted text-xs',
-  none: 'text-ink-muted text-xs',
+/**
+ * 締切カウントダウンの表示（design-spec §5 / 忠実度チェックリスト）。
+ * tone ごとに構造が異なる（today=塗りピル・soon/normal=数字だけ拡大・
+ * past/none=無地）ため tone→className の単純な辞書では表現できず、
+ * tone で分岐して組み立てる。日数の数字は `<em>` 相当で分離し、周囲の
+ * 「あと」「日」より大きく描画する。
+ */
+function DeadlineValue({
+  countdown,
+}: {
+  countdown: ReturnType<typeof formatDeadlineCountdown>
+}) {
+  const { tone, daysLeft, text } = countdown
+
+  if (tone === 'today') {
+    return (
+      <span className="inline-block rounded-full bg-accent px-[9px] py-px text-[15px] font-bold text-ink-on-brand">
+        {text}
+      </span>
+    )
+  }
+  if (tone === 'soon') {
+    // 3日以内: 数字だけ 19px に拡大。色は墨のまま（朱にしない）。
+    return (
+      <span className="text-xs text-ink">
+        あと
+        <em className="mx-px font-display text-[19px] font-bold text-ink not-italic">
+          {daysLeft}
+        </em>
+        日
+      </span>
+    )
+  }
+  if (tone === 'normal') {
+    return (
+      <span className="text-xs text-ink-2">
+        あと
+        <em className="mx-px font-display text-[15px] font-bold text-ink-2 not-italic">
+          {daysLeft}
+        </em>
+        日
+      </span>
+    )
+  }
+  // past（締切済）/ none（—）は数字を持たない無地表示。
+  return <span className="text-xs text-ink-muted">{text}</span>
 }
 
 function EventRow({
@@ -153,46 +199,66 @@ function EventRow({
 }) {
   const countdown = formatDeadlineCountdown(event.internalDeadline, todayStr)
   const isCancelled = event.status === 'cancelled'
-  const remaining = event.attendCount - event.chipSurnames.length
+  const openForEntry = isOpenForEntry(event, todayStr)
 
   return (
     <Link
       href={`/events/${event.id}`}
-      className="block px-0.5 py-[13px] transition-colors hover:bg-surface-alt"
+      className="flex items-stretch py-[13px] transition-colors hover:bg-surface-alt"
     >
-      <div className="flex items-baseline gap-2">
-        <span className="shrink-0 font-display font-bold text-ink tabular-nums">
-          {formatEventDate(event.eventDate)}
-        </span>
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate font-display text-[18px] font-bold',
-            isCancelled ? 'text-ink-meta' : 'text-ink',
-          )}
-        >
-          {event.title}
-        </span>
-        <StatusPill status={event.status} size="sm" />
-        <span className="shrink-0 whitespace-nowrap">
-          <span className="mr-1 text-[10px] text-ink-muted">締切</span>
-          <span className={TONE_CLASS[countdown.tone]}>{countdown.text}</span>
-        </span>
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-ink-meta">
-          参加 {event.attendCount}名
-        </span>
-        {event.chipSurnames.map((name, i) => (
+      {/* 色帯: 藍=今この行から申し込める / 砂=それ以外（対象外・中止・締切超過） */}
+      <span
+        className={cn(
+          'w-[3px] shrink-0 rounded-[2px]',
+          openForEntry ? 'bg-brand' : 'bg-border',
+        )}
+      />
+      <div className="min-w-0 flex-1 pl-[11px]">
+        <div className="flex items-baseline gap-2">
           <span
-            key={`${event.id}-${i}`}
-            className="inline-flex items-center rounded-full bg-neutral-bg px-2 py-0.5 text-xs text-neutral-fg"
+            className={cn(
+              'min-w-0 truncate font-display text-[18px] font-bold',
+              isCancelled ? 'text-ink-meta' : 'text-ink',
+            )}
           >
-            {name}
+            {event.title}
           </span>
-        ))}
-        {remaining > 0 && (
-          <span className="text-[11px] text-ink-meta">他{remaining}名</span>
+          <span className="shrink-0 font-display text-[13.5px] font-bold text-ink-2 tabular-nums">
+            {formatEventDate(event.eventDate)}
+          </span>
+          <StatusPill status={event.status} size="sm" />
+          <span className="ml-auto shrink-0 pl-2 whitespace-nowrap">
+            <span
+              className={cn(
+                'mr-1 text-[10px]',
+                countdown.tone === 'today' ? 'text-accent-fg' : 'text-ink-muted',
+              )}
+            >
+              締切
+            </span>
+            <DeadlineValue countdown={countdown} />
+          </span>
+        </div>
+
+        {event.attendCount > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 items-baseline gap-2">
+              <span className="shrink-0 font-display text-[19px] leading-none font-bold text-brand">
+                {event.attendCount}
+                <small className="ml-px text-[11px] font-normal text-ink-meta">
+                  名
+                </small>
+              </span>
+              <span className="min-w-0 flex-1 text-xs leading-[1.65] text-neutral-fg">
+                {event.attendeeSurnames.map((name, i) => (
+                  <Fragment key={`${event.id}-${i}`}>
+                    {i > 0 && <span className="mx-1 text-ink-muted">・</span>}
+                    <span className="whitespace-nowrap">{name}</span>
+                  </Fragment>
+                ))}
+              </span>
+            </span>
+          </div>
         )}
       </div>
     </Link>

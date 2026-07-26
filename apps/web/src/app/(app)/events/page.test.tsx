@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { closeTestDb, truncateAll } from '@/test-utils/db'
-import { createEvent, createUser } from '@/test-utils/seed'
+import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 // entry-overdue-alert タスク4: /events 一覧は entry_status='not_applying' を
@@ -63,6 +63,69 @@ describe('/events 一覧 — entry_status=not_applying の除外 (AC-14)', () =>
     expect(screen.getByText('未申込大会')).toBeDefined()
     expect(screen.getByText('申込済大会')).toBeDefined()
     expect(screen.queryByText('見送り大会')).toBeNull()
+  })
+})
+
+describe('/events 一覧 — 締切超過行の可視性 (AC-2)', () => {
+  it('自分が attend=true の締切済大会は表示され、他人だけの締切済大会は表示されない', async () => {
+    const viewer = await createUser({ role: 'member', name: '閲覧者太郎' })
+    const other = await createUser({ role: 'member', name: '他人花子' })
+    await setAuthSession({ id: viewer.id, role: 'member' })
+
+    const future = addDays(todayJst(), 10)
+    const yesterday = addDays(todayJst(), -1)
+
+    const myEvent = await createEvent({
+      title: '自分参加済み大会',
+      eventDate: future,
+      internalDeadline: yesterday,
+    })
+    const othersEvent = await createEvent({
+      title: '他人だけ参加大会',
+      eventDate: future,
+      internalDeadline: yesterday,
+    })
+
+    await createEventAttendance({ eventId: myEvent.id, userId: viewer.id, attend: true })
+    await createEventAttendance({ eventId: othersEvent.id, userId: other.id, attend: true })
+
+    const ui = await EventsPage()
+    render(ui)
+
+    expect(screen.getByText('自分参加済み大会')).toBeDefined()
+    expect(screen.queryByText('他人だけ参加大会')).toBeNull()
+  })
+})
+
+describe('/events 一覧 — 参加者の苗字は全員分表示される (AC-6)', () => {
+  it('参加者6名以上でも「他N名」が出ず全員分の苗字が描画される', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const future = addDays(todayJst(), 10)
+
+    const event = await createEvent({
+      title: '大人数参加大会',
+      eventDate: future,
+    })
+
+    const surnames = ['佐藤一', '鈴木二', '高橋三', '田中四', '伊藤五', '渡辺六', '山本七']
+    for (const name of surnames) {
+      const participant = await createUser({ name })
+      await createEventAttendance({ eventId: event.id, userId: participant.id, attend: true })
+    }
+
+    const ui = await EventsPage()
+    // 苗字が個別 span で描画されるか結合文字列になるかは EventListClient
+    // （並行作業で書き換え中）の描画方式次第なので、markup 構造ではなく
+    // 描画結果に含まれるテキスト全体（container.textContent）で判定する。
+    const { container } = render(ui)
+
+    for (const name of surnames) {
+      expect(container.textContent).toContain(name)
+    }
+    // リデザインで「参加 N名」の語は廃止され、人数＋「名」だけになった（AC-5）。
+    expect(container.textContent).toContain('7名')
+    expect(container.textContent).not.toMatch(/他\d+名/)
   })
 })
 
