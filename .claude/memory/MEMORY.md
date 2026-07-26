@@ -191,3 +191,6 @@
 - [大会申込一覧リデザイン 出荷](project_ship-event-list-redesign.md) — shipped: PR #345。残DoD=本番375pxでの実機確認(AC-15の10項目目)
 - [nav-settings-hub 要件定義](project_nav_settings_hub_def.md) — 親Issue #346・上部バー廃止/設定ハブ・design-spec locked
 - [/design-screen Path L のローカル環境](reference_design_screen_path_l_env.md) — worktreeは design-live-kagetra・ジャンクション必須・cookie注入はHTMLページで
+- [nav-settings-hub タスク1](impl_nav-settings-hub-task1.md) — patch productionize・上部バー廃止/設定ハブ新設。死んだコメント参照3件とui-shell.md陳腐化を発見
+- [nav-settings-hub Wave 2（タスク2-4）](impl_nav-settings-hub-wave2.md) — 3ワーカー並行。★ソース読みテストのCRLF罠とjsdomのfileURLToPath罠、worker_verify:none では型エラーがバリアまで残る
+- [大会申込詳細リデザイン design-spec 確定(2026-07-26)](project_design_event_detail_redesign.md) — 脱カード方向で locked。削除12項目確認済・オープンチャットは別スコープ・次は define-feature 改修モード
