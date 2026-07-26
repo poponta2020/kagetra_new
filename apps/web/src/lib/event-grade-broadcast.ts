@@ -208,6 +208,11 @@ interface ClaimedRow {
    * そのまま返る**。同じキーで送り直せば LINE 側が重複排除する。
    */
   retryKey: string
+  /**
+   * 行の作成時刻 = その retry key を発行した時刻。LINE の retry key 保持期間
+   * （24 時間）を超えたかの判定に使う。
+   */
+  createdAt: Date
 }
 
 async function claimBroadcast(
@@ -239,11 +244,25 @@ async function claimBroadcast(
       id: eventGradeBroadcasts.id,
       claimedAt: eventGradeBroadcasts.claimedAt,
       retryKey: eventGradeBroadcasts.retryKey,
+      createdAt: eventGradeBroadcasts.createdAt,
     })
   const row = rows[0]
   if (!row) return null
-  return { id: row.id, claimedAt: row.claimedAt, retryKey: row.retryKey ?? freshKey }
+  return {
+    id: row.id,
+    claimedAt: row.claimedAt,
+    retryKey: row.retryKey ?? freshKey,
+    createdAt: row.createdAt,
+  }
 }
+
+/**
+ * LINE が retry key を保持する期間。これを過ぎると同じキーでも**新規リクエスト**
+ * として扱われるため、受理されたか不明なまま放置された送信を自動で再試行すると
+ * 二重配信になり得る。超過分は自動再送せず管理者へ回す。
+ * https://developers.line.biz/en/docs/messaging-api/retrying-api-request/
+ */
+const RETRY_KEY_TTL_MS = 24 * 60 * 60 * 1000
 
 /**
  * claim を取り消す。**自分が取った claim（`claimed_at` 一致）だけ**を消す。
@@ -436,27 +455,33 @@ async function pushGradeText(
  */
 async function notifyAdmin(
   dbc: DbOrTx,
-  skippedGrades: Grade[],
-  failedGrades: Grade[],
+  parts: { skippedGrades: Grade[]; failedGrades: Grade[]; deliveryUnknownGrades: Grade[] },
   opts: { logger: Logger; fetchImpl: typeof fetch },
 ): Promise<boolean> {
   const channel = await loadSystemChannel(dbc, opts.logger)
   if (!channel || !channel.notificationLineUserId) return false
 
   const lines: string[] = ['⚠️ 級別グループ配信で問題がありました']
-  if (skippedGrades.length > 0) {
-    lines.push(`未紐付けでスキップ: ${skippedGrades.join('/')}`)
+  if (parts.skippedGrades.length > 0) {
+    lines.push(`未紐付けでスキップ: ${parts.skippedGrades.join('/')}`)
   }
-  if (failedGrades.length > 0) {
-    lines.push(`送信失敗: ${failedGrades.join('/')}`)
+  if (parts.failedGrades.length > 0) {
+    lines.push(`送信失敗: ${parts.failedGrades.join('/')}`)
+  }
+  if (parts.deliveryUnknownGrades.length > 0) {
+    lines.push(
+      `配信結果不明（要確認・自動再送しません）: ${parts.deliveryUnknownGrades.join('/')}`,
+    )
   }
 
-  await pushSystemText(
+  // review R4 should_fix: pushSystemText は失敗しても throw せず outcome を返す。
+  // 戻り値を捨てて常に true を返すと、通知が届いていないのに「通知済み」と解釈される。
+  const pushResult = await pushSystemText(
     { channelAccessToken: channel.channelAccessToken, notificationLineUserId: channel.notificationLineUserId },
     lines.join('\n'),
     { logger: opts.logger, fetchImpl: opts.fetchImpl },
   )
-  return true
+  return pushResult.outcome === 'sent'
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +495,46 @@ interface TargetEventRow {
   internalDeadline: string | null
   eligibleGrades: Grade[] | null
   gradeBroadcastAttachmentId: number | null
+}
+
+const TARGET_EVENT_COLUMNS = {
+  id: events.id,
+  title: events.title,
+  eventDate: events.eventDate,
+  internalDeadline: events.internalDeadline,
+  eligibleGrades: events.eligibleGrades,
+  gradeBroadcastAttachmentId: events.gradeBroadcastAttachmentId,
+}
+
+/**
+ * 同じ retry key に属する未送信の兄弟行（＝元 push で一緒に送ったはずの大会）を返す。
+ *
+ * review R4 blocker: retry key は「元の push リクエスト」と 1:1 でなければならない。
+ * A・B をまとめた push がタイムアウト（実際は未受理）した後、A だけを同じキーで
+ * 送って受理されると、続く B の再送は 409 になり **B は一度も送られていないのに
+ * 送信済みとして確定**する（サイレントな配信欠落）。再送ボタンは 1 大会ずつ送るので
+ * これは現実に踏む経路。再試行時は元のバッチ構成を復元して、同じ本文・同じ宛先・
+ * 同じキーで送り直す。
+ */
+async function loadSiblingEventsForRetryKey(
+  dbc: DbOrTx,
+  grade: Grade,
+  retryKey: string,
+  excludeEventIds: Set<number>,
+): Promise<TargetEventRow[]> {
+  const siblings = await dbc
+    .select({ eventId: eventGradeBroadcasts.eventId })
+    .from(eventGradeBroadcasts)
+    .where(
+      and(
+        eq(eventGradeBroadcasts.grade, grade),
+        eq(eventGradeBroadcasts.retryKey, retryKey),
+        sql`${eventGradeBroadcasts.sentAt} IS NULL`,
+      ),
+    )
+  const missing = siblings.map((s) => s.eventId).filter((id) => !excludeEventIds.has(id))
+  if (missing.length === 0) return []
+  return dbc.select(TARGET_EVENT_COLUMNS).from(events).where(inArray(events.id, missing))
 }
 
 export interface BroadcastEventsToGradeGroupsOptions {
@@ -491,12 +556,24 @@ export interface BroadcastEventsToGradeGroupsResult {
   skippedGrades: Grade[]
   /** claim は取れたが push が失敗し claim を取り消した級。 */
   failedGrades: Grade[]
-  /** 未紐付け/失敗があり管理者通知を送った (loadSystemChannel が有効だった) か。 */
+  /**
+   * LINE の retry key 保持期間 (24h) を超えた「受理されたか不明」な送信が残っている級。
+   * 同じキーで送り直しても新規リクエスト扱いになり二重配信になり得るため自動再送せず、
+   * 管理者へ通知して人が判断する。
+   */
+  deliveryUnknownGrades: Grade[]
+  /** 未紐付け/失敗があり管理者通知が**実際に送信できた**か。 */
   notified: boolean
 }
 
 function emptyResult(): BroadcastEventsToGradeGroupsResult {
-  return { sentGrades: [], skippedGrades: [], failedGrades: [], notified: false }
+  return {
+    sentGrades: [],
+    skippedGrades: [],
+    failedGrades: [],
+    deliveryUnknownGrades: [],
+    notified: false,
+  }
 }
 
 /**
@@ -530,6 +607,7 @@ export async function broadcastEventsToGradeGroups(
   const logger = options.logger ?? NOOP_LOGGER
   const fetchImpl = options.fetchImpl ?? fetch
   const leaseMs = options.claimLeaseMs ?? CLAIM_LEASE_MS
+  const nowMs = (options.now ?? new Date()).getTime()
   const result = emptyResult()
 
   if (eventIds.length === 0) return result
@@ -608,10 +686,11 @@ export async function broadcastEventsToGradeGroups(
       }
 
       const claimed: { row: ClaimedRow; event: TargetEventRow }[] = []
-      // review r1 blocker: LINE が push を受理したかどうかを catch 側からも見る。
-      // 受理済みの claim を「失敗」として巻き戻すと、次回同じ本文を再送してしまう
-      // （AC-8 違反）。確定 (`sent_at`) に失敗した曖昧な claim は**消さずに残す**。
-      let anyPushAccepted = false
+      // review r1 / R4 blocker: 「LINE に届いた可能性がある」claim は catch 側でも
+      // 絶対に消さない。消すと次回は新しい retry key で送られ、実は受理されていた
+      // 場合に二重配信になる（AC-8 違反）。accepted / unknown / 期限切れ保留の行を
+      // ここへ積み、catch では**これ以外**だけを巻き戻す。
+      const protectedRowIds = new Set<number>()
       try {
         const freshKey = newRetryKey()
         for (const event of gradeEvents) {
@@ -620,6 +699,23 @@ export async function broadcastEventsToGradeGroups(
         }
         // 既に全て送信済み、または別プロセスがリース中 — 二重送信を避けるため何もしない。
         if (claimed.length === 0) continue
+
+        // review R4 blocker: 既存キーを持つ行が混ざっていたら、そのキーに属する
+        // 未送信の兄弟行を呼び戻して**元のバッチ構成を復元**する。復元しないと、
+        // 部分再送が同じキーで別の本文を送ってしまい、残りの大会が 409 で
+        // 「送っていないのに送信済み」になる。
+        const preexistingKeys = [
+          ...new Set(claimed.filter((c) => c.row.retryKey !== freshKey).map((c) => c.row.retryKey)),
+        ]
+        for (const key of preexistingKeys) {
+          const known = new Set(claimed.map((c) => c.event.id))
+          const siblings = await loadSiblingEventsForRetryKey(db, grade, key, known)
+          for (const sibling of siblings) {
+            const row = await claimBroadcast(db, sibling.id, grade, leaseMs, freshKey)
+            // 取れなければ別プロセスがリース中。そちらに任せる（今回は送らない）。
+            if (row != null) claimed.push({ row, event: sibling })
+          }
+        }
 
         // review R2 blocker: retry key ごとに push をまとめる。通常は全件が
         // `freshKey` の 1 グループ（＝級ごと 1 通・AC-10）。「まとめて送ったが確定に
@@ -636,6 +732,32 @@ export async function broadcastEventsToGradeGroups(
 
         let anyGroupFailed = false
         for (const [retryKey, group] of byKey) {
+          // 本文は event id 昇順で組み立てて、再試行時に元と同じ内容になるようにする
+          // （LINE は同一キーで本文・宛先を変えないことを求めている）。
+          group.sort((a, b) => a.event.id - b.event.id)
+
+          // review R4 blocker: LINE の retry key 保持期間 (24h) を超えた「受理不明」の
+          // 送信は、同じキーでもう一度送ると新規リクエスト扱いになり、元が受理済み
+          // だった場合に二重配信になる。自動再送せず管理者判断へ回す（claim は残す）。
+          const oldest = group.reduce(
+            (min, g) => (g.row.createdAt < min ? g.row.createdAt : min),
+            group[0]!.row.createdAt,
+          )
+          const isStaleRetry =
+            retryKey !== freshKey && nowMs - oldest.getTime() > RETRY_KEY_TTL_MS
+          if (isStaleRetry) {
+            anyGroupFailed = true
+            for (const { row } of group) protectedRowIds.add(row.id)
+            if (!result.deliveryUnknownGrades.includes(grade)) {
+              result.deliveryUnknownGrades.push(grade)
+            }
+            logger.warn('grade broadcast retry key expired; needs manual check', {
+              grade,
+              ageMs: nowMs - oldest.getTime(),
+            })
+            continue
+          }
+
           const entries: GradeBroadcastEntry[] = []
           for (const { event } of group) {
             let guidelineUrl: string | null = null
@@ -661,12 +783,11 @@ export async function broadcastEventsToGradeGroups(
             logger,
             retryKey,
           )
-          if (pushResult.outcome === 'accepted') anyPushAccepted = true
-
           if (pushResult.outcome === 'accepted') {
             // ownership CAS: claim 取得時の claimed_at と一致する行だけ確定する。
             // リース失効で別プロセスが再 claim していたら 0 件になり、そちらの
             // 処理を壊さない。
+            for (const { row } of group) protectedRowIds.add(row.id)
             for (const { row } of group) {
               await db
                 .update(eventGradeBroadcasts)
@@ -688,7 +809,11 @@ export async function broadcastEventsToGradeGroups(
             // outcome === 'unknown': 受理されたか不明。**claim も retry_key も消さない**。
             // リース失効後の再試行が同じキーで送るので、実は受理されていた場合は LINE が
             // 重複排除する。ここで消すと次回は新しいキーになり二重配信になる。
+            //
+            // review R4 should_fix: 後続グループの例外で catch がこの行まで消さないよう、
+            // 保護対象に入れる（消すと次回は新しいキーになり二重配信へ進む）。
             anyGroupFailed = true
+            for (const { row } of group) protectedRowIds.add(row.id)
             logger.warn('grade broadcast push outcome unknown; keeping claim for same-key retry', {
               grade,
               httpStatus: pushResult.httpStatus,
@@ -702,15 +827,13 @@ export async function broadcastEventsToGradeGroups(
           grade,
           error: err instanceof Error ? err.message : String(err),
         })
-        // push が既に受理されている場合は claim を消さない。消すと「LINE には
-        // 届いたが未送信扱い」になり、次回の配信・再送で二重に届く。確定だけが
-        // 失敗した claim は残しておけば、再 claim 時に**同じ retry key が返る**ので
-        // LINE 側で冪等化される。
-        if (!anyPushAccepted && claimed.length > 0) {
-          await deleteOwnedClaims(
-            db,
-            claimed.map((c) => c.row),
-          ).catch(() => undefined)
+        // 届いた可能性がある行（accepted / unknown / 期限切れ保留）は残し、
+        // それ以外＝まだ push していない、または受理されていないことが確かな行だけを
+        // 巻き戻す。グループ単位で管理しているので、先行グループがタイムアウトした後に
+        // 後続グループが例外になっても、先行グループの claim と retry_key は失われない。
+        const rollback = claimed.map((c) => c.row).filter((r) => !protectedRowIds.has(r.id))
+        if (rollback.length > 0) {
+          await deleteOwnedClaims(db, rollback).catch(() => undefined)
         }
         result.failedGrades.push(grade)
       }
@@ -723,9 +846,21 @@ export async function broadcastEventsToGradeGroups(
 
   // ④ 未紐付け/失敗があれば管理者へ1通通知する（loadSystemChannel/pushSystemText は
   // throw しない契約だが、念のため外側で捕捉して throw しない契約を守る）。
-  if (result.skippedGrades.length > 0 || result.failedGrades.length > 0) {
+  if (
+    result.skippedGrades.length > 0 ||
+    result.failedGrades.length > 0 ||
+    result.deliveryUnknownGrades.length > 0
+  ) {
     try {
-      result.notified = await notifyAdmin(db, result.skippedGrades, result.failedGrades, { logger, fetchImpl })
+      result.notified = await notifyAdmin(
+        db,
+        {
+          skippedGrades: result.skippedGrades,
+          failedGrades: result.failedGrades,
+          deliveryUnknownGrades: result.deliveryUnknownGrades,
+        },
+        { logger, fetchImpl },
+      )
     } catch (err) {
       logger.warn('broadcastEventsToGradeGroups: admin notification failed', {
         error: err instanceof Error ? err.message : String(err),

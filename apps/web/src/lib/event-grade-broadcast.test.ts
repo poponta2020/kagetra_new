@@ -371,7 +371,19 @@ describe('broadcastEventsToGradeGroups — DB', () => {
     const event = await createEvent({ eligibleGrades: ['B'] })
     await seedGradeBinding('B')
     await seedSystemChannel({ notificationLineUserId: 'Uadmin' })
-    const fetchImpl = failFetch()
+    // グループ push は失敗させ、管理者通知だけは成功させる（notified は通知の
+    // 実際の送信成否を返すようになったため、同じ失敗 fetch を使い回すと
+    // 「通知が呼ばれたか」ではなく「通知も失敗したか」を見てしまう）。
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse((init as RequestInit).body as string) as { to: string }
+      const ok = body.to === 'Uadmin'
+      return {
+        ok,
+        status: ok ? 200 : 400,
+        headers: { get: () => null },
+        text: async () => 'error',
+      } as unknown as Response
+    })
 
     const result = await broadcastEventsToGradeGroups(testDb, [event.id], { fetchImpl, baseUrl: BASE_URL })
 
@@ -555,8 +567,112 @@ describe('broadcastEventsToGradeGroups — DB', () => {
   it('eventIds が空配列なら何もせず終了する', async () => {
     const fetchImpl = okFetch()
     const result = await broadcastEventsToGradeGroups(testDb, [], { fetchImpl, baseUrl: BASE_URL })
-    expect(result).toEqual({ sentGrades: [], skippedGrades: [], failedGrades: [], notified: false })
+    expect(result).toEqual({
+      sentGrades: [],
+      skippedGrades: [],
+      failedGrades: [],
+      deliveryUnknownGrades: [],
+      notified: false,
+    })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  // ─── review R4 blocker: retry key と元 push リクエストの対応を崩さない ─────
+
+  it('まとめ送信がタイムアウトした後、1大会だけ再送しても元のバッチ全体を同じキーで送り直す', async () => {
+    await seedGradeBinding('A')
+    const eventA = await createEvent({ eligibleGrades: ['A'], title: '大会A' })
+    const eventB = await createEvent({ eligibleGrades: ['A'], title: '大会B' })
+
+    // まとめて送ろうとしてタイムアウト（受理されたか不明）。
+    const timeoutFetch = vi.fn<typeof fetch>(async () => {
+      const err = new Error('The operation was aborted')
+      err.name = 'AbortError'
+      throw err
+    })
+    await broadcastEventsToGradeGroups(testDb, [eventA.id, eventB.id], {
+      fetchImpl: timeoutFetch,
+      baseUrl: BASE_URL,
+    })
+    const stored = await testDb.select().from(eventGradeBroadcasts)
+    expect(stored).toHaveLength(2)
+    const batchKey = stored[0]!.retryKey
+    expect(stored.every((r) => r.retryKey === batchKey)).toBe(true)
+
+    // リースを失効させ、個別画面から eventA だけ再送する。
+    await testDb
+      .update(eventGradeBroadcasts)
+      .set({ claimedAt: sql`now() - interval '1 hour'` })
+    const retry = okFetch()
+    await broadcastEventsToGradeGroups(testDb, [eventA.id], {
+      fetchImpl: retry,
+      baseUrl: BASE_URL,
+    })
+
+    // 元のバッチ構成 (A+B) が復元され、同じキーで送られること。A だけを同じキーで
+    // 送ってしまうと、続く B の再送が 409 になり「送っていないのに送信済み」になる。
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(retryKeyOf(retry)).toBe(batchKey)
+    const text = bodyOf(retry).messages.map((m) => m.text).join('\n')
+    expect(text).toContain('大会A')
+    expect(text).toContain('大会B')
+
+    // 2 件ともまとめて確定する。
+    const after = await testDb.select().from(eventGradeBroadcasts)
+    expect(after).toHaveLength(2)
+    expect(after.every((r) => r.sentAt != null)).toBe(true)
+  })
+
+  it('retry key の保持期間(24h)を過ぎた受理不明の送信は自動再送せず管理者へ回す', async () => {
+    const { binding } = await seedGradeBinding('A')
+    expect(binding.grade).toBe('A')
+    const event = await createEvent({ eligibleGrades: ['A'] })
+    await seedSystemChannel({ notificationLineUserId: 'Uadmin' })
+
+    // 25 時間前に発行された受理不明の claim。
+    await testDb.insert(eventGradeBroadcasts).values({
+      eventId: event.id,
+      grade: 'A',
+      retryKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      claimedAt: sql`now() - interval '25 hours'`,
+      createdAt: sql`now() - interval '25 hours'`,
+    })
+
+    const fetchImpl = okFetch()
+    const result = await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    // 同じキーで送り直すと LINE 側では新規リクエスト扱いになり、元が受理済み
+    // だった場合に二重配信になる。送らずに管理者通知へ回す。
+    expect(result.deliveryUnknownGrades).toEqual(['A'])
+    expect(result.sentGrades).toEqual([])
+    // 級グループへの push は行わず、管理者通知の 1 通だけ。
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(bodyOf(fetchImpl).to).toBe('Uadmin')
+    expect(bodyOf(fetchImpl).messages[0]!.text).toContain('配信結果不明')
+
+    // claim は残す（人が判断するまで消さない）。
+    const rows = await testDb.select().from(eventGradeBroadcasts)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.sentAt).toBeNull()
+  })
+
+  it('管理者通知の push が失敗したら notified=false を返す', async () => {
+    const event = await createEvent({ eligibleGrades: ['C'] })
+    await seedSystemChannel({ notificationLineUserId: 'Uadmin' })
+    // 級は未紐付け（スキップ）なので、この fetch は管理者通知にだけ使われる。
+    const fetchImpl = failFetch(400)
+
+    const result = await broadcastEventsToGradeGroups(testDb, [event.id], {
+      fetchImpl,
+      baseUrl: BASE_URL,
+    })
+
+    expect(result.skippedGrades).toEqual(['C'])
+    // 通知が届いていないのに notified=true を返すと、呼び出し側が誤解する。
+    expect(result.notified).toBe(false)
   })
 
   // ─── review r1 blocker: push 成功後の確定失敗で二重配信しない ───────────
