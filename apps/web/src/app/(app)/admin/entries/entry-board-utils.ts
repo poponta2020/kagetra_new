@@ -1,4 +1,12 @@
 import type { Grade } from '@kagetra/shared/types'
+// 進行状態 3 型の正典は LifecycleStatusBadge.tsx（要件 §6 技術的制約）。
+// ここで union を再定義すると状態が増えたときに 2 箇所がずれるので参照する。
+// type-only import なのでコンポーネント本体は実行時に引きずり込まれない。
+import type {
+  EntryStatus,
+  PaymentStatus,
+  PaymentType,
+} from '@/components/events/LifecycleStatusBadge'
 
 /**
  * 申込管理ボード（`/admin/entries`）の仕分け・並び順・締切表示の純関数。
@@ -8,9 +16,7 @@ import type { Grade } from '@kagetra/shared/types'
  * と同じ方針）。要件: docs/features/entry-management/requirements.md §3.2
  */
 
-export type EntryStatus = 'not_applied' | 'applied' | 'not_applying'
-export type PaymentType = 'advance' | 'onsite' | null
-export type PaymentStatus = 'unpaid' | 'paid'
+export type { EntryStatus, PaymentStatus, PaymentType }
 
 /** エリア識別子（要件 §3.2.3）。 */
 export type AreaId =
@@ -44,7 +50,8 @@ export interface EntryBoardItem {
   paymentDeadline: string | null
   lotteryDate: string | null
   entryStatus: EntryStatus
-  paymentType: PaymentType
+  /** null = 支払い通知なし（既存スキーマの意味。events.ts 参照）。 */
+  paymentType: PaymentType | null
   paymentStatus: PaymentStatus
   attendCount: number
   hasConfirmedRoster: boolean

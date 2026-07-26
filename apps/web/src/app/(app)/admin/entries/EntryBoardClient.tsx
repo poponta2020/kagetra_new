@@ -187,7 +187,12 @@ function AreaBlock({
           <div className="py-0.5 text-[11px] leading-none text-ink-muted">
             なし
           </div>
-        ) : visible.length > 0 ? (
+        ) : /*
+             畳んだときに残す行（締切 3 日以内）が 1 件も無いのが通常の状態
+             なので、visible が空でも隠れた件数だけは出す。ここを
+             visible.length > 0 だけで塞ぐと「ほかN件」ごと消える。
+          */
+          visible.length > 0 || (!expanded && hiddenCount > 0) ? (
           <ul className="divide-y divide-border-soft">
             {visible.map((item) => (
               <li key={item.id}>

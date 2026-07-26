@@ -210,6 +210,27 @@ describe('EntryBoardClient', () => {
     expect(within(section).getByText('3件')).toBeTruthy()
   })
 
+  // 回帰: 残す行が 1 件も無いのが「締切前」の通常の状態（締切が全部先）。
+  // 行一覧の描画条件を visible.length > 0 だけにすると、この状態で
+  // 「ほかN件」ごと消えて畳んだ区画が完全に無言になる。
+  it('AC-24: 3 日以内の行が 1 件も無くても「ほかN件」は出る', () => {
+    render(
+      <EntryBoardClient
+        items={[
+          makeItem({ id: 1, shortName: '遠い', internalDeadline: '2026-07-20' }),
+          makeItem({ id: 2, shortName: '未設定' }),
+        ]}
+        todayStr={TODAY}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button'))
+
+    const section = sectionOf('締切前')
+    expect(within(section).queryByRole('link')).toBeNull()
+    expect(within(section).getByText('ほか2件')).toBeTruthy()
+  })
+
   // AC-21 / AC-22: 強調は行動フェーズ 2 区画に限り、締切到来済みが 1 件以上
   // あるときだけ。常時赤いと赤が背景と化して効かなくなる。
   it('AC-21: 「要対応」は締切到来済みが 1 件以上あるときだけ強調される', () => {
