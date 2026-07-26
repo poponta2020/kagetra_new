@@ -198,3 +198,96 @@ describe('LineBroadcastSection — 連携解除の confirm（回帰）', () => {
     })
   })
 })
+
+describe('LineBroadcastSection — 級別配信は大会側の連携状態に依存しない', () => {
+  // 級別グループ配信は「会員全体への周知」という別系統で、紐付けは大会単位ではなく
+  // 常設（spec/notifications.md）。status 分岐の中に入れると、未連携の新規大会で
+  // 管理者が級別配信の状況確認・再送に到達できなくなる（機能回帰）。
+  const gradeBroadcast = {
+    rows: [
+      { grade: 'C' as const, sentAt: null, linked: true },
+      { grade: 'D' as const, sentAt: null, linked: false },
+    ],
+    resendAction: vi.fn().mockResolvedValue(undefined),
+  }
+
+  it('unbound（binding=null）でも級別グループ配信が描画される', () => {
+    const { container } = render(
+      <LineBroadcastSection {...baseProps({ binding: null, gradeBroadcast })} />,
+    )
+    openAllDetails(container)
+    expect(screen.getByText('級別グループ配信')).toBeTruthy()
+    // 大会側の未連携 UI と併存する。
+    expect(screen.getByText('LINE 配信を有効化')).toBeTruthy()
+  })
+
+  it('joined_waiting_code でも級別グループ配信が描画される', () => {
+    const { container } = render(
+      <LineBroadcastSection
+        {...baseProps({
+          binding: { ...linkedBinding, status: 'joined_waiting_code' as const },
+          gradeBroadcast,
+        })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.getByText('級別グループ配信')).toBeTruthy()
+    expect(screen.getByText('招待コードを再発行')).toBeTruthy()
+  })
+})
+
+describe('LineBroadcastSection — 配信履歴 aux の失敗表記', () => {
+  const row = (id: number, status: 'sent' | 'partial' | 'failed') => ({
+    id,
+    status,
+    isCorrection: false,
+    mailMessageId: id,
+    subject: `件名${id}`,
+    receivedAt: new Date('2026-07-24T08:50:00+09:00'),
+    sentAt: new Date('2026-07-24T09:15:00+09:00'),
+    sentTextCount: 1,
+    sentImageCount: 0,
+    fallbackLinkCount: 0,
+    errorMessage: null,
+  })
+
+  it('完全失敗のみなら「失敗」と出す（部分失敗と混同させない）', () => {
+    render(
+      <LineBroadcastSection
+        {...baseProps({ binding: linkedBinding, history: [row(1, 'failed')] })}
+      />,
+    )
+    expect(screen.getByText('1件 失敗')).toBeTruthy()
+    expect(screen.queryByText('1件 部分失敗')).toBeNull()
+  })
+
+  it('部分失敗のみなら「部分失敗」と出す', () => {
+    render(
+      <LineBroadcastSection
+        {...baseProps({ binding: linkedBinding, history: [row(1, 'partial')] })}
+      />,
+    )
+    expect(screen.getByText('1件 部分失敗')).toBeTruthy()
+  })
+
+  it('両方あるなら件数を分けて出す', () => {
+    render(
+      <LineBroadcastSection
+        {...baseProps({
+          binding: linkedBinding,
+          history: [row(1, 'failed'), row(2, 'partial'), row(3, 'partial')],
+        })}
+      />,
+    )
+    expect(screen.getByText('失敗 1件・部分失敗 2件')).toBeTruthy()
+  })
+
+  it('成功のみなら aux を出さない', () => {
+    render(
+      <LineBroadcastSection
+        {...baseProps({ binding: linkedBinding, history: [row(1, 'sent')] })}
+      />,
+    )
+    expect(screen.queryByText(/失敗/)).toBeNull()
+  })
+})

@@ -257,13 +257,6 @@ export function LineBroadcastSection({
             />
           </DisclosureRow>
 
-          {gradeBroadcast && gradeBroadcast.rows.length > 0 ? (
-            <GradeBroadcastSection
-              eventId={eventId}
-              rows={gradeBroadcast.rows}
-              resendAction={gradeBroadcast.resendAction}
-            />
-          ) : null}
         </>
       ) : (
         <>
@@ -296,6 +289,19 @@ export function LineBroadcastSection({
           </DisclosureActions>
         </>
       )}
+
+      {/* 級別グループ配信は「会員全体へ大会の存在を周知する」別系統で、紐付けは
+          大会単位ではなく**常設**（spec/notifications.md）。したがって大会参加者
+          グループの連携状態（unbound / invite_pending / joined_waiting_code /
+          linked）に**関係なく**描画する — status 分岐の中に入れると、未連携の
+          新規大会で管理者が級別配信の状況確認・再送に到達できなくなる。 */}
+      {gradeBroadcast && gradeBroadcast.rows.length > 0 ? (
+        <GradeBroadcastSection
+          eventId={eventId}
+          rows={gradeBroadcast.rows}
+          resendAction={gradeBroadcast.resendAction}
+        />
+      ) : null}
 
       {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
 

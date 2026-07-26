@@ -246,10 +246,11 @@ export function RosterSection({
   rosters: RosterView[]
   currentUserId: string | null
 }) {
-  // 名簿は個人戦のみ（§3.2）。団体戦では出さない。
+  // 名簿は個人戦のみ（AC-30）。団体戦では出さない。
   if (kind !== 'individual') return null
-  // 取込導線が無いので、名簿が一つも無ければ何も出さない。
-  if (rosters.length === 0) return null
+  // 名簿が 1 件も無い（メール取込前の新規大会）場合もセクションは出す — AC-21 の
+  // 「確定名簿が未取込のとき指定文言を表示する」は rosters が空のときにも成立
+  // しなければならない。ここで null を返すと、その状態に到達できなくなる。
 
   const newestFirst = [...rosters].sort((a, b) => b.version - a.version)
   const applicant = newestFirst.find((r) => r.rosterType === 'applicant')

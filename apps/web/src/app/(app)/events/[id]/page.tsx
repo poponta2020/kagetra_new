@@ -87,11 +87,28 @@ export default async function EventDetailPage({
         with: { user: true },
       },
       // tournament-entry-rosters PR-3/4: 申込/確定名簿＋各行（会員突合は entry.user 経由）。
+      //
+      // ★`columns` で表示に使う列だけを明示的に取る。event-detail-redesign で
+      // `RosterSection` を client component 化したため、この結果は **RSC payload
+      // としてブラウザへ直列化される**。TypeScript の `RosterView` 型は実行時に
+      // 余剰プロパティを落とさないので、列を絞らないと note（管理メモ）/
+      // approvedByUserId / source_*（取込元メール・添付）/ rawKana / rawDan /
+      // selectionOutcome（抽選結果）等の内部列と非表示の個人情報が一般会員へ
+      // 渡ってしまう（Server Component だった従来は直列化されなかった）。
       rosters: {
         where: isNull(tournamentEntryRosters.supersededAt),
         orderBy: [desc(tournamentEntryRosters.version)],
+        columns: { id: true, rosterType: true, version: true, publishedAt: true },
         with: {
           entries: {
+            columns: {
+              id: true,
+              rawName: true,
+              grade: true,
+              rawAffiliation: true,
+              status: true,
+              userId: true,
+            },
             with: { user: { columns: { id: true, name: true } } },
           },
         },

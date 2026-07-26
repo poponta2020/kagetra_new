@@ -247,3 +247,26 @@ describe('AC-15: 名簿 Excel 取込アクションの削除ガード', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('RosterSection — 名簿ゼロ件 (AC-21)', () => {
+  it('rosters が空でも確定名簿の未取込文言を出す（メール取込前の新規大会）', () => {
+    render(<RosterSection kind="individual" rosters={[]} currentUserId={null} />)
+
+    // 外側の「名簿」トグルと、申込者/確定の2行が出る。
+    expect(screen.getByText('名簿')).toBeTruthy()
+    expect(screen.getByText('申込者名簿')).toBeTruthy()
+    expect(screen.getByText('確定名簿')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('団体戦は rosters が空でも何も描画しない（AC-30 の回帰）', () => {
+    const { container } = render(
+      <RosterSection kind="team" rosters={[]} currentUserId={null} />,
+    )
+    expect(container.firstChild).toBeNull()
+  })
+})

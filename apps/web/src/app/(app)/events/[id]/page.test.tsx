@@ -5,6 +5,8 @@ import {
   eventLineBroadcasts,
   lineChannels,
   mailMessages,
+  tournamentEntryRosterEntries,
+  tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
@@ -234,6 +236,53 @@ describe('/events/[id] — LINE 情報の遮断 (AC-28)', () => {
     expect(payload).toContain(BOT_NOTE)
     expect(payload).toContain(LINE_GROUP_ID.slice(-8))
     expect(payload).toContain(BROADCAST_ERROR)
+  })
+})
+
+describe('/events/[id] — 名簿の内部列を RSC payload へ載せない', () => {
+  // RosterSection は client component なので `event.rosters` はブラウザへ直列化される。
+  // 型（RosterView）は実行時に余剰プロパティを落とさないため、クエリ側で列を絞らないと
+  // note（管理メモ）/ rawKana / rawDan / selectionOutcome（抽選結果）/ approvedByUserId /
+  // source_*（取込元メール・添付）等が一般会員へ渡ってしまう。
+  it('note・rawKana・rawDan・selectionOutcome 等の内部列が payload に無い', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+    const rosterRows = await testDb
+      .insert(tournamentEntryRosters)
+      .values({
+        eventId: ev.id,
+        rosterType: 'applicant',
+        version: 1,
+        publishedAt: '2026-07-22',
+        note: '管理メモ・会員に見せない',
+        approvedByUserId: member.id,
+      })
+      .returning({ id: tournamentEntryRosters.id })
+    await testDb.insert(tournamentEntryRosterEntries).values({
+      rosterId: rosterRows[0]!.id,
+      rawName: '川村 美咲',
+      rawKana: 'カワムラミサキ',
+      rawAffiliation: '広島かるた会',
+      rawDan: '四段',
+      grade: 'C',
+      status: 'applied',
+      selectionOutcome: 'waitlisted',
+    })
+
+    const ui = await renderPage(ev.id)
+    const propValues: string[] = []
+    collectPropValues(ui, propValues)
+    const payload = propValues.join(' ')
+
+    // 表示に使う列は渡る。
+    expect(payload).toContain('川村 美咲')
+    expect(payload).toContain('広島かるた会')
+    // 内部列・非表示の個人情報は渡らない。
+    expect(payload).not.toContain('管理メモ・会員に見せない')
+    expect(payload).not.toContain('カワムラミサキ')
+    expect(payload).not.toContain('四段')
+    expect(payload).not.toContain('waitlisted')
   })
 })
 
