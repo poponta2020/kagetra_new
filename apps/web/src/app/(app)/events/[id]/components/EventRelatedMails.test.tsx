@@ -34,7 +34,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
     expect(ui).toBeNull()
   })
 
-  it('(A) linked_event_id 経由のメールを表示する', async () => {
+  it('(A) linked_event_id 経由のメールを表示する（既定=閉のトグル・件数 aux・箱カード）', async () => {
     const ev = await createEvent({ title: 'linked-event' })
     const mail = await createMailMessage({ subject: '組合せ表 v1' })
     await testDb
@@ -45,10 +45,20 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
     const ui = await EventRelatedMails({ eventId: ev.id })
     const { container } = render(ui!)
 
-    expect(screen.getByText('関連メール (1)')).toBeTruthy()
+    const details = container.querySelector('details')
+    expect(details).toBeTruthy()
+    // ★既定=閉（design-spec の核）。
+    expect(details?.hasAttribute('open')).toBe(false)
+    expect(screen.getByText('関連メール')).toBeTruthy()
+    expect(screen.getByText('1件')).toBeTruthy()
     expect(screen.getByText('組合せ表 v1')).toBeTruthy()
     const link = container.querySelector('a[href]')
     expect(link?.getAttribute('href')).toBe(`/admin/mail-inbox/mail/${mail.id}`)
+    // design-spec: この画面で「箱」を使うのは関連メール1件ずつのみ。角丸は
+    // rounded-lg（8px）— shadcn Card の rounded-xl(10px) は使わない。
+    expect(link?.className).toContain('rounded-lg')
+    expect(link?.className).toContain('border-border-soft')
+    expect(link?.className).toContain('bg-surface')
   })
 
   it('(B) tournament_drafts.event_id 経由のメールを表示する', async () => {
@@ -63,7 +73,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
     const ui = await EventRelatedMails({ eventId: ev.id })
     const { container } = render(ui!)
 
-    expect(screen.getByText('関連メール (1)')).toBeTruthy()
+    expect(screen.getByText('1件')).toBeTruthy()
     expect(screen.getByText('訂正版 mail')).toBeTruthy()
     expect(container.querySelector('a[href]')?.getAttribute('href')).toBe(
       `/admin/mail-inbox/mail/${mail.id}`,
@@ -87,7 +97,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
     const ui = await EventRelatedMails({ eventId: ev.id })
     const { container } = render(ui!)
 
-    expect(screen.getByText('関連メール (1)')).toBeTruthy()
+    expect(screen.getByText('1件')).toBeTruthy()
     expect(screen.getByText('AI 抽出元 mail')).toBeTruthy()
     expect(container.querySelector('a[href]')?.getAttribute('href')).toBe(
       `/admin/mail-inbox/mail/${mail.id}`,
@@ -121,7 +131,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
     render(ui!)
 
     // 同じ mail が 3 経路で拾えても 1 件としてカウント。
-    expect(screen.getByText('関連メール (1)')).toBeTruthy()
+    expect(screen.getByText('1件')).toBeTruthy()
   })
 
   it('受信日降順で並ぶ', async () => {
