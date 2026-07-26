@@ -128,14 +128,21 @@ export interface LifecycleDayEntry {
 }
 
 /** `days` を開催日昇順（同日は title 昇順）に安定ソートする。 */
-function sortDays<T extends LifecycleDayEntry>(days: readonly T[]): T[] {
+export function sortDays<T extends LifecycleDayEntry>(days: readonly T[]): T[] {
   return [...days].sort(
     (a, b) => a.dateIso.localeCompare(b.dateIso) || a.title.localeCompare(b.title),
   )
 }
 
-/** 複数日の日別ラベルを `・` で連結する（例: `8/1(土)C級・8/8(土)D級`）。 */
-function formatDaysLabel(days: readonly LifecycleDayEntry[]): string {
+/**
+ * 複数日の日別ラベルを `・` で連結する（例: `8/1(土)C級・8/8(土)D級`）。
+ *
+ * **この2関数が「複数日ラベルの規則」の唯一の置き場所**。entry-groups では一括トグル
+ * （このファイル内の entry_applied 等）と締切リマインド（`scripts/send-lifecycle-reminders.ts`）の
+ * 両方が同じラベル形式を使うため export している。script 側で複製すると、片方だけ書式を
+ * 変えたときに通知の見た目が経路によって食い違う。
+ */
+export function formatDaysLabel(days: readonly LifecycleDayEntry[]): string {
   return days.map((d) => `${formatEventDate(d.dateIso)}${d.title}`).join('・')
 }
 

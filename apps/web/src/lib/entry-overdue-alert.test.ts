@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eventLifecycleNotifications, eventLineBroadcasts, lineChannels } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import { createEntryGroup, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
 import {
   buildOverdueAlertMessage,
   collectOverdueEntries,
@@ -15,8 +15,14 @@ import {
 // ---------------------------------------------------------------------------
 
 function row(overrides: Partial<OverdueEntryRow> = {}): OverdueEntryRow {
+  const eventId = overrides.eventId ?? 1
   return {
-    eventId: 1,
+    eventId,
+    // entry-groups タスク5: 既定では eventId をそのままグループ id に使う
+    // （＝各行が単独グループ）。複数行を同じグループにまとめたいテストだけが
+    // `entryGroupId` を明示する。固定値のままだと AC-9 の並び替えテスト等で
+    // 7 行すべてが 1 グループへ潰れてしまい、既存の「1行1大会」の意味が壊れる。
+    entryGroupId: overrides.entryGroupId ?? eventId,
     title: 'テスト大会',
     eventDate: '2030-01-01',
     baseDeadlineIso: '2026-06-01',
@@ -113,6 +119,74 @@ describe('buildOverdueAlertMessage', () => {
     const idxC = text.indexOf('・C')
     expect(idxA).toBeLessThan(idxB)
     expect(idxB).toBeLessThan(idxC)
+  })
+
+  // entry-groups タスク5 (AC-13): entry-overdue-alert はグループ単位で1行に集約される。
+  describe('AC-13: グループ単位の集約', () => {
+    it('同一グループの複数日は1行にまとまり、導出表示名・両日の締切明細・代表イベントの URL を含む', () => {
+      const rows = [
+        row({
+          eventId: 11,
+          entryGroupId: 100,
+          title: '多摩A',
+          eventDate: '2030-08-15',
+          overdueDays: 5,
+          attendCount: 3,
+        }),
+        row({
+          eventId: 12,
+          entryGroupId: 100,
+          title: '多摩B',
+          eventDate: '2030-08-11',
+          overdueDays: 9,
+          attendCount: 7,
+        }),
+      ]
+      const text = buildOverdueAlertMessage(rows, { today, baseUrl })
+
+      // 1 グループ = 1 明細（「・」で始まる行は 1 本だけ）
+      const bulletLines = text.split('\n').filter((l) => l.startsWith('・'))
+      expect(bulletLines).toHaveLength(1)
+      // 導出表示名（多摩A + 多摩B → 多摩AB）
+      expect(bulletLines[0]).toBe('・多摩AB')
+      // 両日の締切明細が列挙される（どちらの日も隠れない）
+      expect(text).toContain('8/11(日)多摩B')
+      expect(text).toContain('8/15(木)多摩A')
+      // 参加人数は最大値（延べ人数の合算ではない）
+      expect(text).toContain('参加 7名')
+      // 代表イベント（今日以降で最も近い開催日）の URL
+      expect(text).toContain(`${baseUrl}/events/12`)
+      expect(text).not.toContain(`${baseUrl}/events/11`)
+      // 件数はグループ数（1件）
+      expect(text).toContain('未申込大会が1件あります')
+    })
+
+    it('グループが異なれば別々の行のまま（従来の1行1大会の書式を保つ）', () => {
+      const rows = [
+        row({ eventId: 21, entryGroupId: 21, title: '単独大会', overdueDays: 5 }),
+        row({ eventId: 22, entryGroupId: 22, title: '別の単独大会', overdueDays: 3 }),
+      ]
+      const text = buildOverdueAlertMessage(rows, { today, baseUrl })
+      expect(text).toContain('未申込大会が2件あります')
+      // 単独グループでは日別ラベル行を挟まない（既存の1行1大会と同じ書式）
+      expect(text).not.toContain('(')
+    })
+
+    it('超過日数の並び替えはグループ内最大値で行う', () => {
+      const rows = [
+        // グループ 200: 最大超過日数 20（並びで先頭に来るはず）。同一タイトルなので
+        // 導出表示名はそのタイトルになり、代表選定の細かい挙動に依存しない。
+        row({ eventId: 31, entryGroupId: 200, title: 'グループ大会', overdueDays: 1 }),
+        row({ eventId: 32, entryGroupId: 200, title: 'グループ大会', overdueDays: 20 }),
+        // グループ 300: 単独 10日超過
+        row({ eventId: 33, entryGroupId: 300, title: 'Z', overdueDays: 10 }),
+      ]
+      const text = buildOverdueAlertMessage(rows, { today, baseUrl })
+      const idxGroup200 = text.indexOf('・グループ大会')
+      const idxZ = text.indexOf('・Z')
+      expect(idxGroup200).toBeGreaterThanOrEqual(0)
+      expect(idxGroup200).toBeLessThan(idxZ)
+    })
   })
 })
 
@@ -392,6 +466,27 @@ describe('entry-overdue-alert — DB', () => {
       const rows = await collectOverdueEntries(testDb, { today })
       expect(rows.map((r) => r.eventId)).toContain(event.id)
     })
+
+    it('AC-13: entry_group_id を各行に含む（グループ集約のキー）', async () => {
+      const group = await createEntryGroup()
+      const a = await createEventWithAttendee({
+        title: 'グループA',
+        eventDate: '2030-08-15',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+        entryGroupId: group.id,
+      })
+      const b = await createEventWithAttendee({
+        title: 'グループB',
+        eventDate: '2030-08-11',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+        entryGroupId: group.id,
+      })
+      const rows = await collectOverdueEntries(testDb, { today })
+      expect(rows.find((r) => r.eventId === a.id)?.entryGroupId).toBe(group.id)
+      expect(rows.find((r) => r.eventId === b.id)?.entryGroupId).toBe(group.id)
+    })
   })
 
   describe('loadSystemChannel', () => {
@@ -471,6 +566,49 @@ describe('entry-overdue-alert — DB', () => {
       })
       expect(result).toMatchObject({ sent: true, candidateCount: 1, pushOutcome: 'sent' })
       expect(fetchImpl).toHaveBeenCalledTimes(1)
+    })
+
+    it('AC-13: 同一グループの複数大会は push 1 回・本文がグループ1行に集約される', async () => {
+      const group = await createEntryGroup()
+      await createEventWithAttendee({
+        title: '多摩A',
+        eventDate: '2030-08-15',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+        entryGroupId: group.id,
+      })
+      await createEventWithAttendee({
+        title: '多摩B',
+        eventDate: '2030-08-11',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+        entryGroupId: group.id,
+      })
+      await seedSystemChannel()
+      const fetchImpl = vi.fn<typeof fetch>(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => '',
+          }) as unknown as Response,
+      )
+      const result = await sendEntryOverdueAlert(testDb, {
+        today,
+        baseUrl: 'https://kagetra.example.com',
+        fetchImpl,
+      })
+      // candidateCount は抽出行数（2 大会）のまま、push 回数はグループ 1 行分の 1 回。
+      expect(result).toMatchObject({ sent: true, candidateCount: 2, pushOutcome: 'sent' })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+      const [, requestInit] = fetchImpl.mock.calls[0]!
+      const body = JSON.parse(String(requestInit!.body)) as { messages: Array<{ text: string }> }
+      const text = body.messages[0]!.text
+      expect(text).toContain('多摩AB')
+      expect(text).toContain('8/11(日)多摩B')
+      expect(text).toContain('8/15(木)多摩A')
     })
 
     it('AC-11: system_notify チャネル未設定は throw せずスキップ＋警告', async () => {
