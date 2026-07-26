@@ -64,7 +64,7 @@ UI の出し分け／Server Action・route handler の権限チェック
 ---
 
 ### タスク2: auth 層への配線（実効ロールの生成点） — 対応Issue: #329
-- [ ] 完了
+- [x] 完了
 - **目的:** `auth.config.ts` の `session` コールバックで実効ロールを生成し、`jwt` コールバックの update 経路で `viewAsRole` を受け取れるようにする。
 - **対応AC:** AC-5, AC-6, AC-7, AC-8, AC-12, AC-16, AC-18
 - **主な変更領域:**

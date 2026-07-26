@@ -1,5 +1,7 @@
 import type { NextAuthConfig } from 'next-auth'
 import Line from 'next-auth/providers/line'
+import { parseUserRole, resolveEffectiveRole } from '@/lib/role-preview'
+import type { UserRole } from '@/lib/role-preview'
 
 /**
  * Edge-safe auth config: session strategy, pages, providers, and the jwt/session
@@ -43,11 +45,18 @@ export const authConfig = {
       // users.id on the Node side.
       if (user && account?.provider === 'line' && account.providerAccountId) {
         token.lineUserId = account.providerAccountId
+        // role-preview-switch: 再ログインでプレビューは必ず解除する。
+        // 新規サインインの token は本来まっさらだが、明示的に落として
+        // 「ログアウト → 再ログインで本物のロールへ戻る」を保証する。
+        token.viewAsRole = null
       }
       // session.update({...}) path: account switch completion, admin unlink, etc.
       // Auth.js passes the update payload through as `session`; callers may pass
       // either a flat `{ ...patch }` or `{ user: { ...patch } }`.
       if (trigger === 'update' && session && typeof session === 'object') {
+        // NOTE: このパッチ許可リストに載っていないフィールドは
+        // unstable_update() に渡しても**黙って捨てられる**。新しいクレームを
+        // 足すときは必ずここへ明示的に追加すること。
         type Patch = {
           lineUserId?: string | null
           lineLinkedAt?: string | null
@@ -57,6 +66,7 @@ export const authConfig = {
             | 'account_switch'
             | 'invite_link'
             | null
+          viewAsRole?: UserRole | null
         }
         const s = session as Patch & { user?: Patch }
         const patch: Patch = s.user ?? s
@@ -75,6 +85,16 @@ export const authConfig = {
         ) {
           token.lineLinkedMethod = patch.lineLinkedMethod
         }
+        // role-preview-switch: null は「プレビュー解除」なので必ず受け付ける。
+        // enum 外の値は無視して token を変えない（改竄された patch で実効
+        // ロールが動かないこと = AC-11）。昇格の防止は session 側の
+        // resolveEffectiveRole による丸め込みが担う。
+        if (patch.viewAsRole === null) {
+          token.viewAsRole = null
+        } else if (patch.viewAsRole !== undefined) {
+          const parsed = parseUserRole(patch.viewAsRole)
+          if (parsed) token.viewAsRole = parsed
+        }
       }
       return token
     },
@@ -86,7 +106,16 @@ export const authConfig = {
         // to decide whether to route to /self-identify; falling back to
         // token.sub would paper over the unbound state and skip that gate.
         session.user.id = (token.id as string | undefined) ?? ''
-        session.user.role = token.role as 'admin' | 'vice_admin' | 'member'
+        // role-preview-switch の唯一の切替点。`token.role` は常に本物の
+        // ロールで、プレビュー値で上書きされることはない。実効ロールは
+        // ここでだけ導出され、`viewAsRole` は本物のロール以下へ丸められる
+        // (昇格不能)。`session.user.role` を読む既存 41 ファイル・162 箇所は
+        // 無変更のまま実効ロールに追従し、UI の出し分けと Server Action /
+        // route handler の認可が同時に切り替わる。
+        // プレビューの開始・終了の認可には `realRole` **だけ**を使うこと。
+        const realRole = token.role as UserRole
+        session.user.realRole = realRole
+        session.user.role = resolveEffectiveRole(realRole, token.viewAsRole) as UserRole
         session.user.lineUserId = (token.lineUserId as string | null | undefined) ?? null
         session.user.lineLinkedAt = (token.lineLinkedAt as string | null | undefined) ?? null
         session.user.lineLinkedMethod =
