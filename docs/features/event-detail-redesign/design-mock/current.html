@@ -1,0 +1,651 @@
+<!-- @dsCard group="大会申込 詳細リデザイン" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* ============================================================
+     現状再現 — /events/[id] イベント詳細（大会申込詳細）
+     左: 管理者ビュー ／ 右: 一般会員ビュー（見比べ・編集用に1ファイル統合）
+     (apps/web/src/app/(app)/events/[id]/page.tsx ほか)
+     データ: 実在大会「広島CDE」ベースの仮データ（名簿・LINE 等は架空）。
+     一般会員は「山田さん」（D級・未回答）が見た状態。
+
+     数値リテラルは実装の Tailwind クラス由来（トークン外の実装値）:
+       h1 28px(text-[28px]) / Card padding 14px radius 10px /
+       DescList 行 13px・ラベル幅 96px 12px / SectionLabel 12px /
+       ピル sm 10px / Btn sm h32 12px・lg h48 15px / 進行管理カード内 12px /
+       参照 dl 11px / 注記 10-11px / 出欠数字 20px / 名簿 h2 16px・行 14px /
+       関連メール h2 14px / sticky バー padding 12px・bg 95% 透過 /
+       AppBar 44px / BottomNav 52px / active文字 #fff
+     ページ余白: なし（main に padding が無い＝一覧と同じ現状）。
+     既知の実装上の注記: 日付類は "2026-09-06" の生 ISO 表記のまま表示される。
+     進行管理/LINE配信の dl 値は text-ink-1 (未定義トークン) → 実際は親の
+     ink-2 を継承した色で描画されている。
+     ============================================================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--kg-font-sans);
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start;
+    gap: 24px; padding: 24px 12px;
+  }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .collabel {
+    font-size: 13px; font-weight: var(--kg-w-semibold); color: var(--kg-fg-2);
+    letter-spacing: .04em;
+  }
+
+  .phone {
+    width: 375px; height: 812px;
+    display: flex; flex-direction: column;
+    background: var(--kg-bg);
+    border: 1px solid var(--kg-border); border-radius: 14px;
+    overflow: hidden;
+    font-size: var(--kg-text-base); color: var(--kg-fg);
+    line-height: var(--kg-leading-normal);
+    box-shadow: var(--kg-shadow-md);
+  }
+  .appbar {
+    height: 44px; flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--kg-surface); border-bottom: 1px solid var(--kg-border);
+    padding: 0 16px;
+  }
+  .appbar .wordmark {
+    font-family: var(--kg-font-display); font-weight: var(--kg-w-bold);
+    font-size: 16px; color: var(--kg-brand); letter-spacing: .02em;
+  }
+  .appbar .who { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 16px; }
+
+  /* 戻る/編集 行 */
+  .toprow { display: flex; align-items: center; justify-content: space-between; }
+  .back { font-size: var(--kg-text-sm); color: var(--kg-brand); }
+  .editbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 32px; padding: 0 12px; gap: 6px;
+    font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold);
+    color: var(--kg-fg-2); background: var(--kg-surface);
+    border: 1px solid var(--kg-border); border-radius: var(--kg-radius-lg);
+  }
+
+  /* タイトル */
+  h1.title {
+    font-family: var(--kg-font-display); font-weight: var(--kg-w-bold);
+    font-size: 28px; line-height: var(--kg-leading-tight); color: var(--kg-fg);
+  }
+  .officialwrap { margin-top: 6px; }
+
+  /* ピル */
+  .pill {
+    display: inline-flex; align-items: center; border-radius: var(--kg-radius-full);
+    font-size: 10px; font-weight: var(--kg-w-medium); padding: 1px 6px; white-space: nowrap;
+  }
+  .p-success { background: var(--kg-success-bg); color: var(--kg-success-fg); }
+  .p-danger  { background: var(--kg-danger-bg);  color: var(--kg-danger-fg); }
+  .p-warn    { background: var(--kg-warn-bg);    color: var(--kg-warn-fg); }
+  .p-info    { background: var(--kg-info-bg);    color: var(--kg-info-fg); }
+  .p-neutral { background: var(--kg-neutral-bg); color: var(--kg-neutral-fg); }
+  .p-brand   { background: var(--kg-brand-bg);   color: var(--kg-brand-fg); }
+  .gpill { font-family: var(--kg-font-mono); font-weight: var(--kg-w-semibold); }
+
+  /* カード */
+  .card {
+    background: var(--kg-surface); border: 1px solid var(--kg-border);
+    border-radius: 10px; padding: 14px;
+  }
+
+  /* DescList */
+  .dlrow { display: flex; align-items: flex-start; padding: 10px 0; font-size: 13px; }
+  .dlrow + .dlrow { border-top: 1px solid var(--kg-border-soft); }
+  .dlrow:first-child { padding-top: 0; }
+  .dlrow:last-child { padding-bottom: 0; }
+  .dlab { width: 96px; flex: none; font-size: var(--kg-text-xs); color: var(--kg-fg-3); padding-top: 1px; }
+  .dval { flex: 1; color: var(--kg-fg); }
+  .dval .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .npill {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: var(--kg-radius-full); background: var(--kg-neutral-bg);
+    padding: 2px 8px; font-size: var(--kg-text-xs); color: var(--kg-neutral-fg);
+  }
+  .prewrap { white-space: pre-wrap; }
+
+  /* セクション見出し（カード内/カード外 共通） */
+  .seclabel {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 0 4px; margin-bottom: 8px;
+    font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold);
+    color: var(--kg-fg-3); letter-spacing: .02em;
+  }
+  .sec { display: flex; flex-direction: column; gap: 12px; }
+  .sec-tight { display: flex; flex-direction: column; gap: 8px; }
+  .sec-tight .seclabel { margin-bottom: 0; }
+  .sechead { display: flex; align-items: center; justify-content: space-between; }
+  .sechead .seclabel { margin-bottom: 0; }
+  .pillrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pillrow.mt { margin-top: 4px; }
+
+  /* 出欠状況 */
+  .attgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .attcard { border-radius: var(--kg-radius-lg); padding: 10px 8px; text-align: center; }
+  .attcard.ok { background: var(--kg-success-bg); color: var(--kg-success-fg); }
+  .attcard.ng { background: var(--kg-danger-bg); color: var(--kg-danger-fg); }
+  .attcard .n { font-size: 20px; font-weight: var(--kg-w-bold); line-height: 1; }
+  .attcard .l { font-size: 10px; margin-top: 4px; opacity: .8; }
+
+  /* ボタン */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border-radius: var(--kg-radius-lg); font-weight: var(--kg-w-semibold); white-space: nowrap;
+  }
+  .b-sm { height: 32px; padding: 0 12px; font-size: var(--kg-text-xs); }
+  .b-lg { height: 48px; padding: 0 20px; font-size: 15px; }
+  .b-primary { background: var(--kg-brand); color: var(--kg-fg-on-brand); }
+  .b-secondary { background: var(--kg-surface); color: var(--kg-fg-2); border: 1px solid var(--kg-border); }
+  .b-ghost { background: transparent; color: var(--kg-brand); }
+  .b-danger { background: var(--kg-danger-bg); color: var(--kg-danger-fg); }
+  .b-block { width: 100%; }
+
+  /* 進行管理カード */
+  .mgmt { padding: 12px; display: flex; flex-direction: column; gap: 16px; font-size: var(--kg-text-xs); color: var(--kg-fg-2); }
+  .mrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .mlab { color: var(--kg-fg-3); }
+  .mbtns { display: flex; align-items: center; gap: 6px; }
+  .mnote { font-size: 11px; color: var(--kg-fg-3); margin-top: 6px; }
+  .select {
+    border-radius: var(--kg-radius-md); border: 1px solid var(--kg-border);
+    background: var(--kg-bg); padding: 4px 8px; font-size: var(--kg-text-xs); color: var(--kg-fg);
+  }
+  .refdl { border-top: 1px solid var(--kg-border-soft); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+  .refdl .r { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .refdl dt { color: var(--kg-fg-3); }
+  .note10 { font-size: 10px; color: var(--kg-fg-3); }
+
+  /* LINE 配信カード */
+  .linecard { padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: var(--kg-text-xs); color: var(--kg-fg-2); }
+  .linecard.ro { display: block; }
+  .ldl { display: flex; flex-direction: column; gap: 4px; }
+  .ldl .r { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .ldl dt { color: var(--kg-fg-3); }
+  .ldl dd.mono { font-family: var(--kg-font-mono); font-size: 11px; }
+  .btnrow { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* 配信履歴 */
+  .hist { padding: 14px; }
+  .hist li { list-style: none; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .hist li + li { border-top: 1px solid rgba(216, 205, 179, .6); }
+  .hrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .hsub { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .hsub .s { font-size: var(--kg-text-xs); color: var(--kg-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hmeta { font-size: 10px; color: var(--kg-fg-3); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .herr { font-size: 10px; color: var(--kg-danger-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hresend { display: flex; justify-content: flex-end; }
+
+  /* 級別グループ配信 */
+  .gradecard { padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: var(--kg-text-xs); color: var(--kg-fg-2); }
+  .glist { display: flex; flex-direction: column; gap: 4px; }
+  .glist .r { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .glist .g { font-weight: var(--kg-w-medium); }
+  .glist .meta { color: var(--kg-fg-3); font-variant-numeric: tabular-nums; }
+  .glist .warn { color: var(--kg-warn-fg); }
+  .note11 { font-size: 11px; color: var(--kg-fg-3); }
+
+  /* 名簿 */
+  .roster { display: flex; flex-direction: column; gap: 16px; }
+  .roster h2 { font-family: var(--kg-font-display); font-size: var(--kg-text-md); font-weight: var(--kg-w-bold); color: var(--kg-fg); }
+  .rblock { display: flex; flex-direction: column; gap: 8px; }
+  .rhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .rhead h3 { font-size: var(--kg-text-sm); font-weight: var(--kg-w-bold); color: var(--kg-fg); }
+  .rhead .pub { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+  .rmiss { font-size: var(--kg-text-sm); color: var(--kg-fg-3); }
+  .rmiss b { color: var(--kg-fg-2); font-weight: var(--kg-w-regular); }
+  .ronit { font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-fg-3); }
+  .rmem { font-size: var(--kg-text-xs); color: var(--kg-fg-2); }
+  .rlist { border: 1px solid var(--kg-border); border-radius: var(--kg-radius-md); }
+  .rlist li { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 6px 12px; font-size: var(--kg-text-sm); }
+  .rlist li + li { border-top: 1px solid var(--kg-border); }
+  .rlist li.mem { background: rgba(43, 78, 140, .05); }
+  .rlist .nm { font-weight: var(--kg-w-medium); color: var(--kg-fg); }
+  .rlist .gr, .rlist .af { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+  .membadge {
+    border-radius: 4px; background: rgba(43, 78, 140, .15); padding: 2px 6px;
+    font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-success-fg);
+  }
+  .rstat { font-size: var(--kg-text-xs); color: var(--kg-accent); }
+  .uploadwrap { border-top: 1px solid var(--kg-border); padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .uploadnote { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+  .uform { border: 1px solid var(--kg-border); border-radius: var(--kg-radius-md); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .uform .t { font-size: var(--kg-text-sm); font-weight: var(--kg-w-semibold); color: var(--kg-fg); }
+  .uform label { display: block; font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-fg-3); letter-spacing: .02em; }
+  .field {
+    margin-top: 4px; display: flex; align-items: center; gap: 12px; width: 100%;
+    border-radius: var(--kg-radius-md); border: 1px solid var(--kg-border);
+    background: var(--kg-bg); padding: 8px 12px; font-size: var(--kg-text-sm); color: var(--kg-fg);
+  }
+  .field .fbtn { background: var(--kg-surface-alt); border-radius: 4px; padding: 4px 8px; font-size: var(--kg-text-xs); flex: none; }
+  .field .fph { color: var(--kg-fg-3); font-size: var(--kg-text-xs); }
+
+  /* 関連メール */
+  .mails { display: flex; flex-direction: column; gap: 8px; }
+  .mails h2 { font-family: var(--kg-font-display); font-size: var(--kg-text-sm); font-weight: var(--kg-w-semibold); color: var(--kg-fg-2); }
+  .mailcards { display: flex; flex-direction: column; gap: 6px; }
+  .mailcard { display: flex; flex-direction: column; gap: 2px; }
+  .mailcard .r { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .mailcard .s { font-weight: var(--kg-w-medium); color: var(--kg-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mailcard .d { flex: none; font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+  .mailcard .f { font-size: var(--kg-text-xs); color: var(--kg-fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 参加者 */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mchip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: var(--kg-radius-full); background: var(--kg-neutral-bg);
+    padding: 2px 8px; font-size: var(--kg-text-xs); color: var(--kg-neutral-fg); white-space: nowrap;
+  }
+
+  /* コメント */
+  .cmt summary { cursor: pointer; font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-fg-3); letter-spacing: .02em; }
+  .cform { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .ta {
+    display: block; width: 100%; min-height: 60px;
+    border-radius: var(--kg-radius-md); border: 1px solid var(--kg-border);
+    background: var(--kg-bg); padding: 8px 12px; font-size: var(--kg-text-sm); color: var(--kg-fg);
+  }
+  .cbtn { display: flex; justify-content: flex-end; }
+
+  /* sticky 参加バー */
+  .sticky {
+    position: sticky; bottom: 0;
+    background: rgba(244, 239, 227, .95); backdrop-filter: blur(4px);
+    border-top: 1px solid var(--kg-border-soft); padding: 12px;
+  }
+
+  .bottomnav {
+    height: 52px; flex: none; display: flex; align-items: stretch;
+    background: var(--kg-surface); border-top: 1px solid var(--kg-border);
+  }
+  .bottomnav .tab {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: var(--kg-w-medium);
+    border-top: 2px solid transparent; color: var(--kg-fg-3);
+  }
+  .bottomnav .tab.active { border-top-color: var(--kg-brand); color: var(--kg-brand); }
+
+  .note { flex-basis: 100%; max-width: 800px; margin: 0 auto; font-size: 12.5px; line-height: 1.7; color: var(--kg-fg-2); }
+  .note b { color: var(--kg-fg); }
+</style>
+</head>
+<body>
+
+<!-- ============ 管理者ビュー ============ -->
+<div class="col">
+  <div class="collabel">管理者ビュー（poponさん）</div>
+  <div class="phone">
+    <div class="appbar"><span class="wordmark">かげとら</span><span class="who">poponさん</span></div>
+    <div class="main">
+      <div class="page">
+
+        <div class="toprow">
+          <span class="back">← イベント一覧</span>
+          <span class="editbtn">編集</span>
+        </div>
+
+        <div>
+          <h1 class="title">広島CDE</h1>
+          <div class="officialwrap"><span class="pill p-success">公認</span></div>
+        </div>
+
+        <div class="card">
+          <div class="dlrow"><div class="dlab">正式名称</div><div class="dval">第35回広島競技かるた大会</div></div>
+          <div class="dlrow"><div class="dlab">日付</div><div class="dval">2026-09-06</div></div>
+          <div class="dlrow"><div class="dlab">会場</div><div class="dval">広島県立総合体育館 武道場</div></div>
+          <div class="dlrow"><div class="dlab">対象級</div><div class="dval"><div class="pills"><span class="pill p-info gpill">C級</span><span class="pill p-info gpill">D級</span><span class="pill p-info gpill">E級</span></div></div></div>
+          <div class="dlrow"><div class="dlab">級別定員</div><div class="dval"><div class="pills"><span class="npill"><span class="pill p-info gpill">C級</span>64名</span><span class="npill"><span class="pill p-info gpill">D級</span>64名</span><span class="npill"><span class="pill p-info gpill">E級</span>48名</span></div></div></div>
+          <div class="dlrow"><div class="dlab">大会申込締切</div><div class="dval">2026-08-05</div></div>
+          <div class="dlrow"><div class="dlab">会内締切</div><div class="dval">2026-07-31</div></div>
+          <div class="dlrow"><div class="dlab">抽選日</div><div class="dval">2026-08-07</div></div>
+          <div class="dlrow"><div class="dlab">主催</div><div class="dval">広島県かるた協会</div></div>
+          <div class="dlrow"><div class="dlab">申込方法</div><div class="dval">会でとりまとめて申込</div></div>
+          <div class="dlrow"><div class="dlab">参加費</div><div class="dval">2,000円</div></div>
+          <div class="dlrow"><div class="dlab">支払締切</div><div class="dval">2026-08-20</div></div>
+          <div class="dlrow"><div class="dlab">支払方法</div><div class="dval">事前振込（会の口座へ）</div></div>
+          <div class="dlrow"><div class="dlab">支払情報</div><div class="dval prewrap">ゆうちょ銀行 一二三支店
+普通 1234567 ホクダイカルタカイ</div></div>
+        </div>
+
+        <div class="card">
+          <div class="seclabel">詳細</div>
+          <div style="white-space: pre-wrap; font-size: var(--kg-text-sm); color: var(--kg-fg);">要綱は LINE 配信済みの PDF を参照してください。
+昼食は各自持参。会場に売店はありません。</div>
+        </div>
+
+        <div class="card">
+          <div class="seclabel">出欠状況</div>
+          <div class="attgrid">
+            <div class="attcard ok"><div class="n">5</div><div class="l">参加</div></div>
+            <div class="attcard ng"><div class="n">41</div><div class="l">不参加</div></div>
+          </div>
+        </div>
+
+        <!-- 進行管理（管理者のみ） -->
+        <div class="sec">
+          <div class="sechead">
+            <div class="seclabel">進行管理</div>
+            <div class="pillrow"><span class="pill p-success">申込済</span><span class="pill p-warn">未払</span></div>
+          </div>
+          <div class="card mgmt">
+            <div>
+              <div class="mrow">
+                <span class="mlab">申込状態</span>
+                <div class="mbtns"><span class="btn b-sm b-secondary">未申込に戻す</span><span class="btn b-sm b-ghost">申し込まない</span></div>
+              </div>
+              <div class="mnote">申込日時: 2026/07/25 21:14</div>
+            </div>
+            <div class="mrow">
+              <span class="mlab">支払いタイプ</span>
+              <span class="select">事前払い ▾</span>
+            </div>
+            <div class="mrow">
+              <span class="mlab">支払状態</span>
+              <span class="btn b-sm b-primary">支払済にする</span>
+            </div>
+            <dl class="refdl">
+              <div class="r"><dt>大会申込締切</dt><dd>2026-08-05</dd></div>
+              <div class="r"><dt>支払締切</dt><dd>2026-08-20</dd></div>
+              <div class="r"><dt>参加費</dt><dd>2,000円</dd></div>
+            </dl>
+          </div>
+        </div>
+
+        <!-- LINE 配信（管理者・linked） -->
+        <div class="sec">
+          <div class="sechead">
+            <div class="seclabel">LINE 配信</div>
+            <span class="pill p-brand">配信中</span>
+          </div>
+          <div class="card linecard">
+            <dl class="ldl">
+              <div class="r"><dt>連携 Bot</dt><dd>かげとら07（若草）</dd></div>
+              <div class="r"><dt>LINE グループ</dt><dd class="mono">…Ab3xQz9f</dd></div>
+              <div class="r"><dt>紐付け日時</dt><dd>2026/07/20 14:32</dd></div>
+              <div class="r"><dt>最終配信</dt><dd>2026/07/24 09:15</dd></div>
+              <div class="r"><dt>要綱</dt><dd>2件選択済み（最終送信 2026/07/20 14:35）</dd></div>
+            </dl>
+            <div class="btnrow">
+              <span class="btn b-sm b-secondary">要綱を再送</span>
+              <span class="btn b-sm b-danger">連携解除</span>
+            </div>
+          </div>
+          <div class="card hist">
+            <ul>
+              <li>
+                <div class="hrow">
+                  <div class="hsub"><span class="s">広島CDE 大会要綱のご案内</span></div>
+                  <span class="pill p-success">配信済み</span>
+                </div>
+                <div class="hmeta"><span>受信: 2026/07/24 08:50</span><span>配信: 2026/07/24 09:15</span><span>テキスト 1 / 画像 2</span></div>
+              </li>
+              <li>
+                <div class="hrow">
+                  <div class="hsub"><span class="pill p-warn">訂正</span><span class="s">【訂正】広島CDE 会場変更のお知らせ</span></div>
+                  <span class="pill p-warn">部分失敗</span>
+                </div>
+                <div class="hmeta"><span>受信: 2026/07/25 18:02</span><span>配信: 2026/07/25 18:10</span><span>テキスト 1 / 画像 1 / リンク 1</span></div>
+                <div class="herr">画像 1 件の送信がタイムアウトしました</div>
+                <div class="hresend"><span class="btn b-sm b-secondary">再配信</span></div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 級別グループ配信（admin のみ） -->
+        <div class="sec">
+          <div class="sechead">
+            <div class="seclabel">級別グループ配信</div>
+            <span class="pill p-neutral">1 / 3 送信済み</span>
+          </div>
+          <div class="card gradecard">
+            <p class="note11">対象級の LINE グループへ、この大会の概要を1通ずつ配信します。</p>
+            <div class="glist">
+              <div class="r"><span class="g">C級</span><span class="meta">送信済み 7/20 14:40</span></div>
+              <div class="r"><span class="g">D級</span><span class="meta">未送信</span></div>
+              <div class="r"><span class="g">E級</span><span class="warn">未紐付け</span></div>
+            </div>
+            <div>
+              <span class="btn b-sm b-secondary">級グループへ再送</span>
+              <p class="note11" style="margin-top: 4px;">送信済みの級には送りません（未送信の級だけに届きます）。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 名簿 -->
+        <div class="card roster">
+          <h2>名簿</h2>
+          <div class="rmiss">確定名簿: <b>未取込</b></div>
+          <div class="rblock">
+            <div class="rhead"><h3>申込者名簿（12名）</h3><span class="pub">発行 2026-07-22</span></div>
+            <p class="ronit">あなたはこの最新名簿に掲載されていません</p>
+            <p class="rmem">自会員 2名：東花子、佐藤太郎</p>
+            <ul class="rlist">
+              <li class="mem"><span class="nm">東 花子</span><span class="gr">C級</span><span class="af">北大かるた会</span><span class="membadge">会員</span></li>
+              <li class="mem"><span class="nm">佐藤 太郎</span><span class="gr">D級</span><span class="af">北大かるた会</span><span class="membadge">会員</span></li>
+              <li><span class="nm">川村 美咲</span><span class="gr">C級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">井上 蓮</span><span class="gr">C級</span><span class="af">岡山かるた会</span></li>
+              <li><span class="nm">高橋 結衣</span><span class="gr">D級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">中村 大輝</span><span class="gr">D級</span><span class="af">山口かるた会</span></li>
+              <li><span class="nm">藤井 彩</span><span class="gr">D級</span><span class="af">広島大学かるた会</span></li>
+              <li><span class="nm">岡本 悠人</span><span class="gr">E級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">三浦 さくら</span><span class="gr">E級</span><span class="af">松江かるた会</span></li>
+              <li><span class="nm">村上 陽菜</span><span class="gr">E級</span><span class="af">広島大学かるた会</span></li>
+              <li><span class="nm">小林 空</span><span class="gr">E級</span><span class="af">岡山かるた会</span></li>
+              <li><span class="nm">西田 涼</span><span class="gr">E級</span><span class="rstat">取消</span></li>
+            </ul>
+          </div>
+          <div class="uploadwrap">
+            <p class="uploadnote">名簿 Excel を取り込みます（再取込時も旧版を保持し、最新の有効版を表示します）。</p>
+            <div class="uform">
+              <span class="t">確定名簿を取り込む</span>
+              <div><label>Excel ファイル（.xlsx / .xlsm / .xls）</label>
+                <div class="field"><span class="fbtn">ファイルを選択</span><span class="fph">選択されていません</span></div></div>
+              <div><label>発行日（任意）</label>
+                <div class="field"><span class="fph">年/月/日</span></div></div>
+              <div><span class="btn b-sm b-secondary">取込</span></div>
+            </div>
+            <div class="uform">
+              <span class="t">申込者名簿を取り込む</span>
+              <div><label>Excel ファイル（.xlsx / .xlsm / .xls）</label>
+                <div class="field"><span class="fbtn">ファイルを選択</span><span class="fph">選択されていません</span></div></div>
+              <div><label>発行日（任意）</label>
+                <div class="field"><span class="fph">年/月/日</span></div></div>
+              <div><span class="btn b-sm b-secondary">取込</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 関連メール（管理者のみ） -->
+        <div class="mails">
+          <h2>関連メール (2)</h2>
+          <div class="mailcards">
+            <div class="card mailcard">
+              <div class="r"><span class="s">【訂正】広島CDE 会場変更のお知らせ</span><span class="d">07/25 18:02</span></div>
+              <span class="f">広島県かるた協会 &lt;hiroshima@karuta.example.jp&gt;</span>
+            </div>
+            <div class="card mailcard">
+              <div class="r"><span class="s">広島CDE 大会要綱のご案内</span><span class="d">07/24 08:50</span></div>
+              <span class="f">広島県かるた協会 &lt;hiroshima@karuta.example.jp&gt;</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 参加者 -->
+        <div class="card">
+          <div class="seclabel">参加者 (5名)</div>
+          <div class="chips">
+            <span class="mchip">東<span class="pill p-info gpill">C級</span></span>
+            <span class="mchip">佐藤<span class="pill p-info gpill">D級</span></span>
+            <span class="mchip">吉田<span class="pill p-info gpill">D級</span></span>
+            <span class="mchip">山本<span class="pill p-info gpill">E級</span></span>
+            <span class="mchip">田中<span class="pill p-info gpill">E級</span></span>
+          </div>
+        </div>
+
+        <!-- コメント（折りたたみ・閉状態） -->
+        <div class="card">
+          <details class="cmt"><summary>コメント（記入済み）</summary></details>
+        </div>
+
+        <div class="sticky">
+          <span class="btn b-lg b-secondary b-block">参加をキャンセル</span>
+        </div>
+
+      </div>
+    </div>
+    <div class="bottomnav">
+      <span class="tab">ホーム</span>
+      <span class="tab active">イベント</span>
+      <span class="tab">統計</span>
+      <span class="tab">申込管理</span>
+      <span class="tab">会員</span>
+      <span class="tab">メール</span>
+      <span class="tab">Bot</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 一般会員ビュー ============ -->
+<div class="col">
+  <div class="collabel">一般会員ビュー（山田さん・D級・未回答）</div>
+  <div class="phone">
+    <div class="appbar"><span class="wordmark">かげとら</span><span class="who">山田さん</span></div>
+    <div class="main">
+      <div class="page">
+
+        <div class="toprow">
+          <span class="back">← イベント一覧</span>
+        </div>
+
+        <div>
+          <h1 class="title">広島CDE</h1>
+          <div class="officialwrap"><span class="pill p-success">公認</span></div>
+        </div>
+
+        <div class="card">
+          <div class="dlrow"><div class="dlab">正式名称</div><div class="dval">第35回広島競技かるた大会</div></div>
+          <div class="dlrow"><div class="dlab">日付</div><div class="dval">2026-09-06</div></div>
+          <div class="dlrow"><div class="dlab">会場</div><div class="dval">広島県立総合体育館 武道場</div></div>
+          <div class="dlrow"><div class="dlab">対象級</div><div class="dval"><div class="pills"><span class="pill p-info gpill">C級</span><span class="pill p-info gpill">D級</span><span class="pill p-info gpill">E級</span></div></div></div>
+          <div class="dlrow"><div class="dlab">級別定員</div><div class="dval"><div class="pills"><span class="npill"><span class="pill p-info gpill">C級</span>64名</span><span class="npill"><span class="pill p-info gpill">D級</span>64名</span><span class="npill"><span class="pill p-info gpill">E級</span>48名</span></div></div></div>
+          <div class="dlrow"><div class="dlab">大会申込締切</div><div class="dval">2026-08-05</div></div>
+          <div class="dlrow"><div class="dlab">会内締切</div><div class="dval">2026-07-31</div></div>
+          <div class="dlrow"><div class="dlab">抽選日</div><div class="dval">2026-08-07</div></div>
+          <div class="dlrow"><div class="dlab">主催</div><div class="dval">広島県かるた協会</div></div>
+          <div class="dlrow"><div class="dlab">申込方法</div><div class="dval">会でとりまとめて申込</div></div>
+          <div class="dlrow"><div class="dlab">参加費</div><div class="dval">2,000円</div></div>
+          <div class="dlrow"><div class="dlab">支払締切</div><div class="dval">2026-08-20</div></div>
+          <div class="dlrow"><div class="dlab">支払方法</div><div class="dval">事前振込（会の口座へ）</div></div>
+          <div class="dlrow"><div class="dlab">支払情報</div><div class="dval prewrap">ゆうちょ銀行 一二三支店
+普通 1234567 ホクダイカルタカイ</div></div>
+        </div>
+
+        <div class="card">
+          <div class="seclabel">詳細</div>
+          <div style="white-space: pre-wrap; font-size: var(--kg-text-sm); color: var(--kg-fg);">要綱は LINE 配信済みの PDF を参照してください。
+昼食は各自持参。会場に売店はありません。</div>
+        </div>
+
+        <div class="card">
+          <div class="seclabel">出欠状況</div>
+          <div class="attgrid">
+            <div class="attcard ok"><div class="n">5</div><div class="l">参加</div></div>
+            <div class="attcard ng"><div class="n">41</div><div class="l">不参加</div></div>
+          </div>
+        </div>
+
+        <!-- 進行状況（一般会員: 読み取り専用バッジのみ） -->
+        <div class="card">
+          <div class="seclabel">進行状況</div>
+          <div class="pillrow mt"><span class="pill p-success">申込済</span><span class="pill p-warn">未払</span></div>
+        </div>
+
+        <!-- LINE 配信（一般会員: 1行の案内のみ） -->
+        <div class="sec-tight">
+          <div class="seclabel">LINE 配信</div>
+          <div class="card linecard ro">この大会は LINE グループに自動配信されています。</div>
+        </div>
+
+        <!-- 名簿（閲覧のみ・取込フォームなし） -->
+        <div class="card roster">
+          <h2>名簿</h2>
+          <div class="rmiss">確定名簿: <b>未取込</b></div>
+          <div class="rblock">
+            <div class="rhead"><h3>申込者名簿（12名）</h3><span class="pub">発行 2026-07-22</span></div>
+            <p class="ronit">あなたはこの最新名簿に掲載されていません</p>
+            <p class="rmem">自会員 2名：東花子、佐藤太郎</p>
+            <ul class="rlist">
+              <li class="mem"><span class="nm">東 花子</span><span class="gr">C級</span><span class="af">北大かるた会</span><span class="membadge">会員</span></li>
+              <li class="mem"><span class="nm">佐藤 太郎</span><span class="gr">D級</span><span class="af">北大かるた会</span><span class="membadge">会員</span></li>
+              <li><span class="nm">川村 美咲</span><span class="gr">C級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">井上 蓮</span><span class="gr">C級</span><span class="af">岡山かるた会</span></li>
+              <li><span class="nm">高橋 結衣</span><span class="gr">D級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">中村 大輝</span><span class="gr">D級</span><span class="af">山口かるた会</span></li>
+              <li><span class="nm">藤井 彩</span><span class="gr">D級</span><span class="af">広島大学かるた会</span></li>
+              <li><span class="nm">岡本 悠人</span><span class="gr">E級</span><span class="af">広島かるた会</span></li>
+              <li><span class="nm">三浦 さくら</span><span class="gr">E級</span><span class="af">松江かるた会</span></li>
+              <li><span class="nm">村上 陽菜</span><span class="gr">E級</span><span class="af">広島大学かるた会</span></li>
+              <li><span class="nm">小林 空</span><span class="gr">E級</span><span class="af">岡山かるた会</span></li>
+              <li><span class="nm">西田 涼</span><span class="gr">E級</span><span class="rstat">取消</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 参加者 -->
+        <div class="card">
+          <div class="seclabel">参加者 (5名)</div>
+          <div class="chips">
+            <span class="mchip">東<span class="pill p-info gpill">C級</span></span>
+            <span class="mchip">佐藤<span class="pill p-info gpill">D級</span></span>
+            <span class="mchip">吉田<span class="pill p-info gpill">D級</span></span>
+            <span class="mchip">山本<span class="pill p-info gpill">E級</span></span>
+            <span class="mchip">田中<span class="pill p-info gpill">E級</span></span>
+          </div>
+        </div>
+
+        <!-- コメント（展開した状態を収録。既定は閉） -->
+        <div class="card">
+          <details class="cmt" open>
+            <summary>コメント</summary>
+            <div class="cform">
+              <div class="ta"></div>
+              <div class="cbtn"><span class="btn b-sm b-secondary">コメントを保存</span></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="sticky">
+          <span class="btn b-lg b-primary b-block">参加する</span>
+        </div>
+
+      </div>
+    </div>
+    <div class="bottomnav">
+      <span class="tab">ホーム</span>
+      <span class="tab active">イベント</span>
+      <span class="tab">統計</span>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>現状（実装そのまま）。</b>左=管理者ビュー、右=一般会員ビュー（同じ大会「広島CDE」・仮データ）。
+  管理者との差分: 編集ボタンなし／進行管理→読み取り専用「進行状況」バッジ／LINE 配信→1行案内のみ／
+  級別グループ配信・関連メール→非表示／名簿→閲覧のみ+自分の掲載状況。
+  一般会員のコメント欄は展開状態を収録（実際の既定は閉・管理者側が閉状態）。
+  このほか回答不可のケース（締切超過・対象外級・級未設定）では参加ボタンの代わりに
+  理由テキスト1行のカードが出る。ページ余白なし・日付は生 ISO 表記（2026-09-06）のままが現状。
+</div>
+
+</body></html>

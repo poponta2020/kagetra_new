@@ -1,0 +1,632 @@
+<!-- @dsCard group="大会申込 詳細リデザイン" name="リデザイン案 — 罫線＋余白主導（脱カード）" subtitle="design.md 2.5 アンチスロップ規約に準拠" viewport="880x1500" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<style>
+/* ============================================================
+   大会詳細 — リデザイン案
+   方向性宣言（design.md 2.5-1）:
+     和紙 × 藍墨 ／ エディトリアル寄り ／
+     この画面のアンカーは「9/6(日) 広島CDE」のタイトル1つ。
+
+   採用した型（design.md 2.5「代わりに使う型」）:
+     罫線セクション  … 下線付き見出し＋余白でセクションを区切る（箱なし）
+     フラット表      … 罫線最小・tabular-nums・級は縦に通す
+     余白主導サマリー … 大きな数字（Serif）＋小さなラベル、囲わない
+     エディトリアル列 … 詳細本文は Serif 16/1.9
+     sticky 見出し   … 長い名簿は見出しを sticky にして文脈を保つ
+
+   カードを残した箇所（2.5「使ってよい」= 独立したタップ対象のみ）:
+     関連メール1件（タップで開く物体）のみ。それ以外の箱はすべて撤去。
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--kg-font-sans);display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:24px;padding:24px 12px;color:var(--kg-fg)}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px}
+.collabel{font-size:13px;font-weight:var(--kg-w-semibold);color:var(--kg-fg-2);letter-spacing:.04em}
+
+.phone{width:375px;height:812px;display:flex;flex-direction:column;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;overflow:hidden;font-size:var(--kg-text-base);line-height:var(--kg-leading-normal);box-shadow:var(--kg-shadow-md)}
+.appbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;background:var(--kg-surface);border-bottom:1px solid var(--kg-border);padding:0 16px}
+.appbar .wordmark{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:16px;color:var(--kg-brand);letter-spacing:.02em}
+.appbar .who{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.main{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.main::-webkit-scrollbar{display:none}
+.page{min-height:100%;display:flex;flex-direction:column;padding:0 16px}
+.page>*{flex:none}
+
+/* 戻る / 編集 */
+.editlink{margin-left:auto;flex:none;font-size:var(--kg-text-sm);font-weight:var(--kg-w-regular);font-family:var(--kg-font-sans);color:var(--kg-brand)}
+
+/* ── 固定ヘッダー: タイトル＋会場＋申込フローを1塊で画面上部に固定 ── */
+.stickyhead{position:sticky;top:0;z-index:3;margin:0 -16px;padding:14px 16px 0;background:var(--kg-bg);border-bottom:1px solid var(--kg-border-soft)}
+.stickyhead .place.solo{margin-top:3px;padding-bottom:10px}
+.stickyhead .flow{border-bottom:0;padding-top:11px}
+
+/* ── アンカー: タイトル塊（箱なし・タイポと余白のみ） ── */
+h1.title{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:28px;line-height:var(--kg-leading-tight);display:flex;align-items:baseline;column-gap:10px;row-gap:2px;min-width:0}
+h1.title .tdate{flex:none;font-size:19px;color:var(--kg-fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.place.solo{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+
+/* ── 申込フロー（横向き・箱なし。点と罫線とタイポのみ） ── */
+.flow{display:flex;padding:13px 0 12px;border-bottom:1px solid var(--kg-border-soft)}
+.fs{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px}
+.fs::before,.fs::after{content:'';position:absolute;top:4px;height:1px;background:var(--kg-border)}
+.fs::before{left:0;right:50%}
+.fs::after{left:50%;right:0}
+.fs:first-child::before,.fs:last-child::after{display:none}
+.fs.done::before,.fs.done::after,.fs.now::before{background:var(--kg-brand)}
+.fs .d{position:relative;z-index:1;width:9px;height:9px;border-radius:50%;background:var(--kg-surface);box-shadow:0 0 0 1px var(--kg-border-strong)}
+.fs.done .d{background:var(--kg-brand);box-shadow:0 0 0 1px var(--kg-brand)}
+.fs.now .d{background:var(--kg-bg);box-shadow:0 0 0 2px var(--kg-brand)}
+.fs.warn .d{box-shadow:0 0 0 1px var(--kg-accent)}
+.fs .l{font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);white-space:nowrap}
+.fs.now .l{color:var(--kg-brand);font-weight:var(--kg-w-bold)}
+.fs.warn .l{color:var(--kg-accent-fg)}
+.fs .t{font-family:var(--kg-font-display);font-size:var(--kg-text-xs);color:var(--kg-fg-3);font-variant-numeric:tabular-nums}
+.fs.goal .d{width:11px;height:11px;background:var(--kg-bg);box-shadow:0 0 0 1.5px var(--kg-fg-2)}
+.fs.goal .l{color:var(--kg-fg);font-weight:var(--kg-w-bold)}
+.fs .t.txt{font-family:var(--kg-font-sans);color:var(--kg-brand)}
+
+/* ── 罫線セクション ── */
+.sec{padding:34px 0 0}
+.sech{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding-bottom:7px;border-bottom:1px solid var(--kg-border-strong);margin-bottom:13px}
+.sech h2{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.sech h2 .cntnum{font-size:20px;font-weight:var(--kg-w-bold);color:var(--kg-brand);margin-left:8px;font-variant-numeric:tabular-nums}
+.sech h2 .cntunit{font-family:var(--kg-font-sans);font-size:var(--kg-text-xs);font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-left:1px}
+.sech h2 .sub{font-family:var(--kg-font-sans);font-size:var(--kg-text-xs);font-weight:var(--kg-w-regular);color:var(--kg-fg-3);font-variant-numeric:tabular-nums}
+.sech .aux{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.sech .aux.warn{color:var(--kg-accent-fg)}
+
+/* ── フラット表 ── */
+table.flat{width:100%;border-collapse:collapse;font-size:var(--kg-text-sm)}
+table.flat th,table.flat td{padding:7px 0;text-align:left;vertical-align:baseline;font-weight:var(--kg-w-regular)}
+table.flat tr+tr th,table.flat tr+tr td{border-top:1px solid var(--kg-border-soft)}
+table.flat th{width:104px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);white-space:nowrap}
+table.flat td{color:var(--kg-fg)}
+table.flat td.num{text-align:right;font-family:var(--kg-font-display);font-variant-numeric:tabular-nums}
+table.flat td.date{font-variant-numeric:tabular-nums}
+table.flat .grade{font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-fg-2)}
+.prewrap{white-space:pre-wrap}
+
+/* 定員: 級を1行に横並び（余白主導・囲まない） */
+.caprow{display:flex;align-items:baseline;gap:26px}
+.caprow .ci{display:flex;align-items:baseline;gap:4px}
+.caprow .g{font-family:var(--kg-font-mono);font-size:var(--kg-text-md);font-weight:var(--kg-w-bold);color:var(--kg-fg-2)}
+.caprow .n{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-bold);color:var(--kg-fg);line-height:1;font-variant-numeric:tabular-nums}
+.caprow .u{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+
+/* ── エディトリアル本文 ── */
+.body{font-family:var(--kg-font-display);font-size:var(--kg-text-md);line-height:1.9;color:var(--kg-fg-2)}
+
+/* ── 行アクション（箱なし・罫線区切り） ── */
+.arow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;font-size:var(--kg-text-sm)}
+.arow+.arow{border-top:1px solid var(--kg-border-soft)}
+.arow .k{flex:none;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.arow .v{color:var(--kg-fg)}
+.arow .v.ok{font-size:var(--kg-text-base);font-weight:var(--kg-w-bold);color:var(--kg-brand-fg)}
+.acts{display:flex;align-items:center;gap:10px}
+.subnote{font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);margin-top:3px}
+
+/* ボタン / リンクアクション */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--kg-radius-md);font-weight:var(--kg-w-semibold);white-space:nowrap}
+.b-sm{height:30px;padding:0 11px;font-size:var(--kg-text-xs)}
+.b-lg{height:48px;padding:0 20px;font-size:15px;border-radius:var(--kg-radius-lg)}
+.b-primary{background:var(--kg-brand);color:var(--kg-fg-on-brand)}
+.b-outline{background:transparent;color:var(--kg-fg-2);border:1px solid var(--kg-border-strong)}
+.b-block{width:100%}
+.lnk{font-size:var(--kg-text-xs);color:var(--kg-brand);white-space:nowrap}
+.lnk.danger{color:var(--kg-accent-fg)}
+.select{border-bottom:1px solid var(--kg-border-strong);padding:2px 1px;font-size:var(--kg-text-sm);color:var(--kg-fg)}
+
+/* ── 配信履歴（罫線リスト） ── */
+.hist{list-style:none}
+.hist li{padding:10px 0}
+.hist li+li{border-top:1px solid var(--kg-border-soft)}
+.hist .r1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.hist .s{font-size:var(--kg-text-sm);color:var(--kg-fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist .st{flex:none;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.hist .st.warn{color:var(--kg-accent-fg)}
+.hist .m{margin-top:3px;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;gap:2px 12px}
+.hist .err{margin-top:3px;font-size:var(--kg-text-xs);color:var(--kg-accent-fg)}
+.hist .fix{margin-top:5px}
+
+/* ── オープンチャット ── */
+.ocbadge{flex:none;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);border:1px solid var(--kg-border);border-radius:var(--kg-radius-sm);padding:1px 6px}
+table.oc{margin-top:10px}
+table.oc th{width:52px;font-family:var(--kg-font-mono);font-size:var(--kg-text-sm);color:var(--kg-fg-2)}
+table.oc td{max-width:0}
+.ocurl{display:block;font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-brand);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.oc td.ocempty{font-size:var(--kg-text-xs);color:var(--kg-accent-fg)}
+
+/* ── 進行管理: 開閉トグル ── */
+.mg{border-top:1px solid var(--kg-border-soft)}
+.mg:first-of-type{border-top:0}
+.mg>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:9px;padding:10px 0}
+.mg>summary::-webkit-details-marker{display:none}
+.mg>summary::before{content:'▸';flex:none;font-size:10px;color:var(--kg-fg-3)}
+.mg[open]>summary::before{content:'▾'}
+.mg .k{flex:none;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.mg .v.ok{font-size:var(--kg-text-base);font-weight:var(--kg-w-bold);color:var(--kg-brand-fg)}
+.mg .v.ng{font-size:var(--kg-text-base);font-weight:var(--kg-w-bold);color:var(--kg-accent-fg)}
+.mg .v{font-size:var(--kg-text-sm);color:var(--kg-fg)}
+.mg .mgaux{margin-left:auto;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.mg .mgaux.warn{color:var(--kg-accent-fg)}
+.mg.outer{border-top:0}
+.mg.outer>summary{padding:0 0 7px;border-bottom:1px solid var(--kg-border-strong);margin-bottom:0;gap:8px}
+.mg.outer>summary h2{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.mg .mgbody.nest{padding:0 0 0 12px}
+.mg .mgbody{padding:2px 0 13px}
+.mg .mgbody>.hist>li:first-child{padding-top:2px}
+.mgacts{margin-top:11px;display:flex;align-items:center;justify-content:flex-end;gap:10px}
+
+/* ── 名簿: 開閉トグル＋級タブ ── */
+.rost{border-top:1px solid var(--kg-border-soft)}
+.rost:first-of-type{border-top:0}
+.mgbody.nest>.rost:first-of-type{padding-top:2px}
+.rost>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;padding:11px 0}
+.rost>summary::-webkit-details-marker{display:none}
+.rost>summary::before{content:'▸';flex:none;font-size:10px;color:var(--kg-fg-3)}
+.rost[open]>summary::before{content:'▾'}
+.rost .rt{font-size:var(--kg-text-sm);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.rost .cnt{font-family:var(--kg-font-display);font-size:var(--kg-text-sm);color:var(--kg-fg-2);font-variant-numeric:tabular-nums}
+.rost .pub{margin-left:auto;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);font-variant-numeric:tabular-nums}
+.rost .rbody{padding-bottom:13px}
+.rtabs{display:flex;border-bottom:1px solid var(--kg-border);margin-bottom:10px}
+.rtabs .t{position:relative;flex:1;text-align:center;padding:6px 2px 8px;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);white-space:nowrap}
+.rtabs .t.on{color:var(--kg-brand);font-weight:var(--kg-w-bold)}
+.rtabs .t.on::after{content:'';position:absolute;left:7px;right:7px;bottom:-1px;height:2px;border-radius:2px 2px 0 0;background:var(--kg-brand)}
+.rtabs .t .n{font-family:var(--kg-font-display);margin-left:3px;font-variant-numeric:tabular-nums}
+.rempty{font-size:var(--kg-text-xs);line-height:1.75;color:var(--kg-neutral-fg)}
+
+/* ── 名簿表 ── */
+.rnote{font-size:var(--kg-text-xs);color:var(--kg-fg-3);margin-bottom:9px}
+.rnote b{color:var(--kg-fg-2);font-weight:var(--kg-w-medium)}
+table.roster{width:100%;border-collapse:collapse;font-size:var(--kg-text-sm)}
+table.roster td{padding:6px 0;vertical-align:baseline}
+table.roster tr+tr td{border-top:1px solid var(--kg-border-soft)}
+table.roster .nm{color:var(--kg-fg);white-space:nowrap}
+table.roster .gr{width:34px;font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-fg-3);white-space:nowrap}
+table.roster .af{font-size:var(--kg-text-xs);color:var(--kg-fg-3);text-align:right}
+table.roster tr.mem .nm{color:var(--kg-brand-fg);font-weight:var(--kg-w-semibold)}
+table.roster tr.mem .af::after{content:'・会員';color:var(--kg-brand-fg)}
+table.roster tr.off .nm{color:var(--kg-neutral-fg)}
+table.roster .rstat{color:var(--kg-accent-fg)}
+
+/* ── 余白主導サマリー: 参加者（人数＋名前を1行に。折り返しは可） ── */
+.partrow{display:flex;align-items:baseline}
+.partrow .who{flex:1;min-width:0;font-size:var(--kg-text-xs);line-height:1.7;color:var(--kg-neutral-fg)}
+.partrow .who>span{white-space:nowrap}
+.partrow .who i{font-style:normal;font-family:var(--kg-font-mono);color:var(--kg-fg-3);margin-left:2px}
+.partrow .who em{font-style:normal;color:var(--kg-fg-3);margin:0 4px}
+
+/* ── 関連メール: ここだけカード（独立したタップ対象） ── */
+.mailcard{display:block;background:var(--kg-surface);border:1px solid var(--kg-border-soft);border-radius:var(--kg-radius-lg);padding:10px 12px;box-shadow:var(--kg-shadow-sm)}
+.mailcard+.mailcard{margin-top:7px}
+.mgbody.nest>.mailcard:first-child{margin-top:10px}
+.mailcard .r{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.mailcard .s{font-size:var(--kg-text-sm);font-weight:var(--kg-w-medium);color:var(--kg-fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mailcard .d{flex:none;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);font-variant-numeric:tabular-nums}
+.mailcard .f{margin-top:2px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.sticky{position:sticky;bottom:0;margin:16px -16px 0;margin-top:auto;background:rgba(244,239,227,.95);backdrop-filter:blur(4px);border-top:1px solid var(--kg-border);padding:12px 16px}
+.bottomnav{height:52px;flex:none;display:flex;align-items:stretch;background:var(--kg-surface);border-top:1px solid var(--kg-border)}
+.bottomnav .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:var(--kg-text-xs);font-weight:var(--kg-w-medium);border-top:2px solid transparent;color:var(--kg-neutral-fg)}
+.bottomnav .tab.active{border-top-color:var(--kg-brand);color:var(--kg-brand)}
+
+.note{flex-basis:100%;max-width:820px;margin:4px auto 0;font-size:12.5px;line-height:1.8;color:var(--kg-fg-2)}
+.note h3{font-family:var(--kg-font-display);font-size:15px;color:var(--kg-fg);margin-bottom:6px}
+.note b{color:var(--kg-fg)}
+.note ul{margin:7px 0 0 17px}
+.note li{margin-bottom:4px}
+a{color:var(--kg-brand)}a:hover{color:var(--kg-brand-hover)}
+
+/* ── 状態バリエーション（本編に描かれていない状態の断片） ── */
+.fs .t.und{font-family:var(--kg-font-sans)}
+.vars{flex-basis:100%;max-width:820px;margin:20px auto 0}
+.vars h3{font-family:var(--kg-font-display);font-size:15px;color:var(--kg-fg);margin-bottom:5px}
+.vars .lead{font-size:12.5px;line-height:1.8;color:var(--kg-fg-2);margin-bottom:13px}
+.vgrid{display:flex;flex-wrap:wrap;gap:16px}
+.vcard{width:375px;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;padding:0 16px 14px}
+.vcard .vlabel{font-size:var(--kg-text-xs);font-weight:var(--kg-w-semibold);color:var(--kg-fg-3);padding:11px 0 0;letter-spacing:.03em}
+.vcard .sec{padding:10px 0 0}
+.vcard .flow{border-bottom:0}
+</style>
+</head>
+<body>
+
+<!-- ============ 管理者ビュー ============ -->
+<div class="col">
+  <div class="collabel">管理者ビュー（poponさん）</div>
+  <div class="phone">
+    <div class="appbar"><span class="wordmark">かげとら</span><span class="who">poponさん</span></div>
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <h1 class="title"><span class="tdate">9/6(日)</span>広島CDE<span class="editlink">編集</span></h1>
+        <div class="place solo">広島県立総合体育館 武道場</div>
+        <!-- 申込フロー（仮。ステップ定義は Claude Code 側で詰める） -->
+        <div class="flow">
+          <div class="fs now"><span class="d"></span><span class="l">会内締切</span><span class="t">7/31</span></div>
+          <div class="fs"><span class="d"></span><span class="l">大会申込</span><span class="t">8/5</span></div>
+          <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t">8/7</span></div>
+          <div class="fs warn"><span class="d"></span><span class="l">支払</span><span class="t">8/20</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/6</span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>進行管理</h2></div>
+        <details class="mg">
+          <summary><span class="k">申込状態</span><span class="v ok">申込済</span></summary>
+          <div class="mgbody">
+            <table class="flat">
+              <tr><th>申込方法</th><td>会でとりまとめて申込</td></tr>
+              <tr><th>大会申込締切</th><td class="date">8/5(水)</td></tr>
+            </table>
+            <div class="mgacts"><span class="lnk">未申込に戻す</span></div>
+          </div>
+        </details>
+        <details class="mg">
+          <summary><span class="k">支払状態</span><span class="v ng">未払</span></summary>
+          <div class="mgbody">
+            <table class="flat">
+              <tr><th>参加費</th><td>2,000円</td></tr>
+              <tr><th>支払締切</th><td class="date">8/20(木)</td></tr>
+              <tr><th>支払方法</th><td>事前振込（会の口座へ）</td></tr>
+              <tr><th>振込先</th><td class="prewrap">ゆうちょ銀行 一二三支店
+普通 1234567 ホクダイカルタカイ</td></tr>
+            </table>
+            <div class="mgacts"><span class="select">事前払い ▾</span><span class="btn b-sm b-primary">支払済にする</span></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>参加者<span class="cntnum">5</span><span class="cntunit">名</span></h2></div>
+        <div class="partrow">
+          <span class="who"><span>東<i>C</i></span><em>・</em><span>佐藤<i>D</i></span><em>・</em><span>吉田<i>D</i></span><em>・</em><span>山本<i>E</i></span><em>・</em><span>田中<i>E</i></span></span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>級別定員</h2><span class="aux">計 176名</span></div>
+        <div class="caprow">
+          <span class="ci"><span class="g">C</span><span class="n">64</span><span class="u">名</span></span>
+          <span class="ci"><span class="g">D</span><span class="n">64</span><span class="u">名</span></span>
+          <span class="ci"><span class="g">E</span><span class="n">48</span><span class="u">名</span></span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>備考</h2><span class="lnk">編集</span></div>
+        <div class="body prewrap">要綱は LINE 配信済みの PDF を参照してください。
+昼食は各自持参。会場に売店はありません。</div>
+      </div>
+
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>LINE 配信</h2><span class="mgaux">配信中</span></summary>
+          <div class="mgbody nest">
+        <details class="mg">
+          <summary><span class="k">連携状況</span><span class="v">かげとら07（若草）</span></summary>
+          <div class="mgbody">
+            <table class="flat">
+              <tr><th>グループ</th><td style="font-family:var(--kg-font-mono);font-size:var(--kg-text-xs)">…Ab3xQz9f</td></tr>
+              <tr><th>紐付け</th><td class="date">2026/07/20 14:32</td></tr>
+              <tr><th>最終配信</th><td class="date">2026/07/24 09:15</td></tr>
+              <tr><th>要綱</th><td>2件選択済み<div class="subnote">最終送信 7/20 14:35</div></td></tr>
+            </table>
+            <div class="mgacts"><span class="lnk">要綱を再送</span><span class="lnk danger">連携解除</span></div>
+          </div>
+        </details>
+        <details class="mg">
+          <summary><span class="k">配信履歴</span><span class="v">2件</span><span class="mgaux warn">1件 部分失敗</span></summary>
+          <div class="mgbody">
+            <ul class="hist">
+              <li>
+                <div class="r1"><span class="s">広島CDE 大会要綱のご案内</span><span class="st">配信済み</span></div>
+                <div class="m"><span>受信 7/24 08:50</span><span>配信 7/24 09:15</span><span>テキスト1・画像2</span></div>
+              </li>
+              <li>
+                <div class="r1"><span class="s">【訂正】広島CDE 会場変更のお知らせ</span><span class="st warn">部分失敗</span></div>
+                <div class="m"><span>受信 7/25 18:02</span><span>配信 7/25 18:10</span><span>テキスト1・画像1・リンク1</span></div>
+                <div class="err">画像 1 件の送信がタイムアウトしました</div>
+                <div class="fix"><span class="lnk">再配信</span></div>
+              </li>
+            </ul>
+          </div>
+        </details>
+        <details class="mg">
+          <summary><span class="k">級別グループ配信</span><span class="v">1 / 3 送信済み</span><span class="mgaux warn">E級 未紐付け</span></summary>
+          <div class="mgbody">
+            <table class="flat">
+              <tr><th>C級</th><td class="date">送信済み 7/20 14:40</td></tr>
+              <tr><th>D級</th><td style="color:var(--kg-fg-3)">未送信</td></tr>
+              <tr><th>E級</th><td style="color:var(--kg-accent-fg)">未紐付け</td></tr>
+            </table>
+            <div class="mgacts"><span class="lnk">未送信の級へ配信</span></div>
+          </div>
+        </details>
+          </div>
+        </details>
+      </div>
+
+      <!-- SCOPE-OUT: オープンチャットは別機能として扱う（今回の実装対象外）。
+           DB に該当データが無く（line.me/ti/g2 の URL カラムは全文検索で該当ゼロ）、
+           スキーマ追加＋migration が必要なため。UI 案としてのみ残置。 -->
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>オープンチャット</h2><span class="ocbadge">級別</span><span class="mgaux warn">1件 未設定</span></summary>
+          <div class="mgbody nest">
+            <table class="flat oc">
+              <tr><th>C級</th><td><a class="ocurl" href="#">https://line.me/ti/g2/AbCdEf1234</a></td></tr>
+              <tr><th>D級</th><td><a class="ocurl" href="#">https://line.me/ti/g2/GhIjKl5678</a></td></tr>
+              <tr><th>E級</th><td class="ocempty">未設定</td></tr>
+            </table>
+            <div class="mgacts"><span class="lnk">URL を編集</span></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>名簿</h2><span class="mgaux">申込者 12名 / 確定 未取込</span></summary>
+          <div class="mgbody nest">
+        <details class="rost">
+          <summary><span class="rt">申込者名簿</span><span class="cnt">12名</span><span class="pub">発行 7/22</span></summary>
+          <div class="rbody">
+            <div class="rtabs">
+              <span class="t on">全体<span class="n">12</span></span>
+              <span class="t">C<span class="n">3</span></span>
+              <span class="t">D<span class="n">4</span></span>
+              <span class="t">E<span class="n">5</span></span>
+            </div>
+            <div class="rnote">自会員 <b>2名</b>（東・佐藤）／ あなたはこの名簿に掲載されていません</div>
+            <table class="roster">
+              <tr class="mem"><td class="nm">東 花子</td><td class="gr">C</td><td class="af">北大かるた会</td></tr>
+              <tr><td class="nm">川村 美咲</td><td class="gr">C</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">井上 蓮</td><td class="gr">C</td><td class="af">岡山かるた会</td></tr>
+              <tr class="mem"><td class="nm">佐藤 太郎</td><td class="gr">D</td><td class="af">北大かるた会</td></tr>
+              <tr><td class="nm">高橋 結衣</td><td class="gr">D</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">中村 大輝</td><td class="gr">D</td><td class="af">山口かるた会</td></tr>
+              <tr><td class="nm">藤井 彩</td><td class="gr">D</td><td class="af">広島大学かるた会</td></tr>
+              <tr><td class="nm">岡本 悠人</td><td class="gr">E</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">三浦 さくら</td><td class="gr">E</td><td class="af">松江かるた会</td></tr>
+              <tr><td class="nm">村上 陽菜</td><td class="gr">E</td><td class="af">広島大学かるた会</td></tr>
+              <tr><td class="nm">小林 空</td><td class="gr">E</td><td class="af">岡山かるた会</td></tr>
+              <tr class="off"><td class="nm">西田 涼</td><td class="gr">E</td><td class="af rstat">取消</td></tr>
+            </table>
+          </div>
+        </details>
+        <details class="rost">
+          <summary><span class="rt">確定名簿</span><span class="pub">未取込</span></summary>
+          <div class="rbody"><div class="rempty">まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。</div></div>
+        </details>
+          </div>
+        </details>
+      </div>
+
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>関連メール</h2><span class="mgaux">2件</span></summary>
+          <div class="mgbody nest">
+            <a class="mailcard" href="#">
+              <div class="r"><span class="s">【訂正】広島CDE 会場変更のお知らせ</span><span class="d">7/25 18:02</span></div>
+              <div class="f">広島県かるた協会</div>
+            </a>
+            <a class="mailcard" href="#">
+              <div class="r"><span class="s">広島CDE 大会要綱のご案内</span><span class="d">7/24 08:50</span></div>
+              <div class="f">広島県かるた協会</div>
+            </a>
+          </div>
+        </details>
+      </div>
+
+      <div class="sticky"><span class="btn b-lg b-outline b-block">参加をキャンセル</span></div>
+
+    </div></div>
+    <div class="bottomnav">
+      <span class="tab">ホーム</span><span class="tab active">イベント</span><span class="tab">統計</span>
+      <span class="tab">申込管理</span><span class="tab">会員</span><span class="tab">メール</span><span class="tab">Bot</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 一般会員ビュー ============ -->
+<div class="col">
+  <div class="collabel">一般会員ビュー（山田さん・D級・未回答）</div>
+  <div class="phone">
+    <div class="appbar"><span class="wordmark">かげとら</span><span class="who">山田さん</span></div>
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <h1 class="title"><span class="tdate">9/6(日)</span>広島CDE</h1>
+        <div class="place solo">広島県立総合体育館 武道場</div>
+        <!-- 申込フロー（仮。ステップ定義は Claude Code 側で詰める） -->
+        <div class="flow">
+          <div class="fs now"><span class="d"></span><span class="l">会内締切</span><span class="t">7/31</span></div>
+          <div class="fs"><span class="d"></span><span class="l">大会申込</span><span class="t">8/5</span></div>
+          <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t">8/7</span></div>
+          <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t">8/20</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/6</span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <div class="sech"><h2>参加者<span class="cntnum">5</span><span class="cntunit">名</span></h2></div>
+        <div class="partrow">
+          <span class="who"><span>東<i>C</i></span><em>・</em><span>佐藤<i>D</i></span><em>・</em><span>吉田<i>D</i></span><em>・</em><span>山本<i>E</i></span><em>・</em><span>田中<i>E</i></span></span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>級別定員<span class="sub">（抽選日：8/7）</span></h2><span class="aux">計 176名</span></div>
+        <div class="caprow">
+          <span class="ci"><span class="g">C</span><span class="n">64</span><span class="u">名</span></span>
+          <span class="ci"><span class="g">D</span><span class="n">64</span><span class="u">名</span></span>
+          <span class="ci"><span class="g">E</span><span class="n">48</span><span class="u">名</span></span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>備考</h2></div>
+        <div class="body prewrap">要綱は LINE 配信済みの PDF を参照してください。
+昼食は各自持参。会場に売店はありません。</div>
+      </div>
+
+      <!-- SCOPE-OUT: オープンチャットは別機能として扱う（今回の実装対象外）。UI 案としてのみ残置。 -->
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>オープンチャット</h2><span class="ocbadge">級別</span></summary>
+          <div class="mgbody nest">
+            <table class="flat oc">
+              <tr><th>D級</th><td><a class="ocurl" href="#">https://line.me/ti/g2/GhIjKl5678</a></td></tr>
+            </table>
+          </div>
+        </details>
+      </div>
+
+      <div class="sec">
+        <details class="mg outer">
+          <summary><h2>名簿</h2><span class="mgaux">申込者 12名 / 確定 未取込</span></summary>
+          <div class="mgbody nest">
+        <details class="rost">
+          <summary><span class="rt">申込者名簿</span><span class="cnt">12名</span><span class="pub">発行 7/22</span></summary>
+          <div class="rbody">
+            <div class="rtabs">
+              <span class="t on">全体<span class="n">12</span></span>
+              <span class="t">C<span class="n">3</span></span>
+              <span class="t">D<span class="n">4</span></span>
+              <span class="t">E<span class="n">5</span></span>
+            </div>
+            <div class="rnote">自会員 <b>2名</b>（東・佐藤）／ あなたはこの名簿に掲載されていません</div>
+            <table class="roster">
+              <tr class="mem"><td class="nm">東 花子</td><td class="gr">C</td><td class="af">北大かるた会</td></tr>
+              <tr><td class="nm">川村 美咲</td><td class="gr">C</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">井上 蓮</td><td class="gr">C</td><td class="af">岡山かるた会</td></tr>
+              <tr class="mem"><td class="nm">佐藤 太郎</td><td class="gr">D</td><td class="af">北大かるた会</td></tr>
+              <tr><td class="nm">高橋 結衣</td><td class="gr">D</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">中村 大輝</td><td class="gr">D</td><td class="af">山口かるた会</td></tr>
+              <tr><td class="nm">藤井 彩</td><td class="gr">D</td><td class="af">広島大学かるた会</td></tr>
+              <tr><td class="nm">岡本 悠人</td><td class="gr">E</td><td class="af">広島かるた会</td></tr>
+              <tr><td class="nm">三浦 さくら</td><td class="gr">E</td><td class="af">松江かるた会</td></tr>
+              <tr><td class="nm">村上 陽菜</td><td class="gr">E</td><td class="af">広島大学かるた会</td></tr>
+              <tr><td class="nm">小林 空</td><td class="gr">E</td><td class="af">岡山かるた会</td></tr>
+              <tr class="off"><td class="nm">西田 涼</td><td class="gr">E</td><td class="af rstat">取消</td></tr>
+            </table>
+          </div>
+        </details>
+        <details class="rost">
+          <summary><span class="rt">確定名簿</span><span class="pub">未取込</span></summary>
+          <div class="rbody"><div class="rempty">まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。</div></div>
+        </details>
+          </div>
+        </details>
+      </div>
+
+      <div class="sticky"><span class="btn b-lg b-primary b-block">参加する</span></div>
+
+    </div></div>
+    <div class="bottomnav">
+      <span class="tab">ホーム</span><span class="tab active">イベント</span><span class="tab">統計</span>
+    </div>
+  </div>
+</div>
+
+<div class="vars">
+  <h3>状態バリエーション</h3>
+  <p class="lead">上の2画面に描かれていない状態。<b>いずれも実装に必要な現役の状態</b>なので、断片として並置します（本編と同じスタイル）。</p>
+  <div class="vgrid">
+
+    <div class="vcard">
+      <div class="vlabel">申込フロー — 抽選日・支払締切が未設定（NULL）のとき</div>
+      <div class="flow">
+        <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">7/31</span></div>
+        <div class="fs now"><span class="d"></span><span class="l">大会申込</span><span class="t">8/5</span></div>
+        <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t und">未定</span></div>
+        <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t und">未定</span></div>
+        <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/6</span></div>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="vlabel">進行管理 — 申込状態が「未申込」のとき</div>
+      <div class="sec">
+        <details class="mg" open>
+          <summary><span class="k">申込状態</span><span class="v">未申込</span></summary>
+          <div class="mgbody">
+            <table class="flat">
+              <tr><th>申込方法</th><td>会でとりまとめて申込</td></tr>
+              <tr><th>大会申込締切</th><td class="date">8/5(水)</td></tr>
+            </table>
+            <div class="mgacts"><span class="lnk">申し込まない</span><span class="btn b-sm b-primary">申込済にする</span></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="vlabel">LINE 配信 — 未連携（新規大会の初期状態）</div>
+      <div class="sec">
+        <details class="mg outer" open>
+          <summary><h2>LINE 配信</h2><span class="mgaux">未連携</span></summary>
+          <div class="mgbody nest">
+            <p class="rempty">この大会の参加者 LINE グループへ、承認したメールを自動配信します。まず招待コードを発行し、Bot をグループに招待してください。</p>
+            <div class="mgacts"><span class="btn b-sm b-primary">LINE 配信を有効化</span></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="vlabel">LINE 配信 — 招待コード発行済み（Bot 入室・コード待ち）</div>
+      <div class="sec">
+        <details class="mg outer" open>
+          <summary><h2>LINE 配信</h2><span class="mgaux">招待コード発行中</span></summary>
+          <div class="mgbody nest">
+            <p class="rempty">Bot をグループに招待し、コードを発言すると紐付けが完了します。うまくいかない場合は <a href="#">/admin/line-channels</a> から手動で紐付けできます。</p>
+            <div class="mgacts"><span class="lnk danger">取り消し</span><span class="btn b-sm b-primary">招待コードを再発行</span></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="vlabel">確定名簿 — 未取込のとき（文言を修正）</div>
+      <div class="sec">
+        <details class="rost" open>
+          <summary><span class="rt">確定名簿</span><span class="pub">未取込</span></summary>
+          <div class="rbody"><div class="rempty">まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。</div></div>
+        </details>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="note">
+  <h3>リデザイン案 — 罫線＋余白主導（脱カード）</h3>
+  <p><b>方向性の宣言</b>（design.md 2.5-1）：和紙 × 藍墨／エディトリアル寄り／この画面のアンカーは<b>「9/6(日) 広島CDE」のタイトル1つ</b>。</p>
+
+  <p style="margin-top:9px"><b>カードを剥がした箇所</b>（2.5「読む情報を箱に入れてはいけない」）：情報テーブル・備考・進行管理・LINE 配信・配信履歴・級別配信・名簿・参加者。すべて<b>下線付き見出し＋余白＋罫線</b>に置き換えました。カードを1枚はがしても情報は読めるので、箱は不要でした（2.5 リトマス試験）。</p>
+  <p style="margin-top:8px"><b>カードを残した箇所</b>：関連メール2件のみ。1件ずつが「タップして開く独立した物体」なので 2.5「使ってよい」に該当します。この画面で唯一の箱なので、逆に<b>ここがタップできる</b>ことが伝わります。</p>
+
+  <p style="margin-top:9px"><b>管理者ビュー最上部に申込フロー</b>（仮）：会内締切 → 大会申込 → 抽選 → 支払 → 開催 を横一列に（両ビュー共通）。完了は藍の塗り点、進行中は藍の輪、未着手は砂の点、支払（未払）は朱の輪、開催（ゴール）は墨の大きめの輪。<b>状態はビューごとに変えています</b>（管理者=poponさん 申込済/未払、会員=山田さん 未回答。会員側は支払の朱を出しません）。箱を使わず点と罫線とタイポだけで組んでいます。<b>ステップ定義・状態判定は Claude Code 側で詰める前提の仮置き</b>です。</p>
+  <p style="margin-top:9px"><b>採用した型</b>：</p>
+  <ul>
+    <li><b>罫線セクション</b> — セクションは <b>Serif 18px の見出し＋1px 下線＋34px の余白</b>だけで区切ります。当初はセクション間にも罫線を引いていましたが、見出しの下線と2本が近接して逆に構造が読みにくかったため撤去し、<b>罫線は1セクション1本</b>に統一しました。入れ子カードは全廃。</li>
+    <li><b>フラット表</b> — 罫線は行間のヘアラインのみ。日付・金額・定員は tabular-nums で桁を揃え、名簿の級は<b>1文字で縦に通す</b>（C/D/E）。</li>
+    <li><b>余白主導サマリー</b> — 参加者「<b>5</b>名」を Serif の大きな数字で。囲みません。</li>
+    <li><b>エディトリアル列</b> — 備考本文のみ Serif 16/1.9。読み物であることを字面で示します。</li>
+    <li><b>sticky 見出し</b> — <b>日付＋大会名・会場名・申込フローを1塊で画面上部に固定</b>。長い画面を下までスクロールしても、どの大会を見ているか・今どの段階かを失いません。3要素を個別に固定するとオフセット計算が壊れやすいため、1つのラッパーで固定しています。</li>
+    <li><b>名簿は開閉トグル＋級タブ</b> — 申込者名簿・確定名簿をそれぞれ折りたたみ、開くと級ごと（全体 / C / D / E）に絞り込めるタブを出します。12行が常時開いて画面を占める問題を解消し、級で見たいときにすぐ辿れます。名簿内は級の若い順に並べ替えました。</li>
+  </ul>
+
+  <p style="margin-top:9px"><b>チップの羅列をやめた箇所</b>（2.5 禁止リスト）：級別定員（<span style="font-family:var(--kg-font-mono)">C級</span>ピル＋数字ピルの入れ子）→ 級と数字を1行に横並び（見出しと合わせて2行）。参加者（苗字＋級ピル ×5）→ 人数と名前を1行に（級は名前直後の小さな添え字）。名簿の「会員」バッジ → 所属の後ろに藍の小さな添え字。</p>
+  <p style="margin-top:8px"><b>名簿の取込フォームは撤去</b>（確定）：名簿はメールからのみ取り込む方針のため、この画面は<b>閲覧専用</b>にします（管理者ビューも同じ）。実装では現行の Excel アップロード（<span style="font-family:var(--kg-font-mono)">RosterUploadForm</span> / <span style="font-family:var(--kg-font-mono)">uploadRoster</span>）を<b>削除</b>します。</p>
+  <p style="margin-top:8px"><b>確定名簿の空状態</b>：確定名簿は「名前リスト」（組合せ表ではない）なので、文言を<b>「申込者名簿と同じ形式で確定した出場者が並びます」</b>に修正しました。</p>
+  <p style="margin-top:8px"><b>申込フローの未設定日</b>：抽選日・支払締切などが NULL の大会では、ステップを消さず<b>日付欄に「未定」</b>と出します（下の状態バリエーション参照）。</p>
+  <p style="margin-top:8px"><b>ほか</b>：日付を生 ISO（2026-09-06）から <b>8/5(水)</b> 形式に。会場をタイトル直下に引き上げ、テーブルから外して冒頭で状況が掴めるようにしました（正式名称は不要なため非表示）。左右に 16px の余白を追加。</p>
+  <p style="margin-top:9px"><b>オープンチャット欄を新設（★今回の実装対象外・別スコープ）</b>：DB に該当データが無く、スキーマ追加＋migration が必要なため、<b>UI 案としてのみ残置</b>します。トグルの見出し脇に<b>「級別」／「全級」</b>のバッジを出して、どちらの運用かを示します。級別なら級ごとの行、全級統一なら <b>全級</b> の1行だけになります。URL はそのまま表示（何が起こるか分かるように）。管理者は未設定の級が朱で「未設定」と出て、URL 編集もできます。会員は自分の級のぶんだけ表示。</p>
+  <p style="margin-top:9px">比較用の現状再現は <a href="current.html">current.html</a> に残しています。</p>
+</div>
+
+</body></html>
