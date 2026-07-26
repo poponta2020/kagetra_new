@@ -43,29 +43,10 @@ export interface EventListItem {
   viewerAttending: boolean
 }
 
-const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
-
 /** Midnight-UTC epoch ms for a `YYYY-MM-DD` string, or null if malformed. */
 function toEpochDay(dateStr: string): number | null {
   const ms = Date.parse(`${dateStr}T00:00:00Z`)
   return Number.isNaN(ms) ? null : ms
-}
-
-/**
- * `YYYY-MM-DD` → `M/D(曜)` (no zero-padding, weekday in Japanese).
- * e.g. `2026-07-12` → `7/12(日)`. The weekday is computed from the calendar
- * date via a UTC construction so it's timezone-independent and deterministic.
- * Returns the input unchanged if it isn't a `YYYY-MM-DD` string (defensive).
- */
-export function formatEventDate(eventDate: string): string {
-  const m = DATE_RE.exec(eventDate)
-  if (!m) return eventDate
-  const year = Number(m[1])
-  const month = Number(m[2])
-  const day = Number(m[3])
-  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
-  return `${month}/${day}(${WEEKDAY_JA[dow]})`
 }
 
 /**
