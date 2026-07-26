@@ -561,9 +561,16 @@ describe('displayName', () => {
     expect(displayName(item)).toBe('札幌AB')
   })
 
-  it('通称が NULL なら title にフォールバック', () => {
-    const item = makeItem({ title: '正式名称大会', shortName: null, eligibleGrades: ['A'] })
-    expect(displayName(item)).toBe('正式名称大会A')
+  // Issue #335 回帰: title は運用上すでに級込み（「多摩A」等）なので、
+  // フォールバック時に級を連結すると「多摩AA」と二重になる。title はそのまま出す。
+  it('通称が NULL なら title にフォールバックし、級を追記しない（AC-1）', () => {
+    const item = makeItem({ title: '多摩A', shortName: null, eligibleGrades: ['A'] })
+    expect(displayName(item)).toBe('多摩A')
+  })
+
+  it('通称が NULL・複数級でも title のまま（AC-1: 鳳玉CDCD にならない）', () => {
+    const item = makeItem({ title: '鳳玉CD', shortName: null, eligibleGrades: ['C', 'D'] })
+    expect(displayName(item)).toBe('鳳玉CD')
   })
 
   it('級が NULL なら級なし', () => {

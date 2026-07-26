@@ -138,12 +138,14 @@ function isHiddenArea(area: AreaId): area is Exclude<AreaId, VisibleAreaId> {
 
 /**
  * 一覧に出す表示名 = 通称 + 級（例「札幌AB」）。正式名称は使わない。
- * 通称が引けない大会（edition 未紐付け）は正式名称にフォールバックする。
+ * 通称が引けない大会（edition 未紐付け）は title にフォールバックするが、
+ * title は運用上すでに級込みの命名（「多摩A」等。メール承認の unit 分割が
+ * 級込みの名前で events を作る）なので、級は連結せずそのまま出す（Issue #335）。
  */
 export function displayName(item: EntryBoardItem): string {
-  const base = item.shortName ?? item.title
+  if (item.shortName == null) return item.title
   const grades = item.eligibleGrades?.join('') ?? ''
-  return `${base}${grades}`
+  return `${item.shortName}${grades}`
 }
 
 /** 基準締切 = 会内締切、未入力なら大会申込締切で代替（要件 §3.2.2）。 */
