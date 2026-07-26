@@ -86,7 +86,7 @@ patch は `check-types` を green にするために以下のテスト側後始�
 - **対応Issue:** #348
 
 ### タスク3: 設定ページと line-link 移設のユニットテスト
-- [ ] 完了
+- [x] 完了
 - **目的:** 設定ハブの項目出し分け（権限ゲート）と、line-link がシェル内に入ったことを固定する。
 - **対応AC:** AC-9, AC-10, AC-11, AC-12, AC-13, AC-14, AC-15, AC-17, AC-18
 - **主な変更領域:** `apps/web/src/app/(app)/settings/page.test.tsx`（新規）。
