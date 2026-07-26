@@ -109,7 +109,7 @@ describe('EntryBoardClient', () => {
     expect(row.textContent).not.toContain('会内締切')
   })
 
-  it('AC-16: 行に「通称+級（N名）」が出る（通称なしは title へフォールバック）', () => {
+  it('AC-16: 行に「通称+級（N名）」が出る（通称なしは title へフォールバック・0名は人数非表示）', () => {
     render(
       <EntryBoardClient
         items={[
@@ -137,7 +137,7 @@ describe('EntryBoardClient', () => {
     expect(links[0]?.textContent).toContain('札幌AB')
     expect(links[0]?.textContent).toContain('（3名）')
     expect(links[1]?.textContent).toContain('第10回とても長い名前の大会')
-    expect(links[1]?.textContent).toContain('（0名）')
+    expect(links[1]?.textContent).not.toContain('名）')
   })
 
   // AC-26: 表示専用。状態変更は /events/[id] の進行管理パネルに一本化されており、

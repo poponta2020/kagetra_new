@@ -251,9 +251,11 @@ function EntryRow({
     >
       <span className="flex min-w-0 flex-1 items-baseline">
         <span className="truncate font-bold text-ink">{displayName(item)}</span>
-        <span className="shrink-0 tabular-nums text-ink-meta">
-          （{item.attendCount}名）
-        </span>
+        {item.attendCount > 0 && (
+          <span className="shrink-0 tabular-nums text-ink-meta">
+            （{item.attendCount}名）
+          </span>
+        )}
       </span>
       {/*
         締切は 2 つの固定幅スロットに分ける。左＝日付（種類が行ごとに変わる
