@@ -128,8 +128,25 @@ export default async function EntryManagementPage() {
   //    から import されるため、DB 層に依存する `@/lib/entry-groups` をそこから
   //    import すると client バンドルへ漏れる。ここ（サーバー）で計算し、
   //    結果を平らな値として EntryBoardItem に持たせる。
-  const membersByGroup = new Map<number, typeof eventRows>()
-  for (const row of eventRows) {
+  //    ★導出母集団は**グループの全イベント**（r3 review should_fix）。`eventRows` は
+  //    「今日以降・非 cancelled・individual」に絞った**表示対象**なので、そこから
+  //    導出すると過去日や cancelled を含むグループで他画面と食い違う（過去の多摩A＋
+  //    未来の多摩B のグループがボードだけ「多摩B」になる）。表示する行の母集団は
+  //    `eventRows` のままにし、名前と代表イベントだけ全イベントから計算する。
+  const groupMemberRows =
+    groupIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: events.id,
+            title: events.title,
+            eventDate: events.eventDate,
+            entryGroupId: events.entryGroupId,
+          })
+          .from(events)
+          .where(inArray(events.entryGroupId, groupIds))
+  const membersByGroup = new Map<number, typeof groupMemberRows>()
+  for (const row of groupMemberRows) {
     const arr = membersByGroup.get(row.entryGroupId)
     if (arr) arr.push(row)
     else membersByGroup.set(row.entryGroupId, [row])
@@ -139,7 +156,7 @@ export default async function EntryManagementPage() {
     { name: string; representativeEventId: number }
   >()
   for (const [groupId, members] of membersByGroup) {
-    // members は eventRows からグループ化しただけなので必ず1件以上あり、
+    // members は groupIds（eventRows 由来）のグループの全イベントなので必ず1件以上あり、
     // selectRepresentativeEvent は非 null を返す。
     const representative = selectRepresentativeEvent(members, todayStr)!
     const name = deriveEntryGroupName(members.map((m) => m.title)) ?? representative.title

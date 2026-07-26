@@ -3,10 +3,10 @@ import {
   eventLifecycleNotificationTypeEnum,
   eventLifecycleNotifications,
   eventLineBroadcasts,
+  events,
   lineChannels,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
-import { resolveEntryGroupId } from '@/lib/entry-groups'
 import { formatEventDate } from '@/lib/event-date'
 
 /**
@@ -304,29 +304,27 @@ export async function loadLinkedBinding(
   dbc: DbOrTx,
   eventId: number,
 ): Promise<LinkedEventBinding | null> {
-  const entryGroupId = await resolveEntryGroupId(dbc, eventId)
-
+  // ★グループ解決と binding 取得は1文の JOIN（r3 review blocker）。2文に分けると、
+  // 間にイベントが別グループへ付け替えられた場合に旧グループの LINE グループへ
+  // 通知してしまう。line-broadcast.ts の `loadActiveBinding` と同じ形に揃える。
   const rows = await dbc
     .select({
       broadcastId: eventLineBroadcasts.id,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
       lineChannelId: eventLineBroadcasts.lineChannelId,
       lineGroupId: eventLineBroadcasts.lineGroupId,
       channelAccessToken: lineChannels.channelAccessToken,
     })
-    .from(eventLineBroadcasts)
+    .from(events)
+    .innerJoin(eventLineBroadcasts, eq(eventLineBroadcasts.entryGroupId, events.entryGroupId))
     .innerJoin(lineChannels, eq(lineChannels.id, eventLineBroadcasts.lineChannelId))
-    .where(
-      and(
-        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
-        eq(eventLineBroadcasts.status, 'linked'),
-      ),
-    )
+    .where(and(eq(events.id, eventId), eq(eventLineBroadcasts.status, 'linked')))
     .limit(1)
   const hit = rows[0]
   if (!hit || !hit.lineGroupId) return null
   return {
     broadcastId: hit.broadcastId,
-    entryGroupId,
+    entryGroupId: hit.entryGroupId,
     lineChannelId: hit.lineChannelId,
     lineGroupId: hit.lineGroupId,
     channelAccessToken: hit.channelAccessToken,

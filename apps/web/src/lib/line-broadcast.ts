@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventBroadcastMessages,
   eventLineBroadcasts,
+  events,
   lineChannels,
   mailAttachments,
   mailMessages,
@@ -13,7 +14,6 @@ import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import { setCachedImage } from '@/lib/image-cache'
 import { splitForLine } from '@/lib/text-splitter'
 import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
-import { resolveEntryGroupId } from '@/lib/entry-groups'
 
 /**
  * 5-message LINE batch limit + 1.5s sleep between batches (requirements
@@ -389,9 +389,15 @@ async function buildFallbackTextMessage(
  *
  * entry-groups タスク3: 帰属は event_line_broadcasts.entry_group_id に移った。
  * この関数のシグネチャは eventId のまま維持し（呼び出し側は「その日」の id しか
- * 持たない）、内部で events.entry_group_id を引いてグループ基準の行を返す。
+ * 持たない）、内部で events.entry_group_id を辿ってグループ基準の行を返す。
  * これにより「グループ内のどの日から呼んでも同一の紐付けに作用する」(AC-4) が
  * 呼び出し側の変更なしに成立する。
+ *
+ * ★グループ解決と binding 取得は**1文の JOIN** で行う（r3 review blocker）。
+ * 「先に entry_group_id を SELECT → 別の文で binding を SELECT」だと、2文の間に
+ * 管理者がそのイベントを別グループへ付け替えた場合、イベントは新グループなのに
+ * **旧グループの LINE グループへ配信**してしまう（グループ付け替え機能を新設した
+ * ことで現実に起こり得る誤配信）。単一クエリなら同一スナップショットで解決される。
  */
 export async function loadActiveBinding(
   db: typeof appDb,
@@ -400,8 +406,6 @@ export async function loadActiveBinding(
   | (BroadcastBindingRow & { channel: ChannelRow })
   | null
 > {
-  const entryGroupId = await resolveEntryGroupId(db, eventId)
-
   const rows = await db
     .select({
       id: eventLineBroadcasts.id,
@@ -412,17 +416,16 @@ export async function loadActiveBinding(
       channelId: lineChannels.id,
       channelAccessToken: lineChannels.channelAccessToken,
     })
-    .from(eventLineBroadcasts)
+    .from(events)
+    .innerJoin(
+      eventLineBroadcasts,
+      eq(eventLineBroadcasts.entryGroupId, events.entryGroupId),
+    )
     .innerJoin(
       lineChannels,
       eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
     )
-    .where(
-      and(
-        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
-        eq(eventLineBroadcasts.status, 'linked'),
-      ),
-    )
+    .where(and(eq(events.id, eventId), eq(eventLineBroadcasts.status, 'linked')))
     .limit(1)
   const hit = rows[0]
   if (!hit) return null

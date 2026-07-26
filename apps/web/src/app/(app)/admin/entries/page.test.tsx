@@ -425,6 +425,47 @@ describe('/admin/entries（申込管理ボード）', () => {
       const headerLink = within(section).getByText('多摩AB').closest('a')
       expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
     })
+
+    // r3 review should_fix: 表示名・代表イベントはボードの表示対象（今日以降・
+    // 非 cancelled・individual）ではなく**グループの全イベント**から導出する。
+    // でないと過去日や cancelled を含むグループでボードだけ別名・別リンクになる。
+    it('r3: 表示対象外の日（過去日）を含むグループでも、名前はグループ全体から導出する', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      // 過去日 = ボードの母集団（eventDate >= today）に入らない。
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩A',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, -10),
+        internalDeadline: addDays(today, -20),
+      })
+      const nearer = await createEvent({
+        entryGroupId: group.id,
+        title: '多摩B',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 5), // 今日以降で最も近い → 代表
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩C',
+        eligibleGrades: ['C'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // 表示されるのは B・C の2日だが、名前は非表示の A も含めた「多摩ABC」。
+      // （表示対象だけから導出していた頃は「多摩BC」になっていた）
+      expect(within(section).getAllByText('多摩ABC')).toHaveLength(1)
+      expect(within(section).queryByText('多摩BC')).toBeNull()
+      // 代表イベントは今日以降で最も近い日 = 多摩B。
+      const headerLink = within(section).getByText('多摩ABC').closest('a')
+      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+    })
   })
 
   describe('行の遷移先（AC-26）', () => {
