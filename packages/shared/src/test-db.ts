@@ -47,12 +47,24 @@ export function deriveTestDatabaseName(startDir: string): string {
 /**
  * Pure derivation from a worktree root path: stable per worktree, distinct
  * across worktrees, valid as an unquoted-safe Postgres identifier, ≤63 chars.
+ *
+ * Case handling is platform-dependent: Windows paths are case-insensitive, so
+ * they are lowercased before hashing (`C:\Tmp\X` ≡ `c:/tmp/x`). POSIX paths
+ * are case-SENSITIVE — `/tmp/Feature` and `/tmp/feature` are different
+ * worktrees and must not collide, so case is preserved in the hash there.
+ * The slug is always lowercased (identifier cosmetics only; the hash carries
+ * the distinction).
  */
-export function testDatabaseNameForRoot(root: string): string {
-  const normalized = path.resolve(root).replace(/\\/g, '/').toLowerCase()
+export function testDatabaseNameForRoot(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  let normalized = path.resolve(root).replace(/\\/g, '/')
+  if (platform === 'win32') normalized = normalized.toLowerCase()
   const hash = createHash('sha1').update(normalized).digest('hex').slice(0, 6)
   const slug = normalized
     .slice(normalized.lastIndexOf('/') + 1)
+    .toLowerCase()
     .replace(/[^a-z0-9_]/g, '_')
     .slice(0, 24)
   return `kagetra_test_${slug}_${hash}`
@@ -72,8 +84,24 @@ function findRepoRoot(startDir: string): string {
 /**
  * Creates the database if it does not exist yet (idempotent; tolerates a
  * concurrent creator). Call from vitest globalSetup before `drizzle-kit push`.
+ *
+ * Probes the target DB first: if it is reachable, no admin connection is made
+ * at all — an explicitly provided TEST_DATABASE_URL keeps working even for
+ * restricted users who may only CONNECT to that one database. Only a missing
+ * database (3D000 invalid_catalog_name) falls through to creation via the
+ * `postgres` maintenance DB.
  */
 export async function ensureTestDatabase(dbUrl: string): Promise<void> {
+  const probe = new Client({ connectionString: dbUrl })
+  try {
+    await probe.connect()
+    return
+  } catch (err) {
+    if ((err as { code?: string }).code !== '3D000') throw err
+  } finally {
+    await probe.end().catch(() => {})
+  }
+
   const url = new URL(dbUrl)
   const dbName = decodeURIComponent(url.pathname.replace(/^\//, ''))
   const adminUrl = new URL(dbUrl)
@@ -81,11 +109,8 @@ export async function ensureTestDatabase(dbUrl: string): Promise<void> {
   const client = new Client({ connectionString: adminUrl.toString() })
   await client.connect()
   try {
-    const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName])
-    if (exists.rowCount === 0) {
-      await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`)
-      console.log('[test-db] Created database', dbName)
-    }
+    await client.query(`CREATE DATABASE "${dbName.replace(/"/g, '""')}"`)
+    console.log('[test-db] Created database', dbName)
   } catch (err) {
     // 42P04 duplicate_database: 並行プロセスが同時に作成した場合は成功扱い
     if ((err as { code?: string }).code !== '42P04') throw err

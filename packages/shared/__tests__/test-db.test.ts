@@ -8,10 +8,17 @@ describe('testDatabaseNameForRoot', () => {
     )
   })
 
-  it('normalizes Windows path separators and case to the same name', () => {
-    // path.resolve は実行 OS の区切りに正規化するため、同一パスの表記揺れは同名に落ちる
-    expect(testDatabaseNameForRoot('C:\\tmp\\impl-entry-management')).toBe(
-      testDatabaseNameForRoot('C:/tmp/IMPL-Entry-Management'),
+  it('normalizes separators and case on win32 to the same name', () => {
+    expect(testDatabaseNameForRoot('C:\\tmp\\impl-entry-management', 'win32')).toBe(
+      testDatabaseNameForRoot('C:/tmp/IMPL-Entry-Management', 'win32'),
+    )
+  })
+
+  it('keeps case-sensitive POSIX worktrees distinct', () => {
+    // Linux では /tmp/Feature と /tmp/feature は別ディレクトリ。同名に潰すと
+    // 分離したはずの worktree 同士が再衝突するため、hash は case を保持する
+    expect(testDatabaseNameForRoot('/tmp/Feature', 'linux')).not.toBe(
+      testDatabaseNameForRoot('/tmp/feature', 'linux'),
     )
   })
 
