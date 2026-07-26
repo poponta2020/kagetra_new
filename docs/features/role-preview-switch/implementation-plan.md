@@ -13,7 +13,7 @@ status: completed
 ```
 users テーブル (不変)
       │
-      ▼ nodeJwtCallback（既存・無変更）
+      ▼ nodeJwtCallback（毎リクエストで users.role を token.role へ同期）
 token.role            = 本物のロール（realRole）★プレビュー値で上書きしない
 token.viewAsRole      = プレビュー先ロール or 未設定  ← 新規クレーム
       │
@@ -74,14 +74,17 @@ UI の出し分け／Server Action・route handler の権限チェック
 - **実装の要点:**
   - `session.user.realRole = token.role`、`session.user.role = resolveEffectiveRole(token.role, token.viewAsRole)`。**`token.role` は絶対に書き換えない。**
   - update パッチ型 `Patch` に `viewAsRole?: UserRole | null` を追加し、`parseUserRole` を通した値か `null` のときだけ `token.viewAsRole` へ転記する（`null` はプレビュー解除を意味するので必ず受け付ける）。
-  - `nodeJwtCallback` は**変更しない**（毎リクエスト経路が `role` を再同期しない既存の非対称性に依存しない設計）。
+  - ⚠️ **この update 経路は Server Action 専用ではない**（Codex R1 blocker で判明）。Auth.js の `POST /api/auth/session` が認証済みクライアントの任意ペイロードをそのまま渡すため、**jwt コールバック側でも `token.id` と許可リストで認可し、本物のロール以下であることを検証する**。`viewAsRole: null`（解除）だけは常に受け付ける。
+  - `nodeJwtCallback` の毎リクエスト DB 照合に **`role` の同期を追加した**（Codex R1 blocker）。`realRole` が切替の認可根拠に昇格した以上、DB で降格された管理者の `realRole` が古いまま残ると降格後も上位の実効ロールを取れてしまう。既に走っているクエリに 1 列足すだけで、`lineUserId` 等と同じ自己修復の枠に収まる。
   - `auth.config.ts` は Edge でも動くため、`role-preview.ts` は Edge-safe なまま保つ。
 - **必要なテスト（テストファースト）:**
   - `session` コールバック: `viewAsRole` 未設定 → `role === realRole`（AC-18 の回帰）／`viewAsRole='member'` かつ `role='admin'` → `session.user.role==='member'` かつ `realRole==='admin'`（AC-5）／`viewAsRole='admin'` かつ `role='vice_admin'` → `role==='vice_admin'`（AC-12）
   - `jwt` コールバック update 経路: `{ user: { viewAsRole: 'member' } }` → `token.viewAsRole==='member'`／`{ viewAsRole: null }` → `token.viewAsRole===null`／enum 外文字列 → token 不変（AC-11）／既存 3 フィールドの転記が壊れていない（回帰）
+  - `jwt` コールバックの認可（迂回防止）: 許可リスト外 → `token.viewAsRole` 不変／env 未設定 → 不変／許可リスト外でも `null` は通る／許可ユーザーでも本物のロールより上は不変／`token.id` 無し → 不変
+  - `nodeJwtCallback`: DB で降格された管理者の `token.role` が DB 値へ同期される／降格後は残存 `viewAsRole` も DB の role 以下へ丸められる
   - 新規サインイン経路（`user` + `account.provider==='line'`）で `token.viewAsRole` が付かない＝再ログインでプレビューが解除される（AC-16）
   - **合成テスト（AC-7 / AC-8 の実証。ユニットテストだけでは未検証になる）:** 既存の管理者専用 Server Action を 1 つ選び、`setAuthSession({ id, role: 'member', realRole: 'admin' })` の状態で呼んで**拒否される**ことをアサートする。「既存ガードが member を弾くから大丈夫」を推論で済ませず 1 本の実測に落とす
-- **完了条件:** 新規テスト green・既存 `node-jwt-callback.test.ts` が無変更で green・typecheck 通過
+- **完了条件:** 新規テスト green・`node-jwt-callback.test.ts` の既存ケースを変えずに green（ケース追加のみ）・typecheck 通過
 
 ---
 
