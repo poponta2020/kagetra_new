@@ -87,12 +87,12 @@ async function seedRelatedAttachment(
   return att!.id
 }
 
-async function seedInvitePendingBroadcast(eventId: number): Promise<number> {
+async function seedInvitePendingBroadcast(entryGroupId: number): Promise<number> {
   const channelId = await seedAvailableChannel()
   const [b] = await testDb
     .insert(eventLineBroadcasts)
     .values({
-      eventId,
+      entryGroupId,
       lineChannelId: channelId,
       status: 'invite_pending',
       inviteCode: '123456',
@@ -124,7 +124,7 @@ describe('setGuidelineAttachments', () => {
 
   it('選択を保存し、再呼び出しで置き換える（replace 意味論）', async () => {
     const ev = await createEvent({ title: 'sel' })
-    const broadcastId = await seedInvitePendingBroadcast(ev.id)
+    const broadcastId = await seedInvitePendingBroadcast(ev.entryGroupId)
     const att1 = await seedRelatedAttachment(ev.id, 'a.pdf')
     const att2 = await seedRelatedAttachment(ev.id, 'b.pdf')
 
@@ -142,7 +142,7 @@ describe('setGuidelineAttachments', () => {
 
   it('この大会の関連メールに無い添付は弾く', async () => {
     const ev = await createEvent({ title: 'reject' })
-    await seedInvitePendingBroadcast(ev.id)
+    await seedInvitePendingBroadcast(ev.entryGroupId)
     // 別イベントの添付（この ev には無関係）。
     const other = await createEvent({ title: 'other' })
     const foreignAtt = await seedRelatedAttachment(other.id, 'x.pdf')
@@ -164,7 +164,7 @@ describe('setGuidelineAttachments', () => {
     const ev = await createEvent({ title: 'linked-reject' })
     const channelId = await seedAvailableChannel()
     await testDb.insert(eventLineBroadcasts).values({
-      eventId: ev.id,
+      entryGroupId: ev.entryGroupId,
       lineChannelId: channelId,
       status: 'linked',
       lineGroupId: 'C123456789',
@@ -178,7 +178,7 @@ describe('setGuidelineAttachments', () => {
 
   it('admin / vice_admin 以外は拒否する', async () => {
     const ev = await createEvent({ title: 'auth' })
-    await seedInvitePendingBroadcast(ev.id)
+    await seedInvitePendingBroadcast(ev.entryGroupId)
     const att = await seedRelatedAttachment(ev.id, 'a.pdf')
 
     await setAuthSession({ id: 'm', role: 'member' })
@@ -216,7 +216,7 @@ describe('generateInviteCodeForEvent — 要綱候補と再発行時の選択保
     await testDb
       .update(eventLineBroadcasts)
       .set({ guidelinesSentAt: new Date() })
-      .where(eq(eventLineBroadcasts.eventId, ev.id))
+      .where(eq(eventLineBroadcasts.entryGroupId, ev.entryGroupId))
 
     // 2 回目の発行（再発行 = 同一行 UPDATE）。
     const second = await generateInviteCodeForEvent(ev.id)
@@ -227,7 +227,7 @@ describe('generateInviteCodeForEvent — 要綱候補と再発行時の選択保
     const row = await testDb
       .select({ guidelinesSentAt: eventLineBroadcasts.guidelinesSentAt })
       .from(eventLineBroadcasts)
-      .where(eq(eventLineBroadcasts.eventId, ev.id))
+      .where(eq(eventLineBroadcasts.entryGroupId, ev.entryGroupId))
       .limit(1)
     expect(row[0]!.guidelinesSentAt).toBeNull()
   })
@@ -245,7 +245,7 @@ describe('resendGuidelines', () => {
     await setAuthSession(ADMIN)
   })
 
-  async function seedLinkedBinding(eventId: number): Promise<number> {
+  async function seedLinkedBinding(entryGroupId: number): Promise<number> {
     const [ch] = await testDb
       .insert(lineChannels)
       .values({
@@ -255,13 +255,13 @@ describe('resendGuidelines', () => {
         botId: '@kagetra-event-bot-test',
         purpose: 'event_broadcast',
         status: 'active',
-        assignedEventId: eventId,
+        assignedEntryGroupId: entryGroupId,
       })
       .returning({ id: lineChannels.id })
     const [b] = await testDb
       .insert(eventLineBroadcasts)
       .values({
-        eventId,
+        entryGroupId,
         lineChannelId: ch!.id,
         status: 'linked',
         lineGroupId: 'C123456789',
@@ -273,7 +273,7 @@ describe('resendGuidelines', () => {
 
   it('linked binding の情報でヘルパーを呼ぶ', async () => {
     const ev = await createEvent({ title: 'resend' })
-    const broadcastId = await seedLinkedBinding(ev.id)
+    const broadcastId = await seedLinkedBinding(ev.entryGroupId)
 
     await resendGuidelines(ev.id)
 
@@ -296,7 +296,7 @@ describe('resendGuidelines', () => {
 
   it('送信失敗はエラーで返す', async () => {
     const ev = await createEvent({ title: 'fail' })
-    await seedLinkedBinding(ev.id)
+    await seedLinkedBinding(ev.entryGroupId)
     sendGuidelinesOnLinkMock.mockResolvedValueOnce({
       status: 'failed',
       sentCount: 0,
@@ -307,7 +307,7 @@ describe('resendGuidelines', () => {
 
   it('admin / vice_admin 以外は拒否する', async () => {
     const ev = await createEvent({ title: 'auth' })
-    await seedLinkedBinding(ev.id)
+    await seedLinkedBinding(ev.entryGroupId)
     await setAuthSession({ id: 'm', role: 'member' })
     await expect(resendGuidelines(ev.id)).rejects.toThrow(/Forbidden/)
     expect(sendGuidelinesOnLinkMock).not.toHaveBeenCalled()

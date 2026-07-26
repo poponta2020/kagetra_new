@@ -298,23 +298,27 @@ function extractPayloadUnitKeys(payload: unknown): string[] {
 
 /**
  * Fire the LINE auto-broadcast for newly-created events, de-duplicated by the
- * bound LINE group (requirements §3.4): when B級 and C級 of the same
- * announcement are both bound to the same 大阪 group, the mail must be pushed
- * exactly once. Best-effort — a failed push is logged and never blocks the
- * approval.
+ * bound entry group (requirements §3.4 / entry-groups タスク3 AC-6): when B級
+ * and C級 of the same announcement are both bound to the same 大阪 group
+ * (= same entry_group_id since 1 group = 1 LINE group), the mail must be
+ * pushed exactly once. Dedup key is `entryGroupId` (not `lineGroupId`) now
+ * that the binding's bona fide unit is the group — a single group can only
+ * ever resolve to one binding, so this is equivalent to but more direct than
+ * the prior string-keyed dedup. Best-effort — a failed push is logged and
+ * never blocks the approval.
  */
 async function broadcastApprovedUnits(
   eventIds: number[],
   mailMessageId: number,
   isCorrection: boolean,
 ): Promise<void> {
-  const sentGroups = new Set<string>()
+  const sentGroups = new Set<number>()
   for (const eventId of eventIds) {
     try {
       const binding = await loadActiveBinding(db, eventId)
       if (!binding) continue
-      if (sentGroups.has(binding.lineGroupId)) continue
-      sentGroups.add(binding.lineGroupId)
+      if (sentGroups.has(binding.entryGroupId)) continue
+      sentGroups.add(binding.entryGroupId)
       await broadcastMailToEvent(db, { eventId, mailMessageId, isCorrection })
     } catch (err) {
       console.error('[approveDraftUnits] broadcastMailToEvent failed', err)

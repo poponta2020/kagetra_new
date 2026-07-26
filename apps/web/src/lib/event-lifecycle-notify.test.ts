@@ -261,14 +261,14 @@ async function seedLinkedEvent(opts: { lineGroupId?: string; token?: string } = 
       botId: '@test-bot',
       purpose: 'event_broadcast',
       status: 'active',
-      assignedEventId: event.id,
+      assignedEntryGroupId: event.entryGroupId,
     })
     .returning()
   if (!channel) throw new Error('failed to seed channel')
   const [broadcast] = await testDb
     .insert(eventLineBroadcasts)
     .values({
-      eventId: event.id,
+      entryGroupId: event.entryGroupId,
       lineChannelId: channel.id,
       status: 'linked',
       lineGroupId: opts.lineGroupId ?? 'Gtest123',

@@ -6,6 +6,7 @@ import {
   lineChannels,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
+import { resolveEntryGroupId } from '@/lib/entry-groups'
 
 /**
  * event-lifecycle-notify: lifecycle LINE notifications (申込/支払い完了 +
@@ -176,6 +177,9 @@ export function buildLifecycleMessage(
 
 export interface LinkedEventBinding {
   broadcastId: number
+  // entry-groups タスク3: リカバリで line_channels.assigned_entry_group_id を
+  // 正しく解放するために保持する。
+  entryGroupId: number
   lineChannelId: number
   lineGroupId: string
   channelAccessToken: string
@@ -185,11 +189,17 @@ export interface LinkedEventBinding {
  * Load the live (`status='linked'`, group present) broadcast binding for an
  * event, joined with its channel access token. Returns null when the event has
  * no linked LINE group — the common case, in which lifecycle pushes are skipped.
+ *
+ * entry-groups タスク3: 帰属は event_line_broadcasts.entry_group_id に移った。
+ * シグネチャは eventId のまま維持し、内部で events.entry_group_id を引いて
+ * グループ基準の行を返す（AC-4: どの日から呼んでも同一の紐付けに作用する）。
  */
 export async function loadLinkedBinding(
   dbc: DbOrTx,
   eventId: number,
 ): Promise<LinkedEventBinding | null> {
+  const entryGroupId = await resolveEntryGroupId(dbc, eventId)
+
   const rows = await dbc
     .select({
       broadcastId: eventLineBroadcasts.id,
@@ -201,7 +211,7 @@ export async function loadLinkedBinding(
     .innerJoin(lineChannels, eq(lineChannels.id, eventLineBroadcasts.lineChannelId))
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         eq(eventLineBroadcasts.status, 'linked'),
       ),
     )
@@ -210,6 +220,7 @@ export async function loadLinkedBinding(
   if (!hit || !hit.lineGroupId) return null
   return {
     broadcastId: hit.broadcastId,
+    entryGroupId,
     lineChannelId: hit.lineChannelId,
     lineGroupId: hit.lineGroupId,
     channelAccessToken: hit.channelAccessToken,
@@ -330,13 +341,13 @@ async function applyPushFailureRecovery(
       .update(lineChannels)
       .set({
         status: isAuthFailure ? 'disabled' : 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(
         and(
           eq(lineChannels.id, binding.lineChannelId),
-          eq(lineChannels.assignedEventId, eventId),
+          eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
         ),
       )
   })

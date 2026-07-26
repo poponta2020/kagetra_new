@@ -13,6 +13,7 @@ import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import { setCachedImage } from '@/lib/image-cache'
 import { splitForLine } from '@/lib/text-splitter'
 import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
+import { resolveEntryGroupId } from '@/lib/entry-groups'
 
 /**
  * 5-message LINE batch limit + 1.5s sleep between batches (requirements
@@ -92,6 +93,9 @@ interface LineMessage {
 interface BroadcastBindingRow {
   id: number
   eventId: number
+  // entry-groups タスク3: 実際の紐付け行の帰属キー。401/4xx リカバリで
+  // line_channels.assigned_entry_group_id を正しく解放するために保持する。
+  entryGroupId: number
   lineChannelId: number
   status: string
   // Narrowed to string in loadActiveBinding — we skip rows without a group.
@@ -382,6 +386,12 @@ async function buildFallbackTextMessage(
  * Find the active broadcast row for an event, joined with channel
  * access-token info. Returns null when there is no live binding (the
  * common case for events approved before the LINE group was set up).
+ *
+ * entry-groups タスク3: 帰属は event_line_broadcasts.entry_group_id に移った。
+ * この関数のシグネチャは eventId のまま維持し（呼び出し側は「その日」の id しか
+ * 持たない）、内部で events.entry_group_id を引いてグループ基準の行を返す。
+ * これにより「グループ内のどの日から呼んでも同一の紐付けに作用する」(AC-4) が
+ * 呼び出し側の変更なしに成立する。
  */
 export async function loadActiveBinding(
   db: typeof appDb,
@@ -390,10 +400,12 @@ export async function loadActiveBinding(
   | (BroadcastBindingRow & { channel: ChannelRow })
   | null
 > {
+  const entryGroupId = await resolveEntryGroupId(db, eventId)
+
   const rows = await db
     .select({
       id: eventLineBroadcasts.id,
-      eventId: eventLineBroadcasts.eventId,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
       lineChannelId: eventLineBroadcasts.lineChannelId,
       status: eventLineBroadcasts.status,
       lineGroupId: eventLineBroadcasts.lineGroupId,
@@ -407,7 +419,7 @@ export async function loadActiveBinding(
     )
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         eq(eventLineBroadcasts.status, 'linked'),
       ),
     )
@@ -417,7 +429,8 @@ export async function loadActiveBinding(
   if (!hit.lineGroupId) return null
   return {
     id: hit.id,
-    eventId: hit.eventId,
+    eventId,
+    entryGroupId: hit.entryGroupId,
     lineChannelId: hit.lineChannelId,
     status: hit.status,
     lineGroupId: hit.lineGroupId,
@@ -950,7 +963,7 @@ export async function broadcastMailToEvent(
       // 要件 §3.2.9 の表に対応。
       if (pushResult.httpStatus === 401) {
         // Access token 期限切れ / 無効。Bot を disabled にしつつ、
-        // r-final-2 should_fix: binding も revoked にして assignedEventId
+        // r-final-2 should_fix: binding も revoked にして assignedEntryGroupId
         // を解放しないと、次の承認メールでも同じ disabled channel に
         // push し続け失敗ループになる。
         //
@@ -992,13 +1005,13 @@ export async function broadcastMailToEvent(
             .update(lineChannels)
             .set({
               status: 'disabled',
-              assignedEventId: null,
+              assignedEntryGroupId: null,
               updatedAt: sql`now()`,
             })
             .where(
               and(
                 eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEventId, args.eventId),
+                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
               ),
             )
         })
@@ -1051,13 +1064,13 @@ export async function broadcastMailToEvent(
             .update(lineChannels)
             .set({
               status: 'available',
-              assignedEventId: null,
+              assignedEntryGroupId: null,
               updatedAt: sql`now()`,
             })
             .where(
               and(
                 eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEventId, args.eventId),
+                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
               ),
             )
         })

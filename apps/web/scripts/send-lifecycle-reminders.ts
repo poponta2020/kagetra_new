@@ -95,7 +95,9 @@ async function queryLinkedEvents(db: Db, condition: SQL | undefined): Promise<Li
     .innerJoin(
       eventLineBroadcasts,
       and(
-        eq(eventLineBroadcasts.eventId, events.id),
+        // entry-groups タスク3: 帰属は entry_group_id。1グループ1行なので
+        // 複数日グループでも各イベントに対して正しく1件だけ一致する。
+        eq(eventLineBroadcasts.entryGroupId, events.entryGroupId),
         eq(eventLineBroadcasts.status, 'linked'),
         isNotNull(eventLineBroadcasts.lineGroupId),
       ),

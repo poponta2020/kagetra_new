@@ -323,7 +323,7 @@ describe('entry-overdue-alert — DB', () => {
         })
         .returning()
       await testDb.insert(eventLineBroadcasts).values({
-        eventId: revokedTarget.id,
+        entryGroupId: revokedTarget.entryGroupId,
         lineChannelId: channel!.id,
         status: 'revoked',
         lineGroupId: 'Gold',

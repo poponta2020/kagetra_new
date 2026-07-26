@@ -6,10 +6,10 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
   eventLineBroadcasts,
-  events,
   lineChannels,
 } from '@kagetra/shared/schema'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
+import { listGroupSiblings, resolveEntryGroupId } from '@/lib/entry-groups'
 
 async function requireAdminSession() {
   const session = await auth()
@@ -18,6 +18,17 @@ async function requireAdminSession() {
     throw new Error('Forbidden')
   }
   return session
+}
+
+/**
+ * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
+ * 行っても同一の紐付けに作用するので、`/events/${eventId}` だけを
+ * revalidate するとグループの他の日に古い LINE 状態が残る。
+ */
+async function revalidateGroupEventPaths(eventId: number): Promise<void> {
+  const siblings = await listGroupSiblings(db, eventId)
+  const ids = siblings.length > 0 ? siblings.map((s) => s.id) : [eventId]
+  for (const id of ids) revalidatePath(`/events/${id}`)
 }
 
 /**
@@ -41,14 +52,19 @@ export async function releaseChannel(
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
+    // entry-groups タスク3: 呼び出しシグネチャは eventId のまま維持し、
+    // 内部でグループへ解決する（帰属は entry_group_id）。
+    const expectedEntryGroupId =
+      expectedEventId != null ? await resolveEntryGroupId(tx, expectedEventId) : null
+
     // Mark any active/joined-waiting broadcast for this channel as revoked.
     // We do NOT delete the row — the audit trail (linked_at, line_group_id)
     // stays for operator review. invite_code は null に戻して partial
     // unique index が後続発行を塞がないようにする (review r1 should_fix)。
-    const broadcastWhere = expectedEventId != null
+    const broadcastWhere = expectedEntryGroupId != null
       ? and(
           eq(eventLineBroadcasts.lineChannelId, channelId),
-          eq(eventLineBroadcasts.eventId, expectedEventId),
+          eq(eventLineBroadcasts.entryGroupId, expectedEntryGroupId),
           sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
         )
       : and(
@@ -71,17 +87,17 @@ export async function releaseChannel(
       .where(broadcastWhere)
       .returning({ id: eventLineBroadcasts.id })
 
-    // expectedEventId が指定されていて該当 broadcast が存在しなかった
+    // expectedEntryGroupId が指定されていて該当 broadcast が存在しなかった
     // 場合は、画面の見ていた紐付けが既に変わっている。channel は触らず
     // 何もせずに終了する (操作は no-op 扱い、UI 側で再ロードを促す)。
-    if (expectedEventId != null && revoked.length === 0) {
+    if (expectedEntryGroupId != null && revoked.length === 0) {
       return
     }
 
-    const channelWhere = expectedEventId != null
+    const channelWhere = expectedEntryGroupId != null
       ? and(
           eq(lineChannels.id, channelId),
-          eq(lineChannels.assignedEventId, expectedEventId),
+          eq(lineChannels.assignedEntryGroupId, expectedEntryGroupId),
         )
       : eq(lineChannels.id, channelId)
 
@@ -89,7 +105,7 @@ export async function releaseChannel(
       .update(lineChannels)
       .set({
         status: 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(channelWhere)
@@ -110,10 +126,10 @@ export async function disableChannel(channelId: number): Promise<void> {
 
   const row = await db.query.lineChannels.findFirst({
     where: eq(lineChannels.id, channelId),
-    columns: { status: true, assignedEventId: true },
+    columns: { status: true, assignedEntryGroupId: true },
   })
   if (!row) throw new Error('チャネルが見つかりません')
-  if (row.assignedEventId != null || row.status === 'active') {
+  if (row.assignedEntryGroupId != null || row.status === 'active') {
     throw new Error(
       '紐付け中のチャネルは無効化できません。先に解放してください',
     )
@@ -129,7 +145,7 @@ export async function disableChannel(channelId: number): Promise<void> {
     .where(
       and(
         eq(lineChannels.id, channelId),
-        sql`${lineChannels.assignedEventId} IS NULL`,
+        sql`${lineChannels.assignedEntryGroupId} IS NULL`,
         sql`${lineChannels.status} NOT IN ('active','disabled')`,
       ),
     )
@@ -190,13 +206,18 @@ export async function manualLinkGroup(input: {
   }
 
   const linked = await db.transaction(async (tx) => {
+    // entry-groups タスク3: 呼び出しシグネチャは eventId のまま維持し、
+    // 内部でグループへ解決する（帰属は entry_group_id）。存在しない
+    // eventId は resolveEntryGroupId が「大会が見つかりません」で投げる。
+    const entryGroupId = await resolveEntryGroupId(tx, input.eventId)
+
     const channel = await tx.query.lineChannels.findFirst({
       where: eq(lineChannels.id, input.channelId),
       columns: {
         id: true,
         purpose: true,
         status: true,
-        assignedEventId: true,
+        assignedEntryGroupId: true,
         // broadcast-guidelines-on-link: commit 後の要綱送信に使う。
         channelAccessToken: true,
       },
@@ -208,22 +229,19 @@ export async function manualLinkGroup(input: {
     if (channel.status === 'disabled') {
       throw new Error('無効化されたチャネルは紐付けできません')
     }
-    if (channel.assignedEventId != null && channel.assignedEventId !== input.eventId) {
+    if (
+      channel.assignedEntryGroupId != null &&
+      channel.assignedEntryGroupId !== entryGroupId
+    ) {
       throw new Error('別の大会に紐付け済みのチャネルです')
     }
 
-    const event = await tx.query.events.findFirst({
-      where: eq(events.id, input.eventId),
-      columns: { id: true },
-    })
-    if (!event) throw new Error('大会が見つかりません')
-
-    // Existing binding for this event? Upsert in place so the unique
-    // (event_id) constraint never fires. A live binding to a *different*
-    // channel is treated as a conflict — the operator must release the
-    // old channel first.
+    // Existing binding for this group? Upsert in place so the unique
+    // (entry_group_id) constraint never fires. A live binding to a
+    // *different* channel is treated as a conflict — the operator must
+    // release the old channel first.
     const existingBroadcast = await tx.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, input.eventId),
+      where: eq(eventLineBroadcasts.entryGroupId, entryGroupId),
       columns: { id: true, lineChannelId: true, status: true },
     })
 
@@ -266,7 +284,7 @@ export async function manualLinkGroup(input: {
       const insertedBroadcast = await tx
         .insert(eventLineBroadcasts)
         .values({
-          eventId: input.eventId,
+          entryGroupId,
           lineChannelId: input.channelId,
           lineGroupId: trimmedGroupId,
           status: 'linked',
@@ -279,14 +297,14 @@ export async function manualLinkGroup(input: {
     // rr3 review blocker: 2 つの管理操作が並行実行されたとき、上の
     // findFirst で両方が「未割当」と判断して event_line_broadcasts を
     // 両方とも linked にしてしまうレースを潰す。line_channels UPDATE は
-    // 「現在も available か、または同じ event への assigned」のときだけ
+    // 「現在も available か、または同じグループへの assigned」のときだけ
     // 成立する条件付きにし、0 行返却なら競合とみなしてトランザクションを
     // ロールバックする。
     const channelUpdate = await tx
       .update(lineChannels)
       .set({
         status: 'active',
-        assignedEventId: input.eventId,
+        assignedEntryGroupId: entryGroupId,
         updatedAt: sql`now()`,
       })
       .where(
@@ -294,7 +312,7 @@ export async function manualLinkGroup(input: {
           eq(lineChannels.id, input.channelId),
           eq(lineChannels.purpose, 'event_broadcast'),
           sql`${lineChannels.status} IN ('available','assigned','active')`,
-          sql`(${lineChannels.assignedEventId} IS NULL OR ${lineChannels.assignedEventId} = ${input.eventId})`,
+          sql`(${lineChannels.assignedEntryGroupId} IS NULL OR ${lineChannels.assignedEntryGroupId} = ${entryGroupId})`,
         ),
       )
       .returning({ id: lineChannels.id })
@@ -314,7 +332,7 @@ export async function manualLinkGroup(input: {
 
   revalidatePath('/admin/line-channels')
   revalidatePath(`/admin/line-channels/${input.channelId}`)
-  revalidatePath(`/events/${input.eventId}`)
+  await revalidateGroupEventPaths(input.eventId)
 
   // broadcast-guidelines-on-link: 手動紐付けでも、選択済み要綱があれば同じ形式で
   // 送信する (AC-7)。linked は tx で commit 済みなので、送信の成否は紐付けに影響

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { addDays, diffDays, todayInJst } from '@/lib/jst-date'
@@ -10,6 +10,7 @@ import {
   type LineChannelRow,
 } from '@/components/admin/LineChannelTable'
 import { lineChannels, events, eventLineBroadcasts } from '@kagetra/shared/schema'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,27 +66,29 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
   // Pull every broadcast Bot (purpose='event_broadcast') in note-asc order so
   // kagetra-event-bot-1 .. -30 list in human order. The system_notify row is
   // intentionally hidden — it has its own lifecycle.
+  //
+  // entry-groups タスク3: 予約先は entry_group_id。1グループは複数日
+  // (events 行) を持ち得るので、代表イベントと導出表示名で1行にまとめる
+  // （entry-groups.ts の deriveEntryGroupName / selectRepresentativeEvent、
+  // /admin/line-channels 系画面での既存パターン）。
   const rawRows = await db
     .select({
       id: lineChannels.id,
       botId: lineChannels.botId,
       note: lineChannels.note,
       status: lineChannels.status,
-      assignedEventId: lineChannels.assignedEventId,
-      eventTitle: events.title,
-      eventDate: events.eventDate,
+      assignedEntryGroupId: lineChannels.assignedEntryGroupId,
       extendedUntil: eventLineBroadcasts.extendedUntil,
     })
     .from(lineChannels)
-    .leftJoin(events, eq(events.id, lineChannels.assignedEventId))
-    // r-final-5 should_fix: eventId だけで JOIN すると同じ event に対する
-    // 過去 revoked/released 行を一緒に拾い、Bot 一覧で同じ Bot が複数行に
-    // 表示される。lineChannelId + active 系 status まで条件に入れ、
+    // r-final-5 should_fix: entryGroupId だけで JOIN すると同じグループに
+    // 対する過去 revoked/released 行を一緒に拾い、Bot 一覧で同じ Bot が
+    // 複数行に表示される。lineChannelId + active 系 status まで条件に入れ、
     // 「この Bot の現在 active な binding」だけを LEFT JOIN するように絞る。
     .leftJoin(
       eventLineBroadcasts,
       and(
-        eq(eventLineBroadcasts.eventId, lineChannels.assignedEventId),
+        eq(eventLineBroadcasts.entryGroupId, lineChannels.assignedEntryGroupId),
         eq(eventLineBroadcasts.lineChannelId, lineChannels.id),
         sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
       ),
@@ -93,31 +96,66 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
     .where(eq(lineChannels.purpose, 'event_broadcast'))
     .orderBy(asc(lineChannels.note), asc(lineChannels.id))
 
+  const assignedGroupIds = Array.from(
+    new Set(
+      rawRows
+        .map((row) => row.assignedEntryGroupId)
+        .filter((id): id is number => id != null),
+    ),
+  )
+  const groupEventRows =
+    assignedGroupIds.length > 0
+      ? await db
+          .select({
+            id: events.id,
+            title: events.title,
+            eventDate: events.eventDate,
+            entryGroupId: events.entryGroupId,
+          })
+          .from(events)
+          .where(inArray(events.entryGroupId, assignedGroupIds))
+      : []
+  const eventsByGroup = new Map<number, typeof groupEventRows>()
+  for (const e of groupEventRows) {
+    const arr = eventsByGroup.get(e.entryGroupId)
+    if (arr) arr.push(e)
+    else eventsByGroup.set(e.entryGroupId, [e])
+  }
+  const todayStr = todayInJst()
+
   const filtered = filter === 'all'
     ? rawRows
     : rawRows.filter((row) => row.status === filter)
 
-  const tableRows: LineChannelRow[] = filtered.map((row) => ({
-    id: row.id,
-    botId: row.botId,
-    note: row.note,
-    // The system_notify row is excluded above, so the cast is safe — but a
-    // pool member can still be `system` in theory if an operator promoted it
-    // manually. The table component renders that gracefully.
-    status: row.status,
-    assignedEvent:
-      row.assignedEventId && row.eventTitle && row.eventDate
-        ? {
-            id: row.assignedEventId,
-            title: row.eventTitle,
-            eventDate: row.eventDate,
-          }
-        : null,
-    releaseInDays:
-      row.assignedEventId && row.eventDate
-        ? computeReleaseInDays(row.eventDate, row.extendedUntil)
-        : null,
-  }))
+  const tableRows: LineChannelRow[] = filtered.map((row) => {
+    const groupEvents =
+      row.assignedEntryGroupId != null
+        ? (eventsByGroup.get(row.assignedEntryGroupId) ?? [])
+        : []
+    const rep = groupEvents.length > 0 ? selectRepresentativeEvent(groupEvents, todayStr) : null
+    // release-expired-broadcasts.ts と同じ判定基準（グループ内 MAX(event_date)）。
+    const maxEventDate =
+      groupEvents.length > 0
+        ? groupEvents.reduce((max, e) => (e.eventDate > max ? e.eventDate : max), groupEvents[0]!.eventDate)
+        : null
+    const groupName =
+      groupEvents.length > 0 ? (deriveEntryGroupName(groupEvents.map((e) => e.title)) ?? rep?.title ?? '') : null
+
+    return {
+      id: row.id,
+      botId: row.botId,
+      note: row.note,
+      // The system_notify row is excluded above, so the cast is safe — but a
+      // pool member can still be `system` in theory if an operator promoted it
+      // manually. The table component renders that gracefully.
+      status: row.status,
+      assignedEvent:
+        rep && groupName != null && maxEventDate != null
+          ? { id: rep.id, title: groupName, eventDate: maxEventDate }
+          : null,
+      releaseInDays: maxEventDate != null ? computeReleaseInDays(maxEventDate, row.extendedUntil) : null,
+    }
+  })
 
   // The 30-Bot pool alarm: 25 of 30 active means we're one tournament away
   // from refusing new invite codes. Surface it before the table so operators

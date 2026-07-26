@@ -108,22 +108,22 @@ async function buildLinkedFixture(): Promise<Fixtures> {
     .returning()
   const channel = channelInsert[0]!
 
+  const entryGroupId = (await createEntryGroup()).id
   const eventInsert = await db
     .insert(events)
-    .values({
-      entryGroupId: (await createEntryGroup()).id, title: 'テスト大会', eventDate: '2026-06-01' })
+    .values({ entryGroupId, title: 'テスト大会', eventDate: '2026-06-01' })
     .returning({ id: events.id })
   const eventId = eventInsert[0]!.id
 
   await db
     .update(lineChannels)
-    .set({ assignedEventId: eventId })
+    .set({ assignedEntryGroupId: entryGroupId })
     .where(eq(lineChannels.id, channel.id))
 
   const broadcastInsert = await db
     .insert(eventLineBroadcasts)
     .values({
-      eventId,
+      entryGroupId,
       lineChannelId: channel.id,
       status: 'linked',
       lineGroupId: 'C123456789',
@@ -189,10 +189,10 @@ describe('broadcastMailToEvent', () => {
         status: 'assigned',
       })
       .returning()
+    const entryGroupId = (await createEntryGroup()).id
     const eventInsert = await db
       .insert(events)
-      .values({
-        entryGroupId: (await createEntryGroup()).id, title: 'no-binding', eventDate: '2026-06-01' })
+      .values({ entryGroupId, title: 'no-binding', eventDate: '2026-06-01' })
       .returning({ id: events.id })
     const eventId = eventInsert[0]!.id
     const mailInsert = await db
@@ -207,7 +207,7 @@ describe('broadcastMailToEvent', () => {
       })
       .returning({ id: mailMessages.id })
     await db.insert(eventLineBroadcasts).values({
-      eventId,
+      entryGroupId,
       lineChannelId: channelInsert[0]!.id,
       status: 'invite_pending',
     })

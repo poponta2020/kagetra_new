@@ -28,11 +28,11 @@ async function seedLinkedEvent(overrides: Parameters<typeof createEvent>[0] = {}
       botId: '@bot',
       purpose: 'event_broadcast',
       status: 'active',
-      assignedEventId: event.id,
+      assignedEntryGroupId: event.entryGroupId,
     })
     .returning()
   await testDb.insert(eventLineBroadcasts).values({
-    eventId: event.id,
+    entryGroupId: event.entryGroupId,
     lineChannelId: channel!.id,
     status: 'linked',
     lineGroupId: 'Glifecycle',

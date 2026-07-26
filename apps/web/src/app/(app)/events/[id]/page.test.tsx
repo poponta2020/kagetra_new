@@ -93,11 +93,11 @@ const BOT_NOTE = 'かげとら07（若草）テスト'
 const LINE_GROUP_ID = 'C123456789ABCDEF'
 const BROADCAST_ERROR = '画像1件の送信がタイムアウトしましたテスト'
 
-async function seedLinkedBroadcast(eventId: number): Promise<void> {
+async function seedLinkedBroadcast(entryGroupId: number): Promise<void> {
   const channelRows = await testDb
     .insert(lineChannels)
     .values({
-      channelId: `ch-${eventId}-${Math.random().toString(36).slice(2, 8)}`,
+      channelId: `ch-${entryGroupId}-${Math.random().toString(36).slice(2, 8)}`,
       channelSecret: 'secret',
       channelAccessToken: 'token',
       botId: '@bot-test-secret',
@@ -109,7 +109,7 @@ async function seedLinkedBroadcast(eventId: number): Promise<void> {
   const broadcastRows = await testDb
     .insert(eventLineBroadcasts)
     .values({
-      eventId,
+      entryGroupId,
       lineChannelId: channelRows[0]!.id,
       status: 'linked',
       lineGroupId: LINE_GROUP_ID,
@@ -119,7 +119,7 @@ async function seedLinkedBroadcast(eventId: number): Promise<void> {
   const mailRows = await testDb
     .insert(mailMessages)
     .values({
-      messageId: `m-${eventId}-${Math.random().toString(36).slice(2, 8)}`,
+      messageId: `m-${entryGroupId}-${Math.random().toString(36).slice(2, 8)}`,
       fromAddress: 'organiser@example.com',
       toAddresses: ['admin@kagetra'],
       subject: '要綱のご案内テスト',
@@ -206,7 +206,7 @@ describe('/events/[id] — LINE 情報の遮断 (AC-28)', () => {
     const member = await createUser({ role: 'member', grade: 'C' })
     await setAuthSession({ id: member.id, role: 'member' })
     const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
-    await seedLinkedBroadcast(ev.id)
+    await seedLinkedBroadcast(ev.entryGroupId)
 
     const ui = await renderPage(ev.id)
     const propValues: string[] = []
@@ -226,7 +226,7 @@ describe('/events/[id] — LINE 情報の遮断 (AC-28)', () => {
     const admin = await createUser({ role: 'admin' })
     await setAuthSession({ id: admin.id, role: 'admin' })
     const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
-    await seedLinkedBroadcast(ev.id)
+    await seedLinkedBroadcast(ev.entryGroupId)
 
     const ui = await renderPage(ev.id)
     const propValues: string[] = []

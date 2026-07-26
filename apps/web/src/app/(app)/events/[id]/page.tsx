@@ -126,12 +126,15 @@ export default async function EventDetailPage({
   // **そもそも送らない** こと（AC-28）。event-detail-redesign 後の
   // LineBroadcastSection は非管理者に何も描画しないが、status のみスタブを
   // 渡す遮断方式は要件 §6 の契約としてそのまま維持する。
+  // entry-groups タスク3: 帰属は entry_group_id。event は既に全列取得済み
+  // なので追加クエリなしで event.entryGroupId を使う（AC-4: グループ内の
+  // どの日から見ても同一の紐付け状態が見える）。
   const broadcastStatusRow = await db
     .select({ status: eventLineBroadcasts.status })
     .from(eventLineBroadcasts)
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, idNum),
+        eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
         inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
       ),
     )
@@ -174,7 +177,7 @@ export default async function EventDetailPage({
         )
         .where(
           and(
-            eq(eventLineBroadcasts.eventId, idNum),
+            eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
             inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
           ),
         )
@@ -223,7 +226,7 @@ export default async function EventDetailPage({
             mailMessages,
             eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
           )
-          .where(eq(eventLineBroadcasts.eventId, idNum))
+          .where(eq(eventLineBroadcasts.entryGroupId, event.entryGroupId))
           .orderBy(desc(eventBroadcastMessages.createdAt))
           .limit(20)
 

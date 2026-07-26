@@ -20,6 +20,7 @@ import {
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
+import { listGroupSiblings, resolveEntryGroupId } from '@/lib/entry-groups'
 import {
   loadGuidelineCandidates,
   loadSelectedGuidelineAttachmentIds,
@@ -30,6 +31,18 @@ import {
   claimLifecycleNotification,
   sendClaimedNotification,
 } from '@/lib/event-lifecycle-notify'
+
+/**
+ * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
+ * 行っても同一の紐付けに作用するので、`/events/${eventId}` だけを
+ * revalidate すると、そのグループの他の日の詳細画面には古い LINE 状態が
+ * 残ってしまう。グループ内の全イベントの詳細パスをまとめて revalidate する。
+ */
+async function revalidateGroupEventPaths(eventId: number): Promise<void> {
+  const siblings = await listGroupSiblings(db, eventId)
+  const ids = siblings.length > 0 ? siblings.map((s) => s.id) : [eventId]
+  for (const id of ids) revalidatePath(`/events/${id}`)
+}
 
 async function requireAdminSession() {
   const session = await auth()
@@ -81,11 +94,11 @@ export async function generateInviteCodeForEvent(
   // この予約 tx の外 (commit 後) で行う——channel 予約 tx を無駄に肥大化させない
   // ため。
   const reservation = await db.transaction(async (tx) => {
-    const targetEvent = await tx.query.events.findFirst({
-      where: eq(events.id, eventId),
-      columns: { id: true },
-    })
-    if (!targetEvent) throw new Error('大会が見つかりません')
+    // entry-groups タスク3: 予約・紐付けの帰属先は entry_group_id。呼び出し
+    // シグネチャは eventId のまま維持し、ここでグループへ解決する（AC-4:
+    // グループ内のどの日から呼んでも同一の紐付けに作用する）。存在しない
+    // eventId は resolveEntryGroupId が「大会が見つかりません」で投げる。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
 
     // r-final-7 blocker: 以前は DB 全体の期限切れ inviteCode を null 化
     // していたが、他大会の invite_pending / joined_waiting_code 行に対して
@@ -98,7 +111,7 @@ export async function generateInviteCodeForEvent(
     // 任せる (異常行回収パスも追加予定)。
 
     const existing = await tx.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, eventId),
+      where: eq(eventLineBroadcasts.entryGroupId, entryGroupId),
     })
 
     if (existing && existing.status === 'linked') {
@@ -138,7 +151,7 @@ export async function generateInviteCodeForEvent(
           .update(lineChannels)
           .set({
             status: 'assigned',
-            assignedEventId: eventId,
+            assignedEntryGroupId: entryGroupId,
             updatedAt: sql`now()`,
           })
           .where(
@@ -155,21 +168,22 @@ export async function generateInviteCodeForEvent(
 
     let channelId: number
     if (canReuseExistingChannel) {
-      // 同じ event に対して保留中の Bot を取り直す。既に assignedEventId=
-      // eventId のはずだが、release レースで一旦 available に戻されていた
-      // 可能性も含めて条件付き UPDATE で再 assign。失敗したら新規予約に
-      // フォールバック (Bot が他 event に流れた場合)。
+      // 同じグループに対して保留中の Bot を取り直す。既に
+      // assignedEntryGroupId=entryGroupId のはずだが、release レースで
+      // 一旦 available に戻されていた可能性も含めて条件付き UPDATE で
+      // 再 assign。失敗したら新規予約にフォールバック (Bot が他グループに
+      // 流れた場合)。
       const reclaimed = await tx
         .update(lineChannels)
         .set({
           status: 'assigned',
-          assignedEventId: eventId,
+          assignedEntryGroupId: entryGroupId,
           updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(lineChannels.id, existing!.lineChannelId),
-            sql`(${lineChannels.assignedEventId} = ${eventId} OR ${lineChannels.status} = 'available')`,
+            sql`(${lineChannels.assignedEntryGroupId} = ${entryGroupId} OR ${lineChannels.status} = 'available')`,
           ),
         )
         .returning({ id: lineChannels.id })
@@ -238,7 +252,7 @@ export async function generateInviteCodeForEvent(
             const insertedBroadcast = await sp
               .insert(eventLineBroadcasts)
               .values({
-                eventId,
+                entryGroupId,
                 lineChannelId: channelId,
                 inviteCode,
                 inviteCodeExpiresAt: expiresAt,
@@ -290,7 +304,7 @@ export async function generateInviteCodeForEvent(
     loadSelectedGuidelineAttachmentIds(db, reservation.broadcastId),
   ])
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
   revalidatePath('/admin/line-channels')
 
   return {
@@ -344,13 +358,15 @@ export async function setGuidelineAttachments(
   //     送信は新しい選択を読む（整合）
   // 要件 Non-goals: linked 中の選択編集は不可（変更は連携解除→再発行）。
   await db.transaction(async (tx) => {
+    // entry-groups タスク3: ロック対象行はグループ帰属で引く（AC-4）。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
     const locked = await tx
       .select({
         id: eventLineBroadcasts.id,
         status: eventLineBroadcasts.status,
       })
       .from(eventLineBroadcasts)
-      .where(eq(eventLineBroadcasts.eventId, eventId))
+      .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
       .for('update')
       .limit(1)
     const row = locked[0]
@@ -382,7 +398,7 @@ export async function setGuidelineAttachments(
     }
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 /**
@@ -404,7 +420,7 @@ export async function resendGuidelines(eventId: number): Promise<void> {
     channelAccessToken: binding.channel.channelAccessToken,
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 
   if (result.status === 'skipped') {
     throw new Error('送信できる要綱ファイルがありません')
@@ -457,12 +473,16 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
+    // entry-groups タスク3: 帰属はグループなので、グループ内のどの日から
+    // 呼んでも同一行に作用する（AC-4）。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
+
     // rr1 review blocker: 古い released/revoked な行を引き当てると、
-    // その lineChannelId は既に別 event に再割当済みの可能性がある。
+    // その lineChannelId は既に別グループに再割当済みの可能性がある。
     // active 系 (invite_pending / joined_waiting_code / linked) に限定。
     const current = await tx.query.eventLineBroadcasts.findFirst({
       where: and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
       ),
       columns: { id: true, lineChannelId: true },
@@ -483,25 +503,25 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
       })
       .where(eq(eventLineBroadcasts.id, current.id))
 
-    // rr1 review blocker: 解放対象の channel は「現在この event に紐付いた
-    // 行」だけに限定。`assignedEventId === eventId` を WHERE に含めると、
-    // stale な action 呼び出しで他 event の channel を奪わない。
+    // rr1 review blocker: 解放対象の channel は「現在このグループに紐付いた
+    // 行」だけに限定。`assignedEntryGroupId === entryGroupId` を WHERE に
+    // 含めると、stale な action 呼び出しで他グループの channel を奪わない。
     await tx
       .update(lineChannels)
       .set({
         status: 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(
         and(
           eq(lineChannels.id, current.lineChannelId),
-          eq(lineChannels.assignedEventId, eventId),
+          eq(lineChannels.assignedEntryGroupId, entryGroupId),
         ),
       )
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
   revalidatePath('/admin/line-channels')
 }
 
@@ -519,12 +539,13 @@ export async function extendBroadcastLifetime(
     throw new Error('日付の形式が不正です (YYYY-MM-DD)')
   }
 
+  const entryGroupId = await resolveEntryGroupId(db, eventId)
   await db
     .update(eventLineBroadcasts)
     .set({ extendedUntil: newUntil, updatedAt: sql`now()` })
-    .where(eq(eventLineBroadcasts.eventId, eventId))
+    .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 /**
@@ -546,6 +567,11 @@ export async function manualBroadcast(
 ): Promise<void> {
   await requireAdminSession()
 
+  // entry-groups タスク3: 監査行 (event_broadcast_messages) は
+  // event_line_broadcasts.id (= グループの紐付け行) に紐づく。呼び出し
+  // シグネチャは eventId のまま維持し、ここでグループへ解決する（AC-4）。
+  const entryGroupId = await resolveEntryGroupId(db, eventId)
+
   // Look up the existing audit row (if any) to inherit the correction flag
   // and the saved lead heading. Manual rebroadcast should preserve whether
   // the underlying mail was a correction (so the 【訂正】 prefix stays
@@ -562,7 +588,7 @@ export async function manualBroadcast(
     )
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         eq(eventBroadcastMessages.mailMessageId, mailMessageId),
       ),
     )
@@ -581,7 +607,7 @@ export async function manualBroadcast(
     force: true,
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 export async function submitAttendance(eventId: number, formData: FormData) {

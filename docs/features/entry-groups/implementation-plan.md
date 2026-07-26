@@ -72,7 +72,7 @@ status: completed
 - **対応Issue:** #361
 
 ### タスク3: LINE 紐付け・配信のグループ化 + migration 0046
-- [ ] 完了
+- [x] 完了（migration は 0046 + 0047 の2本。上の「migration 番号の実績」参照）
 - **目的:** event_line_broadcasts と line_channels の帰属を entry_group へ移し、紐付け・配信・要綱・自動解放をグループ単位にする
 - **対応AC:** AC-4, AC-5, AC-6, AC-7
 - **主な変更領域:**
@@ -221,8 +221,25 @@ status: completed
 
 ## 注意事項
 
-- **PR は1本**（migration 3本はタスク単位の分割であって PR 単位ではない。M2 適用後・M3 適用前の
-  混在状態を本番に置かないため）
+### ★migration 番号の実績（2026-07-27 更新・計画とずれた）
+
+`drizzle-kit generate` は「同一テーブルで1列 追加 + 1列 削除」を**リネーム候補と見なして対話
+プロンプトを要求**し、非TTY 環境（Claude Code の Bash）では必ず失敗する。回避のため FK 列の
+付け替えは **「新列 ADD のみ」→「旧列 DROP」の2パス**に分ける必要があり、**migration が
+1本ずつ増える**。実績:
+
+| 計画 | 実績 | 内容 |
+|---|---|---|
+| 0045 | `0045_fresh_tag` | events.entry_group_id 追加 + クラスタ backfill（**手修正版**） |
+| 0046 | `0046_busy_thunderball` | LINE: 新列 ADD + backfill + fail-loudly ガード + NOT NULL/UNIQUE（**手修正版**） |
+| — | `0047_long_la_nuit` | LINE: 旧列 DROP（自動生成のまま） |
+| 0047 | **0048 + 0049 になる見込み** | 名簿（タスク8）も同じ2パスが必要 |
+
+番号は実装詳細であり、**同一 PR に全部入れる**限り本番が中間状態を見ることはない。
+`0045` / `0046` は手修正版なので **`db:generate` で上書きしないこと**。
+
+- **PR は1本**（migration の本数はタスク単位の分割であって PR 単位ではない。LINE 適用後・
+  名簿 未適用の混在状態を本番に置かないため）
 - **並行作業**: event-grade-group-broadcast（#313・未実装）が migration 0044 を想定していた記録があるが
   main は 0044 まで使用済み。#313 実装時に番号を振り直すこと（本機能が 0045-0047 を使用）。
   #313 は本機能の**後**に実装し、mail-inbox 側は rebase で追随

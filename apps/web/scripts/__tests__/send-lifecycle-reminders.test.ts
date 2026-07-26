@@ -31,11 +31,11 @@ async function seedEvent(overrides: EventOverrides, opts: { linked?: boolean } =
         botId: '@bot',
         purpose: 'event_broadcast',
         status: 'active',
-        assignedEventId: event.id,
+        assignedEntryGroupId: event.entryGroupId,
       })
       .returning()
     await testDb.insert(eventLineBroadcasts).values({
-      eventId: event.id,
+      entryGroupId: event.entryGroupId,
       lineChannelId: channel!.id,
       status: 'linked',
       lineGroupId: `G${unique.slice(0, 8)}`,

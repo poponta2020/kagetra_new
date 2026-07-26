@@ -1,7 +1,7 @@
 import { integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { lineChannelStatusEnum, lineChannelPurposeEnum } from './enums'
 import { users } from './auth'
-import { events } from './events'
+import { entryGroups } from './entry-groups'
 
 /**
  * line_channels: pool of LINE Messaging API channels managed by the system.
@@ -33,10 +33,11 @@ export const lineChannels = pgTable('line_channels', {
     .unique()
     .references(() => users.id, { onDelete: 'set null' }),
   // event-line-broadcast: same UNIQUE-NULL pattern as assignedUserId. Prevents
-  // the same Bot from being assigned to two events simultaneously.
-  assignedEventId: integer('assigned_event_id')
+  // the same Bot from being assigned to two entry groups simultaneously.
+  // entry-groups: 予約先を event → entry_group へ移した（紐付けの単位がグループになったため）。
+  assignedEntryGroupId: integer('assigned_entry_group_id')
     .unique()
-    .references(() => events.id, { onDelete: 'set null' }),
+    .references(() => entryGroups.id, { onDelete: 'set null' }),
   // LINE Messaging API webhooks send `destination` as the Bot's USER ID
   // (`U` + 32 hex), which is different from the Basic ID (`@kagetra-event-bot-N`)
   // used for friends-add URLs. Stored separately so the friends-add URL stays

@@ -74,7 +74,7 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
     })
 
     const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, ev.id),
+      where: eq(eventLineBroadcasts.entryGroupId, ev.entryGroupId),
     })
     expect(broadcast?.status).toBe('linked')
 
@@ -104,7 +104,7 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
     })
 
     const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, ev.id),
+      where: eq(eventLineBroadcasts.entryGroupId, ev.entryGroupId),
     })
     expect(broadcast?.status).toBe('linked')
 
@@ -135,7 +135,7 @@ describe('manualLinkGroup — 要綱送信 (broadcast-guidelines-on-link AC-7)',
     })
 
     const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, ev.id),
+      where: eq(eventLineBroadcasts.entryGroupId, ev.entryGroupId),
     })
     expect(broadcast?.status).toBe('linked')
     expect(errSpy).toHaveBeenCalled()

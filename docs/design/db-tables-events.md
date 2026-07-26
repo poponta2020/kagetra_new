@@ -89,12 +89,12 @@
 
 定義ファイル: `packages/shared/src/schema/event-line-broadcasts.ts`
 
-イベント⇔LINEグループの1:1紐付け。ライフサイクル: `invite_pending → joined_waiting_code → linked → revoked/released`。
+申込グループ（`entry_groups`）⇔LINEグループの1:1紐付け（entry-groups: 帰属は event → entry_group へ移した。1グループ=1LINEグループ=1Bot、グループ内のどの日の詳細画面から操作しても同一の紐付けに作用する）。ライフサイクル: `invite_pending → joined_waiting_code → linked → revoked/released`。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
 | id | integer | NOT NULL | identity | PK |
-| event_id | integer | NOT NULL | — | UNIQUE。FK→events.id ON DELETE RESTRICT |
+| entry_group_id | integer | NOT NULL | — | UNIQUE。FK→entry_groups.id ON DELETE RESTRICT |
 | line_channel_id | integer | NOT NULL | — | FK→line_channels.id ON DELETE RESTRICT |
 | invite_code | text | NULL | — | 部分UNIQUE対象 |
 | invite_code_expires_at | timestamptz | NULL | — | |
@@ -109,7 +109,7 @@
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
-**制約**: UNIQUE(event_id) / 部分UNIQUE `event_line_broadcasts_invite_code_active_uq` on (invite_code) WHERE invite_code IS NOT NULL
+**制約**: UNIQUE(entry_group_id) / 部分UNIQUE `event_line_broadcasts_invite_code_active_uq` on (invite_code) WHERE invite_code IS NOT NULL
 
 ## event_broadcast_messages（TS: `eventBroadcastMessages`）
 
@@ -140,7 +140,7 @@
 
 定義ファイル: `packages/shared/src/schema/event-broadcast-guideline-attachments.ts`
 
-招待コード発行モーダルで管理者が「要綱として送信するファイル」に選んだ添付を、対象イベントのLINE連携（`event_line_broadcasts`, 1 event = 1 行）に紐づけて保持するjoinテーブル。紐付け完了（linked）時に選択済み添付だけが署名URLリンクでLINEグループへpushされる（broadcast-guidelines-on-link）。招待コード再発行は同一`event_line_broadcasts`行のUPDATE（id保持）なので選択は再発行をまたいで保持される。
+招待コード発行モーダルで管理者が「要綱として送信するファイル」に選んだ添付を、対象申込グループのLINE連携（`event_line_broadcasts`, 1 entry_group = 1 行）に紐づけて保持するjoinテーブル。紐付け完了（linked）時に選択済み添付だけが署名URLリンクでLINEグループへpushされる（broadcast-guidelines-on-link）。招待コード再発行は同一`event_line_broadcasts`行のUPDATE（id保持）なので選択は再発行をまたいで保持される。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
@@ -155,7 +155,7 @@
 
 定義ファイル: `packages/shared/src/schema/line-grade-group-bindings.ts`
 
-級(A〜E)⇔級別LINEグループの**常設**1:1紐付け（event-grade-group-broadcast）。`event_line_broadcasts`は`event_id`がNOT NULL+UNIQUEで大会に属さない紐付けを表現できないため別テーブル。ライフサイクル: `invite_pending → joined_waiting_code → linked → revoked`（大会終了で解放される`released`は持たない）。**配信対象は`status='linked'`かつ`line_group_id IS NOT NULL`の行のみ**。push失敗でこの行を自動revokeしない。
+級(A〜E)⇔級別LINEグループの**常設**1:1紐付け（event-grade-group-broadcast）。`event_line_broadcasts`は`entry_group_id`がNOT NULL+UNIQUEで大会（申込グループ）に属さない紐付けを表現できないため別テーブル。ライフサイクル: `invite_pending → joined_waiting_code → linked → revoked`（大会終了で解放される`released`は持たない）。**配信対象は`status='linked'`かつ`line_group_id IS NOT NULL`の行のみ**。push失敗でこの行を自動revokeしない。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|

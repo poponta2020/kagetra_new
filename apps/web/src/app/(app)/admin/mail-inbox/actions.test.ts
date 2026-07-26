@@ -45,7 +45,7 @@ const {
   })),
   loadActiveBindingMock: vi.fn(
     async (_db: unknown, _eventId: number) =>
-      null as { lineGroupId: string } | null,
+      null as { lineGroupId: string; entryGroupId: number } | null,
   ),
   classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
   persistOutcomeMock: vi.fn(async () => ({})),
@@ -1599,8 +1599,8 @@ describe('admin/mail-inbox actions', () => {
         ]),
       })
 
-      // 両イベントとも同じ大阪グループに紐付くと仮定する。
-      loadActiveBindingMock.mockResolvedValue({ lineGroupId: 'G_OSAKA' })
+      // 両イベントとも同じ大阪グループ (entry_group_id=1) に紐付くと仮定する。
+      loadActiveBindingMock.mockResolvedValue({ lineGroupId: 'G_OSAKA', entryGroupId: 1 })
       // after() の callback は fire-and-forget。テストでは捕捉して明示的に
       // await し、broadcast 完了後に発火回数を検証する (microtask 競合回避)。
       let afterCb: (() => void | Promise<void>) | null = null
@@ -1619,6 +1619,46 @@ describe('admin/mail-inbox actions', () => {
       await afterCb!()
 
       // 2 イベント作成・同一グループ → broadcastMailToEvent は 1 回だけ。
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    // entry-groups タスク3 (AC-6): 重複排除キーは entryGroupId であり lineGroupId
+    // ではないことを直接検証する。lineGroupId が呼び出しごとに違っても
+    // entryGroupId が同じなら 1 回だけ配信される（lineGroupId ベースの旧実装
+    // ではこのテストは 2 回呼ばれてしまい失敗する）。
+    it('entryGroupId が同じなら lineGroupId が呼び出しごとに違っても broadcast は 1 回だけ (AC-6)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // lineGroupId は呼び出しごとに変わる値を返すが、entryGroupId は固定。
+      let call = 0
+      loadActiveBindingMock.mockImplementation(async () => {
+        call += 1
+        return { lineGroupId: `G_VARIES_${call}`, entryGroupId: 42 }
+      })
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+      expect(afterCb).not.toBeNull()
+      await afterCb!()
+
       expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
     })
 
@@ -1708,11 +1748,11 @@ describe('admin/mail-inbox actions', () => {
         ]),
       })
 
-      // eventId ごとに別グループを返す。
+      // eventId ごとに別グループ（entryGroupId も別）を返す。
       let call = 0
       loadActiveBindingMock.mockImplementation(async () => {
         call += 1
-        return { lineGroupId: `G_${call}` }
+        return { lineGroupId: `G_${call}`, entryGroupId: call }
       })
       let afterCb: (() => void | Promise<void>) | null = null
       afterMock.mockImplementation((cb: () => void | Promise<void>) => {
