@@ -1,0 +1,192 @@
+'use client'
+
+import { useState } from 'react'
+import { Btn } from '@/components/ui'
+import { SectionRule } from './SectionRule'
+import { formatDanDisplay, tallyGrades } from './entry-form-format'
+import type { WizardMember } from './wizard-types'
+
+/**
+ * entry-form-autofill タスク7 (UI): ステップ2「会員」。design-mock: b-step2.html。
+ *
+ * 「＋ 会員を追加」は、全会員データベースから検索する Server Action が本タスクの
+ * 契約（actions.ts）に存在しないため、初期対象（attend=true の和集合）から除外した
+ * 行の再追加に限定する（main への申し送り事項。報告参照）。
+ */
+export interface Step2MembersProps {
+  members: WizardMember[]
+  appearanceCompleteness: 'complete' | 'incomplete'
+  onExclude: (userId: string) => void
+  onInclude: (userId: string) => void
+  onEditRequest: (userId: string) => void
+  onBack: () => void
+  onNext: () => void
+}
+
+export function Step2Members({
+  members,
+  appearanceCompleteness,
+  onExclude,
+  onInclude,
+  onEditRequest,
+  onBack,
+  onNext,
+}: Step2MembersProps) {
+  const [addOpen, setAddOpen] = useState(false)
+  const active = members.filter((m) => !m.excluded)
+  const excluded = members.filter((m) => m.excluded)
+  const nameWarnings = active.filter((m) => m.needsNameInput)
+  const gradeWarnings = active.filter((m) => m.grade == null)
+  const { byGrade, total } = tallyGrades(active.map((m) => m.grade))
+
+  const hasWarnings =
+    nameWarnings.length > 0 ||
+    gradeWarnings.length > 0 ||
+    appearanceCompleteness === 'incomplete' ||
+    active.length === 0
+
+  return (
+    <>
+      {hasWarnings && (
+        <div className="flex flex-col gap-1 rounded-md bg-warn-bg px-2.5 py-2">
+          {nameWarnings.map((m) => (
+            <p key={`name-${m.userId}`} className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
+              <span aria-hidden>⚠</span>
+              <span>
+                <button
+                  type="button"
+                  className="font-bold underline"
+                  onClick={() => onEditRequest(m.userId)}
+                >
+                  {m.displayName ?? '氏名未登録'}
+                </button>
+                {' '}— ふりがなが未登録です。タップして入力すると会員情報にも保存されます
+              </span>
+            </p>
+          ))}
+          {gradeWarnings.map((m) => (
+            <p key={`grade-${m.userId}`} className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
+              <span aria-hidden>⚠</span>
+              <span>
+                <button
+                  type="button"
+                  className="font-bold underline"
+                  onClick={() => onEditRequest(m.userId)}
+                >
+                  {m.displayName ?? '氏名未登録'}
+                </button>
+                {' '}— 参加級が未設定です
+              </span>
+            </p>
+          ))}
+          {appearanceCompleteness === 'incomplete' && (
+            <p className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
+              <span aria-hidden>⚠</span>
+              <span>出場回数の算出に名簿未取込の大会があります。値を確認してください</span>
+            </p>
+          )}
+          {active.length === 0 && (
+            <p className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
+              <span aria-hidden>⚠</span>
+              <span>対象会員が0名です。空の申込書は作成できません。会員を追加してください</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      <section className="flex flex-col gap-2">
+        <SectionRule title="記入する会員" meta={`${active.length}名`} />
+        <ul>
+          {active.map((m) => {
+            return (
+              <li key={m.userId} className="border-t border-border-soft first:border-t-0">
+                <button
+                  type="button"
+                  onClick={() => onEditRequest(m.userId)}
+                  className="flex w-full items-baseline gap-2 py-[7px] text-left text-xs"
+                >
+                  <span
+                    className={
+                      m.grade == null
+                        ? 'w-[34px] shrink-0 font-display font-bold tabular-nums text-accent-fg'
+                        : 'w-[34px] shrink-0 font-display font-bold tabular-nums text-brand-fg'
+                    }
+                  >
+                    {m.grade ? `${m.grade}級` : '—'}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-bold text-ink">{m.displayName ?? '氏名未登録'}</span>
+                    <span className={m.needsNameInput ? 'block text-[10px] font-bold text-accent-fg' : 'block text-[10px] text-ink-meta'}>
+                      {m.needsNameInput ? (
+                        <>
+                          <span aria-hidden className="text-accent">⚠</span> ふりがな未登録
+                        </>
+                      ) : (
+                        `${m.familyKana ?? ''} ${m.givenKana ?? ''}`.trim()
+                      )}
+                    </span>
+                  </span>
+                  <span className="w-[34px] shrink-0 text-right text-ink-2 tabular-nums">
+                    {formatDanDisplay(m.dan)}
+                  </span>
+                  <span className="w-[52px] shrink-0 text-right text-[11px] text-ink-meta tabular-nums">
+                    {m.appearanceCount != null ? `出場 ${m.appearanceCount}` : ''}
+                  </span>
+                  <span aria-hidden className="shrink-0 text-[11px] text-ink-muted">›</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+
+        {active.length > 0 && (
+          <div className="flex flex-wrap gap-2.5 pt-1.5 text-[11px] text-ink-2 tabular-nums">
+            {byGrade.map(({ grade, count }) => (
+              <span key={grade}>
+                {grade}級 <b className="font-bold">{count}</b>
+              </span>
+            ))}
+            <span className="ml-auto">
+              計 <b className="font-bold">{total}</b>名
+            </span>
+          </div>
+        )}
+
+        <div className="pt-1">
+          <button type="button" className="text-xs text-brand" onClick={() => setAddOpen((v) => !v)}>
+            ＋ 会員を追加
+          </button>
+          {addOpen && (
+            <div className="mt-1.5 flex flex-col gap-1">
+              {excluded.length === 0 ? (
+                <p className="text-[11px] text-ink-meta">除外した会員はいません</p>
+              ) : (
+                excluded.map((m) => (
+                  <div key={m.userId} className="flex items-center justify-between border-t border-border-soft py-1.5 text-xs first:border-t-0">
+                    <span>{m.displayName ?? '氏名未登録'}</span>
+                    <button
+                      type="button"
+                      className="text-xs font-bold text-brand"
+                      onClick={() => onInclude(m.userId)}
+                    >
+                      追加
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="sticky bottom-0 -mx-4 mt-auto flex gap-2 border-t border-border bg-surface px-4 py-3">
+        <Btn kind="secondary" size="lg" onClick={onBack}>
+          戻る
+        </Btn>
+        <Btn kind="primary" size="lg" block onClick={onNext}>
+          次へ — メールの確認
+        </Btn>
+      </div>
+    </>
+  )
+}

@@ -20,7 +20,12 @@ import { getAppearanceCounts } from '@/lib/lottery/appearance-counts'
 import { estimateCellMap, type CellMap } from '@/lib/entry-form/cell-map'
 import type ExcelJS from 'exceljs'
 import { loadWorkbook } from '@/lib/entry-form/workbook'
-import { inferCellMap, sheetsToPromptText } from '@/lib/entry-form/ai-extract'
+import {
+  extractOrganizerInstructions,
+  inferCellMap,
+  sheetsToPromptText,
+  type OrganizerInstructions,
+} from '@/lib/entry-form/ai-extract'
 import { fillEntryForm, type EntryFormMember } from '@/lib/entry-form/fill'
 import { buildDraftMime } from '@/lib/entry-form/mime'
 import { appendDraftToYahoo } from '@/lib/entry-form/imap-draft'
@@ -259,6 +264,12 @@ export interface TemplateAnalysis {
   /** テンプレ xlsx 内から抽出した申込先（宛先プレフィル優先順①）。 */
   organizerEmail: string | null
   templateFilename: string
+  /**
+   * 案内メール本文から AI が抽出した主催者指定（件名・添付ファイル名・申込先）。
+   * 指定が無い／抽出できなかった項目は null で、呼び出し側は定型へフォールバックする
+   * （requirements §3.2.6・AC-13）。
+   */
+  organizerInstructions: OrganizerInstructions | null
 }
 
 /** 手動アップロード時に受け取る xlsx。base64 で渡す（Server Action の境界を Buffer が越えないため）。 */
@@ -296,7 +307,24 @@ async function readTemplate(
   }
 }
 
+/**
+ * グループに紐付く案内メールの本文。主催者指定（件名・ファイル名・申込先）の
+ * 抽出元になる（requirements §3.2.6）。取込メールが無いグループでは null。
+ */
+async function loadSourceMailBody(groupId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ bodyText: mailMessages.bodyText })
+    .from(events)
+    .innerJoin(tournamentDrafts, eq(tournamentDrafts.id, events.tournamentDraftId))
+    .innerJoin(mailMessages, eq(mailMessages.id, tournamentDrafts.messageId))
+    .where(eq(events.entryGroupId, groupId))
+    .orderBy(desc(mailMessages.receivedAt))
+    .limit(1)
+  return row?.bodyText ?? null
+}
+
 export async function analyzeTemplateAction(input: {
+  groupId?: number | null
   attachmentId?: number | null
   uploaded?: UploadedTemplate | null
 }): Promise<TemplateAnalysis> {
@@ -307,6 +335,15 @@ export async function analyzeTemplateAction(input: {
   )
 
   const estimate = estimateCellMap(workbook)
+  const sheetsText = sheetsToPromptText(workbook)
+
+  // 主催者指定の抽出は案内メール本文がある場合だけ（AC-13）。セルマップ推定の
+  // 信頼度とは独立した用途なので、高信頼でも呼ぶ。
+  const mailBody = input.groupId != null ? await loadSourceMailBody(input.groupId) : null
+  const organizerInstructions = mailBody
+    ? await extractOrganizerInstructions(mailBody, sheetsText)
+    : null
+
   if (estimate.confidence === 'high') {
     return {
       cellMap: { sheets: estimate.sheets },
@@ -314,12 +351,13 @@ export async function analyzeTemplateAction(input: {
       warnings: estimate.warnings,
       organizerEmail: estimate.organizerEmail,
       templateFilename: filename,
+      organizerInstructions,
     }
   }
 
   // 低信頼のときだけ Haiku へ回す（requirements §3.2.3 第二段）。
   // AI が推定不可を返してもフロー自体は続行できる（手動マッピングへ誘導）。
-  const inferred = await inferCellMap(sheetsToPromptText(workbook))
+  const inferred = await inferCellMap(sheetsText)
   if (!inferred) {
     return {
       cellMap: { sheets: estimate.sheets },
@@ -327,6 +365,7 @@ export async function analyzeTemplateAction(input: {
       warnings: [...estimate.warnings, '列の対応を自動推定できませんでした。プレビューで指定してください'],
       organizerEmail: estimate.organizerEmail,
       templateFilename: filename,
+      organizerInstructions,
     }
   }
   return {
@@ -335,6 +374,7 @@ export async function analyzeTemplateAction(input: {
     warnings: estimate.warnings,
     organizerEmail: estimate.organizerEmail,
     templateFilename: filename,
+    organizerInstructions,
   }
 }
 

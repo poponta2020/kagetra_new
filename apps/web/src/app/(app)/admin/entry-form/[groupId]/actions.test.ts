@@ -2,13 +2,15 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { entryFormDrafts, users } from '@kagetra/shared/schema'
+import { entryFormDrafts, events, users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createMailMessage,
+  createTournamentDraft,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -29,11 +31,15 @@ vi.mock('@/lib/entry-form/imap-draft', () => ({ appendDraftToYahoo: appendDraftM
 
 // AI フォールバックは実 API を呼ばない。ヒューリスティックが高信頼を返す
 // fixture しか使わないので、呼ばれないこと自体も検証対象になる。
-const { inferCellMapMock } = vi.hoisted(() => ({
+const { inferCellMapMock, extractOrganizerInstructionsMock } = vi.hoisted(() => ({
   inferCellMapMock: vi.fn(async () => null),
+  extractOrganizerInstructionsMock: vi.fn(async () => null as
+    | { subject: string | null; attachmentFilename: string | null; toEmail: string | null }
+    | null),
 }))
 vi.mock('@/lib/entry-form/ai-extract', () => ({
   inferCellMap: inferCellMapMock,
+  extractOrganizerInstructions: extractOrganizerInstructionsMock,
   sheetsToPromptText: () => '',
 }))
 
@@ -78,7 +84,18 @@ async function seedGroupWithAttendees() {
   await createEventAttendance({ eventId: day2.id, userId: only2.id, attend: true })
   await createEventAttendance({ eventId: day1.id, userId: absent.id, attend: false })
 
-  return { admin, group, both, only2, absent }
+  return { admin, group, both, only2, absent, day1 }
+}
+
+/** 案内メール（tournament_draft 経由）が紐付いたグループ。テンプレ候補と AI 抽出の入力になる。 */
+async function seedGroupWithAttendeesAndMail() {
+  const seeded = await seedGroupWithAttendees()
+  const mail = await createMailMessage({
+    bodyText: '件名は「（所属会名）第3回青森大会申込み」としてください。',
+  })
+  const draft = await createTournamentDraft({ messageId: mail.id })
+  await testDb.update(events).set({ tournamentDraftId: draft.id }).where(eq(events.id, seeded.day1.id))
+  return { ...seeded, mail, draft }
 }
 
 describe('admin/entry-form actions', () => {
@@ -87,6 +104,8 @@ describe('admin/entry-form actions', () => {
     appendDraftMock.mockClear()
     appendDraftMock.mockResolvedValue(undefined)
     inferCellMapMock.mockClear()
+    extractOrganizerInstructionsMock.mockClear()
+    extractOrganizerInstructionsMock.mockResolvedValue(null)
   })
   afterAll(async () => {
     await closeTestDb()
@@ -184,6 +203,40 @@ describe('admin/entry-form actions', () => {
       expect(inferCellMapMock).toHaveBeenCalledTimes(1)
       expect(analysis.source).toBe('unresolved')
       expect(analysis.warnings.at(-1)).toContain('プレビューで指定してください')
+    })
+
+    it('案内メール本文が無いグループでは AI 抽出を呼ばない', async () => {
+      const { group } = await seedGroupWithAttendees()
+
+      const analysis = await analyzeTemplateAction({
+        groupId: group.id,
+        uploaded: { filename: 'standard.xlsx', base64: await fixtureBase64('standard.xlsx') },
+      })
+
+      expect(extractOrganizerInstructionsMock).not.toHaveBeenCalled()
+      expect(analysis.organizerInstructions).toBeNull()
+    })
+
+    it('案内メール本文があれば主催者指定（件名・ファイル名・申込先）を抽出して返す（AC-13）', async () => {
+      const { group } = await seedGroupWithAttendeesAndMail()
+      extractOrganizerInstructionsMock.mockResolvedValue({
+        subject: '（所属会名）第3回青森大会申込み',
+        attachmentFilename: '青森大会_申込書_北大.xlsx',
+        toEmail: 'organizer@example.invalid',
+      })
+
+      const analysis = await analyzeTemplateAction({
+        groupId: group.id,
+        uploaded: { filename: 'standard.xlsx', base64: await fixtureBase64('standard.xlsx') },
+      })
+
+      expect(extractOrganizerInstructionsMock).toHaveBeenCalledTimes(1)
+      expect(extractOrganizerInstructionsMock.mock.calls[0]![0]).toContain('件名は')
+      expect(analysis.organizerInstructions).toEqual({
+        subject: '（所属会名）第3回青森大会申込み',
+        attachmentFilename: '青森大会_申込書_北大.xlsx',
+        toEmail: 'organizer@example.invalid',
+      })
     })
 
     it('xlsx として読めないファイルは中断してエラーになる', async () => {
