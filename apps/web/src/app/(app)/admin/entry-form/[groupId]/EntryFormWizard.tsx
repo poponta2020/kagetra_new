@@ -7,10 +7,12 @@ import type { EntryFormMember } from '@/lib/entry-form/fill'
 import {
   analyzeTemplateAction,
   createEntryFormDraftAction,
+  listAddableMembersAction,
   saveMemberNamesAction,
   type CreateEntryFormDraftResult,
   type CreateEntryFormDraftInput,
   type EntryFormContext,
+  type EntryFormMemberRow,
   type TemplateAnalysis,
 } from './actions'
 import { formatDateTimeShort, formatFlowDate } from '@/lib/event-date'
@@ -90,6 +92,25 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
     context.members.map((m) => ({ ...m, excluded: false })),
   )
   const [touchedNameUserIds, setTouchedNameUserIds] = useState<Set<string>>(new Set())
+  // 会員一覧からの追加候補（AC-5）。「＋ 会員を追加」を開いたときに1度だけ取る。
+  const [addableMembers, setAddableMembers] = useState<EntryFormMemberRow[] | null>(null)
+  const [addableLoading, setAddableLoading] = useState(false)
+
+  const requestAddable = () => {
+    if (addableLoading) return
+    setAddableLoading(true)
+    void listAddableMembersAction(members.map((m) => m.userId))
+      .then((rows) => setAddableMembers(rows))
+      .catch(() => setAddableMembers([]))
+      .finally(() => setAddableLoading(false))
+  }
+
+  const addMember = (userId: string) => {
+    const found = addableMembers?.find((m) => m.userId === userId)
+    if (!found) return
+    setMembers((prev) => [...prev, { ...found, excluded: false }])
+    setAddableMembers((prev) => prev?.filter((m) => m.userId !== userId) ?? null)
+  }
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const activeMembers = members.filter((m) => !m.excluded)
 
@@ -255,6 +276,10 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
             setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, excluded: false } : m)))
           }
           onEditRequest={setEditingUserId}
+          onAddMember={addMember}
+          addableMembers={addableMembers}
+          onRequestAddable={requestAddable}
+          addableLoading={addableLoading}
           onBack={() => setStep(1)}
           onNext={goToStep3}
         />

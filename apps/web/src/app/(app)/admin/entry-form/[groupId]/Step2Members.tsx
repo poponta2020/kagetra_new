@@ -5,11 +5,16 @@ import { Btn } from '@/components/ui'
 import { SectionRule } from './SectionRule'
 import { formatDanDisplay, tallyGrades } from './entry-form-format'
 import type { WizardMember } from './wizard-types'
+import type { EntryFormMemberRow } from './actions'
 
 /**
  * entry-form-autofill タスク7 (UI): ステップ2「会員」。design-mock: b-step2.html。
  *
- * 「＋ 会員を追加」は、全会員データベースから検索する Server Action が本タスクの
+ * 「＋ 会員を追加」は、除外した行の再追加と、会員一覧からの新規追加の両方を扱う
+ * （requirements §3.2.1・AC-5）。対象会員が0名のグループでも、ここから足せば
+ * 申込書を作れる（要件のエラーケース「行を手動追加すれば作成可」）。
+ *
+ * 旧コメント: 全会員データベースから検索する Server Action が本タスクの
  * 契約（actions.ts）に存在しないため、初期対象（attend=true の和集合）から除外した
  * 行の再追加に限定する（main への申し送り事項。報告参照）。
  */
@@ -18,6 +23,13 @@ export interface Step2MembersProps {
   appearanceCompleteness: 'complete' | 'incomplete'
   onExclude: (userId: string) => void
   onInclude: (userId: string) => void
+  /** 会員一覧から新たに行を足す。候補の取得は呼び出し側（ウィザード）が行う。 */
+  onAddMember: (userId: string) => void
+  /** 追加候補（初期の対象会員・追加済みを除いた会員）。未取得なら null。 */
+  addableMembers: EntryFormMemberRow[] | null
+  /** 追加候補の取得を要求する（「＋ 会員を追加」を開いたとき）。 */
+  onRequestAddable: () => void
+  addableLoading: boolean
   onEditRequest: (userId: string) => void
   onBack: () => void
   onNext: () => void
@@ -28,6 +40,10 @@ export function Step2Members({
   appearanceCompleteness,
   onExclude,
   onInclude,
+  onAddMember,
+  addableMembers,
+  onRequestAddable,
+  addableLoading,
   onEditRequest,
   onBack,
   onNext,
@@ -153,26 +169,54 @@ export function Step2Members({
         )}
 
         <div className="pt-1">
-          <button type="button" className="text-xs text-brand" onClick={() => setAddOpen((v) => !v)}>
+          <button
+            type="button"
+            className="text-xs text-brand"
+            onClick={() => {
+              const next = !addOpen
+              setAddOpen(next)
+              if (next && addableMembers == null) onRequestAddable()
+            }}
+          >
             ＋ 会員を追加
           </button>
           {addOpen && (
             <div className="mt-1.5 flex flex-col gap-1">
-              {excluded.length === 0 ? (
-                <p className="text-[11px] text-ink-meta">除外した会員はいません</p>
-              ) : (
-                excluded.map((m) => (
-                  <div key={m.userId} className="flex items-center justify-between border-t border-border-soft py-1.5 text-xs first:border-t-0">
-                    <span>{m.displayName ?? '氏名未登録'}</span>
-                    <button
-                      type="button"
-                      className="text-xs font-bold text-brand"
-                      onClick={() => onInclude(m.userId)}
-                    >
-                      追加
-                    </button>
-                  </div>
-                ))
+              {excluded.map((m) => (
+                <div key={m.userId} className="flex items-center justify-between border-t border-border-soft py-1.5 text-xs first:border-t-0">
+                  <span>
+                    {m.displayName ?? '氏名未登録'}
+                    <span className="ml-1.5 text-[10px] text-ink-meta">除外中</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-brand"
+                    onClick={() => onInclude(m.userId)}
+                  >
+                    戻す
+                  </button>
+                </div>
+              ))}
+              {addableLoading && <p className="text-[11px] text-ink-meta">会員を読み込んでいます…</p>}
+              {addableMembers?.map((m) => (
+                <div key={m.userId} className="flex items-center justify-between border-t border-border-soft py-1.5 text-xs first:border-t-0">
+                  <span>
+                    {m.displayName ?? '氏名未登録'}
+                    {m.grade && (
+                      <span className="ml-1.5 font-display text-[11px] text-brand-fg">{m.grade}</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-brand"
+                    onClick={() => onAddMember(m.userId)}
+                  >
+                    追加
+                  </button>
+                </div>
+              ))}
+              {!addableLoading && excluded.length === 0 && addableMembers?.length === 0 && (
+                <p className="text-[11px] text-ink-meta">追加できる会員はいません</p>
               )}
             </div>
           )}

@@ -145,18 +145,7 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     .where(and(inArray(eventAttendances.eventId, eventIds), eq(eventAttendances.attend, true)))
     .orderBy(asc(users.id))
 
-  const referenceDate = todayInJst()
-  let completeness: 'complete' | 'incomplete' = 'complete'
-  const appearanceByUser = new Map<string, number>()
-  if (attendees.length > 0) {
-    const counts = await getAppearanceCounts({
-      userIds: attendees.map((a) => a.userId),
-      associationYear: associationYearOf(referenceDate),
-      referenceDate,
-    })
-    completeness = counts.completeness
-    for (const row of counts.memberCounts) appearanceByUser.set(row.userId, row.count)
-  }
+  const appearance = await loadAppearanceCounts(attendees.map((a) => a.userId))
 
   const members: EntryFormMemberRow[] = attendees
     .map((a) => ({
@@ -168,7 +157,7 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
       givenName: a.givenName,
       familyKana: a.familyKana,
       givenKana: a.givenKana,
-      appearanceCount: appearanceByUser.get(a.userId) ?? null,
+      appearanceCount: appearance.byUser.get(a.userId) ?? null,
       note: null,
       needsNameInput: !a.familyName || !a.givenName || !a.familyKana || !a.givenKana,
     }))
@@ -222,8 +211,8 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     organizer: groupEvents.find((e) => e.organizer != null)?.organizer ?? null,
     templateCandidates,
     members,
-    appearanceReferenceDate: referenceDate,
-    appearanceCompleteness: completeness,
+    appearanceReferenceDate: appearance.referenceDate,
+    appearanceCompleteness: appearance.completeness,
     settings: await getEntryFormSettings(),
     sourceMailFrom,
     latestDraft: await loadLatestDraft(groupId),
@@ -249,6 +238,75 @@ async function loadLatestDraft(groupId: number): Promise<EntryFormDraftSummary |
 
   if (!row) return null
   return { ...row, createdAt: row.createdAt.toISOString() }
+}
+
+/**
+ * 出場回数を会員単位で引く（基準日=当日 JST）。名簿の取込漏れで過少になり得るため、
+ * 完全性フラグも一緒に返して呼び出し側が警告を出せるようにする。
+ */
+async function loadAppearanceCounts(userIds: string[]): Promise<{
+  referenceDate: string
+  completeness: 'complete' | 'incomplete'
+  byUser: Map<string, number>
+}> {
+  const referenceDate = todayInJst()
+  const byUser = new Map<string, number>()
+  if (userIds.length === 0) {
+    return { referenceDate, completeness: 'complete', byUser }
+  }
+  const counts = await getAppearanceCounts({
+    userIds,
+    associationYear: associationYearOf(referenceDate),
+    referenceDate,
+  })
+  for (const row of counts.memberCounts) byUser.set(row.userId, row.count)
+  return { referenceDate, completeness: counts.completeness, byUser }
+}
+
+/**
+ * 出欠が「参加」でない会員も申込書へ手で足せるようにするための候補一覧
+ * （requirements §3.2.1「行の追加（会員一覧から選択）」・AC-5）。
+ * 対象会員が0名のグループでも、ここから足せば申込書を作れる。
+ *
+ * `excludeUserIds` には画面が既に持っている行を渡す（初期の和集合＋追加済み）。
+ */
+export async function listAddableMembersAction(
+  excludeUserIds: string[],
+): Promise<EntryFormMemberRow[]> {
+  await requireAdminSession()
+
+  const rows = await db
+    .select({
+      userId: users.id,
+      displayName: users.name,
+      grade: users.grade,
+      dan: users.dan,
+      familyName: users.familyName,
+      givenName: users.givenName,
+      familyKana: users.familyKana,
+      givenKana: users.givenKana,
+    })
+    .from(users)
+    .orderBy(asc(users.name))
+
+  const excluded = new Set(excludeUserIds)
+  const candidates = rows.filter((row) => !excluded.has(row.userId))
+  const appearance = await loadAppearanceCounts(candidates.map((c) => c.userId))
+
+  return candidates.map((row) => ({
+    userId: row.userId,
+    displayName: row.displayName,
+    grade: row.grade as Grade | null,
+    dan: row.dan,
+    familyName: row.familyName,
+    givenName: row.givenName,
+    familyKana: row.familyKana,
+    givenKana: row.givenKana,
+    appearanceCount: appearance.byUser.get(row.userId) ?? null,
+    note: null,
+    needsNameInput:
+      !row.familyName || !row.givenName || !row.familyKana || !row.givenKana,
+  }))
 }
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ vi.mock('@/lib/entry-form/ai-extract', () => ({
 const {
   analyzeTemplateAction,
   createEntryFormDraftAction,
+  listAddableMembersAction,
   loadEntryFormContext,
   saveMemberNamesAction,
 } = await import('./actions')
@@ -386,6 +387,37 @@ describe('admin/entry-form actions', () => {
       expect(context.latestDraft?.memberCount).toBe(1)
       expect(context.latestDraft?.createdByName).toBe(admin.name)
       expect(context.latestDraft?.status).toBe('created')
+    })
+  })
+
+  describe('listAddableMembersAction（AC-5: 会員一覧からの行追加）', () => {
+    it('既に対象になっている会員を除いた候補を返す', async () => {
+      const { both, only2, absent } = await seedGroupWithAttendees()
+
+      const candidates = await listAddableMembersAction([both.id, only2.id])
+
+      const ids = candidates.map((c) => c.userId)
+      expect(ids).not.toContain(both.id)
+      expect(ids).not.toContain(only2.id)
+      // 出欠が「不参加」の会員も手で足せる（要件 §3.2.1 の行の追加）。
+      expect(ids).toContain(absent.id)
+    })
+
+    it('候補にも出場回数と姓名かなの未登録フラグが載る', async () => {
+      const { absent } = await seedGroupWithAttendees()
+
+      const candidates = await listAddableMembersAction([])
+
+      const target = candidates.find((c) => c.userId === absent.id)
+      expect(target?.grade).toBe('C')
+      expect(target?.needsNameInput).toBe(true)
+      expect(target).toHaveProperty('appearanceCount')
+    })
+
+    it('一般会員は Forbidden', async () => {
+      const member = await createUser({ role: 'member' })
+      await setAuthSession({ id: member.id, role: 'member' })
+      await expect(listAddableMembersAction([])).rejects.toThrow('Forbidden')
     })
   })
 })
