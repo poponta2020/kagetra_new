@@ -222,3 +222,4 @@
 - [grade-entry-fee タスク1](impl_grade-entry-fee-task1.md) — 級別参加料の定数+参照関数。継承プロパティの罠を hasOwnProperty で回避
 - [entry-management round13 改修要件定義（区画名改称・1グループ1行化）](project_entry_management_round13_def.md) — 親Issue #393。★罠3つ=mail-inboxの同名「要対応」/表示名の導出順序/明朝は700固定
 - [公認大会の級別参加料を定数として保持](project_ship-grade-entry-fee.md) — shipped: PR #392
+- [gate-dod.sh は Windows CRLF で D2 と CI 委譲が壊れる](feedback_gate_dod_crlf_windows.md) — profile-read.py の print() が CRLF。配列の末尾以外に \r が残り docs 判定と CI_COVERS が不発
