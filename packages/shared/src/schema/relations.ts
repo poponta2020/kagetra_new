@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm'
 import { users } from './auth'
+import { entryGroups } from './entry-groups'
 import { events } from './events'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
@@ -57,29 +58,42 @@ export const tournamentSeriesEditionsRelations = relations(
   }),
 )
 
+// entry-groups: 申込グループ 1:N events。グループ側から日一覧を引く経路
+// （詳細画面の日リンク・申込管理ボードのカード・リマインダーの集約）で使う。
+export const entryGroupsRelations = relations(entryGroups, ({ many, one }) => ({
+  events: many(events),
+  // entry-groups: 1グループ=1LINE紐付け（event_line_broadcasts.entry_group_id UNIQUE）。
+  // 逆参照（FK は子側）なので fields/references は省略形（drizzle 標準パターン）。
+  lineBroadcast: one(eventLineBroadcasts),
+  // entry-groups: 申込/確定名簿（1グループ = applicant/confirmed 各 0..1 の有効版）。
+  rosters: many(tournamentEntryRosters),
+}))
+
 export const eventsRelations = relations(events, ({ one, many }) => ({
+  // entry-groups: 所属する申込グループ（NOT NULL なので必ず 1 件）。
+  entryGroup: one(entryGroups, {
+    fields: [events.entryGroupId],
+    references: [entryGroups.id],
+  }),
   // tournament-entry-rosters: 開催（edition）。flow①（案内承認）で設定。
   // 旧 eventGroup relation は PR-1b で撤去（束ねは edition に一本化）。
   edition: one(tournamentSeriesEditions, {
     fields: [events.editionId],
     references: [tournamentSeriesEditions.id],
   }),
-  // tournament-entry-rosters PR-3: 申込/確定名簿（1 event = applicant/confirmed 各 0..1）。
-  rosters: many(tournamentEntryRosters),
+  // entry-groups: 名簿は **申込グループ**に帰属するようになったので events からの
+  // relation は撤去した（`entryGroupsRelations.rosters` が正）。イベントから引くときは
+  // `entryGroup: { with: { rosters: true } }` を辿る。
   attendances: many(eventAttendances),
   creator: one(users, {
     fields: [events.createdBy],
     references: [users.id],
   }),
-  // event-line-broadcast: 1:1 via event_line_broadcasts.event_id UNIQUE
+  // entry-groups: LINE 紐付けは **申込グループ**に帰属するようになったので、events から
+  // の 1:1 relation は撤去した（`entryGroupsRelations.lineBroadcast` が正）。イベントから
+  // 引くときは `entryGroup: { with: { lineBroadcast: true } }` を辿る。
   //
-  // r-final-8 should_fix: 逆参照 (FK は子側 = eventLineBroadcasts) の
-  // `one()` は fields/references を省略すると drizzle が自動で「対側の
-  // 該当 FK で繋ぐ」逆方向 relation として扱う。fields に events.id を
-  // 指定すると source 側に存在しない FK を持つ形になって不正な join に
-  // なるので、ここは省略形 (drizzle 標準パターン) に揃える。
-  lineBroadcast: one(eventLineBroadcasts),
-  // event-lifecycle-notify: once-ever 通知ログ（1 event = N 種別）
+  // event-lifecycle-notify: once-ever 通知ログ（1 event = N 種別。**event 単位のまま維持**）
   lifecycleNotifications: many(eventLifecycleNotifications),
   // tournament-title-grade-split: AI 取り込み由来イベントの元ドラフト（1 ドラフト:N イベント）。
   // events.tournament_draft_id → tournament_drafts.id。tournament_drafts.event_id（訂正紐付け）
@@ -176,9 +190,10 @@ export const lineChannelsRelations = relations(lineChannels, ({ one }) => ({
     fields: [lineChannels.assignedUserId],
     references: [users.id],
   }),
-  assignedEvent: one(events, {
-    fields: [lineChannels.assignedEventId],
-    references: [events.id],
+  // entry-groups: Bot の予約先は申込グループ（旧: event）。
+  assignedEntryGroup: one(entryGroups, {
+    fields: [lineChannels.assignedEntryGroupId],
+    references: [entryGroups.id],
   }),
 }))
 
@@ -186,9 +201,10 @@ export const lineChannelsRelations = relations(lineChannels, ({ one }) => ({
 export const eventLineBroadcastsRelations = relations(
   eventLineBroadcasts,
   ({ one, many }) => ({
-    event: one(events, {
-      fields: [eventLineBroadcasts.eventId],
-      references: [events.id],
+    // entry-groups: 紐付けの帰属は申込グループ（旧: event）。
+    entryGroup: one(entryGroups, {
+      fields: [eventLineBroadcasts.entryGroupId],
+      references: [entryGroups.id],
     }),
     lineChannel: one(lineChannels, {
       fields: [eventLineBroadcasts.lineChannelId],
@@ -347,9 +363,10 @@ export const resultDraftsRelations = relations(resultDrafts, ({ one }) => ({
 export const tournamentEntryRostersRelations = relations(
   tournamentEntryRosters,
   ({ one, many }) => ({
-    event: one(events, {
-      fields: [tournamentEntryRosters.eventId],
-      references: [events.id],
+    // entry-groups: 名簿の帰属は申込グループ（旧: event）。
+    entryGroup: one(entryGroups, {
+      fields: [tournamentEntryRosters.entryGroupId],
+      references: [entryGroups.id],
     }),
     sourceAttachment: one(mailAttachments, {
       fields: [tournamentEntryRosters.sourceAttachmentId],

@@ -7,7 +7,7 @@ import {
   tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createMailMessage, createUser } from '@/test-utils/seed'
+import { createAdmin, createMailMessage, createUser, createEntryGroup } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 vi.mock('@/auth', () => mockAuthModule())
@@ -33,6 +33,7 @@ async function seedDraft({
     status: 'held',
   }).returning()
   await testDb.insert(events).values({
+    entryGroupId: (await createEntryGroup()).id,
     title: '第3回画面テスト大会',
     eventDate: '2030-05-01',
     editionId: edition!.id,

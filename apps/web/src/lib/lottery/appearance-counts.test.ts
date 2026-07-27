@@ -14,7 +14,7 @@ import {
   tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createUser } from '@/test-utils/seed'
+import { createUser, createEntryGroup } from '@/test-utils/seed'
 import {
   APPEARANCE_COUNT_RULE_VERSION,
   buildAppearanceCountsQuery,
@@ -63,6 +63,7 @@ async function createEdition(input: {
   const [event] = await testDb
     .insert(events)
     .values({
+      entryGroupId: (await createEntryGroup()).id,
       title: `edition-${input.editionNumber}`,
       eventDate: input.eventDate,
       editionId: edition.id,
@@ -75,7 +76,7 @@ async function createEdition(input: {
 
 async function publishRoster(
   editionId: number,
-  eventId: number,
+  entryGroupId: number,
   grade: Grade,
   publishedAt: string,
   entries: Array<{
@@ -88,7 +89,7 @@ async function publishRoster(
 ) {
   const [roster] = await testDb
     .insert(tournamentEntryRosters)
-    .values({ eventId, rosterType: 'confirmed', version, publishedAt })
+    .values({ entryGroupId, rosterType: 'confirmed', version, publishedAt })
     .returning()
   if (!roster) throw new Error('failed to create roster')
   if (entries.length > 0) {
@@ -192,7 +193,7 @@ describe('getAppearanceCounts', () => {
         category: item.category,
         eligibleGrades: [item.grade],
       })
-      await publishRoster(edition.id, event.id, item.grade, item.date, [
+      await publishRoster(edition.id, event.entryGroupId, item.grade, item.date, [
         { playerId: player.id },
       ])
       const resultClass = await createActualResult(edition.id, item.grade, item.date, [player.id])
@@ -227,7 +228,7 @@ describe('getAppearanceCounts', () => {
 
     await publishRoster(
       edition.id,
-      event.id,
+      event.entryGroupId,
       'B',
       '2024-07-01',
       [
@@ -240,7 +241,7 @@ describe('getAppearanceCounts', () => {
     )
     await publishRoster(
       edition.id,
-      event.id,
+      event.entryGroupId,
       'E',
       '2024-07-15',
       [
@@ -295,7 +296,7 @@ describe('getAppearanceCounts', () => {
       status: 'unconfirmed',
       eligibleGrades: ['A'],
     })
-    await publishRoster(edition.id, event.id, 'A', '2024-06-02', [{ playerId: player.id }])
+    await publishRoster(edition.id, event.entryGroupId, 'A', '2024-06-02', [{ playerId: player.id }])
     const resultClass = await createActualResult(edition.id, 'A', '2024-06-03', [player.id])
     await addActiveFact(edition.id, 'A', resultClass.id)
 
@@ -326,7 +327,7 @@ describe('getAppearanceCounts', () => {
       status: 'unconfirmed',
       eligibleGrades: ['A'],
     })
-    await publishRoster(edition.id, event.id, 'A', '2024-05-20', [
+    await publishRoster(edition.id, event.entryGroupId, 'A', '2024-05-20', [
       { playerId: rosterPlayer.id },
     ])
     const futureResult = await createActualResult(edition.id, 'A', '2024-12-01', [
@@ -389,7 +390,7 @@ describe('getAppearanceCounts', () => {
       status: 'unconfirmed',
       eligibleGrades: ['A'],
     })
-    const oldRoster = await publishRoster(edition.id, event.id, 'A', '2024-08-01', [
+    const oldRoster = await publishRoster(edition.id, event.entryGroupId, 'A', '2024-08-01', [
       { playerId: oldPlayer.id },
     ])
     await testDb
@@ -398,7 +399,7 @@ describe('getAppearanceCounts', () => {
       .where(eq(tournamentEntryRosters.id, oldRoster.id))
     await publishRoster(
       edition.id,
-      event.id,
+      event.entryGroupId,
       'A',
       '2024-08-10',
       [{ playerId: correctedPlayer.id }],
@@ -430,7 +431,7 @@ describe('getAppearanceCounts', () => {
     })
     const [applicantRoster] = await testDb
       .insert(tournamentEntryRosters)
-      .values({ eventId: event.id, rosterType: 'applicant', version: 1, publishedAt: '2024-08-01' })
+      .values({ entryGroupId: event.entryGroupId, rosterType: 'applicant', version: 1, publishedAt: '2024-08-01' })
       .returning()
     await testDb.insert(tournamentEntryRosterEntries).values({
       rosterId: applicantRoster!.id,
@@ -480,7 +481,7 @@ describe('getAppearanceCounts', () => {
     })
     await publishRoster(
       missingResult.edition.id,
-      missingResult.event.id,
+      missingResult.event.entryGroupId,
       'B',
       '2024-06-20',
       [{ playerId: player.id }],
@@ -526,7 +527,7 @@ describe('getAppearanceCounts', () => {
       eventDate: '2024-08-01',
       eligibleGrades: ['A', 'B'],
     })
-    await publishRoster(edition.id, event.id, 'A', '2024-07-01', [{ playerId: player.id }])
+    await publishRoster(edition.id, event.entryGroupId, 'A', '2024-07-01', [{ playerId: player.id }])
     const resultClass = await createActualResult(edition.id, 'A', '2024-08-01', [player.id])
     await addActiveFact(edition.id, 'A', resultClass.id)
 
@@ -550,7 +551,7 @@ describe('getAppearanceCounts', () => {
       eventDate: '2024-08-01',
       eligibleGrades: [],
     })
-    await publishRoster(edition.id, event.id, 'A', '2024-07-01', [{ playerId: player.id }])
+    await publishRoster(edition.id, event.entryGroupId, 'A', '2024-07-01', [{ playerId: player.id }])
     const resultClass = await createActualResult(edition.id, 'A', '2024-08-01', [player.id])
     await addActiveFact(edition.id, 'A', resultClass.id)
 
@@ -576,7 +577,7 @@ describe('getAppearanceCounts', () => {
       eventDate: '2024-08-01',
       eligibleGrades: ['D'],
     })
-    await publishRoster(edition.id, event.id, 'D', '2024-07-20', [
+    await publishRoster(edition.id, event.entryGroupId, 'D', '2024-07-20', [
       { playerId: player.id, userId: member.id },
     ])
     const resultClass = await createActualResult(edition.id, 'D', '2024-08-01', [player.id])

@@ -1,6 +1,6 @@
 import { date, foreignKey, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { rosterTypeEnum } from './enums'
-import { events } from './events'
+import { entryGroups } from './entry-groups'
 import { mailAttachments } from './mail-attachments'
 import { mailMessages } from './mail-messages'
 import { users } from './auth'
@@ -17,9 +17,16 @@ export const tournamentEntryRosters = pgTable(
   'tournament_entry_rosters',
   {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-    eventId: integer('event_id')
+    // entry-groups: 帰属を event → entry_group へ移した。名簿・抽選結果メールが
+    // クラスタ単位（同じ案内メール × 同じ申込締切）で届く実態に合わせるため。
+    // グループ内のどの日の詳細からも同一の名簿が見える。
+    //
+    // ★ON DELETE は **RESTRICT**（events からの cascade とは違う）。空グループの削除が
+    // 名簿を道連れにしないため — `deleteGroupIfEmpty` が rosters 0件を確認してから
+    // 消す設計で、RESTRICT はその DB 側バックストップ。
+    entryGroupId: integer('entry_group_id')
       .notNull()
-      .references(() => events.id, { onDelete: 'cascade' }),
+      .references(() => entryGroups.id, { onDelete: 'restrict' }),
     rosterType: rosterTypeEnum('roster_type').notNull(),
     version: integer('version').notNull().default(1),
     // 名簿の発行日（主催者発表日）。任意。
@@ -39,8 +46,10 @@ export const tournamentEntryRosters = pgTable(
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    unique('tournament_entry_rosters_event_id_roster_type_version_key').on(
-      table.eventId,
+    // entry-groups: 版管理の一意性はグループ基準へ読み替えた
+    // （§3.2.9「版管理の一意性は (グループ, roster_type, version)」）。
+    unique('tournament_entry_rosters_entry_group_roster_type_version_key').on(
+      table.entryGroupId,
       table.rosterType,
       table.version,
     ),

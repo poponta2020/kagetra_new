@@ -28,7 +28,7 @@
 
 本ドメインは6つの独立した仕組みからなる。
 
-1. **event-line-broadcast**: 大会ごとに1つのLINEグループへ、承認済みメール（要項・訂正等）を自動配信する。実体は「30 Bot のプール」方式で、1大会が1台の配信専用Botチャネルを一時的に占有する（個人ごとにBotを持つ設計ではない）。
+1. **event-line-broadcast**: 申込グループ（`entry_groups`。同じ案内メール×同じ申込締切でまとまる大会単位。複数日開催は日ごとに `events` 行が分かれても1グループ）ごとに1つのLINEグループへ、承認済みメール（要項・訂正等）を自動配信する。実体は「30 Bot のプール」方式で、1申込グループが1台の配信専用Botチャネルを一時的に占有する（個人ごとにBotを持つ設計ではない）。紐付け・配信・要綱・自動解放の操作はグループ単位に作用し、グループ内のどの日の詳細画面（`/events/[id]`）から行っても同一の紐付けに作用する。
 1b. **event-grade-group-broadcast**: 級別（A〜E）のLINEグループへ、新規登録された大会の**概要**を配信する。1. とは読み手が違う（1. は「その大会の申込者」、こちらは「会員全体」）。目的は詳細伝達ではなく**存在の周知**で、案内を見落として申込機会を失う導線の穴を埋める。紐付けは大会単位ではなく**常設**。
 2. **event-lifecycle-notify**: 大会の申込/支払い状態がトグルされた際、同じLINEグループへ定型文の通知を送る（申込完了、支払完了、締切リマインド等）。
 3. **entry-overdue-alert**: 会内締切を過ぎても未申込のままの大会を、**管理者個人のLINE**へ毎朝1通のサマリで通知する。宛先も冪等性も 2. とは別系統（後述）。
@@ -37,7 +37,7 @@
 
 ### event-line-broadcast: Botプールと配信
 
-`line_channels` テーブルは `purpose` で2種類に分かれる。`system_notify` はメールワーカーの管理者通知用の単一チャネル（詳細は `spec/mail-worker.md`）、`event_broadcast` が本ドメインの30 Botプールである。各チャネルは `status`（`available` / `assigned` / `active` / `disabled` / `system`）と `assignedEventId`（UNIQUE・NULL可）を持ち、1 Bot = 同時に1大会にしか割り当てられない。
+`line_channels` テーブルは `purpose` で2種類に分かれる。`system_notify` はメールワーカーの管理者通知用の単一チャネル（詳細は `spec/mail-worker.md`）、`event_broadcast` が本ドメインの30 Botプールである。各チャネルは `status`（`available` / `assigned` / `active` / `disabled` / `system`）と `assignedEntryGroupId`（UNIQUE・NULL可、FK→`entry_groups.id`）を持ち、1 Bot = 同時に1申込グループにしか割り当てられない。
 
 **紐付けのライフサイクル**（`event_line_broadcasts.status`）:
 
@@ -45,13 +45,13 @@
 invite_pending → joined_waiting_code → linked → revoked / released
 ```
 
-- `invite_pending`: 管理者が `generateInviteCodeForEvent`（`apps/web/src/app/(app)/events/[id]/actions.ts`）を呼び、`available` なチャネルを1つ予約して6桁招待コード（`invite-code.ts`、TTL 30分・`crypto.randomInt` によるCSPRNG）を発行した直後の状態。同じイベントに既に `invite_pending`/`joined_waiting_code` の行があれば同じ行を再利用し、`linked` 中なら「現在配信中」としてエラーにする。招待コードのUNIQUE制約（`invite_code` の部分インデックス、有効なコードのみ対象）衝突時は3回までリトライする。
+- `invite_pending`: 管理者が `generateInviteCodeForEvent`（`apps/web/src/app/(app)/events/[id]/actions.ts`。シグネチャは `eventId` を受けるが、内部でその日が属する `entry_group_id` へ解決してからグループ基準で動く）を呼び、`available` なチャネルを1つ予約して6桁招待コード（`invite-code.ts`、TTL 30分・`crypto.randomInt` によるCSPRNG）を発行した直後の状態。同じ申込グループに既に `invite_pending`/`joined_waiting_code` の行があれば同じ行を再利用し（`entry_group_id` UNIQUE）、`linked` 中なら「現在配信中」としてエラーにする。招待コードのUNIQUE制約（`invite_code` の部分インデックス、有効なコードのみ対象）衝突時は3回までリトライする。
 - `joined_waiting_code`: LINE Webhookの `join` イベントで、Botが招待されたグループの `groupId` を記録し、この状態に遷移する。返信で「30分以内に6桁コードを発言してください」と案内する。
 - `linked`: グループ内で正しい6桁コードが発言されると、`event_line_broadcasts` を `linked` に、対応する `line_channels` を `status='active'` に更新する（同一トランザクション、CAS条件付きUPDATEで多重発言・レースを弾く）。招待コードはグループ紐付け専用のため、`user`/`room` からの発言や、別グループでの発言、既存 `lineGroupId` との不一致は拒否する。
 - `revoked`: Botがグループから追い出された（`leave` イベント、`source.groupId` が現在の紐付け先と一致する場合のみ）、管理者による強制解放（`/admin/line-channels/[id]` の「強制解放」、`releaseChannel`）、または配信失敗時の自動リカバリ（後述）で遷移する。チャネルは `available` に戻り、招待コードはNULL化される。
-- `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, event_date + 30日)` を過ぎた行を自動解放する。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
+- `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, グループ内 MAX(event_date) + 30日)` を過ぎた行を自動解放する。複数日グループは最も遅い開催日を基準にする（相関サブクエリで算出。events への単純JOINは1行が日数分にfan outし誤判定するため使わない）。**イベントが0件になったグループ**（付け替えで空になったが紐付けを残しているグループ）は MAX(event_date) が NULL になるため、`extended_until` が未設定なら即解放対象として Bot をプールへ戻す。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
 
-**メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。
+**メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。1回の承認で複数日グループの複数イベントが同時に作られても、配信呼び出し側（`broadcastApprovedUnits`）は `entry_group_id` で重複排除するため、実際のpushはグループにつき1回だけ発生する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。
 
 - 本文はA4 JPEGへ画像化して送る（画像化ロジック自体は `mail-body-image-render`、詳細は `spec/mail-worker.md`）。画像化が失敗・ページ超過・空・サイズ超過（10MB超）の場合はテキストfallback（`splitForLine` で分割）に切り替える。
 - 添付は形式を問わず全て署名URLリンクのテキストメッセージに統一する（かつてのPDF/Word画像化分岐は廃止済み）。
@@ -64,7 +64,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 **要綱の紐付け完了時送信**（broadcast-guidelines-on-link）は、上記のメール配信とは独立した経路で、紐付け完了（`linked`）の瞬間に「大会案内メールの要綱ファイル」だけをグループへ送る追加機能。紐付け前に承認済みだった案内メール（＝多くの場合、要綱そのもの）は既存の自動配信ではバックフィルされないため、その穴を要綱に限って埋める。
 
-- **選択**: 招待コード発行モーダル（`InviteCodeModal`）で、対象イベントの全関連メール（3経路union。詳細は `spec/events-attendance.md` の関連メール）の添付をメール別に列挙し、管理者が要綱にあたるファイルを複数選択する。選択は `setGuidelineAttachments`（admin/vice_admin・replace意味論・候補外の添付idは拒否）で `event_broadcast_guideline_attachments`（`event_line_broadcasts` への join、両FK ON DELETE CASCADE）に即時保存する。`event_line_broadcasts` は1大会1行で、招待コード再発行は同一行UPDATEなので選択は再発行をまたいで保持される。
+- **選択**: 招待コード発行モーダル（`InviteCodeModal`）で、対象イベント（その日）の全関連メール（3経路union。詳細は `spec/events-attendance.md` の関連メール）の添付をメール別に列挙し、管理者が要綱にあたるファイルを複数選択する。選択は `setGuidelineAttachments`（admin/vice_admin・replace意味論・候補外の添付idは拒否）で `event_broadcast_guideline_attachments`（`event_line_broadcasts` への join、両FK ON DELETE CASCADE）に即時保存する。`event_line_broadcasts` は1申込グループ1行で、招待コード再発行は同一行UPDATEなので選択は再発行をまたいで保持される。関連メール候補自体は対象イベント（その日）単位のままなので、同一グループの別の日から見ると候補一覧が異なりうる点に注意（選択・送信対象はグループ単位で共通）。
 - **送信トリガー**: `event_line_broadcasts` が `linked` に遷移した時（Webhookの招待コード照合成功、および管理者の手動紐付け `manualLinkGroup`）に、選択済み添付があれば送信する。送信は紐付け成立**後**（reply枠は消費済み）に走るpushで、`sendGuidelinesOnLink`（`apps/web/src/lib/line-broadcast-guidelines.ts`）が担う。同モジュールはWebhook（nodejs runtime）から呼ばれるため `line-broadcast.ts`（本文画像化の重依存）を意図的にimportせず、署名URLの `getOrCreateShareToken` だけ再利用した自己完結の最小pushを持つ（5通/バッチ・1.5秒間隔・429リトライ・30秒タイムアウト・`LINE_NOTIFY_DRY_RUN` 尊重）。
 - **送信内容**: 選択ファイルごとに「📎【大会要綱】ファイル名 + 署名URL（`/api/line-broadcast/attachments/[token]`、60日）」のテキスト1通。既存の添付配信と同じ署名URL方式で、新規の公開エンドポイントは作らない。
 - **best-effort**: 送信の成否は紐付け（`linked`）に影響しない（`sendGuidelinesOnLink` はthrowしない）。全通配信できたときだけ `event_line_broadcasts.guidelines_sent_at` を更新する。監査に `event_broadcast_messages`（メール単位・role別カウンタ）は流用しない（full-mail配信と衝突するため独立）。
@@ -75,7 +75,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 `line_channels.purpose` の3値目 `grade_broadcast` が本機能用のチャネル。既存30 Botプール（`event_broadcast`）から5個を確保し転換して使う（招待コード発行時に同一トランザクションで転換するため、運用スクリプトは不要）。**級ごとに専用チャネルを持つ**理由は、LINEの無料通数枠がチャネル単位で月200通のため — 1個を全級で共有すると5グループ合計で月20回程度で枯渇する。
 
-**紐付け**（`line_grade_group_bindings`。`grade` UNIQUE / `line_channel_id` UNIQUE）は `invite_pending → joined_waiting_code → linked → revoked` で、大会単位の `event_line_broadcasts` と違い**常設**（`released` を持たず、大会終了で解放されない）。招待コード方式・webhook の join/コード照合は大会用と同じ流儀だが、専用ハンドラに分離されており、級用チャネルでは `line_channels` の `status`/`assignedEventId` を触らず、要綱送信も行わず、Bot が追い出されてもチャネルをプールへ戻さない。**push 失敗で紐付けを自動解除しない**（常設なので自動解除すると運用のたびに繋ぎ直しになる）。
+**紐付け**（`line_grade_group_bindings`。`grade` UNIQUE / `line_channel_id` UNIQUE）は `invite_pending → joined_waiting_code → linked → revoked` で、申込グループ単位の `event_line_broadcasts` と違い**常設**（`released` を持たず、大会終了で解放されない）。招待コード方式・webhook の join/コード照合は大会用と同じ流儀だが、専用ハンドラに分離されており、級用チャネルでは `line_channels` の `status`/`assignedEntryGroupId` を触らず、要綱送信も行わず、Bot が追い出されてもチャネルをプールへ戻さない。**push 失敗で紐付けを自動解除しない**（常設なので自動解除すると運用のたびに繋ぎ直しになる）。
 
 **配信対象の判定は `status='linked'` かつ `line_group_id IS NOT NULL` の行のみ**。「行が存在する」で判定してはならない（解除済みの級へ送り続けてしまう）。
 
@@ -109,17 +109,38 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
 - **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
+- **entry-groups タスク4: 進行操作の一括化**（`setEntryApplied` / `setPaymentPaid` / `setPaymentType` は
+  それぞれ `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes`（複数 `eventId` を取る）への
+  薄いラッパー。単一 `eventId` を渡した場合の文面・claim・revalidate 挙動は従来と完全に同一）。
+  同グループの複数日を選んで一括トグルすると、id昇順ソート→各日ガード付きUPDATE（`cancelled` は
+  ここで再ガードしてclaim対象から除外）→**flipできた日のうちclaimできた集合だけ**で参加者向け・
+  会計向けそれぞれ1通に集約してpushする（`sendClaimedNotificationBulk`。後から追加の日だけ
+  claimできた場合はその分だけの1通になる）。`buildLifecycleMessage` は選択日が2件以上のとき
+  `M/D(曜)<日別ラベル>` を`・`で連結した文面へ切り替わる（1件のときは既存文面と同一）。
+  会計向けは振込期限・方法・詳細が全日同値なら1回だけ表記し、差があれば日別行にする
+  （`apps/web/src/lib/event-lifecycle-notify.ts` の `days` パラメータ）。
 - **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
   - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件
   - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件
   - リード日数は既定3日（`EVENT_LIFECYCLE_REMINDER_LEAD_DAYS` env で上書き可）。日付判定はすべてJSTの `YYYY-MM-DD` 文字列比較（`jstTodayIso`）で行う。
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
+  - **entry-groups: 送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーで
+    バケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` +
+    `RETURNING`** で claim して、claim できた日を列挙した1通を push する。once-ever の単位は
+    `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」
+    だけが追加で1通送られる。グループ内で締切が同じ日同士が1通にまとまり、（伝播を外して）
+    締切が異なる日は別バケット＝別通になる。バケットが1件のときは単一日ロジックで組んだ文面を
+    そのまま使うので、従来の文面とバイト互換。
+  - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id`
+    かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない —
+    claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。紐付けがグループ単位に
+    なったことで、従来未紐付けだった日（多摩 B/D/E 等）のリマインドも同じ LINE グループへ届く。
 - push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、その他4xx→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール。将来的な統合はrequirements §6.9で「マージ後リファクタ」として据え置かれている）。
 
 ### entry-overdue-alert: 管理者向け毎日アラート
 
-会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
+会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。**entry-groups: 明細は申込グループ単位で1行**に集約し（グループ内の該当日をまとめる）、グループ表示名は `deriveEntryGroupName`（導出できないときは代表イベントのタイトル）を使う。単独グループのときは従来の「1行1大会」と同じ文面になる。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
 
 | 軸 | event-lifecycle-notify | entry-overdue-alert |
 |---|---|---|

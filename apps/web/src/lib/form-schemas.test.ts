@@ -122,4 +122,52 @@ describe('extractEventUnitsFormData (承認画面)', () => {
     expect(parsed.status).toBe('published')
     expect(parsed.lotteryDate).toBeNull()
   })
+
+  // entry-groups タスク7: `${unitKey}__group_key` ─────────────────────────
+  it('group_key が送信されていればそのユニットの groupKey として返す', () => {
+    const fd = new FormData()
+    fd.append('unit_key', 'u1')
+    fd.set('u1__register', 'on')
+    fd.set('u1__title', '春の大会')
+    fd.set('u1__eventDate', '2030-06-15')
+    fd.set('u1__group_key', 'g0')
+
+    const units = extractEventUnitsFormData(fd)
+    expect(units).toHaveLength(1)
+    expect(units[0]!.groupKey).toBe('g0')
+  })
+
+  it('group_key が未送信/空文字なら groupKey は null（シングルトン扱い）', () => {
+    const fd = new FormData()
+    fd.append('unit_key', 'u1')
+    fd.set('u1__register', 'on')
+    fd.set('u1__title', '春の大会')
+    fd.set('u1__eventDate', '2030-06-15')
+
+    const units = extractEventUnitsFormData(fd)
+    expect(units[0]!.groupKey).toBeNull()
+
+    fd.set('u1__group_key', '')
+    const units2 = extractEventUnitsFormData(fd)
+    expect(units2[0]!.groupKey).toBeNull()
+  })
+
+  it('unit ごとに別々の group_key を読み分ける', () => {
+    const fd = new FormData()
+    fd.append('unit_key', 'u1')
+    fd.set('u1__register', 'on')
+    fd.set('u1__title', '大阪B')
+    fd.set('u1__eventDate', '2031-01-11')
+    fd.set('u1__group_key', 'gA')
+    fd.append('unit_key', 'u2')
+    fd.set('u2__register', 'on')
+    fd.set('u2__title', '大阪C')
+    fd.set('u2__eventDate', '2031-01-11')
+    fd.set('u2__group_key', 'gB')
+
+    const units = extractEventUnitsFormData(fd)
+    const byKey = new Map(units.map((u) => [u.unitKey, u.groupKey]))
+    expect(byKey.get('u1')).toBe('gA')
+    expect(byKey.get('u2')).toBe('gB')
+  })
 })

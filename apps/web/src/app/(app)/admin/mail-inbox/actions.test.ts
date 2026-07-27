@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  entryGroups,
   events,
   mailAttachments,
   mailMessages,
@@ -33,6 +34,7 @@ const {
   classifyMailMock,
   persistOutcomeMock,
   broadcastEventsToGradeGroupsMock,
+  entryGroupCreateHook,
 } = vi.hoisted(() => ({
   // dedup テストで即時実行に差し替えるため切り替え可能（既定 no-op）。
   afterMock: vi.fn((_cb: () => void | Promise<void>) => {}),
@@ -45,7 +47,7 @@ const {
   })),
   loadActiveBindingMock: vi.fn(
     async (_db: unknown, _eventId: number) =>
-      null as { lineGroupId: string } | null,
+      null as { lineGroupId: string; entryGroupId: number } | null,
   ),
   classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
   persistOutcomeMock: vi.fn(async () => ({})),
@@ -59,7 +61,38 @@ const {
       notified: false,
     }),
   ),
+  // entry-groups タスク7: onConflictDoNothing 経路（グループが二重生成/孤児化
+  // しないこと）をテストするためのフック。`createEntryGroup` は
+  // approveDraftUnits が新しいグループを作る唯一のポイントなので、その直後
+  // （= 呼び出し側がまだ自身の events INSERT を実行する前）に、同一 tx を使って
+  // 「別ライターが既に確定させた」ことにする conflicting な events 行を差し込める
+  // ようにする。既定は no-op。1 回だけ発火してリセットする（テストをまたいで
+  // 汚染しない）。
+  entryGroupCreateHook: {
+    current: null as null | ((tx: typeof testDb) => Promise<void>),
+  },
 }))
+
+vi.mock('@/lib/entry-groups', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/entry-groups')>(
+      '@/lib/entry-groups',
+    )
+  return {
+    ...actual,
+    createEntryGroup: async (
+      tx: Parameters<typeof actual.createEntryGroup>[0],
+    ) => {
+      const id = await actual.createEntryGroup(tx)
+      const hook = entryGroupCreateHook.current
+      if (hook) {
+        entryGroupCreateHook.current = null
+        await hook(tx as typeof testDb)
+      }
+      return id
+    },
+  }
+})
 
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({
@@ -276,6 +309,7 @@ describe('admin/mail-inbox actions', () => {
       failedGrades: [],
       notified: false,
     })
+    entryGroupCreateHook.current = null
   })
   afterAll(async () => {
     await closeTestDb()
@@ -1586,6 +1620,390 @@ describe('admin/mail-inbox actions', () => {
     )
   })
 
+  describe('entry-groups タスク7: 承認フォームの自動グループ提案 (AC-20)', () => {
+    it('同じ group_key の unit は同じ entry_group に、異なる group_key は別の entry_group になる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-01-11'),
+          unit('u2', ['B'], '2031-01-11'),
+          unit('u3', ['C'], '2031-01-20'),
+        ]),
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u1',
+            grades: ['A'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-01-01', group_key: 'gA' },
+          },
+          {
+            unitKey: 'u2',
+            grades: ['B'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-01-01', group_key: 'gA' },
+          },
+          {
+            unitKey: 'u3',
+            grades: ['C'],
+            eventDate: '2031-01-20',
+            extra: { entryDeadline: '2031-01-15', group_key: 'gB' },
+          },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      const byKey = new Map(rows.map((r) => [r.tournamentDraftUnitKey, r]))
+      expect(byKey.get('u1')!.entryGroupId).toBe(byKey.get('u2')!.entryGroupId)
+      expect(byKey.get('u3')!.entryGroupId).not.toBe(
+        byKey.get('u1')!.entryGroupId,
+      )
+    })
+
+    it('同じ申込締切でも group_key が異なれば別グループになる（割当変更の反映）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-01-11'),
+          unit('u2', ['B'], '2031-01-12'),
+        ]),
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u1',
+            grades: ['A'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-01-01', group_key: 'gA' },
+          },
+          {
+            unitKey: 'u2',
+            grades: ['B'],
+            eventDate: '2031-01-12',
+            // 操作者がユニットごとに別グループへ割当を変更した想定（同じ締切だが
+            // group_key を別にしている）。
+            extra: { entryDeadline: '2031-01-01', group_key: 'gB' },
+          },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      const byKey = new Map(rows.map((r) => [r.tournamentDraftUnitKey, r]))
+      expect(byKey.get('u1')!.entryGroupId).not.toBe(
+        byKey.get('u2')!.entryGroupId,
+      )
+    })
+
+    it('group_key 未送信 (UI がグループ提案を出さない場合) は従来どおり各 unit が独立したグループになる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-01-11'),
+          unit('u2', ['B'], '2031-01-11'),
+        ]),
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', grades: ['A'], eventDate: '2031-01-11' },
+          { unitKey: 'u2', grades: ['B'], eventDate: '2031-01-11' },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      expect(rows[0]!.entryGroupId).not.toBe(rows[1]!.entryGroupId)
+    })
+
+    it('部分承認の収束: 後続バッチの unit は group_key の値が違っても、同じ申込締切の既存グループへ合流する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-01-11'),
+          unit('u2', ['B'], '2031-01-12'),
+        ]),
+      })
+
+      // batch1: u1 のみ登録（部分承認。u2 未登録なので draft は pending のまま）。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u1',
+            grades: ['A'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gBatch1' },
+          },
+        ]),
+      )
+      const rows1 = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows1).toHaveLength(1)
+      const group1 = rows1[0]!.entryGroupId
+
+      // batch2: u2（同じ申込締切だが group_key の文字列自体はバッチごとに再計算
+      // されるクライアント側の一時キーなので別の値——収束は締切で行われる）。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u2',
+            grades: ['B'],
+            eventDate: '2031-01-12',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gBatch2-different-value' },
+          },
+        ]),
+      )
+
+      const rows2 = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows2).toHaveLength(2)
+      const byKey = new Map(rows2.map((r) => [r.tournamentDraftUnitKey, r]))
+      expect(byKey.get('u2')!.entryGroupId).toBe(group1)
+
+      // 新規グループは作られていない（既存グループへの合流のみ）。
+      const groups = await testDb.select().from(entryGroups)
+      expect(groups).toHaveLength(1)
+    })
+
+    it('claim-once: 既存グループはバッチ内で高々1つの group_key にしか合流しない（操作者の明示的な分割を上書きしない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['A'], '2031-01-11'),
+          unit('u2', ['B'], '2031-01-11'),
+          unit('u3', ['C'], '2031-01-11'),
+          unit('u4', ['D'], '2031-01-11'),
+        ]),
+      })
+
+      // batch1: u1+u2 を同じ group_key（同じ締切）でまとめて登録 → 既存グループ G。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u1',
+            grades: ['A'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gA' },
+          },
+          {
+            unitKey: 'u2',
+            grades: ['B'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gA' },
+          },
+        ]),
+      )
+      const rows1 = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      const groupG = rows1[0]!.entryGroupId
+      expect(rows1.every((r) => r.entryGroupId === groupG)).toBe(true)
+
+      // batch2: u3, u4 は同じ締切だが、操作者が明示的に別グループへ分割した
+      // 想定（group_key が異なる）。両方とも既存グループ G に合流してしまうと
+      // 操作者の分割指示が無視されたことになる。
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u3',
+            grades: ['C'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gX' },
+          },
+          {
+            unitKey: 'u4',
+            grades: ['D'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-02-01', group_key: 'gY' },
+          },
+        ]),
+      )
+
+      const rows2 = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows2).toHaveLength(4)
+      const byKey = new Map(rows2.map((r) => [r.tournamentDraftUnitKey, r]))
+      const groupIds = new Set(rows2.map((r) => r.entryGroupId))
+      // 既存グループ G は u3/u4 のどちらか一方だけに合流し、もう一方は新規グループ。
+      expect(groupIds.size).toBe(2)
+      expect(groupIds.has(groupG)).toBe(true)
+      const u3Group = byKey.get('u3')!.entryGroupId
+      const u4Group = byKey.get('u4')!.entryGroupId
+      expect(u3Group === groupG || u4Group === groupG).toBe(true)
+      expect(u3Group === u4Group).toBe(false)
+    })
+
+    it('onConflictDoNothing: 単一ユニットの INSERT が競合で落ちても、新規作成したグループは片付けられる（孤児化しない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['B'], '2031-01-11')]),
+      })
+
+      // createEntryGroup の直後（= approveDraftUnits 自身が u1 の INSERT を
+      // 実行する前）に、同一 tx を使って「別ライターが (draftId, 'u1') を
+      // 先に確定させた」ことにする。
+      entryGroupCreateHook.current = async (tx) => {
+        const [otherGroup] = await tx
+          .insert(entryGroups)
+          .values({})
+          .returning({ id: entryGroups.id })
+        await tx.insert(events).values({
+          title: 'race-u1',
+          eventDate: '2031-01-11',
+          tournamentDraftId: draft.id,
+          tournamentDraftUnitKey: 'u1',
+          entryGroupId: otherGroup!.id,
+        })
+      }
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'], eventDate: '2031-01-11' },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      // 我々自身の INSERT は onConflictDoNothing で捨てられ、先に確定した行が残る。
+      expect(rows[0]?.title).toBe('race-u1')
+
+      // 新規作成したが誰にも使われなかったグループが孤児として残っていないこと。
+      const allGroups = await testDb.select({ id: entryGroups.id }).from(entryGroups)
+      const referencedIds = new Set(
+        (await testDb.select({ id: events.entryGroupId }).from(events)).map(
+          (r) => r.id,
+        ),
+      )
+      expect(allGroups.every((g) => referencedIds.has(g.id))).toBe(true)
+    })
+
+    it('onConflictDoNothing: group_key を共有する他ユニットの成功でグループが片付けられず、二重生成もしない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-11'),
+        ]),
+      })
+
+      // group_key を共有する u1/u2 の最初の 1 回だけ createEntryGroup が呼ばれる
+      // （resolveGroupIdForKey がキャッシュするため）。そのタイミングで u1 の
+      // (draftId, 'u1') を「別ライター」が先に確定させたことにする。
+      entryGroupCreateHook.current = async (tx) => {
+        const [otherGroup] = await tx
+          .insert(entryGroups)
+          .values({})
+          .returning({ id: entryGroups.id })
+        await tx.insert(events).values({
+          title: 'race-u1',
+          eventDate: '2031-01-11',
+          tournamentDraftId: draft.id,
+          tournamentDraftUnitKey: 'u1',
+          entryGroupId: otherGroup!.id,
+        })
+      }
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          {
+            unitKey: 'u1',
+            title: '大阪B',
+            grades: ['B'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-01-01', group_key: 'gShared' },
+          },
+          {
+            unitKey: 'u2',
+            title: '大阪C',
+            grades: ['C'],
+            eventDate: '2031-01-11',
+            extra: { entryDeadline: '2031-01-01', group_key: 'gShared' },
+          },
+        ]),
+      )
+
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(2)
+      const u1Row = rows.find((r) => r.tournamentDraftUnitKey === 'u1')!
+      const u2Row = rows.find((r) => r.tournamentDraftUnitKey === 'u2')!
+      // u1 は我々自身の INSERT が conflict で捨てられ、先に確定した行が残る。
+      expect(u1Row.title).toBe('race-u1')
+      // u2 (同じ group_key) は普通に成功する。
+      expect(u2Row.title).toBe('大阪C')
+
+      // u2 が参照している「このバッチで新規作成したグループ」は削除されていない
+      // (u1 が conflict で落ちても、u2 がまだ参照しているので生き残る)。
+      const survivingGroup = await testDb
+        .select()
+        .from(entryGroups)
+        .where(eq(entryGroups.id, u2Row.entryGroupId))
+      expect(survivingGroup).toHaveLength(1)
+
+      // 孤児グループが残っていない = グループの二重生成もしていない。
+      const allGroups = await testDb.select({ id: entryGroups.id }).from(entryGroups)
+      const referencedIds = new Set(
+        (await testDb.select({ id: events.entryGroupId }).from(events)).map(
+          (r) => r.id,
+        ),
+      )
+      expect(allGroups.every((g) => referencedIds.has(g.id))).toBe(true)
+    })
+  })
+
   describe('approveDraftUnits — LINE 配信の重複排除', () => {
     it('同一 lineGroupId に紐づく 2 イベントで broadcast は 1 回だけ', async () => {
       const admin = await createAdmin()
@@ -1599,8 +2017,8 @@ describe('admin/mail-inbox actions', () => {
         ]),
       })
 
-      // 両イベントとも同じ大阪グループに紐付くと仮定する。
-      loadActiveBindingMock.mockResolvedValue({ lineGroupId: 'G_OSAKA' })
+      // 両イベントとも同じ大阪グループ (entry_group_id=1) に紐付くと仮定する。
+      loadActiveBindingMock.mockResolvedValue({ lineGroupId: 'G_OSAKA', entryGroupId: 1 })
       // after() の callback は fire-and-forget。テストでは捕捉して明示的に
       // await し、broadcast 完了後に発火回数を検証する (microtask 競合回避)。
       let afterCb: (() => void | Promise<void>) | null = null
@@ -1619,6 +2037,46 @@ describe('admin/mail-inbox actions', () => {
       await afterCb!()
 
       // 2 イベント作成・同一グループ → broadcastMailToEvent は 1 回だけ。
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+    })
+
+    // entry-groups タスク3 (AC-6): 重複排除キーは entryGroupId であり lineGroupId
+    // ではないことを直接検証する。lineGroupId が呼び出しごとに違っても
+    // entryGroupId が同じなら 1 回だけ配信される（lineGroupId ベースの旧実装
+    // ではこのテストは 2 回呼ばれてしまい失敗する）。
+    it('entryGroupId が同じなら lineGroupId が呼び出しごとに違っても broadcast は 1 回だけ (AC-6)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage()
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([
+          unit('u1', ['B'], '2031-01-11'),
+          unit('u2', ['C'], '2031-01-12'),
+        ]),
+      })
+
+      // lineGroupId は呼び出しごとに変わる値を返すが、entryGroupId は固定。
+      let call = 0
+      loadActiveBindingMock.mockImplementation(async () => {
+        call += 1
+        return { lineGroupId: `G_VARIES_${call}`, entryGroupId: 42 }
+      })
+      let afterCb: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+        afterCb = cb
+      })
+
+      await approveDraftUnits(
+        draft.id,
+        buildUnitsFormData([
+          { unitKey: 'u1', title: '大阪B', grades: ['B'] },
+          { unitKey: 'u2', title: '大阪C', grades: ['C'] },
+        ]),
+      )
+      expect(afterCb).not.toBeNull()
+      await afterCb!()
+
       expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
     })
 
@@ -1708,11 +2166,11 @@ describe('admin/mail-inbox actions', () => {
         ]),
       })
 
-      // eventId ごとに別グループを返す。
+      // eventId ごとに別グループ（entryGroupId も別）を返す。
       let call = 0
       loadActiveBindingMock.mockImplementation(async () => {
         call += 1
-        return { lineGroupId: `G_${call}` }
+        return { lineGroupId: `G_${call}`, entryGroupId: call }
       })
       let afterCb: (() => void | Promise<void>) | null = null
       afterMock.mockImplementation((cb: () => void | Promise<void>) => {

@@ -27,13 +27,14 @@ export interface EditionOption {
 
 export interface EventOption {
   id: number
+  entryGroupId: number
   editionId: number
   label: string
 }
 
 export interface RosterOption {
   id: number
-  eventId: number
+  entryGroupId: number
   rosterType: 'applicant' | 'confirmed'
   label: string
 }
@@ -115,8 +116,12 @@ export function RosterDraftApprovalForm({
   }, [editionSearch, editions])
   const visibleEvents = events.filter((event) => event.editionId === editionId)
   const rosterType = purpose === 'applicant' ? 'applicant' : 'confirmed'
+  // entry-groups タスク8: 名簿の帰属は event → entry_group へ移った。訂正対象の
+  // 候補は「選択中イベントと同じ申込グループ」の名簿に絞る（グループ内のどの日
+  // からも同一の名簿が見えるのと対称の設計）。
+  const selectedEntryGroupId = events.find((event) => event.id === eventId)?.entryGroupId ?? null
   const visibleRosters = rosters.filter(
-    (roster) => roster.eventId === eventId && roster.rosterType === rosterType,
+    (roster) => roster.entryGroupId === selectedEntryGroupId && roster.rosterType === rosterType,
   )
 
   const updateConfig = (index: number, patch: Partial<GradeConfig>) => {

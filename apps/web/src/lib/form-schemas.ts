@@ -96,6 +96,13 @@ export function extractEventUnitsFormData(
 ): Array<{
   unitKey: string
   eligibleGrades: ('A' | 'B' | 'C' | 'D' | 'E')[]
+  /**
+   * entry-groups タスク7: `${unitKey}__group_key`。同じ値を持つ unit は承認時に
+   * 同一の entry_group へ割り当てるという意味だけを持つ不透明なキー（値そのものに
+   * 意味はない・呼び出し側は同値関係だけを見る）。フォームに無い/空文字は null
+   * （承認フォームがユニット1件のみで UI を出さなかった場合 = シングルトン扱い）。
+   */
+  groupKey: string | null
   data: Record<string, unknown>
 }> {
   // getAll → may contain duplicates if the same key somehow rendered twice;
@@ -112,6 +119,7 @@ export function extractEventUnitsFormData(
   const result: Array<{
     unitKey: string
     eligibleGrades: ('A' | 'B' | 'C' | 'D' | 'E')[]
+    groupKey: string | null
     data: Record<string, unknown>
   }> = []
 
@@ -122,10 +130,13 @@ export function extractEventUnitsFormData(
     const eligibleGrades = (['A', 'B', 'C', 'D', 'E'] as const).filter(
       (g) => formData.get(`${unitKey}__grade_${g}`) === 'on',
     )
+    const groupKeyRaw = formData.get(`${unitKey}__group_key`)
+    const groupKey = typeof groupKeyRaw === 'string' && groupKeyRaw !== '' ? groupKeyRaw : null
 
     result.push({
       unitKey,
       eligibleGrades,
+      groupKey,
       data: {
         title: p('title'),
         description: p('description'),

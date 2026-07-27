@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import {
+  entryGroups,
   events,
   tournamentClasses,
   tournamentConfirmedRosterPublications,
@@ -39,14 +40,16 @@ describe('getLotteryCoverageReport', () => {
     expect(unknown).toBeTruthy()
     expect(missing).toBeTruthy()
 
+    const [entryGroup] = await testDb.insert(entryGroups).values({}).returning()
     const [event] = await testDb.insert(events).values({
+      entryGroupId: entryGroup!.id,
       title: 'covered event',
       eventDate: '2024-05-01',
       editionId: covered!.id,
       eligibleGrades: ['A'],
     }).returning()
     const [roster] = await testDb.insert(tournamentEntryRosters).values({
-      eventId: event!.id,
+      entryGroupId: event!.entryGroupId,
       rosterType: 'confirmed',
       approvedAt: new Date('2024-04-20T00:00:00Z'),
     }).returning()
@@ -116,14 +119,16 @@ describe('getLotteryCoverageReport', () => {
       status: 'held',
       competitionCategory: 'official',
     }).returning()
+    const [entryGroup] = await testDb.insert(entryGroups).values({}).returning()
     const [event] = await testDb.insert(events).values({
+      entryGroupId: entryGroup!.id,
       title: 'partial event',
       eventDate: '2024-05-01',
       editionId: edition!.id,
       eligibleGrades: ['A', 'B'],
     }).returning()
     const [roster] = await testDb.insert(tournamentEntryRosters).values({
-      eventId: event!.id,
+      entryGroupId: event!.entryGroupId,
       rosterType: 'confirmed',
     }).returning()
     await testDb.insert(tournamentConfirmedRosterPublications).values({

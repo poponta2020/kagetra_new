@@ -177,6 +177,12 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
       WHERE f.valid_to IS NULL
     ),
     eligible_publications AS (
+      -- entry-groups タスク8: 名簿の帰属は event → entry_group へ移った。旧来の
+      -- roster.event_id = e.id AND e.edition_id = publication.edition_id という
+      -- 「この名簿の event が確かにこの edition を指す」整合性チェックを、
+      -- グループ内に同条件を満たす event が存在するかの EXISTS へ書き換える
+      -- （edition_id をコピーして非正規化すると approveDraftUnits の後付け
+      -- 紐付けで stale になるため、非正規化はしない）。
       SELECT publication.id,
              publication.edition_id,
              publication.grade,
@@ -184,11 +190,13 @@ export function buildAppearanceCountsQuery(input: AppearanceCountInput): SQL {
       FROM tournament_confirmed_roster_publications publication
       JOIN candidate_editions ce ON ce.edition_id = publication.edition_id
       JOIN tournament_entry_rosters roster ON roster.id = publication.roster_id
-      JOIN events roster_event
-        ON roster_event.id = roster.event_id
-       AND roster_event.edition_id = publication.edition_id
       WHERE publication.published_at <= ${validated.referenceDate}::date
         AND roster.superseded_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM events e
+          WHERE e.entry_group_id = roster.entry_group_id
+            AND e.edition_id = publication.edition_id
+        )
     ),
     expected_grades AS (
       SELECT DISTINCT ce.edition_id, expected.grade

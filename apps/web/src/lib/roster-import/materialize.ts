@@ -3,7 +3,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import * as schema from '@kagetra/shared/schema'
 import {
   players,
-  events,
+  entryGroups,
   tournamentConfirmedRosterPublications,
   tournamentEntryRosters,
   tournamentEntryRosterEntries,
@@ -28,7 +28,7 @@ export type RosterEntryStatus =
   | 'cancelled'
 
 export interface MaterializeRosterOpts {
-  eventId: number
+  entryGroupId: number
   rosterType: RosterType
   publishedAt?: string | null
   sourceAttachmentId?: number | null
@@ -64,13 +64,14 @@ export async function materializeRoster(
   parsed: ParsedRoster,
   opts: MaterializeRosterOpts,
 ): Promise<MaterializeRosterResult> {
-  // 1. event 行をロックし、同じ event/type の並行取込でも版番号を重複させない。
-  const lockedEvent = await tx
-    .select({ id: events.id })
-    .from(events)
-    .where(eq(events.id, opts.eventId))
+  // 1. entry_group 行をロックし、同じグループ/type の並行取込でも版番号を重複させない
+  //    （entry-groups タスク8: 名簿の帰属は event → entry_group）。
+  const lockedGroup = await tx
+    .select({ id: entryGroups.id })
+    .from(entryGroups)
+    .where(eq(entryGroups.id, opts.entryGroupId))
     .for('update')
-  if (lockedEvent.length === 0) throw new Error('名簿の対象イベントが見つかりません')
+  if (lockedGroup.length === 0) throw new Error('名簿の対象申込グループが見つかりません')
 
   const existingRosters = await tx
     .select({
@@ -81,7 +82,7 @@ export async function materializeRoster(
     .from(tournamentEntryRosters)
     .where(
       and(
-        eq(tournamentEntryRosters.eventId, opts.eventId),
+        eq(tournamentEntryRosters.entryGroupId, opts.entryGroupId),
         eq(tournamentEntryRosters.rosterType, opts.rosterType),
       ),
     )
@@ -106,7 +107,7 @@ export async function materializeRoster(
   const [roster] = await tx
     .insert(tournamentEntryRosters)
     .values({
-      eventId: opts.eventId,
+      entryGroupId: opts.entryGroupId,
       rosterType: opts.rosterType,
       version,
       publishedAt: opts.publishedAt ?? null,

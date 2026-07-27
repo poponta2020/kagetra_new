@@ -9,6 +9,7 @@ import {
   vi,
 } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { createEntryGroup } from '@/test-utils/seed'
 import { sendGuidelinesOnLink } from './line-broadcast-guidelines'
 import {
   attachmentShareTokens,
@@ -74,23 +75,22 @@ async function seedLinkedBroadcast(): Promise<SeededBroadcast> {
       .returning()
   )[0]!
 
-  const eventId = (
-    await db
-      .insert(events)
-      .values({ title: 'テスト大会', eventDate: '2026-06-01' })
-      .returning({ id: events.id })
-  )[0]!.id
+  const entryGroupId = (await createEntryGroup()).id
+  await db
+    .insert(events)
+    .values({ entryGroupId, title: 'テスト大会', eventDate: '2026-06-01' })
+    .returning({ id: events.id })
 
   await db
     .update(lineChannels)
-    .set({ assignedEventId: eventId })
+    .set({ assignedEntryGroupId: entryGroupId })
     .where(eq(lineChannels.id, channel.id))
 
   const broadcastId = (
     await db
       .insert(eventLineBroadcasts)
       .values({
-        eventId,
+        entryGroupId,
         lineChannelId: channel.id,
         status: 'linked',
         lineGroupId,

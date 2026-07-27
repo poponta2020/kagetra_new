@@ -1,0 +1,57 @@
+/**
+ * entry-groups: クラスタ規則の**純関数だけ**を持つ leaf モジュール。
+ *
+ * ★`entry-groups.ts` から分離してある理由: あちらは `@kagetra/shared/schema` と
+ * `drizzle-orm` を**値** import する（DB 層）ため、`'use client'` から import すると
+ * schema がクライアントバンドルへ載る。承認フォーム（`ApprovalForm.tsx`）はクラスタ提案を
+ * ブラウザ側で計算する必要があるので、DB に一切依存しないこのモジュールだけを import する。
+ * この種の汚染は eslint / vitest / check-types では検知できず `next build` で初めて壊れる。
+ */
+
+/** クラスタ判定に必要な最小のイベント形。 */
+export interface ClusterableEvent {
+  /** `tournament_drafts.id`。手動作成・移行データは null。 */
+  tournamentDraftId: number | null
+  /** `YYYY-MM-DD`。未設定は null。 */
+  entryDeadline: string | null
+}
+
+/**
+ * クラスタ規則（**migration 0045 の backfill と承認フォームの自動提案で同一**）:
+ *
+ * - `tournamentDraftId` が同じ AND `entryDeadline` が一致（**null 同士も一致**）→ 同一グループ
+ * - `tournamentDraftId` が null（手動作成・移行データ）→ 1件1グループのシングルトン
+ *
+ * null 同値は SQL の `IS NOT DISTINCT FROM` / `GROUP BY`（NULL をまとめる）と同じ意味論。
+ * 規則を2箇所（plpgsql と TS）に書くことになるので、**この関数を規則の正**とし、
+ * SQL 側は同じ結果になることを DB テストで固定する。
+ *
+ * 戻り値は入力順を保ったクラスタの配列（各クラスタ内も入力順）。
+ */
+export function clusterEventsByEntryGroup<T extends ClusterableEvent>(
+  events: readonly T[],
+): T[][] {
+  const clusters: T[][] = []
+  // draft 由来のクラスタだけキーで引けるようにする（draft 無しは常に新しい箱）。
+  const byKey = new Map<string, T[]>()
+
+  for (const event of events) {
+    if (event.tournamentDraftId == null) {
+      clusters.push([event])
+      continue
+    }
+    // 区切りは ':'。draftId は数値なので ':' を含まず、最初の ':' で一意に分解できる
+    // （曖昧さが出ないため、制御文字を区切りに使う必要はない）。
+    const key = `${event.tournamentDraftId}:${event.entryDeadline ?? 'null'}`
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.push(event)
+    } else {
+      const created: T[] = [event]
+      byKey.set(key, created)
+      clusters.push(created)
+    }
+  }
+
+  return clusters
+}

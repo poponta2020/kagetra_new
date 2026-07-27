@@ -7,7 +7,7 @@ import {
   lineChannels,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEvent } from '@/test-utils/seed'
+import { createEntryGroup, createEvent } from '@/test-utils/seed'
 import {
   addDaysIso,
   buildLifecycleMessage,
@@ -19,6 +19,7 @@ import {
   loadLinkedBinding,
   pushTextToEventGroup,
   reminderLeadDays,
+  sendClaimedNotificationBulk,
   sendReminderNotification,
 } from './event-lifecycle-notify'
 
@@ -201,6 +202,122 @@ describe('buildLifecycleMessage', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// entry-groups タスク4: buildLifecycleMessage の複数日拡張（AC-8/9/10）。
+// ---------------------------------------------------------------------------
+describe('buildLifecycleMessage — 複数日拡張（entry-groups タスク4）', () => {
+  it('entry_applied: days が1件のときは既存の単一日ロジックへ流れる（days は無視）', () => {
+    // ctx.title を渡さず days を1件だけ渡しても、multiDay 分岐（length > 1）には
+    // 入らないため、単一日ロジックが title を使う（空文字になる）ことを固定する。
+    // これにより「days.length<=1 は既存ロジック不変」という契約をテストで担保する。
+    const withTitle = buildLifecycleMessage('entry_applied', {
+      title: '単日大会',
+      days: [{ dateIso: '2026-08-01', title: '単日大会' }],
+    })
+    expect(withTitle).toBe('✅【単日大会】への参加申込が完了しました。')
+  })
+
+  it('entry_applied: 2件以上は日別ラベルを・で連結する（開催日昇順に並べ替える）', () => {
+    const msg = buildLifecycleMessage('entry_applied', {
+      title: '',
+      days: [
+        { dateIso: '2026-08-08', title: 'D級' },
+        { dateIso: '2026-08-01', title: 'C級' },
+      ],
+    })
+    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加申込が完了しました。')
+  })
+
+  it('entry_applied: 複数日でも lotteryDateIso を渡せば単一日と同じ追記書式になる', () => {
+    const msg = buildLifecycleMessage('entry_applied', {
+      title: '',
+      lotteryDateIso: '2026-08-15',
+      days: [
+        { dateIso: '2026-08-01', title: 'C級' },
+        { dateIso: '2026-08-08', title: 'D級' },
+      ],
+    })
+    expect(msg).toBe(
+      '✅8/1(土)C級・8/8(土)D級の参加申込が完了しました。\n抽選日は 8/15 です。',
+    )
+  })
+
+  it('entry_applied_treasurer: payment 系が全日同値なら1回だけ表記する', () => {
+    const msg = buildLifecycleMessage('entry_applied_treasurer', {
+      title: '',
+      days: [
+        {
+          dateIso: '2026-08-01',
+          title: 'C級',
+          paymentDeadlineIso: '2026-07-25',
+          paymentMethod: '銀行振込',
+          paymentInfo: '◯◯銀行 普通 1234567',
+        },
+        {
+          dateIso: '2026-08-08',
+          title: 'D級',
+          paymentDeadlineIso: '2026-07-25',
+          paymentMethod: '銀行振込',
+          paymentInfo: '◯◯銀行 普通 1234567',
+        },
+      ],
+    })
+    expect(msg).toBe(
+      '💴8/1(土)C級・8/8(土)D級会計の方へ\n振込期限：7/25\n振込方法：銀行振込\n◯◯銀行 普通 1234567',
+    )
+  })
+
+  it('entry_applied_treasurer: payment 系に差があれば日別行にする', () => {
+    const msg = buildLifecycleMessage('entry_applied_treasurer', {
+      title: '',
+      days: [
+        {
+          dateIso: '2026-08-01',
+          title: 'C級',
+          paymentDeadlineIso: '2026-07-25',
+          paymentMethod: '銀行振込',
+        },
+        {
+          dateIso: '2026-08-08',
+          title: 'D級',
+          paymentDeadlineIso: '2026-08-01',
+          paymentMethod: '現金書留',
+        },
+      ],
+    })
+    expect(msg).toBe(
+      '💴8/1(土)C級・8/8(土)D級会計の方へ\n' +
+        '8/1(土)C級\n振込期限：7/25\n振込方法：銀行振込\n\n' +
+        '8/8(土)D級\n振込期限：8/1\n振込方法：現金書留',
+    )
+  })
+
+  it('entry_applied_treasurer: 全日 payment 系が空なら1回だけ最小文面になる', () => {
+    const msg = buildLifecycleMessage('entry_applied_treasurer', {
+      title: '',
+      days: [
+        { dateIso: '2026-08-01', title: 'C級' },
+        { dateIso: '2026-08-08', title: 'D級' },
+      ],
+    })
+    expect(msg).toBe(
+      '💴8/1(土)C級・8/8(土)D級会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
+    )
+  })
+
+  it('payment_paid: 2件以上は金額を出さず日別ラベルの列挙のみにする', () => {
+    const msg = buildLifecycleMessage('payment_paid', {
+      title: '',
+      feeJpy: 2000,
+      days: [
+        { dateIso: '2026-08-08', title: 'D級' },
+        { dateIso: '2026-08-01', title: 'C級' },
+      ],
+    })
+    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
+  })
+})
+
 describe('date / fee helpers', () => {
   it('formatMMDD は先頭ゼロを落とす', () => {
     expect(formatMMDD('2026-06-05')).toBe('6/5')
@@ -261,14 +378,14 @@ async function seedLinkedEvent(opts: { lineGroupId?: string; token?: string } = 
       botId: '@test-bot',
       purpose: 'event_broadcast',
       status: 'active',
-      assignedEventId: event.id,
+      assignedEntryGroupId: event.entryGroupId,
     })
     .returning()
   if (!channel) throw new Error('failed to seed channel')
   const [broadcast] = await testDb
     .insert(eventLineBroadcasts)
     .values({
-      eventId: event.id,
+      entryGroupId: event.entryGroupId,
       lineChannelId: channel.id,
       status: 'linked',
       lineGroupId: opts.lineGroupId ?? 'Gtest123',
@@ -399,5 +516,57 @@ describe('lifecycle notify — DB', () => {
     })
     // slot は消費済み（status='skipped'）→ 後から linked になっても再送しない
     expect(row).toMatchObject({ status: 'skipped' })
+  })
+
+  it('sendClaimedNotificationBulk: 1回の push 結果を複数の claim id へまとめて finalize する', async () => {
+    const { id: entryGroupId } = await createEntryGroup()
+    const day1 = await createEvent({
+      title: 'C級',
+      eventDate: '2026-08-01',
+      entryGroupId,
+    })
+    const day2 = await createEvent({
+      title: 'D級',
+      eventDate: '2026-08-08',
+      entryGroupId,
+    })
+    const [channel] = await testDb
+      .insert(lineChannels)
+      .values({
+        channelId: `ch-${crypto.randomUUID()}`,
+        channelSecret: 'secret',
+        channelAccessToken: 'tok-bulk',
+        botId: '@bulk-bot',
+        purpose: 'event_broadcast',
+        status: 'active',
+        assignedEntryGroupId: entryGroupId,
+      })
+      .returning()
+    await testDb.insert(eventLineBroadcasts).values({
+      entryGroupId,
+      lineChannelId: channel!.id,
+      status: 'linked',
+      lineGroupId: 'Gbulk',
+      linkedAt: new Date(),
+    })
+
+    const claim1 = await claimLifecycleNotification(testDb, day1.id, 'entry_applied')
+    const claim2 = await claimLifecycleNotification(testDb, day2.id, 'entry_applied')
+    expect(claim1.claimed).toBe(true)
+    expect(claim2.claimed).toBe(true)
+
+    const result = await sendClaimedNotificationBulk(testDb, {
+      notificationIds: [claim1.id!, claim2.id!],
+      eventId: day1.id,
+      message: '✅8/1(土)C級・8/8(土)D級の参加申込が完了しました。',
+    })
+    expect(result.outcome).toBe('sent')
+
+    const rows = await testDb
+      .select()
+      .from(eventLifecycleNotifications)
+      .where(eq(eventLifecycleNotifications.type, 'entry_applied'))
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.status === 'sent' && r.lineGroupId === 'Gbulk')).toBe(true)
   })
 })

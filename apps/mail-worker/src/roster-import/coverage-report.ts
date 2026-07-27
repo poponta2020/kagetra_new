@@ -60,13 +60,18 @@ export async function getLotteryCoverageReport(
       CROSS JOIN LATERAL unnest(event.eligible_grades) AS expected(grade)
       WHERE event.edition_id IS NOT NULL
     ), publication AS (
+      -- entry-groups タスク8: 名簿の帰属は event → entry_group へ移った。
+      -- roster.event_id は撤去されたので、グループ内に一致 event が存在するかを
+      -- EXISTS で判定する（edition_id の非正規化はしない）。
       SELECT DISTINCT publication.edition_id, publication.grade
       FROM tournament_confirmed_roster_publications publication
       JOIN tournament_entry_rosters roster ON roster.id = publication.roster_id
-      JOIN events roster_event
-        ON roster_event.id = roster.event_id
-       AND roster_event.edition_id = publication.edition_id
       WHERE roster.superseded_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM events roster_event
+          WHERE roster_event.entry_group_id = roster.entry_group_id
+            AND roster_event.edition_id = publication.edition_id
+        )
     ), active_result AS (
       SELECT DISTINCT fact.edition_id, fact.grade
       FROM tournament_edition_grade_lottery_facts fact

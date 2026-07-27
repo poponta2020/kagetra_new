@@ -8,17 +8,23 @@ import {
   vi,
 } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { createEntryGroup } from '@/test-utils/seed'
 import { broadcastMailToEvent } from './line-broadcast'
 import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import {
   attachmentShareTokens,
+  entryGroups,
   eventBroadcastMessages,
+  eventGradeBroadcasts,
   eventLineBroadcasts,
   events,
   lineChannels,
+  lineGradeGroupBindings,
   mailAttachments,
   mailMessages,
   tournamentDrafts,
+  tournamentEntryRosterEntries,
+  tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import { db } from './db'
@@ -38,11 +44,23 @@ async function resetDb() {
   await db.delete(eventBroadcastMessages)
   await db.delete(attachmentShareTokens)
   await db.delete(eventLineBroadcasts)
+  // entry-groups: このファイルは truncateAll ではなく自前の削除リストを持っている。
+  // line_grade_group_bindings と event_grade_broadcasts は line_channels / events を
+  // 参照しているので、**それらより先に**消さないと FK 違反で落ちる（前のテストファイルが
+  // 残した行に引っかかる。実行順が変わったときだけ露出する脆さだった）。
+  await db.delete(lineGradeGroupBindings)
+  await db.delete(eventGradeBroadcasts)
   await db.delete(lineChannels)
+  // entry-groups: 名簿は entry_groups を **RESTRICT** で参照する（旧: events を cascade）。
+  // events を消してもグループには追従しないので、entry_groups の前に明示的に消さないと
+  // 他ファイルが残した名簿行で FK 違反になる（CI の並行実行で実際に落ちた）。
+  await db.delete(tournamentEntryRosterEntries)
+  await db.delete(tournamentEntryRosters)
   await db.delete(tournamentDrafts)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)
   await db.delete(events)
+  await db.delete(entryGroups)
   await db.delete(users)
 }
 
@@ -107,21 +125,22 @@ async function buildLinkedFixture(): Promise<Fixtures> {
     .returning()
   const channel = channelInsert[0]!
 
+  const entryGroupId = (await createEntryGroup()).id
   const eventInsert = await db
     .insert(events)
-    .values({ title: 'テスト大会', eventDate: '2026-06-01' })
+    .values({ entryGroupId, title: 'テスト大会', eventDate: '2026-06-01' })
     .returning({ id: events.id })
   const eventId = eventInsert[0]!.id
 
   await db
     .update(lineChannels)
-    .set({ assignedEventId: eventId })
+    .set({ assignedEntryGroupId: entryGroupId })
     .where(eq(lineChannels.id, channel.id))
 
   const broadcastInsert = await db
     .insert(eventLineBroadcasts)
     .values({
-      eventId,
+      entryGroupId,
       lineChannelId: channel.id,
       status: 'linked',
       lineGroupId: 'C123456789',
@@ -187,9 +206,10 @@ describe('broadcastMailToEvent', () => {
         status: 'assigned',
       })
       .returning()
+    const entryGroupId = (await createEntryGroup()).id
     const eventInsert = await db
       .insert(events)
-      .values({ title: 'no-binding', eventDate: '2026-06-01' })
+      .values({ entryGroupId, title: 'no-binding', eventDate: '2026-06-01' })
       .returning({ id: events.id })
     const eventId = eventInsert[0]!.id
     const mailInsert = await db
@@ -204,7 +224,7 @@ describe('broadcastMailToEvent', () => {
       })
       .returning({ id: mailMessages.id })
     await db.insert(eventLineBroadcasts).values({
-      eventId,
+      entryGroupId,
       lineChannelId: channelInsert[0]!.id,
       status: 'invite_pending',
     })

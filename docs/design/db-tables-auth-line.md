@@ -103,7 +103,7 @@ Auth.js v5 標準カラム + kagetra拡張プロフィール/権限。
 
 定義ファイル: `packages/shared/src/schema/line-channels.ts`
 
-LINE Messaging APIチャネルのプール。`purpose`で`system_notify`（単一・管理者通知用）/`event_broadcast`（30Botプール・大会ごとに`assigned_event_id`で予約）を区分。
+LINE Messaging APIチャネルのプール。`purpose`で`system_notify`（単一・管理者通知用）/`event_broadcast`（30Botプール・申込グループごとに`assigned_entry_group_id`で予約）を区分。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
@@ -115,14 +115,14 @@ LINE Messaging APIチャネルのプール。`purpose`で`system_notify`（単�
 | status | line_channel_status (enum) | NOT NULL | 'available' | |
 | purpose | line_channel_purpose (enum) | NOT NULL | 'system_notify' | |
 | assigned_user_id | text | NULL | — | UNIQUE。FK→users.id ON DELETE SET NULL |
-| assigned_event_id | integer | NULL | — | UNIQUE。FK→events.id ON DELETE SET NULL |
+| assigned_entry_group_id | integer | NULL | — | UNIQUE。FK→entry_groups.id ON DELETE SET NULL（entry-groups: 予約先を event → entry_group へ移した） |
 | webhook_destination_id | text | NULL | — | UNIQUE。LINE webhookの`destination`（BotのUSER ID） |
 | notification_line_user_id | text | NULL | — | |
 | note | text | NULL | — | |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
-**制約**: UNIQUE(channel_id) / UNIQUE(assigned_user_id)（NULL許容） / UNIQUE(assigned_event_id)（NULL許容） / UNIQUE(webhook_destination_id)（NULL許容）
+**制約**: UNIQUE(channel_id) / UNIQUE(assigned_user_id)（NULL許容） / UNIQUE(assigned_entry_group_id)（NULL許容） / UNIQUE(webhook_destination_id)（NULL許容）
 
 ## push_subscriptions（TS: `pushSubscriptions`）
 

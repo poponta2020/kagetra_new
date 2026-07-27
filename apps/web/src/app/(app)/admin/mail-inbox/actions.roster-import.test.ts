@@ -14,7 +14,7 @@ import {
   tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createMailMessage, createUser } from '@/test-utils/seed'
+import { createAdmin, createMailMessage, createUser, createEntryGroup } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 const { revalidatePathMock } = vi.hoisted(() => ({
@@ -60,6 +60,7 @@ async function createEditionFixture(grade: Grade = 'A') {
   const [event] = await testDb
     .insert(events)
     .values({
+      entryGroupId: (await createEntryGroup()).id,
       title: '第1回テスト大会',
       eventDate: '2030-06-01',
       kind: 'individual',

@@ -76,7 +76,7 @@ async function seedBroadcastAuditRow(opts: {
   const broadcastRows = await testDb
     .insert(eventLineBroadcasts)
     .values({
-      eventId: event.id,
+      entryGroupId: event.entryGroupId,
       lineChannelId: channelRows[0]!.id,
       status: 'linked',
       lineGroupId: 'C123456789',

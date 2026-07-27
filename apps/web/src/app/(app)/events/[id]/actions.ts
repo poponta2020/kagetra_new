@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -21,6 +21,11 @@ import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import {
+  listGroupSiblings,
+  lockEventRowsAscending,
+  resolveEntryGroupId,
+} from '@/lib/entry-groups'
+import {
   loadGuidelineCandidates,
   loadSelectedGuidelineAttachmentIds,
   type GuidelineCandidateMail,
@@ -28,8 +33,21 @@ import {
 import {
   buildLifecycleMessage,
   claimLifecycleNotification,
-  sendClaimedNotification,
+  sendClaimedNotificationBulk,
+  type LifecycleDayEntry,
 } from '@/lib/event-lifecycle-notify'
+
+/**
+ * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
+ * 行っても同一の紐付けに作用するので、`/events/${eventId}` だけを
+ * revalidate すると、そのグループの他の日の詳細画面には古い LINE 状態が
+ * 残ってしまう。グループ内の全イベントの詳細パスをまとめて revalidate する。
+ */
+async function revalidateGroupEventPaths(eventId: number): Promise<void> {
+  const siblings = await listGroupSiblings(db, eventId)
+  const ids = siblings.length > 0 ? siblings.map((s) => s.id) : [eventId]
+  for (const id of ids) revalidatePath(`/events/${id}`)
+}
 
 async function requireAdminSession() {
   const session = await auth()
@@ -81,11 +99,11 @@ export async function generateInviteCodeForEvent(
   // この予約 tx の外 (commit 後) で行う——channel 予約 tx を無駄に肥大化させない
   // ため。
   const reservation = await db.transaction(async (tx) => {
-    const targetEvent = await tx.query.events.findFirst({
-      where: eq(events.id, eventId),
-      columns: { id: true },
-    })
-    if (!targetEvent) throw new Error('大会が見つかりません')
+    // entry-groups タスク3: 予約・紐付けの帰属先は entry_group_id。呼び出し
+    // シグネチャは eventId のまま維持し、ここでグループへ解決する（AC-4:
+    // グループ内のどの日から呼んでも同一の紐付けに作用する）。存在しない
+    // eventId は resolveEntryGroupId が「大会が見つかりません」で投げる。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
 
     // r-final-7 blocker: 以前は DB 全体の期限切れ inviteCode を null 化
     // していたが、他大会の invite_pending / joined_waiting_code 行に対して
@@ -98,7 +116,7 @@ export async function generateInviteCodeForEvent(
     // 任せる (異常行回収パスも追加予定)。
 
     const existing = await tx.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, eventId),
+      where: eq(eventLineBroadcasts.entryGroupId, entryGroupId),
     })
 
     if (existing && existing.status === 'linked') {
@@ -138,7 +156,7 @@ export async function generateInviteCodeForEvent(
           .update(lineChannels)
           .set({
             status: 'assigned',
-            assignedEventId: eventId,
+            assignedEntryGroupId: entryGroupId,
             updatedAt: sql`now()`,
           })
           .where(
@@ -155,21 +173,22 @@ export async function generateInviteCodeForEvent(
 
     let channelId: number
     if (canReuseExistingChannel) {
-      // 同じ event に対して保留中の Bot を取り直す。既に assignedEventId=
-      // eventId のはずだが、release レースで一旦 available に戻されていた
-      // 可能性も含めて条件付き UPDATE で再 assign。失敗したら新規予約に
-      // フォールバック (Bot が他 event に流れた場合)。
+      // 同じグループに対して保留中の Bot を取り直す。既に
+      // assignedEntryGroupId=entryGroupId のはずだが、release レースで
+      // 一旦 available に戻されていた可能性も含めて条件付き UPDATE で
+      // 再 assign。失敗したら新規予約にフォールバック (Bot が他グループに
+      // 流れた場合)。
       const reclaimed = await tx
         .update(lineChannels)
         .set({
           status: 'assigned',
-          assignedEventId: eventId,
+          assignedEntryGroupId: entryGroupId,
           updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(lineChannels.id, existing!.lineChannelId),
-            sql`(${lineChannels.assignedEventId} = ${eventId} OR ${lineChannels.status} = 'available')`,
+            sql`(${lineChannels.assignedEntryGroupId} = ${entryGroupId} OR ${lineChannels.status} = 'available')`,
           ),
         )
         .returning({ id: lineChannels.id })
@@ -238,7 +257,7 @@ export async function generateInviteCodeForEvent(
             const insertedBroadcast = await sp
               .insert(eventLineBroadcasts)
               .values({
-                eventId,
+                entryGroupId,
                 lineChannelId: channelId,
                 inviteCode,
                 inviteCodeExpiresAt: expiresAt,
@@ -290,7 +309,7 @@ export async function generateInviteCodeForEvent(
     loadSelectedGuidelineAttachmentIds(db, reservation.broadcastId),
   ])
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
   revalidatePath('/admin/line-channels')
 
   return {
@@ -344,13 +363,15 @@ export async function setGuidelineAttachments(
   //     送信は新しい選択を読む（整合）
   // 要件 Non-goals: linked 中の選択編集は不可（変更は連携解除→再発行）。
   await db.transaction(async (tx) => {
+    // entry-groups タスク3: ロック対象行はグループ帰属で引く（AC-4）。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
     const locked = await tx
       .select({
         id: eventLineBroadcasts.id,
         status: eventLineBroadcasts.status,
       })
       .from(eventLineBroadcasts)
-      .where(eq(eventLineBroadcasts.eventId, eventId))
+      .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
       .for('update')
       .limit(1)
     const row = locked[0]
@@ -382,7 +403,7 @@ export async function setGuidelineAttachments(
     }
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 /**
@@ -404,7 +425,7 @@ export async function resendGuidelines(eventId: number): Promise<void> {
     channelAccessToken: binding.channel.channelAccessToken,
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 
   if (result.status === 'skipped') {
     throw new Error('送信できる要綱ファイルがありません')
@@ -457,12 +478,16 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
   await requireAdminSession()
 
   await db.transaction(async (tx) => {
+    // entry-groups タスク3: 帰属はグループなので、グループ内のどの日から
+    // 呼んでも同一行に作用する（AC-4）。
+    const entryGroupId = await resolveEntryGroupId(tx, eventId)
+
     // rr1 review blocker: 古い released/revoked な行を引き当てると、
-    // その lineChannelId は既に別 event に再割当済みの可能性がある。
+    // その lineChannelId は既に別グループに再割当済みの可能性がある。
     // active 系 (invite_pending / joined_waiting_code / linked) に限定。
     const current = await tx.query.eventLineBroadcasts.findFirst({
       where: and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
       ),
       columns: { id: true, lineChannelId: true },
@@ -483,25 +508,25 @@ export async function revokeBroadcast(eventId: number): Promise<void> {
       })
       .where(eq(eventLineBroadcasts.id, current.id))
 
-    // rr1 review blocker: 解放対象の channel は「現在この event に紐付いた
-    // 行」だけに限定。`assignedEventId === eventId` を WHERE に含めると、
-    // stale な action 呼び出しで他 event の channel を奪わない。
+    // rr1 review blocker: 解放対象の channel は「現在このグループに紐付いた
+    // 行」だけに限定。`assignedEntryGroupId === entryGroupId` を WHERE に
+    // 含めると、stale な action 呼び出しで他グループの channel を奪わない。
     await tx
       .update(lineChannels)
       .set({
         status: 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(
         and(
           eq(lineChannels.id, current.lineChannelId),
-          eq(lineChannels.assignedEventId, eventId),
+          eq(lineChannels.assignedEntryGroupId, entryGroupId),
         ),
       )
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
   revalidatePath('/admin/line-channels')
 }
 
@@ -519,12 +544,13 @@ export async function extendBroadcastLifetime(
     throw new Error('日付の形式が不正です (YYYY-MM-DD)')
   }
 
+  const entryGroupId = await resolveEntryGroupId(db, eventId)
   await db
     .update(eventLineBroadcasts)
     .set({ extendedUntil: newUntil, updatedAt: sql`now()` })
-    .where(eq(eventLineBroadcasts.eventId, eventId))
+    .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 /**
@@ -546,6 +572,11 @@ export async function manualBroadcast(
 ): Promise<void> {
   await requireAdminSession()
 
+  // entry-groups タスク3: 監査行 (event_broadcast_messages) は
+  // event_line_broadcasts.id (= グループの紐付け行) に紐づく。呼び出し
+  // シグネチャは eventId のまま維持し、ここでグループへ解決する（AC-4）。
+  const entryGroupId = await resolveEntryGroupId(db, eventId)
+
   // Look up the existing audit row (if any) to inherit the correction flag
   // and the saved lead heading. Manual rebroadcast should preserve whether
   // the underlying mail was a correction (so the 【訂正】 prefix stays
@@ -562,7 +593,7 @@ export async function manualBroadcast(
     )
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, eventId),
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
         eq(eventBroadcastMessages.mailMessageId, mailMessageId),
       ),
     )
@@ -581,7 +612,7 @@ export async function manualBroadcast(
     force: true,
   })
 
-  revalidatePath(`/events/${eventId}`)
+  await revalidateGroupEventPaths(eventId)
 }
 
 export async function submitAttendance(eventId: number, formData: FormData) {
@@ -649,22 +680,102 @@ export async function submitAttendance(eventId: number, formData: FormData) {
 // や LINE 未紐付けは状態変更を巻き戻さない（best-effort、要件 §3.2.3）。
 // ---------------------------------------------------------------------------
 
+/** entry-groups タスク4: `setEntriesApplied` の tx 内で使う1件分の flip 結果。 */
+interface AppliedFlipRow {
+  id: number
+  title: string
+  /** `YYYY-MM-DD`。複数日メッセージの日別ラベルに使う。 */
+  eventDate: string
+  lotteryDate: string | null
+  paymentDeadline: string | null
+  paymentMethod: string | null
+  paymentInfo: string | null
+}
+
 /**
- * 申込状態をトグルする（admin/vice_admin のみ）。`applied=true` の初回遷移時
- * だけ完了通知を 1 回送る。`applied=false` は誤操作の戻し用で通知しない。
+ * 参加者向け文面を組み立てる。**1件のときは既存の単一日ロジックへそのまま渡す**
+ * （`days` を付けない＝event-lifecycle-notify.ts の N=1 分岐に入らないので、
+ * N=1 の文面はバイト互換）。2件以上のときだけ複数日文面へ分岐する。
+ * 抽選日は全日で値が一致するときだけ追記する（一致しない/一部 null なら省略）。
  */
-export async function setEntryApplied(
-  eventId: number,
+function buildParticipantAppliedMessage(rows: readonly AppliedFlipRow[]): string {
+  if (rows.length === 1) {
+    return buildLifecycleMessage('entry_applied', {
+      title: rows[0]!.title,
+      lotteryDateIso: rows[0]!.lotteryDate,
+    })
+  }
+  const lotteryDates = new Set(rows.map((r) => r.lotteryDate ?? ''))
+  const commonLotteryDate = lotteryDates.size === 1 ? rows[0]!.lotteryDate : null
+  const days: LifecycleDayEntry[] = rows.map((r) => ({ dateIso: r.eventDate, title: r.title }))
+  return buildLifecycleMessage('entry_applied', {
+    title: '',
+    lotteryDateIso: commonLotteryDate,
+    days,
+  })
+}
+
+/**
+ * 会計向け文面を組み立てる。**1件のときは既存の単一日ロジックへそのまま渡す**
+ * （N=1 バイト互換）。2件以上は payment 系の全日同値/日別判定を
+ * `buildLifecycleMessage` 側の `days` 分岐に委譲する。
+ */
+function buildTreasurerAppliedMessage(rows: readonly AppliedFlipRow[]): string {
+  if (rows.length === 1) {
+    return buildLifecycleMessage('entry_applied_treasurer', {
+      title: rows[0]!.title,
+      paymentDeadlineIso: rows[0]!.paymentDeadline,
+      paymentMethod: rows[0]!.paymentMethod,
+      paymentInfo: rows[0]!.paymentInfo,
+    })
+  }
+  const days: LifecycleDayEntry[] = rows.map((r) => ({
+    dateIso: r.eventDate,
+    title: r.title,
+    paymentDeadlineIso: r.paymentDeadline,
+    paymentMethod: r.paymentMethod,
+    paymentInfo: r.paymentInfo,
+  }))
+  return buildLifecycleMessage('entry_applied_treasurer', { title: '', days })
+}
+
+/**
+ * entry-groups タスク4 (AC-8/9/11): 申込状態一括トグル（admin/vice_admin のみ）。
+ *
+ * - `eventIds` は重複除去して **id 昇順にソート**してから処理する（デッドロック
+ *   回避。`applyEntryGroupChange` 等の既存パターンと同じ規律）。一括 UPDATE の
+ *   経路では配列順だけではロック順が決まらないので、`lockEventRowsAscending` で
+ *   先に昇順ロックを取る
+ * - 先頭 id（昇順最小）から解決した `entry_group_id` を全 UPDATE の WHERE に
+ *   併記する fail-closed（クライアント申告のグループ外 id は無条件に対象から
+ *   外れる。`propagateFieldsToGroup` と同じ再検証パターン）
+ * - `applied=true`: id 昇順で1件ずつガード付き UPDATE（WHERE 旧状態）→
+ *   **flip できた行のうち cancelled はここで再ガードして claim 対象から除外**
+ *   （状態変更そのものは記録する。既存の単一版と対称・AC-11 の集約版）→
+ *   種別ごとに claim（UNIQUE(event_id,type) で 2 回目以降は claim 失敗）。
+ *   commit 後、**claim できた集合だけ**で参加者向け1通・会計向け1通を組んで
+ *   push する（AC-9: 後から追加の日だけ claim できた分の通知になる）
+ * - `applied=false`: 誤操作の戻し用で通知は送らない
+ */
+export async function setEntriesApplied(
+  eventIds: number[],
   applied: boolean,
 ): Promise<void> {
   await requireAdminSession()
 
+  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
+  if (ids.length === 0) return
+  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
+
   if (!applied) {
-    await db
-      .update(events)
-      .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
-      .where(eq(events.id, eventId))
-    revalidatePath(`/events/${eventId}`)
+    await db.transaction(async (tx) => {
+      await lockEventRowsAscending(tx, ids, entryGroupId)
+      await tx
+        .update(events)
+        .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
+        .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+    })
+    for (const id of ids) revalidatePath(`/events/${id}`)
     // entry-overdue-alert: entry_status は /events 一覧の表示可否も左右する
     // ようになった（not_applying が除外条件）。この revert 分岐は
     // not_applying → not_applied の復帰も担うため、一覧側のキャッシュも
@@ -677,70 +788,87 @@ export async function setEntryApplied(
   // 両 claim は同一 tx で UNIQUE が判定するので、再トグルや並行呼び出しでも
   // それぞれ 1 回限り。コミット後の push は独立 try/catch (best-effort)。
   const result = await db.transaction(async (tx) => {
-    // 未申込→申込済 の初回遷移だけ通す（ガード）。既に applied なら 0 件で
-    // 通知しない。会計向け文面に必要なフィールド (lotteryDate / payment*) も
-    // 同時に取り出す（コミット後の文面組立に使う）。
-    const flipped = await tx
-      .update(events)
-      .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
-      .where(and(eq(events.id, eventId), eq(events.entryStatus, 'not_applied')))
-      .returning({
-        id: events.id,
-        title: events.title,
-        status: events.status,
-        lotteryDate: events.lotteryDate,
-        paymentDeadline: events.paymentDeadline,
-        paymentMethod: events.paymentMethod,
-        paymentInfo: events.paymentInfo,
+    const flippedNotCancelled: AppliedFlipRow[] = []
+    for (const id of ids) {
+      // 未申込→申込済 の初回遷移だけ通す（ガード）。会計向け文面に必要な
+      // フィールド (lotteryDate / payment*) も同時に取り出す（コミット後の
+      // 文面組立に使う）。
+      const flipped = await tx
+        .update(events)
+        .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(events.id, id),
+            eq(events.entryStatus, 'not_applied'),
+            eq(events.entryGroupId, entryGroupId),
+          ),
+        )
+        .returning({
+          id: events.id,
+          title: events.title,
+          eventDate: events.eventDate,
+          status: events.status,
+          lotteryDate: events.lotteryDate,
+          paymentDeadline: events.paymentDeadline,
+          paymentMethod: events.paymentMethod,
+          paymentInfo: events.paymentInfo,
+        })
+      const row = flipped[0]
+      if (!row) continue
+      // cancelled 大会には通知しない（要件 §3.2.2 #2、既存 entry_applied と対称）。
+      // 状態変更そのものは記録する（once-ever スロットは消費しない＝後で復帰
+      // しても通知しない方針は既存と一貫）。ここで再ガードして claim 対象から
+      // 除外する — クライアントのダイアログ選択を信用しない fail-closed（AC-11）。
+      if (row.status === 'cancelled') continue
+      flippedNotCancelled.push({
+        id: row.id,
+        title: row.title,
+        eventDate: row.eventDate,
+        lotteryDate: row.lotteryDate,
+        paymentDeadline: row.paymentDeadline,
+        paymentMethod: row.paymentMethod,
+        paymentInfo: row.paymentInfo,
       })
-    const row = flipped[0]
-    type PendingNotification = {
-      participantNotificationId: number | null
-      treasurerNotificationId: number | null
-      title: string
-      lotteryDate: string | null
-      paymentDeadline: string | null
-      paymentMethod: string | null
-      paymentInfo: string | null
     }
-    const empty: PendingNotification = {
-      participantNotificationId: null,
-      treasurerNotificationId: null,
-      title: '',
-      lotteryDate: null,
-      paymentDeadline: null,
-      paymentMethod: null,
-      paymentInfo: null,
-    }
-    if (!row) return empty
-    // cancelled 大会には 2 通とも通知しない（要件 §3.2.2 #2、既存 entry_applied と対称）。
-    // 状態変更そのものは記録する（once-ever スロットは消費しない＝後で復帰しても通知しない方針は既存と一貫）。
-    if (row.status === 'cancelled') return empty
+
     // 種別ごとに独立 claim（UNIQUE(event_id,type) で 2 回目以降は claim 失敗）。
     // 同一 tx 内で両方走らせるので、片方の claim 結果がもう片方を阻害することはない。
-    const participantClaim = await claimLifecycleNotification(tx, eventId, 'entry_applied')
-    const treasurerClaim = await claimLifecycleNotification(tx, eventId, 'entry_applied_treasurer')
+    const participantClaimed: AppliedFlipRow[] = []
+    const participantNotificationIds: number[] = []
+    const treasurerClaimed: AppliedFlipRow[] = []
+    const treasurerNotificationIds: number[] = []
+    for (const row of flippedNotCancelled) {
+      const participantClaim = await claimLifecycleNotification(tx, row.id, 'entry_applied')
+      if (participantClaim.id != null) {
+        participantClaimed.push(row)
+        participantNotificationIds.push(participantClaim.id)
+      }
+      const treasurerClaim = await claimLifecycleNotification(
+        tx,
+        row.id,
+        'entry_applied_treasurer',
+      )
+      if (treasurerClaim.id != null) {
+        treasurerClaimed.push(row)
+        treasurerNotificationIds.push(treasurerClaim.id)
+      }
+    }
+
     return {
-      participantNotificationId: participantClaim.id ?? null,
-      treasurerNotificationId: treasurerClaim.id ?? null,
-      title: row.title,
-      lotteryDate: row.lotteryDate,
-      paymentDeadline: row.paymentDeadline,
-      paymentMethod: row.paymentMethod,
-      paymentInfo: row.paymentInfo,
+      participantClaimed,
+      participantNotificationIds,
+      treasurerClaimed,
+      treasurerNotificationIds,
     }
   })
 
-  // 参加者向け（抽選日があれば追記）。
-  if (result.participantNotificationId != null) {
-    const message = buildLifecycleMessage('entry_applied', {
-      title: result.title,
-      lotteryDateIso: result.lotteryDate,
-    })
+  // 参加者向け（claim できた集合だけで1通。抽選日は全日同値のときだけ追記）。
+  if (result.participantNotificationIds.length > 0) {
+    const message = buildParticipantAppliedMessage(result.participantClaimed)
     try {
-      await sendClaimedNotification(db, {
-        notificationId: result.participantNotificationId,
-        eventId,
+      await sendClaimedNotificationBulk(db, {
+        notificationIds: result.participantNotificationIds,
+        eventId: result.participantClaimed[0]!.id,
         message,
       })
     } catch {
@@ -748,26 +876,37 @@ export async function setEntryApplied(
     }
   }
 
-  // 会計向け 2 通目（振込方法/期限/詳細、全空なら最小文面）。
+  // 会計向け（claim できた集合だけで1通。payment 系が全日同値なら1回表記）。
   // 参加者向けの push 失敗ともう片方の送信成否は独立（要件 §3.2.5）。
-  if (result.treasurerNotificationId != null) {
-    const message = buildLifecycleMessage('entry_applied_treasurer', {
-      title: result.title,
-      paymentDeadlineIso: result.paymentDeadline,
-      paymentMethod: result.paymentMethod,
-      paymentInfo: result.paymentInfo,
-    })
+  if (result.treasurerNotificationIds.length > 0) {
+    const message = buildTreasurerAppliedMessage(result.treasurerClaimed)
     try {
-      await sendClaimedNotification(db, {
-        notificationId: result.treasurerNotificationId,
-        eventId,
+      await sendClaimedNotificationBulk(db, {
+        notificationIds: result.treasurerNotificationIds,
+        eventId: result.treasurerClaimed[0]!.id,
         message,
       })
     } catch {
       // best-effort
     }
   }
-  revalidatePath(`/events/${eventId}`)
+
+  for (const id of ids) revalidatePath(`/events/${id}`)
+}
+
+/**
+ * 申込状態をトグルする（admin/vice_admin のみ）。`applied=true` の初回遷移時
+ * だけ完了通知を 1 回送る。`applied=false` は誤操作の戻し用で通知しない。
+ *
+ * entry-groups タスク4: `setEntriesApplied([eventId], applied)` への薄い
+ * ラッパー（N=1 の文面バイト互換は `event-lifecycle-notify.test.ts` /
+ * `lifecycle-actions.test.ts` 双方の既存テストで固定する）。
+ */
+export async function setEntryApplied(
+  eventId: number,
+  applied: boolean,
+): Promise<void> {
+  await setEntriesApplied([eventId], applied)
 }
 
 /**
@@ -795,13 +934,20 @@ export async function setEntryNotApplying(eventId: number): Promise<void> {
 }
 
 /**
- * 支払いタイプを設定する（事前払い/現地払い/未設定）。通知は送らない。
+ * entry-groups タスク4 (AC-10): 支払いタイプ一括設定（admin/vice_admin のみ）。
+ * 通知は送らない（既存の単一版と同じ）。`eventIds` は重複除去して id 昇順
+ * ソートし、先頭 id から解決した `entry_group_id` を WHERE に併記する
+ * fail-closed（`setEntriesApplied` と同じ規律）。
  */
-export async function setPaymentType(
-  eventId: number,
+export async function setPaymentTypes(
+  eventIds: number[],
   type: 'advance' | 'onsite' | null,
 ): Promise<void> {
   await requireAdminSession()
+
+  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
+  if (ids.length === 0) return
+  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
 
   // advance 以外へ変えるときは「advance のときだけ意味を持つ」支払状態
   // (paymentStatus/paymentPaidAt) を未払へ戻し、再び advance に戻したとき古い
@@ -812,78 +958,153 @@ export async function setPaymentType(
   // 支払済にすると表示は支払済へ戻るが、UNIQUE(event_id,type) により LINE 完了通知は
   // 再送されない（参加者への重複通知を防ぐ）。完了通知をやり直したい運用は想定しない。
   const leavingAdvance = type !== 'advance'
-  await db
-    .update(events)
-    .set({
-      paymentType: type,
-      ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
-      updatedAt: sql`now()`,
-    })
-    .where(eq(events.id, eventId))
-  revalidatePath(`/events/${eventId}`)
+  await db.transaction(async (tx) => {
+    await lockEventRowsAscending(tx, ids, entryGroupId)
+    await tx
+      .update(events)
+      .set({
+        paymentType: type,
+        ...(leavingAdvance ? { paymentStatus: 'unpaid', paymentPaidAt: null } : {}),
+        updatedAt: sql`now()`,
+      })
+      .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+  })
+  for (const id of ids) revalidatePath(`/events/${id}`)
 }
 
 /**
- * 事前払いの支払状態をトグルする。`paid=true` の初回遷移時だけ完了通知を送る。
- * payment_type='advance' のときのみ有効（現地払い/未設定では行を更新しない）。
+ * 支払いタイプを設定する（事前払い/現地払い/未設定）。通知は送らない。
+ *
+ * entry-groups タスク4: `setPaymentTypes([eventId], type)` への薄いラッパー。
  */
-export async function setPaymentPaid(
+export async function setPaymentType(
   eventId: number,
+  type: 'advance' | 'onsite' | null,
+): Promise<void> {
+  await setPaymentTypes([eventId], type)
+}
+
+/** entry-groups タスク4: `setPaymentsPaid` の tx 内で使う1件分の flip 結果。 */
+interface PaymentPaidFlipRow {
+  id: number
+  title: string
+  /** `YYYY-MM-DD`。複数日メッセージの日別ラベルに使う。 */
+  eventDate: string
+  feeJpy: number | null
+}
+
+/**
+ * 支払完了メッセージを組み立てる。**1件のときは既存の単一日ロジックへそのまま
+ * 渡す**（N=1 バイト互換）。2件以上は日別ラベルを列挙する最小文面にする
+ * （金額の全日同値/日別判定までは要件で明示されていない設計選択。日別の金額
+ * 内訳が必要になったら `buildLifecycleMessage` の `payment_paid` 分岐を拡張する）。
+ */
+function buildPaymentPaidMessage(rows: readonly PaymentPaidFlipRow[]): string {
+  if (rows.length === 1) {
+    return buildLifecycleMessage('payment_paid', {
+      title: rows[0]!.title,
+      feeJpy: rows[0]!.feeJpy,
+    })
+  }
+  const days: LifecycleDayEntry[] = rows.map((r) => ({ dateIso: r.eventDate, title: r.title }))
+  return buildLifecycleMessage('payment_paid', { title: '', days })
+}
+
+/**
+ * entry-groups タスク4 (AC-10): 支払済一括トグル（admin/vice_admin のみ）。
+ * `paid=true` の初回遷移時だけ完了通知（claim できた集合だけで1通）を送る。
+ * payment_type='advance' のときのみ有効（現地払い/未設定では行を更新しない）。
+ * id 昇順ソート・グループ再検証・cancelled のクレーム除外は `setEntriesApplied`
+ * と同じ規律。
+ */
+export async function setPaymentsPaid(
+  eventIds: number[],
   paid: boolean,
 ): Promise<void> {
   await requireAdminSession()
 
+  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
+  if (ids.length === 0) return
+  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
+
   if (!paid) {
-    await db
-      .update(events)
-      .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
-      .where(and(eq(events.id, eventId), eq(events.paymentType, 'advance')))
-    revalidatePath(`/events/${eventId}`)
+    await db.transaction(async (tx) => {
+      await lockEventRowsAscending(tx, ids, entryGroupId)
+      await tx
+        .update(events)
+        .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
+        .where(
+          and(
+            inArray(events.id, ids),
+            eq(events.paymentType, 'advance'),
+            eq(events.entryGroupId, entryGroupId),
+          ),
+        )
+    })
+    for (const id of ids) revalidatePath(`/events/${id}`)
     return
   }
 
   const result = await db.transaction(async (tx) => {
-    const flipped = await tx
-      .update(events)
-      .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
-      .where(
-        and(
-          eq(events.id, eventId),
-          eq(events.paymentType, 'advance'),
-          eq(events.paymentStatus, 'unpaid'),
-        ),
-      )
-      .returning({
-        id: events.id,
-        title: events.title,
-        feeJpy: events.feeJpy,
-        status: events.status,
-      })
-    if (!flipped[0]) {
-      return { notificationId: null as number | null, title: '', feeJpy: null as number | null }
+    const claimed: PaymentPaidFlipRow[] = []
+    const notificationIds: number[] = []
+    for (const id of ids) {
+      const flipped = await tx
+        .update(events)
+        .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(events.id, id),
+            eq(events.paymentType, 'advance'),
+            eq(events.paymentStatus, 'unpaid'),
+            eq(events.entryGroupId, entryGroupId),
+          ),
+        )
+        .returning({
+          id: events.id,
+          title: events.title,
+          eventDate: events.eventDate,
+          feeJpy: events.feeJpy,
+          status: events.status,
+        })
+      const row = flipped[0]
+      if (!row) continue
+      // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録
+      // する。ここで再ガードして claim 対象から除外する（AC-11 の集約版）。
+      if (row.status === 'cancelled') continue
+      const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
+      if (claim.id != null) {
+        claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate, feeJpy: row.feeJpy })
+        notificationIds.push(claim.id)
+      }
     }
-    // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録する。
-    if (flipped[0].status === 'cancelled') {
-      return { notificationId: null as number | null, title: '', feeJpy: null as number | null }
-    }
-    const claim = await claimLifecycleNotification(tx, eventId, 'payment_paid')
-    return { notificationId: claim.id ?? null, title: flipped[0].title, feeJpy: flipped[0].feeJpy }
+    return { claimed, notificationIds }
   })
 
-  if (result.notificationId != null) {
-    const message = buildLifecycleMessage('payment_paid', {
-      title: result.title,
-      feeJpy: result.feeJpy,
-    })
+  if (result.notificationIds.length > 0) {
+    const message = buildPaymentPaidMessage(result.claimed)
     try {
-      await sendClaimedNotification(db, {
-        notificationId: result.notificationId,
-        eventId,
+      await sendClaimedNotificationBulk(db, {
+        notificationIds: result.notificationIds,
+        eventId: result.claimed[0]!.id,
         message,
       })
     } catch {
       // best-effort
     }
   }
-  revalidatePath(`/events/${eventId}`)
+  for (const id of ids) revalidatePath(`/events/${id}`)
+}
+
+/**
+ * 事前払いの支払状態をトグルする。`paid=true` の初回遷移時だけ完了通知を送る。
+ * payment_type='advance' のときのみ有効（現地払い/未設定では行を更新しない）。
+ *
+ * entry-groups タスク4: `setPaymentsPaid([eventId], paid)` への薄いラッパー。
+ */
+export async function setPaymentPaid(
+  eventId: number,
+  paid: boolean,
+): Promise<void> {
+  await setPaymentsPaid([eventId], paid)
 }

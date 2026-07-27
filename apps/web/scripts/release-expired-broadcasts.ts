@@ -5,12 +5,18 @@
  * Walks every `event_line_broadcasts` row in status='linked' whose effective
  * cutoff date has passed and:
  *   1. flips event_line_broadcasts.status → 'released', stamps released_at
- *   2. flips the channel back to status='available', clears assigned_event_id
+ *   2. flips the channel back to status='available', clears assigned_entry_group_id
  *
- * The cutoff is `COALESCE(event_line_broadcasts.extended_until,
- * events.event_date + 30 days)` — the 30-day grace lets打ち上げ / 反省連絡
- * chatter ride after the tournament ends, with operator override via
- * `extendBroadcastLifetime`.
+ * entry-groups タスク3: 帰属は entry_group_id に移った。カットオフは
+ * `COALESCE(event_line_broadcasts.extended_until, MAX(events.event_date)
+ * WHERE events.entry_group_id = ... + 30 days)` — 複数日グループでは
+ * グループ内で最も遅い開催日を基準にする（1グループ1行なので events への
+ * plain JOIN で計算すると同じ行が日数分に fan out してしまう。相関サブ
+ * クエリで MAX(event_date) を単一値として引く）。**イベント0件のグループ**
+ * （付け替えで空になったが紐付けを残したグループ）は MAX が NULL になるため、
+ * extended_until が無ければ即解放対象とする。30-day grace lets
+ * 打ち上げ / 反省連絡 chatter ride after the tournament ends, with
+ * operator override via `extendBroadcastLifetime`.
  *
  * Run as a daily systemd timer on the production host. Idempotent: a
  * second run within the same day finds nothing left to release.
@@ -32,7 +38,6 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   eventLineBroadcasts,
-  events,
   lineChannels,
 } from '@kagetra/shared/schema'
 import * as schema from '@kagetra/shared/schema'
@@ -73,12 +78,33 @@ export async function releaseExpiredBroadcasts(
   const today = options.today ?? todayInJst()
 
   // rr2 review should_fix: 候補取得から UPDATE までを単一トランザクション
-  // に入れて、間に別 tx が同じ channel を新 event に割当てるレースを防ぐ。
-  // UPDATE の WHERE には現在の status・期限条件・assignedEventId 一致を
+  // に入れて、間に別 tx が同じ channel を新グループに割当てるレースを防ぐ。
+  // UPDATE の WHERE には現在の status・期限条件・assignedEntryGroupId 一致を
   // すべて含めて、選択時点と異なる行は更新しない (UPDATE が 0 行を返す)。
 
   const releasedBroadcastIds: number[] = []
   const revokedBroadcastIds: number[] = []
+
+  // entry-groups タスク3: グループ内 MAX(event_date) を相関サブクエリで
+  // 引く（events への plain JOIN だと複数日グループの1行が日数分に
+  // fan out し、以降のループ処理が重複更新を試みてしまうため）。
+  //
+  // ★イベント0件のグループも期限切れとして扱う（r1 review blocker の派生）。
+  // `deleteGroupIfEmpty` は LINE 紐付けを持つグループをイベント0件でも削除しない
+  // （要件 §3.2.6「紐付けは移動元に残る」）。この場合 MAX(event_date) が NULL に
+  // なり、COALESCE も NULL → 比較が NULL となって**永久に解放されない**＝Bot が
+  // プールへ戻らなくなる。イベントが1件も無いグループに配信対象は存在しないので、
+  // extended_until による明示的な延長が無ければ即解放してよい。
+  const groupCutoffExpiredSql = sql`(
+    COALESCE(
+      ${eventLineBroadcasts.extendedUntil},
+      (SELECT MAX(e.event_date) FROM events e WHERE e.entry_group_id = ${eventLineBroadcasts.entryGroupId}) + INTERVAL '30 days'
+    ) < ${today}
+    OR (
+      ${eventLineBroadcasts.extendedUntil} IS NULL
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry_group_id = ${eventLineBroadcasts.entryGroupId})
+    )
+  )`
 
   // dry-run は副作用を起こさないので、これだけ DB トランザクション外で
   // 件数 estimate を返す (read-only)。
@@ -86,13 +112,7 @@ export async function releaseExpiredBroadcasts(
     const expiredDry = await db
       .select({ id: eventLineBroadcasts.id })
       .from(eventLineBroadcasts)
-      .innerJoin(events, eq(events.id, eventLineBroadcasts.eventId))
-      .where(
-        and(
-          eq(eventLineBroadcasts.status, 'linked'),
-          sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
-        ),
-      )
+      .where(and(eq(eventLineBroadcasts.status, 'linked'), groupCutoffExpiredSql))
     // r-final-13 should_fix: 実処理の SELECT 条件と完全に揃える
     // (「期限切れ OR invite_code IS NULL の異常行」)。dry-run の件数が
     // 実際に解放される Bot 数と一致するように。
@@ -117,31 +137,28 @@ export async function releaseExpiredBroadcasts(
   }
 
   await db.transaction(async (tx) => {
-    // 1) 大会終了 +30 日経過の linked 行
+    // 1) グループ内 MAX(event_date) +30 日経過の linked 行
+    // entry-groups タスク3: events への直接 JOIN はやめる — 複数日グループの
+    // 1行が日数分に fan out してしまい、ループが同じ broadcast 行を複数回
+    // 処理してしまう。相関サブクエリで MAX(event_date) を単一値として引く。
     const expired = await tx
       .select({
         id: eventLineBroadcasts.id,
-        eventId: eventLineBroadcasts.eventId,
+        entryGroupId: eventLineBroadcasts.entryGroupId,
         lineChannelId: eventLineBroadcasts.lineChannelId,
       })
       .from(eventLineBroadcasts)
-      .innerJoin(events, eq(events.id, eventLineBroadcasts.eventId))
-      .where(
-        and(
-          eq(eventLineBroadcasts.status, 'linked'),
-          sql`COALESCE(${eventLineBroadcasts.extendedUntil}, ${events.eventDate} + INTERVAL '30 days') < ${today}`,
-        ),
-      )
+      .where(and(eq(eventLineBroadcasts.status, 'linked'), groupCutoffExpiredSql))
 
     for (const row of expired) {
       // status='linked' 条件を WHERE に再掲。同じ tx 内なので race は起き
       // ないが、データ整合性のための defensive check (別 tx で revoke
       // されていた等)。
       //
-      // r-final-6 should_fix: 期限条件 (COALESCE(extended_until, event_date
-      // + 30) < today) を UPDATE WHERE にも再掲。SELECT と UPDATE の間に
-      // 管理者が extended_until を延ばしていた場合でも、ここで再度判定し
-      // 不一致なら更新しない。EXISTS サブクエリで events を参照する。
+      // r-final-6 should_fix: 期限条件 (COALESCE(extended_until,
+      // MAX(event_date) + 30) < today) を UPDATE WHERE にも再掲。SELECT と
+      // UPDATE の間に管理者が extended_until を延ばしていた場合でも、ここで
+      // 再度判定し不一致なら更新しない。
       const updated = await tx
         .update(eventLineBroadcasts)
         .set({
@@ -153,29 +170,25 @@ export async function releaseExpiredBroadcasts(
           and(
             eq(eventLineBroadcasts.id, row.id),
             eq(eventLineBroadcasts.status, 'linked'),
-            sql`EXISTS (
-              SELECT 1 FROM events e
-              WHERE e.id = ${eventLineBroadcasts.eventId}
-                AND COALESCE(${eventLineBroadcasts.extendedUntil}, e.event_date + INTERVAL '30 days') < ${today}
-            )`,
+            groupCutoffExpiredSql,
           ),
         )
         .returning({ id: eventLineBroadcasts.id })
       if (updated.length === 0) continue
 
-      // channel は「現在この event に紐付いている」場合のみ available へ。
+      // channel は「現在このグループに紐付いている」場合のみ available へ。
       // 間に手動 revoke や再割当が走ったら、その channel は触らない。
       await tx
         .update(lineChannels)
         .set({
           status: 'available',
-          assignedEventId: null,
+          assignedEntryGroupId: null,
           updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(lineChannels.id, row.lineChannelId),
-            eq(lineChannels.assignedEventId, row.eventId),
+            eq(lineChannels.assignedEntryGroupId, row.entryGroupId),
           ),
         )
       releasedBroadcastIds.push(row.id)
@@ -191,7 +204,7 @@ export async function releaseExpiredBroadcasts(
     const expiredInvites = await tx
       .select({
         id: eventLineBroadcasts.id,
-        eventId: eventLineBroadcasts.eventId,
+        entryGroupId: eventLineBroadcasts.entryGroupId,
         lineChannelId: eventLineBroadcasts.lineChannelId,
       })
       .from(eventLineBroadcasts)
@@ -235,13 +248,13 @@ export async function releaseExpiredBroadcasts(
         .update(lineChannels)
         .set({
           status: 'available',
-          assignedEventId: null,
+          assignedEntryGroupId: null,
           updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(lineChannels.id, row.lineChannelId),
-            eq(lineChannels.assignedEventId, row.eventId),
+            eq(lineChannels.assignedEntryGroupId, row.entryGroupId),
           ),
         )
       revokedBroadcastIds.push(row.id)

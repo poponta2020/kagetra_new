@@ -27,9 +27,11 @@ import type { GradeBroadcastRow } from '@/components/events/GradeBroadcastSectio
 import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
 import {
   EventDetailHeader,
+  GroupDayLinks,
   LinkActionLink,
   SectionRule,
 } from '@/components/events/detail'
+import { listGroupSiblings } from '@/lib/entry-groups'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
@@ -39,11 +41,14 @@ import {
   resendGradeBroadcast,
   resendGuidelines,
   revokeBroadcast,
+  setEntriesApplied,
   setEntryApplied,
   setEntryNotApplying,
   setGuidelineAttachments,
   setPaymentPaid,
+  setPaymentsPaid,
   setPaymentType,
+  setPaymentTypes,
   submitAttendance,
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
@@ -86,7 +91,9 @@ export default async function EventDetailPage({
       attendances: {
         with: { user: true },
       },
-      // tournament-entry-rosters PR-3/4: 申込/確定名簿＋各行（会員突合は entry.user 経由）。
+      // entry-groups タスク8: 名簿の帰属が event → entry_group へ移ったので、
+      // `entryGroup: { with: { rosters } }` を辿る（`eventsRelations.rosters` は撤去済み）。
+      // グループ内のどの日の詳細からも同一の名簿が見える（AC-17）。
       //
       // ★`columns` で表示に使う列だけを明示的に取る。event-detail-redesign で
       // `RosterSection` を client component 化したため、この結果は **RSC payload
@@ -95,21 +102,26 @@ export default async function EventDetailPage({
       // approvedByUserId / source_*（取込元メール・添付）/ rawKana / rawDan /
       // selectionOutcome（抽選結果）等の内部列と非表示の個人情報が一般会員へ
       // 渡ってしまう（Server Component だった従来は直列化されなかった）。
-      rosters: {
-        where: isNull(tournamentEntryRosters.supersededAt),
-        orderBy: [desc(tournamentEntryRosters.version)],
-        columns: { id: true, rosterType: true, version: true, publishedAt: true },
+      entryGroup: {
+        columns: { id: true },
         with: {
-          entries: {
-            columns: {
-              id: true,
-              rawName: true,
-              grade: true,
-              rawAffiliation: true,
-              status: true,
-              userId: true,
+          rosters: {
+            where: isNull(tournamentEntryRosters.supersededAt),
+            orderBy: [desc(tournamentEntryRosters.version)],
+            columns: { id: true, rosterType: true, version: true, publishedAt: true },
+            with: {
+              entries: {
+                columns: {
+                  id: true,
+                  rawName: true,
+                  grade: true,
+                  rawAffiliation: true,
+                  status: true,
+                  userId: true,
+                },
+                with: { user: { columns: { id: true, name: true } } },
+              },
             },
-            with: { user: { columns: { id: true, name: true } } },
           },
         },
       },
@@ -117,6 +129,11 @@ export default async function EventDetailPage({
   })
 
   if (!event) notFound()
+
+  // entry-groups タスク4 (AC-16): 同じ申込グループの日一覧（開催日昇順・自分を
+  // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
+  // ダイアログの両方が使う。
+  const groupSiblings = await listGroupSiblings(db, event.id)
 
   // event-line-broadcast: 紐付け状態と配信履歴を取得する。
   //
@@ -126,12 +143,15 @@ export default async function EventDetailPage({
   // **そもそも送らない** こと（AC-28）。event-detail-redesign 後の
   // LineBroadcastSection は非管理者に何も描画しないが、status のみスタブを
   // 渡す遮断方式は要件 §6 の契約としてそのまま維持する。
+  // entry-groups タスク3: 帰属は entry_group_id。event は既に全列取得済み
+  // なので追加クエリなしで event.entryGroupId を使う（AC-4: グループ内の
+  // どの日から見ても同一の紐付け状態が見える）。
   const broadcastStatusRow = await db
     .select({ status: eventLineBroadcasts.status })
     .from(eventLineBroadcasts)
     .where(
       and(
-        eq(eventLineBroadcasts.eventId, idNum),
+        eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
         inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
       ),
     )
@@ -174,7 +194,7 @@ export default async function EventDetailPage({
         )
         .where(
           and(
-            eq(eventLineBroadcasts.eventId, idNum),
+            eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
             inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
           ),
         )
@@ -223,7 +243,7 @@ export default async function EventDetailPage({
             mailMessages,
             eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
           )
-          .where(eq(eventLineBroadcasts.eventId, idNum))
+          .where(eq(eventLineBroadcasts.entryGroupId, event.entryGroupId))
           .orderBy(desc(eventBroadcastMessages.createdAt))
           .limit(20)
 
@@ -396,6 +416,10 @@ export default async function EventDetailPage({
         canEdit={isAdmin}
       />
 
+      {/* entry-groups タスク4 (AC-16): 全ロールに表示。sticky ヘッダーの外に
+          置く（design-spec の明示指定。ヘッダーのラッパー内では分割しない）。 */}
+      <GroupDayLinks siblings={groupSiblings} currentEventId={event.id} />
+
       {isAdmin && (
         <EventLifecycleSection
           eventId={event.id}
@@ -413,6 +437,10 @@ export default async function EventDetailPage({
           setEntryNotApplyingAction={setEntryNotApplying}
           setPaymentTypeAction={setPaymentType}
           setPaymentPaidAction={setPaymentPaid}
+          groupSiblings={groupSiblings}
+          setEntriesAppliedAction={setEntriesApplied}
+          setPaymentsPaidAction={setPaymentsPaid}
+          setPaymentTypesAction={setPaymentTypes}
         />
       )}
 
@@ -524,7 +552,7 @@ export default async function EventDetailPage({
           Excel 取込は廃止し、この画面は閲覧専用（名簿はメール取込経由のみ）。 */}
       <RosterSection
         kind={event.kind}
-        rosters={event.rosters}
+        rosters={event.entryGroup.rosters}
         currentUserId={session?.user.id ?? null}
       />
 

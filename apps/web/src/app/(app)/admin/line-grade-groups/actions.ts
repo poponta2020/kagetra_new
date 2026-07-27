@@ -106,7 +106,7 @@ export async function generateGradeInviteCode(
           and(
             eq(lineChannels.purpose, 'event_broadcast'),
             eq(lineChannels.status, 'available'),
-            sql`${lineChannels.assignedEventId} IS NULL`,
+            sql`${lineChannels.assignedEntryGroupId} IS NULL`,
           ),
         )
         .orderBy(asc(lineChannels.id))
@@ -131,7 +131,7 @@ export async function generateGradeInviteCode(
               eq(lineChannels.id, candidate.id),
               eq(lineChannels.purpose, 'event_broadcast'),
               eq(lineChannels.status, 'available'),
-              sql`${lineChannels.assignedEventId} IS NULL`,
+              sql`${lineChannels.assignedEntryGroupId} IS NULL`,
             ),
           )
           .returning({ id: lineChannels.id })

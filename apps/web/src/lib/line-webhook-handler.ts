@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventLineBroadcasts,
   events,
@@ -9,6 +9,8 @@ import {
 import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { todayInJst } from '@/lib/jst-date'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -279,7 +281,7 @@ export async function applyWebhookEvents(
  * 大会用 (`event_line_broadcasts`) のフローとはテーブルもライフサイクルの
  * 意味も異なるため、既存ハンドラを流用せず別関数として独立させる
  * (実装手順書の指定)。大会用と違い:
- *   - `line_channels.status` / `assignedEventId` は触らない (級用チャネルは
+ *   - `line_channels.status` / `assignedEntryGroupId` は触らない (級用チャネルは
  *     大会に割り当てられる概念が無い常設チャネル)
  *   - `sendGuidelinesOnLink` (要綱送信) は呼ばない (大会に紐付かないので
  *     送るべき要綱が無い)
@@ -417,7 +419,7 @@ async function handleLeave(
       .update(lineChannels)
       .set({
         status: 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(eq(lineChannels.id, channelId))
@@ -443,7 +445,7 @@ async function handleInviteCode(
     ),
     columns: {
       id: true,
-      eventId: true,
+      entryGroupId: true,
       inviteCode: true,
       inviteCodeExpiresAt: true,
       lineGroupId: true,
@@ -526,21 +528,21 @@ async function handleInviteCode(
         throw new Error('STALE_BROADCAST')
       }
 
-      // r-final-1 blocker: assignedEventId を必ず再セット。
-      // r-final-4 blocker: channel が別 event に再割当済みでないこと、
+      // r-final-1 blocker: assignedEntryGroupId を必ず再セット。
+      // r-final-4 blocker: channel が別 group に再割当済みでないこと、
       // pool に戻っていない (disabled でない) ことを WHERE で再確認。
       const channelUpdate = await tx
         .update(lineChannels)
         .set({
           status: 'active',
-          assignedEventId: candidate.eventId,
+          assignedEntryGroupId: candidate.entryGroupId,
           updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(lineChannels.id, channelId),
             sql`${lineChannels.status} IN ('available','assigned','active')`,
-            sql`(${lineChannels.assignedEventId} IS NULL OR ${lineChannels.assignedEventId} = ${candidate.eventId})`,
+            sql`(${lineChannels.assignedEntryGroupId} IS NULL OR ${lineChannels.assignedEntryGroupId} = ${candidate.entryGroupId})`,
           ),
         )
         .returning({ id: lineChannels.id })
@@ -571,15 +573,29 @@ async function handleInviteCode(
 
   if (!appliedSuccessfully) return
 
-  const ev = await db.query.events.findFirst({
-    where: eq(events.id, candidate.eventId),
-    columns: { title: true },
-  })
+  // entry-groups タスク3: 紐付け先はグループなので、reply の大会名はグループ内
+  // 全イベントのタイトルから導出する（deriveEntryGroupName、entry-groups.ts の
+  // 表示名規則と同じ）。
+  //
+  // 導出不能なときは **代表イベント**（今日以降で最も近い開催日、無ければ最新）の
+  // タイトルへフォールバックする（r2 review should_fix）。id 昇順の先頭では、作成順と
+  // 開催日順が食い違うグループで他画面と別の大会名が出てしまう。
+  const groupEvents = await db
+    .select({ id: events.id, title: events.title, eventDate: events.eventDate })
+    .from(events)
+    .where(eq(events.entryGroupId, candidate.entryGroupId))
+    .orderBy(asc(events.id))
+  const groupTitles = groupEvents.map((e) => e.title)
+  const representative = selectRepresentativeEvent(groupEvents, todayInJst())
+  const groupName =
+    deriveEntryGroupName(groupTitles) ??
+    representative?.title ??
+    String(candidate.entryGroupId)
 
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      text: `✅ 大会「${ev?.title ?? candidate.eventId}」と紐付けました。今後この大会宛の連絡をこのグループに自動配信します。`,
+      text: `✅ 大会「${groupName}」と紐付けました。今後この大会宛の連絡をこのグループに自動配信します。`,
       channelAccessToken,
     })
   }
@@ -763,7 +779,7 @@ async function handleGradeGroupInviteCode(
     return
   }
 
-  // 大会用と違い、line_channels の status/assignedEventId は触らない
+  // 大会用と違い、line_channels の status/assignedEntryGroupId は触らない
   // (級用チャネルは常設で大会に割り当てられない)。sendGuidelinesOnLink
   // (要綱送信) も呼ばない (紐付く大会が無いので送るべき要綱が無い)。
   if (event.replyToken) {

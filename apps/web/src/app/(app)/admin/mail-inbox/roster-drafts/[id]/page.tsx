@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { and, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
@@ -117,23 +117,32 @@ export default async function RosterDraftReviewPage({
     db
       .select({
         id: events.id,
+        entryGroupId: events.entryGroupId,
         editionId: events.editionId,
         title: events.title,
         eventDate: events.eventDate,
       })
       .from(events)
       .where(isNotNull(events.editionId)),
+    // entry-groups タスク8: 名簿の帰属は event → entry_group へ移った。訂正対象の
+    // 候補は「edition に紐付いたイベントを持つグループ」の有効版に絞る（従来の
+    // events.editionId 条件と同じ意味を EXISTS で表現。JOIN だとグループ内の
+    // イベント数ぶん roster 行が重複してしまう）。
     db
       .select({
         id: tournamentEntryRosters.id,
-        eventId: tournamentEntryRosters.eventId,
+        entryGroupId: tournamentEntryRosters.entryGroupId,
         rosterType: tournamentEntryRosters.rosterType,
         version: tournamentEntryRosters.version,
         publishedAt: tournamentEntryRosters.publishedAt,
       })
       .from(tournamentEntryRosters)
-      .innerJoin(events, eq(events.id, tournamentEntryRosters.eventId))
-      .where(and(isNull(tournamentEntryRosters.supersededAt), isNotNull(events.editionId))),
+      .where(
+        and(
+          isNull(tournamentEntryRosters.supersededAt),
+          sql`exists (select 1 from ${events} e where e.entry_group_id = ${tournamentEntryRosters.entryGroupId} and e.edition_id is not null)`,
+        ),
+      ),
     db
       .select({
         editionId: tournamentEditionGradeLotteryFacts.editionId,
@@ -253,12 +262,13 @@ export default async function RosterDraftReviewPage({
             }))}
             events={eventRows.map((event) => ({
               id: event.id,
+              entryGroupId: event.entryGroupId,
               editionId: event.editionId!,
               label: `${event.title} (${event.eventDate})`,
             }))}
             rosters={rosterRows.map((roster) => ({
               id: roster.id,
-              eventId: roster.eventId,
+              entryGroupId: roster.entryGroupId,
               rosterType: roster.rosterType,
               label: `#${roster.id} v${roster.version}${roster.publishedAt ? ` (${roster.publishedAt})` : ''}`,
             }))}

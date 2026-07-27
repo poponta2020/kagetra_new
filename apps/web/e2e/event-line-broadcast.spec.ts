@@ -77,7 +77,7 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     await expect(page.getByText(/^\d{6}$/)).toBeVisible()
 
     const broadcast = await testDb.query.eventLineBroadcasts.findFirst({
-      where: eq(eventLineBroadcasts.eventId, event.id),
+      where: eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
     })
     expect(broadcast?.status).toBe('invite_pending')
     expect(broadcast?.inviteCode).toMatch(/^\d{6}$/)

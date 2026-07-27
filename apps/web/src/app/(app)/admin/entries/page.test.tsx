@@ -8,6 +8,7 @@ import {
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
+  createEntryGroup,
   createEvent,
   createEventAttendance,
   createUser,
@@ -280,7 +281,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         entryStatus: 'applied',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: applicantOnly.id,
+        entryGroupId: applicantOnly.entryGroupId,
         rosterType: 'applicant',
       })
 
@@ -290,7 +291,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         entryStatus: 'applied',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: supersededOnly.id,
+        entryGroupId: supersededOnly.entryGroupId,
         rosterType: 'confirmed',
         supersededAt: new Date(),
       })
@@ -303,7 +304,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         paymentStatus: 'unpaid',
       })
       await testDb.insert(tournamentEntryRosters).values({
-        eventId: confirmed.id,
+        entryGroupId: confirmed.entryGroupId,
         rosterType: 'confirmed',
       })
 
@@ -326,8 +327,8 @@ describe('/admin/entries（申込管理ボード）', () => {
         paymentType: 'onsite',
       })
       await testDb.insert(tournamentEntryRosters).values([
-        { eventId: event.id, rosterType: 'confirmed', version: 1, supersededAt: new Date() },
-        { eventId: event.id, rosterType: 'confirmed', version: 2 },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', version: 1, supersededAt: new Date() },
+        { entryGroupId: event.entryGroupId, rosterType: 'confirmed', version: 2 },
       ])
 
       await renderPage()
@@ -387,6 +388,83 @@ describe('/admin/entries（申込管理ボード）', () => {
         expect(screen.getByRole('heading', { name: label })).toBeTruthy()
       }
       expect(screen.queryByText('管理対象の大会はありません')).toBeNull()
+    })
+  })
+
+  // タスク6（AC-14/AC-15）: entry_group_id が同じ複数日は 1 グループ=1カードに
+  // 集約されて描画される。母集団クエリの entryGroupId の取り回し自体を固定する。
+  describe('申込グループのカード集約（AC-14, AC-15）', () => {
+    beforeEach(async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+    })
+
+    it('同じ entry_group_id の複数日は1枚のカードにまとまり、代表イベントへのリンクを持つ', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      const nearer = await createEvent({
+        entryGroupId: group.id,
+        title: '多摩A',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, 5), // 今日以降で最も近い → 代表
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩B',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // グループ表示名（多摩A+多摩B → 多摩AB）は1回だけ
+      expect(within(section).getAllByText('多摩AB')).toHaveLength(1)
+      const headerLink = within(section).getByText('多摩AB').closest('a')
+      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+    })
+
+    // r3 review should_fix: 表示名・代表イベントはボードの表示対象（今日以降・
+    // 非 cancelled・individual）ではなく**グループの全イベント**から導出する。
+    // でないと過去日や cancelled を含むグループでボードだけ別名・別リンクになる。
+    it('r3: 表示対象外の日（過去日）を含むグループでも、名前はグループ全体から導出する', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      // 過去日 = ボードの母集団（eventDate >= today）に入らない。
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩A',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, -10),
+        internalDeadline: addDays(today, -20),
+      })
+      const nearer = await createEvent({
+        entryGroupId: group.id,
+        title: '多摩B',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 5), // 今日以降で最も近い → 代表
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        title: '多摩C',
+        eligibleGrades: ['C'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // 表示されるのは B・C の2日だが、名前は非表示の A も含めた「多摩ABC」。
+      // （表示対象だけから導出していた頃は「多摩BC」になっていた）
+      expect(within(section).getAllByText('多摩ABC')).toHaveLength(1)
+      expect(within(section).queryByText('多摩BC')).toBeNull()
+      // 代表イベントは今日以降で最も近い日 = 多摩B。
+      const headerLink = within(section).getByText('多摩ABC').closest('a')
+      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
     })
   })
 

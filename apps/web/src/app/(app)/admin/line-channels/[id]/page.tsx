@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { and, asc, desc, eq, gte, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, notInArray, sql } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { Btn, Card, DescList, Pill, type PillTone } from '@/components/ui'
@@ -20,6 +20,7 @@ import {
   events,
   lineChannels,
 } from '@kagetra/shared/schema'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 
 export const dynamic = 'force-dynamic'
 
@@ -83,13 +84,14 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
     redirect('/admin/line-channels')
   }
 
-  const broadcastHistory = await db
+  // entry-groups タスク3: 帰属は entry_group_id。1グループが複数日を持ち
+  // 得るので、履歴の各行を代表イベント＋導出表示名で1行にまとめる
+  // （/admin/line-channels 一覧と同じパターン）。
+  const broadcastHistoryRaw = await db
     .select({
       id: eventLineBroadcasts.id,
       status: eventLineBroadcasts.status,
-      eventId: eventLineBroadcasts.eventId,
-      eventTitle: events.title,
-      eventDate: events.eventDate,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
       lineGroupId: eventLineBroadcasts.lineGroupId,
       linkedAt: eventLineBroadcasts.linkedAt,
       releasedAt: eventLineBroadcasts.releasedAt,
@@ -98,39 +100,72 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
       createdAt: eventLineBroadcasts.createdAt,
     })
     .from(eventLineBroadcasts)
-    .leftJoin(events, eq(events.id, eventLineBroadcasts.eventId))
     .where(eq(eventLineBroadcasts.lineChannelId, channelId))
     .orderBy(desc(eventLineBroadcasts.createdAt))
     .limit(20)
+
+  // r-final-19 should_fix: events.event_date は JST カレンダーで著者付け
+  // されているので、比較する today も JST 基準に揃える (UTC ベースの
+  // toISOString だと JST 深夜帯で 1 日ずれる)。
+  const today = todayInJst()
+
+  const historyGroupIds = Array.from(new Set(broadcastHistoryRaw.map((r) => r.entryGroupId)))
+  const historyGroupEventRows =
+    historyGroupIds.length > 0
+      ? await db
+          .select({
+            id: events.id,
+            title: events.title,
+            eventDate: events.eventDate,
+            entryGroupId: events.entryGroupId,
+          })
+          .from(events)
+          .where(inArray(events.entryGroupId, historyGroupIds))
+      : []
+  const eventsByHistoryGroup = new Map<number, typeof historyGroupEventRows>()
+  for (const e of historyGroupEventRows) {
+    const arr = eventsByHistoryGroup.get(e.entryGroupId)
+    if (arr) arr.push(e)
+    else eventsByHistoryGroup.set(e.entryGroupId, [e])
+  }
+
+  const broadcastHistory = broadcastHistoryRaw.map((row) => {
+    const groupEvents = eventsByHistoryGroup.get(row.entryGroupId) ?? []
+    const rep = groupEvents.length > 0 ? selectRepresentativeEvent(groupEvents, today) : null
+    const groupName =
+      groupEvents.length > 0
+        ? (deriveEntryGroupName(groupEvents.map((e) => e.title)) ?? rep?.title ?? null)
+        : null
+    return {
+      ...row,
+      eventId: rep?.id ?? null,
+      eventTitle: groupName,
+    }
+  })
 
   const currentBinding =
     broadcastHistory.find((row) =>
       ['invite_pending', 'joined_waiting_code', 'linked'].includes(row.status),
     ) ?? null
 
-  // Manual-link target list: future events (date >= today) that don't yet
-  // have a non-terminal broadcast binding. Operators rarely retro-link an
-  // event whose date has passed, and limiting the list keeps the modal
-  // snappy.
-  //
-  // r-final-19 should_fix: events.event_date は JST カレンダーで著者付け
-  // されているので、比較する today も JST 基準に揃える (UTC ベースの
-  // toISOString だと JST 深夜帯で 1 日ずれる)。
-  const today = todayInJst()
-  const linkedEventIds = await db
-    .select({ id: eventLineBroadcasts.eventId })
+  // Manual-link target list: future events (date >= today) whose *group*
+  // doesn't yet have a non-terminal broadcast binding. Operators rarely
+  // retro-link an event whose date has passed, and limiting the list keeps
+  // the modal snappy.
+  const linkedEntryGroupIds = await db
+    .select({ entryGroupId: eventLineBroadcasts.entryGroupId })
     .from(eventLineBroadcasts)
     .where(
       sql`${eventLineBroadcasts.status} IN ('invite_pending','joined_waiting_code','linked')`,
     )
-  const blockedIds = linkedEventIds
-    .map((row) => row.id)
-    .filter((id) => id !== currentBinding?.eventId)
+  const blockedGroupIds = linkedEntryGroupIds
+    .map((row) => row.entryGroupId)
+    .filter((id) => id !== currentBinding?.entryGroupId)
   // r2 review blocker: 配列を sql テンプレートに直接埋め込むと PostgreSQL
   // に渡る SQL が壊れる (`NOT IN $1` が型エラー)。drizzle の notInArray を
   // 使い式組み立てで処理する。
-  const whereClause = blockedIds.length > 0
-    ? and(gte(events.eventDate, today), notInArray(events.id, blockedIds))
+  const whereClause = blockedGroupIds.length > 0
+    ? and(gte(events.eventDate, today), notInArray(events.entryGroupId, blockedGroupIds))
     : gte(events.eventDate, today)
 
   const linkableEvents: LinkableEventOption[] = await db
@@ -149,12 +184,15 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
     tone: 'neutral' as const,
   }
 
-  // r-final-4 blocker: 詳細画面が見ていた紐付け先 eventId を一緒に
-  // 渡すことで、stale な操作で別 event の Bot を誤って解放しないようにする。
-  const expectedReleaseEventId = currentBinding?.eventId ?? null
+  // r-final-4 blocker: 詳細画面が見ていた紐付け先を一緒に渡すことで、stale な操作で
+  // 別グループへ再割当済みの Bot を誤って解放しないようにする。
+  // r2 review blocker: トークンは代表イベント id ではなく **entry_group_id**。
+  // イベント0件のグループ（付け替えで空になったが紐付けは残る）では代表イベントが
+  // 無く、id だと null に落ちて競合検出なしの broad release になってしまう。
+  const expectedReleaseEntryGroupId = currentBinding?.entryGroupId ?? null
   async function handleReleaseAction() {
     'use server'
-    await releaseChannel(channelId, expectedReleaseEventId)
+    await releaseChannel(channelId, expectedReleaseEntryGroupId)
   }
   async function handleDisableAction() {
     'use server'
@@ -220,7 +258,7 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
       </Card>
 
       <div className="flex flex-wrap gap-2">
-        {channel.assignedEventId != null || channel.status === 'active' ? (
+        {channel.assignedEntryGroupId != null || channel.status === 'active' ? (
           <form action={handleReleaseAction}>
             <Btn type="submit" kind="danger" size="sm">
               強制解放
@@ -228,7 +266,7 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
           </form>
         ) : null}
         {channel.status !== 'disabled' &&
-        channel.assignedEventId == null &&
+        channel.assignedEntryGroupId == null &&
         channel.status !== 'active' ? (
           <form action={handleDisableAction}>
             <Btn type="submit" kind="secondary" size="sm">

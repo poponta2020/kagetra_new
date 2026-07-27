@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createEntryGroup } from '@/test-utils/seed'
 import { createHmac } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
@@ -66,7 +67,7 @@ async function resetDb() {
 
 async function insertChannel(overrides: Partial<{
   status: 'available' | 'assigned' | 'active' | 'disabled'
-  assignedEventId: number | null
+  assignedEntryGroupId: number | null
   channelSecret: string
   channelAccessToken: string
   botId: string
@@ -88,7 +89,7 @@ async function insertChannel(overrides: Partial<{
           : overrides.webhookDestinationId,
       purpose: overrides.purpose ?? 'event_broadcast',
       status: overrides.status ?? 'assigned',
-      assignedEventId: overrides.assignedEventId ?? null,
+      assignedEntryGroupId: overrides.assignedEntryGroupId ?? null,
     })
     .returning()
   return inserted[0]!
@@ -118,19 +119,23 @@ async function insertGradeBinding(
   return inserted[0]!
 }
 
+/**
+ * イベントを1件 seed し、その entry_group_id を返す
+ * （event_line_broadcasts / line_channels の帰属先は entry_group_id なので、
+ * このヘルパーの戻り値は呼び出し側でそのまま insertBroadcast / assignedEntryGroupId に渡せる）。
+ */
 async function insertEvent(): Promise<number> {
-  const rows = await db
-    .insert(events)
-    .values({
-      title: 'テスト大会',
-      eventDate: '2026-06-01',
-    })
-    .returning({ id: events.id })
-  return rows[0]!.id
+  const entryGroupId = (await createEntryGroup()).id
+  await db.insert(events).values({
+    entryGroupId,
+    title: 'テスト大会',
+    eventDate: '2026-06-01',
+  })
+  return entryGroupId
 }
 
 async function insertBroadcast(
-  eventId: number,
+  entryGroupId: number,
   channelId: number,
   overrides: Partial<{
     status:
@@ -147,7 +152,7 @@ async function insertBroadcast(
   const inserted = await db
     .insert(eventLineBroadcasts)
     .values({
-      eventId,
+      entryGroupId,
       lineChannelId: channelId,
       status: overrides.status ?? 'invite_pending',
       inviteCode: overrides.inviteCode ?? null,
@@ -229,8 +234,8 @@ describe('handleLineWebhook', () => {
 
   it('routes verified events to the handler via webhookDestinationId', async () => {
     const channel = await insertChannel({ status: 'assigned' })
-    const eventId = await insertEvent()
-    await insertBroadcast(eventId, channel.id, { status: 'invite_pending' })
+    const entryGroupId = await insertEvent()
+    await insertBroadcast(entryGroupId, channel.id, { status: 'invite_pending' })
 
     const payload = {
       destination: channel.webhookDestinationId,
@@ -262,8 +267,8 @@ describe('handleLineWebhook', () => {
       webhookDestinationId: null,
       botId: '@legacy-bot',
     })
-    const eventId = await insertEvent()
-    await insertBroadcast(eventId, channel.id, { status: 'invite_pending' })
+    const entryGroupId = await insertEvent()
+    await insertBroadcast(entryGroupId, channel.id, { status: 'invite_pending' })
 
     const body = JSON.stringify({
       destination: '@legacy-bot',
@@ -276,18 +281,18 @@ describe('handleLineWebhook', () => {
 
 describe('applyWebhookEvents — invite code path', () => {
   let channelId: number
-  let eventId: number
+  let entryGroupId: number
 
   beforeEach(async () => {
     await resetDb()
     const channel = await insertChannel({ status: 'assigned' })
     channelId = channel.id
-    eventId = await insertEvent()
+    entryGroupId = await insertEvent()
   })
 
   it('flips broadcast to linked and channel to active on a valid code', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -326,7 +331,7 @@ describe('applyWebhookEvents — invite code path', () => {
 
   it('rejects expired codes without altering state', async () => {
     const past = new Date(Date.now() - 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: past,
@@ -355,7 +360,7 @@ describe('applyWebhookEvents — invite code path', () => {
 
   it('rejects mismatched codes', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '654321',
       inviteCodeExpiresAt: future,
@@ -383,7 +388,7 @@ describe('applyWebhookEvents — invite code path', () => {
 
   it('rejects redeem from a user/room source (no groupId)', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'invite_pending',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -416,7 +421,7 @@ describe('applyWebhookEvents — invite code path', () => {
 
   it('rejects redeem from a different group than the one Bot joined', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -448,7 +453,7 @@ describe('applyWebhookEvents — invite code path', () => {
 
   it('ignores non-6-digit text without replying', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '654321',
       inviteCodeExpiresAt: future,
@@ -475,16 +480,16 @@ describe('applyWebhookEvents — leave path', () => {
   it('marks broadcast revoked, clears invite code, and returns the channel to the pool', async () => {
     await resetDb()
     const channel = await insertChannel({ status: 'active' })
-    const eventId = await insertEvent()
+    const entryGroupId = await insertEvent()
     await db
       .update(lineChannels)
-      .set({ assignedEventId: eventId })
+      .set({ assignedEntryGroupId: entryGroupId })
       .where(eq(lineChannels.id, channel.id))
     // Leave a stale invite code on the row so we can prove handleLeave
     // clears it — partial unique would otherwise block the next reissue.
     // lineGroupId は payload.source.groupId と一致する必要がある
     // (rr1 review blocker: 別グループの leave を取り違えないため)。
-    await insertBroadcast(eventId, channel.id, {
+    await insertBroadcast(entryGroupId, channel.id, {
       status: 'linked',
       inviteCode: '987654',
       inviteCodeExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
@@ -515,18 +520,18 @@ describe('applyWebhookEvents — leave path', () => {
       where: eq(lineChannels.id, channel.id),
     })
     expect(after?.status).toBe('available')
-    expect(after?.assignedEventId).toBeNull()
+    expect(after?.assignedEntryGroupId).toBeNull()
   })
 
   it('ignores leave from an unrelated group (different groupId)', async () => {
     await resetDb()
     const channel = await insertChannel({ status: 'active' })
-    const eventId = await insertEvent()
+    const entryGroupId = await insertEvent()
     await db
       .update(lineChannels)
-      .set({ assignedEventId: eventId })
+      .set({ assignedEntryGroupId: entryGroupId })
       .where(eq(lineChannels.id, channel.id))
-    await insertBroadcast(eventId, channel.id, {
+    await insertBroadcast(entryGroupId, channel.id, {
       status: 'linked',
       lineGroupId: 'C-current-group',
     })
@@ -554,13 +559,13 @@ describe('applyWebhookEvents — leave path', () => {
       where: eq(lineChannels.id, channel.id),
     })
     expect(after?.status).toBe('active')
-    expect(after?.assignedEventId).toBe(eventId)
+    expect(after?.assignedEntryGroupId).toBe(entryGroupId)
   })
 })
 
 describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-guidelines-on-link)', () => {
   let channelId: number
-  let eventId: number
+  let entryGroupId: number
 
   beforeEach(async () => {
     await resetDb()
@@ -572,7 +577,7 @@ describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-gu
     })
     const channel = await insertChannel({ status: 'assigned' })
     channelId = channel.id
-    eventId = await insertEvent()
+    entryGroupId = await insertEvent()
   })
 
   function codePayload(): LineWebhookPayload {
@@ -591,7 +596,7 @@ describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-gu
 
   it('linked 成立後に要綱送信ヘルパーを連携情報付きで呼ぶ (AC-3)', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    const broadcast = await insertBroadcast(eventId, channelId, {
+    const broadcast = await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -620,7 +625,7 @@ describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-gu
 
   it('無効なコード（紐付け失敗）では要綱送信を呼ばない (AC-5)', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, channelId, {
+    await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '654321',
       inviteCodeExpiresAt: future,
@@ -645,7 +650,7 @@ describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-gu
       totalCount: 1,
     })
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    const broadcast = await insertBroadcast(eventId, channelId, {
+    const broadcast = await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -669,7 +674,7 @@ describe('applyWebhookEvents — 紐付け成立時の要綱送信 (broadcast-gu
   it('ヘルパーが throw しても linked は tx の外なので巻き戻らない (AC-6)', async () => {
     sendGuidelinesOnLinkSpy.mockRejectedValueOnce(new Error('boom'))
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    const broadcast = await insertBroadcast(eventId, channelId, {
+    const broadcast = await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
       inviteCode: '123456',
       inviteCodeExpiresAt: future,
@@ -780,7 +785,7 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
       where: eq(lineChannels.id, channel.id),
     })
     expect(channelAfter?.status).toBe('assigned')
-    expect(channelAfter?.assignedEventId).toBeNull()
+    expect(channelAfter?.assignedEntryGroupId).toBeNull()
 
     expect(reply.captured).toHaveLength(1)
     expect(reply.captured[0]!.text).toMatch(/C級グループと紐付けました/)
@@ -1014,6 +1019,56 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     expect(res.status).toBe(404)
   })
 
+  // r2 review should_fix: 表示名が導出不能なグループでは **代表イベント**
+  // （今日以降で最も近い開催日、無ければ最新）のタイトルへフォールバックする。
+  // id 昇順の先頭では、作成順と開催日順が食い違うグループで他画面と別名になる。
+  it('r2: 表示名が導出不能なとき、id 先頭ではなく代表イベントのタイトルを返す', async () => {
+    const jstDate = (offsetDays: number) =>
+      new Date(Date.now() + offsetDays * 86_400_000).toLocaleDateString('sv-SE', {
+        timeZone: 'Asia/Tokyo',
+      })
+
+    const { id: entryGroupId } = await createEntryGroup()
+    // 先に作る（= id が小さい）のは開催日が遠い方。共通接頭辞が無いので
+    // deriveEntryGroupName は null になる。
+    await db.insert(events).values({
+      entryGroupId,
+      title: 'ベータ大会',
+      eventDate: jstDate(20),
+    })
+    await db.insert(events).values({
+      entryGroupId,
+      title: 'アルファ大会',
+      eventDate: jstDate(10),
+    })
+
+    const channel = await insertChannel({ purpose: 'event_broadcast', status: 'assigned' })
+    await insertBroadcast(entryGroupId, channel.id, {
+      status: 'joined_waiting_code',
+      inviteCode: '135791',
+      inviteCodeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      lineGroupId: 'C-rep-name',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'rep-name-1',
+          source: { type: 'group', groupId: 'C-rep-name' },
+          message: { type: 'text', text: '135791' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client)
+
+    // 代表 = 今日以降で最も近い「アルファ大会」（id は後発で大きい）。
+    expect(reply.captured[0]!.text).toContain('大会「アルファ大会」と紐付けました')
+    expect(reply.captured[0]!.text).not.toContain('ベータ大会')
+  })
+
   it('event_broadcast チャネル宛の既存挙動は grade_broadcast チャネルが同時に存在しても変わらない（回帰）', async () => {
     // 同時に級グループチャネルを1つ用意しておき、大会用フローが誤って
     // line_grade_group_bindings 側を触らないこと・grade 側の存在に影響されない
@@ -1022,9 +1077,9 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     await insertGradeBinding(gradeChannel.id, { grade: 'A', status: 'invite_pending' })
 
     const eventChannel = await insertChannel({ purpose: 'event_broadcast', status: 'assigned' })
-    const eventId = await insertEvent()
+    const entryGroupId = await insertEvent()
     const future = new Date(Date.now() + 10 * 60 * 1000)
-    await insertBroadcast(eventId, eventChannel.id, {
+    await insertBroadcast(entryGroupId, eventChannel.id, {
       status: 'joined_waiting_code',
       inviteCode: '246810',
       inviteCodeExpiresAt: future,
@@ -1057,7 +1112,7 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
       where: eq(lineChannels.id, eventChannel.id),
     })
     expect(eventChannelAfter?.status).toBe('active')
-    expect(eventChannelAfter?.assignedEventId).toBe(eventId)
+    expect(eventChannelAfter?.assignedEntryGroupId).toBe(entryGroupId)
 
     // grade 側の行は一切変更されていない。
     const gradeBinding = await db.query.lineGradeGroupBindings.findFirst({

@@ -1,8 +1,10 @@
-import { and, asc, desc, eq, gte, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, ne, sql } from 'drizzle-orm'
 import { events, eventAttendances, lineChannels } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { diffDays } from '@/lib/jst-date'
 import { formatMMDD, jstTodayIso } from '@/lib/event-lifecycle-notify'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { formatEventDate } from '@/lib/event-date'
 
 /**
  * entry-overdue-alert: 会内締切超過の未申込大会を管理者個人 LINE (system_notify
@@ -18,6 +20,10 @@ import { formatMMDD, jstTodayIso } from '@/lib/event-lifecycle-notify'
  * 方針を踏襲）。日付ヘルパーは重複定義せず、'YYYY-MM-DD' の今日取得・MM/DD 整形は
  * event-lifecycle-notify.ts から、日数差分計算は既存の汎用ユーティリティ
  * jst-date.ts の `diffDays` から import する。
+ *
+ * entry-groups タスク5 (AC-13): サマリーは `entry_group_id` 単位で1行に集約する
+ * （`groupOverdueRows`）。表示名・代表イベント選定は entry-groups.ts の
+ * `deriveEntryGroupName` / `selectRepresentativeEvent` を再利用する。
  */
 
 type Database = typeof appDb
@@ -47,6 +53,8 @@ function sleep(ms: number): Promise<void> {
 
 export interface OverdueEntryRow {
   eventId: number
+  /** entry-groups タスク5 (AC-13): グループ単位への集約キー。 */
+  entryGroupId: number
   title: string
   /** 'YYYY-MM-DD'。tie-break の安定ソート用。 */
   eventDate: string
@@ -96,6 +104,7 @@ export async function collectOverdueEntries(
   const rows = await dbc
     .select({
       eventId: events.id,
+      entryGroupId: events.entryGroupId,
       title: events.title,
       eventDate: events.eventDate,
       internalDeadline: events.internalDeadline,
@@ -124,6 +133,7 @@ export async function collectOverdueEntries(
     const baseDeadlineIso = (row.internalDeadline ?? row.entryDeadline) as string
     return {
       eventId: row.eventId,
+      entryGroupId: row.entryGroupId,
       title: row.title,
       eventDate: row.eventDate,
       baseDeadlineIso,
@@ -186,15 +196,163 @@ function formatEntryDeadlineLine(row: OverdueEntryRow, today: string): string {
   return `大会申込締切 ${formatMMDD(row.entryDeadlineIso)}（${-remaining}日超過）`
 }
 
-export interface BuildOverdueAlertMessageOptions {
-  today: string
-  baseUrl: string
+/**
+ * 表示名・代表イベントの導出に使う「グループ全体のイベント」1件分。
+ * `entry-groups.ts` の `deriveEntryGroupName` / `selectRepresentativeEvent` に
+ * そのまま渡せる形（`id` + `eventDate` + `title`）。
+ */
+export interface OverdueGroupEvent {
+  id: number
+  title: string
+  /** `YYYY-MM-DD`。 */
+  eventDate: string
 }
 
 /**
- * 純関数。超過日数降順（tie-break: eventDate 昇順→id 昇順の安定ソート）で並べ、
- * 上位 5 件を明細、残りを「他 N 件」に畳む（buildNewDraftsMessage と同じ形式）。
- * `rows` は呼び出し側から任意の順序で渡されうる前提で、ここで並び替えを完結する。
+ * 超過対象になったグループの**全イベント**を引く（超過していない日も含む）。
+ *
+ * ★表示名と代表イベントは「グループ全体」から導出しなければならない
+ * （r1 review should_fix）。超過対象の日だけから導出すると、多摩ABのうちAだけが
+ * 超過している場合に「多摩A」と表示され、代表イベントの URL も他画面と食い違う。
+ * 明細行（締切・超過日数）だけは超過対象の日に限定する。
+ *
+ * cancelled も含める — `selectRepresentativeEvent` は cancelled を代表候補から
+ * 除外しない仕様（詳細画面は到達可能）で、`listGroupSiblings` の挙動とも揃える。
+ */
+export async function collectGroupEventsForNaming(
+  dbc: DbOrTx,
+  entryGroupIds: readonly number[],
+): Promise<Map<number, OverdueGroupEvent[]>> {
+  const byGroup = new Map<number, OverdueGroupEvent[]>()
+  const ids = Array.from(new Set(entryGroupIds))
+  if (ids.length === 0) return byGroup
+
+  const rows = await dbc
+    .select({
+      id: events.id,
+      entryGroupId: events.entryGroupId,
+      title: events.title,
+      eventDate: events.eventDate,
+    })
+    .from(events)
+    .where(inArray(events.entryGroupId, ids))
+    .orderBy(asc(events.eventDate), asc(events.id))
+
+  for (const row of rows) {
+    const list = byGroup.get(row.entryGroupId)
+    const entry = { id: row.id, title: row.title, eventDate: row.eventDate }
+    if (list) list.push(entry)
+    else byGroup.set(row.entryGroupId, [entry])
+  }
+  return byGroup
+}
+
+export interface BuildOverdueAlertMessageOptions {
+  today: string
+  baseUrl: string
+  /**
+   * `collectGroupEventsForNaming` の結果。表示名・代表イベントをグループ全体から
+   * 導出するために使う。**未指定または当該グループが欠けている場合は超過対象の日
+   * だけから導出する**（純関数テスト向けのフォールバック。本番経路
+   * `sendEntryOverdueAlert` は必ず渡す）。
+   */
+  groupEvents?: ReadonlyMap<number, readonly OverdueGroupEvent[]>
+}
+
+/**
+ * entry-groups タスク5 (AC-13): グループ単位に集約した1行分のサマリー。
+ * `rows` は開催日昇順（同日は eventId 昇順）に安定ソート済みの構成日
+ * （超過報告の対象になった日のみ — グループ内の非対象日は含まない）。
+ */
+interface OverdueGroupSummary {
+  entryGroupId: number
+  /** 導出表示名（導出不能なら代表イベントのタイトルへフォールバック）。 */
+  name: string
+  /** 代表イベント（今日以降で最も近い開催日、無ければ最新）の id。詳細 URL に使う。 */
+  representativeEventId: number
+  /**
+   * 名前・代表イベントの導出母集団（＝グループ全体、無ければ対象日）の件数。
+   * 日別ラベルを出すかどうかの判定に使う — **対象日の数ではなくこちらで判定する**。
+   * 表示名と URL がグループ全体基準になった以上、対象日が1件でも「どの日が超過か」を
+   * 明示しないと、代表 URL が超過していない日を指したまま本文から日が消えてしまう。
+   */
+  groupEventCount: number
+  /** グループ内の対象日のうち最大の超過日数。グループの並び替えキー。 */
+  maxOverdueDays: number
+  /** event_attendances.attend=true の最大値（同一会員の複数日出席を合算しない）。 */
+  attendCount: number
+  rows: OverdueEntryRow[]
+}
+
+/**
+ * 純関数。`rows`（超過報告対象の日）を `entryGroupId` でグルーピングする。
+ * 表示名・代表イベントの選定は entry-groups.ts の導出ロジック
+ * （`deriveEntryGroupName` / `selectRepresentativeEvent`）を再利用する
+ * ── ここではロジックを複製しない。
+ *
+ * 表示名と代表イベントは **`groupEvents`（グループ全体のイベント）から**導出する
+ * （r1 review should_fix。多摩ABのうちAだけ超過なら表示は「多摩AB」、URL も
+ * グループ全体の代表イベント＝他画面と同じ）。明細（締切・超過日数・参加人数）は
+ * 超過対象の日だけを見る。`groupEvents` に当該グループが無い場合のみ、
+ * 従来どおり対象日から導出する（純関数テスト向けフォールバック）。
+ */
+function groupOverdueRows(
+  rows: readonly OverdueEntryRow[],
+  today: string,
+  groupEvents?: ReadonlyMap<number, readonly OverdueGroupEvent[]>,
+): OverdueGroupSummary[] {
+  const byGroup = new Map<number, OverdueEntryRow[]>()
+  const order: number[] = []
+  for (const row of rows) {
+    const existing = byGroup.get(row.entryGroupId)
+    if (existing) {
+      existing.push(row)
+    } else {
+      byGroup.set(row.entryGroupId, [row])
+      order.push(row.entryGroupId)
+    }
+  }
+
+  return order.map((entryGroupId) => {
+    const groupRows = [...byGroup.get(entryGroupId)!].sort(
+      (a, b) => a.eventDate.localeCompare(b.eventDate) || a.eventId - b.eventId,
+    )
+    // 導出母集団: グループ全体（あれば）→ 無ければ超過対象の日。
+    const namingPool: readonly OverdueGroupEvent[] =
+      groupEvents?.get(entryGroupId)?.length
+        ? groupEvents.get(entryGroupId)!
+        : groupRows.map((r) => ({ id: r.eventId, title: r.title, eventDate: r.eventDate }))
+    const rep = selectRepresentativeEvent(namingPool, today)
+    // namingPool は必ず 1 件以上あるので selectRepresentativeEvent は null を返さない。
+    const representativeEventId = rep!.id
+    const name =
+      deriveEntryGroupName(namingPool.map((e) => e.title)) ??
+      namingPool.find((e) => e.id === representativeEventId)!.title
+    const maxOverdueDays = Math.max(...groupRows.map((r) => r.overdueDays))
+    // 参加人数は「延べ」ではなく最大値 — 同一会員が複数日に参加希望すると
+    // 合計では二重に数えてしまう。
+    const attendCount = Math.max(...groupRows.map((r) => r.attendCount))
+    return {
+      entryGroupId,
+      name,
+      representativeEventId,
+      groupEventCount: namingPool.length,
+      maxOverdueDays,
+      attendCount,
+      rows: groupRows,
+    }
+  })
+}
+
+/**
+ * 純関数。グループ単位に集約し（AC-13）、超過日数降順（tie-break: グループ内最速の
+ * eventDate 昇順→eventId 昇順の安定ソート）で並べ、上位 5 グループを明細、残りを
+ * 「他 N 件」に畳む（buildNewDraftsMessage と同じ形式）。`rows` は呼び出し側から
+ * 任意の順序で渡されうる前提で、ここで並び替えを完結する。
+ *
+ * グループ内に対象日が複数あるときは、日別ラベル（`M/D(曜)+タイトル`）を明細の先頭に
+ * 挟んで、どの日の締切超過かを明示する（単独グループでは従来どおり省略し、
+ * 既存の1行1大会の文面とバイト互換を保つ）。
  */
 export function buildOverdueAlertMessage(
   rows: OverdueEntryRow[],
@@ -204,22 +362,32 @@ export function buildOverdueAlertMessage(
   // PUBLIC_BASE_URL に末尾スラッシュが入りうるため、連結前に必ず落とす。
   const baseUrl = opts.baseUrl.replace(/\/$/, '')
 
-  const sorted = [...rows].sort((a, b) => {
-    if (b.overdueDays !== a.overdueDays) return b.overdueDays - a.overdueDays
-    if (a.eventDate !== b.eventDate) return a.eventDate < b.eventDate ? -1 : 1
-    return a.eventId - b.eventId
+  const groups = groupOverdueRows(rows, today, opts.groupEvents)
+  const sorted = [...groups].sort((a, b) => {
+    if (b.maxOverdueDays !== a.maxOverdueDays) return b.maxOverdueDays - a.maxOverdueDays
+    const aFirst = a.rows[0]!
+    const bFirst = b.rows[0]!
+    if (aFirst.eventDate !== bFirst.eventDate) return aFirst.eventDate < bFirst.eventDate ? -1 : 1
+    return aFirst.eventId - bFirst.eventId
   })
 
   const head = sorted.slice(0, TOP_LIMIT)
   const lines: string[] = [`⚠️ 会内締切超過の未申込大会が${sorted.length}件あります`]
 
-  for (const row of head) {
+  for (const group of head) {
     lines.push('')
-    lines.push(`・${truncateLine(row.title, TITLE_MAX_CODEPOINTS)}`)
-    lines.push(formatBaseDeadlineLine(row))
-    lines.push(formatEntryDeadlineLine(row, today))
-    lines.push(`参加 ${row.attendCount}名`)
-    lines.push(`${baseUrl}/events/${row.eventId}`)
+    lines.push(`・${truncateLine(group.name, TITLE_MAX_CODEPOINTS)}`)
+    for (const row of group.rows) {
+      // グループが複数日なら、対象日が1件でも日別ラベルを出す（表示名・URL が
+      // グループ全体基準なので、これが無いと「どの日の締切超過か」が本文から消える）。
+      if (group.groupEventCount > 1) {
+        lines.push(`${formatEventDate(row.eventDate)}${row.title}`)
+      }
+      lines.push(formatBaseDeadlineLine(row))
+      lines.push(formatEntryDeadlineLine(row, today))
+    }
+    lines.push(`参加 ${group.attendCount}名`)
+    lines.push(`${baseUrl}/events/${group.representativeEventId}`)
   }
 
   if (sorted.length > head.length) {
@@ -460,8 +628,13 @@ export async function sendEntryOverdueAlert(
   // ③ PUBLIC_BASE_URL 解決（未設定・不正形式は throw）
   const baseUrl = resolveBaseUrl(opts.baseUrl)
 
-  // ④ 文面組立
-  const text = buildOverdueAlertMessage(rows, { today, baseUrl })
+  // ④ 文面組立（表示名・代表イベントはグループ全体から導出するので、対象グループの
+  //    全イベントを引いてから渡す）
+  const groupEvents = await collectGroupEventsForNaming(
+    dbc,
+    rows.map((r) => r.entryGroupId),
+  )
+  const text = buildOverdueAlertMessage(rows, { today, baseUrl, groupEvents })
 
   // ⑤ push
   const pushResult = await pushSystemText(

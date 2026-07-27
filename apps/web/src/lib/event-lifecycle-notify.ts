@@ -3,9 +3,11 @@ import {
   eventLifecycleNotificationTypeEnum,
   eventLifecycleNotifications,
   eventLineBroadcasts,
+  events,
   lineChannels,
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
+import { formatEventDate } from '@/lib/event-date'
 
 /**
  * event-lifecycle-notify: lifecycle LINE notifications (申込/支払い完了 +
@@ -103,6 +105,73 @@ export interface LifecycleMessageContext {
   paymentMethod?: string | null
   /** 振込先などの支払情報詳細（自由記述）。entry_applied_treasurer にそのまま載せる。 */
   paymentInfo?: string | null
+  // entry-groups タスク4: 複数日の一括操作で claim できた日の内訳。2件以上のときだけ
+  // 複数日文面へ分岐する（1件以下・未指定なら既存の単一日ロジックを一切変更しない —
+  // N=1 の文面バイト互換を保証するため、この分岐に入れず title/lotteryDateIso 等の
+  // スカラ引数のパスをそのまま通す）。
+  days?: readonly LifecycleDayEntry[]
+}
+
+/**
+ * entry-groups タスク4: 一括操作の複数日文面に使う1日分の内訳。
+ * `dateIso`+`title` は参加者向け・会計向け両方の日別ラベルに使う
+ * （例: `8/1(土)C級`）。`payment*` は会計向け（entry_applied_treasurer）専用。
+ */
+export interface LifecycleDayEntry {
+  /** `YYYY-MM-DD`。 */
+  dateIso: string
+  /** 日別ラベルに使う大会名（例: `8/1(土)C級` の `C級` 部分）。 */
+  title: string
+  paymentDeadlineIso?: string | null
+  paymentMethod?: string | null
+  paymentInfo?: string | null
+}
+
+/** `days` を開催日昇順（同日は title 昇順）に安定ソートする。 */
+export function sortDays<T extends LifecycleDayEntry>(days: readonly T[]): T[] {
+  return [...days].sort(
+    (a, b) => a.dateIso.localeCompare(b.dateIso) || a.title.localeCompare(b.title),
+  )
+}
+
+/**
+ * 複数日の日別ラベルを `・` で連結する（例: `8/1(土)C級・8/8(土)D級`）。
+ *
+ * **この2関数が「複数日ラベルの規則」の唯一の置き場所**。entry-groups では一括トグル
+ * （このファイル内の entry_applied 等）と締切リマインド（`scripts/send-lifecycle-reminders.ts`）の
+ * 両方が同じラベル形式を使うため export している。script 側で複製すると、片方だけ書式を
+ * 変えたときに通知の見た目が経路によって食い違う。
+ */
+export function formatDaysLabel(days: readonly LifecycleDayEntry[]): string {
+  return days.map((d) => `${formatEventDate(d.dateIso)}${d.title}`).join('・')
+}
+
+/** trim 後の値で比較する（null/undefined は空文字と同値）。 */
+function normalize(value: string | null | undefined): string {
+  return (value ?? '').trim()
+}
+
+/** `days` 全件で `key` の値（trim 後）が一致するか。 */
+function allDaysMatch(
+  days: readonly LifecycleDayEntry[],
+  key: 'paymentDeadlineIso' | 'paymentMethod' | 'paymentInfo',
+): boolean {
+  const first = normalize(days[0]?.[key])
+  return days.every((d) => normalize(d[key]) === first)
+}
+
+const TREASURER_FALLBACK_BODY =
+  '参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。'
+
+/** 1日分の会計向け行を組み立てる（期限・方法・詳細のうち値があるものだけ）。 */
+function buildTreasurerLines(day: LifecycleDayEntry): string[] {
+  const lines: string[] = []
+  if (day.paymentDeadlineIso) lines.push(`振込期限：${formatMMDD(day.paymentDeadlineIso)}`)
+  const method = day.paymentMethod?.trim()
+  if (method) lines.push(`振込方法：${method}`)
+  const info = day.paymentInfo?.trim()
+  if (info) lines.push(info)
+  return lines
 }
 
 /**
@@ -118,9 +187,18 @@ export function buildLifecycleMessage(
   const date = ctx.dateIso ? formatMMDD(ctx.dateIso) : ''
   const lead = ctx.leadDays ?? reminderLeadDays()
   const fee = formatFeeAmount(ctx.feeJpy)
+  // entry-groups タスク4: 2件以上のときだけ複数日文面へ分岐する。1件以下・未指定は
+  // 下の既存ロジックへそのまま流す（N=1 バイト互換）。
+  const multiDay = ctx.days != null && ctx.days.length > 1 ? sortDays(ctx.days) : null
 
   switch (type) {
     case 'entry_applied': {
+      if (multiDay) {
+        const applied = `✅${formatDaysLabel(multiDay)}の参加申込が完了しました。`
+        return ctx.lotteryDateIso
+          ? `${applied}\n抽選日は ${formatMMDD(ctx.lotteryDateIso)} です。`
+          : applied
+      }
       const applied = `✅【${title}】への参加申込が完了しました。`
       // §3.2.2: 抽選日が設定されていれば末尾に追記。NULL のときは従来どおり追記なし。
       return ctx.lotteryDateIso
@@ -128,6 +206,29 @@ export function buildLifecycleMessage(
         : applied
     }
     case 'entry_applied_treasurer': {
+      if (multiDay) {
+        // タスク4: payment 系（期限・方法・詳細）が全日同値なら1回だけ表記し、
+        // 差があれば日別行にする。
+        const allSame =
+          allDaysMatch(multiDay, 'paymentDeadlineIso') &&
+          allDaysMatch(multiDay, 'paymentMethod') &&
+          allDaysMatch(multiDay, 'paymentInfo')
+        const body = allSame
+          ? (() => {
+              const lines = buildTreasurerLines(multiDay[0]!)
+              return lines.length > 0 ? lines.join('\n') : TREASURER_FALLBACK_BODY
+            })()
+          : multiDay
+              .map((d) => {
+                const lines = buildTreasurerLines(d)
+                const dayLabel = `${formatEventDate(d.dateIso)}${d.title}`
+                return lines.length > 0
+                  ? [dayLabel, ...lines].join('\n')
+                  : [dayLabel, TREASURER_FALLBACK_BODY].join('\n')
+              })
+              .join('\n\n')
+        return `💴${formatDaysLabel(multiDay)}会計の方へ\n${body}`
+      }
       // §3.2.3: 申込完了の 2 通目（会計向け）。値があるものだけ行連結、全空なら最小文面。
       // 金額（feeJpy）は載せない／支払いタイプでは出し分けない（現地払い・未設定でも常に送る）。
       const lines: string[] = []
@@ -139,7 +240,7 @@ export function buildLifecycleMessage(
       const body =
         lines.length > 0
           ? lines.join('\n')
-          : '参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。'
+          : TREASURER_FALLBACK_BODY
       return `💴【${title}】会計の方へ\n${body}`
     }
     case 'entry_deadline_advance':
@@ -147,6 +248,12 @@ export function buildLifecycleMessage(
     case 'entry_deadline_day':
       return `⚠️【${title}】の申込締切は本日 ${date} です。まだ申込が完了していません。`
     case 'payment_paid':
+      if (multiDay) {
+        // タスク4: 一括支払済は金額の日別差を出し分けず、対象日を列挙する最小文面に留める
+        // （金額の全日同値/日別判定は entry_applied_treasurer ほど要件で明示されておらず、
+        // 過剰な複雑化を避ける設計選択。main レビューで確認）。
+        return `✅${formatDaysLabel(multiDay)}の参加費の支払いが完了しました。`
+      }
       return fee
         ? `✅【${title}】の参加費（${fee}）の支払いが完了しました。`
         : `✅【${title}】の参加費の支払いが完了しました。`
@@ -176,6 +283,9 @@ export function buildLifecycleMessage(
 
 export interface LinkedEventBinding {
   broadcastId: number
+  // entry-groups タスク3: リカバリで line_channels.assigned_entry_group_id を
+  // 正しく解放するために保持する。
+  entryGroupId: number
   lineChannelId: number
   lineGroupId: string
   channelAccessToken: string
@@ -185,31 +295,36 @@ export interface LinkedEventBinding {
  * Load the live (`status='linked'`, group present) broadcast binding for an
  * event, joined with its channel access token. Returns null when the event has
  * no linked LINE group — the common case, in which lifecycle pushes are skipped.
+ *
+ * entry-groups タスク3: 帰属は event_line_broadcasts.entry_group_id に移った。
+ * シグネチャは eventId のまま維持し、内部で events.entry_group_id を引いて
+ * グループ基準の行を返す（AC-4: どの日から呼んでも同一の紐付けに作用する）。
  */
 export async function loadLinkedBinding(
   dbc: DbOrTx,
   eventId: number,
 ): Promise<LinkedEventBinding | null> {
+  // ★グループ解決と binding 取得は1文の JOIN（r3 review blocker）。2文に分けると、
+  // 間にイベントが別グループへ付け替えられた場合に旧グループの LINE グループへ
+  // 通知してしまう。line-broadcast.ts の `loadActiveBinding` と同じ形に揃える。
   const rows = await dbc
     .select({
       broadcastId: eventLineBroadcasts.id,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
       lineChannelId: eventLineBroadcasts.lineChannelId,
       lineGroupId: eventLineBroadcasts.lineGroupId,
       channelAccessToken: lineChannels.channelAccessToken,
     })
-    .from(eventLineBroadcasts)
+    .from(events)
+    .innerJoin(eventLineBroadcasts, eq(eventLineBroadcasts.entryGroupId, events.entryGroupId))
     .innerJoin(lineChannels, eq(lineChannels.id, eventLineBroadcasts.lineChannelId))
-    .where(
-      and(
-        eq(eventLineBroadcasts.eventId, eventId),
-        eq(eventLineBroadcasts.status, 'linked'),
-      ),
-    )
+    .where(and(eq(events.id, eventId), eq(eventLineBroadcasts.status, 'linked')))
     .limit(1)
   const hit = rows[0]
   if (!hit || !hit.lineGroupId) return null
   return {
     broadcastId: hit.broadcastId,
+    entryGroupId: hit.entryGroupId,
     lineChannelId: hit.lineChannelId,
     lineGroupId: hit.lineGroupId,
     channelAccessToken: hit.channelAccessToken,
@@ -330,13 +445,13 @@ async function applyPushFailureRecovery(
       .update(lineChannels)
       .set({
         status: isAuthFailure ? 'disabled' : 'available',
-        assignedEventId: null,
+        assignedEntryGroupId: null,
         updatedAt: sql`now()`,
       })
       .where(
         and(
           eq(lineChannels.id, binding.lineChannelId),
-          eq(lineChannels.assignedEventId, eventId),
+          eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
         ),
       )
   })
@@ -461,6 +576,31 @@ export async function sendClaimedNotification(
     lineGroupId: result.lineGroupId ?? null,
     errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
   })
+  return result
+}
+
+/**
+ * entry-groups タスク4: 一括操作用。複数の claim 済みログ行を、1回の push の結果で
+ * まとめて finalize する（1通のメッセージを N 件の (event,type) claim に対応付ける）。
+ * `eventId` は push 先の LINE グループを解決するための代表イベント（グループ内の
+ * どの日でも同じ紐付けに解決されるので、呼び出し側は claim できた集合の先頭など
+ * 任意の1件を渡せばよい）。
+ */
+export async function sendClaimedNotificationBulk(
+  dbc: Database,
+  args: { notificationIds: readonly number[]; eventId: number; message: string },
+  opts: { logger?: Logger } = {},
+): Promise<PushTextResult> {
+  const result = await pushTextToEventGroup(dbc, args.eventId, args.message, opts)
+  await Promise.all(
+    args.notificationIds.map((id) =>
+      finalizeLifecycleNotification(dbc, id, {
+        status: result.outcome,
+        lineGroupId: result.lineGroupId ?? null,
+        errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
+      }),
+    ),
+  )
   return result
 }
 

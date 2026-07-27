@@ -7,6 +7,7 @@ import {
   createAdmin,
   createMailMessage,
   createTournamentDraft,
+  createEntryGroup,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
@@ -186,6 +187,7 @@ describe('admin/mail-inbox/[id] page', () => {
     const [ev] = await testDb
       .insert(events)
       .values({
+        entryGroupId: (await createEntryGroup()).id,
         title: '大阪B',
         eventDate: '2031-01-11',
         tournamentDraftId: draft.id,
@@ -226,6 +228,7 @@ describe('admin/mail-inbox/[id] page', () => {
     const [ev] = await testDb
       .insert(events)
       .values({
+        entryGroupId: (await createEntryGroup()).id,
         title: '大阪B',
         eventDate: '2031-01-11',
         tournamentDraftId: draft.id,

@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventBroadcastMessages,
   eventLineBroadcasts,
+  events,
   lineChannels,
   mailAttachments,
   mailMessages,
@@ -92,6 +93,9 @@ interface LineMessage {
 interface BroadcastBindingRow {
   id: number
   eventId: number
+  // entry-groups タスク3: 実際の紐付け行の帰属キー。401/4xx リカバリで
+  // line_channels.assigned_entry_group_id を正しく解放するために保持する。
+  entryGroupId: number
   lineChannelId: number
   status: string
   // Narrowed to string in loadActiveBinding — we skip rows without a group.
@@ -382,6 +386,18 @@ async function buildFallbackTextMessage(
  * Find the active broadcast row for an event, joined with channel
  * access-token info. Returns null when there is no live binding (the
  * common case for events approved before the LINE group was set up).
+ *
+ * entry-groups タスク3: 帰属は event_line_broadcasts.entry_group_id に移った。
+ * この関数のシグネチャは eventId のまま維持し（呼び出し側は「その日」の id しか
+ * 持たない）、内部で events.entry_group_id を辿ってグループ基準の行を返す。
+ * これにより「グループ内のどの日から呼んでも同一の紐付けに作用する」(AC-4) が
+ * 呼び出し側の変更なしに成立する。
+ *
+ * ★グループ解決と binding 取得は**1文の JOIN** で行う（r3 review blocker）。
+ * 「先に entry_group_id を SELECT → 別の文で binding を SELECT」だと、2文の間に
+ * 管理者がそのイベントを別グループへ付け替えた場合、イベントは新グループなのに
+ * **旧グループの LINE グループへ配信**してしまう（グループ付け替え機能を新設した
+ * ことで現実に起こり得る誤配信）。単一クエリなら同一スナップショットで解決される。
  */
 export async function loadActiveBinding(
   db: typeof appDb,
@@ -393,31 +409,31 @@ export async function loadActiveBinding(
   const rows = await db
     .select({
       id: eventLineBroadcasts.id,
-      eventId: eventLineBroadcasts.eventId,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
       lineChannelId: eventLineBroadcasts.lineChannelId,
       status: eventLineBroadcasts.status,
       lineGroupId: eventLineBroadcasts.lineGroupId,
       channelId: lineChannels.id,
       channelAccessToken: lineChannels.channelAccessToken,
     })
-    .from(eventLineBroadcasts)
+    .from(events)
+    .innerJoin(
+      eventLineBroadcasts,
+      eq(eventLineBroadcasts.entryGroupId, events.entryGroupId),
+    )
     .innerJoin(
       lineChannels,
       eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
     )
-    .where(
-      and(
-        eq(eventLineBroadcasts.eventId, eventId),
-        eq(eventLineBroadcasts.status, 'linked'),
-      ),
-    )
+    .where(and(eq(events.id, eventId), eq(eventLineBroadcasts.status, 'linked')))
     .limit(1)
   const hit = rows[0]
   if (!hit) return null
   if (!hit.lineGroupId) return null
   return {
     id: hit.id,
-    eventId: hit.eventId,
+    eventId,
+    entryGroupId: hit.entryGroupId,
     lineChannelId: hit.lineChannelId,
     status: hit.status,
     lineGroupId: hit.lineGroupId,
@@ -950,7 +966,7 @@ export async function broadcastMailToEvent(
       // 要件 §3.2.9 の表に対応。
       if (pushResult.httpStatus === 401) {
         // Access token 期限切れ / 無効。Bot を disabled にしつつ、
-        // r-final-2 should_fix: binding も revoked にして assignedEventId
+        // r-final-2 should_fix: binding も revoked にして assignedEntryGroupId
         // を解放しないと、次の承認メールでも同じ disabled channel に
         // push し続け失敗ループになる。
         //
@@ -992,13 +1008,13 @@ export async function broadcastMailToEvent(
             .update(lineChannels)
             .set({
               status: 'disabled',
-              assignedEventId: null,
+              assignedEntryGroupId: null,
               updatedAt: sql`now()`,
             })
             .where(
               and(
                 eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEventId, args.eventId),
+                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
               ),
             )
         })
@@ -1051,13 +1067,13 @@ export async function broadcastMailToEvent(
             .update(lineChannels)
             .set({
               status: 'available',
-              assignedEventId: null,
+              assignedEntryGroupId: null,
               updatedAt: sql`now()`,
             })
             .where(
               and(
                 eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEventId, args.eventId),
+                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
               ),
             )
         })
