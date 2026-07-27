@@ -212,3 +212,5 @@
 - [entry-groups 全8タスク完了(PR前)](impl_entry-groups-task5-8.md) — ★CIはbuildを回さない→clientバンドル汚染はデプロイまで出ない。migration実績5本・scratch DB実測
 - [fix PR #377](impl_fix-pr377.md) — entry-groups の r1〜r3 レビュー指摘＋CI赤の修正
 - [feat(entry-groups): 申込グループを導入し LINE紐付け・配信・名簿・リマインド・進行操作をグループ単位へ集約](project_ship-entry-groups.md) — shipped: PR #377
+- [auto-review PR #378](auto-review-round-pr378.md) — R2 verdict=pass
+- [申込管理ボードの閲覧を一般会員へ開放](project_ship-entry-board-visible-to-members.md) — shipped: PR #378

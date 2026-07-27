@@ -25,5 +25,17 @@ sudo -u kagetra bash -c "cd /opt/kagetra && set -a && source .env.production && 
 
 **How to apply:** 本番 migration は常に `db:migrate`。ローカル dev で `db:push` を使うのは可。
 
+## 同じ罠のテスト DB 版（2026-07-27・PR #378 の出荷時）
+
+vitest の global-setup は起動のたびに `drizzle-kit push --force` をテスト DB へ流す。**列リネームを含む migration がマージされた後**、既存のテスト DB は旧スキーマのままなので push が「リネームか drop/add か」の対話プロンプトを出し、非TTY で `Error: Interactive prompts require a TTY terminal` になって **DB を使うテストが全滅**する（gate-dod の A1 が丸ごと FAIL に見える。PR の中身は無実）。
+
+- 症状の見分け方: 失敗が特定機能ではなく DB 依存スイート全体に及び、ログ先頭に上記 TTY エラーが出る
+- 対処: そのワークツリーのテスト DB を捨てる（global-setup が作り直す）。DB 名は worktree パス由来（`packages/shared/src/test-db.ts`）
+  ```bash
+  docker exec kagetra-db-test psql -U kagetra -d postgres -c "DROP DATABASE IF EXISTS kagetra_test_<slug>_<hash>;"
+  ```
+- **How to apply:** 列リネームを含む migration をマージしたら、各 workdir・worktree のテスト DB を一度捨てる。新規に作った worktree では起きない（毎回新規作成のため）＝「worktree では green なのにメインで赤」の典型パターン
+
 ## 関連
 - [[project-event-line-broadcast-deploy]] — 2026-05-31 本番デプロイで発覚
+- [[ship-entry-board-visible-to-members]] — 2026-07-27 テスト DB 版を踏んだ出荷
