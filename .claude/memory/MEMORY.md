@@ -214,3 +214,4 @@
 - [feat(entry-groups): 申込グループを導入し LINE紐付け・配信・名簿・リマインド・進行操作をグループ単位へ集約](project_ship-entry-groups.md) — shipped: PR #377
 - [auto-review PR #378](auto-review-round-pr378.md) — R2 verdict=pass
 - [申込管理ボードの閲覧を一般会員へ開放](project_ship-entry-board-visible-to-members.md) — shipped: PR #378
+- [entry-management 改修要件（確定名簿を完了要件から外す）](project_entry_management_roster_not_required.md) — 親Issue #379・現地払いは申込済で即完了になる点が受容リスク
