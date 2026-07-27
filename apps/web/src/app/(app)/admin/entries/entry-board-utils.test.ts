@@ -98,7 +98,7 @@ describe('classify', () => {
     expect(classify(item, TODAY)).toBe('before_deadline')
   })
 
-  it('baseDeadline が今日より前の日（翌日）→ 参加者ありなら要対応（AC-8 境界）', () => {
+  it('baseDeadline が今日より前の日（翌日）→ 参加者ありなら要申込（AC-8 境界）', () => {
     const item = makeItem({
       entryStatus: 'not_applied',
       internalDeadline: '2026-07-09',
@@ -116,7 +116,7 @@ describe('classify', () => {
     expect(classify(item, TODAY)).toBe('no_applicants')
   })
 
-  it('not_applied かつ baseDeadline < 今日 かつ 参加者1名以上 → 要対応（AC-9）', () => {
+  it('not_applied かつ baseDeadline < 今日 かつ 参加者1名以上 → 要申込（AC-9）', () => {
     const item = makeItem({
       entryStatus: 'not_applied',
       internalDeadline: '2026-06-01',
@@ -144,7 +144,7 @@ describe('classify', () => {
     expect(classify(item, TODAY)).toBe('action_required')
   })
 
-  it('applied かつ advance かつ unpaid かつ確定名簿なし → 申込済み・抽選待ち（AC-10）', () => {
+  it('applied かつ advance かつ unpaid かつ確定名簿なし → 申込完了・抽選待ち（AC-10）', () => {
     // 2026-07-27 以降、「抽選待ち」は事前払い・未振込に限られる。
     // makeItem の既定は paymentType: null（＝支払い管理なし＝完了）なので、
     // この区画を狙うテストは支払い条件を明示する。
@@ -186,7 +186,7 @@ describe('classify', () => {
     expect(classify(item, TODAY)).toBe('done')
   })
 
-  it('applied かつ確定名簿あり かつ advance かつ unpaid → 名簿確定・振込待ち（AC-11）', () => {
+  it('applied かつ確定名簿あり かつ advance かつ unpaid → 名簿確定・要振込（AC-11）', () => {
     const item = makeItem({
       entryStatus: 'applied',
       hasConfirmedRoster: true,
@@ -267,6 +267,8 @@ describe('AREAS', () => {
     ])
   })
 
+  // ★このファイルで旧名の文字列リテラルが現れる唯一の場所（改称が効いている
+  //   ことの検証そのものなので必要）。他の箇所に旧名が残っていたら改称漏れ。
   it('AC-35: 旧名がどの label にも残っていない', () => {
     const labels = AREAS.map((a) => a.label)
     expect(labels).not.toContain('要対応')
@@ -332,7 +334,7 @@ describe('groupBoard — 相互排他の網羅（AC-14, シングルトン）', 
         entryStatus: 'not_applied',
         internalDeadline: '2026-06-01',
         attendCount: 1,
-      }), // 要対応
+      }), // 要申込
       makeItem({
         id: 6,
         entryStatus: 'applied',
@@ -938,7 +940,7 @@ describe('sortArea', () => {
     expect(sorted).toEqual([3, 1, 4, 2]) // NULL同士(4,2)は開催日 8/1 < 8/5 で 4 が先
   })
 
-  it('要対応：本締切（entryDeadline）昇順・NULL 末尾（internalDeadline は無視）', () => {
+  it('要申込：本締切（entryDeadline）昇順・NULL 末尾（internalDeadline は無視）', () => {
     const items: EntryBoardItem[] = [
       makeItem({ id: 1, internalDeadline: '2026-01-01', entryDeadline: '2026-07-20' }),
       makeItem({ id: 2, internalDeadline: '2026-12-01', entryDeadline: null }),
@@ -948,7 +950,7 @@ describe('sortArea', () => {
     expect(sorted).toEqual([3, 1, 2])
   })
 
-  it('申込済み・抽選待ち：抽選日（lotteryDate）昇順・NULL 末尾', () => {
+  it('申込完了・抽選待ち：抽選日（lotteryDate）昇順・NULL 末尾', () => {
     const items: EntryBoardItem[] = [
       makeItem({ id: 1, lotteryDate: '2026-07-20' }),
       makeItem({ id: 2, lotteryDate: null }),
@@ -958,7 +960,7 @@ describe('sortArea', () => {
     expect(sorted).toEqual([3, 1, 2])
   })
 
-  it('名簿確定・振込待ち：支払締切（paymentDeadline）昇順・NULL 末尾', () => {
+  it('名簿確定・要振込：支払締切（paymentDeadline）昇順・NULL 末尾', () => {
     const items: EntryBoardItem[] = [
       makeItem({ id: 1, paymentDeadline: '2026-07-20' }),
       makeItem({ id: 2, paymentDeadline: null }),
@@ -1001,7 +1003,7 @@ describe('deadlineBadgeOf', () => {
     expect(badge.date).toBe('7/14')
   })
 
-  it('要対応：entryDeadline を見る（internalDeadline ではない）', () => {
+  it('要申込：entryDeadline を見る（internalDeadline ではない）', () => {
     const item = makeItem({
       internalDeadline: '2026-01-01',
       entryDeadline: '2026-07-20',
@@ -1011,7 +1013,7 @@ describe('deadlineBadgeOf', () => {
     expect(badge.date).toBe('7/20')
   })
 
-  it('申込済み・抽選待ち：lotteryDate を見て NULL は「未定」', () => {
+  it('申込完了・抽選待ち：lotteryDate を見て NULL は「未定」', () => {
     const withDate = deadlineBadgeOf(
       makeItem({ lotteryDate: '2026-07-20' }),
       'applied_waiting',
@@ -1026,7 +1028,7 @@ describe('deadlineBadgeOf', () => {
     expect(withoutDate.tone).toBe('none')
   })
 
-  it('名簿確定・振込待ち：paymentDeadline を見る', () => {
+  it('名簿確定・要振込：paymentDeadline を見る', () => {
     const badge = deadlineBadgeOf(
       makeItem({ paymentDeadline: '2026-07-20' }),
       'payment_due',
@@ -1106,7 +1108,7 @@ describe('残日数の表示条件（AC-18）', () => {
   })
 })
 
-describe('AC-19: 申込済み・抽選待ち と 完了 の残日数は常に出さない前提（描画側条件の元データ）', () => {
+describe('AC-19: 申込完了・抽選待ち と 完了 の残日数は常に出さない前提（描画側条件の元データ）', () => {
   it('抽選待ちは lotteryDate が近くても badge 自体は出るが、showCountdown=false で描画抑止される', () => {
     // entry-board-utils はデータだけを返す。表示抑止は AreaDef.showCountdown を
     // 描画側が見て行う（このテストは showCountdown フラグの値を固定する）。
@@ -1145,14 +1147,14 @@ describe('isDue', () => {
     expect(isDue(item, 'action_required', TODAY)).toBe(false)
   })
 
-  it('名簿確定・振込待ちでも同様に判定できる（paymentDeadline）', () => {
+  it('名簿確定・要振込でも同様に判定できる（paymentDeadline）', () => {
     expect(isDue(makeItem({ paymentDeadline: null }), 'payment_due', TODAY)).toBe(true)
     expect(isDue(makeItem({ paymentDeadline: '2026-07-20' }), 'payment_due', TODAY)).toBe(false)
   })
 })
 
 describe('isAreaHot', () => {
-  it('要対応：締切到来済みが1件以上あれば true（AC-21）', () => {
+  it('要申込：締切到来済みが1件以上あれば true（AC-21）', () => {
     const items = [
       makeItem({ id: 1, entryDeadline: '2026-07-20' }), // 未到来
       makeItem({ id: 2, entryDeadline: '2026-07-01' }), // 超過
@@ -1160,12 +1162,12 @@ describe('isAreaHot', () => {
     expect(isAreaHot(areaDef('action_required'), items, TODAY)).toBe(true)
   })
 
-  it('要対応：entry_deadline が NULL の大会が1件でもあれば true（AC-21b, fail-safe）', () => {
+  it('要申込：entry_deadline が NULL の大会が1件でもあれば true（AC-21b, fail-safe）', () => {
     const items = [makeItem({ id: 1, entryDeadline: null })]
     expect(isAreaHot(areaDef('action_required'), items, TODAY)).toBe(true)
   })
 
-  it('要対応：全件が未到来（4日以上先）なら false（AC-21）', () => {
+  it('要申込：全件が未到来（4日以上先）なら false（AC-21）', () => {
     const items = [
       makeItem({ id: 1, entryDeadline: '2026-07-20' }),
       makeItem({ id: 2, entryDeadline: '2026-08-01' }),
@@ -1173,7 +1175,7 @@ describe('isAreaHot', () => {
     expect(isAreaHot(areaDef('action_required'), items, TODAY)).toBe(false)
   })
 
-  it('名簿確定・振込待ち：到来済みが1件以上あれば true（AC-21）', () => {
+  it('名簿確定・要振込：到来済みが1件以上あれば true（AC-21）', () => {
     const items = [makeItem({ id: 1, paymentDeadline: '2026-07-01' })]
     expect(isAreaHot(areaDef('payment_due'), items, TODAY)).toBe(true)
   })
@@ -1183,7 +1185,7 @@ describe('isAreaHot', () => {
     expect(isAreaHot(areaDef('before_deadline'), items, TODAY)).toBe(false)
   })
 
-  it('非行動フェーズ（申込済み・抽選待ち）は常に false（AC-22）', () => {
+  it('非行動フェーズ（申込完了・抽選待ち）は常に false（AC-22）', () => {
     const items = [makeItem({ id: 1, lotteryDate: null })]
     expect(isAreaHot(areaDef('applied_waiting'), items, TODAY)).toBe(false)
   })
@@ -1193,7 +1195,7 @@ describe('isAreaHot', () => {
     expect(isAreaHot(areaDef('done'), items, TODAY)).toBe(false)
   })
 
-  it('要対応：対象0件なら false', () => {
+  it('要申込：対象0件なら false', () => {
     expect(isAreaHot(areaDef('action_required'), [], TODAY)).toBe(false)
   })
 })
