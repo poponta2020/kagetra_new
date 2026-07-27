@@ -38,7 +38,7 @@
 - `tournament-lottery-trends` — 大会系列ごとの申込者数・倍率推移とA級の出場回数別当落線を表示する（主要領域: apps/web, apps/mail-worker, packages/shared）[shipped: PR #304]
 - `entry-overdue-alert` — 会内締切超過の未申込大会を管理者個人LINEへ毎朝アラート＋進行管理に「申込なし」を追加（主要領域: apps/web, packages/shared）[shipped: PR #312]
 - `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: apps/web, packages/shared）[shipped: PR #321]
-- `entry-management` — 管理者向け大会申込進捗ボード（5区画へ自動仕分け）＋ボトムナビ導線（主要領域: apps/web）[shipped: PR #334] [shipped: PR #380]
+- `entry-management` — 管理者向け大会申込進捗ボード（5区画へ自動仕分け）＋ボトムナビ導線（主要領域: apps/web）[shipped: PR #334] [shipped: PR #380] [shipped: PR #398]
 - `role-preview-switch` — 許可された管理者だけが表示ロール（管理者/副管理者/一般会員）をUIから切り替え、会員としての見え方・触れ方を実機確認できるようにする（主要領域: apps/web） [shipped: PR #336]
 - `event-list-redesign` — /events 大会申込一覧の再リデザイン（主要領域: apps/web events） [shipped: PR #345]
 - `nav-settings-hub` — 上部バー(かげとら＋ユーザー名)を廃止し、ボトムナビに設定タブ＋独立した設定ページを新設。会員・Botはナビから設定ハブへ移設（主要領域: apps/web layout） [shipped: PR #351]
