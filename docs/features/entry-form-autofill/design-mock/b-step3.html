@@ -1,0 +1,116 @@
+<!-- @dsCard group="申込書作成（B案: ウィザード ③メール）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* entry-form-autofill S2 — B案 ③メールの確認・作成（構成は b-step1 と共通） */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--kg-font-sans); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 12px; background: var(--kg-surface-alt); }
+  .phone { width: 375px; height: 812px; display: flex; flex-direction: column; background: var(--kg-bg); border: 1px solid var(--kg-border); border-radius: 14px; overflow: hidden; font-size: var(--kg-text-base); color: var(--kg-fg); line-height: var(--kg-leading-normal); box-shadow: var(--kg-shadow-md); }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 16px; padding: 16px 16px 8px; }
+  .crumb { font-size: 11px; color: var(--kg-fg-3); } .crumb b { color: var(--kg-fg-2); }
+  h1 { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: 20px; line-height: 1.3; }
+  .sub { font-size: 12px; color: var(--kg-fg-3); margin-top: 2px; }
+  .steps { display: flex; padding: 10px 0 4px; }
+  .step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+  .step::before, .step::after { content: ""; position: absolute; top: 4px; height: 1px; background: var(--kg-border); }
+  .step::before { left: 0; right: 50%; } .step::after { left: 50%; right: 0; }
+  .step:first-child::before, .step:last-child::after { display: none; }
+  .step.done::before, .step.done::after, .step.now::before { background: var(--kg-brand); }
+  .sdot { position: relative; z-index: 1; width: 9px; height: 9px; border-radius: 9999px; background: var(--kg-surface); box-shadow: 0 0 0 1px var(--kg-border-strong); }
+  .step.now .sdot { box-shadow: 0 0 0 2px var(--kg-brand); }
+  .step.done .sdot { background: var(--kg-brand); box-shadow: 0 0 0 1px var(--kg-brand); }
+  .slabel { font-size: 11px; color: var(--kg-fg-3); white-space: nowrap; }
+  .step.now .slabel { color: var(--kg-brand); font-weight: var(--kg-w-bold); }
+  .step.done .slabel { color: var(--kg-fg-2); }
+
+  .sect { display: flex; align-items: center; gap: 8px; }
+  .sect .t { flex: none; font-size: 13px; font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+  .sect .rule { flex: 1; height: 1px; background: var(--kg-border-soft); }
+
+  /* 添付サマリ行 */
+  .attach { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-top: 4px; }
+  .aname { min-width: 0; flex: 1; font-weight: var(--kg-w-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ainfo { flex: none; font-size: 10px; color: var(--kg-fg-3); }
+
+  .mail { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .frow { display: flex; flex-direction: column; gap: 3px; }
+  .flabel { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--kg-fg-3); }
+  .badge { font-size: 9px; line-height: 1; padding: 2px 5px; border-radius: 9999px; background: var(--kg-info-bg); color: var(--kg-info-fg); font-weight: var(--kg-w-bold); }
+  .badge.ai { background: var(--kg-brand-bg); color: var(--kg-brand-fg); }
+  .fval { font-size: 13px; padding: 8px 10px; background: var(--kg-surface); border: 1px solid var(--kg-border); border-radius: var(--kg-radius-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fval.body { white-space: pre-line; font-size: 12px; line-height: 1.6; }
+
+  .foot { flex: none; padding: 10px 16px 14px; border-top: 1px solid var(--kg-border); background: var(--kg-surface); display: flex; flex-direction: column; gap: 6px; }
+  .btnrow { display: flex; gap: 8px; }
+  .back { flex: none; padding: 12px 16px; border: 1px solid var(--kg-border-strong); border-radius: var(--kg-radius-md); background: var(--kg-surface); color: var(--kg-fg-2); font-family: var(--kg-font-sans); font-size: var(--kg-text-base); }
+  .cta { flex: 1; text-align: center; padding: 12px 0; border: 0; border-radius: var(--kg-radius-md); background: var(--kg-brand); color: var(--kg-fg-on-brand); font-family: var(--kg-font-sans); font-size: var(--kg-text-base); font-weight: var(--kg-w-bold); }
+  .ctanote { text-align: center; font-size: 10px; color: var(--kg-fg-3); }
+</style></head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div>
+    <div class="crumb">イベント詳細 › <b>進行管理</b></div>
+    <h1>申込書を作成</h1>
+    <div class="sub">第3回青森大会（6/13〜14・大会申込締切 5/27）</div>
+  </div>
+
+  <div class="steps">
+    <div class="step done"><span class="sdot"></span><span class="slabel">テンプレート</span></div>
+    <div class="step done"><span class="sdot"></span><span class="slabel">会員</span></div>
+    <div class="step now"><span class="sdot"></span><span class="slabel">メール</span></div>
+  </div>
+
+  <section>
+    <div class="sect"><span class="t">添付する申込書</span><span class="rule"></span></div>
+    <div class="attach">
+      <span class="aname">【北海道大学かるた会】第３回青森大会参加申込書.xlsx</span>
+      <span class="ainfo">15名記入済み</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="sect"><span class="t">メール下書き</span><span class="rule"></span></div>
+    <div class="mail">
+      <div class="frow">
+        <div class="flabel">宛先 <span class="badge">申込書から抽出</span></div>
+        <div class="fval">aomorikaruta@yahoo.co.jp</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">件名 <span class="badge ai">主催者指定を抽出</span></div>
+        <div class="fval">青森大会申込み（北海道大学かるた会）</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">添付ファイル名</div>
+        <div class="fval">【北海道大学かるた会】第３回青森大会参加申込書.xlsx</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">本文</div>
+        <div class="fval body">青森かるた会　ご担当者様
+
+いつもお世話になっております。
+北海道大学かるた会連絡責任者の土居悠太と申します。
+
+弊会所属15名（A級5名、B級5名、C級3名、D級1名、E級1名）分の参加申込書を添付ファイルにてお送りいたします。
+お手数おかけしますが、ご確認のほどよろしくお願いします。
+
+土居</div>
+      </div>
+    </div>
+  </section>
+
+</div></div>
+
+<div class="foot">
+  <div class="btnrow">
+    <button class="back">戻る</button>
+    <button class="cta">Yahoo メールに下書きを作成</button>
+  </div>
+  <div class="ctanote">送信はされません — 下書きを確認し、Yahoo メールから手動で送信します</div>
+</div>
+</div>
+
+</body></html>

@@ -1,0 +1,192 @@
+<!-- @dsCard group="申込書作成（A案: 縦スクロール1枚）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* ============================================================
+     entry-form-autofill S2 — A案: 縦スクロール1枚
+     テンプレート → 対象会員 → メール → 作成ボタン を1画面に直列配置。
+     脱カード方針（event-detail-redesign 踏襲）: 面で包まず罫線・点・タイポで区切る。
+     データ: 第3回青森大会の実申込（15名 A5/B5/C3/D1/E1）を模した架空名。
+     数値リテラルは既存実装踏襲値: h1 20px / 節見出し13px / 行12px / 補足11px / 微注10px
+     ============================================================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--kg-font-sans);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 24px 12px; background: var(--kg-surface-alt);
+  }
+  .phone {
+    width: 375px; height: 812px;
+    display: flex; flex-direction: column;
+    background: var(--kg-bg);
+    border: 1px solid var(--kg-border); border-radius: 14px;
+    overflow: hidden;
+    font-size: var(--kg-text-base); color: var(--kg-fg);
+    line-height: var(--kg-leading-normal);
+    box-shadow: var(--kg-shadow-md);
+  }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 8px; }
+
+  .crumb { font-size: 11px; color: var(--kg-fg-3); }
+  .crumb b { color: var(--kg-fg-2); font-weight: var(--kg-w-medium, 500); }
+  h1 { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: 20px; line-height: 1.3; }
+  .sub { font-size: 12px; color: var(--kg-fg-3); margin-top: 2px; }
+
+  /* 節: SectionRule 風 — 見出し + 右へ伸びる罫線 */
+  .sect { display: flex; align-items: center; gap: 8px; }
+  .sect .t { flex: none; font-size: 13px; font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+  .sect .n { flex: none; font-size: 11px; color: var(--kg-fg-3); font-variant-numeric: tabular-nums; }
+  .sect .rule { flex: 1; height: 1px; background: var(--kg-border-soft); }
+
+  /* テンプレート節 */
+  .tpl { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .tplrow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .tplname { min-width: 0; flex: 1; font-weight: var(--kg-w-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tplsrc { font-size: 10px; color: var(--kg-fg-3); flex: none; }
+  .lnk { font-size: 11px; color: var(--kg-brand); text-decoration: none; flex: none; }
+  .maprow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--kg-fg-2); }
+  .ok { color: var(--kg-success-fg); font-weight: var(--kg-w-bold); }
+  .mapnote { font-size: 10px; color: var(--kg-fg-muted); }
+
+  /* 会員リスト: FlatTable 風の罫線行 */
+  .mlist { list-style: none; margin-top: 4px; }
+  .mlist > li + li { border-top: 1px solid var(--kg-border-soft); }
+  .mrow { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; font-size: 12px; }
+  .grade { flex: none; width: 34px; font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); color: var(--kg-brand-fg); font-variant-numeric: tabular-nums; }
+  .mname { min-width: 0; flex: 1; }
+  .mname b { font-weight: var(--kg-w-bold); color: var(--kg-fg); }
+  .kana { display: block; font-size: 10px; color: var(--kg-fg-3); line-height: 1.3; }
+  .dan { flex: none; width: 34px; text-align: right; color: var(--kg-fg-2); font-variant-numeric: tabular-nums; }
+  .cnt { flex: none; width: 44px; text-align: right; font-size: 11px; color: var(--kg-fg-3); font-variant-numeric: tabular-nums; }
+  .chev { flex: none; font-size: 11px; color: var(--kg-fg-muted); }
+  /* 警告行: 朱は装飾でなく警告のみ */
+  .warn .kana, .warn .dan-missing { color: var(--kg-accent-fg); font-weight: var(--kg-w-bold); }
+  .warnmark { color: var(--kg-accent); font-weight: var(--kg-w-bold); }
+  .addrow { padding: 8px 0 0; font-size: 12px; }
+  .tally { display: flex; gap: 10px; font-size: 11px; color: var(--kg-fg-2); font-variant-numeric: tabular-nums; padding-top: 6px; }
+  .tally b { font-weight: var(--kg-w-bold); }
+
+  /* メール節: ラベル+値の平組み */
+  .mail { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+  .frow { display: flex; flex-direction: column; gap: 3px; }
+  .flabel { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--kg-fg-3); }
+  .badge { font-size: 9px; line-height: 1; padding: 2px 5px; border-radius: 9999px; background: var(--kg-info-bg); color: var(--kg-info-fg); font-weight: var(--kg-w-bold); }
+  .badge.ai { background: var(--kg-brand-bg); color: var(--kg-brand-fg); }
+  .fval {
+    font-size: 13px; padding: 8px 10px;
+    background: var(--kg-surface); border: 1px solid var(--kg-border);
+    border-radius: var(--kg-radius-md);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fval.body { white-space: pre-line; font-size: 12px; line-height: 1.6; max-height: 150px; overflow: hidden; position: relative; }
+  .fade { position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+    background: linear-gradient(transparent, var(--kg-surface)); display: flex; align-items: flex-end; justify-content: center; }
+  .fade a { font-size: 11px; color: var(--kg-brand); text-decoration: none; background: var(--kg-surface); padding: 0 8px; }
+
+  /* 固定フッター: 作成ボタン */
+  .foot {
+    flex: none; padding: 10px 16px 14px;
+    border-top: 1px solid var(--kg-border);
+    background: var(--kg-surface);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .cta {
+    display: block; width: 100%; text-align: center;
+    padding: 12px 0; border: 0; border-radius: var(--kg-radius-md);
+    background: var(--kg-brand); color: var(--kg-fg-on-brand);
+    font-family: var(--kg-font-sans); font-size: var(--kg-text-base); font-weight: var(--kg-w-bold);
+  }
+  .ctanote { text-align: center; font-size: 10px; color: var(--kg-fg-3); }
+</style></head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div>
+    <div class="crumb">イベント詳細 › <b>進行管理</b></div>
+    <h1>申込書を作成</h1>
+    <div class="sub">第3回青森大会（6/13〜14・大会申込締切 5/27）</div>
+  </div>
+
+  <!-- ============ テンプレート ============ -->
+  <section>
+    <div class="sect"><span class="t">申込書テンプレート</span><span class="rule"></span></div>
+    <div class="tpl">
+      <div class="tplrow">
+        <span class="tplname">第３回青森大会参加申込書.xlsx</span>
+        <span class="tplsrc">案内メール添付・5/8受信</span>
+        <a class="lnk" href="#">変更</a>
+      </div>
+      <div class="maprow"><span class="ok">✓ 列の対応を自動判定</span><span>姓・名・ふりがな・段位・参加級・出場回数・備考（12行目から記入）</span></div>
+      <div class="maprow"><a class="lnk" href="#">対応を確認・修正する ›</a></div>
+    </div>
+  </section>
+
+  <!-- ============ 対象会員 ============ -->
+  <section>
+    <div class="sect"><span class="t">記入する会員</span><span class="n">15名</span><span class="rule"></span></div>
+    <ul class="mlist">
+      <li><div class="mrow"><span class="grade">A級</span><span class="mname"><b>青木 悠人</b><span class="kana">あおき ゆうと</span></span><span class="dan">4段</span><span class="cnt">出場 2</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">A級</span><span class="mname"><b>石田 美咲</b><span class="kana">いしだ みさき</span></span><span class="dan">4段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">A級</span><span class="mname"><b>加藤 蒼真</b><span class="kana">かとう そうま</span></span><span class="dan">4段</span><span class="cnt">出場 1</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">A級</span><span class="mname"><b>佐野 ひかり</b><span class="kana">さの ひかり</span></span><span class="dan">4段</span><span class="cnt">出場 1</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">A級</span><span class="mname"><b>高橋 直樹</b><span class="kana">たかはし なおき</span></span><span class="dan">5段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">B級</span><span class="mname"><b>中村 葵</b><span class="kana">なかむら あおい</span></span><span class="dan">3段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">B級</span><span class="mname"><b>藤井 陸</b><span class="kana">ふじい りく</span></span><span class="dan">3段</span><span class="cnt">出場 1</span><span class="chev">›</span></div></li>
+      <li class="warn"><div class="mrow"><span class="grade">B級</span><span class="mname"><b>松田 結菜</b><span class="kana"><span class="warnmark">⚠</span> ふりがな未登録 — タップして入力</span></span><span class="dan">3段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">B級</span><span class="mname"><b>山本 大和</b><span class="kana">やまもと やまと</span></span><span class="dan">3段</span><span class="cnt">出場 1</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">B級</span><span class="mname"><b>渡辺 莉子</b><span class="kana">わたなべ りこ</span></span><span class="dan">3段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">C級</span><span class="mname"><b>小林 海斗</b><span class="kana">こばやし かいと</span></span><span class="dan">2段</span><span class="cnt">出場 0</span><span class="chev">›</span></div></li>
+      <li class="warn"><div class="mrow"><span class="grade">C級</span><span class="mname"><b>斉藤 心春</b><span class="kana">さいとう こはる</span></span><span class="dan">2段</span><span class="cnt"><span class="warnmark">⚠</span> 出場 0</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">C級</span><span class="mname"><b>田中 悠里</b><span class="kana">たなか ゆうり</span></span><span class="dan">2段</span><span class="cnt">出場 1</span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">D級</span><span class="mname"><b>新井 颯太</b><span class="kana">あらい そうた</span></span><span class="dan">初段</span><span class="cnt"></span><span class="chev">›</span></div></li>
+      <li><div class="mrow"><span class="grade">E級</span><span class="mname"><b>井上 さくら</b><span class="kana">いのうえ さくら</span></span><span class="dan">無段</span><span class="cnt"></span><span class="chev">›</span></div></li>
+    </ul>
+    <div class="tally"><span>A級 <b>5</b></span><span>B級 <b>5</b></span><span>C級 <b>3</b></span><span>D級 <b>1</b></span><span>E級 <b>1</b></span><span style="margin-left:auto">計 <b>15</b>名</span></div>
+    <div class="addrow"><a class="lnk" href="#">＋ 会員を追加</a></div>
+  </section>
+
+  <!-- ============ メール ============ -->
+  <section>
+    <div class="sect"><span class="t">メール下書き</span><span class="rule"></span></div>
+    <div class="mail">
+      <div class="frow">
+        <div class="flabel">宛先 <span class="badge">申込書から抽出</span></div>
+        <div class="fval">aomorikaruta@yahoo.co.jp</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">件名 <span class="badge">定型</span></div>
+        <div class="fval">青森大会申込み（北海道大学かるた会）</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">添付ファイル名</div>
+        <div class="fval">【北海道大学かるた会】第３回青森大会参加申込書.xlsx</div>
+      </div>
+      <div class="frow">
+        <div class="flabel">本文</div>
+        <div class="fval body">青森かるた会　ご担当者様
+
+いつもお世話になっております。
+北海道大学かるた会連絡責任者の土居悠太と申します。
+
+弊会所属15名（A級5名、B級5名、C級3名、D級1名、E級1名）分の参加申込書を添付ファイルにてお送りいたします。
+お手数おかけしますが、ご確認のほどよろしくお願いします。
+
+土居<div class="fade"><a href="#">全文を編集</a></div></div>
+      </div>
+    </div>
+  </section>
+
+</div></div>
+
+<div class="foot">
+  <button class="cta">Yahoo メールに下書きを作成</button>
+  <div class="ctanote">送信はされません — 下書きを確認し、Yahoo メールから手動で送信します</div>
+</div>
+</div>
+
+</body></html>

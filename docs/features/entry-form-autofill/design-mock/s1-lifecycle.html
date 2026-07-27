@@ -1,0 +1,54 @@
+<!-- @dsCard group="申込書作成（S1: 進行管理への導線）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* entry-form-autofill S1 — イベント詳細・進行管理セクションへの delta。
+     既存 EventLifecycleSection（申込状態／支払状態の FlatTable + LinkAction 意匠）に
+     「申込書」行を1行追加するだけ。上=作成前 / 下=作成後（履歴あり）の2態を並置。 */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--kg-font-sans); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 12px; background: var(--kg-surface-alt); }
+  .frame { width: 375px; background: var(--kg-bg); border: 1px solid var(--kg-border); border-radius: 14px; overflow: hidden; font-size: var(--kg-text-base); color: var(--kg-fg); line-height: var(--kg-leading-normal); box-shadow: var(--kg-shadow-md); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .cap { font-size: 11px; color: var(--kg-fg-muted); }
+
+  .sect { display: flex; align-items: center; gap: 8px; }
+  .sect .t { flex: none; font-size: 13px; font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+  .sect .rule { flex: 1; height: 1px; background: var(--kg-border-soft); }
+
+  .rows { list-style: none; }
+  .rows > li + li { border-top: 1px solid var(--kg-border-soft); }
+  .row { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; font-size: 12px; }
+  .rk { flex: none; width: 72px; color: var(--kg-fg-3); }
+  .rv { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 8px; }
+  .pill { font-size: 10px; line-height: 1; padding: 3px 7px; border-radius: 9999px; font-weight: var(--kg-w-bold); }
+  .pill.plain { background: var(--kg-neutral-bg); color: var(--kg-neutral-fg); }
+  .pill.ok { background: var(--kg-success-bg); color: var(--kg-success-fg); }
+  .act { margin-left: auto; flex: none; font-size: 11px; color: var(--kg-brand); text-decoration: none; font-weight: var(--kg-w-bold); }
+  .meta { font-size: 10px; color: var(--kg-fg-muted); }
+</style></head><body>
+
+<!-- 作成前 -->
+<div class="frame">
+  <div class="cap">作成前（申込書の行を追加するだけ・他の行は既存のまま）</div>
+  <div class="sect"><span class="t">進行管理</span><span class="rule"></span></div>
+  <ul class="rows">
+    <li><div class="row"><span class="rk">申込状態</span><span class="rv"><span class="pill plain">未申込</span></span><a class="act" href="#">申込済にする ›</a></div></li>
+    <li><div class="row"><span class="rk">申込書</span><span class="rv"><span class="meta">未作成</span></span><a class="act" href="#">申込書を作成 ›</a></div></li>
+    <li><div class="row"><span class="rk">支払状態</span><span class="rv"><span class="pill plain">未払い</span></span><a class="act" href="#">支払済にする ›</a></div></li>
+  </ul>
+</div>
+
+<!-- 作成後 -->
+<div class="frame">
+  <div class="cap">作成後（最終作成の履歴と再ダウンロード導線）</div>
+  <div class="sect"><span class="t">進行管理</span><span class="rule"></span></div>
+  <ul class="rows">
+    <li><div class="row"><span class="rk">申込状態</span><span class="rv"><span class="pill plain">未申込</span></span><a class="act" href="#">申込済にする ›</a></div></li>
+    <li><div class="row"><span class="rk">申込書</span><span class="rv"><span class="pill ok">下書き作成済</span><span class="meta">7/27 21:04・土居</span></span><a class="act" href="#">再作成 ›</a></div></li>
+    <li><div class="row"><span class="rk"></span><span class="rv"><span class="meta">【北海道大学かるた会】第３回青森大会参加申込書.xlsx</span></span><a class="act" href="#">DL</a></div></li>
+    <li><div class="row"><span class="rk">支払状態</span><span class="rv"><span class="pill plain">未払い</span></span><a class="act" href="#">支払済にする ›</a></div></li>
+  </ul>
+</div>
+
+</body></html>

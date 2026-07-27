@@ -1,0 +1,104 @@
+<!-- @dsCard group="申込書作成（B案 状態: AIフォールバック推定）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* entry-form-autofill S2 — B案 ①の変化形: ヒューリスティック失敗 → AI（Haiku）推定。
+     AI 由来であることを面で明示し、「必ず確認」の一文を添える。女流型の特殊列（学校名等）は
+     対応なし＝空欄のままにできることを示す。 */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--kg-font-sans); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 12px; background: var(--kg-surface-alt); }
+  .phone { width: 375px; height: 812px; display: flex; flex-direction: column; background: var(--kg-bg); border: 1px solid var(--kg-border); border-radius: 14px; overflow: hidden; font-size: var(--kg-text-base); color: var(--kg-fg); line-height: var(--kg-leading-normal); box-shadow: var(--kg-shadow-md); }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 8px; }
+  .crumb { font-size: 11px; color: var(--kg-fg-3); } .crumb b { color: var(--kg-fg-2); }
+  h1 { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: 20px; line-height: 1.3; }
+  .sub { font-size: 12px; color: var(--kg-fg-3); margin-top: 2px; }
+  .steps { display: flex; padding: 10px 0 4px; }
+  .step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+  .step::before, .step::after { content: ""; position: absolute; top: 4px; height: 1px; background: var(--kg-border); }
+  .step::before { left: 0; right: 50%; } .step::after { left: 50%; right: 0; }
+  .step:first-child::before, .step:last-child::after { display: none; }
+  .step.now::before { background: var(--kg-brand); }
+  .sdot { position: relative; z-index: 1; width: 9px; height: 9px; border-radius: 9999px; background: var(--kg-surface); box-shadow: 0 0 0 1px var(--kg-border-strong); }
+  .step.now .sdot { box-shadow: 0 0 0 2px var(--kg-brand); }
+  .slabel { font-size: 11px; color: var(--kg-fg-3); white-space: nowrap; }
+  .step.now .slabel { color: var(--kg-brand); font-weight: var(--kg-w-bold); }
+  .sect { display: flex; align-items: center; gap: 8px; }
+  .sect .t { flex: none; font-size: 13px; font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+  .sect .rule { flex: 1; height: 1px; background: var(--kg-border-soft); }
+
+  .tplrow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-top: 6px; }
+  .tplname { min-width: 0; flex: 1; font-weight: var(--kg-w-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tplsrc { font-size: 10px; color: var(--kg-fg-3); flex: none; }
+  .lnk { font-size: 11px; color: var(--kg-brand); text-decoration: none; flex: none; }
+
+  /* AI 推定の告知面: brand-bg の薄面（警告ではないので朱は使わない） */
+  .ainote { display: flex; gap: 8px; padding: 8px 10px; border-radius: var(--kg-radius-md); background: var(--kg-brand-bg); margin-top: 6px; }
+  .ainote .txt { font-size: 11px; color: var(--kg-brand-fg); line-height: 1.5; }
+  .ainote .txt b { font-weight: var(--kg-w-bold); }
+
+  .maps { list-style: none; margin-top: 2px; }
+  .maps > li + li { border-top: 1px solid var(--kg-border-soft); }
+  .map { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; font-size: 12px; }
+  .mfield { flex: none; width: 76px; color: var(--kg-fg-2); }
+  .mcol { flex: 1; font-variant-numeric: tabular-nums; }
+  .mcol b { font-weight: var(--kg-w-bold); }
+  .mcol .dim { color: var(--kg-fg-muted); }
+  .aitag { font-size: 9px; line-height: 1; padding: 2px 5px; border-radius: 9999px; background: var(--kg-brand-bg); color: var(--kg-brand-fg); font-weight: var(--kg-w-bold); margin-left: 4px; }
+  .mfix { flex: none; font-size: 11px; color: var(--kg-brand); text-decoration: none; }
+  .mnote { font-size: 10px; color: var(--kg-fg-muted); padding-top: 6px; }
+
+  .foot { flex: none; padding: 10px 16px 14px; border-top: 1px solid var(--kg-border); background: var(--kg-surface); }
+  .cta { display: block; width: 100%; text-align: center; padding: 12px 0; border: 0; border-radius: var(--kg-radius-md); background: var(--kg-brand); color: var(--kg-fg-on-brand); font-family: var(--kg-font-sans); font-size: var(--kg-text-base); font-weight: var(--kg-w-bold); }
+</style></head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div>
+    <div class="crumb">イベント詳細 › <b>進行管理</b></div>
+    <h1>申込書を作成</h1>
+    <div class="sub">第58回全国女流選手権大会（6/6〜7・大会申込締切 4/27）</div>
+  </div>
+
+  <div class="steps">
+    <div class="step now"><span class="sdot"></span><span class="slabel">テンプレート</span></div>
+    <div class="step"><span class="sdot"></span><span class="slabel">会員</span></div>
+    <div class="step"><span class="sdot"></span><span class="slabel">メール</span></div>
+  </div>
+
+  <section>
+    <div class="sect"><span class="t">申込書テンプレート</span><span class="rule"></span></div>
+    <div class="tplrow">
+      <span class="tplname">第58回全国女流選手権大会申込書.xlsx</span>
+      <span class="tplsrc">案内メール添付・4/10受信</span>
+      <a class="lnk" href="#">変更</a>
+    </div>
+  </section>
+
+  <section>
+    <div class="sect"><span class="t">列の対応</span><span class="rule"></span></div>
+    <div class="ainote"><span class="txt"><b>AI が列の対応を推定しました。</b>この様式は自動判定できなかったため、各列の対応を必ず確認してから進んでください。</span></div>
+    <ul class="maps">
+      <li><div class="map"><span class="mfield">姓</span><span class="mcol"><b>B列</b><span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">名</span><span class="mcol"><b>C列</b><span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">ふりがな（姓）</span><span class="mcol"><b>D列</b><span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">ふりがな（名）</span><span class="mcol"><b>E列</b><span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">所属会</span><span class="mcol"><b>F列</b>（会の定数から記入）<span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">段位</span><span class="mcol"><b>G列</b>（初〜十のリスト入力）<span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">参加級</span><span class="mcol"><b>H列</b>（A/B/C のリスト入力）<span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+      <li><div class="map"><span class="mfield">学校名・学年</span><span class="mcol"><span class="dim">対応なし — 空欄のまま（会員ごとに手入力可）</span></span><a class="mfix" href="#">指定</a></div></li>
+      <li><div class="map"><span class="mfield">参加料</span><span class="mcol"><b>J列</b>（2500/2000 のリスト入力）<span class="aitag">AI</span></span><a class="mfix" href="#">変更</a></div></li>
+    </ul>
+    <div class="mnote">7行目から記入・合計セル（J17）は数式のため書き込みません</div>
+  </section>
+
+</div></div>
+
+<div class="foot">
+  <button class="cta">次へ — 会員の確認（1名）</button>
+</div>
+</div>
+
+</body></html>
