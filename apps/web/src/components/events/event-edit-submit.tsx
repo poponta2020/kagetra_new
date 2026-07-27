@@ -97,11 +97,19 @@ export function EventEditSubmit({ label, initialValues, siblings }: EventEditSub
   function confirmAndSubmit() {
     const form = formRef.current
     if (!form) return
+    // ★前回生成した hidden input を必ず全部消してから積み直す（r4 review blocker）。
+    // `requestSubmit()` はブラウザの必須入力検証で中断されることがあり、その場合
+    // フォームは残る。追加するだけだと、次の確認でチェックを外した日の id が前回分と
+    // して残り、**明示的に除外した日の締切・支払い情報まで上書き**してしまう。
+    for (const stale of form.querySelectorAll('input[data-propagate-generated="1"]')) {
+      stale.remove()
+    }
     for (const id of checked) {
       const input = document.createElement('input')
       input.type = 'hidden'
       input.name = 'propagate_event_ids'
       input.value = String(id)
+      input.dataset.propagateGenerated = '1'
       form.appendChild(input)
     }
     setDialogOpen(false)

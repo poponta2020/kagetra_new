@@ -120,6 +120,34 @@ describe('EventEditSubmit — 伝播確認ダイアログ', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
+  // r4 review blocker: hidden input を追加するだけだと、submit が中断された後に
+  // チェックを外して再送信したとき、外した日の id が前回分として残り、明示的に
+  // 除外した日にも伝播してしまう。生成した input は毎回作り直す。
+  it('r4: 送信が中断された後に選択を変えて再送信すると、古い伝播対象は残らない', () => {
+    const seen: string[][] = []
+    const onSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault()
+      seen.push(new FormData(e.currentTarget).getAll('propagate_event_ids') as string[])
+    })
+    render(<Harness onSubmit={onSubmit} />)
+
+    fireEvent.change(screen.getByDisplayValue('2026-07-01'), {
+      target: { value: '2026-07-10' },
+    })
+    // 1回目: 既定の全チェックのまま保存（= 中断された送信を模す。フォームは残る）
+    fireEvent.click(screen.getByRole('button', { name: '更新' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(seen[0]).toEqual(['2'])
+
+    // 2回目: 同じフォームでチェックを外して再送信
+    fireEvent.click(screen.getByRole('button', { name: '更新' }))
+    fireEvent.click(screen.getByLabelText(/多摩B/)) // uncheck
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    // 前回の '2' が残っていない（残っていると除外した日を上書きしてしまう）
+    expect(seen[1]).toEqual([])
+  })
+
   it('キャンセルを押すとダイアログが閉じて送信されない', () => {
     const onSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => e.preventDefault())
     render(<Harness onSubmit={onSubmit} />)
