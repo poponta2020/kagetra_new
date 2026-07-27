@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { Step2Members } from './Step2Members'
+import { Step2Members, type Step2MembersProps } from './Step2Members'
 import type { WizardMember } from './wizard-types'
 
 function wm(overrides: Partial<WizardMember> = {}): WizardMember {
@@ -268,8 +268,9 @@ describe('Step2Members — 会員一覧からの行追加（AC-5・対象0名の
 })
 
 describe('Step2Members — 参加級 未登録の扱い（AC-5b）', () => {
-  const baseProps = (over: Record<string, unknown> = {}) => ({
-    appearanceCompleteness: 'complete' as const,
+  const baseProps = (over: Partial<Step2MembersProps> = {}): Step2MembersProps => ({
+    members: [],
+    appearanceCompleteness: 'complete',
     appearanceIncompleteGrades: [],
     onExclude: vi.fn(),
     onInclude: vi.fn(),
@@ -331,7 +332,10 @@ describe('Step2Members — 参加級 未登録の扱い（AC-5b）', () => {
 })
 
 describe('Step2Members — 出場回数 incomplete の行単位警告（AC-9b）', () => {
-  const baseProps = (over: Record<string, unknown> = {}) => ({
+  const baseProps = (over: Partial<Step2MembersProps> = {}): Step2MembersProps => ({
+    members: [],
+    appearanceCompleteness: 'complete',
+    appearanceIncompleteGrades: [],
     onExclude: vi.fn(),
     onInclude: vi.fn(),
     onEditRequest: vi.fn(),
