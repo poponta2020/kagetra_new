@@ -79,7 +79,10 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
     - 根拠: 確定名簿の行は `roster-import/materialize.ts` の `mapEntryStatus` が必ず `status` を埋める（明示テキストが無ければ `'confirmed'`）。一方 `selection_outcome` は `unknown` のまま残ることがあり、`roster-import/adoption.ts` が `unknown` 件数を別途数えている＝**`status` を主軸、`selection_outcome` は明示的な補欠/落選の除外にのみ使う**
     - `carry_up_declined`（繰上り辞退）・`cancelled` は出場しないので除外
 - **出場者「希望」（`confidence: 'hoped'`）:** 確定名簿が無いグループのフォールバック。`event_attendances.attend = true`
-- **対象級外の stale 行除外:** イベント詳細 AC-26 と同じ（`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`。`eligible_grades` が空/null なら `is_invited` のみ）
+- **対象級外の stale 行除外は「希望」パスにのみ適用する:** イベント詳細 AC-26 と同じ（`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`。`eligible_grades` が空/null なら `is_invited` のみ）。
+  **確定パスには適用しない** — 名簿がその大会の出場者の唯一の権威であり、現在の `users.grade` で絞ると昇級者が「実際に載っている名簿」から消える。確定パスの絞りは `user_id IS NOT NULL`（自会員として同定できた行）だけ
+- **チップの級の出所（重要）:** 確定パスは **`tournament_entry_roster_entries.grade`**（＝その大会で出る級）を使い、null のときだけ `users.grade` へフォールバックする。希望パスは出欠に級が無いので `users.grade`。
+  `users.grade` で統一してはいけない —— 級はシーズン途中で上がるため、C級で申し込んだ会員が昇級すると「石狩CD」のカードに `B` のチップが出る（`eligible_grades` に無い級が表示される）。チップの級は常に**その大会で出る級**を意味させる
 - **大会表示名:** 通称 + 対象級（`entry-board-utils.displayName` の純関数を使う。`events` → `edition` → `series` を **leftJoin**。edition 未紐付けは `events.title`）
 - **未回答アラート:** 自分の級が `events.eligible_grades` に含まれる大会のうち、`COALESCE(internal_deadline, entry_deadline)` の **7日前〜締切当日**で、自分の `event_attendances` 行が**無い**もの。基準締切の早い順
 - **仮データのまま確定した項目 ★実装で必ず実配線する:** `home-timeline-proto-data.ts` の全体（会員名・大会名・会場・日付すべて架空）と `page.tsx` の状態切替バー・`searchParams`。実装時に**ファイルごと削除**する

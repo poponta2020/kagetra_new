@@ -40,15 +40,18 @@
 1. `todayStr = todayInJst()`、`viewerUserId = session.user.id`。
 2. **母集団**: `event_date >= todayStr` ∧ `status <> 'cancelled'` ∧ `kind = 'individual'`。`edition` → `series` は **leftJoin**（未紐付けを落とさない）。表示名は `entry-board-utils.displayName` を使う。
 3. **eligible 会員集合**: `users.is_invited = true` ∧（`eligible_grades` があれば `users.grade ∈ eligible_grades`）。イベント詳細 AC-26 と同じ。級ごとに集合が変わるのでイベント単位で判定する。
+   **★これは 5.（希望パス）にのみ使う。4.（確定パス）には適用しない** — 名簿がその大会の出場者の唯一の権威で、現在の級で絞ると昇級者が名簿から消える（design-spec §6）。
 4. **確定名簿**: `entry_group_id` 単位で `roster_type='confirmed'` ∧ `superseded_at IS NULL` の版を引き、その `tournament_entry_roster_entries` のうち
-   `status IN ('confirmed','carried_up')` ∧ `selection_outcome NOT IN ('waitlisted','rejected')` ∧ `user_id IS NOT NULL` を出場者にする。
+   `status IN ('confirmed','carried_up')` ∧ `selection_outcome NOT IN ('waitlisted','rejected')` ∧ `user_id IS NOT NULL` を出場者にする（絞りはこの3条件だけ）。
 5. **希望フォールバック**: 確定名簿が無いグループは `event_attendances.attend = true` ∧ eligible 会員 を出場者にする。
 6. **出場者0名の大会は落とす**。残りを `eventDate` 昇順に並べ、`todayStr` と一致するものを `today`、それ以降を `upcoming` に振り分ける。
-7. **チップ表示名**: `surname(user.name)`（`@/lib/surname`）。級は `users.grade`（確定名簿側は行の `grade` でなく会員の級で揃える — チップの意味を「その人の級」に統一する）。
+7. **チップ表示名と級**: 表示名は `surname(user.name)`（`@/lib/surname`）。
+   級は **確定パス = `tournament_entry_roster_entries.grade`**（＝その大会で出る級。null のときだけ `users.grade` へフォールバック）、**希望パス = `users.grade`**（出欠に級が無いため）。
+   `users.grade` で統一しない —— 昇級者が「石狩CD」のカードに `B` チップで出てしまう（design-spec §6）。
 8. **未回答アラート**: 自分の級が `eligible_grades` に含まれ、`COALESCE(internal_deadline, entry_deadline)` が `todayStr` 以降かつ7日以内で、自分の `event_attendances` 行が無い大会。基準締切昇順。
 9. `export const dynamic = 'force-dynamic'`（`/admin/entries` と同じ）。
 
-**テスト（`page.test.tsx`）:** 確定名簿ありで確定ラベル・補欠/落選/繰上り辞退が出ないこと／確定名簿なしで希望フォールバックすること／対象級外の stale な `attend=true` が除外されること／出場者0名の大会が載らないこと／未回答アラートの7日境界（8日前は出ない・7日前と当日は出る・回答済みは出ない）。
+**テスト（`page.test.tsx`）:** 確定名簿ありで確定ラベル・補欠/落選/繰上り辞退が出ないこと／確定名簿なしで希望フォールバックすること／**希望パスで**対象級外の stale な `attend=true` が除外されること／**確定パスでは昇級者（`users.grade` が `eligible_grades` 外）が残り、チップの級が名簿行の `grade` になること**／出場者0名の大会が載らないこと／未回答アラートの7日境界（8日前は出ない・7日前と当日は出る・回答済みは出ない）。
 
 **完了条件:** 実データで `/dashboard` が描画でき、上記テストが green。
 
