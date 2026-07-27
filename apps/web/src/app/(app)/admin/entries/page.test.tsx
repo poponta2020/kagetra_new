@@ -95,6 +95,21 @@ describe('/admin/entries（申込管理ボード）', () => {
       await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
     })
 
+    // role 判定を外したことでガードの境界は `session.user.id` の有無だけに
+    // なった。LINE ログイン済みだが会員行に未紐付け（JWT に id が入らない）
+    // セッションを直接組んで、ガードが `!session` だけに弱まっていないことを
+    // 固定する。setAuthSession は id 必須なので auth モックを直に使う。
+    it('セッションはあるが会員未紐付け（user.id なし）は /403 へリダイレクトされる', async () => {
+      const { auth } = (await import('@/auth')) as unknown as {
+        auth: ReturnType<typeof vi.fn>
+      }
+      auth.mockResolvedValue({
+        user: { role: 'member', lineUserId: 'U-unbound' },
+        expires: new Date(Date.now() + 60_000).toISOString(),
+      })
+      await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
+    })
+
     it('admin は開ける', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

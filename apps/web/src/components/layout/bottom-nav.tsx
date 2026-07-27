@@ -68,7 +68,7 @@ function matchesPath(pathname: string, prefix: string): boolean {
 export interface BottomNavProps {
   /**
    * Whether the current user is admin/vice_admin. Controls visibility of
-   * admin-only tabs (申込管理 / メール).
+   * admin-only tabs — currently メール only (申込管理 は全員に開放済み)。
    */
   isAdmin: boolean
   /**
