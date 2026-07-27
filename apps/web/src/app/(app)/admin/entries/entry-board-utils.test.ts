@@ -4,15 +4,16 @@ import {
   AREAS,
   baseDeadlineOf,
   classify,
-  commonDeadlineBadge,
   daysBetween,
-  dayStatusLabel,
   deadlineBadgeOf,
   displayName,
+  groupAttendCount,
   groupBoard,
+  groupDeadlineBadge,
   isAreaHot,
   isDue,
   isPinnedWhenCollapsed,
+  pickRepresentativeDay,
   sortArea,
 } from './entry-board-utils'
 
@@ -36,6 +37,7 @@ function makeItem(overrides: Partial<EntryBoardItem> = {}): EntryBoardItem {
     // 複数日を同じグループにまとめるテストは、実際に page.tsx が計算する
     // であろう値（全メンバー共通）を明示で上書きする。
     groupName: title,
+    groupDisplayName: title,
     groupRepresentativeEventId: id,
     title,
     shortName: null,
@@ -251,32 +253,61 @@ describe('classify', () => {
 })
 
 // ---------------------------------------------------------------------------
-// dayStatusLabel（タスク6, AC-14: 日別の進行状態）
+// AREAS（AC-35 改称 / AC-40 内部識別子の不変）
 // ---------------------------------------------------------------------------
 
-describe('dayStatusLabel', () => {
-  it('その日自身の classify 結果に対応する区画ラベルを返す（カードの区画とは独立）', () => {
-    const done = makeItem({
-      entryStatus: 'applied',
-      hasConfirmedRoster: true,
-      paymentType: 'onsite',
-    })
-    expect(dayStatusLabel(done, TODAY)).toBe('完了')
+describe('AREAS', () => {
+  it('AC-35: 区画名がライフサイクル順に新名称で並ぶ', () => {
+    expect(AREAS.map((a) => a.label)).toEqual([
+      '締切前',
+      '要申込',
+      '申込完了・抽選待ち',
+      '名簿確定・要振込',
+      '完了',
+    ])
+  })
 
-    const actionRequired = makeItem({
-      entryStatus: 'not_applied',
-      internalDeadline: '2026-06-01',
-      attendCount: 1,
-    })
-    expect(dayStatusLabel(actionRequired, TODAY)).toBe('要対応')
+  it('AC-35: 旧名がどの label にも残っていない', () => {
+    const labels = AREAS.map((a) => a.label)
+    expect(labels).not.toContain('要対応')
+    expect(labels).not.toContain('申込済み・抽選待ち')
+    expect(labels).not.toContain('名簿確定・振込待ち')
+  })
 
-    const waiting = makeItem({
-      entryStatus: 'applied',
-      paymentType: 'advance',
-      paymentStatus: 'unpaid',
-      hasConfirmedRoster: false,
-    })
-    expect(dayStatusLabel(waiting, TODAY)).toBe('申込済み・抽選待ち')
+  // 改称は AreaDef.label の文字列だけ。id を変えると entry-overdue-alert との
+  // 対応関係と既存テストの参照が無駄に壊れる（要件 §3.2.3 の注記）。
+  it('AC-40: AreaId（内部識別子）が変わっていない', () => {
+    expect(AREAS.map((a) => a.id)).toEqual([
+      'before_deadline',
+      'action_required',
+      'applied_waiting',
+      'payment_due',
+      'done',
+    ])
+  })
+
+  // 改称は純粋な表示変更。日付の種類・行動フェーズ・残日数の出し分け・
+  // 折りたたみの設定は 1 つも変えていない（AC-31c 回帰）。
+  it('AC-31c: 区画の属性（日付の種類・行動フェーズ・残日数・折りたたみ）が不変', () => {
+    expect(AREAS.map((a) => a.deadlineHint)).toEqual([
+      '会内締切',
+      '本締切',
+      '抽選日',
+      '支払締切',
+      '開催日',
+    ])
+    expect(AREAS.map((a) => a.actionable)).toEqual([false, true, false, true, false])
+    expect(AREAS.map((a) => a.showCountdown !== false)).toEqual([
+      true,
+      true,
+      false,
+      true,
+      false,
+    ])
+    expect(AREAS.filter((a) => a.collapsible === true).map((a) => a.id)).toEqual([
+      'before_deadline',
+    ])
+    expect(AREAS.filter((a) => a.collapsedByDefault === true)).toHaveLength(0)
   })
 })
 
@@ -408,38 +439,50 @@ describe('groupBoard — グループ集約規則', () => {
     expect(allGroups).toHaveLength(0)
   })
 
-  it('一部の日だけ非表示（no_applicants）なら、残りの可視日だけが日別行になる', () => {
+  it('一部の日だけ非表示（no_applicants）なら、集約の母集団は残りの可視日だけになる', () => {
     // 多摩C=申込済み・多摩D,E=申し込まない、を模したケース。
+    // ★表示名は**グループの全イベント**から page.tsx が導出する（設計判断4）ので、
+    //   非表示日を含む「多摩CDE」のまま。一方、人数・日付の集約母集団は可視日だけ
+    //   （AC-38）。この 2 つが違う母集団を見るのは意図的な設計。
     const items: EntryBoardItem[] = [
       makeItem({
         id: 1,
         entryGroupId: 200,
         title: '多摩C',
+        groupDisplayName: '多摩CDE',
         eventDate: '2026-08-01',
         entryStatus: 'applied',
         paymentType: 'advance',
         paymentStatus: 'unpaid',
         hasConfirmedRoster: false,
+        attendCount: 2,
       }),
       makeItem({
         id: 2,
         entryGroupId: 200,
         title: '多摩D',
+        groupDisplayName: '多摩CDE',
         eventDate: '2026-08-02',
         entryStatus: 'not_applying',
+        attendCount: 5,
       }),
       makeItem({
         id: 3,
         entryGroupId: 200,
         title: '多摩E',
+        groupDisplayName: '多摩CDE',
         eventDate: '2026-08-03',
         entryStatus: 'not_applying',
+        attendCount: 7,
       }),
     ]
     const board = groupBoard(items, TODAY)
     expect(board.applied_waiting).toHaveLength(1)
     const group = board.applied_waiting[0]!
     expect(group.days.map((d) => d.id)).toEqual([1])
+    expect(group.name).toBe('多摩CDE')
+    // AC-38: 非表示日（D=5名・E=7名）の人数は合計に含まれない
+    expect(groupAttendCount(group)).toBe(2)
     // 非表示の D・E はどの区画にも現れない
     expect(AREAS.flatMap((a) => board[a.id]).flatMap((g) => g.days.map((d) => d.id))).toEqual([1])
   })
@@ -509,7 +552,7 @@ describe('groupBoard — グループ集約規則', () => {
   // 2026-07-27 の改修で初めて生じる組み合わせ。`hasConfirmedRoster` はグループ
   // 単位（確定名簿は entry_group に紐づく）だが `paymentStatus` はイベント単位
   // なので、同じグループの中で「振込済の日」と「事前払い・未振込の日」が並びうる。
-  it('名簿なしのまま片方だけ振込済のグループは、カードが applied_waiting に載り日別行が区画ごとのラベルを出す', () => {
+  it('名簿なしのまま片方だけ振込済のグループは、applied_waiting に1行だけ載る', () => {
     const items: EntryBoardItem[] = [
       makeItem({
         id: 1,
@@ -535,36 +578,35 @@ describe('groupBoard — グループ集約規則', () => {
     expect(board.applied_waiting).toHaveLength(1)
     expect(board.done).toHaveLength(0)
     expect(board.applied_waiting[0]!.days.map((d) => d.id)).toEqual([1, 2])
-    // 日別行はカードの区画とは独立に、その日自身のラベルを出す
-    expect(dayStatusLabel(items[0]!, TODAY)).toBe('完了')
-    expect(dayStatusLabel(items[1]!, TODAY)).toBe('申込済み・抽選待ち')
   })
 
   // name / representativeEventId の**計算**（deriveEntryGroupName・
   // selectRepresentativeEvent）は `@/lib/entry-groups` の責務であり、
-  // page.tsx が一度だけ呼んで結果を EntryBoardItem.groupName /
+  // page.tsx が一度だけ呼んで結果を EntryBoardItem.groupDisplayName /
   // groupRepresentativeEventId として転記する（entry-board-utils.ts はこの
   // ファイルから lib を import しない——client バンドル汚染を避けるため。
   // ファイル冒頭の import コメント参照）。ここでは「groupBoard は
   // メンバーが持つ値をそのまま転記するだけで、自前で再計算しない」ことだけを
   // 固定する。実際の計算結果が正しく渡ることは page.test.tsx の DB 統合テストで
   // 確認する。
-  it('name・representativeEventId は各メンバーの groupName/groupRepresentativeEventId フィールドをそのまま転記する（自前で再計算しない）', () => {
+  it('name は groupDisplayName（通称ベース）を転記する。title 由来の groupName は読まない', () => {
     const items: EntryBoardItem[] = [
       makeItem({
         id: 1,
         entryGroupId: 400,
-        title: '多摩A',
+        title: '第30回多摩大会A級',
         eventDate: '2026-08-01',
-        groupName: '多摩AB',
+        groupName: '第30回多摩大会',
+        groupDisplayName: '多摩AB',
         groupRepresentativeEventId: 1,
       }),
       makeItem({
         id: 2,
         entryGroupId: 400,
-        title: '多摩B',
+        title: '第30回多摩大会B級',
         eventDate: '2026-08-02',
-        groupName: '多摩AB',
+        groupName: '第30回多摩大会',
+        groupDisplayName: '多摩AB',
         groupRepresentativeEventId: 1,
       }),
     ]
@@ -579,7 +621,7 @@ describe('groupBoard — グループ集約規則', () => {
   // page.tsx はグループの**全メンバー**（可視・非表示を問わない）から一度だけ
   // 計算するので、今日以降で最も近い日が「申し込まない」で非表示になっていても、
   // カードの遷移先はその非表示日を指しうる。
-  it('代表イベントが非表示（no_applicants）の日でも、カードの遷移先はそのまま（グループのプロパティなので board 表示可否と独立）', () => {
+  it('代表イベントが非表示（no_applicants）の日でも、行の遷移先はそのまま（グループのプロパティなので board 表示可否と独立）', () => {
     const items: EntryBoardItem[] = [
       // 今日以降で最も近いが、申し込まない（非表示）→ それでも代表になりうる
       makeItem({
@@ -589,6 +631,7 @@ describe('groupBoard — グループ集約規則', () => {
         eventDate: '2026-07-15',
         entryStatus: 'not_applying',
         groupName: '多摩CD',
+        groupDisplayName: '多摩CD',
         groupRepresentativeEventId: 1,
       }),
       makeItem({
@@ -597,14 +640,15 @@ describe('groupBoard — グループ集約規則', () => {
         title: '多摩D',
         eventDate: '2026-08-01',
         groupName: '多摩CD',
+        groupDisplayName: '多摩CD',
         groupRepresentativeEventId: 1,
       }),
     ]
     const board = groupBoard(items, TODAY)
     const group = board.before_deadline[0]!
-    // 可視の日別行は id2 だけ（id1 は non_applicants で非表示）
+    // 集約母集団の可視日は id2 だけ（id1 は non_applicants で非表示）
     expect(group.days.map((d) => d.id)).toEqual([2])
-    // だがカードの遷移先・表示名はグループ全体から計算された値のまま
+    // だが行の遷移先・表示名はグループ全体から計算された値のまま
     expect(group.representativeEventId).toBe(1)
     expect(group.name).toBe('多摩CD')
   })
@@ -652,41 +696,229 @@ describe('groupBoard — カードの並び順', () => {
     const board = groupBoard(items, TODAY)
     expect(board.action_required.map((g) => g.groupId)).toEqual([801, 800, 802])
   })
+
+  // AC-15 / AC-31c 回帰: 並び順キーが同値のときの副キーは「可視日の中で最も早い
+  // **開催日**」であって、代表日（＝最も早い締切の日）の開催日ではない。
+  // groupSortKey を pickRepresentativeDay 経由に統一したときに、副キーまで
+  // 代表日へ寄せると静かに壊れる箇所。
+  it('並び順キーが同値なら、可視日の最小開催日が副キーになる（代表日の開催日ではない）', () => {
+    const mk = (id: number, groupId: number, eventDate: string, paymentDeadline: string) =>
+      makeItem({
+        id,
+        entryGroupId: groupId,
+        eventDate,
+        paymentDeadline,
+        entryStatus: 'applied',
+        hasConfirmedRoster: true,
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+    const items: EntryBoardItem[] = [
+      // グループ 810: 最小支払締切 7/20（開催日 9/1 の日）／最小開催日は 8/20
+      mk(1, 810, '2026-09-01', '2026-07-20'),
+      mk(2, 810, '2026-08-20', '2026-08-30'),
+      // グループ 811: 最小支払締切 7/20（同値）／最小開催日は 8/10 → 先に並ぶ
+      mk(3, 811, '2026-09-02', '2026-07-20'),
+      mk(4, 811, '2026-08-10', '2026-08-31'),
+    ]
+    const board = groupBoard(items, TODAY)
+    expect(board.payment_due.map((g) => g.groupId)).toEqual([811, 810])
+  })
 })
 
 // ---------------------------------------------------------------------------
-// commonDeadlineBadge（タスク6, 設計判断3）
+// グループの集約規則（要件 §3.2.5.1 / AC-37, AC-38）
 // ---------------------------------------------------------------------------
 
-describe('commonDeadlineBadge', () => {
-  it('全日別行の締切/抽選日が同一なら、そのバッジを返す（1回だけ表示できる）', () => {
-    const items: EntryBoardItem[] = [
-      makeItem({ id: 1, entryGroupId: 700, entryDeadline: '2026-06-01', attendCount: 1 }),
-      makeItem({ id: 2, entryGroupId: 700, entryDeadline: '2026-06-01', attendCount: 1 }),
-    ]
-    const board = groupBoard(items, TODAY)
-    const group = board.action_required[0]!
-    const badge = commonDeadlineBadge(group, TODAY)
-    expect(badge).not.toBeNull()
-    expect(badge!.label).toBe('本締切')
-    expect(badge!.date).toBe('6/1')
+/** 1グループぶんの items から、その区画に載ったグループを取り出すヘルパー。 */
+function soleGroup(items: EntryBoardItem[], area: VisibleAreaId) {
+  const board = groupBoard(items, TODAY)
+  expect(board[area]).toHaveLength(1)
+  return board[area][0]!
+}
+
+describe('pickRepresentativeDay', () => {
+  it('その区画で見る日付が最も早い可視日を選ぶ', () => {
+    const group = soleGroup(
+      [
+        makeItem({ id: 1, entryGroupId: 700, entryDeadline: '2026-08-01', attendCount: 1 }),
+        makeItem({ id: 2, entryGroupId: 700, entryDeadline: '2026-07-25', attendCount: 1 }),
+        makeItem({ id: 3, entryGroupId: 700, entryDeadline: '2026-09-01', attendCount: 1 }),
+      ].map((i) => ({ ...i, internalDeadline: '2026-06-01' })),
+      'action_required',
+    )
+    expect(pickRepresentativeDay(group, TODAY).id).toBe(2)
   })
 
-  it('1件でも締切/抽選日が異なれば null を返す（日別行の側に出す）', () => {
-    const items: EntryBoardItem[] = [
-      makeItem({ id: 1, entryGroupId: 701, entryDeadline: '2026-06-01', attendCount: 1 }),
-      makeItem({ id: 2, entryGroupId: 701, entryDeadline: '2026-06-15', attendCount: 1 }),
-    ]
-    const board = groupBoard(items, TODAY)
-    const group = board.action_required[0]!
-    expect(commonDeadlineBadge(group, TODAY)).toBeNull()
+  it('NULL は末尾扱い（非 NULL の日が優先される）', () => {
+    const group = soleGroup(
+      [
+        makeItem({
+          id: 1,
+          entryGroupId: 701,
+          internalDeadline: '2026-06-01',
+          entryDeadline: null,
+          attendCount: 1,
+        }),
+        makeItem({
+          id: 2,
+          entryGroupId: 701,
+          internalDeadline: '2026-06-01',
+          entryDeadline: '2026-09-01',
+          attendCount: 1,
+        }),
+      ],
+      'action_required',
+    )
+    expect(pickRepresentativeDay(group, TODAY).id).toBe(2)
   })
 
-  it('シングルトン（日別行1件）は必ず非 null になる（従来の「1回だけ表示」と同じ結果）', () => {
-    const items: EntryBoardItem[] = [makeItem({ id: 1, internalDeadline: '2026-07-20' })]
-    const board = groupBoard(items, TODAY)
-    const group = board.before_deadline[0]!
-    expect(commonDeadlineBadge(group, TODAY)).not.toBeNull()
+  it('全日 NULL なら安定した1件（開催日 → id）を返す', () => {
+    const items = [
+      makeItem({
+        id: 9,
+        entryGroupId: 702,
+        eventDate: '2026-09-01',
+        internalDeadline: '2026-06-01',
+        entryDeadline: null,
+        attendCount: 1,
+      }),
+      makeItem({
+        id: 5,
+        entryGroupId: 702,
+        eventDate: '2026-08-01',
+        internalDeadline: '2026-06-01',
+        entryDeadline: null,
+        attendCount: 1,
+      }),
+    ]
+    expect(pickRepresentativeDay(soleGroup(items, 'action_required'), TODAY).id).toBe(5)
+    // 入力順を変えても同じ日を選ぶ（安定）
+    expect(
+      pickRepresentativeDay(soleGroup(items.slice().reverse(), 'action_required'), TODAY).id,
+    ).toBe(5)
+  })
+
+  it('キーも開催日も同値なら id の小さい方（決定的）', () => {
+    const group = soleGroup(
+      [
+        makeItem({
+          id: 8,
+          entryGroupId: 703,
+          eventDate: '2026-08-01',
+          internalDeadline: '2026-06-01',
+          entryDeadline: '2026-07-25',
+          attendCount: 1,
+        }),
+        makeItem({
+          id: 3,
+          entryGroupId: 703,
+          eventDate: '2026-08-01',
+          internalDeadline: '2026-06-01',
+          entryDeadline: '2026-07-25',
+          attendCount: 1,
+        }),
+      ],
+      'action_required',
+    )
+    expect(pickRepresentativeDay(group, TODAY).id).toBe(3)
+  })
+})
+
+describe('groupDeadlineBadge（AC-37）', () => {
+  // 並び順キーと画面に出る日付が構造的に同じ日から出ることの担保。
+  // グループ内で締切が食い違うケースで検証する。
+  it('並び順キーと同じ日（＝最も早い日）のバッジを返す', () => {
+    const group = soleGroup(
+      [
+        makeItem({
+          id: 1,
+          entryGroupId: 704,
+          eventDate: '2026-08-01',
+          entryStatus: 'applied',
+          hasConfirmedRoster: true,
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          paymentDeadline: '2026-07-20',
+        }),
+        makeItem({
+          id: 2,
+          entryGroupId: 704,
+          eventDate: '2026-08-02',
+          entryStatus: 'applied',
+          hasConfirmedRoster: true,
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          paymentDeadline: '2026-07-12',
+        }),
+      ],
+      'payment_due',
+    )
+    const badge = groupDeadlineBadge(group, TODAY)
+    expect(badge.label).toBe('支払締切')
+    // 7/12（最も早い日）。7/20 ではない
+    expect(badge.date).toBe('7/12')
+    expect(badge.countdown).toBe('あと2日')
+    expect(pickRepresentativeDay(group, TODAY).id).toBe(2)
+  })
+
+  it('全日 NULL ならその区画の NULL 表記になる（抽選日は「未定」）', () => {
+    const group = soleGroup(
+      [
+        makeItem({
+          id: 1,
+          entryGroupId: 705,
+          eventDate: '2026-08-01',
+          entryStatus: 'applied',
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          lotteryDate: null,
+        }),
+        makeItem({
+          id: 2,
+          entryGroupId: 705,
+          eventDate: '2026-08-02',
+          entryStatus: 'applied',
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          lotteryDate: null,
+        }),
+      ],
+      'applied_waiting',
+    )
+    const badge = groupDeadlineBadge(group, TODAY)
+    expect(badge.date).toBeNull()
+    expect(badge.countdown).toBe('未定')
+    expect(badge.tone).toBe('none')
+  })
+
+  it('シングルトングループはその日自身のバッジと一致する（既存の見え方の回帰）', () => {
+    const group = soleGroup(
+      [makeItem({ id: 1, internalDeadline: '2026-07-12' })],
+      'before_deadline',
+    )
+    expect(groupDeadlineBadge(group, TODAY)).toEqual(
+      deadlineBadgeOf(group.days[0]!, 'before_deadline', TODAY),
+    )
+  })
+})
+
+describe('groupAttendCount（AC-38）', () => {
+  it('可視日の合計になる', () => {
+    const group = soleGroup(
+      [
+        makeItem({ id: 1, entryGroupId: 706, eventDate: '2026-08-01', attendCount: 0 }),
+        makeItem({ id: 2, entryGroupId: 706, eventDate: '2026-08-02', attendCount: 1 }),
+        makeItem({ id: 3, entryGroupId: 706, eventDate: '2026-08-03', attendCount: 4 }),
+      ],
+      'before_deadline',
+    )
+    expect(groupAttendCount(group)).toBe(5)
+  })
+
+  it('シングルトングループはその日の人数そのまま', () => {
+    const group = soleGroup([makeItem({ id: 1, attendCount: 3 })], 'before_deadline')
+    expect(groupAttendCount(group)).toBe(3)
   })
 })
 

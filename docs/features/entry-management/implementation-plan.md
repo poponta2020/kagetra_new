@@ -22,7 +22,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク1: entry-board-utils.ts — 改称・日別関数の削除・グループ集約の純関数
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 表示文字列の改称と、1 グループ 1 行に必要な集約規則を純関数として確定させる。以降のタスクが依存する型もここで確定させる
 - **対応AC:** AC-35, AC-36, AC-37, AC-38, AC-40, AC-31c（回帰）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts` と同 `entry-board-utils.test.ts`。★**加えて `page.tsx` を 1 行だけ**（下記「型を単独で閉じる」参照）

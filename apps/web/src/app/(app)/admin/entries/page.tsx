@@ -179,6 +179,9 @@ export default async function EntryManagementPage() {
       id: e.id,
       entryGroupId: e.entryGroupId,
       groupName: groupMeta.name,
+      // ★タスク1 の暫定値（title 由来の `groupName` と同じ）。タスク2 が通称ベースの
+      //   導出（要件 §3.2.5 の手順1→2→3）へ差し替える。
+      groupDisplayName: groupMeta.name,
       groupRepresentativeEventId: groupMeta.representativeEventId,
       title: e.title,
       shortName: e.shortName,

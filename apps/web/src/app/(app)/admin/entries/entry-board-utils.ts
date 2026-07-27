@@ -20,8 +20,8 @@ import type {
  * DB 依存が漏れる（eslint / vitest / check-types は検知できず `next build` で
  * 初めて壊れる）。そのため page.tsx（サーバー）が group ごとに一度だけ
  * `deriveEntryGroupName` / `selectRepresentativeEvent` を呼び、結果を
- * `EntryBoardItem.groupName` / `groupRepresentativeEventId` として
- * 平らな値で渡す。`groupBoard` はそれを読むだけ（計算しない）。
+ * `EntryBoardItem.groupDisplayName` / `groupName` / `groupRepresentativeEventId`
+ * として平らな値で渡す。`groupBoard` はそれを読むだけ（計算しない）。
  */
 
 /**
@@ -65,6 +65,16 @@ export interface EntryBoardItem {
    * ——上の import コメント参照）。同一グループ内では常に同じ値になる。
    */
   groupName: string
+  /**
+   * 行に実際に出すグループ表示名（要件 §3.2.5。2026-07-28 新設）。
+   *
+   * `groupName` と違い**通称ベース**で畳んだ名前（例「杉並B」+「杉並A」→「杉並AB」）。
+   * 1 グループ = 1 行になったことで、素朴に `groupName`（`events.title` 由来＝正式
+   * 名称）を出すと単独イベントの表示が通称から正式名称へ退行するため、page.tsx が
+   * 「各日の {@link displayName} を作ってから畳む」順序で導出して全行にコピーする。
+   * 畳めなかったときだけ `groupName` へフォールバックするので、この値は常に非 null。
+   */
+  groupDisplayName: string
   /**
    * タスク6: グループの代表イベント id（`selectRepresentativeEvent` の結果）。
    * `groupName` と同様、page.tsx がグループごとに一度だけ計算する。
@@ -114,9 +124,15 @@ export interface AreaDef {
 
 /**
  * 上から**大会が進む順（ライフサイクル順）**に並べる。
- * 締切前 → 要対応 → 申込済み・抽選待ち → 名簿確定・振込待ち → 完了。
+ * 締切前 → 要申込 → 申込完了・抽選待ち → 名簿確定・要振込 → 完了。
  * 緊急度順ではなく進行順に固定することで、「どの大会がどのフェーズにいるか」を
  * 上から下へ読み下せるようにする。
+ *
+ * ★label は 2026-07-28 に 3 件改称した（要件 §3.2.3 / 設計判断17）。「要対応」は
+ * 緊急度しか伝えないので、その区画で管理者が取る**行動**（申込・振込）を名前に
+ * 入れた。**`id`（{@link AreaId}）は変えていない** — 変えると entry-overdue-alert
+ * との対応関係と既存テストの参照が無駄に壊れる。判定条件・表示する日付・並び順
+ * キーもすべて不変（純粋な改称）。
  */
 export const AREAS: readonly AreaDef[] = [
   {
@@ -130,7 +146,7 @@ export const AREAS: readonly AreaDef[] = [
   },
   {
     id: 'action_required',
-    label: '要対応',
+    label: '要申込',
     // 会内締切は既に過ぎている区画なので、見るべきは主催者への申込締切
     // （＝本締切）。ここを落とすと申込漏れが確定する。
     deadlineHint: '本締切',
@@ -138,14 +154,14 @@ export const AREAS: readonly AreaDef[] = [
   },
   {
     id: 'applied_waiting',
-    label: '申込済み・抽選待ち',
+    label: '申込完了・抽選待ち',
     deadlineHint: '抽選日',
     actionable: false,
     showCountdown: false,
   },
   {
     id: 'payment_due',
-    label: '名簿確定・振込待ち',
+    label: '名簿確定・要振込',
     deadlineHint: '支払締切',
     actionable: true,
   },
@@ -170,13 +186,26 @@ function isHiddenArea(area: AreaId): area is Exclude<AreaId, VisibleAreaId> {
   return HIDDEN_AREAS.has(area)
 }
 
+/** {@link displayName} が必要とする最小の形（DTO 組み立て前の生の行でも渡せる）。 */
+export interface NameSource {
+  title: string
+  shortName: string | null
+  eligibleGrades: Grade[] | null
+}
+
 /**
- * 一覧に出す表示名 = 通称 + 級（例「札幌AB」）。正式名称は使わない。
+ * 1 日ぶんの表示名 = 通称 + 級（例「札幌AB」）。正式名称は使わない。
  * 通称が引けない大会（edition 未紐付け）は title にフォールバックするが、
  * title は運用上すでに級込みの命名（「多摩A」等。メール承認の unit 分割が
  * 級込みの名前で events を作る）なので、級は連結せずそのまま出す（Issue #335）。
+ *
+ * 1 グループ = 1 行になった後（2026-07-28）は、**page.tsx がグループ表示名を導出
+ * する際の第1段**としてこの関数を使う（要件 §3.2.5 の手順1）。ボードが直接
+ * 呼ぶのではなく、導出済みの {@link EntryBoardItem.groupDisplayName} を描く。
+ * 単独イベントのグループでは畳む対象が1件なので、この関数の結果がそのまま
+ * 表示名になる＝改修前と1文字も変わらない（AC-16b の回帰はこの構造で保証する）。
  */
-export function displayName(item: EntryBoardItem): string {
+export function displayName(item: NameSource): string {
   if (item.shortName == null) return item.title
   const grades = item.eligibleGrades?.join('') ?? ''
   return `${item.shortName}${grades}`
@@ -214,24 +243,6 @@ export function classify(item: EntryBoardItem, todayStr: string): AreaId {
   // ここから先は事前払いかつ未振込のみ。名簿の有無で待ちの種類が分かれる。
   if (!item.hasConfirmedRoster) return 'applied_waiting'
   return 'payment_due'
-}
-
-/**
- * 日別行に出す「その日自身の」進行状態ラベル（AC-14: 日別の進行状態）。
- *
- * カード全体が載る区画（{@link EntryBoardGroup.area}）は「グループ内で最も
- * 対応が必要な区画」に寄せた1つの値だが、日別行はそれとは独立に**その日自身の
- * `classify` 結果**をラベルとして出す——そうしないと、カードが `action_required`
- * に居るせいで実は `done` の日まで「対応が必要」に見えてしまう（設計判断2の
- * 前提を裏切らないための描画側の担保）。
- *
- * `classify` が `no_applicants`（非表示）を返すことは想定しない
- * （呼び出し側は非表示日をあらかじめ除いた `EntryBoardGroup.days` にしか
- * 使わない契約）。万一渡された場合は空文字を返す。
- */
-export function dayStatusLabel(item: EntryBoardItem, todayStr: string): string {
-  const area = classify(item, todayStr)
-  return AREAS.find((a) => a.id === area)?.label ?? ''
 }
 
 /** エリアごとの並び順キー（要件 §3.2.3）。null は末尾。 */
@@ -324,25 +335,28 @@ export function isAreaHot(
 }
 
 /**
- * ボードの1カードに相当する「申込グループ」。
+ * ボードの1行に相当する「申込グループ」。
  *
- * タスク6（要件 §3.1, AC-14/AC-15）: `/admin/entries` は 1 グループ = 1 カード
- * で表示する。カードが載る区画・共通の締切/抽選日の出し分け・並び順はすべて
- * この型を介して {@link groupBoard} が計算する。実際の描画（カード内の
- * ヘッダーと日別行の組み立て）は EntryBoardClient.tsx が持つ。
+ * 要件 §3.2.5: `/admin/entries` は **1 グループ = 常に 1 行**で表示する
+ * （2026-07-28。日別行への展開は廃止した＝設計判断18）。行が載る区画・並び順・
+ * 表示する日付と人数の集約はすべてこの型を介して {@link groupBoard} と
+ * {@link pickRepresentativeDay} / {@link groupAttendCount} が計算する。
+ * 実際の描画は EntryBoardClient.tsx が持つ。
  */
 export interface EntryBoardGroup {
   groupId: number
-  /** `EntryBoardItem.groupName`（設計判断5）をそのまま転記したもの。 */
+  /** 行に出す表示名。`EntryBoardItem.groupDisplayName`（通称ベース）を転記したもの。 */
   name: string
-  /** カードタップの遷移先。`EntryBoardItem.groupRepresentativeEventId`（設計判断4）。 */
+  /** 行タップの遷移先。`EntryBoardItem.groupRepresentativeEventId`（設計判断4）。 */
   representativeEventId: number
-  /** カードが載る区画（{@link pickGroupArea} 参照）。 */
+  /** 行が載る区画（{@link pickGroupArea} 参照）。 */
   area: VisibleAreaId
   /**
-   * 日別行。非表示区画（`no_applicants`）に分類された日は含まない
-   * （そのグループのメンバーであっても個別の「申し込まない」大会はボードに出さない、
-   * という単一イベント時の既存挙動を維持する）。開催日昇順・同日は id 昇順。
+   * 集約の母集団になる可視日。非表示区画（`no_applicants`）に分類された日は
+   * 含まない（そのグループのメンバーであっても個別の「申し込まない」大会は
+   * ボードに出さない、という単一イベント時の既存挙動を維持する）。
+   * **画面には行として出ない** — 日付・人数・並び順を導くためだけに持つ。
+   * 開催日昇順・同日は id 昇順。
    */
   days: EntryBoardItem[]
 }
@@ -358,8 +372,9 @@ export interface EntryBoardGroup {
  * - `done`: 完了
  *
  * `no_applicants` は非表示区画なので候補にならない（呼び出し側で先に除外する）。
- * カードは「最も対応が必要な区画」1つにだけ載り、そこに全ての非表示日が
- * 日別行として並ぶ（設計判断2）。
+ * グループは「最も対応が必要な区画」1つにだけ載る（設計判断2 / §3.2.5.2）。
+ * 1 行化した後もこの優先順位は必要 — 日ごとに状態が違っても行は1つなので、
+ * どこに置くかを決めなければならない。見落とし方向には倒れない（安全側）。
  */
 const GROUP_AREA_PRIORITY: readonly VisibleAreaId[] = [
   'action_required',
@@ -391,7 +406,7 @@ export type GroupedBoard = Record<VisibleAreaId, EntryBoardGroup[]>
  * 母集団クエリの条件（§3.2.1）は変えない。ここでの集約は「同じ entryGroupId を
  * 1枚のカードにまとめる」だけで、どのイベントが母集団に載るかには関与しない。
  *
- * 設計判断4/5（グループ名・代表イベント）: `groupName` / `groupRepresentativeEventId`
+ * 設計判断4/5（グループ名・代表イベント）: `groupDisplayName` / `groupRepresentativeEventId`
  * は**グループの全メンバー**（可視・非表示を問わない）から page.tsx が一度だけ
  * 計算した値なので、ここではメンバーの誰か1件（`members[0]`）から読めば十分
  * ——同じグループなら誰から読んでも同じ値になる。したがって、グループの中で
@@ -427,7 +442,7 @@ export function groupBoard(
 
     groups.push({
       groupId,
-      name: anyMember.groupName,
+      name: anyMember.groupDisplayName,
       representativeEventId: anyMember.groupRepresentativeEventId,
       area,
       days: visibleDays,
@@ -436,28 +451,21 @@ export function groupBoard(
 
   for (const group of groups) out[group.area].push(group)
   for (const area of AREAS) {
-    out[area.id] = sortGroupsInArea(out[area.id], area.id, todayStr)
+    out[area.id] = sortGroupsInArea(out[area.id], todayStr)
   }
   return out
 }
 
 /**
- * カードの並び順キー = カードの区画（`area`）の観点で見た締切/抽選日のうち、
- * 日別行の中で最も早いもの（null は無視。全日 null ならキー無し＝末尾）。
- * 「最も差し迫っている日」でカード全体の緊急度を代表させる。
+ * 行の並び順キー = 区画（`group.area`）の観点で見た締切/抽選日のうち、可視日の
+ * 中で最も早いもの（null は無視。全日 null ならキー無し＝末尾）。
+ * 「最も差し迫っている日」でグループ全体の緊急度を代表させる。
+ *
+ * ★{@link pickRepresentativeDay} 経由に統一してある（2026-07-28）。並び順と
+ * 画面に出る日付を同じ日から出すため（AC-37）。ここで独立に最小値を計算しない。
  */
-function groupSortKey(
-  group: EntryBoardGroup,
-  area: VisibleAreaId,
-  todayStr: string,
-): string | null {
-  let best: string | null = null
-  for (const day of group.days) {
-    const key = sortKeyOf(day, area, todayStr)
-    if (key == null) continue
-    if (best == null || key < best) best = key
-  }
-  return best
+function groupSortKey(group: EntryBoardGroup, todayStr: string): string | null {
+  return sortKeyOf(pickRepresentativeDay(group, todayStr), group.area, todayStr)
 }
 
 function minEventDate(group: EntryBoardGroup): string {
@@ -467,15 +475,21 @@ function minEventDate(group: EntryBoardGroup): string {
   )
 }
 
-/** 昇順・null 末尾・（日別行のうち最も早い）開催日を副キー（非破壊）。 */
+/**
+ * 昇順・null 末尾・（可視日のうち最も早い）開催日を副キー（非破壊）。
+ *
+ * 副キーは **`minEventDate`（可視日全体の最小開催日）のまま**にしてある。
+ * 代表日の開催日へ寄せると、キー同値のときの並びが「最も早い開催日」ではなく
+ * 「最も早い締切の日の開催日」に変わってしまい、AC-15 / AC-31c（並び順の回帰）
+ * が静かに壊れる。
+ */
 function sortGroupsInArea(
   groups: EntryBoardGroup[],
-  area: VisibleAreaId,
   todayStr: string,
 ): EntryBoardGroup[] {
   return groups.slice().sort((a, b) => {
-    const ka = groupSortKey(a, area, todayStr)
-    const kb = groupSortKey(b, area, todayStr)
+    const ka = groupSortKey(a, todayStr)
+    const kb = groupSortKey(b, todayStr)
     if (ka == null && kb == null) return cmp(minEventDate(a), minEventDate(b))
     if (ka == null) return 1
     if (kb == null) return -1
@@ -485,27 +499,68 @@ function sortGroupsInArea(
 }
 
 /**
- * カード共通の締切/抽選日バッジ（設計判断3）。
+ * グループの日付・残日数を代表する 1 日を選ぶ（要件 §3.2.5.1）。
  *
- * カードの区画（`group.area`）の観点で見た締切/抽選日（`deadlineBadgeOf` と
- * 同じ、区画ごとに固定の1フィールド）が全日別行で同一なら、そのバッジを返す
- * （カードヘッダーに1回だけ表示する）。1件でも異なれば `null` を返し、
- * 呼び出し側は共通表示をやめて日別行それぞれに `deadlineBadgeOf` を出す。
+ * 選定規則 = **その区画で見る日付（{@link sortKeyOf}）が最も早い可視日**。
+ * NULL は末尾（＝全日 NULL のときだけ NULL の日が選ばれる）、同値は開催日 → id
+ * で安定化する。
  *
- * シングルトン（`days.length === 1`）は比較対象が1件しかないので必ず非 null
- * になる——単一イベント時の「1回だけ表示」する既存の見え方と同じ結果になる。
+ * ★{@link groupSortKey}（並び順）と {@link groupDeadlineBadge}（表示）は
+ * **どちらもこの関数を通す**。並び順キーと画面に出る日付が構造的に同じ日から
+ * 出ることを保証するためで、これが AC-37 の肝（別々に最小値を取ると、実装が
+ * 少しずれた瞬間に「並びと表示が食い違うボード」になる）。
  */
-export function commonDeadlineBadge(
+export function pickRepresentativeDay(
   group: EntryBoardGroup,
   todayStr: string,
-): DeadlineBadge | null {
-  const badges = group.days.map((d) => deadlineBadgeOf(d, group.area, todayStr))
-  const first = badges[0]
-  if (!first) return null
-  const allSame = badges.every(
-    (b) => b.date === first.date && b.countdown === first.countdown && b.tone === first.tone,
-  )
-  return allSame ? first : null
+): EntryBoardItem {
+  const first = group.days[0]
+  if (!first) {
+    // groupBoard は可視日 0 件のグループを作らない契約。呼び出しのバグを黙って
+    // 通さないよう fail-fast にする（reduce の TypeError より原因が分かる）。
+    throw new Error('assertion failed: グループの可視日が空です')
+  }
+  return group.days.reduce((best, day) => {
+    const kBest = sortKeyOf(best, group.area, todayStr)
+    const kDay = sortKeyOf(day, group.area, todayStr)
+    if (kDay == null && kBest == null) return stabler(best, day)
+    if (kDay == null) return best
+    if (kBest == null) return day
+    if (kDay !== kBest) return kDay < kBest ? day : best
+    return stabler(best, day)
+  }, first)
+}
+
+/** キーが同値（または両方 NULL）のときの決定的なタイブレーク: 開催日 → id。 */
+function stabler(best: EntryBoardItem, day: EntryBoardItem): EntryBoardItem {
+  if (day.eventDate !== best.eventDate) {
+    return day.eventDate < best.eventDate ? day : best
+  }
+  return day.id < best.id ? day : best
+}
+
+/**
+ * グループの行に出す締切/抽選日バッジ（要件 §3.2.5.1）。
+ * {@link pickRepresentativeDay} が選んだ日の {@link deadlineBadgeOf}。
+ *
+ * **受容する情報欠落:** グループ内で締切が食い違う場合、最も早い日以外の締切は
+ * この画面から見えない（設計判断18 / §3.2.5.1。内訳は行タップで大会詳細へ）。
+ */
+export function groupDeadlineBadge(
+  group: EntryBoardGroup,
+  todayStr: string,
+): DeadlineBadge {
+  return deadlineBadgeOf(pickRepresentativeDay(group, todayStr), group.area, todayStr)
+}
+
+/**
+ * グループの参加希望者数 = **可視日の合計**（要件 §3.2.5.1 / AC-38）。
+ * 非表示条件で落ちた日は `group.days` に含まれないので自然に除かれる。
+ * 「人が集まっているグループ」を探せることが目的なので、最大値や代表日の値では
+ * 過少表示になる。
+ */
+export function groupAttendCount(group: EntryBoardGroup): number {
+  return group.days.reduce((sum, day) => sum + day.attendCount, 0)
 }
 
 // ---------------------------------------------------------------------------
