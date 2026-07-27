@@ -13,3 +13,7 @@ apps/*/systemd/*.timer text eol=lf
 # design-prototype.patch は /implement が `git apply` にかける。CRLF に変換されると
 # apply が corrupt patch で失敗するため LF を強制する（core.autocrlf=true の環境対策）。
 *.patch text eol=lf
+
+# entry-form-autofill: テスト fixture の xlsx は実物由来のバイナリ。Windows の
+# autocrlf に触られると結合セル・入力規則ごと壊れるため binary を明示する。
+apps/web/src/lib/entry-form/__fixtures__/*.xlsx binary
