@@ -66,7 +66,7 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
     const body = buildEntryMailBody({
       organizer: '青森かるた会',
       clubName: '北海道大学かるた会',
-      representativeSurname: '土居',
+      representativeName: '土居 悠太',
       grades,
     })
     expect(body).toBe(
@@ -74,7 +74,7 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
         '青森かるた会　ご担当者様',
         '',
         'いつもお世話になっております。',
-        '北海道大学かるた会連絡責任者の土居と申します。',
+        '北海道大学かるた会連絡責任者の土居悠太と申します。',
         '',
         '弊会所属15名（A級5名、B級5名、C級3名、D級1名、E級1名）分の参加申込書を添付ファイルにてお送りいたします。',
         'お手数おかけしますが、ご確認のほどよろしくお願いします。',
@@ -88,7 +88,7 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
     const body = buildEntryMailBody({
       organizer: '青森かるた会',
       clubName: '北海道大学かるた会',
-      representativeSurname: '土居',
+      representativeName: '土居 悠太',
       grades,
     })
     expect(body).toContain('弊会所属15名（A級5名、B級5名、C級3名、D級1名、E級1名）分の参加申込書を添付ファイルにてお送りいたします。')
@@ -98,7 +98,7 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
     const body = buildEntryMailBody({
       organizer: null,
       clubName: '北海道大学かるた会',
-      representativeSurname: '土居',
+      representativeName: '土居 悠太',
       grades: ['A'],
     })
     expect(body.startsWith('ご担当者様\n')).toBe(true)
@@ -108,7 +108,7 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
     const body = buildEntryMailBody({
       organizer: '   ',
       clubName: '北海道大学かるた会',
-      representativeSurname: '土居',
+      representativeName: '土居 悠太',
       grades: ['A'],
     })
     expect(body.startsWith('ご担当者様\n')).toBe(true)
@@ -118,9 +118,20 @@ describe('buildEntryMailBody (AC-14: 本文が定型テンプレート＋級別�
     const body = buildEntryMailBody({
       organizer: '青森かるた会',
       clubName: '北海道大学かるた会',
-      representativeSurname: '土居',
+      representativeName: '土居 悠太',
       grades: [null, undefined],
     })
     expect(body).toContain('弊会所属2名分の参加申込書を添付ファイルにてお送りいたします。')
+  })
+
+  it('名乗りはフルネーム（空白除去）・署名は姓のみになる（design-mock/b-step3.html）', () => {
+    const body = buildEntryMailBody({
+      organizer: '青森かるた会',
+      clubName: '北海道大学かるた会',
+      representativeName: '土居 悠太',
+      grades: ['A'],
+    })
+    expect(body).toContain('連絡責任者の土居悠太と申します。')
+    expect(body.endsWith('\n土居')).toBe(true)
   })
 })

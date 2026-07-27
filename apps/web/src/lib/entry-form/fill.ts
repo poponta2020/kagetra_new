@@ -232,6 +232,13 @@ const CAPACITY_SCAN_FALLBACK_ROWS = 500
  * 行を追加して収める方針は取らない——追加した行には元テンプレの書式・入力規則が
  * 引き継がれず AC-10（非破壊性）を壊すため。超過分は `overflow` として呼び出し側に
  * そのまま返し、呼び出し側（プレビュー画面）が別紙・別便等の対応をユーザーに促す。
+ *
+ * ただし空セルのスキャンだけでは行き過ぎる。テンプレは明細行より下に空行を余らせて
+ * おり、主催者側の COUNTIF/SUM はその手前までしか参照していないことがある
+ * （`standard.xlsx` は入力規則が r12..r31 の 20 行なのに空セルは r36 まで続き、
+ * 集計式の参照範囲も明細20行分）。余白行に書くとセルは壊れないまま**集計値だけが
+ * 実数より少なくなる**——最も気づきにくい壊れ方なので、明細列に入力規則が
+ * 付いている場合はその最終行を明細の終端として優先する。
  */
 function computeCapacity(ws: ExcelJS.Worksheet, sheet: CellMapSheet): number {
   const columnLetters = Object.values(sheet.columns).filter((v): v is string => v != null)
@@ -244,7 +251,37 @@ function computeCapacity(ws: ExcelJS.Worksheet, sheet: CellMapSheet): number {
     if (blocked) break
     row++
   }
-  return row - sheet.startRow
+  const scanned = row - sheet.startRow
+
+  const dvLastRow = lastDataValidationRow(ws, columnLetters, sheet.startRow)
+  if (dvLastRow == null) return scanned
+  return Math.min(scanned, dvLastRow - sheet.startRow + 1)
+}
+
+/**
+ * 明細列に付いている入力規則のうち、`startRow` 以降で最も下の行番号。
+ * 入力規則がまったく無いテンプレ（`multisheet-grades.xlsx` 等）では `null`。
+ *
+ * exceljs は使われていない行のアドレス（`E983061` のような 100 万行近い値）も
+ * 内部モデルに持つため、シートの実使用範囲を大きく超えた行は無視する。
+ */
+function lastDataValidationRow(
+  ws: ExcelJS.Worksheet,
+  columnLetters: string[],
+  startRow: number,
+): number | null {
+  const model = ws.dataValidations?.model ?? {}
+  const columns = new Set(columnLetters)
+  const scanLimit = Math.max(ws.rowCount, startRow) + CAPACITY_SCAN_FALLBACK_ROWS
+  let last: number | null = null
+  for (const address of Object.keys(model)) {
+    const matched = /^([A-Z]+)(\d+)$/.exec(address)
+    if (!matched) continue
+    const row = Number(matched[2])
+    if (!columns.has(matched[1]) || row < startRow || row > scanLimit) continue
+    if (last == null || row > last) last = row
+  }
+  return last
 }
 
 // ---------------------------------------------------------------------------

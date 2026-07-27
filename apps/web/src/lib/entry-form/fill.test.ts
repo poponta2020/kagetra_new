@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import ExcelJS from 'exceljs'
 import { describe, it, expect } from 'vitest'
 import { fillEntryForm, formatDan, type EntryFormConstants, type EntryFormMember } from './fill'
-import type { CellMap } from './cell-map'
+import { estimateCellMap, type CellMap } from './cell-map'
 
 // vitest（jsdom 環境）では `import.meta.url` が file: スキームにならず
 // `fileURLToPath` が throw する。cell-map.test.ts と同じ形で解決する。
@@ -513,5 +513,31 @@ describe('fillEntryForm: 行数超過（overflow）', () => {
     expect(reloadedWs.getCell('B3').value).toBe('二名')
     // 3人目は書き込まれず、既存の「合計」ラベル行も破壊されない。
     expect(reloadedWs.getCell('A4').value).toBe('合計')
+  })
+})
+
+describe('記入可能行数は明細列の入力規則の最終行で止まる', () => {
+  // 実物テンプレは明細行の下に空行を余らせており、主催者側の COUNTIF/SUM は
+  // その手前までしか参照していない。余白行に書くとセルは壊れないまま集計値だけが
+  // 実数より少なくなるため、入力規則の張られた範囲を明細の終端として扱う。
+  it('standard.xlsx は入力規則の範囲 r12..r31 の 20 名までで打ち切られる', async () => {
+    const workbook = await loadFixture('standard.xlsx')
+    const cellMap = estimateCellMap(workbook)
+    const members = Array.from({ length: 22 }, (_, i) => member({ familyName: `姓${i}` }))
+
+    const result = await fillEntryForm(workbook, cellMap, {
+      members,
+      constants: NO_CONSTANTS,
+    })
+
+    expect(result.overflow).toHaveLength(1)
+    expect(result.overflow[0].members).toHaveLength(2)
+
+    const reloaded = new ExcelJS.Workbook()
+    await reloaded.xlsx.load(result.buffer)
+    const ws = reloaded.worksheets[0]
+    // 20 名目は入力規則の最終行 r31 に入り、r32 以降は空のまま。
+    expect(ws.getCell('F31').value).toBe('姓19')
+    expect(ws.getCell('F32').value).toBeFalsy()
   })
 })

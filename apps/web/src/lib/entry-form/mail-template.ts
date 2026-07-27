@@ -1,5 +1,6 @@
 import 'server-only'
 import type { Grade } from '@kagetra/shared/types'
+import { surname } from '@/lib/surname'
 
 /**
  * entry-form-autofill タスク3: 件名・添付ファイル名・本文の定型生成。
@@ -66,14 +67,19 @@ export interface BuildEntryMailBodyInput {
   /** events.organizer 相当。未設定（null/空文字）なら「ご担当者様」のみの宛名にする。 */
   organizer: string | null
   clubName: string
-  /** 申込責任者氏名の姓のみ（設定値 `settings.ts` から呼び出し側が渡す）。挨拶の名乗り・署名の両方に使う。 */
-  representativeSurname: string
+  /**
+   * 申込責任者氏名（設定値 `settings.ts` の `managerName`。姓名の間の空白は任意）。
+   * 名乗りはフルネーム・署名は姓だけ、と使い分ける（design-mock/b-step3.html の実例）。
+   */
+  representativeName: string
   grades: readonly (Grade | null | undefined)[]
 }
 
 /**
  * 下書きメール本文を生成する。
- * 宛名（主催者名＋「　ご担当者様」）＋挨拶＋定型の一文（級別人数集計込み）＋結び＋署名（責任者姓）。
+ * 宛名（主催者名＋「　ご担当者様」）＋挨拶＋定型の一文（級別人数集計込み）＋結び＋署名。
+ *
+ * 名乗りは氏名から空白を除いた形（「土居 悠太」→「土居悠太」）、署名は姓のみ。
  */
 export function buildEntryMailBody(input: BuildEntryMailBodyInput): string {
   const salutation = input.organizer && input.organizer.trim().length > 0
@@ -81,16 +87,18 @@ export function buildEntryMailBody(input: BuildEntryMailBodyInput): string {
     : 'ご担当者様'
   const { total, breakdown } = summarizeGradeCounts(input.grades)
   const breakdownText = breakdown.length > 0 ? `（${breakdown}）` : ''
+  const fullName = input.representativeName.replace(/[\s　]+/g, '')
+  const signature = surname(input.representativeName)
 
   return [
     salutation,
     '',
     'いつもお世話になっております。',
-    `${input.clubName}連絡責任者の${input.representativeSurname}と申します。`,
+    `${input.clubName}連絡責任者の${fullName}と申します。`,
     '',
     `弊会所属${total}名${breakdownText}分の参加申込書を添付ファイルにてお送りいたします。`,
     'お手数おかけしますが、ご確認のほどよろしくお願いします。',
     '',
-    input.representativeSurname,
+    signature,
   ].join('\n')
 }
