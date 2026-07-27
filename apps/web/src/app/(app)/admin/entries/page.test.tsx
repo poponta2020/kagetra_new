@@ -82,10 +82,12 @@ describe('/admin/entries（申込管理ボード）', () => {
   })
 
   describe('認可（AC-1）', () => {
-    it('一般会員は /403 へリダイレクトされる', async () => {
+    // 閲覧は全員に開放済み（表示専用ボードなので role で絞らない）。
+    it('一般会員も開ける', async () => {
       const member = await createUser({ role: 'member' })
       await setAuthSession({ id: member.id, role: 'member' })
-      await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
+      await renderPage()
+      expect(screen.getByRole('heading', { name: '申込管理' })).toBeTruthy()
     })
 
     it('未ログインは /403 へリダイレクトされる', async () => {

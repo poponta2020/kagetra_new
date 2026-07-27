@@ -17,7 +17,12 @@ import type { EntryBoardItem } from './entry-board-utils'
 export const dynamic = 'force-dynamic'
 
 /**
- * 申込管理ボード（管理者専用）。
+ * 申込管理ボード（ログイン会員全員が閲覧できる）。
+ *
+ * 当初は管理者専用だったが、会内の申込進捗は会員全員が知りたい情報なので
+ * 閲覧を開放した（表示項目の出し分けはしない）。この画面は元から**表示専用**で、
+ * 状態を変える操作は一切持たない——行タップの遷移先も `/events/[id]` であり、
+ * 管理者向けの進行管理パネルはその画面側が role で出し分けている。
  *
  * 進行フェーズは永続カラムを持たず、既存列（entry_status / payment_* / 各締切）と
  * 既存テーブル（出欠・確定名簿）から毎回導出する。仕分け・並び順・締切表示の判断は
@@ -28,10 +33,9 @@ export const dynamic = 'force-dynamic'
  */
 export default async function EntryManagementPage() {
   const session = await auth()
-  if (
-    !session ||
-    (session.user?.role !== 'admin' && session.user?.role !== 'vice_admin')
-  ) {
+  // 未ログイン・会員未紐付けは通さない（通常は middleware が先に弾く。ここは
+  // その fail-safe）。role による絞りはしない。
+  if (!session?.user?.id) {
     redirect('/403')
   }
 

@@ -14,17 +14,26 @@ describe('BottomNav', () => {
     mockUsePathname.mockReturnValue('/dashboard')
   })
 
-  // AC-4 / AC-6: 一般会員は ホーム/イベント/統計/設定 の 4 タブちょうど、
-  // かつこの並び順で表示される（設定タブは常に最後尾）。
-  it('isAdmin=false のとき ホーム/イベント/統計/設定 の 4 タブが、この順序ちょうどで表示される', () => {
+  // AC-4 / AC-6: 一般会員は ホーム/イベント/統計/申込管理/設定 の 5 タブ
+  // ちょうど、かつこの並び順で表示される（設定タブは常に最後尾）。
+  // 申込管理は表示専用ボードなので閲覧を全員に開放している（管理者専用は
+  // メールのみ）。
+  it('isAdmin=false のとき ホーム/イベント/統計/申込管理/設定 の 5 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin={false} />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
       'ホーム',
       'イベント',
       '統計',
+      '申込管理',
       '設定',
     ])
+  })
+
+  // 一般会員に出さない管理者専用タブは「メール」だけ。
+  it('isAdmin=false のとき メール タブは表示されない', () => {
+    render(<BottomNav isAdmin={false} />)
+    expect(screen.queryByText('メール')).toBeNull()
   })
 
   // AC-5 / AC-6: 管理者は ホーム/イベント/統計/申込管理/メール/設定 の
@@ -131,6 +140,14 @@ describe('BottomNav', () => {
     expect(screen.getByText('設定').closest('a')?.className).not.toContain(
       'border-brand',
     )
+  })
+
+  it('isAdmin=false でも pathname=/admin/entries で 申込管理 タブが active になる', () => {
+    mockUsePathname.mockReturnValue('/admin/entries')
+    render(<BottomNav isAdmin={false} />)
+    const link = screen.getByText('申込管理').closest('a')
+    expect(link?.getAttribute('href')).toBe('/admin/entries')
+    expect(link?.className).toContain('border-brand')
   })
 
   it('pathname=/admin/entries/42 のような詳細パスでも 申込管理 タブが active', () => {
