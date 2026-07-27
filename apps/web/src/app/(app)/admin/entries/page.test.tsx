@@ -199,7 +199,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         internalDeadline: addDays(today, -1),
         entryStatus: 'not_applied',
       })
-      // 対比: 締切超過でも出欠 1 名なら「要対応」に出る
+      // 対比: 締切超過でも出欠 1 名なら「要申込」に出る
       const alive = await createEvent({
         title: '締切超過1名',
         eventDate: future,
@@ -213,7 +213,7 @@ describe('/admin/entries（申込管理ボード）', () => {
 
       expect(screen.queryByText('見送り大会')).toBeNull()
       expect(screen.queryByText('締切超過0名')).toBeNull()
-      expect(within(sectionOf('要対応')).getByText('締切超過1名')).toBeTruthy()
+      expect(within(sectionOf('要申込')).getByText('締切超過1名')).toBeTruthy()
     })
   })
 
@@ -333,11 +333,11 @@ describe('/admin/entries（申込管理ボード）', () => {
 
       await renderPage()
 
-      const waiting = sectionOf('申込済み・抽選待ち')
+      const waiting = sectionOf('申込完了・抽選待ち')
       expect(within(waiting).getByText('申込者名簿のみ')).toBeTruthy()
       expect(within(waiting).getByText('差し替え済み確定名簿')).toBeTruthy()
       expect(
-        within(sectionOf('名簿確定・振込待ち')).getByText('有効な確定名簿'),
+        within(sectionOf('名簿確定・要振込')).getByText('有効な確定名簿'),
       ).toBeTruthy()
     })
 
@@ -377,7 +377,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         within(sectionOf('完了')).getByText('名簿未取込の振込済大会'),
       ).toBeTruthy()
       expect(
-        within(sectionOf('申込済み・抽選待ち')).queryByText('名簿未取込の振込済大会'),
+        within(sectionOf('申込完了・抽選待ち')).queryByText('名簿未取込の振込済大会'),
       ).toBeNull()
     })
   })
@@ -425,9 +425,9 @@ describe('/admin/entries（申込管理ボード）', () => {
 
       for (const label of [
         '締切前',
-        '要対応',
-        '申込済み・抽選待ち',
-        '名簿確定・振込待ち',
+        '要申込',
+        '申込完了・抽選待ち',
+        '名簿確定・要振込',
         '完了',
       ]) {
         expect(screen.getByRole('heading', { name: label })).toBeTruthy()
@@ -509,6 +509,115 @@ describe('/admin/entries（申込管理ボード）', () => {
       expect(within(section).queryByText('多摩BC')).toBeNull()
       // 代表イベントは今日以降で最も近い日 = 多摩B。
       const headerLink = within(section).getByText('多摩ABC').closest('a')
+      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+    })
+  })
+
+  // タスク2（AC-16b, AC-16c）: グループ表示名は「各可視日の通称ベース名を作ってから
+  // 畳む」順序で導出する（要件 §3.2.5 手順1〜3）。deriveEntryGroupName に events.title
+  // をそのまま渡していた頃は、通称の畳み方と title の畳み方がずれるケースがあった。
+  describe('グループ表示名の導出（AC-16b, AC-16c）', () => {
+    beforeEach(async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+    })
+
+    it('AC-16b: 単独イベント・通称ありの表示名は通称+級のまま（回帰）', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+      const edition = await seedEditionWithShortName('厚別', 3)
+      await createEvent({
+        title: '第3回厚別大会',
+        eventDate: future,
+        internalDeadline: future,
+        editionId: edition.id,
+        eligibleGrades: ['A', 'B'],
+      })
+
+      await renderPage()
+
+      expect(screen.getByText('厚別AB')).toBeTruthy()
+      expect(screen.queryByText('第3回厚別大会')).toBeNull()
+    })
+
+    it('単独イベント・通称なし（edition 未紐付け）は title へフォールバックする', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+      await createEvent({
+        title: '通称未設定大会',
+        eventDate: future,
+        internalDeadline: future,
+        editionId: null,
+      })
+
+      await renderPage()
+
+      expect(screen.getByText('通称未設定大会')).toBeTruthy()
+    })
+
+    it('AC-16c: 複数日グループの表示名は通称ベースで畳まれる（title だけでは畳めない場合も）', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      const edition = await seedEditionWithShortName('杉並', 10)
+      await createEvent({
+        entryGroupId: group.id,
+        editionId: edition.id,
+        title: '第10回杉並大会 B級の部',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 5),
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        editionId: edition.id,
+        title: '第10回杉並大会 A級の部',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // title ベースの畳み込みは共通接頭辞の残りが「B級の部」「A級の部」で
+      // 単一の級文字ではないため失敗する（groupName は代表イベントの title へ
+      // フォールバックするはず）。通称ベース（杉並B / 杉並A）なら畳めて「杉並AB」。
+      expect(within(section).getAllByText('杉並AB')).toHaveLength(1)
+      expect(within(section).queryByText('第10回杉並大会 B級の部')).toBeNull()
+      expect(within(section).queryByText('第10回杉並大会 A級の部')).toBeNull()
+    })
+
+    it('AC-16c: 通称ベースで畳めない組み合わせは groupName（title 由来）へフォールバックする', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      const edition = await seedEditionWithShortName('杉並', 20)
+      const nearer = await createEvent({
+        entryGroupId: group.id,
+        editionId: edition.id,
+        title: '臨時開催イベント甲',
+        eligibleGrades: ['A', 'B'],
+        eventDate: addDays(today, 5), // 今日以降で最も近い → 代表
+        internalDeadline: addDays(today, 3),
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        editionId: edition.id,
+        title: '臨時開催イベント乙',
+        eligibleGrades: ['C'],
+        eventDate: addDays(today, 12),
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+
+      const section = sectionOf('締切前')
+      // 通称ベースでは「杉並AB」+「杉並C」で残りが単一の級文字ではなく畳めない。
+      // title ベースでも共通接頭辞「臨時開催イベント」の残りが「甲」「乙」で級文字
+      // ではないため畳めない → groupName は代表イベント（開催日が近い方）の
+      // title へフォールバックする。
+      expect(within(section).getAllByText('臨時開催イベント甲')).toHaveLength(1)
+      expect(within(section).queryByText(/杉並/)).toBeNull()
+      const headerLink = within(section).getByText('臨時開催イベント甲').closest('a')
       expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
     })
   })
