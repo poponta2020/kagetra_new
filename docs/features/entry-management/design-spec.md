@@ -1,15 +1,22 @@
 ---
 status: locked
 slug: entry-management
-target: /admin/entries（新規）＋ apps/web/src/components/layout/bottom-nav.tsx
+target: /admin/entries ＋ apps/web/src/components/layout/bottom-nav.tsx
 chosen_direction: タイムライン型・単一画面ボード
 round: 12
+design_source: live
 prototype_branch: design/entry-management
 prototype_base: 8e9d68df009442851a89ce58f04b8f93121a660b
 ---
 # 申込管理ボード デザイン仕様（design-spec）
 
-> **レイアウトの詳細は `design-prototype.patch`（実差分）が正。** ここには patch から読み取れない意図・判断・データ要件を書く。
+> ⚠️ **この仕様書（round 12 まで）と `design-prototype.patch` は、出荷済みの実画面より古い。**
+> entry-groups のタスク6 が着地し、行モデルが **1 大会 = 1 行** から **1 申込グループ = 1 カード（複数日は日別行を入れ子で持つ）** に変わっている
+> （`EntryBoardClient.tsx` の `groupBoard` / `EntryGroupCard` / `EntryGroupDayRow`。§2・§4 の記述はこの変更を反映していない）。
+> **現在の実画面の視覚の正は実コードそのもの**であり、patch ではない。
+> 現状を 375px で再現したスナップショット＝ `design-mock/current.html`（本番 2026-07-27 実データ）。
+>
+> **レイアウトの詳細は実コードが正。** ここには読み取れない意図・判断・データ要件を書く。
 > ロジック（区画の判定条件・母集団・並び順・表示条件）は `requirements.md` §3.2 が正。ここでは再記述しない。
 
 ## 1. 対象と狙い
@@ -112,3 +119,8 @@ prototype_base: 8e9d68df009442851a89ce58f04b8f93121a660b
 ## 11. 変更履歴
 
 - 2026-07-26: 新規作成。縦積み案 → タブ案 → 単一画面ボード案と収束したのち、区画構成・表示項目・強調条件を 12 ラウンドで詰めて確定
+- 2026-07-27: 見た目の再調整に着手したが**デザイン変更には至らず（round 12 のまま locked を維持）**。この日に判明・作成したもの:
+  - **本文 §2・§4 と `design-prototype.patch` が出荷済みの実画面と乖離していた**（entry-groups タスク6 のカード化が spec に反映されていない）。現状の視覚の正は実コード。
+  - 現状スナップショット `design-mock/current.html` を作成（本番 2026-07-27 の実データ。母集団 29 イベント / 20 グループ → 表示 14 カード）。Claude Design プロジェクト「Kagetra Design System」の `features/entry-management/current.html` にも同一物を push 済み。
+  - 375px 実測: 縦オーバーフロー 0（コンテンツ 639px / main 758px）・横オーバーフロー 0・区画ヒントと日付列の右端が一致・残日数列 62px・長い正式名称は省略される。
+  - 実データ観察: 行動フェーズ 2 区画が両方 0 件のため**画面に赤が 1 つも出ない**／締切が全て 4 日以上先のため**残日数列（62px）が全行で空**／参加希望者数が出る行は 1 行のみ。見た目を再検討する場合はこの「平常時のスカスカさ」が出発点になる。

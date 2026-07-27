@@ -1,0 +1,79 @@
+<!-- @dsCard group="申込書作成（B案 状態: 作成完了）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* entry-form-autofill S2 — 完了状態。成功は藍（success=藍の規約）。
+     次の一手（Yahoo で送信 → 申込済にする）を導線として明示する。 */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--kg-font-sans); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 12px; background: var(--kg-surface-alt); }
+  .phone { width: 375px; height: 812px; display: flex; flex-direction: column; background: var(--kg-bg); border: 1px solid var(--kg-border); border-radius: 14px; overflow: hidden; font-size: var(--kg-text-base); color: var(--kg-fg); line-height: var(--kg-leading-normal); box-shadow: var(--kg-shadow-md); }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 20px; padding: 16px; }
+  .crumb { font-size: 11px; color: var(--kg-fg-3); } .crumb b { color: var(--kg-fg-2); }
+
+  .donehead { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 4px; text-align: center; }
+  .ring { width: 44px; height: 44px; border-radius: 9999px; background: var(--kg-success-bg); display: flex; align-items: center; justify-content: center; color: var(--kg-success-fg); font-size: 20px; font-weight: var(--kg-w-bold); }
+  .donehead h1 { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: 20px; }
+  .donehead .d { font-size: 12px; color: var(--kg-fg-3); }
+
+  .sect { display: flex; align-items: center; gap: 8px; }
+  .sect .t { flex: none; font-size: 13px; font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+  .sect .rule { flex: 1; height: 1px; background: var(--kg-border-soft); }
+  .sum { list-style: none; }
+  .sum > li + li { border-top: 1px solid var(--kg-border-soft); }
+  .srow { display: flex; gap: 10px; padding: 7px 0; font-size: 12px; }
+  .sk { flex: none; width: 76px; color: var(--kg-fg-3); }
+  .sv { min-width: 0; flex: 1; }
+  .sv b { font-weight: var(--kg-w-bold); }
+
+  /* 次の一手: 番号付きの静かなステップ */
+  .nexts { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .nx { display: flex; gap: 10px; font-size: 12px; line-height: 1.6; }
+  .no { flex: none; width: 18px; height: 18px; border-radius: 9999px; background: var(--kg-brand-bg); color: var(--kg-brand-fg); font-size: 11px; font-weight: var(--kg-w-bold); display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+  .nx .tx b { font-weight: var(--kg-w-bold); }
+  .nx .tx .sub { display: block; font-size: 10px; color: var(--kg-fg-muted); }
+
+  .foot { flex: none; padding: 10px 16px 14px; border-top: 1px solid var(--kg-border); background: var(--kg-surface); display: flex; flex-direction: column; gap: 8px; }
+  .ghost { display: block; width: 100%; text-align: center; padding: 11px 0; border: 1px solid var(--kg-border-strong); border-radius: var(--kg-radius-md); background: var(--kg-surface); color: var(--kg-fg-2); font-family: var(--kg-font-sans); font-size: 13px; text-decoration: none; }
+  .cta { display: block; width: 100%; text-align: center; padding: 12px 0; border: 0; border-radius: var(--kg-radius-md); background: var(--kg-brand); color: var(--kg-fg-on-brand); font-family: var(--kg-font-sans); font-size: var(--kg-text-base); font-weight: var(--kg-w-bold); text-decoration: none; }
+</style></head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div class="crumb">イベント詳細 › <b>進行管理</b></div>
+
+  <div class="donehead">
+    <div class="ring">✓</div>
+    <h1>下書きを作成しました</h1>
+    <div class="d">Yahoo メールの下書きフォルダに保存済み・送信はされていません</div>
+  </div>
+
+  <section>
+    <div class="sect"><span class="t">作成した下書き</span><span class="rule"></span></div>
+    <ul class="sum">
+      <li><div class="srow"><span class="sk">宛先</span><span class="sv">aomori-karuta@example.jp</span></div></li>
+      <li><div class="srow"><span class="sk">件名</span><span class="sv">青森大会申込み（北海道大学かるた会）</span></div></li>
+      <li><div class="srow"><span class="sk">添付</span><span class="sv"><b>【北海道大学かるた会】第３回青森大会参加申込書.xlsx</b>（15名記入済み）</span></div></li>
+      <li><div class="srow"><span class="sk">作成</span><span class="sv">7/27 21:04・山田</span></div></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sect"><span class="t">この後の流れ</span><span class="rule"></span></div>
+    <ul class="nexts">
+      <li class="nx"><span class="no">1</span><span class="tx"><b>Yahoo メール</b>（アプリ / Web）の下書きを開き、内容を確認して<b>送信</b><span class="sub">以前作成した下書きが残っている場合は Yahoo 側で削除してください</span></span></li>
+      <li class="nx"><span class="no">2</span><span class="tx">送信したら進行管理で<b>「申込済にする」</b>を押す<span class="sub">参加者への LINE 通知は従来どおりそのタイミングで送られます</span></span></li>
+    </ul>
+  </section>
+
+</div></div>
+
+<div class="foot">
+  <a class="ghost" href="#">生成した申込書をダウンロード</a>
+  <a class="cta" href="#">イベントに戻る</a>
+</div>
+</div>
+
+</body></html>

@@ -1,0 +1,54 @@
+<!-- @dsCard group="申込書作成（B案 状態: 下書き作成失敗）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* entry-form-autofill S2 — IMAP APPEND 失敗。申込書 xlsx は生成済みで失われない
+     （ダウンロード可）ことを主導線として示す。失敗は朱（danger）。 */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--kg-font-sans); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px 12px; background: var(--kg-surface-alt); }
+  .phone { width: 375px; height: 812px; display: flex; flex-direction: column; background: var(--kg-bg); border: 1px solid var(--kg-border); border-radius: 14px; overflow: hidden; font-size: var(--kg-text-base); color: var(--kg-fg); line-height: var(--kg-leading-normal); box-shadow: var(--kg-shadow-md); }
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  .page { display: flex; flex-direction: column; gap: 20px; padding: 16px; }
+  .crumb { font-size: 11px; color: var(--kg-fg-3); } .crumb b { color: var(--kg-fg-2); }
+
+  .donehead { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 4px; text-align: center; }
+  .ring { width: 44px; height: 44px; border-radius: 9999px; background: var(--kg-danger-bg); display: flex; align-items: center; justify-content: center; color: var(--kg-danger-fg); font-size: 18px; font-weight: var(--kg-w-bold); }
+  .donehead h1 { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: 20px; }
+  .donehead .d { font-size: 12px; color: var(--kg-fg-3); max-width: 280px; }
+
+  .errbox { padding: 8px 10px; border-radius: var(--kg-radius-md); background: var(--kg-danger-bg); font-size: 11px; color: var(--kg-danger-fg); line-height: 1.6; }
+  .errbox code { font-family: inherit; font-weight: var(--kg-w-bold); }
+
+  .okline { display: flex; gap: 8px; padding: 8px 10px; border-radius: var(--kg-radius-md); background: var(--kg-success-bg); font-size: 11px; color: var(--kg-success-fg); line-height: 1.6; }
+  .okline b { font-weight: var(--kg-w-bold); }
+
+  .foot { flex: none; padding: 10px 16px 14px; border-top: 1px solid var(--kg-border); background: var(--kg-surface); display: flex; flex-direction: column; gap: 8px; }
+  .ghost { display: block; width: 100%; text-align: center; padding: 11px 0; border: 1px solid var(--kg-border-strong); border-radius: var(--kg-radius-md); background: var(--kg-surface); color: var(--kg-fg-2); font-family: var(--kg-font-sans); font-size: 13px; text-decoration: none; }
+  .cta { display: block; width: 100%; text-align: center; padding: 12px 0; border: 0; border-radius: var(--kg-radius-md); background: var(--kg-brand); color: var(--kg-fg-on-brand); font-family: var(--kg-font-sans); font-size: var(--kg-text-base); font-weight: var(--kg-w-bold); }
+</style></head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div class="crumb">イベント詳細 › <b>進行管理</b></div>
+
+  <div class="donehead">
+    <div class="ring">！</div>
+    <h1>下書きを作成できませんでした</h1>
+    <div class="d">Yahoo メールへの接続に失敗しました。時間をおいて再試行してください。</div>
+  </div>
+
+  <div class="errbox">接続エラー: <code>imap.mail.yahoo.co.jp への接続がタイムアウトしました</code></div>
+
+  <div class="okline"><span>✓</span><span><b>記入済みの申込書は生成できています。</b>ダウンロードして手動でメールに添付することもできます。編集した内容（ふりがな・出場回数など）は保存済みです。</span></div>
+
+</div></div>
+
+<div class="foot">
+  <a class="ghost" href="#">生成した申込書をダウンロード</a>
+  <button class="cta">もう一度下書きを作成する</button>
+</div>
+</div>
+
+</body></html>
