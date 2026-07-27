@@ -12,7 +12,7 @@ import { db } from '@/lib/db'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 import { todayInJst } from '@/lib/jst-date'
 import { EntryBoardClient } from './EntryBoardClient'
-import type { EntryBoardItem } from './entry-board-utils'
+import { displayName, type EntryBoardItem } from './entry-board-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -137,6 +137,9 @@ export default async function EntryManagementPage() {
   //    導出すると過去日や cancelled を含むグループで他画面と食い違う（過去の多摩A＋
   //    未来の多摩B のグループがボードだけ「多摩B」になる）。表示する行の母集団は
   //    `eventRows` のままにし、名前と代表イベントだけ全イベントから計算する。
+  //    グループ表示名（groupDisplayName）は通称ベースで畳む（要件 §3.2.5 手順1〜3）ので、
+  //    ここでも通称（tournament_series.short_name）と対象級を取る。①のクエリと同じく
+  //    edition_id は nullable なので leftJoin を 2 段（edition → series）で辿る。
   const groupMemberRows =
     groupIds.length === 0
       ? []
@@ -144,10 +147,20 @@ export default async function EntryManagementPage() {
           .select({
             id: events.id,
             title: events.title,
+            shortName: tournamentSeries.shortName,
+            eligibleGrades: events.eligibleGrades,
             eventDate: events.eventDate,
             entryGroupId: events.entryGroupId,
           })
           .from(events)
+          .leftJoin(
+            tournamentSeriesEditions,
+            eq(tournamentSeriesEditions.id, events.editionId),
+          )
+          .leftJoin(
+            tournamentSeries,
+            eq(tournamentSeries.id, tournamentSeriesEditions.seriesId),
+          )
           .where(inArray(events.entryGroupId, groupIds))
   const membersByGroup = new Map<number, typeof groupMemberRows>()
   for (const row of groupMemberRows) {
@@ -157,14 +170,29 @@ export default async function EntryManagementPage() {
   }
   const groupMetaById = new Map<
     number,
-    { name: string; representativeEventId: number }
+    { name: string; displayName: string; representativeEventId: number }
   >()
   for (const [groupId, members] of membersByGroup) {
     // members は groupIds（eventRows 由来）のグループの全イベントなので必ず1件以上あり、
     // selectRepresentativeEvent は非 null を返す。
     const representative = selectRepresentativeEvent(members, todayStr)!
     const name = deriveEntryGroupName(members.map((m) => m.title)) ?? representative.title
-    groupMetaById.set(groupId, { name, representativeEventId: representative.id })
+    // 通称ベースの表示名（要件 §3.2.5 手順1〜3）。
+    // 手順1: グループの**全イベント**を「通称+級」（entry-board-utils.displayName、
+    //   単独イベント表示と同一ロジック）に変換する。母集団を `name` / 代表イベントと
+    //   揃えるのが要点（ボードの表示対象に絞らない）。単独イベントのグループは
+    //   この1件がそのまま groupDisplayName になり、改修前の表示と1文字も変わらない（AC-16b）。
+    // 手順2: それらを deriveEntryGroupName で畳む（例「杉並B」+「杉並A」→「杉並AB」）。
+    // 手順3: 畳めなければ title 由来の `name` へフォールバックする（AC-16c）。
+    const memberDisplayNames = members.map((m) =>
+      displayName({ title: m.title, shortName: m.shortName, eligibleGrades: m.eligibleGrades }),
+    )
+    const groupDisplayNameValue = deriveEntryGroupName(memberDisplayNames) ?? name
+    groupMetaById.set(groupId, {
+      name,
+      displayName: groupDisplayNameValue,
+      representativeEventId: representative.id,
+    })
   }
 
   const items: EntryBoardItem[] = eventRows.map((e) => {
@@ -179,9 +207,9 @@ export default async function EntryManagementPage() {
       id: e.id,
       entryGroupId: e.entryGroupId,
       groupName: groupMeta.name,
-      // ★タスク1 の暫定値（title 由来の `groupName` と同じ）。タスク2 が通称ベースの
-      //   導出（要件 §3.2.5 の手順1→2→3）へ差し替える。
-      groupDisplayName: groupMeta.name,
+      // 通称ベースで畳んだグループ表示名（要件 §3.2.5 手順1→2→3。上の groupMetaById
+      // 組み立て参照）。畳めなかったときだけ `groupMeta.name`（title 由来）と一致する。
+      groupDisplayName: groupMeta.displayName,
       groupRepresentativeEventId: groupMeta.representativeEventId,
       title: e.title,
       shortName: e.shortName,
