@@ -215,3 +215,5 @@
 - [auto-review PR #378](auto-review-round-pr378.md) — R2 verdict=pass
 - [申込管理ボードの閲覧を一般会員へ開放](project_ship-entry-board-visible-to-members.md) — shipped: PR #378
 - [entry-management 改修要件（確定名簿を完了要件から外す）](project_entry_management_roster_not_required.md) — 親Issue #379・現地払いは申込済で即完了になる点が受容リスク
+- [entry-management 改修: 確定名簿を「完了」の必須要件から外す](impl_entry-board-done-without-roster.md) — classify の applied 分岐を評価順で組み替え(#379)。PaymentStatus は2値ちょうど
+- [entry-board: 確定名簿を「完了」の必須要件から外す](project_ship-entry-board-done-without-roster.md) — shipped: PR #380。PaymentStatus は2値ちょうど・戻すのは git revert
