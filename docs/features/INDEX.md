@@ -47,3 +47,4 @@
 - `senseki-boundary` — 統計・戦績ドメイン（統計4セクション・選手検索・戦績詳細・結果取込）を配布版から物理削除可能・再装着可能な疎結合境界へ再編（capability フラグ＋境界マニフェスト）（主要領域: apps/web, apps/mail-worker）
 - `entry-form-autofill` — 大会申込書xlsxの自動記入とYahooメール下書きのIMAP APPEND作成（送信は構造的に不可）。プレビュー必須・AI はセルマップfallback/指定件名抽出のみ（主要領域: 未定）
 - `grade-entry-fee` — 公認大会の級別参加料（A/B 2,500・C/D 2,000・E 1,500）を協会規定の定数として packages/shared に保持。UI 配線は行わず値のみ（主要領域: packages/shared constants） [shipped: PR #392]
+- `home-tournament-timeline` — ホーム(/dashboard)を「会の出場予定」へ全面置換。未回答アラート＋大会当日カード＋出場タイムライン（確定名簿→出欠のフォールバック・出場者チップ一列・自分ハイライト）（主要領域: apps/web dashboard）
