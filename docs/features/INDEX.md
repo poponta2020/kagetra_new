@@ -45,3 +45,5 @@
 - `event-detail-redesign` — /events/[id] 大会申込詳細を管理者・一般会員とも「罫線＋余白主導（脱カード）」へ再設計（主要領域: apps/web events） [shipped: PR #376]
 - `entry-groups` — 開催日別イベントを「同メール×同締切」の申込グループで束ね、LINE紐付け・配信・名簿・リマインド・進行操作をグループ単位に集約（主要領域: packages/shared schema + apps/web events/admin/mail-inbox/scripts） [shipped: PR #377]
 - `senseki-boundary` — 統計・戦績ドメイン（統計4セクション・選手検索・戦績詳細・結果取込）を配布版から物理削除可能・再装着可能な疎結合境界へ再編（capability フラグ＋境界マニフェスト）（主要領域: apps/web, apps/mail-worker）
+- `entry-form-autofill` — 大会申込書xlsxの自動記入とYahooメール下書きのIMAP APPEND作成（送信は構造的に不可）。プレビュー必須・AI はセルマップfallback/指定件名抽出のみ（主要領域: 未定）
+- `grade-entry-fee` — 公認大会の級別参加料（A/B 2,500・C/D 2,000・E 1,500）を協会規定の定数として packages/shared に保持。UI 配線は行わず値のみ（主要領域: packages/shared constants）
