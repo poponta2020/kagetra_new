@@ -575,3 +575,30 @@ describe('fillEntryForm — 大会独自級', () => {
     expect(result.unassignedMembers).toHaveLength(0)
   })
 })
+
+describe('記入可能行数はシートの実使用範囲を超えない（書式外への記入を防ぐ）', () => {
+  // 入力規則も終端セルも無いテンプレ（multisheet 系）で、空セルのスキャンだけを
+  // 頼りにすると表の外へ書き込んでしまう。ws.rowCount を上限にする。
+  it('multisheet-grades.xlsx は 89 行を超えて記入せず、超過は overflow に載る', async () => {
+    const workbook = await loadFixture('multisheet-grades.xlsx')
+    const cellMap = estimateCellMap(workbook)
+    const sheet = cellMap.sheets[0]!
+    const capacity = 89 - sheet.startRow + 1
+
+    const members = Array.from({ length: capacity + 5 }, (_, i) =>
+      member({ grade: 'C', familyName: `姓${i}` }),
+    )
+
+    const result = await fillEntryForm(workbook, cellMap, {
+      members,
+      constants: NO_CONSTANTS,
+    })
+
+    const overflowed = result.overflow.reduce((sum, o) => sum + o.members.length, 0)
+    expect(overflowed).toBe(5)
+
+    const reloaded = await loadWorkbook(result.buffer)
+    // 表の最終行より下（90行目以降）には何も書かれていない。
+    expect(reloaded.worksheets[0]!.getCell('C90').value).toBeFalsy()
+  })
+})

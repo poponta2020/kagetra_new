@@ -78,17 +78,20 @@ export async function saveEntryFormSettings(
     else toDelete.push(key)
   }
 
-  for (const { key, value } of toUpsert) {
-    await db
-      .insert(appSettings)
-      .values({ key, value, updatedBy, updatedAt: now })
-      .onConflictDoUpdate({
-        target: appSettings.key,
-        set: { value, updatedBy, updatedAt: now },
-      })
-  }
-
-  if (toDelete.length > 0) {
-    await db.delete(appSettings).where(inArray(appSettings.key, toDelete))
-  }
+  // 6項目は「申込書ヘッダ」「メールの差出人・署名」という1つの設定なので、
+  // 途中で失敗して一部だけ新しい値、という状態を残さない。
+  await db.transaction(async (tx) => {
+    for (const { key, value } of toUpsert) {
+      await tx
+        .insert(appSettings)
+        .values({ key, value, updatedBy, updatedAt: now })
+        .onConflictDoUpdate({
+          target: appSettings.key,
+          set: { value, updatedBy, updatedAt: now },
+        })
+    }
+    if (toDelete.length > 0) {
+      await tx.delete(appSettings).where(inArray(appSettings.key, toDelete))
+    }
+  })
 }

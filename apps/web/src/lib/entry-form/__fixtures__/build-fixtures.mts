@@ -30,14 +30,32 @@ if (!SRC_DIR) {
   process.exit(1)
 }
 
-/** セルを空にする（結合・書式・入力規則は触らない）。 */
-function blank(ws: ExcelJS.Worksheet, ...addresses: string[]) {
-  for (const a of addresses) ws.getCell(a).value = null
+/**
+ * ドキュメントプロパティを消す。**セル値の差し替えだけでは不十分** ——
+ * xlsx は docProps/core.xml・app.xml に作成者名・最終更新者名・所属組織を持ち、
+ * 実物テンプレにはそれらが実名で残っている（画面には出ないので見落としやすい）。
+ */
+function scrubDocumentProperties(wb: ExcelJS.Workbook) {
+  wb.creator = 'kagetra-fixture'
+  wb.lastModifiedBy = 'kagetra-fixture'
+  wb.company = ''
+  wb.manager = ''
+  wb.title = ''
+  wb.subject = ''
+  wb.keywords = ''
+  wb.description = ''
+  wb.category = ''
+  // 日時も実運用の痕跡なので固定値に寄せる（再生成の差分も安定する）。
+  const epoch = new Date('2020-01-01T00:00:00.000Z')
+  wb.created = epoch
+  wb.modified = epoch
+  wb.lastPrinted = epoch
 }
 
 async function open(name: string) {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.readFile(join(SRC_DIR!, name))
+  scrubDocumentProperties(wb)
   return wb
 }
 

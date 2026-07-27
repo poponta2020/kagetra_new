@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
+import type { Grade } from '@kagetra/shared/types'
 import type { CellMap, MemberField } from '@/lib/entry-form/cell-map'
 import type { EntryFormMember } from '@/lib/entry-form/fill'
 import {
@@ -17,7 +18,13 @@ import {
 } from './actions'
 import { formatDateTimeShort, formatFlowDate } from '@/lib/event-date'
 import { formatEventDateRange } from './entry-form-format'
-import { applyColumnChange, applyStartRowChange, createManualSheet } from './cell-map-view'
+import {
+  applyColumnChange,
+  applyStartRowChange,
+  applyTargetGradesChange,
+  createManualSheet,
+  removeSheet,
+} from './cell-map-view'
 import { buildAttachmentFilename, buildDefaultEntrySubject, buildEntryMailBody } from './mail-template-client'
 import { WizardSteps } from './WizardSteps'
 import { Step1Template } from './Step1Template'
@@ -74,6 +81,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
     setMail(null)
     setBodyEdited(false)
     setBodyStale(false)
+    setBodyMembersKey(null)
     try {
       const input =
         sel.kind === 'candidate'
@@ -107,6 +115,15 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
 
   const handleStartRowChange = (sheetIndex: number, startRow: number) => {
     setCellMap((prev) => (prev ? applyStartRowChange(prev, sheetIndex, startRow) : prev))
+  }
+
+  const handleTargetGradesChange = (sheetIndex: number, grades: Grade[]) => {
+    setCellMap((prev) => (prev ? applyTargetGradesChange(prev, sheetIndex, grades) : prev))
+  }
+
+  const handleRemoveSheet = (sheetIndex: number) => {
+    setCellMap((prev) => (prev ? removeSheet(prev, sheetIndex) : prev))
+    setActiveSheetIndex(0)
   }
 
   // --- ステップ2: 会員 ---
@@ -147,6 +164,13 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   // 古い人数のまま送られてしまうため。
   const [bodyEdited, setBodyEdited] = useState(false)
   const [bodyStale, setBodyStale] = useState(false)
+  // 本文を作った/確認した時点の会員構成。本文の文字列比較で判定すると、手編集
+  // しただけで「構成が変わった」と誤警告する（会員を触っていなくても不一致になる）。
+  const [bodyMembersKey, setBodyMembersKey] = useState<string | null>(null)
+
+  /** 本文の内容を決める会員構成の指紋（誰が・どの級で入っているか）。 */
+  const membersFingerprint = (rows: WizardMember[]) =>
+    rows.map((m) => `${m.userId}:${m.grade ?? ''}`).join('|')
 
   const composeBody = (rows: WizardMember[]) =>
     buildEntryMailBody({
@@ -160,14 +184,15 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   // mail が未生成のとき（初回到達・テンプレ変更直後）だけ組み立て直す。
   const goToStep3 = () => {
     if (mail != null) {
-      // 会員構成が変わっている場合、未編集の本文は作り直し、編集済みなら
-      // 「内容が古い」ことだけ知らせる（勝手に消さない）。
-      const next = composeBody(activeMembers)
-      if (next !== mail.body) {
+      // 会員構成が変わっている場合だけ、未編集の本文は作り直し、編集済みなら
+      // 「内容が古い」ことを知らせる（勝手に消さない）。
+      const key = membersFingerprint(activeMembers)
+      if (key !== bodyMembersKey) {
         if (bodyEdited) {
           setBodyStale(true)
         } else {
-          setMail({ ...mail, body: next })
+          setMail({ ...mail, body: composeBody(activeMembers) })
+          setBodyMembersKey(key)
         }
       }
       setStep(3)
@@ -213,6 +238,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           grades,
         }),
       })
+      setBodyMembersKey(membersFingerprint(activeMembers))
     }
     setStep(3)
   }
@@ -315,6 +341,8 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           onColumnChange={handleColumnChange}
           onAddManualSheet={handleAddManualSheet}
           onStartRowChange={handleStartRowChange}
+          onTargetGradesChange={handleTargetGradesChange}
+          onRemoveSheet={handleRemoveSheet}
           members={context.members}
           onNext={() => setStep(2)}
         />
@@ -353,6 +381,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           bodyStale={bodyStale}
           onRegenerateBody={() => {
             setMail((prev) => (prev ? { ...prev, body: composeBody(activeMembers) } : prev))
+            setBodyMembersKey(membersFingerprint(activeMembers))
             setBodyEdited(false)
             setBodyStale(false)
           }}

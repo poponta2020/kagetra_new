@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { CellMapSheet, CellMap } from '@/lib/entry-form/cell-map'
-import { buildMappingRows, applyColumnChange } from './cell-map-view'
+import type { Grade } from '@kagetra/shared/types'
+import {
+  applyColumnChange,
+  applyTargetGradesChange,
+  buildMappingRows,
+  hasUnresolvedSheetGrades,
+  removeSheet,
+} from './cell-map-view'
 
 function sheet(overrides: Partial<CellMapSheet> = {}): CellMapSheet {
   return {
@@ -79,5 +86,40 @@ describe('applyColumnChange', () => {
     const cellMap: CellMap = { sheets: [sheet({ columns: { note: 'J' } })] }
     const updated = applyColumnChange(cellMap, 0, 'note', null)
     expect(updated.sheets[0]?.columns.note).toBeUndefined()
+  })
+})
+
+describe('hasUnresolvedSheetGrades — 全シート重複記入の防止', () => {
+  const namedSheet = (name: string, targetGrades: Grade[] | null): CellMapSheet => ({
+    sheetName: name,
+    targetGrades,
+    startRow: 8,
+    columns: { familyName: 'C', givenName: 'D' },
+    headerCells: {},
+    danFormat: 'n段',
+  })
+
+  it('単一シートの targetGrades=null は「全会員をこのシートへ」で正常', () => {
+    expect(hasUnresolvedSheetGrades({ sheets: [namedSheet('Sheet1', null)] })).toBe(false)
+  })
+
+  it('複数シートで targetGrades=null が残っていると未解決', () => {
+    // このまま作成すると fillEntryForm が null を「全会員」と解釈し、
+    // 全員が両シートへ重複記入される。
+    expect(
+      hasUnresolvedSheetGrades({ sheets: [namedSheet('上級', null), namedSheet('中級', null)] }),
+    ).toBe(true)
+  })
+
+  it('複数シートでも全シートの級が決まっていれば解決済み', () => {
+    expect(
+      hasUnresolvedSheetGrades({ sheets: [namedSheet('C級', ['C']), namedSheet('D級', ['D'])] }),
+    ).toBe(false)
+  })
+
+  it('applyTargetGradesChange で級を指定でき、removeSheet で対象から外せる', () => {
+    const cellMap = { sheets: [namedSheet('上級', null), namedSheet('中級', null)] }
+    expect(applyTargetGradesChange(cellMap, 0, ['A']).sheets[0]!.targetGrades).toEqual(['A'])
+    expect(removeSheet(cellMap, 1).sheets).toHaveLength(1)
   })
 })

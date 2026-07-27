@@ -1,12 +1,18 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import type { Grade } from '@kagetra/shared/types'
 import type { CellMap, MemberField } from '@/lib/entry-form/cell-map'
 import type { EntryFormMemberRow, EntryFormTemplateCandidate, TemplateAnalysis } from './actions'
 import type { TemplateSelection } from './wizard-types'
 import { Btn, Pill } from '@/components/ui'
 import { SectionRule } from './SectionRule'
-import { buildMappingRows, isSheetFillable, matchesSheetGrades } from './cell-map-view'
+import {
+  buildMappingRows,
+  hasUnresolvedSheetGrades,
+  isSheetFillable,
+  matchesSheetGrades,
+} from './cell-map-view'
 import { formatReceivedDate, fileToBase64 } from './entry-form-format'
 
 /**
@@ -29,6 +35,10 @@ export interface Step1TemplateProps {
   onAddManualSheet: (sheetName: string) => void
   /** 手動マッピング中の記入開始行を変更する。 */
   onStartRowChange: (sheetIndex: number, startRow: number) => void
+  /** 複数シートで対象級が決まらないシートの級を指定する。 */
+  onTargetGradesChange: (sheetIndex: number, grades: Grade[]) => void
+  /** 記入対象から外す。 */
+  onRemoveSheet: (sheetIndex: number) => void
   /** シートへの振分プレビュー用（ステップ2の除外前・グループ内全対象会員）。 */
   members: EntryFormMemberRow[]
   onNext: () => void
@@ -127,6 +137,8 @@ export function Step1Template({
   onColumnChange,
   onAddManualSheet,
   onStartRowChange,
+  onTargetGradesChange,
+  onRemoveSheet,
   members,
   onNext,
 }: Step1TemplateProps) {
@@ -156,8 +168,13 @@ export function Step1Template({
   const unmappedSheetNames = (analysis?.sheetNames ?? []).filter(
     (name) => !sheets.some((s) => s.sheetName === name),
   )
+  const unresolvedGrades = cellMap != null && hasUnresolvedSheetGrades(cellMap)
   const canProceed =
-    analysis != null && sheets.length > 0 && sheets.every(isSheetFillable) && !analyzing
+    analysis != null &&
+    sheets.length > 0 &&
+    sheets.every(isSheetFillable) &&
+    !unresolvedGrades &&
+    !analyzing
 
   return (
     <>
@@ -299,6 +316,40 @@ export function Step1Template({
                   />
                   <span>行目から会員を記入します</span>
                 </label>
+              )}
+
+              {unresolvedGrades && (
+                <div className="flex flex-col gap-1.5 rounded-md bg-warn-bg px-2.5 py-2">
+                  <p className="text-[11px] leading-normal text-warn-fg">
+                    ⚠ 複数のシートがありますが、対象の級が決まっていないシートがあります。
+                    このまま作成すると全員が全シートに重複して記入されます。各シートの級を指定するか、
+                    使わないシートは除外してください
+                  </p>
+                  {sheets.map((s, i) =>
+                    s.targetGrades === null ? (
+                      <div key={s.sheetName} className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+                        <span className="font-bold text-ink-2">{s.sheetName}</span>
+                        {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            className="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-ink-2"
+                            onClick={() => onTargetGradesChange(i, [g])}
+                          >
+                            {g}級
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className="ml-auto text-[11px] text-accent-fg underline"
+                          onClick={() => onRemoveSheet(i)}
+                        >
+                          このシートを使わない
+                        </button>
+                      </div>
+                    ) : null,
+                  )}
+                </div>
               )}
 
               {activeSheet && !isSheetFillable(activeSheet) && (

@@ -374,7 +374,30 @@ export interface UploadedTemplate {
   base64: string
 }
 
+/**
+ * 添付がその申込グループの候補（グループ内イベント → tournament_draft →
+ * 取込メール → 添付）であることを確かめる。クライアントが渡す attachmentId を
+ * そのまま信用すると、別大会の添付を任意のグループへ組み合わせられる。
+ */
+async function assertAttachmentBelongsToGroup(
+  groupId: number,
+  attachmentId: number,
+): Promise<void> {
+  const [row] = await db
+    .select({ id: mailAttachments.id })
+    .from(events)
+    .innerJoin(tournamentDrafts, eq(tournamentDrafts.id, events.tournamentDraftId))
+    .innerJoin(mailMessages, eq(mailMessages.id, tournamentDrafts.messageId))
+    .innerJoin(mailAttachments, eq(mailAttachments.mailMessageId, mailMessages.id))
+    .where(and(eq(events.entryGroupId, groupId), eq(mailAttachments.id, attachmentId)))
+    .limit(1)
+  if (!row) {
+    throw new Error('選択されたテンプレートはこの申込グループのものではありません')
+  }
+}
+
 async function readTemplate(
+  groupId: number | null,
   attachmentId: number | null,
   uploaded: UploadedTemplate | null,
 ): Promise<{ workbook: ExcelJS.Workbook; filename: string; bytes: Buffer }> {
@@ -384,6 +407,10 @@ async function readTemplate(
     bytes = Buffer.from(uploaded.base64, 'base64')
     filename = uploaded.filename
   } else if (attachmentId != null) {
+    if (groupId == null) {
+      throw new Error('申込グループが指定されていません')
+    }
+    await assertAttachmentBelongsToGroup(groupId, attachmentId)
     const row = await db.query.mailAttachments.findFirst({
       where: eq(mailAttachments.id, attachmentId),
       columns: { data: true, filename: true },
@@ -426,6 +453,7 @@ export async function analyzeTemplateAction(input: {
 }): Promise<TemplateAnalysis> {
   await requireAdminSession()
   const { workbook, filename } = await readTemplate(
+    input.groupId ?? null,
     input.attachmentId ?? null,
     input.uploaded ?? null,
   )
@@ -563,7 +591,11 @@ export async function createEntryFormDraftAction(
     )
   }
 
-  const { workbook } = await readTemplate(input.attachmentId ?? null, input.uploaded ?? null)
+  const { workbook } = await readTemplate(
+    input.groupId,
+    input.attachmentId ?? null,
+    input.uploaded ?? null,
+  )
   const filled = await fillEntryForm(workbook, input.cellMap, {
     members: input.members,
     constants: settings,
@@ -592,6 +624,7 @@ export async function createEntryFormDraftAction(
     overflowCount: filled.overflow.reduce((sum, o) => sum + o.members.length, 0),
   }
 
+  let appended = false
   try {
     const mime = buildDraftMime({
       from: settings.email,
@@ -605,19 +638,32 @@ export async function createEntryFormDraftAction(
       },
     })
     await appendDraftToYahoo(mime)
-    // APPEND が確認できてから成功へ上げる。
-    await db
-      .update(entryFormDrafts)
-      .set({ status: 'created' })
-      .where(eq(entryFormDrafts.id, saved.id))
+    appended = true
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await db
       .update(entryFormDrafts)
       .set({ status: 'imap_failed', imapError: message })
       .where(eq(entryFormDrafts.id, saved.id))
+      // 状態更新に失敗しても pending のまま残る。「失敗」を記録できないことは
+      // 再試行を止める理由にならないので、ここでは握り潰して結果だけ返す。
+      .catch(() => undefined)
     result.status = 'imap_failed'
     result.imapError = message
+  }
+
+  if (appended) {
+    // APPEND は確認できている。この更新が落ちても行は pending のまま——
+    // imap_failed にしてはいけない（再試行で Yahoo の下書きが重複する）。
+    try {
+      await db
+        .update(entryFormDrafts)
+        .set({ status: 'created' })
+        .where(eq(entryFormDrafts.id, saved.id))
+    } catch {
+      // 握り潰す。利用者には成功として返し、履歴だけが pending で残る
+      // （「下書きはあるが記録が確定していない」= 進行管理では成功と表示しない）。
+    }
   }
 
   revalidatePath(`/admin/entry-form/${input.groupId}`)

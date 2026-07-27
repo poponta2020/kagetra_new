@@ -222,7 +222,8 @@ function writeMemberRow(ws: ExcelJS.Worksheet, sheet: CellMapSheet, row: number,
 // ---------------------------------------------------------------------------
 
 /**
- * 記入対象列に何も無いまま何行スキャンしたら「本当に空き」とみなすかの上限。
+ * シートがまだ一度も書かれていない（`ws.rowCount` が記入開始行に届かない）場合に
+ * だけ使う仮の上限。実物テンプレでは `ws.rowCount` が終端になる。
  * 実物テンプレは行数が数百に及ぶことはまず無いが、`ws.rowCount` はシートの一部
  * （例: 単体テストで組み立てた最小構成のシート）がまだ何も触られていないと
  * `startRow` 未満のまま返るため、それだけを上限にすると「実際は空いているだけの
@@ -255,7 +256,16 @@ function computeCapacity(ws: ExcelJS.Worksheet, sheet: CellMapSheet): number {
   const columnLetters = Object.values(sheet.columns).filter((v): v is string => v != null)
   if (columnLetters.length === 0) return Number.POSITIVE_INFINITY
 
-  const upperBound = Math.max(ws.rowCount, sheet.startRow + CAPACITY_SCAN_FALLBACK_ROWS - 1)
+  // シートが実際に使っている範囲を超えて書かない。超えると公式の申込書の表外へ
+  // 参加者が出力され、しかも overflow としても報告されない（= 沈黙のデータ破損）。
+  // `ws.rowCount` が startRow に届かないのは、テストで組んだ最小シートのように
+  // まだ何も書かれていない場合だけなので、そのときだけ下駄を履かせる。
+  const sheetLastRow = Math.max(ws.rowCount, sheet.startRow - 1)
+  const upperBound =
+    sheetLastRow >= sheet.startRow
+      ? sheetLastRow
+      : sheet.startRow + CAPACITY_SCAN_FALLBACK_ROWS - 1
+
   let row = sheet.startRow
   while (row <= upperBound) {
     const blocked = columnLetters.some((col) => ws.getCell(`${col}${row}`).value != null)

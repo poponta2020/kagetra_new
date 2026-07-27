@@ -1,3 +1,4 @@
+import type { Grade } from '@kagetra/shared/types'
 import type { CellMap, CellMapSheet, MemberField } from '@/lib/entry-form/cell-map'
 import { asStandardGrade } from '@/lib/entry-form/grade-normalize'
 
@@ -155,6 +156,35 @@ export function isSheetFillable(sheet: CellMapSheet): boolean {
     Boolean(sheet.columns.fullName) ||
     Boolean(sheet.columns.familyName && sheet.columns.givenName)
   return hasName && Number.isInteger(sheet.startRow) && sheet.startRow > 0
+}
+
+/**
+ * 複数シートなのに対象級が決まっていないシートがあるか。
+ *
+ * `targetGrades: null` は「このシートに全会員を書く」の意味なので、複数シートで
+ * null が残ったまま作成すると**全会員が全シートへ重複記入される**。級名が
+ * 非標準（「上級」「中級」等）のテンプレで実際に起きるため、作成前に塞ぐ。
+ */
+export function hasUnresolvedSheetGrades(cellMap: CellMap): boolean {
+  return cellMap.sheets.length > 1 && cellMap.sheets.some((s) => s.targetGrades === null)
+}
+
+/** シートの対象級を差し替える（空配列は「対象級なし」ではなく未設定=null に寄せる）。 */
+export function applyTargetGradesChange(
+  cellMap: CellMap,
+  sheetIndex: number,
+  grades: Grade[],
+): CellMap {
+  return {
+    sheets: cellMap.sheets.map((sheet, i) =>
+      i === sheetIndex ? { ...sheet, targetGrades: grades.length > 0 ? grades : null } : sheet,
+    ),
+  }
+}
+
+/** シートを記入対象から外す（対象級を決められないシートの逃げ道）。 */
+export function removeSheet(cellMap: CellMap, sheetIndex: number): CellMap {
+  return { sheets: cellMap.sheets.filter((_, i) => i !== sheetIndex) }
 }
 
 /**

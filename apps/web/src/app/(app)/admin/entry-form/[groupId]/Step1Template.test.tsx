@@ -67,6 +67,8 @@ const baseProps = {
   onColumnChange: vi.fn(),
   onAddManualSheet: vi.fn(),
   onStartRowChange: vi.fn(),
+  onTargetGradesChange: vi.fn(),
+  onRemoveSheet: vi.fn(),
   members: [member()],
   onNext: vi.fn(),
 }
