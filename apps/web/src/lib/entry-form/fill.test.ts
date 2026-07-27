@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import ExcelJS from 'exceljs'
 import { describe, it, expect } from 'vitest'
-import { fillEntryForm, formatDan, type EntryFormConstants, type EntryFormMember } from './fill'
+import { asStandardGrade, fillEntryForm, formatDan, type EntryFormConstants, type EntryFormMember } from './fill'
 import { estimateCellMap, type CellMap } from './cell-map'
 import { loadWorkbook } from './workbook'
 
@@ -529,5 +529,49 @@ describe('記入可能行数は明細列の入力規則の最終行で止まる'
     // 20 名目は入力規則の最終行 r31 に入り、r32 以降は空のまま。
     expect(ws.getCell('F31').value).toBe('姓19')
     expect(ws.getCell('F32').value).toBeFalsy()
+  })
+})
+
+describe('asStandardGrade — 大会独自級の扱い（requirements §3.2.1）', () => {
+  it('A〜E は標準級として認識する（「A級」表記・小文字も許容）', () => {
+    expect(asStandardGrade('A')).toBe('A')
+    expect(asStandardGrade('A級')).toBe('A')
+    expect(asStandardGrade('e')).toBe('E')
+  })
+
+  it('F級など大会独自級・空欄は標準級ではない（null）', () => {
+    expect(asStandardGrade('F')).toBeNull()
+    expect(asStandardGrade('F級')).toBeNull()
+    expect(asStandardGrade('')).toBeNull()
+    expect(asStandardGrade(null)).toBeNull()
+  })
+})
+
+describe('fillEntryForm — 大会独自級', () => {
+  it('独自級はシートに書かれるが、級別シートの振分対象にはならず報告される', async () => {
+    const workbook = await loadFixture('multisheet-grades.xlsx')
+    const cellMap = estimateCellMap(workbook)
+
+    const result = await fillEntryForm(workbook, cellMap, {
+      members: [member({ grade: 'F', familyName: '独自', givenName: '級' })],
+      constants: NO_CONSTANTS,
+    })
+
+    expect(result.unassignedMembers).toHaveLength(1)
+    expect(result.unassignedMembers[0]!.grade).toBe('F')
+  })
+
+  it('単一シート（targetGrades=null）なら独自級もそのまま記入される', async () => {
+    const workbook = await loadFixture('standard.xlsx')
+    const cellMap = estimateCellMap(workbook)
+
+    const result = await fillEntryForm(workbook, cellMap, {
+      members: [member({ grade: 'F', familyName: '独自', givenName: '級' })],
+      constants: NO_CONSTANTS,
+    })
+
+    const reloaded = await loadWorkbook(result.buffer)
+    expect(reloaded.worksheets[0]!.getCell('B12').value).toBe('F')
+    expect(result.unassignedMembers).toHaveLength(0)
   })
 })

@@ -26,7 +26,7 @@ export function MemberEditSheet({ member, onClose, onSave, onExclude }: MemberEd
   const [givenName, setGivenName] = useState(member.givenName ?? '')
   const [familyKana, setFamilyKana] = useState(member.familyKana ?? '')
   const [givenKana, setGivenKana] = useState(member.givenKana ?? '')
-  const [grade, setGrade] = useState<Grade | ''>(member.grade ?? '')
+  const [grade, setGrade] = useState(member.grade ?? '')
   const [dan, setDan] = useState(member.dan != null ? String(member.dan) : '')
   const [appearanceCount, setAppearanceCount] = useState(
     member.appearanceCount != null ? String(member.appearanceCount) : '',
@@ -137,18 +137,30 @@ export function MemberEditSheet({ member, onClose, onSave, onExclude }: MemberEd
         <div className="grid grid-cols-3 gap-2">
           <label className="flex flex-col gap-0.5">
             <span className="text-[11px] text-ink-meta">参加級</span>
-            <select
-              value={grade}
-              onChange={(e) => setGrade(e.target.value as Grade | '')}
-              className="rounded-md border border-border bg-canvas px-2 py-2 text-sm text-ink"
-            >
-              <option value="">未設定</option>
+            {/* 参加級は自由入力（requirements §3.2.1: F級など大会独自級・当日昇級）。
+                よく使う A〜E はボタンで選べるようにし、それ以外は直接入力する。 */}
+            <div className="flex flex-wrap gap-1">
               {GRADES.map((g) => (
-                <option key={g} value={g}>
+                <button
+                  key={g}
+                  type="button"
+                  className={
+                    grade === g
+                      ? 'rounded-md border border-brand bg-brand-bg px-2 py-1 text-xs font-bold text-brand-fg'
+                      : 'rounded-md border border-border px-2 py-1 text-xs text-ink-2'
+                  }
+                  onClick={() => setGrade(grade === g ? '' : g)}
+                >
                   {g}級
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
+            <input
+              value={grade}
+              onChange={(e) => setGrade(e.target.value)}
+              placeholder="未設定（F級など独自級は直接入力）"
+              className="rounded-md border border-border bg-canvas px-2 py-2 text-sm text-ink placeholder:text-ink-muted"
+            />
           </label>
           <label className="flex flex-col gap-0.5">
             <span className="text-[11px] text-ink-meta">段位</span>

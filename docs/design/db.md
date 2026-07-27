@@ -47,7 +47,7 @@
 | tournament_status | tournamentStatusEnum | held, cancelled, unconfirmed |
 | roster_type | rosterTypeEnum | applicant, confirmed |
 | roster_entry_status | rosterEntryStatusEnum | applied, confirmed, carried_up, carry_up_declined, cancelled |
-| entry_form_draft_status | entryFormDraftStatusEnum | created, imap_failed |
+| entry_form_draft_status | entryFormDraftStatusEnum | pending, created, imap_failed |
 
 ## ドメイン別テーブル一覧
 

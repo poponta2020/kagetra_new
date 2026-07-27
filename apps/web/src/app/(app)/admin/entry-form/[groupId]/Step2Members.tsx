@@ -7,6 +7,7 @@ import { formatDanDisplay, tallyGrades } from './entry-form-format'
 import type { WizardMember } from './wizard-types'
 import type { Grade } from '@kagetra/shared/types'
 import type { EntryFormMemberRow } from './actions'
+import { asStandardGrade } from '@/lib/entry-form/grade-normalize'
 
 /**
  * entry-form-autofill タスク7 (UI): ステップ2「会員」。design-mock: b-step2.html。
@@ -41,6 +42,17 @@ export interface Step2MembersProps {
   onNext: () => void
 }
 
+/** 自由入力の参加級が、指定された標準級の集合に含まれるか。 */
+function includesStandardGrade(grades: readonly Grade[], value: string | null): boolean {
+  const standard = asStandardGrade(value)
+  return standard != null && grades.includes(standard)
+}
+
+/** 姓名・ふりがなの4フィールドが揃っていないか（現在値で判定）。 */
+function needsName(m: WizardMember): boolean {
+  return !m.familyName || !m.givenName || !m.familyKana || !m.givenKana
+}
+
 export function Step2Members({
   members,
   appearanceCompleteness,
@@ -58,7 +70,9 @@ export function Step2Members({
   const [addOpen, setAddOpen] = useState(false)
   const active = members.filter((m) => !m.excluded)
   const excluded = members.filter((m) => m.excluded)
-  const nameWarnings = active.filter((m) => m.needsNameInput)
+  // 初期値の needsNameInput ではなく現在値から判定する——編集シートで姓名・かなを
+  // 埋めた直後に警告が消えないと、直したのに直っていないように見える。
+  const nameWarnings = active.filter(needsName)
   const gradeWarnings = active.filter((m) => m.grade == null)
   const { byGrade, unset, total } = tallyGrades(active.map((m) => m.grade))
 
@@ -70,8 +84,8 @@ export function Step2Members({
       ? active.filter(
           (m) =>
             appearanceIncompleteGrades == null ||
-            m.grade == null ||
-            appearanceIncompleteGrades.includes(m.grade),
+            asStandardGrade(m.grade) == null ||
+            includesStandardGrade(appearanceIncompleteGrades, m.grade),
         )
       : []
   const appearanceWarnedIds = new Set(appearanceWarnings.map((m) => m.userId))
@@ -162,8 +176,8 @@ export function Step2Members({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block font-bold text-ink">{m.displayName ?? '氏名未登録'}</span>
-                    <span className={m.needsNameInput ? 'block text-[10px] font-bold text-accent-fg' : 'block text-[10px] text-ink-meta'}>
-                      {m.needsNameInput ? (
+                    <span className={needsName(m) ? 'block text-[10px] font-bold text-accent-fg' : 'block text-[10px] text-ink-meta'}>
+                      {needsName(m) ? (
                         <>
                           <span aria-hidden className="text-accent">⚠</span> ふりがな未登録
                         </>
@@ -278,7 +292,7 @@ export function Step2Members({
         <Btn kind="secondary" size="lg" onClick={onBack}>
           戻る
         </Btn>
-        <Btn kind="primary" size="lg" block onClick={onNext}>
+        <Btn kind="primary" size="lg" block onClick={onNext} disabled={active.length === 0}>
           次へ — メールの確認
         </Btn>
       </div>

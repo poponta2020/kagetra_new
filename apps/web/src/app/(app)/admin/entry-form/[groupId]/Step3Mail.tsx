@@ -20,6 +20,10 @@ export interface Step3MailProps {
   subjectSource: PrefillSource
   attachmentFilenameSource: PrefillSource
   body: string
+  /** 会員構成が変わったのに本文が手編集済みで作り直されていない。 */
+  bodyStale: boolean
+  /** 本文を現在の会員構成で作り直す（手編集は破棄される）。 */
+  onRegenerateBody: () => void
   onChange: (patch: { toEmail?: string; subject?: string; attachmentFilename?: string; body?: string }) => void
   onBack: () => void
   onSubmit: () => void
@@ -48,6 +52,8 @@ export function Step3Mail({
   subjectSource,
   attachmentFilenameSource,
   body,
+  bodyStale,
+  onRegenerateBody,
   onChange,
   onBack,
   onSubmit,
@@ -109,6 +115,15 @@ export function Step3Mail({
 
         <label className="flex flex-col gap-1">
           <span className="text-[11px] text-ink-meta">本文</span>
+          {bodyStale && (
+            <span className="flex flex-wrap items-baseline gap-1.5 rounded-md bg-warn-bg px-2 py-1.5 text-[11px] leading-normal text-warn-fg">
+              <span aria-hidden>⚠</span>
+              <span>会員の構成が変わりました。本文の人数・級別内訳を確認してください</span>
+              <button type="button" className="font-bold underline" onClick={onRegenerateBody}>
+                定型で作り直す
+              </button>
+            </span>
+          )}
           <textarea
             value={body}
             onChange={(e) => onChange({ body: e.target.value })}
@@ -123,7 +138,7 @@ export function Step3Mail({
           <Btn kind="secondary" size="lg" onClick={onBack} disabled={submitting}>
             戻る
           </Btn>
-          <Btn kind="primary" size="lg" block onClick={onSubmit} disabled={submitting || !toEmail.trim()}>
+          <Btn kind="primary" size="lg" block onClick={onSubmit} disabled={submitting || !toEmail.trim() || memberCount === 0}>
             {submitting ? '作成中…' : 'Yahoo メールに下書きを作成'}
           </Btn>
         </div>

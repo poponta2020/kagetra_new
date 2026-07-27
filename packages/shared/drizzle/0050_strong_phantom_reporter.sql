@@ -1,4 +1,4 @@
-CREATE TYPE "public"."entry_form_draft_status" AS ENUM('created', 'imap_failed');--> statement-breakpoint
+CREATE TYPE "public"."entry_form_draft_status" AS ENUM('pending', 'created', 'imap_failed');--> statement-breakpoint
 CREATE TABLE "app_settings" (
 	"key" text PRIMARY KEY NOT NULL,
 	"value" text NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE "entry_form_drafts" (
 	"attachment_filename" text NOT NULL,
 	"xlsx" "bytea" NOT NULL,
 	"member_count" integer NOT NULL,
-	"status" "entry_form_draft_status" DEFAULT 'created' NOT NULL,
+	"status" "entry_form_draft_status" DEFAULT 'pending' NOT NULL,
 	"imap_error" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );

@@ -1,4 +1,5 @@
 import type { Grade } from '@kagetra/shared/types'
+import { asStandardGrade } from '@/lib/entry-form/grade-normalize'
 import { surname } from '@/lib/surname'
 
 /**
@@ -31,12 +32,15 @@ export interface GradeCountSummary {
 }
 
 export function summarizeGradeCounts(
-  grades: readonly (Grade | null | undefined)[],
+  grades: readonly (string | null | undefined)[],
 ): GradeCountSummary {
   const counts = new Map<Grade, number>()
   for (const grade of grades) {
-    if (!grade) continue
-    counts.set(grade, (counts.get(grade) ?? 0) + 1)
+    // 大会独自級（F級等）と未設定は級別内訳に出さない。総数には数える
+    // （`lib/entry-form/mail-template.ts` と同じ規則）。
+    const standard = asStandardGrade(grade)
+    if (!standard) continue
+    counts.set(standard, (counts.get(standard) ?? 0) + 1)
   }
   const breakdown = GRADE_ORDER.filter((grade) => (counts.get(grade) ?? 0) > 0)
     .map((grade) => `${grade}級${counts.get(grade)}名`)
@@ -48,7 +52,7 @@ export interface BuildEntryMailBodyInput {
   organizer: string | null
   clubName: string
   representativeName: string
-  grades: readonly (Grade | null | undefined)[]
+  grades: readonly (string | null | undefined)[]
 }
 
 export function buildEntryMailBody(input: BuildEntryMailBodyInput): string {

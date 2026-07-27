@@ -86,7 +86,7 @@ export interface EntryFormDraftRow {
   createdAt: Date | string
   createdByName: string | null
   attachmentFilename: string
-  status: 'created' | 'imap_failed'
+  status: 'pending' | 'created' | 'imap_failed'
 }
 
 // design-spec §9「既存プリミティブを変更せず、この画面用の派生として実装
@@ -122,8 +122,14 @@ function paymentSummary(
  * 振込先など一般会員に見せない情報は支払トグルの中に集約する
  * （requirements §3.2.2）。
  */
-const ENTRY_FORM_SUMMARY: Record<'none' | 'created' | 'imap_failed', { label: string; tone: 'plain' | 'ok' | 'ng' }> = {
+const ENTRY_FORM_SUMMARY: Record<
+  'none' | 'pending' | 'created' | 'imap_failed',
+  { label: string; tone: 'plain' | 'ok' | 'ng' }
+> = {
   none: { label: '未作成', tone: 'plain' },
+  // xlsx は生成・保存済みだが APPEND の結果が確定していない（作成中にプロセスが
+  // 落ちた等）。Yahoo 側に下書きがあるか分からないので成功とは言い切らない。
+  pending: { label: '作成結果を確認中', tone: 'plain' },
   created: { label: '下書き作成済', tone: 'ok' },
   // 生成 xlsx は残っているが Yahoo への書き込みは失敗している状態。
   imap_failed: { label: '下書き未作成（失敗）', tone: 'ng' },

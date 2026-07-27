@@ -15,6 +15,7 @@ import {
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 import { loadWorkbook } from '@/lib/entry-form/workbook'
+import { saveEntryFormSettings } from '@/lib/entry-form/settings'
 import { estimateCellMap } from '@/lib/entry-form/cell-map'
 
 // entry-form-autofill タスク7: プレビュー Server Actions。
@@ -296,6 +297,14 @@ describe('admin/entry-form actions', () => {
   })
 
   describe('createEntryFormDraftAction', () => {
+    /** 差出人（settings.email）が無いと作成は拒否されるので、各テストの前に入れる。 */
+    async function seedClubSettings() {
+      await saveEntryFormSettings(
+        { clubName: '北海道大学かるた会', email: 'club@example.invalid', managerName: '土居 悠太' },
+        null,
+      )
+    }
+
     async function draftInput(groupId: number) {
       const base64 = await fixtureBase64('standard.xlsx')
       const cellMap = estimateCellMap(await loadWorkbook(Buffer.from(base64, 'base64')))
@@ -324,6 +333,7 @@ describe('admin/entry-form actions', () => {
 
     it('履歴を保存し、Draft フォルダへ APPEND する（AC-15, AC-17）', async () => {
       const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
 
       const result = await createEntryFormDraftAction(await draftInput(group.id))
 
@@ -345,6 +355,7 @@ describe('admin/entry-form actions', () => {
 
     it('保存された xlsx に会員が記入されている（AC-10 の経路確認）', async () => {
       const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
 
       const result = await createEntryFormDraftAction(await draftInput(group.id))
 
@@ -359,6 +370,7 @@ describe('admin/entry-form actions', () => {
 
     it('IMAP 失敗でも履歴は残り、status=imap_failed とエラーが記録される（AC-18）', async () => {
       const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
       appendDraftMock.mockRejectedValueOnce(
         new Error('Yahoo メールへの下書き作成に失敗しました: connection refused'),
       )
@@ -380,6 +392,7 @@ describe('admin/entry-form actions', () => {
 
     it('作成後は latestDraft として進行管理から引き当てられる（AC-17）', async () => {
       const { group, admin } = await seedGroupWithAttendees()
+      await seedClubSettings()
 
       await createEntryFormDraftAction(await draftInput(group.id))
       const context = await loadEntryFormContext(group.id)
@@ -387,6 +400,27 @@ describe('admin/entry-form actions', () => {
       expect(context.latestDraft?.memberCount).toBe(1)
       expect(context.latestDraft?.createdByName).toBe(admin.name)
       expect(context.latestDraft?.status).toBe('created')
+    })
+
+    it('会員0名では拒否する（Server Action を直接呼んでも空の申込書は作れない）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+
+      await expect(
+        createEntryFormDraftAction({ ...input, members: [] }),
+      ).rejects.toThrow('記入する会員が0名です')
+
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('差出人（連絡先 E-Mail）が未設定なら作成前に拒否する', async () => {
+      const { group } = await seedGroupWithAttendees()
+
+      await expect(createEntryFormDraftAction(await draftInput(group.id))).rejects.toThrow(
+        '連絡先 E-Mail が未設定',
+      )
     })
   })
 

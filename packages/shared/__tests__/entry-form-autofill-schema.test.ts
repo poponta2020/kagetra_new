@@ -3,7 +3,9 @@ import { appSettings, entryFormDrafts, entryFormDraftStatusEnum } from '../src/s
 
 describe('entry-form-autofill schema', () => {
   it('declares entry_form_draft_status with the exact spec values (order is persisted)', () => {
-    expect(entryFormDraftStatusEnum.enumValues).toEqual(['created', 'imap_failed'])
+    // pending は「APPEND の結果が確定していない」中間状態。挿入から結果更新までの
+    // 間にプロセスが落ちた行を成功と誤認しないために必要（Codex R1 の指摘）。
+    expect(entryFormDraftStatusEnum.enumValues).toEqual(['pending', 'created', 'imap_failed'])
   })
 
   it('defines app_settings as a plain key-value store with audit columns', () => {
@@ -30,7 +32,8 @@ describe('entry-form-autofill schema', () => {
     expect(entryFormDrafts.memberCount.name).toBe('member_count')
     expect(entryFormDrafts.memberCount.notNull).toBe(true)
     expect(entryFormDrafts.status.notNull).toBe(true)
-    expect(entryFormDrafts.status.default).toBe('created')
+    // 既定は pending。APPEND の成功を確認してから created へ上げる。
+    expect(entryFormDrafts.status.default).toBe('pending')
     expect(entryFormDrafts.imapError.notNull).toBe(false)
   })
 })

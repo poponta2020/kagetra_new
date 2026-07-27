@@ -20,7 +20,8 @@ export interface WizardMember {
    * 「初期状態で入力が必要だったか」ではなく現在値で毎回再判定する。 */
   needsNameInput: boolean
   excluded: boolean
-  grade: Grade | null
+  /** 申込書に書く参加級。大会独自級（F級等）を許すため自由文字列。 */
+  grade: string | null
   dan: number | null
   familyName: string | null
   givenName: string | null
@@ -36,7 +37,8 @@ export interface MemberEditValues {
   givenName: string | null
   familyKana: string | null
   givenKana: string | null
-  grade: Grade | null
+  /** 申込書に書く参加級。大会独自級（F級等）を許すため自由文字列。 */
+  grade: string | null
   dan: number | null
   appearanceCount: number | null
   note: string | null

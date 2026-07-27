@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -103,7 +103,7 @@ export interface EntryFormDraftSummary {
   createdByName: string | null
   attachmentFilename: string
   memberCount: number
-  status: 'created' | 'imap_failed'
+  status: 'pending' | 'created' | 'imap_failed'
   imapError: string | null
 }
 
@@ -148,7 +148,14 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     })
     .from(eventAttendances)
     .innerJoin(users, eq(users.id, eventAttendances.userId))
-    .where(and(inArray(eventAttendances.eventId, eventIds), eq(eventAttendances.attend, true)))
+    // 退会済み会員は申込対象にしない（過去の出欠だけが残っているケースがある）。
+    .where(
+      and(
+        inArray(eventAttendances.eventId, eventIds),
+        eq(eventAttendances.attend, true),
+        isNull(users.deactivatedAt),
+      ),
+    )
     .orderBy(asc(users.id))
 
   const appearance = await loadAppearanceCounts(attendees.map((a) => a.userId))
@@ -182,6 +189,17 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
   let templateCandidates: EntryFormTemplateCandidate[] = []
   let sourceMailFrom: string | null = null
   if (draftIds.length > 0) {
+    // 差出人は添付の有無と独立に引く。添付が無い案内メールこそ手動アップロードが
+    // 必要になる場面であり、そこで宛先フォールバック（AC-12 の③）が消えては困る。
+    const [latestMail] = await db
+      .select({ fromAddress: mailMessages.fromAddress })
+      .from(tournamentDrafts)
+      .innerJoin(mailMessages, eq(mailMessages.id, tournamentDrafts.messageId))
+      .where(inArray(tournamentDrafts.id, draftIds))
+      .orderBy(desc(mailMessages.receivedAt))
+      .limit(1)
+    sourceMailFrom = latestMail?.fromAddress ?? null
+
     const rows = await db
       .select({
         attachmentId: mailAttachments.id,
@@ -189,7 +207,6 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
         sizeBytes: mailAttachments.sizeBytes,
         receivedAt: mailMessages.receivedAt,
         mailSubject: mailMessages.subject,
-        fromAddress: mailMessages.fromAddress,
       })
       .from(tournamentDrafts)
       .innerJoin(mailMessages, eq(mailMessages.id, tournamentDrafts.messageId))
@@ -206,7 +223,6 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
         receivedAt: r.receivedAt.toISOString(),
         mailSubject: r.mailSubject,
       }))
-    sourceMailFrom = rows[0]?.fromAddress ?? null
   }
 
   return {
@@ -303,6 +319,7 @@ export async function listAddableMembersAction(
       givenKana: users.givenKana,
     })
     .from(users)
+    .where(isNull(users.deactivatedAt))
     .orderBy(asc(users.name))
 
   const excluded = new Set(excludeUserIds)
@@ -344,6 +361,11 @@ export interface TemplateAnalysis {
    * （requirements §3.2.6・AC-13）。
    */
   organizerInstructions: OrganizerInstructions | null
+  /**
+   * ワークブックのシート名一覧。ヒューリスティックも AI も対応を返せなかった
+   * （`sheets` が空の）ときに、どのシートへ手動でマッピングするかを選ばせる。
+   */
+  sheetNames: string[]
 }
 
 /** 手動アップロード時に受け取る xlsx。base64 で渡す（Server Action の境界を Buffer が越えないため）。 */
@@ -410,6 +432,7 @@ export async function analyzeTemplateAction(input: {
 
   const estimate = estimateCellMap(workbook)
   const sheetsText = sheetsToPromptText(workbook)
+  const sheetNames = workbook.worksheets.map((ws) => ws.name)
 
   // 主催者指定の抽出は案内メール本文がある場合だけ（AC-13）。セルマップ推定の
   // 信頼度とは独立した用途なので、高信頼でも呼ぶ。
@@ -426,6 +449,7 @@ export async function analyzeTemplateAction(input: {
       organizerEmail: estimate.organizerEmail,
       templateFilename: filename,
       organizerInstructions,
+      sheetNames,
     }
   }
 
@@ -440,6 +464,7 @@ export async function analyzeTemplateAction(input: {
       organizerEmail: estimate.organizerEmail,
       templateFilename: filename,
       organizerInstructions,
+      sheetNames,
     }
   }
   return {
@@ -449,6 +474,7 @@ export async function analyzeTemplateAction(input: {
     organizerEmail: estimate.organizerEmail,
     templateFilename: filename,
     organizerInstructions,
+    sheetNames,
   }
 }
 
@@ -513,15 +539,29 @@ export interface CreateEntryFormDraftResult {
 /**
  * プレビュー確定 → 下書き作成。
  *
- * 順序は requirements §3.2.7 で固定: xlsx 記入 → **履歴を保存** → MIME 組立 →
- * IMAP APPEND → status 更新。履歴を APPEND の前に保存するのは、Yahoo への
- * 書き込みが失敗してもプレビューで編集した値と生成済み xlsx を失わないため。
+ * 順序は requirements §3.2.7 で固定: xlsx 記入 → **履歴を保存（pending）** →
+ * MIME 組立 → IMAP APPEND → status 更新。履歴を APPEND の前に保存するのは、
+ * Yahoo への書き込みが失敗してもプレビューで編集した値と生成済み xlsx を
+ * 失わないため。`created` ではなく `pending` で入れるのは、挿入から更新までの
+ * 間にプロセスが落ちたときに「下書きが無いのに成功」の嘘を残さないため。
  */
 export async function createEntryFormDraftAction(
   input: CreateEntryFormDraftInput,
 ): Promise<CreateEntryFormDraftResult> {
   const session = await requireAdminSession()
+
+  // 空の申込書は作らない（requirements のエラーケース）。クライアントの CTA だけでは
+  // Server Action 境界の防御にならないのでここでも拒否する。
+  if (input.members.length === 0) {
+    throw new Error('記入する会員が0名です。会員を追加してから作成してください')
+  }
+
   const settings = await getEntryFormSettings()
+  if (!settings.email || settings.email.trim().length === 0) {
+    throw new Error(
+      '差出人になる連絡先 E-Mail が未設定です。設定 > 申込書設定 で登録してください',
+    )
+  }
 
   const { workbook } = await readTemplate(input.attachmentId ?? null, input.uploaded ?? null)
   const filled = await fillEntryForm(workbook, input.cellMap, {
@@ -554,7 +594,7 @@ export async function createEntryFormDraftAction(
 
   try {
     const mime = buildDraftMime({
-      from: settings.email ?? '',
+      from: settings.email,
       to: input.toEmail,
       subject: input.subject,
       bodyText: input.body,
@@ -565,6 +605,11 @@ export async function createEntryFormDraftAction(
       },
     })
     await appendDraftToYahoo(mime)
+    // APPEND が確認できてから成功へ上げる。
+    await db
+      .update(entryFormDrafts)
+      .set({ status: 'created' })
+      .where(eq(entryFormDrafts.id, saved.id))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await db

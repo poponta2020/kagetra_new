@@ -10,6 +10,8 @@ const baseProps = {
   subject: '青森大会申込み（北海道大学かるた会）',
   subjectSource: 'default' as const,
   attachmentFilenameSource: 'default' as const,
+  bodyStale: false,
+  onRegenerateBody: vi.fn(),
   body: '本文',
   onChange: vi.fn(),
   onBack: vi.fn(),

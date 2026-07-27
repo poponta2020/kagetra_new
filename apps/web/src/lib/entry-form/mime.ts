@@ -183,6 +183,26 @@ function buildMessageId(domain: string): string {
 }
 
 /**
+ * RFC 5322 のヘッダ値に置けない制御文字を含まないアドレスかを検査する。
+ *
+ * From / To はプレビューで編集された値がそのままヘッダ行になるため、改行を
+ * 通すと任意のヘッダを差し込める（Bcc を足す等）。クライアントの input 要素は
+ * Server Action 境界の防御にならないので、組み立ての手前で弾く。
+ */
+const CONTROL_CHAR_RE = new RegExp('[\\u0000-\\u001f\\u007f]')
+
+function assertHeaderSafeAddress(value: string, headerName: string): void {
+  if (value.trim().length === 0) {
+    throw new Error(`${headerName} のメールアドレスが設定されていません`)
+  }
+  // 制御文字（C0 全域と DEL）を拒否する。CR/LF だけでなく NUL や垂直タブも、
+  // 中継側の実装差でヘッダ境界として解釈され得るため一律で通さない。
+  if (CONTROL_CHAR_RE.test(value)) {
+    throw new Error(`${headerName} のメールアドレスに改行や制御文字を含めることはできません`)
+  }
+}
+
+/**
  * 下書きメール本文の RFC 5322 メッセージ全文（ヘッダ + multipart/mixed
  * ボディ）を組み立てる。戻り値は imap-draft.ts の `appendDraftToYahoo` に
  * そのまま渡す。
@@ -192,6 +212,9 @@ function buildMessageId(domain: string): string {
  * 管理コストだけ増えて可読性の利点も消えるため。
  */
 export function buildDraftMime(input: DraftMimeInput, overrides: DraftMimeOverrides = {}): string {
+  assertHeaderSafeAddress(input.from, 'From')
+  assertHeaderSafeAddress(input.to, 'To')
+
   const boundary = overrides.boundary ?? `----=_KagetraEntryForm_${randomBytes(12).toString('hex')}`
   const date = overrides.date ?? new Date()
   const messageId = overrides.messageId ?? buildMessageId(domainFromEmail(input.from))

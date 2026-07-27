@@ -214,7 +214,7 @@
 
 定義ファイル: `packages/shared/src/schema/entry-form-drafts.ts`
 
-申込書下書きの作成履歴（entry-form-autofill）。1作成=1行。行は IMAP APPEND 実行前に保存され、失敗時は status を `imap_failed` に更新（編集値と生成 xlsx を失わない）。
+申込書下書きの作成履歴（entry-form-autofill）。1作成=1行。行は IMAP APPEND 実行前に `pending` で保存し、成功したら `created`、失敗したら `imap_failed` に更新する（編集値と生成 xlsx を失わない）。挿入から更新までの間にプロセスが落ちた行は `pending` のまま残るので、「下書きが無いのに成功」の誤表示にならない。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
@@ -227,7 +227,7 @@
 | attachment_filename | text | NOT NULL | — | |
 | xlsx | bytea | NOT NULL | — | 生成済み申込書のコピー（再ダウンロード用） |
 | member_count | integer | NOT NULL | — | |
-| status | entry_form_draft_status (enum) | NOT NULL | 'created' | `created` / `imap_failed` |
+| status | entry_form_draft_status (enum) | NOT NULL | 'pending' | `pending`（APPEND 結果が未確定）/ `created` / `imap_failed` |
 | imap_error | text | NULL | — | |
 | created_at | timestamptz | NOT NULL | `now()` | |
 

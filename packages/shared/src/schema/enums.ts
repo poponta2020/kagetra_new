@@ -252,10 +252,16 @@ export const rosterImportSourceKindEnum = pgEnum('roster_import_source_kind', [
 ])
 
 // entry-form-autofill: 申込書下書き作成履歴の状態。
-// created=下書き作成成功 / imap_failed=xlsx 生成・履歴保存は済んだが Yahoo への
-// IMAP APPEND に失敗（xlsx 再ダウンロードと再試行が可能）。履歴は APPEND 実行前に
-// 保存されるため「行が無い=作成していない」が常に成り立つ。
+// pending=xlsx 生成・履歴保存は済んだが APPEND の結果がまだ確定していない /
+// created=Yahoo の Draft へ APPEND 成功 / imap_failed=APPEND に失敗（xlsx 再
+// ダウンロードと再試行が可能）。
+//
+// 履歴は APPEND の**前**に保存する（失敗しても編集値と生成 xlsx を失わないため）。
+// このとき created で入れてしまうと、挿入から結果更新までの間にプロセスが落ちた
+// 場合に「Yahoo に下書きが無いのに履歴だけ成功」という嘘が永久に残る。初期値を
+// pending にして、成功が確認できたときだけ created へ上げる。
 export const entryFormDraftStatusEnum = pgEnum('entry_form_draft_status', [
+  'pending',
   'created',
   'imap_failed',
 ])

@@ -6,7 +6,7 @@ import type { EntryFormMemberRow, EntryFormTemplateCandidate, TemplateAnalysis }
 import type { TemplateSelection } from './wizard-types'
 import { Btn, Pill } from '@/components/ui'
 import { SectionRule } from './SectionRule'
-import { buildMappingRows } from './cell-map-view'
+import { buildMappingRows, isSheetFillable, matchesSheetGrades } from './cell-map-view'
 import { formatReceivedDate, fileToBase64 } from './entry-form-format'
 
 /**
@@ -25,6 +25,10 @@ export interface Step1TemplateProps {
   activeSheetIndex: number
   onActiveSheetChange: (index: number) => void
   onColumnChange: (sheetIndex: number, field: MemberField, value: string | null) => void
+  /** 自動推定が空のとき、シートを選んで手動マッピングを始める。 */
+  onAddManualSheet: (sheetName: string) => void
+  /** 手動マッピング中の記入開始行を変更する。 */
+  onStartRowChange: (sheetIndex: number, startRow: number) => void
   /** シートへの振分プレビュー用（ステップ2の除外前・グループ内全対象会員）。 */
   members: EntryFormMemberRow[]
   onNext: () => void
@@ -103,6 +107,12 @@ function MappingEditRow({
   )
 }
 
+/**
+ * 手動アップロードの上限。Server Action へ base64 で渡すため実サイズの約4/3に
+ * 膨らむ。next.config の `serverActions.bodySizeLimit`（4MB）に対して余裕を取る。
+ */
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+
 export function Step1Template({
   candidates,
   memberCount,
@@ -115,12 +125,24 @@ export function Step1Template({
   activeSheetIndex,
   onActiveSheetChange,
   onColumnChange,
+  onAddManualSheet,
+  onStartRowChange,
   members,
   onNext,
 }: Step1TemplateProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const handleUpload = async (file: File) => {
+    // Server Action の本文サイズ上限（next.config の bodySizeLimit）を超えると
+    // 413 になり原因が分かりにくい。base64 化で約4/3に膨らむ分も見込んで手前で弾く。
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(
+        `ファイルが大きすぎます（${Math.round(file.size / 1024)}KB）。${Math.round(MAX_UPLOAD_BYTES / 1024)}KB 以下の xlsx を選んでください`,
+      )
+      return
+    }
+    setUploadError(null)
     const base64 = await fileToBase64(file)
     onSelectionChange({ kind: 'upload', file: { filename: file.name, base64 } })
   }
@@ -129,7 +151,13 @@ export function Step1Template({
   const activeSheet = sheets[activeSheetIndex] ?? sheets[0] ?? null
   const isMultiSheet = sheets.length > 1
 
-  const canProceed = analysis != null && sheets.length > 0 && !analyzing
+  // 自動推定が空でも、シートを選んで手で列対応を組めば先へ進める
+  // （requirements §3.2.3「手動修正可能」・エラーケースの手動マッピング誘導）。
+  const unmappedSheetNames = (analysis?.sheetNames ?? []).filter(
+    (name) => !sheets.some((s) => s.sheetName === name),
+  )
+  const canProceed =
+    analysis != null && sheets.length > 0 && sheets.every(isSheetFillable) && !analyzing
 
   return (
     <>
@@ -198,6 +226,10 @@ export function Step1Template({
         />
       </section>
 
+      {uploadError && (
+        <p className="rounded-md bg-danger-bg px-2.5 py-2 text-xs text-danger-fg">{uploadError}</p>
+      )}
+
       {selection && (
         <section className="flex flex-col gap-2">
           <SectionRule title="列の対応" />
@@ -225,6 +257,55 @@ export function Step1Template({
                   </p>
                 </div>
               )}
+
+              {/* 自動推定が1シートも返せなかった場合の出口。シートを選ぶと空の対応表が
+                  でき、そこから列と記入開始行を手で埋められる（行き止まりにしない）。 */}
+              {unmappedSheetNames.length > 0 && (
+                <div className="flex flex-col gap-1.5 rounded-md bg-surface-alt px-2.5 py-2">
+                  <p className="text-[11px] leading-normal text-ink-2">
+                    {sheets.length === 0
+                      ? '記入するシートを選んでください。列の対応はこの後に指定します。'
+                      : '別のシートにも記入する場合は追加してください。'}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {unmappedSheetNames.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="rounded-md border border-border-strong px-2 py-1 text-[11px] text-ink-2"
+                        onClick={() => onAddManualSheet(name)}
+                      >
+                        ＋ {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeSheet && (
+                <label className="flex items-baseline gap-2 text-[11px] text-ink-meta">
+                  記入開始行
+                  <input
+                    type="number"
+                    min={1}
+                    value={activeSheet.startRow}
+                    onChange={(e) => {
+                      const next = Number(e.target.value)
+                      if (Number.isInteger(next) && next > 0) {
+                        onStartRowChange(activeSheetIndex, next)
+                      }
+                    }}
+                    className="w-[72px] rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink tabular-nums"
+                  />
+                  <span>行目から会員を記入します</span>
+                </label>
+              )}
+
+              {activeSheet && !isSheetFillable(activeSheet) && (
+                <p className="rounded-md bg-warn-bg px-2.5 py-2 text-[11px] leading-normal text-warn-fg">
+                  ⚠ 氏名の列（「氏名」または「姓」と「名」）が未指定です。指定すると次へ進めます
+                </p>
+              )}
               {analysis.source === 'heuristic' && !isMultiSheet && (
                 <div className="mt-1 flex items-baseline gap-1.5 text-[11px]">
                   <span className="font-bold text-success-fg">✓ 自動判定に成功</span>
@@ -240,7 +321,7 @@ export function Step1Template({
                 <div className="mt-1 flex gap-4 overflow-x-auto border-b border-border-soft">
                   {sheets.map((s, i) => {
                     const count = members.filter(
-                      (m) => s.targetGrades === null || (m.grade != null && s.targetGrades.includes(m.grade)),
+                      (m) => matchesSheetGrades(s.targetGrades, m.grade),
                     ).length
                     const on = i === activeSheetIndex
                     return (
@@ -284,7 +365,7 @@ export function Step1Template({
                   <span>シートへの振分:</span>
                   {sheets.map((s) => {
                     const names = members
-                      .filter((m) => s.targetGrades === null || (m.grade != null && s.targetGrades.includes(m.grade)))
+                      .filter((m) => matchesSheetGrades(s.targetGrades, m.grade))
                       .map((m) => m.displayName ?? '?')
                     return (
                       <span key={s.sheetName}>

@@ -48,6 +48,7 @@ function heuristicAnalysis(overrides: Partial<TemplateAnalysis> = {}): TemplateA
     warnings: [],
     organizerEmail: null,
     organizerInstructions: null,
+    sheetNames: ['Sheet1'],
     templateFilename: candidate.filename,
     ...overrides,
   }
@@ -64,6 +65,8 @@ const baseProps = {
   activeSheetIndex: 0,
   onActiveSheetChange: vi.fn(),
   onColumnChange: vi.fn(),
+  onAddManualSheet: vi.fn(),
+  onStartRowChange: vi.fn(),
   members: [member()],
   onNext: vi.fn(),
 }

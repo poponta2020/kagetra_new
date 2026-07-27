@@ -1,4 +1,5 @@
 import type { Grade } from '@kagetra/shared/types'
+import { asStandardGrade } from '@/lib/entry-form/grade-normalize'
 
 /**
  * entry-form-autofill タスク7 (UI): プレビューの表示専用フォーマッタ。
@@ -73,7 +74,7 @@ export function formatDanDisplay(dan: number | null): string {
 const GRADE_ORDER: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
 
 /** ステップ2の集計行（級別人数＋計）。級未設定は集計に出さないが計には含める。 */
-export function tallyGrades(grades: readonly (Grade | null)[]): {
+export function tallyGrades(grades: readonly (string | null)[]): {
   byGrade: { grade: Grade; count: number }[]
   /** 参加級が未登録の人数（AC-5b）。A〜E級の人数には混ぜない。 */
   unset: number
@@ -82,11 +83,14 @@ export function tallyGrades(grades: readonly (Grade | null)[]): {
   const counts = new Map<Grade, number>()
   let unset = 0
   for (const grade of grades) {
-    if (!grade) {
+    const standard = asStandardGrade(grade)
+    if (!standard) {
+      // 未設定と、A〜E に当てはまらない大会独自級（F級等）は同じ枠で数える
+      // ——A〜E の人数へ混ぜないことが要件（AC-5b）。
       unset += 1
       continue
     }
-    counts.set(grade, (counts.get(grade) ?? 0) + 1)
+    counts.set(standard, (counts.get(standard) ?? 0) + 1)
   }
   const byGrade = GRADE_ORDER.filter((g) => (counts.get(g) ?? 0) > 0).map((grade) => ({
     grade,

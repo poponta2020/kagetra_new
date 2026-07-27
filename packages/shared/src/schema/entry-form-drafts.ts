@@ -25,10 +25,12 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
  * entry_form_drafts: 申込書下書きの作成履歴。1 作成 = 1 行。
  *
  * entry-form-autofill の「プレビュー確定 → Yahoo Draft へ IMAP APPEND」の
- * 成果物コピー。行は **IMAP APPEND の実行前に** 保存される（requirements
- * §3.2.7 — 失敗してもプレビューで編集した値と生成済み xlsx を失わない）。
- * APPEND 失敗時は status='imap_failed' + imap_error に更新され、S1 進行管理と
- * 失敗画面から xlsx を再ダウンロードできる。
+ * 成果物コピー。行は **IMAP APPEND の実行前に** `pending` で保存される
+ * （requirements §3.2.7 — 失敗してもプレビューで編集した値と生成済み xlsx を
+ * 失わない）。APPEND が成功したら `created`、失敗したら `imap_failed` +
+ * `imap_error` に更新する。挿入から更新までの間にプロセスが落ちた行は
+ * `pending` のまま残り、「成功したかどうか分からない」として扱える
+ * （成功で保存すると、実際には下書きが無いのに成功の嘘が残る）。
  *
  * - entry_group_id CASCADE: グループ削除で履歴も消える（申込書はグループの
  *   派生物であり、独立に残す価値がない）
@@ -50,7 +52,7 @@ export const entryFormDrafts = pgTable(
     attachmentFilename: text('attachment_filename').notNull(),
     xlsx: bytea('xlsx').notNull(),
     memberCount: integer('member_count').notNull(),
-    status: entryFormDraftStatusEnum('status').notNull().default('created'),
+    status: entryFormDraftStatusEnum('status').notNull().default('pending'),
     imapError: text('imap_error'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .notNull()

@@ -1,4 +1,5 @@
 import type { CellMap, CellMapSheet, MemberField } from '@/lib/entry-form/cell-map'
+import { asStandardGrade } from '@/lib/entry-form/grade-normalize'
 
 /**
  * entry-form-autofill タスク7 (UI): ステップ1「列の対応」表示用の純ロジック。
@@ -111,4 +112,61 @@ export function applyColumnChange(
       return { ...sheet, columns }
     }),
   }
+}
+
+/**
+ * 空のシート定義を作る。ヒューリスティックも AI も対応を返せなかったとき
+ * （`source: 'unresolved'`・`sheets` が空）に、ユーザーがシートを選んで
+ * 手で列対応を組み立てられるようにするための出発点。
+ *
+ * `startRow` の既定は 2（1行目を見出しとみなす最小の仮定）。実際の値は
+ * 画面で調整する。
+ */
+export function createManualSheet(sheetName: string): CellMapSheet {
+  return {
+    sheetName,
+    targetGrades: null,
+    startRow: 2,
+    columns: {},
+    headerCells: {},
+    danFormat: 'n段',
+  }
+}
+
+/** 手動マッピング中のシートの記入開始行を差し替える。 */
+export function applyStartRowChange(
+  cellMap: CellMap,
+  sheetIndex: number,
+  startRow: number,
+): CellMap {
+  return {
+    sheets: cellMap.sheets.map((sheet, i) =>
+      i === sheetIndex ? { ...sheet, startRow } : sheet,
+    ),
+  }
+}
+
+/**
+ * 申込書として成立する最小条件。氏名（結合 or 姓＋名）が特定できていること。
+ * ふりがなは無いテンプレもあるため必須にしない。
+ */
+export function isSheetFillable(sheet: CellMapSheet): boolean {
+  const hasName =
+    Boolean(sheet.columns.fullName) ||
+    Boolean(sheet.columns.familyName && sheet.columns.givenName)
+  return hasName && Number.isInteger(sheet.startRow) && sheet.startRow > 0
+}
+
+/**
+ * 会員をそのシートへ振り分けるか。`targetGrades` が `null` のシートは全会員が対象。
+ * 参加級は自由文字列（F級等）なので、A〜E に一致するものだけを標準級として比較する
+ * （`fill.ts` の振分と同じ規則で、プレビューの人数と生成結果を食い違わせない）。
+ */
+export function matchesSheetGrades(
+  targetGrades: readonly string[] | null,
+  grade: string | null,
+): boolean {
+  if (targetGrades === null) return true
+  const standard = asStandardGrade(grade)
+  return standard != null && targetGrades.includes(standard)
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import type { CellMap, MemberField } from '@/lib/entry-form/cell-map'
 import type { EntryFormMember } from '@/lib/entry-form/fill'
@@ -17,7 +17,7 @@ import {
 } from './actions'
 import { formatDateTimeShort, formatFlowDate } from '@/lib/event-date'
 import { formatEventDateRange } from './entry-form-format'
-import { applyColumnChange } from './cell-map-view'
+import { applyColumnChange, applyStartRowChange, createManualSheet } from './cell-map-view'
 import { buildAttachmentFilename, buildDefaultEntrySubject, buildEntryMailBody } from './mail-template-client'
 import { WizardSteps } from './WizardSteps'
 import { Step1Template } from './Step1Template'
@@ -54,7 +54,13 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   const [cellMap, setCellMap] = useState<CellMap | null>(null)
   const [activeSheetIndex, setActiveSheetIndex] = useState(0)
 
+  // 解析要求の連番。候補Aの解析中に候補Bを選ぶと、遅れて届いたAの結果で
+  // 「選択中はB・列対応はA」という食い違いが起きる（誤ったセルへの記入・誤送付先）。
+  // 最新の要求と一致する応答だけを反映する。
+  const analyzeSeqRef = useRef(0)
+
   const runAnalyze = async (sel: TemplateSelection) => {
+    const seq = ++analyzeSeqRef.current
     setSelection(sel)
     setAnalyzing(true)
     setAnalyzeError(null)
@@ -66,23 +72,41 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
     // null のときだけ組み立てるため、ここで無効化しないと古いテンプレ由来の
     // 値が残ってしまう)。
     setMail(null)
+    setBodyEdited(false)
+    setBodyStale(false)
     try {
       const input =
         sel.kind === 'candidate'
           ? { groupId: context.groupId, attachmentId: sel.attachmentId }
           : { groupId: context.groupId, uploaded: sel.file }
       const result = await analyzeTemplateAction(input)
+      if (seq !== analyzeSeqRef.current) return
       setAnalysis(result)
       setCellMap(result.cellMap)
     } catch (err) {
+      if (seq !== analyzeSeqRef.current) return
       setAnalyzeError(err instanceof Error ? err.message : String(err))
     } finally {
-      setAnalyzing(false)
+      if (seq === analyzeSeqRef.current) setAnalyzing(false)
     }
   }
 
   const handleColumnChange = (sheetIndex: number, field: MemberField, value: string | null) => {
     setCellMap((prev) => (prev ? applyColumnChange(prev, sheetIndex, field, value) : prev))
+  }
+
+  // 自動推定が1シートも返せなかったときの手動マッピング（AC-7 の続行経路）。
+  const handleAddManualSheet = (sheetName: string) => {
+    setCellMap((prev) => {
+      const sheets = prev?.sheets ?? []
+      if (sheets.some((s) => s.sheetName === sheetName)) return prev
+      return { sheets: [...sheets, createManualSheet(sheetName)] }
+    })
+    setActiveSheetIndex((prev) => (cellMap?.sheets.length ?? 0) > 0 ? prev : 0)
+  }
+
+  const handleStartRowChange = (sheetIndex: number, startRow: number) => {
+    setCellMap((prev) => (prev ? applyStartRowChange(prev, sheetIndex, startRow) : prev))
   }
 
   // --- ステップ2: 会員 ---
@@ -117,9 +141,38 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   // --- ステップ3: メール ---
   const [mail, setMail] = useState<MailDraftState | null>(null)
 
+  // 本文を手で直したかどうか。手入力済みなら会員構成が変わっても勝手に上書き
+  // しない（代わりに再確認を促す）。未編集なら人数・級別内訳を作り直す——
+  // ステップ3へ進んだ後に会員を足し引きすると、xlsx は新しい構成なのに本文だけ
+  // 古い人数のまま送られてしまうため。
+  const [bodyEdited, setBodyEdited] = useState(false)
+  const [bodyStale, setBodyStale] = useState(false)
+
+  const composeBody = (rows: WizardMember[]) =>
+    buildEntryMailBody({
+      organizer: context.organizer,
+      clubName: context.settings.clubName ?? '所属会未設定',
+      representativeName: context.settings.managerName ?? '(申込責任者未設定)',
+      grades: rows.map((m) => m.grade),
+    })
+
   // ステップ2⇔3 を行き来しても手入力済みの本文・件名・宛先を失わないよう、
   // mail が未生成のとき（初回到達・テンプレ変更直後）だけ組み立て直す。
   const goToStep3 = () => {
+    if (mail != null) {
+      // 会員構成が変わっている場合、未編集の本文は作り直し、編集済みなら
+      // 「内容が古い」ことだけ知らせる（勝手に消さない）。
+      const next = composeBody(activeMembers)
+      if (next !== mail.body) {
+        if (bodyEdited) {
+          setBodyStale(true)
+        } else {
+          setMail({ ...mail, body: next })
+        }
+      }
+      setStep(3)
+      return
+    }
     if (mail == null) {
       const grades = activeMembers.map((m) => m.grade)
       const clubName = context.settings.clubName ?? '所属会未設定'
@@ -260,6 +313,8 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           activeSheetIndex={activeSheetIndex}
           onActiveSheetChange={setActiveSheetIndex}
           onColumnChange={handleColumnChange}
+          onAddManualSheet={handleAddManualSheet}
+          onStartRowChange={handleStartRowChange}
           members={context.members}
           onNext={() => setStep(2)}
         />
@@ -295,6 +350,12 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           subject={mail.subject}
           subjectSource={mail.subjectSource}
           attachmentFilenameSource={mail.attachmentFilenameSource}
+          bodyStale={bodyStale}
+          onRegenerateBody={() => {
+            setMail((prev) => (prev ? { ...prev, body: composeBody(activeMembers) } : prev))
+            setBodyEdited(false)
+            setBodyStale(false)
+          }}
           body={mail.body}
           onChange={(patch) =>
             setMail((prev) => {
@@ -304,6 +365,10 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
               if (patch.toEmail !== undefined) next.toSource = null
               if (patch.subject !== undefined) next.subjectSource = 'default'
               if (patch.attachmentFilename !== undefined) next.attachmentFilenameSource = 'default'
+              if (patch.body !== undefined) {
+                setBodyEdited(true)
+                setBodyStale(false)
+              }
               return next
             })
           }

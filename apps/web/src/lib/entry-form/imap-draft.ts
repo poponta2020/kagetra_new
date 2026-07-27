@@ -35,7 +35,9 @@ const DEFAULT_DRAFT_MAILBOX = 'Draft'
  * 保存し、生成済み xlsx をその場でダウンロード可能にする（成果物を失わない）。
  * エラーメッセージは DB に保存されユーザーにも表示されるため日本語にする。
  *
- * 失敗時は必ず `logout()` を試みてから例外を投げる（接続を残さない）。
+ * `logout()` は必ず試みるが、**APPEND が成功した後の logout 失敗で作成を失敗に
+ * 落とさない**。Yahoo 側には下書きが既に存在するため、失敗として返すと利用者が
+ * 再試行して下書きが重複する。接続の後始末は best-effort に留める。
  */
 export async function appendDraftToYahoo(
   mimeContent: string,
@@ -63,10 +65,12 @@ export async function appendDraftToYahoo(
   try {
     await flow.connect()
     await flow.append(mailbox, mimeContent, ['\\Draft'], new Date())
-    await flow.logout()
   } catch (err) {
-    await flow.logout().catch(() => undefined)
     const reason = err instanceof Error ? err.message : String(err)
     throw new Error(`Yahoo メールへの下書き作成に失敗しました: ${reason}`)
+  } finally {
+    // APPEND の成否によらず接続は畳む。ここで例外を投げると、成功した APPEND を
+    // 失敗として返してしまい、利用者の再試行で下書きが重複する。
+    await flow.logout().catch(() => undefined)
   }
 }

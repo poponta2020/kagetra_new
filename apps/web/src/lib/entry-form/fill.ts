@@ -2,6 +2,11 @@ import 'server-only'
 import ExcelJS from 'exceljs'
 import type { Grade } from '@kagetra/shared/types'
 import type { CellMap, CellMapSheet, DanFormat, HeaderField } from './cell-map'
+import { asStandardGrade } from './grade-normalize'
+
+// 参加級の正規化は grade-normalize.ts が正典（client からも使うため server-only を持たない）。
+// fill の利用側が同じ規則を参照できるよう再 export する。
+export { asStandardGrade }
 import { workbookToBuffer } from './workbook'
 
 /**
@@ -19,7 +24,12 @@ import { workbookToBuffer } from './workbook'
  * そのままここへ渡ってくる前提のため。
  */
 export interface EntryFormMember {
-  grade: Grade | null
+  /**
+   * 申込書に書く参加級。`users.grade`（A〜E）を初期値にするが、F級など大会独自級や
+   * 当日昇級に備えて**自由文字列**にしている（requirements §3.2.1）。
+   * シート振分・級別集計は A〜E に一致する値だけを標準級として扱う。
+   */
+  grade: string | null
   dan: number | null
   familyName: string | null
   givenName: string | null
@@ -323,7 +333,9 @@ export async function fillEntryForm(
       .map((member, index) => ({ member, index }))
       .filter(
         ({ member }) =>
-          sheet.targetGrades === null || (member.grade != null && sheet.targetGrades.includes(member.grade)),
+          sheet.targetGrades === null ||
+          (asStandardGrade(member.grade) != null &&
+            sheet.targetGrades.includes(asStandardGrade(member.grade)!)),
       )
     if (targetMembers.length === 0) continue
 

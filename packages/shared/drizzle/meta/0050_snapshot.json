@@ -1,5 +1,5 @@
 {
-  "id": "99e040ec-d597-4f7b-8f48-23ac7aeaba88",
+  "id": "e1ba9ccf-4230-45f7-824d-68a97f944107",
   "prevId": "ce35a18e-f682-48a5-93d5-04c4ec69e6f9",
   "version": "7",
   "dialect": "postgresql",
@@ -3054,7 +3054,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'created'"
+          "default": "'pending'"
         },
         "imap_error": {
           "name": "imap_error",
@@ -5520,6 +5520,7 @@
       "name": "entry_form_draft_status",
       "schema": "public",
       "values": [
+        "pending",
         "created",
         "imap_failed"
       ]
