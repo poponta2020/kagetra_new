@@ -37,7 +37,7 @@ status: completed
 - **対応Issue:** #382
 
 ### タスク2: セルマップ推定（ヒューリスティック）+ 合成 fixture
-- [ ] 完了
+- [x] 完了
 - **目的:** テンプレ xlsx からヘッダ行・列対応・記入開始行・複数シート振分・段位表記形式を推定する純ロジック
 - **対応AC:** AC-6, AC-11（判定部）
 - **主な変更領域:** `apps/web/src/lib/entry-form/cell-map.ts`（型 + ヒューリスティック: 「参加級/段位/姓/名/ふりがな/氏名/出場回数/備考」キーワード探索・入力規則リスト読取・シート名/固定値からの対象級判定・ヘッダ欄（都道府県/所属会名/責任者/電話/E-Mail/振込名義人）検出・「申込先」メールアドレス regex 抽出）、`apps/web/src/lib/entry-form/__fixtures__/`（合成 xlsx 生成スクリプト＋生成物: 標準型/姓名結合型/複数シート型/変形型の4系統）
@@ -47,7 +47,7 @@ status: completed
 - **対応Issue:** #383
 
 ### タスク3: メール定型・MIME 組立・IMAP APPEND
-- [ ] 完了
+- [x] 完了
 - **目的:** 件名/本文の定型生成（級別人数集計込み）と、送信機構を持たない下書き作成経路
 - **対応AC:** AC-14, AC-15, AC-16（構造）
 - **主な変更領域:** `apps/web/src/lib/entry-form/mail-template.ts`（定型件名/ファイル名プレフィックス/本文。宛名は organizer_text から）、`apps/web/src/lib/entry-form/mime.ts`（自前 MIME: UTF-8 text + xlsx base64 添付 + RFC2047）、`apps/web/src/lib/entry-form/imap-draft.ts`（imapflow で `Draft` へ APPEND・\Draft フラグ。YAHOO_IMAP_* は mail-worker の loadImapConfig を import して再利用）、`apps/web/package.json`（imapflow 依存追加）
