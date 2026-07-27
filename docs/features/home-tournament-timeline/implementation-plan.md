@@ -64,6 +64,8 @@
 
 ## タスク3: DESIGN-PROTO 撤去・表示テスト・忠実度チェック
 
+- [x] 完了（撤去はタスク2で実施済み。ここは表示テスト・忠実度チェック・docs 更新）
+
 **依存:** タスク2
 
 1. `home-timeline-proto-data.ts` を**ファイルごと削除**。`page.tsx` から `searchParams`・状態切替バー・`loadHomeTimeline` の import を撤去。

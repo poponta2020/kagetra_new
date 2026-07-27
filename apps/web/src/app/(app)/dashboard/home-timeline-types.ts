@@ -54,12 +54,16 @@ export interface HomeTimelineEvent {
    * 出場者。`confidence === 'confirmed'` のときは**出場する人だけ**を含める
    * （補欠・落選はホームに出さない）。
    *
-   * ★実装前に確定が必要（design-spec `## 要件への宿題`）:
-   * `tournament_entry_roster_entries` には独立した 2 軸がある——
-   * `status`（applied / confirmed / carried_up / carry_up_declined / cancelled）と
-   * `selection_outcome`（accepted / waitlisted / rejected / unknown）。
-   * どちらの軸で「出場する人」を定義するか（および繰上り辞退・キャンセルの扱い、
-   * 実データで `selection_outcome` が埋まっているか）は要件側の決めごと。
+   * 「出場する人」の定義（design-spec §6 で確定）:
+   * `status IN ('confirmed', 'carried_up')` ∧
+   * `selection_outcome NOT IN ('waitlisted', 'rejected')` ∧ `user_id IS NOT NULL`。
+   * `status` を主軸に置くのは、確定名簿の行には `roster-import/materialize.ts` の
+   * `mapEntryStatus` が必ず `status` を埋める一方、`selection_outcome` は `unknown` の
+   * まま残ることがあるため。`selection_outcome` は明示的な補欠/落選の除外にだけ使う。
+   * 繰上り辞退（`carry_up_declined`）・取消（`cancelled`）は出場しないので落ちる。
+   *
+   * **現在の `users.grade` では絞らない**（確定パスの絞りは上の 3 条件だけ）——
+   * 名簿がその大会の出場者の唯一の権威で、現在の級で絞ると昇級者が名簿から消える。
    */
   entrants: HomeEntrant[]
 }
