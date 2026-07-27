@@ -226,3 +226,4 @@
 - [entry-form-autofill 実装（全8タスク）](impl_entry_form_autofill.md) — 申込書xlsx自動記入+Yahoo下書き。実物由来fixture・入力規則で明細終端判定・server-only/vitest罠
 - [server-only は vitest から import すると throw する](feedback_server_only_breaks_vitest.md) — alias で空実装へ。パッケージ同梱の empty.js は exports に無く指せない
 - [apps/web の vitest(jsdom) で import.meta.url は file: にならない](feedback_web_vitest_import_meta_url.md) — fixtureパスは process.cwd() 起点で解決。mail-worker の先例は使えない
+- [fix PR #399](impl_fix-pr399.md) — Codex R1 の blocker6/should_fix6 を修正。参加級自由入力・pending 状態・解析レース
