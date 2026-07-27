@@ -288,6 +288,8 @@ describe('/admin/entries（申込管理ボード）', () => {
 
     // AC-13: 確定名簿の判定は roster_type='confirmed' かつ superseded_at IS NULL。
     // 申込者名簿・差し替え済みの版では true にならない。
+    // 名簿の有無が区画を左右するのは事前払い・未振込の大会だけになった
+    // （2026-07-27。AC-13b）ので、判定結果が見える条件を明示して置く。
     it('AC-13: applicant 名簿や superseded 済みでは確定名簿ありと判定しない', async () => {
       const today = todayJst()
       const future = addDays(today, 10)
@@ -296,6 +298,8 @@ describe('/admin/entries（申込管理ボード）', () => {
         title: '申込者名簿のみ',
         eventDate: future,
         entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
       })
       await testDb.insert(tournamentEntryRosters).values({
         entryGroupId: applicantOnly.entryGroupId,
@@ -306,6 +310,8 @@ describe('/admin/entries（申込管理ボード）', () => {
         title: '差し替え済み確定名簿',
         eventDate: future,
         entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
       })
       await testDb.insert(tournamentEntryRosters).values({
         entryGroupId: supersededOnly.entryGroupId,
@@ -351,6 +357,28 @@ describe('/admin/entries（申込管理ボード）', () => {
       await renderPage()
 
       expect(within(sectionOf('完了')).getByText('版が2つある大会')).toBeTruthy()
+    })
+
+    // AC-12b: 本改修の主目的をサーバー側の経路（母集団クエリ＋確定名簿クエリ）
+    // でも固定する。名簿を 1 件も入れずに振込済にした大会が完了へ抜ける。
+    it('AC-12b: 確定名簿が未取込でも、事前払い・振込済なら完了に入る', async () => {
+      const today = todayJst()
+      await createEvent({
+        title: '名簿未取込の振込済大会',
+        eventDate: addDays(today, 10),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'paid',
+      })
+
+      await renderPage()
+
+      expect(
+        within(sectionOf('完了')).getByText('名簿未取込の振込済大会'),
+      ).toBeTruthy()
+      expect(
+        within(sectionOf('申込済み・抽選待ち')).queryByText('名簿未取込の振込済大会'),
+      ).toBeNull()
     })
   })
 

@@ -178,11 +178,11 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 |---|---|---|
 | 締切前 | `not_applied` かつ 基準締切がNULLまたは今日以降 | 会内締切（`COALESCE(internalDeadline, entryDeadline)`） |
 | 要対応 | `not_applied` かつ 基準締切が今日より前 かつ 参加1名以上 | **本締切**（`entryDeadline`） |
-| 申込済み・抽選待ち | `applied` かつ 確定名簿なし | 抽選日（`lotteryDate`） |
+| 申込済み・抽選待ち | `applied` かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ 確定名簿なし | 抽選日（`lotteryDate`） |
 | 名簿確定・振込待ち | `applied` かつ 確定名簿あり かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` | 支払締切（`paymentDeadline`） |
-| 完了 | `applied` かつ 確定名簿あり（上記以外） | 開催日（`eventDate`） |
+| 完了 | `applied` かつ（`paymentStatus='paid'` または `paymentType='onsite'` または `paymentType IS NULL`）。**確定名簿の有無を問わない** | 開催日（`eventDate`） |
 
-確定名簿ありの判定は `tournament_entry_rosters` に `rosterType='confirmed'` かつ `supersededAt IS NULL` の行が存在すること（＝メール取込フローで承認した時点）。「要対応」だけ会内締切ではなく本締切を見るのは、その区画が会内締切を既に過ぎた大会の集まりであり、行動を決めるのは主催者への申込締切だから。並び順はいずれも昇順・NULL末尾・開催日を副キー。
+確定名簿ありの判定は `tournament_entry_rosters` に `rosterType='confirmed'` かつ `supersededAt IS NULL` の行が存在すること（＝メール取込フローで承認した時点）。**確定名簿は「完了」の必須要件ではない**（2026-07-27 変更）: 確定名簿は主催者の発表とこちらの取込作業が両方揃って初めて true になる外部依存の値なので、支払いの決着（振込済／現地払い／支払い管理なし）が付いた大会は名簿を待たずに完了へ抜ける。名簿の有無が結果を左右するのは**事前払いかつ未振込**の大会を「抽選待ち」と「振込待ち」のどちらに置くかだけ。現地払い・支払い管理なしの大会には振込確認という判定点が無いため、申込済みになった時点で完了へ入る（＝抽選待ちを経由しない。追跡価値より滞留の害が上回るというユーザー判断）。「要対応」だけ会内締切ではなく本締切を見るのは、その区画が会内締切を既に過ぎた大会の集まりであり、行動を決めるのは主催者への申込締切だから。並び順はいずれも昇順・NULL末尾・開催日を副キー。
 
 1大会=1行で、通称（`tournament_series.short_name`。edition 未紐付けは `title` フォールバック）+ 対象級 + 参加希望者数 `（N名）`、残日数、日付を出す。参加希望者数は `attend=true` の素通し件数で `/events` 一覧と同じセマンティクス（対象級で絞ると対象級外の表明で0名と判定され、大会が自動的に非表示になってしまうため安全側に倒している）。残日数は超過・当日・3日以内のときだけ出し、「申込済み・抽選待ち」「完了」では一切出さない。日付の種類名は各区画の見出しに1回だけ置く。
 
