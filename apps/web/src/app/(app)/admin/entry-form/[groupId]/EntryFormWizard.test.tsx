@@ -88,6 +88,7 @@ function heuristicAnalysis(): TemplateAnalysis {
     organizerEmail: 'aomorikaruta@yahoo.co.jp',
     organizerInstructions: null,
     sheetNames: ['Sheet1'],
+    sourceMailFrom: null,
     templateFilename: '第３回青森大会参加申込書.xlsx',
   }
 }

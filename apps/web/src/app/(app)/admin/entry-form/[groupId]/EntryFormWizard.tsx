@@ -215,8 +215,10 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
       } else if (instructions?.toEmail) {
         toEmail = instructions.toEmail
         toSource = 'ai'
-      } else if (context.sourceMailFrom) {
-        toEmail = context.sourceMailFrom
+      } else if (analysis?.sourceMailFrom ?? context.sourceMailFrom) {
+        // 選んだ添付が付いていたメールの差出人を優先する（グループに案内メールが
+        // 複数あるとき、最新メールの差出人だと別大会宛てになり得る）。
+        toEmail = analysis?.sourceMailFrom ?? context.sourceMailFrom ?? ''
         toSource = 'sourceMail'
       }
 

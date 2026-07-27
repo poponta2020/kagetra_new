@@ -178,3 +178,27 @@ describe('buildDraftMime', () => {
     expect(mime).toContain("filename*=UTF-8''entry-form.xlsx")
   })
 })
+
+describe('buildDraftMime — 宛先・差出人の検証', () => {
+  const attachment = {
+    filename: 'form.xlsx',
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    data: Buffer.from('x'),
+  }
+  const base = { from: 'club@example.invalid', to: 'organizer@example.invalid', subject: '件名', bodyText: '本文', attachment }
+
+  it('To に改行を含むとヘッダ注入を拒否する', () => {
+    expect(() =>
+      buildDraftMime({ ...base, to: 'a@example.invalid\r\nBcc: leak@example.invalid' }),
+    ).toThrow('改行や制御文字')
+  })
+
+  it('形式が不正な宛先を拒否する（打ち間違いのまま下書きを作らない）', () => {
+    expect(() => buildDraftMime({ ...base, to: 'organizer' })).toThrow('形式が正しくありません')
+    expect(() => buildDraftMime({ ...base, to: 'user@' })).toThrow('形式が正しくありません')
+  })
+
+  it('From が空なら明示的なエラーにする', () => {
+    expect(() => buildDraftMime({ ...base, from: '' })).toThrow('設定されていません')
+  })
+})

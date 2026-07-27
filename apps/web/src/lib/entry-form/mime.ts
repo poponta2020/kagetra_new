@@ -190,6 +190,8 @@ function buildMessageId(domain: string): string {
  * Server Action 境界の防御にならないので、組み立ての手前で弾く。
  */
 const CONTROL_CHAR_RE = new RegExp('[\\u0000-\\u001f\\u007f]')
+/** 表示名なしの単一メールボックスとして最低限妥当か（打ち間違いを弾く水準）。 */
+const MAILBOX_RE = new RegExp('^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$')
 
 function assertHeaderSafeAddress(value: string, headerName: string): void {
   if (value.trim().length === 0) {
@@ -199,6 +201,11 @@ function assertHeaderSafeAddress(value: string, headerName: string): void {
   // 中継側の実装差でヘッダ境界として解釈され得るため一律で通さない。
   if (CONTROL_CHAR_RE.test(value)) {
     throw new Error(`${headerName} のメールアドレスに改行や制御文字を含めることはできません`)
+  }
+  // 形式も見る。`foo` や `user@` のような打ち間違いでも IMAP APPEND 自体は
+  // 成功してしまい、完了画面まで正常に見えたまま届かない下書きができる。
+  if (!MAILBOX_RE.test(value.trim())) {
+    throw new Error(`${headerName} のメールアドレスの形式が正しくありません: ${value}`)
   }
 }
 

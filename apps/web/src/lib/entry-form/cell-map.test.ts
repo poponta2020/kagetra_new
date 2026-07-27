@@ -165,3 +165,16 @@ describe('estimateCellMap', () => {
     expect(result.sheets[1]!.targetGrades).toBeNull()
   })
 })
+
+describe('organizerEmail は「申込先」と結び付くアドレスだけを採用する', () => {
+  it('multisheet-grades.xlsx にはアドレスが無いので null', async () => {
+    const result = estimateCellMap(await loadFixture('multisheet-grades.xlsx'))
+    expect(result.organizerEmail).toBeNull()
+  })
+
+  it('「申込先」の近傍にあるアドレスは採用する', async () => {
+    // standard.xlsx は F37 に「申込先：…」の形で入っている。
+    const result = estimateCellMap(await loadFixture('standard.xlsx'))
+    expect(result.organizerEmail).toBe('entry@example.invalid')
+  })
+})

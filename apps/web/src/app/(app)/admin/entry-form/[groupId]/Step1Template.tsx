@@ -318,37 +318,63 @@ export function Step1Template({
                 </label>
               )}
 
-              {unresolvedGrades && (
-                <div className="flex flex-col gap-1.5 rounded-md bg-warn-bg px-2.5 py-2">
-                  <p className="text-[11px] leading-normal text-warn-fg">
-                    ⚠ 複数のシートがありますが、対象の級が決まっていないシートがあります。
-                    このまま作成すると全員が全シートに重複して記入されます。各シートの級を指定するか、
-                    使わないシートは除外してください
+              {/* 級別複数シートの振分先。1シートに複数級（「上級=A/B」等）を割り当てる
+                  テンプレがあるためトグルにし、推定済みのシートも直せるよう常時出す。 */}
+              {isMultiSheet && (
+                <div
+                  className={
+                    unresolvedGrades
+                      ? 'flex flex-col gap-1.5 rounded-md bg-warn-bg px-2.5 py-2'
+                      : 'flex flex-col gap-1.5 rounded-md bg-surface-alt px-2.5 py-2'
+                  }
+                >
+                  <p
+                    className={
+                      unresolvedGrades
+                        ? 'text-[11px] leading-normal text-warn-fg'
+                        : 'text-[11px] leading-normal text-ink-2'
+                    }
+                  >
+                    {unresolvedGrades
+                      ? '⚠ 対象の級が決まっていないシートがあります。このまま作成すると全員が全シートに重複して記入されます。級を指定するか、使わないシートは除外してください'
+                      : 'シートごとの振分先。1つのシートに複数の級を割り当てられます'}
                   </p>
-                  {sheets.map((s, i) =>
-                    s.targetGrades === null ? (
-                      <div key={s.sheetName} className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
-                        <span className="font-bold text-ink-2">{s.sheetName}</span>
-                        {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => (
+                  {sheets.map((s, i) => (
+                    <div key={s.sheetName} className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+                      <span className="font-bold text-ink-2">{s.sheetName}</span>
+                      {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => {
+                        const on = s.targetGrades?.includes(g) ?? false
+                        return (
                           <button
                             key={g}
                             type="button"
-                            className="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-ink-2"
-                            onClick={() => onTargetGradesChange(i, [g])}
+                            aria-pressed={on}
+                            className={
+                              on
+                                ? 'rounded-md border border-brand bg-brand-bg px-1.5 py-0.5 text-[11px] font-bold text-brand-fg'
+                                : 'rounded-md border border-border px-1.5 py-0.5 text-[11px] text-ink-2'
+                            }
+                            onClick={() => {
+                              const current = s.targetGrades ?? []
+                              onTargetGradesChange(
+                                i,
+                                on ? current.filter((x) => x !== g) : [...current, g],
+                              )
+                            }}
                           >
                             {g}級
                           </button>
-                        ))}
-                        <button
-                          type="button"
-                          className="ml-auto text-[11px] text-accent-fg underline"
-                          onClick={() => onRemoveSheet(i)}
-                        >
-                          このシートを使わない
-                        </button>
-                      </div>
-                    ) : null,
-                  )}
+                        )
+                      })}
+                      <button
+                        type="button"
+                        className="ml-auto text-[11px] text-accent-fg underline"
+                        onClick={() => onRemoveSheet(i)}
+                      >
+                        使わない
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 

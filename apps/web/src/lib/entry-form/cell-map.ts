@@ -430,6 +430,11 @@ function findOrganizerEmail(workbook: ExcelJS.Workbook): string | null {
       bestScore = score
     }
   }
+  // 「申込先」等の語と結び付かないアドレス（問い合わせ先・所属会の連絡先・
+  // 記入例）は宛先の根拠にならない。宛先プレフィルの優先順①は「申込先として
+  // 書かれているアドレス」なので、関連を確認できないなら AI 抽出・案内メール
+  // 差出人へ譲る。
+  if (bestScore <= 0) return null
   return best.email
 }
 

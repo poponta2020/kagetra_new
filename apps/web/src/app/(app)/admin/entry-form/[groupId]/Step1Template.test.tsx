@@ -49,6 +49,7 @@ function heuristicAnalysis(overrides: Partial<TemplateAnalysis> = {}): TemplateA
     organizerEmail: null,
     organizerInstructions: null,
     sheetNames: ['Sheet1'],
+    sourceMailFrom: null,
     templateFilename: candidate.filename,
     ...overrides,
   }

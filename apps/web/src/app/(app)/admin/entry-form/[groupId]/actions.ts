@@ -366,6 +366,12 @@ export interface TemplateAnalysis {
    * （`sheets` が空の）ときに、どのシートへ手動でマッピングするかを選ばせる。
    */
   sheetNames: string[]
+  /**
+   * 選んだ添付が付いていた案内メールの差出人（宛先プレフィル優先順③）。
+   * グループ内に案内メールが複数あり得るため、`EntryFormContext.sourceMailFrom`
+   * （グループ内で最新のもの）ではなくこちらを優先する。
+   */
+  sourceMailFrom: string | null
 }
 
 /** 手動アップロード時に受け取る xlsx。base64 で渡す（Server Action の境界を Buffer が越えないため）。 */
@@ -431,19 +437,39 @@ async function readTemplate(
 }
 
 /**
- * グループに紐付く案内メールの本文。主催者指定（件名・ファイル名・申込先）の
- * 抽出元になる（requirements §3.2.6）。取込メールが無いグループでは null。
+ * 主催者指定（件名・ファイル名・申込先）の抽出元になる案内メール本文
+ * （requirements §3.2.6）。
+ *
+ * **候補添付を選んだ場合は、その添付が付いていたメール**を使う。グループには
+ * 複数の案内メールが紐付き得る（別々の tournament_draft を持つイベントを同じ
+ * 申込グループに束ねた場合）ので、「グループ内で最新のメール」を使うと、古い
+ * 添付を選んだのに別のメールの宛先・件名指定が適用される。
+ *
+ * 手動アップロードは添付元をたどれないため、グループ内で最新のメールへ倒す。
  */
-async function loadSourceMailBody(groupId: number): Promise<string | null> {
+async function loadSourceMail(
+  groupId: number,
+  attachmentId: number | null,
+): Promise<{ bodyText: string | null; fromAddress: string | null } | null> {
+  if (attachmentId != null) {
+    const [row] = await db
+      .select({ bodyText: mailMessages.bodyText, fromAddress: mailMessages.fromAddress })
+      .from(mailAttachments)
+      .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.mailMessageId))
+      .where(eq(mailAttachments.id, attachmentId))
+      .limit(1)
+    return row ?? null
+  }
+
   const [row] = await db
-    .select({ bodyText: mailMessages.bodyText })
+    .select({ bodyText: mailMessages.bodyText, fromAddress: mailMessages.fromAddress })
     .from(events)
     .innerJoin(tournamentDrafts, eq(tournamentDrafts.id, events.tournamentDraftId))
     .innerJoin(mailMessages, eq(mailMessages.id, tournamentDrafts.messageId))
     .where(eq(events.entryGroupId, groupId))
     .orderBy(desc(mailMessages.receivedAt))
     .limit(1)
-  return row?.bodyText ?? null
+  return row ?? null
 }
 
 export async function analyzeTemplateAction(input: {
@@ -464,9 +490,12 @@ export async function analyzeTemplateAction(input: {
 
   // 主催者指定の抽出は案内メール本文がある場合だけ（AC-13）。セルマップ推定の
   // 信頼度とは独立した用途なので、高信頼でも呼ぶ。
-  const mailBody = input.groupId != null ? await loadSourceMailBody(input.groupId) : null
-  const organizerInstructions = mailBody
-    ? await extractOrganizerInstructions(mailBody, sheetsText)
+  const sourceMail =
+    input.groupId != null
+      ? await loadSourceMail(input.groupId, input.attachmentId ?? null)
+      : null
+  const organizerInstructions = sourceMail?.bodyText
+    ? await extractOrganizerInstructions(sourceMail.bodyText, sheetsText)
     : null
 
   if (estimate.confidence === 'high') {
@@ -478,6 +507,7 @@ export async function analyzeTemplateAction(input: {
       templateFilename: filename,
       organizerInstructions,
       sheetNames,
+      sourceMailFrom: sourceMail?.fromAddress ?? null,
     }
   }
 
@@ -493,6 +523,7 @@ export async function analyzeTemplateAction(input: {
       templateFilename: filename,
       organizerInstructions,
       sheetNames,
+      sourceMailFrom: sourceMail?.fromAddress ?? null,
     }
   }
   return {
@@ -503,6 +534,7 @@ export async function analyzeTemplateAction(input: {
     templateFilename: filename,
     organizerInstructions,
     sheetNames,
+    sourceMailFrom: sourceMail?.fromAddress ?? null,
   }
 }
 
