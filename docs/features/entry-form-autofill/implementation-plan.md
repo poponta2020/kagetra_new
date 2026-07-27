@@ -57,7 +57,7 @@ status: completed
 - **対応Issue:** #384
 
 ### タスク4: xlsx 記入エンジン（exceljs fill）
-- [ ] 完了
+- [x] 完了
 - **目的:** CellMap + 会員データ + 会定数から記入済み xlsx を生成（数式・結合セル・入力規則を保持）
 - **対応AC:** AC-10, AC-11（記入部）
 - **主な変更領域:** `apps/web/src/lib/entry-form/fill.ts`（明細行記入・複数シート振分・ヘッダ欄記入・段位整形（danFormat 準拠、dan NULL/0=無段）・数式セルスキップ）、`apps/web/package.json`（exceljs 依存追加）
@@ -67,7 +67,7 @@ status: completed
 - **対応Issue:** #385
 
 ### タスク5: AI フォールバック（Haiku）: セルマップ推定＋指定抽出
-- [ ] 完了
+- [x] 完了
 - **目的:** ヒューリスティック低信頼時のセルマップ推定と、主催者指定（件名・ファイル名・申込先）の抽出
 - **対応AC:** AC-7, AC-12（AI 部）, AC-13
 - **主な変更領域:** `apps/web/src/lib/entry-form/ai-extract.ts`（@anthropic-ai/sdk・claude-haiku-4-5-20251001・forced tool use・入力=シートのテキスト表現＋案内メール本文・出力=CellMap 断片＋指定件名/ファイル名/申込先。API エラー時は「推定不可」を返しフローは手動マッピングへ）
@@ -77,7 +77,7 @@ status: completed
 - **対応Issue:** #386
 
 ### タスク6: 会定数 settings lib + S3 設定ページ
-- [ ] 完了
+- [x] 完了
 - **目的:** 会の定数6項目の読み書きと設定ハブ配下の編集画面
 - **対応AC:** AC-1, AC-2（S3 分）
 - **主な変更領域:** `apps/web/src/lib/entry-form/settings.ts`（app_settings の get/set・キー定義）、`apps/web/src/app/(app)/settings/entry-form/page.tsx` + `actions.ts`（admin/vice_admin ガード）、`apps/web/src/app/(app)/settings/page.tsx`（adminLinks に「申込書設定」追加）

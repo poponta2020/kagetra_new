@@ -69,6 +69,11 @@ export default async function SettingsPage() {
           description: '新着メールのプッシュ通知',
         },
         {
+          href: '/settings/entry-form',
+          label: '申込書設定',
+          description: '申込書ヘッダとメール署名に使う会の情報',
+        },
+        {
           href: '/admin/line-channels',
           label: 'Bot',
           description: 'LINE Bot プールとグループの紐付け',
