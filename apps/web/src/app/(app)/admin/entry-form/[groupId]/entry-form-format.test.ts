@@ -65,13 +65,15 @@ describe('tallyGrades', () => {
         { grade: 'D', count: 1 },
         { grade: 'E', count: 1 },
       ],
+      unset: 0,
       total: 15,
     })
   })
 
-  it('級未設定は集計行に出さないが計には数える', () => {
+  it('級未設定は A〜E級の人数に混ぜず unset として別に数える（AC-5b）', () => {
     expect(tallyGrades(['A', null, null])).toEqual({
       byGrade: [{ grade: 'A', count: 1 }],
+      unset: 2,
       total: 3,
     })
   })

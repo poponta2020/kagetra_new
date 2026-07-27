@@ -269,6 +269,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
         <Step2Members
           members={members}
           appearanceCompleteness={context.appearanceCompleteness}
+          appearanceIncompleteGrades={context.appearanceIncompleteGrades}
           onExclude={(userId) =>
             setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, excluded: true } : m)))
           }

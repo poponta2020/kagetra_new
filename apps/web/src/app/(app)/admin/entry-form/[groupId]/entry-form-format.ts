@@ -75,18 +75,24 @@ const GRADE_ORDER: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
 /** ステップ2の集計行（級別人数＋計）。級未設定は集計に出さないが計には含める。 */
 export function tallyGrades(grades: readonly (Grade | null)[]): {
   byGrade: { grade: Grade; count: number }[]
+  /** 参加級が未登録の人数（AC-5b）。A〜E級の人数には混ぜない。 */
+  unset: number
   total: number
 } {
   const counts = new Map<Grade, number>()
+  let unset = 0
   for (const grade of grades) {
-    if (!grade) continue
+    if (!grade) {
+      unset += 1
+      continue
+    }
     counts.set(grade, (counts.get(grade) ?? 0) + 1)
   }
   const byGrade = GRADE_ORDER.filter((g) => (counts.get(g) ?? 0) > 0).map((grade) => ({
     grade,
     count: counts.get(grade)!,
   }))
-  return { byGrade, total: grades.length }
+  return { byGrade, unset, total: grades.length }
 }
 
 /**

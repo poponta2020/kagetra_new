@@ -5,6 +5,7 @@ import { Btn } from '@/components/ui'
 import { SectionRule } from './SectionRule'
 import { formatDanDisplay, tallyGrades } from './entry-form-format'
 import type { WizardMember } from './wizard-types'
+import type { Grade } from '@kagetra/shared/types'
 import type { EntryFormMemberRow } from './actions'
 
 /**
@@ -21,6 +22,11 @@ import type { EntryFormMemberRow } from './actions'
 export interface Step2MembersProps {
   members: WizardMember[]
   appearanceCompleteness: 'complete' | 'incomplete'
+  /**
+   * 出場回数が過少になり得る級（AC-9b）。`null` は影響範囲を特定できず全行が対象。
+   * `appearanceCompleteness === 'complete'` のときは参照しない。
+   */
+  appearanceIncompleteGrades: Grade[] | null
   onExclude: (userId: string) => void
   onInclude: (userId: string) => void
   /** 会員一覧から新たに行を足す。候補の取得は呼び出し側（ウィザード）が行う。 */
@@ -38,6 +44,7 @@ export interface Step2MembersProps {
 export function Step2Members({
   members,
   appearanceCompleteness,
+  appearanceIncompleteGrades,
   onExclude,
   onInclude,
   onAddMember,
@@ -53,12 +60,26 @@ export function Step2Members({
   const excluded = members.filter((m) => m.excluded)
   const nameWarnings = active.filter((m) => m.needsNameInput)
   const gradeWarnings = active.filter((m) => m.grade == null)
-  const { byGrade, total } = tallyGrades(active.map((m) => m.grade))
+  const { byGrade, unset, total } = tallyGrades(active.map((m) => m.grade))
+
+  // AC-9b: 出場回数が過少になり得る会員。欠落の級が特定できないとき（null）と、
+  // 会員自身の級が未登録で判定できないときは、いずれも対象に含める（見落としより
+  // 過剰な警告の方が害が小さい）。
+  const appearanceWarnings =
+    appearanceCompleteness === 'incomplete'
+      ? active.filter(
+          (m) =>
+            appearanceIncompleteGrades == null ||
+            m.grade == null ||
+            appearanceIncompleteGrades.includes(m.grade),
+        )
+      : []
+  const appearanceWarnedIds = new Set(appearanceWarnings.map((m) => m.userId))
 
   const hasWarnings =
     nameWarnings.length > 0 ||
     gradeWarnings.length > 0 ||
-    appearanceCompleteness === 'incomplete' ||
+    appearanceWarnings.length > 0 ||
     active.length === 0
 
   return (
@@ -91,16 +112,25 @@ export function Step2Members({
                 >
                   {m.displayName ?? '氏名未登録'}
                 </button>
-                {' '}— 参加級が未設定です
+                {' '}— 参加級が未登録です。タップして選択してください（空欄のままでも作成できます）
               </span>
             </p>
           ))}
-          {appearanceCompleteness === 'incomplete' && (
-            <p className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
+          {appearanceWarnings.map((m) => (
+            <p key={`appearance-${m.userId}`} className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
               <span aria-hidden>⚠</span>
-              <span>出場回数の算出に名簿未取込の大会があります。値を確認してください</span>
+              <span>
+                <button
+                  type="button"
+                  className="font-bold underline"
+                  onClick={() => onEditRequest(m.userId)}
+                >
+                  {m.displayName ?? '氏名未登録'}
+                </button>
+                {' '}— 出場回数の算出に名簿未取込の大会があります。値を確認してください
+              </span>
             </p>
-          )}
+          ))}
           {active.length === 0 && (
             <p className="flex gap-1.5 text-[11px] leading-normal text-warn-fg">
               <span aria-hidden>⚠</span>
@@ -124,11 +154,11 @@ export function Step2Members({
                   <span
                     className={
                       m.grade == null
-                        ? 'w-[34px] shrink-0 font-display font-bold tabular-nums text-accent-fg'
+                        ? 'w-[34px] shrink-0 text-[10px] font-bold text-accent-fg'
                         : 'w-[34px] shrink-0 font-display font-bold tabular-nums text-brand-fg'
                     }
                   >
-                    {m.grade ? `${m.grade}級` : '—'}
+                    {m.grade ? `${m.grade}級` : '未設定'}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block font-bold text-ink">{m.displayName ?? '氏名未登録'}</span>
@@ -138,14 +168,30 @@ export function Step2Members({
                           <span aria-hidden className="text-accent">⚠</span> ふりがな未登録
                         </>
                       ) : (
-                        `${m.familyKana ?? ''} ${m.givenKana ?? ''}`.trim()
+                        <>
+                          {`${m.familyKana ?? ''} ${m.givenKana ?? ''}`.trim()}
+                          {m.grade == null && (
+                            <span className="ml-1.5 font-bold text-accent-fg">
+                              <span aria-hidden className="text-accent">⚠</span> 参加級が未登録
+                            </span>
+                          )}
+                        </>
                       )}
                     </span>
                   </span>
                   <span className="w-[34px] shrink-0 text-right text-ink-2 tabular-nums">
                     {formatDanDisplay(m.dan)}
                   </span>
-                  <span className="w-[52px] shrink-0 text-right text-[11px] text-ink-meta tabular-nums">
+                  <span
+                    className={
+                      appearanceWarnedIds.has(m.userId)
+                        ? 'w-[52px] shrink-0 text-right text-[11px] font-bold text-accent-fg tabular-nums'
+                        : 'w-[52px] shrink-0 text-right text-[11px] text-ink-meta tabular-nums'
+                    }
+                  >
+                    {appearanceWarnedIds.has(m.userId) && (
+                      <span aria-hidden className="text-accent">⚠ </span>
+                    )}
                     {m.appearanceCount != null ? `出場 ${m.appearanceCount}` : ''}
                   </span>
                   <span aria-hidden className="shrink-0 text-[11px] text-ink-muted">›</span>
@@ -162,6 +208,11 @@ export function Step2Members({
                 {grade}級 <b className="font-bold">{count}</b>
               </span>
             ))}
+            {unset > 0 && (
+              <span className="text-accent-fg">
+                級未設定 <b className="font-bold">{unset}</b>
+              </span>
+            )}
             <span className="ml-auto">
               計 <b className="font-bold">{total}</b>名
             </span>

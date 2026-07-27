@@ -85,6 +85,12 @@ export interface EntryFormContext {
   /** 出場回数の基準日（当日 JST）と、名簿欠落による過少計上の有無。 */
   appearanceReferenceDate: string
   appearanceCompleteness: 'complete' | 'incomplete'
+  /**
+   * 出場回数が過少になり得る級（AC-9b の行単位警告の対象）。
+   * `null` は「どの級が影響を受けるか特定できない」＝全行が対象（欠落情報に
+   * 級が付いていないケース）。`complete` のときは空配列。
+   */
+  appearanceIncompleteGrades: Grade[] | null
   settings: EntryFormSettings
   /** 案内メールの差出人（宛先プレフィル優先順③）。 */
   sourceMailFrom: string | null
@@ -213,6 +219,7 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     members,
     appearanceReferenceDate: appearance.referenceDate,
     appearanceCompleteness: appearance.completeness,
+    appearanceIncompleteGrades: appearance.incompleteGrades,
     settings: await getEntryFormSettings(),
     sourceMailFrom,
     latestDraft: await loadLatestDraft(groupId),
@@ -247,12 +254,13 @@ async function loadLatestDraft(groupId: number): Promise<EntryFormDraftSummary |
 async function loadAppearanceCounts(userIds: string[]): Promise<{
   referenceDate: string
   completeness: 'complete' | 'incomplete'
+  incompleteGrades: Grade[] | null
   byUser: Map<string, number>
 }> {
   const referenceDate = todayInJst()
   const byUser = new Map<string, number>()
   if (userIds.length === 0) {
-    return { referenceDate, completeness: 'complete', byUser }
+    return { referenceDate, completeness: 'complete', incompleteGrades: [], byUser }
   }
   const counts = await getAppearanceCounts({
     userIds,
@@ -260,7 +268,15 @@ async function loadAppearanceCounts(userIds: string[]): Promise<{
     referenceDate,
   })
   for (const row of counts.memberCounts) byUser.set(row.userId, row.count)
-  return { referenceDate, completeness: counts.completeness, byUser }
+
+  // 欠落の級が1つでも特定できない（grade=null＝級の範囲が不明な大会）なら、
+  // どの会員が影響を受けるか絞れないので全行を対象にする。
+  const scopeUnknown = counts.missing.some((m) => m.grade == null)
+  const incompleteGrades = scopeUnknown
+    ? null
+    : [...new Set(counts.missing.map((m) => m.grade as Grade))]
+
+  return { referenceDate, completeness: counts.completeness, incompleteGrades, byUser }
 }
 
 /**

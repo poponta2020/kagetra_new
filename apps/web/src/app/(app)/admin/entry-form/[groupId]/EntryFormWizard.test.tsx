@@ -54,6 +54,7 @@ function baseContext(overrides: Partial<EntryFormContext> = {}): EntryFormContex
     ],
     appearanceReferenceDate: '2026-07-27',
     appearanceCompleteness: 'complete',
+    appearanceIncompleteGrades: [],
     settings: {
       prefecture: '北海道',
       clubName: '北海道大学かるた会',
