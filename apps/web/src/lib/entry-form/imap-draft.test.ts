@@ -9,7 +9,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
  */
 const { connectMock, appendMock, logoutMock, ImapFlowConstructorMock } = vi.hoisted(() => ({
   connectMock: vi.fn(async () => undefined),
-  appendMock: vi.fn(async () => undefined),
+  // append の引数を assert するため、シグネチャ付きで宣言する（引数なしの
+  // vi.fn だと mock.calls の要素が空タプル型になり index アクセスできない）。
+  appendMock: vi.fn(async (_mailbox: string, _content: string, _flags?: string[]) => undefined),
   logoutMock: vi.fn(async () => undefined),
   ImapFlowConstructorMock: vi.fn(),
 }))

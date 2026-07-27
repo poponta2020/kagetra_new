@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import ExcelJS from 'exceljs'
 import { describe, it, expect } from 'vitest'
 import { estimateCellMap } from './cell-map'
+import { loadWorkbook } from './workbook'
 
 // vitest（jsdom 環境）では `import.meta.url` が file: スキームにならず
 // `fileURLToPath` が throw する。web の vitest は root = apps/web で走るので
@@ -10,9 +11,7 @@ import { estimateCellMap } from './cell-map'
 const FIXTURE_DIR = resolve(process.cwd(), 'src/lib/entry-form/__fixtures__')
 
 async function loadFixture(name: string): Promise<ExcelJS.Workbook> {
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(await readFile(resolve(FIXTURE_DIR, name)))
-  return wb
+  return loadWorkbook(await readFile(resolve(FIXTURE_DIR, name)))
 }
 
 describe('estimateCellMap', () => {

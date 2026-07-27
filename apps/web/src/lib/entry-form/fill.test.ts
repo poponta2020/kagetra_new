@@ -4,15 +4,14 @@ import ExcelJS from 'exceljs'
 import { describe, it, expect } from 'vitest'
 import { fillEntryForm, formatDan, type EntryFormConstants, type EntryFormMember } from './fill'
 import { estimateCellMap, type CellMap } from './cell-map'
+import { loadWorkbook } from './workbook'
 
 // vitest（jsdom 環境）では `import.meta.url` が file: スキームにならず
 // `fileURLToPath` が throw する。cell-map.test.ts と同じ形で解決する。
 const FIXTURE_DIR = resolve(process.cwd(), 'src/lib/entry-form/__fixtures__')
 
 async function loadFixture(name: string): Promise<ExcelJS.Workbook> {
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(await readFile(resolve(FIXTURE_DIR, name)))
-  return wb
+  return loadWorkbook(await readFile(resolve(FIXTURE_DIR, name)))
 }
 
 const NO_CONSTANTS: EntryFormConstants = {
@@ -123,8 +122,7 @@ describe('fillEntryForm: standard.xlsx（標準型・単一シート）', () => 
     expect(result.unassignedMembers).toEqual([])
     expect(result.overflow).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const ws = reloaded.worksheets[0]!
 
     expect(ws.getCell('B12').value).toBe('A')
@@ -204,8 +202,7 @@ describe('fillEntryForm: split-kana.xlsx（姓名・かな別列・漢数字段�
     expect(result.unassignedMembers).toEqual([])
     expect(result.overflow).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const ws = reloaded.worksheets[0]!
 
     expect(ws.getCell('B7').value).toBe('伊藤')
@@ -266,8 +263,7 @@ describe('fillEntryForm: shifted.xlsx（段位・出場回数列が無い変形�
     expect(result.unassignedMembers).toEqual([])
     expect(result.overflow).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const ws = reloaded.worksheets[0]!
 
     expect(ws.getCell('C13').value).toBe('D')
@@ -337,8 +333,7 @@ describe('fillEntryForm: multisheet-grades.xlsx（級別複数シート型・AC-
     expect(result.overflow).toEqual([])
     expect(result.unassignedMembers).toEqual([memberE])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const cSheet = reloaded.getWorksheet('C級')!
     const dSheet = reloaded.getWorksheet('D級')!
 
@@ -389,8 +384,7 @@ describe('fillEntryForm: 数式セル未上書き', () => {
     expect(result.overflow).toEqual([{ sheetName: 'Sheet1', members: [members[0]] }])
     expect(result.unassignedMembers).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const reloadedWs = reloaded.worksheets[0]!
 
     // 数式セルは無傷のまま、familyName も書き込まれていない（行ごと対象外）。
@@ -427,8 +421,7 @@ describe('fillEntryForm: 数式セル未上書き', () => {
     expect(result.overflow).toEqual([])
     expect(result.unassignedMembers).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const c1 = reloaded.worksheets[0]!.getCell('C1')
     expect(c1.type).toBe(ExcelJS.ValueType.Formula)
     expect(c1.formula).toBe('A1')
@@ -463,8 +456,7 @@ describe('fillEntryForm: 氏名結合型（columns.fullName）', () => {
     const result = await fillEntryForm(workbook, cellMap, { members, constants: NO_CONSTANTS })
     expect(result.overflow).toEqual([])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const ws = reloaded.worksheets[0]!
     expect(ws.getCell('A2').value).toBe('山田　太郎')
     expect(ws.getCell('A3').value).toBe('鈴木')
@@ -506,8 +498,7 @@ describe('fillEntryForm: 行数超過（overflow）', () => {
     expect(result.unassignedMembers).toEqual([])
     expect(result.overflow).toEqual([{ sheetName: 'Sheet1', members: [members[2]] }])
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
+    const reloaded = await loadWorkbook(result.buffer)
     const reloadedWs = reloaded.worksheets[0]!
     expect(reloadedWs.getCell('B2').value).toBe('一名')
     expect(reloadedWs.getCell('B3').value).toBe('二名')
@@ -531,11 +522,10 @@ describe('記入可能行数は明細列の入力規則の最終行で止まる'
     })
 
     expect(result.overflow).toHaveLength(1)
-    expect(result.overflow[0].members).toHaveLength(2)
+    expect(result.overflow[0]!.members).toHaveLength(2)
 
-    const reloaded = new ExcelJS.Workbook()
-    await reloaded.xlsx.load(result.buffer)
-    const ws = reloaded.worksheets[0]
+    const reloaded = await loadWorkbook(result.buffer)
+    const ws = reloaded.worksheets[0]!
     // 20 名目は入力規則の最終行 r31 に入り、r32 以降は空のまま。
     expect(ws.getCell('F31').value).toBe('姓19')
     expect(ws.getCell('F32').value).toBeFalsy()

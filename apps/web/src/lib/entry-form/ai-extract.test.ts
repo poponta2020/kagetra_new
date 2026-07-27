@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { loadWorkbook } from './workbook'
 import ExcelJS from 'exceljs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -25,9 +26,7 @@ import { AI_EXTRACT_MODEL_ID, extractOrganizerInstructions, inferCellMap, sheets
 const FIXTURE_DIR = resolve(process.cwd(), 'src/lib/entry-form/__fixtures__')
 
 async function loadFixture(name: string): Promise<ExcelJS.Workbook> {
-  const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(await readFile(resolve(FIXTURE_DIR, name)))
-  return wb
+  return loadWorkbook(await readFile(resolve(FIXTURE_DIR, name)))
 }
 
 function buildToolUseResponse(toolName: string, input: unknown) {

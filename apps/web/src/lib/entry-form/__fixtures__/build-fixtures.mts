@@ -51,7 +51,7 @@ async function save(wb: ExcelJS.Workbook, name: string) {
 //    F37 の「申込先」は主催者の実アドレスなので差し替える（AC-12 の抽出対象）。
 {
   const wb = await open('standard.src.xlsx')
-  const ws = wb.worksheets[0]
+  const ws = wb.worksheets[0]!
   ws.getCell('F37').value = '　　申込先：　entry@example.invalid'
   await save(wb, 'standard.xlsx')
 }
@@ -61,7 +61,7 @@ async function save(wb: ExcelJS.Workbook, name: string) {
 //    主催者担当者の実名と実メールアドレスを差し替える。
 {
   const wb = await open('split-kana.src.xlsx')
-  const ws = wb.worksheets[0]
+  const ws = wb.worksheets[0]!
   ws.getCell('D24').value = 'Emailアドレス：entry@example.invalid'
   ws.getCell('H24').value = '　総務部　担当者　宛'
   await save(wb, 'split-kana.xlsx')
@@ -71,7 +71,7 @@ async function save(wb: ExcelJS.Workbook, name: string) {
 //    ヘッダ欄が「所属会名：」形式のラベル。申込先メールが richText。
 {
   const wb = await open('shifted.src.xlsx')
-  const ws = wb.worksheets[0]
+  const ws = wb.worksheets[0]!
   ws.getCell('H8').value = '　○○県かるた協会'
   ws.getCell('H9').value = 'entry@example.invalid'
   await save(wb, 'shifted.xlsx')
@@ -87,10 +87,10 @@ async function save(wb: ExcelJS.Workbook, name: string) {
 }
 {
   const wb = await open('multisheet.src.xlsx')
-  wb.worksheets[0].name = 'C級'
-  wb.worksheets[1].name = 'D級'
+  wb.worksheets[0]!.name = 'C級'
+  wb.worksheets[1]!.name = 'D級'
   // シート名に合わせて表題も差し替える（表題からの級判定を邪魔しないため）。
-  wb.worksheets[0].getCell('A1').value = '第24回○○県かるた選手権大会名簿（C級の部）'
-  wb.worksheets[1].getCell('A1').value = '第24回○○県かるた選手権大会名簿（D級の部）'
+  wb.worksheets[0]!.getCell('A1').value = '第24回○○県かるた選手権大会名簿（C級の部）'
+  wb.worksheets[1]!.getCell('A1').value = '第24回○○県かるた選手権大会名簿（D級の部）'
   await save(wb, 'multisheet-grades.xlsx')
 }

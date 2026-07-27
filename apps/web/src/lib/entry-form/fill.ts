@@ -2,6 +2,7 @@ import 'server-only'
 import ExcelJS from 'exceljs'
 import type { Grade } from '@kagetra/shared/types'
 import type { CellMap, CellMapSheet, DanFormat, HeaderField } from './cell-map'
+import { workbookToBuffer } from './workbook'
 
 /**
  * entry-form-autofill タスク4: CellMap + 会員データ + 会定数から、記入済み xlsx の
@@ -270,13 +271,19 @@ function lastDataValidationRow(
   columnLetters: string[],
   startRow: number,
 ): number | null {
-  const model = ws.dataValidations?.model ?? {}
+  // exceljs の型定義は Worksheet の入力規則コレクションを公開していないが、
+  // 実体は「アドレス -> 定義」の map を持つ。個々のセルの `dataValidation` を
+  // 引くには行を materialize する必要があり（＝空セルを増やしてテンプレを
+  // 変えてしまう）、ここだけ内部モデルを読む。
+  const model =
+    (ws as unknown as { dataValidations?: { model?: Record<string, unknown> } })
+      .dataValidations?.model ?? {}
   const columns = new Set(columnLetters)
   const scanLimit = Math.max(ws.rowCount, startRow) + CAPACITY_SCAN_FALLBACK_ROWS
   let last: number | null = null
   for (const address of Object.keys(model)) {
     const matched = /^([A-Z]+)(\d+)$/.exec(address)
-    if (!matched) continue
+    if (!matched?.[1] || !matched[2]) continue
     const row = Number(matched[2])
     if (!columns.has(matched[1]) || row < startRow || row > scanLimit) continue
     if (last == null || row > last) last = row
@@ -337,6 +344,6 @@ export async function fillEntryForm(
 
   const unassignedMembers = members.filter((_, index) => !matchedIndices.has(index))
 
-  const buffer = await workbook.xlsx.writeBuffer()
+  const buffer = await workbookToBuffer(workbook)
   return { buffer, unassignedMembers, overflow }
 }
