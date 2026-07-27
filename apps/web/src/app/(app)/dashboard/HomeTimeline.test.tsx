@@ -241,5 +241,14 @@ describe('HomeTimeline', () => {
       const anchor = screen.getByText('大会7').closest('a')
       expect(anchor?.getAttribute('href')).toBe('/events/7')
     })
+
+    it('日付レールに eventDate の M/D と曜日が出る', () => {
+      // event(7).eventDate === '2026-08-07'（金）。eventDate がレールまで
+      // 配線されていることを固定する（splitTimelineDate 自体の検証は
+      // home-timeline-utils.test.ts）。
+      render(<HomeTimeline data={data({ upcoming: [event(7)] })} />)
+      expect(screen.getByText('8/7')).toBeTruthy()
+      expect(screen.getByText('金')).toBeTruthy()
+    })
   })
 })
