@@ -207,3 +207,8 @@
 - [entry-groups タスク1完了(残7)](impl_entry-groups-task1.md) — entry_groups基盤+migration0045。★vitestではmigrationが走らない→scratch DB実測が唯一の検証
 - [entry-groups タスク2完了(残6)](impl_entry-groups-task2.md) — グループcore lib+編集フォーム伝播。★伝播の再検証はUPDATEのWHERE・deleteGroupIfEmptyに条件集約
 - [drizzle-kit generate も rename で対話プロンプト](feedback_drizzle_generate_rename_prompt.md) — 非TTYで必ず失敗。FK列の付け替えは「新列ADDのみ→旧列DROP」の2パスに分ける（migrationが2本になり番号計画がずれる）
+- [entry-groups タスク3完了(残5)](impl_entry-groups-task3.md) — LINE配信をグループ化+migration 0046/0047。★2パス分割で番号ずれ・AC-7をscratch DBで実測
+- [entry-groups タスク4完了(残4)](impl_entry-groups-task4.md) — 一括操作+通知1通集約+日リンク。★N=1バイト互換は既存テスト無編集greenで担保
+- [entry-groups 全8タスク完了(PR前)](impl_entry-groups-task5-8.md) — ★CIはbuildを回さない→clientバンドル汚染はデプロイまで出ない。migration実績5本・scratch DB実測
+- [fix PR #377](impl_fix-pr377.md) — entry-groups の r1〜r3 レビュー指摘＋CI赤の修正
+- [feat(entry-groups): 申込グループを導入し LINE紐付け・配信・名簿・リマインド・進行操作をグループ単位へ集約](project_ship-entry-groups.md) — shipped: PR #377
