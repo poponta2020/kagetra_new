@@ -22,7 +22,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク1: entry-board-utils.ts — 改称・日別関数の削除・グループ集約の純関数
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 表示文字列の改称と、1 グループ 1 行に必要な集約規則を純関数として確定させる。以降のタスクが依存する型もここで確定させる
 - **対応AC:** AC-35, AC-36, AC-37, AC-38, AC-40, AC-31c（回帰）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts` と同 `entry-board-utils.test.ts`。★**加えて `page.tsx` を 1 行だけ**（下記「型を単独で閉じる」参照）
@@ -50,7 +50,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク2: page.tsx — 通称ベースのグループ表示名を導出して渡す
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 1 行化で表示名が正式名称へ退行するのを防ぐ（§3.2.5 の導出順序）
 - **対応AC:** AC-16, AC-16b, AC-16c
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/page.tsx` と同 `page.test.tsx` のみ
@@ -72,7 +72,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク3: EntryBoardClient.tsx — 1行化と round 13 のビジュアル移植
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 日別行を廃して 1 グループ 1 行にし、確定デザインを実装へ移植する
 - **対応AC:** AC-35, AC-36, AC-39, AC-22b, AC-42
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx` と同 `EntryBoardClient.test.tsx` のみ
@@ -98,7 +98,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク4: 照合と後始末
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 確定デザインが劣化していないこと、改称が無関係な箇所へ波及していないことを機械的に確認する
 - **対応AC:** AC-41, AC-42, AC-33
 - **主な変更領域:** 確認のみ（必要なら design-spec の申し送り追記）
