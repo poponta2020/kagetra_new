@@ -30,14 +30,14 @@ const TABS: readonly Tab[] = [
     href: '/players',
     matches: ['/players', '/tournaments'],
   },
-  // entry-management: 管理者向け大会申込進捗ボード。管理者専用ブロックの先頭に
-  // 置き、共通 3 タブ（ホーム/イベント/統計）の直後から管理業務が始まる並びにする。
+  // entry-management: 大会申込進捗ボード。当初は管理者専用だったが閲覧を全員に
+  // 開放した（ボード自体が表示専用）。共通 3 タブ（ホーム/イベント/統計）の
+  // 直後・管理者専用ブロック（メール）の前に置く。
   {
     id: 'entries',
     label: '申込管理',
     href: '/admin/entries',
     matches: ['/admin/entries'],
-    adminOnly: true,
   },
   // mail-tournament-import (PR1): admin-only inbox of mails fetched by
   // apps/mail-worker. 未処理バッジを持つ日常動線なのでナビに残す。
@@ -68,7 +68,7 @@ function matchesPath(pathname: string, prefix: string): boolean {
 export interface BottomNavProps {
   /**
    * Whether the current user is admin/vice_admin. Controls visibility of
-   * admin-only tabs (申込管理 / メール).
+   * admin-only tabs — currently メール only (申込管理 は全員に開放済み)。
    */
   isAdmin: boolean
   /**
@@ -83,8 +83,8 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs: ホーム / イベント / 統計 / 設定 を全員に、申込管理 / メール を
- * 管理者に追加（一般会員 4 タブ・管理者 6 タブ）。
+ * targets. Tabs: ホーム / イベント / 統計 / 申込管理 / 設定 を全員に、メール を
+ * 管理者に追加（一般会員 5 タブ・管理者 6 タブ）。
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +

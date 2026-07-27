@@ -82,14 +82,31 @@ describe('/admin/entries（申込管理ボード）', () => {
   })
 
   describe('認可（AC-1）', () => {
-    it('一般会員は /403 へリダイレクトされる', async () => {
+    // 閲覧は全員に開放済み（表示専用ボードなので role で絞らない）。
+    it('一般会員も開ける', async () => {
       const member = await createUser({ role: 'member' })
       await setAuthSession({ id: member.id, role: 'member' })
-      await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
+      await renderPage()
+      expect(screen.getByRole('heading', { name: '申込管理' })).toBeTruthy()
     })
 
     it('未ログインは /403 へリダイレクトされる', async () => {
       await setAuthSession(null)
+      await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
+    })
+
+    // role 判定を外したことでガードの境界は `session.user.id` の有無だけに
+    // なった。LINE ログイン済みだが会員行に未紐付け（JWT に id が入らない）
+    // セッションを直接組んで、ガードが `!session` だけに弱まっていないことを
+    // 固定する。setAuthSession は id 必須なので auth モックを直に使う。
+    it('セッションはあるが会員未紐付け（user.id なし）は /403 へリダイレクトされる', async () => {
+      const { auth } = (await import('@/auth')) as unknown as {
+        auth: ReturnType<typeof vi.fn>
+      }
+      auth.mockResolvedValue({
+        user: { role: 'member', lineUserId: 'U-unbound' },
+        expires: new Date(Date.now() + 60_000).toISOString(),
+      })
       await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
     })
 
