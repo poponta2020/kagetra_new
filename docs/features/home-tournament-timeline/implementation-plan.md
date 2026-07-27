@@ -35,6 +35,9 @@
 
 ## タスク2: サーバー側の実データ組み立て
 
+- [x] 完了（`home-timeline-proto-data.ts` の削除＝タスク3-1 も同時に実施。page.tsx が
+  実クエリになった時点で参照ゼロの死んだファイルになるため）
+
 **依存:** タスク1
 
 `page.tsx` を Server Component として書き直し、`HomeTimelineData`（`home-timeline-types.ts` の doc コメントが正典）を実クエリから組む。**母集団は数十件規模なのでクエリ本数を固定する**（イベントごとに投げない。`/admin/entries` の `page.tsx` が手本）。
