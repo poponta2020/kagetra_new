@@ -27,7 +27,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマ追加（app_settings / entry_form_drafts）+ migration 0050
-- [ ] 完了
+- [x] 完了
 - **目的:** 会定数の保存先と作成履歴（生成 xlsx bytea 含む）の DB 基盤
 - **対応AC:** AC-1, AC-17（基盤）
 - **主な変更領域:** `packages/shared/src/schema/app-settings.ts`（新規・key-value: key PK / value / updated_at / updated_by SET NULL）、`packages/shared/src/schema/entry-form-drafts.ts`（新規: entry_group_id FK **CASCADE**・created_by SET NULL・to_email/subject/body/attachment_filename・xlsx bytea（mail-attachments.ts の customType 先例を踏襲）・member_count・status enum('created','imap_failed')・imap_error・created_at。group→最新行引き当ての index）、`packages/shared/src/schema/index.ts`、`packages/shared/drizzle/0050_*.sql`

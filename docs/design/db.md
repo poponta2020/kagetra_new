@@ -47,6 +47,7 @@
 | tournament_status | tournamentStatusEnum | held, cancelled, unconfirmed |
 | roster_type | rosterTypeEnum | applicant, confirmed |
 | roster_entry_status | rosterEntryStatusEnum | applied, confirmed, carried_up, carry_up_declined, cancelled |
+| entry_form_draft_status | entryFormDraftStatusEnum | created, imap_failed |
 
 ## ドメイン別テーブル一覧
 
@@ -61,6 +62,7 @@
 | registration_invites | registrationInvites | 管理者発行の招待制自己登録リンク | schema/registration-invites.ts |
 | line_channels | lineChannels | LINE Messaging API チャネルのプール（system_notify/event_broadcast/grade_broadcast） | schema/line-channels.ts |
 | push_subscriptions | pushSubscriptions | Web Push 購読情報（未処理メールバッジ通知） | schema/push-subscriptions.ts |
+| app_settings | appSettings | 汎用 key-value の会定数ストア（申込書の会情報6項目ほか） | schema/app-settings.ts |
 
 ### イベント・出欠・スケジュール・LINE配信（db-tables-events.md）
 
@@ -74,6 +76,7 @@
 | event_lifecycle_notifications | eventLifecycleNotifications | 申込/支払いライフサイクル通知のonce-everログ | schema/event-lifecycle-notifications.ts |
 | line_grade_group_bindings | lineGradeGroupBindings | 級(A〜E)⇔級別LINEグループの常設1:1紐付け | schema/line-grade-group-bindings.ts |
 | event_grade_broadcasts | eventGradeBroadcasts | (大会,級)単位の級グループ配信記録（claim/送信済み） | schema/event-grade-broadcasts.ts |
+| entry_form_drafts | entryFormDrafts | 申込書下書きの作成履歴（生成xlsxコピー含む） | schema/entry-form-drafts.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）
 
