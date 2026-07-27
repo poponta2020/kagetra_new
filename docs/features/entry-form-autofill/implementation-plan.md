@@ -87,13 +87,13 @@ status: completed
 - **対応Issue:** #387
 
 ### タスク7: S2 プレビュー画面（3ステップウィザード）+ Server Actions
-- [x] 完了
+- [ ] 完了
 - **目的:** 機能の中心。テンプレ選択→列対応確認→会員編集→メール確認→下書き作成の一連
-- **対応AC:** AC-2, AC-3（遷移先）, AC-4, AC-5, AC-8, AC-9, AC-12, AC-13, AC-15, AC-17, AC-18
+- **対応AC:** AC-2, AC-3（遷移先）, AC-4, AC-5, AC-5b, AC-8, AC-9, AC-9b, AC-12, AC-13, AC-15, AC-17, AC-18
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entry-form/[groupId]/`（page.tsx / EntryFormWizard.tsx ほかクライアント一式・actions.ts）。actions: ①初期データ（グループ・添付候補=tournamentDraftId→mail_messages→mail_attachments(.xlsx)・attend=true 和集合・出場回数=appearance-counts(基準日=当日JST)）②テンプレ解析（タスク2/5 を呼ぶ。手動アップロード受口含む）③かな書き戻し（users の kana 4フィールドのみ）④下書き作成（fill→**entry_form_drafts へ保存（IMAP 前）**→MIME→APPEND→status 更新。失敗時 imap_failed + エラー返却）⑤生成 xlsx ダウンロード。UI はボトムシート規約（createPortal(body)+svh）踏襲
 - **依存タスク:** タスク1〜6 すべて
-- **必要なテスト:** actions 単位（認可・候補列挙・和集合/重複排除・書き戻し・作成成功/IMAP 失敗の履歴 status）＋ウィザードの主要分岐（警告表示・AI バッジ・編集シート）のコンポーネントテスト
-- **完了条件:** vitest green・視覚 = b-step1/2/3・b-step1-multisheet/aifallback・b-step2-edit・b-done/b-error 準拠
+- **必要なテスト:** actions 単位（認可・候補列挙・和集合/重複排除・書き戻し・作成成功/IMAP 失敗の履歴 status）＋ウィザードの主要分岐（**警告3種＝ふりがな未登録 / 出場回数 incomplete / 参加級 未登録**・AI バッジ・編集シート）のコンポーネントテスト。**級別集計で「級未設定」が A〜E級の人数に混入しないこと**（AC-5b）と、**incomplete でないときは警告が出ないこと**（AC-9b）を含める
+- **完了条件:** vitest green・視覚 = b-step1/2/3・b-step1-multisheet/aifallback・b-step2-edit・**b-step2-gradenull**・b-done/b-error 準拠
 - **対応Issue:** #388
 
 ### タスク8: S1 進行管理への導線 + 履歴表示/再DL + 仕上げ

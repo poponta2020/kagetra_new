@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { EntryBoardClient } from './EntryBoardClient'
-import type { EntryBoardItem } from './entry-board-utils'
+import { displayName, type EntryBoardItem } from './entry-board-utils'
 
 // 描画側の要件（区画の常設・折りたたみ・強調・残日数の出し分け・遷移先）を固定する。
 // 仕分けと日付計算そのものは entry-board-utils.test.ts が持つ。
@@ -11,23 +11,30 @@ const TODAY = '2026-07-10'
 /**
  * `entryGroupId` の既定値は自分自身の `id`——各行が独立したシングルトン
  * グループになる（従来の「1行=1大会」相当）。複数行を同じグループへ
- * まとめたいテストは `entryGroupId` に加えて `groupName` /
+ * まとめたいテストは `entryGroupId` に加えて `groupDisplayName` /
  * `groupRepresentativeEventId` も明示で上書きする（本番では page.tsx が
  * グループごとに一度だけ計算して全メンバーに同じ値をコピーする。
  * entry-board-utils.ts はそれを読むだけで自前で計算しない）。
+ *
+ * `groupDisplayName` の既定値は `displayName()`（shortName+級／title
+ * フォールバック）——page.tsx が実際に行う導出手順1（要件 §3.2.5）を
+ * そのまま模している。単独グループのテストはこの自動導出に任せてよい。
  */
 function makeItem(overrides: Partial<EntryBoardItem> = {}): EntryBoardItem {
   const id = overrides.id ?? 1
   const title = overrides.title ?? '大会'
+  const shortName = overrides.shortName ?? null
+  const eligibleGrades = overrides.eligibleGrades ?? null
   return {
     id,
     entryGroupId: id,
     groupName: title,
+    groupDisplayName: displayName({ title, shortName, eligibleGrades }),
     groupRepresentativeEventId: id,
     title,
-    shortName: null,
+    shortName,
     eventDate: '2026-08-01',
-    eligibleGrades: null,
+    eligibleGrades,
     internalDeadline: null,
     entryDeadline: null,
     paymentDeadline: null,
@@ -54,11 +61,13 @@ function isHot(label: string): boolean {
   return sectionOf(label).querySelector('.bg-danger-bg') !== null
 }
 
+// round 13 で改称した区画名（design-spec §2-6）。旧名（要対応 / 申込済み・
+// 抽選待ち / 名簿確定・振込待ち）はもう使わない。
 const AREA_LABELS = [
   '締切前',
-  '要対応',
-  '申込済み・抽選待ち',
-  '名簿確定・振込待ち',
+  '要申込',
+  '申込完了・抽選待ち',
+  '名簿確定・要振込',
   '完了',
 ] as const
 
@@ -79,6 +88,23 @@ describe('EntryBoardClient', () => {
     // 「締切前」以外の 4 区画は 0 件なので「なし」が出る
     expect(screen.getAllByText('なし')).toHaveLength(4)
     expect(within(sectionOf('締切前')).queryByText('なし')).toBeNull()
+  })
+
+  // round 13: 区画見出しは新名称のみ。旧名は DOM に出ない。
+  it('区画見出しが新名称で、旧名（要対応・申込済み・抽選待ち・名簿確定・振込待ち）は DOM に無い', () => {
+    render(
+      <EntryBoardClient
+        items={[makeItem({ id: 1, internalDeadline: '2026-07-20' })]}
+        todayStr={TODAY}
+      />,
+    )
+
+    for (const label of AREA_LABELS) {
+      expect(screen.getByRole('heading', { name: label })).toBeTruthy()
+    }
+    for (const oldLabel of ['要対応', '申込済み・抽選待ち', '名簿確定・振込待ち']) {
+      expect(screen.queryByText(oldLabel)).toBeNull()
+    }
   })
 
   // AC-25 前段。母集団は非表示条件を引いた後の件数なので、取得行が
@@ -246,7 +272,7 @@ describe('EntryBoardClient', () => {
 
   // AC-21 / AC-22: 強調は行動フェーズ 2 区画に限り、締切到来済みが 1 件以上
   // あるときだけ。常時赤いと赤が背景と化して効かなくなる。
-  it('AC-21: 「要対応」は締切到来済みが 1 件以上あるときだけ強調される', () => {
+  it('AC-21: 「要申込」は締切到来済みが 1 件以上あるときだけ強調される', () => {
     const overdue = makeItem({
       id: 1,
       internalDeadline: '2026-06-01',
@@ -256,7 +282,7 @@ describe('EntryBoardClient', () => {
     const { unmount } = render(
       <EntryBoardClient items={[overdue]} todayStr={TODAY} />,
     )
-    expect(isHot('要対応')).toBe(true)
+    expect(isHot('要申込')).toBe(true)
     unmount()
 
     // 本締切がまだ 4 日以上先なら強調しない
@@ -266,10 +292,10 @@ describe('EntryBoardClient', () => {
         todayStr={TODAY}
       />,
     )
-    expect(isHot('要対応')).toBe(false)
+    expect(isHot('要申込')).toBe(false)
   })
 
-  it('AC-21b: 「要対応」に本締切未設定の大会が 1 件でもあれば強調される（fail-safe）', () => {
+  it('AC-21b: 「要申込」に本締切未設定の大会が 1 件でもあれば強調される（fail-safe）', () => {
     render(
       <EntryBoardClient
         items={[
@@ -283,10 +309,10 @@ describe('EntryBoardClient', () => {
         todayStr={TODAY}
       />,
     )
-    expect(isHot('要対応')).toBe(true)
+    expect(isHot('要申込')).toBe(true)
   })
 
-  it('AC-21: 「名簿確定・振込待ち」も支払締切が到来していれば強調される', () => {
+  it('AC-21: 「名簿確定・要振込」も支払締切が到来していれば強調される', () => {
     render(
       <EntryBoardClient
         items={[
@@ -302,7 +328,7 @@ describe('EntryBoardClient', () => {
         todayStr={TODAY}
       />,
     )
-    expect(isHot('名簿確定・振込待ち')).toBe(true)
+    expect(isHot('名簿確定・要振込')).toBe(true)
   })
 
   it('AC-22: 行動フェーズ以外の 3 区画は締切が超過していても強調されない', () => {
@@ -333,12 +359,41 @@ describe('EntryBoardClient', () => {
     )
 
     expect(isHot('締切前')).toBe(false)
-    expect(isHot('申込済み・抽選待ち')).toBe(false)
+    expect(isHot('申込完了・抽選待ち')).toBe(false)
     expect(isHot('完了')).toBe(false)
   })
 
+  // AC-22b: 「0 件の区画は行動フェーズでも朱にしない」（design-spec §2 採らなかった
+  // もの / requirements §3.2.7 設計判断12）。見出し・玉・件数ピルすべてグレーで、
+  // 朱系クラスが一切付かないことを固定する。
+  it('AC-22b: 0 件の行動フェーズ区画は見出し・玉・件数ピルすべてグレーで朱系クラスを持たない', () => {
+    render(
+      <EntryBoardClient
+        items={[makeItem({ id: 1, internalDeadline: '2026-07-20' })]}
+        todayStr={TODAY}
+      />,
+    )
+
+    for (const label of ['要申込', '名簿確定・要振込']) {
+      const section = sectionOf(label)
+
+      const heading = within(section).getByRole('heading', { name: label })
+      expect(heading.className).not.toMatch(/text-danger/)
+      expect(heading.className).toContain('text-ink-muted')
+
+      const node = section.querySelector('[data-testid="area-node"]')
+      expect(node).toBeTruthy()
+      expect(node?.className).not.toMatch(/border-danger|bg-danger/)
+      expect(node?.className).toContain('border-border')
+
+      const countPill = within(section).getByText('0件')
+      expect(countPill.className).not.toMatch(/bg-danger|text-danger/)
+      expect(countPill.className).toContain('text-ink-muted')
+    }
+  })
+
   // AC-19: まだ手を動かす段階ではないフェーズに残日数を出さない。
-  it('AC-19: 「申込済み・抽選待ち」と「完了」の行には残日数が出ない', () => {
+  it('AC-19: 「申込完了・抽選待ち」と「完了」の行には残日数が出ない', () => {
     render(
       <EntryBoardClient
         items={[
@@ -363,7 +418,7 @@ describe('EntryBoardClient', () => {
       />,
     )
 
-    for (const label of ['申込済み・抽選待ち', '完了']) {
+    for (const label of ['申込完了・抽選待ち', '完了']) {
       const row = within(sectionOf(label)).getByRole('link')
       expect(row.textContent).not.toContain('あと')
       expect(row.textContent).not.toContain('本日')
@@ -387,7 +442,7 @@ describe('EntryBoardClient', () => {
         todayStr={TODAY}
       />,
     )
-    const row = within(sectionOf('申込済み・抽選待ち')).getByRole('link')
+    const row = within(sectionOf('申込完了・抽選待ち')).getByRole('link')
     expect(row.textContent).toContain('未定')
   })
 
@@ -415,11 +470,11 @@ describe('EntryBoardClient', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // タスク6: 1グループ=1カード（AC-14）・代表リンク（AC-15）
+  // round 13: 1 グループ = 常に 1 行（日別行への展開は廃止。design-spec §2-5）
   // ---------------------------------------------------------------------------
 
-  describe('グループカード', () => {
-    it('AC-14: グループ表示名・共通の締切が1回だけ、日別行に開催日・級が並ぶ', () => {
+  describe('グループの1行化', () => {
+    it('複数日グループが1行で描画され、グループ表示名・共通の締切・合計人数が1回だけ出る', () => {
       render(
         <EntryBoardClient
           items={[
@@ -427,7 +482,7 @@ describe('EntryBoardClient', () => {
               id: 11,
               entryGroupId: 900,
               title: '多摩A',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 11,
               eligibleGrades: ['A'],
               eventDate: '2026-08-01',
@@ -439,7 +494,7 @@ describe('EntryBoardClient', () => {
               id: 12,
               entryGroupId: 900,
               title: '多摩B',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 11,
               eligibleGrades: ['B'],
               eventDate: '2026-08-02',
@@ -452,22 +507,55 @@ describe('EntryBoardClient', () => {
         />,
       )
 
-      const section = sectionOf('要対応')
-      // グループ表示名（多摩A+多摩B → 多摩AB）は1回だけ
-      expect(within(section).getAllByText('多摩AB')).toHaveLength(1)
-      // 共通の本締切（7/20, 同一）はヘッダーに1回だけ出る
-      expect(within(section).getAllByText('7/20')).toHaveLength(1)
-
-      // 日別行には開催日と級が並ぶ
+      const section = sectionOf('要申込')
       const links = within(section).getAllByRole('link')
-      expect(links).toHaveLength(3) // ヘッダー1 + 日別行2
-      expect(links[1]?.textContent).toContain('8/1')
-      expect(links[1]?.textContent).toContain('A')
-      expect(links[2]?.textContent).toContain('8/2')
-      expect(links[2]?.textContent).toContain('B')
+      expect(links).toHaveLength(1) // 1グループ=1行。日別行は増えない
+      expect(links[0]?.textContent).toContain('多摩AB')
+      expect(links[0]?.textContent).toContain('（5名）') // 2 + 3 の合計
+      expect(links[0]?.textContent).toContain('7/20') // 共通の本締切
     })
 
-    it('AC-15: カードヘッダーは代表イベント（今日以降で最も近い開催日）へ、日別行はその日自身へ遷移する', () => {
+    it('複数日グループでも日別行（開催日・級・日別状態）は DOM に出ない', () => {
+      render(
+        <EntryBoardClient
+          items={[
+            makeItem({
+              id: 51,
+              entryGroupId: 903,
+              title: '多摩A',
+              groupDisplayName: '多摩AB',
+              groupRepresentativeEventId: 51,
+              eventDate: '2026-08-01',
+              entryStatus: 'applied',
+              hasConfirmedRoster: true,
+              paymentType: 'onsite',
+            }),
+            makeItem({
+              id: 52,
+              entryGroupId: 903,
+              title: '多摩B',
+              groupDisplayName: '多摩AB',
+              groupRepresentativeEventId: 51,
+              eventDate: '2026-08-02',
+              entryStatus: 'not_applied',
+              internalDeadline: '2026-06-01',
+              attendCount: 1,
+            }),
+          ]}
+          todayStr={TODAY}
+        />,
+      )
+
+      // グループは「最も対応が必要」な区画（要申込）に載る
+      const section = sectionOf('要申込')
+      const links = within(section).getAllByRole('link')
+      expect(links).toHaveLength(1) // 日別行は増えない
+      // 日別の開催日はどこにも出ない
+      expect(document.body.textContent).not.toContain('8/1')
+      expect(document.body.textContent).not.toContain('8/2')
+    })
+
+    it('行タップは代表イベント（今日以降で最も近い開催日）へ遷移する', () => {
       render(
         <EntryBoardClient
           items={[
@@ -475,7 +563,7 @@ describe('EntryBoardClient', () => {
               id: 21,
               entryGroupId: 901,
               title: '多摩A',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 21, // 今日以降で最も近い → 代表
               eventDate: '2026-08-01',
               internalDeadline: '2026-06-01',
@@ -485,7 +573,7 @@ describe('EntryBoardClient', () => {
               id: 22,
               entryGroupId: 901,
               title: '多摩B',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 21,
               eventDate: '2026-08-10',
               internalDeadline: '2026-06-01',
@@ -496,19 +584,15 @@ describe('EntryBoardClient', () => {
         />,
       )
 
-      const section = sectionOf('要対応')
-      const headerLink = within(section).getByText('多摩AB').closest('a')
-      expect(headerLink?.getAttribute('href')).toBe('/events/21')
-
+      const section = sectionOf('要申込')
       const links = within(section).getAllByRole('link')
-      expect(links.map((a) => a.getAttribute('href'))).toEqual([
-        '/events/21',
-        '/events/21',
-        '/events/22',
-      ])
+      expect(links).toHaveLength(1)
+      expect(links[0]?.getAttribute('href')).toBe('/events/21')
     })
 
-    it('締切がグループ内で食い違う場合はヘッダーに出さず、日別行それぞれに自分の締切を出す', () => {
+    // design-spec §3-5: 日別展開の廃止で失う情報を受容する。締切が食い違う
+    // 場合、行にはその区画の観点で最も早い日の締切だけが出る。
+    it('締切がグループ内で食い違う場合は最も早い日の締切だけが行に出る（情報欠落は受容）', () => {
       render(
         <EntryBoardClient
           items={[
@@ -516,7 +600,7 @@ describe('EntryBoardClient', () => {
               id: 31,
               entryGroupId: 902,
               title: '多摩A',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 31,
               eventDate: '2026-08-01',
               internalDeadline: '2026-06-01',
@@ -527,7 +611,7 @@ describe('EntryBoardClient', () => {
               id: 32,
               entryGroupId: 902,
               title: '多摩B',
-              groupName: '多摩AB',
+              groupDisplayName: '多摩AB',
               groupRepresentativeEventId: 31,
               eventDate: '2026-08-02',
               internalDeadline: '2026-06-01',
@@ -539,62 +623,14 @@ describe('EntryBoardClient', () => {
         />,
       )
 
-      const section = sectionOf('要対応')
-      const headerLink = within(section).getByText('多摩AB').closest('a')
-      // ヘッダーには締切日を出さない（食い違うため）
-      expect(headerLink?.textContent).toBe('多摩AB')
-
+      const section = sectionOf('要申込')
       const links = within(section).getAllByRole('link')
-      expect(links[1]?.textContent).toContain('7/20')
-      expect(links[2]?.textContent).toContain('7/25')
+      expect(links).toHaveLength(1)
+      expect(links[0]?.textContent).toContain('7/20')
+      expect(links[0]?.textContent).not.toContain('7/25')
     })
 
-    // 設計判断2の担保: カードの区画は「最も対応が必要」な方に寄せるが、日別行は
-    // それぞれ自分自身の進行状態を出す（カードが要対応でも、既に完了した日は
-    // 「完了」と表示される。要対応に紛れて見落とさないための担保）。
-    it('日別行はカードの区画とは独立に、その日自身の進行状態ラベルを出す', () => {
-      render(
-        <EntryBoardClient
-          items={[
-            makeItem({
-              id: 51,
-              entryGroupId: 903,
-              title: '多摩A',
-              groupName: '多摩AB',
-              groupRepresentativeEventId: 51,
-              eventDate: '2026-08-01',
-              // 完了（confirmed roster + onsite）
-              entryStatus: 'applied',
-              hasConfirmedRoster: true,
-              paymentType: 'onsite',
-            }),
-            makeItem({
-              id: 52,
-              entryGroupId: 903,
-              title: '多摩B',
-              groupName: '多摩AB',
-              groupRepresentativeEventId: 51,
-              eventDate: '2026-08-02',
-              // 要対応（会内締切超過・出欠あり）→ カード全体がこちらに寄る
-              entryStatus: 'not_applied',
-              internalDeadline: '2026-06-01',
-              attendCount: 1,
-            }),
-          ]}
-          todayStr={TODAY}
-        />,
-      )
-
-      // カードは「最も対応が必要」な要対応区画に載る
-      const section = sectionOf('要対応')
-      const links = within(section).getAllByRole('link')
-      expect(links).toHaveLength(3) // ヘッダー1 + 日別行2
-      // 日別行はそれぞれ自分の進行状態を出す（カードの区画=要対応とは独立）
-      expect(links[1]?.textContent).toContain('完了')
-      expect(links[2]?.textContent).toContain('要対応')
-    })
-
-    it('シングルトングループは日別行のリストを増やさず、従来どおり1行のまま出る', () => {
+    it('シングルトングループは従来どおり1行のまま出る（回帰）', () => {
       render(
         <EntryBoardClient
           items={[
@@ -609,7 +645,6 @@ describe('EntryBoardClient', () => {
       )
 
       const section = sectionOf('締切前')
-      // 単一行のみ（ヘッダーと日別行が別に増えていない）
       expect(within(section).getAllByRole('link')).toHaveLength(1)
       expect(within(section).getByRole('link').textContent).toContain('単独')
     })

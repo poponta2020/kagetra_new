@@ -217,6 +217,12 @@
 - [entry-management 改修要件（確定名簿を完了要件から外す）](project_entry_management_roster_not_required.md) — 親Issue #379・現地払いは申込済で即完了になる点が受容リスク
 - [entry-management 改修: 確定名簿を「完了」の必須要件から外す](impl_entry-board-done-without-roster.md) — classify の applied 分岐を評価順で組み替え(#379)。PaymentStatus は2値ちょうど
 - [entry-board: 確定名簿を「完了」の必須要件から外す](project_ship-entry-board-done-without-roster.md) — shipped: PR #380。PaymentStatus は2値ちょうど・戻すのは git revert
+- [entry-form-autofill 要件定義](project_entry_form_autofill_def.md) — 親Issue #381・子#382-389・実装待ち
+- [grade-entry-fee 要件定義](project_grade_entry_fee_def.md) — 親Issue #390・UI変更ゼロで値だけ保持・表示側は持ち越し
+- [grade-entry-fee タスク1](impl_grade-entry-fee-task1.md) — 級別参加料の定数+参照関数。継承プロパティの罠を hasOwnProperty で回避
+- [entry-management round13 改修要件定義（区画名改称・1グループ1行化）](project_entry_management_round13_def.md) — 親Issue #393。★罠3つ=mail-inboxの同名「要対応」/表示名の導出順序/明朝は700固定
+- [公認大会の級別参加料を定数として保持](project_ship-grade-entry-fee.md) — shipped: PR #392
+- [gate-dod.sh は Windows CRLF で D2 と CI 委譲が壊れる](feedback_gate_dod_crlf_windows.md) — profile-read.py の print() が CRLF。配列の末尾以外に \r が残り docs 判定と CI_COVERS が不発
 - [entry-form-autofill 実装（全8タスク）](impl_entry_form_autofill.md) — 申込書xlsx自動記入+Yahoo下書き。実物由来fixture・入力規則で明細終端判定・server-only/vitest罠
 - [server-only は vitest から import すると throw する](feedback_server_only_breaks_vitest.md) — alias で空実装へ。パッケージ同梱の empty.js は exports に無く指せない
 - [apps/web の vitest(jsdom) で import.meta.url は file: にならない](feedback_web_vitest_import_meta_url.md) — fixtureパスは process.cwd() 起点で解決。mail-worker の先例は使えない

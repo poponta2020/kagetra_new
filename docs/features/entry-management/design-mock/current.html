@@ -1,0 +1,330 @@
+<!-- @dsCard group="申込管理ボード" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<style>
+  /* ============================================================
+     確定デザイン（round 13）— /admin/entries「申込管理」
+     対象: apps/web/src/app/(app)/admin/entries/page.tsx + EntryBoardClient.tsx
+           + entry-board-utils.ts、shell = layout/mobile-shell.tsx + bottom-nav.tsx
+
+     ★このカードは「行動フェーズに対象がある（＝強調が出ている）」状態を見せる。
+       要申込・名簿確定・要振込 の 2 行はそのためのデモ行。
+       今日の実データ（＝行動フェーズが 0 件）の見え方は redesign-realdata.html。
+     ①③⑤ は本番 2026-07-27 の実データ（DB から実クエリ + 実 classify で取得）。
+
+     現状からの変更点:
+       - 区画見出し 13px ゴシック太字/墨 → 15px 明朝 bold(700)/藍(--kg-brand-fg) 字間 .03em
+         ★700 固定。layout.tsx が Noto Serif JP を weight:['700'] だけで読むため 600 は使えない
+       - 区画を常に和紙(--kg-surface)の面で束ねる（強調時のみ朱面へ切替）
+       - 玉をレール上から見出し行の中へ移動・常に 13px・藍の輪郭
+       - 行間の区切り線(divide-y)を全廃
+       - 区画名: 要対応→要申込 / 申込済み・抽選待ち→申込完了・抽選待ち /
+                 名簿確定・振込待ち→名簿確定・要振込
+       - 複数日グループの日別行への展開を廃止（1 グループ = 常に 1 行）
+       - レール線は最初の玉の中心から始め、最後の大会の行まで伸ばす
+
+     数値リテラルは Tailwind クラス由来（トークンに無い実装値）:
+       h1 20px(text-xl) / 区画見出し 15px(=--kg-text-base) / 件数 11px / 行 12px /
+       区画ヒント 10px / 開閉キャレット 9px / BottomNav 11px
+       残日数列 62px・日付列 52px（固定幅・右寄せ）/ 行 padding 3px 0
+       区画間 pb-3(12px) / レール幅 11px・gap 10px / BottomNav 52px
+     上部バー（AppBar）は nav-settings-hub で廃止済み＝シェルの子は main と nav だけ。
+     ============================================================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--kg-font-sans);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 24px 12px;
+  }
+
+  .phone {
+    width: 375px; height: 812px;
+    display: flex; flex-direction: column;
+    background: var(--kg-bg);
+    border: 1px solid var(--kg-border); border-radius: 14px;
+    overflow: hidden;
+    font-size: var(--kg-text-base); color: var(--kg-fg);
+    line-height: var(--kg-leading-normal);
+    box-shadow: var(--kg-shadow-md);
+  }
+
+  /* main: flex-1 overflow-y-auto（上部バーなし） */
+  .main { flex: 1; min-height: 0; overflow-y: auto; }
+  /* page.tsx: flex flex-col gap-4 p-4 */
+  .page { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+  .page h1 {
+    font-family: var(--kg-font-display); font-weight: var(--kg-w-bold);
+    font-size: 20px; color: var(--kg-fg);
+  }
+
+  /* EntryBoardClient: flex flex-col（区画間の gap は各区画の pb-3） */
+  .board { display: flex; flex-direction: column; }
+
+  /* AreaBlock: section.flex.gap-2.5 */
+  .area { display: flex; gap: 10px; }
+
+  /* タイムラインのレール */
+  .rail { width: 11px; flex: none; display: flex; flex-direction: column; align-items: center; }
+  .rail .line { width: 2px; flex: 1; }
+  .rail .on { background: var(--kg-border); }
+  /* 先頭区画: 線は最初の玉の中心から始める（玉より上へはみ出させない）。
+     13.5px = abody の padding-top 4px + 見出し行(18px)内で 13px の玉が
+     中央寄せされたときの上余白 2.5px + 玉の半径 6.5px。
+     終端は最後の大会の行まで線を伸ばしきる（.acontent.last が pb 0）。 */
+  .area:first-child .rail { padding-top: 13.5px; }
+  /* 玉は見出し行の子。実測でレール中心 (428.4px) と玉中心が一致する値。
+     通常/強調どちらも外形 13px なので同じマージンで中心が揃う。
+     align-self:center で見出しテキストの行ボックス中央に揃う。 */
+  .node {
+    flex: none; align-self: center;
+    margin-left: -22px; margin-right: -2px;
+    border-radius: 9999px;
+    width: 13px; height: 13px;
+    border: 2px solid var(--kg-brand); background: var(--kg-surface);
+  }
+  /* 0 件は行動フェーズでも朱にしない（グレーへ落とす）。赤を常時出さないという
+     requirements §3.2.7 / 設計判断12 の原則を維持する（2026-07-27 ユーザー判断）。 */
+  .node.is-empty { border-color: var(--kg-border); }
+  .node.is-actionable { border-color: var(--kg-danger); }
+  .node.is-hot { width: 13px; height: 13px; border: 0; background: var(--kg-danger); }
+
+  .acontent { min-width: 0; flex: 1; padding-bottom: 12px; }
+  .acontent.last { padding-bottom: 0; }
+  /* フェーズごとに淡い面で束ねる（レールに食い込ませて接続） */
+  .abody {
+    margin-left: -6px; padding: 4px 8px 6px 6px;
+    border-radius: 0 var(--kg-radius-md) var(--kg-radius-md) 0;
+    background: var(--kg-surface);
+  }
+  /* 強調時: 枠線は付けず面だけ。左へ 6px 食い込ませてレールと繋がって見せる */
+  .abody.is-hot { background: var(--kg-danger-bg); }
+
+  /* 区画見出し */
+  .ahead { display: flex; width: 100%; align-items: baseline; gap: 7px; padding: 0 0 6px; margin-bottom: 2px; text-align: left; }
+  .alabel { font-family: var(--kg-font-display); font-size: 15px; font-weight: var(--kg-w-bold); line-height: 1.2; letter-spacing: .03em; color: var(--kg-brand-fg); }
+  .alabel.is-empty { color: var(--kg-fg-muted); }
+  .alabel.is-actionable { color: var(--kg-danger); }
+  .alabel.is-hot { color: var(--kg-danger-fg); }
+  .acount {
+    align-self: center; border-radius: 9999px; padding: 1px 6px;
+    font-size: 11px; line-height: 14px;
+    font-variant-numeric: tabular-nums; color: var(--kg-fg-3);
+  }
+  .acount.is-empty { color: var(--kg-fg-muted); }
+  .acount.is-hot { background: var(--kg-danger); color: var(--kg-fg-on-brand); }
+  .caret { flex: none; font-size: 9px; line-height: 1; color: var(--kg-fg-muted); }
+  .caret.open { display: inline-block; transform: rotate(90deg); }
+  /* 行の日付列の真上に来るよう、同じ幅・同じ右端に固定する */
+  .aspacer { margin-left: auto; width: 62px; flex: none; }
+  .ahint { width: 52px; flex: none; text-align: right; font-size: 10px; line-height: 1; color: var(--kg-fg-muted); }
+
+  .anone { padding: 2px 0; font-size: 11px; line-height: 1; color: var(--kg-fg-muted); }
+
+  .rows { list-style: none; }
+
+  /* 1 大会 1 行（シングルトングループ） */
+  .row { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; font-size: 12px; line-height: 16px; }
+  .rname { display: flex; min-width: 0; flex: 1; align-items: baseline; }
+  .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--kg-w-bold); color: var(--kg-fg); }
+  .cnt { flex: none; font-variant-numeric: tabular-nums; color: var(--kg-fg-3); }
+  .cd { width: 62px; flex: none; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .dt { width: 52px; flex: none; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; color: var(--kg-fg-3); }
+
+  /* 残日数のトーン（toneClass） */
+  .t-past-act { color: var(--kg-danger-fg); font-weight: var(--kg-w-bold); }
+  .t-past     { color: var(--kg-fg-muted); }
+  .t-today    { color: var(--kg-accent-fg); font-weight: var(--kg-w-bold); }
+  .t-soon     { color: var(--kg-fg); font-weight: var(--kg-w-bold); }
+  .t-normal   { color: var(--kg-fg-2); }
+  .t-none     { color: var(--kg-fg-muted); }
+
+  /* 複数日グループも 1 行。日別行への展開は廃止した（2026-07-27 ユーザー判断）。
+     同一グループなら「杉並AB」の 1 行だけを出し、日ごとの内訳はこの画面では見せない
+     ——内訳が要るときは行タップで大会詳細へ入る。よってカード用の CSS は無い。 */
+
+  /* BottomNav (52px / surface / border-t / 管理者6タブ) */
+  .bottomnav { height: 52px; flex: none; display: flex; align-items: stretch; background: var(--kg-surface); border-top: 1px solid var(--kg-border); }
+  .bottomnav .tab {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: var(--kg-w-medium);
+    border-top: 2px solid transparent; color: var(--kg-fg-3);
+  }
+  .bottomnav .tab.active { border-top-color: var(--kg-brand); color: var(--kg-brand); }
+
+  /* 画面下の注記（モック外） */
+  .note { max-width: 375px; font-size: 12.5px; line-height: 1.7; color: var(--kg-fg-2); }
+  .note b { color: var(--kg-fg); }
+  .note ul { margin: 8px 0 0 1.1em; }
+  .note li { margin-bottom: 4px; }
+  .legend { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px; background: var(--kg-surface); border: 1px solid var(--kg-border-soft); border-radius: var(--kg-radius-md); }
+  .legend .lrow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .legend .lrow .cd, .legend .lrow .dt { width: auto; }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="main">
+    <div class="page">
+      <h1>申込管理</h1>
+
+      <div class="board">
+
+        <!-- ① 締切前（唯一の開閉可能区画・既定は開） -->
+        <section class="area">
+          <div class="rail">
+            <span class="line on"></span>
+          </div>
+          <div class="acontent">
+            <div class="abody">
+              <div class="ahead">
+                <span class="node"></span><h2 class="alabel">締切前</h2>
+                <span class="acount">8件</span>
+                <span class="caret open">▶</span>
+                <span class="aspacer"></span>
+                <span class="ahint">会内締切</span>
+              </div>
+              <ul class="rows">
+                <li><div class="row"><span class="rname"><span class="nm">広島CDE</span></span><span class="cd t-normal"></span><span class="dt">7/31</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">杉並AB</span><span class="cnt">（1名）</span></span><span class="cd t-normal"></span><span class="dt">8/1</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">東京吉野会C</span></span><span class="cd t-normal"></span><span class="dt">8/1</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">宇都宮E</span></span><span class="cd t-normal"></span><span class="dt">8/8</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">大阪CD</span></span><span class="cd t-normal"></span><span class="dt">8/16</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">鳳玉CDE</span></span><span class="cd t-normal"></span><span class="dt">8/18</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">椿ABC</span></span><span class="cd t-normal"></span><span class="dt">8/19</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">秋田DE</span></span><span class="cd t-normal"></span><span class="dt">8/24</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ② 要申込（対象あり: 濃朱＋面で強調） -->
+        <section class="area">
+          <div class="rail">
+            <span class="line on"></span>
+          </div>
+          <div class="acontent">
+            <div class="abody is-hot">
+              <div class="ahead">
+                <span class="node is-hot"></span><h2 class="alabel is-hot">要申込</h2>
+                <span class="acount is-hot">1件</span>
+                <span class="aspacer"></span>
+                <span class="ahint">本締切</span>
+              </div>
+              <ul class="rows">
+                <li><div class="row"><span class="rname"><span class="nm">京都EF</span></span><span class="cd t-today">本日</span><span class="dt">7/27</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ③ 申込完了・抽選待ち -->
+        <section class="area">
+          <div class="rail">
+            <span class="line on"></span>
+          </div>
+          <div class="acontent">
+            <div class="abody">
+              <div class="ahead">
+                <span class="node"></span><h2 class="alabel">申込完了・抽選待ち</h2>
+                <span class="acount">2件</span>
+                <span class="aspacer"></span>
+                <span class="ahint">抽選日</span>
+              </div>
+              <ul class="rows">
+                <li><div class="row"><span class="rname"><span class="nm">大阪なにはえB</span></span><span class="cd"></span><span class="dt">未定</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">秋田ABCD</span></span><span class="cd"></span><span class="dt">未定</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ④ 名簿確定・要振込（対象あり: 朱見出し） -->
+        <section class="area">
+          <div class="rail">
+            <span class="line on"></span>
+          </div>
+          <div class="acontent">
+            <div class="abody is-hot">
+              <div class="ahead">
+                <span class="node is-hot"></span><h2 class="alabel is-hot">名簿確定・要振込</h2>
+                <span class="acount is-hot">1件</span>
+                <span class="aspacer"></span>
+                <span class="ahint">支払締切</span>
+              </div>
+              <ul class="rows">
+                <li><div class="row"><span class="rname"><span class="nm">名古屋AB</span><span class="cnt">（3名）</span></span><span class="cd t-past-act">2日超過</span><span class="dt">7/25</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ⑤ 完了 -->
+        <section class="area">
+          <div class="rail">
+            <span class="line on"></span>
+          </div>
+          <div class="acontent last">
+            <div class="abody">
+              <div class="ahead">
+                <span class="node"></span><h2 class="alabel">完了</h2>
+                <span class="acount">4件</span>
+                <span class="aspacer"></span>
+                <span class="ahint">開催日</span>
+              </div>
+              <ul class="rows">
+                <li><div class="row"><span class="rname"><span class="nm">多摩C</span></span><span class="cd"></span><span class="dt">8/1</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">全日本かるた協会法人化30周年記念ABC</span></span><span class="cd"></span><span class="dt">8/8</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">多摩A</span></span><span class="cd"></span><span class="dt">8/15</span></div></li>
+                <li><div class="row"><span class="rname"><span class="nm">鳳玉CD</span></span><span class="cd"></span><span class="dt">9/6</span></div></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <nav class="bottomnav">
+    <span class="tab">ホーム</span>
+    <span class="tab">イベント</span>
+    <span class="tab">統計</span>
+    <span class="tab active">申込管理</span>
+    <span class="tab">メール</span>
+    <span class="tab">設定</span>
+  </nav>
+</div>
+
+<div class="note">
+  <b>確定デザイン（round 13）— 強調が出ている状態。</b>
+  「要申込」の京都EF と「名簿確定・要振込」の名古屋AB は<b>強調の見え方を見せるためのデモ行</b>で、実データではない
+  （実データに無い名前をわざと使っている）。
+  ①③⑤ は本番 2026-07-27 の実データ（母集団 29 イベント / 20 グループ → 非表示条件を引いた 14 カード）。
+  今日の実データは行動フェーズが 2 つとも 0 件なので、<b>毎朝の実際の見え方は
+  「申込管理ボード（確定デザイン・今日の実データ）」カード</b>のほう。
+  BottomNav は管理者 6 タブ（一般会員は「メール」が消えて 5 タブ）。
+  <ul>
+    <li><b>1 グループ = 常に 1 行。</b>複数日のグループ（杉並AB＝9/5 B・9/6 A）も日別に展開せず 1 行で出す。内訳は行タップで大会詳細へ。</li>
+    <li>締切が 4 日以上先の行は残日数を出さない（左の 62px 列が空）。</li>
+    <li>参加希望者数はグループ内の合計を大会名の直後に置く（杉並AB は 9/6 A の 1 名で「（1名）」）。</li>
+    <li>「全日本かるた協会法人化30周年記念ABC」は通称が引けず正式名称のまま＝幅で省略される。</li>
+    <li>レール線は<b>最初の玉の中心から始まり</b>（玉より上へはみ出さない）、<b>最後の大会の行まで伸びる</b>。</li>
+  </ul>
+
+  <div class="legend">
+    <b style="font-size:12px">このカードに出ていない状態</b>
+    <div class="lrow"><span class="cd t-past-act">6日超過</span><span>行動フェーズで締切超過（太字・朱）</span></div>
+    <div class="lrow"><span class="cd t-today">本日</span><span>締切当日</span><span class="cd t-soon">あと2日</span><span>3日以内</span></div>
+    <div class="lrow"><span class="cd t-none">締切未設定</span><span>日付が NULL（fail-safe で「到来済み」扱い）</span></div>
+    <div class="lrow"><span><b>0 件の区画は行動フェーズでもグレー</b>（赤を常時出さない。requirements §3.2.7 / 設計判断12 を維持）</span></div>
+    <div class="lrow"><span>行動フェーズに対象があり締切が未到来のときは、面を塗らず<span style="color:var(--kg-danger)">見出しと玉の輪郭だけ朱</span>にする</span></div>
+    <div class="lrow"><span>「締切前」は見出しタップで畳める（畳んでも会内締切 3 日以内の行は残り、隠れた分は「ほかN件」）</span></div>
+  </div>
+</div>
+
+</body></html>
