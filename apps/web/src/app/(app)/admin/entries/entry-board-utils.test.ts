@@ -142,9 +142,46 @@ describe('classify', () => {
     expect(classify(item, TODAY)).toBe('action_required')
   })
 
-  it('applied かつ確定名簿なし → 申込済み・抽選待ち（AC-10）', () => {
-    const item = makeItem({ entryStatus: 'applied', hasConfirmedRoster: false })
+  it('applied かつ advance かつ unpaid かつ確定名簿なし → 申込済み・抽選待ち（AC-10）', () => {
+    // 2026-07-27 以降、「抽選待ち」は事前払い・未振込に限られる。
+    // makeItem の既定は paymentType: null（＝支払い管理なし＝完了）なので、
+    // この区画を狙うテストは支払い条件を明示する。
+    const item = makeItem({
+      entryStatus: 'applied',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      hasConfirmedRoster: false,
+    })
     expect(classify(item, TODAY)).toBe('applied_waiting')
+  })
+
+  it('applied かつ advance かつ paid → 確定名簿が無くても完了（AC-12b・本改修の主目的）', () => {
+    const item = makeItem({
+      entryStatus: 'applied',
+      paymentType: 'advance',
+      paymentStatus: 'paid',
+      hasConfirmedRoster: false,
+    })
+    expect(classify(item, TODAY)).toBe('done')
+  })
+
+  it('applied かつ onsite → 確定名簿が無くても完了（AC-12c）', () => {
+    const item = makeItem({
+      entryStatus: 'applied',
+      paymentType: 'onsite',
+      paymentStatus: 'unpaid',
+      hasConfirmedRoster: false,
+    })
+    expect(classify(item, TODAY)).toBe('done')
+  })
+
+  it('applied かつ paymentType が NULL → 確定名簿が無くても完了（AC-12c）', () => {
+    const item = makeItem({
+      entryStatus: 'applied',
+      paymentType: null,
+      hasConfirmedRoster: false,
+    })
+    expect(classify(item, TODAY)).toBe('done')
   })
 
   it('applied かつ確定名簿あり かつ advance かつ unpaid → 名簿確定・振込待ち（AC-11）', () => {
@@ -185,6 +222,32 @@ describe('classify', () => {
     })
     expect(classify(item, TODAY)).toBe('done')
   })
+
+  // AC-13b: 確定名簿は「完了」の必須要件ではなくなったので、名簿の有無で結果が
+  // 変わるのは事前払い・未振込の 1 ケースだけになった。対のケースで固定する。
+  it('AC-13b: 確定名簿の有無が区画を左右するのは advance かつ unpaid のときだけ', () => {
+    const withRoster = (overrides: Partial<EntryBoardItem>) =>
+      classify(makeItem({ entryStatus: 'applied', hasConfirmedRoster: true, ...overrides }), TODAY)
+    const withoutRoster = (overrides: Partial<EntryBoardItem>) =>
+      classify(makeItem({ entryStatus: 'applied', hasConfirmedRoster: false, ...overrides }), TODAY)
+
+    // 事前払い・未振込だけ結果が分かれる
+    const advanceUnpaid = { paymentType: 'advance', paymentStatus: 'unpaid' } as const
+    expect(withRoster(advanceUnpaid)).toBe('payment_due')
+    expect(withoutRoster(advanceUnpaid)).toBe('applied_waiting')
+
+    // それ以外は名簿の有無で変わらない（いずれも完了）
+    for (const paid of [
+      { paymentType: 'advance', paymentStatus: 'paid' } as const,
+      { paymentType: 'onsite', paymentStatus: 'unpaid' } as const,
+      { paymentType: 'onsite', paymentStatus: 'paid' } as const,
+      { paymentType: null, paymentStatus: 'unpaid' } as const,
+      { paymentType: null, paymentStatus: 'paid' } as const,
+    ]) {
+      expect(withRoster(paid)).toBe('done')
+      expect(withoutRoster(paid)).toBe('done')
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -207,7 +270,12 @@ describe('dayStatusLabel', () => {
     })
     expect(dayStatusLabel(actionRequired, TODAY)).toBe('要対応')
 
-    const waiting = makeItem({ entryStatus: 'applied', hasConfirmedRoster: false })
+    const waiting = makeItem({
+      entryStatus: 'applied',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      hasConfirmedRoster: false,
+    })
     expect(dayStatusLabel(waiting, TODAY)).toBe('申込済み・抽選待ち')
   })
 })
@@ -234,7 +302,13 @@ describe('groupBoard — 相互排他の網羅（AC-14, シングルトン）', 
         internalDeadline: '2026-06-01',
         attendCount: 1,
       }), // 要対応
-      makeItem({ id: 6, entryStatus: 'applied', hasConfirmedRoster: false }), // 抽選待ち
+      makeItem({
+        id: 6,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        hasConfirmedRoster: false,
+      }), // 抽選待ち
       makeItem({
         id: 7,
         entryStatus: 'applied',
@@ -261,6 +335,26 @@ describe('groupBoard — 相互排他の網羅（AC-14, シングルトン）', 
         hasConfirmedRoster: true,
         paymentType: null,
       }), // 完了(支払い管理なし)
+      // 2026-07-27 の改修で完了へ移った 3 ケース（いずれも確定名簿なし）。
+      makeItem({
+        id: 11,
+        entryStatus: 'applied',
+        hasConfirmedRoster: false,
+        paymentType: 'advance',
+        paymentStatus: 'paid',
+      }), // 完了(振込済・名簿なし)
+      makeItem({
+        id: 12,
+        entryStatus: 'applied',
+        hasConfirmedRoster: false,
+        paymentType: 'onsite',
+      }), // 完了(現地払い・名簿なし)
+      makeItem({
+        id: 13,
+        entryStatus: 'applied',
+        hasConfirmedRoster: false,
+        paymentType: null,
+      }), // 完了(支払い管理なし・名簿なし)
     ]
 
     const board = groupBoard(items, TODAY)
@@ -271,7 +365,7 @@ describe('groupBoard — 相互排他の網羅（AC-14, シングルトン）', 
       .flatMap((g) => g.days.map((d) => d.id))
 
     // 非表示(1, 4)を除く全件がちょうど1回ずつ現れる = 重複も欠落もない
-    const expectedVisible = [2, 3, 5, 6, 7, 8, 9, 10]
+    const expectedVisible = [2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     expect(allIds.sort((a, b) => a - b)).toEqual(expectedVisible)
     expect(new Set(allIds).size).toBe(allIds.length) // 重複なし
 
@@ -282,7 +376,7 @@ describe('groupBoard — 相互排他の網羅（AC-14, シングルトン）', 
     expect(idsOf('action_required')).toEqual([5])
     expect(idsOf('applied_waiting')).toEqual([6])
     expect(idsOf('payment_due')).toEqual([7])
-    expect(idsOf('done')).toEqual([8, 9, 10])
+    expect(idsOf('done')).toEqual([8, 9, 10, 11, 12, 13])
     // 非表示(1, 4)はどの区画にも現れない（GroupedBoard は描画する区画しか持たない）
     expect(allIds).not.toContain(1)
     expect(allIds).not.toContain(4)
@@ -323,6 +417,8 @@ describe('groupBoard — グループ集約規則', () => {
         title: '多摩C',
         eventDate: '2026-08-01',
         entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
         hasConfirmedRoster: false,
       }),
       makeItem({
@@ -400,12 +496,48 @@ describe('groupBoard — グループ集約規則', () => {
         entryGroupId: 301,
         eventDate: '2026-08-02',
         entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
         hasConfirmedRoster: false,
       }), // applied_waiting
     ]
     const board = groupBoard(items, TODAY)
     expect(board.applied_waiting).toHaveLength(1)
     expect(board.before_deadline).toHaveLength(0)
+  })
+
+  // 2026-07-27 の改修で初めて生じる組み合わせ。`hasConfirmedRoster` はグループ
+  // 単位（確定名簿は entry_group に紐づく）だが `paymentStatus` はイベント単位
+  // なので、同じグループの中で「振込済の日」と「事前払い・未振込の日」が並びうる。
+  it('名簿なしのまま片方だけ振込済のグループは、カードが applied_waiting に載り日別行が区画ごとのラベルを出す', () => {
+    const items: EntryBoardItem[] = [
+      makeItem({
+        id: 1,
+        entryGroupId: 302,
+        eventDate: '2026-08-01',
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'paid',
+        hasConfirmedRoster: false,
+      }), // done（名簿なしでも支払い決着済み）
+      makeItem({
+        id: 2,
+        entryGroupId: 302,
+        eventDate: '2026-08-02',
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        hasConfirmedRoster: false,
+      }), // applied_waiting
+    ]
+    const board = groupBoard(items, TODAY)
+    // GROUP_AREA_PRIORITY: applied_waiting > done
+    expect(board.applied_waiting).toHaveLength(1)
+    expect(board.done).toHaveLength(0)
+    expect(board.applied_waiting[0]!.days.map((d) => d.id)).toEqual([1, 2])
+    // 日別行はカードの区画とは独立に、その日自身のラベルを出す
+    expect(dayStatusLabel(items[0]!, TODAY)).toBe('完了')
+    expect(dayStatusLabel(items[1]!, TODAY)).toBe('申込済み・抽選待ち')
   })
 
   // name / representativeEventId の**計算**（deriveEntryGroupName・

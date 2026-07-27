@@ -38,7 +38,11 @@ export type { EntryStatus, PaymentStatus, PaymentType }
 export type AreaId =
   | 'action_required'
   | 'payment_due'
-  /** 申込済で確定名簿がまだ出ていない。抽選待ちもここに含む。 */
+  /**
+   * 申込済で**事前払い（`advance`）かつ未振込**、かつ確定名簿がまだ出ていない。
+   * 抽選待ちもここに含む。支払いの決着（振込済／現地払い／支払い管理なし）が
+   * 付いた大会は名簿の有無に関わらずここへは来ない（{@link classify} 参照）。
+   */
   | 'applied_waiting'
   | 'before_deadline'
   | 'done'
@@ -185,7 +189,8 @@ export function baseDeadlineOf(item: EntryBoardItem): string | null {
 
 /**
  * 大会をちょうど 1 つのエリアへ振り分ける（要件 §3.2.3）。
- * 条件は相互排他なので評価順は可読性のためだけのもの。
+ * 各 `return` は先に一致したものが勝つ（`applied` 分岐だけは評価順に意味がある
+ * ——下のコメント参照）。
  */
 export function classify(item: EntryBoardItem, todayStr: string): AreaId {
   if (item.entryStatus === 'not_applying') return 'no_applicants'
@@ -198,12 +203,17 @@ export function classify(item: EntryBoardItem, todayStr: string): AreaId {
   }
 
   // entryStatus === 'applied'
-  // 確定名簿がまだ出ていない＝抽選待ちも名簿待ちも同じ「待ち」として 1 区画に畳む
+  // 支払いの決着（振込済／現地払い／支払い管理なし）が付いた大会は確定名簿を
+  // 待たない（2026-07-27）。確定名簿は「主催者が発表する」「こちらが取り込む」の
+  // 両方が揃って初めて true になる外部依存の値なので、名簿が来ていないだけで
+  // 会としてはやることが無い大会が「申込済み・抽選待ち」に滞留していた。
+  // 戻す条件: 確定名簿なしで完了へ入った大会に、実は会としてやることが残って
+  // いたケースが実運用で出たとき。判定を反転させず**評価順**で表現してあるので、
+  // 戻すときは `git revert` で下 3 行の順序が戻るだけで済む。
+  if (item.paymentType !== 'advance' || item.paymentStatus === 'paid') return 'done'
+  // ここから先は事前払いかつ未振込のみ。名簿の有無で待ちの種類が分かれる。
   if (!item.hasConfirmedRoster) return 'applied_waiting'
-  if (item.paymentType === 'advance' && item.paymentStatus === 'unpaid') {
-    return 'payment_due'
-  }
-  return 'done'
+  return 'payment_due'
 }
 
 /**

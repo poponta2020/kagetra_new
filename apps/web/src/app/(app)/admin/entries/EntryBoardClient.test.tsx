@@ -311,10 +311,12 @@ describe('EntryBoardClient', () => {
         items={[
           // 締切前（会内締切は今日）
           makeItem({ id: 1, internalDeadline: TODAY }),
-          // 抽選待ち（抽選日が過去）
+          // 抽選待ち（抽選日が過去）。事前払い・未振込でないと完了へ抜ける
           makeItem({
             id: 2,
             entryStatus: 'applied',
+            paymentType: 'advance',
+            paymentStatus: 'unpaid',
             lotteryDate: '2026-06-01',
           }),
           // 完了（開催日が今日）
@@ -344,6 +346,8 @@ describe('EntryBoardClient', () => {
             id: 1,
             shortName: '抽選',
             entryStatus: 'applied',
+            paymentType: 'advance',
+            paymentStatus: 'unpaid',
             lotteryDate: '2026-07-11',
           }),
           makeItem({
@@ -371,7 +375,15 @@ describe('EntryBoardClient', () => {
   it('抽選日が未設定の行は日付列に「未定」を出す', () => {
     render(
       <EntryBoardClient
-        items={[makeItem({ id: 1, entryStatus: 'applied', lotteryDate: null })]}
+        items={[
+          makeItem({
+            id: 1,
+            entryStatus: 'applied',
+            paymentType: 'advance',
+            paymentStatus: 'unpaid',
+            lotteryDate: null,
+          }),
+        ]}
         todayStr={TODAY}
       />,
     )
