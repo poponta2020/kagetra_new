@@ -71,6 +71,8 @@ approved_at: 2026-07-26
 
 **認可:** admin / vice_admin 以外が `/admin/entries` を開いた場合は `/403` へリダイレクト（既存の `/admin/*` 各ページと同じインライン判定パターン）。
 
+> **2026-07-27 変更:** 上の表・遷移・認可のうち「管理者専用」「`adminOnly: true`」の部分は撤回済み。閲覧はログイン会員全員に開放し、`/403` は未ログイン・未紐付けのみ（§4 AC-1/AC-2 の注記を参照）。現行の正典は [spec/events-attendance.md](../../spec/events-attendance.md)・[spec/ui-shell.md](../../spec/ui-shell.md)。
+
 ### 3.2 ビジネスルール
 
 #### 3.2.1 母集団（この画面に載る大会）
