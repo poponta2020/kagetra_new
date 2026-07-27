@@ -72,7 +72,7 @@ supersedes: 2026-07-27 改修の手順書（完了済み。内容は git 履歴�
 
 ### タスク3: EntryBoardClient.tsx — 1行化と round 13 のビジュアル移植
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 日別行を廃して 1 グループ 1 行にし、確定デザインを実装へ移植する
 - **対応AC:** AC-35, AC-36, AC-39, AC-22b, AC-42
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/EntryBoardClient.tsx` と同 `EntryBoardClient.test.tsx` のみ

@@ -5,12 +5,9 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import {
   AREAS,
-  commonDeadlineBadge,
-  dayStatusLabel,
-  deadlineBadgeOf,
-  displayName,
-  formatShortDate,
+  groupAttendCount,
   groupBoard,
+  groupDeadlineBadge,
   isAreaHot,
   isPinnedWhenCollapsed,
   type AreaDef,
@@ -20,16 +17,15 @@ import {
 } from './entry-board-utils'
 
 /**
- * 申込管理ボード（タイムライン型）。
+ * 申込管理ボード（タイムライン型・round 13）。
  *
  * 左に 1 本のレールを通し、各フェーズをその上のノードとして並べる。大会が
  * 上から下へ進んでいく構造をそのまま画面の構造にすることで、「どの大会が
  * どのフェーズにいるか」をスクロールせず読み下せるようにする。
  *
- * タスク6: 1 行 = 1 大会ではなく **1 行 = 1 申込グループ（カード）**。
- * 複数日のグループはカード内に日別行を持つが、シングルトン（日が1件だけの
- * グループ）は日別行を増やさず、従来どおり 1 行（約 24px）のまま
- * 通称+級 / そのフェーズで見る締切 / 参加人数だけを描く（設計判断6）。
+ * round 13: **1 申込グループ = 常に 1 行**（複数日グループの日別行への展開は
+ * 廃止。design-spec §2-5 / 要件 §3.2.5）。玉はレールから見出し行の中へ移動し、
+ * 区画は常に和紙の面（`bg-surface`）で束ねる（強調時のみ `bg-danger-bg`）。
  */
 export function EntryBoardClient({
   items,
@@ -87,8 +83,8 @@ function AreaBlock({
   const [open, setOpen] = useState(area.collapsedByDefault !== true)
   const expanded = !collapsible || open
 
-  // 畳んでいても、締切が迫った日を1件でも抱えるカードは出し続ける
-  // （カードが最小表示単位。カードの一部の行だけを残すことはしない）。
+  // 畳んでいても、締切が迫った日を1件でも抱えるグループは出し続ける
+  // （グループが最小表示単位。グループの一部の日だけを残すことはしない）。
   const pinned = groups.filter((g) =>
     g.days.some((d) => isPinnedWhenCollapsed(d, area.id, todayStr)),
   )
@@ -105,25 +101,43 @@ function AreaBlock({
     todayStr,
   )
 
+  // 見出し行（.ahead）: 玉・見出し・件数ピル・（開閉可なら）キャレット・
+  // スペーサー・区画ヒントを 1 行に並べる。玉は負マージンでレール中心へ
+  // 引き戻す（design-spec §3-1: px 値ではなく「レール中心と玉中心が一致する」
+  // ことが条件）。
   const heading = (
     <>
+      <span
+        aria-hidden
+        data-testid="area-node"
+        className={cn(
+          '-ml-[22px] -mr-0.5 h-[13px] w-[13px] shrink-0 self-center rounded-full',
+          hot
+            ? 'border-0 bg-danger'
+            : area.actionable && !empty
+              ? 'border-2 border-danger bg-surface'
+              : empty
+                ? 'border-2 border-border bg-surface'
+                : 'border-2 border-brand bg-surface',
+        )}
+      />
       <h2
         className={cn(
-          'text-[13px] font-bold leading-none',
+          'font-display text-[15px] font-bold leading-[1.2] tracking-[0.03em]',
           hot
             ? 'text-danger-fg'
             : area.actionable && !empty
               ? 'text-danger'
               : empty
                 ? 'text-ink-muted'
-                : 'text-ink-2',
+                : 'text-brand-fg',
         )}
       >
         {area.label}
       </h2>
       <span
         className={cn(
-          'rounded-full px-1.5 py-px text-[11px] font-bold leading-[14px] tabular-nums',
+          'self-center rounded-full px-1.5 py-px text-[11px] leading-[14px] tabular-nums',
           hot
             ? 'bg-danger text-ink-on-brand'
             : empty
@@ -154,74 +168,71 @@ function AreaBlock({
 
   return (
     <section className="flex gap-2.5">
-      {/* タイムラインのレール。ノード＝フェーズ、線＝大会が進む道筋 */}
-      <div className="flex w-[11px] shrink-0 flex-col items-center">
-        <span
-          className={cn('w-0.5 h-[7px] shrink-0', !isFirst && 'bg-border')}
-        />
-        <span
-          className={cn(
-            'shrink-0 rounded-full',
-            hot
-              ? 'h-[13px] w-[13px] bg-danger'
-              : area.actionable && !empty
-                ? 'h-[9px] w-[9px] border-2 border-danger bg-surface'
-                : empty
-                  ? 'h-[9px] w-[9px] border-2 border-border bg-surface'
-                  : 'h-[9px] w-[9px] border-2 border-border-strong bg-surface',
-          )}
-        />
-        <span className={cn('w-0.5 flex-1', !isLast && 'bg-border')} />
+      {/*
+        タイムラインのレール。全区画で 1 本の flex:1 の線（区画間の gap 部分も
+        含めて途切れず伸びる）。先頭区画だけ pt-[13.5px] で線の始点を最初の玉の
+        中心まで下げる（玉より上に線が無い）。終端は最後の区画の acontent が
+        pb-0 になることで最終行まで伸びきる。
+      */}
+      <div
+        className={cn(
+          'flex w-[11px] shrink-0 flex-col items-center',
+          isFirst && 'pt-[13.5px]',
+        )}
+      >
+        <span className="w-0.5 flex-1 bg-border" />
       </div>
 
       <div className={cn('min-w-0 flex-1', isLast ? 'pb-0' : 'pb-3')}>
         {/*
-          締切が到来したフェーズだけ面で塗る。レールと二重の囲みにならないよう
-          枠線は付けず、背景だけで差をつける。左へ少し食い込ませてレールと
-          つながって見えるようにしている。
+          区画の面。常に和紙（bg-surface）で束ね、強調時だけ朱面
+          （bg-danger-bg）へ切り替える。左へ 6px 食い込ませてレールと
+          つながって見えるようにしている（design-spec §3-2）。
         */}
         <div
           className={cn(
-            'pr-1',
-            hot && '-ml-1.5 rounded-r-md bg-danger-bg pb-1 pl-1.5',
+            '-ml-1.5 rounded-r-md pl-1.5 pr-2 pt-1 pb-1.5',
+            hot ? 'bg-danger-bg' : 'bg-surface',
           )}
         >
-        {collapsible ? (
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={expanded}
-            className="flex w-full items-center gap-1.5 py-1 text-left"
-          >
-            {heading}
-          </button>
-        ) : (
-          <div className="flex items-center gap-1.5 py-1">{heading}</div>
-        )}
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={expanded}
+              className="mb-0.5 flex w-full items-baseline gap-[7px] pb-1.5 text-left"
+            >
+              {heading}
+            </button>
+          ) : (
+            <div className="mb-0.5 flex w-full items-baseline gap-[7px] pb-1.5">
+              {heading}
+            </div>
+          )}
 
-        {empty && expanded ? (
-          <div className="py-0.5 text-[11px] leading-none text-ink-muted">
-            なし
-          </div>
-        ) : /*
-             畳んだときに残す行（締切 3 日以内）が 1 件も無いのが通常の状態
-             なので、visible が空でも隠れた件数だけは出す。ここを
-             visible.length > 0 だけで塞ぐと「ほかN件」ごと消える。
-          */
+          {empty && expanded ? (
+            <div className="py-0.5 text-[11px] leading-none text-ink-muted">
+              なし
+            </div>
+          ) : /*
+               畳んだときに残す行（締切 3 日以内）が 1 件も無いのが通常の状態
+               なので、visible が空でも隠れた件数だけは出す。ここを
+               visible.length > 0 だけで塞ぐと「ほかN件」ごと消える。
+            */
           visible.length > 0 || (!expanded && hiddenCount > 0) ? (
-          <ul className="divide-y divide-border-soft">
-            {visible.map((group) => (
-              <li key={group.groupId}>
-                <EntryGroupCard group={group} area={area} todayStr={todayStr} />
-              </li>
-            ))}
-            {!expanded && hiddenCount > 0 && (
-              <li className="py-1 text-[10px] leading-[16px] text-ink-muted">
-                ほか{hiddenCount}件
-              </li>
-            )}
-          </ul>
-        ) : null}
+            <ul>
+              {visible.map((group) => (
+                <li key={group.groupId}>
+                  <EntryGroupRow group={group} area={area} todayStr={todayStr} />
+                </li>
+              ))}
+              {!expanded && hiddenCount > 0 && (
+                <li className="py-1 text-[10px] leading-[16px] text-ink-muted">
+                  ほか{hiddenCount}件
+                </li>
+              )}
+            </ul>
+          ) : null}
         </div>
       </div>
     </section>
@@ -243,39 +254,48 @@ function toneClass(tone: DeadlineTone, actionable: boolean): string {
   }
 }
 
-function EntryRow({
-  item,
+/**
+ * ボードの 1 行 = 1 申込グループ（round 13: 日別行への展開は廃止）。
+ *
+ * グループ名・締切/抽選日・参加人数はいずれもグループ単位の集約値
+ * （{@link groupDeadlineBadge} / {@link groupAttendCount}。entry-board-utils.ts
+ * が `pickRepresentativeDay` を介して並び順キーと同じ日から導出している——
+ * 並びと表示が食い違わない、要件 §3.2.5.1）。グループ内で締切が食い違う場合、
+ * 最も早い日以外の締切はこの行から見えなくなる（design-spec §3-5。受容済み）。
+ */
+function EntryGroupRow({
+  group,
   area,
   todayStr,
 }: {
-  item: EntryBoardItem
+  group: EntryBoardGroup
   area: AreaDef
   todayStr: string
 }) {
-  const badge = deadlineBadgeOf(item, area.id, todayStr)
+  const badge = groupDeadlineBadge(group, todayStr)
   // 残日数は「差し迫っているとき」だけ出す。tone 'normal'（4日以上先）は
   // 読む必要がないので空にし、日付だけ残す。
   const showCountdown =
     area.showCountdown !== false && badge.tone !== 'normal'
   // 残日数を出さない区画で日付も無い場合は、その旨を日付側に出す
   const dateText = badge.date ?? (showCountdown ? null : badge.countdown)
+  const attendCount = groupAttendCount(group)
 
   return (
     <Link
-      href={`/events/${item.id}`}
+      href={`/events/${group.representativeEventId}`}
       className="flex items-baseline gap-1.5 py-[3px] text-[12px] leading-[16px] transition-colors hover:bg-surface-alt"
     >
       <span className="flex min-w-0 flex-1 items-baseline">
-        <span className="truncate font-bold text-ink">{displayName(item)}</span>
-        {item.attendCount > 0 && (
+        <span className="truncate font-bold text-ink">{group.name}</span>
+        {attendCount > 0 && (
           <span className="shrink-0 tabular-nums text-ink-meta">
-            （{item.attendCount}名）
+            （{attendCount}名）
           </span>
         )}
       </span>
       {/*
-        締切は 2 つの固定幅スロットに分ける。左＝日付（種類が行ごとに変わる
-        「申込済み・抽選待ち」だけ種類も添える）、右＝残日数。行をまたいで
+        締切は 2 つの固定幅スロットに分ける。左＝残日数、右＝日付。行をまたいで
         縦に揃うので、縦に目で追える。
       */}
       <span
@@ -289,133 +309,6 @@ function EntryRow({
       <span className="w-[52px] shrink-0 whitespace-nowrap text-right tabular-nums text-ink-meta">
         {dateText}
       </span>
-    </Link>
-  )
-}
-
-/**
- * カード = 1 申込グループ（タスク6, AC-14/AC-15）。
- *
- * 日別行が1件（シングルトン。単独イベントの既定グループはこれに当たる）なら
- * {@link EntryRow} と完全に同じ DOM を描く——グループ名見出しや日別行の
- * リストを別途足してノイズを増やさない（設計判断6: 「従来同等の見え方」）。
- * 複数日あるときだけヘッダー（グループ名 + 共通の締切/抽選日）と
- * 日別行のリストを組み立てる。
- */
-function EntryGroupCard({
-  group,
-  area,
-  todayStr,
-}: {
-  group: EntryBoardGroup
-  area: AreaDef
-  todayStr: string
-}) {
-  if (group.days.length === 1) {
-    return <EntryRow item={group.days[0]!} area={area} todayStr={todayStr} />
-  }
-
-  // 設計判断3: カードの区画（area）の観点で見た締切/抽選日が全日別行で
-  // 同一なら、ヘッダーに1回だけ出す。1件でも異なれば null——その場合は
-  // ヘッダーで日付を出さず、日別行それぞれが自分の締切/抽選日を出す。
-  const badge = commonDeadlineBadge(group, todayStr)
-  const showHeaderCountdown =
-    badge != null && area.showCountdown !== false && badge.tone !== 'normal'
-  const headerDateText =
-    badge == null ? null : (badge.date ?? (showHeaderCountdown ? null : badge.countdown))
-
-  return (
-    <div className="py-[3px]">
-      <Link
-        href={`/events/${group.representativeEventId}`}
-        className="flex items-baseline gap-1.5 text-[12px] leading-[16px] transition-colors hover:bg-surface-alt"
-      >
-        <span className="min-w-0 flex-1 truncate font-bold text-ink">{group.name}</span>
-        {badge && (
-          <>
-            <span
-              className={cn(
-                'w-[62px] shrink-0 whitespace-nowrap text-right tabular-nums',
-                toneClass(badge.tone, area.actionable),
-              )}
-            >
-              {showHeaderCountdown ? badge.countdown : null}
-            </span>
-            <span className="w-[52px] shrink-0 whitespace-nowrap text-right tabular-nums text-ink-meta">
-              {headerDateText}
-            </span>
-          </>
-        )}
-      </Link>
-      {/* 日別行。開催日・級・（締切がグループ内で食い違う場合のみ）自分の締切/抽選日。 */}
-      <ul className="ml-1.5 divide-y divide-border-soft border-l border-border-soft pl-2">
-        {group.days.map((day) => (
-          <li key={day.id}>
-            <EntryGroupDayRow
-              day={day}
-              area={area}
-              todayStr={todayStr}
-              showOwnBadge={badge == null}
-            />
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function EntryGroupDayRow({
-  day,
-  area,
-  todayStr,
-  showOwnBadge,
-}: {
-  day: EntryBoardItem
-  area: AreaDef
-  todayStr: string
-  /** ヘッダーが共通バッジを出せなかった（食い違いがある）ときだけ true。 */
-  showOwnBadge: boolean
-}) {
-  const badge = deadlineBadgeOf(day, area.id, todayStr)
-  const showCountdown = area.showCountdown !== false && badge.tone !== 'normal'
-  const dateText = badge.date ?? (showCountdown ? null : badge.countdown)
-  const gradeLabel = day.eligibleGrades?.join('') ?? ''
-
-  return (
-    <Link
-      href={`/events/${day.id}`}
-      className="flex items-baseline gap-1.5 py-[3px] text-[11px] leading-[15px] text-ink-2 transition-colors hover:bg-surface-alt"
-    >
-      <span className="flex min-w-0 flex-1 items-baseline gap-1">
-        <span className="shrink-0 tabular-nums text-ink-meta">
-          {formatShortDate(day.eventDate)}
-        </span>
-        {gradeLabel && <span className="shrink-0 text-ink-meta">{gradeLabel}</span>}
-        {/*
-          カードの区画（area）はグループ内で「最も対応が必要」な方に寄せてある
-          ので、日別行はそれとは別に、その日自身の classify 結果を出す
-          （設計判断2の前提——カードが要対応でも個々の日は完了済みかもしれない）。
-        */}
-        <span className="shrink-0 text-[10px] text-ink-muted">{dayStatusLabel(day, todayStr)}</span>
-        {day.attendCount > 0 && (
-          <span className="shrink-0 tabular-nums text-ink-meta">（{day.attendCount}名）</span>
-        )}
-      </span>
-      {showOwnBadge && (
-        <>
-          <span
-            className={cn(
-              'w-[62px] shrink-0 whitespace-nowrap text-right tabular-nums',
-              toneClass(badge.tone, area.actionable),
-            )}
-          >
-            {showCountdown ? badge.countdown : null}
-          </span>
-          <span className="w-[52px] shrink-0 whitespace-nowrap text-right tabular-nums text-ink-meta">
-            {dateText}
-          </span>
-        </>
-      )}
     </Link>
   )
 }
