@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { Btn } from '@/components/ui'
-import { formatEventDate } from '@/lib/event-date'
+import { formatDateTimeShort, formatEventDate } from '@/lib/event-date'
 import type { GroupSiblingEvent } from '@/lib/entry-groups'
 import {
   DisclosureActions,
@@ -69,6 +70,23 @@ export interface EventLifecycleSectionProps {
     eventIds: number[],
     type: 'advance' | 'onsite' | null,
   ) => Promise<void>
+  /**
+   * entry-form-autofill タスク8 (AC-3/AC-17): 申込書作成への導線。
+   * 個人戦（`kind='individual'`）のときだけ渡す。未指定なら「申込書」行を出さない
+   * （団体戦は Non-goal）。
+   */
+  entryFormGroupId?: number
+  /** 最新の申込書下書き。未作成なら null。 */
+  entryFormLatestDraft?: EntryFormDraftRow | null
+}
+
+/** 申込書下書きの最新作成履歴（`entry_form_drafts` の最新行）。 */
+export interface EntryFormDraftRow {
+  id: number
+  createdAt: Date | string
+  createdByName: string | null
+  attachmentFilename: string
+  status: 'created' | 'imap_failed'
 }
 
 // design-spec §9「既存プリミティブを変更せず、この画面用の派生として実装
@@ -104,6 +122,13 @@ function paymentSummary(
  * 振込先など一般会員に見せない情報は支払トグルの中に集約する
  * （requirements §3.2.2）。
  */
+const ENTRY_FORM_SUMMARY: Record<'none' | 'created' | 'imap_failed', { label: string; tone: 'plain' | 'ok' | 'ng' }> = {
+  none: { label: '未作成', tone: 'plain' },
+  created: { label: '下書き作成済', tone: 'ok' },
+  // 生成 xlsx は残っているが Yahoo への書き込みは失敗している状態。
+  imap_failed: { label: '下書き未作成（失敗）', tone: 'ng' },
+}
+
 export function EventLifecycleSection({
   eventId,
   entryStatus,
@@ -124,6 +149,8 @@ export function EventLifecycleSection({
   setEntriesAppliedAction,
   setPaymentsPaidAction,
   setPaymentTypesAction,
+  entryFormGroupId,
+  entryFormLatestDraft = null,
 }: EventLifecycleSectionProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -221,6 +248,7 @@ export function EventLifecycleSection({
 
   const paymentPaid = paymentStatus === 'paid'
   const entrySummary = ENTRY_SUMMARY[entryStatus]
+  const entryFormSummary = ENTRY_FORM_SUMMARY[entryFormLatestDraft?.status ?? 'none']
   const paySummary = paymentSummary(paymentType, paymentStatus)
 
   const entryRows: FlatTableRow[] = []
@@ -300,6 +328,54 @@ export function EventLifecycleSection({
           )}
         </DisclosureActions>
       </DisclosureRow>
+
+      {/* entry-form-autofill タスク8 (AC-3/AC-17): 申込書作成への導線と最新の
+          作成履歴。個人戦のときだけ `entryFormGroupId` が渡る（団体戦は Non-goal）。 */}
+      {entryFormGroupId != null && (
+        <DisclosureRow
+          label="申込書"
+          value={entryFormSummary.label}
+          valueTone={entryFormSummary.tone}
+        >
+          {entryFormLatestDraft && (
+            <FlatTable
+              rows={[
+                {
+                  label: '最終作成',
+                  value: `${formatDateTimeShort(entryFormLatestDraft.createdAt)}・${
+                    entryFormLatestDraft.createdByName ?? '不明'
+                  }`,
+                },
+                {
+                  label: 'ファイル',
+                  value: (
+                    <span className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 break-all">
+                        {entryFormLatestDraft.attachmentFilename}
+                      </span>
+                      <a
+                        href={`/api/admin/entry-form/drafts/${entryFormLatestDraft.id}`}
+                        download
+                        className="shrink-0 text-xs text-brand-fg underline"
+                      >
+                        DL
+                      </a>
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          )}
+          <DisclosureActions>
+            <Link
+              href={`/admin/entry-form/${entryFormGroupId}`}
+              className="text-[13px] text-brand-fg underline"
+            >
+              {entryFormLatestDraft ? '再作成' : '申込書を作成'}
+            </Link>
+          </DisclosureActions>
+        </DisclosureRow>
+      )}
 
       <DisclosureRow
         label="支払状態"

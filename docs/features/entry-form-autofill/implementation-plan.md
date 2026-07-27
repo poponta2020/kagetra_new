@@ -97,10 +97,11 @@ status: completed
 - **対応Issue:** #388
 
 ### タスク8: S1 進行管理への導線 + 履歴表示/再DL + 仕上げ
-- [ ] 完了
+- [x] 完了
 - **目的:** イベント詳細からの入口と作成履歴の見える化。忠実度チェックリストの最終確認
 - **対応AC:** AC-3, AC-17（表示分）, AC-19, AC-20
-- **主な変更領域:** `apps/web/src/components/events/EventLifecycleSection.tsx`（「申込書」行: 未作成→作成リンク／作成済→pill+日時作成者+ファイル名/DL+再作成。kind=individual のみ・admin のみ）、`.env.production.example` と `docker/docker-compose.yml` の web サービスへ YAHOO_IMAP_* 追記（**本番 .env への実値反映は出荷後の手作業 DoD として PR に明記**）
+- **主な変更領域:** `apps/web/src/components/events/EventLifecycleSection.tsx`（「申込書」行: 未作成→作成リンク／作成済→pill+日時作成者+ファイル名/DL+再作成。kind=individual のみ・admin のみ）、`apps/web/src/app/(app)/events/[id]/page.tsx`（最新履歴の取得と受け渡し）
+  - **実装時の訂正:** `docker/docker-compose.yml` に web サービスは無く（web は systemd の `kagetra-web.service` で起動する）、その unit は既に `/opt/kagetra/.env.production` を `EnvironmentFile` に読む。`YAHOO_IMAP_*` は同ファイルに既存のため、**本番 env の追加作業は不要**（`.env.production.example` に web でも使う旨のコメントだけ追記）
 - **依存タスク:** タスク7
 - **必要なテスト:** 行表示の条件分岐（未作成/作成済/一般会員非表示/team 非表示）・既存 lifecycle テストの回帰 green
 - **完了条件:** vitest green・design-spec §忠実度チェックリスト全項目クリア・`git grep DESIGN-PROTO` 対象外（Path D のため不要）
@@ -115,4 +116,5 @@ status: completed
 
 ## デプロイ考慮事項（/ship 時の残 DoD 候補）
 
-- 本番 web コンテナへの `YAHOO_IMAP_HOST/PORT/USER/APP_PASSWORD` 追加（compose 変更は PR に含む・実値は本番 .env へ手作業）→ AC-21 の実機確認とセットで消化
+- ~~本番 web コンテナへの `YAHOO_IMAP_HOST/PORT/USER/APP_PASSWORD` 追加~~ → **不要と判明**。web は systemd 起動で `/opt/kagetra/.env.production` を読み、`YAHOO_IMAP_*` は既にそこにある（mail-worker と共用）
+- 残る手作業は **AC-21 の実機確認のみ**: 本番で申込書を作成し、Yahoo メールの下書きに宛先・件名・本文・添付 xlsx が正しく入っていること、送信が起きていないことを確認する

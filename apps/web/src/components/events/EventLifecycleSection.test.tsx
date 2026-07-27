@@ -446,3 +446,89 @@ describe('EventLifecycleSection — entry-groups タスク4: 一括ダイアロ�
     })
   })
 })
+
+describe('EventLifecycleSection — entry-form-autofill タスク8: 申込書の行（AC-3, AC-17, AC-19）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('entryFormGroupId が無ければ「申込書」行は出ない（団体戦・一般会員）', () => {
+    const { container } = render(<EventLifecycleSection {...baseProps()} />)
+    openAllDetails(container)
+    expect(container.textContent).not.toContain('申込書')
+  })
+
+  it('未作成なら「未作成」＋作成リンクが出る（AC-3）', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryFormGroupId: 42 })} />,
+    )
+    openAllDetails(container)
+
+    expect(container.textContent).toContain('申込書')
+    expect(container.textContent).toContain('未作成')
+    expect(
+      screen.getByRole('link', { name: '申込書を作成' }).getAttribute('href'),
+    ).toBe('/admin/entry-form/42')
+  })
+
+  it('作成済なら日時・作成者・ファイル名とダウンロード導線、リンクは「再作成」になる（AC-17）', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryFormGroupId: 42,
+          entryFormLatestDraft: {
+            id: 7,
+            createdAt: new Date('2026-07-27T12:04:00.000Z'),
+            createdByName: '土居 悠太',
+            attachmentFilename: '【北海道大学かるた会】第３回青森大会参加申込書.xlsx',
+            status: 'created',
+          },
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    expect(container.textContent).toContain('下書き作成済')
+    expect(container.textContent).toContain('土居 悠太')
+    expect(container.textContent).toContain('第３回青森大会参加申込書.xlsx')
+    expect(screen.getByRole('link', { name: 'DL' }).getAttribute('href')).toBe(
+      '/api/admin/entry-form/drafts/7',
+    )
+    expect(
+      screen.getByRole('link', { name: '再作成' }).getAttribute('href'),
+    ).toBe('/admin/entry-form/42')
+  })
+
+  it('IMAP 失敗の履歴は「下書き未作成（失敗）」として区別される', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          entryFormGroupId: 42,
+          entryFormLatestDraft: {
+            id: 8,
+            createdAt: new Date('2026-07-27T12:04:00.000Z'),
+            createdByName: null,
+            attachmentFilename: 'draft.xlsx',
+            status: 'imap_failed',
+          },
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    expect(container.textContent).toContain('下書き未作成（失敗）')
+    // 成果物は残っているので再ダウンロードはできる。
+    expect(screen.getByRole('link', { name: 'DL' })).toBeTruthy()
+  })
+
+  it('申込状態・支払状態の既存行は変わらない（AC-19 回帰）', () => {
+    const { container } = render(
+      <EventLifecycleSection {...baseProps({ entryFormGroupId: 42 })} />,
+    )
+    openAllDetails(container)
+
+    expect(container.textContent).toContain('申込状態')
+    expect(container.textContent).toContain('支払状態')
+    expect(screen.getByRole('button', { name: '申込済にする' })).toBeTruthy()
+  })
+})

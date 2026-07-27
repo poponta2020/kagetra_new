@@ -33,9 +33,14 @@ vi.mock('@/lib/entry-form/imap-draft', () => ({ appendDraftToYahoo: appendDraftM
 // fixture しか使わないので、呼ばれないこと自体も検証対象になる。
 const { inferCellMapMock, extractOrganizerInstructionsMock } = vi.hoisted(() => ({
   inferCellMapMock: vi.fn(async () => null),
-  extractOrganizerInstructionsMock: vi.fn(async () => null as
-    | { subject: string | null; attachmentFilename: string | null; toEmail: string | null }
-    | null),
+  // 引数の型を明示する（引数なしの vi.fn だと mock.calls の要素が空タプル型になり
+  // 呼出引数を assert できない）。
+  extractOrganizerInstructionsMock: vi.fn(
+    async (_mailBodyText: string, _sheetsText?: string) =>
+      null as
+        | { subject: string | null; attachmentFilename: string | null; toEmail: string | null }
+        | null,
+  ),
 }))
 vi.mock('@/lib/entry-form/ai-extract', () => ({
   inferCellMap: inferCellMapMock,
