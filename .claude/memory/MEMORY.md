@@ -227,3 +227,5 @@
 - [server-only は vitest から import すると throw する](feedback_server_only_breaks_vitest.md) — alias で空実装へ。パッケージ同梱の empty.js は exports に無く指せない
 - [apps/web の vitest(jsdom) で import.meta.url は file: にならない](feedback_web_vitest_import_meta_url.md) — fixtureパスは process.cwd() 起点で解決。mail-worker の先例は使えない
 - [fix PR #399](impl_fix-pr399.md) — Codex R1 の blocker6/should_fix6 を修正。参加級自由入力・pending 状態・解析レース
+- [fix PR #399 (R2)](impl_fix-pr399-r2.md) — ★xlsx の docProps に実名が残る。複数シート未確定で全件重複記入
+- [実物由来の fixture は docProps に実名が残る](feedback_office_docprops_pii.md) — セル値の差し替えでは消えない。scrub＋メタデータ検査テストをセットで
