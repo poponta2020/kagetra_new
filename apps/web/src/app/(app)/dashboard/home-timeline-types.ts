@@ -23,10 +23,14 @@ export type EntrantConfidence = 'confirmed' | 'hoped'
 export interface HomeEntrant {
   /**
    * 会員 id。自分ハイライトの判定に使う。
-   * - `hoped`: `event_attendances.user_id`（常に非 null）
-   * - `confirmed`: `tournament_entry_roster_entries.user_id`。会員として同定
-   *   できていない名簿行は null。自会の名簿なので通常は非 null だが、
-   *   同定漏れを黙って落とさないため nullable のまま持つ
+   * - `hoped`: `event_attendances.user_id`
+   * - `confirmed`: `tournament_entry_roster_entries.user_id`
+   *
+   * **サーバー側の組み立てでは常に非 null**（希望パスは出欠の `user_id`、確定パスは
+   * `users` への innerJoin ＝「自会員として同定できた行」だけを出場者にする）。
+   * 型が nullable なのは表示側の防御 —— チップの自分ハイライトは
+   * `viewerUserId != null && entrant.userId === viewerUserId` で判定するので、
+   * 将来 DTO の作り方が変わって null が混ざっても他人を自分と誤認しない。
    */
   userId: string | null
   /**
