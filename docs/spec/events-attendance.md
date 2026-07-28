@@ -15,6 +15,8 @@
 > - `apps/web/src/app/(app)/events/[id]/edit/page.tsx`
 > - `apps/web/src/app/(app)/events-archive/page.tsx`
 > - `apps/web/src/app/(app)/dashboard/page.tsx`
+> - `apps/web/src/app/(app)/dashboard/HomeTimeline.tsx`（ホーム「会の出場予定」の描画）
+> - `apps/web/src/app/(app)/dashboard/home-timeline-types.ts` / `home-timeline-utils.ts`
 > - `apps/web/src/components/events/event-form.tsx`
 > - `apps/web/src/components/events/EventLifecycleSection.tsx`（進行管理の管理者操作 UI。通知トリガーの詳細は [spec/notifications.md](notifications.md)）
 > - `apps/web/src/components/events/LifecycleStatusBadge.tsx`（進行状態の読み取り専用ピル）
@@ -109,7 +111,17 @@
 
 ### ホーム画面（ダッシュボード）
 
-`/dashboard` はプロフィール（ロール表示）のみを表示し、イベント一覧やカウントダウン等の実データは表示していない。
+`/dashboard` は「会の出場予定」——この先どの大会に誰が出るのかを一覧する画面。縦順は **未回答アラート → 今日の大会カード → 出場タイムライン**で、該当が無いブロックは枠ごと消える。`/events` が「申込の締切管理」なのに対し、ホームは「会の顔ぶれ」で、同じ母集団を別のレンズで見る（あいさつ・権限カードは廃止）。ログイン必須（`session.user.id` が無ければ `/403`）。
+
+**母集団**は `/admin/entries` と同じ（`eventDate >= todayInJst()` ∧ `status != 'cancelled'` ∧ `kind = 'individual'`）。表示名は `entry-board-utils.displayName`（通称 + 対象級。edition 未紐付けは `title`）。**出場者が 0 名の大会はタイムラインに載せない**。今日開催は今日カード（会場つき）、それ以降は開催日昇順のタイムライン（初期 4 件 + 「もっと見る」で同一画面展開）。
+
+**出場者リストの確度**は 2 系統ある。`tournament_entry_rosters` に `rosterType='confirmed'` ∧ `supersededAt IS NULL` の版がある**申込グループ**は「確定」で、その `tournament_entry_roster_entries` のうち `status IN ('confirmed','carried_up')` ∧ `selectionOutcome NOT IN ('waitlisted','rejected')` ∧ `userId IS NOT NULL` が出場者になる。確定名簿が無いグループは「希望」で、`event_attendances.attend = true` ∧ 対象者（上記「対象者・対象級の絞り込み」と同じ `isInvited` ＋ 級の条件）へフォールバックする。**対象級による絞り込みは希望パスにのみ掛ける** —— 名簿はその大会の出場者の唯一の権威であり、現在の `users.grade` で絞ると昇級者が名簿から消えるため。名簿は event ではなく `entryGroupId` に属するので、同じグループの各日は同じ出場者リストを共有する。
+
+**出場者チップの級**は、確定パスが `tournament_entry_roster_entries.grade`（＝その大会で出る級。null のときだけ `users.grade`）、希望パスが `users.grade`。級はシーズン途中で上がるため、`users.grade` で統一すると対象級外の級がチップに出る。
+
+**未回答アラート**は、自分の級が対象（`eligibleGrades` が空/null なら全員が対象）で、基準締切 `COALESCE(internalDeadline, entryDeadline)` が今日から 7 日以内（締切当日を含み、超過は出さない）、かつ自分の `event_attendances` 行が**無い**大会を基準締切の早い順に並べる。`attend` の値は問わない（「不参加」と回答済みなら出さない）。母集団は上記そのもので、出場者 0 名の大会も対象にする。締切超過分の督促は管理者への LINE 通知（[notifications.md](notifications.md) の entry-overdue-alert）が担う。
+
+クエリ本数は母集団の規模に依らず固定（イベントごとには投げない）。`todayStr` はサーバーが `todayInJst()` で渡し、クライアントでは `Date.now()` を呼ばない（hydration mismatch 回避）。
 
 ## 画面
 

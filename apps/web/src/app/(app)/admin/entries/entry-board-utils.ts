@@ -205,6 +205,9 @@ export interface NameSource {
  * 呼ぶのではなく、導出済みの {@link EntryBoardItem.groupDisplayName} を描く。
  * 単独イベントのグループでは畳む対象が1件なので、この関数の結果がそのまま
  * 表示名になる＝改修前と1文字も変わらない（AC-16b の回帰はこの構造で保証する）。
+ *
+ * ホーム `/dashboard`（会の出場予定）も同じ表示名規約なので {@link NameSource} を
+ * 満たす行をそのまま渡して再利用する。表示名の導出はここが唯一の実装。
  */
 export function displayName(item: NameSource): string {
   if (item.shortName == null) return item.title
