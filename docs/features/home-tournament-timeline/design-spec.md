@@ -105,7 +105,7 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
 - [x] タイムラインは初期4件（`INITIAL_VISIBLE_COUNT`）＋「もっと見る（残りN件）」。展開は同一画面内で、`/events` へ遷移しない
 - [x] 空状態は `Card` 内1行のテキストのみ（イラスト・アイコン・追加の枠線なし）。「出場予定ゼロ」と「今日だけあり・この先ゼロ」で文言が異なる
 - [x] 375px で `document.documentElement.scrollWidth === 375`（全状態）。大会名は1行で省略記号、出場者チップは折り返す
-  ——**実測はプロトタイプ時の計測を継承**。レイアウトを持つ `HomeTimeline.tsx` は patch 適用後 1 文字も変更していない（`git diff` 0 行で確認済み）ため、幅に効くクラスは計測時と同一
+  ——**実測はプロトタイプ時の計測を継承**。`HomeTimeline.tsx` の変更は根要素から `p-4` を外した1点だけで（ページ余白は `page.tsx` の根要素が持つ規約＝nav-settings-hub AC-16b。`page-padding.test.ts` が機械的に固定している）、同じ 16px の余白を1階層外側の `<div class="p-4">` へ移しただけなので**描画結果は同一**。幅に効く他のクラス（`truncate` / `flex-wrap` / `min-w-0` 等）は計測時と1文字も変わっていない
 - [x] `git grep -n "DESIGN-PROTO"` が 0 件（`apps/` `packages/` 配下。docs 側は patch 本体などの正当な出現）
 
 ## 9. ガードレール準拠メモ

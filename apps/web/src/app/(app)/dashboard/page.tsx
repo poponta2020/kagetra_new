@@ -121,9 +121,11 @@ export default async function DashboardPage() {
   // （inArray に空配列を渡さないためのガードも兼ねる）。
   if (eventRows.length === 0) {
     return (
-      <HomeTimeline
-        data={{ todayStr, viewerUserId, today: [], upcoming: [], alerts: [] }}
-      />
+      <div className="p-4">
+        <HomeTimeline
+          data={{ todayStr, viewerUserId, today: [], upcoming: [], alerts: [] }}
+        />
+      </div>
     )
   }
 
@@ -342,5 +344,11 @@ export default async function DashboardPage() {
     alerts,
   }
 
-  return <HomeTimeline data={data} />
+  // ページ余白 16px はこの根要素が持つ（nav-settings-hub AC-16b。共通シェルの
+  // `<main>` にも HomeTimeline にも足さない。`page-padding.test.ts` が固定）。
+  return (
+    <div className="p-4">
+      <HomeTimeline data={data} />
+    </div>
+  )
 }

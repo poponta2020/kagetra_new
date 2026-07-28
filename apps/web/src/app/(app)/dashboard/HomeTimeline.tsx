@@ -26,13 +26,17 @@ import {
  * 住み分け（同じ大会を別のレンズで見る）。
  *
  * `Date.now()` は呼ばない（`todayStr` はサーバーが渡す）。
+ *
+ * ページ余白（`p-4`）は**持たない** —— nav-settings-hub AC-16b の規約で、
+ * 16px の余白は各ページの `page.tsx` の根要素が持つ（共通シェルの `<main>` にも
+ * ここにも足さない。`page-padding.test.ts` が機械的に固定している）。
  */
 export function HomeTimeline({ data }: { data: HomeTimelineData }) {
   const { today, upcoming, alerts, viewerUserId } = data
   const isEmpty = today.length === 0 && upcoming.length === 0
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-4">
       {alerts.length > 0 && (
         <div className="flex flex-col gap-2">
           {alerts.map((alert) => (
