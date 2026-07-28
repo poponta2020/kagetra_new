@@ -1,0 +1,728 @@
+diff --git a/apps/web/src/app/(app)/dashboard/HomeTimeline.tsx b/apps/web/src/app/(app)/dashboard/HomeTimeline.tsx
+new file mode 100644
+index 0000000..ceb0517
+--- /dev/null
++++ b/apps/web/src/app/(app)/dashboard/HomeTimeline.tsx
+@@ -0,0 +1,296 @@
++'use client'
++
++import { useState } from 'react'
++import Link from 'next/link'
++import { Card, Pill, SectionLabel } from '@/components/ui'
++import { cn } from '@/lib/utils'
++import { formatEventDate } from '@/lib/event-date'
++import type {
++  HomeEntrant,
++  HomeTimelineData,
++  HomeTimelineEvent,
++  HomeUnansweredAlert,
++} from './home-timeline-types'
++import {
++  INITIAL_VISIBLE_COUNT,
++  alertCountdown,
++  confidenceLabel,
++  splitTimelineDate,
++} from './home-timeline-utils'
++
++/**
++ * ホーム（`/dashboard`）本体 = 「会の出場予定」。
++ *
++ * 主役は**顔ぶれ**（誰が出るのか）。日付・大会名は行の見出しに畳み、面積は
++ * 出場者チップに割く。`/events` は「申込の締切管理」、ここは「会の顔ぶれ」という
++ * 住み分け（同じ大会を別のレンズで見る）。
++ *
++ * `Date.now()` は呼ばない（`todayStr` はサーバーが渡す）。
++ */
++export function HomeTimeline({ data }: { data: HomeTimelineData }) {
++  const { today, upcoming, alerts, viewerUserId } = data
++  const isEmpty = today.length === 0 && upcoming.length === 0
++
++  return (
++    <div className="flex flex-col gap-4 p-4">
++      {alerts.length > 0 && (
++        <div className="flex flex-col gap-2">
++          {alerts.map((alert) => (
++            <UnansweredAlertRow key={alert.eventId} alert={alert} />
++          ))}
++        </div>
++      )}
++
++      {today.map((event) => (
++        <TodayCard key={event.eventId} event={event} viewerUserId={viewerUserId} />
++      ))}
++
++      <div>
++        <SectionLabel action={<Link href="/events">大会申込へ</Link>}>
++          出場予定
++        </SectionLabel>
++        {isEmpty ? (
++          <Card>
++            <div className="py-6 text-center text-ink-meta">
++              出場予定の大会はありません
++            </div>
++          </Card>
++        ) : upcoming.length === 0 ? (
++          <Card>
++            <div className="py-6 text-center text-ink-meta">
++              この先の出場予定はありません
++            </div>
++          </Card>
++        ) : (
++          <TimelineList events={upcoming} viewerUserId={viewerUserId} />
++        )}
++      </div>
++    </div>
++  )
++}
++
++/**
++ * 未回答アラート（1 大会 1 行）。自分の級が対象の大会で、基準締切の 7 日前から
++ * 出す。タップで該当イベント詳細（回答フォーム）へ直結する。
++ *
++ * 朱（accent）を使う唯一の場所。「データの装飾」ではなく「自分が手を動かす必要が
++ * ある」という状態表示なので、`/events` の当日締切バッジと同じ扱い。
++ */
++function UnansweredAlertRow({ alert }: { alert: HomeUnansweredAlert }) {
++  return (
++    <Link
++      href={`/events/${alert.eventId}`}
++      className="flex items-center gap-2.5 rounded-[10px] border border-accent bg-accent-bg px-3 py-2.5 transition-opacity hover:opacity-90"
++    >
++      <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-ink-on-brand">
++        未回答
++      </span>
++      <span className="min-w-0 flex-1 truncate font-display text-[15px] font-bold text-ink">
++        {alert.displayName}
++      </span>
++      <span className="shrink-0 text-[12px] font-semibold text-accent-fg tabular-nums">
++        {alertCountdown(alert.daysLeft)}
++      </span>
++      <span aria-hidden className="shrink-0 text-[13px] text-accent-fg">
++        ›
++      </span>
++    </Link>
++  )
++}
++
++/**
++ * 大会当日にだけ最上部へ出るカード。会場と顔ぶれを 1 枚で読み切れるようにする。
++ *
++ * `Card` の内側 padding は 14px 固定なので、藍帯を端まで届かせるためにここでは
++ * `Card` を使わず同じ表層クラス（`bg-surface border border-border rounded-[10px]`）
++ * を持つ要素を組む（`Card` の doc コメントが指示する回避法）。
++ */
++function TodayCard({
++  event,
++  viewerUserId,
++}: {
++  event: HomeTimelineEvent
++  viewerUserId: string | null
++}) {
++  return (
++    <Link
++      href={`/events/${event.eventId}`}
++      className="block overflow-hidden rounded-[10px] border border-border bg-surface"
++    >
++      <div className="flex items-baseline gap-2 bg-brand px-[14px] py-1.5 text-ink-on-brand">
++        <span className="font-display text-[13px] font-bold tracking-[0.12em]">
++          本日
++        </span>
++        <span className="font-display text-[14px] font-bold tabular-nums">
++          {formatEventDate(event.eventDate)}
++        </span>
++      </div>
++      <div className="p-[14px]">
++        <div className="font-display text-[21px] leading-tight font-bold text-ink">
++          {event.displayName}
++        </div>
++        {event.venue && (
++          <div className="mt-1 text-[13px] text-ink-meta">{event.venue}</div>
++        )}
++        <div className="mt-3 flex items-baseline gap-2">
++          <Pill tone={event.confidence === 'confirmed' ? 'brand' : 'neutral'}>
++            {confidenceLabel(event.confidence)}
++          </Pill>
++          <EntrantCount count={event.entrants.length} />
++        </div>
++        <EntrantChips entrants={event.entrants} viewerUserId={viewerUserId} />
++      </div>
++    </Link>
++  )
++}
++
++/**
++ * 出場タイムライン。初期は {@link INITIAL_VISIBLE_COUNT} 件だけ出し、残りは
++ * 「もっと見る」で同じ画面に展開する（`/events` へ飛ばさない —— ホームで顔ぶれを
++ * 眺め切れることを優先）。展開状態は画面内のみで永続化しない。
++ */
++function TimelineList({
++  events,
++  viewerUserId,
++}: {
++  events: HomeTimelineEvent[]
++  viewerUserId: string | null
++}) {
++  const [expanded, setExpanded] = useState(false)
++  const hiddenCount = events.length - INITIAL_VISIBLE_COUNT
++  const rows = expanded ? events : events.slice(0, INITIAL_VISIBLE_COUNT)
++
++  return (
++    <div>
++      <ul className="divide-y divide-border-soft border-y border-border-soft">
++        {rows.map((event) => (
++          <li key={event.eventId}>
++            <TimelineRow event={event} viewerUserId={viewerUserId} />
++          </li>
++        ))}
++      </ul>
++      {hiddenCount > 0 && !expanded && (
++        <button
++          type="button"
++          onClick={() => setExpanded(true)}
++          className="w-full py-3 text-[13px] font-semibold text-brand transition-colors hover:bg-surface-alt"
++        >
++          もっと見る（残り{hiddenCount}件）
++        </button>
++      )}
++    </div>
++  )
++}
++
++function TimelineRow({
++  event,
++  viewerUserId,
++}: {
++  event: HomeTimelineEvent
++  viewerUserId: string | null
++}) {
++  const { md, weekday } = splitTimelineDate(event.eventDate)
++
++  return (
++    <Link
++      href={`/events/${event.eventId}`}
++      className="flex gap-3 py-3 transition-colors hover:bg-surface-alt"
++    >
++      {/* 日付レール: タイムラインの背骨。数字だけ明朝で大きく、曜日を下に添える */}
++      <div className="w-[46px] shrink-0 text-center">
++        <div className="font-display text-[17px] leading-none font-bold text-ink tabular-nums">
++          {md}
++        </div>
++        <div className="mt-1 text-[11px] leading-none text-ink-meta">
++          {weekday}
++        </div>
++      </div>
++
++      <div className="min-w-0 flex-1">
++        <div className="flex items-baseline gap-2">
++          <span className="min-w-0 truncate font-display text-[16px] font-bold text-ink">
++            {event.displayName}
++          </span>
++          <Pill
++            tone={event.confidence === 'confirmed' ? 'brand' : 'neutral'}
++            size="sm"
++          >
++            {confidenceLabel(event.confidence)}
++          </Pill>
++          <span className="ml-auto shrink-0 pl-1">
++            <EntrantCount count={event.entrants.length} />
++          </span>
++        </div>
++        <EntrantChips entrants={event.entrants} viewerUserId={viewerUserId} />
++      </div>
++    </Link>
++  )
++}
++
++/** 「6名」。数字だけ明朝で大きく（`/events` 一覧の人数表示と同じ語彙）。 */
++function EntrantCount({ count }: { count: number }) {
++  return (
++    <span className="font-display text-[17px] leading-none font-bold text-brand tabular-nums">
++      {count}
++      <small className="ml-px text-[11px] font-normal text-ink-meta">名</small>
++    </span>
++  )
++}
++
++/**
++ * 出場者チップ。**級で束ねず一列**に流す（級は各チップ内の小さな添え字）。
++ * 自分のチップだけ藍で塗って探しやすくする（独立した「自分」セクションは作らない）。
++ */
++function EntrantChips({
++  entrants,
++  viewerUserId,
++}: {
++  entrants: HomeEntrant[]
++  viewerUserId: string | null
++}) {
++  if (entrants.length === 0) return null
++  return (
++    <div className="mt-2 flex flex-wrap gap-1">
++      {entrants.map((entrant, i) => (
++        <EntrantChip
++          key={`${entrant.userId ?? 'unknown'}-${i}`}
++          entrant={entrant}
++          isViewer={viewerUserId != null && entrant.userId === viewerUserId}
++        />
++      ))}
++    </div>
++  )
++}
++
++function EntrantChip({
++  entrant,
++  isViewer,
++}: {
++  entrant: HomeEntrant
++  isViewer: boolean
++}) {
++  return (
++    <span
++      className={cn(
++        'inline-flex items-baseline gap-[3px] whitespace-nowrap rounded-full px-2 py-[3px] text-[13px] leading-[1.35]',
++        isViewer
++          ? 'bg-brand font-bold text-ink-on-brand'
++          : 'border border-border-soft bg-surface-alt text-ink-2',
++      )}
++    >
++      {entrant.surname}
++      {entrant.grade && (
++        <span
++          className={cn(
++            // 10px の添え字なので surface-alt 上では ink-meta (4.16:1) では
++            // 足りない。neutral-fg (6.71:1) を使う（globals.css のコントラスト注記）。
++            'font-mono text-[10px] font-semibold',
++            isViewer ? 'text-ink-on-brand' : 'text-neutral-fg',
++          )}
++        >
++          {entrant.grade}
++        </span>
++      )}
++    </span>
++  )
++}
+diff --git a/apps/web/src/app/(app)/dashboard/home-timeline-proto-data.ts b/apps/web/src/app/(app)/dashboard/home-timeline-proto-data.ts
+new file mode 100644
+index 0000000..ebe3757
+--- /dev/null
++++ b/apps/web/src/app/(app)/dashboard/home-timeline-proto-data.ts
+@@ -0,0 +1,180 @@
++// DESIGN-PROTO: このファイルまるごとがプロトタイプ用のダミーデータ源。
++// 実装時は削除し、page.tsx の `loadHomeTimeline()` 呼び出しを実クエリへ置換する
++// （母集団・絞り込みの規約は home-timeline-types.ts の doc コメントに書いてある）。
++// 会員名・大会名・会場はすべて**架空**（実在の会員・大会を混ぜない）。
++import type { Grade } from '@kagetra/shared/types'
++import type {
++  HomeEntrant,
++  HomeTimelineData,
++  HomeTimelineEvent,
++} from './home-timeline-types'
++
++// DESIGN-PROTO: プロトタイプの閲覧者。実装時は `session.user.id`。
++const VIEWER_ID = 'proto-viewer'
++
++// DESIGN-PROTO: 架空の会員（姓のみ = `surname()` 適用後の形）。
++function m(surname: string, grade: Grade | null): HomeEntrant {
++  return { userId: `proto-${surname}`, surname, grade }
++}
++const VIEWER: HomeEntrant = { userId: VIEWER_ID, surname: '宮下', grade: 'C' }
++
++// DESIGN-PROTO: 架空の大会・会場・日付（今日 = 2026-07-28 前提で組んである）。
++const TODAY_EVENT: HomeTimelineEvent = {
++  eventId: 901,
++  displayName: '北光AB',
++  eventDate: '2026-07-28',
++  venue: '市民体育センター 第2競技場',
++  confidence: 'confirmed',
++  entrants: [
++    m('佐々木', 'A'),
++    m('白石', 'A'),
++    m('長谷川', 'B'),
++    m('岡田', 'B'),
++    m('工藤', 'B'),
++  ],
++}
++
++const UPCOMING: HomeTimelineEvent[] = [
++  {
++    eventId: 902,
++    displayName: '石狩CD',
++    eventDate: '2026-08-02',
++    venue: '石狩市民会館',
++    confidence: 'confirmed',
++    entrants: [
++      m('井上', 'C'),
++      VIEWER,
++      m('森本', 'C'),
++      m('小野寺', 'D'),
++      m('三浦', 'D'),
++      m('及川', 'D'),
++      m('荒井', 'D'),
++    ],
++  },
++  {
++    eventId: 903,
++    displayName: '大通杯A',
++    eventDate: '2026-08-09',
++    venue: '中央区民センター',
++    confidence: 'confirmed',
++    entrants: [m('佐々木', 'A'), m('白石', 'A'), m('藤原', 'A')],
++  },
++  {
++    eventId: 904,
++    displayName: 'みやこ選手権BC',
++    eventDate: '2026-08-23',
++    venue: '総合体育館',
++    confidence: 'hoped',
++    entrants: [
++      m('長谷川', 'B'),
++      m('岡田', 'B'),
++      m('工藤', 'B'),
++      m('大橋', 'B'),
++      m('井上', 'C'),
++      VIEWER,
++      m('森本', 'C'),
++      m('桜庭', 'C'),
++      m('上村', 'C'),
++    ],
++  },
++  {
++    eventId: 905,
++    displayName: '雪嶺E',
++    eventDate: '2026-09-06',
++    venue: 'north区民センター',
++    confidence: 'hoped',
++    entrants: [m('渡辺', 'E'), m('宮川', 'E')],
++  },
++  {
++    eventId: 906,
++    displayName: '藻岩CD',
++    eventDate: '2026-09-13',
++    venue: '南区スポーツセンター',
++    confidence: 'hoped',
++    entrants: [m('井上', 'C'), VIEWER, m('小野寺', 'D'), m('及川', 'D')],
++  },
++  {
++    eventId: 907,
++    displayName: '道央オープンAB',
++    eventDate: '2026-09-27',
++    venue: '道央総合体育館',
++    confidence: 'hoped',
++    entrants: [m('佐々木', 'A'), m('藤原', 'A'), m('大橋', 'B'), m('工藤', 'B')],
++  },
++]
++
++// DESIGN-PROTO: つらいケース再現用。長い大会名 + 大人数 + 3〜4文字姓を多めに。
++const LONG_EVENT: HomeTimelineEvent = {
++  eventId: 950,
++  displayName: '全道かるた選手権大会ABCDE',
++  eventDate: '2026-08-02',
++  venue: '道立総合スポーツセンター 第1〜第4競技場',
++  confidence: 'confirmed',
++  entrants: [
++    m('佐々木', 'A'),
++    m('白石', 'A'),
++    m('藤原', 'A'),
++    m('長谷川', 'B'),
++    m('岡田', 'B'),
++    m('工藤', 'B'),
++    m('大橋', 'B'),
++    m('五十嵐', 'B'),
++    m('井上', 'C'),
++    VIEWER,
++    m('森本', 'C'),
++    m('桜庭', 'C'),
++    m('上村', 'C'),
++    m('小野寺', 'D'),
++    m('三浦', 'D'),
++    m('及川', 'D'),
++    m('荒井', 'D'),
++    m('渡辺', 'D'),
++    m('宮川', 'E'),
++    m('東', 'E'),
++    m('九十九', 'E'),
++    m('神谷', null),
++  ],
++}
++
++/** プロトタイプで切り替える表示状態。 */
++export type ProtoState = 'normal' | 'today' | 'empty' | 'long' | 'no-alert'
++
++export const PROTO_STATES: ReadonlyArray<{ id: ProtoState; label: string }> = [
++  { id: 'normal', label: '通常' },
++  { id: 'today', label: '大会当日' },
++  { id: 'long', label: '大人数・長い名前' },
++  { id: 'no-alert', label: 'アラートなし' },
++  { id: 'empty', label: '空' },
++]
++
++/**
++ * DESIGN-PROTO: ハードコードした {@link HomeTimelineData} を返す唯一のスタブ。
++ * 実装時はこの関数を消し、page.tsx で実クエリから同じ形を組む。
++ */
++export function loadHomeTimeline(state: ProtoState): HomeTimelineData {
++  const base = {
++    todayStr: '2026-07-28',
++    viewerUserId: VIEWER_ID,
++    alerts: [
++      {
++        eventId: 902,
++        displayName: '石狩CD',
++        baseDeadline: '2026-07-31',
++        daysLeft: 3,
++      },
++    ],
++  }
++
++  switch (state) {
++    case 'today':
++      return { ...base, today: [TODAY_EVENT], upcoming: UPCOMING }
++    case 'long':
++      return { ...base, today: [], upcoming: [LONG_EVENT, ...UPCOMING] }
++    case 'no-alert':
++      return { ...base, alerts: [], today: [], upcoming: UPCOMING }
++    case 'empty':
++      return { ...base, alerts: [], today: [], upcoming: [] }
++    default:
++      return { ...base, today: [], upcoming: UPCOMING }
++  }
++}
+diff --git a/apps/web/src/app/(app)/dashboard/home-timeline-types.ts b/apps/web/src/app/(app)/dashboard/home-timeline-types.ts
+new file mode 100644
+index 0000000..2293e75
+--- /dev/null
++++ b/apps/web/src/app/(app)/dashboard/home-timeline-types.ts
+@@ -0,0 +1,95 @@
++import type { Grade } from '@kagetra/shared/types'
++
++/**
++ * ホーム（`/dashboard`）「会の出場予定」の表示 DTO。
++ *
++ * サーバー（page.tsx）が既存テーブルから組み立て、表示側（HomeTimeline.tsx）は
++ * この形だけを見る。**新テーブル・新カラムは不要** —— 母集団と絞り込みは既存画面の
++ * 規約をそのまま流用する:
++ *
++ * - 母集団: `/admin/entries` と同じ（`event_date >= 今日` ∧ `status <> 'cancelled'`
++ *   ∧ `kind = 'individual'`）。出場者が 0 名の大会はホームに載せない
++ * - 出場者「希望」: `event_attendances.attend = true`
++ * - 出場者「確定」: `tournament_entry_rosters` の `roster_type = 'confirmed'` かつ
++ *   `superseded_at IS NULL` の版に属する `tournament_entry_roster_entries`
++ *   （名簿の帰属は event ではなく `entry_group_id`）
++ * - 対象級外の stale 行除外: イベント詳細 AC-26 と同じ
++ *   （`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`）
++ */
++
++/** 出場者リストの確度。確定名簿があれば `confirmed`、無ければ出欠○の `hoped`。 */
++export type EntrantConfidence = 'confirmed' | 'hoped'
++
++export interface HomeEntrant {
++  /**
++   * 会員 id。自分ハイライトの判定に使う。
++   * - `hoped`: `event_attendances.user_id`（常に非 null）
++   * - `confirmed`: `tournament_entry_roster_entries.user_id`。会員として同定
++   *   できていない名簿行は null。自会の名簿なので通常は非 null だが、
++   *   同定漏れを黙って落とさないため nullable のまま持つ
++   */
++  userId: string | null
++  /**
++   * チップの表示文字列 = **姓のみ**（`@/lib/surname` の `surname()` 適用後）。
++   * `/events` 一覧・イベント詳細の参加者チップと同じ規約。
++   */
++  surname: string
++  /** 級。未設定なら null（チップの級注記を出さない）。 */
++  grade: Grade | null
++}
++
++export interface HomeTimelineEvent {
++  eventId: number
++  /**
++   * 表示名 = 通称 + 対象級（例「札幌CD」）。通称が引けない大会は `events.title`。
++   * `entry-board-utils.displayName` と同じ規約なので、実装時はその純関数を使う。
++   */
++  displayName: string
++  /** `YYYY-MM-DD`。 */
++  eventDate: string
++  /** `events.location`。**今日カードでのみ**描画する（タイムライン行には出さない）。 */
++  venue: string | null
++  confidence: EntrantConfidence
++  /**
++   * 出場者。`confidence === 'confirmed'` のときは**出場する人だけ**を含める
++   * （補欠・落選はホームに出さない）。
++   *
++   * ★実装前に確定が必要（design-spec `## 要件への宿題`）:
++   * `tournament_entry_roster_entries` には独立した 2 軸がある——
++   * `status`（applied / confirmed / carried_up / carry_up_declined / cancelled）と
++   * `selection_outcome`（accepted / waitlisted / rejected / unknown）。
++   * どちらの軸で「出場する人」を定義するか（および繰上り辞退・キャンセルの扱い、
++   * 実データで `selection_outcome` が埋まっているか）は要件側の決めごと。
++   */
++  entrants: HomeEntrant[]
++}
++
++/**
++ * 未回答アラート 1 行分。
++ *
++ * 対象は「自分の級が `events.eligible_grades` に含まれる」大会のみ。
++ * 基準締切 = `COALESCE(internal_deadline, entry_deadline)`（entry-overdue-alert
++ * および `entry-board-utils.baseDeadlineOf` と同じ規約）で、その **7 日前**から
++ * 締切当日まで表示する。自分が出欠回答済み（`event_attendances` に行がある）なら出さない。
++ */
++export interface HomeUnansweredAlert {
++  eventId: number
++  displayName: string
++  /** 基準締切 `YYYY-MM-DD`。 */
++  baseDeadline: string
++  /** 今日から基準締切までの日数（0 = 本日締切）。負値は想定しない。 */
++  daysLeft: number
++}
++
++export interface HomeTimelineData {
++  /** JST の今日（`todayInJst()`）。クライアントで `Date.now()` を呼ばないため。 */
++  todayStr: string
++  /** ログイン中の会員 id。チップのハイライト判定にのみ使う。 */
++  viewerUserId: string | null
++  /** 今日開催で自会から出る大会（通常 0 件、大会当日のみ 1 件以上）。 */
++  today: HomeTimelineEvent[]
++  /** 明日以降。開催日昇順。 */
++  upcoming: HomeTimelineEvent[]
++  /** 未回答アラート。基準締切の早い順。 */
++  alerts: HomeUnansweredAlert[]
++}
+diff --git a/apps/web/src/app/(app)/dashboard/home-timeline-utils.ts b/apps/web/src/app/(app)/dashboard/home-timeline-utils.ts
+new file mode 100644
+index 0000000..bf6fa1e
+--- /dev/null
++++ b/apps/web/src/app/(app)/dashboard/home-timeline-utils.ts
+@@ -0,0 +1,54 @@
++/**
++ * ホーム「会の出場予定」の表示用純関数。
++ *
++ * `Date.now()` を呼ばない —— サーバーが JST の `todayStr` を渡し、クライアントは
++ * それを使って同じ結果を描く（hydration mismatch を避ける。`event-list-utils.ts`・
++ * `entry-board-utils.ts` と同じ方針）。
++ */
++
++const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
++const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
++
++/**
++ * タイムライン左端の日付レール用に `YYYY-MM-DD` を「M/D」と「曜」へ分解する。
++ * `formatEventDate`（`M/D(曜)` の 1 行表記）は 2 行に割れないためこちらを使う。
++ * 不正入力は防御的に入力そのまま + 曜日なしを返す。
++ */
++export function splitTimelineDate(eventDate: string): {
++  md: string
++  weekday: string
++} {
++  const m = DATE_RE.exec(eventDate)
++  if (!m) return { md: eventDate, weekday: '' }
++  const year = Number(m[1])
++  const month = Number(m[2])
++  const day = Number(m[3])
++  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
++  return { md: `${month}/${day}`, weekday: WEEKDAY_JA[dow] ?? '' }
++}
++
++/** 同じ月かどうか（レールの月表記を月が変わる行だけに出すため）。 */
++export function isSameMonth(a: string, b: string): boolean {
++  return a.slice(0, 7) === b.slice(0, 7)
++}
++
++/** 出場者リストの確度ラベル。 */
++export function confidenceLabel(confidence: 'confirmed' | 'hoped'): string {
++  return confidence === 'confirmed' ? '確定' : '希望'
++}
++
++/**
++ * 未回答アラートのカウントダウン文言。0 = 本日締切。
++ * 締切超過（負値）はアラートの対象外なので想定しないが、防御的に「超過」を返す。
++ */
++export function alertCountdown(daysLeft: number): string {
++  if (daysLeft < 0) return `${-daysLeft}日超過`
++  if (daysLeft === 0) return '本日締切'
++  return `あと${daysLeft}日`
++}
++
++/**
++ * タイムラインの初期表示件数。これを超える分は「もっと見る」で展開する
++ * （ホームを 1 画面に収めるため。ユーザー選択＝「直近だけ＋もっと見る」）。
++ */
++export const INITIAL_VISIBLE_COUNT = 4
+diff --git a/apps/web/src/app/(app)/dashboard/page.tsx b/apps/web/src/app/(app)/dashboard/page.tsx
+index f501d5e..9e0b0b6 100644
+--- a/apps/web/src/app/(app)/dashboard/page.tsx
++++ b/apps/web/src/app/(app)/dashboard/page.tsx
+@@ -1,28 +1,53 @@
+-import { auth } from '@/auth'
+-import { Card, Pill, SectionLabel } from '@/components/ui'
+-import { roleLabel } from '@/lib/role-label'
++import Link from 'next/link'
++import { HomeTimeline } from './HomeTimeline'
++// DESIGN-PROTO: ダミーデータ源。実装時はこの import ごと消し、`loadHomeTimeline()` を
++// 実クエリ（母集団・絞り込みの規約は home-timeline-types.ts の doc コメント）へ置換する。
++import {
++  PROTO_STATES,
++  loadHomeTimeline,
++  type ProtoState,
++} from './home-timeline-proto-data'
+ 
+-export default async function DashboardPage() {
+-  const session = await auth()
+-  const name = session?.user?.name ?? 'ゲスト'
+-  const { label, tone } = roleLabel(session?.user?.role)
++/**
++ * ホーム（`/dashboard`）= 会の出場予定。
++ *
++ * 実装時のサーバー側の仕事は `HomeTimelineData` を組むことだけで、表示は
++ * HomeTimeline.tsx が全部持つ。あいさつ・権限カードは撤去済み。
++ */
++export default async function DashboardPage({
++  searchParams,
++}: {
++  // DESIGN-PROTO: 状態切替用。実装時は searchParams ごと不要。
++  searchParams: Promise<{ state?: string }>
++}) {
++  // DESIGN-PROTO: ここから — 実装時は実クエリで data を組む
++  const sp = await searchParams
++  const state: ProtoState = PROTO_STATES.some((s) => s.id === sp.state)
++    ? (sp.state as ProtoState)
++    : 'normal'
++  const data = loadHomeTimeline(state)
++  // DESIGN-PROTO: ここまで
+ 
+   return (
+-    <div className="flex flex-col gap-4 p-4">
+-      <h1 className="font-display text-xl font-bold text-ink">
+-        ようこそ、{name}さん
+-      </h1>
+-
+-      <div>
+-        <SectionLabel>プロフィール</SectionLabel>
+-        <Card>
+-          <div className="flex items-center justify-between">
+-            <span className="text-sm text-ink-meta">権限</span>
+-            <Pill tone={tone}>{label}</Pill>
+-          </div>
+-        </Card>
++    <>
++      {/* DESIGN-PROTO: 状態切替バー。実装時は削除する */}
++      <div className="flex flex-wrap gap-1 border-b border-dashed border-border-strong bg-surface-alt px-3 py-1.5">
++        {PROTO_STATES.map((s) => (
++          <Link
++            key={s.id}
++            href={`/dashboard?state=${s.id}`}
++            className={
++              s.id === state
++                ? 'rounded-full bg-ink px-2 py-0.5 text-[11px] font-bold text-ink-on-brand'
++                : 'rounded-full px-2 py-0.5 text-[11px] text-ink-meta'
++            }
++          >
++            {s.label}
++          </Link>
++        ))}
+       </div>
+ 
+-    </div>
++      <HomeTimeline data={data} />
++    </>
+   )
+ }
