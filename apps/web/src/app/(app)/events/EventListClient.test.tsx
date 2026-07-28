@@ -288,6 +288,143 @@ describe('EventListClient — 上段 DOM 順（AC-10）', () => {
   })
 })
 
+// event-list-month-grouping タスク2。design-spec §2 の delta は「開催日順のみ」が
+// スコープで、ソート非依存と明記されたのはフッター行（page.tsx 側）だけ。
+// よって締切日順の行は出荷済みのまま＝上の AC-10 テストが無改変で通ることが、
+// この解釈が回帰でないことの担保になっている。
+describe('EventListClient — 月区切り（開催日順のみ）', () => {
+  const MONTHLY: EventListItem[] = [
+    item({ id: 1, title: '八月土曜', eventDate: '2026-08-29', internalDeadline: '2026-07-20' }),
+    item({ id: 2, title: '九月日曜', eventDate: '2026-09-06', internalDeadline: '2026-07-21' }),
+    item({ id: 3, title: '九月火曜', eventDate: '2026-09-22', internalDeadline: '2026-07-22' }),
+  ]
+
+  const byDate = () => fireEvent.click(screen.getByRole('tab', { name: '開催日順' }))
+  /** className を語単位で見る（text-accent が text-accent-fg に釣られないように）。 */
+  const classes = (el: HTMLElement) => el.className.split(/\s+/)
+
+  it('開催日順に切替えると月見出し（ゼロ埋め2桁＋英字月名）が出る・件数表記は無い', () => {
+    render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    byDate()
+    expect(screen.getByText('08')).toBeTruthy()
+    expect(screen.getByText('AUG')).toBeTruthy()
+    expect(screen.getByText('09')).toBeTruthy()
+    expect(screen.getByText('SEP')).toBeTruthy()
+    expect(screen.queryByText(/EVENTS?/)).toBeNull()
+  })
+
+  it('締切日順では月見出しが出ない（フラットな現行リストのまま）', () => {
+    render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    expect(screen.queryByText('AUG')).toBeNull()
+    expect(screen.queryByText('SEP')).toBeNull()
+    expect(screen.queryByText('08')).toBeNull()
+  })
+
+  it('月見出しは 31px 藍の数字＋藍の太罫 2.5px', () => {
+    render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    byDate()
+    const num = screen.getByText('08')
+    expect(classes(num)).toContain('text-brand')
+    expect(classes(num)).toContain('text-[31px]')
+    const head = num.parentElement as HTMLElement
+    expect(classes(head)).toContain('border-b-[2.5px]')
+    expect(classes(head)).toContain('border-brand')
+  })
+
+  it('日付ブロック: 日はゼロなし・曜日は英字・日曜=朱/土曜=藍/平日=淡墨', () => {
+    const { container } = render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    byDate()
+
+    const sat = rowByTitle(container, '八月土曜')
+    expect(within(sat).getByText('29')).toBeTruthy()
+    expect(classes(within(sat).getByText('SAT'))).toContain('text-brand')
+
+    const sun = rowByTitle(container, '九月日曜')
+    // ゼロ埋めしない（'06' ではなく '6'）
+    expect(within(sun).getByText('6')).toBeTruthy()
+    expect(within(sun).queryByText('06')).toBeNull()
+    expect(classes(within(sun).getByText('SUN'))).toContain('text-accent')
+
+    const weekday = rowByTitle(container, '九月火曜')
+    expect(classes(within(weekday).getByText('TUE'))).toContain('text-ink-meta')
+  })
+
+  it('開催日順ではタイトル行から開催日が消える（締切日順では従来どおり出る）', () => {
+    const { container } = render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    expect(within(rowByTitle(container, '八月土曜')).getByText('8/29(土)')).toBeTruthy()
+    byDate()
+    expect(screen.queryByText('8/29(土)')).toBeNull()
+  })
+
+  it('二重符号: 大会名の太さが色帯と同条件（申込可否）で切り替わる', () => {
+    const mixed = [
+      item({ id: 1, title: '申込可', eventDate: '2026-09-06', internalDeadline: '2026-07-20' }),
+      item({
+        id: 2,
+        title: '対象外',
+        eventDate: '2026-09-06',
+        internalDeadline: '2026-07-20',
+        canApply: false,
+      }),
+    ]
+    const { container } = render(<EventListClient items={mixed} todayStr={TODAY} />)
+    byDate()
+
+    expect(classes(screen.getByText('申込可'))).toContain('font-bold')
+    expect(classes(screen.getByText('対象外'))).toContain('font-normal')
+    // 色帯と必ず同条件（design-spec §3-2）
+    expect(barOf(rowByTitle(container, '申込可')).className).toContain('bg-brand')
+    expect(barOf(rowByTitle(container, '対象外')).className).toContain('bg-border')
+  })
+
+  it('締切日順の大会名は一律太字のまま（出荷済み仕様の維持）', () => {
+    const mixed = [
+      item({ id: 2, title: '対象外', eventDate: '2026-09-06', internalDeadline: '2026-07-20', canApply: false }),
+    ]
+    render(<EventListClient items={mixed} todayStr={TODAY} />)
+    expect(classes(screen.getByText('対象外'))).toContain('font-bold')
+  })
+
+  it('年跨ぎ: 年が変わる最初の月見出しにだけ西暦が出る', () => {
+    const crossing = [
+      item({ id: 1, title: '師走', eventDate: '2026-12-13', internalDeadline: '2026-07-20' }),
+      item({ id: 2, title: '新春', eventDate: '2027-01-10', internalDeadline: '2026-07-21' }),
+      item({ id: 3, title: '如月', eventDate: '2027-02-11', internalDeadline: '2026-07-22' }),
+    ]
+    render(<EventListClient items={crossing} todayStr={TODAY} />)
+    byDate()
+    // 01 JAN にだけ 2027。12 DEC にも 02 FEB にも年は出ない。
+    expect(screen.getAllByText('2027')).toHaveLength(1)
+    expect(screen.queryByText('2026')).toBeNull()
+  })
+
+  it('フィルタで 1 行も残らなかった月のセクションは出ない', () => {
+    const mixed = [
+      item({
+        id: 1,
+        title: '八月不可',
+        eventDate: '2026-08-29',
+        internalDeadline: '2026-07-20',
+        canApply: false,
+      }),
+      item({ id: 2, title: '九月可', eventDate: '2026-09-06', internalDeadline: '2026-07-21' }),
+    ]
+    render(<EventListClient items={mixed} todayStr={TODAY} />)
+    byDate()
+    expect(screen.getByText('AUG')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('switch', { name: '申込可能のみ' }))
+    expect(screen.queryByText('AUG')).toBeNull()
+    expect(screen.getByText('SEP')).toBeTruthy()
+  })
+
+  it('月セクションに分かれても開催日昇順の並びは崩れない（回帰）', () => {
+    const { container } = render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    byDate()
+    expect(renderedOrder(container)).toEqual(['1', '2', '3'])
+  })
+})
+
 describe('EventListClient — 中止 / 空表示 / 遷移（回帰）', () => {
   it('中止行は 中止 ピル＋タイトル淡色', () => {
     const cancelled = [

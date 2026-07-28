@@ -7,12 +7,26 @@ import { cn } from '@/lib/utils'
 import { formatEventDate } from '@/lib/event-date'
 import {
   formatDeadlineCountdown,
+  formatEventDay,
+  groupEventsByMonth,
   isOpenForEntry,
   isRowVisible,
   sortEvents,
   type EventListItem,
+  type MonthGroup,
   type SortAxis,
+  type WeekdayTone,
 } from './event-list-utils'
+
+/**
+ * 日付ブロックの曜日色（design-spec §2-3）。日曜=朱・土曜=藍はカレンダー慣習
+ * としての意図的例外（「朱=警告系」原則の例外・ユーザー承認済み §3-3）。
+ */
+const WEEKDAY_TONE_CLASS: Record<WeekdayTone, string> = {
+  sun: 'text-accent',
+  sat: 'text-brand',
+  weekday: 'text-ink-meta',
+}
 
 /**
  * 大会申込（`/events`）一覧のクライアント本体（design-spec B案・区切り線リスト）。
@@ -21,6 +35,10 @@ import {
  * 「フィルタ（申込可能のみ）→ ソート（締切日順/開催日順）」して描画する。
  * `Date.now()` は呼ばず `todayStr` を使う＝hydration mismatch を避ける。
  * ソート/フィルタ状態は画面内のみ（永続化しない・再訪で既定に戻る）。
+ *
+ * event-list-month-grouping: **開催日順のときだけ**月セクションに束ねる
+ * （design-spec §2 の delta は「開催日順のみ」がスコープ）。締切日順は開催月と
+ * 締切月が食い違うため月区切りせず、行も出荷済みのフラットな形のまま出す。
  */
 export function EventListClient({
   items,
@@ -104,14 +122,54 @@ export function EventListClient({
             申込可能な大会はありません
           </div>
         </Card>
+      ) : sort === 'date' ? (
+        <div className="flex flex-col gap-[14px]">
+          {groupEventsByMonth(rows).map((group) => (
+            <section key={group.key}>
+              <MonthHeading group={group} />
+              {/* 月見出しの藍太罫が上端の罫線を兼ねるので、フラット版の
+                  border-y は付けない（行間のヘアラインのみ）。 */}
+              <ul className="divide-y divide-border-soft">
+                {group.rows.map((event) => (
+                  <li key={event.id}>
+                    <EventRow event={event} todayStr={todayStr} dateView />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
       ) : (
         <ul className="divide-y divide-border-soft border-y border-border-soft">
           {rows.map((event) => (
             <li key={event.id}>
-              <EventRow event={event} todayStr={todayStr} />
+              <EventRow event={event} todayStr={todayStr} dateView={false} />
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 月セクションの見出し（design-spec §2-2 / T-4）。ゼロ埋め2桁の月数字＋英字
+ * 月名＋藍の太罫。件数表記は入れない（ユーザー明示指示）。西暦は年が変わる
+ * 最初の見出しにだけ出る（`group.year` が null 以外のときのみ）。
+ */
+function MonthHeading({ group }: { group: MonthGroup<EventListItem> }) {
+  return (
+    <div className="flex items-baseline gap-1.5 border-b-[2.5px] border-brand pb-[3px]">
+      <span className="text-[31px] leading-none font-semibold tracking-[-0.03em] text-brand tabular-nums">
+        {group.month}
+      </span>
+      <span className="text-[11px] font-medium tracking-[0.1em] text-brand">
+        {group.monthAbbr}
+      </span>
+      {group.year != null && (
+        <span className="ml-auto text-[11px] text-ink-muted tabular-nums">
+          {group.year}
+        </span>
       )}
     </div>
   )
@@ -193,13 +251,23 @@ function DeadlineValue({
 function EventRow({
   event,
   todayStr,
+  dateView,
 }: {
   event: EventListItem
   todayStr: string
+  /**
+   * 開催日順ビューか。design-spec §2 の delta は「開催日順のみ」がスコープなので
+   * （§2-7 でソート非依存と明記されたのはフッター行だけ）、true のときだけ
+   * 行頭の日付ブロック・タイトル行からの日付除去・大会名の太さによる二重符号を
+   * 適用する。締切日順は月見出しが無く日付ブロックだけでは何月か判らないため、
+   * 出荷済み（event-list-redesign）の行をそのまま出す。
+   */
+  dateView: boolean
 }) {
   const countdown = formatDeadlineCountdown(event.internalDeadline, todayStr)
   const isCancelled = event.status === 'cancelled'
   const openForEntry = isOpenForEntry(event, todayStr)
+  const day = formatEventDay(event.eventDate)
 
   return (
     <Link
@@ -213,19 +281,40 @@ function EventRow({
           openForEntry ? 'bg-brand' : 'bg-border',
         )}
       />
-      <div className="min-w-0 flex-1 pl-[11px]">
+      {dateView && (
+        <div className="ml-2 w-[34px] shrink-0 pt-0.5 text-center">
+          <span className="block text-[19px] leading-[1.1] font-semibold text-ink tabular-nums">
+            {day.day}
+          </span>
+          <span
+            className={cn(
+              'block text-[10px] font-medium tracking-[0.08em]',
+              WEEKDAY_TONE_CLASS[day.tone],
+            )}
+          >
+            {day.weekday}
+          </span>
+        </div>
+      )}
+      <div className={cn('min-w-0 flex-1', dateView ? 'pl-[10px]' : 'pl-[11px]')}>
         <div className="flex items-baseline gap-2">
           <span
             className={cn(
-              'min-w-0 truncate font-display text-[18px] font-bold',
+              'min-w-0 truncate font-display text-[18px]',
+              // 二重符号（§2-4）: 色帯と**必ず同じ条件**で太さを切り替える。
+              // 片方だけ変える改修は禁止（§3-2）。中止行は太さより淡色が優先。
+              dateView && !openForEntry ? 'font-normal' : 'font-bold',
               isCancelled ? 'text-ink-meta' : 'text-ink',
             )}
           >
             {event.title}
           </span>
-          <span className="shrink-0 font-display text-[13.5px] font-bold text-ink-2 tabular-nums">
-            {formatEventDate(event.eventDate)}
-          </span>
+          {/* 開催日順では日付は行頭のブロックが担うのでここには出さない（§2-3）。 */}
+          {!dateView && (
+            <span className="shrink-0 font-display text-[13.5px] font-bold text-ink-2 tabular-nums">
+              {formatEventDate(event.eventDate)}
+            </span>
+          )}
           <StatusPill status={event.status} size="sm" />
           <span className="ml-auto shrink-0 pl-2 whitespace-nowrap">
             <span

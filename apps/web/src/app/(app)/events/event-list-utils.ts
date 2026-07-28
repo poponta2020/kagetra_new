@@ -131,6 +131,108 @@ export function isGradeEligible(
   return grade != null && eligibleGrades.includes(grade)
 }
 
+/**
+ * 月見出しの英字月名と日付ブロックの英字曜日（event-list-month-grouping）。
+ * 「UI 文言は日本語のみ」原則に対する**意図的な例外**で、日付まわりの装飾
+ * タイポとしてユーザー承認済み（design-spec §3-3・2026-07-28）。
+ * 規約違反として日本語へ直さないこと。
+ */
+const MONTH_ABBR = [
+  'JAN',
+  'FEB',
+  'MAR',
+  'APR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AUG',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DEC',
+] as const
+const WEEKDAY_ABBR = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const
+
+/** 日付ブロックの曜日色（日曜=朱・土曜=藍・平日=淡墨。design-spec §2-3）。 */
+export type WeekdayTone = 'sun' | 'sat' | 'weekday'
+
+/** 行頭の日付ブロック 1 つぶんの表示値（design-spec §2-3）。 */
+export interface EventDayLabel {
+  /** 日。**ゼロ埋めしない**（'5' / '29'）— 月見出しのゼロ埋めと対の意匠。 */
+  day: string
+  /** 英字曜日（'SUN'…）。日付が壊れていたら空。 */
+  weekday: string
+  tone: WeekdayTone
+}
+
+/**
+ * `YYYY-MM-DD` を行頭の日付ブロックの表示値へ畳む。曜日は UTC 深夜として解釈
+ * する（`eventDate` は時刻を持たない JST の暦日文字列なので、ローカル時刻で
+ * 解釈すると環境によって日がずれる）。
+ */
+export function formatEventDay(dateStr: string): EventDayLabel {
+  const ms = toEpochDay(dateStr)
+  if (ms == null) return { day: '', weekday: '', tone: 'weekday' }
+  const date = new Date(ms)
+  const dow = date.getUTCDay()
+  return {
+    day: String(date.getUTCDate()),
+    weekday: WEEKDAY_ABBR[dow] ?? '',
+    tone: dow === 0 ? 'sun' : dow === 6 ? 'sat' : 'weekday',
+  }
+}
+
+/** 開催日順ビューの月セクション 1 つ（design-spec §2-1/2-2/2-6）。 */
+export interface MonthGroup<T> {
+  /** `YYYY-MM`。React の key に使う。 */
+  key: string
+  /** 見出しの数字。**ゼロ埋め 2 桁**（'08'）— 通年で数字幅が揃う。 */
+  month: string
+  /** 英字月名（'AUG'）。 */
+  monthAbbr: string
+  /**
+   * 見出し右端の西暦。**年が変わる最初の月見出しにだけ**入り、それ以外は null。
+   * 毎見出しに年を出すと「見出し＝数字の装置」が薄まるため（design-spec §2-6）。
+   */
+  year: string | null
+  rows: T[]
+}
+
+/**
+ * 開催月ごとに行を束ねる（design-spec §2-1）。**開催日昇順に並んだ行**が前提の
+ * 連続グルーピングで、離れた同月の行はまとめない（渡された並びを崩さない）。
+ *
+ * グループは渡された行からのみ導出するので、フィルタで 1 行も残らなかった月は
+ * そもそも現れない＝空の月セクションが出ない。
+ */
+export function groupEventsByMonth<T extends { eventDate: string }>(
+  rows: T[],
+): MonthGroup<T>[] {
+  const groups: MonthGroup<T>[] = []
+  let prevYear: string | null = null
+
+  for (const row of rows) {
+    const key = row.eventDate.slice(0, 7)
+    const last = groups[groups.length - 1]
+    if (last && last.key === key) {
+      last.rows.push(row)
+      continue
+    }
+    const month = key.slice(5, 7)
+    const year = key.slice(0, 4)
+    groups.push({
+      key,
+      month,
+      monthAbbr: MONTH_ABBR[Number(month) - 1] ?? '',
+      year: prevYear != null && year !== prevYear ? year : null,
+      rows: [row],
+    })
+    prevYear = year
+  }
+
+  return groups
+}
+
 /** Lexicographic compare (YYYY-MM-DD strings sort chronologically). */
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0

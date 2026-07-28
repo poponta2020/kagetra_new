@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { EventStatus, Grade } from '@kagetra/shared/types'
 import {
   formatDeadlineCountdown,
+  formatEventDay,
+  groupEventsByMonth,
   isGradeEligible,
   isOpenForEntry,
   isPastDeadline,
@@ -237,6 +239,126 @@ describe('sortEvents', () => {
     const before = ids(rows)
     sortEvents(rows, 'deadline')
     expect(ids(rows)).toEqual(before)
+  })
+})
+
+// event-list-month-grouping タスク1: 開催日順ビューの月区切りに使う純関数。
+// 期待値は design-mock/month-sections.html・edge-cases.html の実データに揃える。
+describe('formatEventDay', () => {
+  it('日はゼロ埋めしない（月見出しのゼロ埋めと対の意匠・design-spec §3-1）', () => {
+    expect(formatEventDay('2026-09-05').day).toBe('5')
+    expect(formatEventDay('2026-08-29').day).toBe('29')
+  })
+
+  it('英字曜日にマップする（装飾タイポとしての意図的例外・design-spec §3-3）', () => {
+    // 2026-09-06(日) から 1 日ずつ進めて全曜日を通す。
+    const week = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+    const days = [
+      '2026-09-06',
+      '2026-09-07',
+      '2026-09-08',
+      '2026-09-09',
+      '2026-09-10',
+      '2026-09-11',
+      '2026-09-12',
+    ]
+    expect(days.map((d) => formatEventDay(d).weekday)).toEqual(week)
+  })
+
+  it('日曜=sun・土曜=sat・平日=weekday（日曜朱／土曜藍のカレンダー色則）', () => {
+    expect(formatEventDay('2026-09-06').tone).toBe('sun')
+    expect(formatEventDay('2026-08-29').tone).toBe('sat')
+    expect(formatEventDay('2026-09-22').tone).toBe('weekday')
+  })
+
+  it('月をまたいでも曜日がずれない（UTC 深夜として解釈する）', () => {
+    expect(formatEventDay('2026-10-11')).toEqual({
+      day: '11',
+      weekday: 'SUN',
+      tone: 'sun',
+    })
+  })
+
+  it('壊れた日付は空表示（防御的・formatDeadlineCountdown と同じ方針）', () => {
+    expect(formatEventDay('garbage')).toEqual({
+      day: '',
+      weekday: '',
+      tone: 'weekday',
+    })
+  })
+})
+
+describe('groupEventsByMonth', () => {
+  const row = (eventDate: string) => ({ eventDate })
+  const keys = (groups: { key: string }[]) => groups.map((g) => g.key)
+
+  it('開催月ごとに束ね、月はゼロ埋め2桁・月名は英字（mock: 08 AUG / 09 SEP / 10 OCT）', () => {
+    const groups = groupEventsByMonth([
+      row('2026-08-29'),
+      row('2026-09-05'),
+      row('2026-09-06'),
+      row('2026-10-11'),
+    ])
+    expect(groups.map((g) => [g.month, g.monthAbbr])).toEqual([
+      ['08', 'AUG'],
+      ['09', 'SEP'],
+      ['10', 'OCT'],
+    ])
+    expect(groups.map((g) => g.rows.length)).toEqual([1, 2, 1])
+  })
+
+  it('月境界で分かれる（同月末と翌月頭は別グループ）', () => {
+    const groups = groupEventsByMonth([row('2026-08-31'), row('2026-09-01')])
+    expect(keys(groups)).toEqual(['2026-08', '2026-09'])
+  })
+
+  it('年跨ぎ: 年が変わる最初の月見出しにだけ西暦が付く（mock: 01 JAN のみ 2027）', () => {
+    const groups = groupEventsByMonth([
+      row('2026-12-13'),
+      row('2027-01-10'),
+      row('2027-02-11'),
+    ])
+    expect(groups.map((g) => [g.monthAbbr, g.year])).toEqual([
+      ['DEC', null],
+      ['JAN', '2027'],
+      ['FEB', null],
+    ])
+  })
+
+  it('先頭グループには西暦を出さない（今年が起点＝文脈で判る）', () => {
+    expect(groupEventsByMonth([row('2027-01-10')])[0]?.year).toBeNull()
+  })
+
+  it('フィルタで 1 行も残らなかった月はグループに現れない（空セクションを出さない）', () => {
+    // 9月の行がフィルタで全部落ちた状態。8月→10月へ飛ぶ。
+    const groups = groupEventsByMonth([row('2026-08-29'), row('2026-10-11')])
+    expect(keys(groups)).toEqual(['2026-08', '2026-10'])
+  })
+
+  it('渡された行の並びを崩さない（連続グルーピング・非破壊）', () => {
+    const rows = [row('2026-09-05'), row('2026-09-06'), row('2026-10-11')]
+    const before = rows.slice()
+    const groups = groupEventsByMonth(rows)
+    expect(groups.flatMap((g) => g.rows)).toEqual(before)
+    expect(rows).toEqual(before)
+  })
+
+  it('0 件なら空配列', () => {
+    expect(groupEventsByMonth([])).toEqual([])
+  })
+
+  // 前提（開催日昇順）が崩れた入力での挙動を固定しておく。実運用では
+  // page.tsx が eventDate,id 順で取り、sortEvents('date') が安定ソートなので
+  // 起きないが、連続グルーピングである以上「同月が2つに割れる」ことは
+  // 仕様として明示しておかないと、将来 sortEvents を触ったときに月見出しが
+  // 重複する形で静かに壊れる。
+  it('開催日昇順でない入力は同月でも連続していなければ別グループになる（前提の明示）', () => {
+    const groups = groupEventsByMonth([
+      row('2026-09-05'),
+      row('2026-08-29'),
+      row('2026-09-06'),
+    ])
+    expect(keys(groups)).toEqual(['2026-09', '2026-08', '2026-09'])
   })
 })
 
