@@ -252,7 +252,8 @@ export const rosterImportSourceKindEnum = pgEnum('roster_import_source_kind', [
 ])
 
 // entry-form-autofill: 申込書下書き作成履歴の状態。
-// pending=xlsx 生成・履歴保存は済んだが APPEND の結果がまだ確定していない /
+// pending=xlsx 生成・履歴保存は済んだが APPEND をまだ開始していない /
+// appending=APPEND 実行中（この行を claim 済み） /
 // created=Yahoo の Draft へ APPEND 成功 / imap_failed=APPEND に失敗（xlsx 再
 // ダウンロードと再試行が可能）。
 //
@@ -262,6 +263,9 @@ export const rosterImportSourceKindEnum = pgEnum('roster_import_source_kind', [
 // pending にして、成功が確認できたときだけ created へ上げる。
 export const entryFormDraftStatusEnum = pgEnum('entry_form_draft_status', [
   'pending',
+  // APPEND 実行中（claim 済み）。再試行はこの遷移を条件付き UPDATE で奪い合うため、
+  // 同じ行に対する同時再試行のうち1つだけが IMAP へ進む（下書きの重複防止）。
+  'appending',
   'created',
   'imap_failed',
 ])

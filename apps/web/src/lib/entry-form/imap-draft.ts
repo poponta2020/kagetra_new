@@ -27,6 +27,12 @@ export interface AppendDraftOptions {
    * 重複するのを防ぐ（`entry_form_drafts.message_id` を渡す）。
    */
   messageId?: string
+  /**
+   * 冪等チェックを必須にする（再試行時）。SEARCH に失敗したら「未存在」に倒さず
+   * 失敗として返す——1通目が実際に作成されていた場合に重複させないため。
+   * 初回作成では `false`（照合できなくても作成を止める必要がない）。
+   */
+  requireIdempotencyCheck?: boolean
 }
 
 export interface AppendDraftResult {
@@ -79,7 +85,12 @@ export async function appendDraftToYahoo(
     // 同じ Message-ID の下書きが既にあれば追加しない（再試行の冪等化）。
     // 照合できない環境では通常の APPEND に倒す（照合の失敗で作成を止めない）。
     if (options.messageId) {
-      const already = await findDraftByMessageId(flow, mailbox, options.messageId)
+      const already = await findDraftByMessageId(
+        flow,
+        mailbox,
+        options.messageId,
+        options.requireIdempotencyCheck ?? false,
+      )
       if (already) return { appended: false }
     }
 
@@ -104,6 +115,7 @@ async function findDraftByMessageId(
   flow: ImapFlow,
   mailbox: string,
   messageId: string,
+  required: boolean,
 ): Promise<boolean> {
   try {
     const lock = await flow.getMailboxLock(mailbox)
@@ -113,7 +125,13 @@ async function findDraftByMessageId(
     } finally {
       lock.release()
     }
-  } catch {
+  } catch (err) {
+    if (required) {
+      // 再試行では照合できないこと自体が失敗。未存在に倒すと、1通目が成功して
+      // いた場合に同じ下書きを2通作ってしまう。
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new Error(`既存の下書きを確認できませんでした（重複を避けるため中断します）: ${reason}`)
+    }
     return false
   }
 }

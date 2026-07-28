@@ -103,7 +103,7 @@ export interface EntryFormDraftSummary {
   createdByName: string | null
   attachmentFilename: string
   memberCount: number
-  status: 'pending' | 'created' | 'imap_failed'
+  status: 'pending' | 'appending' | 'created' | 'imap_failed'
   imapError: string | null
 }
 
@@ -522,9 +522,12 @@ export async function analyzeTemplateAction(input: {
     input.groupId != null
       ? await loadSourceMail(input.groupId, input.attachmentId ?? null)
       : null
-  const organizerInstructions = sourceMail?.bodyText
-    ? await extractOrganizerInstructions(sourceMail.bodyText, sheetsText)
-    : null
+  // 案内メール本文が無くても xlsx 内の指定は拾う（requirements §3.2.6 は
+  // 「案内メール本文・xlsx 内にあれば」なので、手動アップロードでも効かせる）。
+  const organizerInstructions = await extractOrganizerInstructions(
+    sourceMail?.bodyText ?? '',
+    sheetsText,
+  )
 
   if (estimate.confidence === 'high') {
     return {
@@ -659,18 +662,30 @@ function assertCellMapUsable(cellMap: CellMap): void {
   }
 }
 
-/** 再試行の対象行（このグループの未確定/失敗行に限る）。 */
-async function loadRetryTarget(
+/**
+ * 再試行の対象行を**原子的に claim** する（このグループの未確定/失敗行に限る）。
+ *
+ * `status` を条件に含めた UPDATE ... RETURNING なので、同じ行に対する同時再試行の
+ * うち1つだけが行を得る。取れなかった側は IMAP へ進まない——SEARCH→APPEND は
+ * 接続をまたいだ原子操作にならず、両方が「未存在」と判断すると同じ Message-ID の
+ * 下書きが2通できる。
+ */
+async function claimRetryTarget(
   groupId: number,
   draftId: number,
 ): Promise<{ id: number; messageId: string } | null> {
   const [row] = await db
-    .select({ id: entryFormDrafts.id, messageId: entryFormDrafts.messageId, status: entryFormDrafts.status })
-    .from(entryFormDrafts)
-    .where(and(eq(entryFormDrafts.id, draftId), eq(entryFormDrafts.entryGroupId, groupId)))
-    .limit(1)
-  if (!row || row.status === 'created') return null
-  return { id: row.id, messageId: row.messageId }
+    .update(entryFormDrafts)
+    .set({ status: 'appending', imapError: null })
+    .where(
+      and(
+        eq(entryFormDrafts.id, draftId),
+        eq(entryFormDrafts.entryGroupId, groupId),
+        inArray(entryFormDrafts.status, ['pending', 'imap_failed']),
+      ),
+    )
+    .returning({ id: entryFormDrafts.id, messageId: entryFormDrafts.messageId })
+  return row ?? null
 }
 
 /**
@@ -714,7 +729,15 @@ export async function createEntryFormDraftAction(
 
   // 再試行では同じ行と同じ Message-ID を使い回す。新しい Message-ID を振ると、
   // 「APPEND は成功したが応答が返らなかった」ケースで下書きが重複する。
-  const reused = input.retryDraftId != null ? await loadRetryTarget(input.groupId, input.retryDraftId) : null
+  let reused: { id: number; messageId: string } | null = null
+  if (input.retryDraftId != null) {
+    reused = await claimRetryTarget(input.groupId, input.retryDraftId)
+    if (!reused) {
+      throw new Error(
+        'この下書きは作成処理の実行中か、既に作成済みです。画面を再読み込みして状態を確認してください',
+      )
+    }
+  }
   const messageId = reused?.messageId ?? buildDraftMessageId(settings.email)
 
   // MIME の組立（＝宛先・差出人の検証）は履歴保存より前に行う。入力ミスを
@@ -744,7 +767,9 @@ export async function createEntryFormDraftAction(
     xlsx: filled.buffer,
     memberCount: input.members.length,
     messageId,
-    status: 'pending' as const,
+    // 新規行も appending で入れる（この時点で APPEND へ進むため）。プロセスが
+    // 落ちた行は appending のまま残り、「結果が分からない」として扱える。
+    status: 'appending' as const,
     imapError: null,
   }
 
@@ -771,7 +796,7 @@ export async function createEntryFormDraftAction(
 
   let appended = false
   try {
-    await appendDraftToYahoo(mime, { messageId })
+    await appendDraftToYahoo(mime, { messageId, requireIdempotencyCheck: reused != null })
     appended = true
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

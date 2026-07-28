@@ -86,7 +86,7 @@ export interface EntryFormDraftRow {
   createdAt: Date | string
   createdByName: string | null
   attachmentFilename: string
-  status: 'pending' | 'created' | 'imap_failed'
+  status: 'pending' | 'appending' | 'created' | 'imap_failed'
 }
 
 // design-spec §9「既存プリミティブを変更せず、この画面用の派生として実装
@@ -123,10 +123,12 @@ function paymentSummary(
  * （requirements §3.2.2）。
  */
 const ENTRY_FORM_SUMMARY: Record<
-  'none' | 'pending' | 'created' | 'imap_failed',
+  'none' | 'pending' | 'appending' | 'created' | 'imap_failed',
   { label: string; tone: 'plain' | 'ok' | 'ng' }
 > = {
   none: { label: '未作成', tone: 'plain' },
+  // APPEND 実行中、またはその途中でプロセスが落ちた行。成功とは言い切らない。
+  appending: { label: '作成結果を確認中', tone: 'plain' },
   // xlsx は生成・保存済みだが APPEND の結果が確定していない（作成中にプロセスが
   // 落ちた等）。Yahoo 側に下書きがあるか分からないので成功とは言い切らない。
   pending: { label: '作成結果を確認中', tone: 'plain' },

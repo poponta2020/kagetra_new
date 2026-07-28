@@ -26,7 +26,11 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 const { appendDraftMock } = vi.hoisted(() => ({
-  appendDraftMock: vi.fn(async (_mime: string, _options?: { messageId?: string }) => ({ appended: true })),
+  appendDraftMock: vi.fn(
+    async (_mime: string, _options?: { messageId?: string; requireIdempotencyCheck?: boolean }) => ({
+      appended: true,
+    }),
+  ),
 }))
 vi.mock('@/lib/entry-form/imap-draft', () => ({ appendDraftToYahoo: appendDraftMock }))
 
@@ -212,16 +216,19 @@ describe('admin/entry-form actions', () => {
       expect(analysis.warnings.at(-1)).toContain('プレビューで指定してください')
     })
 
-    it('案内メール本文が無いグループでは AI 抽出を呼ばない', async () => {
+    it('案内メール本文が無くても xlsx 内の主催者指定は抽出しにいく', async () => {
+      // requirements §3.2.6 は「案内メール本文・xlsx 内にあれば」なので、
+      // 手動アップロードや本文が空のメールでも xlsx 側の指定を拾う必要がある。
       const { group } = await seedGroupWithAttendees()
 
-      const analysis = await analyzeTemplateAction({
+      await analyzeTemplateAction({
         groupId: group.id,
         uploaded: { filename: 'standard.xlsx', base64: await fixtureBase64('standard.xlsx') },
       })
 
-      expect(extractOrganizerInstructionsMock).not.toHaveBeenCalled()
-      expect(analysis.organizerInstructions).toBeNull()
+      expect(extractOrganizerInstructionsMock).toHaveBeenCalledTimes(1)
+      // 本文は空文字で渡り、シートのテキスト表現が抽出対象になる。
+      expect(extractOrganizerInstructionsMock.mock.calls[0]![0]).toBe('')
     })
 
     it('案内メール本文があれば主催者指定（件名・ファイル名・申込先）を抽出して返す（AC-13）', async () => {
@@ -462,7 +469,43 @@ describe('admin/entry-form actions', () => {
       expect(rows[0]!.messageId).toBe(failed!.messageId)
       expect(rows[0]!.status).toBe('created')
       // 冪等キーとして同じ Message-ID を APPEND へ渡している。
-      expect(appendDraftMock.mock.calls.at(-1)![1]).toEqual({ messageId: failed!.messageId })
+      expect(appendDraftMock.mock.calls.at(-1)![1]).toEqual({
+        messageId: failed!.messageId,
+        requireIdempotencyCheck: true,
+      })
+    })
+
+    it('同じ下書きへの同時再試行は1つだけが IMAP へ進む（下書きの重複防止）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      appendDraftMock.mockRejectedValueOnce(new Error('connection reset'))
+      const first = await createEntryFormDraftAction(input)
+      appendDraftMock.mockClear()
+
+      // claim は条件付き UPDATE なので、2つ目は行を取れずに弾かれる。
+      const retry = { ...input, retryDraftId: first.draftId }
+      const results = await Promise.allSettled([
+        createEntryFormDraftAction(retry),
+        createEntryFormDraftAction(retry),
+      ])
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled')
+      expect(fulfilled).toHaveLength(1)
+      expect(appendDraftMock).toHaveBeenCalledTimes(1)
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(1)
+    })
+
+    it('既に作成済みの下書きは再試行できない', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const created = await createEntryFormDraftAction(input)
+
+      await expect(
+        createEntryFormDraftAction({ ...input, retryDraftId: created.draftId }),
+      ).rejects.toThrow('既に作成済み')
     })
 
     it('会員0名では拒否する（Server Action を直接呼んでも空の申込書は作れない）', async () => {

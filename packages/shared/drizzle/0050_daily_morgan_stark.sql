@@ -1,4 +1,4 @@
-CREATE TYPE "public"."entry_form_draft_status" AS ENUM('pending', 'created', 'imap_failed');--> statement-breakpoint
+CREATE TYPE "public"."entry_form_draft_status" AS ENUM('pending', 'appending', 'created', 'imap_failed');--> statement-breakpoint
 CREATE TABLE "app_settings" (
 	"key" text PRIMARY KEY NOT NULL,
 	"value" text NOT NULL,

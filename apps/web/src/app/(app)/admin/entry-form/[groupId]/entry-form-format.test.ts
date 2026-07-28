@@ -65,6 +65,7 @@ describe('tallyGrades', () => {
         { grade: 'D', count: 1 },
         { grade: 'E', count: 1 },
       ],
+      byCustomGrade: [],
       unset: 0,
       total: 15,
     })
@@ -73,8 +74,28 @@ describe('tallyGrades', () => {
   it('級未設定は A〜E級の人数に混ぜず unset として別に数える（AC-5b）', () => {
     expect(tallyGrades(['A', null, null])).toEqual({
       byGrade: [{ grade: 'A', count: 1 }],
+      byCustomGrade: [],
       unset: 2,
       total: 3,
+    })
+  })
+
+  it('大会独自級（F級等）は未設定に混ぜず、その表記のまま数える', () => {
+    // F と明記した会員を「級未設定」と表示すると警告の意味が壊れる。
+    expect(tallyGrades(['A', 'F', 'F', null])).toEqual({
+      byGrade: [{ grade: 'A', count: 1 }],
+      byCustomGrade: [{ grade: 'F', count: 2 }],
+      unset: 1,
+      total: 4,
+    })
+  })
+
+  it('空白だけの参加級は未設定として扱う', () => {
+    expect(tallyGrades(['  ', ''])).toEqual({
+      byGrade: [],
+      byCustomGrade: [],
+      unset: 2,
+      total: 2,
     })
   })
 })

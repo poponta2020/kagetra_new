@@ -73,8 +73,9 @@ export function Step2Members({
   // 初期値の needsNameInput ではなく現在値から判定する——編集シートで姓名・かなを
   // 埋めた直後に警告が消えないと、直したのに直っていないように見える。
   const nameWarnings = active.filter(needsName)
-  const gradeWarnings = active.filter((m) => m.grade == null)
-  const { byGrade, unset, total } = tallyGrades(active.map((m) => m.grade))
+  // 警告は「未登録」だけ。独自級（F級等）は明示された値なので警告しない。
+  const gradeWarnings = active.filter((m) => (m.grade?.trim() ?? '') === '')
+  const { byGrade, byCustomGrade, unset, total } = tallyGrades(active.map((m) => m.grade))
 
   // AC-9b: 出場回数が過少になり得る会員。欠落の級が特定できないとき（null）と、
   // 会員自身の級が未登録で判定できないときは、いずれも対象に含める（見落としより
@@ -167,12 +168,12 @@ export function Step2Members({
                 >
                   <span
                     className={
-                      m.grade == null
+                      (m.grade?.trim() ?? '') === ''
                         ? 'w-[34px] shrink-0 text-[10px] font-bold text-accent-fg'
                         : 'w-[34px] shrink-0 font-display font-bold tabular-nums text-brand-fg'
                     }
                   >
-                    {m.grade ? `${m.grade}級` : '未設定'}
+                    {(m.grade?.trim() ?? '') === '' ? '未設定' : `${m.grade}級`}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block font-bold text-ink">{m.displayName ?? '氏名未登録'}</span>
@@ -184,7 +185,7 @@ export function Step2Members({
                       ) : (
                         <>
                           {`${m.familyKana ?? ''} ${m.givenKana ?? ''}`.trim()}
-                          {m.grade == null && (
+                          {(m.grade?.trim() ?? '') === '' && (
                             <span className="ml-1.5 font-bold text-accent-fg">
                               <span aria-hidden className="text-accent">⚠</span> 参加級が未登録
                             </span>
@@ -218,6 +219,11 @@ export function Step2Members({
         {active.length > 0 && (
           <div className="flex flex-wrap gap-2.5 pt-1.5 text-[11px] text-ink-2 tabular-nums">
             {byGrade.map(({ grade, count }) => (
+              <span key={grade}>
+                {grade}級 <b className="font-bold">{count}</b>
+              </span>
+            ))}
+            {byCustomGrade.map(({ grade, count }) => (
               <span key={grade}>
                 {grade}級 <b className="font-bold">{count}</b>
               </span>

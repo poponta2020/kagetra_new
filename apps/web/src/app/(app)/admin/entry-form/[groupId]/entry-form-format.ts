@@ -75,19 +75,28 @@ const GRADE_ORDER: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
 
 /** ステップ2の集計行（級別人数＋計）。級未設定は集計に出さないが計には含める。 */
 export function tallyGrades(grades: readonly (string | null)[]): {
+  /** A〜E の標準級。GRADE_ORDER 順。 */
   byGrade: { grade: Grade; count: number }[]
-  /** 参加級が未登録の人数（AC-5b）。A〜E級の人数には混ぜない。 */
+  /** 大会独自級（F級等）。入力された表記のまま、出現順で数える。 */
+  byCustomGrade: { grade: string; count: number }[]
+  /** 参加級が未登録（null / 空欄）の人数（AC-5b）。 */
   unset: number
   total: number
 } {
   const counts = new Map<Grade, number>()
+  const customCounts = new Map<string, number>()
   let unset = 0
   for (const grade of grades) {
-    const standard = asStandardGrade(grade)
-    if (!standard) {
-      // 未設定と、A〜E に当てはまらない大会独自級（F級等）は同じ枠で数える
-      // ——A〜E の人数へ混ぜないことが要件（AC-5b）。
+    const trimmed = grade?.trim() ?? ''
+    if (trimmed.length === 0) {
       unset += 1
+      continue
+    }
+    const standard = asStandardGrade(trimmed)
+    if (!standard) {
+      // 独自級は「未設定」に混ぜない——F級と明記した会員を未登録として
+      // 表示すると、警告の意味が壊れる。A〜E の人数にも混ぜない。
+      customCounts.set(trimmed, (customCounts.get(trimmed) ?? 0) + 1)
       continue
     }
     counts.set(standard, (counts.get(standard) ?? 0) + 1)
@@ -96,7 +105,8 @@ export function tallyGrades(grades: readonly (string | null)[]): {
     grade,
     count: counts.get(grade)!,
   }))
-  return { byGrade, unset, total: grades.length }
+  const byCustomGrade = [...customCounts.entries()].map(([grade, count]) => ({ grade, count }))
+  return { byGrade, byCustomGrade, unset, total: grades.length }
 }
 
 /**

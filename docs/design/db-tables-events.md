@@ -228,7 +228,7 @@
 | message_id | text | NOT NULL | — | RFC 5322 Message-ID。APPEND の冪等キー（再試行で同じ値を使い、Draft を照合して二重作成を防ぐ） |
 | xlsx | bytea | NOT NULL | — | 生成済み申込書のコピー（再ダウンロード用） |
 | member_count | integer | NOT NULL | — | |
-| status | entry_form_draft_status (enum) | NOT NULL | 'pending' | `pending`（APPEND 結果が未確定）/ `created` / `imap_failed` |
+| status | entry_form_draft_status (enum) | NOT NULL | 'pending' | `pending`（未着手）/ `appending`（APPEND 実行中＝claim 済み。再試行の排他に使う）/ `created` / `imap_failed` |
 | imap_error | text | NULL | — | |
 | created_at | timestamptz | NOT NULL | `now()` | |
 

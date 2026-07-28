@@ -78,6 +78,7 @@ export function MemberEditSheet({ member, onClose, onSave, onExclude }: MemberEd
           </button>
         </div>
 
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         {kanaMissing && (
           <p className="flex gap-1.5 rounded-md bg-warn-bg px-2.5 py-1.5 text-[11px] leading-normal text-warn-fg">
             <span aria-hidden>⚠</span>
@@ -198,7 +199,11 @@ export function MemberEditSheet({ member, onClose, onSave, onExclude }: MemberEd
         <p className="text-[10px] text-ink-meta">
           参加級・段位・出場回数・備考の変更はこの申込書だけに反映されます（会員情報は変わりません）
         </p>
+        </div>
 
+        {/* 保存 CTA は固定。短い画面やソフトキーボード表示時に本文があふれても、
+            スクロール領域は上の div 側なのでボタンが画面外へ出ない
+            （flex 子で overflow-y-auto するには min-h-0 が要る）。 */}
         <Btn kind="primary" size="lg" block onClick={handleSave}>
           保存
         </Btn>
