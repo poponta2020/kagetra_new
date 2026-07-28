@@ -47,7 +47,9 @@ export function EventListClient({
   items: EventListItem[]
   todayStr: string
 }) {
-  const [sort, setSort] = useState<SortAxis>('deadline')
+  // 既定は開催日順（月区切りビュー）。「次にどの大会があるか」を暦の並びで
+  // 見るのが主用途で、締切日順は申込作業をするときに切り替える副ビュー。
+  const [sort, setSort] = useState<SortAxis>('date')
   const [applicableOnly, setApplicableOnly] = useState(false)
 
   // 可視判定（締切超過は自分が attend=true でない限り隠す）→ 申込可能フィルタ
@@ -123,7 +125,9 @@ export function EventListClient({
           </div>
         </Card>
       ) : sort === 'date' ? (
-        <div className="flex flex-col gap-[14px]">
+        <div className="flex flex-col gap-1.5">
+          {/* gap は 6px。月見出し側が sticky 用に pt-2(8px) を持つので、
+              セクション間の見た目の間隔は従来どおり 14px になる。 */}
           {groupEventsByMonth(rows).map((group) => (
             <section key={group.key}>
               <MonthHeading group={group} />
@@ -156,10 +160,17 @@ export function EventListClient({
  * 月セクションの見出し（design-spec §2-2 / T-4）。ゼロ埋め2桁の月数字＋英字
  * 月名＋藍の太罫。件数表記は入れない（ユーザー明示指示）。西暦は年が変わる
  * 最初の見出しにだけ出る（`group.year` が null 以外のときのみ）。
+ *
+ * スクロール追従: `sticky top-0`。スクロールコンテナは MobileShell の `<main>`
+ * で、上部バーは nav-settings-hub で廃止済みなのでオフセットは要らない。
+ * sticky は親（`<section>`）の範囲でしか効かないので、次の月に入ると前月の
+ * 見出しが自然に押し出される。`bg-canvas` は必須（無いと行が透ける）。
+ * `pt-2` は貼り付いたときに月数字が画面上端へ密着しないための余白で、
+ * その分ラッパー側の gap を 14px→6px に下げて見た目の間隔を保っている。
  */
 function MonthHeading({ group }: { group: MonthGroup<EventListItem> }) {
   return (
-    <div className="flex items-baseline gap-1.5 border-b-[2.5px] border-brand pb-[3px]">
+    <div className="sticky top-0 z-[2] flex items-baseline gap-1.5 border-b-[2.5px] border-brand bg-canvas pt-2 pb-[3px]">
       <span className="text-[31px] leading-none font-semibold tracking-[-0.03em] text-brand tabular-nums">
         {group.month}
       </span>
