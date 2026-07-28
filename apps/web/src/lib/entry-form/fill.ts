@@ -195,28 +195,30 @@ function writeMemberRow(ws: ExcelJS.Worksheet, sheet: CellMapSheet, row: number,
     writeIfEditable(ws, `${columns.dan}${row}`, formatDan(member.dan, danFormat))
   }
 
+  // 結合列（氏名）と分割列（姓/名）は**独立して**書く。以前は結合列があれば
+  // 分割列を else で捨てていたが、AI 推定とサーバー側検証はどちらも両形式の同時
+  // 指定を許すため、両方返ってきたテンプレで姓・名の列だけが空のまま「成功」して
+  // いた（プレビューも結合列を優先表示するので事前に気づけない）。かなも同様。
   if (columns.fullName) {
     const full = combineNames(member.familyName, member.givenName)
     if (full != null) writeIfEditable(ws, `${columns.fullName}${row}`, full)
-  } else {
-    if (columns.familyName && member.familyName != null) {
-      writeIfEditable(ws, `${columns.familyName}${row}`, member.familyName)
-    }
-    if (columns.givenName && member.givenName != null) {
-      writeIfEditable(ws, `${columns.givenName}${row}`, member.givenName)
-    }
+  }
+  if (columns.familyName && member.familyName != null) {
+    writeIfEditable(ws, `${columns.familyName}${row}`, member.familyName)
+  }
+  if (columns.givenName && member.givenName != null) {
+    writeIfEditable(ws, `${columns.givenName}${row}`, member.givenName)
   }
 
   if (columns.fullKana) {
     const full = combineNames(member.familyKana, member.givenKana)
     if (full != null) writeIfEditable(ws, `${columns.fullKana}${row}`, full)
-  } else {
-    if (columns.familyKana && member.familyKana != null) {
-      writeIfEditable(ws, `${columns.familyKana}${row}`, member.familyKana)
-    }
-    if (columns.givenKana && member.givenKana != null) {
-      writeIfEditable(ws, `${columns.givenKana}${row}`, member.givenKana)
-    }
+  }
+  if (columns.familyKana && member.familyKana != null) {
+    writeIfEditable(ws, `${columns.familyKana}${row}`, member.familyKana)
+  }
+  if (columns.givenKana && member.givenKana != null) {
+    writeIfEditable(ws, `${columns.givenKana}${row}`, member.givenKana)
   }
 
   if (columns.appearanceCount && member.appearanceCount != null) {

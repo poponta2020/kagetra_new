@@ -461,6 +461,55 @@ describe('fillEntryForm: 氏名結合型（columns.fullName）', () => {
     expect(ws.getCell('A2').value).toBe('山田　太郎')
     expect(ws.getCell('A3').value).toBe('鈴木')
   })
+
+  it('結合列と分割列が同時に指定されたら両方へ書く（どちらかが静かに空欄にならない）', async () => {
+    // AI 推定とサーバー側検証はどちらも両形式の同時指定を許すため、両方返す
+    // テンプレが実在し得る。以前は結合列があると分割列を else で捨てており、
+    // 姓・名・かな姓・かな名の列だけが空のまま「成功」していた。
+    const workbook = new ExcelJS.Workbook()
+    workbook.addWorksheet('Sheet1')
+
+    const cellMap: CellMap = {
+      sheets: [
+        {
+          sheetName: 'Sheet1',
+          targetGrades: null,
+          startRow: 2,
+          columns: {
+            fullName: 'A',
+            familyName: 'B',
+            givenName: 'C',
+            fullKana: 'D',
+            familyKana: 'E',
+            givenKana: 'F',
+          },
+          headerCells: {},
+          danFormat: 'n段',
+        },
+      ],
+    }
+
+    const members: EntryFormMember[] = [
+      member({
+        familyName: '山田',
+        givenName: '太郎',
+        familyKana: 'やまだ',
+        givenKana: 'たろう',
+      }),
+    ]
+
+    const result = await fillEntryForm(workbook, cellMap, { members, constants: NO_CONSTANTS })
+    expect(result.overflow).toEqual([])
+
+    const reloaded = await loadWorkbook(result.buffer)
+    const ws = reloaded.worksheets[0]!
+    expect(ws.getCell('A2').value).toBe('山田　太郎')
+    expect(ws.getCell('B2').value).toBe('山田')
+    expect(ws.getCell('C2').value).toBe('太郎')
+    expect(ws.getCell('D2').value).toBe('やまだ　たろう')
+    expect(ws.getCell('E2').value).toBe('やまだ')
+    expect(ws.getCell('F2').value).toBe('たろう')
+  })
 })
 
 describe('fillEntryForm: 行数超過（overflow）', () => {
