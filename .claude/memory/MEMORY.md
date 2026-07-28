@@ -234,3 +234,4 @@
 - [entry-management round 13 実装](impl_entry-board-round13.md) — 区画名改称・1グループ1行化・round 13 ビジュアル移植。Wave2 並行実装
 - [auto-review PR #398](auto-review-round-pr398.md) — R1 verdict=pass（1ラウンド収束・final省略）
 - [申込管理ボード round 13（改称・1グループ1行化・ビジュアル移植）](project_ship-entry-board-round13.md) — shipped: PR #398（残DoD=本番375px実機）
+- [fix PR #399 (R3〜R6)](impl_fix-pr399-r3r6.md) — 全件重複記入・IMAP冪等性・CellMap実行時検証。null=全件の罠
