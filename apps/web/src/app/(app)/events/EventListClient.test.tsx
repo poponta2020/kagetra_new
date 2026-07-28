@@ -50,20 +50,21 @@ const BASE: EventListItem[] = [
 ]
 
 describe('EventListClient — ソート', () => {
-  it('既定は締切日順（null は末尾）', () => {
+  it('既定は開催日順（eventDate 昇順・月区切りビュー）', () => {
     const { container } = render(<EventListClient items={BASE} todayStr={TODAY} />)
-    // deadlines: 3=07-05, 4=07-11, 1=07-20, 2=null(last)
-    expect(renderedOrder(container)).toEqual(['3', '4', '1', '2'])
-    // 締切日順タブが選択状態
-    expect(screen.getByRole('tab', { name: '締切日順' }).getAttribute('aria-selected')).toBe('true')
-  })
-
-  it('「開催日順」に切替えると eventDate 昇順になる', () => {
-    const { container } = render(<EventListClient items={BASE} todayStr={TODAY} />)
-    fireEvent.click(screen.getByRole('tab', { name: '開催日順' }))
     // eventDate: 3=07-10, 2=07-15, 4=07-25, 1=08-01
     expect(renderedOrder(container)).toEqual(['3', '2', '4', '1'])
+    // 開催日順タブが選択状態
     expect(screen.getByRole('tab', { name: '開催日順' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: '締切日順' }).getAttribute('aria-selected')).toBe('false')
+  })
+
+  it('「締切日順」に切替えると internalDeadline 昇順になる（null は末尾）', () => {
+    const { container } = render(<EventListClient items={BASE} todayStr={TODAY} />)
+    fireEvent.click(screen.getByRole('tab', { name: '締切日順' }))
+    // deadlines: 3=07-05, 4=07-11, 1=07-20, 2=null(last)
+    expect(renderedOrder(container)).toEqual(['3', '4', '1', '2'])
+    expect(screen.getByRole('tab', { name: '締切日順' }).getAttribute('aria-selected')).toBe('true')
   })
 })
 
@@ -72,7 +73,7 @@ describe('EventListClient — 申込可能フィルタ', () => {
     const { container } = render(<EventListClient items={BASE} todayStr={TODAY} />)
     expect(renderedOrder(container)).toHaveLength(4)
     fireEvent.click(screen.getByRole('switch', { name: '申込可能のみ' }))
-    // id2 は canApply=false なので消える。締切日順のまま。
+    // id2 は canApply=false なので消える。既定の開催日順のまま。
     expect(renderedOrder(container)).toEqual(['3', '4', '1'])
     expect(screen.getByRole('switch', { name: '申込可能のみ' }).getAttribute('aria-checked')).toBe('true')
   })
@@ -160,9 +161,12 @@ describe('EventListClient — 色帯（AC-8/AC-9）', () => {
 })
 
 describe('EventListClient — 締切 tone', () => {
+  // eventDate は既定 '2026-08-01' だと行頭の日付ブロックが「1」を描画し、
+  // 「あと1日」の数字と getByText('1') で衝突する。日数字が検証対象の数字と
+  // かぶらない日にずらしておく（締切 tone 自体はソートに依存しない）。
   const tones: EventListItem[] = [
     item({ id: 1, title: '本日締切', internalDeadline: '2026-07-10' }), // today
-    item({ id: 2, title: '間近', internalDeadline: '2026-07-11' }), // soon (1日)
+    item({ id: 2, title: '間近', eventDate: '2026-08-20', internalDeadline: '2026-07-11' }), // soon (1日)
     item({ id: 3, title: '通常', internalDeadline: '2026-07-20' }), // normal (10日)
     // past（超過）は viewerAttending=true で可視のまま残す（AC-2）
     item({ id: 4, title: '超過', internalDeadline: '2026-07-05', viewerAttending: true }),
@@ -249,6 +253,8 @@ describe('EventListClient — 参加者（AC-5/AC-6）', () => {
           item({
             id: 1,
             title: '東京吉野会C',
+            // 日付ブロックの日数字が参加人数「1」と衝突しない日にする
+            eventDate: '2026-08-20',
             internalDeadline: '2026-07-20',
             attendCount: 1,
             attendeeSurnames: ['鈴木'],
@@ -264,7 +270,10 @@ describe('EventListClient — 参加者（AC-5/AC-6）', () => {
 })
 
 describe('EventListClient — 上段 DOM 順（AC-10）', () => {
-  it('大会名 → 日付 → …→ 締切 の順に並ぶ', () => {
+  // AC-10 は締切日順ビュー（出荷済みのフラットな行）の仕様。既定は開催日順に
+  // なったので、明示的に締切日順へ切り替えてから検証する（開催日順では日付が
+  // タイトル行ではなく行頭の日付ブロックへ移る）。
+  it('締切日順では 大会名 → 日付 → …→ 締切 の順に並ぶ', () => {
     const { container } = render(
       <EventListClient
         items={[
@@ -278,6 +287,7 @@ describe('EventListClient — 上段 DOM 順（AC-10）', () => {
         todayStr={TODAY}
       />,
     )
+    fireEvent.click(screen.getByRole('tab', { name: '締切日順' }))
     const titleEl = within(container).getByText('広島CDE')
     const top = titleEl.parentElement as HTMLElement
     const texts = Array.from(top.children).map((c) => c.textContent ?? '')
@@ -290,8 +300,8 @@ describe('EventListClient — 上段 DOM 順（AC-10）', () => {
 
 // event-list-month-grouping タスク2。design-spec §2 の delta は「開催日順のみ」が
 // スコープで、ソート非依存と明記されたのはフッター行（page.tsx 側）だけ。
-// よって締切日順の行は出荷済みのまま＝上の AC-10 テストが無改変で通ることが、
-// この解釈が回帰でないことの担保になっている。
+// よって締切日順の行は出荷済みのまま＝上の AC-10 テストが（タブ切り替えを足す
+// だけで）そのまま通ることが、この解釈が回帰でないことの担保になっている。
 describe('EventListClient — 月区切り（開催日順のみ）', () => {
   const MONTHLY: EventListItem[] = [
     item({ id: 1, title: '八月土曜', eventDate: '2026-08-29', internalDeadline: '2026-07-20' }),
@@ -299,13 +309,14 @@ describe('EventListClient — 月区切り（開催日順のみ）', () => {
     item({ id: 3, title: '九月火曜', eventDate: '2026-09-22', internalDeadline: '2026-07-22' }),
   ]
 
+  /** 開催日順は既定なので通常は不要。切替後に戻す場合だけ使う。 */
   const byDate = () => fireEvent.click(screen.getByRole('tab', { name: '開催日順' }))
+  const byDeadline = () => fireEvent.click(screen.getByRole('tab', { name: '締切日順' }))
   /** className を語単位で見る（text-accent が text-accent-fg に釣られないように）。 */
   const classes = (el: HTMLElement) => el.className.split(/\s+/)
 
-  it('開催日順に切替えると月見出し（ゼロ埋め2桁＋英字月名）が出る・件数表記は無い', () => {
+  it('既定の開催日順で月見出し（ゼロ埋め2桁＋英字月名）が出る・件数表記は無い', () => {
     render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
-    byDate()
     expect(screen.getByText('08')).toBeTruthy()
     expect(screen.getByText('AUG')).toBeTruthy()
     expect(screen.getByText('09')).toBeTruthy()
@@ -313,11 +324,26 @@ describe('EventListClient — 月区切り（開催日順のみ）', () => {
     expect(screen.queryByText(/EVENTS?/)).toBeNull()
   })
 
-  it('締切日順では月見出しが出ない（フラットな現行リストのまま）', () => {
+  it('締切日順に切替えると月見出しが消える（フラットな現行リストに戻る）', () => {
     render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    byDeadline()
     expect(screen.queryByText('AUG')).toBeNull()
     expect(screen.queryByText('SEP')).toBeNull()
     expect(screen.queryByText('08')).toBeNull()
+    // 開催日順へ戻すと再び出る
+    byDate()
+    expect(screen.getByText('AUG')).toBeTruthy()
+  })
+
+  it('月見出しはスクロール追従する（sticky top-0・背景あり）', () => {
+    render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
+    const head = screen.getByText('08').parentElement as HTMLElement
+    expect(classes(head)).toContain('sticky')
+    expect(classes(head)).toContain('top-0')
+    // 背景が無いと行が見出しを透けて重なる
+    expect(classes(head)).toContain('bg-canvas')
+    // 貼り付いたとき月数字が画面上端に密着しないための余白
+    expect(classes(head)).toContain('pt-2')
   })
 
   it('月見出しは 31px 藍の数字＋藍の太罫 2.5px', () => {
@@ -351,9 +377,10 @@ describe('EventListClient — 月区切り（開催日順のみ）', () => {
 
   it('開催日順ではタイトル行から開催日が消える（締切日順では従来どおり出る）', () => {
     const { container } = render(<EventListClient items={MONTHLY} todayStr={TODAY} />)
-    expect(within(rowByTitle(container, '八月土曜')).getByText('8/29(土)')).toBeTruthy()
-    byDate()
+    // 既定＝開催日順: 日付は行頭の日付ブロックが担う
     expect(screen.queryByText('8/29(土)')).toBeNull()
+    byDeadline()
+    expect(within(rowByTitle(container, '八月土曜')).getByText('8/29(土)')).toBeTruthy()
   })
 
   it('二重符号: 大会名の太さが色帯と同条件（申込可否）で切り替わる', () => {
@@ -382,6 +409,7 @@ describe('EventListClient — 月区切り（開催日順のみ）', () => {
       item({ id: 2, title: '対象外', eventDate: '2026-09-06', internalDeadline: '2026-07-20', canApply: false }),
     ]
     render(<EventListClient items={mixed} todayStr={TODAY} />)
+    byDeadline()
     expect(classes(screen.getByText('対象外'))).toContain('font-bold')
   })
 
