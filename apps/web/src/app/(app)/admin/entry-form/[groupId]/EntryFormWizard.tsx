@@ -312,9 +312,12 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
       setCreateResult(result)
       setStep(result.status === 'created' ? 'done' : 'error')
     } catch (err) {
+      // ここへ来るのは履歴を作る前に弾かれた場合（宛先の形式ミス・列指定の不正・
+      // DB 障害など）。ErrorStep は「Yahoo への書き込みに失敗したが xlsx は残って
+      // いる」ための画面なので、そちらへ送ると直す導線が無くなる。ステップ3に
+      // 留めてフォーム上にエラーを出す。
       setCreateResult(null)
       setSubmitError(err instanceof Error ? err.message : String(err))
-      setStep('error')
     } finally {
       setSubmitting(false)
     }
@@ -423,6 +426,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           onBack={() => setStep(2)}
           onSubmit={() => void handleCreate()}
           submitting={submitting}
+          submitError={submitError}
         />
       )}
 

@@ -12,6 +12,7 @@ const baseProps = {
   attachmentFilenameSource: 'default' as const,
   bodyStale: false,
   onRegenerateBody: vi.fn(),
+  submitError: null,
   body: '本文',
   onChange: vi.fn(),
   onBack: vi.fn(),

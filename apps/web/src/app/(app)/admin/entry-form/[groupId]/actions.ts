@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -636,6 +636,65 @@ export interface CreateEntryFormDraftResult {
  * 生成に使える CellMap か。クライアントの CTA 無効化だけでは Server Action の
  * 防御にならないので、二重記入・全件重複になる形をここでも拒否する。
  */
+const COLUMN_LETTER_RE = /^[A-Z]{1,3}$/
+const CELL_ADDRESS_RE = /^[A-Z]{1,3}[1-9][0-9]*$/
+/** 実物テンプレの明細行はせいぜい数百行。桁違いの開始行は入力ミスとして弾く。 */
+const MAX_START_ROW = 10000
+
+/**
+ * CellMap を実際の Workbook と突き合わせて検証する。
+ *
+ * クライアントは列を自由入力できるので、`F12` のような「列＋行」を列として
+ * 送られると `F1212` に書いてしまう（正常終了したまま誤配置の申込書ができる）。
+ * 同じ列に2項目を割り当てると後勝ちで上書きされる。どちらも成功として返るため、
+ * 生成の手前で弾く。
+ */
+function assertCellMapMatchesWorkbook(cellMap: CellMap, workbook: ExcelJS.Workbook): void {
+  const sheetNames = new Set(workbook.worksheets.map((ws) => ws.name))
+  for (const sheet of cellMap.sheets) {
+    if (!sheetNames.has(sheet.sheetName)) {
+      throw new Error(`シート「${sheet.sheetName}」が申込書にありません`)
+    }
+    if (!Number.isInteger(sheet.startRow) || sheet.startRow < 1 || sheet.startRow > MAX_START_ROW) {
+      throw new Error(`シート「${sheet.sheetName}」の記入開始行が不正です: ${sheet.startRow}`)
+    }
+
+    const usedColumns = new Map<string, string>()
+    for (const [field, column] of Object.entries(sheet.columns)) {
+      if (column == null) continue
+      if (!COLUMN_LETTER_RE.test(column)) {
+        throw new Error(
+          `シート「${sheet.sheetName}」の「${field}」に列以外が指定されています: ${column}（A・B・AA のように列だけを指定してください）`,
+        )
+      }
+      const taken = usedColumns.get(column)
+      if (taken) {
+        throw new Error(
+          `シート「${sheet.sheetName}」の ${column} 列に複数の項目（${taken} / ${field}）が割り当てられています`,
+        )
+      }
+      usedColumns.set(column, field)
+    }
+
+    for (const [field, address] of Object.entries(sheet.headerCells)) {
+      if (address != null && !CELL_ADDRESS_RE.test(address)) {
+        throw new Error(
+          `シート「${sheet.sheetName}」の「${field}」の記入先セルが不正です: ${address}`,
+        )
+      }
+    }
+
+    const hasName =
+      Boolean(sheet.columns.fullName) ||
+      Boolean(sheet.columns.familyName && sheet.columns.givenName)
+    if (!hasName) {
+      throw new Error(
+        `シート「${sheet.sheetName}」の氏名の列が指定されていません（「氏名」または「姓」と「名」）`,
+      )
+    }
+  }
+}
+
 function assertCellMapUsable(cellMap: CellMap): void {
   if (cellMap.sheets.length === 0) {
     throw new Error('記入するシートが指定されていません')
@@ -663,6 +722,12 @@ function assertCellMapUsable(cellMap: CellMap): void {
 }
 
 /**
+ * `appending` の claim を保持できる時間。IMAP の APPEND は数秒で終わるので、
+ * これを超えて残っている行は「処理が落ちた」とみなして回収してよい。
+ */
+const APPEND_LEASE_MS = 5 * 60 * 1000
+
+/**
  * 再試行の対象行を**原子的に claim** する（このグループの未確定/失敗行に限る）。
  *
  * `status` を条件に含めた UPDATE ... RETURNING なので、同じ行に対する同時再試行の
@@ -674,14 +739,25 @@ async function claimRetryTarget(
   groupId: number,
   draftId: number,
 ): Promise<{ id: number; messageId: string } | null> {
+  // `appending` のまま取り残された行（プロセス停止・状態更新の失敗）も、リースが
+  // 切れていれば同じ行・同じ Message-ID で回収する。回収できないと利用者は
+  // 「再作成」で新しい Message-ID を振るしかなく、1通目が成功していた場合に
+  // Yahoo の下書きが重複する。
+  const leaseDeadline = new Date(Date.now() - APPEND_LEASE_MS)
   const [row] = await db
     .update(entryFormDrafts)
-    .set({ status: 'appending', imapError: null })
+    .set({ status: 'appending', imapError: null, appendStartedAt: new Date() })
     .where(
       and(
         eq(entryFormDrafts.id, draftId),
         eq(entryFormDrafts.entryGroupId, groupId),
-        inArray(entryFormDrafts.status, ['pending', 'imap_failed']),
+        or(
+          inArray(entryFormDrafts.status, ['pending', 'imap_failed']),
+          and(
+            eq(entryFormDrafts.status, 'appending'),
+            lt(entryFormDrafts.appendStartedAt, leaseDeadline),
+          ),
+        ),
       ),
     )
     .returning({ id: entryFormDrafts.id, messageId: entryFormDrafts.messageId })
@@ -722,6 +798,8 @@ export async function createEntryFormDraftAction(
     input.attachmentId ?? null,
     input.uploaded ?? null,
   )
+  assertCellMapMatchesWorkbook(input.cellMap, workbook)
+
   const filled = await fillEntryForm(workbook, input.cellMap, {
     members: input.members,
     constants: settings,
@@ -768,9 +846,10 @@ export async function createEntryFormDraftAction(
     memberCount: input.members.length,
     messageId,
     // 新規行も appending で入れる（この時点で APPEND へ進むため）。プロセスが
-    // 落ちた行は appending のまま残り、「結果が分からない」として扱える。
+    // 落ちた行は appending のまま残るが、リース期限を過ぎれば回収できる。
     status: 'appending' as const,
     imapError: null,
+    appendStartedAt: new Date(),
   }
 
   let draftId: number

@@ -1,5 +1,5 @@
 {
-  "id": "56a01598-402f-4f0c-a8cd-e12b18061fd0",
+  "id": "9c2ad125-e637-4248-b60e-44a12d933cee",
   "prevId": "ce35a18e-f682-48a5-93d5-04c4ec69e6f9",
   "version": "7",
   "dialect": "postgresql",
@@ -3065,6 +3065,12 @@
         "imap_error": {
           "name": "imap_error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "append_started_at": {
+          "name": "append_started_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

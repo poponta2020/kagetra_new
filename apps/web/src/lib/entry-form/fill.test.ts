@@ -602,3 +602,39 @@ describe('記入可能行数はシートの実使用範囲を超えない（書�
     expect(reloaded.worksheets[0]!.getCell('C90').value).toBeFalsy()
   })
 })
+
+describe('ヘッダ欄は既存値のあるセルを上書きしない', () => {
+  // ヘッダ欄の記入先は推定（AI 含む）で決まり、プレビューで目視確認できない。
+  // 誤指定でラベルや注意書きを潰すと、申込書が壊れたまま下書きができる。
+  it('会定数の記入先に既に文字があれば書き換えない', async () => {
+    const workbook = await loadFixture('standard.xlsx')
+    const cellMap = estimateCellMap(workbook)
+    const sheet = cellMap.sheets[0]!
+    // A3 は「都道府県」というラベルセル。ここを記入先と誤指定した状況を作る。
+    const broken = {
+      sheets: [{ ...sheet, headerCells: { ...sheet.headerCells, prefecture: 'A3' } }],
+    }
+
+    const result = await fillEntryForm(workbook, broken, {
+      members: [member({ familyName: '山田', givenName: '太郎' })],
+      constants: { ...NO_CONSTANTS, prefecture: '北海道' },
+    })
+
+    const reloaded = await loadWorkbook(result.buffer)
+    expect(reloaded.worksheets[0]!.getCell('A3').value).toBe('都道府県')
+  })
+
+  it('空のヘッダ欄には書き込む', async () => {
+    const workbook = await loadFixture('standard.xlsx')
+    const cellMap = estimateCellMap(workbook)
+
+    const result = await fillEntryForm(workbook, cellMap, {
+      members: [member({ familyName: '山田', givenName: '太郎' })],
+      constants: { ...NO_CONSTANTS, prefecture: '北海道' },
+    })
+
+    const reloaded = await loadWorkbook(result.buffer)
+    const address = cellMap.sheets[0]!.headerCells.prefecture!
+    expect(reloaded.worksheets[0]!.getCell(address).value).toBe('北海道')
+  })
+})

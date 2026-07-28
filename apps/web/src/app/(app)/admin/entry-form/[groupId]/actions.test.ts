@@ -508,6 +508,62 @@ describe('admin/entry-form actions', () => {
       ).rejects.toThrow('既に作成済み')
     })
 
+    it('列に「F12」のようなセルアドレスを送ると拒否する（F1212 への誤記入を防ぐ）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = input.cellMap.sheets[0]!
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [{ ...sheet, columns: { ...sheet.columns, familyName: 'F12' } }] },
+        }),
+      ).rejects.toThrow('列以外が指定されています')
+    })
+
+    it('同じ列に2項目を割り当てると拒否する（後勝ちの上書きを防ぐ）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = input.cellMap.sheets[0]!
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [{ ...sheet, columns: { ...sheet.columns, grade: 'F' } }] },
+        }),
+      ).rejects.toThrow('複数の項目')
+    })
+
+    it('申込書に無いシート名を送ると拒否する', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = input.cellMap.sheets[0]!
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [{ ...sheet, sheetName: '存在しないシート' }] },
+        }),
+      ).rejects.toThrow('が申込書にありません')
+    })
+
+    it('氏名の列が無い CellMap を直接送ると拒否する（空欄の申込書を作らない）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = input.cellMap.sheets[0]!
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [{ ...sheet, columns: {} }] },
+        }),
+      ).rejects.toThrow('氏名の列が指定されていません')
+    })
+
     it('会員0名では拒否する（Server Action を直接呼んでも空の申込書は作れない）', async () => {
       const { group } = await seedGroupWithAttendees()
       await seedClubSettings()

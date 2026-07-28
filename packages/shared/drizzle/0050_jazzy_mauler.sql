@@ -19,6 +19,7 @@ CREATE TABLE "entry_form_drafts" (
 	"member_count" integer NOT NULL,
 	"status" "entry_form_draft_status" DEFAULT 'pending' NOT NULL,
 	"imap_error" text,
+	"append_started_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

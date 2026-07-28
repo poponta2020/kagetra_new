@@ -63,6 +63,15 @@ export const entryFormDrafts = pgTable(
     memberCount: integer('member_count').notNull(),
     status: entryFormDraftStatusEnum('status').notNull().default('pending'),
     imapError: text('imap_error'),
+    /**
+     * `appending` へ遷移した時刻（claim のリース）。
+     *
+     * プロセス停止や DB 更新の失敗で `appending` のまま取り残された行を、期限
+     * 経過後に同じ行・同じ Message-ID で回収するために使う。これが無いと、
+     * その行は二度と再試行できず、利用者は「再作成」で新しい Message-ID を
+     * 振ることになり、1通目が実際には成功していた場合に下書きが重複する。
+     */
+    appendStartedAt: timestamp('append_started_at', { mode: 'date', withTimezone: true }),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .notNull()
       .defaultNow(),

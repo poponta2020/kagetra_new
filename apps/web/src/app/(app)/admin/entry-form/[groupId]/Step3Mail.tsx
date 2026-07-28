@@ -28,7 +28,12 @@ export interface Step3MailProps {
   onBack: () => void
   onSubmit: () => void
   submitting: boolean
+  /** 履歴を作る前に弾かれたエラー（宛先の形式ミス等）。この画面で直せる。 */
+  submitError: string | null
 }
+
+/** 送信前の目視レベルの形式チェック（厳密な検証は MIME 組立時に行う）。 */
+const MAILBOX_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/
 
 function toBadge(source: ToEmailSource) {
   if (source === 'template') return <Pill tone="brand" size="sm">申込書から抽出</Pill>
@@ -58,7 +63,9 @@ export function Step3Mail({
   onBack,
   onSubmit,
   submitting,
+  submitError,
 }: Step3MailProps) {
+  const toValid = MAILBOX_RE.test(toEmail.trim())
   return (
     <>
       <section className="flex flex-col gap-2">
@@ -85,9 +92,19 @@ export function Step3Mail({
           <input
             value={toEmail}
             onChange={(e) => onChange({ toEmail: e.target.value })}
+            type="email"
             placeholder="申込先メールアドレス"
-            className="rounded-md border border-border bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-muted"
+            className={
+              toEmail.trim().length > 0 && !toValid
+                ? 'rounded-md border border-accent bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-muted'
+                : 'rounded-md border border-border bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-muted'
+            }
           />
+          {toEmail.trim().length > 0 && !toValid && (
+            <span className="text-[10px] font-bold text-accent-fg">
+              メールアドレスの形式が正しくありません
+            </span>
+          )}
         </label>
 
         <label className="flex flex-col gap-1">
@@ -133,12 +150,18 @@ export function Step3Mail({
         </label>
       </section>
 
+      {submitError && (
+        <p className="rounded-md bg-danger-bg px-2.5 py-2 text-[11px] leading-normal text-danger-fg break-words">
+          {submitError}
+        </p>
+      )}
+
       <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col gap-1.5 border-t border-border bg-surface px-4 py-3">
         <div className="flex gap-2">
           <Btn kind="secondary" size="lg" onClick={onBack} disabled={submitting}>
             戻る
           </Btn>
-          <Btn kind="primary" size="lg" block onClick={onSubmit} disabled={submitting || !toEmail.trim() || memberCount === 0}>
+          <Btn kind="primary" size="lg" block onClick={onSubmit} disabled={submitting || !toValid || memberCount === 0}>
             {submitting ? '作成中…' : 'Yahoo メールに下書きを作成'}
           </Btn>
         </div>

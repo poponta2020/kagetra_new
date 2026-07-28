@@ -154,10 +154,21 @@ function combineNames(family: string | null, given: string | null): string | nul
  * - アンカーセルが数式セルなら何もしない（級別人数・参加費集計の COUNTIF/SUM 等、
  *   `standard.xlsx` の No 列・`split-kana.xlsx` の `I17` を上書きしないため）。
  */
-function writeIfEditable(ws: ExcelJS.Worksheet, address: string, value: string | number): void {
+function writeIfEditable(
+  ws: ExcelJS.Worksheet,
+  address: string,
+  value: string | number,
+  options: { keepExisting?: boolean } = {},
+): void {
   const requested = ws.getCell(address)
   const target = requested.isMerged ? ws.getCell(requested.master.address) : requested
   if (target.type === ExcelJS.ValueType.Formula) return
+  if (options.keepExisting && target.value != null && String(target.text ?? '').trim() !== '') {
+    // ヘッダ欄の記入先は推定（AI 含む）で決まり、プレビューで目視確認できない。
+    // 誤指定でラベルや注意書きのセルを潰さないよう、既に何か書いてあるセルは
+    // 触らない。明細行はこちらが管理する領域なのでこの制限をかけない。
+    return
+  }
   target.value = value
 }
 
@@ -166,7 +177,7 @@ function writeHeaderCells(ws: ExcelJS.Worksheet, sheet: CellMapSheet, constants:
     const address = sheet.headerCells[field]
     const value = constants[field]
     if (!address || value == null) continue
-    writeIfEditable(ws, address, value)
+    writeIfEditable(ws, address, value, { keepExisting: true })
   }
 }
 
