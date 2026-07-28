@@ -611,6 +611,41 @@ describe('/dashboard（会の出場予定）', () => {
       expect(texts.some((t) => t.includes('締切なし大会'))).toBe(false)
     })
 
+    // アラートは「自分が手を動かす必要がある」状態表示なので、回答できない人には
+    // 出さない。回答可否の判定は `/events/[id]` の canRespond / submitAttendance と
+    // 揃える（一般会員は is_invited 必須・管理者はバイパス）。
+    it('is_invited=false の一般会員にはアラートを出さない（回答できないため）', async () => {
+      const notInvited = await createUser({
+        name: '未招 太郎',
+        grade: 'C',
+        isInvited: false,
+      })
+      await setAuthSession({ id: notInvited.id, role: 'member' })
+      await seedAlertEvent('未回答大会', 3)
+
+      await renderPage()
+      expect(alertRows()).toHaveLength(0)
+    })
+
+    it('is_invited=false でも管理者・副管理者にはアラートを出す（回答をバイパスできるため）', async () => {
+      for (const role of ['admin', 'vice_admin'] as const) {
+        await truncateAll()
+        const admin = await createUser({
+          name: `管理 ${role}`,
+          grade: 'C',
+          role,
+          isInvited: false,
+        })
+        await setAuthSession({ id: admin.id, role })
+        await seedAlertEvent('未回答大会', 3)
+
+        const { unmount } = await renderPage()
+        const texts = alertRows().map((r) => r.textContent ?? '')
+        expect(texts.some((t) => t.includes('未回答大会'))).toBe(true)
+        unmount()
+      }
+    })
+
     it('出場者 0 名でアラートは出る（タイムラインに載らない大会でも鳴らす）', async () => {
       await seedAlertEvent('誰も答えていない大会', 3)
 

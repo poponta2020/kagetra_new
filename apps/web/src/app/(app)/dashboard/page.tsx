@@ -201,13 +201,23 @@ export default async function DashboardPage() {
     .where(eq(users.isInvited, true))
   const invitedUserById = new Map(invitedUsers.map((u) => [u.id, u]))
 
-  // ⑥ 閲覧者の級（未回答アラートの対象判定用）。招待済みとは限らない（管理者など）
-  //    ので invitedUsers からは引かない。
+  // ⑥ 閲覧者の級と招待状態（未回答アラートの対象判定用）。招待済みとは限らない
+  //    （管理者など）ので invitedUsers からは引かない。
   const viewer = await db.query.users.findFirst({
-    columns: { grade: true },
+    columns: { grade: true, isInvited: true },
     where: eq(users.id, viewerUserId),
   })
   const viewerGrade = viewer?.grade ?? null
+
+  // アラートは「自分が手を動かす必要がある」状態表示なので、**回答できる人にだけ**
+  // 出す。一般会員は `is_invited` が必須（Auth.js の signIn は連携済みの既存ユーザーを
+  // 招待ゲート無しで通すため、`is_invited=false` のログインセッションは実在する）。
+  // 管理者・副管理者はこのゲートをバイパスする —— `/events/[id]` の `canRespond` と
+  // `submitAttendance` の判定に合わせる（ここだけ緩いと、タップしても回答できない
+  // アラートが出る）。
+  const viewerIsAdmin =
+    session.user.role === 'admin' || session.user.role === 'vice_admin'
+  const viewerCanRespond = viewerIsAdmin || viewer?.isInvited === true
 
   // --- 索引 -----------------------------------------------------------------
 
@@ -306,7 +316,7 @@ export default async function DashboardPage() {
   const answeredEventIds = new Set(
     attendanceRows.filter((a) => a.userId === viewerUserId).map((a) => a.eventId),
   )
-  const alerts: HomeUnansweredAlert[] = eventRows
+  const alerts: HomeUnansweredAlert[] = (viewerCanRespond ? eventRows : [])
     .flatMap((e) => {
       if (!isEligibleGrade(e.eligibleGrades, viewerGrade)) return []
       if (answeredEventIds.has(e.id)) return []
