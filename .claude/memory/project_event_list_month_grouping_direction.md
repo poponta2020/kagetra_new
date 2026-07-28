@@ -4,7 +4,12 @@ description: イベント一覧 月区切りタイムライン 方向性合意
 type: project
 ---
 
-/events（大会申込一覧）の開催日順ビューに月区切りセクションを導入する方向性が確定（2026-07-28、ユーザー承認済み）。
+/events（大会申込一覧）の開催日順ビューに月区切りセクションを導入。**design-spec locked（2026-07-28・round 2）**＝実装待ち。正典= docs/features/event-list-month-grouping/（design-spec.md + design-mock/ + implementation-plan.md 2タスク直列）。次= `/implement event-list-month-grouping`。
+
+**Round 2（ユーザーが claude.ai/design 上で直接編集）で追加確定:**
+- 土曜=藍（日曜=朱・平日=淡墨のカレンダー色則）
+- 申込可否の**二重符号**: 3px色帯（藍）＋大会名の太さ（canApply=bold／不可=regular）。必ず同条件連動
+- **ページ見出し行（h1「大会申込」・過去のイベント→・新規作成）を実装でも削除**。両者はリスト末尾のフッター行へ移設（左=過去のイベント／右=新規作成・管理者のみ）
 
 **確定デザイン（探索は widget モックで11回反復、最終案=T-4系）:**
 - 月見出し: 詰めゴシック・ゼロ埋め2桁数字（08, 09, 10…年間で幅が揃う）+ 英字添字 AUG/SEP + 藍（brand）太罫 2.5px の下線。件数表記（2 EVENTS 等）は**不採用**（ユーザー明示指示）

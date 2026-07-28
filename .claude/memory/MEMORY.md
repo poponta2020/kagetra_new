@@ -230,7 +230,7 @@
 - [fix PR #399 (R2)](impl_fix-pr399-r2.md) — ★xlsx の docProps に実名が残る。複数シート未確定で全件重複記入
 - [実物由来の fixture は docProps に実名が残る](feedback_office_docprops_pii.md) — セル値の差し替えでは消えない。scrub＋メタデータ検査テストをセットで
 - [PR #399 fixture の PII 露出はリスク受容（2026-07-28）](project_pr399_fixture_pii_accepted.md) — public repo の履歴に実名残置。HEAD は scrub 済み＋検査テストあり。是正はしない
-- [イベント一覧 月区切りタイムライン 方向性合意](project_event_list_month_grouping_direction.md) — T-4系・月08/日9・SUN英字・件数表記なし。次=/design-screen delta
+- [イベント一覧 月区切り design-spec locked](project_event_list_month_grouping_direction.md) — T-4・月08/日9・SUN朱/SAT藍・二重符号・見出し行フッター化。次=/implement event-list-month-grouping
 - [entry-management round 13 実装](impl_entry-board-round13.md) — 区画名改称・1グループ1行化・round 13 ビジュアル移植。Wave2 並行実装
 - [auto-review PR #398](auto-review-round-pr398.md) — R1 verdict=pass（1ラウンド収束・final省略）
 - [申込管理ボード round 13（改称・1グループ1行化・ビジュアル移植）](project_ship-entry-board-round13.md) — shipped: PR #398（残DoD=本番375px実機）
@@ -239,3 +239,6 @@
 - [auto-review PR #400](auto-review-round-pr400.md) — 3R(i+d+f) PASS。R1 blocker=未招待会員へのアラート（spec 未記載でも既存フロー不整合は blocker）
 - [大会申込書の自動記入と Yahoo メール下書き作成](project_ship-entry-form-autofill.md) — shipped: PR #399。R8 blocker 2件を受容して出荷
 - [ホームを「会の出場予定」へ全面置換](project_ship-home-tournament-timeline.md) — shipped: PR #400。★横断ガード page-padding で CI red / 確定名簿の entry_group 単位問題は未計測の申し送り
+- [大会申込一覧 月区切り 実装](impl_event_list_month_grouping.md) — 開催日順のみ月セクション化。delta のソートスコープ解釈と、実DB無しでの忠実度検証手順
+- [auto-review PR #401](auto-review-round-pr401.md) — R1 verdict=cutoff(user-wontfix) blockers 0 / a11y 1件見送り
+- [大会申込一覧 月区切り 出荷](project_ship-event-list-month-grouping.md) — shipped: PR #401。a11y指摘1件をWONTFIX(=/eventsだけh1無し)
