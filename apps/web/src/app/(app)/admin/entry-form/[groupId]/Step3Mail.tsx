@@ -1,6 +1,7 @@
 'use client'
 
 import { Btn, Pill } from '@/components/ui'
+import { isValidMailbox } from '@/lib/entry-form/mailbox'
 import { SectionRule } from './SectionRule'
 import type { PrefillSource, ToEmailSource } from './wizard-types'
 
@@ -32,9 +33,6 @@ export interface Step3MailProps {
   submitError: string | null
 }
 
-/** 送信前の目視レベルの形式チェック（厳密な検証は MIME 組立時に行う）。 */
-const MAILBOX_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/
-
 function toBadge(source: ToEmailSource) {
   if (source === 'template') return <Pill tone="brand" size="sm">申込書から抽出</Pill>
   if (source === 'ai') return <Pill tone="brand" size="sm">主催者指定を抽出</Pill>
@@ -65,7 +63,7 @@ export function Step3Mail({
   submitting,
   submitError,
 }: Step3MailProps) {
-  const toValid = MAILBOX_RE.test(toEmail.trim())
+  const toValid = isValidMailbox(toEmail)
   return (
     <>
       <section className="flex flex-col gap-2">

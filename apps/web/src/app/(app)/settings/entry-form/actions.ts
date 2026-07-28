@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import type { HeaderField } from '@/lib/entry-form/cell-map'
+import { mailboxError } from '@/lib/entry-form/mailbox'
 import { saveEntryFormSettings } from '@/lib/entry-form/settings'
 
 /**
@@ -20,16 +21,17 @@ async function requireAdminSession() {
   return session
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 export async function saveEntryFormSettingsAction(
   values: Record<HeaderField, string>,
 ): Promise<void> {
   const session = await requireAdminSession()
 
+  // 検証は mailbox.ts に一本化する。ここだけ緩いと、保存はできるのに下書き
+  // 作成（MIME 組立）が必ず失敗する設定を作れてしまう（カンマ区切り等）。
   const email = values.email?.trim()
-  if (email && !EMAIL_RE.test(email)) {
-    throw new Error('連絡先 E-Mail の形式が正しくありません')
+  if (email) {
+    const error = mailboxError(email)
+    if (error) throw new Error(`連絡先 E-Mail の${error}`)
   }
 
   await saveEntryFormSettings(values, session.user.id)

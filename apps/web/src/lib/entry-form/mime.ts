@@ -1,5 +1,6 @@
 import 'server-only'
 import { randomBytes } from 'node:crypto'
+import { mailboxError } from './mailbox'
 
 /**
  * entry-form-autofill タスク3: 下書きメールの自前 MIME 組立。

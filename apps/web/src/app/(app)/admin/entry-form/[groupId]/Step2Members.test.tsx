@@ -35,6 +35,7 @@ describe('Step2Members — 対象会員の初期表示・除外（AC-5）', () =
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -57,6 +58,7 @@ describe('Step2Members — 対象会員の初期表示・除外（AC-5）', () =
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -79,6 +81,7 @@ describe('Step2Members — 対象会員の初期表示・除外（AC-5）', () =
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -108,6 +111,7 @@ describe('Step2Members — 警告の先出し（AC-8, AC-9）', () => {
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -131,6 +135,7 @@ describe('Step2Members — 警告の先出し（AC-8, AC-9）', () => {
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -151,6 +156,7 @@ describe('Step2Members — 警告の先出し（AC-8, AC-9）', () => {
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -171,6 +177,7 @@ describe('Step2Members — 警告の先出し（AC-8, AC-9）', () => {
         addableMembers={null}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -194,6 +201,7 @@ describe('Step2Members — 会員一覧からの行追加（AC-5・対象0名の
         addableMembers={null}
         onRequestAddable={onRequestAddable}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -231,6 +239,7 @@ describe('Step2Members — 会員一覧からの行追加（AC-5・対象0名の
         ]}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -256,6 +265,7 @@ describe('Step2Members — 会員一覧からの行追加（AC-5・対象0名の
         addableMembers={[]}
         onRequestAddable={vi.fn()}
         addableLoading={false}
+        addableError={null}
         onBack={vi.fn()}
         onNext={vi.fn()}
       />,
@@ -279,6 +289,7 @@ describe('Step2Members — 参加級 未登録の扱い（AC-5b）', () => {
     addableMembers: null,
     onRequestAddable: vi.fn(),
     addableLoading: false,
+    addableError: null,
     onBack: vi.fn(),
     onNext: vi.fn(),
     ...over,
@@ -343,6 +354,7 @@ describe('Step2Members — 出場回数 incomplete の行単位警告（AC-9b）
     addableMembers: null,
     onRequestAddable: vi.fn(),
     addableLoading: false,
+    addableError: null,
     onBack: vi.fn(),
     onNext: vi.fn(),
     ...over,

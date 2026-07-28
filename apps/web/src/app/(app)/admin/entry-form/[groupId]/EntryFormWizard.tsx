@@ -136,6 +136,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   // 会員一覧からの追加候補（AC-5）。「＋ 会員を追加」を開いたときに1度だけ取る。
   const [addableMembers, setAddableMembers] = useState<EntryFormMemberRow[] | null>(null)
   const [addableLoading, setAddableLoading] = useState(false)
+  const [addableError, setAddableError] = useState<string | null>(null)
   // 初期対象0名のグループでは context 側の完全性が常に complete になる（照会対象が
   // 空だったため）。候補取得時に分かった欠落状況で上書きし、追加した会員にも
   // 出場回数の警告が出るようにする。
@@ -147,6 +148,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   const requestAddable = () => {
     if (addableLoading) return
     setAddableLoading(true)
+    setAddableError(null)
     void listAddableMembersAction(members.map((m) => m.userId))
       .then((result) => {
         setAddableMembers(result.members)
@@ -157,7 +159,12 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           })
         }
       })
-      .catch(() => setAddableMembers([]))
+      .catch((err) => {
+        // 空一覧に倒すと「追加できる会員はいません」と誤表示になり、しかも
+        // addableMembers が非 null になるので二度と再取得されない（対象0名の
+        // グループでは作成を続行できなくなる）。エラーとして残し再試行させる。
+        setAddableError(err instanceof Error ? err.message : String(err))
+      })
       .finally(() => setAddableLoading(false))
   }
 
@@ -264,6 +271,17 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   const [submitting, setSubmitting] = useState(false)
   const [createResult, setCreateResult] = useState<CreateEntryFormDraftResult | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  /**
+   * 未確定の作成（前回のリロード前に APPEND が確定しなかった行）。ここへ載せた
+   * 行は同じ Message-ID で再試行できる。画面を再読み込みしても失わないよう
+   * サーバーから渡る `latestDraft` を初期値にする——失うと新しい Message-ID で
+   * 作り直すことになり、1通目が成功していた場合に下書きが重複する。
+   */
+  const [retryDraftId, setRetryDraftId] = useState<number | null>(
+    context.latestDraft && context.latestDraft.status !== 'created'
+      ? context.latestDraft.id
+      : null,
+  )
 
   const handleCreate = async () => {
     if (!cellMap || !mail) return
@@ -305,17 +323,22 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
         subject: mail.subject,
         body: mail.body,
         attachmentFilename: mail.attachmentFilename,
-        // 失敗のやり直しは同じ履歴行・同じ Message-ID を使う（下書きの重複防止）。
-        retryDraftId: createResult?.status === 'imap_failed' ? createResult.draftId : null,
+        // やり直しは同じ履歴行・同じ Message-ID を使う（下書きの重複防止）。
+        retryDraftId,
       }
       const result = await createEntryFormDraftAction(payload)
       setCreateResult(result)
+      // 成功したらこの行はもう再試行対象ではない。失敗なら次のやり直しで
+      // 同じ行・同じ Message-ID を使えるよう覚えておく。
+      setRetryDraftId(result.status === 'created' ? null : result.draftId)
       setStep(result.status === 'created' ? 'done' : 'error')
     } catch (err) {
       // ここへ来るのは履歴を作る前に弾かれた場合（宛先の形式ミス・列指定の不正・
       // DB 障害など）。ErrorStep は「Yahoo への書き込みに失敗したが xlsx は残って
       // いる」ための画面なので、そちらへ送ると直す導線が無くなる。ステップ3に
       // 留めてフォーム上にエラーを出す。
+      // createResult は消すが retryDraftId は保持する（履歴行が既にある場合、
+      // 次の試行でも同じ Message-ID を使い続ける必要がある）。
       setCreateResult(null)
       setSubmitError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -386,6 +409,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           addableMembers={addableMembers}
           onRequestAddable={requestAddable}
           addableLoading={addableLoading}
+          addableError={addableError}
           onBack={() => setStep(1)}
           onNext={goToStep3}
         />

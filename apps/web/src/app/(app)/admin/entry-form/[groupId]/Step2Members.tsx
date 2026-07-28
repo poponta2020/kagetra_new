@@ -37,6 +37,8 @@ export interface Step2MembersProps {
   /** 追加候補の取得を要求する（「＋ 会員を追加」を開いたとき）。 */
   onRequestAddable: () => void
   addableLoading: boolean
+  /** 候補の取得に失敗した理由（空一覧と区別する）。 */
+  addableError: string | null
   onEditRequest: (userId: string) => void
   onBack: () => void
   onNext: () => void
@@ -63,6 +65,7 @@ export function Step2Members({
   addableMembers,
   onRequestAddable,
   addableLoading,
+  addableError,
   onEditRequest,
   onBack,
   onNext,
@@ -269,6 +272,14 @@ export function Step2Members({
                 </div>
               ))}
               {addableLoading && <p className="text-[11px] text-ink-meta">会員を読み込んでいます…</p>}
+              {addableError && (
+                <p className="flex flex-wrap items-baseline gap-1.5 rounded-md bg-danger-bg px-2 py-1.5 text-[11px] text-danger-fg">
+                  <span>会員一覧を読み込めませんでした</span>
+                  <button type="button" className="font-bold underline" onClick={onRequestAddable}>
+                    再試行
+                  </button>
+                </p>
+              )}
               {addableMembers?.map((m) => (
                 <div key={m.userId} className="flex items-center justify-between border-t border-border-soft py-1.5 text-xs first:border-t-0">
                   <span>
@@ -286,7 +297,7 @@ export function Step2Members({
                   </button>
                 </div>
               ))}
-              {!addableLoading && excluded.length === 0 && addableMembers?.length === 0 && (
+              {!addableLoading && !addableError && excluded.length === 0 && addableMembers?.length === 0 && (
                 <p className="text-[11px] text-ink-meta">追加できる会員はいません</p>
               )}
             </div>
