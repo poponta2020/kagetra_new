@@ -346,6 +346,20 @@ describe('groupEventsByMonth', () => {
   it('0 件なら空配列', () => {
     expect(groupEventsByMonth([])).toEqual([])
   })
+
+  // 前提（開催日昇順）が崩れた入力での挙動を固定しておく。実運用では
+  // page.tsx が eventDate,id 順で取り、sortEvents('date') が安定ソートなので
+  // 起きないが、連続グルーピングである以上「同月が2つに割れる」ことは
+  // 仕様として明示しておかないと、将来 sortEvents を触ったときに月見出しが
+  // 重複する形で静かに壊れる。
+  it('開催日昇順でない入力は同月でも連続していなければ別グループになる（前提の明示）', () => {
+    const groups = groupEventsByMonth([
+      row('2026-09-05'),
+      row('2026-08-29'),
+      row('2026-09-06'),
+    ])
+    expect(keys(groups)).toEqual(['2026-09', '2026-08', '2026-09'])
+  })
 })
 
 // Type-level guard: eligibleGrades accepts Grade[] shape.
