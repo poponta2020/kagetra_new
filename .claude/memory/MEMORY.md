@@ -234,4 +234,11 @@
 - [entry-management round 13 実装](impl_entry-board-round13.md) — 区画名改称・1グループ1行化・round 13 ビジュアル移植。Wave2 並行実装
 - [auto-review PR #398](auto-review-round-pr398.md) — R1 verdict=pass（1ラウンド収束・final省略）
 - [申込管理ボード round 13（改称・1グループ1行化・ビジュアル移植）](project_ship-entry-board-round13.md) — shipped: PR #398（残DoD=本番375px実機）
+<<<<<<< HEAD
 - [fix PR #399 (R3〜R6)](impl_fix-pr399-r3r6.md) — 全件重複記入・IMAP冪等性・CellMap実行時検証。null=全件の罠
+=======
+- [ホーム「会の出場予定」実装](impl_home-tournament-timeline.md) — /dashboard 全面置換 3タスク完走。出欠クエリを attend=true で絞ると不参加回答者にアラートが鳴る罠／確定名簿が entry_group 単位ゆえ複数日グループで全日同一リスト=未決の申し送り
+- [auto-review PR #400](auto-review-round-pr400.md) — 3R(i+d+f) PASS。R1 blocker=未招待会員へのアラート（spec 未記載でも既存フロー不整合は blocker）
+- [大会申込書の自動記入と Yahoo メール下書き作成](project_ship-entry-form-autofill.md) — shipped: PR #399。R8 blocker 2件を受容して出荷
+>>>>>>> 81b3511 (docs: update worklog and memory after shipping PR #399)
+- [ホームを「会の出場予定」へ全面置換](project_ship-home-tournament-timeline.md) — shipped: PR #400。★横断ガード page-padding で CI red / 確定名簿の entry_group 単位問題は未計測の申し送り
