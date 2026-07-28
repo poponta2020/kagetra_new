@@ -129,6 +129,52 @@ describe('/events 一覧 — 参加者の苗字は全員分表示される (AC-6
   })
 })
 
+// event-list-month-grouping §2-5/§2-7: ページ見出し行を削除し、「過去のイベント」
+// と「新規作成」はリスト末尾のフッター行へ移す。フッターはソートにも 0 件表示にも
+// 左右されず必ず出す（見出し行が無くなった以上、ここが唯一のアーカイブ導線）。
+describe('/events 一覧 — 見出し行の削除とフッター行', () => {
+  it('管理者: h1 が無く、リストの後ろに「過去のイベント →」と「新規作成」が並ぶ', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await createEvent({ title: 'フッター確認大会', eventDate: addDays(todayJst(), 10) })
+
+    const { container } = render(await EventsPage())
+
+    expect(container.querySelector('h1')).toBeNull()
+    expect(screen.queryByText('大会申込')).toBeNull()
+
+    const archive = screen.getByText('過去のイベント →')
+    const create = screen.getByText('新規作成')
+    expect(archive.getAttribute('href')).toBe('/events-archive')
+    expect(create.getAttribute('href')).toBe('/events/new')
+
+    // リスト末尾＝行より後ろ（DOCUMENT_POSITION_FOLLOWING = 4）
+    const row = screen.getByText('フッター確認大会')
+    expect(row.compareDocumentPosition(archive) & 4).toBeTruthy()
+  })
+
+  it('一般会員: 「新規作成」は出ないが「過去のイベント →」は残る', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    await createEvent({ title: '会員から見る大会', eventDate: addDays(todayJst(), 10) })
+
+    render(await EventsPage())
+
+    expect(screen.getByText('過去のイベント →')).toBeDefined()
+    expect(screen.queryByText('新規作成')).toBeNull()
+  })
+
+  it('イベント 0 件でもフッター行は残る（アーカイブ導線を落とさない）', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+
+    render(await EventsPage())
+
+    expect(screen.getByText('現在のイベントはありません')).toBeDefined()
+    expect(screen.getByText('過去のイベント →')).toBeDefined()
+  })
+})
+
 describe('/events-archive — not_applying も従来どおり表示される（回帰）', () => {
   it('開催日経過後は not_applying の大会も並ぶ', async () => {
     const past = addDays(todayJst(), -10)
