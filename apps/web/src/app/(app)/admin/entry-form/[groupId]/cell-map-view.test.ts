@@ -5,6 +5,7 @@ import {
   applyColumnChange,
   applyTargetGradesChange,
   buildMappingRows,
+  findDuplicateGradeAssignments,
   hasUnresolvedSheetGrades,
   removeSheet,
 } from './cell-map-view'
@@ -121,5 +122,46 @@ describe('hasUnresolvedSheetGrades — 全シート重複記入の防止', () =>
     const cellMap = { sheets: [namedSheet('上級', null), namedSheet('中級', null)] }
     expect(applyTargetGradesChange(cellMap, 0, ['A']).sheets[0]!.targetGrades).toEqual(['A'])
     expect(removeSheet(cellMap, 1).sheets).toHaveLength(1)
+  })
+})
+
+describe('findDuplicateGradeAssignments — 同じ級の二重記入を検出', () => {
+  const gs = (name: string, targetGrades: Grade[] | null): CellMapSheet => ({
+    sheetName: name,
+    targetGrades,
+    startRow: 8,
+    columns: { familyName: 'C', givenName: 'D' },
+    headerCells: {},
+    danFormat: 'n段',
+  })
+
+  it('級が重複していなければ空', () => {
+    expect(findDuplicateGradeAssignments({ sheets: [gs('C級', ['C']), gs('D級', ['D'])] })).toEqual([])
+  })
+
+  it('同じ級が2シートに割り当てられていると検出する（unassigned/overflow には出ない）', () => {
+    expect(
+      findDuplicateGradeAssignments({ sheets: [gs('上級', ['A', 'B']), gs('中級', ['B', 'C'])] }),
+    ).toEqual(['B'])
+  })
+})
+
+describe('buildMappingRows — 未推定テンプレは結合型と分離型の両方を指定できる', () => {
+  it('氏名・ふりがなが未推定なら、結合列と姓/名の分離列の行を両方出す', () => {
+    const rows = buildMappingRows({
+      sheetName: 'Sheet1',
+      targetGrades: null,
+      startRow: 2,
+      columns: {},
+      headerCells: {},
+      danFormat: 'n段',
+    })
+    const fields = rows.map((r) => r.field)
+    expect(fields).toContain('fullName')
+    expect(fields).toContain('familyName')
+    expect(fields).toContain('givenName')
+    expect(fields).toContain('fullKana')
+    expect(fields).toContain('familyKana')
+    expect(fields).toContain('givenKana')
   })
 })

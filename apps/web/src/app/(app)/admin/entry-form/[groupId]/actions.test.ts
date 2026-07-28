@@ -26,7 +26,7 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 const { appendDraftMock } = vi.hoisted(() => ({
-  appendDraftMock: vi.fn(async (_mime: string) => undefined),
+  appendDraftMock: vi.fn(async (_mime: string, _options?: { messageId?: string }) => ({ appended: true })),
 }))
 vi.mock('@/lib/entry-form/imap-draft', () => ({ appendDraftToYahoo: appendDraftMock }))
 
@@ -109,7 +109,7 @@ describe('admin/entry-form actions', () => {
   beforeEach(async () => {
     await truncateAll()
     appendDraftMock.mockClear()
-    appendDraftMock.mockResolvedValue(undefined)
+    appendDraftMock.mockResolvedValue({ appended: true })
     inferCellMapMock.mockClear()
     extractOrganizerInstructionsMock.mockClear()
     extractOrganizerInstructionsMock.mockResolvedValue(null)
@@ -402,6 +402,69 @@ describe('admin/entry-form actions', () => {
       expect(context.latestDraft?.status).toBe('created')
     })
 
+    it('複数シートで対象級が未確定なら Server Action 側でも拒否する（全件重複記入の防止）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = input.cellMap.sheets[0]!
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [sheet, { ...sheet, sheetName: '2枚目' }] },
+        }),
+      ).rejects.toThrow('対象の級が決まっていないシート')
+    })
+
+    it('同じ級が複数シートに割り当てられていたら拒否する（二重記入の防止）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      const sheet = { ...input.cellMap.sheets[0]!, targetGrades: ['A' as const] }
+
+      await expect(
+        createEntryFormDraftAction({
+          ...input,
+          cellMap: { sheets: [sheet, { ...sheet, sheetName: '2枚目' }] },
+        }),
+      ).rejects.toThrow('複数のシートに割り当てられています')
+    })
+
+    it('宛先の形式が不正なら履歴を作る前に拒否する（imap_failed として記録しない）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+
+      await expect(
+        createEntryFormDraftAction({ ...input, toEmail: 'organizer' }),
+      ).rejects.toThrow('形式が正しくありません')
+
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(0)
+      expect(appendDraftMock).not.toHaveBeenCalled()
+    })
+
+    it('失敗のやり直しは同じ履歴行と Message-ID を使う（下書きの重複防止）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+      appendDraftMock.mockRejectedValueOnce(new Error('connection reset'))
+
+      const first = await createEntryFormDraftAction(input)
+      expect(first.status).toBe('imap_failed')
+      const [failed] = await testDb.select().from(entryFormDrafts)
+
+      const retried = await createEntryFormDraftAction({ ...input, retryDraftId: first.draftId })
+
+      expect(retried.draftId).toBe(first.draftId)
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.messageId).toBe(failed!.messageId)
+      expect(rows[0]!.status).toBe('created')
+      // 冪等キーとして同じ Message-ID を APPEND へ渡している。
+      expect(appendDraftMock.mock.calls.at(-1)![1]).toEqual({ messageId: failed!.messageId })
+    })
+
     it('会員0名では拒否する（Server Action を直接呼んでも空の申込書は作れない）', async () => {
       const { group } = await seedGroupWithAttendees()
       await seedClubSettings()
@@ -430,7 +493,7 @@ describe('admin/entry-form actions', () => {
 
       const candidates = await listAddableMembersAction([both.id, only2.id])
 
-      const ids = candidates.map((c) => c.userId)
+      const ids = candidates.members.map((c) => c.userId)
       expect(ids).not.toContain(both.id)
       expect(ids).not.toContain(only2.id)
       // 出欠が「不参加」の会員も手で足せる（要件 §3.2.1 の行の追加）。
@@ -442,7 +505,7 @@ describe('admin/entry-form actions', () => {
 
       const candidates = await listAddableMembersAction([])
 
-      const target = candidates.find((c) => c.userId === absent.id)
+      const target = candidates.members.find((c) => c.userId === absent.id)
       expect(target?.grade).toBe('C')
       expect(target?.needsNameInput).toBe(true)
       expect(target).toHaveProperty('appearanceCount')

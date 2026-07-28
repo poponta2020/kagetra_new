@@ -64,7 +64,12 @@ export function buildMappingRows(sheet: CellMapSheet): MappingRow[] {
       note: null,
     })
   } else {
-    rows.push({ field: 'fullName', label: '氏名', column: null, note: null })
+    // どちらの形式も未推定。結合列（氏名）と分離列（姓/名）の両方を出して、
+    // テンプレの形式に合わせてどちらでも指定できるようにする（姓名分離型の
+    // テンプレを結合列しか指定できない状態にしない）。
+    rows.push({ field: 'fullName', label: '氏名', column: null, note: '（姓名まとめて）' })
+    rows.push({ field: 'familyName', label: FIELD_LABELS.familyName, column: null, note: '（姓/名が別列のとき）' })
+    rows.push({ field: 'givenName', label: FIELD_LABELS.givenName, column: null, note: null })
   }
 
   if (sheet.columns.fullKana) {
@@ -83,7 +88,9 @@ export function buildMappingRows(sheet: CellMapSheet): MappingRow[] {
       note: null,
     })
   } else {
-    rows.push({ field: 'fullKana', label: 'ふりがな', column: null, note: null })
+    rows.push({ field: 'fullKana', label: 'ふりがな', column: null, note: '（姓名まとめて）' })
+    rows.push({ field: 'familyKana', label: FIELD_LABELS.familyKana, column: null, note: '（姓/名が別列のとき）' })
+    rows.push({ field: 'givenKana', label: FIELD_LABELS.givenKana, column: null, note: null })
   }
 
   rows.push({
@@ -199,4 +206,21 @@ export function matchesSheetGrades(
   if (targetGrades === null) return true
   const standard = asStandardGrade(grade)
   return standard != null && targetGrades.includes(standard)
+}
+
+/**
+ * 複数シートで同じ級が2つ以上のシートに割り当てられているか。
+ *
+ * `fillEntryForm` はシートごとに独立して該当会員を書くため、重複すると同じ会員が
+ * 2枚に記入される。`unassignedMembers` にも `overflow` にも現れないので、ここで
+ * 塞がないと警告なしで二重記入された申込書ができる。
+ */
+export function findDuplicateGradeAssignments(cellMap: CellMap): Grade[] {
+  const seen = new Map<Grade, number>()
+  for (const sheet of cellMap.sheets) {
+    for (const grade of sheet.targetGrades ?? []) {
+      seen.set(grade, (seen.get(grade) ?? 0) + 1)
+    }
+  }
+  return [...seen.entries()].filter(([, n]) => n > 1).map(([g]) => g)
 }

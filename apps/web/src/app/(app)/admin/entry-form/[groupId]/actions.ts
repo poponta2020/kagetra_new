@@ -27,7 +27,7 @@ import {
   type OrganizerInstructions,
 } from '@/lib/entry-form/ai-extract'
 import { fillEntryForm, type EntryFormMember } from '@/lib/entry-form/fill'
-import { buildDraftMime } from '@/lib/entry-form/mime'
+import { buildDraftMessageId, buildDraftMime } from '@/lib/entry-form/mime'
 import { appendDraftToYahoo } from '@/lib/entry-form/imap-draft'
 import { getEntryFormSettings, type EntryFormSettings } from '@/lib/entry-form/settings'
 
@@ -302,9 +302,19 @@ async function loadAppearanceCounts(userIds: string[]): Promise<{
  *
  * `excludeUserIds` には画面が既に持っている行を渡す（初期の和集合＋追加済み）。
  */
+export interface AddableMembersResult {
+  members: EntryFormMemberRow[]
+  /**
+   * 候補側の出場回数の完全性。初期対象0名のグループでは context 側が
+   * `complete` を返すため（照会対象が空）、追加した会員の欠落警告がここでしか出ない。
+   */
+  appearanceCompleteness: 'complete' | 'incomplete'
+  appearanceIncompleteGrades: Grade[] | null
+}
+
 export async function listAddableMembersAction(
   excludeUserIds: string[],
-): Promise<EntryFormMemberRow[]> {
+): Promise<AddableMembersResult> {
   await requireAdminSession()
 
   const rows = await db
@@ -326,20 +336,24 @@ export async function listAddableMembersAction(
   const candidates = rows.filter((row) => !excluded.has(row.userId))
   const appearance = await loadAppearanceCounts(candidates.map((c) => c.userId))
 
-  return candidates.map((row) => ({
-    userId: row.userId,
-    displayName: row.displayName,
-    grade: row.grade as Grade | null,
-    dan: row.dan,
-    familyName: row.familyName,
-    givenName: row.givenName,
-    familyKana: row.familyKana,
-    givenKana: row.givenKana,
-    appearanceCount: appearance.byUser.get(row.userId) ?? null,
-    note: null,
-    needsNameInput:
-      !row.familyName || !row.givenName || !row.familyKana || !row.givenKana,
-  }))
+  return {
+    members: candidates.map((row) => ({
+      userId: row.userId,
+      displayName: row.displayName,
+      grade: row.grade as Grade | null,
+      dan: row.dan,
+      familyName: row.familyName,
+      givenName: row.givenName,
+      familyKana: row.familyKana,
+      givenKana: row.givenKana,
+      appearanceCount: appearance.byUser.get(row.userId) ?? null,
+      note: null,
+      needsNameInput:
+        !row.familyName || !row.givenName || !row.familyKana || !row.givenKana,
+    })),
+    appearanceCompleteness: appearance.completeness,
+    appearanceIncompleteGrades: appearance.incompleteGrades,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +416,14 @@ async function assertAttachmentBelongsToGroup(
   }
 }
 
+/**
+ * 解析にかけて良い xlsx の上限。ExcelJS は展開後をメモリに載せるため、
+ * 巨大なファイルで web プロセスを詰まらせないよう入口で切る。手動アップロードは
+ * UI 側でも 2MB で弾いているが、Server Action の直接呼び出しと候補添付
+ * （メール由来・最大 30MB まで保存され得る）にも同じ上限をかける。
+ */
+const MAX_TEMPLATE_BYTES = 4 * 1024 * 1024
+
 async function readTemplate(
   groupId: number | null,
   attachmentId: number | null,
@@ -426,6 +448,12 @@ async function readTemplate(
     filename = row.filename
   } else {
     throw new Error('テンプレートが選択されていません')
+  }
+
+  if (bytes.length > MAX_TEMPLATE_BYTES) {
+    throw new Error(
+      `申込書ファイルが大きすぎます（${Math.round(bytes.length / 1024)}KB）。${Math.round(MAX_TEMPLATE_BYTES / 1024)}KB 以下のファイルを使ってください`,
+    )
   }
 
   try {
@@ -583,6 +611,11 @@ export interface CreateEntryFormDraftInput {
   subject: string
   body: string
   attachmentFilename: string
+  /**
+   * 失敗した作成のやり直し。指定すると**その履歴行と Message-ID を使い回す**ので、
+   * 「Yahoo には下書きができていたが応答が返らなかった」あとの再試行でも重複しない。
+   */
+  retryDraftId?: number | null
 }
 
 export interface CreateEntryFormDraftResult {
@@ -594,6 +627,50 @@ export interface CreateEntryFormDraftResult {
   unassignedCount: number
   /** テンプレの行数を超えて記入できなかった会員数。 */
   overflowCount: number
+}
+
+/**
+ * 生成に使える CellMap か。クライアントの CTA 無効化だけでは Server Action の
+ * 防御にならないので、二重記入・全件重複になる形をここでも拒否する。
+ */
+function assertCellMapUsable(cellMap: CellMap): void {
+  if (cellMap.sheets.length === 0) {
+    throw new Error('記入するシートが指定されていません')
+  }
+  if (cellMap.sheets.length > 1) {
+    const unresolved = cellMap.sheets.filter((s) => s.targetGrades === null)
+    if (unresolved.length > 0) {
+      throw new Error(
+        `対象の級が決まっていないシートがあります（${unresolved.map((s) => s.sheetName).join('・')}）。全員が全シートに重複して記入されます`,
+      )
+    }
+    const seen = new Map<string, number>()
+    for (const sheet of cellMap.sheets) {
+      for (const grade of sheet.targetGrades ?? []) {
+        seen.set(grade, (seen.get(grade) ?? 0) + 1)
+      }
+    }
+    const duplicated = [...seen.entries()].filter(([, n]) => n > 1).map(([g]) => g)
+    if (duplicated.length > 0) {
+      throw new Error(
+        `${duplicated.map((g) => `${g}級`).join('・')}が複数のシートに割り当てられています。同じ会員が2枚に記入されます`,
+      )
+    }
+  }
+}
+
+/** 再試行の対象行（このグループの未確定/失敗行に限る）。 */
+async function loadRetryTarget(
+  groupId: number,
+  draftId: number,
+): Promise<{ id: number; messageId: string } | null> {
+  const [row] = await db
+    .select({ id: entryFormDrafts.id, messageId: entryFormDrafts.messageId, status: entryFormDrafts.status })
+    .from(entryFormDrafts)
+    .where(and(eq(entryFormDrafts.id, draftId), eq(entryFormDrafts.entryGroupId, groupId)))
+    .limit(1)
+  if (!row || row.status === 'created') return null
+  return { id: row.id, messageId: row.messageId }
 }
 
 /**
@@ -616,6 +693,8 @@ export async function createEntryFormDraftAction(
     throw new Error('記入する会員が0名です。会員を追加してから作成してください')
   }
 
+  assertCellMapUsable(input.cellMap)
+
   const settings = await getEntryFormSettings()
   if (!settings.email || settings.email.trim().length === 0) {
     throw new Error(
@@ -633,32 +712,15 @@ export async function createEntryFormDraftAction(
     constants: settings,
   })
 
-  const [saved] = await db
-    .insert(entryFormDrafts)
-    .values({
-      entryGroupId: input.groupId,
-      createdBy: session.user.id,
-      toEmail: input.toEmail,
-      subject: input.subject,
-      body: input.body,
-      attachmentFilename: input.attachmentFilename,
-      xlsx: filled.buffer,
-      memberCount: input.members.length,
-    })
-    .returning({ id: entryFormDrafts.id })
-  if (!saved) throw new Error('作成履歴の保存に失敗しました')
+  // 再試行では同じ行と同じ Message-ID を使い回す。新しい Message-ID を振ると、
+  // 「APPEND は成功したが応答が返らなかった」ケースで下書きが重複する。
+  const reused = input.retryDraftId != null ? await loadRetryTarget(input.groupId, input.retryDraftId) : null
+  const messageId = reused?.messageId ?? buildDraftMessageId(settings.email)
 
-  const result: CreateEntryFormDraftResult = {
-    draftId: saved.id,
-    status: 'created',
-    imapError: null,
-    unassignedCount: filled.unassignedMembers.length,
-    overflowCount: filled.overflow.reduce((sum, o) => sum + o.members.length, 0),
-  }
-
-  let appended = false
-  try {
-    const mime = buildDraftMime({
+  // MIME の組立（＝宛先・差出人の検証）は履歴保存より前に行う。入力ミスを
+  // imap_failed として記録してしまうと、失敗画面からは直せず作成を完了できない。
+  const mime = buildDraftMime(
+    {
       from: settings.email,
       to: input.toEmail,
       subject: input.subject,
@@ -668,15 +730,55 @@ export async function createEntryFormDraftAction(
         contentType: XLSX_CONTENT_TYPE,
         data: filled.buffer,
       },
-    })
-    await appendDraftToYahoo(mime)
+    },
+    { messageId },
+  )
+
+  const values = {
+    entryGroupId: input.groupId,
+    createdBy: session.user.id,
+    toEmail: input.toEmail,
+    subject: input.subject,
+    body: input.body,
+    attachmentFilename: input.attachmentFilename,
+    xlsx: filled.buffer,
+    memberCount: input.members.length,
+    messageId,
+    status: 'pending' as const,
+    imapError: null,
+  }
+
+  let draftId: number
+  if (reused) {
+    await db.update(entryFormDrafts).set(values).where(eq(entryFormDrafts.id, reused.id))
+    draftId = reused.id
+  } else {
+    const [saved] = await db
+      .insert(entryFormDrafts)
+      .values(values)
+      .returning({ id: entryFormDrafts.id })
+    if (!saved) throw new Error('作成履歴の保存に失敗しました')
+    draftId = saved.id
+  }
+
+  const result: CreateEntryFormDraftResult = {
+    draftId,
+    status: 'created',
+    imapError: null,
+    unassignedCount: filled.unassignedMembers.length,
+    overflowCount: filled.overflow.reduce((sum, o) => sum + o.members.length, 0),
+  }
+
+  let appended = false
+  try {
+    await appendDraftToYahoo(mime, { messageId })
     appended = true
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await db
       .update(entryFormDrafts)
       .set({ status: 'imap_failed', imapError: message })
-      .where(eq(entryFormDrafts.id, saved.id))
+      .where(eq(entryFormDrafts.id, draftId))
       // 状態更新に失敗しても pending のまま残る。「失敗」を記録できないことは
       // 再試行を止める理由にならないので、ここでは握り潰して結果だけ返す。
       .catch(() => undefined)
@@ -691,7 +793,7 @@ export async function createEntryFormDraftAction(
       await db
         .update(entryFormDrafts)
         .set({ status: 'created' })
-        .where(eq(entryFormDrafts.id, saved.id))
+        .where(eq(entryFormDrafts.id, draftId))
     } catch {
       // 握り潰す。利用者には成功として返し、履歴だけが pending で残る
       // （「下書きはあるが記録が確定していない」= 進行管理では成功と表示しない）。

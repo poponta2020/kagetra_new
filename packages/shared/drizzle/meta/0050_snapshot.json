@@ -1,5 +1,5 @@
 {
-  "id": "e1ba9ccf-4230-45f7-824d-68a97f944107",
+  "id": "78d84c83-9772-424e-98b6-1235591f22ec",
   "prevId": "ce35a18e-f682-48a5-93d5-04c4ec69e6f9",
   "version": "7",
   "dialect": "postgresql",
@@ -3032,6 +3032,12 @@
         },
         "attachment_filename": {
           "name": "attachment_filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true

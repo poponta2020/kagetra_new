@@ -136,12 +136,27 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
   // 会員一覧からの追加候補（AC-5）。「＋ 会員を追加」を開いたときに1度だけ取る。
   const [addableMembers, setAddableMembers] = useState<EntryFormMemberRow[] | null>(null)
   const [addableLoading, setAddableLoading] = useState(false)
+  // 初期対象0名のグループでは context 側の完全性が常に complete になる（照会対象が
+  // 空だったため）。候補取得時に分かった欠落状況で上書きし、追加した会員にも
+  // 出場回数の警告が出るようにする。
+  const [appearance, setAppearance] = useState({
+    completeness: context.appearanceCompleteness,
+    incompleteGrades: context.appearanceIncompleteGrades,
+  })
 
   const requestAddable = () => {
     if (addableLoading) return
     setAddableLoading(true)
     void listAddableMembersAction(members.map((m) => m.userId))
-      .then((rows) => setAddableMembers(rows))
+      .then((result) => {
+        setAddableMembers(result.members)
+        if (result.appearanceCompleteness === 'incomplete') {
+          setAppearance({
+            completeness: 'incomplete',
+            incompleteGrades: result.appearanceIncompleteGrades,
+          })
+        }
+      })
       .catch(() => setAddableMembers([]))
       .finally(() => setAddableLoading(false))
   }
@@ -290,6 +305,8 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
         subject: mail.subject,
         body: mail.body,
         attachmentFilename: mail.attachmentFilename,
+        // 失敗のやり直しは同じ履歴行・同じ Message-ID を使う（下書きの重複防止）。
+        retryDraftId: createResult?.status === 'imap_failed' ? createResult.draftId : null,
       }
       const result = await createEntryFormDraftAction(payload)
       setCreateResult(result)
@@ -331,7 +348,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
       {step === 1 && (
         <Step1Template
           candidates={context.templateCandidates}
-          memberCount={members.length}
+          memberCount={activeMembers.length}
           selection={selection}
           onSelectionChange={(sel) => void runAnalyze(sel)}
           analysis={analysis}
@@ -345,7 +362,7 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
           onStartRowChange={handleStartRowChange}
           onTargetGradesChange={handleTargetGradesChange}
           onRemoveSheet={handleRemoveSheet}
-          members={context.members}
+          members={activeMembers}
           onNext={() => setStep(2)}
         />
       )}
@@ -353,8 +370,8 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
       {step === 2 && (
         <Step2Members
           members={members}
-          appearanceCompleteness={context.appearanceCompleteness}
-          appearanceIncompleteGrades={context.appearanceIncompleteGrades}
+          appearanceCompleteness={appearance.completeness}
+          appearanceIncompleteGrades={appearance.incompleteGrades}
           onExclude={(userId) =>
             setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, excluded: true } : m)))
           }

@@ -177,6 +177,14 @@ function domainFromEmail(email: string): string {
   return at >= 0 ? email.slice(at + 1) : 'localhost'
 }
 
+/**
+ * 下書き1通分の Message-ID を作る。**APPEND の冪等キーとして DB に保存する**ため、
+ * 組立の外から先に発行できるよう公開している（`entry_form_drafts.message_id`）。
+ */
+export function buildDraftMessageId(fromEmail: string): string {
+  return buildMessageId(domainFromEmail(fromEmail))
+}
+
 function buildMessageId(domain: string): string {
   const random = randomBytes(16).toString('hex')
   return `<${Date.now()}.${random}@${domain}>`

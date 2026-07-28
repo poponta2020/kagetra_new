@@ -14,6 +14,7 @@ CREATE TABLE "entry_form_drafts" (
 	"subject" text NOT NULL,
 	"body" text NOT NULL,
 	"attachment_filename" text NOT NULL,
+	"message_id" text NOT NULL,
 	"xlsx" "bytea" NOT NULL,
 	"member_count" integer NOT NULL,
 	"status" "entry_form_draft_status" DEFAULT 'pending' NOT NULL,

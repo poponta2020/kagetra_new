@@ -225,6 +225,7 @@
 | subject | text | NOT NULL | — | |
 | body | text | NOT NULL | — | |
 | attachment_filename | text | NOT NULL | — | |
+| message_id | text | NOT NULL | — | RFC 5322 Message-ID。APPEND の冪等キー（再試行で同じ値を使い、Draft を照合して二重作成を防ぐ） |
 | xlsx | bytea | NOT NULL | — | 生成済み申込書のコピー（再ダウンロード用） |
 | member_count | integer | NOT NULL | — | |
 | status | entry_form_draft_status (enum) | NOT NULL | 'pending' | `pending`（APPEND 結果が未確定）/ `created` / `imap_failed` |

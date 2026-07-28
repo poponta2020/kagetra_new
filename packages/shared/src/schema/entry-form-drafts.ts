@@ -50,6 +50,15 @@ export const entryFormDrafts = pgTable(
     subject: text('subject').notNull(),
     body: text('body').notNull(),
     attachmentFilename: text('attachment_filename').notNull(),
+    /**
+     * この下書きの RFC 5322 Message-ID。**APPEND の冪等キー**として使う。
+     *
+     * APPEND が Yahoo 側で完了した直後に接続が切れると、こちらには例外が返る。
+     * 再試行で新しい Message-ID を振ると、実際には成功していた1通目と重複する。
+     * 同じ行・同じ Message-ID で再試行し、APPEND の前に Draft を Message-ID で
+     * 照合することで二重作成を避ける。
+     */
+    messageId: text('message_id').notNull(),
     xlsx: bytea('xlsx').notNull(),
     memberCount: integer('member_count').notNull(),
     status: entryFormDraftStatusEnum('status').notNull().default('pending'),

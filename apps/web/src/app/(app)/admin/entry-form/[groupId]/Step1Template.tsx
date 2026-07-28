@@ -9,6 +9,7 @@ import { Btn, Pill } from '@/components/ui'
 import { SectionRule } from './SectionRule'
 import {
   buildMappingRows,
+  findDuplicateGradeAssignments,
   hasUnresolvedSheetGrades,
   isSheetFillable,
   matchesSheetGrades,
@@ -169,11 +170,13 @@ export function Step1Template({
     (name) => !sheets.some((s) => s.sheetName === name),
   )
   const unresolvedGrades = cellMap != null && hasUnresolvedSheetGrades(cellMap)
+  const duplicateGrades = cellMap != null ? findDuplicateGradeAssignments(cellMap) : []
   const canProceed =
     analysis != null &&
     sheets.length > 0 &&
     sheets.every(isSheetFillable) &&
     !unresolvedGrades &&
+    duplicateGrades.length === 0 &&
     !analyzing
 
   return (
@@ -376,6 +379,13 @@ export function Step1Template({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {duplicateGrades.length > 0 && (
+                <p className="rounded-md bg-warn-bg px-2.5 py-2 text-[11px] leading-normal text-warn-fg">
+                  ⚠ {duplicateGrades.map((g) => `${g}級`).join('・')}が複数のシートに割り当てられています。
+                  このまま作成すると同じ会員が2枚に記入されます。1つの級は1つのシートにしてください
+                </p>
               )}
 
               {activeSheet && !isSheetFillable(activeSheet) && (
