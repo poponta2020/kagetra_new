@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { closeTestDb, truncateAll } from '@/test-utils/db'
+import { mailAttachments, tournamentEntryRosterFiles } from '@kagetra/shared/schema'
+import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
+  createEvent,
   createMailMessage,
   createTournamentDraft,
   createUser,
@@ -169,5 +171,69 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     await setAuthSession({ id: member.id, role: 'member' })
     const mail = await createMailMessage({ triageStatus: 'unprocessed' })
     await expect(renderDetail(mail.id)).rejects.toThrow('NEXT_REDIRECT:/403')
+  })
+
+  // roster-file-adoption タスク2: 添付ごとの採用導線。
+  describe('名簿ファイルの採用', () => {
+    it('添付があれば「名簿ファイルとして採用」導線を出す', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await testDb.insert(mailAttachments).values({
+        mailMessageId: mail.id,
+        filename: 'roster.xlsx',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: 10,
+        data: Buffer.from('x'),
+        extractionStatus: 'pending',
+      })
+
+      await renderDetail(mail.id)
+
+      expect(screen.getByText('名簿ファイルとして採用')).toBeTruthy()
+    })
+
+    it('添付が無ければ「名簿ファイルの採用」セクションを出さない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      await renderDetail(mail.id)
+
+      expect(screen.queryByText('名簿ファイルの採用')).toBeNull()
+    })
+
+    it('採用済みの添付には種別・対象大会名を表示し、解除ボタンを出す', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: '対象大会X' })
+      const [attachment] = await testDb
+        .insert(mailAttachments)
+        .values({
+          mailMessageId: mail.id,
+          filename: 'roster.xlsx',
+          contentType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sizeBytes: 10,
+          data: Buffer.from('x'),
+          extractionStatus: 'pending',
+        })
+        .returning()
+      await testDb.insert(tournamentEntryRosterFiles).values({
+        entryGroupId: event.entryGroupId,
+        rosterType: 'confirmed',
+        sourceAttachmentId: attachment!.id,
+        sourceMailMessageId: mail.id,
+      })
+
+      await renderDetail(mail.id)
+
+      expect(screen.getByText('確定名簿')).toBeTruthy()
+      expect(screen.getByText(/対象大会X/)).toBeTruthy()
+      expect(screen.getByText('採用を解除')).toBeTruthy()
+      expect(screen.queryByText('名簿ファイルとして採用')).toBeNull()
+    })
   })
 })

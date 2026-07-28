@@ -22,6 +22,10 @@ import {
   RosterParseButton,
   type RosterParseSource,
 } from '../../components/RosterParseButton'
+import {
+  RosterFileAdoptSheet,
+  type RosterFileAdoptionInfo,
+} from '../../components/RosterFileAdoptSheet'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -132,6 +136,25 @@ export default async function MailDetailPage({
           contentType: true,
           extractionStatus: true,
         },
+        // roster-file-adoption タスク2: 添付ごとの採用状態（種別・対象大会名）を
+        // 詳細画面に出すため、採用レコード + 帰属 entry_group の events を辿る。
+        with: {
+          rosterFileAdoption: {
+            columns: {
+              id: true,
+              rosterType: true,
+            },
+            with: {
+              entryGroup: {
+                with: {
+                  events: {
+                    columns: { id: true, title: true },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       // 1:0..1。draft の状態によってアクションエリアを切替。
       draft: {
@@ -192,10 +215,12 @@ export default async function MailDetailPage({
     ? CLASSIFICATION_LABEL[mail.classification]
     : null
 
+  // roster-file-adoption タスク2: 名簿ファイル採用の対象イベント候補は、既存の
+  // AI 抽出/紐付けフロー（draft の有無・triage 状態）とは独立して常に提示する
+  // （要件: 既存の名簿ドラフトとは独立・ドラフトの有無で採用を妨げない）。
+  const allLinkableEvents = await loadLinkableEvents()
   const linkableEvents =
-    !mail.draft && mail.triageStatus === 'unprocessed'
-      ? await loadLinkableEvents()
-      : []
+    !mail.draft && mail.triageStatus === 'unprocessed' ? allLinkableEvents : []
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -436,6 +461,39 @@ export default async function MailDetailPage({
               </div>
             </Card>
           ))}
+        </section>
+      )}
+
+      {/* roster-file-adoption タスク2: パースせず原本のまま採用する名簿ファイル。
+          「大会名簿の取込」（決定論パース + AI 抽出）とは完全に独立したセクション
+          — ドラフトの状態を読まない・変更しない。 */}
+      {mail.attachments.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-base font-bold text-ink">名簿ファイルの採用</h2>
+          <p className="text-xs text-ink-meta">
+            様式が多様で解析できない名簿は、原本ファイルのまま対象大会に採用できます。
+          </p>
+          <div className="flex flex-col gap-2">
+            {mail.attachments.map((attachment) => {
+              const adoption: RosterFileAdoptionInfo | null = attachment.rosterFileAdoption
+                ? {
+                    id: attachment.rosterFileAdoption.id,
+                    rosterType: attachment.rosterFileAdoption.rosterType,
+                    eventTitles:
+                      attachment.rosterFileAdoption.entryGroup?.events.map((e) => e.title) ?? [],
+                  }
+                : null
+              return (
+                <RosterFileAdoptSheet
+                  key={attachment.id}
+                  attachmentId={attachment.id}
+                  attachmentFilename={attachment.filename}
+                  linkableEvents={allLinkableEvents}
+                  adoption={adoption}
+                />
+              )
+            })}
+          </div>
         </section>
       )}
     </div>

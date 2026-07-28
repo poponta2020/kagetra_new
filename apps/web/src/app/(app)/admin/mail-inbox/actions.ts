@@ -16,10 +16,13 @@ import {
   resultDrafts,
   tournamentClasses,
   tournamentDrafts,
+  tournamentEntryRosterFiles,
   tournamentRosterImportDrafts,
   tournamentSeriesEditions,
   tournaments,
 } from '@kagetra/shared/schema'
+import { isUniqueViolation } from '@/lib/db-errors'
+import { todayInJst } from '@/lib/jst-date'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
 import { materializeRoster, publishConfirmedRoster } from '@/lib/roster-import/materialize'
 import {
@@ -2461,4 +2464,230 @@ export async function rejectResultDraft(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+// ── roster-file-adoption タスク2: 添付を「原本のまま採用」する名簿ファイル ──
+//
+// `tournament_entry_roster_files` に対する採用/解除。決定論パーサが追随できない
+// 実様式の名簿を、パースせず原本ポインタのまま entry_group に紐付ける恒久的な
+// 逃げ道 (packages/shared/src/schema/tournament-entry-roster-files.ts 参照)。
+// `tournament_roster_import_drafts` (AI/決定論パース経路) とは完全に独立で、
+// ドラフトの状態は一切読まない・変更しない。
+
+type RosterFileType = 'applicant' | 'confirmed'
+
+const publishedAtStrSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '発表日の形式が不正です (YYYY-MM-DD)')
+
+/**
+ * 採用/解除の帰属は entry_group で、1グループは複数 events にまたがる
+ * （申込グループの複数開催日）。AC-5/AC-10「グループ内のどの日の大会詳細からも
+ * 見える／解除で戻る」を満たすため、対象グループに属する全 event の
+ * `/events/${id}` を revalidate する（1件だけでは不足）。
+ */
+async function revalidateRosterFileGroupEvents(entryGroupId: number) {
+  const rows = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+  for (const row of rows) {
+    revalidatePath(`/events/${row.id}`)
+  }
+}
+
+/**
+ * 添付を対象イベント＋名簿種別を指定して「名簿ファイル」として採用する。
+ *
+ * 要件 (roster-file-adoption AC-1/AC-2): 採用できるのは admin/vice_admin のみ。
+ * 採用元は mail_attachments のみ。
+ *
+ * 対象イベントの候補条件 (cancelled 除外・開催日が過去30日以降) は既存の
+ * linkMailToEvent と同じ `validateLinkableEvent` をここでも再検証する
+ * (画面表示後の状態変化・Server Action 直叩き対策と同じ理由)。edition 紐付け・
+ * 級別設定・抽選事実は一切要求しない — entry_group さえあれば採用できる。
+ *
+ * AC-11: 同一添付の二重採用は不可。tx 内の事前 SELECT に加え、DB の
+ * UNIQUE(source_attachment_id) 違反 (低確率だが同時クリックで起こりうる) も
+ * 日本語のエラーメッセージへ変換する。付け替えは解除→再採用。
+ */
+export async function adoptRosterFile(
+  attachmentId: number,
+  eventId: number,
+  rosterType: RosterFileType,
+  publishedAt?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireAdminSession()
+
+  if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
+    return { ok: false, error: '添付ファイルIDが不正です' }
+  }
+  if (!Number.isInteger(eventId) || eventId <= 0) {
+    return { ok: false, error: 'イベントIDが不正です' }
+  }
+  if (rosterType !== 'applicant' && rosterType !== 'confirmed') {
+    return { ok: false, error: '名簿種別が不正です' }
+  }
+  let normalizedPublishedAt: string | null = null
+  if (publishedAt != null && publishedAt.trim() !== '') {
+    const parsed = publishedAtStrSchema.safeParse(publishedAt.trim())
+    if (!parsed.success) return { ok: false, error: '発表日の形式が不正です (YYYY-MM-DD)' }
+    normalizedPublishedAt = parsed.data
+  }
+
+  let committedEntryGroupId: number | null = null
+  let committedMailId: number | null = null
+
+  try {
+    await db.transaction(async (tx) => {
+      // linkMailToEvent と同じ候補条件の再検証 (Codex r5 パターン踏襲)。
+      const eventRows = await tx
+        .select({
+          id: events.id,
+          status: events.status,
+          eventDate: events.eventDate,
+          entryGroupId: events.entryGroupId,
+        })
+        .from(events)
+        .where(eq(events.id, eventId))
+        .limit(1)
+      if (eventRows.length === 0) throw new Error('イベントが見つかりません')
+      const eventRow = eventRows[0]!
+      const eventInvalid = validateLinkableEvent(
+        { status: eventRow.status, eventDate: eventRow.eventDate },
+        linkableEventCutoffStr(),
+      )
+      if (eventInvalid) throw new Error(eventInvalid)
+
+      const attachmentRows = await tx
+        .select({
+          id: mailAttachments.id,
+          mailMessageId: mailAttachments.mailMessageId,
+        })
+        .from(mailAttachments)
+        .where(eq(mailAttachments.id, attachmentId))
+        .limit(1)
+      if (attachmentRows.length === 0) throw new Error('添付ファイルが見つかりません')
+      const attachmentRow = attachmentRows[0]!
+
+      const existing = await tx
+        .select({ id: tournamentEntryRosterFiles.id })
+        .from(tournamentEntryRosterFiles)
+        .where(eq(tournamentEntryRosterFiles.sourceAttachmentId, attachmentId))
+        .limit(1)
+      if (existing.length > 0) {
+        throw new Error('この添付は既に採用されています')
+      }
+
+      // publishedAt 省略時の既定値はメール受信日 (JST)。
+      let resolvedPublishedAt = normalizedPublishedAt
+      if (resolvedPublishedAt == null) {
+        const mailRows = await tx
+          .select({ receivedAt: mailMessages.receivedAt })
+          .from(mailMessages)
+          .where(eq(mailMessages.id, attachmentRow.mailMessageId))
+          .limit(1)
+        if (mailRows.length > 0) {
+          // JST カレンダー基準の日付は `todayInJst` が正典（Date 引数を取れる）。
+          // 自前の toLocaleString ラウンドトリップは環境ロケール依存で崩れる。
+          resolvedPublishedAt = todayInJst(mailRows[0]!.receivedAt)
+        }
+      }
+
+      await tx.insert(tournamentEntryRosterFiles).values({
+        entryGroupId: eventRow.entryGroupId,
+        rosterType,
+        sourceAttachmentId: attachmentId,
+        sourceMailMessageId: attachmentRow.mailMessageId,
+        publishedAt: resolvedPublishedAt,
+        adoptedByUserId: session.user.id,
+      })
+
+      committedEntryGroupId = eventRow.entryGroupId
+      committedMailId = attachmentRow.mailMessageId
+    })
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return { ok: false, error: 'この添付は既に採用されています' }
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+
+  if (committedEntryGroupId != null) {
+    await revalidateRosterFileGroupEvents(committedEntryGroupId)
+  }
+  revalidatePath('/admin/mail-inbox')
+  if (committedMailId != null) {
+    revalidatePath(`/admin/mail-inbox/mail/${committedMailId}`)
+  }
+  revalidatePath('/events')
+  revalidatePath('/admin/entries')
+
+  return { ok: true }
+}
+
+/**
+ * 採用済みの名簿ファイルを解除する（付け替えは解除→再採用）。
+ *
+ * メール添付そのものは消えない（sourceAttachmentId は CASCADE だが、削除する
+ * のはこの採用レコード行だけ）。既存の名簿ドラフト (tournament_roster_import_drafts)
+ * には一切触れない。
+ */
+export async function releaseRosterFile(
+  rosterFileId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdminSession()
+
+  if (!Number.isInteger(rosterFileId) || rosterFileId <= 0) {
+    return { ok: false, error: '名簿ファイルIDが不正です' }
+  }
+
+  let entryGroupId: number | null = null
+  let mailId: number | null = null
+
+  try {
+    await db.transaction(async (tx) => {
+      // revalidate に要る entryGroupId / mailMessageId は削除前に読んでおく。
+      // sourceMailMessageId (nullable, ON DELETE SET NULL) には頼らず、常に
+      // 添付行から mailMessageId を引く。
+      const rows = await tx
+        .select({
+          id: tournamentEntryRosterFiles.id,
+          entryGroupId: tournamentEntryRosterFiles.entryGroupId,
+          mailMessageId: mailAttachments.mailMessageId,
+        })
+        .from(tournamentEntryRosterFiles)
+        .innerJoin(
+          mailAttachments,
+          eq(mailAttachments.id, tournamentEntryRosterFiles.sourceAttachmentId),
+        )
+        .where(eq(tournamentEntryRosterFiles.id, rosterFileId))
+        .limit(1)
+      if (rows.length === 0) throw new Error('名簿ファイルが見つかりません')
+      const row = rows[0]!
+
+      await tx
+        .delete(tournamentEntryRosterFiles)
+        .where(eq(tournamentEntryRosterFiles.id, rosterFileId))
+
+      entryGroupId = row.entryGroupId
+      mailId = row.mailMessageId
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+
+  if (entryGroupId != null) {
+    await revalidateRosterFileGroupEvents(entryGroupId)
+  }
+  revalidatePath('/admin/mail-inbox')
+  if (mailId != null) {
+    revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  }
+  revalidatePath('/events')
+  revalidatePath('/admin/entries')
+
+  return { ok: true }
 }

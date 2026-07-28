@@ -144,6 +144,8 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 `.xls`/`.xlsx` 添付がある場合、画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
+添付が 1 件でもあると、画面下部に「名簿ファイルの採用」セクションが独立して表示される（`RosterFileAdoptSheet` → `adoptRosterFile` / `releaseRosterFile`）。これは解析せず原本のまま名簿として登録する経路で、`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立している —— ドラフトの状態を読まず変えないため、`triage_status` や draft の有無に関わらず常に出る。対象イベント候補は「既存イベントに紐付ける」と同じ `linkable-events.ts` の条件を共有する。採用済みの添付には種別と対象大会が表示され、同じ場所から解除できる。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
+
 名簿候補は件名・本文・添付名だけで低コストに判定し、空の申込書や一般案内を除外する。`roster_parse` は `.xls` / `.xlsx` / `.xlsm` の氏名表を全シートから解析し、PDF・Word・本文は既存抽出テキストを確認用ドラフトとして保持する。添付は `source_attachment_id`、本文は `source_mail_message_id` ごとの部分一意制約で冪等化する。構造を確定できない原本は `parse_failed`、正規化氏名の同級重複は行を削除せず `pending_review` の `validationIssues` に残す。採用・訂正フローは tournament-lottery-trends の管理画面仕様が担当する。
 
 ### ドラフト承認詳細（`/admin/mail-inbox/[id]`）

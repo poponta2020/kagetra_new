@@ -6,6 +6,7 @@ import {
   eventLineBroadcasts,
   events,
   lineChannels,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import type { EventStatus } from '@kagetra/shared/types'
@@ -224,6 +225,16 @@ export async function deleteGroupIfEmpty(tx: DbLike, groupId: number): Promise<v
     .where(eq(tournamentEntryRosters.entryGroupId, groupId))
     .limit(1)
   if (roster.length > 0) return
+
+  // roster-file-adoption: 採用済みの原本ファイルも entry_group への RESTRICT FK を
+  // 持つ。ここで見落とすと、パース済み名簿は無いがファイル採用だけがあるグループの
+  // 削除で FK 違反が飛び、呼び出し側のトランザクション全体がロールバックする。
+  const rosterFile = await tx
+    .select({ id: tournamentEntryRosterFiles.id })
+    .from(tournamentEntryRosterFiles)
+    .where(eq(tournamentEntryRosterFiles.entryGroupId, groupId))
+    .limit(1)
+  if (rosterFile.length > 0) return
 
   // SET NULL なので DELETE は通るが、黙って Bot 割当を解除しないために見送る。
   const channel = await tx
