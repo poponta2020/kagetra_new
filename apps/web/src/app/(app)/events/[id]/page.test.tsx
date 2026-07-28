@@ -4,8 +4,10 @@ import {
   eventBroadcastMessages,
   eventLineBroadcasts,
   lineChannels,
+  mailAttachments,
   mailMessages,
   tournamentEntryRosterEntries,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
@@ -13,9 +15,11 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createMailMessage,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
+import { RosterSection } from './components/RosterSection'
 
 /**
  * event-detail-redesign タスク6: `/events/[id]` 本体の組み替えに対する検証。
@@ -80,6 +84,39 @@ function collectPropValues(
       ? Object.values(props as Record<string, unknown>)
       : Object.values(node as Record<string, unknown>)
   for (const value of values) collectPropValues(value, out, depth + 1, seen)
+}
+
+/**
+ * roster-file-adoption タスク4: 要素ツリーから `type`（コンポーネント参照）が
+ * 一致する React 要素を集める。DTO の**キー**そのものを検査したいテスト
+ * （AC-7）向け——`collectPropValues` は値しか見ないので、キーが漏れていても
+ * 値がたまたま他の許可済みプロパティと衝突しなければ拾えない。
+ */
+function findElementsByType(
+  node: unknown,
+  type: unknown,
+  out: Array<{ props: Record<string, unknown> }> = [],
+  seen: WeakSet<object> = new WeakSet(),
+): Array<{ props: Record<string, unknown> }> {
+  if (node == null || typeof node !== 'object') return out
+  if (seen.has(node)) return out
+  seen.add(node)
+
+  if (Array.isArray(node)) {
+    for (const child of node) findElementsByType(child, type, out, seen)
+    return out
+  }
+  const elType = (node as { type?: unknown }).type
+  const props = (node as { props?: unknown }).props
+  if (elType === type && props != null && typeof props === 'object') {
+    out.push(node as { props: Record<string, unknown> })
+  }
+  if (props != null && typeof props === 'object') {
+    for (const value of Object.values(props as Record<string, unknown>)) {
+      findElementsByType(value, type, out, seen)
+    }
+  }
+  return out
 }
 
 /** JST today as YYYY-MM-DD（page 側の todayInJst と同じ計算）。 */
@@ -288,6 +325,129 @@ describe('/events/[id] — 名簿の内部列を RSC payload へ載せない', (
     expect(payload).not.toContain('カワムラミサキ')
     expect(payload).not.toContain('四段')
     expect(payload).not.toContain('waitlisted')
+  })
+})
+
+describe('/events/[id] — 原本ファイル採用の表示 (roster-file-adoption AC-5/AC-6/AC-7)', () => {
+  /** mail_attachments を1件作って返す最小ヘルパー（seed.ts に対応する create* が無いため直接 insert）。 */
+  async function seedAttachment(mailMessageId: number, filename: string) {
+    const [attachment] = await testDb
+      .insert(mailAttachments)
+      .values({
+        mailMessageId,
+        filename,
+        contentType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: 1234,
+        data: Buffer.from('test'),
+      })
+      .returning()
+    if (!attachment) throw new Error('Failed to seed test mail attachment')
+    return attachment
+  }
+
+  it('グループ内の別日の大会詳細からも、同じ entry_group に採用されたファイルが見える', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const { id: entryGroupId } = await createEntryGroup()
+    const day1 = await createEvent({
+      title: '多摩A',
+      eventDate: addDays(todayJst(), 20),
+      entryGroupId,
+    })
+    const day2 = await createEvent({
+      title: '多摩B',
+      eventDate: addDays(todayJst(), 25),
+      entryGroupId,
+    })
+
+    const mail = await createMailMessage()
+    const attachment = await seedAttachment(mail.id, '確定名簿テスト.xlsx')
+    await testDb.insert(tournamentEntryRosterFiles).values({
+      entryGroupId,
+      rosterType: 'confirmed',
+      sourceAttachmentId: attachment.id,
+      publishedAt: '2026-07-20',
+    })
+
+    const { container: c1 } = render(await renderPage(day1.id))
+    expect(c1.textContent).toContain('確定名簿テスト.xlsx')
+
+    const { container: c2 } = render(await renderPage(day2.id))
+    expect(c2.textContent).toContain('確定名簿テスト.xlsx')
+  })
+
+  it('同一 entry_group×種別に複数ファイルが採用されていれば全件表示する', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+    const mail = await createMailMessage()
+
+    const filenames = ['参加者一覧テスト.xlsx', '参加費一覧テスト.xlsx']
+    for (const filename of filenames) {
+      const attachment = await seedAttachment(mail.id, filename)
+      await testDb.insert(tournamentEntryRosterFiles).values({
+        entryGroupId: ev.entryGroupId,
+        rosterType: 'confirmed',
+        sourceAttachmentId: attachment.id,
+      })
+    }
+
+    const { container } = render(await renderPage(ev.id))
+    for (const filename of filenames) {
+      expect(container.textContent).toContain(filename)
+    }
+  })
+
+  it('取込元メール・採用者・管理メモが DOM にも RSC payload にも出ない (AC-7)', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const admin = await createUser({ role: 'admin', name: '採用担当テスト太郎' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const mail = await createMailMessage({ subject: '確定名簿ですテスト件名' })
+    const attachment = await seedAttachment(mail.id, '確定名簿テスト.xlsx')
+    await testDb.insert(tournamentEntryRosterFiles).values({
+      entryGroupId: ev.entryGroupId,
+      rosterType: 'confirmed',
+      sourceAttachmentId: attachment.id,
+      sourceMailMessageId: mail.id,
+      publishedAt: '2026-07-20',
+      note: '管理メモ・原本ファイル用テスト',
+      adoptedByUserId: admin.id,
+    })
+
+    const ui = await renderPage(ev.id)
+    const propValues: string[] = []
+    collectPropValues(ui, propValues)
+    const payload = propValues.join(' ')
+    const { container } = render(ui)
+
+    // 表示に使ってよい情報（ファイル名・種別・発表日・ビューア導線）は渡る。
+    expect(payload).toContain('確定名簿テスト.xlsx')
+    expect(container.textContent).toContain('確定名簿テスト.xlsx')
+
+    // 内部情報（取込元メール・採用者・管理メモ）は渡らない。
+    expect(payload).not.toContain('管理メモ・原本ファイル用テスト')
+    expect(payload).not.toContain('採用担当テスト太郎')
+    expect(payload).not.toContain('確定名簿ですテスト件名')
+
+    // 値ベースの検査に加えて、RosterSection へ渡る DTO の**キー**そのものに
+    // 内部列が存在しないことも固定する（値がたまたま他の列と衝突する
+    // 偽陰性を防ぐ）。
+    const rosterSections = findElementsByType(ui, RosterSection)
+    expect(rosterSections).toHaveLength(1)
+    const files = rosterSections[0]!.props.rosterFiles as Array<Record<string, unknown>>
+    expect(files.length).toBeGreaterThan(0)
+    for (const file of files) {
+      const keys = Object.keys(file)
+      expect(keys).not.toContain('sourceMailMessageId')
+      expect(keys).not.toContain('adoptedByUserId')
+      expect(keys).not.toContain('note')
+      expect(keys).not.toContain('sourceAttachmentId')
+      expect(keys).not.toContain('entryGroupId')
+      expect(keys).not.toContain('adoptedAt')
+    }
   })
 })
 

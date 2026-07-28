@@ -99,6 +99,20 @@
 
 取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
 
+### 名簿ファイルの採用（パース非依存の原本登録）
+
+様式が主催者ごとに多様でルールベースの解析が原理的に追随できないため、**パースせず原本ファイルのまま**名簿として登録する経路を併走させる（`tournament_entry_roster_files`）。構造化データを持たないので統計・当落線・出場回数には一切寄与せず、担うのは「会の進行を止めない」ことだけ。AI 名簿取込を導入した後も、抽出に失敗する原本の受け皿として残す。
+
+- 採用できるのは admin / vice_admin。採用元は**メール添付のみ**（手動アップロードは持たない。メール以外で入手した名簿は自分宛に転送する運用）。添付は拡張子で絞らない（パースしないので `.jpg` や `.zip` を弾く理由がない）。
+- 採用時に指定するのは**対象イベント**（帰属は解決先の `entry_group`）・**種別**（applicant / confirmed）・**発表日**（任意。既定はメール受信日 JST）だけ。edition 紐付け・級別設定・抽選事実（lottery facts）は一切要求しない —— これが承認フロー（`tournament_roster_import_drafts`）との本質的な違い。
+- 対象イベントの候補条件は既存のメール⇔イベント紐付けと同じ（`linkable-events.ts` の `validateLinkableEvent`）で、Server Action 側でも再検証する。
+- 同一 entry_group × 種別へ**複数ファイル**を採用できる（「参加者一覧」と「参加費一覧」など）。**同一添付の二重採用は不可**（DB の UNIQUE。付け替えは解除→再採用）。
+- 解除するとボード分類・大会詳細表示が採用前へ戻る。メール添付そのものは消えない。
+- 既存の名簿ドラフト（`pending_review` / `rejected`）とは**独立**。ドラフトの状態を読まず・変えず、ドラフトの有無が採用を妨げることもない。
+- 空グループ削除（`deleteGroupIfEmpty`）は採用ファイルを持つグループを削除しない（`entry_group_id` は RESTRICT）。
+
+閲覧は**ログイン済みの全会員**に開く（パース済み名簿が既に氏名・所属を全会員へ表示しているのと同等の扱い）。会員向け経路は `/roster-files/[id]`（ビューア）・`/api/roster-files/[id]`（バイナリ）・`/api/roster-files/[id]/preview/[page]`（ページ JPEG）の3本で、認可は `lib/roster-file-access.ts` の `loadAdoptedRosterFile` に一本化した「採用済みかどうか」だけ（fail-closed。解除・添付削除のいずれでも 3 経路とも 404）。表示は管理者向けビューアと同じ `attachment-preview.ts` のページ画像化を流用し、MIME allowlist / `Content-Disposition` の規約も管理者向け route と同一に保つ（iOS PWA の白画面死対策。判定一致はテストで固定）。`detectPreviewKind` が `none` を返す型はページ画像を出さずダウンロードのみを提供する。管理者向け `/admin/mail-inbox/attachments/[id]` 系は従来どおり別経路のまま変更していない。
+
 ## 画面
 
 ### `/tournaments`（大会結果・年別一覧）
