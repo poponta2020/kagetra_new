@@ -3,6 +3,7 @@ import { and, eq, gte, inArray, isNull, ne } from 'drizzle-orm'
 import {
   events,
   eventAttendances,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
   tournamentSeries,
   tournamentSeriesEditions,
@@ -124,7 +125,31 @@ export default async function EntryManagementPage() {
             ),
           )
 
-  const groupIdsWithConfirmedRoster = new Set(rosterRows.map((r) => r.entryGroupId))
+  //    roster-file-adoption: 「確定名簿がある」の定義を**パース済み ∪ ファイル採用**へ
+  //    拡張する。決定論パーサは主催者ごとに多様な様式へ追随できず、本番では確定名簿が
+  //    1件も取り込めないまま事前払いの大会が「申込完了・抽選待ち」に滞留していた。
+  //    原本ファイルを採用しただけでフェーズを進められるようにする（AC-3）。
+  //    applicant のファイル採用は分類に影響させない（AC-4。現行仕様どおり confirmed のみ）。
+  //    ★`classify`（entry-board-utils.ts）は `hasConfirmedRoster: boolean` を受け取る
+  //    だけなので純関数側は無変更 — 判定条件・評価順・並び順キーは一切動かさない。
+  //    ファイル採用は版管理を持たないので superseded_at 相当の絞り込みは無い。
+  const rosterFileRows =
+    groupIds.length === 0
+      ? []
+      : await db
+          .select({ entryGroupId: tournamentEntryRosterFiles.entryGroupId })
+          .from(tournamentEntryRosterFiles)
+          .where(
+            and(
+              inArray(tournamentEntryRosterFiles.entryGroupId, groupIds),
+              eq(tournamentEntryRosterFiles.rosterType, 'confirmed'),
+            ),
+          )
+
+  const groupIdsWithConfirmedRoster = new Set([
+    ...rosterRows.map((r) => r.entryGroupId),
+    ...rosterFileRows.map((r) => r.entryGroupId),
+  ])
 
   // ④ タスク6: グループ表示名・代表イベントはグループごとに一度だけ計算する
   //    （`@/lib/entry-groups` の正典実装。呼び出し側で再実装しない）。

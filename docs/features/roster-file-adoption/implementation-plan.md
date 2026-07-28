@@ -100,7 +100,7 @@ tournament_entry_roster_files
 - **完了条件:** テスト green・`check-types` 通過・生成 migration が journal 経路で空 DB に適用できる
 
 ### タスク2: 採用/解除 Server Action ＋ メール詳細の採用 UI
-- [ ] 完了
+- [x] 完了
 - **目的:** 管理者が添付を対象イベント＋種別を指定して名簿ファイルとして採用・解除できるようにする
 - **対応Issue:** #405
 - **対応AC:** AC-1, AC-2, AC-10, AC-11
@@ -113,7 +113,7 @@ tournament_entry_roster_files
 - **完了条件:** テスト green・`check-types`・lint 通過
 
 ### タスク3: 会員向け名簿ファイルビューア（ページ＋2 route）
-- [ ] 完了
+- [x] 完了
 - **目的:** 採用済みファイルだけをログイン会員が閲覧・ダウンロードできる経路を作る
 - **対応Issue:** #406
 - **対応AC:** AC-8, AC-9
@@ -127,7 +127,7 @@ tournament_entry_roster_files
 - **完了条件:** テスト green・`check-types`・lint 通過。既存 admin route に差分が無い
 
 ### タスク4: 大会詳細のファイル名簿表示
-- [ ] 完了
+- [x] 完了
 - **目的:** パース済み名簿が無い種別ではファイル名簿カードを、ある種別では補助リンクを出す
 - **対応Issue:** #407
 - **対応AC:** AC-5, AC-6, AC-7
@@ -142,7 +142,7 @@ tournament_entry_roster_files
   `adoptedByUserId` / `note` が含まれないことをテストで固定
 
 ### タスク5: 申込管理ボードの hasConfirmedRoster 拡張
-- [ ] 完了
+- [x] 完了
 - **目的:** confirmed のファイル採用がある大会をフェーズ進行させる
 - **対応Issue:** #408
 - **対応AC:** AC-3, AC-4
