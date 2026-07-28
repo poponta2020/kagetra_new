@@ -1,0 +1,242 @@
+<!-- @dsCard group="大会申込 月区切り" name="月区切り（開催日順）— T-4 モダン・グラフィック" subtitle="月見出し=ゼロ埋め2桁+AUG+藍太罫 / 日付は左ブロック(ゼロなし+英字曜日) / 件数表記なし" viewport="1240x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<style>
+/* ============================================================
+   大会申込 — 開催日順の月区切り（T-4 モダン・グラフィック）
+   出荷済み event-list-redesign（redesign.html）の行構造を土台に、
+   ウィジェット探索で確定した T-4 案を合成:
+     1. 開催日順のとき、月ごとにセクション化する
+     2. 月見出し = ゼロ埋め2桁数字(31px 詰めゴシック・藍)
+        + 英字月名 AUG(11px 字間広め) + 藍の太罫 2.5px。件数表記は無し
+     3. 日付は行頭の左ブロックへ移動: 日数字(ゼロなし 19px)
+        + 英字曜日(10px)。日曜のみ朱、他曜日は fg-3
+     4. 大会名の行から日付を除去（左ブロックが担う）
+     5. 申込可否は色帯（藍=可能／砂=不可）と大会名の太さの二重符号
+     6. 締切3段階強調・参加者行は出荷済み仕様を維持
+     7. ページ見出し行(h1「大会申込」・リンク・新規作成)は削除し、
+        「過去のイベント →」と「新規作成」(管理者のみ)はリスト末尾の
+        フッター行へ移設（round 2 ユーザー決定）
+   締切日順は現状のフラットなリストのまま（このモックの対象外）。
+   想定ユーザー: poponさん = C級
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--kg-font-sans);display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:22px;padding:24px 12px;color:var(--kg-fg)}
+
+.phone{width:375px;height:812px;display:flex;flex-direction:column;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;overflow:hidden;font-size:var(--kg-text-base);line-height:var(--kg-leading-normal);box-shadow:var(--kg-shadow-md)}
+
+.appbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;background:var(--kg-surface);border-bottom:1px solid var(--kg-border);padding:0 16px}
+.appbar .wordmark{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:16px;color:var(--kg-brand);letter-spacing:.02em}
+.appbar .who{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+
+.main{flex:1;min-height:0;overflow-y:auto;padding:16px;scrollbar-width:none;-ms-overflow-style:none}
+.main::-webkit-scrollbar{display:none}
+.page{display:flex;flex-direction:column;gap:16px}
+
+.client{display:flex;flex-direction:column;gap:12px}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.seg{display:flex;align-items:stretch;border:1px solid var(--kg-border);background:var(--kg-surface);border-radius:var(--kg-radius-full);padding:2px;font-size:13px}
+.seg .tab{flex:1;border-radius:var(--kg-radius-full);padding:6px 12px;font-weight:var(--kg-w-medium);white-space:nowrap;color:var(--kg-fg-3)}
+.seg .tab.active{background:var(--kg-brand);color:#fff}
+.filter{display:flex;flex-shrink:0;align-items:center;gap:8px}
+.filter .flabel{font-size:13px;color:var(--kg-fg-3)}
+.switch{position:relative;width:44px;height:24px;flex:none;border-radius:var(--kg-radius-full);background:var(--kg-neutral-bg)}
+.switch .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:var(--kg-shadow-sm)}
+
+/* ---- 月セクション（T-4 見出し） ---- */
+.msec+.msec{margin-top:14px}
+.mhead{display:flex;align-items:baseline;gap:6px;border-bottom:2.5px solid var(--kg-brand);padding-bottom:3px}
+.mnum{font-size:31px;font-weight:var(--kg-w-semibold);letter-spacing:-0.03em;color:var(--kg-brand);line-height:1;font-variant-numeric:tabular-nums}
+.mabbr{font-size:11px;font-weight:var(--kg-w-medium);letter-spacing:.1em;color:var(--kg-brand)}
+.myear{margin-left:auto;font-size:11px;color:var(--kg-fg-muted);font-variant-numeric:tabular-nums}
+
+/* ---- 行（出荷済み仕様 + 日付左ブロック） ---- */
+.row{display:flex;align-items:stretch;padding:10px 0}
+.row+.row{border-top:1px solid var(--kg-border-soft)}
+.bar{flex:none;width:3px;border-radius:2px;background:var(--kg-border)}
+.bar.open{background:var(--kg-brand)}
+.day{flex:none;width:34px;text-align:center;margin-left:8px;padding-top:2px}
+.day .dn{display:block;font-size:19px;font-weight:var(--kg-w-semibold);line-height:1.1;color:var(--kg-fg);font-variant-numeric:tabular-nums}
+.day .dw{display:block;font-size:10px;font-weight:var(--kg-w-medium);letter-spacing:.08em;color:var(--kg-fg-3)}
+.day .dw.sun{color:var(--kg-accent)}
+.day .dw.sat{color:var(--kg-brand)}
+.rbody{flex:1;min-width:0;padding-left:10px}
+
+.top{display:flex;align-items:baseline;gap:8px}
+.title{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--kg-font-display);font-size:18px;font-weight:var(--kg-w-regular);color:var(--kg-fg)}
+.title.open{font-weight:var(--kg-w-bold)}
+.ddl{flex:none;white-space:nowrap;margin-left:auto;padding-left:8px}
+.ddl .lab{font-size:10px;color:var(--kg-fg-muted);margin-right:4px}
+.ddl .val{font-size:var(--kg-text-xs);color:var(--kg-fg-muted)}
+.ddl.normal .val{color:var(--kg-fg-2)}
+.ddl .val em{font-style:normal;font-family:var(--kg-font-display);font-size:15px;font-weight:var(--kg-w-bold);color:var(--kg-fg-2);margin:0 1px}
+
+.meta{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dnum{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1}
+.dnum .big{flex:none;font-family:var(--kg-font-display);font-size:19px;font-weight:var(--kg-w-bold);color:var(--kg-brand);line-height:1}
+.dnum .big small{font-size:11px;font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-left:1px}
+.dnum .who{flex:1;min-width:0;font-size:var(--kg-text-xs);line-height:1.65;color:var(--kg-neutral-fg)}
+.dnum .who span{white-space:nowrap}
+.dnum .who i{font-style:normal;color:var(--kg-fg-muted);margin:0 4px}
+
+/* ---- リスト末尾のフッター行（旧見出し行の代替） ---- */
+.footrow{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.footrow .arch{font-size:14px;color:var(--kg-brand)}
+.footrow .newbtn{display:inline-flex;align-items:center;height:32px;padding:0 12px;font-size:var(--kg-text-xs);font-weight:var(--kg-w-semibold);color:#fff;background:var(--kg-brand);border-radius:var(--kg-radius-lg)}
+
+.bottomnav{height:52px;flex:none;display:flex;align-items:stretch;background:var(--kg-surface);border-top:1px solid var(--kg-border)}
+.bottomnav .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:var(--kg-w-medium);border-top:2px solid transparent;color:var(--kg-fg-3)}
+.bottomnav .tab.active{border-top-color:var(--kg-brand);color:var(--kg-brand)}
+
+.note{width:375px;font-size:12.5px;line-height:1.75;color:var(--kg-fg-2)}
+.phwrap{display:flex;flex-direction:column;gap:9px}
+.phwrap .lbl{font-family:var(--kg-font-display);font-size:14px;font-weight:var(--kg-w-bold);color:var(--kg-fg)}
+.phwrap .lbl small{display:block;font-family:var(--kg-font-sans);font-size:11.5px;font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-top:2px}
+.note b{color:var(--kg-fg)}
+.note h3{font-family:var(--kg-font-display);font-size:14px;color:var(--kg-fg);margin-bottom:6px}
+.note ul{margin:7px 0 0 17px}
+.note li{margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<div class="phwrap">
+<div class="lbl">開催日順 — 月区切り<small>実データ9行（2026-07-26 時点）+ 10月の架空2行（複数月の見え方確認用）</small></div>
+<div class="phone">
+  <div class="appbar"><span class="wordmark">かげとら</span><span class="who">poponさん</span></div>
+  <div class="main">
+    <div class="page">
+
+      <div class="client">
+        <div class="controls">
+          <div class="seg"><span class="tab active">開催日順</span><span class="tab">締切日順</span></div>
+          <div class="filter"><span class="flabel">申込可能のみ</span><span class="switch"><span class="knob"></span></span></div>
+        </div>
+
+        <div class="msec">
+          <div class="mhead"><span class="mnum">08</span><span class="mabbr">AUG</span></div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">29</span><span class="dw sat">SAT</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">東京吉野会C</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">1<small>名</small></span><span class="who"><span>鈴木</span></span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="msec">
+          <div class="mhead"><span class="mnum">09</span><span class="mabbr">SEP</span></div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">5</span><span class="dw sat">SAT</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並B</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="day"><span class="dn">6</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title open">広島CDE</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>5</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">3<small>名</small></span><span class="who"><span>山田</span><i>・</i><span>佐藤</span><i>・</i><span>吉田</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">6</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">杉並A</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>6</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">6</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">宇都宮E</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>13</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">20</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">秋田DE</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>29</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="day"><span class="dn">22</span><span class="dw">TUE</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title open">大阪CD</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>21</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">8<small>名</small></span><span class="who"><span>中村</span><i>・</i><span>小林</span><i>・</i><span>加藤</span><i>・</i><span>渡辺</span><i>・</i><span>伊藤</span><i>・</i><span>山本</span><i>・</i><span>中島</span><i>・</i><span>清水</span></span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">22</span><span class="dw">TUE</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">鳳玉CDE</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>23</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">22</span><span class="dw">TUE</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">椿杯ABC</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>24</em>日</span></span></div>
+              <div class="meta"><span class="dnum"><span class="big">2<small>名</small></span><span class="who"><span>高橋</span><i>・</i><span>伊藤</span></span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="msec">
+          <div class="mhead"><span class="mnum">10</span><span class="mabbr">OCT</span></div>
+          <div class="row">
+            <span class="bar open"></span>
+            <div class="day"><span class="dn">11</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title open">すすきのCD</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>49</em>日</span></span></div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="bar"></span>
+            <div class="day"><span class="dn">25</span><span class="dw sun">SUN</span></div>
+            <div class="rbody">
+              <div class="top"><span class="title">全道A</span><span class="ddl normal"><span class="lab">締切</span><span class="val">あと<em>60</em>日</span></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footrow"><span class="arch">過去のイベント →</span><span class="newbtn">新規作成</span></div>
+
+      </div>
+
+    </div>
+  </div>
+  <div class="bottomnav">
+    <span class="tab">ホーム</span>
+    <span class="tab active">イベント</span>
+    <span class="tab">統計</span>
+    <span class="tab">会員</span>
+    <span class="tab">メール</span>
+    <span class="tab">Bot</span>
+  </div>
+</div>
+</div>
+
+<div class="note">
+  <h3>月区切り（T-4 モダン・グラフィック）— 開催日順のみ</h3>
+  <p>ウィジェット探索（11ラウンド）で確定した案を、出荷済みの行仕様に合成したものです。</p>
+  <ul>
+    <li><b>月見出し</b>: ゼロ埋め2桁数字 31px（詰め字間 -0.03em・藍）＋ 英字月名 11px（字間 0.1em）＋ <b>藍の太罫 2.5px</b>。件数表記は入れない（ユーザー決定）</li>
+    <li><b>日付ブロック</b>: 行頭へ移動。日数字は<b>ゼロなし</b> 19px、下に英字曜日 10px。<b>日曜のみ朱</b>・他曜日は淡墨。大会名の行から日付を除去</li>
+    <li><b>申込可否</b>: <b>3px 色帯（藍=申込可能／砂=不可）</b>と<b>大会名の字面</b>の二重符号 — 大会名はどちらも墨（fg）で、申込可能のみ<b>太字</b>。色帯で一覧の左端をスキャンでき、名前の太さでも同じ情報が読める</li>
+    <li><b>維持するもの</b>: 締切3段階強調（通常15px・3日以内19px・当日=朱ピル）／参加者行（人数藍+苗字）／締切済は非表示</li>
+    <li><b>ページ見出し行は削除</b>（h1「大会申込」・リンク・新規作成ボタンの行）。「過去のイベント →」と「新規作成」（管理者のみ表示）は<b>リスト末尾のフッター行</b>へ移設</li>
+    <li><b>締切日順は現状のまま</b>（月区切りしない。開催日と締切日の月が食い違うため）</li>
+    <li>10月の2行（すすきのCD・全道A）は複数月の見え方確認用の<b>架空データ</b></li>
+    <li>英字（AUG/SUN/SAT）と日曜の朱・土曜の藍は<b>装飾タイポとしての意図的例外</b>（UI文言=日本語原則・朱=警告系原則に対する）</li>
+  </ul>
+</div>
+
+</body></html>
