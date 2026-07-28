@@ -87,7 +87,7 @@ tournament_entry_roster_files
 ## 実装タスク
 
 ### タスク1: スキーマ＋マイグレーション（共有ホットスポット）
-- [ ] 完了
+- [x] 完了
 - **目的:** `tournament_entry_roster_files` を追加し、relations / schema index / migration を整える
 - **対応Issue:** #404
 - **対応AC:** AC-11（UNIQUE 制約）、AC-12

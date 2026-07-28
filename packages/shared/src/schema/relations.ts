@@ -28,6 +28,7 @@ import { tournamentEntryRosterEntries } from './tournament-entry-roster-entries'
 import { tournamentConfirmedRosterPublications } from './tournament-confirmed-roster-publications'
 import { tournamentEditionGradeLotteryFacts } from './tournament-edition-grade-lottery-facts'
 import { tournamentRosterImportDrafts } from './tournament-roster-import-drafts'
+import { tournamentEntryRosterFiles } from './tournament-entry-roster-files'
 
 // tournament-entry-rosters (PR-1a baseline): series 1:N editions、edition は
 // events / tournaments を束ねるハブ（どちらも N:1）。
@@ -67,6 +68,8 @@ export const entryGroupsRelations = relations(entryGroups, ({ many, one }) => ({
   lineBroadcast: one(eventLineBroadcasts),
   // entry-groups: 申込/確定名簿（1グループ = applicant/confirmed 各 0..1 の有効版）。
   rosters: many(tournamentEntryRosters),
+  // roster-file-adoption: パースせず採用した原本ファイル（種別ごとに複数可）。
+  rosterFiles: many(tournamentEntryRosterFiles),
 }))
 
 export const eventsRelations = relations(events, ({ one, many }) => ({
@@ -166,6 +169,8 @@ export const mailAttachmentsRelations = relations(mailAttachments, ({ one, many 
   }),
   shareTokens: many(attachmentShareTokens),
   rosterImportDrafts: many(tournamentRosterImportDrafts),
+  // roster-file-adoption: この添付を原本として採用した名簿（UNIQUE なので 0..1）。
+  rosterFileAdoption: one(tournamentEntryRosterFiles),
 }))
 
 export const tournamentDraftsRelations = relations(tournamentDrafts, ({ one, many }) => ({
@@ -387,6 +392,30 @@ export const tournamentEntryRostersRelations = relations(
     }),
     selectionResultFacts: many(tournamentEditionGradeLotteryFacts, {
       relationName: 'lotteryFactSelectionResultRoster',
+    }),
+  }),
+)
+
+// roster-file-adoption: 原本ファイル採用（パースしない名簿）。tournament_entry_rosters
+// とは独立で、版管理・統計寄与を持たない。
+export const tournamentEntryRosterFilesRelations = relations(
+  tournamentEntryRosterFiles,
+  ({ one }) => ({
+    entryGroup: one(entryGroups, {
+      fields: [tournamentEntryRosterFiles.entryGroupId],
+      references: [entryGroups.id],
+    }),
+    sourceAttachment: one(mailAttachments, {
+      fields: [tournamentEntryRosterFiles.sourceAttachmentId],
+      references: [mailAttachments.id],
+    }),
+    sourceMail: one(mailMessages, {
+      fields: [tournamentEntryRosterFiles.sourceMailMessageId],
+      references: [mailMessages.id],
+    }),
+    adoptedBy: one(users, {
+      fields: [tournamentEntryRosterFiles.adoptedByUserId],
+      references: [users.id],
     }),
   }),
 )

@@ -34,6 +34,8 @@ export * from './tournament-entry-roster-entries'
 export * from './tournament-confirmed-roster-publications'
 export * from './tournament-edition-grade-lottery-facts'
 export * from './tournament-roster-import-drafts'
+// roster-file-adoption: パースせず原本ファイルのまま採用した名簿
+export * from './tournament-entry-roster-files'
 // tournament-results
 export * from './players'
 export * from './tournaments'
