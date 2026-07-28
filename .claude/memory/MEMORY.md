@@ -242,3 +242,5 @@
 - [大会申込一覧 月区切り 実装](impl_event_list_month_grouping.md) — 開催日順のみ月セクション化。delta のソートスコープ解釈と、実DB無しでの忠実度検証手順
 - [auto-review PR #401](auto-review-round-pr401.md) — R1 verdict=cutoff(user-wontfix) blockers 0 / a11y 1件見送り
 - [大会申込一覧 月区切り 出荷](project_ship-event-list-month-grouping.md) — shipped: PR #401。a11y指摘1件をWONTFIX(=/eventsだけh1無し)
+- [auto-review PR #402](auto-review-round-pr402.md) — R1 verdict=pass（指摘ゼロ・修正なし）
+- [月見出し sticky＋既定ソート開催日順 出荷](project_ship-event-list-sticky-month-default-sort.md) — shipped: PR #402。既定ソート変更で行内 getByText が日付ブロックと衝突する型
