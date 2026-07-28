@@ -223,7 +223,6 @@
 - [entry-management round13 改修要件定義（区画名改称・1グループ1行化）](project_entry_management_round13_def.md) — 親Issue #393。★罠3つ=mail-inboxの同名「要対応」/表示名の導出順序/明朝は700固定
 - [公認大会の級別参加料を定数として保持](project_ship-grade-entry-fee.md) — shipped: PR #392
 - [gate-dod.sh は Windows CRLF で D2 と CI 委譲が壊れる](feedback_gate_dod_crlf_windows.md) — profile-read.py の print() が CRLF。配列の末尾以外に \r が残り docs 判定と CI_COVERS が不発
-<<<<<<< HEAD
 - [entry-form-autofill 実装（全8タスク）](impl_entry_form_autofill.md) — 申込書xlsx自動記入+Yahoo下書き。実物由来fixture・入力規則で明細終端判定・server-only/vitest罠
 - [server-only は vitest から import すると throw する](feedback_server_only_breaks_vitest.md) — alias で空実装へ。パッケージ同梱の empty.js は exports に無く指せない
 - [apps/web の vitest(jsdom) で import.meta.url は file: にならない](feedback_web_vitest_import_meta_url.md) — fixtureパスは process.cwd() 起点で解決。mail-worker の先例は使えない
@@ -231,9 +230,7 @@
 - [fix PR #399 (R2)](impl_fix-pr399-r2.md) — ★xlsx の docProps に実名が残る。複数シート未確定で全件重複記入
 - [実物由来の fixture は docProps に実名が残る](feedback_office_docprops_pii.md) — セル値の差し替えでは消えない。scrub＋メタデータ検査テストをセットで
 - [PR #399 fixture の PII 露出はリスク受容（2026-07-28）](project_pr399_fixture_pii_accepted.md) — public repo の履歴に実名残置。HEAD は scrub 済み＋検査テストあり。是正はしない
-=======
 - [イベント一覧 月区切りタイムライン 方向性合意](project_event_list_month_grouping_direction.md) — T-4系・月08/日9・SUN英字・件数表記なし。次=/design-screen delta
 - [entry-management round 13 実装](impl_entry-board-round13.md) — 区画名改称・1グループ1行化・round 13 ビジュアル移植。Wave2 並行実装
 - [auto-review PR #398](auto-review-round-pr398.md) — R1 verdict=pass（1ラウンド収束・final省略）
 - [申込管理ボード round 13（改称・1グループ1行化・ビジュアル移植）](project_ship-entry-board-round13.md) — shipped: PR #398（残DoD=本番375px実機）
->>>>>>> origin/main
