@@ -14,6 +14,7 @@
     "dev:session": "tsx scripts/dev-session-cookie.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@auth/drizzle-adapter": "^1.11.2",
     "@kagetra/api": "workspace:^",
     "@kagetra/mail-worker": "workspace:*",
@@ -21,12 +22,15 @@
     "clsx": "^2.1.1",
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.45.0",
+    "exceljs": "^4.4.0",
     "hono": "^4.7.0",
+    "imapflow": "^1.0.0",
     "next": "^15.3.0",
     "next-auth": "5.0.0-beta.31",
     "pg": "^8.13.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.3.6"

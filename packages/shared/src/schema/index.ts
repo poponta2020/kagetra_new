@@ -20,6 +20,9 @@ export * from './event-broadcast-guideline-attachments'
 export * from './line-grade-group-bindings'
 export * from './event-grade-broadcasts'
 export * from './attachment-share-tokens'
+// entry-form-autofill: 会定数 key-value + 申込書下書き作成履歴
+export * from './app-settings'
+export * from './entry-form-drafts'
 export * from './event-lifecycle-notifications'
 export * from './push-subscriptions'
 // tournament-entry-rosters (PR-1a baseline): 系列/開催マスタ

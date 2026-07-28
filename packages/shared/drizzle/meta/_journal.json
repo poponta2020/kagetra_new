@@ -351,6 +351,13 @@
       "when": 1785101984661,
       "tag": "0049_sour_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785202794831,
+      "tag": "0050_jazzy_mauler",
+      "breakpoints": true
     }
   ]
 }

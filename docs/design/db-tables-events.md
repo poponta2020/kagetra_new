@@ -209,3 +209,27 @@
 | created_at | timestamptz | NOT NULL | `now()` | |
 
 **制約**: UNIQUE `event_lifecycle_notifications_event_type_uq` on (event_id, type)
+
+## entry_form_drafts（TS: `entryFormDrafts`）
+
+定義ファイル: `packages/shared/src/schema/entry-form-drafts.ts`
+
+申込書下書きの作成履歴（entry-form-autofill）。1作成=1行。行は IMAP APPEND 実行前に `pending` で保存し、成功したら `created`、失敗したら `imap_failed` に更新する（編集値と生成 xlsx を失わない）。挿入から更新までの間にプロセスが落ちた行は `pending` のまま残るので、「下書きが無いのに成功」の誤表示にならない。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| created_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| to_email | text | NOT NULL | — | |
+| subject | text | NOT NULL | — | |
+| body | text | NOT NULL | — | |
+| attachment_filename | text | NOT NULL | — | |
+| message_id | text | NOT NULL | — | RFC 5322 Message-ID。APPEND の冪等キー（再試行で同じ値を使い、Draft を照合して二重作成を防ぐ） |
+| xlsx | bytea | NOT NULL | — | 生成済み申込書のコピー（再ダウンロード用） |
+| member_count | integer | NOT NULL | — | |
+| status | entry_form_draft_status (enum) | NOT NULL | 'pending' | `pending`（未着手）/ `appending`（APPEND 実行中＝claim 済み。再試行の排他に使う）/ `created` / `imap_failed` |
+| imap_error | text | NULL | — | |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**インデックス**: `entry_form_drafts_group_created_idx` on (entry_group_id, created_at)（グループの最新行引き当て用）

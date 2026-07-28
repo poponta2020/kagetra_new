@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import {
+  entryFormDrafts,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   eventGradeBroadcasts,
@@ -134,6 +135,26 @@ export default async function EventDetailPage({
   // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
   // ダイアログの両方が使う。
   const groupSiblings = await listGroupSiblings(db, event.id)
+
+  // entry-form-autofill タスク8 (AC-17): 進行管理に出す最新の申込書下書き。
+  // 管理者にしか描画しないので、非管理者には RSC payload にも載せない。
+  const entryFormLatestDraft = isAdmin
+    ? ((
+        await db
+          .select({
+            id: entryFormDrafts.id,
+            createdAt: entryFormDrafts.createdAt,
+            createdByName: users.name,
+            attachmentFilename: entryFormDrafts.attachmentFilename,
+            status: entryFormDrafts.status,
+          })
+          .from(entryFormDrafts)
+          .leftJoin(users, eq(users.id, entryFormDrafts.createdBy))
+          .where(eq(entryFormDrafts.entryGroupId, event.entryGroupId))
+          .orderBy(desc(entryFormDrafts.createdAt), desc(entryFormDrafts.id))
+          .limit(1)
+      )[0] ?? null)
+    : null
 
   // event-line-broadcast: 紐付け状態と配信履歴を取得する。
   //
@@ -441,6 +462,8 @@ export default async function EventDetailPage({
           setEntriesAppliedAction={setEntriesApplied}
           setPaymentsPaidAction={setPaymentsPaid}
           setPaymentTypesAction={setPaymentTypes}
+          entryFormGroupId={event.kind === 'individual' ? event.entryGroupId : undefined}
+          entryFormLatestDraft={entryFormLatestDraft}
         />
       )}
 

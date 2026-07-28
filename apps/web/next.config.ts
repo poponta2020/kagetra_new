@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
   // bundled package's directory — keep the two in sync when adding entries.
   transpilePackages: ['@kagetra/shared', '@kagetra/mail-worker'],
   output: 'standalone',
+  experimental: {
+    // entry-form-autofill: 申込書 xlsx を base64 で Server Action へ渡すため、
+    // 既定の 1MB では実サイズ 750KB 程度で 413 になる。UI 側は 2MB で弾く。
+    serverActions: { bodySizeLimit: '4mb' },
+  },
   // monorepo の root を明示。Next.js 15 は auto-detect するが、CI/prod 差異リスク回避のため明示 (Phase B Phase 0 Discovery 結果)。
   outputFileTracingRoot: path.join(__dirname, '../../'),
   // dev で Hono RPC client (apps/web/src/lib/api.ts) の相対 path '/hono-api/*' を http://localhost:3001 に転送する。本番は nginx が同じ path を api 3001 に proxy_pass するので、ここでは production=空配列。

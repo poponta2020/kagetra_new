@@ -21,6 +21,10 @@
 > - `apps/web/src/lib/event-status.ts`
 > - `apps/web/src/lib/form-schemas.ts`（`eventFormSchema` / `extractEventFormData` / `extractEventUnitsFormData`）
 > - `apps/web/src/lib/jst-date.ts`（JST 日付計算。締切判定・一覧分割で利用）
+> - `apps/web/src/app/(app)/admin/entry-form/[groupId]/`（申込書作成プレビュー S2・Server Actions）
+> - `apps/web/src/app/(app)/settings/entry-form/`（申込書設定 S3）
+> - `apps/web/src/lib/entry-form/`（セルマップ推定・xlsx 記入・メール定型・MIME・IMAP APPEND・会定数）
+> - `apps/web/src/app/api/admin/entry-form/drafts/[id]/route.ts`（生成 xlsx のダウンロード）
 
 ## 機能仕様
 
@@ -200,6 +204,26 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 日付判定はサーバーで確定した JST の `YYYY-MM-DD` を渡して文字列比較する（クライアントで `Date.now()` を呼ぶと hydration mismatch になる）。仕分け・並び順・日付バッジ・強調判定は `admin/entries/entry-board-utils.ts` の純関数。毎朝の `entry-overdue-alert` も「要申込」と同じ対象定義を使う（[spec/notifications.md](notifications.md)）。
 
+### `/admin/entry-form/[groupId]` 申込書作成プレビュー
+
+申込グループ単位で申込書 xlsx を自動記入し、Yahoo メールの下書きを作る（admin / vice_admin のみ）。3ステップのウィザード。
+
+1. **テンプレ選択と列対応の確認** — グループに紐付く取込メール（`tournament_draft` 経由）の `.xlsx` 添付を候補として提示する。手動アップロードも常に可能。選択すると列対応（どの列に何を書くか）をコードのヒューリスティックで推定し、低信頼のときだけ Claude Haiku へフォールバックする。どちらの結果もこの画面で目視確認・手動修正する
+2. **対象会員** — グループ内全イベントの `attend=true` の和集合（会員単位で重複排除）。行の除外・再追加と全セルの編集ができる。姓名・かな未登録／級未設定／出場回数が名簿欠落で過少の3種を警告として先出しする。姓名・かなの入力値は `users` の `family_name` / `given_name` / `family_kana` / `given_kana` へ書き戻す（`name` は変更しない）
+3. **メール下書き** — 宛先・件名・添付ファイル名・本文をプレフィルして編集させる。プレフィルの出所（申込書から抽出／主催者指定を AI 抽出／定型）をバッジで示す
+
+確定すると **xlsx を記入 → MIME を組み立て（＝宛先・差出人の検証）→ 作成履歴（`entry_form_drafts`。生成 xlsx のコピーを含む）を `appending` で保存 → IMAP APPEND で Yahoo の `Draft` フォルダへ書き込む → 成功なら `created`、失敗なら `imap_failed` に更新** する。MIME 組立を履歴保存より前に置くのは、入力ミスを IMAP 障害として記録しないため（失敗画面には直す導線が無い）。履歴の保存は APPEND より前なので、Yahoo への書き込みが失敗しても編集値と生成 xlsx は失われない（失敗画面からその場でダウンロードでき、再試行もできる）。`appending` のまま残った行は「結果が確認できていない」扱いで、成功とは表示しない。失敗のやり直しは**同じ履歴行と同じ Message-ID** を使い、APPEND の前に Draft を Message-ID で照合する（「APPEND は成功したが応答が返らなかった」あとの再試行で下書きが重複しないため）。宛先の形式検証と MIME 組立は履歴保存より前に行い、入力ミスを IMAP 障害として記録しない。
+
+級別複数シートのテンプレでは、各シートの対象級が決まっていること・同じ級が複数シートに割り当てられていないことをプレビューと Server Action の両方で検証する（前者は全員が全シートに、後者は該当者が2枚に重複記入されるため）。
+
+参加級は `users.grade` を初期値にしつつ**自由入力**で、F級など大会独自級や当日昇級に対応する。級別シートへの振り分けと級別人数の集計は A〜E に一致する値だけを対象にし、独自級の会員は「どのシートにも該当しない」として作成後に警告する。
+
+**送信機構は持たない。** SMTP・送信 API への依存が無く、Yahoo への書き込みは IMAP APPEND だけなので、このシステムからメールが送信されることはアーキテクチャ上あり得ない。送信は管理者が Yahoo メールで下書きを確認して手動で行う。本機能は `events.entry_status` を変更しない（「申込済にする」は従来どおり手動）。
+
+### `/settings/entry-form` 申込書設定
+
+申込書ヘッダ欄と申込メールに使う会の定数6項目（都道府県／所属会名／申込責任者氏名／連絡先電話番号／連絡先 E-Mail／振込名義人）を編集する（admin / vice_admin のみ）。値は `app_settings` に `entry_form.` 接頭辞の key-value として保存する。責任者交代はこの画面の編集だけで完結する。
+
 ### `/events-archive` 過去のイベント
 
 過去日（JST 今日より前）のイベントを開催日降順のカードリストで表示。並び替え/フィルタは無く、タイトル・公認バッジ・開催日・会場（設定時）・ステータスピル・参加人数を示す簡易ビュー。
@@ -254,6 +278,14 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 ### `setEntriesApplied(eventIds, applied)` / `setPaymentsPaid(eventIds, paid)` / `setPaymentTypes(eventIds, type)` — `events/[id]/actions.ts`（entry-groups タスク4）
 
 `setEntryApplied` / `setPaymentPaid` / `setPaymentType` はそれぞれこの複数形版への薄いラッパー（`bulk([eventId], ...)`）で、単一 `eventId` を渡した場合の状態遷移・claim・文面・`revalidatePath` は従来と完全に同一。`eventIds` は重複除去して id 昇順にソートし、先頭 id から解決した `entry_group_id` を全 UPDATE の WHERE に併記する fail-closed（グループ外の id はクライアントの申告を信用せず無条件に対象から外れる）。`setEntriesApplied(ids, true)` / `setPaymentsPaid(ids, true)` は各 id をガード付き UPDATE → flip できた行のうち `cancelled` はここで再ガードして claim 対象から除外 → 種別ごとに独立 claim → **claim できた集合だけ**で参加者向け・会計向けそれぞれ1通に集約 push する（`sendClaimedNotificationBulk`、[spec/notifications.md](notifications.md)）。逆方向（`applied=false` / `paid=false`）と `setPaymentTypes` は通知を送らない。
+
+### `loadEntryFormContext(groupId)` / `analyzeTemplateAction(input)` / `saveMemberNamesAction(entries)` / `createEntryFormDraftAction(input)` — `admin/entry-form/[groupId]/actions.ts`
+
+いずれも admin / vice_admin のみ。`loadEntryFormContext` はグループのメタ情報・テンプレ候補・対象会員（出場回数のプレフィル込み）・会定数・最新の作成履歴を1度に返す。`analyzeTemplateAction` は列対応の推定（ヒューリスティック→低信頼時のみ AI）と、案内メール本文からの主催者指定（件名・添付ファイル名・申込先）の抽出を行う。`saveMemberNamesAction` は姓名・かなの4フィールドだけを `users` へ書き戻す。`createEntryFormDraftAction` は「xlsx 記入 → 履歴保存 → MIME → IMAP APPEND → status 更新」の順に実行し、APPEND 失敗時は `status='imap_failed'` と `imap_error` を記録して結果を返す（例外にしない）。どのシートにも該当しなかった会員数・テンプレ行数を超えた会員数も戻り値に含め、画面で警告する。
+
+### `saveEntryFormSettingsAction(values)` — `settings/entry-form/actions.ts`
+
+会の定数6項目の保存（admin / vice_admin のみ）。空文字は「未設定」として該当キーの行を削除する。
 
 ## 既知のギャップ・未確認事項
 

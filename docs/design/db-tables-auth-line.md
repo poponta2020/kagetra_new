@@ -142,3 +142,16 @@ Web Push購読情報（mail-triage-badge機能。1ユーザー複数端末を許
 | last_used_at | timestamptz | NULL | — | |
 
 **インデックス**: `push_subscriptions_user_id_idx` on (user_id)
+
+## app_settings（TS: `appSettings`）
+
+定義ファイル: `packages/shared/src/schema/app-settings.ts`
+
+汎用 key-value の会定数ストア（entry-form-autofill で新設）。最初の用途は申込書ヘッダ・申込メールに使う会の定数6項目（都道府県／所属会名／申込責任者氏名／連絡先電話／連絡先 E-Mail／振込名義人）。キー定義と型付き get/set は `apps/web/src/lib/entry-form/settings.ts`。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| key | text | NOT NULL | — | PK |
+| value | text | NOT NULL | — | |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+| updated_by | text | NULL | — | FK→users.id ON DELETE SET NULL |

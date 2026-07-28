@@ -27,7 +27,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマ追加（app_settings / entry_form_drafts）+ migration 0050
-- [ ] 完了
+- [x] 完了
 - **目的:** 会定数の保存先と作成履歴（生成 xlsx bytea 含む）の DB 基盤
 - **対応AC:** AC-1, AC-17（基盤）
 - **主な変更領域:** `packages/shared/src/schema/app-settings.ts`（新規・key-value: key PK / value / updated_at / updated_by SET NULL）、`packages/shared/src/schema/entry-form-drafts.ts`（新規: entry_group_id FK **CASCADE**・created_by SET NULL・to_email/subject/body/attachment_filename・xlsx bytea（mail-attachments.ts の customType 先例を踏襲）・member_count・status enum('created','imap_failed')・imap_error・created_at。group→最新行引き当ての index）、`packages/shared/src/schema/index.ts`、`packages/shared/drizzle/0050_*.sql`
@@ -37,7 +37,7 @@ status: completed
 - **対応Issue:** #382
 
 ### タスク2: セルマップ推定（ヒューリスティック）+ 合成 fixture
-- [ ] 完了
+- [x] 完了
 - **目的:** テンプレ xlsx からヘッダ行・列対応・記入開始行・複数シート振分・段位表記形式を推定する純ロジック
 - **対応AC:** AC-6, AC-11（判定部）
 - **主な変更領域:** `apps/web/src/lib/entry-form/cell-map.ts`（型 + ヒューリスティック: 「参加級/段位/姓/名/ふりがな/氏名/出場回数/備考」キーワード探索・入力規則リスト読取・シート名/固定値からの対象級判定・ヘッダ欄（都道府県/所属会名/責任者/電話/E-Mail/振込名義人）検出・「申込先」メールアドレス regex 抽出）、`apps/web/src/lib/entry-form/__fixtures__/`（合成 xlsx 生成スクリプト＋生成物: 標準型/姓名結合型/複数シート型/変形型の4系統）
@@ -47,7 +47,7 @@ status: completed
 - **対応Issue:** #383
 
 ### タスク3: メール定型・MIME 組立・IMAP APPEND
-- [ ] 完了
+- [x] 完了
 - **目的:** 件名/本文の定型生成（級別人数集計込み）と、送信機構を持たない下書き作成経路
 - **対応AC:** AC-14, AC-15, AC-16（構造）
 - **主な変更領域:** `apps/web/src/lib/entry-form/mail-template.ts`（定型件名/ファイル名プレフィックス/本文。宛名は organizer_text から）、`apps/web/src/lib/entry-form/mime.ts`（自前 MIME: UTF-8 text + xlsx base64 添付 + RFC2047）、`apps/web/src/lib/entry-form/imap-draft.ts`（imapflow で `Draft` へ APPEND・\Draft フラグ。YAHOO_IMAP_* は mail-worker の loadImapConfig を import して再利用）、`apps/web/package.json`（imapflow 依存追加）
@@ -57,7 +57,7 @@ status: completed
 - **対応Issue:** #384
 
 ### タスク4: xlsx 記入エンジン（exceljs fill）
-- [ ] 完了
+- [x] 完了
 - **目的:** CellMap + 会員データ + 会定数から記入済み xlsx を生成（数式・結合セル・入力規則を保持）
 - **対応AC:** AC-10, AC-11（記入部）
 - **主な変更領域:** `apps/web/src/lib/entry-form/fill.ts`（明細行記入・複数シート振分・ヘッダ欄記入・段位整形（danFormat 準拠、dan NULL/0=無段）・数式セルスキップ）、`apps/web/package.json`（exceljs 依存追加）
@@ -67,7 +67,7 @@ status: completed
 - **対応Issue:** #385
 
 ### タスク5: AI フォールバック（Haiku）: セルマップ推定＋指定抽出
-- [ ] 完了
+- [x] 完了
 - **目的:** ヒューリスティック低信頼時のセルマップ推定と、主催者指定（件名・ファイル名・申込先）の抽出
 - **対応AC:** AC-7, AC-12（AI 部）, AC-13
 - **主な変更領域:** `apps/web/src/lib/entry-form/ai-extract.ts`（@anthropic-ai/sdk・claude-haiku-4-5-20251001・forced tool use・入力=シートのテキスト表現＋案内メール本文・出力=CellMap 断片＋指定件名/ファイル名/申込先。API エラー時は「推定不可」を返しフローは手動マッピングへ）
@@ -77,7 +77,7 @@ status: completed
 - **対応Issue:** #386
 
 ### タスク6: 会定数 settings lib + S3 設定ページ
-- [ ] 完了
+- [x] 完了
 - **目的:** 会の定数6項目の読み書きと設定ハブ配下の編集画面
 - **対応AC:** AC-1, AC-2（S3 分）
 - **主な変更領域:** `apps/web/src/lib/entry-form/settings.ts`（app_settings の get/set・キー定義）、`apps/web/src/app/(app)/settings/entry-form/page.tsx` + `actions.ts`（admin/vice_admin ガード）、`apps/web/src/app/(app)/settings/page.tsx`（adminLinks に「申込書設定」追加）
@@ -87,7 +87,7 @@ status: completed
 - **対応Issue:** #387
 
 ### タスク7: S2 プレビュー画面（3ステップウィザード）+ Server Actions
-- [ ] 完了
+- [x] 完了
 - **目的:** 機能の中心。テンプレ選択→列対応確認→会員編集→メール確認→下書き作成の一連
 - **対応AC:** AC-2, AC-3（遷移先）, AC-4, AC-5, AC-5b, AC-8, AC-9, AC-9b, AC-12, AC-13, AC-15, AC-17, AC-18
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entry-form/[groupId]/`（page.tsx / EntryFormWizard.tsx ほかクライアント一式・actions.ts）。actions: ①初期データ（グループ・添付候補=tournamentDraftId→mail_messages→mail_attachments(.xlsx)・attend=true 和集合・出場回数=appearance-counts(基準日=当日JST)）②テンプレ解析（タスク2/5 を呼ぶ。手動アップロード受口含む）③かな書き戻し（users の kana 4フィールドのみ）④下書き作成（fill→**entry_form_drafts へ保存（IMAP 前）**→MIME→APPEND→status 更新。失敗時 imap_failed + エラー返却）⑤生成 xlsx ダウンロード。UI はボトムシート規約（createPortal(body)+svh）踏襲
@@ -97,10 +97,11 @@ status: completed
 - **対応Issue:** #388
 
 ### タスク8: S1 進行管理への導線 + 履歴表示/再DL + 仕上げ
-- [ ] 完了
+- [x] 完了
 - **目的:** イベント詳細からの入口と作成履歴の見える化。忠実度チェックリストの最終確認
 - **対応AC:** AC-3, AC-17（表示分）, AC-19, AC-20
-- **主な変更領域:** `apps/web/src/components/events/EventLifecycleSection.tsx`（「申込書」行: 未作成→作成リンク／作成済→pill+日時作成者+ファイル名/DL+再作成。kind=individual のみ・admin のみ）、`.env.production.example` と `docker/docker-compose.yml` の web サービスへ YAHOO_IMAP_* 追記（**本番 .env への実値反映は出荷後の手作業 DoD として PR に明記**）
+- **主な変更領域:** `apps/web/src/components/events/EventLifecycleSection.tsx`（「申込書」行: 未作成→作成リンク／作成済→pill+日時作成者+ファイル名/DL+再作成。kind=individual のみ・admin のみ）、`apps/web/src/app/(app)/events/[id]/page.tsx`（最新履歴の取得と受け渡し）
+  - **実装時の訂正:** `docker/docker-compose.yml` に web サービスは無く（web は systemd の `kagetra-web.service` で起動する）、その unit は既に `/opt/kagetra/.env.production` を `EnvironmentFile` に読む。`YAHOO_IMAP_*` は同ファイルに既存のため、**本番 env の追加作業は不要**（`.env.production.example` に web でも使う旨のコメントだけ追記）
 - **依存タスク:** タスク7
 - **必要なテスト:** 行表示の条件分岐（未作成/作成済/一般会員非表示/team 非表示）・既存 lifecycle テストの回帰 green
 - **完了条件:** vitest green・design-spec §忠実度チェックリスト全項目クリア・`git grep DESIGN-PROTO` 対象外（Path D のため不要）
@@ -115,4 +116,5 @@ status: completed
 
 ## デプロイ考慮事項（/ship 時の残 DoD 候補）
 
-- 本番 web コンテナへの `YAHOO_IMAP_HOST/PORT/USER/APP_PASSWORD` 追加（compose 変更は PR に含む・実値は本番 .env へ手作業）→ AC-21 の実機確認とセットで消化
+- ~~本番 web コンテナへの `YAHOO_IMAP_HOST/PORT/USER/APP_PASSWORD` 追加~~ → **不要と判明**。web は systemd 起動で `/opt/kagetra/.env.production` を読み、`YAHOO_IMAP_*` は既にそこにある（mail-worker と共用）
+- 残る手作業は **AC-21 の実機確認のみ**: 本番で申込書を作成し、Yahoo メールの下書きに宛先・件名・本文・添付 xlsx が正しく入っていること、送信が起きていないことを確認する

@@ -73,6 +73,26 @@ describe('/settings（設定ハブ）', () => {
     })
   })
 
+  describe('申込書設定リンク（entry-form-autofill AC-1, AC-2）', () => {
+    it('admin には表示され /settings/entry-form を指す。一般会員には表示されない', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      await setAuthSession({ id: 'u-admin', role: 'admin', name: '管理太郎' })
+      await renderPage()
+
+      expect(
+        screen.getByRole('link', { name: /申込書設定/ }).getAttribute('href'),
+      ).toBe('/settings/entry-form')
+    })
+
+    it('一般会員には表示されない', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      await setAuthSession({ id: 'u-member', role: 'member', name: '山田太郎' })
+      await renderPage()
+
+      expect(screen.queryByText('申込書設定')).toBeNull()
+    })
+  })
+
   describe('ユーザー名表示（AC-12）', () => {
     it('「◯◯さん」が表示される', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
