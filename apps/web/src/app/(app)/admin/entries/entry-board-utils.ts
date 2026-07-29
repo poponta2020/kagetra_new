@@ -7,6 +7,10 @@ import type {
   PaymentStatus,
   PaymentType,
 } from '@/components/events/LifecycleStatusBadge'
+// mail-ai-extract-refinements §3.2.7: 振込締切の状態。type-only import なので
+// `@/lib/entry-groups` の DB 依存漏れ注意（上のコメント）とは事情が違う——
+// `@/lib/events/payment-deadline` 自体が純関数のみで値 import を持たない。
+import type { PaymentDeadlineKind } from '@/lib/events/payment-deadline'
 
 /**
  * entry-groups タスク6: 表示名導出・代表イベント選定は `@/lib/entry-groups` の
@@ -92,6 +96,12 @@ export interface EntryBoardItem {
   internalDeadline: string | null
   entryDeadline: string | null
   paymentDeadline: string | null
+  /**
+   * 振込締切の状態（AC-42）。`paymentDeadline` が null のとき、`later_notice` なら
+   * 「後日連絡」、`unspecified` なら従来どおり「締切未設定」と出し分ける
+   * （{@link deadlineBadgeOf} 参照）。
+   */
+  paymentDeadlineKind: PaymentDeadlineKind
   lotteryDate: string | null
   entryStatus: EntryStatus
   /** null = 支払い通知なし（既存スキーマの意味。events.ts 参照）。 */
@@ -621,12 +631,25 @@ export function deadlineBadgeOf(
     case 'applied_waiting':
       return build('抽選日', item.lotteryDate, todayStr, '未定')
     case 'payment_due':
-      return build('支払締切', item.paymentDeadline, todayStr, '締切未設定')
+      return paymentDeadlineBadge(item, todayStr)
     case 'done':
       return build('開催日', item.eventDate, todayStr)
     default:
       return build('会内締切', baseDeadlineOf(item), todayStr, '締切未設定')
   }
+}
+
+/**
+ * 「名簿確定・要振込」区画の締切バッジ（AC-42）。`payment_deadline` が null のとき、
+ * `later_notice`（案内に「後日連絡」と明記されていた）なら期限超過扱いにしない
+ * ——締切が決まっていないのだから遅延ではない。`unspecified`（読み取れなかった等）
+ * は従来どおり「締切未設定」（tone: 'none'。{@link isDue} は fail-safe で到来済み扱い）。
+ */
+function paymentDeadlineBadge(item: EntryBoardItem, todayStr: string): DeadlineBadge {
+  if (item.paymentDeadline == null && item.paymentDeadlineKind === 'later_notice') {
+    return { label: '支払締切', date: null, countdown: '後日連絡', tone: 'normal' }
+  }
+  return build('支払締切', item.paymentDeadline, todayStr, '締切未設定')
 }
 
 function build(

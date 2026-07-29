@@ -496,6 +496,54 @@ describe('/admin/entries（申込管理ボード）', () => {
         within(sectionOf('申込完了・抽選待ち')).queryByText('名簿未取込の振込済大会'),
       ).toBeNull()
     })
+
+    // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-42): payment_deadline が
+    // null のとき、状態（events.payment_deadline_kind）で「後日連絡」「締切未設定」を
+    // 出し分ける。サーバーの select に列が乗っていることをここで固定する
+    // （純関数側の分岐は entry-board-utils.test.ts）。
+    it('AC-42: payment_deadline_kind=later_notice は「後日連絡」と表示される', async () => {
+      const today = todayJst()
+      const event = await createEvent({
+        title: '後日連絡大会',
+        eventDate: addDays(today, 10),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        paymentDeadlineKind: 'later_notice',
+      })
+      await testDb.insert(tournamentEntryRosters).values({
+        entryGroupId: event.entryGroupId,
+        rosterType: 'confirmed',
+      })
+
+      await renderPage()
+
+      const section = sectionOf('名簿確定・要振込')
+      expect(within(section).getByText('後日連絡大会')).toBeTruthy()
+      expect(within(section).getByText('後日連絡')).toBeTruthy()
+    })
+
+    it('AC-42: payment_deadline_kind=unspecified（既定）は従来どおり「締切未設定」', async () => {
+      const today = todayJst()
+      const event = await createEvent({
+        title: '締切情報なし大会',
+        eventDate: addDays(today, 10),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        // paymentDeadlineKind 未指定 = createEvent の既定（unspecified）
+      })
+      await testDb.insert(tournamentEntryRosters).values({
+        entryGroupId: event.entryGroupId,
+        rosterType: 'confirmed',
+      })
+
+      await renderPage()
+
+      const section = sectionOf('名簿確定・要振込')
+      expect(within(section).getByText('締切情報なし大会')).toBeTruthy()
+      expect(within(section).getByText('締切未設定')).toBeTruthy()
+    })
   })
 
   describe('空状態（AC-25）', () => {

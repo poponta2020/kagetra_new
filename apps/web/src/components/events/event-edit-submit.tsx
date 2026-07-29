@@ -26,6 +26,11 @@ const PROPAGATE_FIELD_NAMES = [
   'entryDeadline',
   'internalDeadline',
   'paymentDeadline',
+  // mail-ai-extract-refinements §3.2.7: 状態だけを変えた（例: 後日連絡→未設定のまま
+  // 日付は入れていない）ときも伝播確認ダイアログを出す。日付と状態は CHECK 制約で
+  // 対になっているため、片方だけ伝播すると伝播先で制約違反になる
+  // （entry-groups.ts の PROPAGATABLE_FIELD_KEYS が両方セットで束ねて返す設計と対応）。
+  'paymentDeadlineKind',
   'lotteryDate',
   'paymentMethod',
   'paymentInfo',
@@ -57,7 +62,14 @@ function hasChanges(
   initialValues: EventEditSubmitProps['initialValues'],
 ): boolean {
   return PROPAGATE_FIELD_NAMES.some((name) => {
-    const el = form.elements.namedItem(name) as HTMLInputElement | HTMLTextAreaElement | null
+    // `paymentDeadlineKind` は `<select>` で描画される（HTMLSelectElement も
+    // `.value` を持つので同じ読み方でよい）。要素が無い場合（フォーム構成が変わった
+    // 等）は落とさず変更なし扱いにする。
+    const el = form.elements.namedItem(name) as
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | HTMLSelectElement
+      | null
     if (!el) return false
     const current = el.value ?? ''
     const initial = initialValues[name] ?? ''

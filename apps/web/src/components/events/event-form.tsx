@@ -2,6 +2,11 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { EventKind, EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
+import {
+  PAYMENT_DEADLINE_KINDS,
+  PAYMENT_DEADLINE_KIND_LABELS,
+  type PaymentDeadlineKind,
+} from '@/lib/events/payment-deadline'
 
 export interface EventFormProps {
   mode: 'create' | 'edit'
@@ -41,6 +46,10 @@ export interface EventFormProps {
     status?: EventStatus
     feeJpy?: number | null
     paymentDeadline?: string | null
+    // mail-ai-extract-refinements §3.2.7: 振込締切の「状態」。日付が正
+    // （サーバー側 `normalizePaymentDeadline` が日付の有無から `fixed` へ倒す）ので、
+    // ここは「後日連絡」「締切未設定」を人間が選べるようにするための入力欄。
+    paymentDeadlineKind?: PaymentDeadlineKind | null
     paymentInfo?: string | null
     paymentMethod?: string | null
     entryMethod?: string | null
@@ -307,6 +316,29 @@ export function EventForm({
             />
           </div>
         </div>
+
+        {/* mail-ai-extract-refinements §3.2.7: 振込締切の状態。承認フォーム
+            (embedded) は AI ペイロードのマッピングを別途持つのでここでは出さない
+            （events/[id]/edit・events/new の手動入力のみ）。 */}
+        {!embedded && (
+          <div>
+            <label className={LABEL_CLASS}>振込締切の状態</label>
+            <select
+              name={n('paymentDeadlineKind')}
+              defaultValue={defaultValues?.paymentDeadlineKind ?? 'unspecified'}
+              className={FIELD_CLASS}
+            >
+              {PAYMENT_DEADLINE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {PAYMENT_DEADLINE_KIND_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-meta">
+              日付を入れると保存時に自動で「日付あり」になります。
+            </p>
+          </div>
+        )}
 
         <div>
           <label className={LABEL_CLASS}>支払方法</label>

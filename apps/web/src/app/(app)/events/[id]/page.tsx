@@ -477,6 +477,7 @@ export default async function EventDetailPage({
           feeJpy={event.feeJpy}
           entryDeadline={event.entryDeadline}
           paymentDeadline={event.paymentDeadline}
+          paymentDeadlineKind={event.paymentDeadlineKind}
           entryMethod={event.entryMethod}
           paymentMethod={event.paymentMethod}
           paymentInfo={event.paymentInfo}
