@@ -127,14 +127,16 @@ describe('buildLifecycleMessage', () => {
     ).toBe('⚠️【春の大会】の申込締切は本日 6/5 です。まだ申込が完了していません。')
   })
 
-  it('支払完了 (✅) は金額ありで（円）を付ける', () => {
-    expect(buildLifecycleMessage('payment_paid', { title, feeJpy: 1000 })).toBe(
-      '✅【春の大会】の参加費（1,000円）の支払いが完了しました。',
+  // grade-entry-fee タスク4: payment_paid は 1人あたり額（feeJpy）ではなく振込総額
+  // （totalJpy）を使うよう意味が変わった（AC-17。要件 §破壊的変更 2 で承認済みの2件）。
+  it('支払完了 (✅) は総額ありで（総額 …円）を付ける', () => {
+    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: 11000 })).toBe(
+      '✅【春の大会】の参加費（総額 11,000円）の支払いが完了しました。',
     )
   })
 
-  it('支払完了 (✅) は金額 NULL で金額部分を省略する', () => {
-    expect(buildLifecycleMessage('payment_paid', { title, feeJpy: null })).toBe(
+  it('支払完了 (✅) は総額 NULL で金額部分を省略する', () => {
+    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: null })).toBe(
       '✅【春の大会】の参加費の支払いが完了しました。',
     )
   })
@@ -309,6 +311,162 @@ describe('buildLifecycleMessage — 複数日拡張（entry-groups タスク4）
     const msg = buildLifecycleMessage('payment_paid', {
       title: '',
       feeJpy: 2000,
+      days: [
+        { dateIso: '2026-08-08', title: 'D級' },
+        { dateIso: '2026-08-01', title: 'C級' },
+      ],
+    })
+    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// grade-entry-fee タスク4: buildLifecycleMessage の総額・級別単価拡張（AC-13〜20）。
+// ---------------------------------------------------------------------------
+describe('buildLifecycleMessage — 総額・級別単価拡張（grade-entry-fee タスク4）', () => {
+  it('payment_deadline_advance: 1行目は現行文面のまま・2行目に振込総額（内訳）を足す（AC-13）', () => {
+    const msg = buildLifecycleMessage('payment_deadline_advance', {
+      title: '春の大会ABC級',
+      dateIso: '2026-06-10',
+      leadDays: 3,
+      totalJpy: 11000,
+      breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
+    })
+    expect(msg).toBe(
+      '⏰【春の大会ABC級】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n' +
+        '振込総額 11,000円（A・B級 2名×2,500 / C級 3名×2,000）',
+    )
+  })
+
+  it('payment_deadline_day: 1行目は現行文面のまま・2行目に振込総額を足す（AC-13）', () => {
+    const msg = buildLifecycleMessage('payment_deadline_day', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      totalJpy: 5000,
+    })
+    expect(msg).toBe(
+      '⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。\n振込総額 5,000円',
+    )
+  })
+
+  it('payment_deadline_advance: totalJpy が null なら現行文面とバイト単位で一致する（AC-14）', () => {
+    const msg = buildLifecycleMessage('payment_deadline_advance', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      leadDays: 3,
+      totalJpy: null,
+    })
+    expect(msg).toBe(
+      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。',
+    )
+  })
+
+  it('payment_deadline_day: totalJpy が 0 なら現行文面とバイト単位で一致する（AC-14）', () => {
+    const msg = buildLifecycleMessage('payment_deadline_day', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      totalJpy: 0,
+    })
+    expect(msg).toBe('⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。')
+  })
+
+  it('payment_deadline_advance: unknownGradeCount だけがあり totalJpy が null/未指定なら追加行を出さない', () => {
+    const msg = buildLifecycleMessage('payment_deadline_advance', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      leadDays: 3,
+      unknownGradeCount: 2,
+    })
+    expect(msg).toBe(
+      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。',
+    )
+  })
+
+  it('payment_deadline_advance: unknownGradeCount > 0 で3行目に「※級未設定 N名は未算入」が付く', () => {
+    const msg = buildLifecycleMessage('payment_deadline_advance', {
+      title: '春の大会ABC級',
+      dateIso: '2026-06-10',
+      leadDays: 3,
+      totalJpy: 11000,
+      breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
+      unknownGradeCount: 1,
+    })
+    expect(msg).toBe(
+      '⏰【春の大会ABC級】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n' +
+        '振込総額 11,000円（A・B級 2名×2,500 / C級 3名×2,000）\n' +
+        '※級未設定 1名は未算入',
+    )
+  })
+
+  it('payment_deadline_day: unknownGradeCount が 0 なら3行目を出さない', () => {
+    const msg = buildLifecycleMessage('payment_deadline_day', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      totalJpy: 5000,
+      unknownGradeCount: 0,
+    })
+    expect(msg).toBe(
+      '⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。\n振込総額 5,000円',
+    )
+  })
+
+  it('payment_deadline_advance: breakdownLabel が null/未指定なら総額行の括弧を省略する', () => {
+    const msg = buildLifecycleMessage('payment_deadline_advance', {
+      title: '春の大会',
+      dateIso: '2026-06-10',
+      leadDays: 3,
+      totalJpy: 5000,
+      breakdownLabel: null,
+    })
+    expect(msg).toBe(
+      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n振込総額 5,000円',
+    )
+  })
+
+  it('onsite_payment_advance: unitPricesLabel 未指定は現行の feeJpy 分岐のまま（バイト互換・AC-15）', () => {
+    const msg = buildLifecycleMessage('onsite_payment_advance', {
+      title: '春の大会',
+      feeJpy: 1500,
+      dateIso: '2026-06-20',
+    })
+    expect(msg).toBe('💰【春の大会】は当日現地払いです。参加費 1,500円 を 6/20 当日お持ちください。')
+  })
+
+  it('onsite_payment_advance: unitPricesLabel 指定で級別表記になる（AC-16。feeJpy より優先）', () => {
+    const msg = buildLifecycleMessage('onsite_payment_advance', {
+      title: '春の大会',
+      dateIso: '2026-06-20',
+      feeJpy: 1500,
+      unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
+    })
+    expect(msg).toBe(
+      '💰【春の大会】は当日現地払いです。参加費 A・B級 2,500円 / C級 2,000円 を 6/20 当日お持ちください。',
+    )
+  })
+
+  it('onsite_payment_day: unitPricesLabel 指定で級別表記になる（AC-16）', () => {
+    const msg = buildLifecycleMessage('onsite_payment_day', {
+      title: '春の大会',
+      feeJpy: 1500,
+      unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
+    })
+    expect(msg).toBe('💰 本日は【春の大会】です。現地払い A・B級 2,500円 / C級 2,000円 をお忘れなく。')
+  })
+
+  it('onsite_payment_advance: unitPricesLabel が null なら現行の feeJpy 分岐のまま', () => {
+    const msg = buildLifecycleMessage('onsite_payment_advance', {
+      title: '春の大会',
+      dateIso: '2026-06-20',
+      feeJpy: 1500,
+      unitPricesLabel: null,
+    })
+    expect(msg).toBe('💰【春の大会】は当日現地払いです。参加費 1,500円 を 6/20 当日お持ちください。')
+  })
+
+  it('payment_paid の複数日は totalJpy を渡しても金額なしのまま（AC-18）', () => {
+    const msg = buildLifecycleMessage('payment_paid', {
+      title: '',
+      totalJpy: 11000,
       days: [
         { dateIso: '2026-08-08', title: 'D級' },
         { dateIso: '2026-08-01', title: 'C級' },

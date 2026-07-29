@@ -109,7 +109,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク4: 通知文面の拡張
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 支払締切リマインドに総額行を足し、現地払い・支払完了の金額を導出値へ移す
 - **対応AC:** AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20
 - **主な変更領域:** `apps/web/src/lib/event-lifecycle-notify.ts`（`LifecycleMessageContext` と

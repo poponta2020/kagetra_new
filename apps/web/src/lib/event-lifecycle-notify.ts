@@ -110,6 +110,18 @@ export interface LifecycleMessageContext {
   // N=1 の文面バイト互換を保証するため、この分岐に入れず title/lotteryDateIso 等の
   // スカラ引数のパスをそのまま通す）。
   days?: readonly LifecycleDayEntry[]
+  // grade-entry-fee タスク4: 総額・級別単価は任意フィールドで足す。未指定なら既存の
+  // feeJpy 分岐にそのまま落ちるため、既存アサーションを変えずに AC-14/15/19/20 が通る
+  // （整形は entry-fee.ts が担い、ここへは整形済み文字列/数値を渡す。循環 import 回避のため
+  // このファイルは entry-fee.ts を import しない）。
+  /** 多級のときの級別単価表記（例: 'A・B級 2,500円 / C級 2,000円'）。未指定なら feeJpy の現行分岐（onsite_payment_*）。 */
+  unitPricesLabel?: string | null
+  /** 振込総額（payment_deadline_* / payment_paid）。null / 0 なら金額行を出さない。 */
+  totalJpy?: number | null
+  /** 総額の内訳（例 'A・B級 2名×2,500 / C級 3名×2,000'）。payment_deadline_* の総額行に括弧書きで続く。 */
+  breakdownLabel?: string | null
+  /** 級未設定で総額に未算入の人数。0/未指定なら注記を出さない（payment_deadline_* のみ）。 */
+  unknownGradeCount?: number
 }
 
 /**
@@ -172,6 +184,34 @@ function buildTreasurerLines(day: LifecycleDayEntry): string[] {
   const info = day.paymentInfo?.trim()
   if (info) lines.push(info)
   return lines
+}
+
+/**
+ * grade-entry-fee: 級未設定で総額に未算入の人数の注記。0/未指定なら null。
+ *
+ * **この文言の唯一の置き場所**。通知文面（下の `buildTotalSuffix`）と管理者向けの
+ * 画面表示（イベント詳細の「振込総額」行）が同じ書式を使う。`entry-fee.ts` は
+ * `formatFeeAmount` をこのファイルから import しているので、依存の向きを保つため
+ * 注記の整形もこちら側に置く（逆向きに張ると循環する）。
+ */
+export function formatUnknownGradeNote(count: number | undefined): string | null {
+  return count != null && count > 0 ? `※級未設定 ${count}名は未算入` : null
+}
+
+/**
+ * grade-entry-fee タスク4: payment_deadline_advance/day の2行目以降（振込総額・内訳・
+ * 級未設定注記）。`totalJpy` が null/0 のときは空文字を返し、1行目のみの現行文面と
+ * バイト単位で一致させる（AC-14）。
+ */
+function buildTotalSuffix(
+  ctx: Pick<LifecycleMessageContext, 'totalJpy' | 'breakdownLabel' | 'unknownGradeCount'>,
+): string {
+  const totalLabel = ctx.totalJpy != null && ctx.totalJpy > 0 ? formatFeeAmount(ctx.totalJpy) : null
+  if (!totalLabel) return ''
+  const lines = [`振込総額 ${totalLabel}${ctx.breakdownLabel ? `（${ctx.breakdownLabel}）` : ''}`]
+  const note = formatUnknownGradeNote(ctx.unknownGradeCount)
+  if (note) lines.push(note)
+  return `\n${lines.join('\n')}`
 }
 
 /**
@@ -254,18 +294,39 @@ export function buildLifecycleMessage(
         // 過剰な複雑化を避ける設計選択。main レビューで確認）。
         return `✅${formatDaysLabel(multiDay)}の参加費の支払いが完了しました。`
       }
-      return fee
-        ? `✅【${title}】の参加費（${fee}）の支払いが完了しました。`
-        : `✅【${title}】の参加費の支払いが完了しました。`
+      // grade-entry-fee タスク4: 1人あたり額（feeJpy）ではなく振込総額（totalJpy）を使う
+      // （総額へ意味が変わったため。feeJpy はここでは参照しない — AC-17）。
+      {
+        const total = ctx.totalJpy != null && ctx.totalJpy > 0 ? formatFeeAmount(ctx.totalJpy) : null
+        return total
+          ? `✅【${title}】の参加費（総額 ${total}）の支払いが完了しました。`
+          : `✅【${title}】の参加費の支払いが完了しました。`
+      }
     case 'payment_deadline_advance':
-      return `⏰【${title}】の参加費の支払締切は ${date}（あと ${lead} 日）です。まだ支払いが完了していません。`
+      // grade-entry-fee タスク4: 1行目は現行文面のまま。totalJpy が非 null かつ 0 より
+      // 大きいときだけ2行目以降（振込総額・内訳・級未設定注記）を足す（AC-13/14）。
+      return (
+        `⏰【${title}】の参加費の支払締切は ${date}（あと ${lead} 日）です。まだ支払いが完了していません。` +
+        buildTotalSuffix(ctx)
+      )
     case 'payment_deadline_day':
-      return `⚠️【${title}】の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。`
+      return (
+        `⚠️【${title}】の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。` +
+        buildTotalSuffix(ctx)
+      )
     case 'onsite_payment_advance':
+      // grade-entry-fee タスク4: unitPricesLabel（多級の級別単価）が feeJpy より優先。
+      // 未指定なら現行の feeJpy 分岐のまま（バイト互換・AC-15）。
+      if (ctx.unitPricesLabel) {
+        return `💰【${title}】は当日現地払いです。参加費 ${ctx.unitPricesLabel} を ${date} 当日お持ちください。`
+      }
       return fee
         ? `💰【${title}】は当日現地払いです。参加費 ${fee} を ${date} 当日お持ちください。`
         : `💰【${title}】は当日現地払いです。参加費を ${date} 当日お持ちください。`
     case 'onsite_payment_day':
+      if (ctx.unitPricesLabel) {
+        return `💰 本日は【${title}】です。現地払い ${ctx.unitPricesLabel} をお忘れなく。`
+      }
       return fee
         ? `💰 本日は【${title}】です。現地払い ${fee} をお忘れなく。`
         : `💰 本日は【${title}】です。参加費の現地払いをお忘れなく。`

@@ -196,8 +196,3 @@ export function summarizeFeeTally(rows: readonly GradeHeadcount[]): FeeTallySumm
     .join(' / ')
   return { totalJpy, breakdownLabel }
 }
-
-/** 級未設定で総額に算入できなかった人数の注記。0 なら null。 */
-export function formatUnknownGradeNote(count: number): string | null {
-  return count > 0 ? `※級未設定 ${count}名は未算入` : null
-}

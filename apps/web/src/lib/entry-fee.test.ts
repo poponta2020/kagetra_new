@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   entryFeeForGrade,
   formatGradesLabel,
-  formatUnknownGradeNote,
   formatUnitPricesLabel,
   memberEntryFeeJpy,
   resolveEntryFee,
@@ -178,15 +177,5 @@ describe('summarizeFeeTally', () => {
 
   it('対象が居なければ総額 0・内訳 null（金額行を出さない側の入力になる）', () => {
     expect(summarizeFeeTally([])).toEqual({ totalJpy: 0, breakdownLabel: null })
-  })
-})
-
-describe('formatUnknownGradeNote', () => {
-  it('1名以上で注記を返す', () => {
-    expect(formatUnknownGradeNote(1)).toBe('※級未設定 1名は未算入')
-  })
-
-  it('0 名なら null', () => {
-    expect(formatUnknownGradeNote(0)).toBeNull()
   })
 })
