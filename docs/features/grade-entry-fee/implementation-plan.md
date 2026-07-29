@@ -131,7 +131,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク5: 支払締切リマインドへの配線
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 日次バッチが総額つきの文面を送れるようにする（単一日・複数日バケットの両方）
 - **対応AC:** AC-12, AC-13, AC-14
 - **主な変更領域:** `apps/web/scripts/send-lifecycle-reminders.ts` /
@@ -150,7 +150,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク6: 支払完了通知を総額へ
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 「支払済にする」で飛ぶ完了通知の金額を、1人あたり額から実際に振り込んだ総額へ変える
 - **対応AC:** AC-17
 - **主な変更領域:** `apps/web/src/app/(app)/events/[id]/actions.ts`（`buildPaymentPaidMessage` と
@@ -168,7 +168,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク7: イベント詳細画面への表示
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 会員に「あなたの参加費」を、管理者に総額と内訳を出す
 - **対応AC:** AC-21, AC-22, AC-23, AC-24, AC-25
 - **主な変更領域:** `apps/web/src/app/(app)/events/[id]/page.tsx` /

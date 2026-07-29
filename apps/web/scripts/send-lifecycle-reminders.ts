@@ -36,9 +36,11 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, isNotNull, ne, type SQL } from 'drizzle-orm'
 import { events, eventLifecycleNotifications, eventLineBroadcasts } from '@kagetra/shared/schema'
 import * as schema from '@kagetra/shared/schema'
+import type { EventKind, Grade } from '@kagetra/shared/types'
 import {
   addDaysIso,
   buildLifecycleMessage,
+  buildTotalSuffix,
   formatDaysLabel,
   formatMMDD,
   jstTodayIso,
@@ -47,6 +49,8 @@ import {
   sortDays,
   type LifecycleNotificationType,
 } from '../src/lib/event-lifecycle-notify'
+import { resolveEntryFee } from '../src/lib/entry-fee'
+import { tallyEntryFeesForGroup, type FeeTallyResult } from '../src/lib/entry-fee-tally'
 
 // Exactly the db type the lib functions expect — guarantees assignability.
 type Db = Parameters<typeof sendClaimedNotificationBulk>[0]
@@ -78,6 +82,14 @@ export interface ReminderCandidate {
   feeJpy: number | null
   dateIso: string
   message: string
+  /**
+   * grade-entry-fee タスク5 (AC-13): payment_deadline_* のみ非 null。
+   * `tallyEntryFeesForGroup` が返す**グループ全日の合算**（イベント単体ではない）。
+   * バケット化後の複数日文面（`buildBucketMessage`）が総額行を組み立てるのに使う。
+   */
+  totalJpy?: number | null
+  breakdownLabel?: string | null
+  unknownGradeCount?: number
 }
 
 export interface LifecycleReminderResult {
@@ -97,6 +109,10 @@ interface LinkedEventRow {
   paymentDeadline: string | null
   eventDate: string
   entryGroupId: number
+  // grade-entry-fee タスク5 (AC-15/16): 現地払いの単価導出（`resolveEntryFee`）に要る3列。
+  official: boolean
+  kind: EventKind
+  eligibleGrades: Grade[] | null
 }
 
 /**
@@ -113,6 +129,9 @@ async function queryLinkedEvents(db: Db, condition: SQL | undefined): Promise<Li
       paymentDeadline: events.paymentDeadline,
       eventDate: events.eventDate,
       entryGroupId: events.entryGroupId,
+      official: events.official,
+      kind: events.kind,
+      eligibleGrades: events.eligibleGrades,
     })
     .from(events)
     .innerJoin(
@@ -138,6 +157,20 @@ export async function collectReminderCandidates(
 ): Promise<ReminderCandidate[]> {
   const { today, advanceDate, leadDays } = opts
   const out: ReminderCandidate[] = []
+
+  // grade-entry-fee タスク5 (AC-13): グループ単位の振込総額メモ。
+  // payment_deadline_advance/_day の両ループ、および同一グループの複数日で
+  // `tallyEntryFeesForGroup` を何度も引かないためのキャッシュ。
+  // **必ず呼び出しごとに作り直す**（module-level に置くと別テストの値が
+  // 残る）ので、この関数のローカル変数にする。
+  const groupTallyCache = new Map<number, FeeTallyResult>()
+  async function getGroupTally(entryGroupId: number): Promise<FeeTallyResult> {
+    const cached = groupTallyCache.get(entryGroupId)
+    if (cached) return cached
+    const result = await tallyEntryFeesForGroup(db, entryGroupId)
+    groupTallyCache.set(entryGroupId, result)
+    return result
+  }
 
   // 申込締切（事前 / 当日）— 未申込のみ
   for (const e of await queryLinkedEvents(
@@ -183,6 +216,8 @@ export async function collectReminderCandidates(
     ),
   )) {
     const dateIso = e.paymentDeadline ?? advanceDate
+    // AC-13: 総額はイベント単位ではなくグループ単位（グループ全日の合算）。
+    const tally = await getGroupTally(e.entryGroupId)
     out.push({
       eventId: e.id,
       entryGroupId: e.entryGroupId,
@@ -191,7 +226,17 @@ export async function collectReminderCandidates(
       eventDate: e.eventDate,
       feeJpy: e.feeJpy,
       dateIso,
-      message: buildLifecycleMessage('payment_deadline_advance', { title: e.title, dateIso, leadDays }),
+      totalJpy: tally.totalJpy,
+      breakdownLabel: tally.breakdownLabel,
+      unknownGradeCount: tally.unknownGradeCount,
+      message: buildLifecycleMessage('payment_deadline_advance', {
+        title: e.title,
+        dateIso,
+        leadDays,
+        totalJpy: tally.totalJpy,
+        breakdownLabel: tally.breakdownLabel,
+        unknownGradeCount: tally.unknownGradeCount,
+      }),
     })
   }
   for (const e of await queryLinkedEvents(
@@ -203,6 +248,7 @@ export async function collectReminderCandidates(
     ),
   )) {
     const dateIso = e.paymentDeadline ?? today
+    const tally = await getGroupTally(e.entryGroupId)
     out.push({
       eventId: e.id,
       entryGroupId: e.entryGroupId,
@@ -211,7 +257,16 @@ export async function collectReminderCandidates(
       eventDate: e.eventDate,
       feeJpy: e.feeJpy,
       dateIso,
-      message: buildLifecycleMessage('payment_deadline_day', { title: e.title, dateIso }),
+      totalJpy: tally.totalJpy,
+      breakdownLabel: tally.breakdownLabel,
+      unknownGradeCount: tally.unknownGradeCount,
+      message: buildLifecycleMessage('payment_deadline_day', {
+        title: e.title,
+        dateIso,
+        totalJpy: tally.totalJpy,
+        breakdownLabel: tally.breakdownLabel,
+        unknownGradeCount: tally.unknownGradeCount,
+      }),
     })
   }
 
@@ -220,17 +275,27 @@ export async function collectReminderCandidates(
     db,
     and(eq(events.paymentType, 'onsite'), eq(events.eventDate, advanceDate)),
   )) {
+    // grade-entry-fee タスク5 (AC-15/16): 現地払いの金額は events.fee_jpy を直接渡さず
+    // `resolveEntryFee` の導出値へ移す。official な個人戦では単価が級別規定額へ
+    // 常に導出され、格納値は一切参照されない（entry-fee.ts の分岐に委譲）。
+    const resolution = resolveEntryFee({
+      official: e.official,
+      kind: e.kind,
+      eligibleGrades: e.eligibleGrades,
+      feeJpy: e.feeJpy,
+    })
     out.push({
       eventId: e.id,
       entryGroupId: e.entryGroupId,
       type: 'onsite_payment_advance',
       title: e.title,
       eventDate: e.eventDate,
-      feeJpy: e.feeJpy,
+      feeJpy: resolution.singleUnitJpy,
       dateIso: e.eventDate,
       message: buildLifecycleMessage('onsite_payment_advance', {
         title: e.title,
-        feeJpy: e.feeJpy,
+        feeJpy: resolution.singleUnitJpy,
+        unitPricesLabel: resolution.unitPricesLabel,
         dateIso: e.eventDate,
         leadDays,
       }),
@@ -240,17 +305,24 @@ export async function collectReminderCandidates(
     db,
     and(eq(events.paymentType, 'onsite'), eq(events.eventDate, today)),
   )) {
+    const resolution = resolveEntryFee({
+      official: e.official,
+      kind: e.kind,
+      eligibleGrades: e.eligibleGrades,
+      feeJpy: e.feeJpy,
+    })
     out.push({
       eventId: e.id,
       entryGroupId: e.entryGroupId,
       type: 'onsite_payment_day',
       title: e.title,
       eventDate: e.eventDate,
-      feeJpy: e.feeJpy,
+      feeJpy: resolution.singleUnitJpy,
       dateIso: e.eventDate,
       message: buildLifecycleMessage('onsite_payment_day', {
         title: e.title,
-        feeJpy: e.feeJpy,
+        feeJpy: resolution.singleUnitJpy,
+        unitPricesLabel: resolution.unitPricesLabel,
         dateIso: e.eventDate,
       }),
     })
@@ -278,6 +350,15 @@ export interface ReminderBucketMember {
    * 送ってしまう。候補と1:1で持ち回ることで種別の取り違えを構造的に不可能にする。
    */
   message: string
+  /**
+   * grade-entry-fee タスク5 (AC-13): payment_deadline_* のバケットが N>1 のとき、
+   * `buildBucketMessage` が総額行を組み立てるのに使う。同一バケットのメンバーは
+   * 必ず同じグループに属する（バケットキーが entryGroupId を含むため）ので、
+   * 全メンバーが同一の値を持つ。
+   */
+  totalJpy?: number | null
+  breakdownLabel?: string | null
+  unknownGradeCount?: number
 }
 
 export interface ReminderBucket {
@@ -315,6 +396,9 @@ export function bucketReminderCandidates(
       eventDate: c.eventDate,
       feeJpy: c.feeJpy,
       message: c.message,
+      totalJpy: c.totalJpy,
+      breakdownLabel: c.breakdownLabel,
+      unknownGradeCount: c.unknownGradeCount,
     })
   }
   return order.map((key) => byKey.get(key)!)
@@ -351,6 +435,13 @@ function formatMembersLabel(members: readonly ReminderBucketMember[]): string {
  * - `feeJpy`（現地払いの参加費）は §3.2.7 の伝播対象外で日別に異なりうるため、
  *   `payment_paid` の複数日文面と同じ方針で金額を出し分けず割愛する
  *   （2件以上のときは常に金額なしの最小文面）
+ * - `payment_deadline_advance`/`_day` は単一日と同じく2行目以降に振込総額行が付く
+ *   （AC-12/13）。書式は event-lifecycle-notify.ts の `buildTotalSuffix` を import して
+ *   共有する（単一日と複数日で見た目が食い違わないようにするため、複製しない）。
+ *   渡す値は `bucket.members[0]` の1件だけでよい — 総額はグループ単位の値で、バケット
+ *   キーが `entryGroupId` を含む以上メンバー全員が同じ値を持つ。**メンバー集合を合計しては
+ *   ならない**（`bucket.members` に入っていない同グループの日の分も総額には含まれるので
+ *   範囲が違う。requirements §3.2.2「文面に並ぶ日付とは範囲が異なりうる」）
  */
 function buildBucketMessage(
   bucket: Pick<ReminderBucket, 'type' | 'dateIso' | 'members'>,
@@ -367,9 +458,15 @@ function buildBucketMessage(
     case 'entry_deadline_day':
       return `⚠️${daysLabel}の申込締切は本日 ${date} です。まだ申込が完了していません。`
     case 'payment_deadline_advance':
-      return `⏰${daysLabel}の参加費の支払締切は ${date}（あと ${leadDays} 日）です。まだ支払いが完了していません。`
+      return (
+        `⏰${daysLabel}の参加費の支払締切は ${date}（あと ${leadDays} 日）です。まだ支払いが完了していません。` +
+        buildTotalSuffix(bucket.members[0]!)
+      )
     case 'payment_deadline_day':
-      return `⚠️${daysLabel}の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。`
+      return (
+        `⚠️${daysLabel}の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。` +
+        buildTotalSuffix(bucket.members[0]!)
+      )
     case 'onsite_payment_advance':
       return `💰${daysLabel}は当日現地払いです。参加費を ${date} 当日お持ちください。`
     case 'onsite_payment_day':

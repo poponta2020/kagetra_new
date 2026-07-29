@@ -199,11 +199,16 @@ export function formatUnknownGradeNote(count: number | undefined): string | null
 }
 
 /**
- * grade-entry-fee タスク4: payment_deadline_advance/day の2行目以降（振込総額・内訳・
+ * grade-entry-fee: payment_deadline_advance/day の2行目以降（振込総額・内訳・
  * 級未設定注記）。`totalJpy` が null/0 のときは空文字を返し、1行目のみの現行文面と
  * バイト単位で一致させる（AC-14）。
+ *
+ * **この書式の唯一の置き場所**。複数日バケットの文面テンプレートは
+ * `scripts/send-lifecycle-reminders.ts` の `buildBucketMessage` が所有するが、
+ * 総額行だけはそちらからもこの関数を import して使う（複製すると片方だけ書式を
+ * 変えたときに、単一日と複数日で通知の見た目が食い違う）。
  */
-function buildTotalSuffix(
+export function buildTotalSuffix(
   ctx: Pick<LifecycleMessageContext, 'totalJpy' | 'breakdownLabel' | 'unknownGradeCount'>,
 ): string {
   const totalLabel = ctx.totalJpy != null && ctx.totalJpy > 0 ? formatFeeAmount(ctx.totalJpy) : null

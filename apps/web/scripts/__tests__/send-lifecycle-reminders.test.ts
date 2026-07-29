@@ -6,7 +6,8 @@ import {
   lineChannels,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEntryGroup, createEvent } from '@/test-utils/seed'
+import { createEntryGroup, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import { formatEventDate } from '@/lib/event-date'
 import {
   bucketReminderCandidates,
   collectReminderCandidates,
@@ -428,6 +429,277 @@ describe('send-lifecycle-reminders — sending', () => {
 
     const rows = await testDb.select().from(eventLifecycleNotifications)
     expect(rows).toHaveLength(2)
+  })
+})
+
+describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出単価', () => {
+  /**
+   * fetch を stub して実送信テキストを観測する（r1 テストと同じパターン。
+   * dry-run では push を呼ばないため、複数日バケットの実文面はこの経路でしか見えない）。
+   */
+  async function withSentTexts(run: () => Promise<void>): Promise<string[]> {
+    const sentTexts: string[] = []
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const parsed = JSON.parse(init.body) as { messages: { text: string }[] }
+        sentTexts.push(parsed.messages[0]!.text)
+        return { ok: true, status: 200, text: async () => '' }
+      }),
+    )
+    try {
+      await run()
+    } finally {
+      vi.unstubAllGlobals()
+      process.env.LINE_NOTIFY_DRY_RUN = '1'
+    }
+    return sentTexts
+  }
+
+  it('AC-13: 単一日 payment_deadline_advance に振込総額行が付く', async () => {
+    const event = await seedEvent(
+      {
+        title: 'PayFee',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        paymentDeadline: ADVANCE,
+      },
+      { linked: true },
+    )
+    const user = await createUser({ grade: 'A' })
+    await createEventAttendance({ eventId: event.id, userId: user.id, attend: true })
+
+    const candidates = await collectReminderCandidates(testDb, {
+      today: TODAY,
+      advanceDate: ADVANCE,
+      leadDays: LEAD,
+    })
+    const candidate = candidates.find((c) => c.type === 'payment_deadline_advance')!
+    expect(candidate.message).toBe(
+      '⏰【PayFee】の参加費の支払締切は 6/13（あと 3 日）です。まだ支払いが完了していません。\n' +
+        '振込総額 2,500円（A級 1名×2,500）',
+    )
+  })
+
+  it('AC-12: 複数日バケットは対象日だけの日別ラベル・総額はグループ全日の合算になる', async () => {
+    const group = await createEntryGroup()
+    const eventA = await createEvent({
+      title: 'グループA',
+      eventDate: '2026-08-15',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      paymentDeadline: TODAY,
+      entryGroupId: group.id,
+    })
+    const eventB = await createEvent({
+      title: 'グループB',
+      eventDate: '2026-08-11',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      paymentDeadline: TODAY,
+      entryGroupId: group.id,
+    })
+    await seedGroupBinding(group.id)
+
+    const userA = await createUser({ grade: 'A' })
+    await createEventAttendance({ eventId: eventA.id, userId: userA.id, attend: true })
+    const userB = await createUser({ grade: 'C' })
+    await createEventAttendance({ eventId: eventB.id, userId: userB.id, attend: true })
+
+    const sentTexts = await withSentTexts(async () => {
+      const result = await sendLifecycleReminders(testDb, { today: TODAY, leadDays: LEAD })
+      expect(result.sent).toBe(2)
+    })
+
+    expect(sentTexts).toHaveLength(1)
+    const text = sentTexts[0]!
+    const daysLabel = `${formatEventDate('2026-08-11')}グループB・${formatEventDate('2026-08-15')}グループA`
+    // 1行目の日別ラベルは対象日（TODAY 締切の2件）だけ。
+    expect(text).toContain(
+      `⚠️${daysLabel}の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。`,
+    )
+    // 総額はグループ全日の合算（A級2,500 + C級2,000 = 4,500）。
+    expect(text).toContain('振込総額 4,500円（A級 1名×2,500 / C級 1名×2,000）')
+  })
+
+  it('AC-12: バケットに入っていない同グループの日の参加者も総額に含まれる', async () => {
+    const group = await createEntryGroup()
+    const eventA = await createEvent({
+      title: 'グループA',
+      eventDate: '2026-08-15',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      paymentDeadline: TODAY,
+      entryGroupId: group.id,
+    })
+    const eventB = await createEvent({
+      title: 'グループB',
+      eventDate: '2026-08-11',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      paymentDeadline: TODAY,
+      entryGroupId: group.id,
+    })
+    // 3日目: 締切日が異なるので TODAY のバケットには入らない。
+    const eventC = await createEvent({
+      title: 'グループC',
+      eventDate: '2026-08-20',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+      paymentDeadline: ADVANCE,
+      entryGroupId: group.id,
+    })
+    await seedGroupBinding(group.id)
+
+    const userA = await createUser({ grade: 'A' })
+    await createEventAttendance({ eventId: eventA.id, userId: userA.id, attend: true })
+    const userB = await createUser({ grade: 'C' })
+    await createEventAttendance({ eventId: eventB.id, userId: userB.id, attend: true })
+    const userC = await createUser({ grade: 'E' })
+    await createEventAttendance({ eventId: eventC.id, userId: userC.id, attend: true })
+
+    const candidates = await collectReminderCandidates(testDb, {
+      today: TODAY,
+      advanceDate: ADVANCE,
+      leadDays: LEAD,
+    })
+    const dayCandidateA = candidates.find(
+      (c) => c.eventId === eventA.id && c.type === 'payment_deadline_day',
+    )!
+    const dayCandidateB = candidates.find(
+      (c) => c.eventId === eventB.id && c.type === 'payment_deadline_day',
+    )!
+    const advanceCandidateC = candidates.find(
+      (c) => c.eventId === eventC.id && c.type === 'payment_deadline_advance',
+    )!
+    // TODAY バケットのメンバー（A,B）だけの合計は 4,500 円だが、総額はグループ3日分
+    // （A:2,500 + C:2,000 + E:1,500 = 6,000）でなければならない（AC-12 の肝）。
+    expect(dayCandidateA.totalJpy).toBe(6000)
+    expect(dayCandidateB.totalJpy).toBe(6000)
+    expect(advanceCandidateC.totalJpy).toBe(6000)
+  })
+
+  it('AC-14: 参加者0名/団体戦/非公認では総額行が出ず、文面が現行と一致する', async () => {
+    const noAttendee = await seedEvent(
+      {
+        title: 'NoAttendee',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        paymentDeadline: TODAY,
+      },
+      { linked: true },
+    )
+    const team = await seedEvent(
+      {
+        title: 'TeamEvent',
+        kind: 'team',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        paymentDeadline: TODAY,
+      },
+      { linked: true },
+    )
+    const teamUser = await createUser({ grade: 'A' })
+    await createEventAttendance({ eventId: team.id, userId: teamUser.id, attend: true })
+
+    const unofficial = await seedEvent(
+      {
+        title: 'Unofficial',
+        official: false,
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        paymentDeadline: TODAY,
+      },
+      { linked: true },
+    )
+    const unofficialUser = await createUser({ grade: 'A' })
+    await createEventAttendance({ eventId: unofficial.id, userId: unofficialUser.id, attend: true })
+
+    const candidates = await collectReminderCandidates(testDb, {
+      today: TODAY,
+      advanceDate: ADVANCE,
+      leadDays: LEAD,
+    })
+    for (const [event, title] of [
+      [noAttendee, 'NoAttendee'],
+      [team, 'TeamEvent'],
+      [unofficial, 'Unofficial'],
+    ] as const) {
+      const c = candidates.find((c) => c.eventId === event.id && c.type === 'payment_deadline_day')!
+      expect(c.message).toBe(
+        `⚠️【${title}】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。`,
+      )
+    }
+  })
+
+  it('AC-15: onsite_payment_advance は eligible_grades={E} で導出単価 1,500円（fee_jpy は無視される）', async () => {
+    const event = await seedEvent(
+      {
+        title: 'OnsiteE',
+        paymentType: 'onsite',
+        eventDate: ADVANCE,
+        eligibleGrades: ['E'],
+        // fee_jpy に別の値を入れておき、無視されることを固定する。
+        feeJpy: 9999,
+      },
+      { linked: true },
+    )
+    const candidates = await collectReminderCandidates(testDb, {
+      today: TODAY,
+      advanceDate: ADVANCE,
+      leadDays: LEAD,
+    })
+    const c = candidates.find((c) => c.eventId === event.id)!
+    expect(c.message).toBe('💰【OnsiteE】は当日現地払いです。参加費 1,500円 を 6/13 当日お持ちください。')
+  })
+
+  it('AC-16: onsite_payment_advance は多級で級別単価表記になる', async () => {
+    const event = await seedEvent(
+      {
+        title: 'OnsiteABC',
+        paymentType: 'onsite',
+        eventDate: ADVANCE,
+        eligibleGrades: ['A', 'B', 'C'],
+      },
+      { linked: true },
+    )
+    const candidates = await collectReminderCandidates(testDb, {
+      today: TODAY,
+      advanceDate: ADVANCE,
+      leadDays: LEAD,
+    })
+    const c = candidates.find((c) => c.eventId === event.id)!
+    expect(c.message).toBe(
+      '💰【OnsiteABC】は当日現地払いです。参加費 A・B級 2,500円 / C級 2,000円 を 6/13 当日お持ちください。',
+    )
+  })
+
+  it('回帰: entry_deadline_* のバケット文面は変更なし', async () => {
+    const group = await createEntryGroup()
+    await createEvent({
+      title: 'グループA',
+      eventDate: '2026-08-15',
+      entryDeadline: TODAY,
+      entryStatus: 'not_applied',
+      entryGroupId: group.id,
+    })
+    await createEvent({
+      title: 'グループB',
+      eventDate: '2026-08-11',
+      entryDeadline: TODAY,
+      entryStatus: 'not_applied',
+      entryGroupId: group.id,
+    })
+    await seedGroupBinding(group.id)
+
+    const sentTexts = await withSentTexts(async () => {
+      await sendLifecycleReminders(testDb, { today: TODAY, leadDays: LEAD })
+    })
+
+    expect(sentTexts).toHaveLength(1)
+    const daysLabel = `${formatEventDate('2026-08-11')}グループB・${formatEventDate('2026-08-15')}グループA`
+    expect(sentTexts[0]).toBe(`⚠️${daysLabel}の申込締切は本日 6/10 です。まだ申込が完了していません。`)
   })
 })
 
