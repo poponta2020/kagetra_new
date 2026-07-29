@@ -271,6 +271,48 @@ describe('event lifecycle actions', () => {
       }
     })
 
+    it('setPaymentPaid(true): 複数日グループの1日だけを支払済にしても、総額はグループ全日ぶん', async () => {
+      // requirements §3.2.2「会計はグループ単位で一括請求される」。1日ぶんの額を出すと、
+      // 同じグループの支払締切リマインドが既に伝えた「振込総額」と食い違う（どちらも
+      // once-ever で訂正できない）。
+      const admin = await createAdmin()
+      const day1 = await seedLinkedEvent({
+        title: '2日制大会 1日目',
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['A'],
+      })
+      const day2 = await createEvent({
+        title: '2日制大会 2日目',
+        entryGroupId: day1.entryGroupId,
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['A'],
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await setPaymentType(day1.id, 'advance')
+      const member = await createUser({ grade: 'A', isInvited: true })
+      await createEventAttendance({ eventId: day1.id, userId: member.id, attend: true })
+      await createEventAttendance({ eventId: day2.id, userId: member.id, attend: true })
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        // 1日目だけを支払済にする（claimed は1件 → 金額が文面に出る経路）。
+        await setPaymentPaid(day1.id, true)
+        const [messageText] = fetchMessages(fetchSpy)
+        // A級 2,500円 × 2日分 = 5,000円（1日ぶんの 2,500円 ではない）。
+        expect(messageText).toBe(
+          '✅【2日制大会 1日目】の参加費（総額 5,000円）の支払いが完了しました。',
+        )
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
+
     it('setPaymentPaid(true): 参加者0名は総額0円のため金額を出さない', async () => {
       const admin = await createAdmin()
       const event = await seedLinkedEvent({

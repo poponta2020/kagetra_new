@@ -36,7 +36,7 @@ import {
   sendClaimedNotificationBulk,
   type LifecycleDayEntry,
 } from '@/lib/event-lifecycle-notify'
-import { tallyEntryFees } from '@/lib/entry-fee-tally'
+import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 
 /**
  * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
@@ -1089,13 +1089,18 @@ export async function setPaymentsPaid(
 
   if (result.notificationIds.length > 0) {
     // grade-entry-fee タスク6 (AC-17): 総額の取得は tx の外（flip 後）で行う——集計
-    // クエリを状態更新 tx に混ぜない。対象は「実際に flip して claim できたイベント」
-    // であって、そのグループの全日ではない。複数日一括は AC-18 で金額を出さないので、
-    // 総額が文面に出るのは常に claimed.length === 1（＝その1日ぶんの請求）のときだけ。
+    // クエリを状態更新 tx に混ぜない。金額が文面に出るのは claimed が1件のときだけ
+    // （複数日一括は AC-18 で金額を出さない）。
+    //
+    // ★対象は claim できた1日ではなく**申込グループの全日**（requirements §3.2.2
+    // 「会計はグループ単位で一括請求される」）。3日グループの1日目だけを支払済に
+    // したとき、1日ぶんの額を出すと、同じグループの支払締切リマインドが既に伝えた
+    // 「振込総額」と食い違う。どちらの通知も once-ever で訂正できないため、
+    // 同じ数字を指すグループ単位に揃える。
     let totalJpy: number | null = null
     if (result.claimed.length === 1) {
       try {
-        const tally = await tallyEntryFees(db, [result.claimed[0]!.id])
+        const tally = await tallyEntryFeesForGroup(db, entryGroupId)
         totalJpy = tally.totalJpy
       } catch {
         // best-effort: 総額が引けなくても、金額なしで通知は飛ばす。
