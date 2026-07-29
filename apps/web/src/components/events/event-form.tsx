@@ -71,6 +71,15 @@ export interface EventFormProps {
    * 既定の「更新」ボタンをこれに置き換える（events/[id]/edit が `EventEditSubmit` を渡す）。
    */
   submitButton?: ReactNode
+  /**
+   * mail-ai-extract-refinements: タイトル欄を**制御入力**にする。承認画面は
+   * 上部の「通称」欄の入力に合わせて各単位のタイトルを合成し直すため、
+   * `defaultValue` では追随できない（非制御 input は defaultValue の変化を
+   * 無視する）。`onTitleChange` を渡したときだけ制御入力になり、既存の
+   * events/new・events/[id]/edit は従来どおり非制御のまま。
+   */
+  titleValue?: string
+  onTitleChange?: (value: string) => void
 }
 
 const LABEL_CLASS = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
@@ -99,6 +108,8 @@ export function EventForm({
   editionDefault,
   entryGroupSection,
   submitButton,
+  titleValue,
+  onTitleChange,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
@@ -114,13 +125,28 @@ export function EventForm({
           <label className={LABEL_CLASS}>
             タイトル{REQUIRED_MARK}
           </label>
-          <input
-            name={n('title')}
-            type="text"
-            required
-            defaultValue={defaultValues?.title ?? ''}
-            className={FIELD_CLASS}
-          />
+          {/* mail-ai-extract-refinements: 承認画面は「通称」欄の入力に合わせて
+              各単位のタイトルを合成し直すため、タイトルだけ制御入力にできる口を
+              持つ（非制御のままだと defaultValue を変えても DOM が追随しない）。
+              onTitleChange を渡さない既存の呼び出し側は従来どおり非制御。 */}
+          {onTitleChange ? (
+            <input
+              name={n('title')}
+              type="text"
+              required
+              value={titleValue ?? ''}
+              onChange={(e) => onTitleChange(e.target.value)}
+              className={FIELD_CLASS}
+            />
+          ) : (
+            <input
+              name={n('title')}
+              type="text"
+              required
+              defaultValue={defaultValues?.title ?? ''}
+              className={FIELD_CLASS}
+            />
+          )}
         </div>
 
         <div>

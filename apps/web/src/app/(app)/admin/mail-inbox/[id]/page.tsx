@@ -14,7 +14,8 @@ import { Card, Pill, type PillTone } from '@/components/ui'
 import { AttachmentList } from '../components/AttachmentList'
 import { ApprovalForm } from '../components/ApprovalForm'
 import { ExtractedPayloadView } from '../components/ExtractedPayloadView'
-import { CorrectionHint } from '../components/CorrectionHint'
+import { AIExtractConfirmDialog } from '../components/AIExtractConfirmDialog'
+import { loadCostGuardConfig } from '@kagetra/mail-worker/config'
 import {
   approveDraftUnits,
   completeDraft,
@@ -91,6 +92,9 @@ export default async function MailDraftDetailPage({
               id: true,
               filename: true,
               contentType: true,
+              // mail-ai-extract-refinements: 「再 AI 抽出」の添付選択ダイアログが
+              // サイズ表示と上限判定に使う。
+              sizeBytes: true,
               extractionStatus: true,
             },
           },
@@ -208,11 +212,21 @@ export default async function MailDraftDetailPage({
     tone: 'neutral' as const,
   }
   const mail = draft.mail
+  // 添付選択ダイアログの上限判定用（env はサーバーでだけ読む）。
+  const pdfSizeLimitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
 
-  // Inline wrappers for actions that don't take FormData directly.
-  const reextractAction = async () => {
+  // 添付選択ダイアログ（クライアント）から呼ぶので、成功/失敗を戻り値で返す形に
+  // 合わせる。reextractDraft 自体は throw する設計なので、ここで拾って文言にする。
+  const reextractAction = async (
+    selectedAttachmentIds: number[],
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
     'use server'
-    await reextractDraft(draftId)
+    try {
+      await reextractDraft(draftId, selectedAttachmentIds)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   }
   const completeAction = async () => {
     'use server'
@@ -322,9 +336,25 @@ export default async function MailDraftDetailPage({
         </Card>
       )}
 
+      {/* mail-ai-extract-refinements §3.2.6 / AC-7: AI が「渡された資料が別種の
+          文書に見える」と申告したときの警告。ドラフトは通常どおり pending_review
+          で作られ、**承認はブロックしない**（人間の判断が AI より上位）。 */}
+      {extractedPayload?.source_mismatch === true && (
+        <Card className="border-warn bg-warn-bg">
+          <div className="space-y-1 text-sm">
+            <div className="font-semibold text-warn-fg">
+              ⚠ 渡した資料が要綱ではない可能性があります
+            </div>
+            <p className="text-ink-2">{extractedPayload.reason}</p>
+            <p className="text-xs text-ink-meta">
+              添付を選び直して「再 AI 抽出」できます。このまま承認することもできます。
+            </p>
+          </div>
+        </Card>
+      )}
+
       <ExtractedPayloadView
         payload={extractedPayload}
-        confidence={draft.confidence}
         aiModel={draft.aiModel}
         promptVersion={draft.promptVersion}
         aiCostUsd={draft.aiCostUsd}
@@ -403,14 +433,17 @@ export default async function MailDraftDetailPage({
             再 AI 抽出
           </h2>
           <Card>
-            <form action={reextractAction}>
-              <button
-                type="submit"
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-surface px-4 text-sm font-semibold text-ink-2 hover:bg-surface-alt"
-              >
-                再抽出
-              </button>
-            </form>
+            {/* mail-ai-extract-refinements §3.2.4 / AC-31: 「会で流す」と同じ
+                添付選択ダイアログを使い、前回の選択を初期値として復元する。 */}
+            <AIExtractConfirmDialog
+              mailId={mail.id}
+              attachments={mail.attachments}
+              pdfSizeLimitKb={pdfSizeLimitKb}
+              initialSelectedAttachmentIds={draft.selectedAttachmentIds ?? undefined}
+              buttonLabel="再抽出"
+              buttonKind="secondary"
+              action={reextractAction}
+            />
           </Card>
         </section>
       )}

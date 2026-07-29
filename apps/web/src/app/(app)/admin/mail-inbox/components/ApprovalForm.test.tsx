@@ -74,10 +74,18 @@ describe('ApprovalForm — 複数単位フォーム', () => {
     ) as HTMLInputElement
     expect(locationInput.value).toBe('AI 会場')
 
+    // 参加費は AI が埋めなくなった（級から決定的に導出できるため 3.0.0 で削除）。
+    // 手入力できる状態は維持する。
     const feeInput = container.querySelector(
       'input[name="u1__feeJpy"]',
     ) as HTMLInputElement
-    expect(feeInput.value).toBe('4500')
+    expect(feeInput.value).toBe('')
+
+    // AC-39: payload の「日付あり」が events の英語 enum へ hidden で運ばれる。
+    const kindInput = container.querySelector(
+      'input[name="u1__paymentDeadlineKind"]',
+    ) as HTMLInputElement
+    expect(kindInput.value).toBe('fixed')
 
     const capAInput = container.querySelector(
       'input[name="u1__capacityA"]',
@@ -816,5 +824,121 @@ describe('ApprovalForm — 複数単位フォーム', () => {
         container.querySelector('select[name="u3__group_key"]'),
       ).not.toBeNull()
     })
+  })
+})
+
+/**
+ * mail-ai-extract-refinements §3.2.3: 通称は AI ではなく人が入力する。
+ * `composeTitle` 自体は不変で、stem の供給元だけが変わった。
+ */
+describe('ApprovalForm — 通称欄（AC-15 / AC-16 / AC-17）', () => {
+  function renderWithTwoUnits() {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', eligible_grades: ['B'], event_date: '2030-12-01' }),
+      buildUnit({ unit_key: 'u2', eligible_grades: ['C'], event_date: '2030-12-02' }),
+    ])
+    return render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+  }
+
+  it('AC-17: 通称が未入力のあいだ合成結果は空（級だけの値を出さない）', () => {
+    const { container } = renderWithTwoUnits()
+    const t1 = container.querySelector('input[name="u1__title"]') as HTMLInputElement
+    const t2 = container.querySelector('input[name="u2__title"]') as HTMLInputElement
+    expect(t1.value).toBe('')
+    expect(t2.value).toBe('')
+  })
+
+  it('AC-15: 通称を入れると各単位の大会名が合成される', () => {
+    const { container } = renderWithTwoUnits()
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '大阪' } })
+    const t1 = container.querySelector('input[name="u1__title"]') as HTMLInputElement
+    const t2 = container.querySelector('input[name="u2__title"]') as HTMLInputElement
+    expect(t1.value).toBe('大阪B')
+    expect(t2.value).toBe('大阪C')
+  })
+
+  it('AC-16: 単位ごとに個別上書きでき、上書きした単位は通称の変更に追随しない', () => {
+    const { container } = renderWithTwoUnits()
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '大阪' } })
+    const t1 = container.querySelector('input[name="u1__title"]') as HTMLInputElement
+    const t2 = container.querySelector('input[name="u2__title"]') as HTMLInputElement
+
+    fireEvent.change(t2, { target: { value: '大阪C（会場変更）' } })
+    expect(t2.value).toBe('大阪C（会場変更）')
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '堺' } })
+    expect(t1.value).toBe('堺B')
+    expect(t2.value).toBe('大阪C（会場変更）')
+  })
+
+  it('通称の前後空白だけの入力は未入力として扱う', () => {
+    const { container } = renderWithTwoUnits()
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '   ' } })
+    const t1 = container.querySelector('input[name="u1__title"]') as HTMLInputElement
+    expect(t1.value).toBe('')
+  })
+})
+
+/** AC-39 / 全体定員: payload の新項目が承認フォームの送信値へ写ること。 */
+describe('ApprovalForm — 新項目のマッピング', () => {
+  it('AC-39: payment_deadline_kind の日本語3値が英語 enum に写る', () => {
+    const cases: [string, string][] = [
+      ['日付あり', 'fixed'],
+      ['後日連絡', 'later_notice'],
+      ['記載なし', 'unspecified'],
+    ]
+    for (const [payloadValue, expected] of cases) {
+      const payload = buildPayload([
+        buildUnit({
+          payment_deadline: payloadValue === '日付あり' ? '2030-11-25' : null,
+          payment_deadline_kind: payloadValue as EventUnit['payment_deadline_kind'],
+        }),
+      ])
+      const { container, unmount } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="大阪"
+          registeredUnitKeys={[]}
+          editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+          action={noop}
+        />,
+      )
+      const kindInput = container.querySelector(
+        'input[name="u1__paymentDeadlineKind"]',
+      ) as HTMLInputElement
+      expect(kindInput.value).toBe(expected)
+      unmount()
+    }
+  })
+
+  it('capacity_total が events.capacity へ、級別は capacity_a〜e のまま併存する', () => {
+    const payload = buildPayload([
+      buildUnit({ capacity_total: 100, capacity_a: 32, capacity_b: 16 }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="大阪"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+    const capacity = container.querySelector(
+      'input[name="u1__capacity"]',
+    ) as HTMLInputElement
+    const capA = container.querySelector(
+      'input[name="u1__capacityA"]',
+    ) as HTMLInputElement
+    expect(capacity.value).toBe('100')
+    expect(capA.value).toBe('32')
   })
 })

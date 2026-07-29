@@ -3,14 +3,14 @@ import { Card } from '@/components/ui'
 
 export interface ExtractedPayloadViewProps {
   payload: ExtractionPayload | null
-  confidence: string | null
   aiModel: string
   promptVersion: string
   aiCostUsd: string | null
 }
 
-// tournament-title-grade-split: labels keyed to EventUnit fields. `unit_key`
-// is internal plumbing (not surfaced); `capacity_total` was dropped in 2.0.0.
+// EventUnit のフィールド名 → 表示ラベル。`unit_key` は内部配線なので出さない。
+// 3.0.0 で消えたフィールド（`fee_jpy` 等）のラベルも**残す** —— 2.x のドラフトを
+// 開いたときに値だけ出てラベルが欠ける事故を避けるため（AC-34）。
 const EXTRACTED_LABELS: Record<string, string> = {
   event_date: '開催日',
   eligible_grades: '対象級',
@@ -18,6 +18,8 @@ const EXTRACTED_LABELS: Record<string, string> = {
   venue: '会場',
   fee_jpy: '参加費 (円)',
   payment_deadline: '支払締切',
+  payment_deadline_kind: '支払締切の状態',
+  capacity_total: '全体定員',
   payment_info_text: '支払情報',
   payment_method: '支払方法',
   entry_method: '申込方法',
@@ -61,7 +63,6 @@ function formatValue(v: unknown): string {
  */
 export function ExtractedPayloadView({
   payload,
-  confidence,
   aiModel,
   promptVersion,
   aiCostUsd,
@@ -93,7 +94,6 @@ export function ExtractedPayloadView({
   const stemRaw = (payload as { short_name_stem?: unknown }).short_name_stem
   const stem = typeof stemRaw === 'string' ? stemRaw : null
   const extras = payload.extras ?? null
-  const confidenceLabel = confidence ?? '—'
   const costLabel = aiCostUsd ? `$${aiCostUsd}` : '—'
 
   return (
@@ -105,8 +105,7 @@ export function ExtractedPayloadView({
 
         <div className="mt-3 space-y-3">
           <div className="text-xs text-ink-meta">
-            モデル: {aiModel} / プロンプト: {promptVersion} / 信頼度:{' '}
-            {confidenceLabel} / コスト: {costLabel}
+            モデル: {aiModel} / プロンプト: {promptVersion} / コスト: {costLabel}
           </div>
 
           {stem != null && (
