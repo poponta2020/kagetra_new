@@ -481,8 +481,9 @@ async function buildLlmExtractor(flags: WorkerCliFlags): Promise<LLMExtractor | 
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-      // Missing directory → empty fixture map. The default noise response in
-      // FixtureLLMExtractor handles every mail without crashing.
+      // Missing directory → empty fixture map. FixtureLLMExtractor's fallback
+      // payload (a minimal one-unit extraction since 3.0.0) handles every mail
+      // without crashing.
     }
     return new FixtureLLMExtractor(fixtures)
   }

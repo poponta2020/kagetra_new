@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { eq } from 'drizzle-orm'
-import { events } from '@kagetra/shared/schema'
+import { events, mailAttachments } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -312,6 +312,85 @@ describe('admin/mail-inbox/[id] page', () => {
     expect(screen.queryByText('承認フォーム')).toBeNull()
     const link = screen.getByText(new RegExp(`events #${ev.id}`))
     expect(link.closest('a')?.getAttribute('href')).toBe(`/events/${ev.id}`)
+  })
+
+
+
+  it('前回の選択がチェック済みで復元され、未選択の添付は未チェックのまま', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'restore selection' })
+
+    const insertPdf = async (filename: string) => {
+      const [att] = await testDb
+        .insert(mailAttachments)
+        .values({
+          mailMessageId: mail.id,
+          filename,
+          contentType: 'application/pdf',
+          sizeBytes: 512,
+          data: Buffer.from([0x25]),
+          extractionStatus: 'pending',
+        })
+        .returning({ id: mailAttachments.id })
+      return att!.id
+    }
+    const keep = await insertPdf('要綱.pdf')
+    await insertPdf('会場地図.pdf')
+
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      selectedAttachmentIds: [keep],
+      extractedPayload: {
+        reason: 'restore',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    await renderPage(draft.id)
+
+    // 「再抽出」ボタンからダイアログを開く。
+    fireEvent.click(screen.getByRole('button', { name: '再抽出' }))
+
+    const keepBox = screen.getByRole('checkbox', {
+      name: '要綱.pdf',
+    }) as HTMLInputElement
+    const otherBox = screen.getByRole('checkbox', {
+      name: '会場地図.pdf',
+    }) as HTMLInputElement
+    expect(keepBox.checked).toBe(true)
+    expect(otherBox.checked).toBe(false)
+  })
+
+  it('選択が NULL（旧データ／未指定）なら全て未チェックで開く', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'null selection' })
+    await testDb.insert(mailAttachments).values({
+      mailMessageId: mail.id,
+      filename: '要綱.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 512,
+      data: Buffer.from([0x25]),
+      extractionStatus: 'pending',
+    })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        reason: 'no selection',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    await renderPage(draft.id)
+    fireEvent.click(screen.getByRole('button', { name: '再抽出' }))
+
+    const box = screen.getByRole('checkbox', {
+      name: '要綱.pdf',
+    }) as HTMLInputElement
+    expect(box.checked).toBe(false)
   })
 })
 

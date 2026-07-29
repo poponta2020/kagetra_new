@@ -43,6 +43,29 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
     await closeTestDb()
   })
 
+  // AC-37: cron（--mode=fetch）は従来どおり AI を呼ばない。index.ts は
+  // `flags.mode === 'extract'` のときしか extractor を組み立てないので、cron は
+  // `llmExtractor: undefined` で走る（＝ ANTHROPIC_API_KEY 無しでも動く）。
+  // Sonnet 5 移行でこの分岐に触れたため、契約をここで固定する。
+  it('AC-37: llmExtractor 無し（cron 相当）では AI を呼ばず draft も作らない', async () => {
+    const summary = await runPipelineFromFixtures(
+      [{ source: await loadEml('tournament-announcement.eml'), imapUid: 900 }],
+      {},
+    )
+
+    expect(summary.inserted).toBe(1)
+    expect(summary.aiSucceeded).toBe(0)
+    expect(summary.aiFailed).toBe(0)
+    expect(summary.draftsInserted).toBe(0)
+
+    const drafts = await testDb.select().from(tournamentDrafts)
+    expect(drafts).toHaveLength(0)
+
+    // AI フェーズを通らないので status は取得直後のまま。
+    const mail = await testDb.select().from(mailMessages)
+    expect(mail[0]!.status).toBe('fetched')
+  })
+
   it('inserts a tournament_drafts row with status=pending_review for a positive eml', async () => {
     const llm = await buildExtractor()
     const summary = await runPipelineFromFixtures(
