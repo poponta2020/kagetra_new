@@ -153,8 +153,10 @@ describe('send-lifecycle-reminders — candidate selection', () => {
       },
       { linked: true },
     )
-    // payment_type 未設定は支払い通知なし
-    await seedEvent({ title: 'PN', paymentDeadline: TODAY }, { linked: true })
+    // payment_type 未設定は支払い通知なし。grade-entry-fee で列の既定値が 'advance' に
+    // なったため、「未設定」を作るには明示的に null を入れる必要がある（省略すると
+    // advance で入り、正しく通知対象になる）。
+    await seedEvent({ title: 'PN', paymentType: null, paymentDeadline: TODAY }, { linked: true })
 
     const keys = await candidateKeys()
     expect(keys).toContain(`${advance.id}:payment_deadline_advance`)

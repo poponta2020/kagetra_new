@@ -72,7 +72,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク2: payment_type の既定値変更とバックフィル
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 「参加費は基本前払い」を既定値に反映し、支払締切リマインドが構造的に黙る状態を解消する
 - **対応AC:** AC-26, AC-27
 - **主な変更領域:** `packages/shared/src/schema/events.ts`（`paymentType` に `.default('advance')`）/

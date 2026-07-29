@@ -365,6 +365,13 @@
       "when": 1785254518322,
       "tag": "0051_light_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785342282375,
+      "tag": "0052_tiny_red_hulk",
+      "breakpoints": true
     }
   ]
 }
