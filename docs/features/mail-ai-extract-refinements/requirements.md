@@ -133,7 +133,7 @@ base_feature: mail-tournament-import
 | `venue` | `string \| null` | 会場名＋住所 | 維持 |
 | `entry_deadline` | `"YYYY-MM-DD" \| null` | 申込締切。期間表記は**終了日**を採用 | 維持 |
 | `payment_deadline` | `"YYYY-MM-DD" \| null` | 振込締切。`payment_deadline_kind` が「日付あり」のときだけ値が入る | 維持 |
-| `payment_deadline_kind` | `"日付あり" \| "後日連絡" \| "記載なし"` | 振込締切の**状態**。案内に「振込先は抽選後に別途連絡」等があれば「後日連絡」 | **追加** |
+| `payment_deadline_kind` | `"日付あり" \| "後日連絡" \| "記載なし"` | 振込締切の**状態**。案内に「振込先は抽選後に別途連絡」等があれば「後日連絡」。**承認時に events へも持ち回す**（3.2.7） | **追加** |
 | `payment_info_text` | `string \| null` | 振込先の生テキスト（「ゆうちょ 12340-12345-1 …」） | 維持 |
 | `payment_method` | `"口座振込" \| "現地支払い" \| "その他" \| null` | 支払い方法 | **enum 化・日本語化** |
 | `entry_method` | `"Excel申込書" \| "Googleフォーム" \| "メール" \| "その他" \| null` | 申込方法 | **enum 化・日本語化** |
@@ -183,7 +183,25 @@ base_feature: mail-tournament-import
 - ドラフト詳細画面に警告バナーを表示し、`reason` の内容を併記する
 - **承認をブロックしない**。人間の判断が AI より上位である
 
-#### 3.2.7 一覧の優先度分け廃止
+#### 3.2.7 振込締切の状態を events へ持ち回す
+
+**動機**: 支払いを追いかけるのはドラフトを見た人ではなく、後から申込管理ボードを見る人である。状態をドラフト payload の中だけに持つと、承認した瞬間に「後日連絡だから空」という情報が消え、[entry-board-utils.ts:624](../../../apps/web/src/app/(app)/admin/entries/entry-board-utils.ts) が一律「締切未設定」と表示する現状に戻ってしまう。
+
+- `events.payment_deadline_kind` を追加する。値は `fixed` / `later_notice` / `unspecified`（**DB は英語値**。既存の `eventPaymentTypeEnum` が `advance` / `onsite` である慣行に合わせる。UI は日本語で表示する）
+- 承認時に payload の日本語値をマッピングする（「日付あり」→`fixed` /「後日連絡」→`later_notice` /「記載なし」→`unspecified`）
+- **`payment_deadline` の有無と `payment_deadline_kind` を CHECK 制約で双条件に縛る**: `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')`
+- 既存行の backfill: `payment_deadline IS NOT NULL` → `fixed`、それ以外 → `unspecified`（この規則で全既存行が CHECK を満たす）
+- 編集フォームで**日付を入力したらサーバー側で `fixed` に正規化**する（人間が「後日連絡」のまま日付を入れても矛盾状態にならない）
+
+**表示する3面**
+
+| 画面 | 変更内容 |
+|---|---|
+| `/admin/entries`（申込管理ボード） | `payment_deadline` が `null` のとき、`later_notice` なら「**後日連絡**」、`unspecified` なら従来どおり「締切未設定」と出し分ける |
+| `/events/[id]`（イベント詳細） | 支払い関連の表示に状態を反映する |
+| `/events/[id]/edit`（イベント編集） | 状態を手動変更できる。**後日連絡だったものに連絡が来たとき、人間が日付へ書き換えられる**ことがこの機能の実用上の要 |
+
+#### 3.2.8 一覧の優先度分け廃止
 
 - `confidence >= 0.9` → tier0「要対応」／`< 0.9` or `null` → tier1「要確認」の振り分けを**廃止**する
 - `pending_review` のドラフトを受信日降順で一本に並べる
@@ -241,8 +259,15 @@ base_feature: mail-tournament-import
 | AC-36 | 選択された添付がすべて上限内なら `oversize_skipped` にならない。ガード自体は残っており、上限超過の添付が直接渡された場合は従来どおりスキップする | auto-test |
 | AC-37 | cron（`--mode=fetch`）は従来どおり AI を呼ばない | auto-test |
 | AC-38 | 既存テスト・lint・typecheck が CI で green | auto-test |
+| **振込締切の状態を events へ持ち回す** | | |
+| AC-39 | 承認時に payload の `payment_deadline_kind` が `events.payment_deadline_kind` へマッピングされる（「日付あり」→`fixed` /「後日連絡」→`later_notice` /「記載なし」→`unspecified`） | auto-test |
+| AC-40 | CHECK 制約 `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` が効いており、矛盾する組み合わせを INSERT / UPDATE できない | auto-test |
+| AC-41 | 既存行の backfill 後、`payment_deadline` を持つ行が `fixed`、持たない行が `unspecified` になり、全行が CHECK を満たす | auto-test |
+| AC-42 | 申込管理ボードで `payment_deadline` が `null` のとき、`later_notice` なら「後日連絡」、`unspecified` なら「締切未設定」と出し分けられる | auto-test |
+| AC-43 | イベント編集フォームで振込締切の状態を変更でき、**日付を入力するとサーバー側で `fixed` に正規化される**（「後日連絡」のまま日付が入る矛盾状態にならない） | auto-test |
+| AC-44 | イベント詳細画面で振込締切の状態が日本語で表示される | auto-test |
 
-**検証手段の内訳**: auto-test 36件 / verify 1件 / manual 1件
+**検証手段の内訳**: auto-test 42件 / verify 1件 / manual 1件
 
 ---
 
@@ -279,7 +304,8 @@ base_feature: mail-tournament-import
 ### データ・互換性
 - **保存済み `extractedPayload` に Zod を再実行しない**方針を維持する。Web 層は防御的ナローイングで読んでおり（[[id]/page.tsx:103-122](../../../apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx)）、スキーマから必須フィールドを消しても既存行は壊れない
 - `confidence` / `superseded_by_draft_id` 列は残す。既存行の値も残す
-- **`capacity_total` の保存先には `events.capacity` 列が既に存在する**（`capacity_a`〜`e` と併存）。マイグレーション不要の見込み — 技術計画で確認する
+- **`capacity_total` の保存先には `events.capacity` 列が既に存在する**（`capacity_a`〜`e` と併存）。マイグレーション不要
+- **`events.payment_deadline_kind` は新規列**（pgEnum `fixed`/`later_notice`/`unspecified`、notNull default `unspecified`）。CHECK 制約と backfill は 3.2.7 のとおり
 - 添付選択の永続化には**マイグレーションが必要**（保存先の設計は技術計画で確定する）
 - `PROMPT_VERSION` の版数で新旧ペイロードを判別できる状態を保つ
 

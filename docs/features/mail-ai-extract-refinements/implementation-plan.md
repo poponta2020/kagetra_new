@@ -14,7 +14,7 @@ status: completed
 |---|---|
 | `capacity_total` の保存先 | **`events.capacity` 既存列**（汎用イベント定員。イベント編集画面で読み書きされている）。マイグレーション不要 |
 | `payment_method` の日本語 enum と `events.paymentType` | **別物として分離を維持**。`paymentType`（`advance`/`onsite`）は申込管理ボード・支払い催促で現役。AI は `payment_method`（text 列）だけ日本語で埋め、`paymentType` には触らない |
-| `payment_deadline_kind` の保存先 | **payload（jsonb）内のみ**。events への配線は行わない（レビュー時の曖昧さ解消が目的） |
+| `payment_deadline_kind` の保存先 | **payload に加えて `events.payment_deadline_kind` へも持ち回す**。pgEnum `fixed`/`later_notice`/`unspecified`（DB は英語値・既存 `eventPaymentTypeEnum` の慣行に合わせる）、notNull default `unspecified`。CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')`。backfill は `payment_deadline` 有 → `fixed` / 無 → `unspecified` |
 | 添付選択の永続化 | `tournament_drafts.selected_attachment_ids integer[]`（nullable。`null` = 旧データ／未指定＝全件）を追加。migration 1本 |
 | 選択ダイアログの表示情報 | `mail_attachments` の `filename` / `contentType` / `sizeBytes` で足りる（追加取得なし） |
 
@@ -97,12 +97,15 @@ status: completed
 ### タスク7: マイグレーションと Server Action
 - [ ] 完了
 - **目的:** 選択を永続化し、Server Action で検証する
-- **対応AC:** AC-31, AC-32
-- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、Drizzle migration 1本、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
+- **対応AC:** AC-31, AC-32, AC-40, AC-41
+- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
 - **依存タスク:** タスク6
-- **必要なテスト:** 選択が永続化され再抽出時に復元されること／サイズ超過の添付 ID を含む選択が拒否されること／当該メールに属さない添付 ID が拒否されること／既存の多重起動ガード（`triageStatus` / `linkedEventId` / `ai_processing`）が維持されること
+- **必要なテスト:** CHECK 制約が矛盾する組み合わせを弾くこと／backfill 後に全既存行が CHECK を満たすこと／選択が永続化され再抽出時に復元されること／サイズ超過の添付 ID を含む選択が拒否されること／当該メールに属さない添付 ID が拒否されること／既存の多重起動ガード（`triageStatus` / `linkedEventId` / `ai_processing`）が維持されること
 - **完了条件:** Server Action テストが green、migration が `db:migrate` で適用できること
-- **注意:** 列は `selected_attachment_ids integer[]` nullable（`null` = 旧データ／未指定＝全件扱い）。**マイグレーション番号の衝突を確認する**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない
+- **注意:** **この migration で2つの変更をまとめて行う**
+  - `tournament_drafts.selected_attachment_ids integer[]` nullable（`null` = 旧データ／未指定＝全件扱い）
+  - `events.payment_deadline_kind` — 新規 pgEnum `fixed`/`later_notice`/`unspecified`、notNull default `unspecified`。CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` を付け、backfill（`payment_deadline` 有 → `fixed` / 無 → `unspecified`）を**CHECK 追加より前に**実行する（順序を誤ると既存行で制約違反になる）
+  - **マイグレーション番号の衝突を確認する**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない
 - **対応Issue:** #417
 
 ### タスク8: 添付選択ダイアログ
@@ -119,7 +122,7 @@ status: completed
 ### タスク9: 承認フォームとドラフト詳細の改修
 - [ ] 完了
 - **目的:** 通称欄の新設・新項目の表示・`source_mismatch` 警告・訂正版ヒント撤去
-- **対応AC:** AC-7, AC-15, AC-16, AC-17, AC-19, AC-34
+- **対応AC:** AC-7, AC-15, AC-16, AC-17, AC-19, AC-34, AC-39
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`、同ディレクトリのテスト
 - **依存タスク:** タスク1
 - **必要なテスト:** 通称「大阪」を入れると各単位が「大阪B」「大阪C」に合成される／単位ごとに個別上書きできる／通称未入力なら合成結果が空（級だけの値が出ない）／`source_mismatch: true` で警告バナーが出て**承認ボタンは押せる**／訂正版ヒントが消えている／旧フィールドを持つ既存ドラフトを開いても壊れない
@@ -128,7 +131,7 @@ status: completed
   - `composeTitle()` と `title.ts` は**残す**（stem の供給元が AI から人間に変わるだけ）。タスク10 で `DraftCard` が使わなくなるため**本タスク後は `ApprovalForm` が唯一の利用者**になる。死んだコードに見えても削除しないこと
   - 参加費欄は AI が埋めなくなる。手入力できる状態は維持する（自動導出の配線は Non-goals）
   - `capacity_total` は承認時に `events.capacity` へ、級別は従来どおり `capacity_a`〜`e` へ書く
-  - `payment_deadline_kind` は表示のみ（events へは書かない）
+  - `payment_deadline_kind` は承認時に `events.payment_deadline_kind` へマッピングする（「日付あり」→`fixed` /「後日連絡」→`later_notice` /「記載なし」→`unspecified`）
   - `ConfidenceBadge` への参照を外す（**ファイル削除はタスク11**）
 - **対応Issue:** #419
 
@@ -142,6 +145,20 @@ status: completed
 - **完了条件:** 一覧のテストが green
 - **注意:** `DraftCard` は `composeTitle(stem, grades)` を使わなくなる。`ConfidenceBadge` への参照を外す（**ファイル削除はタスク11**）
 - **対応Issue:** #420
+
+### タスク12: イベント側の振込締切状態の表示と編集
+- [ ] 完了
+- **目的:** 承認後も「後日連絡」が失われないよう、申込管理ボード・イベント詳細・イベント編集の3面に反映する
+- **対応AC:** AC-42, AC-43, AC-44
+- **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts`・`page.tsx`、`apps/web/src/app/(app)/events/[id]/page.tsx`・`edit/page.tsx`・`actions.ts`、`apps/web/src/components/events/event-form.tsx`・`event-edit-submit.tsx`・`EventLifecycleSection.tsx`
+- **依存タスク:** タスク7
+- **必要なテスト:** ボードで `payment_deadline: null` かつ `later_notice` なら「後日連絡」、`unspecified` なら「締切未設定」と出し分かれること／編集フォームで状態を変更できること／**日付を入力するとサーバー側で `fixed` に正規化されること**／詳細画面で日本語表示されること
+- **完了条件:** 申込ボード・イベント詳細・イベント編集のテストが green
+- **注意:**
+  - 現状 `entry-board-utils.ts:624` が `build('支払締切', item.paymentDeadline, todayStr, '締切未設定')` で null を一律「締切未設定」にしている。ここが問題の症状そのもの
+  - DB は英語値、**UI は日本語表示**（`fixed`→日付そのもの / `later_notice`→「後日連絡」/ `unspecified`→「締切未設定」）
+  - 正規化はサーバー側で行う。クライアント側のバリデーションだけに頼ると CHECK 制約違反で 500 になる
+- **対応Issue:** #422
 
 ### タスク11: `ConfidenceBadge` の削除と参照ゼロ確認
 - [ ] 完了
@@ -160,7 +177,7 @@ status: completed
 - **Wave 3**: タスク6(#416)
 - **Wave 4**: タスク7(#417)
 - **Wave 5**: タスク8(#418)
-- **Wave 6**: タスク9(#419), タスク10(#420)（`[id]/page.tsx`＋`ApprovalForm.tsx` と `page.tsx`＋`DraftCard.tsx` で分離）
+- **Wave 6**: タスク9(#419), タスク10(#420), タスク12(#422)（mail-inbox 配下と events/entries 配下で領域が分離）（`[id]/page.tsx`＋`ApprovalForm.tsx` と `page.tsx`＋`DraftCard.tsx` で分離）
 - **Wave 7**: タスク11(#421)
 
 ## 実装外の残作業（出荷後）

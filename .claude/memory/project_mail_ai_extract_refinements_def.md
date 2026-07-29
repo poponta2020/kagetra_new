@@ -6,7 +6,7 @@ type: project
 
 # mail-ai-extract-refinements 要件定義（改修・2026-07-29）
 
-正典 = docs/features/mail-ai-extract-refinements/{requirements.md, implementation-plan.md}。親Issue #410 / 子 #411-#421。AC 38件（auto-test 36 / verify 1 / manual 1）。実装未着手。
+正典 = docs/features/mail-ai-extract-refinements/{requirements.md, implementation-plan.md}。親Issue #410 / 子 #411-#422。AC 44件（auto-test 42 / verify 1 / manual 1）。実装未着手。
 
 ## 起点になった発見
 
@@ -19,6 +19,7 @@ type: project
 - **short_name_stem は人力入力に戻す** — 通称は「大阪」程度で人間の入力コストはほぼゼロ。一方 AI には「第N回」「競技かるた」等をそぎ落とす曖昧な判断でプロンプト1節を消費していた。composeTitle() は残し供給元だけ差し替える
 - **fee_jpy 削除** — 級から決定的に導出可能（定数は packages/shared に実装済み）。決定的に求まる値を AI に読ませるのは誤読リスクだけ増やす
 - **payment_deadline_kind（日付あり/後日連絡/記載なし）を追加** — 現状 null が「案内に後日連絡と書いてある」と「AI が読めなかった」の両方を意味し、対応がまったく違うのに区別できなかった
+- **その状態を events まで持ち回す（後から追加）** — 当初は payload 内のみの設計にしたが、支払いを追うのはドラフトを見た人ではなく申込管理ボードを見る人。承認した瞬間に情報が消えると entry-board-utils.ts:624 の「締切未設定」一律表示に戻る。`events.payment_deadline_kind` を pgEnum（英語値 fixed/later_notice/unspecified・既存 eventPaymentTypeEnum の慣行）で追加し、CHECK `(payment_deadline IS NOT NULL) = (kind = 'fixed')` で双条件に縛る。**backfill を CHECK 追加より前に**実行しないと既存行が制約違反になる
 - **payment_method / entry_method を日本語 closed enum に** — 実値が2〜3種に集中。自由テキストは表記ゆれが溜まる
 - **プロンプトキャッシュ撤去** — 手動起動＝都度1件ではどの TTL でもヒットせず書込プレミアム（1h=2.0×）だけ払う。なお prompt.ts の「2048トークン閾値」コメントは元から誤り（Sonnet 4.6/5 の最小キャッシュ長は 1024）
 - **添付選択は既定「全て未チェック」** — 要綱以外が混ざるとトークン代と誤抽出が両方悪化。選択忘れは確認1段で防ぐ
@@ -39,6 +40,6 @@ type: project
 
 ## Wave 構成
 
-W1: #411(スキーマ+fixture) #412(サイズ上限) #413(トークン実測ゲート) / W2: #414(プロンプト) #415(Sonnet5移行) / W3: #416(classifier添付選択) / W4: #417(migration+ServerAction) / W5: #418(選択ダイアログ) / W6: #419(承認フォーム) #420(一覧) / W7: #421(ConfidenceBadge削除)
+W1: #411(スキーマ+fixture) #412(サイズ上限) #413(トークン実測ゲート) / W2: #414(プロンプト) #415(Sonnet5移行) / W3: #416(classifier添付選択) / W4: #417(migration+ServerAction) / W5: #418(選択ダイアログ) / W6: #419(承認フォーム) #420(一覧) #422(events側3面: ボード/詳細/編集) / W7: #421(ConfidenceBadge削除)
 
 **#413 は移行ゲート**: 代表PDFで両モデルの count_tokens を実測し、1.5倍超なら移行可否をユーザーに再確認してから #415 へ進む。
