@@ -19,6 +19,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 const mockGetCachedPreviewPage = vi.fn()
+const mockGetCachedPreviewMeta = vi.fn()
 const mockRenderAttachmentPreview = vi.fn()
 vi.mock('@/lib/attachment-preview', async (importOriginal) => {
   const actual =
@@ -27,6 +28,8 @@ vi.mock('@/lib/attachment-preview', async (importOriginal) => {
     ...actual,
     getCachedPreviewPage: (...args: unknown[]) =>
       mockGetCachedPreviewPage(...args),
+    getCachedPreviewMeta: (...args: unknown[]) =>
+      mockGetCachedPreviewMeta(...args),
     renderAttachmentPreview: (...args: unknown[]) =>
       mockRenderAttachmentPreview(...args),
   }
@@ -69,6 +72,8 @@ describe('GET /api/roster-files/:id/preview/:page', () => {
     mockRosterFileFindFirst.mockReset()
     mockAttachmentFindFirst.mockReset()
     mockGetCachedPreviewPage.mockReset()
+    mockGetCachedPreviewMeta.mockReset()
+    mockGetCachedPreviewMeta.mockReturnValue(null)
     mockRenderAttachmentPreview.mockReset()
   })
   afterEach(() => {
@@ -216,6 +221,44 @@ describe('GET /api/roster-files/:id/preview/:page', () => {
     })
     const res = await GET(makeRequest(), mkParams('5', '2'))
     expect(res.status).toBe(404)
+  })
+
+  // Codex final blocker: 変換済みページ数が判っている添付に対する範囲外ページの
+  // 要求は、libreoffice/pdftoppm を起動する**前に**弾く。この route はログイン
+  // 会員全員に開いているため、連打で変換を無制限に再実行できてはならない。
+  it('rejects an out-of-range page without re-running the conversion', async () => {
+    await setAuthSession({ id: 'u1', role: 'member' })
+    mockRosterFileFindFirst.mockResolvedValue(ADOPTED_DOC_ROW)
+    mockGetCachedPreviewPage.mockReturnValue(null)
+    mockGetCachedPreviewMeta.mockReturnValue({ pageCount: 1, truncated: false })
+    mockAttachmentFindFirst.mockResolvedValue(DOC_ATTACHMENT_ROW)
+
+    const res = await GET(makeRequest(), mkParams('5', '30'))
+
+    expect(res.status).toBe(404)
+    expect(mockRenderAttachmentPreview).not.toHaveBeenCalled()
+    // bytea 込みの添付行すら読まない（変換前に返す）。
+    expect(mockAttachmentFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('still renders when the cached meta covers the requested page', async () => {
+    await setAuthSession({ id: 'u1', role: 'member' })
+    mockRosterFileFindFirst.mockResolvedValue(ADOPTED_DOC_ROW)
+    mockGetCachedPreviewPage.mockReturnValueOnce(null).mockReturnValueOnce({
+      data: JPEG,
+      contentType: 'image/jpeg',
+    })
+    mockGetCachedPreviewMeta.mockReturnValue({ pageCount: 3, truncated: false })
+    mockAttachmentFindFirst.mockResolvedValue(DOC_ATTACHMENT_ROW)
+    mockRenderAttachmentPreview.mockResolvedValue({
+      pageCount: 3,
+      truncated: false,
+    })
+
+    const res = await GET(makeRequest(), mkParams('5', '2'))
+
+    expect(res.status).toBe(200)
+    expect(mockRenderAttachmentPreview).toHaveBeenCalled()
   })
 
   it('returns 502 when rendering fails', async () => {

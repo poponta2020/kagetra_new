@@ -111,7 +111,7 @@
 - 既存の名簿ドラフト（`pending_review` / `rejected`）とは**独立**。ドラフトの状態を読まず・変えず、ドラフトの有無が採用を妨げることもない。
 - 空グループ削除（`deleteGroupIfEmpty`）は採用ファイルを持つグループを削除しない（`entry_group_id` は RESTRICT）。
 
-閲覧は**ログイン済みの全会員**に開く（パース済み名簿が既に氏名・所属を全会員へ表示しているのと同等の扱い）。会員向け経路は `/roster-files/[id]`（ビューア）・`/api/roster-files/[id]`（バイナリ）・`/api/roster-files/[id]/preview/[page]`（ページ JPEG）の3本で、認可は `lib/roster-file-access.ts` の `loadAdoptedRosterFile` に一本化した「採用済みかどうか」だけ（fail-closed。解除・添付削除のいずれでも 3 経路とも 404）。表示は管理者向けビューアと同じ `attachment-preview.ts` のページ画像化を流用し、MIME allowlist / `Content-Disposition` の規約も管理者向け route と同一に保つ（iOS PWA の白画面死対策。判定一致はテストで固定）。`detectPreviewKind` が `none` を返す型はページ画像を出さずダウンロードのみを提供する。管理者向け `/admin/mail-inbox/attachments/[id]` 系は従来どおり別経路のまま変更していない。
+閲覧は**ログイン済みの全会員**に開く（パース済み名簿が既に氏名・所属を全会員へ表示しているのと同等の扱い）。会員向け経路は `/roster-files/[id]`（ビューア）・`/api/roster-files/[id]`（バイナリ）・`/api/roster-files/[id]/preview/[page]`（ページ JPEG）の3本で、認可は `lib/roster-file-access.ts` の `loadAdoptedRosterFile` に一本化した「採用済みかどうか」だけ（fail-closed。解除・添付削除のいずれでも 3 経路とも 404）。表示は管理者向けビューアと同じ `attachment-preview.ts` のページ画像化を流用し、MIME allowlist / `Content-Disposition` の規約も管理者向け route と同一に保つ（iOS PWA の白画面死対策。判定一致はテストで固定）。`detectPreviewKind` が `none` を返す型はページ画像を出さずダウンロードのみを提供する。管理者向け `/admin/mail-inbox/attachments/[id]` 系は従来どおり別経路のまま変更していない。ページ画像 route は、変換済みページ数がキャッシュに載っている添付への**範囲外ページ要求を変換の起動前に 404 で弾く**（`renderAttachmentPreview` は `force: true` でメタキャッシュを迂回するため、範囲判定を変換後に置くと存在しないページの連打で変換を無制限に再実行できる。この route は会員全員に開いており管理者向けより露出が広い）。
 
 ## 画面
 

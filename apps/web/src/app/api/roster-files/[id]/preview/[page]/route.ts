@@ -6,6 +6,7 @@ import { mailAttachments } from '@kagetra/shared/schema'
 import { RENDER_PAGE_LIMIT } from '@/lib/attachment-image-render'
 import {
   detectPreviewKind,
+  getCachedPreviewMeta,
   getCachedPreviewPage,
   renderAttachmentPreview,
 } from '@/lib/attachment-preview'
@@ -64,6 +65,18 @@ export async function GET(
 
   let cached = getCachedPreviewPage(attachmentId, pageNo)
   if (!cached) {
+    // Codex final blocker: 変換済みのページ数が判っているなら、範囲外のページ
+    // 要求は**変換を起動する前に**弾く。この下の renderAttachmentPreview は
+    // `force: true` でメタキャッシュを迂回して libreoffice/pdftoppm を起動する
+    // ため、範囲チェックが変換の後（`pageNo > meta.pageCount`）にあると、
+    // 存在しないページを連打するだけで最大 60 秒の変換を無制限に再実行できる。
+    // この route は**ログイン会員全員**に開いており（admin route は管理者のみ）、
+    // 露出範囲が広い分ここで先に締める。
+    const knownMeta = getCachedPreviewMeta(attachmentId)
+    if (knownMeta && pageNo > knownMeta.pageCount) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
     const row = await db.query.mailAttachments.findFirst({
       where: eq(mailAttachments.id, attachmentId),
       columns: {
