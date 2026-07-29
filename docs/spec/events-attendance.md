@@ -148,6 +148,10 @@
 
 **申込フロー**（`EntryFlow` ＋ 判定は `lib/events/entry-flow.ts` の `buildEntryFlow`）は 会内締切 → 大会申込 → 抽選 → 支払 → 開催 の5ステップを横一列に描く両ビュー共通の表示で、`events.entryStatus` / `paymentStatus` が「会としての進行」を表すため会員にも同じマイルストーンを見せる。**5ステップは日付が NULL でも消さず**、日付欄に「未定」と出す（ステップ数が大会ごとに変わると横並びの目安として機能しなくなるため）。判定はハイブリッドで、大会申込は `entryStatus==='applied'`、支払は `paymentType==='advance'` かつ `paymentStatus==='paid'`、残り3つは対応する日付が JST の今日より前かで完了を決める。事前払い以外の支払と `not_applying` 時の 大会申込〜支払 は**中立**（完了・警告・現在地のいずれにもならない）。現在地は「完了でも中立でもない」最先頭の高々1つで、`not_applying` のときは出さない。警告（朱）は**期限超過かつ未完了**のときだけで、単なる未払を警告にはしない。
 
+**振込締切の「状態」**（`events.payment_deadline_kind`。`fixed` / `later_notice` / `unspecified`）は日付と対で扱う。`payment_deadline` が空である理由には「案内に『振込先は抽選後に別途連絡』と書いてあった（`later_notice`）」と「そもそも記載が無い／読み取れなかった（`unspecified`）」の2種類があり、前者は追加調査不要・後者は原文を当たるべき状態で対応がまったく違う。承認時に AI ペイロードの3値からマッピングされ（[spec/mail-worker.md](mail-worker.md)）、その後は編集フォームで人が変更できる（後日連絡だったものに連絡が来たとき日付へ書き換えられることが実用上の要）。
+
+DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` で双条件に縛られているため、**この2列は必ず同じ INSERT / UPDATE で揃えて書く**。正規化は `apps/web/src/lib/events/payment-deadline.ts` の `normalizePaymentDeadline`（日付が正 —— 日付があれば必ず `fixed`）で、`eventFormSchema` の transform に置いてある。作成・編集・メール承認の3経路がすべてこの schema を通るので、日付を入れたら状態が `fixed` へ倒れるのは**サーバー側で**担保される（クライアント側のバリデーションだけに頼ると CHECK 違反で 500 になる）。申込グループへの伝播だけは schema を通らないため、`diffPropagatableFields` が日付と状態を必ず束ねて返す。UI は日本語表示（`fixed`→日付そのもの / `later_notice`→「後日連絡」/ `unspecified`→「締切未設定」）。「後日連絡」は**期限超過扱いにしない**（締切が決まっていないのだから遅延ではない）。
+
 一般会員には 参加費・支払締切・支払方法・支払情報・申込方法 を描画しない（RSC payload にも載せない）。これらは管理者の「支払状態」「申込状態」トグル内に集約されており、会員向けの周知は LINE グループへ配信される要綱に委ねている。日付は生 ISO を出さず、文脈ごとに `9/6(日)`（見出し・フラット表）／`7/31`（申込フロー・曜日なし）／`2026/07/20 14:32`（LINE 連携状況）／`7/25 18:02`（配信履歴・名簿の発行日）を使い分ける（整形は `lib/event-date.ts`）。
 
 出欠回答不可の会員には理由（対象外／会内締切超過／級未設定／対象外の級）をカードで示す。
@@ -205,11 +209,11 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 | 締切前（`before_deadline`） | `not_applied` かつ 基準締切がNULLまたは今日以降 | 会内締切（`COALESCE(internalDeadline, entryDeadline)`） |
 | 要申込（`action_required`。旧「要対応」） | `not_applied` かつ 基準締切が今日より前 かつ 参加1名以上 | **本締切**（`entryDeadline`） |
 | 申込完了・抽選待ち（`applied_waiting`。旧「申込済み・抽選待ち」） | `applied` かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ 確定名簿なし | 抽選日（`lotteryDate`） |
-| 名簿確定・要振込（`payment_due`。旧「名簿確定・振込待ち」） | `applied` かつ 確定名簿あり かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` | 支払締切（`paymentDeadline`） |
+| 名簿確定・要振込（`payment_due`。旧「名簿確定・振込待ち」） | `applied` かつ 確定名簿あり かつ `paymentType='advance'` かつ `paymentStatus='unpaid'` | 支払締切（`paymentDeadline`。null のときは `paymentDeadlineKind` で「後日連絡」/「締切未設定」を出し分ける） |
 | 完了（`done`） | `applied` かつ（`paymentStatus='paid'` または `paymentType='onsite'` または `paymentType IS NULL`）。**確定名簿の有無を問わない** | 開催日（`eventDate`） |
 
 改称の狙いは「要対応」が**何をすべきか**を伝えていなかったこと。区画名がそのまま次の動作（申し込む・振り込む）を指すようにした。
-※ `/admin/mail-inbox` の tier 0 ラベル「要対応」は**無関係な同名**なので改称対象外。
+※ かつて `/admin/mail-inbox` にも tier 0「要対応」ラベルがあったが、そちらは mail-ai-extract-refinements で廃止済み（無関係な同名だった）。
 
 確定名簿ありの判定は `tournament_entry_rosters` に `rosterType='confirmed'` かつ `supersededAt IS NULL` の行が存在すること（＝メール取込フローで承認した時点）**または** `tournament_entry_roster_files` に `rosterType='confirmed'` の採用（＝解析せず原本ファイルのまま登録。版管理を持たないので superseded の絞り込みは無い）があること。決定論パーサは主催者ごとに多様な様式へ追随できず、確定名簿が 1 件も取り込めないまま事前払いの大会が「申込完了・抽選待ち」に滞留する実害が出たため、原本の採用だけでフェーズを進められるようにした（[features/roster-file-adoption/requirements.md](../features/roster-file-adoption/requirements.md)）。`applicant` のファイル採用は分類を動かさない。区画の判定条件・評価順・並び順キーはこの定義拡張以外に変更していない。**確定名簿は「完了」の必須要件ではない**（2026-07-27 変更）: 確定名簿は主催者の発表とこちらの取込作業が両方揃って初めて true になる外部依存の値なので、支払いの決着（振込済／現地払い／支払い管理なし）が付いた大会は名簿を待たずに完了へ抜ける。名簿の有無が結果を左右するのは**事前払いかつ未振込**の大会を「抽選待ち」と「振込待ち」のどちらに置くかだけ。現地払い・支払い管理なしの大会には振込確認という判定点が無いため、申込済みになった時点で完了へ入る（＝抽選待ちを経由しない。追跡価値より滞留の害が上回るというユーザー判断）。「要申込」だけ会内締切ではなく本締切を見るのは、その区画が会内締切を既に過ぎた大会の集まりであり、行動を決めるのは主催者への申込締切だから。並び順はいずれも昇順・NULL末尾・開催日を副キー。
 

@@ -77,19 +77,28 @@ Message-ID が無いメールはパース失敗として `FetchedMailError`（`s
 1. `tournament_drafts` へ `status='ai_processing'` の行を UPSERT（既存 `ai_failed` はリセットして再利用、`ai_processing` 中の重複起動はエラー）
 2. `mail_worker_jobs` へ `kind='manual_extract'`, `payload={mail_message_id}` を INSERT
 
-extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipeline.ts` の `runManualExtract()` を実行する。詳細画面はこの間 `ExtractionInProgressCard`（`apps/web/src/app/(app)/admin/mail-inbox/components/ExtractionInProgressCard.tsx`）を表示し、`/api/admin/mail-inbox/[id]/draft-status` を 3 秒間隔で polling して `pending_review` / `ai_failed` / `approved` / `rejected` への遷移を検知したら `router.refresh()` する。完了時は Web Push（`notify/web-push.ts` の `notifyExtractCompleted`、VAPID 未設定なら best-effort でスキップ）で「AI 抽出完了」/「AI 抽出に失敗」を通知する。
+「会で流す（AI 抽出）」は**添付選択ダイアログ**（`AIExtractConfirmDialog`）を経由する。添付をファイル名・種別・サイズ付きで一覧し、**既定は全て未チェック**。サイズ上限（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を超える PDF はチェックできない。添付が1件以上あるのに全て未チェックのまま実行しようとすると「本文だけで実行しますか？」の確認を1段挟む（添付0件のメールでは挟まない）。同じダイアログをドラフト詳細の「再 AI 抽出」でも使い、**前回の選択を初期値として復元**する。
+
+選択は `tournament_drafts.selected_attachment_ids`（`integer[]`、NULL = 旧データ／未指定＝全添付）に永続化する。書き込みは**ジョブ enqueue より前**に同一トランザクションで行う —— ワーカーはジョブ実行時にこの列を読むので、順序が逆だと NULL を読んで全添付を送ってしまい、エラーも出ないまま機能が死ぬ。Server Action は UI を経由しない不正な選択を拒否する: **当該メールに属さない添付 id**（`mail_message_id` で絞ったクエリで存在確認する。他メールの添付を読ませられるのは情報漏洩）と、**サイズ上限超過の PDF**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない。
+
+extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipeline.ts` の `runManualExtract()` を実行する（この関数が draft 行から選択を読んで `classifyMail` へ渡す。`reextractDraft` はこの経路を通らず `classifyMail` を直接呼ぶので、Server Action 側で明示的に渡している）。詳細画面はこの間 `ExtractionInProgressCard`（`apps/web/src/app/(app)/admin/mail-inbox/components/ExtractionInProgressCard.tsx`）を表示し、`/api/admin/mail-inbox/[id]/draft-status` を 3 秒間隔で polling して `pending_review` / `ai_failed` / `approved` / `rejected` への遷移を検知したら `router.refresh()` する。完了時は Web Push（`notify/web-push.ts` の `notifyExtractCompleted`、VAPID 未設定なら best-effort でスキップ）で「AI 抽出完了」/「AI 抽出に失敗」を通知する。
 
 `classify/classifier.ts` の `classifyMail()` がコア処理:
 
 1. `mail_messages` + `mail_attachments`（`data` を含む）を読み、pre-filter noise なら `force:true` でない限り即 `skipped_noise` を返す
-2. **PDF コストガード**: `MAIL_WORKER_PDF_SIZE_LIMIT_KB`（既定 800 KB。`0` で無効化）を超える PDF 添付があれば AI 呼び出し自体をスキップし `oversize_skipped` を返す。実測で 919 KB の PDF が Sonnet の native PDF document block 課金でコストの外れ値になった経験に基づく防御
-3. 添付を LLM 入力へ整形: PDF はネイティブ document block（base64。`bytesFromBytea()` が bytea の hex-escape 文字列 vs 生 Buffer の差異を吸収）、DOCX/DOC 等の抽出済みテキストはそのままテキストブロック。`unsupported`/`pending` の行は呼び出し時点でその場限りの再抽出フォールバックを試みる（DB は更新しない）
-4. `LLMExtractor.extract()`（既定 `AnthropicSonnet46Extractor`、`classify/llm/anthropic.ts`）を呼び、失敗（`LLMNoToolUseError` / Zod 検証失敗）したら 1 回だけリトライ。2 回とも失敗なら `kind: 'failed'` を返す
-5. 結果の `is_tournament_announcement` で `tournament` / `noise` を分岐
+2. **添付選択の適用**: `ClassifyOptions.selectedAttachmentIds` で対象添付を絞る。3 状態で、`tournament_drafts.selected_attachment_ids` 列とそのまま対応する —— `undefined`/`null`＝未指定（旧データ含む。全添付を送る）、`[]`＝「本文だけで実行」という明示的な選択（**早期 return せず**添付ゼロで LLM を呼ぶ）、非空配列＝その id だけ。**本文（`bodyText ?? bodyHtml`）は選択によらず常に渡る**
+3. **PDF コストガード**: `MAIL_WORKER_PDF_SIZE_LIMIT_KB`（既定 8000 KB。`0` で無効化）を超える PDF 添付が**選択後の集合に**あれば AI 呼び出し自体をスキップし `oversize_skipped` を返す。上限超過は選択ダイアログの時点でブロックされるため正常系では到達しないが、Server Action 直叩き・多重タブへの防御として意図的に残している
+4. 添付を LLM 入力へ整形: PDF はネイティブ document block（base64。`bytesFromBytea()` が bytea の hex-escape 文字列 vs 生 Buffer の差異を吸収）、DOCX/DOC 等の抽出済みテキストはそのままテキストブロック。`unsupported`/`pending` の行は呼び出し時点でその場限りの再抽出フォールバックを試みる（DB は更新しない）
+5. `LLMExtractor.extract()`（既定 `AnthropicExtractor`、`classify/llm/anthropic.ts`）を呼び、失敗（`LLMNoToolUseError` / Zod 検証失敗）したら 1 回だけリトライ。2 回とも失敗なら `kind: 'failed'` を返す
+6. 成功すれば常に `tournament` を返す。**AI は「大会案内かどうか」を判定しない**（管理者が押した時点でその判断は済んでいる）
 
-`classify/schema.ts` の `ExtractionPayloadSchema`（Zod）が LLM 出力の契約。**PROMPT_VERSION 2.0.0** で「1 案内 = 1 draft : N イベント」構造に変更され、`short_name_stem`（場所固有の通称。級サフィックスを含まない）と `events[]`（開催日ごとに 1 単位の `EventUnit`）に分割される。同日複数級は 1 単位に `eligible_grades` として連ねる／級ごとに開催日が違えば単位を分ける、というルールは `classify/prompt.ts` のシステムプロンプトで指示される。表示用の大会名（`events.title`）は AI が直接出力せず、`classify/title.ts` の `composeTitle(stem, grades)` が固定 A→E 順でサフィックスを合成する（AI の出力順やモデル差異に依存しない決定的な組み立て）。
+**モデルは `claude-sonnet-5`**。`thinking: { type: 'disabled' }` を**明示的に指定する** —— Sonnet 5 は省略時に adaptive thinking が ON になり、`max_tokens` が思考と出力を合算して上限をかけるため、明示しないと `record_extraction` の引数が途中で切れる。構造化抽出に思考は不要。**プロンプトキャッシュは使わない**（手動起動＝メール1件ごとの散発的な呼び出しになり、どの TTL でもヒットせず書込プレミアムだけを払うため）。
 
-`classify/cost.ts` の `calculateCostUsd()` が Anthropic の usage（`input_tokens` / `output_tokens` / キャッシュ read・write）から USD を算出し `tournament_drafts.ai_cost_usd` に保存される。プロンプトキャッシュは 1h TTL の ephemeral cache のみを使う想定。
+`classify/schema.ts` の `ExtractionPayloadSchema`（Zod）が LLM 出力の契約。**PROMPT_VERSION 3.0.0** で分類がスキーマから撤去された（`is_tournament_announcement` / `confidence` / `short_name_stem` / `is_correction` / `references_subject` / `fee_jpy` を削除）。全体項目は `reason`（レビュー画面向けの抽出メモ）/ `source_mismatch`（渡された資料が明らかに別種の文書のときだけ true。**分類の別名ではない**）/ `events[]` / `extras`（`eligible_grades_raw` と `target_grades_raw` のみ）。`EventUnit` には `payment_deadline_kind`（「日付あり」「後日連絡」「記載なし」の3値。振込締切が空の理由を機械的に区別する）と `capacity_total`（全体定員）が加わり、`payment_method` / `entry_method` は閉じた日本語 enum になった。全体定員と級別定員は**互いに独立に抽出**し、どちらの方向にも逆算・均等割り・合算をしない。
+
+同日複数級は 1 単位に `eligible_grades` として連ねる／級ごとに開催日が違えば単位を分ける、というルールは `classify/prompt.ts` のシステムプロンプトで指示される。表示用の大会名（`events.title`）は AI が出力せず、**承認フォームで管理者が入力した通称**を種に `classify/title.ts` の `composeTitle(stem, grades)` が固定 A→E 順でサフィックスを合成する（3.0.0 で stem の供給元が AI から人間に変わった。合成ロジック自体は不変）。
+
+`classify/cost.ts` の `calculateCostUsd()` が Anthropic の usage（`input_tokens` / `output_tokens` / キャッシュ read・write）から USD を算出し `tournament_drafts.ai_cost_usd` に保存される。単価は Sonnet 4.6 と同一だが、2026-08-31 までの導入価格期間中は実請求より高く記録される。キャッシュ撤去によりキャッシュ系トークンは常に 0。
 
 `persistOutcome()`（`classify/classifier.ts`）が `ClassifyOutcome` を DB へ反映する一本化された書き込みパス（pipeline / `runManualExtract` / `reextractDraft` / `reextract` CLI が全て共有）:
 
@@ -105,7 +114,9 @@ extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipe
 
 ### 訂正版の扱い
 
-件名/本文に訂正示唆（「【訂正】」「先日お送りした案内に誤りが」等）があれば AI が `is_correction: true` + `references_subject`（訂正元の件名）を返す。承認画面（`/admin/mail-inbox/[id]`）はこれを `CorrectionHint` コンポーネントで表示し、`references_subject` の ILIKE 部分一致で直近 12 ヶ月の関連ドラフト・関連イベントを最大 3 件ずつ提示する（`apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`）。訂正フラグは承認後の LINE 配信文言（`【訂正】` プレフィックス）にも使われる（[spec/notifications.md](notifications.md)）。
+**AI は関与しない。** 訂正版メールはほぼ届かず、届いても差分は軽微（締切の変更等）なので、管理者が本文を読んで該当する既存イベントを手動で編集する運用にしている。PROMPT_VERSION 3.0.0 で `is_correction` / `references_subject` を出力スキーマから削除し、承認画面の訂正版ヒント（関連ドラフト・関連イベントの ILIKE 検索）も撤去した。
+
+`tournament_drafts.is_correction` / `references_subject` **列は残っている**が、書き込みは止まっている（既存行の値はそのまま）。承認後の LINE 配信文言の `【訂正】` プレフィックスはこの列を読む経路が残っているため、AI 由来の新規ドラフトでは付かない（[spec/notifications.md](notifications.md)）。
 
 ### 運用者向け通知（システムアラート）
 
@@ -121,20 +132,16 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 ### 受信箱 UI（`/admin/mail-inbox`）
 
-`admin`/`vice_admin` のみアクセス可（`session.user.role` チェック、`/403` へリダイレクト）。一覧は `mail_messages.triage_status`（`unprocessed`/`processed` の 2 状態。旧「保留」は廃止済み）優先で、未処理を最大 100 件・処理済みを参考として最新 20 件表示する。未処理内はさらに 3 tier に分類する:
+`admin`/`vice_admin` のみアクセス可（`session.user.role` チェック、`/403` へリダイレクト）。一覧は `mail_messages.triage_status`（`unprocessed`/`processed` の 2 状態。旧「保留」は廃止済み）優先で、未処理を最大 100 件・処理済みを参考として最新 20 件表示する。**未処理内の tier 分けは廃止した**（`confidence >= 0.9` による「要対応 / 要確認 / その他」の3分割）—— `confidence` が抽出スキーマから消え、振り分けの根拠が無くなったため。未処理は**受信日降順の一本**で並ぶ。
 
-- tier 0「要対応」: draft が `pending_review` かつ `confidence >= 0.9`
-- tier 1「要確認」: `pending_review` かつ `confidence < 0.9`/未設定
-- tier 2「その他」: それ以外（draft 無し・`ai_failed` 等）
-
-各カードは受信日時・分類ピル（`tournament`/`noise`/`unknown`）・技術状態ピル（`mail_message_status` の値）・添付チップ（`AttachmentList`）・draft サマリ（`DraftCard`）を表示する。画面上部に直近 5 件の `mail_worker_runs`（開始時刻・種別・状態・新規 draft 数）のテーブルがあり、`TriggerFetchButton` から `triggerMailFetch` Server Action（プリセット 24h/3d/7d/custom で `mail_worker_jobs(kind='fetch')` を INSERT）で手動取得をキューできる。
+各カードは受信日時・分類ピル（`tournament`/`noise`/`unknown`）・技術状態ピル（`mail_message_status` の値）・添付チップ（`AttachmentList`）・draft サマリ（`DraftCard`）を表示する。`DraftCard` の表示名は各単位の **`formal_name`**、無い単位は「開催日＋級」、どちらも無ければ「（名称不明）」。`composeTitle(stem, grades)` は AI が stem を出さなくなったため一覧では使えない（合成そのものは承認フォームで生きている）。画面上部に直近 5 件の `mail_worker_runs`（開始時刻・種別・状態・新規 draft 数）のテーブルがあり、`TriggerFetchButton` から `triggerMailFetch` Server Action（プリセット 24h/3d/7d/custom で `mail_worker_jobs(kind='fetch')` を INSERT）で手動取得をキューできる。
 
 ### メール詳細（`/admin/mail-inbox/mail/[id]`）
 
 本文は折りたたみなしで即時表示（`bodyText` 優先、無ければ `bodyHtml` を生テキストとして `<pre>` 表示。HTML はエスケープされ `dangerouslySetInnerHTML` は使わない）。アクションエリアは `triage_status` + `draft.status` で分岐する:
 
 - `processed` → 「未処理に戻す」（`UndoTriageButton`。既存イベント紐付けがあれば同時に解除する旨を注記）
-- draft なし → `MailDetailActions` の 3 ボタン: (a) 会で流す（AI 抽出、確認ダイアログ経由で `triggerExtractDraft`）、(b) 既存イベントに紐付ける（`ExistingEventLinkSheet` → `linkMailToEvent`）、(c) 対応不要（`dismissMail`。未完了 draft がある行は拒否）
+- draft なし → `MailDetailActions` の 3 ボタン: (a) 会で流す（AI 抽出、**添付選択ダイアログ**経由で `triggerExtractDraft`）、(b) 既存イベントに紐付ける（`ExistingEventLinkSheet` → `linkMailToEvent`）、(c) 対応不要（`dismissMail`。未完了 draft がある行は拒否）
 - `draft.status='ai_processing'` → `ExtractionInProgressCard`（polling）
 - `draft.status='ai_failed'` → 再試行ボタン（`AIExtractConfirmDialog`）
 - `draft.status='pending_review'` → `DraftCard` + 承認詳細へのリンク
@@ -152,7 +159,11 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 `tournament_drafts.status` が `pending_review`/`ai_failed` の間だけ操作ボタン（承認・却下・再抽出・既存イベント紐付け）を表示し、`approved`/`rejected`/`superseded` は読み取り専用ビューに畳む（表示条件はサーバー側の `APPROVABLE_STATUSES` ガードと一致させている）。
 
-**承認（`approveDraftUnits`）** は 1 draft : N イベントの複数単位承認 UI（`ApprovalForm`。旧`approveDraft` は 1 draft : 1 event の後方互換経路として残置、DoD 上は新規承認は複数単位経路を使う）。`ApprovalForm` は `EventUnit[]`（新形式）または単一 `extracted` オブジェクト（旧 2.0.0 未満フォーマット、`normalizeUnits()` が単一ユニット `u1` に正規化）を各単位ごとの `EventForm` としてレンダリングし、タイトル初期値は `composeTitle(shortNameStem, eligible_grades)`。管理者はチェックした単位だけを選んで登録できる（部分承認）。既に materialize 済みの単位は読み取り専用表示。全単位が materialize されて初めて draft を `approved` + mail を `processed`/`archived` に倒す（部分承認中は `pending_review` のまま受信箱に残る）。「残りは作らず完了」（`completeDraft`）は 1 件以上 materialize 済みのときだけ表示され、未登録の残り単位を作らずに draft を閉じる。
+画面には `source_mismatch: true`（AI が「渡された資料が明らかに別種の文書に見える」と申告した）のとき警告バナーが出る。ドラフトは通常どおり `pending_review` で作られ、**承認はブロックしない**（人間の判断が AI より上位）。
+
+**承認（`approveDraftUnits`）** は 1 draft : N イベントの複数単位承認 UI（`ApprovalForm`。旧`approveDraft` は 1 draft : 1 event の後方互換経路として残置、DoD 上は新規承認は複数単位経路を使う）。`ApprovalForm` は `EventUnit[]`（新形式）または単一 `extracted` オブジェクト（旧 2.0.0 未満フォーマット、`normalizeUnits()` が単一ユニット `u1` に正規化）を各単位ごとの `EventForm` としてレンダリングする。
+
+タイトルはフォーム上部の**「通称」欄**（人力入力）を種に `composeTitle(通称, eligible_grades)` で合成する。単位ごとに個別上書きでき、上書きした単位は通称の変更に追随しない。通称が未入力のあいだ合成結果は**空**にする（`composeTitle(null, ['B'])` は級だけの「B」を返してしまい、無意味な値のまま登録される事故になるため）。承認時のマッピングで新しいのは `capacity_total` → `events.capacity`（級別は `capacity_a`〜`e` のまま併存）と、`payment_deadline_kind` の日本語3値 → `events.payment_deadline_kind` の英語 enum（[spec/events-attendance.md](events-attendance.md)）。参加費は AI が埋めなくなったが手入力欄は残る。管理者はチェックした単位だけを選んで登録できる（部分承認）。既に materialize 済みの単位は読み取り専用表示。全単位が materialize されて初めて draft を `approved` + mail を `processed`/`archived` に倒す（部分承認中は `pending_review` のまま受信箱に残る）。「残りは作らず完了」（`completeDraft`）は 1 件以上 materialize 済みのときだけ表示され、未登録の残り単位を作らずに draft を閉じる。
 
 承認処理には任意で「開催（edition）への紐付け」チェックがある。承認可能な詳細画面は `tournament_series` を1回読み込み、AI抽出名が正準名または別名に正規化完全一致する系列が1件だけなら、その系列IDと回次を初期選択する。未一致・複数一致ではAI由来の名前を検索語にだけ入れ、系列は未選択にする。
 

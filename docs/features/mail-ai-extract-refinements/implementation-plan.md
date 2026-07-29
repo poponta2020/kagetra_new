@@ -95,7 +95,7 @@ status: completed
 - **対応Issue:** #416
 
 ### タスク7: マイグレーションと Server Action
-- [ ] 完了
+- [x] 完了
 - **目的:** 選択を永続化し、Server Action で検証する
 - **対応AC:** AC-31, AC-32, AC-40, AC-41
 - **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
@@ -109,7 +109,7 @@ status: completed
 - **対応Issue:** #417
 
 ### タスク8: 添付選択ダイアログ
-- [ ] 完了
+- [x] 完了
 - **目的:** 「会で流す（AI 抽出）」を添付選択ダイアログに拡張する
 - **対応AC:** AC-26, AC-27, AC-28, AC-29
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/AIExtractConfirmDialog.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`、同ディレクトリのテスト
@@ -120,7 +120,7 @@ status: completed
 - **対応Issue:** #418
 
 ### タスク9: 承認フォームとドラフト詳細の改修
-- [ ] 完了
+- [x] 完了
 - **目的:** 通称欄の新設・新項目の表示・`source_mismatch` 警告・訂正版ヒント撤去
 - **対応AC:** AC-7, AC-15, AC-16, AC-17, AC-19, AC-34, AC-39
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/components/ExtractedPayloadView.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`、同ディレクトリのテスト
@@ -136,7 +136,7 @@ status: completed
 - **対応Issue:** #419
 
 ### タスク10: 受信箱一覧の整理
-- [ ] 完了
+- [x] 完了
 - **目的:** tier 分けを廃止し、カード表示名を `formal_name` に切り替える
 - **対応AC:** AC-18, AC-33
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/components/DraftCard.tsx`、同ディレクトリのテスト
@@ -147,7 +147,7 @@ status: completed
 - **対応Issue:** #420
 
 ### タスク12: イベント側の振込締切状態の表示と編集
-- [ ] 完了
+- [x] 完了
 - **目的:** 承認後も「後日連絡」が失われないよう、申込管理ボード・イベント詳細・イベント編集の3面に反映する
 - **対応AC:** AC-42, AC-43, AC-44
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts`・`page.tsx`、`apps/web/src/app/(app)/events/[id]/page.tsx`・`edit/page.tsx`・`actions.ts`、`apps/web/src/components/events/event-form.tsx`・`event-edit-submit.tsx`・`EventLifecycleSection.tsx`
@@ -161,7 +161,7 @@ status: completed
 - **対応Issue:** #422
 
 ### タスク11: `ConfidenceBadge` の削除と参照ゼロ確認
-- [ ] 完了
+- [x] 完了
 - **目的:** 参照が無くなったコンポーネントを消す
 - **対応AC:** AC-33, AC-38
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx`（削除）、`apps/web/src/app/(app)/admin/mail-inbox/components/CorrectionHint.tsx`（削除）
