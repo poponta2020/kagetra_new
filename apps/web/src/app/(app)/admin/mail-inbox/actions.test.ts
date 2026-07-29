@@ -146,6 +146,9 @@ vi.mock('@kagetra/mail-worker/classify/llm/anthropic', () => ({
 }))
 vi.mock('@kagetra/mail-worker/config', () => ({
   loadLlmConfig: () => ({ anthropicApiKey: 'mock-anthropic-key' }),
+  // mail-ai-extract-refinements: 添付選択の上限検証が読む。既定と同じ 8000KB を
+  // 返し、テストは 9MB の PDF を作って超過側を踏む。
+  loadCostGuardConfig: () => ({ MAIL_WORKER_PDF_SIZE_LIMIT_KB: 8000 }),
 }))
 
 // Import after mocks so `@/auth` and the mail-worker imports resolve to the
@@ -726,13 +729,107 @@ describe('admin/mail-inbox actions', () => {
         | [unknown, number, unknown, { force?: boolean }]
         | undefined
       expect(classifyArgs?.[1]).toBe(mail.id)
-      expect(classifyArgs?.[3]).toEqual({ force: true })
+      expect(classifyArgs?.[3]).toEqual({
+        force: true,
+        selectedAttachmentIds: null,
+      })
 
       expect(persistOutcomeMock).toHaveBeenCalledTimes(1)
       const persistArgs = persistOutcomeMock.mock.calls[0] as unknown as
         | [unknown, number, unknown]
         | undefined
       expect(persistArgs?.[1]).toBe(mail.id)
+    })
+
+    // ── mail-ai-extract-refinements: 再抽出の添付選択（AC-31 / AC-32） ──
+    // この経路は runManualExtract を通らず classifyMail を**直接**呼ぶので、
+    // pipeline 側の読み出しには乗らない。ここで明示的に渡さないと再抽出だけ
+    // 全添付送信に戻る。
+    async function insertReextractPdf(
+      mailId: number,
+      filename: string,
+      sizeBytes = 512,
+    ): Promise<number> {
+      const [att] = await testDb
+        .insert(mailAttachments)
+        .values({
+          mailMessageId: mailId,
+          filename,
+          contentType: 'application/pdf',
+          sizeBytes,
+          data: Buffer.from([0x25]),
+          extractionStatus: 'pending',
+        })
+        .returning({ id: mailAttachments.id })
+      return att!.id
+    }
+
+    it('AC-31: 新しい選択を classifyMail へ渡し、draft 行へ永続化する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'reextract selection' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const keep = await insertReextractPdf(mail.id, '要綱.pdf')
+      await insertReextractPdf(mail.id, '会場地図.pdf')
+
+      await reextractDraft(draft.id, [keep])
+
+      const classifyArgs = classifyMailMock.mock.calls[0] as unknown as
+        | [unknown, number, unknown, { selectedAttachmentIds?: number[] | null }]
+        | undefined
+      expect(classifyArgs?.[3]?.selectedAttachmentIds).toEqual([keep])
+
+      const after = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, draft.id))
+      expect(after[0]!.selectedAttachmentIds).toEqual([keep])
+    })
+
+    it('AC-31: 選択を渡さなければ前回の選択を踏襲する（初期値の復元）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'reextract restore' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const keep = await insertReextractPdf(mail.id, '要綱.pdf')
+      await testDb
+        .update(tournamentDrafts)
+        .set({ selectedAttachmentIds: [keep] })
+        .where(eq(tournamentDrafts.id, draft.id))
+
+      await reextractDraft(draft.id)
+
+      const classifyArgs = classifyMailMock.mock.calls[0] as unknown as
+        | [unknown, number, unknown, { selectedAttachmentIds?: number[] | null }]
+        | undefined
+      expect(classifyArgs?.[3]?.selectedAttachmentIds).toEqual([keep])
+    })
+
+    it('AC-32: 当該メールに属さない添付 ID を拒否し、AI を呼ばない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'reextract foreign' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const otherMail = await createMailMessage({ subject: 'other' })
+      const foreign = await insertReextractPdf(otherMail.id, '他メール.pdf')
+
+      await expect(reextractDraft(draft.id, [foreign])).rejects.toThrow(
+        /選択された添付が見つかりません/,
+      )
+      expect(classifyMailMock).not.toHaveBeenCalled()
+    })
+
+    it('AC-32: サイズ上限を超える添付 ID を拒否し、AI を呼ばない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'reextract oversize' })
+      const draft = await createTournamentDraft({ messageId: mail.id })
+      const huge = await insertReextractPdf(mail.id, '巨大要綱.pdf', 9_000_000)
+
+      await expect(reextractDraft(draft.id, [huge])).rejects.toThrow(
+        /サイズ上限を超える添付/,
+      )
+      expect(classifyMailMock).not.toHaveBeenCalled()
     })
 
     it('draft が無いと draft not found を投げる', async () => {
@@ -2580,6 +2677,141 @@ describe('admin/mail-inbox actions', () => {
       expect(after[0]!.promptVersion).toBe('')
       expect(after[0]!.aiModel).toBe('')
       expect(after[0]!.extractedPayload).toEqual({})
+    })
+
+    // ── mail-ai-extract-refinements: 添付選択（AC-31 / AC-32） ──
+    async function insertPdf(
+      mailId: number,
+      filename: string,
+      sizeBytes: number,
+    ): Promise<number> {
+      const [att] = await testDb
+        .insert(mailAttachments)
+        .values({
+          mailMessageId: mailId,
+          filename,
+          contentType: 'application/pdf',
+          sizeBytes,
+          data: Buffer.from([0x25]),
+          extractionStatus: 'pending',
+        })
+        .returning({ id: mailAttachments.id })
+      return att!.id
+    }
+
+    it('AC-31: 選択が draft 行へ永続化される（再抽出の初期値になる）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const keep = await insertPdf(mail.id, '要綱.pdf', 512)
+      await insertPdf(mail.id, '会場地図.pdf', 512)
+
+      const result = await triggerExtractDraft(mail.id, [keep])
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const draft = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, result.draftId))
+      expect(draft[0]!.selectedAttachmentIds).toEqual([keep])
+    })
+
+    it('AC-31: 空配列（本文だけで実行）は NULL と区別して保存される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await insertPdf(mail.id, '要綱.pdf', 512)
+
+      const result = await triggerExtractDraft(mail.id, [])
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const draft = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, result.draftId))
+      expect(draft[0]!.selectedAttachmentIds).toEqual([])
+    })
+
+    it('選択を渡さない呼び出しは NULL のまま（未指定＝全添付の従来挙動）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await insertPdf(mail.id, '要綱.pdf', 512)
+
+      const result = await triggerExtractDraft(mail.id)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const draft = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, result.draftId))
+      expect(draft[0]!.selectedAttachmentIds).toBeNull()
+    })
+
+    it('AC-32: 当該メールに属さない添付 ID を拒否する（他メールの添付を読ませない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const otherMail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const foreign = await insertPdf(otherMail.id, '他メールの要綱.pdf', 512)
+
+      const result = await triggerExtractDraft(mail.id, [foreign])
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/選択された添付が見つかりません/)
+
+      // 拒否された場合は draft もジョブも作られない（tx ごとロールバック）。
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mail.id))
+      expect(drafts).toHaveLength(0)
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('AC-32: サイズ上限を超える添付 ID を拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      // 既定上限 8000KB を超える PDF。UI ではチェック不可だが直叩きは防げない。
+      const huge = await insertPdf(mail.id, '巨大要綱.pdf', 9_000_000)
+
+      const result = await triggerExtractDraft(mail.id, [huge])
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/サイズ上限を超える添付/)
+
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('選択の書き込みは manual_extract ジョブより先に確定する（ワーカーが NULL を読まない）', async () => {
+      // ワーカーはジョブを拾った時点で draft 行の selected_attachment_ids を
+      // 読む。ジョブが先に見えて選択が後だと、無言で全添付送信に戻る。
+      // 同一 tx なので commit 時点で必ず両方揃っていることを確認する。
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const keep = await insertPdf(mail.id, '要綱.pdf', 512)
+
+      const result = await triggerExtractDraft(mail.id, [keep])
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+
+      const job = await testDb
+        .select()
+        .from(mailWorkerJobs)
+        .where(eq(mailWorkerJobs.id, result.jobId))
+      expect(job).toHaveLength(1)
+      const draft = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mail.id))
+      expect(draft[0]!.selectedAttachmentIds).toEqual([keep])
     })
 
     it('pending_review draft が既にある場合は error を返す（再抽出は別経路）', async () => {
