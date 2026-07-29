@@ -244,3 +244,8 @@
 - [大会申込一覧 月区切り 出荷](project_ship-event-list-month-grouping.md) — shipped: PR #401。a11y指摘1件をWONTFIX(=/eventsだけh1無し)
 - [auto-review PR #402](auto-review-round-pr402.md) — R1 verdict=pass（指摘ゼロ・修正なし）
 - [月見出し sticky＋既定ソート開催日順 出荷](project_ship-event-list-sticky-month-default-sort.md) — shipped: PR #402。既定ソート変更で行内 getByText が日付ブロックと衝突する型
+- [roster-file-adoption 要件定義（名簿ファイル採用）](project_roster_file_adoption_def.md) — 親Issue #403
+- [roster-file-adoption 実装完了](impl_roster-file-adoption.md) — 名簿の原本ファイル採用（全5タスク）。★deleteGroupIfEmpty の RESTRICT 見落としバグを同時修正・残DoD=本番3添付の採用
+- [auto-review PR #409](auto-review-round-pr409.md) — R4 verdict=pass で収束（4R・blocker 2件修正・累計747k）
+- [fix PR #409](impl_fix-pr409.md) — R1 blocker（団体戦への採用が dead-end）を個人戦限定で修正
+- [名簿ファイル採用（roster-file-adoption）](project_ship-roster-file-adoption.md) — shipped: PR #409。★残DoD=本番3添付の採用＋ドラフト#1-3を却下しない

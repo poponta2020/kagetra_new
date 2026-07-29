@@ -2950,3 +2950,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-07-28 /ship PR #401 merged: 大会申込一覧の開催日順ビューを月区切り化（月見出し・日付ブロック・二重符号・フッター行）。レビュー 1R pass(blockers 0)、a11y 指摘1件は WONTFIX。CI pending のままマージ。残DoD=本番実機確認
 - 2026-07-28 /auto-review-loop PR #402: 1R(i), verdict=pass, effort=low, tokens=71948/500000, result=pass
 - 2026-07-28 /ship PR #402 merged: 月見出しを sticky 追従化＋既定ソートを開催日順へ（/quickfix）。レビュー 1R pass(指摘ゼロ)。CI pending のままマージ。残DoD=本番実機確認（特に sticky の実スクロール挙動）
+- 2026-07-29 /auto-review-loop PR #409: 4R(i+d+f+fd), verdict=pass, effort=h→m→h→m, tokens=746986/500000(超過・ユーザー承認でR4継続), result=pass
+- 2026-07-29 /ship PR #409 merged: 名簿をパースせず原本ファイルのまま採用できる導線（新テーブル tournament_entry_roster_files + migration 0051／採用・解除 Server Action ＋ メール詳細 UI／会員向けビューア /roster-files/[id]＋2 route／大会詳細のファイル表示／ボードの hasConfirmedRoster 拡張）。Codex 4R pass（blocker 2件を修正: 団体戦への採用が dead-end・範囲外ページ連打で変換再実行）。実装中に deleteGroupIfEmpty の RESTRICT 見落としバグも同時修正。CI pending のままマージ。★残DoD=本番3添付(316/318/319)を確定名簿として採用＋実機確認。**それまで名簿ドラフト #1〜#3 を却下しないこと**
