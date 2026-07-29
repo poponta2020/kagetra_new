@@ -2546,6 +2546,7 @@ export async function adoptRosterFile(
           id: events.id,
           status: events.status,
           eventDate: events.eventDate,
+          kind: events.kind,
           entryGroupId: events.entryGroupId,
         })
         .from(events)
@@ -2558,6 +2559,14 @@ export async function adoptRosterFile(
         linkableEventCutoffStr(),
       )
       if (eventInvalid) throw new Error(eventInvalid)
+      // Codex r1 blocker: 名簿は個人戦のみの仕様（RosterSection は団体戦で常に
+      // 非表示・申込管理ボードの母集団も kind='individual'）。団体戦を通すと
+      // 「採用は成功したのにどこにも表示されずフェーズも動かない」行き止まりに
+      // なるので、候補クエリ（loadRosterAdoptableEvents）と同じ条件をここでも
+      // 再検証する（UI 表示後の変化・Server Action の直接叩き対策）。
+      if (eventRow.kind !== 'individual') {
+        throw new Error('名簿ファイルを採用できるのは個人戦の大会だけです')
+      }
 
       const attachmentRows = await tx
         .select({

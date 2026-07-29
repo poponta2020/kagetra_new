@@ -106,6 +106,39 @@ async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
   return rows
 }
 
+/**
+ * 名簿ファイル採用シートの候補（roster-file-adoption / Codex r1 blocker）。
+ *
+ * 候補条件は `loadLinkableEvents` と共有しつつ、**個人戦だけ**に絞る。名簿は
+ * 個人戦のみの仕様（`RosterSection` は団体戦で常に非表示・申込管理ボードの
+ * 母集団も `kind='individual'`）なので、団体戦を選べると「採用は成功したのに
+ * どこにも表示されずフェーズも動かない」行き止まりの経路になる。
+ * `adoptRosterFile` 側でも同じ条件を再検証する（UI 表示後の変化・直接叩き対策）。
+ *
+ * 既存の「既存イベントに紐付ける」導線は団体戦も候補に出したままにする
+ * （メールの紐付け自体は個人戦に限る理由がない）。
+ */
+async function loadRosterAdoptableEvents(): Promise<LinkableEventOption[]> {
+  const cutoffStr = linkableEventCutoffStr()
+
+  return db
+    .select({
+      id: events.id,
+      title: events.title,
+      eventDate: events.eventDate,
+      status: events.status,
+    })
+    .from(events)
+    .where(
+      and(
+        gte(events.eventDate, cutoffStr),
+        ne(events.status, 'cancelled'),
+        eq(events.kind, 'individual'),
+      ),
+    )
+    .orderBy(desc(events.eventDate))
+}
+
 export default async function MailDetailPage({
   params,
 }: {
@@ -215,12 +248,15 @@ export default async function MailDetailPage({
     ? CLASSIFICATION_LABEL[mail.classification]
     : null
 
-  // roster-file-adoption タスク2: 名簿ファイル採用の対象イベント候補は、既存の
-  // AI 抽出/紐付けフロー（draft の有無・triage 状態）とは独立して常に提示する
-  // （要件: 既存の名簿ドラフトとは独立・ドラフトの有無で採用を妨げない）。
-  const allLinkableEvents = await loadLinkableEvents()
   const linkableEvents =
-    !mail.draft && mail.triageStatus === 'unprocessed' ? allLinkableEvents : []
+    !mail.draft && mail.triageStatus === 'unprocessed' ? await loadLinkableEvents() : []
+  // roster-file-adoption タスク2: 名簿ファイル採用の候補は、既存の AI 抽出/紐付け
+  // フロー（draft の有無・triage 状態）とは独立して提示する（要件: 名簿ドラフトと
+  // 独立・ドラフトの有無で採用を妨げない）ため、上の `linkableEvents` は流用せず
+  // 別に引く。候補は**個人戦のみ**（Codex r1 blocker）。添付が 1 件も無ければ
+  // セクション自体を出さないのでクエリも投げない。
+  const rosterAdoptableEvents =
+    mail.attachments.length > 0 ? await loadRosterAdoptableEvents() : []
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -488,7 +524,7 @@ export default async function MailDetailPage({
                   key={attachment.id}
                   attachmentId={attachment.id}
                   attachmentFilename={attachment.filename}
-                  linkableEvents={allLinkableEvents}
+                  linkableEvents={rosterAdoptableEvents}
                   adoption={adoption}
                 />
               )

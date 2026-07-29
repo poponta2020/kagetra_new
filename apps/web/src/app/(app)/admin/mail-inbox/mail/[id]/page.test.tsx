@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { mailAttachments, tournamentEntryRosterFiles } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
@@ -202,6 +202,31 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
       await renderDetail(mail.id)
 
       expect(screen.queryByText('名簿ファイルの採用')).toBeNull()
+    })
+
+    // Codex r1 blocker: 名簿は個人戦のみの仕様なので、候補に団体戦を出すと
+    // 「採用は成功したのにどこにも表示されない」行き止まりへ誘導してしまう。
+    it('採用シートの候補に団体戦の大会を出さない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createEvent({ title: '個人戦の大会Y', kind: 'individual' })
+      await createEvent({ title: '団体戦の大会Z', kind: 'team' })
+      await testDb.insert(mailAttachments).values({
+        mailMessageId: mail.id,
+        filename: 'roster.xlsx',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: 10,
+        data: Buffer.from('x'),
+        extractionStatus: 'pending',
+      })
+
+      await renderDetail(mail.id)
+      fireEvent.click(screen.getByText('名簿ファイルとして採用'))
+
+      expect(screen.getByText(/個人戦の大会Y/)).toBeTruthy()
+      expect(screen.queryByText(/団体戦の大会Z/)).toBeNull()
     })
 
     it('採用済みの添付には種別・対象大会名を表示し、解除ボタンを出す', async () => {

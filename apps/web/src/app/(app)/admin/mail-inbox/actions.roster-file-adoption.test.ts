@@ -253,6 +253,24 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       expect(result.error).toMatch(/過去 30 日/)
     })
 
+    // Codex r1 blocker: 団体戦を通すと「採用は成功したのに RosterSection にも
+    // 申込管理ボードにも現れない」行き止まりになる。名簿は個人戦のみの仕様。
+    it('団体戦の大会には採用できない（採用レコードも作られない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: '団体戦大会', kind: 'team' })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(attachment.id, event.id, 'confirmed')
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/個人戦/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
     it('存在しない添付はエラーを返す', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
