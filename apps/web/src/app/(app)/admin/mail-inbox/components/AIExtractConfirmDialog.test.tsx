@@ -157,10 +157,9 @@ describe('AIExtractConfirmDialog — 添付選択', () => {
 
     // 添付一覧は出ない。
     expect(screen.queryByRole('checkbox')).toBeNull()
+    // JSX の改行がテキストノード内で空白に潰れるため、部分一致で見る。
     expect(
-      screen.getByText(
-        'このメールを大会案内として AI で抽出し、ドラフトを作ります。よろしいですか？（完了後に通知します）',
-      ),
+      screen.getByText(/このメールを大会案内として AI で抽出し、ドラフトを作ります。/),
     ).toBeTruthy()
 
     fireEvent.click(screen.getByText('はい'))

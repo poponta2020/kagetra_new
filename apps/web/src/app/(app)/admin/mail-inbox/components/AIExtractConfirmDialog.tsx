@@ -113,6 +113,11 @@ export function AIExtractConfirmDialog({
   }, [open])
 
   const toggleAttachment = (id: number) => {
+    // `disabled` だけに頼らない。上限超過の添付は状態にも入れない
+    // （実ブラウザでは disabled 入力の onChange は発火しないが、それは
+    // 「押せない」ことの保証であって「選ばれない」ことの保証ではない）。
+    const target = attachments.find((a) => a.id === id)
+    if (target && isOversizePdf(target, pdfSizeLimitKb)) return
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
