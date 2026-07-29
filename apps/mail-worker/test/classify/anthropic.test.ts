@@ -29,12 +29,8 @@ import {
 import type { LLMExtractionInput } from '../../src/classify/llm/types.js'
 
 const VALID_PAYLOAD = {
-  is_tournament_announcement: true,
-  confidence: 0.9,
   reason: 'unit-test fixture',
-  is_correction: false,
-  references_subject: null,
-  short_name_stem: 'Test',
+  source_mismatch: null,
   events: [
     {
       unit_key: 'u1',
@@ -42,14 +38,15 @@ const VALID_PAYLOAD = {
       eligible_grades: null,
       formal_name: 'Test Tournament',
       venue: 'Tokyo',
-      fee_jpy: 5000,
       payment_deadline: null,
+      payment_deadline_kind: '記載なし',
       payment_info_text: null,
       payment_method: null,
       entry_method: null,
       organizer_text: null,
       entry_deadline: null,
       kind: null,
+      capacity_total: null,
       capacity_a: null,
       capacity_b: null,
       capacity_c: null,
@@ -168,23 +165,9 @@ describe('AnthropicSonnet46Extractor', () => {
     expect(schema.type).toBe('object')
     expect(schema.properties).toBeDefined()
     expect(Object.keys(schema.properties!)).toEqual(
-      expect.arrayContaining([
-        'is_tournament_announcement',
-        'confidence',
-        'reason',
-        'short_name_stem',
-        'events',
-      ]),
+      expect.arrayContaining(['reason', 'source_mismatch', 'events']),
     )
-    expect(schema.required).toEqual(
-      expect.arrayContaining([
-        'is_tournament_announcement',
-        'confidence',
-        'reason',
-        'short_name_stem',
-        'events',
-      ]),
-    )
+    expect(schema.required).toEqual(expect.arrayContaining(['reason', 'events']))
     // `$schema` is metadata Anthropic warns on; we strip it before sending.
     expect(schema.$schema).toBeUndefined()
   })
@@ -231,8 +214,7 @@ describe('AnthropicSonnet46Extractor', () => {
   it('rejects (Zod) when the tool input fails schema validation', async () => {
     messagesCreate.mockResolvedValue(
       buildSuccessResponse({
-        // Missing required fields (confidence, short_name_stem, events).
-        is_tournament_announcement: true,
+        // Missing the required `events` array.
         reason: 'oops',
       }),
     )

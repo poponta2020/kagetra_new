@@ -1,12 +1,7 @@
 {
   "subject": "[taikai-ajka:828] 第65回全日本選手権大会/ご案内",
   "payload": {
-    "is_tournament_announcement": true,
-    "confidence": 0.95,
     "reason": "PDF添付の大会案内、開催日・会場・参加費が明記されている。A・B級が同日開催なので 1 単位",
-    "is_correction": false,
-    "references_subject": null,
-    "short_name_stem": "全日本",
     "events": [
       {
         "unit_key": "u1",
@@ -14,14 +9,15 @@
         "eligible_grades": ["A", "B"],
         "formal_name": "第65回全日本選手権大会",
         "venue": "東京武道館",
-        "fee_jpy": 5000,
         "payment_deadline": "2026-05-15",
+        "payment_deadline_kind": "日付あり",
         "payment_info_text": null,
         "payment_method": null,
         "entry_method": null,
         "organizer_text": null,
         "entry_deadline": "2026-05-15",
         "kind": "individual",
+        "capacity_total": null,
         "capacity_a": null,
         "capacity_b": null,
         "capacity_c": null,

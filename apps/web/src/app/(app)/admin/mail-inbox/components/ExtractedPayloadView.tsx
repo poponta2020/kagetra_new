@@ -76,9 +76,11 @@ export function ExtractedPayloadView({
     )
   }
 
-  // tournament-title-grade-split: new payloads carry `short_name_stem` +
-  // `events[]`; old payloads carry a single `extracted` object. Normalize to a
-  // list of {key,value} record tables so both render through one loop.
+  // 3.0.0 payloads carry `events[]`; pre-2.0.0 payloads carry a single
+  // `extracted` object. Normalize to a list of {key,value} record tables so
+  // both render through one loop. Rows are rendered generically from the
+  // payload's own keys, so 2.x drafts (with `fee_jpy`, `short_name_stem` …)
+  // still display everything they stored — AC-34 後方互換。
   const legacy = (payload as { extracted?: Record<string, unknown> }).extracted
   const units: Record<string, unknown>[] =
     Array.isArray(payload.events) && payload.events.length > 0
@@ -86,7 +88,10 @@ export function ExtractedPayloadView({
       : legacy != null
         ? [legacy]
         : []
-  const stem = payload.short_name_stem ?? null
+  // `short_name_stem` left the schema (通称は承認フォームで人が入力する)。過去の
+  // 2.x ドラフトは値を持っているので、型ではなく実データから拾って表示する。
+  const stemRaw = (payload as { short_name_stem?: unknown }).short_name_stem
+  const stem = typeof stemRaw === 'string' ? stemRaw : null
   const extras = payload.extras ?? null
   const confidenceLabel = confidence ?? '—'
   const costLabel = aiCostUsd ? `$${aiCostUsd}` : '—'
@@ -158,23 +163,6 @@ export function ExtractedPayloadView({
                     ))}
                 </tbody>
               </table>
-            </div>
-          )}
-
-          {(payload.is_correction || payload.references_subject) && (
-            <div className="border-t border-border-soft pt-3 text-xs text-ink-2">
-              <div>
-                <span className="font-medium text-ink-meta">訂正版判定:</span>{' '}
-                {payload.is_correction ? 'はい' : 'いいえ'}
-              </div>
-              {payload.references_subject && (
-                <div>
-                  <span className="font-medium text-ink-meta">
-                    参照件名:
-                  </span>{' '}
-                  {payload.references_subject}
-                </div>
-              )}
             </div>
           )}
 

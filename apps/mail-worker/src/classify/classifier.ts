@@ -56,6 +56,16 @@ export function bytesFromBytea(raw: unknown): Buffer {
  */
 export type ClassifyOutcome =
   | { kind: 'tournament'; result: LLMExtractionResult }
+  /**
+   * "The AI judged this mail not to be an announcement." `classifyMail` can no
+   * longer produce this since PROMPT_VERSION 3.0.0 removed classification from
+   * the AI's job, but the variant and `persistOutcome`'s handling of it are
+   * kept deliberately: `persistOutcome` is the single write path shared with
+   * the reextract CLI, and `pipeline.ts` folds this kind together with
+   * `oversize_skipped` / `skipped_noise` when force-terminating a stuck
+   * `ai_processing` draft. Same rationale as the `oversize_skipped` guard —
+   * defensive, not dead by accident.
+   */
   | { kind: 'noise'; result: LLMExtractionResult }
   /** Pre-filter (PR1) already classified the mail as noise; skip the LLM. */
   | { kind: 'skipped_noise' }
@@ -260,10 +270,12 @@ export async function classifyMail(
     }
   }
 
-  if (lastResult.parsed.is_tournament_announcement) {
-    return { kind: 'tournament', result: lastResult }
-  }
-  return { kind: 'noise', result: lastResult }
+  // 3.0.0: the AI no longer votes on whether the mail is an announcement — the
+  // administrator already decided that by pressing 「会で流す (AI 抽出)」. Every
+  // successful extraction is therefore a tournament outcome. `ClassifyOutcome`
+  // keeps its `noise` variant (see the type doc) because `persistOutcome` is a
+  // shared write path and the pre-filter's own noise concept is untouched.
+  return { kind: 'tournament', result: lastResult }
 }
 
 /**
@@ -371,9 +383,13 @@ export async function persistOutcome(
     const upsert = await upsertDraft(db, {
       messageId,
       status: 'pending_review',
-      confidence: parsed.confidence.toFixed(2),
-      isCorrection: parsed.is_correction === true,
-      referencesSubject: parsed.references_subject ?? null,
+      // 3.0.0: `confidence` / `is_correction` / `references_subject` left the
+      // extraction schema (classification and correction detection are human
+      // work now). The columns stay — dropping them is an explicit Non-goal —
+      // but nothing writes a value to them any more. Existing rows keep theirs.
+      confidence: null,
+      isCorrection: false,
+      referencesSubject: null,
       extractedPayload: parsed,
       aiRawResponse: result.raw,
       promptVersion: result.promptVersion,

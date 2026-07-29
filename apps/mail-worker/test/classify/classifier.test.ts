@@ -33,7 +33,9 @@ const FIXTURES_DIR = fileURLToPath(new URL('../fixtures/llm/', import.meta.url))
 // are the convenience handles tests use to insert the right `mail_messages`
 // row before invoking the classifier.
 const TOURNAMENT_SUBJECT = '[taikai-ajka:828] 第65回全日本選手権大会/ご案内'
-const NEWSLETTER_SUBJECT = 'Weekly Update: New Features Available'
+// Deliberately absent from the fixture map — used by the pre-filter /
+// skipped_noise paths, which must never reach the extractor at all.
+const UNMATCHED_SUBJECT = 'Weekly Update: New Features Available'
 const CORRECTION_SUBJECT = 'Re: 【訂正】第65回全日本選手権大会のご案内'
 
 async function loadPayload(filename: string): Promise<ExtractionPayload> {
@@ -120,25 +122,27 @@ describe('classifier', () => {
 
       expect(outcome.kind).toBe('tournament')
       if (outcome.kind === 'tournament') {
-        expect(outcome.result.parsed.is_tournament_announcement).toBe(true)
-        expect(outcome.result.parsed.short_name_stem).toBe('全日本')
         expect(outcome.result.parsed.events[0]?.formal_name).toBe('第65回全日本選手権大会')
+        expect(outcome.result.parsed.events[0]?.payment_deadline_kind).toBe('日付あり')
       }
     })
 
-    it('returns a noise outcome when the LLM says is_tournament_announcement=false', async () => {
+    it('always returns a tournament outcome — the AI no longer votes on classification', async () => {
+      // 3.0.0: the admin already decided this is an announcement before
+      // pressing 「会で流す」, so even a subject the extractor knows nothing
+      // about comes back as `tournament` (with an empty-but-valid unit).
       const fixtures = await buildFixtureMap()
       const llm = new FixtureLLMExtractor(fixtures)
       const id = await insertTestMail({
-        messageId: '<negative-1@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        messageId: '<unmatched-1@example.com>',
+        subject: UNMATCHED_SUBJECT,
       })
 
       const outcome = await classifyMail(getDb(), id, llm)
 
-      expect(outcome.kind).toBe('noise')
-      if (outcome.kind === 'noise') {
-        expect(outcome.result.parsed.is_tournament_announcement).toBe(false)
+      expect(outcome.kind).toBe('tournament')
+      if (outcome.kind === 'tournament') {
+        expect(outcome.result.parsed.events).toHaveLength(1)
       }
     })
 
@@ -154,7 +158,7 @@ describe('classifier', () => {
       }
       const id = await insertTestMail({
         messageId: '<noise-1@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
         classification: 'noise',
       })
 
@@ -179,7 +183,9 @@ describe('classifier', () => {
       expect(outcome.kind).toBe('tournament')
     })
 
-    it('flags is_correction=true on a correction-style mail', async () => {
+    it('extracts a correction-style mail as an ordinary announcement (no correction flags)', async () => {
+      // 3.0.0 removed `is_correction` / `references_subject` — 訂正版 handling
+      // is human work now. The mail still has to extract normally.
       const fixtures = await buildFixtureMap()
       const llm = new FixtureLLMExtractor(fixtures)
       const id = await insertTestMail({
@@ -191,10 +197,7 @@ describe('classifier', () => {
 
       expect(outcome.kind).toBe('tournament')
       if (outcome.kind === 'tournament') {
-        expect(outcome.result.parsed.is_correction).toBe(true)
-        expect(outcome.result.parsed.references_subject).toBe(
-          '第65回全日本選手権大会のご案内',
-        )
+        expect(outcome.result.parsed.events[0]?.entry_deadline).toBe('2026-05-07')
       }
     })
 
@@ -534,7 +537,9 @@ describe('classifier', () => {
         .where(eq(tournamentDrafts.messageId, id))
       expect(drafts).toHaveLength(1)
       expect(drafts[0]!.status).toBe('pending_review')
-      expect(drafts[0]!.confidence).toBe('0.95')
+      // 3.0.0: confidence left the schema; the column stays but is no longer
+      // written (dropping it is an explicit Non-goal).
+      expect(drafts[0]!.confidence).toBeNull()
       expect(drafts[0]!.aiModel).toBe('fixture')
 
       // Mail status follows the draft, AND classification is upgraded to
@@ -573,10 +578,10 @@ describe('classifier', () => {
     })
 
     it('upgrades classification=noise on the parent mail when the AI verdict is noise', async () => {
-      const payload = await loadPayload('newsletter.expected.json')
+      const payload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<persist-noise@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
       })
       const outcome: ClassifyOutcome = {
         kind: 'noise',
@@ -645,7 +650,7 @@ describe('classifier', () => {
       const tournamentPayload = await loadPayload(
         'tournament-announcement.expected.json',
       )
-      const noisePayload = await loadPayload('newsletter.expected.json')
+      const noisePayload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<noise-supersedes@example.com>',
         subject: TOURNAMENT_SUBJECT,
@@ -693,7 +698,7 @@ describe('classifier', () => {
       // Operator-owned terminal states. Even if AI now says noise, we leave
       // the audit trail intact — flipping `approved` to `superseded` would
       // silently overwrite a human decision.
-      const noisePayload = await loadPayload('newsletter.expected.json')
+      const noisePayload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<approved-stays@example.com>',
         subject: TOURNAMENT_SUBJECT,
@@ -912,7 +917,7 @@ describe('classifier', () => {
     it('returns aiSkipped tally and writes nothing when outcome is skipped_noise', async () => {
       const id = await insertTestMail({
         messageId: '<persist-skipped@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
         classification: 'noise',
       })
       const outcome: ClassifyOutcome = { kind: 'skipped_noise' }

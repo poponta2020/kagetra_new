@@ -60,12 +60,12 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
     const drafts = await testDb.select().from(tournamentDrafts)
     expect(drafts).toHaveLength(1)
     expect(drafts[0]!.status).toBe('pending_review')
-    expect(drafts[0]!.confidence).toBe('0.95')
+    // 3.0.0: confidence left the schema; the column stays but is unwritten.
+    expect(drafts[0]!.confidence).toBeNull()
     // Payload round-trips intact through jsonb.
     const payload = drafts[0]!.extractedPayload as ExtractionPayload
-    expect(payload.is_tournament_announcement).toBe(true)
-    expect(payload.short_name_stem).toBe('全日本')
     expect(payload.events[0]?.formal_name).toBe('第65回全日本選手権大会')
+    expect(payload.events[0]?.payment_deadline_kind).toBe('日付あり')
 
     // Mail status follows the AI verdict.
     const mail = await testDb.select().from(mailMessages)
@@ -152,15 +152,15 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
     expect(drafts).toHaveLength(1)
   })
 
-  it('upgrades classification=noise when AI says noise on a mail the pre-filter let through', async () => {
+  it('creates a draft for an ML announcement the pre-filter let through', async () => {
     // ml-tournament-announcement.eml is NOT pre-filtered (mailing list, but
-    // PR1 deliberately allows ML announcements through for AI). In this test
-    // we override the AI verdict to noise to exercise the `outcome.kind ===
-    // 'noise'` → classification upgrade branch in `persistOutcome`.
+    // PR1 deliberately allows ML announcements through for AI). Since 3.0.0
+    // the AI has no way to retract that — every successful extraction lands
+    // as a `pending_review` draft with classification='tournament'.
     const fixtures = new Map<string, ExtractionPayload>()
     fixtures.set(
       ML_TOURNAMENT_SUBJECT,
-      await loadPayload('newsletter.expected.json'),
+      await loadPayload('ml-tournament.expected.json'),
     )
     const llm = new FixtureLLMExtractor(fixtures)
 
@@ -169,13 +169,14 @@ describe('pipeline AI phase (fixture LLM → DB)', () => {
       { llmExtractor: llm },
     )
     expect(summary.aiSucceeded).toBe(1)
-    expect(summary.draftsInserted).toBe(0)
+    expect(summary.draftsInserted).toBe(1)
 
     const drafts = await testDb.select().from(tournamentDrafts)
-    expect(drafts).toHaveLength(0)
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]!.status).toBe('pending_review')
 
     const mail = await testDb.select().from(mailMessages)
-    expect(mail[0]!.classification).toBe('noise')
+    expect(mail[0]!.classification).toBe('tournament')
     expect(mail[0]!.status).toBe('ai_done')
   })
 

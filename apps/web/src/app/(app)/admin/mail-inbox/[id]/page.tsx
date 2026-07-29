@@ -120,64 +120,9 @@ export default async function MailDraftDetailPage({
     rawPayload != null && rawPayload.extracted != null
   const extractedPayload: ExtractionPayload | null =
     hasNewFormat || hasLegacyFormat ? (rawPayload as ExtractionPayload) : null
-  const referencesSubject = extractedPayload?.references_subject ?? null
-  const shortNameStem = extractedPayload?.short_name_stem ?? null
-
-  // Correction lookups — only run when the AI surfaced a referenced subject.
-  // 12 mo window, top 3, ILIKE-substring; cheap enough that we can let the
-  // planner handle the few thousand row table without a dedicated index.
-  let relatedDrafts: Array<{
-    id: number
-    subject: string | null
-    eventId: number | null
-  }> = []
-  let relatedEvents: Array<{
-    id: number
-    title: string
-    eventDate: string | null
-  }> = []
-  if (referencesSubject) {
-    const pattern = `%${referencesSubject}%`
-    relatedDrafts = await db
-      .select({
-        id: tournamentDrafts.id,
-        subject: mailMessages.subject,
-        eventId: tournamentDrafts.eventId,
-      })
-      .from(tournamentDrafts)
-      .innerJoin(mailMessages, eq(tournamentDrafts.messageId, mailMessages.id))
-      .where(
-        and(
-          ilike(mailMessages.subject, pattern),
-          ne(tournamentDrafts.id, draftId),
-          gte(mailMessages.receivedAt, sql`NOW() - INTERVAL '12 months'`),
-        ),
-      )
-      .orderBy(desc(mailMessages.receivedAt))
-      .limit(3)
-
-    relatedEvents = await db
-      .select({
-        id: events.id,
-        title: events.title,
-        eventDate: events.eventDate,
-      })
-      .from(events)
-      .where(
-        and(
-          or(
-            ilike(events.title, pattern),
-            ilike(events.formalName, pattern),
-          ),
-          gte(
-            events.eventDate,
-            sql`(CURRENT_DATE - INTERVAL '12 months')::date`,
-          ),
-        ),
-      )
-      .orderBy(desc(events.eventDate))
-      .limit(3)
-  }
+  // 訂正版ヒント（関連ドラフト/イベントの ILIKE 検索）は撤去した。種になっていた
+  // `references_subject` が抽出スキーマから消え（訂正版の判断は人がやる運用に戻した
+  // ため）、検索条件が常に空になるため。requirements §3.1 / AC-19。
 
   const isApproved = draft.status === 'approved'
   const isRejected = draft.status === 'rejected'
@@ -377,13 +322,6 @@ export default async function MailDraftDetailPage({
         </Card>
       )}
 
-      <CorrectionHint
-        isCorrection={draft.isCorrection}
-        referencesSubject={referencesSubject}
-        relatedDrafts={relatedDrafts}
-        relatedEvents={relatedEvents}
-      />
-
       <ExtractedPayloadView
         payload={extractedPayload}
         confidence={draft.confidence}
@@ -399,7 +337,9 @@ export default async function MailDraftDetailPage({
           </h2>
           <ApprovalForm
             payload={extractedPayload}
-            shortNameStem={shortNameStem}
+            // 通称は AI が出さなくなった（`short_name_stem` 廃止）。承認フォーム側の
+            // 通称欄に人が入力し、`composeTitle` で各単位の大会名を合成する。
+            shortNameStem={null}
             registeredUnitKeys={registeredUnitKeys}
             editionSuggestion={editionSelection.suggestion}
             seriesOptions={editionSelection.seriesOptions}

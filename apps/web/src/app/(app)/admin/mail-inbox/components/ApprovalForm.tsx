@@ -38,7 +38,22 @@ const INTERNAL_DEADLINE_LEAD_DAYS = 6
  * Always the new `EventUnit` shape — old single-`extracted` payloads are
  * normalized into a one-element array (`unit_key='u1'`) by {@link normalizeUnits}.
  */
-export type NormalizedUnit = EventUnit
+/**
+ * 承認フォームが扱う単位。3.0.0 の {@link EventUnit} をベースにしつつ、**既存
+ * ドラフトを開いても壊れない**ように 2 点だけ緩めてある（AC-34）:
+ *
+ * - `payment_method` / `entry_method` は 3.0.0 で閉じた日本語 enum になったが、
+ *   2.x のドラフトには `"bank_transfer"` のような英語識別子が保存されている。
+ *   どちらもフォームの自由入力欄へ流すだけなので `string | null` で受ける。
+ * - `fee_jpy` は 3.0.0 で抽出項目から外した（級から決定的に導出できるため）が、
+ *   2.x のドラフトは値を持っている。参加費欄は手入力として残るので、既存値が
+ *   あれば初期値として拾う。
+ */
+export type NormalizedUnit = Omit<EventUnit, 'payment_method' | 'entry_method'> & {
+  payment_method: string | null
+  entry_method: string | null
+  fee_jpy?: number | null
+}
 
 export interface ApprovalFormProps {
   /** Raw payload (new or old format). null for ai_failed / empty drafts. */
@@ -122,12 +137,15 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
       venue: legacy?.venue ?? null,
       fee_jpy: legacy?.fee_jpy ?? null,
       payment_deadline: legacy?.payment_deadline ?? null,
+      // 旧形式に状態フィールドは無いので、日付の有無から素直に導く。
+      payment_deadline_kind: legacy?.payment_deadline ? '日付あり' : '記載なし',
       payment_info_text: legacy?.payment_info_text ?? null,
       payment_method: legacy?.payment_method ?? null,
       entry_method: legacy?.entry_method ?? null,
       organizer_text: legacy?.organizer_text ?? null,
       entry_deadline: legacy?.entry_deadline ?? null,
       kind: legacy?.kind ?? null,
+      capacity_total: null,
       capacity_a: legacy?.capacity_a ?? null,
       capacity_b: legacy?.capacity_b ?? null,
       capacity_c: legacy?.capacity_c ?? null,

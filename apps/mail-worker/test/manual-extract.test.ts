@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  mailAttachments,
   mailMessages,
   mailWorkerRuns,
   tournamentDrafts,
@@ -148,11 +149,22 @@ describe('runManualExtract (mail-inbox-mailer task2)', () => {
   // tournament_drafts を触らないため、triggerExtractDraft が先に作った
   // ai_processing draft が永遠に残り polling が停止しない。runManualExtract で
   // 強制終端ロジック (ai_failed へ倒す) を追加したので、その動作を verify する。
-  it('AI が noise 判定の場合、事前作成 ai_processing draft を ai_failed に強制終端する', async () => {
-    // fixture map にマッチしない subject の mail を渡す → FixtureLLMExtractor は
-    // noise を返す（fallback FIXTURE_NOISE_PAYLOAD）。
-    const mailId = await seedMailMessage({
-      subject: '完全に大会と関係ない件名',
+  //
+  // 3.0.0 で AI の noise 判定は無くなったため、到達可能な残り 2 経路のうち
+  // oversize_skipped で検証する（requirements §6: このガードは Server Action
+  // 直叩き・多重タブ向けの防御として意図的に残す）。
+  it('AI が oversize_skipped の場合、事前作成 ai_processing draft を ai_failed に強制終端する', async () => {
+    const mailId = await seedMailMessage({})
+    // 既定上限 8000KB を超える PDF を 1 件ぶら下げる。コストガードは sizeBytes
+    // だけを見るので bytea の中身は 1 バイトで足りる。
+    await testDb.insert(mailAttachments).values({
+      mailMessageId: mailId,
+      filename: '巨大要綱.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 9_000_000,
+      data: Buffer.from([0x25]),
+      extractedText: null,
+      extractionStatus: 'pending',
     })
     const llm = await buildExtractor()
 
@@ -171,8 +183,9 @@ describe('runManualExtract (mail-inbox-mailer task2)', () => {
       triggeredByUserId: ADMIN_USER_ID,
     })
 
-    // tally: noise 判定で aiSucceeded=1 / 強制終端で aiFailed=1。
-    expect(result.aiSucceeded).toBe(1)
+    // tally: AI は呼ばれず aiSkipped=1 / 強制終端で aiFailed=1。
+    expect(result.aiSkipped).toBe(1)
+    expect(result.aiSucceeded).toBe(0)
     expect(result.aiFailed).toBe(1)
     // run.status は ai_failed に倒れる（UI が「失敗」として扱う）。
     expect(result.status).toBe('ai_failed')

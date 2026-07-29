@@ -19,14 +19,15 @@ function buildUnit(overrides: Partial<EventUnit> = {}): EventUnit {
     eligible_grades: ['A', 'B'],
     formal_name: '第10回テスト大会A・B級',
     venue: 'AI 会場',
-    fee_jpy: 4500,
     payment_deadline: '2030-11-25',
+    payment_deadline_kind: '日付あり',
     payment_info_text: '○○銀行 普通 1234567',
-    payment_method: '事前振込',
-    entry_method: 'メール申込',
+    payment_method: '口座振込',
+    entry_method: 'メール',
     organizer_text: '主催 X',
     entry_deadline: '2030-11-30',
     kind: 'team',
+    capacity_total: null,
     capacity_a: 32,
     capacity_b: 16,
     capacity_c: null,
@@ -37,17 +38,9 @@ function buildUnit(overrides: Partial<EventUnit> = {}): EventUnit {
   }
 }
 
-function buildPayload(
-  events: EventUnit[],
-  shortNameStem: string | null = '大阪',
-): ExtractionPayload {
+function buildPayload(events: EventUnit[]): ExtractionPayload {
   return {
-    is_tournament_announcement: true,
-    confidence: 0.9,
     reason: 'fixture',
-    is_correction: false,
-    references_subject: null,
-    short_name_stem: shortNameStem,
     events,
   }
 }
