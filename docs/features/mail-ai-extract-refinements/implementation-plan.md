@@ -164,10 +164,11 @@ status: completed
 - [ ] 完了
 - **目的:** 参照が無くなったコンポーネントを消す
 - **対応AC:** AC-33, AC-38
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx`（削除）
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx`（削除）、`apps/web/src/app/(app)/admin/mail-inbox/components/CorrectionHint.tsx`（削除）
 - **依存タスク:** タスク9, タスク10
 - **必要なテスト:** なし（削除タスク）
-- **完了条件:** `git grep ConfidenceBadge` が 0 件、型チェック・lint 通過
+- **完了条件:** `git grep ConfidenceBadge` と `git grep CorrectionHint` が 0 件、型チェック・lint 通過
+- **追記（実装中に判明）:** `CorrectionHint.tsx` も参照ゼロになった。AC-19（訂正版ヒント撤去）をタスク1 で実施した直接の結果なので、同じタスクでまとめて消す
 - **対応Issue:** #421
 
 ## 実装順序（Wave = 並行実装できるタスクの組）
