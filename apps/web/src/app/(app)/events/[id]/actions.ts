@@ -36,6 +36,7 @@ import {
   sendClaimedNotificationBulk,
   type LifecycleDayEntry,
 } from '@/lib/event-lifecycle-notify'
+import { tallyEntryFees } from '@/lib/entry-fee-tally'
 
 /**
  * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
@@ -990,7 +991,6 @@ interface PaymentPaidFlipRow {
   title: string
   /** `YYYY-MM-DD`。複数日メッセージの日別ラベルに使う。 */
   eventDate: string
-  feeJpy: number | null
 }
 
 /**
@@ -998,12 +998,19 @@ interface PaymentPaidFlipRow {
  * 渡す**（N=1 バイト互換）。2件以上は日別ラベルを列挙する最小文面にする
  * （金額の全日同値/日別判定までは要件で明示されていない設計選択。日別の金額
  * 内訳が必要になったら `buildLifecycleMessage` の `payment_paid` 分岐を拡張する）。
+ *
+ * grade-entry-fee タスク6 (AC-17): N=1 のときだけ `totalJpy`（実際に振り込んだ
+ * 総額）を渡す。1人あたり額（feeJpy）を「総額」と偽らないため feeJpy はここでは
+ * 参照しない。N>1（AC-18）は現行どおり金額を出さないので totalJpy は不要。
  */
-function buildPaymentPaidMessage(rows: readonly PaymentPaidFlipRow[]): string {
+function buildPaymentPaidMessage(
+  rows: readonly PaymentPaidFlipRow[],
+  totalJpy: number | null,
+): string {
   if (rows.length === 1) {
     return buildLifecycleMessage('payment_paid', {
       title: rows[0]!.title,
-      feeJpy: rows[0]!.feeJpy,
+      totalJpy,
     })
   }
   const days: LifecycleDayEntry[] = rows.map((r) => ({ dateIso: r.eventDate, title: r.title }))
@@ -1064,7 +1071,6 @@ export async function setPaymentsPaid(
           id: events.id,
           title: events.title,
           eventDate: events.eventDate,
-          feeJpy: events.feeJpy,
           status: events.status,
         })
       const row = flipped[0]
@@ -1074,7 +1080,7 @@ export async function setPaymentsPaid(
       if (row.status === 'cancelled') continue
       const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
       if (claim.id != null) {
-        claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate, feeJpy: row.feeJpy })
+        claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate })
         notificationIds.push(claim.id)
       }
     }
@@ -1082,7 +1088,21 @@ export async function setPaymentsPaid(
   })
 
   if (result.notificationIds.length > 0) {
-    const message = buildPaymentPaidMessage(result.claimed)
+    // grade-entry-fee タスク6 (AC-17): 総額の取得は tx の外（flip 後）で行う——集計
+    // クエリを状態更新 tx に混ぜない。対象は「実際に flip して claim できたイベント」
+    // であって、そのグループの全日ではない。複数日一括は AC-18 で金額を出さないので、
+    // 総額が文面に出るのは常に claimed.length === 1（＝その1日ぶんの請求）のときだけ。
+    let totalJpy: number | null = null
+    if (result.claimed.length === 1) {
+      try {
+        const tally = await tallyEntryFees(db, [result.claimed[0]!.id])
+        totalJpy = tally.totalJpy
+      } catch {
+        // best-effort: 総額が引けなくても、金額なしで通知は飛ばす。
+        totalJpy = null
+      }
+    }
+    const message = buildPaymentPaidMessage(result.claimed, totalJpy)
     try {
       await sendClaimedNotificationBulk(db, {
         notificationIds: result.notificationIds,

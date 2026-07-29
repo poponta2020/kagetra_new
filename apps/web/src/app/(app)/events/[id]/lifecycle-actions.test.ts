@@ -7,15 +7,38 @@ import {
   lineChannels,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createEvent, createUser } from '@/test-utils/seed'
+import { createAdmin, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 // Import under test AFTER mocks so @/auth resolves to the mock.
-const { setEntryApplied, setEntryNotApplying, setPaymentType, setPaymentPaid } =
-  await import('./actions')
+const {
+  setEntryApplied,
+  setEntryNotApplying,
+  setPaymentType,
+  setPaymentPaid,
+  setPaymentsPaid,
+} = await import('./actions')
+
+/**
+ * grade-entry-fee タスク6: payment_paid の実送信文面を観測するための fetch モック
+ * ヘルパー。`actions.bulk-lifecycle.test.ts` の `fetchMessages` と同じパターン
+ * （vi.spyOn(globalThis, 'fetch') + init.body の messages[0].text 抽出）。
+ */
+interface FetchSpyLike {
+  mock: { calls: Array<[unknown, unknown?]> }
+}
+
+function fetchMessages(fetchSpy: FetchSpyLike): string[] {
+  return fetchSpy.mock.calls.map(([, init]) => {
+    const body = JSON.parse(String((init as RequestInit | undefined)?.body)) as {
+      messages: Array<{ type: string; text?: string }>
+    }
+    return body.messages[0]?.text ?? ''
+  })
+}
 
 async function seedLinkedEvent(overrides: Parameters<typeof createEvent>[0] = {}) {
   const event = await createEvent({ title: 'Linked', ...overrides })
@@ -208,6 +231,162 @@ describe('event lifecycle actions', () => {
 
     expect((await getEvent(event.id))?.paymentStatus).toBe('unpaid')
     expect(await notifications(event.id)).toHaveLength(0)
+  })
+
+  // grade-entry-fee タスク6 (AC-17/18): payment_paid の完了通知を 1人あたり額
+  // （feeJpy）ではなく実際に振り込む総額へ変える。
+  describe('payment_paid の総額文言', () => {
+    it('setPaymentPaid(true): 総額を算出できるとき「参加費（総額 N円）」が送られる（feeJpy は参照しない・AC-17）', async () => {
+      const admin = await createAdmin()
+      // feeJpy に無関係な値を入れておき、参照されないことも固定する。
+      const event = await seedLinkedEvent({
+        title: '新春かるた大会',
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['A'],
+        feeJpy: 99999,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await setPaymentType(event.id, 'advance')
+      const member1 = await createUser({ grade: 'A', isInvited: true })
+      const member2 = await createUser({ grade: 'A', isInvited: true })
+      await createEventAttendance({ eventId: event.id, userId: member1.id, attend: true })
+      await createEventAttendance({ eventId: event.id, userId: member2.id, attend: true })
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        await setPaymentPaid(event.id, true)
+        expect(fetchSpy).toHaveBeenCalledTimes(1)
+        const [messageText] = fetchMessages(fetchSpy)
+        // A級規定額 2,500円 × 2名 = 5,000円。feeJpy=99999 は無視される。
+        expect(messageText).toBe(
+          '✅【新春かるた大会】の参加費（総額 5,000円）の支払いが完了しました。',
+        )
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
+
+    it('setPaymentPaid(true): 参加者0名は総額0円のため金額を出さない', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent({
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['A'],
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await setPaymentType(event.id, 'advance')
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        await setPaymentPaid(event.id, true)
+        const [messageText] = fetchMessages(fetchSpy)
+        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
+
+    it("setPaymentPaid(true): kind='team' は総額を算出できないため金額を出さない", async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent({
+        official: true,
+        kind: 'team',
+        eligibleGrades: ['A'],
+        feeJpy: 10_000,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await setPaymentType(event.id, 'advance')
+      const member = await createUser({ grade: 'A', isInvited: true })
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        await setPaymentPaid(event.id, true)
+        const [messageText] = fetchMessages(fetchSpy)
+        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
+
+    it('setPaymentPaid(true): official=false は総額を算出できないため金額を出さない', async () => {
+      const admin = await createAdmin()
+      const event = await seedLinkedEvent({
+        official: false,
+        kind: 'individual',
+        eligibleGrades: ['A'],
+        feeJpy: 3000,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await setPaymentType(event.id, 'advance')
+      const member = await createUser({ grade: 'A', isInvited: true })
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        await setPaymentPaid(event.id, true)
+        const [messageText] = fetchMessages(fetchSpy)
+        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
+
+    it('setPaymentsPaid（複数日一括）: 現行どおり金額を出さず日別ラベルで送られる（AC-18 回帰）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const day1 = await seedLinkedEvent({
+        title: 'C級',
+        eventDate: '2026-08-01',
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['C'],
+      })
+      const day2 = await createEvent({
+        title: 'D級',
+        eventDate: '2026-08-08',
+        entryGroupId: day1.entryGroupId,
+        official: true,
+        kind: 'individual',
+        eligibleGrades: ['D'],
+      })
+      const member = await createUser({ grade: 'C', isInvited: true })
+      await createEventAttendance({ eventId: day1.id, userId: member.id, attend: true })
+      await setPaymentType(day1.id, 'advance')
+      await setPaymentType(day2.id, 'advance')
+
+      delete process.env.LINE_NOTIFY_DRY_RUN
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 200 }))
+      try {
+        await setPaymentsPaid([day1.id, day2.id], true)
+        expect(fetchSpy).toHaveBeenCalledTimes(1)
+        const [messageText] = fetchMessages(fetchSpy)
+        expect(messageText).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
+        expect(messageText).not.toContain('総額')
+      } finally {
+        fetchSpy.mockRestore()
+        process.env.LINE_NOTIFY_DRY_RUN = '1'
+      }
+    })
   })
 
   it('cancelled 大会は申込済にしても完了通知を送らない（状態は記録する）', async () => {
