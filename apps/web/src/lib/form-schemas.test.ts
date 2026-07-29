@@ -70,6 +70,61 @@ describe('eventFormSchema', () => {
     const result = eventFormSchema.safeParse({ ...baseInput, status: 'draft' })
     expect(result.success).toBe(false)
   })
+
+  // ── AC-43: 振込締切の状態はサーバー側で日付と整合させる ──
+  // 作成・編集・メール承認の3経路がすべてこの schema を通るので、ここが
+  // events の CHECK に対する唯一の正規化点になる。
+  it('AC-43: 日付を入れると状態が fixed に正規化される（クライアント申告を信用しない）', () => {
+    const result = eventFormSchema.safeParse({
+      ...baseInput,
+      paymentDeadline: '2030-06-01',
+      paymentDeadlineKind: 'later_notice',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.paymentDeadline).toBe('2030-06-01')
+      expect(result.data.paymentDeadlineKind).toBe('fixed')
+    }
+  })
+
+  it('AC-43: 日付が無いのに fixed が来たら unspecified へ落とす', () => {
+    const result = eventFormSchema.safeParse({
+      ...baseInput,
+      paymentDeadline: '',
+      paymentDeadlineKind: 'fixed',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.paymentDeadline).toBeNull()
+      expect(result.data.paymentDeadlineKind).toBe('unspecified')
+    }
+  })
+
+  it('後日連絡は日付なしのまま保持される', () => {
+    const result = eventFormSchema.safeParse({
+      ...baseInput,
+      paymentDeadlineKind: 'later_notice',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.paymentDeadline).toBeNull()
+      expect(result.data.paymentDeadlineKind).toBe('later_notice')
+    }
+  })
+
+  it('状態を送らない既存フォームは unspecified 扱いになる（後方互換）', () => {
+    const result = eventFormSchema.safeParse(baseInput)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.paymentDeadlineKind).toBe('unspecified')
+  })
+
+  it('enum 外の状態は拒否する', () => {
+    const result = eventFormSchema.safeParse({
+      ...baseInput,
+      paymentDeadlineKind: '後日連絡',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('extractEventFormData', () => {

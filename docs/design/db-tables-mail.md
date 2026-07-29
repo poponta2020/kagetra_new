@@ -89,6 +89,7 @@ AI抽出した大会案内 = 1メールにつき最大1行（`message_id`UNIQUE�
 | references_subject | text | NULL | — | |
 | superseded_by_draft_id | integer | NULL | — | 自己参照（差し替え元）。FK制約はmigrationのraw ALTERで付与 |
 | extracted_payload | jsonb | NOT NULL | `'{}'::jsonb` | |
+| selected_attachment_ids | integer[] | NULL | — | この抽出で AI へ渡した mail_attachments.id。再抽出時の初期値復元用。NULL=旧データ/未指定（全添付扱い）、空配列=本文のみで実行 |
 | ai_raw_response | text | NULL | — | |
 | prompt_version | text | NOT NULL | — | |
 | ai_model | text | NOT NULL | — | |

@@ -141,6 +141,18 @@ export const eventEntryStatusEnum = pgEnum('event_entry_status', [
 ])
 // payment_type は nullable カラム（未設定 = 支払い通知なし）。事前払い/現地払いで挙動が分岐する。
 export const eventPaymentTypeEnum = pgEnum('event_payment_type', ['advance', 'onsite'])
+// mail-ai-extract-refinements: 振込締切の「状態」。payment_deadline が NULL のとき、
+// 「案内に後日連絡と書いてある(later_notice)」と「そもそも記載が無い/読めなかった
+// (unspecified)」を区別する。前者は追加調査不要、後者は人が原文を当たるべき状態で、
+// 対応がまったく違う。値は英語（既存の event_payment_type が advance/onsite である
+// 慣行に合わせる）。UI は日本語で表示する。
+// events テーブル側に CHECK `(payment_deadline IS NOT NULL) = (kind = 'fixed')` を張り、
+// 日付と状態が食い違う行を DB が拒否する。
+export const eventPaymentDeadlineKindEnum = pgEnum('event_payment_deadline_kind', [
+  'fixed',
+  'later_notice',
+  'unspecified',
+])
 // payment_status は payment_type='advance'（事前払い）のときのみ意味を持つ。
 export const eventPaymentStatusEnum = pgEnum('event_payment_status', ['unpaid', 'paid'])
 export const eventLifecycleNotificationTypeEnum = pgEnum('event_lifecycle_notification_type', [

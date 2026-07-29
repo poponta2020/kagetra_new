@@ -221,3 +221,54 @@ describe('diffPropagatableFields — 伝播対象フィールドの差分検出'
     expect(diffPropagatableFields({}, {})).toEqual({})
   })
 })
+
+/**
+ * mail-ai-extract-refinements: 振込締切は「日付」と「状態」が events の CHECK
+ * `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` で双条件に
+ * 縛られている。片方だけ伝播させると伝播先で食い違って 500 になるため、差分は
+ * 常に2つを束ねて返さなければならない。
+ */
+describe('diffPropagatableFields — 振込締切は日付と状態を束ねる', () => {
+  it('日付だけ変わっても状態を一緒に返す', () => {
+    const changed = diffPropagatableFields(
+      { paymentDeadline: null, paymentDeadlineKind: 'later_notice' },
+      { paymentDeadline: '2026-06-01', paymentDeadlineKind: 'fixed' },
+    )
+    expect(changed.paymentDeadline).toBe('2026-06-01')
+    expect(changed.paymentDeadlineKind).toBe('fixed')
+  })
+
+  it('状態だけ変わっても日付を一緒に返す（記載なし → 後日連絡）', () => {
+    const changed = diffPropagatableFields(
+      { paymentDeadline: null, paymentDeadlineKind: 'unspecified' },
+      { paymentDeadline: null, paymentDeadlineKind: 'later_notice' },
+    )
+    expect(changed).toHaveProperty('paymentDeadline', null)
+    expect(changed.paymentDeadlineKind).toBe('later_notice')
+  })
+
+  it('日付を消したときも状態を一緒に返す', () => {
+    const changed = diffPropagatableFields(
+      { paymentDeadline: '2026-06-01', paymentDeadlineKind: 'fixed' },
+      { paymentDeadline: null, paymentDeadlineKind: 'unspecified' },
+    )
+    expect(changed).toHaveProperty('paymentDeadline', null)
+    expect(changed.paymentDeadlineKind).toBe('unspecified')
+  })
+
+  it('振込締切が変わっていなければ両方とも差分に入らない', () => {
+    const changed = diffPropagatableFields(
+      { entryDeadline: '2026-05-01', paymentDeadline: '2026-06-01', paymentDeadlineKind: 'fixed' },
+      { entryDeadline: '2026-05-10', paymentDeadline: '2026-06-01', paymentDeadlineKind: 'fixed' },
+    )
+    expect(changed).toEqual({ entryDeadline: '2026-05-10' })
+  })
+
+  it('束ねた結果は常に CHECK 制約を満たす', () => {
+    const changed = diffPropagatableFields(
+      { paymentDeadline: '2026-06-01', paymentDeadlineKind: 'fixed' },
+      { paymentDeadline: null, paymentDeadlineKind: 'later_notice' },
+    )
+    expect(changed.paymentDeadline === null).toBe(changed.paymentDeadlineKind !== 'fixed')
+  })
+})

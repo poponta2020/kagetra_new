@@ -52,6 +52,12 @@ export const tournamentDrafts = pgTable(
     extractedPayload: jsonb('extracted_payload')
       .notNull()
       .default(sql`'{}'::jsonb`),
+    // mail-ai-extract-refinements: この抽出で AI へ渡した `mail_attachments.id` の集合。
+    // 「再 AI 抽出」で前回の選択を初期値として復元するために持つ。
+    // **NULL = 旧データ（選択 UI 以前）または未指定**で、その場合は従来どおり全添付を
+    // 対象とみなす。空配列 `{}` は「本文だけで実行した」という明示的な選択であり、
+    // NULL とは意味が違う（区別できるよう nullable のままにしている）。
+    selectedAttachmentIds: integer('selected_attachment_ids').array(),
     aiRawResponse: text('ai_raw_response'),
     promptVersion: text('prompt_version').notNull(),
     aiModel: text('ai_model').notNull(),
