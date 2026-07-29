@@ -113,7 +113,7 @@ export interface ClassifyOptions {
  * Load a mail row + attachments, build an `LLMExtractionInput`, call the
  * extractor with a single retry on failure, and return a `ClassifyOutcome`.
  *
- * The retry path covers two failure modes from `AnthropicSonnet46Extractor`:
+ * The retry path covers two failure modes from `AnthropicExtractor`:
  *   1. `LLMNoToolUseError` — Claude returned a text-only response.
  *   2. `ZodError` — Claude called the tool but returned a payload that didn't
  *      match `ExtractionPayloadSchema` (extra/missing fields, wrong types).

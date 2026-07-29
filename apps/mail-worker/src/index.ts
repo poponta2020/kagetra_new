@@ -21,7 +21,7 @@ import { runRosterParse } from './roster-import/run.js'
 import { buildLotteryBackfillReport } from './roster-import/backfill-report.js'
 import { getLotteryCoverageReport } from './roster-import/coverage-report.js'
 import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture.js'
-import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
+import { AnthropicExtractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
 import type { ExtractionPayload } from './classify/schema.js'
 
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
   // build branches:
   //   --dry-run                 → undefined (AI phase skipped entirely)
   //   --mode=fetch-only (def)   → undefined (cron AI 廃止)
-  //   --mode=extract-only       → FixtureLLMExtractor or AnthropicSonnet46Extractor
+  //   --mode=extract-only       → FixtureLLMExtractor or AnthropicExtractor
   const llmExtractor =
     flags.mode === 'extract' && flags.mockLlm ? await buildLlmExtractor(flags) : undefined
 
@@ -488,7 +488,7 @@ async function buildLlmExtractor(flags: WorkerCliFlags): Promise<LLMExtractor | 
   }
 
   const llmConfig = loadLlmConfig()
-  return new AnthropicSonnet46Extractor({ apiKey: llmConfig.anthropicApiKey })
+  return new AnthropicExtractor({ apiKey: llmConfig.anthropicApiKey })
 }
 
 /**

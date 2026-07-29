@@ -4,7 +4,7 @@ import type { ExtractionPayload } from '../schema.js'
  * Provider-neutral extractor abstraction. Mirrors the `MailSource` interface
  * shape in `apps/mail-worker/src/fetch/fetcher.ts:18-21` — pluggable enough
  * that tests inject `FixtureLLMExtractor` / `BrokenLLMExtractor` while
- * production wires `AnthropicSonnet46Extractor` (added in Phase 3).
+ * production wires `AnthropicExtractor` (added in Phase 3).
  *
  * Anthropic-specific concepts intentionally do NOT leak into this module: no
  * `Anthropic.*` types, no `tool_use` block references. Token-side fields

@@ -61,7 +61,7 @@ import {
   classifyMail,
   persistOutcome,
 } from '@kagetra/mail-worker/classify/classifier'
-import { AnthropicSonnet46Extractor } from '@kagetra/mail-worker/classify/llm/anthropic'
+import { AnthropicExtractor } from '@kagetra/mail-worker/classify/llm/anthropic'
 import { loadLlmConfig } from '@kagetra/mail-worker/config'
 
 // Set of statuses still subject to operator action. `approved`, `rejected`,
@@ -993,7 +993,7 @@ export async function reextractDraft(draftId: number) {
   }
 
   const cfg = loadLlmConfig()
-  const llm = new AnthropicSonnet46Extractor({ apiKey: cfg.anthropicApiKey })
+  const llm = new AnthropicExtractor({ apiKey: cfg.anthropicApiKey })
   const outcome = await classifyMail(db, draft.messageId, llm, { force: true })
 
   // r5 blocker: classifyMail の LLM ラウンドトリップはロックなしで走るため、その間に

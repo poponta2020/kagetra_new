@@ -136,10 +136,10 @@ vi.mock('@kagetra/mail-worker/classify/classifier', () => ({
   persistOutcome: persistOutcomeMock,
 }))
 vi.mock('@kagetra/mail-worker/classify/llm/anthropic', () => ({
-  // The action constructs `new AnthropicSonnet46Extractor({ apiKey })` but
+  // The action constructs `new AnthropicExtractor({ apiKey })` but
   // never invokes the instance directly — the extractor is forwarded into
   // classifyMail (which is itself mocked above).
-  AnthropicSonnet46Extractor: class {
+  AnthropicExtractor: class {
     readonly modelId = 'mock'
     constructor(_opts: unknown) {}
   },

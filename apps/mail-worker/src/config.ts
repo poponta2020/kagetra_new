@@ -165,7 +165,7 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
 }
 
 /**
- * Validate the Anthropic credentials needed by `AnthropicSonnet46Extractor`.
+ * Validate the Anthropic credentials needed by `AnthropicExtractor`.
  * Lazy on purpose: the `--mock-llm` smoke path constructs `FixtureLLMExtractor`
  * directly and must NOT require a real API key, so we never call this at
  * module load. The `--dry-run` path skips the AI phase entirely and likewise

@@ -3,7 +3,7 @@ import { and, eq, gte, inArray, or } from 'drizzle-orm'
 import { mailMessages } from '@kagetra/shared/schema'
 import { closeDb, getDb, type Db } from './db.js'
 import { classifyMail, persistOutcome } from './classify/classifier.js'
-import { AnthropicSonnet46Extractor } from './classify/llm/anthropic.js'
+import { AnthropicExtractor } from './classify/llm/anthropic.js'
 import { loadLlmConfig } from './config.js'
 
 /**
@@ -251,7 +251,7 @@ async function main(): Promise<number> {
   }
 
   const llmConfig = loadLlmConfig()
-  const llm = new AnthropicSonnet46Extractor({ apiKey: llmConfig.anthropicApiKey })
+  const llm = new AnthropicExtractor({ apiKey: llmConfig.anthropicApiKey })
   const db = getDb()
   let failures = 0
 

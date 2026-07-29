@@ -448,7 +448,7 @@ test.describe('/admin/mail-inbox/[id] approval flow', () => {
   }) => {
     // Smoke test only: assert the 再抽出 button is rendered + enabled for a
     // pending_review draft. This does NOT click/submit — submitting would
-    // invoke AnthropicSonnet46Extractor, which needs either a working
+    // invoke AnthropicExtractor, which needs either a working
     // ANTHROPIC_API_KEY or an HTTP intercept for the SDK; both are deferred.
     //
     // The deeper assertions (classifyMail force=true, persistOutcome, status
