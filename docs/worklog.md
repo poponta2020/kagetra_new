@@ -2952,3 +2952,15 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-07-28 /ship PR #402 merged: 月見出しを sticky 追従化＋既定ソートを開催日順へ（/quickfix）。レビュー 1R pass(指摘ゼロ)。CI pending のままマージ。残DoD=本番実機確認（特に sticky の実スクロール挙動）
 - 2026-07-29 /auto-review-loop PR #409: 4R(i+d+f+fd), verdict=pass, effort=h→m→h→m, tokens=746986/500000(超過・ユーザー承認でR4継続), result=pass
 - 2026-07-29 /ship PR #409 merged: 名簿をパースせず原本ファイルのまま採用できる導線（新テーブル tournament_entry_roster_files + migration 0051／採用・解除 Server Action ＋ メール詳細 UI／会員向けビューア /roster-files/[id]＋2 route／大会詳細のファイル表示／ボードの hasConfirmedRoster 拡張）。Codex 4R pass（blocker 2件を修正: 団体戦への採用が dead-end・範囲外ページ連打で変換再実行）。実装中に deleteGroupIfEmpty の RESTRICT 見落としバグも同時修正。CI pending のままマージ。★残DoD=本番3添付(316/318/319)を確定名簿として採用＋実機確認。**それまで名簿ドラフト #1〜#3 を却下しないこと**
+
+## 2026-07-29 mail-ai-extract-refinements 要件定義（改修・実装未着手）
+
+メール大会案内取込の AI 再設計。親Issue #410 / 子 #411-#421。AC 38件（auto-test 36 / verify 1 / manual 1）。docs/features/mail-ai-extract-refinements/。
+
+**起点の発見**: cron の自動 AI 抽出は既に廃止済みだった（index.ts:122-131。`--mode=fetch` は llmExtractor:undefined）。AI が走るのは管理者が「会で流す」を押した `--mode=extract` だけで、「人間が事前に大会案内だと判断する」運用はコード上すでに成立していた。**プロンプトとスキーマだけが旧運用のまま取り残されていた**のが実態。
+
+**変更の骨子**: ①Sonnet 5 移行（thinking:disabled 明示 — 省略すると adaptive ON で max_tokens が思考と出力を合算し record_extraction が切れる）②分類ロジック撤去でプロンプト約3割減 ③抽出項目の整理（通称・参加費・訂正版判定を廃止／振込締切の状態化／支払・申込方法の日本語 enum 化／全体定員追加）④添付選択 UI 新設（既定は全未チェック）⑤PDF サイズ上限 800→8000KB ⑥「本文は常に AI へ渡る」を回帰 AC 化
+
+**調査で確定**: events.capacity 列が既存（capacity_total の受け皿・migration 不要）／events.paymentType は申込ボードで現役なので payment_method と分離維持／fixture はスキーマ形状ペイロードで再生成すると回帰ベースラインが消える／Web 層は保存済み payload に Zod を再実行しないので必須フィールド削除しても既存行は壊れない
+
+**残: docs/features/mail-inbox-mailer の memory 記載が「実装未着手」だったのを PR #127 出荷済みへ修正済み。**

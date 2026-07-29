@@ -74,7 +74,7 @@
 - [entry-notify-lottery-treasurer](impl_entry_notify_lottery_treasurer.md) — PR#118 migration0021。参加者+会計へ2通
 - [broadcast-lead-message](project_broadcast_lead_message.md) — PR#155 完全完了
 - [mail-triage-badge](project_mail_triage_badge.md) — PR#95。残=VAPID鍵+実機バッジ
-- [mail-inbox-mailer 機能定義](project_mail_inbox_mailer.md) — メーラーモデル化。親#119+子#120-126・**実装未着手**
+- [mail-inbox-mailer 機能定義](project_mail_inbox_mailer.md) — メーラーモデル化。親#119+子#120-126・**PR #127 で出荷済み**（cron AI 廃止＝fetch mode は llmExtractor 無し／triggerExtractDraft＋AIExtractConfirmDialog もここ）
 - [mail-body-as-image](impl_mail_body_as_image.md) — PR#84+#94。A4 JPEG化・libreoffice --writer
 - [.doc抽出対応](impl_fix_doc_attachment_extraction.md) — PR#134。残DoD=多摩draft#29再抽出確認
 - [deploy WEB判定拡張](impl_fix_deploy_web_rebuild_on_worker_change.md) — PR#137。webはmail-workerソースをバンドル
@@ -249,3 +249,4 @@
 - [auto-review PR #409](auto-review-round-pr409.md) — R4 verdict=pass で収束（4R・blocker 2件修正・累計747k）
 - [fix PR #409](impl_fix-pr409.md) — R1 blocker（団体戦への採用が dead-end）を個人戦限定で修正
 - [名簿ファイル採用（roster-file-adoption）](project_ship-roster-file-adoption.md) — shipped: PR #409。★残DoD=本番3添付の採用＋ドラフト#1-3を却下しない
+- [mail-ai-extract-refinements 要件定義（改修）](project_mail_ai_extract_refinements_def.md) — 親Issue #410 / 子#411-421・実装未着手
