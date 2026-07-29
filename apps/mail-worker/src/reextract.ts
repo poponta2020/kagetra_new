@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url'
 import { and, eq, gte, inArray, or } from 'drizzle-orm'
-import { mailMessages } from '@kagetra/shared/schema'
+import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import { closeDb, getDb, type Db } from './db.js'
 import { classifyMail, persistOutcome } from './classify/classifier.js'
 import { AnthropicExtractor } from './classify/llm/anthropic.js'
@@ -239,6 +239,45 @@ export async function selectReextractTargets(
     .where(and(gte(mailMessages.receivedAt, args.since), statusClause))
 }
 
+/**
+ * Batch-load `tournament_drafts.selected_attachment_ids` for a set of
+ * `mail_messages.id` values, keyed by that id (NOT the RFC822 `Message-ID`
+ * header string — `tournamentDrafts.messageId` is an integer FK to
+ * `mail_messages.id`).
+ *
+ * Mirrors the per-mail read `runManualExtract` does in `pipeline.ts`, but
+ * `reextract` loops over many mails per run, so we fetch every draft's
+ * selection in one round trip instead of N+1.
+ *
+ * Three-state semantics preserved for the caller (matches
+ * `ClassifyOptions.selectedAttachmentIds` in `classifier.ts`):
+ *   - id absent from the map (no draft row) or the row's column is `NULL` →
+ *     mapped to `undefined` → "unspecified" → `classifyMail` sends every
+ *     attachment.
+ *   - id present with `[]` → the admin explicitly ran with no attachments
+ *     selected ("本文だけで実行"); passed through as `[]`, not coerced to
+ *     `undefined` (which would silently flip back to "all attachments").
+ *   - id present with a non-empty array → only those attachment ids.
+ */
+export async function loadSelectedAttachmentIds(
+  db: Db,
+  mailMessageIds: readonly number[],
+): Promise<Map<number, number[] | undefined>> {
+  const map = new Map<number, number[] | undefined>()
+  if (mailMessageIds.length === 0) return map
+  const rows = await db
+    .select({
+      messageId: tournamentDrafts.messageId,
+      selectedAttachmentIds: tournamentDrafts.selectedAttachmentIds,
+    })
+    .from(tournamentDrafts)
+    .where(inArray(tournamentDrafts.messageId, [...mailMessageIds]))
+  for (const row of rows) {
+    map.set(row.messageId, row.selectedAttachmentIds ?? undefined)
+  }
+  return map
+}
+
 async function main(): Promise<number> {
   const args = parseArgs(process.argv)
   if (args.help) {
@@ -268,9 +307,26 @@ async function main(): Promise<number> {
         (args.includePrefilterNoise ? ' (incl. pre-filter noise)' : ''),
     )
 
+    // Codex review blocker (PR #431): this loop used to call `classifyMail`
+    // with `force: true` only, which left `selectedAttachmentIds` undefined
+    // for every mail — i.e. "unspecified" — regardless of what the admin
+    // actually selected (or explicitly deselected) when the draft was
+    // created. That sent every attachment to Anthropic even for mails whose
+    // saved selection excluded some or all of them, and it silently
+    // overwrote a "body only" ([]) choice back to "all attachments". Reading
+    // each target's saved selection here and threading it through keeps
+    // `reextract` in sync with `runManualExtract`'s semantics.
+    const selectedAttachmentIdsByMessage = await loadSelectedAttachmentIds(
+      db,
+      targets.map((t) => t.id),
+    )
+
     for (const t of targets) {
       try {
-        const outcome = await classifyMail(db, t.id, llm, { force: true })
+        const outcome = await classifyMail(db, t.id, llm, {
+          force: true,
+          selectedAttachmentIds: selectedAttachmentIdsByMessage.get(t.id),
+        })
         const tally = await persistOutcome(db, t.id, outcome)
 
         console.log(

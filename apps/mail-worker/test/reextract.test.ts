@@ -1,12 +1,35 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { mailMessages } from '@kagetra/shared/schema'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
+
+/**
+ * mail-ai-extract-refinements (PR #431 review blocker): `reextract`'s
+ * per-mail loop calls `classifyMail` directly, so the wiring tests below stub
+ * it out (and `persistOutcome`, which would otherwise try to write a draft
+ * from a fake `ClassifyOutcome`) to assert on the `selectedAttachmentIds`
+ * `main()` actually threads through — the exact thing the CLI got wrong.
+ * `classifyMail`'s own attachment-filtering behaviour is already covered by
+ * `test/classify/classifier.test.ts` (AC-20 / AC-30); we don't re-test that
+ * here.
+ */
+const { classifyMailMock, persistOutcomeMock } = vi.hoisted(() => ({
+  classifyMailMock: vi.fn(),
+  persistOutcomeMock: vi.fn(),
+}))
+
+vi.mock('../src/classify/classifier.js', () => ({
+  classifyMail: classifyMailMock,
+  persistOutcome: persistOutcomeMock,
+}))
+
 import {
   parseReextractArgs,
   selectReextractTargets,
+  runReextract,
 } from '../src/reextract.js'
 import { closeDb } from '../src/db.js'
+import { resetConfigForTests } from '../src/config.js'
 import { closeTestDb, testDb, truncateMailTables } from './test-db.js'
 
 const SINCE = new Date('2026-04-01T00:00:00+09:00')
@@ -24,20 +47,41 @@ interface SeedRow {
   receivedAt?: Date
 }
 
-async function seedMail(row: SeedRow): Promise<void> {
-  await testDb.insert(mailMessages).values({
-    messageId: row.messageId,
-    fromAddress: 'sender@example.com',
-    fromName: null,
-    toAddresses: ['org@example.com'],
-    subject: `subject-${row.messageId}`,
-    receivedAt: row.receivedAt ?? new Date('2026-04-15T09:00:00+09:00'),
-    bodyText: 'body',
-    bodyHtml: null,
-    classification: row.classification,
-    status: row.status,
-    imapUid: null,
-    imapBox: null,
+async function seedMail(row: SeedRow): Promise<number> {
+  const inserted = await testDb
+    .insert(mailMessages)
+    .values({
+      messageId: row.messageId,
+      fromAddress: 'sender@example.com',
+      fromName: null,
+      toAddresses: ['org@example.com'],
+      subject: `subject-${row.messageId}`,
+      receivedAt: row.receivedAt ?? new Date('2026-04-15T09:00:00+09:00'),
+      bodyText: 'body',
+      bodyHtml: null,
+      classification: row.classification,
+      status: row.status,
+      imapUid: null,
+      imapBox: null,
+    })
+    .returning({ id: mailMessages.id })
+  return inserted[0]!.id
+}
+
+/**
+ * Seeds a `tournament_drafts` row for `mailMessageId` with a given
+ * `selected_attachment_ids`. Passing `undefined` (the default) leaves the
+ * column at its schema default (`NULL`) — the "no selection recorded" state.
+ */
+async function seedDraft(opts: {
+  mailMessageId: number
+  selectedAttachmentIds?: number[] | null
+}): Promise<void> {
+  await testDb.insert(tournamentDrafts).values({
+    messageId: opts.mailMessageId,
+    selectedAttachmentIds: opts.selectedAttachmentIds ?? null,
+    promptVersion: 'test-prompt',
+    aiModel: 'test-model',
   })
 }
 
@@ -215,11 +259,6 @@ describe('selectReextractTargets', () => {
     await truncateMailTables()
   })
 
-  afterAll(async () => {
-    await closeDb()
-    await closeTestDb()
-  })
-
   it('picks up AI-touched terminal states by default (ai_done / ai_failed / archived / ai_processing / oversize_skipped)', async () => {
     await seedMail({
       messageId: '<done-1@example.com>',
@@ -379,4 +418,92 @@ describe('selectReextractTargets', () => {
     expect(targets).toHaveLength(1)
     expect(targets[0]!.messageId).toBe('<processing-1@example.com>')
   })
+})
+
+describe('reextract main() attachment-selection wiring', () => {
+  const originalArgv = process.argv
+
+  beforeEach(async () => {
+    await truncateMailTables()
+    classifyMailMock.mockReset()
+    persistOutcomeMock.mockReset()
+    // `skipped_noise` is the cheapest valid `ClassifyOutcome` — the wiring
+    // under test is what `main()` passes INTO `classifyMail`, not what it
+    // does with the result.
+    classifyMailMock.mockResolvedValue({ kind: 'skipped_noise' })
+    persistOutcomeMock.mockResolvedValue({
+      draftsInserted: 0,
+      draftsUpdated: 0,
+      draftsPreserved: 0,
+      aiSucceeded: 0,
+      aiFailed: 0,
+      aiSkipped: 1,
+    })
+    resetConfigForTests()
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key')
+  })
+
+  afterEach(() => {
+    process.argv = originalArgv
+    vi.unstubAllEnvs()
+  })
+
+  it('passes only the saved ids to classifyMail when selected_attachment_ids is a non-empty array', async () => {
+    const mailId = await seedMail({
+      messageId: '<selected-subset@example.com>',
+      status: 'ai_done',
+      classification: 'tournament',
+    })
+    await seedDraft({ mailMessageId: mailId, selectedAttachmentIds: [101, 102] })
+
+    process.argv = ['node', 'reextract.ts', '--since=2026-04-01', '--status=ai_done']
+    const code = await runReextract()
+
+    expect(code).toBe(0)
+    expect(classifyMailMock).toHaveBeenCalledTimes(1)
+    const [, calledMailId, , opts] = classifyMailMock.mock.calls[0]!
+    expect(calledMailId).toBe(mailId)
+    expect(opts).toMatchObject({ force: true })
+    expect(opts.selectedAttachmentIds).toEqual([101, 102])
+  })
+
+  it('passes [] (not undefined) to classifyMail when selected_attachment_ids is an empty array — "本文だけで実行" must not revert to "全添付"', async () => {
+    const mailId = await seedMail({
+      messageId: '<selected-empty@example.com>',
+      status: 'ai_done',
+      classification: 'tournament',
+    })
+    await seedDraft({ mailMessageId: mailId, selectedAttachmentIds: [] })
+
+    process.argv = ['node', 'reextract.ts', '--since=2026-04-01', '--status=ai_done']
+    const code = await runReextract()
+
+    expect(code).toBe(0)
+    expect(classifyMailMock).toHaveBeenCalledTimes(1)
+    const [, , , opts] = classifyMailMock.mock.calls[0]!
+    expect(opts.selectedAttachmentIds).toEqual([])
+    expect(opts.selectedAttachmentIds).not.toBeUndefined()
+  })
+
+  it('passes undefined to classifyMail when the draft has no recorded selection (NULL) — preserves the "全添付" default', async () => {
+    const mailId = await seedMail({
+      messageId: '<no-selection@example.com>',
+      status: 'ai_done',
+      classification: 'tournament',
+    })
+    await seedDraft({ mailMessageId: mailId, selectedAttachmentIds: null })
+
+    process.argv = ['node', 'reextract.ts', '--since=2026-04-01', '--status=ai_done']
+    const code = await runReextract()
+
+    expect(code).toBe(0)
+    expect(classifyMailMock).toHaveBeenCalledTimes(1)
+    const [, , , opts] = classifyMailMock.mock.calls[0]!
+    expect(opts.selectedAttachmentIds).toBeUndefined()
+  })
+})
+
+afterAll(async () => {
+  await closeDb()
+  await closeTestDb()
 })
