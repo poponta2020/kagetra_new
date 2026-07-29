@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { and, desc, eq, gte, ne } from 'drizzle-orm'
+import { loadCostGuardConfig } from '@kagetra/mail-worker/config'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { events, mailMessages } from '@kagetra/shared/schema'
@@ -168,6 +169,9 @@ export default async function MailDetailPage({
           filename: true,
           contentType: true,
           extractionStatus: true,
+          // mail-ai-extract-refinements タスク8: 添付選択ダイアログでサイズを
+          // 表示するために追加（AC-26）。
+          sizeBytes: true,
         },
         // roster-file-adoption タスク2: 添付ごとの採用状態（種別・対象大会名）を
         // 詳細画面に出すため、採用レコード + 帰属 entry_group の events を辿る。
@@ -247,6 +251,17 @@ export default async function MailDetailPage({
   const classification = mail.classification
     ? CLASSIFICATION_LABEL[mail.classification]
     : null
+
+  // mail-ai-extract-refinements タスク8: 添付選択ダイアログに渡す一覧とサイズ上限。
+  // 上限はサーバー側 (mail-worker) の設定を Server Component で読んで prop で
+  // 渡す（クライアントで env を読まない）。
+  const aiExtractAttachments = mail.attachments.map((a) => ({
+    id: a.id,
+    filename: a.filename,
+    contentType: a.contentType,
+    sizeBytes: a.sizeBytes,
+  }))
+  const pdfSizeLimitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
 
   const linkableEvents =
     !mail.draft && mail.triageStatus === 'unprocessed' ? await loadLinkableEvents() : []
@@ -332,7 +347,12 @@ export default async function MailDetailPage({
         <Card>
           <div className="flex flex-col gap-3">
             <h2 className="font-display text-sm font-semibold text-ink-2">処理</h2>
-            <MailDetailActions mailId={mail.id} linkableEvents={linkableEvents} />
+            <MailDetailActions
+              mailId={mail.id}
+              linkableEvents={linkableEvents}
+              attachments={aiExtractAttachments}
+              pdfSizeLimitKb={pdfSizeLimitKb}
+            />
             <p className="text-xs text-ink-meta">
               「会で流す」は AI 抽出を実行。「既存イベントに紐付ける」は組合せ表
               などの補足情報を既存大会に紐付けて LINE で配信。「対応不要」は未処理
@@ -356,6 +376,8 @@ export default async function MailDetailPage({
             <div className="flex flex-col gap-2">
               <AIExtractConfirmDialog
                 mailId={mail.id}
+                attachments={aiExtractAttachments}
+                pdfSizeLimitKb={pdfSizeLimitKb}
                 buttonLabel="AI 抽出を再試行"
                 buttonKind="primary"
               />

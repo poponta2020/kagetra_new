@@ -4,7 +4,7 @@ import { useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Btn } from '@/components/ui'
 import { dismissMail } from '../actions'
-import { AIExtractConfirmDialog } from './AIExtractConfirmDialog'
+import { AIExtractConfirmDialog, type AIExtractAttachment } from './AIExtractConfirmDialog'
 import {
   ExistingEventLinkSheet,
   type LinkableEventOption,
@@ -14,7 +14,9 @@ import {
  * mail-inbox-mailer タスク4: mail 詳細画面下部の 3 アクションエリア。
  *
  * 要件 §3.1.2:
- *   - (a) 会で流す（AI 抽出） — 確認ダイアログ
+ *   - (a) 会で流す（AI 抽出） — 確認ダイアログ（mail-ai-extract-refinements
+ *         タスク8: 添付選択ダイアログに拡張。attachments / pdfSizeLimitKb は
+ *         page.tsx（Server Component）が算出して素通しする）
  *   - (b) 既存イベントに紐付ける — シート
  *   - (c) 対応不要 — 即実行 → 一覧へ
  *
@@ -25,9 +27,13 @@ import {
 export function MailDetailActions({
   mailId,
   linkableEvents,
+  attachments,
+  pdfSizeLimitKb,
 }: {
   mailId: number
   linkableEvents: LinkableEventOption[]
+  attachments: AIExtractAttachment[]
+  pdfSizeLimitKb: number
 }) {
   const [pending, startTransition] = useTransition()
   const router = useRouter()
@@ -41,7 +47,11 @@ export function MailDetailActions({
 
   return (
     <div className="flex flex-col gap-2">
-      <AIExtractConfirmDialog mailId={mailId} />
+      <AIExtractConfirmDialog
+        mailId={mailId}
+        attachments={attachments}
+        pdfSizeLimitKb={pdfSizeLimitKb}
+      />
       <ExistingEventLinkSheet mailId={mailId} events={linkableEvents} />
       <Btn kind="ghost" size="md" onClick={onDismiss} disabled={pending}>
         {pending ? '処理中…' : '対応不要'}
