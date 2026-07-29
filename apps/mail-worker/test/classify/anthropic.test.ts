@@ -184,8 +184,8 @@ describe('AnthropicExtractor', () => {
     await llm.extract(
       buildInput({
         attachments: [
-          { kind: 'pdf', filename: 'a.pdf', base64: 'AAAA' },
-          { kind: 'pdf', filename: 'b.pdf', base64: 'BBBB' },
+          { kind: 'pdf', filename: 'a.pdf', base64: 'AAAA', id: 1 },
+          { kind: 'pdf', filename: 'b.pdf', base64: 'BBBB', id: 2 },
         ],
       }),
     )

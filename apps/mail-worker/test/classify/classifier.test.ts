@@ -2,6 +2,27 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * AC-20 must verify the actual `messages.create` request body, not just what
+ * `classifyMail` hands to a stub `LLMExtractor`. Mocking `@anthropic-ai/sdk`
+ * here (same `vi.hoisted` pattern as `anthropic.test.ts`) lets the attachment-
+ * selection describe block below run classifier → `AnthropicExtractor` →
+ * `messages.create` end-to-end and assert on the captured call args.
+ */
+const { messagesCreate } = vi.hoisted(() => ({ messagesCreate: vi.fn() }))
+
+vi.mock('@anthropic-ai/sdk', () => {
+  return {
+    default: class FakeAnthropic {
+      messages = { create: messagesCreate }
+      constructor(_opts: unknown) {
+        // capture nothing — the call shape under test is on `messages.create`.
+      }
+    },
+  }
+})
+
 import { eq } from 'drizzle-orm'
 import { mailAttachments, mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import {
@@ -16,6 +37,7 @@ import {
   loadFixturesFromDir,
 } from '../../src/classify/llm/fixture.js'
 import { BrokenLLMExtractor } from '../../src/classify/llm/broken.js'
+import { AnthropicExtractor } from '../../src/classify/llm/anthropic.js'
 import {
   LLMExtractorError,
   type LLMExtractionInput,
@@ -84,19 +106,112 @@ interface InsertPdfOpts {
 // Minimal "is this a PDF" prefix so any downstream PDF parser sees something
 // vaguely real. The cost guard never reads the bytes — it short-circuits on
 // `sizeBytes` — so we don't bother filling the buffer with realistic content.
-async function insertTestPdf(opts: InsertPdfOpts): Promise<void> {
-  await testDb.insert(mailAttachments).values({
-    mailMessageId: opts.mailMessageId,
-    filename: opts.filename ?? '案内.pdf',
-    contentType: 'application/pdf',
-    sizeBytes: opts.sizeBytes,
-    // bytea content is irrelevant for the size-guard path; a 1-byte buffer
-    // keeps the row small and the insert fast. The classifier never gets to
-    // base64-encode it because the guard fires first.
-    data: Buffer.from([0x25]),
-    extractedText: null,
-    extractionStatus: 'pending',
-  })
+// Returns the inserted `mail_attachments.id` so attachment-selection tests
+// can build a `selectedAttachmentIds` array against a real id.
+async function insertTestPdf(opts: InsertPdfOpts): Promise<number> {
+  const inserted = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: opts.mailMessageId,
+      filename: opts.filename ?? '案内.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: opts.sizeBytes,
+      // bytea content is irrelevant for the size-guard path; a 1-byte buffer
+      // keeps the row small and the insert fast. The classifier never gets to
+      // base64-encode it because the guard fires first.
+      data: Buffer.from([0x25]),
+      extractedText: null,
+      extractionStatus: 'pending',
+    })
+    .returning({ id: mailAttachments.id })
+  return inserted[0]!.id
+}
+
+interface InsertTextAttachmentOpts {
+  mailMessageId: number
+  filename?: string
+  extractedText: string
+}
+
+// DOCX-shaped attachment that already has `extractedText` populated —
+// exercises the `kind: 'text'` branch of `attachmentsForLlm` rather than the
+// PDF document-block branch.
+async function insertTestTextAttachment(
+  opts: InsertTextAttachmentOpts,
+): Promise<number> {
+  const inserted = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: opts.mailMessageId,
+      filename: opts.filename ?? '名簿.docx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sizeBytes: opts.extractedText.length,
+      data: Buffer.from([0x50]),
+      extractedText: opts.extractedText,
+      extractionStatus: 'extracted',
+    })
+    .returning({ id: mailAttachments.id })
+  return inserted[0]!.id
+}
+
+function buildAnthropicSuccessResponse() {
+  return {
+    content: [
+      {
+        type: 'tool_use' as const,
+        name: 'record_extraction',
+        id: 'toolu_classifier_test',
+        input: {
+          reason: 'unit-test fixture',
+          source_mismatch: null,
+          events: [
+            {
+              unit_key: 'u1',
+              event_date: null,
+              eligible_grades: null,
+              formal_name: null,
+              venue: null,
+              payment_deadline: null,
+              payment_deadline_kind: '記載なし',
+              payment_info_text: null,
+              payment_method: null,
+              entry_method: null,
+              organizer_text: null,
+              entry_deadline: null,
+              kind: null,
+              capacity_total: null,
+              capacity_a: null,
+              capacity_b: null,
+              capacity_c: null,
+              capacity_d: null,
+              capacity_e: null,
+              official: null,
+            },
+          ],
+        },
+      },
+    ],
+    usage: {
+      input_tokens: 100,
+      output_tokens: 200,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  }
+}
+
+interface AnthropicUserContentBlock {
+  type: string
+  text?: string
+  title?: string
+}
+
+function getAnthropicUserContent(): AnthropicUserContentBlock[] {
+  const args = messagesCreate.mock.calls.at(-1)![0] as {
+    messages: Array<{ role: string; content: AnthropicUserContentBlock[] }>
+  }
+  return args.messages[0]!.content
 }
 
 describe('classifier', () => {
@@ -495,6 +610,187 @@ describe('classifier', () => {
 
         expect(outcome.kind).toBe('oversize_skipped')
         expect(calls).toBe(0)
+      })
+
+      it('AC-36: does not become oversize_skipped when the oversized PDF is excluded by selection', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+
+        const id = await insertTestMail({
+          messageId: '<selection-excludes-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        const smallId = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'small.pdf',
+          sizeBytes: 100 * 1024,
+        })
+        // Not selected below — would trip the guard if the guard still ran
+        // against the full attachment set instead of the selected subset.
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: 'large.pdf',
+          sizeBytes: 600 * 1024,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [smallId],
+        })
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('AC-36: still returns oversize_skipped when the oversized PDF is explicitly selected', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'unused',
+          async extract(): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<selection-includes-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        const largeId = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'large.pdf',
+          sizeBytes: 600 * 1024,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [largeId],
+        })
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        expect(calls).toBe(0)
+      })
+    })
+
+    describe('attachment selection (AC-20 / AC-30)', () => {
+      // AC-20 requires checking the actual `messages.create` request body, so
+      // these tests run classifyMail against a real `AnthropicExtractor`
+      // instead of `FixtureLLMExtractor` / a stub `LLMExtractor`.
+      beforeEach(() => {
+        messagesCreate.mockReset()
+        messagesCreate.mockResolvedValue(buildAnthropicSuccessResponse())
+      })
+
+      it('① attachment present but selection is empty: no document blocks, body text still reaches the text block', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case1@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース1の本文マーカー',
+        })
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 100 * 1024 })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース1の本文マーカー')
+      })
+
+      it('② zero-attachment mail (selection unspecified): body text still reaches the text block', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case2@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース2の本文マーカー',
+        })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース2の本文マーカー')
+      })
+
+      it('③ only a text-kind (DOCX) attachment selected: no document blocks, text block carries body + extracted text', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case3@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース3の本文マーカー',
+        })
+        // Present but unselected — must not appear anywhere in the request.
+        await insertTestPdf({ mailMessageId: id, filename: '会場地図.pdf', sizeBytes: 100 * 1024 })
+        const docxId = await insertTestTextAttachment({
+          mailMessageId: id,
+          filename: '名簿.docx',
+          extractedText: 'DOCX 抽出テキストマーカー',
+        })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [docxId] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース3の本文マーカー')
+        expect(textBlocks[0]!.text).toContain('DOCX 抽出テキストマーカー')
+      })
+
+      it('④ restored selection on re-extraction: only the previously-selected PDF becomes a document block; the unselected sibling PDF is excluded (AC-30)', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case4@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース4の本文マーカー',
+        })
+        const keptId = await insertTestPdf({
+          mailMessageId: id,
+          filename: '要綱.pdf',
+          sizeBytes: 100 * 1024,
+        })
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: '名簿.pdf',
+          sizeBytes: 100 * 1024,
+        })
+
+        // Simulates `runManualExtract` re-reading a previously persisted
+        // `tournament_drafts.selected_attachment_ids` and passing it back in
+        // on 「再 AI 抽出」.
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [keptId] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        const documentBlocks = content.filter((b) => b.type === 'document')
+        expect(documentBlocks).toHaveLength(1)
+        expect(documentBlocks[0]!.title).toBe('要綱.pdf')
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース4の本文マーカー')
       })
     })
   })

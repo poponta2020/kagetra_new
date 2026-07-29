@@ -23,10 +23,15 @@ export interface LLMExtractionInput {
    * material is passed as plain text already extracted by PR2's pipeline.
    * XLSX is intentionally not forwarded — the extractor was disabled in PR2
    * for security reasons.
+   *
+   * `id` mirrors `mail_attachments.id` — carried through only so callers
+   * (currently tests) can assert exactly which attachment made it into this
+   * array after `classifyMail`'s selection filtering. `AnthropicExtractor`'s
+   * `buildUserMessageContent` ignores it (matches on `kind` alone).
    */
   attachments: Array<
-    | { kind: 'pdf'; filename: string; base64: string }
-    | { kind: 'text'; filename: string; text: string }
+    | { kind: 'pdf'; filename: string; base64: string; id: number }
+    | { kind: 'text'; filename: string; text: string; id: number }
   >
 }
 

@@ -103,7 +103,7 @@ async function probeProductionLike(pdfPath: string): Promise<void> {
         date: new Date(),
       },
       emailBodyText: 'これは debug-pdf.ts の production-like 再現テストです。',
-      attachments: [{ kind: 'pdf', filename: 'test.pdf', base64 }],
+      attachments: [{ kind: 'pdf', filename: 'test.pdf', base64, id: 0 }],
     })
     console.log(`  SUCCESS: ${JSON.stringify(res.parsed).slice(0, 200)}`)
     console.log(
@@ -231,6 +231,7 @@ async function probeMailIsolated(
       with: {
         attachments: {
           columns: {
+            id: true,
             filename: true,
             contentType: true,
             data: true,
@@ -245,8 +246,8 @@ async function probeMailIsolated(
       return
     }
     const attachments: Array<
-      | { kind: 'pdf'; filename: string; base64: string }
-      | { kind: 'text'; filename: string; text: string }
+      | { kind: 'pdf'; filename: string; base64: string; id: number }
+      | { kind: 'text'; filename: string; text: string; id: number }
     > = []
     for (const att of mail.attachments) {
       if (
@@ -270,12 +271,14 @@ async function probeMailIsolated(
           kind: 'pdf',
           filename: isolate.filename ?? att.filename,
           base64: buf.toString('base64'),
+          id: att.id,
         })
       } else if (att.extractedText) {
         attachments.push({
           kind: 'text',
           filename: att.filename,
           text: att.extractedText,
+          id: att.id,
         })
       }
     }
@@ -348,7 +351,7 @@ async function probeProductionLikeFromDb(attachmentId: number): Promise<void> {
           date: new Date(),
         },
         emailBodyText: 'short test body',
-        attachments: [{ kind: 'pdf', filename: 'test.pdf', base64 }],
+        attachments: [{ kind: 'pdf', filename: 'test.pdf', base64, id: attachmentId }],
       })
       console.log(`  SUCCESS: ${JSON.stringify(res.parsed).slice(0, 200)}`)
     } catch (err) {

@@ -107,6 +107,20 @@ export interface ClassifyOptions {
    * pre-filter previously dropped (e.g. a venue allow-list change).
    */
   force?: boolean
+  /**
+   * `mail_attachments.id`s the admin selected in the attachment-picker
+   * dialog (mail-ai-extract-refinements §3.2.4). Three states, mirroring
+   * `tournament_drafts.selected_attachment_ids`:
+   *   - `undefined` / `null` — not specified (legacy rows, or a caller that
+   *     hasn't adopted selection yet). Every attachment on the mail is sent,
+   *     same as before this feature existed.
+   *   - `[]` — an explicit "run with the body only" choice. The LLM is still
+   *     called (never an early return) with zero attachments.
+   *   - non-empty array — only attachments whose `id` is in this set are
+   *     forwarded; everything else (including oversized PDFs the picker UI
+   *     never let the admin check) is dropped before the size guard runs.
+   */
+  selectedAttachmentIds?: number[] | null
 }
 
 /**
@@ -135,6 +149,7 @@ export async function classifyMail(
     with: {
       attachments: {
         columns: {
+          id: true,
           filename: true,
           contentType: true,
           sizeBytes: true,
@@ -153,10 +168,26 @@ export async function classifyMail(
     return { kind: 'skipped_noise' }
   }
 
+  // Attachment selection (mail-ai-extract-refinements §3.2.4). `undefined`/
+  // `null` means "not specified" — send every attachment, matching the
+  // pre-selection behaviour and legacy `tournament_drafts` rows whose
+  // `selected_attachment_ids` is NULL. An explicit array (including `[]`)
+  // restricts the set the LLM ever sees to those ids.
+  const attachmentsInScope =
+    opts.selectedAttachmentIds == null
+      ? mail.attachments
+      : mail.attachments.filter((att) =>
+          opts.selectedAttachmentIds!.includes(att.id),
+        )
+
   // PDF cost guard. Runs after the pre-filter short-circuit (pre-filter noise
   // never reaches the AI call regardless of size) but before building the
-  // Anthropic input. We check `sizeBytes` from `mail_attachments` rather than
-  // re-measuring `att.data`, because the bytea round-trip can hand us a
+  // Anthropic input, and against `attachmentsInScope` rather than every
+  // attachment on the mail — a selection UI blocks checking an oversized PDF
+  // in the first place, so a legitimate selection that stays within the
+  // limit must not be skipped just because an unselected sibling attachment
+  // is oversized (AC-36). We check `sizeBytes` from `mail_attachments` rather
+  // than re-measuring `att.data`, because the bytea round-trip can hand us a
   // postgres hex-escape string (see `bytesFromBytea` doc) whose `.length`
   // would over-report by ~2x. `sizeBytes` is populated upstream from the
   // original parsed buffer length and is the canonical source of truth.
@@ -166,7 +197,7 @@ export async function classifyMail(
   const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
   if (limitKb > 0) {
     const limitBytes = limitKb * 1024
-    for (const att of mail.attachments) {
+    for (const att of attachmentsInScope) {
       if (att.contentType === 'application/pdf' && att.sizeBytes > limitBytes) {
         return {
           kind: 'oversize_skipped',
@@ -179,7 +210,7 @@ export async function classifyMail(
   }
 
   const attachmentsForLlm: LLMExtractionInput['attachments'] = []
-  for (const att of mail.attachments) {
+  for (const att of attachmentsInScope) {
     if (att.contentType === 'application/pdf' && att.extractionStatus !== 'failed') {
       // Pass PDFs as native document blocks. Anthropic gets richer layout
       // info from the original PDF than from pdfjs's text dump, and our
@@ -188,6 +219,7 @@ export async function classifyMail(
         kind: 'pdf',
         filename: att.filename,
         base64: bytesFromBytea(att.data).toString('base64'),
+        id: att.id,
       })
     } else if (att.extractedText) {
       // DOCX/DOC (or future text-extracted formats) — forward the extracted text.
@@ -195,6 +227,7 @@ export async function classifyMail(
         kind: 'text',
         filename: att.filename,
         text: att.extractedText,
+        id: att.id,
       })
     } else if (
       att.extractionStatus === 'unsupported' ||
@@ -218,6 +251,7 @@ export async function classifyMail(
           kind: 'text',
           filename: att.filename,
           text: fallback.text,
+          id: att.id,
         })
       }
     }
