@@ -3,7 +3,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { RosterSection, type RosterEntryView, type RosterView } from './RosterSection'
+import {
+  RosterSection,
+  type RosterEntryView,
+  type RosterFileView,
+  type RosterView,
+} from './RosterSection'
 
 function entry(
   id: number,
@@ -37,6 +42,23 @@ function roster(
     ...overrides,
   }
 }
+
+function rosterFile(
+  id: number,
+  filename: string,
+  overrides: Partial<RosterFileView> = {},
+): RosterFileView {
+  return {
+    id,
+    rosterType: 'confirmed',
+    publishedAt: null,
+    filename,
+    ...overrides,
+  }
+}
+
+const CONFIRMED_EMPTY_TEXT =
+  'まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。'
 
 describe('RosterSection', () => {
   it('同種の有効版が複数あっても version が最大の名簿だけを表示する', () => {
@@ -202,6 +224,107 @@ describe('RosterSection', () => {
     const carriedUpLabel = screen.getByText('繰上', { exact: true })
     expect(carriedUpLabel).toBeTruthy()
     expect(carriedUpLabel.className).not.toContain('text-accent-fg')
+  })
+})
+
+describe('RosterSection — 原本ファイル採用の表示 (roster-file-adoption §3.2.3)', () => {
+  it('パース済みが無く採用済みファイルがある種別は、ファイル名の一覧カードを表示する', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[]}
+        rosterFiles={[
+          rosterFile(1, '参加者一覧.xlsx', { rosterType: 'confirmed', publishedAt: '2026-07-20' }),
+          rosterFile(2, '参加費一覧.xlsx', { rosterType: 'confirmed' }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('確定名簿（原本ファイル）')).toBeTruthy()
+    expect(screen.getByText('参加者一覧.xlsx')).toBeTruthy()
+    expect(screen.getByText('参加費一覧.xlsx')).toBeTruthy()
+    const link1 = screen.getByText('参加者一覧.xlsx').closest('a')
+    expect(link1?.getAttribute('href')).toBe('/roster-files/1')
+    const link2 = screen.getByText('参加費一覧.xlsx').closest('a')
+    expect(link2?.getAttribute('href')).toBe('/roster-files/2')
+    // ファイルがある種別では現行の「未取込」指定文言を出さない。
+    expect(screen.queryByText(CONFIRMED_EMPTY_TEXT)).toBeNull()
+  })
+
+  it('パース済み名簿がある種別は構造化表示が主で、採用済みファイルは補助リンクとして併記される', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[roster(1, 1, [entry(1, '確定太郎')], { rosterType: 'confirmed' })]}
+        rosterFiles={[rosterFile(9, '確定名簿原本.xlsx', { rosterType: 'confirmed' })]}
+        currentUserId={null}
+      />,
+    )
+
+    // 構造化表示（テーブル）が主。
+    expect(screen.getByText('確定太郎')).toBeTruthy()
+    // 補助リンクとして原本ファイルが併記される。
+    const link = screen.getByText('確定名簿原本.xlsx').closest('a')
+    expect(link?.getAttribute('href')).toBe('/roster-files/9')
+    // カード分岐の見出し（「（原本ファイル）」サフィックス）はここでは出ない。
+    expect(screen.queryByText('確定名簿（原本ファイル）')).toBeNull()
+  })
+
+  it('パース済みもファイルも無ければ、現行の未取込文言のまま変わらない', () => {
+    render(
+      <RosterSection kind="individual" rosters={[]} rosterFiles={[]} currentUserId={null} />,
+    )
+
+    expect(screen.getAllByText('未取込').length).toBeGreaterThan(0)
+    expect(screen.getByText(CONFIRMED_EMPTY_TEXT)).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('rosterFiles 省略時（既存呼び出し互換）も未取込文言のまま変わらない', () => {
+    render(<RosterSection kind="individual" rosters={[]} currentUserId={null} />)
+
+    expect(screen.getAllByText('未取込').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('申込者名簿だけファイルが採用されていても確定名簿側の未取込表示には影響しない', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[]}
+        rosterFiles={[rosterFile(3, '申込者一覧.xlsx', { rosterType: 'applicant' })]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('申込者名簿（原本ファイル）')).toBeTruthy()
+    expect(screen.getByText('申込者一覧.xlsx')).toBeTruthy()
+    // 確定名簿は依然として現行の未取込文言。
+    expect(screen.getByText(CONFIRMED_EMPTY_TEXT)).toBeTruthy()
+    expect(screen.queryByText('確定名簿（原本ファイル）')).toBeNull()
+  })
+
+  it('セクション見出しの件数は、原本ファイルだけの種別を「未取込」と言わない', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[roster(1, 1, [entry(1, '申込太郎')], { rosterType: 'applicant' })]}
+        rosterFiles={[
+          rosterFile(1, '参加者一覧.xlsx', { rosterType: 'confirmed' }),
+          rosterFile(2, '参加費一覧.xlsx', { rosterType: 'confirmed' }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('申込者 1名 / 確定 原本2件')).toBeTruthy()
+  })
+
+  it('セクション見出しはファイルも名簿も無い種別では現行どおり「未取込」', () => {
+    render(<RosterSection kind="individual" rosters={[]} rosterFiles={[]} currentUserId={null} />)
+
+    expect(screen.getByText('申込者 未取込 / 確定 未取込')).toBeTruthy()
   })
 })
 

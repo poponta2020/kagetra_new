@@ -22,6 +22,10 @@ import {
   RosterParseButton,
   type RosterParseSource,
 } from '../../components/RosterParseButton'
+import {
+  RosterFileAdoptSheet,
+  type RosterFileAdoptionInfo,
+} from '../../components/RosterFileAdoptSheet'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -102,6 +106,39 @@ async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
   return rows
 }
 
+/**
+ * 名簿ファイル採用シートの候補（roster-file-adoption / Codex r1 blocker）。
+ *
+ * 候補条件は `loadLinkableEvents` と共有しつつ、**個人戦だけ**に絞る。名簿は
+ * 個人戦のみの仕様（`RosterSection` は団体戦で常に非表示・申込管理ボードの
+ * 母集団も `kind='individual'`）なので、団体戦を選べると「採用は成功したのに
+ * どこにも表示されずフェーズも動かない」行き止まりの経路になる。
+ * `adoptRosterFile` 側でも同じ条件を再検証する（UI 表示後の変化・直接叩き対策）。
+ *
+ * 既存の「既存イベントに紐付ける」導線は団体戦も候補に出したままにする
+ * （メールの紐付け自体は個人戦に限る理由がない）。
+ */
+async function loadRosterAdoptableEvents(): Promise<LinkableEventOption[]> {
+  const cutoffStr = linkableEventCutoffStr()
+
+  return db
+    .select({
+      id: events.id,
+      title: events.title,
+      eventDate: events.eventDate,
+      status: events.status,
+    })
+    .from(events)
+    .where(
+      and(
+        gte(events.eventDate, cutoffStr),
+        ne(events.status, 'cancelled'),
+        eq(events.kind, 'individual'),
+      ),
+    )
+    .orderBy(desc(events.eventDate))
+}
+
 export default async function MailDetailPage({
   params,
 }: {
@@ -131,6 +168,25 @@ export default async function MailDetailPage({
           filename: true,
           contentType: true,
           extractionStatus: true,
+        },
+        // roster-file-adoption タスク2: 添付ごとの採用状態（種別・対象大会名）を
+        // 詳細画面に出すため、採用レコード + 帰属 entry_group の events を辿る。
+        with: {
+          rosterFileAdoption: {
+            columns: {
+              id: true,
+              rosterType: true,
+            },
+            with: {
+              entryGroup: {
+                with: {
+                  events: {
+                    columns: { id: true, title: true },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       // 1:0..1。draft の状態によってアクションエリアを切替。
@@ -193,9 +249,14 @@ export default async function MailDetailPage({
     : null
 
   const linkableEvents =
-    !mail.draft && mail.triageStatus === 'unprocessed'
-      ? await loadLinkableEvents()
-      : []
+    !mail.draft && mail.triageStatus === 'unprocessed' ? await loadLinkableEvents() : []
+  // roster-file-adoption タスク2: 名簿ファイル採用の候補は、既存の AI 抽出/紐付け
+  // フロー（draft の有無・triage 状態）とは独立して提示する（要件: 名簿ドラフトと
+  // 独立・ドラフトの有無で採用を妨げない）ため、上の `linkableEvents` は流用せず
+  // 別に引く。候補は**個人戦のみ**（Codex r1 blocker）。添付が 1 件も無ければ
+  // セクション自体を出さないのでクエリも投げない。
+  const rosterAdoptableEvents =
+    mail.attachments.length > 0 ? await loadRosterAdoptableEvents() : []
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -436,6 +497,39 @@ export default async function MailDetailPage({
               </div>
             </Card>
           ))}
+        </section>
+      )}
+
+      {/* roster-file-adoption タスク2: パースせず原本のまま採用する名簿ファイル。
+          「大会名簿の取込」（決定論パース + AI 抽出）とは完全に独立したセクション
+          — ドラフトの状態を読まない・変更しない。 */}
+      {mail.attachments.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-base font-bold text-ink">名簿ファイルの採用</h2>
+          <p className="text-xs text-ink-meta">
+            様式が多様で解析できない名簿は、原本ファイルのまま対象大会に採用できます。
+          </p>
+          <div className="flex flex-col gap-2">
+            {mail.attachments.map((attachment) => {
+              const adoption: RosterFileAdoptionInfo | null = attachment.rosterFileAdoption
+                ? {
+                    id: attachment.rosterFileAdoption.id,
+                    rosterType: attachment.rosterFileAdoption.rosterType,
+                    eventTitles:
+                      attachment.rosterFileAdoption.entryGroup?.events.map((e) => e.title) ?? [],
+                  }
+                : null
+              return (
+                <RosterFileAdoptSheet
+                  key={attachment.id}
+                  attachmentId={attachment.id}
+                  attachmentFilename={attachment.filename}
+                  linkableEvents={rosterAdoptableEvents}
+                  adoption={adoption}
+                />
+              )
+            })}
+          </div>
         </section>
       )}
     </div>

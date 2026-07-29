@@ -100,6 +100,7 @@
 | tournament_confirmed_roster_publications | tournamentConfirmedRosterPublications | 出場回数へ算入する確定名簿発表 | schema/tournament-confirmed-roster-publications.ts |
 | tournament_edition_grade_lottery_facts | tournamentEditionGradeLotteryFacts | 開催回・級別の抽選集計用ファクト | schema/tournament-edition-grade-lottery-facts.ts |
 | tournament_roster_import_drafts | tournamentRosterImportDrafts | メール原本から抽出した名簿レビュードラフト | schema/tournament-roster-import-drafts.ts |
+| tournament_entry_roster_files | tournamentEntryRosterFiles | パースせず原本のまま採用した名簿（添付へのポインタ） | schema/tournament-entry-roster-files.ts |
 | players | players | 選手マスタ（姓名のみで名寄せしたグルーピング層） | schema/players.ts |
 | tournaments | tournaments | 1大会 = 1取込ファイル（結果取込の実体） | schema/tournaments.ts |
 | tournament_classes | tournamentClasses | 大会内の「級（クラス）」 | schema/tournament-classes.ts |

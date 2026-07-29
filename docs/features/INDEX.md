@@ -49,3 +49,4 @@
 - `grade-entry-fee` — 公認大会の級別参加料（A/B 2,500・C/D 2,000・E 1,500）を協会規定の定数として packages/shared に保持。UI 配線は行わず値のみ（主要領域: packages/shared constants） [shipped: PR #392]
 - `home-tournament-timeline` — ホーム(/dashboard)を「会の出場予定」へ全面置換。未回答アラート＋大会当日カード＋出場タイムライン（確定名簿→出欠のフォールバック・出場者チップ一列・自分ハイライト）（主要領域: apps/web dashboard） [shipped: PR #400]
 - `event-list-month-grouping` — /events 開催日順ビューを月ごとにセクション化（月見出し=ゼロ埋め2桁+英字月名+藍太罫）。日付を左ブロック化・申込可否を色帯+太字の二重符号化・ページ見出し行をフッター行へ（主要領域: apps/web events UI・純UI/design-spec が要件成果物） [shipped: PR #401]
+- `roster-file-adoption` — 名簿をパースせず原本ファイルのまま採用できる導線（メール添付→entry_group×種別）。会員向けビューア新設・申込管理ボードの hasConfirmedRoster をファイル採用へ拡張（主要領域: packages/shared schema + apps/web admin/mail-inbox・events・roster-files）

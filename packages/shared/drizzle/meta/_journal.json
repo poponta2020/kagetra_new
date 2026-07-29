@@ -358,6 +358,13 @@
       "when": 1785202794831,
       "tag": "0050_jazzy_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785254518322,
+      "tag": "0051_light_purple_man",
+      "breakpoints": true
     }
   ]
 }

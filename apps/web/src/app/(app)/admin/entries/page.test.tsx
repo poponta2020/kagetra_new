@@ -1,6 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import {
+  mailAttachments,
+  mailMessages,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
   tournamentSeries,
   tournamentSeriesEditions,
@@ -49,6 +52,43 @@ async function seedAttendees(eventId: number, n: number) {
     const user = await createUser()
     await createEventAttendance({ eventId, userId: user.id, attend: true })
   }
+}
+
+/**
+ * roster-file-adoption: グループへ「原本ファイル採用」を 1 件積む。
+ * ファイル実体は複製せず mail_attachments を正とするので、添付も一緒に作る。
+ */
+async function seedRosterFile(
+  entryGroupId: number,
+  rosterType: 'applicant' | 'confirmed',
+  filename: string,
+) {
+  const [mail] = await testDb
+    .insert(mailMessages)
+    .values({
+      messageId: `<roster-file-${crypto.randomUUID()}@kagetra.test>`,
+      fromAddress: 'organizer@example.com',
+      toAddresses: ['kagetra@example.com'],
+      subject: '名簿送付',
+      receivedAt: new Date(),
+    })
+    .returning()
+  const [attachment] = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: mail!.id,
+      filename,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      sizeBytes: 3,
+      data: Buffer.from('xls'),
+    })
+    .returning()
+  await testDb.insert(tournamentEntryRosterFiles).values({
+    entryGroupId,
+    rosterType,
+    sourceAttachmentId: attachment!.id,
+    sourceMailMessageId: mail!.id,
+  })
 }
 
 /** 通称つきの edition を 1 件作って返す。 */
@@ -339,6 +379,82 @@ describe('/admin/entries（申込管理ボード）', () => {
       expect(
         within(sectionOf('名簿確定・要振込')).getByText('有効な確定名簿'),
       ).toBeTruthy()
+    })
+
+    // roster-file-adoption AC-3/AC-4: 「確定名簿がある」の定義は
+    // **パース済み ∪ confirmed のファイル採用**。パース不能な原本を採用しただけで
+    // 事前払い・未振込の大会が「申込完了・抽選待ち」→「名簿確定・要振込」へ進む。
+    // applicant のファイル採用は分類を動かさない。
+    it('AC-3/AC-4: confirmed のファイル採用は分類を進め、applicant のファイル採用は進めない', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+
+      const confirmedFile = await createEvent({
+        title: 'ファイル採用（確定）',
+        eventDate: future,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await seedRosterFile(confirmedFile.entryGroupId, 'confirmed', '参加者一覧.xlsx')
+
+      const applicantFile = await createEvent({
+        title: 'ファイル採用（申込）',
+        eventDate: future,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await seedRosterFile(applicantFile.entryGroupId, 'applicant', '申込者一覧.xlsx')
+
+      await renderPage()
+
+      expect(
+        within(sectionOf('名簿確定・要振込')).getByText('ファイル採用（確定）'),
+      ).toBeTruthy()
+      expect(
+        within(sectionOf('申込完了・抽選待ち')).getByText('ファイル採用（申込）'),
+      ).toBeTruthy()
+    })
+
+    it('AC-3: パース済みとファイル採用は OR（どちらか一方でも確定名簿ありになる）', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+
+      const both = await createEvent({
+        title: 'パース済みとファイルの両方',
+        eventDate: future,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await testDb.insert(tournamentEntryRosters).values({
+        entryGroupId: both.entryGroupId,
+        rosterType: 'confirmed',
+      })
+      await seedRosterFile(both.entryGroupId, 'confirmed', '確定名簿原本.xlsx')
+
+      // 差し替え済みのパース済み版しか無くても、ファイル採用があれば進む
+      // （ファイル採用は版管理を持たないので superseded の概念が無い）。
+      const supersededPlusFile = await createEvent({
+        title: '差し替え済み＋ファイル',
+        eventDate: future,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await testDb.insert(tournamentEntryRosters).values({
+        entryGroupId: supersededPlusFile.entryGroupId,
+        rosterType: 'confirmed',
+        supersededAt: new Date(),
+      })
+      await seedRosterFile(supersededPlusFile.entryGroupId, 'confirmed', '差し替え後原本.xlsx')
+
+      await renderPage()
+
+      const section = sectionOf('名簿確定・要振込')
+      expect(within(section).getByText('パース済みとファイルの両方')).toBeTruthy()
+      expect(within(section).getByText('差し替え済み＋ファイル')).toBeTruthy()
     })
 
     it('複数版のうち superseded_at IS NULL が 1 つでもあれば確定名簿ありと判定する', async () => {

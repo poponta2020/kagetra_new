@@ -11,11 +11,12 @@ import {
   lineChannels,
   lineGradeGroupBindings,
   mailMessages,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { auth } from '@/auth'
 import { Btn } from '@/components/ui'
@@ -53,7 +54,7 @@ import {
   submitAttendance,
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
-import { RosterSection } from './components/RosterSection'
+import { RosterSection, type RosterFileView } from './components/RosterSection'
 import { surname } from '@/lib/surname'
 
 const ACTIVE_BROADCAST_STATUSES = [
@@ -122,6 +123,21 @@ export default async function EventDetailPage({
                 },
                 with: { user: { columns: { id: true, name: true } } },
               },
+            },
+          },
+          // roster-file-adoption タスク4: 原本ファイルのまま採用した名簿
+          // （AC-5/AC-6/AC-7）。帰属は entry_group なので、グループ内のどの日の
+          // 詳細からも同じファイルが見える。
+          //
+          // ★ここも `rosters` と同じ注意が要る。会員へ渡してよいのはファイル名・
+          // 採用種別・発表日・ビューア導線（id）だけ。sourceMailMessageId（取込元
+          // メール）/ adoptedByUserId（採用者）/ note（管理メモ）は internal 列
+          // なので `columns` を絞り、RSC payload に載せない（PR #376 の教訓）。
+          rosterFiles: {
+            orderBy: [asc(tournamentEntryRosterFiles.id)],
+            columns: { id: true, rosterType: true, publishedAt: true },
+            with: {
+              sourceAttachment: { columns: { filename: true } },
             },
           },
         },
@@ -426,6 +442,17 @@ export default async function EventDetailPage({
     todayStr,
   })
 
+  // roster-file-adoption タスク4: entryGroup.rosterFiles を会員向け DTO へ
+  // 詰め替える。クエリ側で既に列を絞ってあるので（AC-7）、ここは選んだ列を
+  // そのまま渡すだけ——sourceMailMessageId / adoptedByUserId / note は
+  // クエリに存在せず、この DTO にも現れない。
+  const rosterFiles: RosterFileView[] = event.entryGroup.rosterFiles.map((f) => ({
+    id: f.id,
+    rosterType: f.rosterType,
+    publishedAt: f.publishedAt,
+    filename: f.sourceAttachment?.filename ?? '',
+  }))
+
   return (
     <div className="flex min-h-full flex-col p-4">
       <EventDetailHeader
@@ -576,6 +603,7 @@ export default async function EventDetailPage({
       <RosterSection
         kind={event.kind}
         rosters={event.entryGroup.rosters}
+        rosterFiles={rosterFiles}
         currentUserId={session?.user.id ?? null}
       />
 

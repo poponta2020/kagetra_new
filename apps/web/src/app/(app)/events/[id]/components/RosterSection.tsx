@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { formatFlowDate } from '@/lib/event-date'
 import { surname } from '@/lib/surname'
@@ -21,6 +22,19 @@ export interface RosterView {
   version: number
   publishedAt: string | null
   entries: RosterEntryView[]
+}
+
+/**
+ * roster-file-adoption タスク4: パースせず**原本ファイルのまま採用**した名簿
+ * （tournament_entry_roster_files）の会員向け DTO。一般会員へ渡してよいのは
+ * ファイル名・採用種別・発表日・ビューア導線（id）だけ——取込元メール ID・
+ * 採用者・管理メモは含めない（要件 §3.2.3, PR #376 の教訓）。
+ */
+export interface RosterFileView {
+  id: number
+  rosterType: 'applicant' | 'confirmed'
+  publishedAt: string | null
+  filename: string
 }
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const
@@ -60,18 +74,54 @@ function tabClass(active: boolean) {
   )
 }
 
-function countLabel(roster: RosterView | undefined): string {
-  return roster && roster.entries.length > 0 ? `${roster.entries.length}名` : '未取込'
+function countLabel(roster: RosterView | undefined, files: RosterFileView[]): string {
+  if (roster && roster.entries.length > 0) return `${roster.entries.length}名`
+  // roster-file-adoption: パース済みが無くても原本ファイルが採用済みなら「未取込」
+  // ではない。折りたたみ見出しだけを見て「まだ何も無い」と誤読されると、
+  // ファイル採用でフェーズを進める本機能の意味が消える。
+  if (files.length > 0) return `原本${files.length}件`
+  return '未取込'
+}
+
+/**
+ * 採用済み原本ファイルへのリンク一覧（ビューアは `/roster-files/{id}`。
+ * roster-file-adoption タスク3が実装）。1種別に複数ファイルが採用されうる
+ * （例: 「参加者一覧」と「参加費一覧」）ので配列前提で並べる。
+ */
+function RosterFileLinks({ files }: { files: RosterFileView[] }) {
+  if (files.length === 0) return null
+  return (
+    <ul className="space-y-1.5">
+      {files.map((file) => (
+        <li key={file.id}>
+          <Link
+            href={`/roster-files/${file.id}`}
+            className="flex items-baseline gap-2 text-xs text-brand hover:underline"
+          >
+            <span className="truncate">{file.filename}</span>
+            {file.publishedAt && (
+              <span className="ml-auto flex-none tabular-nums text-neutral-fg">
+                発表 {formatFlowDate(file.publishedAt)}
+              </span>
+            )}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function RosterList({
   title,
   roster,
+  files,
   currentUserId,
   emptyText,
 }: {
   title: string
   roster: RosterView | undefined
+  /** 同じ種別（申込者/確定）に採用された原本ファイル。§3.2.3 の表示規則。 */
+  files: RosterFileView[]
   currentUserId: string | null
   /** 未取込時の本文（§3.2.5 の指定文言）。指定しないパネルは本文を出さない。 */
   emptyText?: string
@@ -79,6 +129,35 @@ function RosterList({
   const [activeGrade, setActiveGrade] = useState<Grade | null>(null)
 
   if (!roster || roster.entries.length === 0) {
+    // パース済み名簿は無いが、原本ファイルが採用済みならファイル名の一覧カードを
+    // 出す（要件 §3.2.3「パース済みがなく、採用済みファイルがある」分岐）。
+    // 現行の「未取込」文言はファイルも無いときだけ維持する（回帰禁止）。
+    if (files.length > 0) {
+      return (
+        <details
+          className={cn(
+            'border-t border-border-soft first-of-type:border-t-0',
+            MARKER_OPEN_CLASS,
+          )}
+        >
+          <summary
+            className={cn(
+              'flex cursor-pointer list-none items-baseline gap-2 py-[11px]',
+              '[&::-webkit-details-marker]:hidden',
+              MARKER_BEFORE_CLASS,
+            )}
+          >
+            <span className="text-[13px] font-semibold text-ink">{`${title}（原本ファイル）`}</span>
+            <span className="ml-auto text-xs tabular-nums text-neutral-fg">
+              {files.length}件
+            </span>
+          </summary>
+          <div className="pb-[13px]">
+            <RosterFileLinks files={files} />
+          </div>
+        </details>
+      )
+    }
     return (
       <details
         className={cn(
@@ -226,6 +305,14 @@ function RosterList({
             })}
           </tbody>
         </table>
+        {files.length > 0 && (
+          // パース済み名簿が主で、採用済み原本ファイルは補助リンクとして併記
+          // する（要件 §3.2.3「パース済みがある」分岐）。
+          <div className="mt-3 border-t border-border-soft pt-3">
+            <p className="mb-1.5 text-xs text-neutral-fg">原本ファイル</p>
+            <RosterFileLinks files={files} />
+          </div>
+        )}
       </div>
     </details>
   )
@@ -240,10 +327,16 @@ function RosterList({
 export function RosterSection({
   kind,
   rosters,
+  rosterFiles = [],
   currentUserId,
 }: {
   kind: 'individual' | 'team'
   rosters: RosterView[]
+  /**
+   * roster-file-adoption タスク4: entry_group に採用済みの原本ファイル
+   * （パース済み名簿の有無に関わらず渡ってよい。表示の出し分けはここで行う）。
+   */
+  rosterFiles?: RosterFileView[]
   currentUserId: string | null
 }) {
   // 名簿は個人戦のみ（AC-30）。団体戦では出さない。
@@ -255,21 +348,29 @@ export function RosterSection({
   const newestFirst = [...rosters].sort((a, b) => b.version - a.version)
   const applicant = newestFirst.find((r) => r.rosterType === 'applicant')
   const confirmed = newestFirst.find((r) => r.rosterType === 'confirmed')
+  const applicantFiles = rosterFiles.filter((f) => f.rosterType === 'applicant')
+  const confirmedFiles = rosterFiles.filter((f) => f.rosterType === 'confirmed')
 
   return (
     <DisclosureSection
       title="名簿"
-      aux={`申込者 ${countLabel(applicant)} / 確定 ${countLabel(confirmed)}`}
+      aux={`申込者 ${countLabel(applicant, applicantFiles)} / 確定 ${countLabel(confirmed, confirmedFiles)}`}
       nested
       // セクション間余白（モックの `.sec{padding:34px 0 0}`）は自前で持つ。
       // 団体戦では上で null を返すので、呼び出し側がラッパー div で付けると
       // 空の 34px が残ってしまう。
       className="pt-[34px]"
     >
-      <RosterList title="申込者名簿" roster={applicant} currentUserId={currentUserId} />
+      <RosterList
+        title="申込者名簿"
+        roster={applicant}
+        files={applicantFiles}
+        currentUserId={currentUserId}
+      />
       <RosterList
         title="確定名簿"
         roster={confirmed}
+        files={confirmedFiles}
         currentUserId={currentUserId}
         emptyText="まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。"
       />

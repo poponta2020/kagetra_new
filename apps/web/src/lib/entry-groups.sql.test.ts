@@ -5,6 +5,8 @@ import {
   eventLineBroadcasts,
   events,
   lineChannels,
+  mailAttachments,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
@@ -243,6 +245,37 @@ describe('deleteGroupIfEmpty — 条件付き空グループ削除', () => {
     await testDb
       .insert(tournamentEntryRosters)
       .values({ entryGroupId: group.id, rosterType: 'applicant', version: 1 })
+
+    await testDb.transaction(async (tx) => {
+      await deleteGroupIfEmpty(tx, group.id)
+    })
+
+    const remaining = await testDb.select().from(entryGroups).where(eq(entryGroups.id, group.id))
+    expect(remaining).toHaveLength(1)
+  })
+
+  // roster-file-adoption: 採用済み原本ファイルも entry_group への RESTRICT FK を持つ。
+  // パース済み名簿が無くファイル採用だけがあるグループを見落とすと FK 違反で
+  // 呼び出し元のトランザクション全体がロールバックする。
+  it('r1: 採用済み原本ファイルを持つグループは events 0件でも削除されない', async () => {
+    const group = await createEntryGroup()
+    const mail = await createMailMessage()
+    const [attachment] = await testDb
+      .insert(mailAttachments)
+      .values({
+        mailMessageId: mail.id,
+        filename: '参加者一覧.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        sizeBytes: 3,
+        data: Buffer.from('xls'),
+      })
+      .returning()
+    await testDb.insert(tournamentEntryRosterFiles).values({
+      entryGroupId: group.id,
+      rosterType: 'confirmed',
+      sourceAttachmentId: attachment!.id,
+      sourceMailMessageId: mail.id,
+    })
 
     await testDb.transaction(async (tx) => {
       await deleteGroupIfEmpty(tx, group.id)

@@ -168,6 +168,27 @@
 
 **制約・インデックス**: 添付sourceの部分UNIQUE `tournament_roster_import_drafts_attachment_key` / 本文sourceの部分UNIQUE `tournament_roster_import_drafts_body_message_key` / INDEX `tournament_roster_import_drafts_status_created_idx`
 
+## tournament_entry_roster_files（TS: `tournamentEntryRosterFiles`）
+
+定義ファイル: `packages/shared/src/schema/tournament-entry-roster-files.ts`
+
+パースせず**原本ファイルのまま採用**した名簿。`tournament_entry_rosters` とは独立で、版管理も統計寄与も持たない（entries を持たない行をあちらへ混ぜると、確定名簿の entries から出場者を描き無ければ出欠へフォールバックする消費者が「出場者0人」に倒れる）。ファイル実体は複製せず `mail_attachments` が唯一の正で、この表は原本へのポインタ。帰属は `entry_group` なのでグループ内のどの日の大会詳細からも同じファイルが見える。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE RESTRICT |
+| roster_type | roster_type (enum) | NOT NULL | — | applicant / confirmed |
+| source_attachment_id | integer | NOT NULL | — | FK→mail_attachments.id ON DELETE CASCADE |
+| source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
+| published_at | date (string mode) | NULL | — | 主催者発表日。既定はメール受信日(JST) |
+| note | text | NULL | — | |
+| adopted_at | timestamptz | NOT NULL | `now()` | |
+| adopted_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| created_at / updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約・インデックス**: UNIQUE `tournament_entry_roster_files_source_attachment_key` on (source_attachment_id)（同一添付の二重採用を禁止。付け替えは解除→再採用）/ INDEX `tournament_entry_roster_files_group_type_idx` on (entry_group_id, roster_type)
+
 ## players（TS: `players`）
 
 定義ファイル: `packages/shared/src/schema/players.ts`
