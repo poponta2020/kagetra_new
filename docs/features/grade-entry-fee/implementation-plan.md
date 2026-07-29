@@ -89,7 +89,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク3: 参加者の級別内訳・総額の集計
 
-- [ ] 完了
+- [x] 完了
 - **目的:** イベント／グループ単位で「級ごとの人数 × 単価」と総額を引く
 - **対応AC:** AC-9, AC-10, AC-11, AC-12
 - **主な変更領域:** 新規 `apps/web/src/lib/entry-fee-tally.ts` / 新規 `apps/web/src/lib/entry-fee-tally.test.ts`
