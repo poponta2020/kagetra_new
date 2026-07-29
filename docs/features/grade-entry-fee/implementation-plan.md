@@ -55,7 +55,7 @@ UPDATE "events" SET "payment_type" = 'advance' WHERE "payment_type" IS NULL;
 
 ### タスク1: 単価解決の純関数
 
-- [ ] 完了
+- [x] 完了
 - **目的:** イベントと級から単価を解決し、同単価の級をまとめて表示用文字列にする土台を作る
 - **対応AC:** AC-5, AC-6, AC-7, AC-8
 - **主な変更領域:** 新規 `apps/web/src/lib/entry-fee.ts` / 新規 `apps/web/src/lib/entry-fee.test.ts`
