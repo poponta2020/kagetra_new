@@ -312,13 +312,20 @@ export async function classifyMail(
   // provider 中立を保つため anthropic.ts のリクエスト構造は参照せず、同じ文字列
   // 群を JSON 化して測る。キー名・tool schema・HTTP ヘッダのぶんは
   // `exceededRequestBudgetBytes` の封筒枠がまとめて見る。
+  //
+  // PDF のファイル名は**2 回**送られる（`buildUserPrompt` の「PDF 添付一覧」と、
+  // document ブロックの `title`）。measure 側でも 2 回数える。
   const assembledBytes = Buffer.byteLength(
     JSON.stringify({
       system: input.systemPrompt,
       text: buildUserPrompt(input),
       documents: attachmentsForLlm
         .filter((att) => att.kind === 'pdf')
-        .map((att) => (att.kind === 'pdf' ? att.base64 : '')),
+        .map((att) =>
+          att.kind === 'pdf'
+            ? { type: 'document', title: att.filename, data: att.base64 }
+            : null,
+        ),
     }),
     'utf8',
   )
