@@ -63,6 +63,10 @@ import {
 } from '@kagetra/mail-worker/classify/classifier'
 import { AnthropicExtractor } from '@kagetra/mail-worker/classify/llm/anthropic'
 import { loadCostGuardConfig, loadLlmConfig } from '@kagetra/mail-worker/config'
+import {
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+  exceededAttachmentTotalBytes,
+} from '@kagetra/mail-worker/classify/attachment-budget'
 
 // Set of statuses still subject to operator action. `approved`, `rejected`,
 // and `superseded` are terminal: any further mutation would corrupt review
@@ -1015,6 +1019,16 @@ async function validateAttachmentSelection(
         `サイズ上限を超える添付は AI に渡せません: ${oversize.filename}`,
       )
     }
+  }
+
+  // 3. **合計サイズ**（要件 §6）— 1件ごとの上限を通っても、複数選べば合計は
+  //    Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+  //    超えたリクエストは 413 で確実に失敗するので、選択の時点で弾く。
+  const totalOver = exceededAttachmentTotalBytes(rows)
+  if (totalOver !== null) {
+    throw new Error(
+      `選択した添付の合計サイズが上限（${Math.floor(ATTACHMENT_TOTAL_LIMIT_BYTES / 1024 / 1024)}MB）を超えています（合計 ${(totalOver / 1024 / 1024).toFixed(1)}MB）。添付を減らしてください`,
+    )
   }
 
   return unique

@@ -110,6 +110,11 @@ const CostGuardConfigSchema = z.object({
   ),
 })
 
+// 添付の**合計**サイズ予算（要件 §6）は `classify/attachment-budget.ts` に置いて
+// ある。Server Action・選択ダイアログ（client component）・classifier の3箇所が
+// 共有するが、このファイルは `node:url` / `dotenv` を値 import しており client
+// バンドルに引き込めないため、依存ゼロの leaf モジュールに分けている。
+
 export type LogConfig = z.infer<typeof LogConfigSchema>
 export type ImapConfig = z.infer<typeof ImapConfigSchema>
 export type DbConfig = z.infer<typeof DbConfigSchema>

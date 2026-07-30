@@ -8,6 +8,7 @@
   },
   "exports": {
     "./config": "./src/config.ts",
+    "./classify/attachment-budget": "./src/classify/attachment-budget.ts",
     "./classify/classifier": "./src/classify/classifier.ts",
     "./classify/llm/anthropic": "./src/classify/llm/anthropic.ts",
     "./classify/llm/types": "./src/classify/llm/types.ts",

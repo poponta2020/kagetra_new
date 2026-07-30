@@ -3,6 +3,10 @@
 import { useEffect, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
+import {
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+  exceededAttachmentTotalBytes,
+} from '@kagetra/mail-worker/classify/attachment-budget'
 import { Btn } from '@/components/ui'
 import { triggerExtractDraft } from '../actions'
 
@@ -55,6 +59,28 @@ function isOversizePdf(
   return attachment.sizeBytes > pdfSizeLimitKb * 1024
 }
 
+/**
+ * 復元する選択を「いま実際に選べるもの」へ正規化する。
+ *
+ * 前回の選択を保存したあとに `MAIL_WORKER_PDF_SIZE_LIMIT_KB` が引き下げられる
+ * と、保存済みの id が現在の上限を超えた状態で復元される。チェックボックスは
+ * disabled なので**外すこともできず**、実行するたびサーバーに拒否される詰みに
+ * なる（AC-31 の「そのうえで選び直せる」が満たせない）。復元の時点で落とす。
+ * 添付そのものが消えている id も同じ理由で落とす。
+ */
+function restorableSelection(
+  initial: number[] | undefined,
+  attachments: AIExtractAttachment[],
+  pdfSizeLimitKb: number,
+): { ids: number[]; droppedCount: number } {
+  if (!initial || initial.length === 0) return { ids: [], droppedCount: 0 }
+  const ids = initial.filter((id) => {
+    const a = attachments.find((x) => x.id === id)
+    return a != null && !isOversizePdf(a, pdfSizeLimitKb)
+  })
+  return { ids, droppedCount: initial.length - ids.length }
+}
+
 export function AIExtractConfirmDialog({
   mailId,
   attachments = [],
@@ -82,8 +108,16 @@ export function AIExtractConfirmDialog({
     attachments.length > 0 ? 'select' : 'confirmBodyOnly',
   )
   const [selectedIds, setSelectedIds] = useState<Set<number>>(
-    () => new Set(initialSelectedAttachmentIds ?? []),
+    () =>
+      new Set(
+        restorableSelection(
+          initialSelectedAttachmentIds,
+          attachments,
+          pdfSizeLimitKb,
+        ).ids,
+      ),
   )
+  const [droppedFromRestore, setDroppedFromRestore] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const router = useRouter()
@@ -107,7 +141,13 @@ export function AIExtractConfirmDialog({
     if (open) {
       setError(null)
       setPhase(attachments.length > 0 ? 'select' : 'confirmBodyOnly')
-      setSelectedIds(new Set(initialSelectedAttachmentIds ?? []))
+      const restored = restorableSelection(
+        initialSelectedAttachmentIds,
+        attachments,
+        pdfSizeLimitKb,
+      )
+      setSelectedIds(new Set(restored.ids))
+      setDroppedFromRestore(restored.droppedCount)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -126,7 +166,13 @@ export function AIExtractConfirmDialog({
     })
   }
 
+  // 合計サイズ（要件 §6）。個々が上限内でも複数選べば Anthropic の 32MB を
+  // 超え得る。サーバー側でも拒否するが、実行前に理由が分かるようにする。
+  const selectedAttachments = attachments.filter((a) => selectedIds.has(a.id))
+  const totalOverBytes = exceededAttachmentTotalBytes(selectedAttachments)
+
   const onExecuteFromList = () => {
+    if (totalOverBytes !== null) return
     if (selectedIds.size === 0) {
       // 添付が 1 件以上あるのに全て未チェック（AC-28）: 確認を 1 段挟む。
       setPhase('confirmBodyOnly')
@@ -206,6 +252,22 @@ export function AIExtractConfirmDialog({
                   })}
                 </div>
 
+                {droppedFromRestore > 0 && (
+                  <p className="mt-2 text-xs text-warn-fg" role="status">
+                    前回選択した添付のうち {droppedFromRestore} 件は、現在のサイズ上限を
+                    超えている（または削除された）ため選択から外しました。
+                  </p>
+                )}
+
+                {totalOverBytes !== null && (
+                  <p className="mt-2 text-xs text-danger" role="alert">
+                    選択した添付の合計が上限（
+                    {Math.floor(ATTACHMENT_TOTAL_LIMIT_BYTES / 1024 / 1024)}MB）を超えています
+                    （合計 {(totalOverBytes / 1024 / 1024).toFixed(1)}MB）。
+                    添付を減らしてください。
+                  </p>
+                )}
+
                 {error && (
                   <p className="mt-2 text-xs text-danger" role="alert">
                     {error}
@@ -216,7 +278,12 @@ export function AIExtractConfirmDialog({
                   <Btn kind="ghost" size="sm" onClick={() => setOpen(false)} disabled={pending}>
                     キャンセル
                   </Btn>
-                  <Btn kind="primary" size="sm" onClick={onExecuteFromList} disabled={pending}>
+                  <Btn
+                    kind="primary"
+                    size="sm"
+                    onClick={onExecuteFromList}
+                    disabled={pending || totalOverBytes !== null}
+                  >
                     {pending ? '送信中…' : '実行'}
                   </Btn>
                 </div>

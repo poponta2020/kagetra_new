@@ -2,6 +2,10 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { loadCostGuardConfig } from '../config.js'
+import {
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+  exceededAttachmentTotalBytes,
+} from './attachment-budget.js'
 import { extractAttachment } from '../extract/orchestrator.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
@@ -206,6 +210,23 @@ export async function classifyMail(
           limitBytes,
         }
       }
+    }
+  }
+
+  // 合計サイズガード（要件 §6）。1件ごとの上限を通っても、複数選べば合計は
+  // Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+  // 超えたリクエストは 413 で確実に失敗するので、送る前に弾く。
+  //
+  // 正常系では Server Action と選択ダイアログが先に止めるが、ここが要るのは
+  // **選択が未指定（NULL）の経路**が実在するから: 大きな PDF を何件も持つ古い
+  // メールを reextract CLI にかけると、選択なし＝全添付でこの合計に届き得る。
+  const totalOver = exceededAttachmentTotalBytes(attachmentsInScope)
+  if (totalOver !== null) {
+    return {
+      kind: 'oversize_skipped',
+      filename: `選択した PDF 添付の合計（${attachmentsInScope.filter((a) => a.contentType === 'application/pdf').length} 件）`,
+      sizeBytes: totalOver,
+      limitBytes: ATTACHMENT_TOTAL_LIMIT_BYTES,
     }
   }
 

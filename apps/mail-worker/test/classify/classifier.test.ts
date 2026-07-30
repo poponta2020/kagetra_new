@@ -45,6 +45,7 @@ import {
   type LLMExtractor,
 } from '../../src/classify/llm/types.js'
 import { resetConfigForTests } from '../../src/config.js'
+import { ATTACHMENT_TOTAL_LIMIT_BYTES } from '../../src/classify/attachment-budget.js'
 import { closeTestDb, testDb, truncateMailTables } from '../test-db.js'
 import { closeDb, getDb } from '../../src/db.js'
 
@@ -509,6 +510,92 @@ describe('classifier', () => {
         }
         // The most important assertion: AI was never called.
         expect(calls).toBe(0)
+      })
+
+      // 要件 §6: 1件ごとの上限を全て満たしていても、合計は Anthropic の
+      // リクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+      // 正常系では Server Action と選択ダイアログが先に止めるが、**選択が
+      // 未指定（NULL）の経路**——大きな PDF を何件も持つ古いメールを reextract
+      // CLI にかける——ではここが唯一の砦になる。
+      it('合計サイズが上限を超えたら AI を呼ばずスキップする', async () => {
+        // 1件ごとの上限は 8000KB のまま。7.5MB を 3 件で合計 22.5MB > 20MB。
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'should-not-be-called',
+          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked over the total budget')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<total-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
+        const bigMb = 7.5 * 1024 * 1024
+        await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'c.pdf', sizeBytes: bigMb })
+
+        // 各 8MB ≤ 8000KB 上限なので、1件ごとのガードは通り抜ける。
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.sizeBytes).toBe(3 * bigMb)
+          expect(outcome.limitBytes).toBe(ATTACHMENT_TOTAL_LIMIT_BYTES)
+          // どのファイル1件でもなく「合計」が原因であることが読み取れること。
+          expect(outcome.filename).toContain('合計')
+        }
+        expect(calls).toBe(0)
+      })
+
+      it('合計が上限内なら通常どおり分類する', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+        const id = await insertTestMail({
+          messageId: '<total-within@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 3MB × 3 = 9MB < 20MB。実運用の要綱 PDF はこの範囲に収まる。
+        const threeMb = 3 * 1024 * 1024
+        await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: threeMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: threeMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'c.pdf', sizeBytes: threeMb })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('選択で合計上限内に絞れば通る（合計ガードも選択後の集合に掛かる）', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+        const id = await insertTestMail({
+          messageId: '<total-narrowed@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
+        const bigMb = 7.5 * 1024 * 1024
+        const keep = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'keep.pdf',
+          sizeBytes: bigMb,
+        })
+        await insertTestPdf({ mailMessageId: id, filename: 'x.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'y.pdf', sizeBytes: bigMb })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [keep],
+        })
+
+        expect(outcome.kind).toBe('tournament')
       })
 
       it('classifies normally when all PDFs are within the limit', async () => {

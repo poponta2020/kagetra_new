@@ -2789,6 +2789,45 @@ describe('admin/mail-inbox actions', () => {
       expect(jobs).toHaveLength(0)
     })
 
+    it('AC-32/要件§6: 1件ごとの上限内でも合計が上限超過なら拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
+      // 3 件で合計 22.5MB > 20MB。
+      const big = 7.5 * 1024 * 1024
+      const a = await insertPdf(mail.id, 'a.pdf', big)
+      const b = await insertPdf(mail.id, 'b.pdf', big)
+      const c = await insertPdf(mail.id, 'c.pdf', big)
+
+      const result = await triggerExtractDraft(mail.id, [a, b, c])
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/合計サイズ/)
+
+      // 拒否されたら draft もジョブも作られない。
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mail.id))
+      expect(drafts).toHaveLength(0)
+      const jobs = await testDb.select().from(mailWorkerJobs)
+      expect(jobs).toHaveLength(0)
+    })
+
+    it('合計が上限内に収まる選択は通る', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const big = 7.5 * 1024 * 1024
+      const a = await insertPdf(mail.id, 'a.pdf', big)
+      await insertPdf(mail.id, 'b.pdf', big)
+      await insertPdf(mail.id, 'c.pdf', big)
+
+      const result = await triggerExtractDraft(mail.id, [a])
+      expect(result.ok).toBe(true)
+    })
+
     it('選択の書き込みは manual_extract ジョブより先に確定する（ワーカーが NULL を読まない）', async () => {
       // ワーカーはジョブを拾った時点で draft 行の selected_attachment_ids を
       // 読む。ジョブが先に見えて選択が後だと、無言で全添付送信に戻る。

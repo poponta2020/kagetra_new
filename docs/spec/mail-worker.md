@@ -77,9 +77,9 @@ Message-ID が無いメールはパース失敗として `FetchedMailError`（`s
 1. `tournament_drafts` へ `status='ai_processing'` の行を UPSERT（既存 `ai_failed` はリセットして再利用、`ai_processing` 中の重複起動はエラー）
 2. `mail_worker_jobs` へ `kind='manual_extract'`, `payload={mail_message_id}` を INSERT
 
-「会で流す（AI 抽出）」は**添付選択ダイアログ**（`AIExtractConfirmDialog`）を経由する。添付をファイル名・種別・サイズ付きで一覧し、**既定は全て未チェック**。サイズ上限（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を超える PDF はチェックできない。添付が1件以上あるのに全て未チェックのまま実行しようとすると「本文だけで実行しますか？」の確認を1段挟む（添付0件のメールでは挟まない）。同じダイアログをドラフト詳細の「再 AI 抽出」でも使い、**前回の選択を初期値として復元**する。
+「会で流す（AI 抽出）」は**添付選択ダイアログ**（`AIExtractConfirmDialog`）を経由する。添付をファイル名・種別・サイズ付きで一覧し、**既定は全て未チェック**。サイズ上限（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を超える PDF はチェックできない。添付が1件以上あるのに全て未チェックのまま実行しようとすると「本文だけで実行しますか？」の確認を1段挟む（添付0件のメールでは挟まない）。同じダイアログをドラフト詳細の「再 AI 抽出」でも使い、**前回の選択を初期値として復元**する（復元時は現在のサイズ上限で正規化し、上限を超えた／削除された添付は選択から落として警告する —— 外せないチェックが残ると再抽出が詰むため）。
 
-選択は `tournament_drafts.selected_attachment_ids`（`integer[]`、NULL = 旧データ／未指定＝全添付）に永続化する。書き込みは**ジョブ enqueue より前**に同一トランザクションで行う —— ワーカーはジョブ実行時にこの列を読むので、順序が逆だと NULL を読んで全添付を送ってしまい、エラーも出ないまま機能が死ぬ。Server Action は UI を経由しない不正な選択を拒否する: **当該メールに属さない添付 id**（`mail_message_id` で絞ったクエリで存在確認する。他メールの添付を読ませられるのは情報漏洩）と、**サイズ上限超過の PDF**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない。
+選択は `tournament_drafts.selected_attachment_ids`（`integer[]`、NULL = 旧データ／未指定＝全添付）に永続化する。書き込みは**ジョブ enqueue より前**に同一トランザクションで行う —— ワーカーはジョブ実行時にこの列を読むので、順序が逆だと NULL を読んで全添付を送ってしまい、エラーも出ないまま機能が死ぬ。Server Action は UI を経由しない不正な選択を拒否する: **当該メールに属さない添付 id**（`mail_message_id` で絞ったクエリで存在確認する。他メールの添付を読ませられるのは情報漏洩）と、**サイズ上限超過の PDF**、そして**選択の合計サイズ超過**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない。
 
 extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipeline.ts` の `runManualExtract()` を実行する（この関数が draft 行から選択を読んで `classifyMail` へ渡す。`reextractDraft` はこの経路を通らず `classifyMail` を直接呼ぶので、Server Action 側で明示的に渡している）。詳細画面はこの間 `ExtractionInProgressCard`（`apps/web/src/app/(app)/admin/mail-inbox/components/ExtractionInProgressCard.tsx`）を表示し、`/api/admin/mail-inbox/[id]/draft-status` を 3 秒間隔で polling して `pending_review` / `ai_failed` / `approved` / `rejected` への遷移を検知したら `router.refresh()` する。完了時は Web Push（`notify/web-push.ts` の `notifyExtractCompleted`、VAPID 未設定なら best-effort でスキップ）で「AI 抽出完了」/「AI 抽出に失敗」を通知する。
 
@@ -87,7 +87,7 @@ extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipe
 
 1. `mail_messages` + `mail_attachments`（`data` を含む）を読み、pre-filter noise なら `force:true` でない限り即 `skipped_noise` を返す
 2. **添付選択の適用**: `ClassifyOptions.selectedAttachmentIds` で対象添付を絞る。3 状態で、`tournament_drafts.selected_attachment_ids` 列とそのまま対応する —— `undefined`/`null`＝未指定（旧データ含む。全添付を送る）、`[]`＝「本文だけで実行」という明示的な選択（**早期 return せず**添付ゼロで LLM を呼ぶ）、非空配列＝その id だけ。**本文（`bodyText ?? bodyHtml`）は選択によらず常に渡る**
-3. **PDF コストガード**: `MAIL_WORKER_PDF_SIZE_LIMIT_KB`（既定 8000 KB。`0` で無効化）を超える PDF 添付が**選択後の集合に**あれば AI 呼び出し自体をスキップし `oversize_skipped` を返す。上限超過は選択ダイアログの時点でブロックされるため正常系では到達しないが、Server Action 直叩き・多重タブへの防御として意図的に残している
+3. **PDF コストガード**: `MAIL_WORKER_PDF_SIZE_LIMIT_KB`（既定 8000 KB。`0` で無効化）を超える PDF 添付が**選択後の集合に**あれば AI 呼び出し自体をスキップし `oversize_skipped` を返す。上限超過は選択ダイアログの時点でブロックされるため正常系では到達しないが、Server Action 直叩き・多重タブへの防御として意図的に残している。あわせて**合計サイズ**も見る（`classify/attachment-budget.ts` の `ATTACHMENT_TOTAL_LIMIT_BYTES` = 20MB）—— 1件ごとの上限を全て満たしていても、複数選べば合計は Anthropic のリクエスト上限 32MB を超え得る（PDF は base64 で約 4/3 に膨らむ）。超えたリクエストは 413 `request_too_large` で確実に失敗する。合計ガードは Server Action・選択ダイアログでも同じ関数を共有するが、**選択が未指定（NULL）の経路**——大きな PDF を何件も持つ古いメールを reextract CLI にかける——では classifier 側が唯一の砦になる
 4. 添付を LLM 入力へ整形: PDF はネイティブ document block（base64。`bytesFromBytea()` が bytea の hex-escape 文字列 vs 生 Buffer の差異を吸収）、DOCX/DOC 等の抽出済みテキストはそのままテキストブロック。`unsupported`/`pending` の行は呼び出し時点でその場限りの再抽出フォールバックを試みる（DB は更新しない）
 5. `LLMExtractor.extract()`（既定 `AnthropicExtractor`、`classify/llm/anthropic.ts`）を呼び、失敗（`LLMNoToolUseError` / Zod 検証失敗）したら 1 回だけリトライ。2 回とも失敗なら `kind: 'failed'` を返す
 6. 成功すれば常に `tournament` を返す。**AI は「大会案内かどうか」を判定しない**（管理者が押した時点でその判断は済んでいる）

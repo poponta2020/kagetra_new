@@ -185,3 +185,80 @@ describe('AIExtractConfirmDialog — 添付選択', () => {
     })
   })
 })
+
+/**
+ * Codex R1 blocker の回帰。
+ * - 復元した選択が現在の上限を超えていると、チェックを外せず実行もできない詰みになる
+ * - 1件ごとの上限を全て満たしていても、合計は Anthropic の 32MB を超え得る（要件 §6）
+ */
+describe('AIExtractConfirmDialog — 復元の正規化と合計サイズ', () => {
+  beforeEach(() => {
+    triggerExtractDraftMock.mockReset()
+    triggerExtractDraftMock.mockResolvedValue({ ok: true, draftId: 1, jobId: 1 })
+  })
+
+  it('上限を下げた後に復元しても詰まない（超過分は選択から落として警告する）', () => {
+    openDialog({
+      attachments: [pdfAttachment, oversizePdfAttachment],
+      pdfSizeLimitKb: 8000,
+      // 前回はもっと上限が高く、巨大要綱も選べていた。
+      initialSelectedAttachmentIds: [pdfAttachment.id, oversizePdfAttachment.id],
+    })
+
+    const okBox = screen.getByRole('checkbox', {
+      name: pdfAttachment.filename,
+    }) as HTMLInputElement
+    const overBox = screen.getByRole('checkbox', {
+      name: oversizePdfAttachment.filename,
+    }) as HTMLInputElement
+
+    expect(okBox.checked).toBe(true)
+    // 超過分は選択から外れているので、実行がサーバーに拒否され続ける詰みにならない。
+    expect(overBox.checked).toBe(false)
+    expect(screen.getByText(/選択から外しました/)).toBeTruthy()
+
+    fireEvent.click(screen.getByText('実行'))
+    expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [pdfAttachment.id])
+  })
+
+  it('削除された添付 id が復元に混ざっていても落とす', () => {
+    openDialog({
+      attachments: [pdfAttachment],
+      pdfSizeLimitKb: 8000,
+      initialSelectedAttachmentIds: [pdfAttachment.id, 999],
+    })
+    expect(
+      (screen.getByRole('checkbox', { name: pdfAttachment.filename }) as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+    fireEvent.click(screen.getByText('実行'))
+    expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [pdfAttachment.id])
+  })
+
+  it('要件§6: 各々は上限内でも合計超過なら実行できない', () => {
+    // 各 7.5MB < 8000KB(=7.81MB)。3 件で合計 22.5MB > 20MB。
+    const big = 7.5 * 1024 * 1024
+    const a: AIExtractAttachment = { id: 11, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: big }
+    const b: AIExtractAttachment = { id: 12, filename: 'b.pdf', contentType: 'application/pdf', sizeBytes: big }
+    const c: AIExtractAttachment = { id: 13, filename: 'c.pdf', contentType: 'application/pdf', sizeBytes: big }
+    openDialog({ attachments: [a, b, c], pdfSizeLimitKb: 8000 })
+
+    // 1件ごとの上限は満たすのでチェックできる。
+    for (const att of [a, b, c]) {
+      fireEvent.click(screen.getByRole('checkbox', { name: att.filename }))
+    }
+
+    expect(screen.getByText(/合計が上限/)).toBeTruthy()
+    const exec = screen.getByText('実行').closest('button') as HTMLButtonElement
+    expect(exec.disabled).toBe(true)
+
+    fireEvent.click(screen.getByText('実行'))
+    expect(triggerExtractDraftMock).not.toHaveBeenCalled()
+
+    // 1 件外せば実行できるようになる。
+    fireEvent.click(screen.getByRole('checkbox', { name: c.filename }))
+    expect(screen.queryByText(/合計が上限/)).toBeNull()
+    fireEvent.click(screen.getByText('実行'))
+    expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [a.id, b.id])
+  })
+})
