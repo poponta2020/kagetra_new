@@ -3,6 +3,7 @@ import {
   ATTACHMENT_TOTAL_LIMIT_BYTES,
   base64EncodedBytes,
   exceededAttachmentTotalBytes,
+  exceededRequestBudgetBytes,
 } from '../../src/classify/attachment-budget.js'
 
 const MiB = 1024 * 1024
@@ -62,5 +63,31 @@ describe('attachment-budget', () => {
 
   it('PDF 以外は合計に数えない（予約枠でまとめて確保している）', () => {
     expect(exceededAttachmentTotalBytes([pdf(19 * MiB), docx(19 * MiB)])).toBeNull()
+  })
+})
+
+/**
+ * 送信直前の最終判定。事前チェック（PDF 合計）は非 PDF 部分を予約枠で見積もる
+ * ため、その仮定が崩れる入力では通り抜ける。実測はここで確定させる。
+ */
+describe('exceededRequestBudgetBytes', () => {
+  it('32MiB 以内なら null（封筒ぶんの余裕を引いた上で判定する）', () => {
+    expect(exceededRequestBudgetBytes(0)).toBeNull()
+    expect(exceededRequestBudgetBytes(30 * MiB)).toBeNull()
+  })
+
+  it('封筒ぶんを足して 32MiB を超えたら合計バイト数を返す', () => {
+    const over = exceededRequestBudgetBytes(32 * MiB)
+    expect(over).not.toBeNull()
+    expect(over!).toBeGreaterThan(32 * MiB)
+  })
+
+  it('PDF 合計が事前チェックを通っても、非 PDF が予約枠を食えば最終判定で弾ける', () => {
+    // PDF 上限ぎりぎり（事前チェックは通る）。
+    const pdfRaw = ATTACHMENT_TOTAL_LIMIT_BYTES
+    expect(exceededAttachmentTotalBytes([pdf(pdfRaw)])).toBeNull()
+    // その base64 に、予約枠 6MiB を超える本文・抽出テキストが乗るケース。
+    const assembled = base64EncodedBytes(pdfRaw) + 7 * MiB
+    expect(exceededRequestBudgetBytes(assembled)).not.toBeNull()
   })
 })

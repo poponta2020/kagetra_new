@@ -3,8 +3,10 @@ import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { loadCostGuardConfig } from '../config.js'
 import {
+  ANTHROPIC_REQUEST_LIMIT_BYTES,
   ATTACHMENT_TOTAL_LIMIT_BYTES,
   exceededAttachmentTotalBytes,
+  exceededRequestBudgetBytes,
 } from './attachment-budget.js'
 import { extractAttachment } from '../extract/orchestrator.js'
 import { upsertDraft } from '../persist/draft.js'
@@ -15,7 +17,7 @@ import {
   type LLMExtractionResult,
   type LLMExtractor,
 } from './llm/types.js'
-import { buildSystemPrompt, PROMPT_VERSION } from './prompt.js'
+import { buildSystemPrompt, buildUserPrompt, PROMPT_VERSION } from './prompt.js'
 
 /**
  * Normalise a `bytea` column value into a `Buffer`.
@@ -291,6 +293,31 @@ export async function classifyMail(
     },
     emailBodyText: mail.bodyText ?? mail.bodyHtml ?? '',
     attachments: attachmentsForLlm,
+  }
+
+  // 送信直前の最終判定（要件 §6）。上の合計ガードは「PDF の合計」しか見ておらず、
+  // 非 PDF 部分（本文・抽出済みテキスト添付・プロンプト）は予約枠で**見積もって**
+  // いる。予約枠は仮定なので、それだけを最終防衛線にしない —— 巨大な DOCX の抽出
+  // テキストを持つメールでは仮定が崩れる。ここで実際に組み立てたペイロードの
+  // バイト長を測り、32MiB を超えるなら送らずにスキップする。
+  //
+  // `buildUserPrompt` の出力にはメール本文とテキスト抽出済み添付が既に含まれる
+  // ので、二重に数えない。PDF だけが base64 の document ブロックとして別枠。
+  const assembledBytes =
+    Buffer.byteLength(input.systemPrompt, 'utf8') +
+    Buffer.byteLength(buildUserPrompt(input), 'utf8') +
+    attachmentsForLlm.reduce(
+      (sum, att) => sum + (att.kind === 'pdf' ? att.base64.length : 0),
+      0,
+    )
+  const requestOver = exceededRequestBudgetBytes(assembledBytes)
+  if (requestOver !== null) {
+    return {
+      kind: 'oversize_skipped',
+      filename: 'リクエスト全体（本文・添付・プロンプトの合計）',
+      sizeBytes: requestOver,
+      limitBytes: ANTHROPIC_REQUEST_LIMIT_BYTES,
+    }
   }
 
   let lastResult: LLMExtractionResult | null = null

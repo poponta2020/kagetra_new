@@ -12,7 +12,32 @@
  */
 
 /** Anthropic Messages API の 1 リクエスト上限。 */
-const ANTHROPIC_REQUEST_LIMIT_BYTES = 32 * 1024 * 1024
+export const ANTHROPIC_REQUEST_LIMIT_BYTES = 32 * 1024 * 1024
+
+/**
+ * 組み立て済みの文字列に現れない固定分（JSON の構造・キー・エスケープ、
+ * `record_extraction` の tool schema、HTTP ヘッダ）の見積り。実測は 10KB 前後
+ * なので 64KiB は十分な余裕。
+ */
+const REQUEST_ENVELOPE_OVERHEAD_BYTES = 64 * 1024
+
+/**
+ * **送信直前の最終判定。** 実際に組み立てたペイロード（system プロンプト＋
+ * user プロンプト＋ base64 document ブロック）のバイト長を受け取り、リクエスト
+ * 全体が 32MiB を超えるなら合計バイト数を、収まっていれば `null` を返す。
+ *
+ * {@link exceededAttachmentTotalBytes} は「PDF の合計」しか見えない場所
+ * （Server Action・選択ダイアログ）のための**事前**チェックで、非 PDF 部分は
+ * 固定の予約枠で見積もっている。予約枠は仮定なので、それだけを最終防衛線に
+ * しない —— 抽出済みテキスト添付が異常に大きいメールでは仮定が崩れる。
+ * classifier はここで実測して確定させる。
+ */
+export function exceededRequestBudgetBytes(
+  assembledPayloadBytes: number,
+): number | null {
+  const total = assembledPayloadBytes + REQUEST_ENVELOPE_OVERHEAD_BYTES
+  return total > ANTHROPIC_REQUEST_LIMIT_BYTES ? total : null
+}
 
 /**
  * 添付以外がリクエストで占める分の予約枠。**判定を「生 PDF バイト」ではなく
