@@ -301,15 +301,27 @@ export async function classifyMail(
   // テキストを持つメールでは仮定が崩れる。ここで実際に組み立てたペイロードの
   // バイト長を測り、32MiB を超えるなら送らずにスキップする。
   //
+  // 測るのは**JSON シリアライズ後**のバイト数。生の文字列長で測ると、本文に
+  // 含まれる改行・引用符・バックスラッシュが JSON エスケープで 1 文字ずつ増える
+  // ぶんを取りこぼす。`JSON.stringify` に通せばその増分が実測値に入る。
+  //
   // `buildUserPrompt` の出力にはメール本文とテキスト抽出済み添付が既に含まれる
-  // ので、二重に数えない。PDF だけが base64 の document ブロックとして別枠。
-  const assembledBytes =
-    Buffer.byteLength(input.systemPrompt, 'utf8') +
-    Buffer.byteLength(buildUserPrompt(input), 'utf8') +
-    attachmentsForLlm.reduce(
-      (sum, att) => sum + (att.kind === 'pdf' ? att.base64.length : 0),
-      0,
-    )
+  // ので、二重に数えない。PDF だけが base64 の document ブロックとして別枠
+  // （base64 はエスケープ対象文字を含まないので増分ゼロ）。
+  //
+  // provider 中立を保つため anthropic.ts のリクエスト構造は参照せず、同じ文字列
+  // 群を JSON 化して測る。キー名・tool schema・HTTP ヘッダのぶんは
+  // `exceededRequestBudgetBytes` の封筒枠がまとめて見る。
+  const assembledBytes = Buffer.byteLength(
+    JSON.stringify({
+      system: input.systemPrompt,
+      text: buildUserPrompt(input),
+      documents: attachmentsForLlm
+        .filter((att) => att.kind === 'pdf')
+        .map((att) => (att.kind === 'pdf' ? att.base64 : '')),
+    }),
+    'utf8',
+  )
   const requestOver = exceededRequestBudgetBytes(assembledBytes)
   if (requestOver !== null) {
     return {

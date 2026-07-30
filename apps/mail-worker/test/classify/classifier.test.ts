@@ -45,7 +45,10 @@ import {
   type LLMExtractor,
 } from '../../src/classify/llm/types.js'
 import { resetConfigForTests } from '../../src/config.js'
-import { ATTACHMENT_TOTAL_LIMIT_BYTES } from '../../src/classify/attachment-budget.js'
+import {
+  ANTHROPIC_REQUEST_LIMIT_BYTES,
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+} from '../../src/classify/attachment-budget.js'
 import { closeTestDb, testDb, truncateMailTables } from '../test-db.js'
 import { closeDb, getDb } from '../../src/db.js'
 
@@ -517,6 +520,38 @@ describe('classifier', () => {
       // 正常系では Server Action と選択ダイアログが先に止めるが、**選択が
       // 未指定（NULL）の経路**——大きな PDF を何件も持つ古いメールを reextract
       // CLI にかける——ではここが唯一の砦になる。
+      // 送信直前の実測ガード。PDF 合計の事前チェックは非 PDF 部分を予約枠で
+      // 見積もっているだけなので、巨大な抽出テキストを持つメールでは仮定が崩れる。
+      // JSON エスケープ後のバイト数で測るので、改行・引用符の増分も含まれる。
+      it('本文が巨大でリクエスト全体が 32MiB を超えるなら AI を呼ばずスキップする', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '0') // 1件ごとのガードは無効化
+        resetConfigForTests()
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'should-not-be-called',
+          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked over the request budget')
+          },
+        }
+        // PDF はゼロ。本文だけで 32MiB を超えさせる（＝ PDF 合計の事前チェックは
+        // 素通りする経路。実測ガードでしか止められない）。
+        const id = await insertTestMail({
+          messageId: '<huge-body@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'あ'.repeat(12 * 1024 * 1024), // UTF-8 で 3 バイト/文字 = 36MiB
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.limitBytes).toBe(ANTHROPIC_REQUEST_LIMIT_BYTES)
+          expect(outcome.filename).toContain('リクエスト全体')
+        }
+        expect(calls).toBe(0)
+      })
+
       it('合計サイズが上限を超えたら AI を呼ばずスキップする', async () => {
         // 1件ごとの上限は 8000KB のまま。7.5MB を 3 件で合計 22.5MB > 20MB。
         vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
