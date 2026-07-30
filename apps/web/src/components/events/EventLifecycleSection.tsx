@@ -78,6 +78,26 @@ export interface EventLifecycleSectionProps {
   entryFormGroupId?: number
   /** 最新の申込書下書き。未作成なら null。 */
   entryFormLatestDraft?: EntryFormDraftRow | null
+  /**
+   * grade-entry-fee タスク7 (AC-24): 多級のときの級別単価表記
+   * （例 `A・B級 2,500円 / C級 2,000円`）。指定されると「参加費」行の値が
+   * これになる（`feeJpy` より優先）。未指定/null かつ `feeJpy` も null なら
+   * 「参加費」行を出さない（AC-25: 既存 props 契約は不変）。
+   */
+  unitPricesLabel?: string | null
+  /**
+   * grade-entry-fee タスク7 (AC-24): 申込グループ全日の振込総額。
+   * null / 0 なら「振込総額」行を出さない。
+   */
+  totalJpy?: number | null
+  /** 総額の内訳（例 `A・B級 2名×2,500 / C級 3名×2,000`）。 */
+  breakdownLabel?: string | null
+  /**
+   * 級未設定で総額に未算入の人数の注記（例 `※級未設定 2名は未算入`）。
+   * 整形済み文字列を page.tsx 側（`formatUnknownGradeNote`）から渡す
+   * （このコンポーネントは DB スキーマに依存するモジュールを import しない）。
+   */
+  unknownGradeNote?: string | null
 }
 
 /** 申込書下書きの最新作成履歴（`entry_form_drafts` の最新行）。 */
@@ -159,6 +179,10 @@ export function EventLifecycleSection({
   setPaymentTypesAction,
   entryFormGroupId,
   entryFormLatestDraft = null,
+  unitPricesLabel = null,
+  totalJpy = null,
+  breakdownLabel = null,
+  unknownGradeNote = null,
 }: EventLifecycleSectionProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -269,11 +293,27 @@ export function EventLifecycleSection({
     variant: 'date',
   })
 
+  // grade-entry-fee タスク7 (AC-24/AC-25): 多級のときは unitPricesLabel が
+  // 「参加費」行の値になる（feeJpy より優先）。どちらも無ければ行を出さない
+  // （AC-25: 既存テストが固定する `feeJpy: null` → 行なし、を変更しない）。
+  const feeValue =
+    unitPricesLabel ?? (feeJpy != null ? `${feeJpy.toLocaleString('ja-JP')}円` : null)
+
   const paymentRows: FlatTableRow[] = []
-  if (feeJpy != null) {
+  if (feeValue != null) {
+    paymentRows.push({ label: '参加費', value: feeValue })
+  }
+  // grade-entry-fee タスク7 (AC-24): 振込総額（総額 0/null なら出さない）。
+  // 内訳・級未設定注記があれば改行で続ける — paymentInfo（振込先）と同じ
+  // `variant: 'prewrap'` の流儀に倣う。
+  if (totalJpy != null && totalJpy > 0) {
+    const totalLines = [`${totalJpy.toLocaleString('ja-JP')}円`]
+    if (breakdownLabel) totalLines.push(breakdownLabel)
+    if (unknownGradeNote) totalLines.push(unknownGradeNote)
     paymentRows.push({
-      label: '参加費',
-      value: `${feeJpy.toLocaleString('ja-JP')}円`,
+      label: '振込総額',
+      value: totalLines.join('\n'),
+      variant: 'prewrap',
     })
   }
   if (paymentDeadline != null) {

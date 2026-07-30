@@ -18,6 +18,9 @@ import {
 import type { Grade } from '@kagetra/shared/types'
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
+import { memberEntryFeeJpy, resolveEntryFee, type EntryFeeSource } from '@/lib/entry-fee'
+import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
+import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
 import { auth } from '@/auth'
 import { Btn } from '@/components/ui'
 import {
@@ -147,6 +150,18 @@ export default async function EventDetailPage({
 
   if (!event) notFound()
 
+  // grade-entry-fee タスク7: 単価解決は entry-fee.ts の resolveEntryFee に
+  // 一切を委ねる（page 側で official/kind の分岐を再実装しない）。会員向け
+  // 「あなたの参加費」・進行管理の「参加費」「振込総額」の全てがこの1つの
+  // feeSource から導出される。
+  const feeSource: EntryFeeSource = {
+    official: event.official,
+    kind: event.kind,
+    eligibleGrades: event.eligibleGrades,
+    feeJpy: event.feeJpy,
+  }
+  const feeResolution = resolveEntryFee(feeSource)
+
   // entry-groups タスク4 (AC-16): 同じ申込グループの日一覧（開催日昇順・自分を
   // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
   // ダイアログの両方が使う。
@@ -170,6 +185,12 @@ export default async function EventDetailPage({
           .orderBy(desc(entryFormDrafts.createdAt), desc(entryFormDrafts.id))
           .limit(1)
       )[0] ?? null)
+    : null
+
+  // grade-entry-fee タスク7 (AC-24): 振込総額・内訳は管理者にのみ渡す。
+  // 一般会員には無駄なクエリを撃たない。
+  const feeTally = isAdmin
+    ? await tallyEntryFeesForGroup(db, event.entryGroupId)
     : null
 
   // event-line-broadcast: 紐付け状態と配信履歴を取得する。
@@ -396,6 +417,10 @@ export default async function EventDetailPage({
     currentUserIsInvited = currentUser?.isInvited ?? false
   }
 
+  // grade-entry-fee タスク7 (AC-21/AC-22): 「あなたの参加費」。出欠の回答状況は
+  // 問わない（申し込む前に金額を知りたいため、myAttendance を見ない）。
+  const memberFeeJpy = memberEntryFeeJpy(feeSource, currentUserGrade)
+
   const isEligible =
     !event.eligibleGrades?.length ||
     (currentUserGrade != null && event.eligibleGrades.includes(currentUserGrade))
@@ -474,7 +499,11 @@ export default async function EventDetailPage({
           entryStatus={event.entryStatus}
           paymentType={event.paymentType}
           paymentStatus={event.paymentStatus}
-          feeJpy={event.feeJpy}
+          feeJpy={feeResolution.singleUnitJpy}
+          unitPricesLabel={feeResolution.unitPricesLabel}
+          totalJpy={feeTally?.totalJpy ?? null}
+          breakdownLabel={feeTally?.breakdownLabel ?? null}
+          unknownGradeNote={formatUnknownGradeNote(feeTally?.unknownGradeCount)}
           entryDeadline={event.entryDeadline}
           paymentDeadline={event.paymentDeadline}
           entryMethod={event.entryMethod}
@@ -518,6 +547,13 @@ export default async function EventDetailPage({
           </p>
         ) : (
           <p className="text-xs text-neutral-fg">まだ参加者がいません。</p>
+        )}
+        {/* grade-entry-fee タスク7 (AC-21/AC-22/AC-23): 対象級の会員に
+            出欠の回答状況を問わず出す。「規定額」等のラベルは付けない。 */}
+        {memberFeeJpy != null && (
+          <p className="mt-2 text-xs text-ink-meta">
+            あなたの参加費 {memberFeeJpy.toLocaleString('ja-JP')}円
+          </p>
         )}
       </SectionRule>
 
