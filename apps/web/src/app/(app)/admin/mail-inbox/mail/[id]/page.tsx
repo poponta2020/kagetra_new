@@ -202,6 +202,9 @@ export default async function MailDetailPage({
           isCorrection: true,
           referencesSubject: true,
           extractedPayload: true,
+          // mail-ai-extract-refinements AC-31: 「AI 抽出を再試行」でも前回の
+          // 添付選択を初期値として復元する。
+          selectedAttachmentIds: true,
         },
       },
       // tournament-results: 結果取込ドラフト（message_id UNIQUE = 0..1）。
@@ -378,6 +381,9 @@ export default async function MailDetailPage({
                 mailId={mail.id}
                 attachments={aiExtractAttachments}
                 pdfSizeLimitKb={pdfSizeLimitKb}
+                initialSelectedAttachmentIds={
+                  mail.draft.selectedAttachmentIds ?? undefined
+                }
                 buttonLabel="AI 抽出を再試行"
                 buttonKind="primary"
               />

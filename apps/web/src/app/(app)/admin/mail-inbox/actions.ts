@@ -1455,7 +1455,8 @@ export async function triggerExtractDraft(
             extractedPayload: sql`'{}'::jsonb`,
             promptVersion: '',
             aiModel: '',
-            confidence: null,
+            // confidence / is_correction / references_subject は 3.0.0 で AI が書かなく
+            // なった列。**既存行の値を消さない**ため、ここでもリセットしない（要件 §6）。
             aiRawResponse: null,
             aiTokensInput: null,
             aiTokensOutput: null,

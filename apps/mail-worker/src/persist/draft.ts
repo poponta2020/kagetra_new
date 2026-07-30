@@ -12,18 +12,18 @@ type TournamentDraftInsert = typeof tournamentDrafts.$inferInsert
  */
 export type DraftWriteStatus = 'pending_review' | 'ai_failed'
 
+/**
+ * AI 書き込みパスが触る列だけを持つ。
+ *
+ * **`confidence` / `is_correction` / `references_subject` は入っていない。**
+ * PROMPT_VERSION 3.0.0 で分類・訂正版判定が AI の仕事から外れ、これらに書く値が
+ * 無くなった。列は DROP しない（要件 Non-goals）が、**既存行の値も残す**のが要件
+ * §6 の指定なので、INSERT では DB 既定値に任せ、UPDATE では**触らない**。
+ * ここに足し戻すと、2.x のドラフトを再抽出しただけで過去の値が消える。
+ */
 export interface UpsertDraftInput {
   messageId: number
   status: DraftWriteStatus
-  /**
-   * Stored as numeric(3,2). Drizzle's numeric column expects a string at the
-   * insert boundary (the pg driver does the parse), so callers stringify the
-   * float themselves before handing it in. `null` is valid for `ai_failed`
-   * rows where the model never produced a valid confidence value.
-   */
-  confidence: string | null
-  isCorrection: boolean
-  referencesSubject: string | null
   /** Parsed AI payload (or `{}` for ai_failed). Stored as jsonb. */
   extractedPayload: unknown
   aiRawResponse: string | null
@@ -74,9 +74,6 @@ export async function upsertDraft(
   const values: TournamentDraftInsert = {
     messageId: input.messageId,
     status: input.status,
-    confidence: input.confidence,
-    isCorrection: input.isCorrection,
-    referencesSubject: input.referencesSubject,
     extractedPayload: input.extractedPayload,
     aiRawResponse: input.aiRawResponse,
     promptVersion: input.promptVersion,
@@ -117,9 +114,6 @@ export async function upsertDraft(
     .update(tournamentDrafts)
     .set({
       status: input.status,
-      confidence: input.confidence,
-      isCorrection: input.isCorrection,
-      referencesSubject: input.referencesSubject,
       extractedPayload: input.extractedPayload,
       aiRawResponse: input.aiRawResponse,
       promptVersion: input.promptVersion,

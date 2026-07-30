@@ -971,6 +971,72 @@ describe('classifier', () => {
       expect(mail[0]!.classification).toBe('tournament')
     })
 
+    // 要件 §6:「confidence / superseded_by_draft_id 列は残す。**既存行の値も残す**」。
+    // 3.0.0 は confidence / is_correction / references_subject に書かなくなったが、
+    // upsertDraft の UPDATE がこれらを含んでいると、2.x のドラフトを再抽出した
+    // だけで過去の値が不可逆に消える。
+    it('再抽出で 2.x ドラフトの confidence / is_correction / references_subject を消さない', async () => {
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<legacy-meta-preserved@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+      // 2.x が書いた値を持つ pending_review ドラフト。
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'pending_review',
+        confidence: '0.93',
+        isCorrection: true,
+        referencesSubject: '第65回全日本選手権大会のご案内',
+        extractedPayload: {},
+        aiRawResponse: null,
+        promptVersion: '2.1.0',
+        aiModel: 'claude-sonnet-4-6',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+      expect(tally.draftsUpdated).toBe(1)
+
+      const after = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      // 3.0.0 が書く列は更新される。
+      expect(after[0]!.promptVersion).toBe('fixture-1.0')
+      expect(after[0]!.status).toBe('pending_review')
+      // 廃止した3列は**そのまま残る**。
+      expect(after[0]!.confidence).toBe('0.93')
+      expect(after[0]!.isCorrection).toBe(true)
+      expect(after[0]!.referencesSubject).toBe('第65回全日本選手権大会のご案内')
+    })
+
+    it('新規 draft では廃止した3列が DB 既定値になる（AI は値を書かない）', async () => {
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<fresh-draft-defaults@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts[0]!.confidence).toBeNull()
+      expect(drafts[0]!.isCorrection).toBe(false)
+      expect(drafts[0]!.referencesSubject).toBeNull()
+    })
+
     it('updates the same draft on a second persist (UNIQUE message_id)', async () => {
       const payload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({

@@ -448,9 +448,6 @@ export async function persistOutcome(
     const upsert = await upsertDraft(db, {
       messageId,
       status: 'ai_failed',
-      confidence: null,
-      isCorrection: false,
-      referencesSubject: null,
       extractedPayload: {},
       aiRawResponse: outcome.rawResponse,
       promptVersion: PROMPT_VERSION,
@@ -484,13 +481,6 @@ export async function persistOutcome(
     const upsert = await upsertDraft(db, {
       messageId,
       status: 'pending_review',
-      // 3.0.0: `confidence` / `is_correction` / `references_subject` left the
-      // extraction schema (classification and correction detection are human
-      // work now). The columns stay — dropping them is an explicit Non-goal —
-      // but nothing writes a value to them any more. Existing rows keep theirs.
-      confidence: null,
-      isCorrection: false,
-      referencesSubject: null,
       extractedPayload: parsed,
       aiRawResponse: result.raw,
       promptVersion: result.promptVersion,
