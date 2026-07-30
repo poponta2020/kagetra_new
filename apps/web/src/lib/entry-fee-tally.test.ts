@@ -287,6 +287,55 @@ describe('tallyEntryFeesForGroup', () => {
     expect(result.breakdownLabel).toBe('C級 1名×2,000')
   })
 
+  it('現地払いの日は合算に含めない（当日各自が払うので振込には乗らない）', async () => {
+    // setPaymentType は1日単位で変更できるため、同一グループ内で支払方法が混在しうる。
+    // 混ぜて合算すると支払締切リマインドが実際の振込額より多い金額を案内し、once-ever
+    // なので訂正できない。
+    const group = await createEntryGroup()
+    const advanceDay = await createEvent({
+      entryGroupId: group.id,
+      official: true,
+      kind: 'individual',
+      eligibleGrades: ['A'],
+      paymentType: 'advance',
+    })
+    const onsiteDay = await createEvent({
+      entryGroupId: group.id,
+      official: true,
+      kind: 'individual',
+      eligibleGrades: ['E'],
+      paymentType: 'onsite',
+    })
+    const memberA = await createUser({ grade: 'A', isInvited: true })
+    const memberE = await createUser({ grade: 'E', isInvited: true })
+    await createEventAttendance({ eventId: advanceDay.id, userId: memberA.id, attend: true })
+    await createEventAttendance({ eventId: onsiteDay.id, userId: memberE.id, attend: true })
+
+    const result = await tallyEntryFeesForGroup(testDb, group.id)
+
+    // 事前払いの A級 2,500円 のみ。現地払いの E級 1,500円 を足した 4,000円ではない。
+    expect(result.totalJpy).toBe(2500)
+    expect(result.breakdownLabel).toBe('A級 1名×2,500')
+  })
+
+  it('支払方法が未設定（NULL＝支払い通知なし）の日も合算に含めない', async () => {
+    const group = await createEntryGroup()
+    const noPaymentDay = await createEvent({
+      entryGroupId: group.id,
+      official: true,
+      kind: 'individual',
+      eligibleGrades: ['C'],
+      paymentType: null,
+    })
+    const member = await createUser({ grade: 'C', isInvited: true })
+    await createEventAttendance({ eventId: noPaymentDay.id, userId: member.id, attend: true })
+
+    const result = await tallyEntryFeesForGroup(testDb, group.id)
+
+    // 振込対象の日が1つも無い → 「0円」ではなく「算出できない」を返す（金額行を出さない）。
+    expect(result).toEqual({ totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 })
+  })
+
   it('グループにイベントが無ければ即返す', async () => {
     const group = await createEntryGroup()
 

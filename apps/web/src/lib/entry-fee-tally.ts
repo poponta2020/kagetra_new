@@ -130,13 +130,24 @@ export async function tallyEntryFees(
 }
 
 /**
- * 申込グループの全日を対象に集計する（requirements §3.2.2「グループ全日の合算」。
- * AC-12: 複数日グループでは日ごとに割らず、グループの全日を合算した1つの総額に
- * する）。
+ * 申込グループの**振込対象の日**を合算する（requirements §3.2.2「グループ全日の合算」。
+ * AC-12: 複数日グループでは日ごとに割らず、グループを1つの総額にまとめる）。
  *
- * 中止した日（`status='cancelled'`）は除く。総額は「主催者へ実際に振り込む額」で、
- * 中止日には払う参加費が無い。リマインドの候補抽出（`send-lifecycle-reminders.ts` の
- * `queryLinkedEvents`）も cancelled を除いており、そちらと母集団を揃える。
+ * この関数が返すのは常に「**振込総額**」— 主催者の口座へ実際に振り込む額であり、
+ * グループに属する全イベントの参加費の単純合計ではない。除外するのは2種類:
+ *
+ * - **中止した日**（`status='cancelled'`）: 払う参加費が無い。リマインドの候補抽出
+ *   （`send-lifecycle-reminders.ts` の `queryLinkedEvents`）も cancelled を除いており、
+ *   そちらと母集団を揃える
+ * - **事前払い以外の日**（`payment_type != 'advance'`。現地払い・支払い通知なし）:
+ *   現地払いは当日各自が払うので振込には乗らず、NULL は「支払い通知なし」で
+ *   振込という判定点そのものが無い。`setPaymentType` は1日単位で変更できるため
+ *   同一グループ内で支払方法が混在しうる（例: 事前払い 2,500円 + 現地払い 1,500円 で
+ *   4,000円と案内してしまう。支払締切リマインドは once-ever で訂正できない）
+ *
+ * 結果として、全日が現地払い/未設定のグループでは `totalJpy: null`（＝金額行を
+ * 出さない側）になる。呼び出し元3経路（支払締切リマインド・支払完了通知・進行管理の
+ * 「振込総額」行）はいずれも振込を意味するラベルなので、この絞り込みは集計側に置く。
  */
 export async function tallyEntryFeesForGroup(
   dbc: DbOrTx,
@@ -145,7 +156,13 @@ export async function tallyEntryFeesForGroup(
   const groupEventRows = await dbc
     .select({ id: events.id })
     .from(events)
-    .where(and(eq(events.entryGroupId, entryGroupId), ne(events.status, 'cancelled')))
+    .where(
+      and(
+        eq(events.entryGroupId, entryGroupId),
+        ne(events.status, 'cancelled'),
+        eq(events.paymentType, 'advance'),
+      ),
+    )
 
   return tallyEntryFees(
     dbc,
