@@ -33,7 +33,19 @@ type: project
 
 worktree の後片付けは `ship-finalize.sh` が junction 2180 件を解除したあと git 登録の解除まで成功したが、実体ファイル（node_modules 369MB）の削除に失敗した。**残骸は `cmd /c rd /s /q` で削除済み**（`Remove-Item -Recurse -Force` は長パス配下のファイルで "Could not find a part of the path" になる。ジャンクション0件を確認してから実行すること — 残っていると実体を壊す）。
 
-## 残 DoD（本番で消化）
+## 残 DoD の消化結果（2026-07-30 完了）
+1. **migration は手動不要だった** — 出荷時の報告で「`db:migrate` で適用」と書いたのは要件 §8 の記述に寄せた誤りで、**実際は CI の deploy ジョブが自動適用する**（`.github/workflows/ci.yml` の deploy → SSH → `auto-deploy.sh` が drizzle の SQL 変更を検知して restart 前に `apply-migrations.sh` を実行。`drizzle-kit migrate` は TTY 必須で本番不適なため psql + journal/hash の自前実装）。本番ログで `APPLY: 0052_tiny_red_hulk` / `applied=1, skipped=52` / `deploy ok` を確認
+2. **本番 DB の状態確認（AC-26/27）**: `payment_type` の `column_default = 'advance'::event_payment_type`・`is_nullable = YES`（列は nullable のまま）、`advance 38 / onsite 2`・**NULL 0件**。要件の実測値（NULL 31 + advance 7 = 38・onsite 2 据え置き）と完全一致
+3. **文面確認（本番データ・読み取り専用）**: systemd unit と同一の起動方法で `--dry-run` → 今日は候補0件で例外なく完走。締切日を注入する使い捨て診断で実データを描画:
+   - entry_group 13（杉並A・official・`{A}`・出席1名）→ `振込総額 2,500円（A級 1名×2,500）` / `参加費（総額 2,500円）`。**`fee_jpy` ではなく級から導出**した額
+   - entry_group 23（`eligible_grades` NULL＝全級・出席1名）→ 同様に導出成功（AC-7 の NULL 経路が実データで動作）
+   - entry_group 6（多摩C/D/E・複数日・出席0名）→ 総額行なし・**現行文面とバイト一致**（AC-14）。バケット化は group 6 で1バケット・メンバー2件
+4. **375px 実機表示**: ユーザーが確認済み
+5. **CI**: main の3ラン（1c3e656 / 20f0d91 / 921586b）すべて success
+
+**本番検証の作法メモ**: 本番 DB の SELECT は SSH で `sudo docker exec kagetra-postgres psql` が最短（SSH トンネル :5435 は Windows の Docker から `--network host` で届かない）。スクリプトを本番で走らせるときは systemd unit の `ExecStart` を写すこと（`cd /opt/kagetra` ＋ `corepack pnpm --filter @kagetra/web exec tsx ...` ＋ `.env.production` を source。`pnpm --filter exec` は cwd を apps/web にするので相対パスの基準が変わる）。`/opt/kagetra/scripts/diagnostics/` は既存の使い捨て診断置き場（gitignore 済）。
+
+## 残 DoD（出荷時点の記載・上記で消化済み）
 1. **migration は `db:migrate`**（`drizzle-kit push` は対話プロンプトで詰む）。既存 NULL 行が advance になり、進行管理の表示が「未設定」→「未払」に変わって「支払済にする」ボタンが出る
 2. `LINE_NOTIFY_DRY_RUN=1` で1グループぶん文面確認
 3. **未確認**: 「振込総額」行の 375px 表示（内訳が `A・B級 2名×2,500 / C・D級 3名×2,000 / E級 1名×1,500` まで伸びうる複数行 prewrap。既存の「振込先」行と同じ流儀だが静的照合のみ）
