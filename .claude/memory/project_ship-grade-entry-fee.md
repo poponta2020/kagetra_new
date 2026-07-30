@@ -28,6 +28,11 @@ type: project
 - **final（全差分の最終確認）はユーザー判断でスキップ** — R1 が gpt-5.6-sol/high で全差分 8,700行を網羅レビュー済みで、以後の変更は R2 が確認した110行のみ。トークン上限超過の主因は差分の約6,000行が drizzle の 0052_snapshot.json（自動生成）だったこと
 - **再レビューせずに修正した指摘: 0件**
 
+## マージ結果
+**マージ済み** — merge commit 1c3e656（2026-07-30）。Issue #423〜#430 すべて CLOSED（PR 本文の closing keyword）。ローカル main は 1c3e656 → 同期コミット 20f0d91。
+
+worktree の後片付けは `ship-finalize.sh` が junction 2180 件を解除したあと git 登録の解除まで成功したが、実体ファイル（node_modules 369MB）の削除に失敗した。**残骸は `cmd /c rd /s /q` で削除済み**（`Remove-Item -Recurse -Force` は長パス配下のファイルで "Could not find a part of the path" になる。ジャンクション0件を確認してから実行すること — 残っていると実体を壊す）。
+
 ## 残 DoD（本番で消化）
 1. **migration は `db:migrate`**（`drizzle-kit push` は対話プロンプトで詰む）。既存 NULL 行が advance になり、進行管理の表示が「未設定」→「未払」に変わって「支払済にする」ボタンが出る
 2. `LINE_NOTIFY_DRY_RUN=1` で1グループぶん文面確認
