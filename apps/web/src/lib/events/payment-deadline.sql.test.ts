@@ -7,7 +7,7 @@ import { createEntryGroup } from '@/test-utils/seed'
 
 /**
  * `events_payment_deadline_kind_consistent` の DB 側の挙動（AC-40）と、
- * migration 0052 の backfill 順序（AC-41）を固定する。
+ * migration 0053 の backfill 順序（AC-41）を固定する。
  *
  * なぜ順序をファイル内容で見るのか: vitest の global-setup は
  * `drizzle-kit push --force` で**最終スキーマを直接 push する**ため、migration
@@ -20,10 +20,10 @@ import { createEntryGroup } from '@/test-utils/seed'
 // ならないため使えない）。
 const MIGRATION_PATH = resolve(
   process.cwd(),
-  '../../packages/shared/drizzle/0052_payment_deadline_kind_and_selected_attachments.sql',
+  '../../packages/shared/drizzle/0053_payment_deadline_kind_and_selected_attachments.sql',
 )
 
-describe('migration 0052 — backfill は CHECK 追加より前', () => {
+describe('migration 0053 — backfill は CHECK 追加より前', () => {
   const sqlText = readFileSync(MIGRATION_PATH, 'utf8')
 
   it('AC-41: payment_deadline を持つ既存行を fixed へ倒す UPDATE が入っている', () => {

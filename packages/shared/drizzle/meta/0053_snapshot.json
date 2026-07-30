@@ -1,6 +1,6 @@
 {
-  "id": "64c19576-99c6-4f5d-8246-e25409d75664",
-  "prevId": "a58ca756-178f-409f-83ef-65a6d52d5c42",
+  "id": "a46ac252-93e1-405d-9820-b4a1a9372646",
+  "prevId": "64c19576-99c6-4f5d-8246-e25409d75664",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -650,6 +650,14 @@
           "primaryKey": false,
           "notNull": false
         },
+        "payment_deadline_kind": {
+          "name": "payment_deadline_kind",
+          "type": "event_payment_deadline_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unspecified'"
+        },
         "lottery_date": {
           "name": "lottery_date",
           "type": "date",
@@ -892,7 +900,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "events_payment_deadline_kind_consistent": {
+          "name": "events_payment_deadline_kind_consistent",
+          "value": "(\"events\".\"payment_deadline\" IS NOT NULL) = (\"events\".\"payment_deadline_kind\" = 'fixed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.event_attendances": {
@@ -1499,6 +1512,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "selected_attachment_ids": {
+          "name": "selected_attachment_ids",
+          "type": "integer[]",
+          "primaryKey": false,
+          "notNull": false
         },
         "ai_raw_response": {
           "name": "ai_raw_response",
@@ -5777,6 +5796,15 @@
         "linked",
         "revoked",
         "released"
+      ]
+    },
+    "public.event_payment_deadline_kind": {
+      "name": "event_payment_deadline_kind",
+      "schema": "public",
+      "values": [
+        "fixed",
+        "later_notice",
+        "unspecified"
       ]
     },
     "public.event_payment_status": {

@@ -76,7 +76,14 @@ export const events = pgTable('events', {
   entryStatus: eventEntryStatusEnum('entry_status').notNull().default('not_applied'),
   entryAppliedAt: timestamp('entry_applied_at', { mode: 'date', withTimezone: true }),
   // payment_type=NULL は「支払い通知なし」。advance=事前払い（締切までに振込）/ onsite=現地払い（当日各自）。
-  paymentType: eventPaymentTypeEnum('payment_type'),
+  //
+  // grade-entry-fee: 既定を 'advance' にした（列は nullable のまま — 'onsite' からの
+  // 往復や将来の「通知しない」表現を潰さないため）。参加費は基本前払いだが、設定箇所は
+  // 進行管理の select 1つだけでイベント作成・編集フォームに項目が無く、既定 NULL のため
+  // 支払締切リマインドの発火条件（payment_type='advance' かつ未払かつ締切一致）を満たさず
+  // 「締切が入っているのに通知が黙る」事故が構造的に起きていた（migration 0052 で既存の
+  // NULL 行も backfill 済み）。
+  paymentType: eventPaymentTypeEnum('payment_type').default('advance'),
   // payment_status / payment_paid_at は payment_type='advance' のときのみ意味を持つ。
   paymentStatus: eventPaymentStatusEnum('payment_status').notNull().default('unpaid'),
   paymentPaidAt: timestamp('payment_paid_at', { mode: 'date', withTimezone: true }),

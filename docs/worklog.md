@@ -2964,3 +2964,6 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 **調査で確定**: events.capacity 列が既存（capacity_total の受け皿・migration 不要）／events.paymentType は申込ボードで現役なので payment_method と分離維持／fixture はスキーマ形状ペイロードで再生成すると回帰ベースラインが消える／Web 層は保存済み payload に Zod を再実行しないので必須フィールド削除しても既存行は壊れない
 
 **残: docs/features/mail-inbox-mailer の memory 記載が「実装未着手」だったのを PR #127 出荷済みへ修正済み。**
+- 2026-07-30 /auto-review-loop PR #432: 2R(i+d1), verdict=pass, effort=h→h, tokens=541901/500000, result=pass(final skipped by user: token-budget)
+- 2026-07-30 /ship PR #432 マージ: 級別参加費を画面と LINE 通知へ配線（Issue #423〜#430 クローズ / migration 0052 / CI pending のままマージ）
+- 2026-07-30 PR #432 残DoD消化: migration 0052 は CI deploy が自動適用済み（applied=1）・本番 payment_type advance 38/onsite 2/NULL 0 を確認・本番データで振込総額の文面を確認（group13 = 振込総額 2,500円）・CI 3ラン success

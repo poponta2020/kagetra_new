@@ -108,7 +108,8 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 大会の状態遷移に応じて、`linked` なLINEグループへ固定テンプレートのテキストを1通push する（`pushTextToEventGroup` / `event-lifecycle-notify.ts`）。通知種別は9種（`entry_applied`、`entry_applied_treasurer`、`entry_deadline_advance`、`entry_deadline_day`、`payment_paid`、`payment_deadline_advance`、`payment_deadline_day`、`onsite_payment_advance`、`onsite_payment_day`）で、`event_lifecycle_notifications` の `UNIQUE(eventId, type)` により **同一イベント×種別は生涯一度きり** しか送らない。
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
-- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
+- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。文面の金額は**1人あたり額ではなく振込総額**（`参加費（総額 N円）`）で、集計はトランザクションの外（flip 後）で claim できたイベントを対象に行う。総額が算出できない（団体戦・非公認・参加者0名）ときは金額を省略する。複数日一括では従来どおり金額を出さない。
+- **金額の出どころ**: 通知に載る参加費は `events.fee_jpy` の格納値ではなく `lib/entry-fee.ts` の `resolveEntryFee` が解決した単価（`official` な個人戦は級別規定額を常に導出）。総額と内訳は `lib/entry-fee-tally.ts` が引く。整形（`振込総額 N円（内訳）` と `※級未設定 N名は未算入`）は `event-lifecycle-notify.ts` の `buildTotalSuffix` / `formatUnknownGradeNote` が唯一の置き場所で、日次バッチの複数日文面もこれを import して共有する。
 - **entry-groups タスク4: 進行操作の一括化**（`setEntryApplied` / `setPaymentPaid` / `setPaymentType` は
   それぞれ `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes`（複数 `eventId` を取る）への
   薄いラッパー。単一 `eventId` を渡した場合の文面・claim・revalidate 挙動は従来と完全に同一）。
@@ -121,8 +122,9 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
   （`apps/web/src/lib/event-lifecycle-notify.ts` の `days` パラメータ）。
 - **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
-  - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件
-  - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件
+  - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件。**この2種別だけが振込総額を載せる**（1行目は従来の文面のまま、2行目に `振込総額 N円（内訳）`、級未設定者がいれば3行目に注記）。総額は**申込グループの全日**が対象で、その通知に並ぶ日付の範囲とは一致しうるとは限らない（バケットに入っていない日・claim できなかった日も含む）ため、必ず「振込総額」というラベルで示す。総額が算出できない・0円のときは追加行を出さず、従来の文面とバイト単位で一致する
+  - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件。金額は導出した単価で、単一料金なら従来の文面のまま、多級のときだけ `参加費 A・B級 2,500円 / C級 2,000円` の級別表記になる（複数日バケットでは従来どおり金額を出さない）
+  - `events.payment_type` の既定値は `'advance'`（参加費は基本前払い。設定箇所が進行管理の select 1つしか無く既定 NULL では支払締切リマインドが構造的に黙るため）
   - リード日数は既定3日（`EVENT_LIFECYCLE_REMINDER_LEAD_DAYS` env で上書き可）。日付判定はすべてJSTの `YYYY-MM-DD` 文字列比較（`jstTodayIso`）で行う。
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
   - **entry-groups: 送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーで

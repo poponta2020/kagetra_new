@@ -578,3 +578,62 @@ describe('EventLifecycleSection — entry-form-autofill タスク8: 申込書の
     expect(screen.getByRole('button', { name: '申込済にする' })).toBeTruthy()
   })
 })
+
+describe('EventLifecycleSection — grade-entry-fee タスク7: 振込総額・級別単価 (AC-24/AC-25)', () => {
+  it('totalJpy を渡すと「振込総額」行が出る。breakdownLabel・unknownGradeNote は改行で続く', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          totalJpy: 12500,
+          breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
+          unknownGradeNote: '※級未設定 1名は未算入',
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    expect(screen.getByText('振込総額')).toBeTruthy()
+    expect(container.textContent).toContain('12,500円')
+    expect(container.textContent).toContain('A・B級 2名×2,500 / C級 3名×2,000')
+    expect(container.textContent).toContain('※級未設定 1名は未算入')
+  })
+
+  it('totalJpy が null / 0 なら「振込総額」行は出ない', () => {
+    const { container, rerender } = render(
+      <EventLifecycleSection {...baseProps({ totalJpy: null })} />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText('振込総額')).toBeNull()
+
+    rerender(<EventLifecycleSection {...baseProps({ totalJpy: 0 })} />)
+    openAllDetails(container)
+    expect(screen.queryByText('振込総額')).toBeNull()
+  })
+
+  it('unitPricesLabel を渡すと「参加費」行の値が級別表記になる（feeJpy より優先）', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({
+          feeJpy: 9999,
+          unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
+        })}
+      />,
+    )
+    openAllDetails(container)
+
+    expect(screen.getByText('参加費')).toBeTruthy()
+    expect(screen.getByText('A・B級 2,500円 / C級 2,000円')).toBeTruthy()
+    expect(screen.queryByText('9,999円')).toBeNull()
+  })
+
+  it('unitPricesLabel も feeJpy も null なら「参加費」行が出ない（AC-25 の再確認）', () => {
+    const { container } = render(
+      <EventLifecycleSection
+        {...baseProps({ feeJpy: null, unitPricesLabel: null })}
+      />,
+    )
+    openAllDetails(container)
+
+    expect(screen.queryByText('参加費')).toBeNull()
+  })
+})

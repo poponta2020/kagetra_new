@@ -221,7 +221,7 @@
 - [grade-entry-fee 要件定義](project_grade_entry_fee_def.md) — 親Issue #390・UI変更ゼロで値だけ保持・表示側は持ち越し
 - [grade-entry-fee タスク1](impl_grade-entry-fee-task1.md) — 級別参加料の定数+参照関数。継承プロパティの罠を hasOwnProperty で回避
 - [entry-management round13 改修要件定義（区画名改称・1グループ1行化）](project_entry_management_round13_def.md) — 親Issue #393。★罠3つ=mail-inboxの同名「要対応」/表示名の導出順序/明朝は700固定
-- [公認大会の級別参加料を定数として保持](project_ship-grade-entry-fee.md) — shipped: PR #392
+- [級別参加費を画面と LINE 通知へ配線する](project_ship-grade-entry-fee.md) — shipped: PR #432
 - [gate-dod.sh は Windows CRLF で D2 と CI 委譲が壊れる](feedback_gate_dod_crlf_windows.md) — profile-read.py の print() が CRLF。配列の末尾以外に \r が残り docs 判定と CI_COVERS が不発
 - [entry-form-autofill 実装（全8タスク）](impl_entry_form_autofill.md) — 申込書xlsx自動記入+Yahoo下書き。実物由来fixture・入力規則で明細終端判定・server-only/vitest罠
 - [server-only は vitest から import すると throw する](feedback_server_only_breaks_vitest.md) — alias で空実装へ。パッケージ同梱の empty.js は exports に無く指せない
@@ -250,3 +250,10 @@
 - [fix PR #409](impl_fix-pr409.md) — R1 blocker（団体戦への採用が dead-end）を個人戦限定で修正
 - [名簿ファイル採用（roster-file-adoption）](project_ship-roster-file-adoption.md) — shipped: PR #409。★残DoD=本番3添付の採用＋ドラフト#1-3を却下しない
 - [mail-ai-extract-refinements 要件定義（改修）](project_mail_ai_extract_refinements_def.md) — 親Issue #410 / 子#411-421・実装未着手
+- [grade-entry-fee 表示・通知配線 要件定義（改修）](project_grade_entry_fee_derivation_def.md) — 親Issue #423 / 子 #424-430
+- [mail-ai-extract-refinements タスク1〜6](impl_mail-ai-extract-refinements-t1-t6.md) — スキーマ3.0.0・プロンプト改訂・Sonnet5移行・添付選択・payment_deadline_kind migration
+- [grade-entry-fee 改修 Wave1（純関数・payment_type既定値）](impl_grade-entry-fee-wave1.md) — 単価解決の純関数と payment_type 既定値 advance 化。migration backfill のテスト手法つき
+- [grade-entry-fee 改修 Wave2（総額集計・通知文面）](impl_grade-entry-fee-wave2.md) — 参加者一覧と同一母集団の落とし穴（級未設定は eligible_grades NULL時のみ現れる）と通知文面の任意フィールド拡張
+- [grade-entry-fee 改修 Wave3（リマインド配線・支払完了・画面表示）](impl_grade-entry-fee-wave3.md) — 総額はグループ全日でバケット合計ではない。既存の「見えないこと」テストが仕様変更の検出器になった
+- [mail-ai-extract-refinements タスク7〜12](impl_mail-ai-extract-refinements-t7-t12.md) — 添付選択UI・通称欄・振込締切状態の3面反映・不要コンポーネント削除で全12タスク完了
+- [auto-review PR #432](auto-review-round-pr432.md) — R1 verdict=needs_changes（blockers 2: 総額の支払方法混在＝修正 / claim スナップショット＝WONTFIX）

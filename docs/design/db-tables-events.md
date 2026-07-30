@@ -38,7 +38,7 @@
 | capacity_e | integer | NULL | — | |
 | entry_status | event_entry_status (enum) | NOT NULL | 'not_applied' | `not_applied` / `applied` / `not_applying`（申込者なしで見送り。`/events` 一覧から除外され、申込締切リマインド・締切超過アラートの対象外） |
 | entry_applied_at | timestamptz | NULL | — | |
-| payment_type | event_payment_type (enum) | NULL | — | NULL=支払い通知なし |
+| payment_type | event_payment_type (enum) | NULL | 'advance' | NULL=支払い通知なし。参加費は基本前払いなので既定は`advance`（既定NULLだと支払締切リマインドの発火条件を満たさず通知が黙る）。列はnullableのまま |
 | payment_status | event_payment_status (enum) | NOT NULL | 'unpaid' | `payment_type='advance'`時のみ意味を持つ |
 | payment_paid_at | timestamptz | NULL | — | |
 | tournament_draft_id | integer | NULL | — | AI取込元ドラフトへの参照。FK制約はmigrationのraw ALTERで付与（ON DELETE SET NULL） |

@@ -206,12 +206,16 @@ describe('/events/[id] — 一般会員から隠す情報 (AC-10)', () => {
     const payload = propValues.join(' ')
     render(ui)
 
+    // grade-entry-fee (AC-21): 会員向け「あなたの参加費」を全ロールへ出すようになったため、
+    // 「参加費」という文字列単体は一般会員にも出る。隠すべきなのは**進行管理の中身**
+    // （格納値 fee_jpy・支払方法・振込先・申込方法・管理者だけの振込総額）であり、
+    // 会員自身が払う額はむしろ見せる仕様に変わった（requirements §3.1）。
     const secrets = [
       '24,680',
       '事前振込テスト方法',
       'ゆうちょ銀行テスト支店',
       '会でとりまとめテスト',
-      '参加費',
+      '振込総額',
       '支払方法',
       '振込先',
       '申込方法',
@@ -220,6 +224,9 @@ describe('/events/[id] — 一般会員から隠す情報 (AC-10)', () => {
       expect(screen.queryByText(new RegExp(secret))).toBeNull()
       expect(payload).not.toContain(secret)
     }
+    // 会員に出るのは自分の級の導出額だけ（C級=2,000円）。格納値 24,680 は出ない。
+    expect(screen.getByText(/あなたの参加費/)).toBeTruthy()
+    expect(screen.getByText(/2,000円/)).toBeTruthy()
   })
 
   it('管理者の支払状態トグル内には参加費・支払方法・振込先が渡る (AC-11 の呼び出し側)', async () => {
@@ -733,6 +740,112 @@ describe('/events/[id] — 参加者リストの stale 行除外 (AC-26 回帰)'
     expect(container.textContent).not.toContain('鈴木')
     // 見出しの人数も対象級だけを数える（不参加人数は算出しない）。
     expect(screen.getByText('参加者').textContent).toContain('1')
+  })
+})
+
+describe('/events/[id] — 会員向け「あなたの参加費」(grade-entry-fee タスク7 AC-21/AC-22/AC-23)', () => {
+  it('対象級の会員には出欠未回答でも「あなたの参加費 2,500円」が出る', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('あなたの参加費')
+    expect(container.textContent).toContain('2,500円')
+  })
+
+  it('出欠 attend=false（不参加）でも出る', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+    await createEventAttendance({ eventId: ev.id, userId: member.id, attend: false })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('あなたの参加費')
+    expect(container.textContent).toContain('2,500円')
+  })
+
+  it('級未設定の会員には出ない', async () => {
+    const member = await createUser({ role: 'member', grade: null })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).not.toContain('あなたの参加費')
+  })
+
+  it('対象級外の会員には出ない（eligible_grades={A,B} の会員が C 級）', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      eligibleGrades: ['A', 'B'],
+    })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).not.toContain('あなたの参加費')
+  })
+
+  it("kind='team' では出ない", async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30), kind: 'team' })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).not.toContain('あなたの参加費')
+  })
+
+  it('非公認（official=false）は events.fee_jpy がそのまま出る／null なら行が出ない', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const priced = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      official: false,
+      feeJpy: 3000,
+    })
+
+    const { container: c1 } = render(await renderPage(priced.id))
+    expect(c1.textContent).toContain('あなたの参加費')
+    expect(c1.textContent).toContain('3,000円')
+
+    const unpriced = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      official: false,
+      feeJpy: null,
+    })
+    const { container: c2 } = render(await renderPage(unpriced.id))
+    expect(c2.textContent).not.toContain('あなたの参加費')
+  })
+
+  it('official な個人戦は events.fee_jpy に別の値が入っていても無視され、級別規定額が出る', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      official: true,
+      feeJpy: 9999,
+    })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('あなたの参加費')
+    expect(container.textContent).toContain('2,500円')
+    expect(container.textContent).not.toContain('9,999')
+  })
+
+  it('「規定額」という文字列がページに出ない', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).not.toContain('規定額')
   })
 })
 

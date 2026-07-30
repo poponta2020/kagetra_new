@@ -98,7 +98,7 @@ status: completed
 - [x] 完了
 - **目的:** 選択を永続化し、Server Action で検証する
 - **対応AC:** AC-31, AC-32, AC-40, AC-41
-- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
+- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本（採番は 0053。実装中に main へ別機能の 0052 がマージされたため繰り上げ）、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
 - **依存タスク:** タスク6
 - **必要なテスト:** CHECK 制約が矛盾する組み合わせを弾くこと／backfill 後に全既存行が CHECK を満たすこと／選択が永続化され再抽出時に復元されること／サイズ超過の添付 ID を含む選択が拒否されること／当該メールに属さない添付 ID が拒否されること／既存の多重起動ガード（`triageStatus` / `linkedEventId` / `ai_processing`）が維持されること
 - **完了条件:** Server Action テストが green、migration が `db:migrate` で適用できること
