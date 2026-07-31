@@ -2967,3 +2967,6 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-07-30 /auto-review-loop PR #432: 2R(i+d1), verdict=pass, effort=h→h, tokens=541901/500000, result=pass(final skipped by user: token-budget)
 - 2026-07-30 /ship PR #432 マージ: 級別参加費を画面と LINE 通知へ配線（Issue #423〜#430 クローズ / migration 0052 / CI pending のままマージ）
 - 2026-07-30 PR #432 残DoD消化: migration 0052 は CI deploy が自動適用済み（applied=1）・本番 payment_type advance 38/onsite 2/NULL 0 を確認・本番データで振込総額の文面を確認（group13 = 振込総額 2,500円）・CI 3ラン success
+- 2026-07-30 /auto-review-loop PR #431: 8R(i+d5+f+fd), verdict=pass, effort=high, tokens=n/a, result=pass
+- 2026-08-01 /auto-review-loop PR #431: 11R(i+d5+f+fd+f+fd), verdict=cutoff(user-wontfix), effort=high, result=cutoff。main の migration 0052 と番号衝突→0053 へ採番し直し。WONTFIX 3件（DraftCard 訂正版表示 / reextract IN句上限 / サイズ超過スキップ時に既存payloadを残す方針）
+- 2026-08-01 PR #431 出荷: メール大会案内取込のAI再設計（親#410・子#411-422 の全12タスク）。分類撤去(PROMPT_VERSION 3.0.0)・Sonnet 5移行(thinking:disabled・キャッシュ撤去)・添付選択UI・振込締切の状態化(migration 0053)・PDF上限8000KB・受信箱tier廃止・通称の人力入力。Codex 11ラウンドで実在の不具合8件を修正。★申し送り=DraftCardの訂正版バッジは未対応（実害なし）／AC-25(実抽出がmax_tokensで切れない)は本番で要確認

@@ -257,3 +257,6 @@
 - [grade-entry-fee 改修 Wave3（リマインド配線・支払完了・画面表示）](impl_grade-entry-fee-wave3.md) — 総額はグループ全日でバケット合計ではない。既存の「見えないこと」テストが仕様変更の検出器になった
 - [mail-ai-extract-refinements タスク7〜12](impl_mail-ai-extract-refinements-t7-t12.md) — 添付選択UI・通称欄・振込締切状態の3面反映・不要コンポーネント削除で全12タスク完了
 - [auto-review PR #432](auto-review-round-pr432.md) — R1 verdict=needs_changes（blockers 2: 総額の支払方法混在＝修正 / claim スナップショット＝WONTFIX）
+- [auto-review PR #431](auto-review-round-pr431.md) — R8 verdict=pass（R2-R5 で合計サイズ判定の ping-pong・R7 で自分の退行を検出）
+- [メール大会案内取込のAI再設計](project_ship-mail-ai-extract-refinements.md) — shipped: PR #431（★申し送り=DraftCardの訂正版バッジ・AC-25は本番で要確認）
+- [roster-file-adoption 改修 要件定義（級別採用・候補フィルタ・パースUI退役）](project_roster_file_adoption_delta_def.md) — 親Issue #433・実装待ち
