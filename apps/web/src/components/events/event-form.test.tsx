@@ -258,4 +258,51 @@ describe('EventForm', () => {
     render(<EventForm mode="edit" action={noop} cancelHref="/events/1" />)
     expect(screen.getByRole('button', { name: '更新' })).toBeTruthy()
   })
+
+  // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-42〜44): 振込締切の状態
+  // （paymentDeadlineKind）を選ぶ <select>。
+  describe('paymentDeadlineKind（振込締切の状態）', () => {
+    it("mode='create' で3値（日付あり/後日連絡/締切未設定）の select が描画され、既定は「締切未設定」", () => {
+      const { container } = render(
+        <EventForm mode="create" action={noop} cancelHref="/events" />,
+      )
+      const select = container.querySelector(
+        '[name="paymentDeadlineKind"]',
+      ) as HTMLSelectElement | null
+      expect(select).toBeTruthy()
+      const optionValues = Array.from(select!.options).map((o) => o.value)
+      expect(optionValues).toEqual(['fixed', 'later_notice', 'unspecified'])
+      const optionLabels = Array.from(select!.options).map((o) => o.textContent)
+      expect(optionLabels).toEqual(['日付あり', '後日連絡', '締切未設定'])
+      expect(select!.value).toBe('unspecified')
+    })
+
+    it("mode='edit' で defaultValues.paymentDeadlineKind が select に反映される", () => {
+      const { container } = render(
+        <EventForm
+          mode="edit"
+          action={noop}
+          cancelHref="/events/1"
+          defaultValues={{ paymentDeadlineKind: 'later_notice' }}
+        />,
+      )
+      const select = container.querySelector(
+        '[name="paymentDeadlineKind"]',
+      ) as HTMLSelectElement
+      expect(select.value).toBe('later_notice')
+    })
+
+    it('embedded（承認画面）モードでは paymentDeadlineKind の select を描画しない', () => {
+      const { container } = render(
+        <EventForm
+          mode="create"
+          action={noop}
+          cancelHref="/events"
+          fieldPrefix="u1__"
+        />,
+      )
+      expect(container.querySelector('[name="u1__paymentDeadlineKind"]')).toBeNull()
+      expect(container.querySelector('[name="paymentDeadlineKind"]')).toBeNull()
+    })
+  })
 })

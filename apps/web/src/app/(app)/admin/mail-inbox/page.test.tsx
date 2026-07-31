@@ -83,42 +83,74 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
     expect(anchor!.getAttribute('href')).toBe(`/admin/mail-inbox/${draft.id}`)
   })
 
-  it('未処理グループ内で要対応/要確認/その他 の tier に分かれる', async () => {
-    // triage 第1階層「未処理」の中で、従来の conf ベース tier を維持する。
+  it('AC-33: tier 分けは廃止され、未処理 pending_review が受信日降順の一本で並ぶ', async () => {
+    // mail-ai-extract-refinements タスク10 (§3.2.8): confidence ベースの
+    // 要対応/要確認/その他 tier 見出しは消え、未処理は受信日降順の一本になる。
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
 
-    const highMail = await createMailMessage({
-      subject: 'HIGH_CONF',
+    const older = await createMailMessage({
+      subject: 'OLDER_MAIL',
       triageStatus: 'unprocessed',
+      receivedAt: new Date('2026-07-01T00:00:00Z'),
     })
     await createTournamentDraft({
-      messageId: highMail.id,
+      messageId: older.id,
       status: 'pending_review',
+      // 旧フィールドが残っていても表示に使わないことの確認（AC-34 も参照）。
       confidence: '0.97',
     })
-    const midMail = await createMailMessage({
-      subject: 'MID_CONF',
+    const newer = await createMailMessage({
+      subject: 'NEWER_MAIL',
       triageStatus: 'unprocessed',
+      receivedAt: new Date('2026-07-15T00:00:00Z'),
     })
     await createTournamentDraft({
-      messageId: midMail.id,
+      messageId: newer.id,
       status: 'pending_review',
-      confidence: '0.72',
+      confidence: '0.10',
     })
     await createMailMessage({
       subject: 'NO_DRAFT',
       status: 'ai_done',
       classification: 'noise',
       triageStatus: 'unprocessed',
+      receivedAt: new Date('2026-07-10T00:00:00Z'),
     })
 
     await renderPage()
 
     expect(screen.getByText(/^未処理 \(3\)$/)).toBeTruthy()
-    expect(screen.getByText('要対応 (1)')).toBeTruthy()
-    expect(screen.getByText('要確認 (1)')).toBeTruthy()
-    expect(screen.getByText('その他 (1)')).toBeTruthy()
+    // tier 見出しが消えていること。
+    expect(screen.queryByText(/^要対応/)).toBeNull()
+    expect(screen.queryByText(/^要確認/)).toBeNull()
+    expect(screen.queryByText(/^その他/)).toBeNull()
+    // 受信日降順（新しい順）で並ぶこと。
+    const subjects = screen
+      .getAllByText(/_MAIL$/)
+      .map((el) => el.textContent)
+    expect(subjects).toEqual(['NEWER_MAIL', 'OLDER_MAIL'])
+  })
+
+  it('AC-33: ConfidenceBadge が一覧から消える（数値バッジが出ない）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'confidence badge gone',
+      triageStatus: 'unprocessed',
+    })
+    await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      confidence: '0.97',
+    })
+
+    await renderPage()
+
+    // ConfidenceBadge は "高 (0.97)" のような文字列を出す。もう出ない。
+    expect(screen.queryByText(/^高 \(/)).toBeNull()
+    expect(screen.queryByText(/^中 \(/)).toBeNull()
+    expect(screen.queryByText(/^低 \(/)).toBeNull()
   })
 
   // mail-inbox-mailer: 保留 (deferred) セクションは廃止（2 状態化に伴い）。
@@ -161,23 +193,125 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
     expect(screen.getByText(/未処理のメールはありません/)).toBeTruthy()
   })
 
-  it('要対応 section の card に brand accent class が乗る', async () => {
+  it('AC-18: カード表示名は formal_name になる', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
-    const highMail = await createMailMessage({
-      subject: 'accent test',
+    const mail = await createMailMessage({
+      subject: 'formal name card',
       triageStatus: 'unprocessed',
     })
     await createTournamentDraft({
-      messageId: highMail.id,
+      messageId: mail.id,
       status: 'pending_review',
-      confidence: '0.97',
+      extractedPayload: {
+        reason: '',
+        events: [
+          {
+            unit_key: 'u1',
+            event_date: '2026-08-01',
+            eligible_grades: ['B'],
+            formal_name: '第5回大阪大会B級',
+            venue: null,
+            entry_deadline: null,
+            payment_deadline: null,
+            payment_deadline_kind: '記載なし',
+            payment_info_text: null,
+            payment_method: null,
+            entry_method: null,
+            organizer_text: null,
+            kind: null,
+            capacity_total: null,
+            capacity_a: null,
+            capacity_b: null,
+            capacity_c: null,
+            capacity_d: null,
+            capacity_e: null,
+            official: null,
+          },
+        ],
+      },
     })
 
     await renderPage()
 
-    const subj = screen.getByText('accent test')
-    const card = subj.closest('[class*="border-l-brand"]')
-    expect(card).not.toBeNull()
+    expect(screen.getByText('第5回大阪大会B級')).toBeTruthy()
+  })
+
+  it('AC-18: formal_name が無い単位は「開催日＋級」で表示される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'fallback name card',
+      triageStatus: 'unprocessed',
+    })
+    await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        reason: '',
+        events: [
+          {
+            unit_key: 'u1',
+            event_date: '2026-08-02',
+            eligible_grades: ['C'],
+            formal_name: null,
+            venue: null,
+            entry_deadline: null,
+            payment_deadline: null,
+            payment_deadline_kind: '記載なし',
+            payment_info_text: null,
+            payment_method: null,
+            entry_method: null,
+            organizer_text: null,
+            kind: null,
+            capacity_total: null,
+            capacity_a: null,
+            capacity_b: null,
+            capacity_c: null,
+            capacity_d: null,
+            capacity_e: null,
+            official: null,
+          },
+        ],
+      },
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('8/2(日) C級')).toBeTruthy()
+  })
+
+  it('AC-34: confidence 等の旧フィールドを持つドラフトを開いても壊れない', async () => {
+    // 2.x 世代のペイロード（short_name_stem を持ち formal_name も持つ）を
+    // 模し、confidence 列に値が入っていてもクラッシュせず formal_name を表示する。
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({
+      subject: 'legacy payload compat',
+      triageStatus: 'unprocessed',
+    })
+    await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      confidence: '0.85',
+      isCorrection: false,
+      referencesSubject: null,
+      extractedPayload: {
+        short_name_stem: '札幌',
+        is_tournament_announcement: true,
+        events: [
+          {
+            unit_key: 'u1',
+            event_date: '2026-09-01',
+            eligible_grades: ['A'],
+            formal_name: '第10回札幌大会A級',
+          },
+        ],
+      },
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('第10回札幌大会A級')).toBeTruthy()
   })
 })

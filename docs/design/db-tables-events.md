@@ -25,6 +25,7 @@
 | eligible_grades | grade (enum) の配列 | NULL | — | |
 | fee_jpy | integer | NULL | — | |
 | payment_deadline | date (string mode) | NULL | — | |
+| payment_deadline_kind | event_payment_deadline_kind (enum) | NOT NULL | 'unspecified' | 振込締切の状態。CHECK で payment_deadline と双条件（下記）。UI は日本語表示（fixed=日付そのもの / later_notice=後日連絡 / unspecified=締切未設定） |
 | lottery_date | date (string mode) | NULL | — | NULL=抽選なし |
 | payment_info | text | NULL | — | |
 | payment_method | text | NULL | — | |
@@ -47,6 +48,7 @@
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
 **制約・インデックス**:
+- CHECK `events_payment_deadline_kind_consistent`: `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')`。この2列は必ず同じ INSERT / UPDATE で揃えて書く（正規化は `apps/web/src/lib/events/payment-deadline.ts` の `normalizePaymentDeadline`）
 - 部分UNIQUE `events_tournament_draft_unit_key_uniq` on (tournament_draft_id, tournament_draft_unit_key) WHERE 両方NOT NULL
 - FK `events_edition_id_fkey`（edition_id → tournament_series_editions.id）ON DELETE SET NULL
 - INDEX `events_edition_id_idx` on (edition_id)

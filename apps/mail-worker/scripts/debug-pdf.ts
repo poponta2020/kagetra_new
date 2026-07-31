@@ -40,8 +40,12 @@ async function probe(pdfPath: string): Promise<void> {
   console.log(`  base64 head/tail     = ${base64.slice(0, 24)} ... ${base64.slice(-24)}`)
   try {
     const res = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 200,
+      // Sonnet 5 は thinking 省略時に adaptive thinking が ON になり、max_tokens が
+      // 思考と出力を合算して上限をかける。この診断は max_tokens が小さいので、
+      // 明示的に切らないと出力が丸ごと思考に食われる（anthropic.ts と同じ理由）。
+      thinking: { type: 'disabled' },
       messages: [
         {
           role: 'user',
@@ -73,13 +77,13 @@ async function probe(pdfPath: string): Promise<void> {
   }
 }
 
-// Production-like wrapping: invoke AnthropicSonnet46Extractor directly so we
+// Production-like wrapping: invoke AnthropicExtractor directly so we
 // see whether the failure is reproduced by mail-worker's actual configuration
 // (system prompt + cache_control + Zod-derived tools + forced tool_choice +
 // document block ordering). Loaded dynamically so the simple `probe()` mode
 // remains usable without compiling the rest of the package.
 async function probeProductionLike(pdfPath: string): Promise<void> {
-  const { AnthropicSonnet46Extractor } = await import(
+  const { AnthropicExtractor } = await import(
     '../src/classify/llm/anthropic.js'
   )
   const { buildSystemPrompt, PROMPT_VERSION } = await import(
@@ -88,7 +92,7 @@ async function probeProductionLike(pdfPath: string): Promise<void> {
   const buf = readFileSync(pdfPath)
   const base64 = buf.toString('base64')
   console.log(`\n=== production-like wrapping: ${pdfPath} ===`)
-  const extractor = new AnthropicSonnet46Extractor({ apiKey: apiKey! })
+  const extractor = new AnthropicExtractor({ apiKey: apiKey! })
   try {
     const res = await extractor.extract({
       systemPrompt: buildSystemPrompt(),
@@ -99,7 +103,7 @@ async function probeProductionLike(pdfPath: string): Promise<void> {
         date: new Date(),
       },
       emailBodyText: 'これは debug-pdf.ts の production-like 再現テストです。',
-      attachments: [{ kind: 'pdf', filename: 'test.pdf', base64 }],
+      attachments: [{ kind: 'pdf', filename: 'test.pdf', base64, id: 0 }],
     })
     console.log(`  SUCCESS: ${JSON.stringify(res.parsed).slice(0, 200)}`)
     console.log(
@@ -162,8 +166,9 @@ async function probeDbAttachment(
     console.log(`  base64 tail: ${base64.slice(-24)}`)
     try {
       const res = await client.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 50,
+        thinking: { type: 'disabled' },
         messages: [
           {
             role: 'user',
@@ -213,7 +218,7 @@ async function probeMailIsolated(
   const { getDb, closeDb } = await import('../src/db.js')
   const { mailMessages } = await import('@kagetra/shared/schema')
   const { eq } = await import('drizzle-orm')
-  const { AnthropicSonnet46Extractor } = await import(
+  const { AnthropicExtractor } = await import(
     '../src/classify/llm/anthropic.js'
   )
   const { buildSystemPrompt, PROMPT_VERSION } = await import(
@@ -226,6 +231,7 @@ async function probeMailIsolated(
       with: {
         attachments: {
           columns: {
+            id: true,
             filename: true,
             contentType: true,
             data: true,
@@ -240,8 +246,8 @@ async function probeMailIsolated(
       return
     }
     const attachments: Array<
-      | { kind: 'pdf'; filename: string; base64: string }
-      | { kind: 'text'; filename: string; text: string }
+      | { kind: 'pdf'; filename: string; base64: string; id: number }
+      | { kind: 'text'; filename: string; text: string; id: number }
     > = []
     for (const att of mail.attachments) {
       if (
@@ -265,16 +271,18 @@ async function probeMailIsolated(
           kind: 'pdf',
           filename: isolate.filename ?? att.filename,
           base64: buf.toString('base64'),
+          id: att.id,
         })
       } else if (att.extractedText) {
         attachments.push({
           kind: 'text',
           filename: att.filename,
           text: att.extractedText,
+          id: att.id,
         })
       }
     }
-    const extractor = new AnthropicSonnet46Extractor({ apiKey: apiKey! })
+    const extractor = new AnthropicExtractor({ apiKey: apiKey! })
     const desc = Object.entries(isolate)
       .map(([k, v]) => `${k}=${typeof v === 'string' ? `"${v.slice(0, 30)}..."` : v}`)
       .join(', ')
@@ -309,7 +317,7 @@ async function probeProductionLikeFromDb(attachmentId: number): Promise<void> {
   const { getDb, closeDb } = await import('../src/db.js')
   const { mailAttachments } = await import('@kagetra/shared/schema')
   const { eq } = await import('drizzle-orm')
-  const { AnthropicSonnet46Extractor } = await import(
+  const { AnthropicExtractor } = await import(
     '../src/classify/llm/anthropic.js'
   )
   const { buildSystemPrompt, PROMPT_VERSION } = await import(
@@ -332,7 +340,7 @@ async function probeProductionLikeFromDb(attachmentId: number): Promise<void> {
       `\n=== production-like wrapping (DB-sourced base64) attachmentId=${attachmentId} ===`,
     )
     console.log(`  base64 length: ${base64.length}`)
-    const extractor = new AnthropicSonnet46Extractor({ apiKey: apiKey! })
+    const extractor = new AnthropicExtractor({ apiKey: apiKey! })
     try {
       const res = await extractor.extract({
         systemPrompt: buildSystemPrompt(),
@@ -343,7 +351,7 @@ async function probeProductionLikeFromDb(attachmentId: number): Promise<void> {
           date: new Date(),
         },
         emailBodyText: 'short test body',
-        attachments: [{ kind: 'pdf', filename: 'test.pdf', base64 }],
+        attachments: [{ kind: 'pdf', filename: 'test.pdf', base64, id: attachmentId }],
       })
       console.log(`  SUCCESS: ${JSON.stringify(res.parsed).slice(0, 200)}`)
     } catch (err) {
@@ -360,12 +368,12 @@ async function probeProductionLikeFromDb(attachmentId: number): Promise<void> {
 // running `pnpm start` itself — same DB read, same builder, same extractor.
 async function probeClassifyMail(messageId: number): Promise<void> {
   const { classifyMail } = await import('../src/classify/classifier.js')
-  const { AnthropicSonnet46Extractor } = await import(
+  const { AnthropicExtractor } = await import(
     '../src/classify/llm/anthropic.js'
   )
   const { getDb, closeDb } = await import('../src/db.js')
   const db = getDb()
-  const llm = new AnthropicSonnet46Extractor({ apiKey: apiKey! })
+  const llm = new AnthropicExtractor({ apiKey: apiKey! })
   console.log(`\n=== classifyMail messageId=${messageId} (force=true) ===`)
   try {
     const result = await classifyMail(db, messageId, llm, { force: true })

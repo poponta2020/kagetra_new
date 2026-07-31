@@ -2,6 +2,27 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * AC-20 must verify the actual `messages.create` request body, not just what
+ * `classifyMail` hands to a stub `LLMExtractor`. Mocking `@anthropic-ai/sdk`
+ * here (same `vi.hoisted` pattern as `anthropic.test.ts`) lets the attachment-
+ * selection describe block below run classifier → `AnthropicExtractor` →
+ * `messages.create` end-to-end and assert on the captured call args.
+ */
+const { messagesCreate } = vi.hoisted(() => ({ messagesCreate: vi.fn() }))
+
+vi.mock('@anthropic-ai/sdk', () => {
+  return {
+    default: class FakeAnthropic {
+      messages = { create: messagesCreate }
+      constructor(_opts: unknown) {
+        // capture nothing — the call shape under test is on `messages.create`.
+      }
+    },
+  }
+})
+
 import { eq } from 'drizzle-orm'
 import { mailAttachments, mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import {
@@ -16,6 +37,7 @@ import {
   loadFixturesFromDir,
 } from '../../src/classify/llm/fixture.js'
 import { BrokenLLMExtractor } from '../../src/classify/llm/broken.js'
+import { AnthropicExtractor } from '../../src/classify/llm/anthropic.js'
 import {
   LLMExtractorError,
   type LLMExtractionInput,
@@ -23,6 +45,10 @@ import {
   type LLMExtractor,
 } from '../../src/classify/llm/types.js'
 import { resetConfigForTests } from '../../src/config.js'
+import {
+  ANTHROPIC_REQUEST_LIMIT_BYTES,
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+} from '../../src/classify/attachment-budget.js'
 import { closeTestDb, testDb, truncateMailTables } from '../test-db.js'
 import { closeDb, getDb } from '../../src/db.js'
 
@@ -33,7 +59,9 @@ const FIXTURES_DIR = fileURLToPath(new URL('../fixtures/llm/', import.meta.url))
 // are the convenience handles tests use to insert the right `mail_messages`
 // row before invoking the classifier.
 const TOURNAMENT_SUBJECT = '[taikai-ajka:828] 第65回全日本選手権大会/ご案内'
-const NEWSLETTER_SUBJECT = 'Weekly Update: New Features Available'
+// Deliberately absent from the fixture map — used by the pre-filter /
+// skipped_noise paths, which must never reach the extractor at all.
+const UNMATCHED_SUBJECT = 'Weekly Update: New Features Available'
 const CORRECTION_SUBJECT = 'Re: 【訂正】第65回全日本選手権大会のご案内'
 
 async function loadPayload(filename: string): Promise<ExtractionPayload> {
@@ -82,19 +110,112 @@ interface InsertPdfOpts {
 // Minimal "is this a PDF" prefix so any downstream PDF parser sees something
 // vaguely real. The cost guard never reads the bytes — it short-circuits on
 // `sizeBytes` — so we don't bother filling the buffer with realistic content.
-async function insertTestPdf(opts: InsertPdfOpts): Promise<void> {
-  await testDb.insert(mailAttachments).values({
-    mailMessageId: opts.mailMessageId,
-    filename: opts.filename ?? '案内.pdf',
-    contentType: 'application/pdf',
-    sizeBytes: opts.sizeBytes,
-    // bytea content is irrelevant for the size-guard path; a 1-byte buffer
-    // keeps the row small and the insert fast. The classifier never gets to
-    // base64-encode it because the guard fires first.
-    data: Buffer.from([0x25]),
-    extractedText: null,
-    extractionStatus: 'pending',
-  })
+// Returns the inserted `mail_attachments.id` so attachment-selection tests
+// can build a `selectedAttachmentIds` array against a real id.
+async function insertTestPdf(opts: InsertPdfOpts): Promise<number> {
+  const inserted = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: opts.mailMessageId,
+      filename: opts.filename ?? '案内.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: opts.sizeBytes,
+      // bytea content is irrelevant for the size-guard path; a 1-byte buffer
+      // keeps the row small and the insert fast. The classifier never gets to
+      // base64-encode it because the guard fires first.
+      data: Buffer.from([0x25]),
+      extractedText: null,
+      extractionStatus: 'pending',
+    })
+    .returning({ id: mailAttachments.id })
+  return inserted[0]!.id
+}
+
+interface InsertTextAttachmentOpts {
+  mailMessageId: number
+  filename?: string
+  extractedText: string
+}
+
+// DOCX-shaped attachment that already has `extractedText` populated —
+// exercises the `kind: 'text'` branch of `attachmentsForLlm` rather than the
+// PDF document-block branch.
+async function insertTestTextAttachment(
+  opts: InsertTextAttachmentOpts,
+): Promise<number> {
+  const inserted = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: opts.mailMessageId,
+      filename: opts.filename ?? '名簿.docx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sizeBytes: opts.extractedText.length,
+      data: Buffer.from([0x50]),
+      extractedText: opts.extractedText,
+      extractionStatus: 'extracted',
+    })
+    .returning({ id: mailAttachments.id })
+  return inserted[0]!.id
+}
+
+function buildAnthropicSuccessResponse() {
+  return {
+    content: [
+      {
+        type: 'tool_use' as const,
+        name: 'record_extraction',
+        id: 'toolu_classifier_test',
+        input: {
+          reason: 'unit-test fixture',
+          source_mismatch: null,
+          events: [
+            {
+              unit_key: 'u1',
+              event_date: null,
+              eligible_grades: null,
+              formal_name: null,
+              venue: null,
+              payment_deadline: null,
+              payment_deadline_kind: '記載なし',
+              payment_info_text: null,
+              payment_method: null,
+              entry_method: null,
+              organizer_text: null,
+              entry_deadline: null,
+              kind: null,
+              capacity_total: null,
+              capacity_a: null,
+              capacity_b: null,
+              capacity_c: null,
+              capacity_d: null,
+              capacity_e: null,
+              official: null,
+            },
+          ],
+        },
+      },
+    ],
+    usage: {
+      input_tokens: 100,
+      output_tokens: 200,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  }
+}
+
+interface AnthropicUserContentBlock {
+  type: string
+  text?: string
+  title?: string
+}
+
+function getAnthropicUserContent(): AnthropicUserContentBlock[] {
+  const args = messagesCreate.mock.calls.at(-1)![0] as {
+    messages: Array<{ role: string; content: AnthropicUserContentBlock[] }>
+  }
+  return args.messages[0]!.content
 }
 
 describe('classifier', () => {
@@ -120,25 +241,27 @@ describe('classifier', () => {
 
       expect(outcome.kind).toBe('tournament')
       if (outcome.kind === 'tournament') {
-        expect(outcome.result.parsed.is_tournament_announcement).toBe(true)
-        expect(outcome.result.parsed.short_name_stem).toBe('全日本')
         expect(outcome.result.parsed.events[0]?.formal_name).toBe('第65回全日本選手権大会')
+        expect(outcome.result.parsed.events[0]?.payment_deadline_kind).toBe('日付あり')
       }
     })
 
-    it('returns a noise outcome when the LLM says is_tournament_announcement=false', async () => {
+    it('always returns a tournament outcome — the AI no longer votes on classification', async () => {
+      // 3.0.0: the admin already decided this is an announcement before
+      // pressing 「会で流す」, so even a subject the extractor knows nothing
+      // about comes back as `tournament` (with an empty-but-valid unit).
       const fixtures = await buildFixtureMap()
       const llm = new FixtureLLMExtractor(fixtures)
       const id = await insertTestMail({
-        messageId: '<negative-1@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        messageId: '<unmatched-1@example.com>',
+        subject: UNMATCHED_SUBJECT,
       })
 
       const outcome = await classifyMail(getDb(), id, llm)
 
-      expect(outcome.kind).toBe('noise')
-      if (outcome.kind === 'noise') {
-        expect(outcome.result.parsed.is_tournament_announcement).toBe(false)
+      expect(outcome.kind).toBe('tournament')
+      if (outcome.kind === 'tournament') {
+        expect(outcome.result.parsed.events).toHaveLength(1)
       }
     })
 
@@ -154,7 +277,7 @@ describe('classifier', () => {
       }
       const id = await insertTestMail({
         messageId: '<noise-1@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
         classification: 'noise',
       })
 
@@ -179,7 +302,9 @@ describe('classifier', () => {
       expect(outcome.kind).toBe('tournament')
     })
 
-    it('flags is_correction=true on a correction-style mail', async () => {
+    it('extracts a correction-style mail as an ordinary announcement (no correction flags)', async () => {
+      // 3.0.0 removed `is_correction` / `references_subject` — 訂正版 handling
+      // is human work now. The mail still has to extract normally.
       const fixtures = await buildFixtureMap()
       const llm = new FixtureLLMExtractor(fixtures)
       const id = await insertTestMail({
@@ -191,10 +316,7 @@ describe('classifier', () => {
 
       expect(outcome.kind).toBe('tournament')
       if (outcome.kind === 'tournament') {
-        expect(outcome.result.parsed.is_correction).toBe(true)
-        expect(outcome.result.parsed.references_subject).toBe(
-          '第65回全日本選手権大会のご案内',
-        )
+        expect(outcome.result.parsed.events[0]?.entry_deadline).toBe('2026-05-07')
       }
     })
 
@@ -393,6 +515,124 @@ describe('classifier', () => {
         expect(calls).toBe(0)
       })
 
+      // 要件 §6: 1件ごとの上限を全て満たしていても、合計は Anthropic の
+      // リクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+      // 正常系では Server Action と選択ダイアログが先に止めるが、**選択が
+      // 未指定（NULL）の経路**——大きな PDF を何件も持つ古いメールを reextract
+      // CLI にかける——ではここが唯一の砦になる。
+      // 送信直前の実測ガード。PDF 合計の事前チェックは非 PDF 部分を予約枠で
+      // 見積もっているだけなので、巨大な抽出テキストを持つメールでは仮定が崩れる。
+      // JSON エスケープ後のバイト数で測るので、改行・引用符の増分も含まれる。
+      it('本文が巨大でリクエスト全体が 32MiB を超えるなら AI を呼ばずスキップする', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '0') // 1件ごとのガードは無効化
+        resetConfigForTests()
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'should-not-be-called',
+          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked over the request budget')
+          },
+        }
+        // PDF はゼロ。本文だけで 32MiB を超えさせる（＝ PDF 合計の事前チェックは
+        // 素通りする経路。実測ガードでしか止められない）。
+        const id = await insertTestMail({
+          messageId: '<huge-body@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'あ'.repeat(12 * 1024 * 1024), // UTF-8 で 3 バイト/文字 = 36MiB
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.limitBytes).toBe(ANTHROPIC_REQUEST_LIMIT_BYTES)
+          expect(outcome.filename).toContain('リクエスト全体')
+        }
+        expect(calls).toBe(0)
+      })
+
+      it('合計サイズが上限を超えたら AI を呼ばずスキップする', async () => {
+        // 1件ごとの上限は 8000KB のまま。7.5MB を 3 件で合計 22.5MB > 20MB。
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'should-not-be-called',
+          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked over the total budget')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<total-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
+        const bigMb = 7.5 * 1024 * 1024
+        await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'c.pdf', sizeBytes: bigMb })
+
+        // 各 8MB ≤ 8000KB 上限なので、1件ごとのガードは通り抜ける。
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        if (outcome.kind === 'oversize_skipped') {
+          expect(outcome.sizeBytes).toBe(3 * bigMb)
+          expect(outcome.limitBytes).toBe(ATTACHMENT_TOTAL_LIMIT_BYTES)
+          // どのファイル1件でもなく「合計」が原因であることが読み取れること。
+          expect(outcome.filename).toContain('合計')
+        }
+        expect(calls).toBe(0)
+      })
+
+      it('合計が上限内なら通常どおり分類する', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+        const id = await insertTestMail({
+          messageId: '<total-within@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 3MB × 3 = 9MB < 20MB。実運用の要綱 PDF はこの範囲に収まる。
+        const threeMb = 3 * 1024 * 1024
+        await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: threeMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: threeMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'c.pdf', sizeBytes: threeMb })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('選択で合計上限内に絞れば通る（合計ガードも選択後の集合に掛かる）', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+        const id = await insertTestMail({
+          messageId: '<total-narrowed@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
+        const bigMb = 7.5 * 1024 * 1024
+        const keep = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'keep.pdf',
+          sizeBytes: bigMb,
+        })
+        await insertTestPdf({ mailMessageId: id, filename: 'x.pdf', sizeBytes: bigMb })
+        await insertTestPdf({ mailMessageId: id, filename: 'y.pdf', sizeBytes: bigMb })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [keep],
+        })
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
       it('classifies normally when all PDFs are within the limit', async () => {
         vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
         resetConfigForTests()
@@ -493,6 +733,187 @@ describe('classifier', () => {
         expect(outcome.kind).toBe('oversize_skipped')
         expect(calls).toBe(0)
       })
+
+      it('AC-36: does not become oversize_skipped when the oversized PDF is excluded by selection', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+
+        const id = await insertTestMail({
+          messageId: '<selection-excludes-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        const smallId = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'small.pdf',
+          sizeBytes: 100 * 1024,
+        })
+        // Not selected below — would trip the guard if the guard still ran
+        // against the full attachment set instead of the selected subset.
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: 'large.pdf',
+          sizeBytes: 600 * 1024,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [smallId],
+        })
+
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('AC-36: still returns oversize_skipped when the oversized PDF is explicitly selected', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        let calls = 0
+        const llm: LLMExtractor = {
+          modelId: 'unused',
+          async extract(): Promise<LLMExtractionResult> {
+            calls += 1
+            throw new Error('LLM should not be invoked')
+          },
+        }
+        const id = await insertTestMail({
+          messageId: '<selection-includes-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+        })
+        const largeId = await insertTestPdf({
+          mailMessageId: id,
+          filename: 'large.pdf',
+          sizeBytes: 600 * 1024,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [largeId],
+        })
+
+        expect(outcome.kind).toBe('oversize_skipped')
+        expect(calls).toBe(0)
+      })
+    })
+
+    describe('attachment selection (AC-20 / AC-30)', () => {
+      // AC-20 requires checking the actual `messages.create` request body, so
+      // these tests run classifyMail against a real `AnthropicExtractor`
+      // instead of `FixtureLLMExtractor` / a stub `LLMExtractor`.
+      beforeEach(() => {
+        messagesCreate.mockReset()
+        messagesCreate.mockResolvedValue(buildAnthropicSuccessResponse())
+      })
+
+      it('① attachment present but selection is empty: no document blocks, body text still reaches the text block', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case1@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース1の本文マーカー',
+        })
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 100 * 1024 })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース1の本文マーカー')
+      })
+
+      it('② zero-attachment mail (selection unspecified): body text still reaches the text block', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case2@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース2の本文マーカー',
+        })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース2の本文マーカー')
+      })
+
+      it('③ only a text-kind (DOCX) attachment selected: no document blocks, text block carries body + extracted text', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case3@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース3の本文マーカー',
+        })
+        // Present but unselected — must not appear anywhere in the request.
+        await insertTestPdf({ mailMessageId: id, filename: '会場地図.pdf', sizeBytes: 100 * 1024 })
+        const docxId = await insertTestTextAttachment({
+          mailMessageId: id,
+          filename: '名簿.docx',
+          extractedText: 'DOCX 抽出テキストマーカー',
+        })
+
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [docxId] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        expect(content.filter((b) => b.type === 'document')).toHaveLength(0)
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース3の本文マーカー')
+        expect(textBlocks[0]!.text).toContain('DOCX 抽出テキストマーカー')
+      })
+
+      it('④ restored selection on re-extraction: only the previously-selected PDF becomes a document block; the unselected sibling PDF is excluded (AC-30)', async () => {
+        const id = await insertTestMail({
+          messageId: '<ac20-case4@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          bodyText: 'AC-20 ケース4の本文マーカー',
+        })
+        const keptId = await insertTestPdf({
+          mailMessageId: id,
+          filename: '要綱.pdf',
+          sizeBytes: 100 * 1024,
+        })
+        await insertTestPdf({
+          mailMessageId: id,
+          filename: '名簿.pdf',
+          sizeBytes: 100 * 1024,
+        })
+
+        // Simulates `runManualExtract` re-reading a previously persisted
+        // `tournament_drafts.selected_attachment_ids` and passing it back in
+        // on 「再 AI 抽出」.
+        const outcome = await classifyMail(
+          getDb(),
+          id,
+          new AnthropicExtractor({ apiKey: 'test' }),
+          { selectedAttachmentIds: [keptId] },
+        )
+
+        expect(outcome.kind).toBe('tournament')
+        const content = getAnthropicUserContent()
+        const documentBlocks = content.filter((b) => b.type === 'document')
+        expect(documentBlocks).toHaveLength(1)
+        expect(documentBlocks[0]!.title).toBe('要綱.pdf')
+        const textBlocks = content.filter((b) => b.type === 'text')
+        expect(textBlocks).toHaveLength(1)
+        expect(textBlocks[0]!.text).toContain('AC-20 ケース4の本文マーカー')
+      })
     })
   })
 
@@ -534,7 +955,9 @@ describe('classifier', () => {
         .where(eq(tournamentDrafts.messageId, id))
       expect(drafts).toHaveLength(1)
       expect(drafts[0]!.status).toBe('pending_review')
-      expect(drafts[0]!.confidence).toBe('0.95')
+      // 3.0.0: confidence left the schema; the column stays but is no longer
+      // written (dropping it is an explicit Non-goal).
+      expect(drafts[0]!.confidence).toBeNull()
       expect(drafts[0]!.aiModel).toBe('fixture')
 
       // Mail status follows the draft, AND classification is upgraded to
@@ -546,6 +969,72 @@ describe('classifier', () => {
         .where(eq(mailMessages.id, id))
       expect(mail[0]!.status).toBe('ai_done')
       expect(mail[0]!.classification).toBe('tournament')
+    })
+
+    // 要件 §6:「confidence / superseded_by_draft_id 列は残す。**既存行の値も残す**」。
+    // 3.0.0 は confidence / is_correction / references_subject に書かなくなったが、
+    // upsertDraft の UPDATE がこれらを含んでいると、2.x のドラフトを再抽出した
+    // だけで過去の値が不可逆に消える。
+    it('再抽出で 2.x ドラフトの confidence / is_correction / references_subject を消さない', async () => {
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<legacy-meta-preserved@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+      // 2.x が書いた値を持つ pending_review ドラフト。
+      await testDb.insert(tournamentDrafts).values({
+        messageId: id,
+        status: 'pending_review',
+        confidence: '0.93',
+        isCorrection: true,
+        referencesSubject: '第65回全日本選手権大会のご案内',
+        extractedPayload: {},
+        aiRawResponse: null,
+        promptVersion: '2.1.0',
+        aiModel: 'claude-sonnet-4-6',
+        aiTokensInput: null,
+        aiTokensOutput: null,
+        aiCostUsd: null,
+      })
+
+      const tally = await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+      expect(tally.draftsUpdated).toBe(1)
+
+      const after = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      // 3.0.0 が書く列は更新される。
+      expect(after[0]!.promptVersion).toBe('fixture-1.0')
+      expect(after[0]!.status).toBe('pending_review')
+      // 廃止した3列は**そのまま残る**。
+      expect(after[0]!.confidence).toBe('0.93')
+      expect(after[0]!.isCorrection).toBe(true)
+      expect(after[0]!.referencesSubject).toBe('第65回全日本選手権大会のご案内')
+    })
+
+    it('新規 draft では廃止した3列が DB 既定値になる（AI は値を書かない）', async () => {
+      const payload = await loadPayload('tournament-announcement.expected.json')
+      const id = await insertTestMail({
+        messageId: '<fresh-draft-defaults@example.com>',
+        subject: TOURNAMENT_SUBJECT,
+      })
+
+      await persistOutcome(getDb(), id, {
+        kind: 'tournament',
+        result: buildResultFromPayload(payload),
+      })
+
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, id))
+      expect(drafts[0]!.confidence).toBeNull()
+      expect(drafts[0]!.isCorrection).toBe(false)
+      expect(drafts[0]!.referencesSubject).toBeNull()
     })
 
     it('updates the same draft on a second persist (UNIQUE message_id)', async () => {
@@ -573,10 +1062,10 @@ describe('classifier', () => {
     })
 
     it('upgrades classification=noise on the parent mail when the AI verdict is noise', async () => {
-      const payload = await loadPayload('newsletter.expected.json')
+      const payload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<persist-noise@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
       })
       const outcome: ClassifyOutcome = {
         kind: 'noise',
@@ -645,7 +1134,7 @@ describe('classifier', () => {
       const tournamentPayload = await loadPayload(
         'tournament-announcement.expected.json',
       )
-      const noisePayload = await loadPayload('newsletter.expected.json')
+      const noisePayload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<noise-supersedes@example.com>',
         subject: TOURNAMENT_SUBJECT,
@@ -693,7 +1182,7 @@ describe('classifier', () => {
       // Operator-owned terminal states. Even if AI now says noise, we leave
       // the audit trail intact — flipping `approved` to `superseded` would
       // silently overwrite a human decision.
-      const noisePayload = await loadPayload('newsletter.expected.json')
+      const noisePayload = await loadPayload('tournament-announcement.expected.json')
       const id = await insertTestMail({
         messageId: '<approved-stays@example.com>',
         subject: TOURNAMENT_SUBJECT,
@@ -912,7 +1401,7 @@ describe('classifier', () => {
     it('returns aiSkipped tally and writes nothing when outcome is skipped_noise', async () => {
       const id = await insertTestMail({
         messageId: '<persist-skipped@example.com>',
-        subject: NEWSLETTER_SUBJECT,
+        subject: UNMATCHED_SUBJECT,
         classification: 'noise',
       })
       const outcome: ClassifyOutcome = { kind: 'skipped_noise' }

@@ -23,11 +23,13 @@ import { buildUserPrompt } from '../prompt.js'
  *     model occasionally returns a text explanation instead, which we'd have
  *     to treat as a failure — forcing the tool sidesteps that failure mode.
  *
- *   - **Prompt cache on the system block.** `cache_control: { type:
- *     'ephemeral', ttl: '1h' }` is attached to the system text. The system
- *     prompt is the only stable, large block — the user content varies per
- *     mail, so caching it would never hit. The 1h TTL spans our 30-min cron
- *     interval comfortably; 5m would expire mid-cycle in slow weeks.
+ *   - **No prompt cache.** The pipeline used to attach `cache_control: {
+ *     type: 'ephemeral', ttl: '1h' }` to the system text, back when a cron
+ *     job called this on a batch of mails per run. Now extraction only runs
+ *     when an admin manually clicks "会で流す（AI 抽出）" for one mail at a
+ *     time — a sporadic, single-call pattern. No TTL (5m or 1h) ever sees a
+ *     second hit inside its window, so caching would only pay the write
+ *     premium (1h is 2.0×) and never recoup it via a read discount.
  *
  *   - **PDFs as native `document` blocks, placed BEFORE the text block.**
  *     Anthropic explicitly recommends documents before instructions. The
@@ -50,7 +52,7 @@ const TOOL_NAME = 'record_extraction'
  * had a duplicate `'claude-sonnet-4-6'` literal that drifted out of sync
  * with this constant whenever we bumped the model (review r3 Should fix).
  */
-export const ANTHROPIC_SONNET_46_MODEL_ID = 'claude-sonnet-4-6'
+export const ANTHROPIC_MODEL_ID = 'claude-sonnet-5'
 const DEFAULT_MAX_TOKENS = 4096
 
 /**
@@ -92,7 +94,7 @@ export class LLMValidationError extends LLMExtractorError {
   }
 }
 
-export interface AnthropicSonnet46Opts {
+export interface AnthropicExtractorOpts {
   apiKey: string
   /**
    * Override `max_tokens` on the request. Defaults to 4096 — the
@@ -104,12 +106,12 @@ export interface AnthropicSonnet46Opts {
   maxTokens?: number
 }
 
-export class AnthropicSonnet46Extractor implements LLMExtractor {
+export class AnthropicExtractor implements LLMExtractor {
   private readonly client: Anthropic
   private readonly maxTokens: number
-  readonly modelId: string = ANTHROPIC_SONNET_46_MODEL_ID
+  readonly modelId: string = ANTHROPIC_MODEL_ID
 
-  constructor(opts: AnthropicSonnet46Opts) {
+  constructor(opts: AnthropicExtractorOpts) {
     this.client = new Anthropic({ apiKey: opts.apiKey, maxRetries: 3 })
     this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS
   }
@@ -132,17 +134,20 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
     delete inputSchemaJson.$schema
 
     const response = await this.client.messages.create({
-      model: ANTHROPIC_SONNET_46_MODEL_ID,
+      model: ANTHROPIC_MODEL_ID,
       max_tokens: this.maxTokens,
+      // Sonnet 5 turns adaptive thinking ON when `thinking` is omitted, and
+      // `max_tokens` then caps thinking + output combined — an omitted
+      // `thinking` here would silently truncate `record_extraction`'s
+      // arguments mid-generation. Structured tool-call extraction has no use
+      // for thinking, so it costs nothing to disable it explicitly.
+      thinking: { type: 'disabled' },
       system: [
         {
           type: 'text',
           text: input.systemPrompt,
-          // 1h ephemeral cache. No beta header required — cache_control is
-          // GA on the 2023-06-01 API surface used by the SDK. The system
-          // prompt is the largest stable block in the request, so caching
-          // it cuts ~10× off subsequent calls within the TTL.
-          cache_control: { type: 'ephemeral', ttl: '1h' },
+          // No `cache_control` — see the class doc comment above for why
+          // prompt caching was removed.
         },
       ],
       tools: [
@@ -209,7 +214,7 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
           response.usage.cache_creation_input_tokens ?? 0,
         cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
       }),
-      model: ANTHROPIC_SONNET_46_MODEL_ID,
+      model: ANTHROPIC_MODEL_ID,
       promptVersion: input.promptVersion,
     }
   }
@@ -219,10 +224,6 @@ export class AnthropicSonnet46Extractor implements LLMExtractor {
  * Build the user-message `content` array. PDFs come first as native document
  * blocks (Anthropic recommends documents before instructions); the textual
  * per-mail prompt is appended last as a single text block.
- *
- * The text block deliberately has no `cache_control` — every mail's subject
- * / body is unique, so caching it would never produce a hit and would burn a
- * cache breakpoint (we get 4 total per request).
  */
 function buildUserMessageContent(
   input: LLMExtractionInput,

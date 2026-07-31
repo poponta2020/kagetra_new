@@ -1,4 +1,5 @@
 import {
+  check,
   integer,
   pgTable,
   text,
@@ -15,6 +16,7 @@ import {
   eventKindEnum,
   gradeEnum,
   eventEntryStatusEnum,
+  eventPaymentDeadlineKindEnum,
   eventPaymentTypeEnum,
   eventPaymentStatusEnum,
 } from './enums'
@@ -50,6 +52,13 @@ export const events = pgTable('events', {
   eligibleGrades: gradeEnum('eligible_grades').array(),
   feeJpy: integer('fee_jpy'),
   paymentDeadline: date('payment_deadline', { mode: 'string' }),
+  // mail-ai-extract-refinements: 振込締切の状態。payment_deadline と CHECK で双条件に
+  // 縛ってあるため、**日付と状態は必ず同じ UPDATE / INSERT で揃えて書く**こと
+  // （`normalizePaymentDeadline` を経由すれば自動的に揃う）。既定は unspecified
+  // （＝日付なし）。日付を入れるなら必ず fixed。
+  paymentDeadlineKind: eventPaymentDeadlineKindEnum('payment_deadline_kind')
+    .notNull()
+    .default('unspecified'),
   // entry-notify-lottery-treasurer: 抽選日。NULL=抽選なし（先着・全員参加）。申込完了通知の
   // 参加者向け文面に「抽選日は M/D です」を差し込む。手動入力（AI 抽出は別 follow-up）。
   lotteryDate: date('lottery_date', { mode: 'string' }),
@@ -98,6 +107,13 @@ export const events = pgTable('events', {
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  // mail-ai-extract-refinements: 「日付があること」と「状態が fixed であること」を
+  // 双条件で縛る。承認・編集・伝播のどの経路から書いても矛盾した行が残らないよう、
+  // アプリ側の正規化（`normalizePaymentDeadline`）の最終バックストップにする。
+  check(
+    'events_payment_deadline_kind_consistent',
+    sql`(${table.paymentDeadline} IS NOT NULL) = (${table.paymentDeadlineKind} = 'fixed')`,
+  ),
   // tournament-title-grade-split (review CRITICAL-4): a draft unit (unit_key)
   // materializes into exactly one events row. SELECT-then-INSERT in
   // approveDraftUnits is not concurrency-safe on its own (a double-submit or

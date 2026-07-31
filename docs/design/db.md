@@ -37,6 +37,7 @@
 | event_entry_status | eventEntryStatusEnum | not_applied, applied, not_applying |
 | event_payment_type | eventPaymentTypeEnum | advance, onsite |
 | event_payment_status | eventPaymentStatusEnum | unpaid, paid |
+| event_payment_deadline_kind | eventPaymentDeadlineKindEnum | fixed, later_notice, unspecified |
 | event_lifecycle_notification_type | eventLifecycleNotificationTypeEnum | entry_applied, entry_deadline_advance, entry_deadline_day, payment_paid, payment_deadline_advance, payment_deadline_day, onsite_payment_advance, onsite_payment_day, entry_applied_treasurer |
 | event_lifecycle_notification_status | eventLifecycleNotificationStatusEnum | sent, failed, skipped |
 | mail_triage_status | mailTriageStatusEnum | unprocessed, processed |

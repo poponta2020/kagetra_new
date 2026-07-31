@@ -15,6 +15,7 @@ const baseProps = (
   feeJpy: null,
   entryDeadline: null,
   paymentDeadline: null,
+  paymentDeadlineKind: 'unspecified',
   entryMethod: null,
   paymentMethod: null,
   paymentInfo: null,
@@ -154,6 +155,51 @@ describe('EventLifecycleSection — AC-11: 支払トグル内のフィールド'
     expect(screen.queryByText('支払締切')).toBeNull()
     expect(screen.queryByText('支払方法')).toBeNull()
     expect(screen.queryByText('振込先')).toBeNull()
+  })
+
+  // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-44): 振込締切の状態を日本語で表示する。
+  describe('AC-44: 振込締切の状態表示', () => {
+    it('paymentDeadline が null で paymentDeadlineKind=later_notice なら「支払締切: 後日連絡」の行が出る', () => {
+      const { container } = render(
+        <EventLifecycleSection
+          {...baseProps({
+            paymentDeadline: null,
+            paymentDeadlineKind: 'later_notice',
+          })}
+        />,
+      )
+      openAllDetails(container)
+      expect(screen.getByText('支払締切')).toBeTruthy()
+      expect(screen.getByText('後日連絡')).toBeTruthy()
+    })
+
+    it('paymentDeadline が null で paymentDeadlineKind=unspecified なら行を出さない（情報が無いだけ）', () => {
+      const { container } = render(
+        <EventLifecycleSection
+          {...baseProps({
+            paymentDeadline: null,
+            paymentDeadlineKind: 'unspecified',
+          })}
+        />,
+      )
+      openAllDetails(container)
+      expect(screen.queryByText('支払締切')).toBeNull()
+    })
+
+    it('paymentDeadline に日付があれば paymentDeadlineKind に関わらず日付を表示する（fixed の回帰）', () => {
+      const { container } = render(
+        <EventLifecycleSection
+          {...baseProps({
+            paymentDeadline: '2026-08-20',
+            paymentDeadlineKind: 'fixed',
+          })}
+        />,
+      )
+      openAllDetails(container)
+      expect(screen.getByText('支払締切')).toBeTruthy()
+      expect(screen.getByText('8/20(木)')).toBeTruthy()
+      expect(screen.queryByText('後日連絡')).toBeNull()
+    })
   })
 
   it('entryMethod が null のとき申込方法の行が出ない', () => {

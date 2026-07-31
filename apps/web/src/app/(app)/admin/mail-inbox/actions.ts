@@ -61,8 +61,12 @@ import {
   classifyMail,
   persistOutcome,
 } from '@kagetra/mail-worker/classify/classifier'
-import { AnthropicSonnet46Extractor } from '@kagetra/mail-worker/classify/llm/anthropic'
-import { loadLlmConfig } from '@kagetra/mail-worker/config'
+import { AnthropicExtractor } from '@kagetra/mail-worker/classify/llm/anthropic'
+import { loadCostGuardConfig, loadLlmConfig } from '@kagetra/mail-worker/config'
+import {
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+  exceededAttachmentTotalBytes,
+} from '@kagetra/mail-worker/classify/attachment-budget'
 
 // Set of statuses still subject to operator action. `approved`, `rejected`,
 // and `superseded` are terminal: any further mutation would corrupt review
@@ -958,12 +962,87 @@ export async function rejectDraft(draftId: number, formData: FormData) {
   revalidatePath(`/admin/mail-inbox/${draftId}`)
 }
 
-export async function reextractDraft(draftId: number) {
+/**
+ * 「AI に渡す添付」の選択をサーバー側で検証し、正規化した id 配列を返す
+ * （mail-ai-extract-refinements §3.2.4 / AC-32）。
+ *
+ * UI（AIExtractConfirmDialog）は上限超過の添付をチェック不可にするが、**UI を
+ * 経由しない直叩き・多重タブ・古いページからの送信は防げない**ので、ここが正。
+ * 拒否する2種類:
+ *
+ *   1. **当該メールに属さない添付 id** — 他メールの添付を AI に読ませられるのは
+ *      情報漏洩なので、必ず `mail_message_id` で絞ったクエリで存在確認する
+ *      （要件 §6 セキュリティ・権限）。id の集合演算だけで済ませない
+ *   2. **サイズ上限超過の PDF** — classifier 側の `oversize_skipped` ガードに
+ *      落ちると抽出そのものが行われないため、選択の時点で理由付きで弾く
+ *
+ * 呼び出し側の tx（FOR UPDATE 中）から呼ぶこと。多重起動ガードを弱めないため。
+ * `undefined` は「選択 UI を通っていない呼び出し」＝未指定として扱い、`null` を
+ * 返す（列も NULL のままになり、classifier は従来どおり全添付を送る）。
+ */
+async function validateAttachmentSelection(
+  tx: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0],
+  mailId: number,
+  selectedAttachmentIds: number[] | undefined,
+): Promise<number[] | null> {
+  if (selectedAttachmentIds === undefined) return null
+  const unique = Array.from(new Set(selectedAttachmentIds)).sort((a, b) => a - b)
+  if (unique.length === 0) return []
+
+  const rows = await tx
+    .select({
+      id: mailAttachments.id,
+      filename: mailAttachments.filename,
+      contentType: mailAttachments.contentType,
+      sizeBytes: mailAttachments.sizeBytes,
+    })
+    .from(mailAttachments)
+    .where(
+      and(
+        inArray(mailAttachments.id, unique),
+        // ★ 当該メールへの所属をサーバー側で検証する（他メールの添付を弾く）
+        eq(mailAttachments.mailMessageId, mailId),
+      ),
+    )
+  if (rows.length !== unique.length) {
+    throw new Error('選択された添付が見つかりません。画面を再読み込みしてください')
+  }
+
+  const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
+  if (limitKb > 0) {
+    const limitBytes = limitKb * 1024
+    const oversize = rows.find(
+      (r) => r.contentType === 'application/pdf' && r.sizeBytes > limitBytes,
+    )
+    if (oversize) {
+      throw new Error(
+        `サイズ上限を超える添付は AI に渡せません: ${oversize.filename}`,
+      )
+    }
+  }
+
+  // 3. **合計サイズ**（要件 §6）— 1件ごとの上限を通っても、複数選べば合計は
+  //    Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+  //    超えたリクエストは 413 で確実に失敗するので、選択の時点で弾く。
+  const totalOver = exceededAttachmentTotalBytes(rows)
+  if (totalOver !== null) {
+    throw new Error(
+      `選択した添付の合計サイズが上限（${Math.floor(ATTACHMENT_TOTAL_LIMIT_BYTES / 1024 / 1024)}MB）を超えています（合計 ${(totalOver / 1024 / 1024).toFixed(1)}MB）。添付を減らしてください`,
+    )
+  }
+
+  return unique
+}
+
+export async function reextractDraft(
+  draftId: number,
+  selectedAttachmentIds?: number[],
+) {
   await requireAdminSession()
 
   const draft = await db.query.tournamentDrafts.findFirst({
     where: eq(tournamentDrafts.id, draftId),
-    columns: { messageId: true, status: true },
+    columns: { messageId: true, status: true, selectedAttachmentIds: true },
   })
   if (!draft) throw new Error('draft not found')
   // persistOutcome (called below) rewrites status / extracted_payload via
@@ -992,9 +1071,44 @@ export async function reextractDraft(draftId: number) {
     throw new Error('既にイベントが作成済みのため再抽出できません')
   }
 
+  // 添付選択（AC-31）。ダイアログから新しい選択が来ていればそれを検証して使い、
+  // 来ていなければ前回の選択（列の値）をそのまま踏襲する。列が NULL のままなら
+  // 未指定＝全添付という従来の挙動になる。
+  //
+  // この経路は `runManualExtract` を通らず classifyMail を**直接**呼ぶので、
+  // pipeline 側の読み出しには乗らない。ここで明示的に渡さないと再抽出だけ
+  // 全添付送信に戻る（無言で AC-31 が死ぬ）。
+  const nextSelection = await validateAttachmentSelection(
+    db,
+    draft.messageId,
+    selectedAttachmentIds,
+  )
+  const effectiveSelection = nextSelection ?? draft.selectedAttachmentIds
+
   const cfg = loadLlmConfig()
-  const llm = new AnthropicSonnet46Extractor({ apiKey: cfg.anthropicApiKey })
-  const outcome = await classifyMail(db, draft.messageId, llm, { force: true })
+  const llm = new AnthropicExtractor({ apiKey: cfg.anthropicApiKey })
+  const outcome = await classifyMail(db, draft.messageId, llm, {
+    force: true,
+    selectedAttachmentIds: effectiveSelection,
+  })
+
+  // 抽出そのものが行われなかった経路は、**成功として返さない**。
+  //
+  // `persistOutcome` はこれらの kind で draft を触らないので、そのまま先へ進むと
+  // 「古い payload が pending_review のまま」＋「新しい選択だけ保存済み」という
+  // 状態になり、管理者が新しい抽出結果だと誤認して古い内容を承認できてしまう
+  // （cron 経路は pipeline.ts の強制終端が拾うが、この直叩き経路は通らない）。
+  // ここで throw すれば tx に入る前なので選択も保存されず、draft も mail 状態も
+  // 一切変わらない。ダイアログには理由がそのまま出る。
+  if (outcome.kind === 'oversize_skipped') {
+    throw new Error(
+      `サイズ上限を超えるため AI へ送れませんでした（${outcome.filename}）。添付を減らして再実行してください`,
+    )
+  }
+  if (outcome.kind === 'skipped_noise') {
+    // force:true では起こらないはずだが、黙って成功扱いにしない。
+    throw new Error('pre-filter によりスキップされました（再抽出は行われていません）')
+  }
 
   // r5 blocker: classifyMail の LLM ラウンドトリップはロックなしで走るため、その間に
   // 並行 approveDraftUnits が events を materialize（場合により draft を finalize）し得る。
@@ -1026,6 +1140,14 @@ export async function reextractDraft(draftId: number) {
       throw new Error('既にイベントが作成済みのため再抽出できません')
     }
     await persistOutcome(tx, draft.messageId, outcome)
+    // 選択の永続化は persistOutcome の後（upsertDraft が同じ行を書き換えるため）。
+    // 次回の「再 AI 抽出」がこの値を初期値として復元する（AC-31）。
+    if (nextSelection !== null) {
+      await tx
+        .update(tournamentDrafts)
+        .set({ selectedAttachmentIds: nextSelection, updatedAt: sql`now()` })
+        .where(eq(tournamentDrafts.id, draftId))
+    }
   })
 
   revalidatePath('/admin/mail-inbox')
@@ -1262,6 +1384,7 @@ export async function undoTriage(mailId: number) {
  */
 export async function triggerExtractDraft(
   mailId: number,
+  selectedAttachmentIds?: number[],
 ): Promise<
   | { ok: true; draftId: number; jobId: number }
   | { ok: false; error: string }
@@ -1293,6 +1416,17 @@ export async function triggerExtractDraft(
         throw new Error('既存イベントに紐付け済みのメールです')
       }
 
+      // 添付選択の検証（AC-32）。**ジョブを積む前**にやる。ワーカーは
+      // `tournament_drafts.selected_attachment_ids` を実行時に読むので、
+      // 書き込みがジョブより後になると NULL を読んで全添付を送ってしまい、
+      // エラーも出ないまま機能が死ぬ。この tx（mail を FOR UPDATE 済）の中で
+      // 検証 → draft 行へ書き込み → ジョブ enqueue の順を守る。
+      const selection = await validateAttachmentSelection(
+        tx,
+        mailId,
+        selectedAttachmentIds,
+      )
+
       // FOR UPDATE で並行 trigger と直列化（実害は少ないが UPSERT 競合を避ける）。
       const existing = await tx
         .select({
@@ -1313,6 +1447,7 @@ export async function triggerExtractDraft(
             extractedPayload: sql`'{}'::jsonb`,
             promptVersion: '',
             aiModel: '',
+            selectedAttachmentIds: selection,
           })
           .returning({ id: tournamentDrafts.id })
         draftId = inserted[0]!.id
@@ -1338,11 +1473,14 @@ export async function triggerExtractDraft(
             extractedPayload: sql`'{}'::jsonb`,
             promptVersion: '',
             aiModel: '',
-            confidence: null,
+            // confidence / is_correction / references_subject は 3.0.0 で AI が書かなく
+            // なった列。**既存行の値を消さない**ため、ここでもリセットしない（要件 §6）。
             aiRawResponse: null,
             aiTokensInput: null,
             aiTokensOutput: null,
             aiCostUsd: null,
+            // 未指定（選択 UI を通っていない呼び出し）なら前回値を残す。
+            ...(selection !== null ? { selectedAttachmentIds: selection } : {}),
             updatedAt: sql`now()`,
           })
           .where(eq(tournamentDrafts.id, cur.id))

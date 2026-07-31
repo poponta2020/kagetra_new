@@ -61,6 +61,9 @@ export default async function EntryManagementPage() {
       internalDeadline: events.internalDeadline,
       entryDeadline: events.entryDeadline,
       paymentDeadline: events.paymentDeadline,
+      // mail-ai-extract-refinements §3.2.7 (AC-42): payment_deadline が null の
+      // ときに「後日連絡」と「締切未設定」を出し分けるための状態。
+      paymentDeadlineKind: events.paymentDeadlineKind,
       lotteryDate: events.lotteryDate,
       entryStatus: events.entryStatus,
       paymentType: events.paymentType,
@@ -243,6 +246,7 @@ export default async function EntryManagementPage() {
       internalDeadline: e.internalDeadline,
       entryDeadline: e.entryDeadline,
       paymentDeadline: e.paymentDeadline,
+      paymentDeadlineKind: e.paymentDeadlineKind,
       lotteryDate: e.lotteryDate,
       entryStatus: e.entryStatus,
       paymentType: e.paymentType,

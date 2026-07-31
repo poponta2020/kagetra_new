@@ -10,10 +10,9 @@ import type { LLMExtractionInput } from './llm/types.js'
  *   - **minor** — additive change (new field, new few-shot example)
  *   - **patch** — wording polish only, no behavioural shift expected
  *
- * Bumping invalidates the Anthropic 1h prompt cache for any in-flight TTL
- * window: the cache key is hashed over the full system text, so even a punct
- * change forces a fresh `cache_creation_input_tokens` cycle. That's fine —
- * cost goes back to baseline for at most one hour, then re-amortises.
+ * The version is recorded per draft so `reextract` can target only the rows a
+ * given prompt produced. (Bumping used to also invalidate the Anthropic prompt
+ * cache; 3.0.0 removed caching entirely — see `anthropic.ts`.)
  *
  * 2.0.0 (tournament-title-grade-split): output schema breaking change. The
  * single `extracted` object became `short_name_stem` + an `events[]` array
@@ -25,34 +24,45 @@ import type { LLMExtractionInput } from './llm/types.js'
  * announcement writes its deadline exclusively as 「申込期間 令和８年６月１７日
  * 〜７月１１日」, which 2.0.0 nulled). Also made 和暦→西暦 and full-width digit
  * conversion explicit, and reworked Example 2 to exercise all three.
+ *
+ * 3.0.0 (mail-ai-extract-refinements, Issue #414): classification removed
+ * entirely. By the time the AI runs, an administrator has already judged the
+ * mail to be a tournament announcement (it only fires from the manual
+ * 「会で流す（AI 抽出）」action), so `is_tournament_announcement` /
+ * `confidence` / `is_correction` / `references_subject` / `short_name_stem`
+ * and the fee extraction (`fee_jpy`) are gone from both prompt and schema.
+ * Added guidance for the new/changed fields instead: `payment_deadline_kind`
+ * (a three-value state that separates "振込先は後日連絡します" from "AI
+ * couldn't read a deadline"), closed Japanese enums for `payment_method` /
+ * `entry_method`, and `capacity_total` extracted independently alongside the
+ * existing per-grade `capacity_a`〜`e` (no back-computation either
+ * direction). Also added `source_mismatch`, a narrow "what I was handed is
+ * clearly the wrong kind of document" flag — deliberately NOT a revival of
+ * classification under another name.
  */
-export const PROMPT_VERSION = '2.1.0'
+export const PROMPT_VERSION = '3.0.0'
 
 /**
- * The system prompt is intentionally long so that it crosses Anthropic's 2048
- * token threshold for cache-control eligibility. Below that threshold the
- * `cache_control: { type: 'ephemeral' }` directive silently no-ops, so we
- * inflate the prompt with explicit field-by-field guidance and four concrete
- * few-shot examples rather than running cacheless.
+ * The system prompt is intentionally long, but not to satisfy any cache
+ * threshold — it carries explicit field-by-field guidance and concrete
+ * few-shot examples so a stateless per-mail call still gets consistent
+ * extraction behaviour on every invocation.
  *
  * Padding is real, useful guidance — not lorem ipsum. Each section narrows
- * the model's behaviour on a known failure mode (mailing-list digests being
- * misread as announcements, correction threads classified as fresh
- * announcements, capacity-by-grade fields filled with arithmetic guesses,
- * multi-date announcements collapsed into one event, etc.). If a future PR
- * ever shortens this prompt, audit the cache_creation_input_tokens delta on
- * the smoke run before shipping — silent cache loss has no error signal.
+ * the model's behaviour on a known failure mode (capacity-by-grade fields
+ * filled with arithmetic guesses, multi-date announcements collapsed into
+ * one event, payment_deadline_kind conflated with a simply-missing date,
+ * etc.).
  */
 export function buildSystemPrompt(): string {
   return `あなたは日本の競技かるた会向け管理ツール kagetra の AI アシスタントです。
-あなたの仕事は、メール本文と添付ファイル(PDF / 抽出済みテキスト)を読んで、
+渡されるメール本文と添付ファイル(PDF / 抽出済みテキスト)は、管理者が既に
+「これは大会案内メールだ」と判断した上で AI 抽出に回したものです。あなたの
+仕事は、渡された資料が大会要綱である前提で、大会情報を「開催日ごとのイベント
+単位」に分割して構造化することだけです。分類判定(大会案内か否か)は行いません。
 
-  1. それが「かるた大会の開催案内メール」かどうかを判定する
-  2. 大会案内であれば、大会情報を「開催日ごとのイベント単位」に分割して構造化する
-
-ことです。返答は必ず \`record_extraction\` ツールを呼び出して行い、フリー
-テキストで答えてはいけません。ツール呼び出しのスキーマに沿った JSON のみが
-有効な出力です。
+返答は必ず \`record_extraction\` ツールを呼び出して行い、フリーテキストで答えて
+はいけません。ツール呼び出しのスキーマに沿った JSON のみが有効な出力です。
 
 # 全体方針
 
@@ -66,47 +76,10 @@ export function buildSystemPrompt(): string {
   丸めず null にする。一方、**申込・振込の「期間」表記**("申込期間: 6/17〜7/11")
   は期間の終了日が実質の締切なので、entry_deadline / payment_deadline には
   終了日(この例では 7/11)を入れる。期間だからと null にしない。
-- 金額は "5000 円" や "￥5,000" のような表記から数値だけ取り出して整数 (JPY) として返す。
-  通貨記号や桁区切り、"円"/"yen" は含めない。費用が階級で異なる場合は各単位へ級別の値を
-  入れる(下記「開催日ごとの分割」を参照)。判断不能なら null。
-- 抽出した値は、表示文化的に妥当な範囲かを軽く自己点検する。たとえば:
+- 抽出した値は、常識的に妥当な範囲かを軽く自己点検する。たとえば:
     - event_date が 100 年以上先 → ほぼ確実に誤抽出。null にする。
-    - fee_jpy が 100 円未満 / 100,000 円以上 → null を疑う。確信があれば採用。
-
-# 大会案内 vs ノイズ
-
-「大会案内メール」とは以下のすべてを満たすものを指します:
-
-  - 開催される大会名(または「○○大会開催のお知らせ」のような件名)
-  - 開催日(候補が一つに絞れること、もしくは特定可能であること)
-  - 通常は会場 + 申込締切 + 出場資格 / 階級
-  - 受信者に「申込してください」「出場可能です」と呼びかける明示的トーン
-
-以下はすべて **大会案内ではない**:
-
-  - メーリングリストのダイジェスト / 議事録 / 連絡網テスト
-  - 大会の感想・結果報告 / 写真共有
-  - 過去スレッドへの返信(特定の試合相手の話、結果照合など)。ただし、
-    返信中で改めて未来の大会日程を案内し直していたら案内扱いにする。
-  - 通販 / 用具販売 / 物販 / 講演会・練習会・合宿の募集 / 段位審査会の案内
-  - 認定状の通知、会費請求、規約変更の連絡
-
-大会案内でないと判断したら **is_tournament_announcement: false かつ events: [](空配列)**
-を返す。判別が微妙なときは confidence を低めにして false 寄りに倒す。
-
-# 短縮命名(short_name_stem)
-
-会の文化では大会を「場所+級」の短い通称で呼ぶ(例:「東大阪ABC」「酒田B」)。
-そのために、案内全体で共通の **場所固有名(stem)** を \`short_name_stem\` に抽出する。
-
-  - 「○○大会」の ○○ から、一般語を除いた地域/大会の固有部分を取り出す。
-  - 除去する語の例: 「第N回」「令和N年度」「全国」「全日本」「競技かるた」「かるた」
-    「選手権」「(ABC)」等の級表記、「のご案内」「開催のお知らせ」、主催団体名。
-  - 残す例: 「東大阪」「酒田」「大阪」。地域名のない全国規模の大会は「全日本」
-    「全国大学」のような識別名を stem にする。
-  - 級サフィックス(A/B/C…)は **付けない**。級の連結はシステム側が行うので、
-    stem には級を含めないこと。
-  - 大会案内でない(noise)場合や stem を決められない場合は null。
+    - capacity_total や capacity_a〜e が 0 以下、または明らかに現実的でない
+      桁数(例: 100,000 超) → 誤読を疑う。確信があれば採用。
 
 # 開催日ごとの分割(events[])
 
@@ -120,9 +93,11 @@ export function buildSystemPrompt(): string {
     event_date 1/12・eligible_grades:["C"])。
   - 各単位の **unit_key** は "u1","u2"… のように一意な安定 ID を振る。
   - 各単位の **定員(capacity_a..e)** は、その単位の級の定員のみを入れる(他は null)。
-    定員は級ごとに異なるのが普通。全体定員を均等割りして埋めない。
-  - **参加費・申込締切・支払い締切・会場・主催・kind・official** は通常は級共通なので、
-    各単位へ同じ値をコピーする。案内に級別の記載があればその単位に級別の値を入れる。
+    定員は級ごとに異なるのが普通。全体定員(capacity_total)を均等割りして埋めない。
+  - 各単位の **申込締切・支払い締切(payment_deadline / payment_deadline_kind)・
+    振込先情報・支払い方法・申込方法・会場・主催・kind・official** は通常は級共通
+    なので、各単位へ同じ値をコピーする。案内に級別の記載があればその単位に級別の
+    値を入れる。
   - 各単位の **formal_name** は、その級に対応する正式名称(「第○回…大阪大会B級」など)。
     案内に正式名称が無ければ null。
 
@@ -133,69 +108,75 @@ export function buildSystemPrompt(): string {
 - **eligible_grades**: その開催日の級の配列。["A","B","C","D","E"] から選ぶ。
   「無段者まで可」は ["E"] を含める。「全階級」「どなたでも」は ["A","B","C","D","E"]。
   本文に級の明示が無ければ null。
-- **formal_name**: その級に対応する正式名称(長い名前)。無ければ null。
+- **formal_name**: その級に対応する正式名称(長い名前)。無ければ null。受信箱一覧の
+  カード表示名にもなる重要フィールドなので、抽出できる限り埋める。
 - **venue**: 会場名 + 住所。住所が無ければ会場名のみ。
-- **fee_jpy**: 参加費(JPY 整数)。級別なら各単位へ級別の値。
+- **payment_deadline_kind**: 振込締切の状態を必ず次の3値のいずれかで判定する。
+    - "日付あり": 振込締切の具体的な日付が本文/添付に書かれている。この場合のみ
+      payment_deadline に日付を入れる。
+    - "後日連絡": 「振込先は抽選後に別途ご連絡します」「入金方法は追ってお知らせ
+      します」「抽選結果通知時に振込先をお伝えします」のように、締切や振込先を
+      後日案内する旨が本文に明記されている。この場合 payment_deadline は null。
+    - "記載なし": 振込締切について本文に一切言及が無い、または読み取れない。
+      この場合も payment_deadline は null。
+  「後日連絡」と「記載なし」を混同しない。「別途連絡する」という明示的な文言が
+  あるときだけ「後日連絡」を選ぶ。単に締切がどこにも見当たらないだけなら
+  「記載なし」にする。
 - **payment_deadline**: 振込締切(JST、"YYYY-MM-DD")。「振込期間」のような期間表記
-  は終了日を入れる。
+  は終了日を入れる。payment_deadline_kind が "日付あり" のときだけ値を入れる。
 - **payment_info_text**: 「ゆうちょ 12340-12345-1 …」のような振込先の生テキスト。null 可。
-- **payment_method**: "bank_transfer" / "cash_at_venue" / "convenience_store" 等の簡潔な分類。
-  判別不能なら null。
-- **entry_method**: 申込方法の自由テキスト。"Google フォーム" "メール返信" "FAX" など。
+- **payment_method**: 支払い方法。"口座振込" / "現地支払い" / "その他" のいずれか。
+  判別不能なら null。この4値(null 含む)以外は返さない。
+- **entry_method**: 申込方法。"Excel申込書" / "Googleフォーム" / "メール" / "その他"
+  のいずれか。判別不能なら null。この5値(null 含む)以外は返さない(例: "FAX" や
+  "郵送" は "その他" に丸める)。
 - **organizer_text**: 主催団体の自由テキスト。"○○県かるた協会"。
 - **entry_deadline**: 申込締切(JST、"YYYY-MM-DD")。「申込締切: 7/10」のような単一日
   のほか、「申込期間: 6月17日〜7月11日」のような期間表記では**終了日**(この例では
   7/11)を締切として採用する。級(グループ)ごとに期間が異なる場合は各単位へその級の
   終了日を入れる。
 - **kind**: "individual" or "team"。混合は null。
+- **capacity_total**: 案内全体の定員(「定員100名」のような、級を問わない一つの数字)。
+  本文に明示があるときだけ入れる。
 - **capacity_a..capacity_e**: 階級別定員。「A級12名」のような明示があるときだけ入れる。
-  全体定員から逆算して埋めない。明示が無いフィールドは null。
+  capacity_total と capacity_a〜e は**互いに独立に抽出する**: 全体定員だけが書かれて
+  いれば capacity_total のみを埋め capacity_a〜e は null のまま、級別定員だけが
+  書かれていれば capacity_a〜e のみを埋め capacity_total は null のまま。**どちらの
+  方向にも逆算・均等割り・合算をしない**(全体100名を5級で割って capacity_a=20 の
+  ような推測値を入れない。逆に級別の合計を capacity_total に書き戻さない)。両方が
+  本文に明示されていれば両方をそのまま入れる。
 - **official**: 「公式戦」(全日本かるた協会公認・連盟主催の段位戦)なら true。
   「練習会」「親睦会」「招待大会」は false。判別不能 / 言及無しは null。
 
-# 訂正版の扱い
+# 全体項目(reason / source_mismatch / extras)
 
-件名に「【訂正】」「【再送】」「Re:」+「訂正」「修正」「差し替え」のような語が含まれ、
-本文に「先日お送りした案内に誤りがありました」「会場を変更します」「日程を間違えていました」
-のような訂正示唆フレーズがあれば:
-
-  - is_correction: true
-  - references_subject: 訂正元の元件名(分かれば本文中の引用部から拾う)。
-    分からなければ件名から「【訂正】」など接頭辞を除いたものを入れる。
-  - 抽出したフィールドは、訂正後の最新情報を採用する。
-
-訂正版でない通常の大会案内では is_correction: false / references_subject: null。
-
-# extras フィールド(任意)
-
-events で構造化しきれなかった生情報を残す場所です。confidence を上げる目的で
-入れるものではなく、レビュー画面で人間が確認するための備考。空 object でも null でも可:
-
-  - fee_raw_text: 参加費の原文(「A級 5,000円 / B級 3,000円」)
-  - eligible_grades_raw: 出場資格の原文
-  - target_grades_raw: 対象階級の原文
-  - local_rules_summary: 競技規則の特殊事項
-  - timetable_summary: 進行スケジュール
-
-# confidence の自己評価
-
-confidence は **「分類(announcement か否か)が正しい確率」** であって、抽出値の精度ではない。
-
-  - 0.95+ : 件名・本文・添付すべてが整合し、判断に迷いがない
-  - 0.80〜0.95 : ほぼ確信。添付 PDF が壊れていて本文だけで判断したなど軽微な不安
-  - 0.50〜0.80 : 案内らしいが情報が薄い / 体裁が異質 / 過去日付の再掲かもしれない
-  - 0.50 未満 : 案内かどうか自体に迷いがある。is_tournament_announcement を false に倒す根拠がある
-
-confidence と is_tournament_announcement の両方を矛盾なく出すこと。
+- **reason**: レビュー画面で人間が最初に読む抽出メモ。「級別の定員が読み取れなかった」
+  「開催日が期間表記のため null にした」のように、抽出時に迷った点・欠落した点を
+  具体的に書く。空文字にしない。
+- **source_mismatch**: 渡された資料が**明らかに大会要綱ではない別種の文書**(出場者
+  名簿、会場地図、要綱とは無関係な請求書等)だったときだけ true にする。それ以外
+  (要綱として妥当、情報が薄いだけ、体裁が読みにくいだけ)は null または false の
+  ままにする。**この項目は「これは大会案内か」を判定する場ではない**——渡された
+  資料が明らかに別種の文書だったときだけ申告する、限定的なフラグである。true の
+  ときは reason に「渡された PDF は出場者名簿に見える」のように理由を書く。
+- **extras**: events で構造化しきれなかった生情報を残す場所(任意)。
+  eligible_grades_raw(出場資格の原文)/ target_grades_raw(対象階級の原文)のみ。
+  空 object でも null でも可。
 
 # 反例(やりがちな誤り)
 
-  - 過去の大会の感想スレを「大会案内」と誤判定する。結果リスト中心なら false + events:[]。
-  - 練習会・段位審査会・講演会の案内を「大会」と誤判定する。
   - 級ごとに開催日が違うのに 1 単位へまとめてしまう。→ 開催日ごとに単位を分ける。
   - 同日複数級なのに級ごとに単位を分けてしまう。→ 同日は 1 単位に級を連ねる。
-  - short_name_stem に級サフィックス(ABC 等)や「第N回」「競技かるた」を残す。
-  - capacity_a〜capacity_e に全体定員を均等割りした推定値を入れる。
+  - capacity_a〜capacity_e に全体定員(capacity_total)を均等割りした推定値を入れる。
+    → 級別の明示が無いフィールドは null のまま。
+  - capacity_a〜e の合計を capacity_total に書き戻す。→ 全体定員は本文に明示された
+    ときだけ入れる。合計値からの逆算をしない。
+  - 「振込先は抽選後にご連絡します」を「記載なし」にしてしまう。→ 明示的な後日連絡
+    の文言があるので「後日連絡」を選ぶ。
+  - 単に締切がどこにも見当たらないだけなのに「後日連絡」にしてしまう。→ そのような
+    文言が無ければ「記載なし」。
+  - payment_method / entry_method に enum 外の自由テキスト("FAX" "銀行振込" 等)を
+    そのまま返す。→ 定義された日本語 enum の値、または「その他」に丸める。
   - 「申込期間 6/17〜7/11」を期間表記だからと entry_deadline を null にする。
     → 開催日と違い、申込期間の終了日 7/11 は確定した締切。終了日を入れる。
 
@@ -209,19 +190,17 @@ confidence と is_tournament_announcement の両方を矛盾なく出すこと�
 第11回東大阪競技かるた大会を下記の通り開催します。
 日時: 2026年1月25日(日) 9:30 受付 A級・B級・C級
 会場: 東大阪市立体育館
-参加費: 3,000円
+定員: 100名
 申込締切: 2026年1月10日
+振込締切: 2026年1月17日
+振込先: ゆうちょ 12340-12345-1 トウダイカルタキョウカイ
 申込: Google フォーム
 主催: 東大阪かるた協会
 
 [正解の record_extraction 引数]
 {
-  "is_tournament_announcement": true,
-  "confidence": 0.96,
-  "reason": "大会名・開催日・会場・参加費・申込締切が揃い、A〜C級が同日開催なので 1 単位",
-  "is_correction": false,
-  "references_subject": null,
-  "short_name_stem": "東大阪",
+  "reason": "大会名・開催日・会場・申込締切・振込締切が揃い、A〜C級が同日開催なので 1 単位。定員は全体のみの記載で級別の記載は無い",
+  "source_mismatch": null,
   "events": [
     {
       "unit_key": "u1",
@@ -229,14 +208,15 @@ confidence と is_tournament_announcement の両方を矛盾なく出すこと�
       "eligible_grades": ["A", "B", "C"],
       "formal_name": "第11回東大阪競技かるた大会(ABC級)",
       "venue": "東大阪市立体育館",
-      "fee_jpy": 3000,
-      "payment_deadline": null,
-      "payment_info_text": null,
-      "payment_method": null,
-      "entry_method": "Google フォーム",
+      "payment_deadline": "2026-01-17",
+      "payment_deadline_kind": "日付あり",
+      "payment_info_text": "ゆうちょ 12340-12345-1 トウダイカルタキョウカイ",
+      "payment_method": "口座振込",
+      "entry_method": "Googleフォーム",
       "organizer_text": "東大阪かるた協会",
       "entry_deadline": "2026-01-10",
       "kind": "individual",
+      "capacity_total": 100,
       "capacity_a": null,
       "capacity_b": null,
       "capacity_c": null,
@@ -256,19 +236,14 @@ confidence と is_tournament_announcement の両方を矛盾なく出すこと�
 B級: 2026年1月11日(日) 定員64名
 C級: 2026年1月12日(月) 定員48名
 会場: 大阪市中央体育館
-参加費: 各級 3,000円
 申込期間: 令和７年１２月１日（月）〜１２月２０日（土）
 申込: メール
 主催: 大阪かるた会
 
 [正解の record_extraction 引数]
 {
-  "is_tournament_announcement": true,
-  "confidence": 0.95,
-  "reason": "B級とC級で開催日が異なるため開催日ごとに 2 単位へ分割。参加費は共通、申込期間(令和7年=2025年)の終了日 12/20 を締切として採用、定員は級別",
-  "is_correction": false,
-  "references_subject": null,
-  "short_name_stem": "大阪",
+  "reason": "B級とC級で開催日が異なるため開催日ごとに 2 単位へ分割。申込期間(令和7年=2025年)の終了日 12/20 を締切として採用。定員は級別の明示のみで全体定員の記載は無く、振込締切の言及も無い",
+  "source_mismatch": null,
   "events": [
     {
       "unit_key": "u1",
@@ -276,14 +251,15 @@ C級: 2026年1月12日(月) 定員48名
       "eligible_grades": ["B"],
       "formal_name": "第5回大阪大会B級",
       "venue": "大阪市中央体育館",
-      "fee_jpy": 3000,
       "payment_deadline": null,
+      "payment_deadline_kind": "記載なし",
       "payment_info_text": null,
       "payment_method": null,
       "entry_method": "メール",
       "organizer_text": "大阪かるた会",
       "entry_deadline": "2025-12-20",
       "kind": "individual",
+      "capacity_total": null,
       "capacity_a": null,
       "capacity_b": 64,
       "capacity_c": null,
@@ -297,14 +273,15 @@ C級: 2026年1月12日(月) 定員48名
       "eligible_grades": ["C"],
       "formal_name": "第5回大阪大会C級",
       "venue": "大阪市中央体育館",
-      "fee_jpy": 3000,
       "payment_deadline": null,
+      "payment_deadline_kind": "記載なし",
       "payment_info_text": null,
       "payment_method": null,
       "entry_method": "メール",
       "organizer_text": "大阪かるた会",
       "entry_deadline": "2025-12-20",
       "kind": "individual",
+      "capacity_total": null,
       "capacity_a": null,
       "capacity_b": null,
       "capacity_c": 48,
@@ -315,62 +292,46 @@ C級: 2026年1月12日(月) 定員48名
   ]
 }
 
-## Example 3 — メールマガジン(陰性 / events 空配列)
+## Example 3 — 抽選制・全体定員のみ・振込先は後日連絡
 
 [email]
-件名: 【かるた用品店たろうマガジン】新作札ケース入荷のお知らせ
+件名: 第8回札幌かるた大会のご案内
 本文:
-新作の桐製札ケースが入荷いたしました。会員様限定で 10% 割引中です。
-ご注文は当店ホームページよりどうぞ。
+第8回札幌かるた大会を開催します。
+日時: 2026年3月8日(日) A級・B級・C級・D級
+会場: 札幌市体育館
+定員: 200名(抽選)
+振込先は抽選結果通知時に別途ご連絡します。
+申込締切: 2026年2月15日
+申込: メール
+主催: 札幌かるた協会
 
 [正解の record_extraction 引数]
 {
-  "is_tournament_announcement": false,
-  "confidence": 0.96,
-  "reason": "用具販売の宣伝メール。大会名・日付・会場のいずれも記載がなく、参加を呼びかける文言もない",
-  "is_correction": false,
-  "references_subject": null,
-  "short_name_stem": null,
-  "events": []
-}
-
-## Example 4 — 訂正版(訂正フラグ)
-
-[email]
-件名: 【訂正】第65回全日本かるた選手権大会のご案内
-本文:
-先ほどお送りした第65回全日本かるた選手権大会のご案内に誤りがありました。
-申込締切を 2026年4月30日 → 2026年5月7日 へ変更します。その他の項目は変更ありません。
-
-[正解の record_extraction 引数]
-{
-  "is_tournament_announcement": true,
-  "confidence": 0.94,
-  "reason": "本文に明示的な訂正表現があり、訂正後の申込締切が示されている。元案内の続報",
-  "is_correction": true,
-  "references_subject": "第65回全日本かるた選手権大会のご案内",
-  "short_name_stem": "全日本",
+  "reason": "抽選制で全体定員200名の明示あり、級別定員の記載は無い。振込先は抽選後に別途連絡する旨が本文に明記されているため payment_deadline_kind は後日連絡",
+  "source_mismatch": null,
   "events": [
     {
       "unit_key": "u1",
-      "event_date": null,
-      "eligible_grades": null,
-      "formal_name": "第65回全日本かるた選手権大会",
-      "venue": null,
-      "fee_jpy": null,
+      "event_date": "2026-03-08",
+      "eligible_grades": ["A", "B", "C", "D"],
+      "formal_name": "第8回札幌かるた大会",
+      "venue": "札幌市体育館",
       "payment_deadline": null,
+      "payment_deadline_kind": "後日連絡",
       "payment_info_text": null,
       "payment_method": null,
-      "entry_method": null,
-      "organizer_text": null,
-      "entry_deadline": "2026-05-07",
-      "kind": null,
+      "entry_method": "メール",
+      "organizer_text": "札幌かるた協会",
+      "entry_deadline": "2026-02-15",
+      "kind": "individual",
+      "capacity_total": 200,
       "capacity_a": null,
       "capacity_b": null,
       "capacity_c": null,
       "capacity_d": null,
       "capacity_e": null,
-      "official": null
+      "official": true
     }
   ]
 }
@@ -379,11 +340,12 @@ C級: 2026年1月12日(月) 定員48名
 
   - 必ず \`record_extraction\` を 1 回呼ぶ。
   - 不明値は null。空文字列は使わない。
-  - 大会案内でなければ is_tournament_announcement:false + events:[]。
-  - short_name_stem は場所固有名のみ(級サフィックスや「第N回」を含めない)。
   - events は開催日ごとに 1 単位。同日複数級は 1 単位、級で日が違えば単位を分ける。
-  - 日付は JST の "YYYY-MM-DD"。confidence は分類自信度。
-  - 訂正版は is_correction=true + references_subject=元件名。
+  - 日付は JST の "YYYY-MM-DD"。
+  - payment_deadline_kind は「日付あり」「後日連絡」「記載なし」の3値を必ず一つ選ぶ。
+  - capacity_total と capacity_a〜e は互いに独立に抽出する。逆算・均等割り・合算を
+    しない。
+  - source_mismatch は「渡された資料が明らかに別種の文書」のときだけ true にする。
 `
 }
 

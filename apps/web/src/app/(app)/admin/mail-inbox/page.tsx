@@ -18,9 +18,10 @@ import { UndoTriageButton } from './components/UndoTriageButton'
  * 「処理済み」は最新 20 件を折りたたみで参照表示。既存メールは migration で全件
  * processed 化されるため、未処理を優先取得しないと新着が処理済みの山に埋もれる。
  *
- * 未処理グループの中では従来の tier（要対応 = pending_review かつ confidence>=0.9 /
- * 要確認 = それ未満 / その他）で並べ、各カードに triage クイックアクションと
- * 詳細(mail/[id]) への導線を出す。admin/vice_admin のみ。
+ * mail-ai-extract-refinements タスク10: 未処理グループ内の tier 分け（要対応/要確認/
+ * その他）は廃止し、受信日降順の一本の並びに統一した（`tournament_drafts.confidence`
+ * は書き込みを止め表示もしない。列自体は DROP しない）。各カードに triage
+ * クイックアクションと詳細(mail/[id]) への導線を出す。admin/vice_admin のみ。
  */
 export const dynamic = 'force-dynamic'
 
@@ -87,7 +88,6 @@ const LIST_WITH = {
     columns: {
       id: true,
       status: true,
-      confidence: true,
       isCorrection: true,
       referencesSubject: true,
       extractedPayload: true,
@@ -152,34 +152,7 @@ export default async function MailInboxPage() {
   // 既存のコードフローを保ったまま明示的に絞り込んでおく。
   const unprocessed = activeRows.filter((r) => r.triageStatus === 'unprocessed')
 
-  // 未処理グループ内の tier 分け（従来ロジック）。
-  //   tier 0「要対応」: pending_review かつ confidence >= 0.9
-  //   tier 1「要確認」: pending_review かつ confidence < 0.9 / null
-  //   tier 2「その他」: それ以外（ai_failed / draft 無し等）
-  const buckets: Record<0 | 1 | 2, Row[]> = { 0: [], 1: [], 2: [] }
-  for (const row of unprocessed) {
-    let tier: 0 | 1 | 2 = 2
-    if (row.draft?.status === 'pending_review') {
-      const c = row.draft.confidence
-      const n = c == null || c === '' ? null : Number(c)
-      tier = n !== null && n >= 0.9 ? 0 : 1
-    }
-    buckets[tier].push(row)
-  }
-  const confNum = (row: Row): number => {
-    const c = row.draft?.confidence
-    return c == null || c === '' ? -1 : Number(c)
-  }
-  buckets[0].sort((a, b) => confNum(b) - confNum(a))
-  buckets[1].sort((a, b) => confNum(b) - confNum(a))
-
-  const TIER_META: Record<0 | 1 | 2, { label: string; cardClassName: string }> = {
-    0: { label: '要対応', cardClassName: 'border-l-4 border-l-brand' },
-    1: { label: '要確認', cardClassName: '' },
-    2: { label: 'その他', cardClassName: '' },
-  }
-
-  function renderRow(row: Row, cardClassName = '') {
+  function renderRow(row: Row) {
     const status = STATUS_LABEL[row.status] ?? {
       label: row.status,
       tone: 'neutral' as const,
@@ -188,7 +161,7 @@ export default async function MailInboxPage() {
       ? CLASSIFICATION_LABEL[row.classification]
       : null
     return (
-      <Card key={row.id} className={cardClassName}>
+      <Card key={row.id}>
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-ink-meta">{formatJst(row.receivedAt)}</span>
@@ -327,20 +300,9 @@ export default async function MailInboxPage() {
             </div>
           </Card>
         ) : (
-          ([0, 1, 2] as const).map((tier) => {
-            const items = buckets[tier]
-            if (items.length === 0) return null
-            return (
-              <div key={tier} className="flex flex-col gap-2">
-                <h3 className="text-xs font-semibold text-ink-meta">
-                  {TIER_META[tier].label} ({items.length})
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {items.map((row) => renderRow(row, TIER_META[tier].cardClassName))}
-                </div>
-              </div>
-            )
-          })
+          <div className="flex flex-col gap-2">
+            {unprocessed.map((row) => renderRow(row))}
+          </div>
         )}
       </section>
 

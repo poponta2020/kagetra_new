@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { eq } from 'drizzle-orm'
-import { events } from '@kagetra/shared/schema'
+import { events, mailAttachments } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -23,6 +23,9 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`)
   }),
+  // mail-ai-extract-refinements: 「再 AI 抽出」が client の
+  // AIExtractConfirmDialog を使うようになり、useRouter を要求する。
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }))
 vi.mock('@/auth', () => mockAuthModule())
 
@@ -70,10 +73,10 @@ describe('admin/mail-inbox/[id] page', () => {
     expect(screen.getByText('既存 events に紐付ける')).toBeDefined()
   })
 
-  it('isCorrection=true で references_subject が null でも訂正版警告を表示する', async () => {
-    // PR4 review r3 Should-fix: correction flag persisted on the draft column
-    // must surface a warning even when the AI did not parse a referenced
-    // subject. Otherwise the operator misses the heads-up entirely.
+  // AC-19: 訂正版ヒント（関連ドラフト・関連イベントの ILIKE 検索）は撤去した。
+  // 訂正版の判断は人がやる運用に戻したため、AI 由来のフラグを持つ 2.x の既存
+  // ドラフトを開いてもヒントは出ない（画面自体は壊れない ＝ AC-34）。
+  it('AC-19: 訂正版ヒントが消えている（旧 isCorrection ドラフトでも出ない）', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     const mail = await createMailMessage({ subject: 'correction without ref' })
@@ -117,12 +120,95 @@ describe('admin/mail-inbox/[id] page', () => {
 
     await renderPage(draft.id)
 
-    expect(screen.getByText('⚠ 訂正版の可能性')).toBeDefined()
+    expect(screen.queryByText('⚠ 訂正版の可能性')).toBeNull()
     expect(
-      screen.getByText(
+      screen.queryByText(
         'AI が訂正版と判断しましたが、参照件名は取得できませんでした。',
       ),
+    ).toBeNull()
+    // 承認フォームは通常どおり出る（画面が壊れていない）。
+    expect(screen.getByText('承認フォーム')).toBeDefined()
+  })
+
+  // AC-34: 2.x のドラフトは short_name_stem を保存している。捨てると管理者が
+  // 同じ通称を打ち直すことになるので、通称欄の初期値として引き継ぐ。
+  it('AC-34: 2.x ドラフトの short_name_stem を通称欄の初期値として引き継ぐ', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'legacy stem' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        is_tournament_announcement: true,
+        confidence: 0.9,
+        reason: 'legacy',
+        short_name_stem: '大阪',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    const { container } = await renderPage(draft.id)
+
+    const nickname = screen.getByLabelText('通称') as HTMLInputElement
+    expect(nickname.value).toBe('大阪')
+    // 合成タイトルも初期表示される（打ち直し不要）。
+    const t1 = container.querySelector(
+      'input[name="u1__title"]',
+    ) as HTMLInputElement
+    expect(t1.value).toBe('大阪B')
+  })
+
+  // AC-7: source_mismatch は警告を出すが承認をブロックしない。
+  it('AC-7: source_mismatch=true で警告バナーが出るが承認ボタンは押せる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'wrong document' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        reason: '渡された PDF は出場者名簿に見える',
+        source_mismatch: true,
+        events: [
+          {
+            unit_key: 'u1',
+            event_date: null,
+            eligible_grades: null,
+            formal_name: null,
+            venue: null,
+            payment_deadline: null,
+            payment_deadline_kind: '記載なし',
+            payment_info_text: null,
+            payment_method: null,
+            entry_method: null,
+            organizer_text: null,
+            entry_deadline: null,
+            kind: null,
+            capacity_total: null,
+            capacity_a: null,
+            capacity_b: null,
+            capacity_c: null,
+            capacity_d: null,
+            capacity_e: null,
+            official: null,
+          },
+        ],
+      },
+    })
+
+    await renderPage(draft.id)
+
+    expect(
+      screen.getByText('⚠ 渡した資料が要綱ではない可能性があります'),
     ).toBeDefined()
+    // reason はバナーと「AI 抽出結果」の両方に出るので getAllByText で見る。
+    expect(
+      screen.getAllByText('渡された PDF は出場者名簿に見える').length,
+    ).toBeGreaterThan(0)
+    // ブロックしない: 承認フォームと登録ボタンは通常どおり出る。
+    expect(screen.getByText('承認フォーム')).toBeDefined()
+    expect(screen.getAllByText('このイベントを登録する').length).toBeGreaterThan(0)
   })
 
   it('新形式 events[] の分割案内を N フォームで描画する（未登録のみなら完了ボタンは出さない: r3 blocker）', async () => {
@@ -133,10 +219,7 @@ describe('admin/mail-inbox/[id] page', () => {
       messageId: mail.id,
       status: 'pending_review',
       extractedPayload: {
-        is_tournament_announcement: true,
-        confidence: 0.9,
         reason: 'split',
-        short_name_stem: '大阪',
         events: [
           buildUnit('u1', ['B'], '2031-01-11'),
           buildUnit('u2', ['C'], '2031-01-12'),
@@ -146,15 +229,30 @@ describe('admin/mail-inbox/[id] page', () => {
 
     const { container } = await renderPage(draft.id)
 
-    // Two namespaced title inputs, pre-filled via composeTitle.
     const t1 = container.querySelector(
       'input[name="u1__title"]',
     ) as HTMLInputElement
     const t2 = container.querySelector(
       'input[name="u2__title"]',
     ) as HTMLInputElement
+    // AC-17: 通称が未入力のあいだ合成結果は空（級だけの「B」を出さない）。
+    expect(t1.value).toBe('')
+    expect(t2.value).toBe('')
+
+    // AC-15: 通称を入れると各単位の大会名が composeTitle で合成される。
+    fireEvent.change(screen.getByLabelText('通称'), {
+      target: { value: '大阪' },
+    })
     expect(t1.value).toBe('大阪B')
     expect(t2.value).toBe('大阪C')
+
+    // AC-16: 単位ごとに個別上書きできる。上書きした単位は通称の変更に追随しない。
+    fireEvent.change(t2, { target: { value: '大阪C（会場変更）' } })
+    fireEvent.change(screen.getByLabelText('通称'), {
+      target: { value: '堺' },
+    })
+    expect(t1.value).toBe('堺B')
+    expect(t2.value).toBe('大阪C（会場変更）')
 
     expect(screen.getByText('承認フォーム')).toBeDefined()
     expect(
@@ -244,6 +342,85 @@ describe('admin/mail-inbox/[id] page', () => {
     const link = screen.getByText(new RegExp(`events #${ev.id}`))
     expect(link.closest('a')?.getAttribute('href')).toBe(`/events/${ev.id}`)
   })
+
+
+
+  it('前回の選択がチェック済みで復元され、未選択の添付は未チェックのまま', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'restore selection' })
+
+    const insertPdf = async (filename: string) => {
+      const [att] = await testDb
+        .insert(mailAttachments)
+        .values({
+          mailMessageId: mail.id,
+          filename,
+          contentType: 'application/pdf',
+          sizeBytes: 512,
+          data: Buffer.from([0x25]),
+          extractionStatus: 'pending',
+        })
+        .returning({ id: mailAttachments.id })
+      return att!.id
+    }
+    const keep = await insertPdf('要綱.pdf')
+    await insertPdf('会場地図.pdf')
+
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      selectedAttachmentIds: [keep],
+      extractedPayload: {
+        reason: 'restore',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    await renderPage(draft.id)
+
+    // 「再抽出」ボタンからダイアログを開く。
+    fireEvent.click(screen.getByRole('button', { name: '再抽出' }))
+
+    const keepBox = screen.getByRole('checkbox', {
+      name: '要綱.pdf',
+    }) as HTMLInputElement
+    const otherBox = screen.getByRole('checkbox', {
+      name: '会場地図.pdf',
+    }) as HTMLInputElement
+    expect(keepBox.checked).toBe(true)
+    expect(otherBox.checked).toBe(false)
+  })
+
+  it('選択が NULL（旧データ／未指定）なら全て未チェックで開く', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'null selection' })
+    await testDb.insert(mailAttachments).values({
+      mailMessageId: mail.id,
+      filename: '要綱.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 512,
+      data: Buffer.from([0x25]),
+      extractionStatus: 'pending',
+    })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        reason: 'no selection',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    await renderPage(draft.id)
+    fireEvent.click(screen.getByRole('button', { name: '再抽出' }))
+
+    const box = screen.getByRole('checkbox', {
+      name: '要綱.pdf',
+    }) as HTMLInputElement
+    expect(box.checked).toBe(false)
+  })
 })
 
 /** Minimal EventUnit-shaped object for new-format payload fixtures. */
@@ -258,14 +435,15 @@ function buildUnit(
     eligible_grades: grades,
     formal_name: null,
     venue: null,
-    fee_jpy: null,
     payment_deadline: null,
+    payment_deadline_kind: '記載なし',
     payment_info_text: null,
     payment_method: null,
     entry_method: null,
     organizer_text: null,
     entry_deadline: null,
     kind: null,
+    capacity_total: null,
     capacity_a: null,
     capacity_b: null,
     capacity_c: null,

@@ -34,7 +34,7 @@ vi.mock('@kagetra/mail-worker/classify/classifier', () => ({
   persistOutcome: vi.fn(),
 }))
 vi.mock('@kagetra/mail-worker/classify/llm/anthropic', () => ({
-  AnthropicSonnet46Extractor: class {},
+  AnthropicExtractor: class {},
 }))
 vi.mock('@kagetra/mail-worker/config', () => ({
   loadLlmConfig: () => ({ anthropicApiKey: 'test' }),

@@ -4,7 +4,7 @@ import type { ExtractionPayload } from '../schema.js'
  * Provider-neutral extractor abstraction. Mirrors the `MailSource` interface
  * shape in `apps/mail-worker/src/fetch/fetcher.ts:18-21` — pluggable enough
  * that tests inject `FixtureLLMExtractor` / `BrokenLLMExtractor` while
- * production wires `AnthropicSonnet46Extractor` (added in Phase 3).
+ * production wires `AnthropicExtractor` (added in Phase 3).
  *
  * Anthropic-specific concepts intentionally do NOT leak into this module: no
  * `Anthropic.*` types, no `tool_use` block references. Token-side fields
@@ -23,10 +23,15 @@ export interface LLMExtractionInput {
    * material is passed as plain text already extracted by PR2's pipeline.
    * XLSX is intentionally not forwarded — the extractor was disabled in PR2
    * for security reasons.
+   *
+   * `id` mirrors `mail_attachments.id` — carried through only so callers
+   * (currently tests) can assert exactly which attachment made it into this
+   * array after `classifyMail`'s selection filtering. `AnthropicExtractor`'s
+   * `buildUserMessageContent` ignores it (matches on `kind` alone).
    */
   attachments: Array<
-    | { kind: 'pdf'; filename: string; base64: string }
-    | { kind: 'text'; filename: string; text: string }
+    | { kind: 'pdf'; filename: string; base64: string; id: number }
+    | { kind: 'text'; filename: string; text: string; id: number }
   >
 }
 

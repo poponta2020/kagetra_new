@@ -1090,11 +1090,25 @@ export async function runManualExtract(
     }
 
     try {
+      // mail-ai-extract-refinements タスク6: Server Action (triggerExtractDraft
+      // / reextractDraft) がジョブを積む前に `tournament_drafts
+      // .selected_attachment_ids` を書いているので、実行時点では既に永続化
+      // 済み。行が無い/列が NULL なら undefined を渡し、classifyMail に
+      // 「未指定 = 全添付」のデフォルト挙動をとらせる。
+      const draftRow = await db
+        .select({ selectedAttachmentIds: tournamentDrafts.selectedAttachmentIds })
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, opts.mailMessageId))
+        .limit(1)
+      const selectedAttachmentIds =
+        draftRow[0]?.selectedAttachmentIds ?? undefined
+
       // force:true で classification='noise' でも AI を呼ぶ（管理者が明示的に
       // AI 抽出を要求したケース。pre-filter が noise と判定したメールでも
       // 「会で流す」と判断した時点で AI 抽出すべき）。
       const outcome = await classifyMail(db, opts.mailMessageId, opts.llmExtractor, {
         force: true,
+        selectedAttachmentIds,
       })
       const t = await persistOutcome(db, opts.mailMessageId, outcome)
       tally.draftsInserted += t.draftsInserted

@@ -1,6 +1,5 @@
-import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { Pill } from '@/components/ui'
-import { ConfidenceBadge } from './ConfidenceBadge'
+import { formatEventDate } from '@/lib/event-date'
 
 export interface DraftCardProps {
   draft: {
@@ -15,11 +14,32 @@ export interface DraftCardProps {
       | 'ai_failed'
       | 'superseded'
       | 'ai_processing'
-    confidence: string | null // numeric(3,2) → string from drizzle
     isCorrection: boolean
     referencesSubject: string | null
     extractedPayload: unknown // jsonb — narrow defensively below
   }
+}
+
+/**
+ * mail-ai-extract-refinements タスク10 (§3.2.8 / AC-18 / AC-33): カード表示名は
+ * 各単位の `formal_name`。`formal_name` が無い単位は「開催日＋級」を組み立てて
+ * 代替する。開催日・級のどちらも無ければ「（名称不明）」で空文字を避ける。
+ */
+function unitDisplayName(unit: {
+  formal_name?: string | null
+  event_date?: string | null
+  eligible_grades?: ('A' | 'B' | 'C' | 'D' | 'E')[] | null
+}): string {
+  if (unit.formal_name) return unit.formal_name
+  const datePart = unit.event_date ? formatEventDate(unit.event_date) : null
+  const gradePart =
+    unit.eligible_grades && unit.eligible_grades.length > 0
+      ? `${unit.eligible_grades.join('・')}級`
+      : null
+  if (datePart && gradePart) return `${datePart} ${gradePart}`
+  if (datePart) return datePart
+  if (gradePart) return gradePart
+  return '（名称不明）'
 }
 
 /**
@@ -38,15 +58,16 @@ export function DraftCard({ draft }: DraftCardProps) {
   // pull mail-worker's Zod into the web bundle); the admin UI already trusts
   // the worker's output since the row only exists if extraction completed.
   //
-  // tournament-title-grade-split: new payloads carry `short_name_stem` +
-  // `events[]`; compose each unit's short name (場所+級) and join them, e.g.
-  // 「大阪B, 大阪C（2件）」. Old payloads (single `extracted.title`) fall back to
-  // that full title.
+  // mail-ai-extract-refinements タスク10: `short_name_stem` + `composeTitle` は
+  // 廃止（stem を出す AI 側フィールドが無くなったため）。各単位の `formal_name`
+  // をそのままカード表示名にし、無い単位は「開催日＋級」で代替する。2.x の
+  // ペイロード（`events[]` は無いが `extracted.title` を持つ最古形式）は従来
+  // どおりのフォールバックを維持する。
   const payload = (draft.extractedPayload ?? {}) as {
-    short_name_stem?: string | null
     events?: {
       event_date?: string | null
       eligible_grades?: ('A' | 'B' | 'C' | 'D' | 'E')[] | null
+      formal_name?: string | null
     }[]
     extracted?: { title?: string | null; event_date?: string | null }
   }
@@ -54,10 +75,7 @@ export function DraftCard({ draft }: DraftCardProps) {
   let title: string | null = null
   let eventDate: string | null = null
   if (Array.isArray(payload.events) && payload.events.length > 0) {
-    const stem = payload.short_name_stem ?? null
-    const names = payload.events.map(
-      (u) => composeTitle(stem, u.eligible_grades ?? null) || '(無題)',
-    )
+    const names = payload.events.map((u) => unitDisplayName(u))
     title =
       names.length > 1
         ? `${names.join(', ')}（${names.length}件）`
@@ -73,16 +91,10 @@ export function DraftCard({ draft }: DraftCardProps) {
     eventDate = payload?.extracted?.event_date ?? null
   }
 
-  const confidenceNum =
-    draft.confidence === null || draft.confidence === ''
-      ? null
-      : Number(draft.confidence)
-
   return (
     <div className="mt-2 flex flex-col gap-1 rounded-[6px] border border-border-soft bg-surface-alt p-2 text-xs">
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusPill status={draft.status} />
-        <ConfidenceBadge confidence={confidenceNum} />
         {draft.isCorrection && (
           <Pill tone="warn" size="sm">
             ⚠{' '}

@@ -7,6 +7,7 @@ import {
   mailMessages,
   tournamentDrafts,
 } from '@kagetra/shared/schema'
+import { normalizePaymentDeadline } from '@/lib/events/payment-deadline'
 import { testDb } from './db'
 
 type NewUser = InferInsertModel<typeof users>
@@ -76,6 +77,14 @@ export async function createEvent(overrides: Partial<NewEvent> = {}) {
       kind: 'individual',
       ...overrides,
       entryGroupId,
+      // events には CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind
+      // = 'fixed')` があるので、日付だけ渡すシードは全て制約違反になる。本番と
+      // 同じ正規化をここでも通し、テストが状態を意識せず日付だけ渡せるようにする
+      // （状態を明示したいテストは overrides で上書きできる）。
+      ...normalizePaymentDeadline({
+        paymentDeadline: overrides.paymentDeadline,
+        paymentDeadlineKind: overrides.paymentDeadlineKind,
+      }),
     })
     .returning()
   if (!event) throw new Error('Failed to insert test event')

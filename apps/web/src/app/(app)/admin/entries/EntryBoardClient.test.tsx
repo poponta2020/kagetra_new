@@ -38,6 +38,7 @@ function makeItem(overrides: Partial<EntryBoardItem> = {}): EntryBoardItem {
     internalDeadline: null,
     entryDeadline: null,
     paymentDeadline: null,
+    paymentDeadlineKind: 'unspecified',
     lotteryDate: null,
     entryStatus: 'not_applied',
     paymentType: null,

@@ -60,16 +60,16 @@ describe('config split (per-concern loaders)', () => {
   })
 
   describe('loadCostGuardConfig', () => {
-    it('defaults to 800 when MAIL_WORKER_PDF_SIZE_LIMIT_KB is unset', () => {
-      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(800)
+    it('AC-35: defaults to 8000 when MAIL_WORKER_PDF_SIZE_LIMIT_KB is unset', () => {
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(8000)
     })
 
-    it('treats an empty string the same as unset and falls back to default 800', () => {
+    it('treats an empty string the same as unset and falls back to default 8000', () => {
       // Regression guard for r1 should-fix: `z.coerce.number()` would otherwise
       // accept `''` as `0`, silently disabling the cost guard whenever an
       // operator wrote `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` with no value in .env.
       vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '')
-      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(800)
+      expect(loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB).toBe(8000)
     })
 
     it('parses a non-empty numeric value', () => {

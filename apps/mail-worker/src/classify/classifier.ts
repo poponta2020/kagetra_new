@@ -2,6 +2,12 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
 import { loadCostGuardConfig } from '../config.js'
+import {
+  ANTHROPIC_REQUEST_LIMIT_BYTES,
+  ATTACHMENT_TOTAL_LIMIT_BYTES,
+  exceededAttachmentTotalBytes,
+  exceededRequestBudgetBytes,
+} from './attachment-budget.js'
 import { extractAttachment } from '../extract/orchestrator.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
@@ -11,7 +17,7 @@ import {
   type LLMExtractionResult,
   type LLMExtractor,
 } from './llm/types.js'
-import { buildSystemPrompt, PROMPT_VERSION } from './prompt.js'
+import { buildSystemPrompt, buildUserPrompt, PROMPT_VERSION } from './prompt.js'
 
 /**
  * Normalise a `bytea` column value into a `Buffer`.
@@ -56,6 +62,16 @@ export function bytesFromBytea(raw: unknown): Buffer {
  */
 export type ClassifyOutcome =
   | { kind: 'tournament'; result: LLMExtractionResult }
+  /**
+   * "The AI judged this mail not to be an announcement." `classifyMail` can no
+   * longer produce this since PROMPT_VERSION 3.0.0 removed classification from
+   * the AI's job, but the variant and `persistOutcome`'s handling of it are
+   * kept deliberately: `persistOutcome` is the single write path shared with
+   * the reextract CLI, and `pipeline.ts` folds this kind together with
+   * `oversize_skipped` / `skipped_noise` when force-terminating a stuck
+   * `ai_processing` draft. Same rationale as the `oversize_skipped` guard —
+   * defensive, not dead by accident.
+   */
   | { kind: 'noise'; result: LLMExtractionResult }
   /** Pre-filter (PR1) already classified the mail as noise; skip the LLM. */
   | { kind: 'skipped_noise' }
@@ -97,13 +113,27 @@ export interface ClassifyOptions {
    * pre-filter previously dropped (e.g. a venue allow-list change).
    */
   force?: boolean
+  /**
+   * `mail_attachments.id`s the admin selected in the attachment-picker
+   * dialog (mail-ai-extract-refinements §3.2.4). Three states, mirroring
+   * `tournament_drafts.selected_attachment_ids`:
+   *   - `undefined` / `null` — not specified (legacy rows, or a caller that
+   *     hasn't adopted selection yet). Every attachment on the mail is sent,
+   *     same as before this feature existed.
+   *   - `[]` — an explicit "run with the body only" choice. The LLM is still
+   *     called (never an early return) with zero attachments.
+   *   - non-empty array — only attachments whose `id` is in this set are
+   *     forwarded; everything else (including oversized PDFs the picker UI
+   *     never let the admin check) is dropped before the size guard runs.
+   */
+  selectedAttachmentIds?: number[] | null
 }
 
 /**
  * Load a mail row + attachments, build an `LLMExtractionInput`, call the
  * extractor with a single retry on failure, and return a `ClassifyOutcome`.
  *
- * The retry path covers two failure modes from `AnthropicSonnet46Extractor`:
+ * The retry path covers two failure modes from `AnthropicExtractor`:
  *   1. `LLMNoToolUseError` — Claude returned a text-only response.
  *   2. `ZodError` — Claude called the tool but returned a payload that didn't
  *      match `ExtractionPayloadSchema` (extra/missing fields, wrong types).
@@ -125,6 +155,7 @@ export async function classifyMail(
     with: {
       attachments: {
         columns: {
+          id: true,
           filename: true,
           contentType: true,
           sizeBytes: true,
@@ -143,10 +174,26 @@ export async function classifyMail(
     return { kind: 'skipped_noise' }
   }
 
+  // Attachment selection (mail-ai-extract-refinements §3.2.4). `undefined`/
+  // `null` means "not specified" — send every attachment, matching the
+  // pre-selection behaviour and legacy `tournament_drafts` rows whose
+  // `selected_attachment_ids` is NULL. An explicit array (including `[]`)
+  // restricts the set the LLM ever sees to those ids.
+  const attachmentsInScope =
+    opts.selectedAttachmentIds == null
+      ? mail.attachments
+      : mail.attachments.filter((att) =>
+          opts.selectedAttachmentIds!.includes(att.id),
+        )
+
   // PDF cost guard. Runs after the pre-filter short-circuit (pre-filter noise
   // never reaches the AI call regardless of size) but before building the
-  // Anthropic input. We check `sizeBytes` from `mail_attachments` rather than
-  // re-measuring `att.data`, because the bytea round-trip can hand us a
+  // Anthropic input, and against `attachmentsInScope` rather than every
+  // attachment on the mail — a selection UI blocks checking an oversized PDF
+  // in the first place, so a legitimate selection that stays within the
+  // limit must not be skipped just because an unselected sibling attachment
+  // is oversized (AC-36). We check `sizeBytes` from `mail_attachments` rather
+  // than re-measuring `att.data`, because the bytea round-trip can hand us a
   // postgres hex-escape string (see `bytesFromBytea` doc) whose `.length`
   // would over-report by ~2x. `sizeBytes` is populated upstream from the
   // original parsed buffer length and is the canonical source of truth.
@@ -156,7 +203,7 @@ export async function classifyMail(
   const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
   if (limitKb > 0) {
     const limitBytes = limitKb * 1024
-    for (const att of mail.attachments) {
+    for (const att of attachmentsInScope) {
       if (att.contentType === 'application/pdf' && att.sizeBytes > limitBytes) {
         return {
           kind: 'oversize_skipped',
@@ -168,8 +215,25 @@ export async function classifyMail(
     }
   }
 
+  // 合計サイズガード（要件 §6）。1件ごとの上限を通っても、複数選べば合計は
+  // Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
+  // 超えたリクエストは 413 で確実に失敗するので、送る前に弾く。
+  //
+  // 正常系では Server Action と選択ダイアログが先に止めるが、ここが要るのは
+  // **選択が未指定（NULL）の経路**が実在するから: 大きな PDF を何件も持つ古い
+  // メールを reextract CLI にかけると、選択なし＝全添付でこの合計に届き得る。
+  const totalOver = exceededAttachmentTotalBytes(attachmentsInScope)
+  if (totalOver !== null) {
+    return {
+      kind: 'oversize_skipped',
+      filename: `選択した PDF 添付の合計（${attachmentsInScope.filter((a) => a.contentType === 'application/pdf').length} 件）`,
+      sizeBytes: totalOver,
+      limitBytes: ATTACHMENT_TOTAL_LIMIT_BYTES,
+    }
+  }
+
   const attachmentsForLlm: LLMExtractionInput['attachments'] = []
-  for (const att of mail.attachments) {
+  for (const att of attachmentsInScope) {
     if (att.contentType === 'application/pdf' && att.extractionStatus !== 'failed') {
       // Pass PDFs as native document blocks. Anthropic gets richer layout
       // info from the original PDF than from pdfjs's text dump, and our
@@ -178,6 +242,7 @@ export async function classifyMail(
         kind: 'pdf',
         filename: att.filename,
         base64: bytesFromBytea(att.data).toString('base64'),
+        id: att.id,
       })
     } else if (att.extractedText) {
       // DOCX/DOC (or future text-extracted formats) — forward the extracted text.
@@ -185,6 +250,7 @@ export async function classifyMail(
         kind: 'text',
         filename: att.filename,
         text: att.extractedText,
+        id: att.id,
       })
     } else if (
       att.extractionStatus === 'unsupported' ||
@@ -208,6 +274,7 @@ export async function classifyMail(
           kind: 'text',
           filename: att.filename,
           text: fallback.text,
+          id: att.id,
         })
       }
     }
@@ -226,6 +293,50 @@ export async function classifyMail(
     },
     emailBodyText: mail.bodyText ?? mail.bodyHtml ?? '',
     attachments: attachmentsForLlm,
+  }
+
+  // 送信直前の最終判定（要件 §6）。上の合計ガードは「PDF の合計」しか見ておらず、
+  // 非 PDF 部分（本文・抽出済みテキスト添付・プロンプト）は予約枠で**見積もって**
+  // いる。予約枠は仮定なので、それだけを最終防衛線にしない —— 巨大な DOCX の抽出
+  // テキストを持つメールでは仮定が崩れる。ここで実際に組み立てたペイロードの
+  // バイト長を測り、32MiB を超えるなら送らずにスキップする。
+  //
+  // 測るのは**JSON シリアライズ後**のバイト数。生の文字列長で測ると、本文に
+  // 含まれる改行・引用符・バックスラッシュが JSON エスケープで 1 文字ずつ増える
+  // ぶんを取りこぼす。`JSON.stringify` に通せばその増分が実測値に入る。
+  //
+  // `buildUserPrompt` の出力にはメール本文とテキスト抽出済み添付が既に含まれる
+  // ので、二重に数えない。PDF だけが base64 の document ブロックとして別枠
+  // （base64 はエスケープ対象文字を含まないので増分ゼロ）。
+  //
+  // provider 中立を保つため anthropic.ts のリクエスト構造は参照せず、同じ文字列
+  // 群を JSON 化して測る。キー名・tool schema・HTTP ヘッダのぶんは
+  // `exceededRequestBudgetBytes` の封筒枠がまとめて見る。
+  //
+  // PDF のファイル名は**2 回**送られる（`buildUserPrompt` の「PDF 添付一覧」と、
+  // document ブロックの `title`）。measure 側でも 2 回数える。
+  const assembledBytes = Buffer.byteLength(
+    JSON.stringify({
+      system: input.systemPrompt,
+      text: buildUserPrompt(input),
+      documents: attachmentsForLlm
+        .filter((att) => att.kind === 'pdf')
+        .map((att) =>
+          att.kind === 'pdf'
+            ? { type: 'document', title: att.filename, data: att.base64 }
+            : null,
+        ),
+    }),
+    'utf8',
+  )
+  const requestOver = exceededRequestBudgetBytes(assembledBytes)
+  if (requestOver !== null) {
+    return {
+      kind: 'oversize_skipped',
+      filename: 'リクエスト全体（本文・添付・プロンプトの合計）',
+      sizeBytes: requestOver,
+      limitBytes: ANTHROPIC_REQUEST_LIMIT_BYTES,
+    }
   }
 
   let lastResult: LLMExtractionResult | null = null
@@ -260,10 +371,12 @@ export async function classifyMail(
     }
   }
 
-  if (lastResult.parsed.is_tournament_announcement) {
-    return { kind: 'tournament', result: lastResult }
-  }
-  return { kind: 'noise', result: lastResult }
+  // 3.0.0: the AI no longer votes on whether the mail is an announcement — the
+  // administrator already decided that by pressing 「会で流す (AI 抽出)」. Every
+  // successful extraction is therefore a tournament outcome. `ClassifyOutcome`
+  // keeps its `noise` variant (see the type doc) because `persistOutcome` is a
+  // shared write path and the pre-filter's own noise concept is untouched.
+  return { kind: 'tournament', result: lastResult }
 }
 
 /**
@@ -335,9 +448,6 @@ export async function persistOutcome(
     const upsert = await upsertDraft(db, {
       messageId,
       status: 'ai_failed',
-      confidence: null,
-      isCorrection: false,
-      referencesSubject: null,
       extractedPayload: {},
       aiRawResponse: outcome.rawResponse,
       promptVersion: PROMPT_VERSION,
@@ -371,9 +481,6 @@ export async function persistOutcome(
     const upsert = await upsertDraft(db, {
       messageId,
       status: 'pending_review',
-      confidence: parsed.confidence.toFixed(2),
-      isCorrection: parsed.is_correction === true,
-      referencesSubject: parsed.references_subject ?? null,
       extractedPayload: parsed,
       aiRawResponse: result.raw,
       promptVersion: result.promptVersion,

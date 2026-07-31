@@ -23,18 +23,14 @@ vi.mock('@anthropic-ai/sdk', () => {
 })
 
 import {
-  AnthropicSonnet46Extractor,
+  AnthropicExtractor,
   LLMNoToolUseError,
 } from '../../src/classify/llm/anthropic.js'
 import type { LLMExtractionInput } from '../../src/classify/llm/types.js'
 
 const VALID_PAYLOAD = {
-  is_tournament_announcement: true,
-  confidence: 0.9,
   reason: 'unit-test fixture',
-  is_correction: false,
-  references_subject: null,
-  short_name_stem: 'Test',
+  source_mismatch: null,
   events: [
     {
       unit_key: 'u1',
@@ -42,14 +38,15 @@ const VALID_PAYLOAD = {
       eligible_grades: null,
       formal_name: 'Test Tournament',
       venue: 'Tokyo',
-      fee_jpy: 5000,
       payment_deadline: null,
+      payment_deadline_kind: '記載なし',
       payment_info_text: null,
       payment_method: null,
       entry_method: null,
       organizer_text: null,
       entry_deadline: null,
       kind: null,
+      capacity_total: null,
       capacity_a: null,
       capacity_b: null,
       capacity_c: null,
@@ -96,25 +93,31 @@ function buildSuccessResponse(input: unknown = VALID_PAYLOAD) {
   }
 }
 
-describe('AnthropicSonnet46Extractor', () => {
+describe('AnthropicExtractor', () => {
   beforeEach(() => {
     messagesCreate.mockReset()
   })
 
-  it('uses model id "claude-sonnet-4-6" (no date suffix)', async () => {
+  it('uses model id "claude-sonnet-5" with thinking explicitly disabled', async () => {
+    // AC-22: Sonnet 5 turns adaptive thinking ON when `thinking` is omitted,
+    // and `max_tokens` then caps thinking + output combined — an omitted
+    // `thinking` would silently truncate `record_extraction`'s arguments.
     messagesCreate.mockResolvedValue(buildSuccessResponse())
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await llm.extract(buildInput())
 
     expect(messagesCreate).toHaveBeenCalledTimes(1)
     expect(messagesCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'claude-sonnet-4-6' }),
+      expect.objectContaining({
+        model: 'claude-sonnet-5',
+        thinking: { type: 'disabled' },
+      }),
     )
   })
 
   it('forces tool_choice to record_extraction', async () => {
     messagesCreate.mockResolvedValue(buildSuccessResponse())
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await llm.extract(buildInput())
 
     const args = messagesCreate.mock.calls[0]![0] as Record<string, unknown>
@@ -124,9 +127,12 @@ describe('AnthropicSonnet46Extractor', () => {
     })
   })
 
-  it('attaches cache_control { type: "ephemeral", ttl: "1h" } to the system block', async () => {
+  it('does not attach cache_control to the system block', async () => {
+    // AC-23: prompt caching was removed — extraction now runs one manual
+    // call at a time, so no TTL would ever see a cache hit and caching
+    // would only pay the write premium.
     messagesCreate.mockResolvedValue(buildSuccessResponse())
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await llm.extract(buildInput())
 
     const args = messagesCreate.mock.calls[0]![0] as {
@@ -137,10 +143,7 @@ describe('AnthropicSonnet46Extractor', () => {
       }>
     }
     expect(args.system).toHaveLength(1)
-    expect(args.system[0]!.cache_control).toEqual({
-      type: 'ephemeral',
-      ttl: '1h',
-    })
+    expect(args.system[0]!.cache_control).toBeUndefined()
   })
 
   it('passes a populated JSON Schema (type=object, required+properties) as input_schema', async () => {
@@ -150,7 +153,7 @@ describe('AnthropicSonnet46Extractor', () => {
     // schema constraints — review r1 Blocker. Any future swap of the
     // conversion library must keep this assertion green.
     messagesCreate.mockResolvedValue(buildSuccessResponse())
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await llm.extract(buildInput())
 
     const args = messagesCreate.mock.calls[0]![0] as {
@@ -168,35 +171,21 @@ describe('AnthropicSonnet46Extractor', () => {
     expect(schema.type).toBe('object')
     expect(schema.properties).toBeDefined()
     expect(Object.keys(schema.properties!)).toEqual(
-      expect.arrayContaining([
-        'is_tournament_announcement',
-        'confidence',
-        'reason',
-        'short_name_stem',
-        'events',
-      ]),
+      expect.arrayContaining(['reason', 'source_mismatch', 'events']),
     )
-    expect(schema.required).toEqual(
-      expect.arrayContaining([
-        'is_tournament_announcement',
-        'confidence',
-        'reason',
-        'short_name_stem',
-        'events',
-      ]),
-    )
+    expect(schema.required).toEqual(expect.arrayContaining(['reason', 'events']))
     // `$schema` is metadata Anthropic warns on; we strip it before sending.
     expect(schema.$schema).toBeUndefined()
   })
 
   it('places PDF document blocks before the text block in user content', async () => {
     messagesCreate.mockResolvedValue(buildSuccessResponse())
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await llm.extract(
       buildInput({
         attachments: [
-          { kind: 'pdf', filename: 'a.pdf', base64: 'AAAA' },
-          { kind: 'pdf', filename: 'b.pdf', base64: 'BBBB' },
+          { kind: 'pdf', filename: 'a.pdf', base64: 'AAAA', id: 1 },
+          { kind: 'pdf', filename: 'b.pdf', base64: 'BBBB', id: 2 },
         ],
       }),
     )
@@ -222,7 +211,7 @@ describe('AnthropicSonnet46Extractor', () => {
         cache_read_input_tokens: 0,
       },
     })
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await expect(llm.extract(buildInput())).rejects.toBeInstanceOf(
       LLMNoToolUseError,
     )
@@ -231,12 +220,11 @@ describe('AnthropicSonnet46Extractor', () => {
   it('rejects (Zod) when the tool input fails schema validation', async () => {
     messagesCreate.mockResolvedValue(
       buildSuccessResponse({
-        // Missing required fields (confidence, short_name_stem, events).
-        is_tournament_announcement: true,
+        // Missing the required `events` array.
         reason: 'oops',
       }),
     )
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     await expect(llm.extract(buildInput())).rejects.toThrow()
   })
 
@@ -257,12 +245,12 @@ describe('AnthropicSonnet46Extractor', () => {
         cache_read_input_tokens: 0,
       },
     })
-    const llm = new AnthropicSonnet46Extractor({ apiKey: 'test' })
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
     const result = await llm.extract(buildInput())
 
     expect(result.tokensInput).toBe(1000)
     expect(result.tokensOutput).toBe(500)
-    expect(result.model).toBe('claude-sonnet-4-6')
+    expect(result.model).toBe('claude-sonnet-5')
     expect(result.promptVersion).toBe('1.0.0')
     expect(result.costUsd).toBeGreaterThan(0)
   })

@@ -20,6 +20,7 @@ import {
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 import { RosterSection } from './components/RosterSection'
+import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
 
 /**
  * event-detail-redesign タスク6: `/events/[id]` 本体の組み替えに対する検証。
@@ -247,6 +248,35 @@ describe('/events/[id] — 一般会員から隠す情報 (AC-10)', () => {
     expect(payload).toContain('事前振込テスト方法')
     expect(payload).toContain('ゆうちょ銀行テスト支店')
     expect(payload).toContain('会でとりまとめテスト')
+  })
+
+  // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-44): 振込締切の状態を
+  // EventLifecycleSection へ渡す配線。日本語表示そのものの検証は
+  // EventLifecycleSection.test.tsx が持つ（この画面は「渡っているか」だけを見る）。
+  it('AC-44: event.paymentDeadlineKind が EventLifecycleSection の paymentDeadlineKind へ渡る', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      paymentDeadlineKind: 'later_notice',
+    })
+
+    const ui = await renderPage(ev.id)
+    const sections = findElementsByType(ui, EventLifecycleSection)
+    expect(sections).toHaveLength(1)
+    expect(sections[0]!.props.paymentDeadlineKind).toBe('later_notice')
+    expect(sections[0]!.props.paymentDeadline).toBeNull()
+  })
+
+  it('AC-44: paymentDeadlineKind=unspecified（既定）もそのまま渡る（回帰）', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const ui = await renderPage(ev.id)
+    const sections = findElementsByType(ui, EventLifecycleSection)
+    expect(sections).toHaveLength(1)
+    expect(sections[0]!.props.paymentDeadlineKind).toBe('unspecified')
   })
 })
 

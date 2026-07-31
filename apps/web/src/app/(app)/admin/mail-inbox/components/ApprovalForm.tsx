@@ -8,6 +8,7 @@ import type {
 import { composeTitle } from '@kagetra/mail-worker/classify/title'
 import { EventForm } from '@/components/events/event-form'
 import { Card } from '@/components/ui'
+import { paymentDeadlineKindFromPayload } from '@/lib/events/payment-deadline'
 import { addDays } from '@/lib/jst-date'
 // entry-groups タスク7: クラスタ規則は backfill / 承認フォームの自動提案で同一
 // (clusterEventsByEntryGroup が正)。ここでは提案の「初期値」だけを計算する — 実際に
@@ -38,7 +39,22 @@ const INTERNAL_DEADLINE_LEAD_DAYS = 6
  * Always the new `EventUnit` shape — old single-`extracted` payloads are
  * normalized into a one-element array (`unit_key='u1'`) by {@link normalizeUnits}.
  */
-export type NormalizedUnit = EventUnit
+/**
+ * 承認フォームが扱う単位。3.0.0 の {@link EventUnit} をベースにしつつ、**既存
+ * ドラフトを開いても壊れない**ように 2 点だけ緩めてある（AC-34）:
+ *
+ * - `payment_method` / `entry_method` は 3.0.0 で閉じた日本語 enum になったが、
+ *   2.x のドラフトには `"bank_transfer"` のような英語識別子が保存されている。
+ *   どちらもフォームの自由入力欄へ流すだけなので `string | null` で受ける。
+ * - `fee_jpy` は 3.0.0 で抽出項目から外した（級から決定的に導出できるため）が、
+ *   2.x のドラフトは値を持っている。参加費欄は手入力として残るので、既存値が
+ *   あれば初期値として拾う。
+ */
+export type NormalizedUnit = Omit<EventUnit, 'payment_method' | 'entry_method'> & {
+  payment_method: string | null
+  entry_method: string | null
+  fee_jpy?: number | null
+}
 
 export interface ApprovalFormProps {
   /** Raw payload (new or old format). null for ai_failed / empty drafts. */
@@ -122,12 +138,15 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
       venue: legacy?.venue ?? null,
       fee_jpy: legacy?.fee_jpy ?? null,
       payment_deadline: legacy?.payment_deadline ?? null,
+      // 旧形式に状態フィールドは無いので、日付の有無から素直に導く。
+      payment_deadline_kind: legacy?.payment_deadline ? '日付あり' : '記載なし',
       payment_info_text: legacy?.payment_info_text ?? null,
       payment_method: legacy?.payment_method ?? null,
       entry_method: legacy?.entry_method ?? null,
       organizer_text: legacy?.organizer_text ?? null,
       entry_deadline: legacy?.entry_deadline ?? null,
       kind: legacy?.kind ?? null,
+      capacity_total: null,
       capacity_a: legacy?.capacity_a ?? null,
       capacity_b: legacy?.capacity_b ?? null,
       capacity_c: legacy?.capacity_c ?? null,
@@ -211,6 +230,31 @@ export function ApprovalForm({
       ? ((payload as { extracted?: LegacyExtracted }).extracted?.title ?? null)
       : null
 
+  // mail-ai-extract-refinements §3.2.3: 通称は AI ではなく**人が入力する**。
+  // 「大阪」「札幌」程度の地名だけを1回打てば、各単位の大会名が
+  // `composeTitle(通称, eligible_grades)` で合成される（AC-15）。合成ロジック
+  // 自体は変えていない —— stem の供給元が AI から人間に変わっただけ。
+  // 初期値は `shortNameStem` prop（2.x の既存ドラフトを開いたときだけ値が入る。
+  // 3.0.0 のドラフトでは常に null）。
+  const [nickname, setNickname] = useState(shortNameStem ?? '')
+  // 単位ごとの個別上書き（AC-16）。未設定＝合成結果をそのまま使う。通称を打ち
+  // 直すと、上書きしていない単位だけが追随する。
+  const [titleOverrides, setTitleOverrides] = useState<Record<string, string>>({})
+
+  const trimmedNickname = nickname.trim()
+  /**
+   * 単位の大会名。通称が未入力のあいだは**空**にする（AC-17）——
+   * `composeTitle(null, ['B'])` は級だけの「B」を返してしまい、無意味な値が
+   * 入ったまま登録される事故になるため。旧形式ペイロードだけは AI のフルタイトルを
+   * フォールバックに使う。
+   */
+  const composedTitleOf = (unit: NormalizedUnit): string =>
+    trimmedNickname !== ''
+      ? composeTitle(trimmedNickname, unit.eligible_grades)
+      : (legacyTitle ?? '')
+  const titleOf = (unit: NormalizedUnit): string =>
+    titleOverrides[unit.unit_key] ?? composedTitleOf(unit)
+
   const total = units.length
   const registeredCount = units.filter((u) =>
     registeredMap.has(u.unit_key),
@@ -288,6 +332,30 @@ export function ApprovalForm({
       </div>
 
       <form action={action} className="flex flex-col gap-4">
+        {/* mail-ai-extract-refinements §3.2.3 / AC-15〜17: 通称の人力入力。 */}
+        <Card>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="approval-nickname"
+              className="text-sm font-semibold text-ink"
+            >
+              通称
+            </label>
+            <input
+              id="approval-nickname"
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="例: 大阪"
+              className="rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30"
+            />
+            <p className="text-xs text-ink-meta">
+              地名だけを入れてください。各イベントの大会名が「大阪B」「大阪C」のように
+              自動で合成されます（個別に書き換えることもできます）。
+            </p>
+          </div>
+        </Card>
+
         {/* tournament-entry-rosters flow①: 既存系列は検索結果の ID で確定し、検索語と
             選択状態を分離する。新規系列は 0 件時の明示確認だけ hidden field へ反映。 */}
         <Card>
@@ -460,12 +528,7 @@ export function ApprovalForm({
               </p>
               <div className="flex flex-col gap-2">
                 {editableUnits.map((unit) => {
-                  const stem = (shortNameStem ?? '').trim()
-                  const unitLabel =
-                    stem !== ''
-                      ? composeTitle(shortNameStem, unit.eligible_grades)
-                      : (legacyTitle ??
-                        composeTitle(shortNameStem, unit.eligible_grades))
+                  const unitLabel = titleOf(unit) || `単位 ${unit.unit_key}`
                   const currentKey =
                     groupKeyByUnit[unit.unit_key] ?? `solo:${unit.unit_key}`
                   const optionKeys = Array.from(
@@ -526,11 +589,7 @@ export function ApprovalForm({
           // exists (new-format payloads always carry one). For a legacy payload
           // with no stem, composeTitle(null, ['A']) would yield a bare 'A', so
           // prefer the AI's full title there instead.
-          const stem = (shortNameStem ?? '').trim()
-          const composedTitle =
-            stem !== ''
-              ? composeTitle(shortNameStem, unit.eligible_grades)
-              : (legacyTitle ?? composeTitle(shortNameStem, unit.eligible_grades))
+          const composedTitle = titleOf(unit)
 
           if (registeredEventId != null) {
             // Already materialized: read-only, no editable form. We still
@@ -592,11 +651,27 @@ export function ApprovalForm({
                   disabled={!isChecked}
                   className="m-0 border-0 p-0 disabled:opacity-50"
                 >
+                  {/* mail-ai-extract-refinements AC-39: payload の日本語3値を
+                      events.payment_deadline_kind（英語 enum）へ写す。承認フォームは
+                      状態の select を出さない（日付は下の EventForm で編集でき、
+                      サーバー側 normalizePaymentDeadline が日付を正として整合させる）
+                      ので、hidden で運ぶ。 */}
+                  <input
+                    type="hidden"
+                    name={`${prefix}paymentDeadlineKind`}
+                    value={paymentDeadlineKindFromPayload(
+                      unit.payment_deadline_kind,
+                    )}
+                  />
                   <EventForm
                     mode="create"
                     action={action}
                     cancelHref="/admin/mail-inbox"
                     fieldPrefix={prefix}
+                    titleValue={composedTitle}
+                    onTitleChange={(value) =>
+                      setTitleOverrides((s) => ({ ...s, [unit.unit_key]: value }))
+                    }
                     defaultValues={{
                       title: composedTitle,
                       formalName: unit.formal_name ?? null,
@@ -614,8 +689,10 @@ export function ApprovalForm({
                         : null,
                       eligibleGrades: unit.eligible_grades ?? null,
                       kind: unit.kind ?? 'individual',
-                      // EventUnit has no announcement-wide capacity; per-grade only.
-                      capacity: null,
+                      // mail-ai-extract-refinements: 全体定員（capacity_total）を
+                      // events.capacity へ。級別は capacity_a〜e のまま併存する
+                      // （どちらか一方からの逆算はしない）。
+                      capacity: unit.capacity_total ?? null,
                       capacityA: unit.capacity_a ?? null,
                       capacityB: unit.capacity_b ?? null,
                       capacityC: unit.capacity_c ?? null,

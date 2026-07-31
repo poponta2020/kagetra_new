@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import {
+  normalizePaymentDeadline,
+  PAYMENT_DEADLINE_KINDS,
+} from '@/lib/events/payment-deadline'
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付形式が不正です (YYYY-MM-DD)')
 const optionalDateStr = z
@@ -37,6 +41,11 @@ export const eventFormSchema = z.object({
   lotteryDate: optionalDateStr,
   feeJpy: optionalNonNegativeInt,
   paymentDeadline: optionalDateStr,
+  // mail-ai-extract-refinements: 振込締切の状態。フォームから来なければ
+  // `unspecified` 扱いにし、下の `.transform` で日付と必ず整合させる。
+  paymentDeadlineKind: z
+    .union([z.enum(PAYMENT_DEADLINE_KINDS), z.literal(''), z.null(), z.undefined()])
+    .transform((v) => (v ? v : 'unspecified')),
   paymentInfo: optionalStr,
   paymentMethod: optionalStr,
   entryMethod: optionalStr,
@@ -47,6 +56,15 @@ export const eventFormSchema = z.object({
   capacityD: optionalPositiveInt,
   capacityE: optionalPositiveInt,
 })
+  // mail-ai-extract-refinements AC-43: 振込締切の「日付」と「状態」の整合は
+  // **サーバー側で**取る。events には CHECK が張ってあるので、人が「後日連絡」の
+  // まま日付を入れたフォームをそのまま INSERT すると 500 になる。作成・編集・
+  // メール承認の3経路がすべてこの schema を通るため、ここに1箇所置けば全経路を
+  // 覆える（伝播経路だけは entry-groups.ts 側で束ねている）。
+  .transform((data) => ({
+    ...data,
+    ...normalizePaymentDeadline(data),
+  }))
 
 export type EventFormData = z.infer<typeof eventFormSchema>
 
@@ -66,6 +84,7 @@ export function extractEventFormData(formData: FormData): Record<string, unknown
     lotteryDate: formData.get('lotteryDate'),
     feeJpy: formData.get('feeJpy'),
     paymentDeadline: formData.get('paymentDeadline'),
+    paymentDeadlineKind: formData.get('paymentDeadlineKind'),
     paymentInfo: formData.get('paymentInfo'),
     paymentMethod: formData.get('paymentMethod'),
     entryMethod: formData.get('entryMethod'),
@@ -151,6 +170,7 @@ export function extractEventUnitsFormData(
         internalDeadline: p('internalDeadline'),
         feeJpy: p('feeJpy'),
         paymentDeadline: p('paymentDeadline'),
+        paymentDeadlineKind: p('paymentDeadlineKind'),
         paymentInfo: p('paymentInfo'),
         paymentMethod: p('paymentMethod'),
         entryMethod: p('entryMethod'),

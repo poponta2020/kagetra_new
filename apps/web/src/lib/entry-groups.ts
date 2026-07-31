@@ -10,6 +10,7 @@ import {
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
 import type { EventStatus } from '@kagetra/shared/types'
+import type { PaymentDeadlineKind } from './events/payment-deadline'
 import { diffDays } from './jst-date'
 // クラスタ規則の純関数は DB 非依存の leaf モジュールが持つ（client からも import
 // できるように分離してある）。サーバー側の既存 import 経路を壊さないよう再 export する。
@@ -360,11 +361,20 @@ export async function applyEntryGroupChange(
   return { entryGroupId: targetGroupId }
 }
 
-/** 締切・支払い系の伝播対象フィールド（requirements §3.2.7。これで全部）。 */
+/**
+ * 締切・支払い系の伝播対象フィールド（requirements §3.2.7。これで全部）。
+ *
+ * `paymentDeadline` と `paymentDeadlineKind` は events の CHECK
+ * `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` で双条件に
+ * 縛られているため、**片方だけ伝播させてはならない**（伝播先の状態が古いまま日付
+ * だけ入って CHECK 違反 → 500）。{@link diffPropagatableFields} が常に2つを束ねて
+ * 返すことで担保している。
+ */
 export const PROPAGATABLE_FIELD_KEYS = [
   'entryDeadline',
   'internalDeadline',
   'paymentDeadline',
+  'paymentDeadlineKind',
   'lotteryDate',
   'paymentMethod',
   'paymentInfo',
@@ -372,7 +382,13 @@ export const PROPAGATABLE_FIELD_KEYS = [
 ] as const
 
 export type PropagatableFieldKey = (typeof PROPAGATABLE_FIELD_KEYS)[number]
-export type PropagatableFields = Partial<Record<PropagatableFieldKey, string | null>>
+/**
+ * `paymentDeadlineKind` だけ型が違う（NOT NULL の enum 列なので `null` を書けない）。
+ * 他は全て nullable な日付/テキスト列。
+ */
+export type PropagatableFields = Partial<
+  Record<Exclude<PropagatableFieldKey, 'paymentDeadlineKind'>, string | null>
+> & { paymentDeadlineKind?: PaymentDeadlineKind }
 
 /**
  * 保存前後の値を比較し、**実際に変わったフィールドだけ**を返す。未変更フィールドを
@@ -385,9 +401,20 @@ export function diffPropagatableFields(
 ): PropagatableFields {
   const changed: PropagatableFields = {}
   for (const key of PROPAGATABLE_FIELD_KEYS) {
+    // paymentDeadlineKind は型が違う（NOT NULL enum）ため、下でまとめて扱う。
+    if (key === 'paymentDeadlineKind') continue
     const oldValue = before[key] ?? null
     const newValue = after[key] ?? null
     if (oldValue !== newValue) changed[key] = newValue
+  }
+  // 振込締切は「日付」と「状態」が CHECK で双条件に縛られている。片方だけ変わった
+  // ときも必ず両方を伝播させないと、伝播先で日付と状態が食い違って CHECK 違反に
+  // なる（PROPAGATABLE_FIELD_KEYS の注記を参照）。
+  const beforeKind = before.paymentDeadlineKind ?? 'unspecified'
+  const afterKind = after.paymentDeadlineKind ?? 'unspecified'
+  if ('paymentDeadline' in changed || beforeKind !== afterKind) {
+    changed.paymentDeadline = after.paymentDeadline ?? null
+    changed.paymentDeadlineKind = afterKind
   }
   return changed
 }

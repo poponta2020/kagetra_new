@@ -46,6 +46,7 @@ function makeItem(overrides: Partial<EntryBoardItem> = {}): EntryBoardItem {
     internalDeadline: null,
     entryDeadline: null,
     paymentDeadline: null,
+    paymentDeadlineKind: 'unspecified',
     lotteryDate: null,
     entryStatus: 'not_applied',
     paymentType: null,
@@ -1052,6 +1053,49 @@ describe('deadlineBadgeOf', () => {
         TODAY,
       ).countdown,
     ).toBe('締切未設定')
+  })
+
+  // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-42): payment_deadline が
+  // null のとき、状態（paymentDeadlineKind）で「後日連絡」「締切未設定」を出し分ける。
+  describe('AC-42: paymentDeadline が null のときの状態別出し分け', () => {
+    it('later_notice なら「後日連絡」（日付は出ない）', () => {
+      const badge = deadlineBadgeOf(
+        makeItem({ paymentDeadline: null, paymentDeadlineKind: 'later_notice' }),
+        'payment_due',
+        TODAY,
+      )
+      expect(badge.label).toBe('支払締切')
+      expect(badge.date).toBeNull()
+      expect(badge.countdown).toBe('後日連絡')
+    })
+
+    it('unspecified なら従来どおり「締切未設定」', () => {
+      const badge = deadlineBadgeOf(
+        makeItem({ paymentDeadline: null, paymentDeadlineKind: 'unspecified' }),
+        'payment_due',
+        TODAY,
+      )
+      expect(badge.countdown).toBe('締切未設定')
+    })
+
+    it('paymentDeadline に値があれば kind に関わらず日付を表示する（fixed の回帰）', () => {
+      const badge = deadlineBadgeOf(
+        makeItem({ paymentDeadline: '2026-07-20', paymentDeadlineKind: 'fixed' }),
+        'payment_due',
+        TODAY,
+      )
+      expect(badge.date).toBe('7/20')
+    })
+
+    it('「後日連絡」は期限超過（warn）扱いにしない（isDue が false）', () => {
+      const item = makeItem({ paymentDeadline: null, paymentDeadlineKind: 'later_notice' })
+      expect(isDue(item, 'payment_due', TODAY)).toBe(false)
+    })
+
+    it('「締切未設定」は従来どおり期限超過扱い（isDue が true・fail-safe の回帰）', () => {
+      const item = makeItem({ paymentDeadline: null, paymentDeadlineKind: 'unspecified' })
+      expect(isDue(item, 'payment_due', TODAY)).toBe(true)
+    })
   })
 })
 

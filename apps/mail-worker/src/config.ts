@@ -85,9 +85,14 @@ const LlmConfigSchema = z.object({
  * the Anthropic call when any PDF exceeds the limit; the operator raises the
  * env var and reextracts when intentionally accepting the cost.
  *
- * Default 800 KB is the dev-observed sweet spot: rejects the 919 KB outlier
- * while clearing the empirically typical 100–500 KB tournament announcements
- * (see worklog 2026-05-11 + 2026-05-17 cost guard discovery).
+ * Default raised 800 → 8000 KB (mail-ai-extract-refinements AC-35). The 800 KB
+ * figure came from an era when cron auto-classified every incoming mail, so a
+ * single fat PDF was pure waste. Extraction is manual now — an administrator
+ * has already decided this mail matters and picks which attachments to send —
+ * and real 要綱 PDFs routinely exceed 800 KB, which made the guard reject the
+ * very documents it was meant to let through. 8000 KB clears those while still
+ * bounding a runaway attachment, and the selection dialog blocks over-limit
+ * files before they ever reach the classifier.
  *
  * Set to 0 to disable the guard (used by tests that need to assert downstream
  * behaviour without crafting an oversized fixture).
@@ -101,9 +106,14 @@ const LlmConfigSchema = z.object({
 const CostGuardConfigSchema = z.object({
   MAIL_WORKER_PDF_SIZE_LIMIT_KB: z.preprocess(
     (v) => (v === '' ? undefined : v),
-    z.coerce.number().int().nonnegative().default(800),
+    z.coerce.number().int().nonnegative().default(8000),
   ),
 })
+
+// 添付の**合計**サイズ予算（要件 §6）は `classify/attachment-budget.ts` に置いて
+// ある。Server Action・選択ダイアログ（client component）・classifier の3箇所が
+// 共有するが、このファイルは `node:url` / `dotenv` を値 import しており client
+// バンドルに引き込めないため、依存ゼロの leaf モジュールに分けている。
 
 export type LogConfig = z.infer<typeof LogConfigSchema>
 export type ImapConfig = z.infer<typeof ImapConfigSchema>
@@ -160,7 +170,7 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
 }
 
 /**
- * Validate the Anthropic credentials needed by `AnthropicSonnet46Extractor`.
+ * Validate the Anthropic credentials needed by `AnthropicExtractor`.
  * Lazy on purpose: the `--mock-llm` smoke path constructs `FixtureLLMExtractor`
  * directly and must NOT require a real API key, so we never call this at
  * module load. The `--dry-run` path skips the AI phase entirely and likewise

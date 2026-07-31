@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Btn } from '@/components/ui'
 import { formatDateTimeShort, formatEventDate } from '@/lib/event-date'
 import type { GroupSiblingEvent } from '@/lib/entry-groups'
+import type { PaymentDeadlineKind } from '@/lib/events/payment-deadline'
 import {
   DisclosureActions,
   DisclosureRow,
@@ -33,6 +34,12 @@ export interface EventLifecycleSectionProps {
   feeJpy: number | null
   entryDeadline: string | null
   paymentDeadline: string | null
+  /**
+   * 振込締切の状態（mail-ai-extract-refinements §3.2.7 / AC-44）。`paymentDeadline`
+   * が null のとき、`later_notice` なら「振込締切: 後日連絡」の行を出す。
+   * `unspecified` は従来どおり行を出さない（情報が無いだけなので）。
+   */
+  paymentDeadlineKind: PaymentDeadlineKind
   // event-detail-redesign タスク5: 一般会員から隠して管理者トグル内へ集約
   // する情報（requirements §3.2.2）。
   entryMethod: string | null
@@ -165,6 +172,7 @@ export function EventLifecycleSection({
   feeJpy,
   entryDeadline,
   paymentDeadline,
+  paymentDeadlineKind,
   entryMethod,
   paymentMethod,
   paymentInfo,
@@ -322,6 +330,10 @@ export function EventLifecycleSection({
       value: formatEventDate(paymentDeadline),
       variant: 'date',
     })
+  } else if (paymentDeadlineKind === 'later_notice') {
+    // AC-44: 日付が無くても「後日連絡」であることは分かるようにする
+    // （unspecified＝情報が無いだけのときは行自体を出さない）。
+    paymentRows.push({ label: '支払締切', value: '後日連絡' })
   }
   if (paymentMethod != null) {
     paymentRows.push({ label: '支払方法', value: paymentMethod })

@@ -16,6 +16,7 @@ const INITIAL_VALUES = {
   entryDeadline: '2026-07-01',
   internalDeadline: '',
   paymentDeadline: '',
+  paymentDeadlineKind: 'unspecified',
   lotteryDate: '',
   paymentMethod: '',
   paymentInfo: '',
@@ -28,16 +29,31 @@ function Harness({
   onSubmit,
   siblings = SIBLINGS,
   groupAction = 'keep',
+  // mail-ai-extract-refinements §3.2.7: 実フォーム（event-form.tsx）は状態を
+  // `<select>` で描画する。要素が存在しないフォーム構成でも落ちないことを
+  // 確認したいテストのために描画を切れるようにする。
+  withPaymentDeadlineKindSelect = true,
 }: {
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
   siblings?: PropagationSibling[]
   groupAction?: string
+  withPaymentDeadlineKindSelect?: boolean
 }) {
   return (
     <form onSubmit={onSubmit}>
       <input name="entryDeadline" defaultValue={INITIAL_VALUES.entryDeadline} />
       <input name="internalDeadline" defaultValue={INITIAL_VALUES.internalDeadline} />
       <input name="paymentDeadline" defaultValue={INITIAL_VALUES.paymentDeadline} />
+      {withPaymentDeadlineKindSelect && (
+        <select
+          name="paymentDeadlineKind"
+          defaultValue={INITIAL_VALUES.paymentDeadlineKind}
+        >
+          <option value="fixed">日付あり</option>
+          <option value="later_notice">後日連絡</option>
+          <option value="unspecified">締切未設定</option>
+        </select>
+      )}
       <input name="lotteryDate" defaultValue={INITIAL_VALUES.lotteryDate} />
       <input name="paymentMethod" defaultValue={INITIAL_VALUES.paymentMethod} />
       <textarea name="paymentInfo" defaultValue={INITIAL_VALUES.paymentInfo} />
@@ -186,5 +202,33 @@ describe('EventEditSubmit — 伝播確認ダイアログ', () => {
 
     expect(screen.queryByText('同じグループの他の日にも反映しますか？')).toBeNull()
     expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  // mail-ai-extract-refinements タスク12 (§3.2.7): 状態（paymentDeadlineKind）だけを
+  // 変更したときも伝播確認ダイアログを出す。日付と状態は CHECK 制約で対になっている
+  // ため、片方だけ伝播すると伝播先で制約違反になる。
+  describe('paymentDeadlineKind（振込締切の状態）', () => {
+    it('paymentDeadlineKind を変更するとダイアログが出る', () => {
+      const onSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => e.preventDefault())
+      render(<Harness onSubmit={onSubmit} />)
+
+      fireEvent.change(screen.getByDisplayValue('締切未設定'), {
+        target: { value: 'later_notice' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: '更新' }))
+
+      expect(screen.getByText('同じグループの他の日にも反映しますか？')).toBeTruthy()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('フォームに paymentDeadlineKind の要素が無くても落ちない（変更なし扱い）', () => {
+      const onSubmit = vi.fn((e: FormEvent<HTMLFormElement>) => e.preventDefault())
+      render(<Harness onSubmit={onSubmit} withPaymentDeadlineKindSelect={false} />)
+
+      fireEvent.click(screen.getByRole('button', { name: '更新' }))
+
+      expect(screen.queryByText('同じグループの他の日にも反映しますか？')).toBeNull()
+      expect(onSubmit).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -21,7 +21,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 出力スキーマ改訂と fixture 移行
-- [ ] 完了
+- [x] 完了
 - **目的:** `ExtractionPayloadSchema` を変更後の形にし、既存 fixture を回帰ベースラインを保ったまま移行する
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-8, AC-21
 - **主な変更領域:** `apps/mail-worker/src/classify/schema.ts`、`apps/mail-worker/test/fixtures/llm/*.expected.json`、`apps/mail-worker/test/classify/*.test.ts`
@@ -38,7 +38,7 @@ status: completed
 - **対応Issue:** #411
 
 ### タスク2: PDF サイズ上限の引き上げ
-- [ ] 完了
+- [x] 完了
 - **目的:** `MAIL_WORKER_PDF_SIZE_LIMIT_KB` の既定を 800 → 8000 にする
 - **対応AC:** AC-35
 - **主な変更領域:** `apps/mail-worker/src/config.ts`、`apps/mail-worker/test/config.test.ts`
@@ -48,7 +48,7 @@ status: completed
 - **対応Issue:** #412
 
 ### タスク3: Sonnet 4.6 / Sonnet 5 のトークン実測（移行ゲート）
-- [ ] 完了
+- [x] 完了
 - **目的:** モデル移行の可否を数字で判断する。**これが通らない限りタスク5のモデル差し替えを確定しない**
 - **対応AC:** AC-24
 - **主な変更領域:** `scripts/diagnostics/`（使い捨て）、`docs/features/mail-ai-extract-refinements/token-baseline.md`（新規）
@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #413
 
 ### タスク4: プロンプト改訂（分類撤去・新項目のガイダンス）
-- [ ] 完了
+- [x] 完了
 - **目的:** システムプロンプトから分類の記述を撤去し、新項目の抽出ガイダンスを追加する
 - **対応AC:** AC-5, AC-6, AC-9, AC-10, AC-11, AC-12, AC-13, AC-14, AC-21
 - **主な変更領域:** `apps/mail-worker/src/classify/prompt.ts`、`apps/mail-worker/test/classify/prompt.test.ts`
@@ -73,7 +73,7 @@ status: completed
 - **対応Issue:** #414
 
 ### タスク5: Anthropic クライアントの Sonnet 5 移行
-- [ ] 完了
+- [x] 完了
 - **目的:** モデル差し替え・`thinking: disabled` 明示・プロンプトキャッシュ撤去・命名の追随
 - **対応AC:** AC-22, AC-23, AC-25
 - **主な変更領域:** `apps/mail-worker/src/classify/llm/anthropic.ts`、`apps/mail-worker/src/classify/cost.ts`（コメントのみ）、`apps/mail-worker/test/classify/anthropic.test.ts`
@@ -84,7 +84,7 @@ status: completed
 - **対応Issue:** #415
 
 ### タスク6: classifier に添付選択を通す
-- [ ] 完了
+- [x] 完了
 - **目的:** 選択された添付だけを LLM へ渡し、本文は常に渡す
 - **対応AC:** AC-20, AC-30, AC-36
 - **主な変更領域:** `apps/mail-worker/src/classify/classifier.ts`、`apps/mail-worker/src/classify/llm/types.ts`、`apps/mail-worker/test/classify/classifier.test.ts`
@@ -95,10 +95,10 @@ status: completed
 - **対応Issue:** #416
 
 ### タスク7: マイグレーションと Server Action
-- [ ] 完了
+- [x] 完了
 - **目的:** 選択を永続化し、Server Action で検証する
 - **対応AC:** AC-31, AC-32, AC-40, AC-41
-- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
+- **主な変更領域:** `packages/shared/src/schema/tournament-drafts.ts`、`packages/shared/src/schema/events.ts`、`packages/shared/src/schema/enums.ts`、Drizzle migration 1本（採番は 0053。実装中に main へ別機能の 0052 がマージされたため繰り上げ）、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`triggerExtractDraft` / `reextractDraft`）、`apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
 - **依存タスク:** タスク6
 - **必要なテスト:** CHECK 制約が矛盾する組み合わせを弾くこと／backfill 後に全既存行が CHECK を満たすこと／選択が永続化され再抽出時に復元されること／サイズ超過の添付 ID を含む選択が拒否されること／当該メールに属さない添付 ID が拒否されること／既存の多重起動ガード（`triageStatus` / `linkedEventId` / `ai_processing`）が維持されること
 - **完了条件:** Server Action テストが green、migration が `db:migrate` で適用できること
@@ -109,7 +109,7 @@ status: completed
 - **対応Issue:** #417
 
 ### タスク8: 添付選択ダイアログ
-- [ ] 完了
+- [x] 完了
 - **目的:** 「会で流す（AI 抽出）」を添付選択ダイアログに拡張する
 - **対応AC:** AC-26, AC-27, AC-28, AC-29
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/AIExtractConfirmDialog.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`、同ディレクトリのテスト
@@ -120,10 +120,10 @@ status: completed
 - **対応Issue:** #418
 
 ### タスク9: 承認フォームとドラフト詳細の改修
-- [ ] 完了
+- [x] 完了
 - **目的:** 通称欄の新設・新項目の表示・`source_mismatch` 警告・訂正版ヒント撤去
 - **対応AC:** AC-7, AC-15, AC-16, AC-17, AC-19, AC-34, AC-39
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`、同ディレクトリのテスト
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/components/ExtractedPayloadView.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`、同ディレクトリのテスト
 - **依存タスク:** タスク1
 - **必要なテスト:** 通称「大阪」を入れると各単位が「大阪B」「大阪C」に合成される／単位ごとに個別上書きできる／通称未入力なら合成結果が空（級だけの値が出ない）／`source_mismatch: true` で警告バナーが出て**承認ボタンは押せる**／訂正版ヒントが消えている／旧フィールドを持つ既存ドラフトを開いても壊れない
 - **完了条件:** 承認フォーム・詳細画面のテストが green
@@ -136,7 +136,7 @@ status: completed
 - **対応Issue:** #419
 
 ### タスク10: 受信箱一覧の整理
-- [ ] 完了
+- [x] 完了
 - **目的:** tier 分けを廃止し、カード表示名を `formal_name` に切り替える
 - **対応AC:** AC-18, AC-33
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`、`apps/web/src/app/(app)/admin/mail-inbox/components/DraftCard.tsx`、同ディレクトリのテスト
@@ -147,7 +147,7 @@ status: completed
 - **対応Issue:** #420
 
 ### タスク12: イベント側の振込締切状態の表示と編集
-- [ ] 完了
+- [x] 完了
 - **目的:** 承認後も「後日連絡」が失われないよう、申込管理ボード・イベント詳細・イベント編集の3面に反映する
 - **対応AC:** AC-42, AC-43, AC-44
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/entry-board-utils.ts`・`page.tsx`、`apps/web/src/app/(app)/events/[id]/page.tsx`・`edit/page.tsx`・`actions.ts`、`apps/web/src/components/events/event-form.tsx`・`event-edit-submit.tsx`・`EventLifecycleSection.tsx`
@@ -161,13 +161,14 @@ status: completed
 - **対応Issue:** #422
 
 ### タスク11: `ConfidenceBadge` の削除と参照ゼロ確認
-- [ ] 完了
+- [x] 完了
 - **目的:** 参照が無くなったコンポーネントを消す
 - **対応AC:** AC-33, AC-38
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx`（削除）
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ConfidenceBadge.tsx`（削除）、`apps/web/src/app/(app)/admin/mail-inbox/components/CorrectionHint.tsx`（削除）
 - **依存タスク:** タスク9, タスク10
 - **必要なテスト:** なし（削除タスク）
-- **完了条件:** `git grep ConfidenceBadge` が 0 件、型チェック・lint 通過
+- **完了条件:** `git grep ConfidenceBadge` と `git grep CorrectionHint` が 0 件、型チェック・lint 通過
+- **追記（実装中に判明）:** `CorrectionHint.tsx` も参照ゼロになった。AC-19（訂正版ヒント撤去）をタスク1 で実施した直接の結果なので、同じタスクでまとめて消す
 - **対応Issue:** #421
 
 ## 実装順序（Wave = 並行実装できるタスクの組）

@@ -11,9 +11,14 @@ import type {
 /**
  * Deterministic LLM extractor used by unit tests and `--mock-llm` smoke runs.
  * Looks the email subject up in a `Map<subject, payload>` and returns the
- * stored payload; falls back to a noise response when nothing matches so the
- * pipeline can still exercise its "AI says noise" branch end-to-end without
- * any network calls.
+ * stored payload; falls back to a minimal one-unit payload when nothing
+ * matches so the pipeline can be exercised end-to-end without network calls.
+ *
+ * The fallback used to be a noise verdict (`is_tournament_announcement: false`
+ * + `events: []`). PROMPT_VERSION 3.0.0 removed classification from the AI's
+ * job and now requires at least one unit, so an unmatched subject yields an
+ * empty-but-valid announcement instead — the extraction equivalent of "I was
+ * handed a mail I know nothing about".
  *
  * The synthetic token / cost numbers are non-zero so log lines stay readable
  * (a 0/0/0 line is visually indistinguishable from "the API was never
@@ -23,14 +28,33 @@ import type {
 const FIXTURE_MODEL = 'fixture'
 const FIXTURE_PROMPT_VERSION = 'fixture-1.0'
 
-const FIXTURE_NOISE_PAYLOAD: ExtractionPayload = {
-  is_tournament_announcement: false,
-  confidence: 0.95,
+const FIXTURE_DEFAULT_PAYLOAD: ExtractionPayload = {
   reason: 'fixture default',
-  is_correction: false,
-  references_subject: null,
-  short_name_stem: null,
-  events: [],
+  source_mismatch: null,
+  events: [
+    {
+      unit_key: 'u1',
+      event_date: null,
+      eligible_grades: null,
+      formal_name: null,
+      venue: null,
+      payment_deadline: null,
+      payment_deadline_kind: '記載なし',
+      payment_info_text: null,
+      payment_method: null,
+      entry_method: null,
+      organizer_text: null,
+      entry_deadline: null,
+      kind: null,
+      capacity_total: null,
+      capacity_a: null,
+      capacity_b: null,
+      capacity_c: null,
+      capacity_d: null,
+      capacity_e: null,
+      official: null,
+    },
+  ],
 }
 
 export class FixtureLLMExtractor implements LLMExtractor {
@@ -41,7 +65,7 @@ export class FixtureLLMExtractor implements LLMExtractor {
   async extract(input: LLMExtractionInput): Promise<LLMExtractionResult> {
     const subject = input.emailMeta.subject
     const matched = this.fixtures.get(subject)
-    const parsed = matched ?? FIXTURE_NOISE_PAYLOAD
+    const parsed = matched ?? FIXTURE_DEFAULT_PAYLOAD
     return {
       parsed,
       raw: JSON.stringify(parsed),

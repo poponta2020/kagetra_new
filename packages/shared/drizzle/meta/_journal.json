@@ -372,6 +372,13 @@
       "when": 1785342282375,
       "tag": "0052_tiny_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785384041395,
+      "tag": "0053_payment_deadline_kind_and_selected_attachments",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,11 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { EventKind, EventStatus } from '@kagetra/shared/types'
 import { Btn, Card } from '@/components/ui'
+import {
+  PAYMENT_DEADLINE_KINDS,
+  PAYMENT_DEADLINE_KIND_LABELS,
+  type PaymentDeadlineKind,
+} from '@/lib/events/payment-deadline'
 
 export interface EventFormProps {
   mode: 'create' | 'edit'
@@ -41,6 +46,10 @@ export interface EventFormProps {
     status?: EventStatus
     feeJpy?: number | null
     paymentDeadline?: string | null
+    // mail-ai-extract-refinements §3.2.7: 振込締切の「状態」。日付が正
+    // （サーバー側 `normalizePaymentDeadline` が日付の有無から `fixed` へ倒す）ので、
+    // ここは「後日連絡」「締切未設定」を人間が選べるようにするための入力欄。
+    paymentDeadlineKind?: PaymentDeadlineKind | null
     paymentInfo?: string | null
     paymentMethod?: string | null
     entryMethod?: string | null
@@ -62,6 +71,15 @@ export interface EventFormProps {
    * 既定の「更新」ボタンをこれに置き換える（events/[id]/edit が `EventEditSubmit` を渡す）。
    */
   submitButton?: ReactNode
+  /**
+   * mail-ai-extract-refinements: タイトル欄を**制御入力**にする。承認画面は
+   * 上部の「通称」欄の入力に合わせて各単位のタイトルを合成し直すため、
+   * `defaultValue` では追随できない（非制御 input は defaultValue の変化を
+   * 無視する）。`onTitleChange` を渡したときだけ制御入力になり、既存の
+   * events/new・events/[id]/edit は従来どおり非制御のまま。
+   */
+  titleValue?: string
+  onTitleChange?: (value: string) => void
 }
 
 const LABEL_CLASS = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
@@ -90,6 +108,8 @@ export function EventForm({
   editionDefault,
   entryGroupSection,
   submitButton,
+  titleValue,
+  onTitleChange,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
@@ -105,13 +125,28 @@ export function EventForm({
           <label className={LABEL_CLASS}>
             タイトル{REQUIRED_MARK}
           </label>
-          <input
-            name={n('title')}
-            type="text"
-            required
-            defaultValue={defaultValues?.title ?? ''}
-            className={FIELD_CLASS}
-          />
+          {/* mail-ai-extract-refinements: 承認画面は「通称」欄の入力に合わせて
+              各単位のタイトルを合成し直すため、タイトルだけ制御入力にできる口を
+              持つ（非制御のままだと defaultValue を変えても DOM が追随しない）。
+              onTitleChange を渡さない既存の呼び出し側は従来どおり非制御。 */}
+          {onTitleChange ? (
+            <input
+              name={n('title')}
+              type="text"
+              required
+              value={titleValue ?? ''}
+              onChange={(e) => onTitleChange(e.target.value)}
+              className={FIELD_CLASS}
+            />
+          ) : (
+            <input
+              name={n('title')}
+              type="text"
+              required
+              defaultValue={defaultValues?.title ?? ''}
+              className={FIELD_CLASS}
+            />
+          )}
         </div>
 
         <div>
@@ -307,6 +342,29 @@ export function EventForm({
             />
           </div>
         </div>
+
+        {/* mail-ai-extract-refinements §3.2.7: 振込締切の状態。承認フォーム
+            (embedded) は AI ペイロードのマッピングを別途持つのでここでは出さない
+            （events/[id]/edit・events/new の手動入力のみ）。 */}
+        {!embedded && (
+          <div>
+            <label className={LABEL_CLASS}>振込締切の状態</label>
+            <select
+              name={n('paymentDeadlineKind')}
+              defaultValue={defaultValues?.paymentDeadlineKind ?? 'unspecified'}
+              className={FIELD_CLASS}
+            >
+              {PAYMENT_DEADLINE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {PAYMENT_DEADLINE_KIND_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-meta">
+              日付を入れると保存時に自動で「日付あり」になります。
+            </p>
+          </div>
+        )}
 
         <div>
           <label className={LABEL_CLASS}>支払方法</label>
