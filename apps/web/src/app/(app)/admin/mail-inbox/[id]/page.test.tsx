@@ -130,6 +130,35 @@ describe('admin/mail-inbox/[id] page', () => {
     expect(screen.getByText('承認フォーム')).toBeDefined()
   })
 
+  // AC-34: 2.x のドラフトは short_name_stem を保存している。捨てると管理者が
+  // 同じ通称を打ち直すことになるので、通称欄の初期値として引き継ぐ。
+  it('AC-34: 2.x ドラフトの short_name_stem を通称欄の初期値として引き継ぐ', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const mail = await createMailMessage({ subject: 'legacy stem' })
+    const draft = await createTournamentDraft({
+      messageId: mail.id,
+      status: 'pending_review',
+      extractedPayload: {
+        is_tournament_announcement: true,
+        confidence: 0.9,
+        reason: 'legacy',
+        short_name_stem: '大阪',
+        events: [buildUnit('u1', ['B'], '2031-01-11')],
+      },
+    })
+
+    const { container } = await renderPage(draft.id)
+
+    const nickname = screen.getByLabelText('通称') as HTMLInputElement
+    expect(nickname.value).toBe('大阪')
+    // 合成タイトルも初期表示される（打ち直し不要）。
+    const t1 = container.querySelector(
+      'input[name="u1__title"]',
+    ) as HTMLInputElement
+    expect(t1.value).toBe('大阪B')
+  })
+
   // AC-7: source_mismatch は警告を出すが承認をブロックしない。
   it('AC-7: source_mismatch=true で警告バナーが出るが承認ボタンは押せる', async () => {
     const admin = await createAdmin()

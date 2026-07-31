@@ -1092,6 +1092,24 @@ export async function reextractDraft(
     selectedAttachmentIds: effectiveSelection,
   })
 
+  // 抽出そのものが行われなかった経路は、**成功として返さない**。
+  //
+  // `persistOutcome` はこれらの kind で draft を触らないので、そのまま先へ進むと
+  // 「古い payload が pending_review のまま」＋「新しい選択だけ保存済み」という
+  // 状態になり、管理者が新しい抽出結果だと誤認して古い内容を承認できてしまう
+  // （cron 経路は pipeline.ts の強制終端が拾うが、この直叩き経路は通らない）。
+  // ここで throw すれば tx に入る前なので選択も保存されず、draft も mail 状態も
+  // 一切変わらない。ダイアログには理由がそのまま出る。
+  if (outcome.kind === 'oversize_skipped') {
+    throw new Error(
+      `サイズ上限を超えるため AI へ送れませんでした（${outcome.filename}）。添付を減らして再実行してください`,
+    )
+  }
+  if (outcome.kind === 'skipped_noise') {
+    // force:true では起こらないはずだが、黙って成功扱いにしない。
+    throw new Error('pre-filter によりスキップされました（再抽出は行われていません）')
+  }
+
   // r5 blocker: classifyMail の LLM ラウンドトリップはロックなしで走るため、その間に
   // 並行 approveDraftUnits が events を materialize（場合により draft を finalize）し得る。
   // persistOutcome は message_id 上の UPSERT で extracted_payload（= unit_key 集合）を

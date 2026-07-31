@@ -124,6 +124,12 @@ export default async function MailDraftDetailPage({
     rawPayload != null && rawPayload.extracted != null
   const extractedPayload: ExtractionPayload | null =
     hasNewFormat || hasLegacyFormat ? (rawPayload as ExtractionPayload) : null
+  // 2.x のドラフトは `short_name_stem` を保存している。3.0.0 で型からは消えたが、
+  // 既存ドラフトを開いたときは承認フォームの通称欄の初期値として引き継ぐ（AC-34）。
+  const legacyStemRaw = (rawPayload as { short_name_stem?: unknown } | null)
+    ?.short_name_stem
+  const legacyShortNameStem =
+    typeof legacyStemRaw === 'string' && legacyStemRaw !== '' ? legacyStemRaw : null
   // 訂正版ヒント（関連ドラフト/イベントの ILIKE 検索）は撤去した。種になっていた
   // `references_subject` が抽出スキーマから消え（訂正版の判断は人がやる運用に戻した
   // ため）、検索条件が常に空になるため。requirements §3.1 / AC-19。
@@ -367,9 +373,12 @@ export default async function MailDraftDetailPage({
           </h2>
           <ApprovalForm
             payload={extractedPayload}
-            // 通称は AI が出さなくなった（`short_name_stem` 廃止）。承認フォーム側の
-            // 通称欄に人が入力し、`composeTitle` で各単位の大会名を合成する。
-            shortNameStem={null}
+            // 通称は AI が出さなくなった（3.0.0 で `short_name_stem` 廃止）。
+            // 承認フォームの通称欄に人が入力し、`composeTitle` で各単位の大会名を
+            // 合成する。ただし **2.x のドラフトは stem を保存している**ので、それを
+            // 初期値として引き継ぐ（捨てると管理者が同じ通称を打ち直すことになる）。
+            // 型からは消えた列なので実データから防御的に読む。
+            shortNameStem={legacyShortNameStem}
             registeredUnitKeys={registeredUnitKeys}
             editionSuggestion={editionSelection.suggestion}
             seriesOptions={editionSelection.seriesOptions}

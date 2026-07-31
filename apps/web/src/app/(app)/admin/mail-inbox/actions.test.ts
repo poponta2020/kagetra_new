@@ -819,6 +819,45 @@ describe('admin/mail-inbox actions', () => {
       expect(classifyMailMock).not.toHaveBeenCalled()
     })
 
+    // oversize_skipped は「抽出そのものが行われなかった」状態。persistOutcome は
+    // draft を触らないので、成功として返すと古い payload が pending_review のまま
+    // 残り、管理者が新しい抽出結果だと誤認して承認できてしまう。
+    it('サイズ超過でスキップされたら失敗として返し、選択も payload も変えない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ subject: 'reextract oversize skip' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        status: 'pending_review',
+        extractedPayload: { reason: '古い抽出結果', events: [] },
+      })
+      const keep = await insertReextractPdf(mail.id, '要綱.pdf')
+
+      classifyMailMock.mockResolvedValueOnce({
+        kind: 'oversize_skipped' as const,
+        filename: 'リクエスト全体（本文・添付・プロンプトの合計）',
+        sizeBytes: 40 * 1024 * 1024,
+        limitBytes: 32 * 1024 * 1024,
+      } as never)
+
+      await expect(reextractDraft(draft.id, [keep])).rejects.toThrow(
+        /サイズ上限を超えるため/,
+      )
+
+      // persistOutcome まで到達していない＝古い payload も選択も無傷。
+      expect(persistOutcomeMock).not.toHaveBeenCalled()
+      const after = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.id, draft.id))
+      expect(after[0]!.status).toBe('pending_review')
+      expect(after[0]!.extractedPayload).toEqual({
+        reason: '古い抽出結果',
+        events: [],
+      })
+      expect(after[0]!.selectedAttachmentIds).toBeNull()
+    })
+
     it('AC-32: サイズ上限を超える添付 ID を拒否し、AI を呼ばない', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
