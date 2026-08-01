@@ -9,6 +9,7 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import * as schema from '@kagetra/shared/schema'
 import {
+  eventLineBroadcasts,
   events,
   mailAttachments,
   mailMessages,
@@ -52,6 +53,7 @@ import {
   createEntryGroup,
   deleteGroupIfEmpty,
   listGroupSiblings,
+  selectRepresentativeEvent,
 } from '@/lib/entry-groups'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
@@ -1274,28 +1276,6 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 // 戻すかは呼び出し側 UI が出すアクションで制御する想定）。
 // ─────────────────────────────────────────────────────────────────────────
 
-async function setTriage(
-  mailId: number,
-  triageStatus: 'processed' | 'unprocessed',
-  triagedByUserId: string | null,
-) {
-  const updated = await db
-    .update(mailMessages)
-    .set({
-      triageStatus,
-      // 未処理に戻すときは処理者・処理時刻もクリアして履歴の意味を保つ。
-      triagedAt: triageStatus === 'unprocessed' ? null : sql`now()`,
-      triagedByUserId,
-      updatedAt: sql`now()`,
-    })
-    .where(eq(mailMessages.id, mailId))
-    .returning({ id: mailMessages.id })
-  if (updated.length === 0) throw new Error('mail not found')
-  revalidatePath('/admin/mail-inbox')
-  // mail-triage-badge: 詳細ページ (mail/[id]) にも同じ TriageActions があるので、
-  // 詳細パスも再検証して処理後に Server Component の triageStatus を最新化する。
-  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
-}
 
 /**
  * 対応不要として片付ける（→ processed、未処理バッジから除外）。
@@ -1347,10 +1327,86 @@ export async function dismissMail(mailId: number) {
   revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
 }
 
-/** 処理取り消し（→ unprocessed、処理者をクリア）。 */
+/**
+ * 「未処理に戻す」（→ unprocessed、処理者をクリア）。
+ *
+ * mail-inbox-mailer 2026-08-02 改修 (AC-24): `processMail` の 1 回の実行で
+ * 作られたものを 1 回で戻す。すなわち **種別・大会紐付け・そのメール由来の
+ * 名簿採用**をまとめて取り消す。名簿採用だけ残ると「メールは未処理なのに
+ * 名簿は採用済み」という中途半端な状態になり、再実行時に「既に採用されて
+ * います」で弾かれる（要件 §8.10）。
+ *
+ * 採用行の特定は `source_mail_message_id`（nullable / ON DELETE SET NULL）に
+ * 頼らず、**このメールの添付集合**から引く（`releaseRosterFile` と同じ規約）。
+ *
+ * LINE 配信済みメッセージは LINE の仕様上取り消せない（画面に明示する）。
+ * AI ドラフトも消さない（現行維持）。
+ */
 export async function undoTriage(mailId: number) {
   await requireAdminSession()
-  await setTriage(mailId, 'unprocessed', null)
+
+  let previousEventId: number | null = null
+  const releasedGroupIds = new Set<number>()
+
+  await db.transaction(async (tx) => {
+    const mailRows = await tx
+      .select({
+        id: mailMessages.id,
+        linkedEventId: mailMessages.linkedEventId,
+      })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, mailId))
+      .for('update')
+    if (mailRows.length === 0) throw new Error('mail not found')
+    previousEventId = mailRows[0]!.linkedEventId
+
+    const adoptedRows = await tx
+      .select({
+        id: tournamentEntryRosterFiles.id,
+        entryGroupId: tournamentEntryRosterFiles.entryGroupId,
+      })
+      .from(tournamentEntryRosterFiles)
+      .innerJoin(
+        mailAttachments,
+        eq(mailAttachments.id, tournamentEntryRosterFiles.sourceAttachmentId),
+      )
+      .where(eq(mailAttachments.mailMessageId, mailId))
+    if (adoptedRows.length > 0) {
+      await tx.delete(tournamentEntryRosterFiles).where(
+        inArray(
+          tournamentEntryRosterFiles.id,
+          adoptedRows.map((r) => r.id),
+        ),
+      )
+      for (const row of adoptedRows) releasedGroupIds.add(row.entryGroupId)
+    }
+
+    await tx
+      .update(mailMessages)
+      .set({
+        mailKind: null,
+        linkedEventId: null,
+        triageStatus: 'unprocessed',
+        // 未処理に戻すときは処理者・処理時刻もクリアして履歴の意味を保つ。
+        triagedAt: null,
+        triagedByUserId: null,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(mailMessages.id, mailId))
+  })
+
+  revalidatePath('/admin/mail-inbox')
+  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
+  if (previousEventId != null) {
+    revalidatePath(`/events/${previousEventId}`)
+  }
+  for (const groupId of releasedGroupIds) {
+    await revalidateRosterFileGroupEvents(groupId)
+  }
+  if (releasedGroupIds.size > 0) {
+    revalidatePath('/events')
+    revalidatePath('/admin/entries')
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1488,6 +1544,15 @@ export async function triggerExtractDraft(
         draftId = cur.id
       }
 
+      // mail-inbox-mailer 2026-08-02 改修 (AC-2 / AC-22): AI 抽出の起動でも
+      // 手選択した種別を保存する（この経路は種別 = 大会案内 のときだけ出る）。
+      // ★`triage_status` は `unprocessed` のまま — 承認 / 却下で processed に
+      // 倒れる既存の契約を変えない。
+      await tx
+        .update(mailMessages)
+        .set({ mailKind: 'tournament_notice', updatedAt: sql`now()` })
+        .where(eq(mailMessages.id, mailId))
+
       const insertedJob = await tx
         .insert(mailWorkerJobs)
         .values({
@@ -1512,58 +1577,132 @@ export async function triggerExtractDraft(
 }
 
 /**
- * 「組合せ表」「会場案内」「訂正版」などを既存大会に紐付ける。
+ * mail-inbox-mailer 2026-08-02 改修: メール詳細の統合処理フォームの実行本体。
  *
- * 1 メール = 1 イベントの単純 FK。紐付け確定で:
- *   - mail_messages.linked_event_id = eventId
- *   - triage_status='processed', triaged_at, triaged_by_user_id
- *   - after() で broadcastMailToEvent（既存イベントが LINE グループ linked
- *     済なら LINE 配信、未紐付なら no-op）
+ * 旧 `linkMailToEvent`（紐付け＝必ず配信）を置き換え、1 回の実行で
+ *   - 種別（`mail_kind`）の保存
+ *   - 対象申込グループへの紐付け（代表イベントを `linked_event_id` に入れる）
+ *   - 選択した添付の名簿ファイル採用（複数可）
+ *   - `triage_status='processed'`
+ * を **1 トランザクション**で行い、コミット後に LINE 配信を `after()` で起動する
+ * （要件 §3.1.3 / AC-2・AC-9〜AC-12・AC-14・AC-19・AC-21・AC-22・AC-24）。
  *
- * 紐付け済 mail に対する二重操作は禁止（一度 unlinkMailFromEvent で外してから）。
- * UI 側でもボタンを出さない想定だが、サーバー側でも検証する。
+ * ★種別 = 大会案内（`tournament_notice`）はこの経路を通らない。AI 抽出は
+ * `triggerExtractDraft` が担当で、そちらは `triage_status` を動かさない。
+ *
+ * ★1 件でも採用に失敗したら全体を失敗として扱い、部分採用を残さない（AC-11）。
+ * そのために `adoptRosterFileTx` を同じ tx に載せる。エラーメッセージには
+ * **どの添付か**を含める（複数選択時に「どれが原因か」が分からないと直せない）。
  */
-export async function linkMailToEvent(
+export interface ProcessMailRosterFileInput {
+  attachmentId: number
+  /**
+   * 対象の級。**`null` = グループ統一名簿**（級を1つも選ばなかったとき）。
+   * ★空配列を送ってはならない — `normalizeAdoptionGrades` が「級別を選んだのに
+   * 級を1つも選ばなかった入力ミス」として弾く既存契約（要件 §3.2.4）。
+   */
+  grades: Grade[] | null
+}
+
+export interface ProcessMailInput {
+  /** `null` = 未選択（＝その他。組合せ表・会場案内・領収書など）。 */
+  mailKind: 'applicant_roster' | 'confirmed_roster' | null
+  /** 対象の申込グループ。名簿種別・LINE 配信のときは必須。 */
+  entryGroupId: number | null
+  /** 採用する添付（名簿種別のときだけ非空になる想定）。 */
+  rosterFiles: ProcessMailRosterFileInput[]
+  /** 名簿の発表日。未入力ならメール受信日（`adoptRosterFileTx` の既定）。 */
+  publishedAt?: string | null
+  /** LINE 配信するか。 */
+  broadcast: boolean
+  /** 配信するとき、メール本文を添付するか。 */
+  includeBody: boolean
+  /** 配信の冒頭メッセージ（任意）。 */
+  leadText?: string | null
+}
+
+export async function processMail(
   mailId: number,
-  eventId: number,
-  leadText?: string | null,
+  input: ProcessMailInput,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await requireAdminSession()
 
-  // 冒頭メッセージ (任意)。trim 後空なら null、200 字超は紐付け前に弾く
-  // (紐付け・配信とも実行しない)。
-  const normalizedLeadText = leadText?.trim() || null
+  if (!Number.isInteger(mailId) || mailId <= 0) {
+    return { ok: false, error: 'メールIDが不正です' }
+  }
+  if (
+    input.mailKind !== null &&
+    input.mailKind !== 'applicant_roster' &&
+    input.mailKind !== 'confirmed_roster'
+  ) {
+    return { ok: false, error: '種別が不正です' }
+  }
+
+  const isRosterKind = input.mailKind !== null
+  const rosterType: RosterFileType | null =
+    input.mailKind === 'applicant_roster'
+      ? 'applicant'
+      : input.mailKind === 'confirmed_roster'
+        ? 'confirmed'
+        : null
+
+  // AC-12: 名簿種別は対象の大会（申込グループ）が必須。
+  if (isRosterKind && input.entryGroupId == null) {
+    return { ok: false, error: '対象の大会を選んでください' }
+  }
+  // 種別 = 未選択で添付採用は指定できない（採用の帰属種別が決まらない）。
+  if (!isRosterKind && input.rosterFiles.length > 0) {
+    return { ok: false, error: '名簿の採用には種別（申込名簿／確定名簿）が必要です' }
+  }
+  if (input.broadcast && input.entryGroupId == null) {
+    return { ok: false, error: 'LINE 配信には対象の大会が必要です' }
+  }
+
+  // 冒頭メッセージ (任意)。trim 後空なら null、200 字超は実行前に弾く
+  // （紐付け・採用・配信ともに実行しない）。
+  const normalizedLeadText = input.leadText?.trim() || null
   if (normalizedLeadText && normalizedLeadText.length > LEAD_TEXT_MAX_LENGTH) {
     return { ok: false, error: '冒頭メッセージは200文字以内で入力してください' }
   }
 
-  let linkedMailMessageId: number | null = null
+  // 添付ごとの採用引数を **tx の外で** 正規化する（DB に触らない検証を先に
+  // 済ませ、トランザクションを短く保つ）。
+  const adoptions: Array<{
+    attachmentId: number
+    grades: Grade[] | null
+    publishedAt: string | null
+  }> = []
+  if (rosterType !== null && input.entryGroupId != null) {
+    const seen = new Set<number>()
+    for (const file of input.rosterFiles) {
+      if (seen.has(file.attachmentId)) {
+        return { ok: false, error: '同じ添付が重複して選択されています' }
+      }
+      seen.add(file.attachmentId)
+      const normalized = normalizeAdoptionInput({
+        attachmentId: file.attachmentId,
+        entryGroupId: input.entryGroupId,
+        rosterType,
+        grades: file.grades,
+        publishedAt: input.publishedAt,
+      })
+      if (!normalized.ok) return { ok: false, error: normalized.error }
+      adoptions.push({
+        attachmentId: file.attachmentId,
+        grades: normalized.grades,
+        publishedAt: normalized.publishedAt,
+      })
+    }
+  }
+
+  let linkedEventId: number | null = null
 
   try {
     await db.transaction(async (tx) => {
-      // Codex r5 should-fix: UI 側 loadLinkableEvents は status='cancelled' を
-      // 除外し、開催日が過去 30 日以内であることを要求する。Server Action 側
-      // でも同じ条件を verify しないと、画面表示後に event が cancelled へ
-      // 変わった or Server Action を直接叩かれたケースで許容範囲外の event に
-      // 紐付けて broadcastMailToEvent まで起動できてしまう。
-      const eventRows = await tx
-        .select({
-          id: events.id,
-          status: events.status,
-          eventDate: events.eventDate,
-        })
-        .from(events)
-        .where(eq(events.id, eventId))
-        .limit(1)
-      if (eventRows.length === 0) throw new Error('Event not found')
-      const eventRow = eventRows[0]!
-      const eventInvalid = validateLinkableEvent(
-        { status: eventRow.status, eventDate: eventRow.eventDate },
-        linkableEventCutoffStr(),
-      )
-      if (eventInvalid) throw new Error(eventInvalid)
-
-      const mail = await tx
+      // mail を FOR UPDATE で取り、triage / 紐付け / draft を tx 内で verify する
+      // （複数タブ・別管理者操作で stale な画面からの実行を弾く。既存
+      //  linkMailToEvent / triggerExtractDraft と同じガード）。
+      const mailRows = await tx
         .select({
           id: mailMessages.id,
           triageStatus: mailMessages.triageStatus,
@@ -1572,119 +1711,183 @@ export async function linkMailToEvent(
         .from(mailMessages)
         .where(eq(mailMessages.id, mailId))
         .for('update')
-      if (mail.length === 0) throw new Error('mail not found')
-      // Codex r3 blocker: 詳細画面は「unprocessed + draft なし」のときだけ
-      // 結びつけボタンを出すが、画面表示後に worker が pending_review を作る
-      // 可能性があるので transaction 内で再 verify する。
-      if (mail[0]!.triageStatus !== 'unprocessed') {
+      if (mailRows.length === 0) throw new Error('mail not found')
+      const mail = mailRows[0]!
+      if (mail.triageStatus !== 'unprocessed') {
         throw new Error('既に処理済みのメールです')
       }
-      if (mail[0]!.linkedEventId !== null) {
-        throw new Error('既に別イベントに紐付け済みです')
+      if (mail.linkedEventId !== null) {
+        throw new Error('既に大会に紐付け済みのメールです')
       }
 
-      // 未完了 draft (ai_processing / pending_review / ai_failed) があるメール
-      // を既存イベントに紐付けると、後で承認操作が走った時に二重配信や状態
-      // 矛盾を起こす。AI 抽出フローと既存結びつけは互いに排他にする。
-      const conflictingDraft = await tx
+      // 未完了 draft (ai_processing / pending_review / ai_failed) があるメールは
+      // AI 抽出フローの途中。後で承認操作が走ると二重配信・状態矛盾になるので
+      // 排他にする（要件 §3.2.3 / AC-23。UI 側でもフォームを出さない）。
+      const draftRows = await tx
         .select({ status: tournamentDrafts.status })
         .from(tournamentDrafts)
         .where(eq(tournamentDrafts.messageId, mailId))
         .for('update')
       if (
-        conflictingDraft.length > 0 &&
-        (conflictingDraft[0]!.status === 'ai_processing' ||
-          conflictingDraft[0]!.status === 'pending_review' ||
-          conflictingDraft[0]!.status === 'ai_failed')
+        draftRows.length > 0 &&
+        (draftRows[0]!.status === 'ai_processing' ||
+          draftRows[0]!.status === 'pending_review' ||
+          draftRows[0]!.status === 'ai_failed')
       ) {
-        throw new Error('AI 抽出フロー中のメールは結びつけできません')
+        throw new Error('AI 抽出フロー中のメールは処理できません')
+      }
+
+      // AC-19: 1 メールに紐づく申込グループは高々 1 つ。linked_event_id が
+      // NULL でも、過去の実行（→ undo 漏れ）でこのメールの添付が別グループへ
+      // 採用済みのことがある。undoTriage は「このメールの添付由来の採用」を
+      // まとめて消すので、両端で同じ不変条件を守る必要がある。
+      const existingAdoptions = await tx
+        .select({ entryGroupId: tournamentEntryRosterFiles.entryGroupId })
+        .from(tournamentEntryRosterFiles)
+        .innerJoin(
+          mailAttachments,
+          eq(mailAttachments.id, tournamentEntryRosterFiles.sourceAttachmentId),
+        )
+        .where(eq(mailAttachments.mailMessageId, mailId))
+      const otherGroup = existingAdoptions.find(
+        (row) => row.entryGroupId !== input.entryGroupId,
+      )
+      if (otherGroup) {
+        throw new Error(
+          'このメールは既に別の申込グループへ名簿を採用しています（1 メール = 1 申込グループ）',
+        )
+      }
+
+      if (input.entryGroupId != null) {
+        // グループの実在確認と、紐付けてよい状態かの検証。UI の候補母集団
+        // （process-candidates.ts）と同じ条件をサーバー側でも回す — 画面表示後に
+        // cancelled へ変わった場合や Server Action を直接叩かれた場合の防波堤。
+        const groupEvents = await tx
+          .select({
+            id: events.id,
+            status: events.status,
+            eventDate: events.eventDate,
+          })
+          .from(events)
+          .where(eq(events.entryGroupId, input.entryGroupId))
+        if (groupEvents.length === 0) throw new Error('申込グループが見つかりません')
+
+        // ★代表イベント（= linked_event_id に入る値）は「cutoff 以降 ∧ 非
+        // cancelled」の日**だけ**から選ぶ。グループ単位の候補判定を代表イベント
+        // 1 件に対する validateLinkableEvent で代用すると、候補には正しく出て
+        // いるグループを弾いてしまう（代表が過去日・cancelled のことがある）。
+        const cutoffStr = linkableEventCutoffStr()
+        const qualifying = groupEvents.filter(
+          (e) => e.eventDate >= cutoffStr && e.status !== 'cancelled',
+        )
+        const representative = selectRepresentativeEvent(qualifying, todayInJst())
+        if (!representative) {
+          throw new Error(
+            'この申込グループには紐付けできる開催日がありません（キャンセル除外・開催日が過去30日以降）',
+          )
+        }
+        linkedEventId = representative.id
+
+        // AC-18: 配信 ON は linked な LINE 紐付けがあるグループだけ。述語は
+        // `loadActiveBinding`（status='linked' ∧ line_group_id 非空）と一致させる
+        // — ズレると「配信したつもりで no_active_binding スキップ」が起きる。
+        if (input.broadcast) {
+          const bindings = await tx
+            .select({ lineGroupId: eventLineBroadcasts.lineGroupId })
+            .from(eventLineBroadcasts)
+            .where(
+              and(
+                eq(eventLineBroadcasts.entryGroupId, input.entryGroupId),
+                eq(eventLineBroadcasts.status, 'linked'),
+              ),
+            )
+          if (!bindings.some((b) => b.lineGroupId)) {
+            throw new Error(
+              'この申込グループには LINE グループが紐付いていないため配信できません',
+            )
+          }
+        }
+      }
+
+      // 名簿採用（AC-10: 1 回の実行で選択した全添付。AC-11: 1 件でも失敗したら
+      // この tx ごとロールバックされ、部分採用は残らない）。
+      for (const adoption of adoptions) {
+        const attachment = await tx
+          .select({ filename: mailAttachments.filename })
+          .from(mailAttachments)
+          .where(eq(mailAttachments.id, adoption.attachmentId))
+          .limit(1)
+        const filename = attachment[0]?.filename ?? `#${adoption.attachmentId}`
+        try {
+          const adopted = await adoptRosterFileTx(tx, {
+            attachmentId: adoption.attachmentId,
+            entryGroupId: input.entryGroupId!,
+            rosterType: rosterType!,
+            grades: adoption.grades,
+            publishedAt: adoption.publishedAt,
+            adoptedByUserId: session.user.id,
+          })
+          // 他のメールの添付を採用させない（直叩き対策）。
+          if (adopted.mailMessageId !== mailId) {
+            throw new Error('このメールの添付ではありません')
+          }
+        } catch (err) {
+          const reason =
+            translateAdoptionError(err) ??
+            (err instanceof Error ? err.message : String(err))
+          throw new Error(`${filename}: ${reason}`)
+        }
       }
 
       await tx
         .update(mailMessages)
         .set({
-          linkedEventId: eventId,
+          mailKind: input.mailKind,
+          linkedEventId,
           triageStatus: 'processed',
           triagedAt: sql`now()`,
           triagedByUserId: session.user.id,
           updatedAt: sql`now()`,
         })
         .where(eq(mailMessages.id, mailId))
-
-      linkedMailMessageId = mailId
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message }
   }
 
+  // ★revalidate は commit 後に 1 回だけ（採用ごとに N 回呼ばない）。
   revalidatePath('/admin/mail-inbox')
   revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
-  revalidatePath(`/events/${eventId}`)
+  if (input.entryGroupId != null) {
+    // 申込グループは複数開催日にまたがるので、グループ内の全 event を再検証する。
+    await revalidateRosterFileGroupEvents(input.entryGroupId)
+    revalidatePath('/events')
+    revalidatePath('/admin/entries')
+  }
 
-  // 既存 broadcastMailToEvent をそのまま再利用（linkDraftToEvent と同じ流れ）。
-  // 「訂正版」フラグは tournament_drafts.is_correction の話で、linked_event_id
-  // 経由の補足メールは常に isCorrection=false 扱い（通常の補足配信）。
-  if (linkedMailMessageId != null) {
-    const messageId = linkedMailMessageId
+  // 配信は実行のレスポンス後に非同期で走る。配信失敗は実行の失敗にしない
+  // （要件 §3.2.5）。
+  if (input.broadcast && linkedEventId != null) {
+    const eventId = linkedEventId
     after(async () => {
       try {
         await broadcastMailToEvent(db, {
           eventId,
-          mailMessageId: messageId,
+          mailMessageId: mailId,
+          // 「訂正版」フラグは tournament_drafts.is_correction の話。統合フォーム
+          // 経由の補足メールは常に通常配信扱い（旧 linkMailToEvent と同じ）。
           isCorrection: false,
           leadText: normalizedLeadText,
+          includeBody: input.includeBody,
         })
       } catch (err) {
-        console.error('[linkMailToEvent] broadcastMailToEvent failed', err)
+        console.error('[processMail] broadcastMailToEvent failed', err)
       }
     })
   }
 
   return { ok: true }
-}
-
-/**
- * 既存イベント結びつけの取り消し（処理済画面の undo から呼ばれる）。
- *
- * LINE 配信済メッセージは LINE Messaging API 仕様上取り消せないので、
- * 「紐付けだけ外す」操作（要件 §3.1.8）。triage_status も unprocessed に戻すので、
- * 未処理バッジに再度カウントされる。
- */
-export async function unlinkMailFromEvent(mailId: number) {
-  await requireAdminSession()
-
-  let previousEventId: number | null = null
-
-  await db.transaction(async (tx) => {
-    const mail = await tx
-      .select({
-        id: mailMessages.id,
-        linkedEventId: mailMessages.linkedEventId,
-      })
-      .from(mailMessages)
-      .where(eq(mailMessages.id, mailId))
-      .for('update')
-    if (mail.length === 0) throw new Error('mail not found')
-    previousEventId = mail[0]!.linkedEventId
-
-    await tx
-      .update(mailMessages)
-      .set({
-        linkedEventId: null,
-        triageStatus: 'unprocessed',
-        triagedAt: null,
-        triagedByUserId: null,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(mailMessages.id, mailId))
-  })
-
-  revalidatePath('/admin/mail-inbox')
-  revalidatePath(`/admin/mail-inbox/mail/${mailId}`)
-  if (previousEventId != null) {
-    revalidatePath(`/events/${previousEventId}`)
-  }
 }
 
 // PR5 Phase 4a — manual mail-fetch job queue.
@@ -2697,139 +2900,34 @@ export async function adoptRosterFile(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await requireAdminSession()
 
-  if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
-    return { ok: false, error: '添付ファイルIDが不正です' }
-  }
-  if (!Number.isInteger(entryGroupId) || entryGroupId <= 0) {
-    return { ok: false, error: '申込グループIDが不正です' }
-  }
-  if (rosterType !== 'applicant' && rosterType !== 'confirmed') {
-    return { ok: false, error: '名簿種別が不正です' }
-  }
-  const gradesResult = normalizeAdoptionGrades(grades)
-  if (!gradesResult.ok) return { ok: false, error: gradesResult.error }
-  const normalizedGrades = gradesResult.value
-  let normalizedPublishedAt: string | null = null
-  if (publishedAt != null && publishedAt.trim() !== '') {
-    const parsed = publishedAtStrSchema.safeParse(publishedAt.trim())
-    if (!parsed.success) return { ok: false, error: '発表日の形式が不正です (YYYY-MM-DD)' }
-    normalizedPublishedAt = parsed.data
-  }
+  const normalized = normalizeAdoptionInput({
+    attachmentId,
+    entryGroupId,
+    rosterType,
+    grades,
+    publishedAt,
+  })
+  if (!normalized.ok) return { ok: false, error: normalized.error }
 
   let committedEntryGroupId: number | null = null
   let committedMailId: number | null = null
 
   try {
     await db.transaction(async (tx) => {
-      // 対象グループに属する全 event 行を1クエリで引く（基本条件・級集合の
-      // 判定に使う。グループ自体の実在確認も兼ねる — entry_groups は events
-      // から常に参照されるので、0件なら未知のグループ）。
-      const eventRows = await tx
-        .select({
-          id: events.id,
-          status: events.status,
-          eventDate: events.eventDate,
-          kind: events.kind,
-          eligibleGrades: events.eligibleGrades,
-        })
-        .from(events)
-        .where(eq(events.entryGroupId, entryGroupId))
-      if (eventRows.length === 0) throw new Error('申込グループが見つかりません')
-
-      // 基本条件: 個人戦・非cancelled・開催日が cutoff 以降を満たす日が
-      // 1つ以上あること。★3条件は同一行に対して AND で評価する（別々の
-      // EXISTS に分けない — 上のコメント参照）。
-      const cutoff = linkableEventCutoffStr()
-      const hasEligibleDay = eventRows.some(
-        (row) =>
-          row.kind === 'individual' &&
-          row.status !== 'cancelled' &&
-          row.eventDate >= cutoff,
-      )
-      if (!hasEligibleDay) {
-        throw new Error(
-          'このグループには名簿を採用できる個人戦の開催日がありません（個人戦・キャンセル除外・開催日が過去30日以降）',
-        )
-      }
-
-      // AC-19: 級別時は指定級がグループの級集合に含まれること。級集合は
-      // 個人戦・非cancelled の日の eligible_grades の和集合 — cutoff は
-      // 掛けない（要件 §3.2.1 の文言どおり基本条件とは独立）。全日
-      // eligible_grades が NULL なら級集合は空になり、級別採用は自然に弾かれる。
-      if (normalizedGrades !== null) {
-        const groupGrades = new Set<Grade>()
-        for (const row of eventRows) {
-          if (row.kind !== 'individual' || row.status === 'cancelled') continue
-          for (const g of row.eligibleGrades ?? []) groupGrades.add(g)
-        }
-        const outOfGroup = normalizedGrades.filter((g) => !groupGrades.has(g))
-        if (outOfGroup.length > 0) {
-          throw new Error('指定した級はこのグループの対象級に含まれません')
-        }
-      }
-
-      const attachmentRows = await tx
-        .select({
-          id: mailAttachments.id,
-          mailMessageId: mailAttachments.mailMessageId,
-        })
-        .from(mailAttachments)
-        .where(eq(mailAttachments.id, attachmentId))
-        .limit(1)
-      if (attachmentRows.length === 0) throw new Error('添付ファイルが見つかりません')
-      const attachmentRow = attachmentRows[0]!
-
-      const existing = await tx
-        .select({ id: tournamentEntryRosterFiles.id })
-        .from(tournamentEntryRosterFiles)
-        .where(eq(tournamentEntryRosterFiles.sourceAttachmentId, attachmentId))
-        .limit(1)
-      if (existing.length > 0) {
-        throw new Error('この添付は既に採用されています')
-      }
-
-      // publishedAt 省略時の既定値はメール受信日 (JST)。
-      let resolvedPublishedAt = normalizedPublishedAt
-      if (resolvedPublishedAt == null) {
-        const mailRows = await tx
-          .select({ receivedAt: mailMessages.receivedAt })
-          .from(mailMessages)
-          .where(eq(mailMessages.id, attachmentRow.mailMessageId))
-          .limit(1)
-        if (mailRows.length > 0) {
-          // JST カレンダー基準の日付は `todayInJst` が正典（Date 引数を取れる）。
-          // 自前の toLocaleString ラウンドトリップは環境ロケール依存で崩れる。
-          resolvedPublishedAt = todayInJst(mailRows[0]!.receivedAt)
-        }
-      }
-
-      await tx.insert(tournamentEntryRosterFiles).values({
+      const adopted = await adoptRosterFileTx(tx, {
+        attachmentId,
         entryGroupId,
         rosterType,
-        grades: normalizedGrades,
-        sourceAttachmentId: attachmentId,
-        sourceMailMessageId: attachmentRow.mailMessageId,
-        publishedAt: resolvedPublishedAt,
+        grades: normalized.grades,
+        publishedAt: normalized.publishedAt,
         adoptedByUserId: session.user.id,
       })
-
       committedEntryGroupId = entryGroupId
-      committedMailId = attachmentRow.mailMessageId
+      committedMailId = adopted.mailMessageId
     })
   } catch (err) {
-    if (isUniqueViolation(err)) {
-      return { ok: false, error: 'この添付は既に採用されています' }
-    }
-    if (isForeignKeyViolation(err)) {
-      // entryGroupId が eventId 経由でなく直指定になったため、並行する
-      // deleteGroupIfEmpty（空グループ削除）と競合すると、上の SELECT の後で
-      // グループが削除されて INSERT の RESTRICT FK チェックが生の Postgres
-      // エラーで返ってくることがある。
-      return {
-        ok: false,
-        error: '対象の申込グループが削除されたため採用できませんでした',
-      }
-    }
+    const translated = translateAdoptionError(err)
+    if (translated) return { ok: false, error: translated }
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message }
   }
@@ -2845,6 +2943,173 @@ export async function adoptRosterFile(
   revalidatePath('/admin/entries')
 
   return { ok: true }
+}
+
+/**
+ * 採用引数の検証・正規化（`adoptRosterFile` と `processMail` の共有前処理）。
+ * DB に触らないのでトランザクションの外で回す。
+ */
+function normalizeAdoptionInput(input: {
+  attachmentId: number
+  entryGroupId: number
+  rosterType: RosterFileType
+  grades: Grade[] | null
+  publishedAt?: string | null
+}):
+  | { ok: true; grades: Grade[] | null; publishedAt: string | null }
+  | { ok: false; error: string } {
+  if (!Number.isInteger(input.attachmentId) || input.attachmentId <= 0) {
+    return { ok: false, error: '添付ファイルIDが不正です' }
+  }
+  if (!Number.isInteger(input.entryGroupId) || input.entryGroupId <= 0) {
+    return { ok: false, error: '申込グループIDが不正です' }
+  }
+  if (input.rosterType !== 'applicant' && input.rosterType !== 'confirmed') {
+    return { ok: false, error: '名簿種別が不正です' }
+  }
+  const gradesResult = normalizeAdoptionGrades(input.grades)
+  if (!gradesResult.ok) return { ok: false, error: gradesResult.error }
+  let publishedAt: string | null = null
+  if (input.publishedAt != null && input.publishedAt.trim() !== '') {
+    const parsed = publishedAtStrSchema.safeParse(input.publishedAt.trim())
+    if (!parsed.success) return { ok: false, error: '発表日の形式が不正です (YYYY-MM-DD)' }
+    publishedAt = parsed.data
+  }
+  return { ok: true, grades: gradesResult.value, publishedAt }
+}
+
+/** 採用時の Postgres 制約違反を日本語メッセージへ変換する（該当しなければ null）。 */
+function translateAdoptionError(err: unknown): string | null {
+  if (isUniqueViolation(err)) return 'この添付は既に採用されています'
+  if (isForeignKeyViolation(err)) {
+    // entryGroupId が eventId 経由でなく直指定になったため、並行する
+    // deleteGroupIfEmpty（空グループ削除）と競合すると、事前 SELECT の後で
+    // グループが削除されて INSERT の RESTRICT FK チェックが生の Postgres
+    // エラーで返ってくることがある。
+    return '対象の申込グループが削除されたため採用できませんでした'
+  }
+  return null
+}
+
+/**
+ * 採用の実処理 1 添付ぶん。**呼び出し側の tx に載せる**形にしてあるのは、
+ * 統合処理フォーム（`processMail`）が複数添付を 1 トランザクションで採用し、
+ * 1 件でも失敗したら全体をロールバックするため（要件 §3.2.4 / AC-10・AC-11）。
+ *
+ * 検証エラーは日本語メッセージの Error を throw する（呼び出し側が
+ * `{ ok:false, error }` へ変換する）。引数の正規化は `normalizeAdoptionInput`
+ * の責務で、ここでは正規化済みの値を受け取る。revalidate も呼び出し側が
+ * まとめて行う（★ここでやると N 添付で N 回 fan-out する）。
+ */
+async function adoptRosterFileTx(
+  tx: DbLike,
+  args: {
+    attachmentId: number
+    entryGroupId: number
+    rosterType: RosterFileType
+    /** 正規化済み。null = グループ統一名簿。 */
+    grades: Grade[] | null
+    /** 正規化済み。null ならメール受信日 (JST) を既定値にする。 */
+    publishedAt: string | null
+    adoptedByUserId: string
+  },
+): Promise<{ mailMessageId: number }> {
+  const { attachmentId, entryGroupId, rosterType, adoptedByUserId } = args
+  const normalizedGrades = args.grades
+  const normalizedPublishedAt = args.publishedAt
+  // 対象グループに属する全 event 行を1クエリで引く（基本条件・級集合の
+  // 判定に使う。グループ自体の実在確認も兼ねる — entry_groups は events
+  // から常に参照されるので、0件なら未知のグループ）。
+  const eventRows = await tx
+    .select({
+      id: events.id,
+      status: events.status,
+      eventDate: events.eventDate,
+      kind: events.kind,
+      eligibleGrades: events.eligibleGrades,
+    })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+  if (eventRows.length === 0) throw new Error('申込グループが見つかりません')
+
+  // 基本条件: 個人戦・非cancelled・開催日が cutoff 以降を満たす日が
+  // 1つ以上あること。★3条件は同一行に対して AND で評価する（別々の
+  // EXISTS に分けない — 上のコメント参照）。
+  const cutoff = linkableEventCutoffStr()
+  const hasEligibleDay = eventRows.some(
+    (row) =>
+      row.kind === 'individual' &&
+      row.status !== 'cancelled' &&
+      row.eventDate >= cutoff,
+  )
+  if (!hasEligibleDay) {
+    throw new Error(
+      'このグループには名簿を採用できる個人戦の開催日がありません（個人戦・キャンセル除外・開催日が過去30日以降）',
+    )
+  }
+
+  // AC-19: 級別時は指定級がグループの級集合に含まれること。級集合は
+  // 個人戦・非cancelled の日の eligible_grades の和集合 — cutoff は
+  // 掛けない（要件 §3.2.1 の文言どおり基本条件とは独立）。全日
+  // eligible_grades が NULL なら級集合は空になり、級別採用は自然に弾かれる。
+  if (normalizedGrades !== null) {
+    const groupGrades = new Set<Grade>()
+    for (const row of eventRows) {
+      if (row.kind !== 'individual' || row.status === 'cancelled') continue
+      for (const g of row.eligibleGrades ?? []) groupGrades.add(g)
+    }
+    const outOfGroup = normalizedGrades.filter((g) => !groupGrades.has(g))
+    if (outOfGroup.length > 0) {
+      throw new Error('指定した級はこのグループの対象級に含まれません')
+    }
+  }
+
+  const attachmentRows = await tx
+    .select({
+      id: mailAttachments.id,
+      mailMessageId: mailAttachments.mailMessageId,
+    })
+    .from(mailAttachments)
+    .where(eq(mailAttachments.id, attachmentId))
+    .limit(1)
+  if (attachmentRows.length === 0) throw new Error('添付ファイルが見つかりません')
+  const attachmentRow = attachmentRows[0]!
+
+  const existing = await tx
+    .select({ id: tournamentEntryRosterFiles.id })
+    .from(tournamentEntryRosterFiles)
+    .where(eq(tournamentEntryRosterFiles.sourceAttachmentId, attachmentId))
+    .limit(1)
+  if (existing.length > 0) {
+    throw new Error('この添付は既に採用されています')
+  }
+
+  // publishedAt 省略時の既定値はメール受信日 (JST)。
+  let resolvedPublishedAt = normalizedPublishedAt
+  if (resolvedPublishedAt == null) {
+    const mailRows = await tx
+      .select({ receivedAt: mailMessages.receivedAt })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, attachmentRow.mailMessageId))
+      .limit(1)
+    if (mailRows.length > 0) {
+      // JST カレンダー基準の日付は `todayInJst` が正典（Date 引数を取れる）。
+      // 自前の toLocaleString ラウンドトリップは環境ロケール依存で崩れる。
+      resolvedPublishedAt = todayInJst(mailRows[0]!.receivedAt)
+    }
+  }
+
+  await tx.insert(tournamentEntryRosterFiles).values({
+    entryGroupId,
+    rosterType,
+    grades: normalizedGrades,
+    sourceAttachmentId: attachmentId,
+    sourceMailMessageId: attachmentRow.mailMessageId,
+    publishedAt: resolvedPublishedAt,
+    adoptedByUserId,
+  })
+
+  return { mailMessageId: attachmentRow.mailMessageId }
 }
 
 /**

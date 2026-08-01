@@ -89,7 +89,7 @@ status: completed
 - **対応Issue:** #443
 
 ### タスク4: Server Actions（実行・undo・AI 抽出）
-- [ ] 完了
+- [x] 完了
 - **目的:** 1 回の実行で 種別保存・大会紐付け・名簿一括採用・LINE 配信を行い、undo で戻す
 - **対応AC:** AC-2, AC-9, AC-10, AC-11, AC-12, AC-14, AC-19, AC-21, AC-22, AC-24, AC-28
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`

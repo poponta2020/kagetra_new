@@ -3,38 +3,26 @@
 import { useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Btn } from '@/components/ui'
-import { undoTriage, unlinkMailFromEvent } from '../actions'
+import { undoTriage } from '../actions'
 
 /**
- * mail-inbox-mailer タスク4: 処理済画面の「未処理に戻す」ボタン。
+ * mail-inbox-mailer: 処理済画面の「未処理に戻す」ボタン。
  *
- * 要件 §3.1.8:
- *   - triage_status を 'processed' → 'unprocessed'
- *   - linked_event_id がある場合は NULL に戻す（LINE 配信済メッセージの取消は
- *     LINE API 仕様上不可なので、紐付けだけ外す）
- *   - AI 抽出済み draft は残す（再度開けば編集可）
+ * 2026-08-02 改修 (AC-24): `processMail` の 1 回の実行で作られたものを 1 回で
+ * 戻すため、`undoTriage` が **種別・大会紐付け・そのメール由来の名簿採用**を
+ * まとめて取り消す。旧 `unlinkMailFromEvent` との使い分け（linked_event_id の
+ * 有無で呼び分ける）は不要になったので、常に `undoTriage` を呼ぶ。
  *
- * undoTriage（triage のみ）と unlinkMailFromEvent（linked_event_id 含む）の
- * 使い分けは呼び出し側で行う: linked_event_id があれば unlinkMailFromEvent、
- * それ以外は undoTriage。
+ * LINE 配信済メッセージの取消は LINE API 仕様上できない（呼び出し側の画面が
+ * その旨を明示する）。AI 抽出済み draft は残す（再度開けば編集可）。
  */
-export function UndoTriageButton({
-  mailId,
-  hasLinkedEvent,
-}: {
-  mailId: number
-  hasLinkedEvent: boolean
-}) {
+export function UndoTriageButton({ mailId }: { mailId: number }) {
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
   const onUndo = () => {
     startTransition(async () => {
-      if (hasLinkedEvent) {
-        await unlinkMailFromEvent(mailId)
-      } else {
-        await undoTriage(mailId)
-      }
+      await undoTriage(mailId)
       router.refresh()
     })
   }

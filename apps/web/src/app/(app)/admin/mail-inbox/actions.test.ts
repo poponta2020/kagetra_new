@@ -2,7 +2,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   entryGroups,
+  eventLineBroadcasts,
   events,
+  lineChannels,
   mailAttachments,
   mailMessages,
   mailWorkerJobs,
@@ -10,6 +12,7 @@ import {
   players,
   resultDrafts,
   tournamentDrafts,
+  tournamentEntryRosterFiles,
   tournaments,
   tournamentSeries,
   tournamentSeriesEditions,
@@ -164,8 +167,8 @@ const {
   dismissMail,
   undoTriage,
   triggerExtractDraft,
-  linkMailToEvent,
-  unlinkMailFromEvent,
+  processMail,
+  adoptRosterFile,
   triggerResultParse,
   approveResultDraft,
   rejectResultDraft,
@@ -2653,7 +2656,7 @@ describe('admin/mail-inbox actions', () => {
     })
   })
 
-  // ── mail-inbox-mailer task3: triggerExtractDraft / linkMailToEvent / unlinkMailFromEvent ──
+  // ── mail-inbox-mailer: triggerExtractDraft / processMail / undoTriage ──
   describe('triggerExtractDraft (mail-inbox-mailer)', () => {
     it('draft なし: 新規 tournament_drafts(status=ai_processing) + manual_extract job を作る', async () => {
       const admin = await createAdmin()
@@ -2981,250 +2984,443 @@ describe('admin/mail-inbox actions', () => {
     })
   })
 
-  describe('linkMailToEvent (mail-inbox-mailer)', () => {
-    it('linked_event_id を立て、triage processed、after() で broadcastMailToEvent を起動', async () => {
+  // ───────────────────────────────────────────────────────────────────────
+  // processMail / undoTriage — mail-inbox-mailer 2026-08-02 改修（統合処理フォーム）
+  // ───────────────────────────────────────────────────────────────────────
+
+  /** メール添付を1件作る（採用対象）。 */
+  async function createAttachment(mailMessageId: number, filename: string) {
+    const [row] = await testDb
+      .insert(mailAttachments)
+      .values({
+        mailMessageId,
+        filename,
+        contentType: 'application/pdf',
+        sizeBytes: 3,
+        data: Buffer.from('abc'),
+      })
+      .returning({ id: mailAttachments.id })
+    if (!row) throw new Error('failed to insert attachment')
+    return row.id
+  }
+
+  /** グループに linked な LINE 紐付けを作る（AC-18 の分岐用）。 */
+  async function linkLineGroup(entryGroupId: number) {
+    const [channel] = await testDb
+      .insert(lineChannels)
+      .values({
+        channelId: `ch-${entryGroupId}-${Math.random().toString(36).slice(2, 8)}`,
+        channelSecret: 'secret',
+        channelAccessToken: 'token',
+        botId: '@bot',
+        purpose: 'event_broadcast',
+        status: 'active',
+      })
+      .returning({ id: lineChannels.id })
+    await testDb.insert(eventLineBroadcasts).values({
+      entryGroupId,
+      lineChannelId: channel!.id,
+      status: 'linked',
+      lineGroupId: 'C1234567890',
+      linkedAt: new Date(),
+    })
+  }
+
+  async function listRosterFiles(entryGroupId?: number) {
+    const rows = await testDb.select().from(tournamentEntryRosterFiles)
+    return entryGroupId == null
+      ? rows
+      : rows.filter((r) => r.entryGroupId === entryGroupId)
+  }
+
+  describe('processMail (mail-inbox-mailer 統合処理フォーム)', () => {
+    it('AC-22: 種別・紐付け・triage=processed を 1 回の実行で確定する', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      const event = await createEvent({ entryGroupId: groupId, title: '対象大会' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      const event = await createEvent({ title: '結びつけ先大会' })
 
-      afterMock.mockImplementationOnce((cb) => {
-        return cb()
-      })
       broadcastMailToEventMock.mockClear()
-
-      const result = await linkMailToEvent(mail.id, event.id)
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: groupId,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
       expect(result.ok).toBe(true)
 
       const after = await getMail(mail.id)
+      expect(after?.mailKind).toBeNull()
       expect(after?.linkedEventId).toBe(event.id)
       expect(after?.triageStatus).toBe('processed')
       expect(after?.triagedByUserId).toBe(admin.id)
       expect(after?.triagedAt).toBeInstanceOf(Date)
-
-      // broadcastMailToEvent が isCorrection=false で呼ばれる。
-      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
-      // hoisted mock の signature は引数なしだが、実引数は (db, { eventId, ... })。
-      // 型を緩めて payload オブジェクトを直接検証する。
-      const callArgs = (
-        broadcastMailToEventMock.mock.calls[0] as unknown as [
-          unknown,
-          {
-            eventId: number
-            mailMessageId: number
-            isCorrection: boolean
-            leadText: string | null
-          },
-        ]
-      )
-      expect(callArgs[1]).toEqual({
-        eventId: event.id,
-        mailMessageId: mail.id,
-        isCorrection: false,
-        leadText: null,
-      })
-    })
-
-    it('leadText を渡すと trim して broadcastMailToEvent に渡す', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      const event = await createEvent({ title: '冒頭メッセージ大会' })
-
-      afterMock.mockImplementationOnce((cb) => cb())
-      broadcastMailToEventMock.mockClear()
-
-      const result = await linkMailToEvent(mail.id, event.id, '  抽選結果が出ました！  ')
-      expect(result.ok).toBe(true)
-
-      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
-      const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
-        unknown,
-        { leadText: string | null },
-      ]
-      // 前後空白は trim される。
-      expect(callArgs[1].leadText).toBe('抽選結果が出ました！')
-    })
-
-    it('201 文字以上の leadText はエラーを返し、紐付け・配信を行わない', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      const event = await createEvent({ title: 'E' })
-
-      broadcastMailToEventMock.mockClear()
-
-      const result = await linkMailToEvent(mail.id, event.id, 'あ'.repeat(201))
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/200文字以内/)
-
-      // 紐付け・triage 更新・配信のいずれも起きない。
-      const after = await getMail(mail.id)
-      expect(after?.linkedEventId).toBeNull()
-      expect(after?.triageStatus).toBe('unprocessed')
+      // AC-14: 配信 OFF では配信が起動しない。
       expect(broadcastMailToEventMock).not.toHaveBeenCalled()
     })
 
-    it('空白のみの leadText は null 扱いで配信される (冒頭なし)', async () => {
+    it('AC-1/AC-22: 名簿種別を選んだ実行では mail_kind が保存される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId, eligibleGrades: ['A', 'B'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: groupId,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(true)
+      expect((await getMail(mail.id))?.mailKind).toBe('confirmed_roster')
+    })
+
+    it('AC-10: 名簿 N 件が 1 回の実行でまとめて採用される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId, eligibleGrades: ['A', 'B', 'C'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const a1 = await createAttachment(mail.id, '確定名簿_A級.xlsx')
+      const a2 = await createAttachment(mail.id, '確定名簿_BC級.xlsx')
+
+      const result = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: groupId,
+        rosterFiles: [
+          { attachmentId: a1, grades: ['A'] },
+          { attachmentId: a2, grades: ['B', 'C'] },
+        ],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(true)
+
+      const files = await listRosterFiles(groupId)
+      expect(files).toHaveLength(2)
+      expect(files.every((f) => f.rosterType === 'confirmed')).toBe(true)
+      expect(files.find((f) => f.sourceAttachmentId === a1)?.grades).toEqual(['A'])
+      expect(files.find((f) => f.sourceAttachmentId === a2)?.grades).toEqual(['B', 'C'])
+    })
+
+    it('AC-9: 級を1つも指定しなかった添付は grades=null（グループ統一名簿）で採用される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId, eligibleGrades: ['A', 'B'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const attachmentId = await createAttachment(mail.id, '申込者一覧.pdf')
+
+      const result = await processMail(mail.id, {
+        mailKind: 'applicant_roster',
+        entryGroupId: groupId,
+        rosterFiles: [{ attachmentId, grades: null }],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(true)
+
+      const files = await listRosterFiles(groupId)
+      expect(files).toHaveLength(1)
+      expect(files[0]!.grades).toBeNull()
+    })
+
+    it('AC-11: 1 件でも採用に失敗したら全体が失敗し、部分採用も紐付けも残らない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId, eligibleGrades: ['A', 'B'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const ok = await createAttachment(mail.id, '名簿_A級.xlsx')
+      const ng = await createAttachment(mail.id, '名簿_E級.xlsx')
+
+      const result = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: groupId,
+        rosterFiles: [
+          { attachmentId: ok, grades: ['A'] },
+          // グループの対象級（A・B）に無い級 → 採用不能。
+          { attachmentId: ng, grades: ['E'] },
+        ],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      // どの添付で落ちたかがメッセージに出る（複数選択時の切り分けに要る）。
+      if (!result.ok) expect(result.error).toContain('名簿_E級.xlsx')
+
+      expect(await listRosterFiles(groupId)).toHaveLength(0)
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('unprocessed')
+      expect(after?.linkedEventId).toBeNull()
+      expect(after?.mailKind).toBeNull()
+    })
+
+    it('AC-12: 名簿種別で対象の大会を選ばずに実行できない', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      const event = await createEvent({ title: 'E' })
 
-      afterMock.mockImplementationOnce((cb) => cb())
-      broadcastMailToEventMock.mockClear()
-
-      const result = await linkMailToEvent(mail.id, event.id, '   ')
-      expect(result.ok).toBe(true)
-
-      const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
-        unknown,
-        { leadText: string | null },
-      ]
-      expect(callArgs[1].leadText).toBeNull()
+      const result = await processMail(mail.id, {
+        mailKind: 'applicant_roster',
+        entryGroupId: null,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      expect((await getMail(mail.id))?.triageStatus).toBe('unprocessed')
     })
 
-    // Codex r5 should-fix: UI 候補条件 (cancelled 除外 / 過去 30 日以内) を
-    // Server Action 側でも verify する。
-    it('cancelled イベントへの linkMailToEvent は拒否される', async () => {
+    it('AC-14/AC-15: 配信 ON では includeBody と leadText が broadcastMailToEvent に渡る', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({
-        title: 'キャンセル済',
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      const event = await createEvent({ entryGroupId: groupId })
+      await linkLineGroup(groupId)
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      broadcastMailToEventMock.mockClear()
+      afterMock.mockImplementationOnce((cb) => cb())
+
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: groupId,
+        rosterFiles: [],
+        broadcast: true,
+        includeBody: false,
+        leadText: '組合せ表の訂正版です',
+      })
+      expect(result.ok).toBe(true)
+
+      expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+      const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
+        unknown,
+        {
+          eventId: number
+          mailMessageId: number
+          isCorrection: boolean
+          leadText: string | null
+          includeBody: boolean
+        },
+      ]
+      expect(callArgs[1].eventId).toBe(event.id)
+      expect(callArgs[1].mailMessageId).toBe(mail.id)
+      expect(callArgs[1].isCorrection).toBe(false)
+      expect(callArgs[1].leadText).toBe('組合せ表の訂正版です')
+      expect(callArgs[1].includeBody).toBe(false)
+    })
+
+    it('AC-18: LINE 未紐付けのグループに配信 ON を送るとサーバー側で拒否される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      broadcastMailToEventMock.mockClear()
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: groupId,
+        rosterFiles: [],
+        broadcast: true,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+      expect((await getMail(mail.id))?.triageStatus).toBe('unprocessed')
+    })
+
+    it('AC-23: 未完了 draft があるメールへの実行は拒否される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await testDb.insert(entryGroups).values({}).returning()
+      const groupId = group[0]!.id
+      await createEvent({ entryGroupId: groupId })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createTournamentDraft({ messageId: mail.id, status: 'pending_review' })
+
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: groupId,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      expect((await getMail(mail.id))?.triageStatus).toBe('unprocessed')
+    })
+
+    it('AC-19: 別の申込グループへ既に名簿を採用しているメールは実行できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const groupA = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      const groupB = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      await createEvent({ entryGroupId: groupA.id, eligibleGrades: ['A'] })
+      await createEvent({ entryGroupId: groupB.id, eligibleGrades: ['A'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const a1 = await createAttachment(mail.id, '名簿1.pdf')
+      const a2 = await createAttachment(mail.id, '名簿2.pdf')
+
+      // 1 回目は groupA へ採用（成功）→ undo で未処理に戻す（採用も消える）ので、
+      // 「採用だけ残った状態」を作るために adoptRosterFile を直接使う。
+      const adopted = await adoptRosterFile(a1, groupA.id, 'confirmed', null)
+      expect(adopted.ok).toBe(true)
+
+      const result = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: groupB.id,
+        rosterFiles: [{ attachmentId: a2, grades: null }],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      expect(await listRosterFiles(groupB.id)).toHaveLength(0)
+    })
+
+    it('代表イベントは cancelled・過去日を除いた開催日から選ばれる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      // 過去日・cancelled は代表になれない。未来日の 2 日開催のうち早い方が代表。
+      await createEvent({
+        entryGroupId: group.id,
+        eventDate: '2000-01-01',
+        title: '過去日',
+      })
+      const early = await createEvent({
+        entryGroupId: group.id,
+        eventDate: '2030-05-10',
+        title: '初日',
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        eventDate: '2030-05-11',
+        title: '2日目',
         status: 'cancelled',
       })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
 
-      const result = await linkMailToEvent(mail.id, event.id)
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/キャンセル済み/)
-    })
-
-    it('過去 31 日より古いイベントへの linkMailToEvent は拒否される', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      // 60 日前の日付。
-      const old = new Date(Date.now() - 60 * 24 * 3600 * 1000)
-      const oldStr = `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`
-      const event = await createEvent({
-        title: '過去のイベント',
-        status: 'done',
-        eventDate: oldStr,
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: group.id,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
       })
-      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-
-      const result = await linkMailToEvent(mail.id, event.id)
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/過去 30 日/)
+      expect(result.ok).toBe(true)
+      expect((await getMail(mail.id))?.linkedEventId).toBe(early.id)
     })
 
-    // Codex r3 blocker: 状態検証ガード。
-    it('既に processed のメールは linkMailToEvent できない', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: 'E' })
-      const mail = await createMailMessage({ triageStatus: 'processed' })
-
-      const result = await linkMailToEvent(mail.id, event.id)
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/既に処理済み/)
-    })
-
-    it('ai_processing draft があるメールは linkMailToEvent できない (AI 抽出と排他)', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: 'E' })
+    it('未認証 / member は実行できない', async () => {
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      await createTournamentDraft({
-        messageId: mail.id,
-        status: 'ai_processing',
+      const input = (): Parameters<typeof processMail>[1] => ({
+        mailKind: null,
+        entryGroupId: null,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
       })
-
-      const result = await linkMailToEvent(mail.id, event.id)
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/AI 抽出フロー中/)
-    })
-
-    it('既に紐付け済みの mail は二重紐付け不可', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: 'A' })
-      const event2 = await createEvent({ title: 'B' })
-      const mail = await createMailMessage()
-      await linkMailToEvent(mail.id, event.id)
-
-      // Codex r3 blocker: 状態検証ガード追加で、2 回目は triage=processed のため
-      // 「既に処理済み」エラーで先に弾かれる（旧仕様: 「既に別イベントに紐付け済」）。
-      // どちらにせよ二重紐付け不可という不変条件は満たされる。
-      const result = await linkMailToEvent(mail.id, event2.id)
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/既に処理済み/)
-    })
-
-    it('存在しない event は error を返す（mail は変更しない）', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-
-      const result = await linkMailToEvent(mail.id, 999_999)
-      expect(result.ok).toBe(false)
-
-      const after = await getMail(mail.id)
-      expect(after?.linkedEventId).toBeNull()
-      expect(after?.triageStatus).toBe('unprocessed')
-    })
-
-    it('未認証 / member は呼べない', async () => {
-      const mail = await createMailMessage()
-      const event = await createEvent({ title: 'E' })
 
       await setAuthSession(null)
-      await expect(linkMailToEvent(mail.id, event.id)).rejects.toThrow('Unauthorized')
+      await expect(processMail(mail.id, input())).rejects.toThrow('Unauthorized')
 
       const member = await createUser()
       await setAuthSession({ id: member.id, role: 'member' })
-      await expect(linkMailToEvent(mail.id, event.id)).rejects.toThrow('Forbidden')
+      await expect(processMail(mail.id, input())).rejects.toThrow('Forbidden')
     })
   })
 
-  describe('unlinkMailFromEvent (mail-inbox-mailer)', () => {
-    it('linked_event_id を NULL に戻し triage_status を unprocessed に戻す', async () => {
+  describe('undoTriage (mail-inbox-mailer 統合処理フォーム)', () => {
+    it('AC-24: 種別・大会紐付け・そのメール由来の名簿採用がまとめて取り消される', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: '解除元' })
-      const mail = await createMailMessage()
-      await linkMailToEvent(mail.id, event.id)
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      await createEvent({ entryGroupId: group.id, eligibleGrades: ['A', 'B'] })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const attachmentId = await createAttachment(mail.id, '確定名簿.xlsx')
 
-      await unlinkMailFromEvent(mail.id)
+      const processed = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: group.id,
+        rosterFiles: [{ attachmentId, grades: ['A'] }],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(processed.ok).toBe(true)
+      expect(await listRosterFiles(group.id)).toHaveLength(1)
+
+      await undoTriage(mail.id)
 
       const after = await getMail(mail.id)
-      expect(after?.linkedEventId).toBeNull()
       expect(after?.triageStatus).toBe('unprocessed')
+      expect(after?.mailKind).toBeNull()
+      expect(after?.linkedEventId).toBeNull()
       expect(after?.triagedAt).toBeNull()
       expect(after?.triagedByUserId).toBeNull()
+      // 採用も消える（残ると再実行時に「既に採用されています」で詰む）。
+      expect(await listRosterFiles(group.id)).toHaveLength(0)
+      // 添付そのものは消えない。
+      const attachments = await testDb
+        .select()
+        .from(mailAttachments)
+        .where(eq(mailAttachments.mailMessageId, mail.id))
+      expect(attachments).toHaveLength(1)
     })
 
-    it('存在しない mail は throw する', async () => {
+    it('他のメール由来の採用は消さない', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      await expect(unlinkMailFromEvent(999_999)).rejects.toThrow('mail not found')
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      await createEvent({ entryGroupId: group.id, eligibleGrades: ['A', 'B'] })
+
+      const otherMail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const otherAttachment = await createAttachment(otherMail.id, '別メール名簿.xlsx')
+      expect((await adoptRosterFile(otherAttachment, group.id, 'applicant', null)).ok).toBe(
+        true,
+      )
+
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const attachmentId = await createAttachment(mail.id, '自メール名簿.xlsx')
+      expect(
+        (
+          await processMail(mail.id, {
+            mailKind: 'confirmed_roster',
+            entryGroupId: group.id,
+            rosterFiles: [{ attachmentId, grades: ['A'] }],
+            broadcast: false,
+            includeBody: true,
+          })
+        ).ok,
+      ).toBe(true)
+
+      await undoTriage(mail.id)
+
+      const remaining = await listRosterFiles(group.id)
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]!.sourceAttachmentId).toBe(otherAttachment)
     })
 
     it('未認証 / member は呼べない', async () => {
       const mail = await createMailMessage()
 
       await setAuthSession(null)
-      await expect(unlinkMailFromEvent(mail.id)).rejects.toThrow('Unauthorized')
+      await expect(undoTriage(mail.id)).rejects.toThrow('Unauthorized')
 
       const member = await createUser()
       await setAuthSession({ id: member.id, role: 'member' })
-      await expect(unlinkMailFromEvent(mail.id)).rejects.toThrow('Forbidden')
+      await expect(undoTriage(mail.id)).rejects.toThrow('Forbidden')
     })
   })
 
