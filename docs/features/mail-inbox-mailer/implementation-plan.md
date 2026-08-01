@@ -68,7 +68,7 @@ status: completed
 - **対応Issue:** #442
 
 ### タスク3: LINE 配信の本文添付フラグ
-- [ ] 完了
+- [x] 完了
 - **目的:** 本文を送る／送らないを選べるようにし、再送でも同じ構成を再現する
 - **対応AC:** AC-16, AC-17, AC-30
 - **主な変更領域:** `apps/web/src/lib/line-broadcast.ts` /

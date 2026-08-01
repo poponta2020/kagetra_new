@@ -586,6 +586,10 @@ export async function manualBroadcast(
     .select({
       isCorrection: eventBroadcastMessages.isCorrection,
       leadText: eventBroadcastMessages.leadText,
+      // mail-inbox-mailer: 本文添付の可否も再送で再現する（isCorrection /
+      // leadText と同じ継承規約。初回と違う列で再送すると、送られなかった
+      // はずの本文が後から流れる／逆に本文だけ落ちる）。
+      includeBody: eventBroadcastMessages.includeBody,
     })
     .from(eventBroadcastMessages)
     .innerJoin(
@@ -606,6 +610,8 @@ export async function manualBroadcast(
     isCorrection: existing[0]?.isCorrection ?? false,
     // 保存済み冒頭メッセージを継承して再送する (isCorrection 継承と同じパターン)。
     leadText: existing[0]?.leadText ?? null,
+    // 監査行が無い（＝初回配信を UI から再実行した）場合の既定は true＝従来挙動。
+    includeBody: existing[0]?.includeBody ?? true,
     // r-final-3 should_fix: manualBroadcast は UI からの「再配信」操作な
     // ので、status='sent' でも skip せず強制送信する。自動配信ループ
     // (approveDraft / linkDraftToEvent) では force を立てないため、

@@ -517,4 +517,153 @@ describe('broadcastMailToEvent', () => {
     expect(result.sentImageCount).toBe(0)
     expect(result.fallbackLinkCount).toBe(0)
   })
+
+  // ───────────────────────────────────────────────────────────────────────
+  // mail-inbox-mailer 2026-08-02 改修: 本文添付フラグ (AC-16 / AC-17 / AC-30)
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('AC-16: includeBody=false では本文画像も本文テキストも送らず、lead と添付リンクだけを送る', async () => {
+    const fx = await buildLinkedFixture()
+    await addAttachment(fx.mailMessageId, 'meibo.xlsx', 'application/vnd.ms-excel')
+
+    const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      const result = await broadcastMailToEvent(db, {
+        eventId: fx.eventId,
+        mailMessageId: fx.mailMessageId,
+        isCorrection: false,
+        leadText: '確定名簿が出ました！',
+        includeBody: false,
+      })
+      expect(result.status).toBe('sent')
+      expect(result.sentLeadCount).toBe(1)
+      expect(result.fallbackLinkCount).toBe(1)
+      expect(result.sentImageCount).toBe(0)
+      expect(result.sentTextCount).toBe(0)
+
+      // 本文画像化そのものを起動しない（コストを払わない）。
+      expect(renderBodyImageMock).not.toHaveBeenCalled()
+
+      const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages: Array<{ type: string; text?: string }>
+        }
+        return body.messages
+      })
+      expect(sentMessages).toHaveLength(2)
+      expect(sentMessages[0]).toEqual({ type: 'text', text: '確定名簿が出ました！' })
+      expect(sentMessages[1]?.text).toContain('📎 meibo.xlsx')
+    } finally {
+      fetchSpy.mockRestore()
+      if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
+    }
+
+    const audit = await db
+      .select({ includeBody: eventBroadcastMessages.includeBody })
+      .from(eventBroadcastMessages)
+      .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
+    expect(audit[0]?.includeBody).toBe(false)
+  })
+
+  it('AC-15/AC-30: includeBody 未指定は true 扱いで、監査行にも true が保存される', async () => {
+    const fx = await buildLinkedFixture()
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+    })
+    expect(result.status).toBe('sent')
+    expect(result.sentImageCount).toBe(1)
+
+    const audit = await db
+      .select({ includeBody: eventBroadcastMessages.includeBody })
+      .from(eventBroadcastMessages)
+      .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
+    expect(audit[0]?.includeBody).toBe(true)
+  })
+
+  it('★AC-17 回帰: partial + include_body=true の行への !force 再送は、args.includeBody=false でも保存値で列を組み直す', async () => {
+    const fx = await buildLinkedFixture()
+    await addAttachment(fx.mailMessageId, 'kumiawase.pdf', 'application/pdf')
+
+    // 初回に [lead, 本文画像, 添付リンク] の 3 通で組み、lead 1 通だけ届いた
+    // ところで落ちた partial 行を再現する。
+    await db.insert(eventBroadcastMessages).values({
+      eventLineBroadcastId: fx.broadcastId,
+      mailMessageId: fx.mailMessageId,
+      status: 'partial',
+      isCorrection: false,
+      leadText: '組合せ表です',
+      includeBody: true,
+      sentLeadCount: 1,
+      sentTextCount: 0,
+      sentImageCount: 0,
+      fallbackLinkCount: 0,
+      errorMessage: 'boom',
+    })
+
+    // 呼び出し側が誤って（あるいは UI の既定が変わって）includeBody=false を
+    // 渡しても、prefix-skip が効く経路では保存値 true が勝つ。false が勝つと
+    // 列が [lead, 添付リンク] になり、skipCount=1 の読み飛ばしで添付リンクだけ
+    // 送られて**本文が永久に欠落**する。
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      leadText: '組合せ表です',
+      includeBody: false,
+    })
+
+    expect(result.status).toBe('sent')
+    // 初回と同じ列 [lead, 本文画像, 添付リンク] を組み直し、先頭 1 通
+    // （配信済みの lead）を読み飛ばして残り 2 通を送った累計。
+    expect(result.sentLeadCount).toBe(1)
+    expect(result.sentImageCount).toBe(1)
+    expect(result.fallbackLinkCount).toBe(1)
+    expect(result.sentTextCount).toBe(0)
+
+    // 保存値も true のまま（args で上書きしない）。次の再送も同じ列で走る。
+    const audit = await db
+      .select({ includeBody: eventBroadcastMessages.includeBody })
+      .from(eventBroadcastMessages)
+      .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
+    expect(audit[0]?.includeBody).toBe(true)
+  })
+
+  it('AC-16: 本文 OFF・lead 無し・添付無しは skipped を返し sent にしない（監査行も sending のまま残さない）', async () => {
+    const fx = await buildLinkedFixture()
+
+    const result = await broadcastMailToEvent(db, {
+      eventId: fx.eventId,
+      mailMessageId: fx.mailMessageId,
+      isCorrection: false,
+      includeBody: false,
+    })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('empty_message_set')
+    expect(result.sentLeadCount).toBe(0)
+    expect(result.sentTextCount).toBe(0)
+    expect(result.sentImageCount).toBe(0)
+    expect(result.fallbackLinkCount).toBe(0)
+
+    // CAS upsert で sending にした行を terminal へ落として返している
+    // （落とさないと 15 分の stale reclaim まで行がロックされたままになる）。
+    const audit = await db
+      .select({
+        status: eventBroadcastMessages.status,
+        errorMessage: eventBroadcastMessages.errorMessage,
+        sentAt: eventBroadcastMessages.sentAt,
+      })
+      .from(eventBroadcastMessages)
+      .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
+    expect(audit[0]?.status).not.toBe('sending')
+    expect(audit[0]?.status).not.toBe('sent')
+    expect(audit[0]?.errorMessage).toBe('empty_message_set')
+    expect(audit[0]?.sentAt).toBeNull()
+  })
 })

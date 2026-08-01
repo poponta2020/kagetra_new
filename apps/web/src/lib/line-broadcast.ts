@@ -480,6 +480,18 @@ export async function broadcastMailToEvent(
      * ままで「成功済み mail を二重送信しない」既定挙動。
      */
     force?: boolean
+    /**
+     * メール本文を配信列に載せるか (mail-inbox-mailer 2026-08-02 改修)。
+     * 既定 true = 従来挙動 (本文を A4 画像化 → 失敗時テキスト fallback)。
+     * false なら冒頭見出しと添付リンクだけを送る。
+     *
+     * ★この値は `lead_text` / `is_correction` と同じく「メッセージ列を決める
+     * 入力」なので監査行 (include_body) に保存する。既配信ぶんを先頭から読み
+     * 飛ばす再送 (previouslyDelivered) が初回と異なる列で走ると、誤った位置を
+     * スキップして未送信ぶんを取りこぼす。したがって prefix-skip が効く経路
+     * では引数より**保存値を優先**する (下の effectiveIncludeBody を参照)。
+     */
+    includeBody?: boolean
   },
   options: BroadcastMailOptions = {},
 ): Promise<BroadcastResult> {
@@ -564,6 +576,8 @@ export async function broadcastMailToEvent(
       fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
       status: eventBroadcastMessages.status,
       updatedAt: eventBroadcastMessages.updatedAt,
+      // mail-inbox-mailer: 再送で初回と同じ列を再構成するために読む。
+      includeBody: eventBroadcastMessages.includeBody,
     })
     .from(eventBroadcastMessages)
     .where(
@@ -650,6 +664,17 @@ export async function broadcastMailToEvent(
       ? deliveredCount
       : 0
 
+  // mail-inbox-mailer: 本文を載せるかは「メッセージ列を決める入力」。
+  // prefix-skip が効く経路 (previouslyDelivered > 0 = !force かつ既配信あり)
+  // では、引数ではなく**初回に実際に使った保存値**で列を組み直す。args を
+  // 信じると、初回 include_body=true で送った列に対して includeBody=false の
+  // 列を組んでしまい、読み飛ばし位置が本文ぶんだけずれる。
+  const requestedIncludeBody = args.includeBody ?? true
+  const effectiveIncludeBody =
+    previouslyDelivered > 0 && existingAudit[0]
+      ? existingAudit[0].includeBody
+      : requestedIncludeBody
+
   const inserted = await db
     .insert(eventBroadcastMessages)
     .values({
@@ -658,6 +683,9 @@ export async function broadcastMailToEvent(
       status: 'sending',
       isCorrection: args.isCorrection,
       leadText,
+      // ★実際に列を組むのに使う値をそのまま保存する。args を保存すると
+      // 「保存値と送った列が食い違う」状態になり、次の再送が壊れる。
+      includeBody: effectiveIncludeBody,
     })
     .onConflictDoUpdate({
       target: [
@@ -668,6 +696,7 @@ export async function broadcastMailToEvent(
         status: 'sending',
         isCorrection: args.isCorrection,
         leadText,
+        includeBody: effectiveIncludeBody,
         errorMessage: null,
         updatedAt: sql`now()`,
       },
@@ -730,55 +759,61 @@ export async function broadcastMailToEvent(
       roles.push('lead_text')
     }
 
-    let bodyImageMessages: LineMessage[] = []
-    try {
-      const rendered = await renderBodyImageToJpegs({
-        subject: mail.subject,
-        rawBody: mail.bodyText,
-        isCorrection: args.isCorrection,
-      })
-      if (rendered.truncated) {
-        logger.warn('mail body exceeds render page limit; falling back to text', {
+    // mail-inbox-mailer: 本文添付 OFF なら本文画像も本文テキストも積まない
+    // (要件 §3.2.5)。画像化 (libreoffice / pdftoppm) 自体を起動しないので、
+    // 本文が定型の事務連絡でしかない名簿メールでは処理コストもかからない。
+    // ON のときの挙動 (画像化 → 失敗時テキスト fallback) は従来と完全に不変。
+    if (effectiveIncludeBody) {
+      let bodyImageMessages: LineMessage[] = []
+      try {
+        const rendered = await renderBodyImageToJpegs({
+          subject: mail.subject,
+          rawBody: mail.bodyText,
+          isCorrection: args.isCorrection,
+        })
+        if (rendered.truncated) {
+          logger.warn('mail body exceeds render page limit; falling back to text', {
+            eventId: args.eventId,
+            mailMessageId: args.mailMessageId,
+          })
+        } else if (rendered.pages.length === 0) {
+          logger.warn('mail body rendered to 0 pages; falling back to text', {
+            eventId: args.eventId,
+            mailMessageId: args.mailMessageId,
+          })
+        } else {
+          // 本文画像は image URL が必要 → ここで baseUrl を検証する (未設定なら
+          // throw → 下の catch で text fallback に倒れる)。
+          const built = await buildBodyImageMessages(
+            rendered.pages,
+            getBaseUrl(),
+            logger,
+          )
+          if (!built.oversize) bodyImageMessages = built.messages
+        }
+      } catch (err) {
+        logger.warn('mail body image render failed; falling back to text', {
           eventId: args.eventId,
           mailMessageId: args.mailMessageId,
+          message: err instanceof Error ? err.message : String(err),
         })
-      } else if (rendered.pages.length === 0) {
-        logger.warn('mail body rendered to 0 pages; falling back to text', {
-          eventId: args.eventId,
-          mailMessageId: args.mailMessageId,
-        })
-      } else {
-        // 本文画像は image URL が必要 → ここで baseUrl を検証する (未設定なら
-        // throw → 下の catch で text fallback に倒れる)。
-        const built = await buildBodyImageMessages(
-          rendered.pages,
-          getBaseUrl(),
-          logger,
-        )
-        if (!built.oversize) bodyImageMessages = built.messages
       }
-    } catch (err) {
-      logger.warn('mail body image render failed; falling back to text', {
-        eventId: args.eventId,
-        mailMessageId: args.mailMessageId,
-        message: err instanceof Error ? err.message : String(err),
-      })
-    }
 
-    if (bodyImageMessages.length > 0) {
-      for (const m of bodyImageMessages) {
-        messages.push(m)
-        roles.push('body_image')
-      }
-    } else {
-      const bodyText = buildBroadcastBody({
-        rawBody: mail.bodyText,
-        subject: mail.subject,
-        isCorrection: args.isCorrection,
-      })
-      for (const chunk of splitForLine(bodyText)) {
-        messages.push({ type: 'text', text: chunk })
-        roles.push('body_text')
+      if (bodyImageMessages.length > 0) {
+        for (const m of bodyImageMessages) {
+          messages.push(m)
+          roles.push('body_image')
+        }
+      } else {
+        const bodyText = buildBroadcastBody({
+          rawBody: mail.bodyText,
+          subject: mail.subject,
+          isCorrection: args.isCorrection,
+        })
+        for (const chunk of splitForLine(bodyText)) {
+          messages.push({ type: 'text', text: chunk })
+          roles.push('body_text')
+        }
       }
     }
 
@@ -794,8 +829,45 @@ export async function broadcastMailToEvent(
     }
 
     if (messages.length === 0) {
-      // Empty mail with no attachments — nothing to send but still mark
-      // as sent so the audit row is in a terminal state.
+      // mail-inbox-mailer: 本文添付 OFF で冒頭メッセージも添付も無いと列が空に
+      // なる。従来のプレースホルダ「(本文・添付ともになし)」を送ると、管理者が
+      // 「本文は流したくない」と決めたメールについて中身ゼロの通知だけが LINE に
+      // 流れる。この経路は送らずに skipped で返す (要件 §3.2.5)。
+      //
+      // ★上の CAS upsert で既に status='sending' になっているので、ここで
+      // terminal 状態へ落としてから返す (binding_changed の先例と同じ)。
+      // 落とさないと 15 分の stale reclaim まで行がロックされたままになる。
+      if (!effectiveIncludeBody) {
+        await db
+          .update(eventBroadcastMessages)
+          .set({
+            // enum に 'skipped' は無い。binding_changed の先例と同じく
+            // failed + errorMessage で「送らなかった理由」を残す。
+            status: 'failed',
+            sentLeadCount: 0,
+            sentTextCount: 0,
+            sentImageCount: 0,
+            fallbackLinkCount: 0,
+            sentAt: null,
+            errorMessage: 'empty_message_set',
+            updatedAt: sql`now()`,
+          })
+          .where(eq(eventBroadcastMessages.id, broadcastMessageId))
+        logger.warn('body excluded and nothing else to send; skipping push', {
+          eventId: args.eventId,
+          mailMessageId: args.mailMessageId,
+        })
+        return {
+          status: 'skipped',
+          reason: 'empty_message_set',
+          sentLeadCount: 0,
+          sentTextCount: 0,
+          sentImageCount: 0,
+          fallbackLinkCount: 0,
+        }
+      }
+      // 本文添付 ON で本文も添付も空だった従来ケースは挙動不変 —
+      // プレースホルダを 1 通送って監査行を terminal にする。
       messages.push({ type: 'text', text: '(本文・添付ともになし)' })
       roles.push('body_text')
     }
