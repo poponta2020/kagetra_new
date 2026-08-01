@@ -10,6 +10,11 @@ const migrationSql = readFileSync(
   fileURLToPath(new URL('../drizzle/0051_light_purple_man.sql', import.meta.url)),
   'utf8',
 )
+// 2026-08-01 改修（級別採用）で足した grades 列のマイグレーション。
+const gradesMigrationSql = readFileSync(
+  fileURLToPath(new URL('../drizzle/0054_green_agent_zero.sql', import.meta.url)),
+  'utf8',
+)
 
 describe('roster-file-adoption schema', () => {
   it('is an independent table so the parsed-roster pipeline is untouched', () => {
@@ -32,6 +37,22 @@ describe('roster-file-adoption schema', () => {
     // 版管理は持たない（ファイル採用は構造化データではないので版も統計寄与もない）。
     expect(Object.keys(tournamentEntryRosterFiles)).not.toContain('version')
     expect(Object.keys(tournamentEntryRosterFiles)).not.toContain('supersededAt')
+  })
+
+  it('carries the adoption unit in a nullable grade array (NULL = group-wide)', () => {
+    // 級別採用（2026-08-01）。既存行は NULL のまま「グループ統一」と解釈されるので
+    // backfill が要らない — nullable を落とすと過去データの意味が変わる。
+    expect(tournamentEntryRosterFiles.grades.notNull).toBe(false)
+    // 複数級を 1 行でカバーする（UNIQUE(source_attachment_id) を維持するための配列列）。
+    // 前例は events.eligible_grades と同型。
+    expect(tournamentEntryRosterFiles.grades.getSQLType()).toBe('grade[]')
+    expect(tournamentEntryRosterFiles.grades.baseColumn.enumValues).toEqual([
+      'A',
+      'B',
+      'C',
+      'D',
+      'E',
+    ])
   })
 
   it('forbids adopting the same attachment twice (AC-11)', () => {
@@ -67,5 +88,17 @@ describe('roster-file-adoption schema', () => {
     const alteredTables = [...migrationSql.matchAll(/ALTER TABLE "([^"]+)"/g)].map((m) => m[1])
     expect([...new Set(alteredTables)]).toEqual(['tournament_entry_roster_files'])
     expect(migrationSql).not.toContain('DROP')
+  })
+
+  it('adds grades as a purely additive nullable column (AC-22: 既存行は無変換)', () => {
+    // NOT NULL / DEFAULT / backfill UPDATE のいずれかが混ざると既存の採用済みデータの
+    // 意味が変わる（NULL = グループ統一の解釈が壊れる）。生成 SQL で固定する。
+    expect(gradesMigrationSql).toContain(
+      'ALTER TABLE "tournament_entry_roster_files" ADD COLUMN "grades" "grade"[]',
+    )
+    expect(gradesMigrationSql).not.toContain('NOT NULL')
+    expect(gradesMigrationSql).not.toContain('DEFAULT')
+    expect(gradesMigrationSql).not.toContain('UPDATE')
+    expect(gradesMigrationSql).not.toContain('DROP')
   })
 })
