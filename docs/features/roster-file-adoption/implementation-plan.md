@@ -97,7 +97,7 @@ grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換で�
 - **完了条件:** テスト green・`check-types` 通過・migration が journal 経路で空 DB に適用できる
 
 ### タスク2: 候補フィルタ純関数（leaf モジュール）— Issue #435
-- [ ] 完了
+- [x] 完了
 - **目的:** 4象限フィルタ＋「すべて表示」＋級列挙・申込判定を純関数で実装する
 - **対応AC:** AC-14, AC-15, AC-16, AC-17（フィルタ計算）, AC-19（級列挙）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/roster-adopt-utils.ts`（新規。
