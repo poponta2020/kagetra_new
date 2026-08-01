@@ -35,6 +35,12 @@ export interface RosterFileView {
   rosterType: 'applicant' | 'confirmed'
   publishedAt: string | null
   filename: string
+  /**
+   * roster-file-adoption 2026-08-01 改修: 取込単位。**null = グループ統一名簿**
+   * （ラベルなし。既存データはすべてこれ＝AC-22 の回帰対象）。非 null はその級
+   * だけ（複数級カバーなら `['A','B']`）をカバーする級別採用（AC-18）。
+   */
+  grades: Grade[] | null
 }
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const
@@ -45,6 +51,20 @@ function gradeRank(grade: Grade | null): number {
   if (grade == null) return GRADE_ORDER.length
   const idx = GRADE_ORDER.indexOf(grade)
   return idx === -1 ? GRADE_ORDER.length : idx
+}
+
+/**
+ * roster-file-adoption 2026-08-01 改修 (AC-18): 級別採用のラベル整形。
+ * `null` または空配列（本来 DB には入らないが防御的に）は「グループ統一」
+ * としてラベルなし＝ null を返す。それ以外は A→E 昇順で「・」連結 + 「級」。
+ * `admin/mail-inbox/` 側にも同種のラベル整形があるが、機能境界が違うため
+ * ここではローカルに実装する（3 行の関数を跨がせない）。
+ */
+function formatRosterFileGradeLabel(grades: Grade[] | null): string | null {
+  if (grades == null || grades.length === 0) return null
+  return (
+    [...grades].sort((a, b) => gradeRank(a) - gradeRank(b)).join('・') + '級'
+  )
 }
 
 const NEGATIVE_STATUS_LABEL: Record<'cancelled' | 'carry_up_declined', string> = {
@@ -92,21 +112,30 @@ function RosterFileLinks({ files }: { files: RosterFileView[] }) {
   if (files.length === 0) return null
   return (
     <ul className="space-y-1.5">
-      {files.map((file) => (
-        <li key={file.id}>
-          <Link
-            href={`/roster-files/${file.id}`}
-            className="flex items-baseline gap-2 text-xs text-brand hover:underline"
-          >
-            <span className="truncate">{file.filename}</span>
-            {file.publishedAt && (
-              <span className="ml-auto flex-none tabular-nums text-neutral-fg">
-                発表 {formatFlowDate(file.publishedAt)}
-              </span>
-            )}
-          </Link>
-        </li>
-      ))}
+      {files.map((file) => {
+        // roster-file-adoption 2026-08-01 改修 (AC-18): 級別採用のファイルにだけ
+        // 級ラベルを添える。ファイル名の直後（発表日より前）に置き、
+        // `ml-auto` の発表日は常に右寄せのまま崩れない。
+        const gradeLabel = formatRosterFileGradeLabel(file.grades)
+        return (
+          <li key={file.id}>
+            <Link
+              href={`/roster-files/${file.id}`}
+              className="flex items-baseline gap-2 text-xs text-brand hover:underline"
+            >
+              <span className="truncate">{file.filename}</span>
+              {gradeLabel && (
+                <span className="flex-none text-neutral-fg">{gradeLabel}</span>
+              )}
+              {file.publishedAt && (
+                <span className="ml-auto flex-none tabular-nums text-neutral-fg">
+                  発表 {formatFlowDate(file.publishedAt)}
+                </span>
+              )}
+            </Link>
+          </li>
+        )
+      })}
     </ul>
   )
 }

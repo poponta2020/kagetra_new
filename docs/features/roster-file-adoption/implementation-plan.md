@@ -135,7 +135,7 @@ grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換で�
 - **完了条件:** テスト green・`check-types`・lint 通過
 
 ### タスク5: 大会詳細の級ラベル表示 — Issue #438
-- [ ] 完了
+- [x] 完了
 - **目的:** RosterSection のファイルカード・補助リンクに級別採用の級ラベルを出す
 - **対応AC:** AC-5, AC-6, AC-7, AC-18（大会詳細側）, AC-22
 - **主な変更領域:** `apps/web/src/app/(app)/events/[id]/page.tsx`（rosterFiles クエリの columns に
