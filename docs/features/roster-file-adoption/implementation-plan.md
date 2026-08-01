@@ -85,7 +85,7 @@ grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換で�
 ## 実装タスク
 
 ### タスク1: スキーマ `grades` 列＋マイグレーション（共有ホットスポット）— Issue #434
-- [ ] 完了
+- [x] 完了（migration は **0054**。0053 は payment_deadline_kind で既使用のため採番がずれた）
 - **目的:** 級別採用を表現する grades 配列列を追加する
 - **対応AC:** AC-12, AC-22（既存行 NULL=統一の互換）
 - **主な変更領域:** `packages/shared/src/schema/tournament-entry-roster-files.ts`、
