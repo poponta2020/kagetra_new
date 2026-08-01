@@ -53,6 +53,7 @@ function rosterFile(
     rosterType: 'confirmed',
     publishedAt: null,
     filename,
+    grades: null,
     ...overrides,
   }
 }
@@ -325,6 +326,81 @@ describe('RosterSection — 原本ファイル採用の表示 (roster-file-adopt
     render(<RosterSection kind="individual" rosters={[]} rosterFiles={[]} currentUserId={null} />)
 
     expect(screen.getByText('申込者 未取込 / 確定 未取込')).toBeTruthy()
+  })
+})
+
+describe('RosterSection — 級別採用の級ラベル (roster-file-adoption 2026-08-01 改修 AC-18/AC-22)', () => {
+  it('grades=["D"] のファイルは「D級」ラベルが出る', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[]}
+        rosterFiles={[
+          rosterFile(1, 'D級名簿.xlsx', { rosterType: 'confirmed', grades: ['D'] }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('D級')).toBeTruthy()
+  })
+
+  it('grades=["B","A"]（順不同）でも A→E 昇順で「A・B級」と出る', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[]}
+        rosterFiles={[
+          rosterFile(1, 'AB級名簿.xlsx', { rosterType: 'confirmed', grades: ['B', 'A'] }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('A・B級')).toBeTruthy()
+  })
+
+  it('AC-22 回帰: grades=null のファイルはラベルが出ず、既存表示（ファイル名・発表日）が変わらない', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[]}
+        rosterFiles={[
+          rosterFile(1, '統一名簿.xlsx', {
+            rosterType: 'confirmed',
+            grades: null,
+            publishedAt: '2026-07-20',
+          }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    expect(screen.getByText('統一名簿.xlsx')).toBeTruthy()
+    expect(screen.getByText('発表 7/20')).toBeTruthy()
+    // 級ラベルは A〜E のどれも出ない。
+    for (const g of ['A級', 'B級', 'C級', 'D級', 'E級']) {
+      expect(screen.queryByText(g)).toBeNull()
+    }
+  })
+
+  it('AC-6 の分岐（パース済みがある場合の補助リンク）にも級ラベルが出る', () => {
+    render(
+      <RosterSection
+        kind="individual"
+        rosters={[roster(1, 1, [entry(1, '確定太郎')], { rosterType: 'confirmed' })]}
+        rosterFiles={[
+          rosterFile(9, '確定名簿原本.xlsx', { rosterType: 'confirmed', grades: ['C'] }),
+        ]}
+        currentUserId={null}
+      />,
+    )
+
+    // 構造化表示（テーブル）が主で、補助リンク側にも級ラベルが出る。
+    expect(screen.getByText('確定太郎')).toBeTruthy()
+    const link = screen.getByText('確定名簿原本.xlsx').closest('a')
+    expect(link?.getAttribute('href')).toBe('/roster-files/9')
+    expect(screen.getByText('C級')).toBeTruthy()
   })
 })
 

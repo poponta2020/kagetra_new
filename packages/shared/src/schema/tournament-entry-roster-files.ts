@@ -1,5 +1,5 @@
 import { date, index, integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
-import { rosterTypeEnum } from './enums'
+import { gradeEnum, rosterTypeEnum } from './enums'
 import { entryGroups } from './entry-groups'
 import { mailAttachments } from './mail-attachments'
 import { mailMessages } from './mail-messages'
@@ -34,6 +34,18 @@ export const tournamentEntryRosterFiles = pgTable(
       .notNull()
       .references(() => entryGroups.id, { onDelete: 'restrict' }),
     rosterType: rosterTypeEnum('roster_type').notNull(),
+    // 取込単位。**NULL = グループ統一名簿**（グループの全級をカバーする 1 ファイル）で、
+    // 非 NULL はその級だけをカバーする級別名簿（`['D']` / 複数級をまとめた `['A','B']`）。
+    // 名簿は「同グループの全級が 1 Excel」で来るのが基本だが、級ごとに別ファイルで
+    // 届く主催者もあるため、どちらの単位でも登録できるようにする。
+    //
+    // ★既存行（初版で採用済み）は NULL のまま「グループ統一」と解釈される
+    // ＝ backfill 不要のスキーマ進化。junction 表にしないのは、読み手 3 箇所すべてに
+    // JOIN + 集約が入り `deleteGroupIfEmpty` の依存表も増える一方で、級単位の UNIQUE や
+    // SQL での級検索を要求する仕様が無いため（カバレッジ判定は TS 側・表示はラベル連結のみ）。
+    // 複数級カバーは 1 行の配列で表現するので `UNIQUE(source_attachment_id)` は維持できる。
+    // 保存時に dedupe + A→E 昇順で正規化する（`adoptRosterFile`）。
+    grades: gradeEnum('grades').array(),
     // ★ON DELETE は **CASCADE**。mail_attachments は mail_messages から CASCADE
     // なので、ここを RESTRICT にすると将来メール削除機能を作ったとき FK 違反で
     // 落ちる。同じ「添付へのポインタ」である attachment_share_tokens /

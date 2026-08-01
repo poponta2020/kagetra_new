@@ -62,6 +62,8 @@ async function seedRosterFile(
   entryGroupId: number,
   rosterType: 'applicant' | 'confirmed',
   filename: string,
+  /** 取込単位。null（既定）= グループ統一 / 配列 = 級別採用。 */
+  grades: ('A' | 'B' | 'C' | 'D' | 'E')[] | null = null,
 ) {
   const [mail] = await testDb
     .insert(mailMessages)
@@ -86,6 +88,7 @@ async function seedRosterFile(
   await testDb.insert(tournamentEntryRosterFiles).values({
     entryGroupId,
     rosterType,
+    grades,
     sourceAttachmentId: attachment!.id,
     sourceMailMessageId: mail!.id,
   })
@@ -414,6 +417,32 @@ describe('/admin/entries（申込管理ボード）', () => {
       ).toBeTruthy()
       expect(
         within(sectionOf('申込完了・抽選待ち')).getByText('ファイル採用（申込）'),
+      ).toBeTruthy()
+    })
+
+    // 2026-08-01 改修: 級別採用（grades 非 NULL）も 1 行として数える。要件は
+    // 「一部の級の確定名簿だけでもフェーズは進む」（級単位の細分化はしない）で、
+    // groupIdsWithConfirmedRoster のクエリが grades を見ない形のままなのが担保。
+    // その担保が将来の変更で崩れないようにここで固定する。
+    it('AC-3: 級別（grades 非 NULL）の confirmed ファイル採用でも分類が進む', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+
+      const gradeFile = await createEvent({
+        title: '級別ファイル採用（確定）',
+        eventDate: future,
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        eligibleGrades: ['A', 'B'],
+      })
+      // A 級ぶんだけ確定名簿が届いた状態（B 級は未取込）。
+      await seedRosterFile(gradeFile.entryGroupId, 'confirmed', 'A級確定名簿.xlsx', ['A'])
+
+      await renderPage()
+
+      expect(
+        within(sectionOf('名簿確定・要振込')).getByText('級別ファイル採用（確定）'),
       ).toBeTruthy()
     })
 

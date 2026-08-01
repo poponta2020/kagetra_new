@@ -1,6 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { mailAttachments, tournamentEntryRosterFiles } from '@kagetra/shared/schema'
+import {
+  mailAttachments,
+  tournamentEntryRosterFiles,
+  tournamentRosterImportDrafts,
+} from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -34,6 +38,21 @@ const { default: MailDetailPage } = await import('./page')
 async function renderDetail(id: number | string) {
   const ui = await MailDetailPage({ params: Promise.resolve({ id: String(id) }) })
   return render(ui)
+}
+
+async function createAttachment(mailId: number, filename = 'roster.xlsx') {
+  const [attachment] = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: mailId,
+      filename,
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      sizeBytes: 10,
+      data: Buffer.from('x'),
+      extractionStatus: 'pending',
+    })
+    .returning()
+  return attachment!
 }
 
 describe('admin/mail-inbox/mail/[id] detail page', () => {
@@ -206,21 +225,18 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
 
     // Codex r1 blocker: 名簿は個人戦のみの仕様なので、候補に団体戦を出すと
     // 「採用は成功したのにどこにも表示されない」行き止まりへ誘導してしまう。
-    it('採用シートの候補に団体戦の大会を出さない', async () => {
+    // 2026-08-01 改修: 候補はイベントではなく申込グループの単位になった。
+    it('採用シートの候補は個人戦の申込済みグループだけ（団体戦のみのグループは出ない）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      await createEvent({ title: '個人戦の大会Y', kind: 'individual' })
-      await createEvent({ title: '団体戦の大会Z', kind: 'team' })
-      await testDb.insert(mailAttachments).values({
-        mailMessageId: mail.id,
-        filename: 'roster.xlsx',
-        contentType:
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        sizeBytes: 10,
-        data: Buffer.from('x'),
-        extractionStatus: 'pending',
+      await createEvent({
+        title: '個人戦の大会Y',
+        kind: 'individual',
+        entryStatus: 'applied',
       })
+      await createEvent({ title: '団体戦の大会Z', kind: 'team', entryStatus: 'applied' })
+      await createAttachment(mail.id)
 
       await renderDetail(mail.id)
       fireEvent.click(screen.getByText('名簿ファイルとして採用'))
@@ -229,27 +245,56 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
       expect(screen.queryByText(/団体戦の大会Z/)).toBeNull()
     })
 
+    it('申込前のグループは既定候補に出ず、「すべて表示」で出る（AC-17）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createEvent({
+        title: 'まだ申し込んでいない大会',
+        kind: 'individual',
+        entryStatus: 'not_applied',
+      })
+      await createAttachment(mail.id)
+
+      await renderDetail(mail.id)
+      fireEvent.click(screen.getByText('名簿ファイルとして採用'))
+
+      expect(screen.queryByText(/まだ申し込んでいない大会/)).toBeNull()
+      fireEvent.click(screen.getByLabelText('すべて表示'))
+      expect(screen.getByText(/まだ申し込んでいない大会/)).toBeTruthy()
+    })
+
+    it('級別モードの候補はグループの eligible_grades から列挙される（AC-19）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await createEvent({
+        title: '級つき大会',
+        kind: 'individual',
+        entryStatus: 'applied',
+        eligibleGrades: ['B', 'D'],
+      })
+      await createAttachment(mail.id)
+
+      await renderDetail(mail.id)
+      fireEvent.click(screen.getByText('名簿ファイルとして採用'))
+      fireEvent.click(screen.getByLabelText('級別名簿'))
+
+      expect(screen.getByLabelText(/級つき大会 B級/)).toBeTruthy()
+      expect(screen.getByLabelText(/級つき大会 D級/)).toBeTruthy()
+      expect(screen.queryByLabelText(/級つき大会 A級/)).toBeNull()
+    })
+
     it('採用済みの添付には種別・対象大会名を表示し、解除ボタンを出す', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
       const event = await createEvent({ title: '対象大会X' })
-      const [attachment] = await testDb
-        .insert(mailAttachments)
-        .values({
-          mailMessageId: mail.id,
-          filename: 'roster.xlsx',
-          contentType:
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          sizeBytes: 10,
-          data: Buffer.from('x'),
-          extractionStatus: 'pending',
-        })
-        .returning()
+      const attachment = await createAttachment(mail.id)
       await testDb.insert(tournamentEntryRosterFiles).values({
         entryGroupId: event.entryGroupId,
         rosterType: 'confirmed',
-        sourceAttachmentId: attachment!.id,
+        sourceAttachmentId: attachment.id,
         sourceMailMessageId: mail.id,
       })
 
@@ -259,6 +304,63 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
       expect(screen.getByText(/対象大会X/)).toBeTruthy()
       expect(screen.getByText('採用を解除')).toBeTruthy()
       expect(screen.queryByText('名簿ファイルとして採用')).toBeNull()
+      // グループ統一（grades=NULL）の採用に級ラベルは付かない（AC-18/AC-22）。
+      expect(screen.queryByText('A・B級')).toBeNull()
+    })
+
+    it('級別採用の添付には級ラベルを表示する（AC-18）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const event = await createEvent({ title: '対象大会X', eligibleGrades: ['A', 'B'] })
+      const attachment = await createAttachment(mail.id)
+      await testDb.insert(tournamentEntryRosterFiles).values({
+        entryGroupId: event.entryGroupId,
+        rosterType: 'applicant',
+        grades: ['A', 'B'],
+        sourceAttachmentId: attachment.id,
+        sourceMailMessageId: mail.id,
+      })
+
+      await renderDetail(mail.id)
+
+      expect(screen.getByText('申込者名簿')).toBeTruthy()
+      expect(screen.getByText('A・B級')).toBeTruthy()
+    })
+  })
+
+  // roster-file-adoption 2026-08-01 改修 (AC-20): 決定論パース取込の UI 導線を退役。
+  // 本番の実名簿では一度も機能せず、ファイル採用と並ぶと迷いを生むだけだった。
+  // コード・テーブル・roster-drafts ページは温存してあり（AC-21）、消したのは
+  // このページからの導線だけ。
+  describe('パース取込導線の退役', () => {
+    it('「大会名簿の取込」セクション・解析ボタン・ドラフト確認リンクを表示しない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({
+        triageStatus: 'unprocessed',
+        bodyText: '名簿本文',
+      })
+      const attachment = await createAttachment(mail.id)
+      // ドラフトが存在していても導線は出ない（ドラフト自体は温存される）。
+      await testDb.insert(tournamentRosterImportDrafts).values({
+        sourceKind: 'attachment',
+        sourceAttachmentId: attachment.id,
+        sourceMailMessageId: mail.id,
+        parserVersion: 'roster-deterministic-v1',
+        status: 'pending_review',
+      })
+
+      const { container } = await renderDetail(mail.id)
+
+      expect(screen.queryByText('大会名簿の取込')).toBeNull()
+      expect(screen.queryByText('名簿として解析')).toBeNull()
+      expect(screen.queryByText(/名簿ドラフト #/)).toBeNull()
+      expect(
+        container.querySelector('a[href^="/admin/mail-inbox/roster-drafts/"]'),
+      ).toBeNull()
+      // ファイル採用の導線は従来どおり出る（退役したのはパース側だけ）。
+      expect(screen.getByText('名簿ファイルの採用')).toBeTruthy()
     })
   })
 })

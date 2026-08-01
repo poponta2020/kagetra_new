@@ -97,15 +97,16 @@
 - 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` と `players.userId` を張る。0件または複数一致では両方を `null` にし、既存の曖昧な自動リンクも解除する
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
-取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
+取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**で、**2026-08-01 にメール詳細からの導線を退役させた**ため新規のドラフトは UI からは作られない（パーサ・Server Action・承認画面・テーブルは温存。直 URL では従来どおり動き、将来の AI 名簿取込が承認 UI と materialize を再利用する）。以下は温存されたパース経路の仕様。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
 
 ### 名簿ファイルの採用（パース非依存の原本登録）
 
 様式が主催者ごとに多様でルールベースの解析が原理的に追随できないため、**パースせず原本ファイルのまま**名簿として登録する経路を併走させる（`tournament_entry_roster_files`）。構造化データを持たないので統計・当落線・出場回数には一切寄与せず、担うのは「会の進行を止めない」ことだけ。AI 名簿取込を導入した後も、抽出に失敗する原本の受け皿として残す。
 
 - 採用できるのは admin / vice_admin。採用元は**メール添付のみ**（手動アップロードは持たない。メール以外で入手した名簿は自分宛に転送する運用）。添付は拡張子で絞らない（パースしないので `.jpg` や `.zip` を弾く理由がない）。
-- 採用時に指定するのは**対象イベント**（帰属は解決先の `entry_group`）・**種別**（applicant / confirmed）・**発表日**（任意。既定はメール受信日 JST）だけ。edition 紐付け・級別設定・抽選事実（lottery facts）は一切要求しない —— これが承認フロー（`tournament_roster_import_drafts`）との本質的な違い。
-- 対象イベントの候補条件は既存のメール⇔イベント紐付けと同じ（`linkable-events.ts` の `validateLinkableEvent`）で、Server Action 側でも再検証する。ただし**個人戦のみ**（`kind='individual'`）に絞る — 名簿は個人戦専用の仕様で、団体戦を通すと採用は成功するのに `RosterSection` にも申込管理ボードにも現れない行き止まりになる。候補クエリと Server Action の両方で同じ条件を評価する（「既存イベントに紐付ける」導線の候補は従来どおり団体戦も含む）。
+- 採用時に指定するのは**対象の申込グループ**（`entry_group`）・**取込単位**・**種別**（applicant / confirmed）・**発表日**（任意。既定はメール受信日 JST）だけ。edition 紐付け・級別設定・抽選事実（lottery facts）は一切要求しない —— これが承認フロー（`tournament_roster_import_drafts`）との本質的な違い。
+- **取込単位**は「グループ統一名簿」（グループの全級をカバーする 1 ファイル。`grades` は NULL）か「級別名簿」（`grades` に級を持つ。`A・B級名簿` のように複数級を 1 ファイルでカバーする場合は同一グループ内で複数級を指定する）。名簿は基本「同グループの全級が 1 Excel」で届くが、級ごとに別ファイルで来る主催者もあるため両方の単位で登録できる。級の列挙元はグループ内個人戦イベント（cancelled 除外）の `eligible_grades` の和集合で、級情報が無いグループはグループ統一でのみ採用できる。
+- `adoptRosterFile(attachmentId, entryGroupId, rosterType, grades, publishedAt?)` が強制するのは**基本条件のみ**: グループ内に「個人戦 ∧ cancelled でない ∧ 開催日が `linkable-events.ts` の cutoff（過去 30 日）以降」を**同一の event 行が同時に満たす**日が 1 つ以上あること（3 条件を別々の存在判定に分けると「団体戦だけが cutoff 内で個人戦は 30 日より古い」グループが通る穴になる）。名簿は個人戦専用の仕様で、団体戦を通すと採用は成功するのに `RosterSection` にも申込管理ボードにも現れない行き止まりになる。級別採用では指定級がグループの級集合（cutoff は掛けない独立条件）に含まれることも検証し、`grades` は空配列を明示エラーにしたうえで dedupe + A→E 昇順に正規化して保存する。UI の候補フィルタ（申込済み・未取込）は**サーバーでは強制しない** —— 「すべて表示」トグル経由の採用が正規の逃げ道であるため。対象グループの直指定になったことで空グループ削除（`deleteGroupIfEmpty`）との競合が INSERT の FK 違反として表面化しうるので、`isForeignKeyViolation`（23503）を `isUniqueViolation` と並べて日本語メッセージへ変換する。
 - 同一 entry_group × 種別へ**複数ファイル**を採用できる（「参加者一覧」と「参加費一覧」など）。**同一添付の二重採用は不可**（DB の UNIQUE。付け替えは解除→再採用）。
 - 解除するとボード分類・大会詳細表示が採用前へ戻る。メール添付そのものは消えない。
 - 既存の名簿ドラフト（`pending_review` / `rejected`）とは**独立**。ドラフトの状態を読まず・変えず、ドラフトの有無が採用を妨げることもない。

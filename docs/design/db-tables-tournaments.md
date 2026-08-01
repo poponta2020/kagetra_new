@@ -172,13 +172,14 @@
 
 定義ファイル: `packages/shared/src/schema/tournament-entry-roster-files.ts`
 
-パースせず**原本ファイルのまま採用**した名簿。`tournament_entry_rosters` とは独立で、版管理も統計寄与も持たない（entries を持たない行をあちらへ混ぜると、確定名簿の entries から出場者を描き無ければ出欠へフォールバックする消費者が「出場者0人」に倒れる）。ファイル実体は複製せず `mail_attachments` が唯一の正で、この表は原本へのポインタ。帰属は `entry_group` なのでグループ内のどの日の大会詳細からも同じファイルが見える。
+パースせず**原本ファイルのまま採用**した名簿。`tournament_entry_rosters` とは独立で、版管理も統計寄与も持たない（entries を持たない行をあちらへ混ぜると、確定名簿の entries から出場者を描き無ければ出欠へフォールバックする消費者が「出場者0人」に倒れる）。ファイル実体は複製せず `mail_attachments` が唯一の正で、この表は原本へのポインタ。帰属は `entry_group` なのでグループ内のどの日の大会詳細からも同じファイルが見える。取込単位は `grades`（NULL=グループ統一 / 非NULL=級別）で表し、級別採用でも 1 添付 1 行なので `UNIQUE(source_attachment_id)` を維持できる。
 
 | カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
 |---|---|---|---|---|
 | id | integer | NOT NULL | identity | PK |
 | entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE RESTRICT |
 | roster_type | roster_type (enum) | NOT NULL | — | applicant / confirmed |
+| grades | grade[] (enum配列) | NULL | — | 取込単位。NULL=グループ統一名簿（全級カバー）／非NULL=その級だけの級別名簿（複数級を1ファイルでカバーする場合は `{A,B}`）。保存時に dedupe + A→E 昇順で正規化 |
 | source_attachment_id | integer | NOT NULL | — | FK→mail_attachments.id ON DELETE CASCADE |
 | source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL |
 | published_at | date (string mode) | NULL | — | 主催者発表日。既定はメール受信日(JST) |

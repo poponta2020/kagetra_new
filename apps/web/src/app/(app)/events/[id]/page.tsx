@@ -136,9 +136,11 @@ export default async function EventDetailPage({
           // 採用種別・発表日・ビューア導線（id）だけ。sourceMailMessageId（取込元
           // メール）/ adoptedByUserId（採用者）/ note（管理メモ）は internal 列
           // なので `columns` を絞り、RSC payload に載せない（PR #376 の教訓）。
+          // roster-file-adoption 2026-08-01 改修: 級は要件上「公開情報として
+          // 追加してよい」（AC-18）ので grades だけ増やす。
           rosterFiles: {
             orderBy: [asc(tournamentEntryRosterFiles.id)],
-            columns: { id: true, rosterType: true, publishedAt: true },
+            columns: { id: true, rosterType: true, publishedAt: true, grades: true },
             with: {
               sourceAttachment: { columns: { filename: true } },
             },
@@ -476,6 +478,7 @@ export default async function EventDetailPage({
     rosterType: f.rosterType,
     publishedAt: f.publishedAt,
     filename: f.sourceAttachment?.filename ?? '',
+    grades: f.grades,
   }))
 
   return (

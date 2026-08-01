@@ -5,6 +5,7 @@ import {
   tournamentEntryRosterFiles,
   tournamentRosterImportDrafts,
 } from '@kagetra/shared/schema'
+import type { Grade } from '@kagetra/shared/types'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -65,6 +66,12 @@ async function getRosterFileByAttachment(attachmentId: number) {
     .where(eq(tournamentEntryRosterFiles.sourceAttachmentId, attachmentId))
 }
 
+/** 過去 60 日の YYYY-MM-DD 文字列（cutoff=30日より確実に古い）。 */
+function farPastDateStr(): string {
+  const old = new Date(Date.now() - 60 * 24 * 3600 * 1000)
+  return `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`
+}
+
 describe('admin/mail-inbox roster-file-adoption actions', () => {
   beforeEach(async () => {
     await truncateAll()
@@ -75,20 +82,26 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
   })
 
   describe('adoptRosterFile', () => {
-    it('admin が採用すると tournament_entry_roster_files に1件作られる', async () => {
+    it('admin が採用すると tournament_entry_roster_files に1件作られる（統一採用は grades=NULL）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const event = await createEvent({ title: '採用先大会' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'applicant')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
       expect(result.ok).toBe(true)
 
       const rows = await getRosterFileByAttachment(attachment.id)
       expect(rows).toHaveLength(1)
       expect(rows[0]?.entryGroupId).toBe(event.entryGroupId)
       expect(rows[0]?.rosterType).toBe('applicant')
+      expect(rows[0]?.grades).toBeNull()
       expect(rows[0]?.sourceMailMessageId).toBe(mail.id)
       expect(rows[0]?.adoptedByUserId).toBe(admin.id)
     })
@@ -100,7 +113,12 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'confirmed')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'confirmed',
+        null,
+      )
       expect(result.ok).toBe(true)
     })
 
@@ -112,7 +130,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const attachment = await createAttachment(mail.id)
 
       await expect(
-        adoptRosterFile(attachment.id, event.id, 'applicant'),
+        adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null),
       ).rejects.toThrow('Forbidden')
     })
 
@@ -123,7 +141,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const attachment = await createAttachment(mail.id)
 
       await expect(
-        adoptRosterFile(attachment.id, event.id, 'applicant'),
+        adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null),
       ).rejects.toThrow('Unauthorized')
     })
 
@@ -136,7 +154,12 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       })
       const attachment = await createAttachment(mail.id)
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'applicant')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
       expect(result.ok).toBe(true)
 
       const rows = await getRosterFileByAttachment(attachment.id)
@@ -152,8 +175,9 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
 
       const result = await adoptRosterFile(
         attachment.id,
-        event.id,
+        event.entryGroupId,
         'applicant',
+        null,
         '2030-07-01',
       )
       expect(result.ok).toBe(true)
@@ -171,13 +195,219 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
 
       const result = await adoptRosterFile(
         attachment.id,
-        event.id,
+        event.entryGroupId,
         'applicant',
+        null,
         '2030/07/01',
       )
       expect(result.ok).toBe(false)
       if (result.ok) return
       expect(result.error).toMatch(/形式が不正/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('級別採用で複数級を渡すと dedupe + A→E 昇順で正規化されて保存される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', eligibleGrades: ['A', 'B', 'C'] })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        ['B', 'A', 'B'] as Grade[],
+      )
+      expect(result.ok).toBe(true)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows[0]?.grades).toEqual(['A', 'B'])
+    })
+
+    it('級別を選んで級を1つも選択しない（空配列）とエラーになり、統一採用として保存されない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', eligibleGrades: ['A'] })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        [],
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/級/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('不正な級（A〜E以外）を含む grades はエラーになる', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', eligibleGrades: ['A'] })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        ['Z'] as unknown as Grade[],
+      )
+      expect(result.ok).toBe(false)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('指定した級がグループの対象級集合に含まれない場合はエラーになる (AC-19)', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', eligibleGrades: ['A', 'B'] })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        ['D'] as Grade[],
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/対象級/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('eligibleGrades が全日 NULL のグループへの級別採用はエラーになるが、統一採用は成功する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', eligibleGrades: null })
+      const mail1 = await createMailMessage()
+      const attachment1 = await createAttachment(mail1.id, 'grade.xlsx')
+
+      const gradeResult = await adoptRosterFile(
+        attachment1.id,
+        event.entryGroupId,
+        'applicant',
+        ['A'] as Grade[],
+      )
+      expect(gradeResult.ok).toBe(false)
+      const rowsAfterGradeAttempt = await getRosterFileByAttachment(attachment1.id)
+      expect(rowsAfterGradeAttempt).toHaveLength(0)
+
+      const mail2 = await createMailMessage()
+      const attachment2 = await createAttachment(mail2.id, 'unified.xlsx')
+      const unifiedResult = await adoptRosterFile(
+        attachment2.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
+      expect(unifiedResult.ok).toBe(true)
+    })
+
+    // Codex r1 blocker (旧): 名簿は個人戦のみの仕様。団体戦だけのグループ全体
+    // を弾くだけでなく、基本条件は「同一行に対する AND」でなければならない
+    // ことをここで固定する — 別々の EXISTS に分けると「団体戦だけが cutoff 内
+    // で個人戦は過去30日より古い」グループが通ってしまう。
+    it('団体戦のみが cutoff 内で個人戦が過去30日より古いグループは基本条件を満たさない（同一行ANDの検証）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = await createEntryGroup()
+      await createEvent({
+        title: '団体戦(cutoff内)',
+        kind: 'team',
+        entryGroupId: group.id,
+        eventDate: '2030-01-01',
+      })
+      await createEvent({
+        title: '個人戦(過去30日より古い)',
+        kind: 'individual',
+        status: 'done',
+        entryGroupId: group.id,
+        eventDate: farPastDateStr(),
+      })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(attachment.id, group.id, 'applicant', null)
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/個人戦の開催日がありません/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('基本条件違反: cancelled のみのグループには採用できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: 'E', status: 'cancelled' })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/個人戦の開催日がありません/)
+
+      const rows = await getRosterFileByAttachment(attachment.id)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('基本条件違反: 過去30日より古いイベントしかないグループには採用できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const oldStr = farPastDateStr()
+      const event = await createEvent({ title: 'E', status: 'done', eventDate: oldStr })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/過去30日/)
+    })
+
+    // Codex r1 blocker: 名簿は個人戦のみの仕様（RosterSection は団体戦で常に
+    // 非表示・申込管理ボードの母集団も kind='individual'）。団体戦だけの
+    // グループへの採用は「表示されずフェーズも動かない」行き止まりになる。
+    it('個人戦が1つも無い（団体戦のみの）グループには採用できない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const event = await createEvent({ title: '団体戦大会', kind: 'team' })
+      const mail = await createMailMessage()
+      const attachment = await createAttachment(mail.id)
+
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'confirmed',
+        null,
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/個人戦の開催日がありません/)
 
       const rows = await getRosterFileByAttachment(attachment.id)
       expect(rows).toHaveLength(0)
@@ -189,9 +419,14 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const event = await createEvent({ title: 'E' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
-      await adoptRosterFile(attachment.id, event.id, 'applicant')
+      await adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null)
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'confirmed')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'confirmed',
+        null,
+      )
       expect(result.ok).toBe(false)
       if (result.ok) return
       expect(result.error).toMatch(/既に採用されています/)
@@ -201,7 +436,10 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       expect(rows[0]?.rosterType).toBe('applicant')
     })
 
-    it('同一グループ×種別へ複数ファイルを採用できる', async () => {
+    // AC-11（複数ファイル採用）と AC-17（候補フィルタ非強制。既に統一ファイルを
+    // 採用済みのグループ×種別へも Server Action は追加採用を拒まない）を同時に
+    // 固定する。
+    it('同一グループ×種別へ複数ファイルを採用できる (AC-11 / AC-17: フィルタ非強制)', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const group = await createEntryGroup()
@@ -210,8 +448,8 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const attachment1 = await createAttachment(mail.id, 'a.xlsx')
       const attachment2 = await createAttachment(mail.id, 'b.xlsx')
 
-      const r1 = await adoptRosterFile(attachment1.id, event.id, 'applicant')
-      const r2 = await adoptRosterFile(attachment2.id, event.id, 'applicant')
+      const r1 = await adoptRosterFile(attachment1.id, event.entryGroupId, 'applicant', null)
+      const r2 = await adoptRosterFile(attachment2.id, event.entryGroupId, 'applicant', null)
       expect(r1.ok).toBe(true)
       expect(r2.ok).toBe(true)
 
@@ -222,53 +460,20 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       expect(rows).toHaveLength(2)
     })
 
-    it('validateLinkableEvent 違反: cancelled イベントには採用できない', async () => {
+    it('AC-17: entryStatus が not_applied のグループへも採用が成功する（候補フィルタは強制しない）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: 'E', status: 'cancelled' })
+      const event = await createEvent({ title: 'E', entryStatus: 'not_applied' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'applicant')
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/キャンセル済み/)
-
-      const rows = await getRosterFileByAttachment(attachment.id)
-      expect(rows).toHaveLength(0)
-    })
-
-    it('validateLinkableEvent 違反: 過去 31 日より古いイベントには採用できない', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const old = new Date(Date.now() - 60 * 24 * 3600 * 1000)
-      const oldStr = `${old.getFullYear()}-${String(old.getMonth() + 1).padStart(2, '0')}-${String(old.getDate()).padStart(2, '0')}`
-      const event = await createEvent({ title: 'E', status: 'done', eventDate: oldStr })
-      const mail = await createMailMessage()
-      const attachment = await createAttachment(mail.id)
-
-      const result = await adoptRosterFile(attachment.id, event.id, 'applicant')
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/過去 30 日/)
-    })
-
-    // Codex r1 blocker: 団体戦を通すと「採用は成功したのに RosterSection にも
-    // 申込管理ボードにも現れない」行き止まりになる。名簿は個人戦のみの仕様。
-    it('団体戦の大会には採用できない（採用レコードも作られない）', async () => {
-      const admin = await createAdmin()
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      const event = await createEvent({ title: '団体戦大会', kind: 'team' })
-      const mail = await createMailMessage()
-      const attachment = await createAttachment(mail.id)
-
-      const result = await adoptRosterFile(attachment.id, event.id, 'confirmed')
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/個人戦/)
-
-      const rows = await getRosterFileByAttachment(attachment.id)
-      expect(rows).toHaveLength(0)
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
+      expect(result.ok).toBe(true)
     })
 
     it('存在しない添付はエラーを返す', async () => {
@@ -276,18 +481,20 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       await setAuthSession({ id: admin.id, role: 'admin' })
       const event = await createEvent({ title: 'E' })
 
-      const result = await adoptRosterFile(999_999, event.id, 'applicant')
+      const result = await adoptRosterFile(999_999, event.entryGroupId, 'applicant', null)
       expect(result.ok).toBe(false)
     })
 
-    it('存在しないイベントはエラーを返す', async () => {
+    it('存在しない申込グループはエラーを返す', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
 
-      const result = await adoptRosterFile(attachment.id, 999_999, 'applicant')
+      const result = await adoptRosterFile(attachment.id, 999_999, 'applicant', null)
       expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.error).toMatch(/申込グループが見つかりません/)
     })
 
     it('同一添付に pending_review な roster import draft があっても採用でき、draft の状態は変えない（既存ドラフトから独立）', async () => {
@@ -307,7 +514,12 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
         })
         .returning()
 
-      const result = await adoptRosterFile(attachment.id, event.id, 'applicant')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event.entryGroupId,
+        'applicant',
+        null,
+      )
       expect(result.ok).toBe(true)
 
       const draftAfter = await testDb.query.tournamentRosterImportDrafts.findFirst({
@@ -333,7 +545,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
 
-      await adoptRosterFile(attachment.id, event1.id, 'applicant')
+      await adoptRosterFile(attachment.id, group.id, 'applicant', null)
 
       expect(revalidatePathMock).toHaveBeenCalledWith(`/events/${event1.id}`)
       expect(revalidatePathMock).toHaveBeenCalledWith(`/events/${event2.id}`)
@@ -351,7 +563,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const event = await createEvent({ title: 'E' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
-      await adoptRosterFile(attachment.id, event.id, 'applicant')
+      await adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null)
       const rows = await getRosterFileByAttachment(attachment.id)
       const rosterFileId = rows[0]!.id
 
@@ -375,7 +587,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const event = await createEvent({ title: 'E' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
-      await adoptRosterFile(attachment.id, event.id, 'applicant')
+      await adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null)
       const rows = await getRosterFileByAttachment(attachment.id)
       const rosterFileId = rows[0]!.id
 
@@ -403,11 +615,16 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       const event2 = await createEvent({ title: 'E2' })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
-      await adoptRosterFile(attachment.id, event.id, 'applicant')
+      await adoptRosterFile(attachment.id, event.entryGroupId, 'applicant', null)
       const rows = await getRosterFileByAttachment(attachment.id)
       await releaseRosterFile(rows[0]!.id)
 
-      const result = await adoptRosterFile(attachment.id, event2.id, 'confirmed')
+      const result = await adoptRosterFile(
+        attachment.id,
+        event2.entryGroupId,
+        'confirmed',
+        null,
+      )
       expect(result.ok).toBe(true)
 
       const after = await getRosterFileByAttachment(attachment.id)
@@ -439,7 +656,7 @@ describe('admin/mail-inbox roster-file-adoption actions', () => {
       })
       const mail = await createMailMessage()
       const attachment = await createAttachment(mail.id)
-      await adoptRosterFile(attachment.id, event1.id, 'applicant')
+      await adoptRosterFile(attachment.id, event1.entryGroupId, 'applicant', null)
       const rows = await getRosterFileByAttachment(attachment.id)
       revalidatePathMock.mockClear()
 

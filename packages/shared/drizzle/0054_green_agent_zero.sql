@@ -1,0 +1,1 @@
+ALTER TABLE "tournament_entry_roster_files" ADD COLUMN "grades" "grade"[];

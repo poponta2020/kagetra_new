@@ -1,170 +1,158 @@
 ---
 status: completed
 ---
-# roster-file-adoption 実装手順書
+# roster-file-adoption 実装手順書（2026-08-01 改修: 級別採用・候補フィルタ・パースUI退役）
 
-要件: `docs/features/roster-file-adoption/requirements.md`（AC は §4）
-親Issue: #403
+要件: `docs/features/roster-file-adoption/requirements.md`（AC は §4。2026-08-01 の delta で上書き済み）
+親Issue: #433
 
-## 技術設計の要点
+初版（2026-07-29 出荷・PR #409）のタスクは git 履歴が保持する。本書は今回の改修タスクで上書き。
 
-### データモデル: 新テーブル `tournament_entry_roster_files`
+## 技術設計の要点（deep-advisor 検証済み）
 
-`tournament_entry_rosters` を拡張せず**独立したテーブル**にする。理由:
-
-- `tournament_entry_rosters` に「entries を持たない行」を混ぜると、その表を読む既存の消費者が全部壊れる。
-  特に `/dashboard`（home-tournament-timeline）は confirmed 名簿の entries から出場者チップを描き、
-  名簿が無いときだけ出欠へフォールバックする。entries 0 件の roster 行が挿さると
-  **フォールバックが効かなくなり「出場者0人」と表示される**。RosterSection の件数表示・
-  抽選事実（lottery facts）・版管理（UNIQUE(entry_group_id, roster_type, version)）も同様に巻き込む。
-- ファイル採用は「構造化データ」ではなく「原本のポインタ」であり、版管理も統計寄与も持たない。
-  別テーブルにすることで、既存の名簿パイプラインへの影響を**構造的にゼロ**にできる。
+### データモデル: `tournament_entry_roster_files.grades` 列を追加（案A）
 
 ```
-tournament_entry_roster_files
-  id                     integer PK (generated always as identity)
-  entry_group_id         integer NOT NULL → entry_groups(id) ON DELETE RESTRICT
-  roster_type            roster_type NOT NULL              -- 既存 enum を再利用
-  source_attachment_id   integer NOT NULL → mail_attachments(id) ON DELETE CASCADE
-  source_mail_message_id integer          → mail_messages(id)   ON DELETE SET NULL
-  published_at           date
-  note                   text
-  adopted_at             timestamptz NOT NULL DEFAULT now()
-  adopted_by_user_id     text             → users(id)           ON DELETE SET NULL
-  created_at / updated_at timestamptz NOT NULL DEFAULT now()
-
-  UNIQUE (source_attachment_id)                     -- 同一添付の二重採用を禁止（AC-11）
-  INDEX  (entry_group_id, roster_type)              -- ボード判定・大会詳細の引き
+grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換でこの解釈）
+                        -- ['D'] = D級 / ['A','B'] = A・B級（複数級カバー）
 ```
 
-**FK の onDelete 決定（要件 §6 の未解決論点）**:
-- `source_attachment_id` = **CASCADE**。`mail_attachments.mail_message_id` は
-  `mail_messages` から CASCADE なので、ここを RESTRICT にすると将来メール削除機能を作ったときに
-  削除が FK 違反で落ちる。同じ「添付へのポインタ」である `attachment_share_tokens` /
-  `event_broadcast_guideline_attachments` も CASCADE で、その前例に揃える。
-  ファイルが消えた採用レコードは意味を持たない（＝残す価値がない）ので、道連れが正しい。
-  現時点でメール削除・添付削除の経路はコード上に存在しない（grep 済み）ため、実挙動への影響は無い。
-- `entry_group_id` = **RESTRICT**。`tournament_entry_rosters` と同じ（グループ削除で名簿が消えない）。
+- 前例 `events.eligible_grades`（gradeEnum array）と同型。ORM 経由の enum array は既知罠なし
+  （feedback_drizzle_sql_int_array_binding の罠は raw SQL バインド限定。今回 grades を SQL
+  パラメータにする箇所は無い — カバレッジ判定は TS 側・表示はラベル連結のみ）。
+- junction 表は棄却: 読み手3箇所すべてに JOIN+集約が入り、deleteGroupIfEmpty の依存表も増える
+  一方、級単位 UNIQUE や SQL 級検索を使う要件が無い。
+- `UNIQUE(source_attachment_id)` 維持（複数級カバーは 1 行の grades 配列で表現）。
+- ボードの hasConfirmedRoster クエリ（`/admin/entries/page.tsx` の groupIdsWithConfirmedRoster）は
+  grades を見ない select のまま**無変更** — 「級別行も1行として数える」が構造的に守られる。
+- **保存時に grades を dedupe + A→E 昇順ソートで正規化**（ラベル生成が単純になる）。
+- migration 0053。★enum array の ADD COLUMN は生成実績が無いため、db:generate 後に SQL を目視確認。
 
-### `hasConfirmedRoster` の拡張点は 1 箇所だけ
+### 候補データフロー: サーバー集約 → クライアント純関数フィルタ
 
-`classify`（`entry-board-utils.ts`）は `hasConfirmedRoster: boolean` を受け取るだけなので**純関数側は変更不要**。
-拡張するのは `/admin/entries/page.tsx` の `groupIdsWithConfirmedRoster` を作るクエリのみ（パース済み ∪ ファイル採用）。
+`/admin/entries` と同型（page.tsx が表示名等を1回計算して平らな値で渡し、純関数が仕分け）。
 
-`classify` の他の消費者は無い（grep 済み: `groupBoard` からのみ）。entry-overdue-alert は
-`events.entry_status='not_applied'` しか見ておらず名簿に依存しないため、**ボードとリマインドが
-食い違う余地はない**（PR #377 で踏んだ二重定義の罠は今回発生しない）。
+- サーバー（`mail/[id]/page.tsx`）: `loadRosterAdoptableGroups()` — 候補グループの平ら DTO を渡す。
+  - 母集団: **同一 event 行**で `kind='individual' AND status<>'cancelled' AND event_date>=cutoff`
+    を満たす日を1つ以上持つ entry_group（★AND を別 EXISTS に分けない — 「団体戦だけが cutoff 内」
+    のグループが通る穴になる）。
+  - 各グループ: groupId / 表示名（`deriveEntryGroupName` + 代表イベント title フォールバック。
+    `listMergeCandidateGroups` と同型。**サーバーで文字列に済ませる**）/ 日別最小行
+    （eventDate・entryStatus・eligibleGrades）/ 採用状況（rosterType × grades|null の行リスト）。
+  - 級別の「申込済み」判定は**サーバーで前計算しない** — 日別行を渡し純関数側で計算
+    （4象限表のテストを純関数1箇所に集約する）。
+- クライアント: **leaf 純関数モジュール** `roster-adopt-utils.ts` が 4象限フィルタ＋トグルを計算。
+  ★`'use client'` の Sheet から import されるため、`@kagetra/shared/schema` / `@/lib/entry-groups`
+  （drizzle 値 import）を**絶対に import しない**（client バンドルへの DB 依存漏れは build まで
+  検知されない — entry-board-utils.ts:16-25 に文書化済みの罠）。型は type-only import で。
+- 純関数内で `Date.now()` を読まない（cutoff・todayStr はサーバー注入。既存規約）。
 
-### 会員向けビューアの route 構成
+### 候補フィルタ規則（requirements §3.2.7 の実装形）
 
-管理者向け（`/admin/mail-inbox/attachments/[id]` + `/api/admin/mail/attachments/[id]{,/preview/[page]}`）は
-**一切変更しない**。会員向けに以下を新設し、認可を「採用済みかどうか」だけで判定する（fail-closed）:
+グループ g、種別 T、グループの級集合 G(g) = 個人戦・非cancelled 日の eligibleGrades 和集合:
 
-| パス | 内容 |
-|---|---|
-| `/roster-files/[id]`（ページ） | ログイン必須。採用済みファイルのビューア。既存 `attachment-preview` でページ画像化して inline 表示。ダウンロード導線を併置 |
-| `/api/roster-files/[id]`（バイナリ） | 既存 admin route と同じ MIME allowlist / disposition 規約をそのまま適用（iOS PWA 白画面死対策） |
-| `/api/roster-files/[id]/preview/[page]`（JPEG） | 既存 admin preview route と同型。出力は pdftoppm 生成 JPEG なので常に inert |
+- 統一候補: applied(g) ∧ ¬統一ファイル(g,T) ∧ ¬(G(g)≠∅ ∧ G(g) ⊆ 級ファイル和集合(g,T))
+- 級別候補 (g,gr): gr∈G(g) ∧ appliedGrade(g,gr) ∧ gr∉級ファイル和集合(g,T) ∧ ¬統一ファイル(g,T)
+- applied(g) = いずれかの日が entry_status='applied'。appliedGrade(g,gr) = gr を eligibleGrades に
+  含む日のいずれかが applied。
+- 「すべて表示」= 基本条件のみ（統一: 全候補グループ / 級別: 全 (g, gr∈G(g))）。
 
-- 認可ヘルパー `loadAdoptedRosterFile(id)` を 1 本用意し、3 経路すべてがこれを通す
-  （採用レコードが無ければ null → 404）。解除した瞬間に 3 経路とも 404 になる。
-- `detectPreviewKind` が `'none'` を返す型（libreoffice が変換できない zip 等）は
-  **ページ画像を出さずダウンロードのみのカード**にする。AC-8 の「閲覧できる」はこの場合
-  「ビューアページが 200 でダウンロード導線が出る」ことを指す。
+### Server Action: `adoptRosterFile(attachmentId, entryGroupId, rosterType, grades, publishedAt)`
 
-### 採用 UI（メール詳細）
+- 旧 eventId 引数を entryGroupId + `grades: Grade[] | null` に変更（呼び出し元は Sheet のみ。
+  既存テスト actions.roster-file-adoption.test.ts は書き換え必須）。
+- 検証（基本条件のみ。候補フィルタは強制しない = AC-17）:
+  1. **grades 入力検証を冒頭で**: null（統一）または非空配列。`⊆ {A..E}`・dedupe・昇順正規化。
+     **空配列は明示エラー**（「級別を選んだが級未選択」を統一採用として通さない）。
+  2. グループ実在 + 基本条件の日1つ以上（同一行 AND）。
+  3. 級別時: 指定級 ⊆ G(g)（個人戦・非cancelled の和集合。**cutoff は掛けない** — §3.2.1 の文言
+     どおり独立条件。全日 eligibleGrades NULL なら G=∅ で自然に弾かれる = AC-19）。
+  4. 添付実在・未採用（既存 UNIQUE + 事前チェック）。
+- **FK violation (23503) を捕捉**して日本語メッセージへ変換（entryGroupId が直指定になったため、
+  並行の deleteGroupIfEmpty と競合すると INSERT の RESTRICT FK チェックが生エラーで返る。
+  isUniqueViolation と並べて処理）。
+- `revalidateRosterFileGroupEvents` は committedEntryGroupId ベースなので無変更で使える。
 
-- 添付一覧は**拡張子で絞らない**。`isRosterSourceFilename`（パーサの入力フィルタ）は流用しない —
-  パースしない機能なので、掲示写真(.jpg)や .zip を弾く理由がない。
-- 既存の `ExistingEventLinkSheet` と同じボトムシート様式で、対象イベント（`loadLinkableEvents` の
-  候補条件＝`linkable-events.ts` を共有）・種別（申込/確定）・発表日（既定=メール受信日）を選ぶ。
-- Server Action は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` に追加（既存の
-  `requireAdminSession` + `revalidatePath` 規約に従う）。イベント → `entry_group_id` の解決は
-  サーバー側で行い、`validateLinkableEvent` で候補条件を再検証する（UI 表示後の状態変化・直接叩き対策）。
+### パース取込 UI の退役
+
+- `mail/[id]/page.tsx` の「大会名簿の取込」セクション（RosterParseButton・名簿ドラフトカード・
+  roster-drafts リンク）を削除し、不要になった page 内のデータ組み立て（rosterSources 等）も落とす。
+- **コードは温存**: RosterParseButton.tsx / roster-drafts ページ一式 / triggerRosterParse・承認・
+  却下 Server Action / パーサ / テーブル / 既存テストは一切触らない（AC-21）。
 
 ---
 
 ## 実装タスク
 
-### タスク1: スキーマ＋マイグレーション（共有ホットスポット）
-- [x] 完了
-- **目的:** `tournament_entry_roster_files` を追加し、relations / schema index / migration を整える
-- **対応Issue:** #404
-- **対応AC:** AC-11（UNIQUE 制約）、AC-12
-- **主な変更領域:** `packages/shared/src/schema/tournament-entry-roster-files.ts`（新規）、
-  `packages/shared/src/schema/index.ts`、`packages/shared/src/schema/relations.ts`、
-  `packages/shared/drizzle/0051_*.sql`（`pnpm --filter @kagetra/shared db:generate` で生成）
+### タスク1: スキーマ `grades` 列＋マイグレーション（共有ホットスポット）— Issue #434
+- [x] 完了（migration は **0054**。0053 は payment_deadline_kind で既使用のため採番がずれた）
+- **目的:** 級別採用を表現する grades 配列列を追加する
+- **対応AC:** AC-12, AC-22（既存行 NULL=統一の互換）
+- **主な変更領域:** `packages/shared/src/schema/tournament-entry-roster-files.ts`、
+  `packages/shared/drizzle/0053_*.sql`（`pnpm --filter @kagetra/shared db:generate` で生成。
+  ★enum array の ADD COLUMN が意図どおりか SQL を目視確認）、`packages/shared/__tests__/` の
+  スキーマテスト更新
 - **依存タスク:** なし
-- **必要なテスト:** `packages/shared/__tests__/` に `tournament-lottery-schema.test.ts` と同型の
-  スキーマテスト（列・UNIQUE・FK onDelete が定義どおりか）
-- **完了条件:** テスト green・`check-types` 通過・生成 migration が journal 経路で空 DB に適用できる
+- **必要なテスト:** スキーマテスト（grades 列の型・nullable・既存 UNIQUE/INDEX が不変）
+- **完了条件:** テスト green・`check-types` 通過・migration が journal 経路で空 DB に適用できる
 
-### タスク2: 採用/解除 Server Action ＋ メール詳細の採用 UI
+### タスク2: 候補フィルタ純関数（leaf モジュール）— Issue #435
 - [x] 完了
-- **目的:** 管理者が添付を対象イベント＋種別を指定して名簿ファイルとして採用・解除できるようにする
-- **対応Issue:** #405
-- **対応AC:** AC-1, AC-2, AC-10, AC-11
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`adoptRosterFile` /
-  `releaseRosterFile` を追加）、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`（採用状態の取得と
-  セクション追加）、`apps/web/src/app/(app)/admin/mail-inbox/components/RosterFileAdoptSheet.tsx`（新規）
-- **依存タスク:** タスク1
-- **必要なテスト:** actions のテスト（admin/vice_admin 以外は拒否 / 採用レコード作成 / 同一添付の
-  二重採用はエラー / 同一グループ×種別へ複数採用は可 / 解除で消える / `validateLinkableEvent` 違反は拒否）
+- **目的:** 4象限フィルタ＋「すべて表示」＋級列挙・申込判定を純関数で実装する
+- **対応AC:** AC-14, AC-15, AC-16, AC-17（フィルタ計算）, AC-19（級列挙）
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/roster-adopt-utils.ts`（新規。
+  **DB 非依存 leaf** — 値 import は不可、型のみ）、同 `.test.ts`
+- **依存タスク:** なし（型は自前定義の平ら DTO。schema 型に依存させない）
+- **必要なテスト:** 4象限それぞれの出す/出さない（申込未・統一済み・全級カバー済み・一部級済み・
+  級情報なしグループ・確定候補が applicant ファイル有無に依らないこと・トグルで全件）
 - **完了条件:** テスト green・`check-types`・lint 通過
 
-### タスク3: 会員向け名簿ファイルビューア（ページ＋2 route）
+### タスク3: adoptRosterFile シグネチャ変更＋検証強化 — Issue #436
 - [x] 完了
-- **目的:** 採用済みファイルだけをログイン会員が閲覧・ダウンロードできる経路を作る
-- **対応Issue:** #406
-- **対応AC:** AC-8, AC-9
-- **主な変更領域:** `apps/web/src/lib/roster-file-access.ts`（新規・`loadAdoptedRosterFile`）、
-  `apps/web/src/app/(app)/roster-files/[id]/page.tsx`（新規）、
-  `apps/web/src/app/api/roster-files/[id]/route.ts`（新規）、
-  `apps/web/src/app/api/roster-files/[id]/preview/[page]/route.ts`（新規）
+- **目的:** entryGroupId + grades 指定の採用に対応し、基本条件検証をグループ単位に置き換える
+- **対応AC:** AC-1, AC-2, AC-11, AC-17（フィルタ非強制）, AC-19（級⊆G(g) 検証）
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（adoptRosterFile。
+  releaseRosterFile は不変）、`actions.roster-file-adoption.test.ts`（eventId 前提を書き換え）
 - **依存タスク:** タスク1
-- **必要なテスト:** route テスト（未ログイン 401 / 採用済み 200 / 未採用・解除済み 404 /
-  id の正準整数チェック）＋ MIME allowlist と disposition が admin route と同じ判定になること
-- **完了条件:** テスト green・`check-types`・lint 通過。既存 admin route に差分が無い
+- **必要なテスト:** 権限拒否 / 統一採用 / 級別採用（正規化保存）/ 空配列エラー / 不正級エラー /
+  級⊆G(g) 違反 / 基本条件（個人戦・cancelled・cutoff を同一行で判定 — 団体戦のみ cutoff 内の
+  グループが弾かれること）/ 二重採用エラー / FK violation の日本語化 / フィルタ条件
+  （申込未・採用済み）でも採用が成功すること
+- **完了条件:** テスト green・`check-types`・lint 通過
 
-### タスク4: 大会詳細のファイル名簿表示
-- [x] 完了
-- **目的:** パース済み名簿が無い種別ではファイル名簿カードを、ある種別では補助リンクを出す
-- **対応Issue:** #407
-- **対応AC:** AC-5, AC-6, AC-7
-- **主な変更領域:** `apps/web/src/app/(app)/events/[id]/page.tsx`（entry_group から採用ファイルを
-  取得。**列を明示指定して内部列を RSC payload へ出さない**）、
-  `apps/web/src/app/(app)/events/[id]/components/RosterSection.tsx`
-- **依存タスク:** タスク1
-- **必要なテスト:** RosterSection のテスト（パース済み無し＋ファイル有り→カード表示 /
-  パース済み有り→構造化が主・ファイルは補助リンク / どちらも無し→現行の未取込文言）＋
-  page のクエリテスト（グループ内の別日からも同じファイルが見える）
-- **完了条件:** テスト green・`check-types`・lint 通過。RSC payload に `sourceMailMessageId` /
-  `adoptedByUserId` / `note` が含まれないことをテストで固定
+### タスク4: メール詳細 — 候補クエリ・採用シート UI・パースセクション削除 — Issue #437
+- [x] 完了（候補の表示名は要件 §3.2.7 どおり**通称ベース**で導出した。手順書の
+  「`listMergeCandidateGroups` と同型」は title ベースの記述で要件と食い違うため、
+  申込管理ボードと同じ手順1〜3（通称+級 → deriveEntryGroupName → title フォールバック）を採った）
+- **目的:** シートに取込単位選択・絞込候補・トグルを実装し、パース取込導線を退役する
+- **対応AC:** AC-1（UI）, AC-17（トグル）, AC-18（採用済み表示の級ラベル）, AC-20, AC-21
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`
+  （loadRosterAdoptableEvents → loadRosterAdoptableGroups・「大会名簿の取込」セクション削除・
+  採用済み表示に grades）、`components/RosterFileAdoptSheet.tsx`（単位ラジオ・モード別候補・
+  級チェックボックス〔同一グループ内のみ複数可〕・トグル）、同 `.test.tsx`
+- **依存タスク:** タスク2（純関数）・タスク3（action シグネチャ）
+- **必要なテスト:** Sheet のテスト（モード切替で候補が変わる / トグルで全件 / 級別は別グループの
+  級を同時選択できない / 送信引数）＋ page から RosterParseButton / roster-drafts リンクが
+  消えていること。roster-drafts ページ・パーサの既存テストは**無改修で green**（AC-21）
+- **完了条件:** テスト green・`check-types`・lint 通過
 
-### タスク5: 申込管理ボードの hasConfirmedRoster 拡張
+### タスク5: 大会詳細の級ラベル表示 — Issue #438
 - [x] 完了
-- **目的:** confirmed のファイル採用がある大会をフェーズ進行させる
-- **対応Issue:** #408
-- **対応AC:** AC-3, AC-4
-- **主な変更領域:** `apps/web/src/app/(app)/admin/entries/page.tsx`（`groupIdsWithConfirmedRoster` の
-  クエリのみ）。`entry-board-utils.ts` は**変更しない**（純関数の契約は不変）
+- **目的:** RosterSection のファイルカード・補助リンクに級別採用の級ラベルを出す
+- **対応AC:** AC-5, AC-6, AC-7, AC-18（大会詳細側）, AC-22
+- **主な変更領域:** `apps/web/src/app/(app)/events/[id]/page.tsx`（rosterFiles クエリの columns に
+  grades を追加・DTO へ転記）、`components/RosterSection.tsx`（ラベル描画）、既存テスト更新
 - **依存タスク:** タスク1
-- **必要なテスト:** page のクエリテスト（confirmed ファイル採用のみのグループが true /
-  applicant ファイル採用だけでは false / パース済みとファイルの OR）＋
-  既存の entry-board テスト群が無改修で green（判定条件を変えていないことの回帰）
+- **必要なテスト:** grades ありでラベル表示（「D級」「A・B級」）/ NULL はラベルなし（既存表示
+  不変の回帰）/ RSC payload に内部列（sourceMailMessageId 等）が引き続き含まれない
 - **完了条件:** テスト green・`check-types`・lint 通過
 
 ## 実装順序（Wave = 並行実装できるタスクの組）
 - **Wave 1:** タスク1（共有ホットスポット＝スキーマ。単独で先行）
-- **Wave 2:** タスク2 / タスク3 / タスク4 / タスク5（互いに依存なし・変更領域が完全に分離。
-  タスク4 → タスク3 のビューア URL は `/roster-files/{id}` で契約固定するため独立実装できる）
+- **Wave 2:** タスク2 / タスク3 / タスク5（互いに依存なし・変更領域が分離: 新規 leaf ファイル /
+  actions.ts / events配下）
+- **Wave 3:** タスク4（タスク2・3 に依存。mail/[id]/page.tsx と Sheet を1タスクに集約）
 
-## 出荷後の残作業（AC-13 / ship 時に必ず消化する）
-1. 本番のメール詳細から滞留中の 3 添付を採用する:
-   - 添付 316（`E級・D級クラス分け.xlsx`, mail 251）→ 対象大会に **確定名簿** として採用
-   - 添付 318/319（秋田大会 参加者一覧・参加費一覧, mail 253/254）→ 秋田DE（event 21）に **確定名簿** として採用
-2. `/admin/entries` で該当大会が「名簿確定・要振込」へ移ったことと、`/events/[id]` に原本ファイルが
-   出ることを実機確認する。
-3. **★制約: 出荷まで名簿ドラフト #1〜#3 を却下しないこと。** 却下すると同じ添付を再解析できなくなる
-   （このバグの修正は本機能の Non-goals＝別 quickfix）。ファイル採用はドラフトの状態と独立なので、
-   pending_review のまま採用して問題ない。
+## 出荷後の残作業（AC-23）
+- 本番で実メールの名簿を新フローで採用し、候補の絞り込み・級ラベル・「すべて表示」トグルを
+  実機確認する（対象が無ければ次に名簿が届いたときに確認）。

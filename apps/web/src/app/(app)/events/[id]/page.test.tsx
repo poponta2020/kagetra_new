@@ -486,6 +486,28 @@ describe('/events/[id] — 原本ファイル採用の表示 (roster-file-adopti
       expect(keys).not.toContain('adoptedAt')
     }
   })
+
+  // roster-file-adoption 2026-08-01 改修 (AC-18): 級別採用のファイルには
+  // 大会詳細に級ラベルが出る。
+  it('grades を指定して採用したファイルは級ラベル付きで表示される', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const mail = await createMailMessage()
+    const attachment = await seedAttachment(mail.id, 'D級名簿テスト.xlsx')
+    await testDb.insert(tournamentEntryRosterFiles).values({
+      entryGroupId: ev.entryGroupId,
+      rosterType: 'confirmed',
+      sourceAttachmentId: attachment.id,
+      grades: ['D'],
+    })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('D級名簿テスト.xlsx')
+    expect(container.textContent).toContain('D級')
+  })
 })
 
 describe('/events/[id] — 削除した表示 (AC-13)', () => {

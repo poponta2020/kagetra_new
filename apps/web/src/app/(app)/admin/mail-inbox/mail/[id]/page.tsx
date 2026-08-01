@@ -1,10 +1,19 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { and, desc, eq, gte, ne } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, ne } from 'drizzle-orm'
 import { loadCostGuardConfig } from '@kagetra/mail-worker/config'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { events, mailMessages } from '@kagetra/shared/schema'
+import {
+  events,
+  mailMessages,
+  tournamentEntryRosterFiles,
+  tournamentSeries,
+  tournamentSeriesEditions,
+} from '@kagetra/shared/schema'
+import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { displayName } from '../../../entries/entry-board-utils'
+import { todayInJst } from '@/lib/jst-date'
 import { Card, Pill, type PillTone } from '@/components/ui'
 import { AttachmentList } from '../../components/AttachmentList'
 import { type TriageStatus } from '../../components/TriageActions'
@@ -20,13 +29,10 @@ import {
   type ExcelAttachment,
 } from '../../components/ResultParseButton'
 import {
-  RosterParseButton,
-  type RosterParseSource,
-} from '../../components/RosterParseButton'
-import {
   RosterFileAdoptSheet,
   type RosterFileAdoptionInfo,
 } from '../../components/RosterFileAdoptSheet'
+import type { RosterAdoptGroup } from '../../roster-adopt-utils'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer タスク4: 「メーラー詳細」画面。
@@ -66,12 +72,6 @@ function formatJst(date: Date): string {
   })
 }
 
-function isRosterSourceFilename(filename: string): boolean {
-  const lower = filename.toLowerCase()
-  return ['.xls', '.xlsx', '.xlsm', '.pdf', '.doc', '.docx', '.txt']
-    .some((extension) => lower.endsWith(extension))
-}
-
 /**
  * 既存イベント結びつけシートの候補。
  *
@@ -108,27 +108,36 @@ async function loadLinkableEvents(): Promise<LinkableEventOption[]> {
 }
 
 /**
- * 名簿ファイル採用シートの候補（roster-file-adoption / Codex r1 blocker）。
+ * 名簿ファイル採用シートの候補グループ（roster-file-adoption 2026-08-01 改修 §3.2.7）。
  *
- * 候補条件は `loadLinkableEvents` と共有しつつ、**個人戦だけ**に絞る。名簿は
- * 個人戦のみの仕様（`RosterSection` は団体戦で常に非表示・申込管理ボードの
- * 母集団も `kind='individual'`）なので、団体戦を選べると「採用は成功したのに
- * どこにも表示されずフェーズも動かない」行き止まりの経路になる。
- * `adoptRosterFile` 側でも同じ条件を再検証する（UI 表示後の変化・直接叩き対策）。
+ * 採用の帰属は entry_group なので、候補もイベントではなく**グループ**で出す。
+ * ここが返すのは「基本条件を満たすグループ」の平ら DTO だけで、4象限の既定
+ * フィルタ（申込済み × 未取込）と「すべて表示」トグルの計算は client 側の純関数
+ * （`roster-adopt-utils.ts`）が行う。`/admin/entries` と同型の分担
+ * （page がグループ表示名等を1回計算して平らな値で渡し、純関数が仕分ける）。
+ *
+ * **基本条件**: 「個人戦 ∧ cancelled でない ∧ 開催日が cutoff 以降」を**同一の
+ * event 行が同時に満たす**日を 1 つ以上持つこと。★3条件を別々の存在判定に
+ * 分けてはならない（「団体戦だけが cutoff 内で個人戦は 30 日より古い」グループが
+ * 通る穴になる）。名簿は個人戦のみの仕様（`RosterSection` は団体戦で常に非表示・
+ * 申込管理ボードの母集団も `kind='individual'`）なので、団体戦だけのグループを
+ * 選べると「採用は成功したのにどこにも表示されずフェーズも動かない」行き止まりに
+ * なる。`adoptRosterFile` 側でも同じ条件を再検証する（UI 表示後の変化・直接叩き対策）。
+ *
+ * ★`days` に渡すのは「個人戦 ∧ 非 cancelled」の**全日**で、cutoff は掛けない。
+ * 純関数側の級集合 G(g) は Server Action の検証（cutoff を掛けない独立条件）と
+ * 同じ母集団でなければならず、ここで cutoff を掛けると「選べる級」と
+ * 「サーバーが受け付ける級」がずれる。
  *
  * 既存の「既存イベントに紐付ける」導線は団体戦も候補に出したままにする
  * （メールの紐付け自体は個人戦に限る理由がない）。
  */
-async function loadRosterAdoptableEvents(): Promise<LinkableEventOption[]> {
+async function loadRosterAdoptableGroups(): Promise<RosterAdoptGroup[]> {
   const cutoffStr = linkableEventCutoffStr()
+  const todayStr = todayInJst()
 
-  return db
-    .select({
-      id: events.id,
-      title: events.title,
-      eventDate: events.eventDate,
-      status: events.status,
-    })
+  const qualifyingRows = await db
+    .select({ entryGroupId: events.entryGroupId })
     .from(events)
     .where(
       and(
@@ -137,7 +146,91 @@ async function loadRosterAdoptableEvents(): Promise<LinkableEventOption[]> {
         eq(events.kind, 'individual'),
       ),
     )
-    .orderBy(desc(events.eventDate))
+  const groupIds = [...new Set(qualifyingRows.map((r) => r.entryGroupId))]
+  if (groupIds.length === 0) return []
+
+  // グループの**全イベント**を引く（cancelled・団体戦・過去日も含む）。表示名の
+  // 導出母集団を申込管理ボードと揃えるため（表示対象で絞ると、過去の多摩A＋未来の
+  // 多摩B のグループがここだけ「多摩B」になって他画面と食い違う）。通称ベースの
+  // 表示名を組むので edition → series を 2 段 leftJoin する（edition_id は nullable）。
+  const memberRows = await db
+    .select({
+      id: events.id,
+      entryGroupId: events.entryGroupId,
+      title: events.title,
+      shortName: tournamentSeries.shortName,
+      eventDate: events.eventDate,
+      status: events.status,
+      kind: events.kind,
+      entryStatus: events.entryStatus,
+      eligibleGrades: events.eligibleGrades,
+    })
+    .from(events)
+    .leftJoin(tournamentSeriesEditions, eq(tournamentSeriesEditions.id, events.editionId))
+    .leftJoin(tournamentSeries, eq(tournamentSeries.id, tournamentSeriesEditions.seriesId))
+    .where(inArray(events.entryGroupId, groupIds))
+    .orderBy(events.eventDate)
+
+  const adoptedRows = await db
+    .select({
+      entryGroupId: tournamentEntryRosterFiles.entryGroupId,
+      rosterType: tournamentEntryRosterFiles.rosterType,
+      grades: tournamentEntryRosterFiles.grades,
+    })
+    .from(tournamentEntryRosterFiles)
+    .where(inArray(tournamentEntryRosterFiles.entryGroupId, groupIds))
+
+  const membersByGroup = new Map<number, typeof memberRows>()
+  for (const row of memberRows) {
+    const arr = membersByGroup.get(row.entryGroupId)
+    if (arr) arr.push(row)
+    else membersByGroup.set(row.entryGroupId, [row])
+  }
+
+  const groups: (RosterAdoptGroup & { sortDate: string })[] = []
+  for (const groupId of groupIds) {
+    const members = membersByGroup.get(groupId)
+    if (!members || members.length === 0) continue
+
+    // 表示名は申込管理ボードと同じ規約（要件 §3.2.7）: 全イベントを「通称+級」に
+    // 変換 → deriveEntryGroupName で畳む → 畳めなければ title 由来の名前 →
+    // それも導出できなければ代表イベントの title。導出の正典は `@/lib/entry-groups`。
+    const representative = selectRepresentativeEvent(members, todayStr)!
+    const titleName = deriveEntryGroupName(members.map((m) => m.title)) ?? representative.title
+    const groupDisplayName =
+      deriveEntryGroupName(
+        members.map((m) =>
+          displayName({
+            title: m.title,
+            shortName: m.shortName,
+            eligibleGrades: m.eligibleGrades,
+          }),
+        ),
+      ) ?? titleName
+
+    groups.push({
+      groupId,
+      displayName: groupDisplayName,
+      days: members
+        .filter((m) => m.kind === 'individual' && m.status !== 'cancelled')
+        .map((m) => ({
+          eventDate: m.eventDate,
+          entryStatus: m.entryStatus,
+          eligibleGrades: m.eligibleGrades,
+        })),
+      files: adoptedRows
+        .filter((f) => f.entryGroupId === groupId)
+        .map((f) => ({ rosterType: f.rosterType, grades: f.grades })),
+      sortDate: representative.eventDate,
+    })
+  }
+
+  // 代表イベントの開催日で時系列に並べる（「いま取り込むべき対象」が上から順に
+  // 読める。既定フィルタが効いている限り候補は数件なので、これで十分）。
+  groups.sort((a, b) =>
+    a.sortDate === b.sortDate ? a.groupId - b.groupId : a.sortDate < b.sortDate ? -1 : 1,
+  )
+  return groups.map(({ sortDate: _sortDate, ...g }) => g)
 }
 
 export default async function MailDetailPage({
@@ -180,6 +273,8 @@ export default async function MailDetailPage({
             columns: {
               id: true,
               rosterType: true,
+              // 2026-08-01 改修 (AC-18): 採用済み表示に取込単位（級ラベル）を出す。
+              grades: true,
             },
             with: {
               entryGroup: {
@@ -215,15 +310,6 @@ export default async function MailDetailPage({
           parseError: true,
         },
       },
-      rosterImportDrafts: {
-        columns: {
-          id: true,
-          sourceKind: true,
-          sourceAttachmentId: true,
-          status: true,
-          failureReason: true,
-        },
-      },
     },
   })
   if (!mail) notFound()
@@ -235,17 +321,6 @@ export default async function MailDetailPage({
       return lower.endsWith('.xls') || lower.endsWith('.xlsx')
     })
     .map((a) => ({ id: a.id, filename: a.filename }))
-  const rosterSources: RosterParseSource[] = [
-    ...((mail.bodyText ?? mail.bodyHtml)?.trim()
-      ? [{ attachmentId: null, label: 'メール本文' }]
-      : []),
-    ...mail.attachments
-      .filter((attachment) => isRosterSourceFilename(attachment.filename))
-      .map((attachment) => ({
-        attachmentId: attachment.id,
-        label: attachment.filename,
-      })),
-  ]
 
   const triage = TRIAGE_LABEL[mail.triageStatus] ?? {
     label: mail.triageStatus,
@@ -271,10 +346,9 @@ export default async function MailDetailPage({
   // roster-file-adoption タスク2: 名簿ファイル採用の候補は、既存の AI 抽出/紐付け
   // フロー（draft の有無・triage 状態）とは独立して提示する（要件: 名簿ドラフトと
   // 独立・ドラフトの有無で採用を妨げない）ため、上の `linkableEvents` は流用せず
-  // 別に引く。候補は**個人戦のみ**（Codex r1 blocker）。添付が 1 件も無ければ
-  // セクション自体を出さないのでクエリも投げない。
-  const rosterAdoptableEvents =
-    mail.attachments.length > 0 ? await loadRosterAdoptableEvents() : []
+  // 別に引く。添付が 1 件も無ければセクション自体を出さないのでクエリも投げない。
+  const rosterAdoptableGroups =
+    mail.attachments.length > 0 ? await loadRosterAdoptableGroups() : []
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -493,44 +567,18 @@ export default async function MailDetailPage({
         </section>
       )}
 
-      {(rosterSources.length > 0 || mail.rosterImportDrafts.length > 0) && (
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-base font-bold text-ink">大会名簿の取込</h2>
-          {rosterSources.length > 0 && (
-            <Card>
-              <div className="flex flex-col gap-3">
-                <p className="text-xs text-ink-meta">
-                  添付または本文を原本単位で解析します。解析結果は承認するまで集計へ反映されません。
-                </p>
-                <RosterParseButton mailId={mail.id} sources={rosterSources} />
-              </div>
-            </Card>
-          )}
+      {/* roster-file-adoption: パースせず原本のまま採用する名簿ファイル。
+          決定論パース（`tournament_roster_import_drafts`）とは完全に独立で、
+          ドラフトの状態を読まない・変更しない。
 
-          {mail.rosterImportDrafts.map((draft) => (
-            <Card key={draft.id}>
-              <div className="flex flex-col gap-1.5 text-sm">
-                <span className="font-semibold text-ink-2">
-                  名簿ドラフト #{draft.id}（{draft.status}）
-                </span>
-                {draft.failureReason && (
-                  <p className="text-xs text-danger-fg">{draft.failureReason}</p>
-                )}
-                <Link
-                  href={`/admin/mail-inbox/roster-drafts/${draft.id}`}
-                  className="text-brand-fg underline"
-                >
-                  確認画面を開く →
-                </Link>
-              </div>
-            </Card>
-          ))}
-        </section>
-      )}
-
-      {/* roster-file-adoption タスク2: パースせず原本のまま採用する名簿ファイル。
-          「大会名簿の取込」（決定論パース + AI 抽出）とは完全に独立したセクション
-          — ドラフトの状態を読まない・変更しない。 */}
+          ★2026-08-01 改修 (AC-20): かつてここより上にあった「大会名簿の取込」
+          セクション（`RosterParseButton`・名簿ドラフトカード・roster-drafts 確認
+          画面へのリンク）は**表示しない**。決定論パーサは本番の実名簿 3 件すべてで
+          採用不能で、ファイル採用が事実上の唯一の取込経路になった。導線が並ぶと
+          迷いを生むだけなので UI から退役させる。**コードは温存**する
+          （パーサ・Server Action・roster-drafts ページ・テーブル・既存テストは
+          一切触っていない。直 URL では従来どおり動く）。将来の AI 名簿取込が
+          承認 UI と materialize を土台に使うため削除はしない。 */}
       {mail.attachments.length > 0 && (
         <section className="flex flex-col gap-2">
           <h2 className="font-display text-base font-bold text-ink">名簿ファイルの採用</h2>
@@ -543,6 +591,7 @@ export default async function MailDetailPage({
                 ? {
                     id: attachment.rosterFileAdoption.id,
                     rosterType: attachment.rosterFileAdoption.rosterType,
+                    grades: attachment.rosterFileAdoption.grades,
                     eventTitles:
                       attachment.rosterFileAdoption.entryGroup?.events.map((e) => e.title) ?? [],
                   }
@@ -552,7 +601,7 @@ export default async function MailDetailPage({
                   key={attachment.id}
                   attachmentId={attachment.id}
                   attachmentFilename={attachment.filename}
-                  linkableEvents={rosterAdoptableEvents}
+                  groups={rosterAdoptableGroups}
                   adoption={adoption}
                 />
               )
