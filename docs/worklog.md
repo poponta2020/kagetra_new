@@ -2970,3 +2970,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-07-30 /auto-review-loop PR #431: 8R(i+d5+f+fd), verdict=pass, effort=high, tokens=n/a, result=pass
 - 2026-08-01 /auto-review-loop PR #431: 11R(i+d5+f+fd+f+fd), verdict=cutoff(user-wontfix), effort=high, result=cutoff。main の migration 0052 と番号衝突→0053 へ採番し直し。WONTFIX 3件（DraftCard 訂正版表示 / reextract IN句上限 / サイズ超過スキップ時に既存payloadを残す方針）
 - 2026-08-01 PR #431 出荷: メール大会案内取込のAI再設計（親#410・子#411-422 の全12タスク）。分類撤去(PROMPT_VERSION 3.0.0)・Sonnet 5移行(thinking:disabled・キャッシュ撤去)・添付選択UI・振込締切の状態化(migration 0053)・PDF上限8000KB・受信箱tier廃止・通称の人力入力。Codex 11ラウンドで実在の不具合8件を修正。★申し送り=DraftCardの訂正版バッジは未対応（実害なし）／AC-25(実抽出がmax_tokensで切れない)は本番で要確認
+- 2026-08-01 /auto-review-loop PR #439: 3R(i+d+f), verdict=pass, effort=high→medium→high, tokens=502823/500000, result=pass（R1 blocker=候補行の開催日欠落を修正、R2 再掲は WONTFIX、R3 final pass）
+- 2026-08-01 PR #439 出荷: 名簿ファイル採用の改修（親#433・子#434-438 の全5タスク）。級別採用(grades列/migration 0054)・候補提示規則(申込済み×未取込の4象限＋すべて表示トグル)・パース取込UIの退役(コードは全温存)・大会詳細/メール詳細の級ラベル。Codex 3R(i+d+f) pass、R1 blocker=候補行の開催日欠落を修正、R2 再掲は WONTFIX。★残DoD=AC-23 本番実機で候補絞り込み・級ラベルを確認

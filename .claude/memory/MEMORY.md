@@ -260,3 +260,7 @@
 - [auto-review PR #431](auto-review-round-pr431.md) — R8 verdict=pass（R2-R5 で合計サイズ判定の ping-pong・R7 で自分の退行を検出）
 - [メール大会案内取込のAI再設計](project_ship-mail-ai-extract-refinements.md) — shipped: PR #431（★申し送り=DraftCardの訂正版バッジ・AC-25は本番で要確認）
 - [roster-file-adoption 改修 要件定義（級別採用・候補フィルタ・パースUI退役）](project_roster_file_adoption_delta_def.md) — 親Issue #433・実装待ち
+- [roster-file-adoption 改修 Wave1-2](impl_roster-file-adoption-delta-wave12.md) — grades列(migration 0054)・候補フィルタ純関数・adoptRosterFile のグループ化・大会詳細の級ラベル
+- [roster-file-adoption 改修 タスク4](impl_roster-file-adoption-delta-task4.md) — 採用シートのグループ候補化・すべて表示トグル・パース取込UIの退役
+- [auto-review PR #439](auto-review-round-pr439.md) — R3 verdict=pass（R1 blocker 修正・R2 再掲は WONTFIX）
+- [名簿ファイル採用: 級別採用・候補フィルタ・パース取込UIの退役](project_ship-roster-file-adoption-delta.md) — shipped: PR #439
