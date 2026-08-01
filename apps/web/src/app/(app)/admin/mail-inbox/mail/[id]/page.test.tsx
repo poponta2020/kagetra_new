@@ -280,9 +280,9 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
       fireEvent.click(screen.getByText('名簿ファイルとして採用'))
       fireEvent.click(screen.getByLabelText('級別名簿'))
 
-      expect(screen.getByLabelText('級つき大会 B級')).toBeTruthy()
-      expect(screen.getByLabelText('級つき大会 D級')).toBeTruthy()
-      expect(screen.queryByLabelText('級つき大会 A級')).toBeNull()
+      expect(screen.getByLabelText(/級つき大会 B級/)).toBeTruthy()
+      expect(screen.getByLabelText(/級つき大会 D級/)).toBeTruthy()
+      expect(screen.queryByLabelText(/級つき大会 A級/)).toBeNull()
     })
 
     it('採用済みの添付には種別・対象大会名を表示し、解除ボタンを出す', async () => {

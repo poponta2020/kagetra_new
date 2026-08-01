@@ -61,7 +61,7 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
     openSheet()
     // 種別の切替は選択を捨てる（候補の母集団が変わるため）。種別 → 対象の順で選ぶ。
     fireEvent.click(screen.getByLabelText('確定名簿'))
-    fireEvent.click(screen.getByLabelText('春季AB'))
+    fireEvent.click(screen.getByLabelText(/春季AB/))
     const dateInput = screen.getByDisplayValue('') as HTMLInputElement
     fireEvent.change(dateInput, { target: { value: '2030-07-01' } })
     fireEvent.click(screen.getByText('採用する'))
@@ -73,7 +73,7 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
 
   it('発表日を入力しなければ 5 番目の引数は null（種別は既定の申込者名簿）', async () => {
     openSheet()
-    fireEvent.click(screen.getByLabelText('春季AB'))
+    fireEvent.click(screen.getByLabelText(/春季AB/))
     fireEvent.click(screen.getByText('採用する'))
 
     await waitFor(() => {
@@ -84,8 +84,8 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
   it('級別モードでは同一グループの複数級を選んで送信できる', async () => {
     openSheet()
     fireEvent.click(screen.getByLabelText('級別名簿'))
-    fireEvent.click(screen.getByLabelText('春季AB A級'))
-    fireEvent.click(screen.getByLabelText('春季AB B級'))
+    fireEvent.click(screen.getByLabelText(/春季AB A級/))
+    fireEvent.click(screen.getByLabelText(/春季AB B級/))
     fireEvent.click(screen.getByText('採用する'))
 
     await waitFor(() => {
@@ -97,11 +97,11 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
     openSheet()
     fireEvent.click(screen.getByLabelText('級別名簿'))
     fireEvent.click(screen.getByLabelText('すべて表示'))
-    fireEvent.click(screen.getByLabelText('春季AB A級'))
-    fireEvent.click(screen.getByLabelText('秋季C C級'))
+    fireEvent.click(screen.getByLabelText(/春季AB A級/))
+    fireEvent.click(screen.getByLabelText(/秋季C C級/))
 
-    expect((screen.getByLabelText('春季AB A級') as HTMLInputElement).checked).toBe(false)
-    expect((screen.getByLabelText('秋季C C級') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(/春季AB A級/) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/秋季C C級/) as HTMLInputElement).checked).toBe(true)
 
     fireEvent.click(screen.getByText('採用する'))
     await waitFor(() => {
@@ -111,11 +111,11 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
 
   it('既定候補は申込済みのグループだけ。「すべて表示」で申込前のグループも出る', () => {
     openSheet()
-    expect(screen.getByLabelText('春季AB')).toBeTruthy()
-    expect(screen.queryByLabelText('秋季C')).toBeNull()
+    expect(screen.getByLabelText(/春季AB/)).toBeTruthy()
+    expect(screen.queryByLabelText(/秋季C/)).toBeNull()
 
     fireEvent.click(screen.getByLabelText('すべて表示'))
-    expect(screen.getByLabelText('秋季C')).toBeTruthy()
+    expect(screen.getByLabelText(/秋季C/)).toBeTruthy()
   })
 
   it('種別を切り替えると候補が種別ごとの採用状況で切り替わる', () => {
@@ -126,19 +126,19 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
         files: [{ rosterType: 'applicant', grades: null }],
       },
     ])
-    expect(screen.queryByLabelText('春季AB')).toBeNull()
+    expect(screen.queryByLabelText(/春季AB/)).toBeNull()
 
     fireEvent.click(screen.getByLabelText('確定名簿'))
-    expect(screen.getByLabelText('春季AB')).toBeTruthy()
+    expect(screen.getByLabelText(/春季AB/)).toBeTruthy()
   })
 
   it('種別を切り替えると前の選択は捨てられる', () => {
     openSheet()
-    fireEvent.click(screen.getByLabelText('春季AB'))
-    expect((screen.getByLabelText('春季AB') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByLabelText(/春季AB/))
+    expect((screen.getByLabelText(/春季AB/) as HTMLInputElement).checked).toBe(true)
 
     fireEvent.click(screen.getByLabelText('確定名簿'))
-    expect((screen.getByLabelText('春季AB') as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(/春季AB/) as HTMLInputElement).checked).toBe(false)
     expect(screen.getByText('採用する').closest('button')?.disabled).toBe(true)
   })
 
@@ -150,10 +150,31 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
   it('級別で級を1つも選んでいないと「採用する」は disabled', () => {
     openSheet()
     fireEvent.click(screen.getByLabelText('級別名簿'))
-    fireEvent.click(screen.getByLabelText('春季AB A級'))
-    fireEvent.click(screen.getByLabelText('春季AB A級'))
+    fireEvent.click(screen.getByLabelText(/春季AB A級/))
+    fireEvent.click(screen.getByLabelText(/春季AB A級/))
 
     expect(screen.getByText('採用する').closest('button')?.disabled).toBe(true)
+  })
+
+  it('同名グループは開催日で識別できる（統一・級別のどちらの候補行でも）', () => {
+    // 表示名は通称ベースで畳まれるので、別の entry_group が同名になりうる
+    // （同一大会の別年度など）。日付が無いと行が完全に同一に見え、選び間違えると
+    // 別グループへ採用され、添付の UNIQUE 制約で本来のグループへ採用できなくなる。
+    const sameName2031: RosterAdoptGroup = {
+      groupId: 101,
+      displayName: '春季AB',
+      days: [{ eventDate: '2031-05-01', entryStatus: 'applied', eligibleGrades: ['A'] }],
+      files: [],
+    }
+    openSheet([appliedGroup, sameName2031])
+
+    expect(screen.getByText('2030-05-01〜2030-05-02')).toBeTruthy()
+    expect(screen.getByText('2031-05-01')).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('級別名簿'))
+    // 級別でも「春季AB A級」が 2 行並ぶので、同じく日付で識別できる必要がある。
+    expect(screen.getAllByText(/春季AB A級/)).toHaveLength(2)
+    expect(screen.getByText('2031-05-01')).toBeTruthy()
   })
 
   it('候補が 0 件なら「候補がありません」を出す', () => {
@@ -164,7 +185,7 @@ describe('RosterFileAdoptSheet — 未採用（採用フォーム）', () => {
   it('採用に失敗するとエラーメッセージを表示し、シートは閉じない', async () => {
     adoptRosterFileMock.mockResolvedValue({ ok: false, error: 'この添付は既に採用されています' })
     openSheet()
-    fireEvent.click(screen.getByLabelText('春季AB'))
+    fireEvent.click(screen.getByLabelText(/春季AB/))
     fireEvent.click(screen.getByText('採用する'))
 
     await waitFor(() => {

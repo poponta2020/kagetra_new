@@ -42,6 +42,21 @@ const UNIT_LABEL: Record<AdoptUnit, string> = {
   grade: '級別名簿',
 }
 
+/**
+ * 候補行に添える開催日。**同名グループの取り違えを防ぐための識別子**であって
+ * 飾りではない — 表示名は通称ベースで畳まれるため、別の entry_group が同じ
+ * 表示名になりうる（同一大会の別年度など）。日付が無いと候補行が完全に同一に
+ * 見え、選び間違えると別グループへ採用され、添付の UNIQUE 制約により
+ * 解除するまで本来のグループへ採用できない。
+ */
+function formatGroupDays(group: RosterAdoptGroup | undefined): string {
+  if (!group || group.days.length === 0) return ''
+  const dates = group.days.map((d) => d.eventDate).sort()
+  const first = dates[0]!
+  const last = dates[dates.length - 1]!
+  return first === last ? first : `${first}〜${last}`
+}
+
 export interface RosterFileAdoptionInfo {
   id: number
   rosterType: 'applicant' | 'confirmed'
@@ -85,6 +100,7 @@ export function RosterFileAdoptSheet({
     () => listGradeCandidates(groups, rosterType, showAll),
     [groups, rosterType, showAll],
   )
+  const groupById = useMemo(() => new Map(groups.map((g) => [g.groupId, g])), [groups])
 
   // Sheet を開いた時に状態をリセット（ExistingEventLinkSheet と同じ規約）。
   useEffect(() => {
@@ -322,9 +338,14 @@ export function RosterFileAdoptSheet({
                             disabled={pending}
                             className="mt-1"
                           />
-                          <span className="flex-1 font-medium text-ink">
-                            {candidate.displayName}
-                          </span>
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium text-ink">
+                              {candidate.displayName}
+                            </span>
+                            <span className="text-xs text-ink-meta">
+                              {formatGroupDays(groupById.get(candidate.groupId))}
+                            </span>
+                          </div>
                         </label>
                       )
                     })
@@ -358,7 +379,12 @@ export function RosterFileAdoptSheet({
                           disabled={pending}
                           className="mt-1"
                         />
-                        <span className="flex-1 font-medium text-ink">{candidate.label}</span>
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium text-ink">{candidate.label}</span>
+                          <span className="text-xs text-ink-meta">
+                            {formatGroupDays(groupById.get(candidate.groupId))}
+                          </span>
+                        </div>
                       </label>
                     )
                   })
