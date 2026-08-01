@@ -21,7 +21,8 @@ import {
   tournamentSeriesEditions,
   tournaments,
 } from '@kagetra/shared/schema'
-import { isUniqueViolation } from '@/lib/db-errors'
+import { isForeignKeyViolation, isUniqueViolation } from '@/lib/db-errors'
+import type { Grade } from '@kagetra/shared/types'
 import { todayInJst } from '@/lib/jst-date'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
 import { materializeRoster, publishConfirmedRoster } from '@/lib/roster-import/materialize'
@@ -2634,16 +2635,54 @@ async function revalidateRosterFileGroupEvents(entryGroupId: number) {
   }
 }
 
+// 2026-08-01 改修: grades 正規化。A→E の固定順で「含まれる要素だけ」を並べる
+// ことで dedupe + 昇順ソートを同時に満たす（Set + sort を別々に書くより単純）。
+const GRADE_ORDER: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
+
 /**
- * 添付を対象イベント＋名簿種別を指定して「名簿ファイル」として採用する。
+ * 採用時の grades 引数（取込単位）を検証・正規化する。
+ *
+ * - `null` は「グループ統一」でそのまま通す。
+ * - 配列は「級別」。**空配列は明示的にエラー**にする — 「級別を選んだのに
+ *   級を1つも選ばなかった」という入力ミスを、黙って統一採用として保存すると
+ *   実際には級を絞ったつもりのファイルがグループ全級の名簿として扱われてしまう。
+ * - 全要素が A〜E であることを確認し、保存前に dedupe + A→E 昇順で正規化する
+ *   （schema コメント参照。ラベル生成・カバレッジ判定を単純にするため）。
+ */
+function normalizeAdoptionGrades(
+  grades: Grade[] | null,
+): { ok: true; value: Grade[] | null } | { ok: false; error: string } {
+  if (grades === null) return { ok: true, value: null }
+  if (grades.length === 0) {
+    return { ok: false, error: '級別採用には級を1つ以上選択してください' }
+  }
+  for (const g of grades) {
+    if (!GRADE_ORDER.includes(g)) {
+      return { ok: false, error: `不正な級です: ${g}` }
+    }
+  }
+  return { ok: true, value: GRADE_ORDER.filter((g) => grades.includes(g)) }
+}
+
+/**
+ * 添付を対象申込グループ（entry_group）＋名簿種別を指定して「名簿ファイル」
+ * として採用する。
  *
  * 要件 (roster-file-adoption AC-1/AC-2): 採用できるのは admin/vice_admin のみ。
  * 採用元は mail_attachments のみ。
  *
- * 対象イベントの候補条件 (cancelled 除外・開催日が過去30日以降) は既存の
- * linkMailToEvent と同じ `validateLinkableEvent` をここでも再検証する
- * (画面表示後の状態変化・Server Action 直叩き対策と同じ理由)。edition 紐付け・
- * 級別設定・抽選事実は一切要求しない — entry_group さえあれば採用できる。
+ * 2026-08-01 改修: 対象は eventId でなくグループ（entryGroupId）の直指定に
+ * 変わった。基本条件（個人戦・cancelled 除外・開催日が過去30日以降）は
+ * グループ内の event 行を1クエリで引き、**同一行に対して3条件を AND で**
+ * 判定する（別々の EXISTS に分けると「団体戦だけが cutoff 内で個人戦は
+ * 30日より古い」グループが通ってしまう穴になる — 要件 §3.2.1）。
+ * `grades` が非 null（級別）なら、指定級がグループの級集合（個人戦・非
+ * cancelled の日の eligible_grades の和集合。cutoff は掛けない）に含まれる
+ * ことも検証する (AC-19)。edition 紐付け・抽選事実は一切要求しない。
+ *
+ * AC-17: ここで強制するのは上記の基本条件のみ。候補フィルタ（申込済み・
+ * 未取込）は UI 側の既定絞り込みで、「すべて表示」トグル経由の採用が
+ * 正規の逃げ道のためサーバーでは強制しない。
  *
  * AC-11: 同一添付の二重採用は不可。tx 内の事前 SELECT に加え、DB の
  * UNIQUE(source_attachment_id) 違反 (低確率だが同時クリックで起こりうる) も
@@ -2651,8 +2690,9 @@ async function revalidateRosterFileGroupEvents(entryGroupId: number) {
  */
 export async function adoptRosterFile(
   attachmentId: number,
-  eventId: number,
+  entryGroupId: number,
   rosterType: RosterFileType,
+  grades: Grade[] | null,
   publishedAt?: string | null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await requireAdminSession()
@@ -2660,12 +2700,15 @@ export async function adoptRosterFile(
   if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
     return { ok: false, error: '添付ファイルIDが不正です' }
   }
-  if (!Number.isInteger(eventId) || eventId <= 0) {
-    return { ok: false, error: 'イベントIDが不正です' }
+  if (!Number.isInteger(entryGroupId) || entryGroupId <= 0) {
+    return { ok: false, error: '申込グループIDが不正です' }
   }
   if (rosterType !== 'applicant' && rosterType !== 'confirmed') {
     return { ok: false, error: '名簿種別が不正です' }
   }
+  const gradesResult = normalizeAdoptionGrades(grades)
+  if (!gradesResult.ok) return { ok: false, error: gradesResult.error }
+  const normalizedGrades = gradesResult.value
   let normalizedPublishedAt: string | null = null
   if (publishedAt != null && publishedAt.trim() !== '') {
     const parsed = publishedAtStrSchema.safeParse(publishedAt.trim())
@@ -2678,32 +2721,51 @@ export async function adoptRosterFile(
 
   try {
     await db.transaction(async (tx) => {
-      // linkMailToEvent と同じ候補条件の再検証 (Codex r5 パターン踏襲)。
+      // 対象グループに属する全 event 行を1クエリで引く（基本条件・級集合の
+      // 判定に使う。グループ自体の実在確認も兼ねる — entry_groups は events
+      // から常に参照されるので、0件なら未知のグループ）。
       const eventRows = await tx
         .select({
           id: events.id,
           status: events.status,
           eventDate: events.eventDate,
           kind: events.kind,
-          entryGroupId: events.entryGroupId,
+          eligibleGrades: events.eligibleGrades,
         })
         .from(events)
-        .where(eq(events.id, eventId))
-        .limit(1)
-      if (eventRows.length === 0) throw new Error('イベントが見つかりません')
-      const eventRow = eventRows[0]!
-      const eventInvalid = validateLinkableEvent(
-        { status: eventRow.status, eventDate: eventRow.eventDate },
-        linkableEventCutoffStr(),
+        .where(eq(events.entryGroupId, entryGroupId))
+      if (eventRows.length === 0) throw new Error('申込グループが見つかりません')
+
+      // 基本条件: 個人戦・非cancelled・開催日が cutoff 以降を満たす日が
+      // 1つ以上あること。★3条件は同一行に対して AND で評価する（別々の
+      // EXISTS に分けない — 上のコメント参照）。
+      const cutoff = linkableEventCutoffStr()
+      const hasEligibleDay = eventRows.some(
+        (row) =>
+          row.kind === 'individual' &&
+          row.status !== 'cancelled' &&
+          row.eventDate >= cutoff,
       )
-      if (eventInvalid) throw new Error(eventInvalid)
-      // Codex r1 blocker: 名簿は個人戦のみの仕様（RosterSection は団体戦で常に
-      // 非表示・申込管理ボードの母集団も kind='individual'）。団体戦を通すと
-      // 「採用は成功したのにどこにも表示されずフェーズも動かない」行き止まりに
-      // なるので、候補クエリ（loadRosterAdoptableEvents）と同じ条件をここでも
-      // 再検証する（UI 表示後の変化・Server Action の直接叩き対策）。
-      if (eventRow.kind !== 'individual') {
-        throw new Error('名簿ファイルを採用できるのは個人戦の大会だけです')
+      if (!hasEligibleDay) {
+        throw new Error(
+          'このグループには名簿を採用できる個人戦の開催日がありません（個人戦・キャンセル除外・開催日が過去30日以降）',
+        )
+      }
+
+      // AC-19: 級別時は指定級がグループの級集合に含まれること。級集合は
+      // 個人戦・非cancelled の日の eligible_grades の和集合 — cutoff は
+      // 掛けない（要件 §3.2.1 の文言どおり基本条件とは独立）。全日
+      // eligible_grades が NULL なら級集合は空になり、級別採用は自然に弾かれる。
+      if (normalizedGrades !== null) {
+        const groupGrades = new Set<Grade>()
+        for (const row of eventRows) {
+          if (row.kind !== 'individual' || row.status === 'cancelled') continue
+          for (const g of row.eligibleGrades ?? []) groupGrades.add(g)
+        }
+        const outOfGroup = normalizedGrades.filter((g) => !groupGrades.has(g))
+        if (outOfGroup.length > 0) {
+          throw new Error('指定した級はこのグループの対象級に含まれません')
+        }
       }
 
       const attachmentRows = await tx
@@ -2742,20 +2804,31 @@ export async function adoptRosterFile(
       }
 
       await tx.insert(tournamentEntryRosterFiles).values({
-        entryGroupId: eventRow.entryGroupId,
+        entryGroupId,
         rosterType,
+        grades: normalizedGrades,
         sourceAttachmentId: attachmentId,
         sourceMailMessageId: attachmentRow.mailMessageId,
         publishedAt: resolvedPublishedAt,
         adoptedByUserId: session.user.id,
       })
 
-      committedEntryGroupId = eventRow.entryGroupId
+      committedEntryGroupId = entryGroupId
       committedMailId = attachmentRow.mailMessageId
     })
   } catch (err) {
     if (isUniqueViolation(err)) {
       return { ok: false, error: 'この添付は既に採用されています' }
+    }
+    if (isForeignKeyViolation(err)) {
+      // entryGroupId が eventId 経由でなく直指定になったため、並行する
+      // deleteGroupIfEmpty（空グループ削除）と競合すると、上の SELECT の後で
+      // グループが削除されて INSERT の RESTRICT FK チェックが生の Postgres
+      // エラーで返ってくることがある。
+      return {
+        ok: false,
+        error: '対象の申込グループが削除されたため採用できませんでした',
+      }
     }
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message }

@@ -22,6 +22,27 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * PostgreSQL foreign_key_violation (SQLSTATE 23503) detector.
+ *
+ * Same cause-unwrapping shape as isUniqueViolation (Drizzle may surface the
+ * pg DatabaseError directly or wrapped in a DrizzleQueryError).
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const code = (err as { code?: unknown }).code
+  if (code === '23503') return true
+  const cause = (err as { cause?: unknown }).cause
+  if (
+    typeof cause === 'object' &&
+    cause !== null &&
+    (cause as { code?: unknown }).code === '23503'
+  ) {
+    return true
+  }
+  return false
+}
+
+/**
  * Name of the violated constraint for a unique_violation, or null.
  *
  * Lets a caller branch on WHICH unique constraint fired when a table has more

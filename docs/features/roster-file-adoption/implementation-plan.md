@@ -108,7 +108,7 @@ grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換で�
 - **完了条件:** テスト green・`check-types`・lint 通過
 
 ### タスク3: adoptRosterFile シグネチャ変更＋検証強化 — Issue #436
-- [ ] 完了
+- [x] 完了
 - **目的:** entryGroupId + grades 指定の採用に対応し、基本条件検証をグループ単位に置き換える
 - **対応AC:** AC-1, AC-2, AC-11, AC-17（フィルタ非強制）, AC-19（級⊆G(g) 検証）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（adoptRosterFile。
