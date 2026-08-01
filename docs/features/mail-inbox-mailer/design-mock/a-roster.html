@@ -1,0 +1,122 @@
+<!-- @dsCard group="メール処理（A案: 縦フロー ①確定名簿）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_form.css">
+</head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div class="crumb">← メール受信箱</div>
+
+  <div class="card">
+    <div class="mhead">
+      <span class="mdate">2026/08/01 09:12</span>
+      <span class="mpills">
+        <span class="pill brand">確定名簿</span>
+        <span class="pill warn">未処理</span>
+      </span>
+    </div>
+    <div class="msubj">第46回北海道かるた大会 確定名簿の送付について</div>
+    <div class="mfrom">北海道かるた協会 &lt;taikai@example.jp&gt;</div>
+    <div class="matt">
+      <a href="#">確定名簿_A級.xlsx</a>
+      <a href="#">確定名簿_BC級.xlsx</a>
+      <a href="#">会場案内図.pdf</a>
+    </div>
+    <div class="mbody">各位
+
+平素より大変お世話になっております。
+第46回北海道かるた大会の確定名簿を送付いたします。
+当日の受付は8時30分より開始いたします。</div>
+  </div>
+
+  <div class="card">
+    <div class="h2">処理</div>
+
+    <div class="sect"><span class="t">種別</span><span class="rule"></span></div>
+    <div class="seg">
+      <button>未選択</button>
+      <button>大会案内</button>
+      <button>申込名簿</button>
+      <button class="on">確定名簿</button>
+    </div>
+
+    <div class="sect"><span class="t">対象の大会</span><span class="rule"></span></div>
+    <div class="picked">
+      <span class="pname">札幌AB
+        <span class="pdate">2026-09-13〜2026-09-14 ・ 申込済み</span>
+      </span>
+      <a href="#" class="chg">変更</a>
+    </div>
+
+    <div class="sect"><span class="t">採用する名簿ファイル</span><span class="rule"></span></div>
+    <div class="files">
+      <div class="frow on">
+        <div class="ftop">
+          <span class="box on"></span>
+          <span class="fname">確定名簿_A級.xlsx</span>
+          <span class="fsize">42 KB</span>
+        </div>
+        <div class="grades">
+          <span class="glabel">級</span>
+          <button class="g on">A</button><button class="g">B</button><button class="g">C</button><button class="g">D</button><button class="g">E</button>
+        </div>
+      </div>
+      <div class="frow on">
+        <div class="ftop">
+          <span class="box on"></span>
+          <span class="fname">確定名簿_BC級.xlsx</span>
+          <span class="fsize">58 KB</span>
+        </div>
+        <div class="grades">
+          <span class="glabel">級</span>
+          <button class="g">A</button><button class="g on">B</button><button class="g on">C</button><button class="g">D</button><button class="g">E</button>
+        </div>
+      </div>
+      <div class="frow dim">
+        <div class="ftop">
+          <span class="box"></span>
+          <span class="fname">会場案内図.pdf</span>
+          <span class="fsize">1.2 MB</span>
+        </div>
+      </div>
+    </div>
+    <div class="hint">級を選ばなければ、そのファイルはグループ全体の名簿として採用します。</div>
+
+    <div class="sect"><span class="t">発表日</span><span class="rule"></span></div>
+    <div class="field"><input class="inp ph" value="未入力ならメール受信日（2026-08-01）"></div>
+
+    <div class="sect"><span class="t">LINE 配信</span><span class="rule"></span></div>
+    <label class="check">
+      <span class="box on"></span>
+      <span class="ctext">LINE で配信する
+        <span class="csub">配信先: 札幌AB のグループ</span>
+      </span>
+    </label>
+    <div class="nest">
+      <label class="check">
+        <span class="box on"></span>
+        <span class="ctext">メール本文を添付する
+          <span class="csub">本文を画像にして送ります</span>
+        </span>
+      </label>
+      <div class="field">
+        <div class="chips">
+          <button class="chip">確定名簿が出ました！</button>
+          <button class="chip">抽選結果が出ました！</button>
+          <button class="chip">組合せ表です</button>
+        </div>
+        <textarea class="inp" rows="2" style="margin-top:6px">確定名簿が出ました！</textarea>
+      </div>
+    </div>
+
+    <button class="cta">実行する</button>
+  </div>
+
+  <button class="cta ghost" style="margin-top:0">対応不要</button>
+
+</div></div></div>
+
+</body></html>

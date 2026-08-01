@@ -1,0 +1,63 @@
+<!-- @dsCard group="メール処理（A案: 縦フロー ⓪開いた直後・種別未選択）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_form.css">
+</head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div class="crumb">← メール受信箱</div>
+
+  <div class="card">
+    <div class="mhead">
+      <span class="mdate">2026/08/01 09:12</span>
+      <span class="mpills"><span class="pill warn">未処理</span></span>
+    </div>
+    <div class="msubj">第46回北海道かるた大会 確定名簿の送付について</div>
+    <div class="mfrom">北海道かるた協会 &lt;taikai@example.jp&gt;</div>
+    <div class="matt">
+      <a href="#">確定名簿_A級.xlsx</a>
+      <a href="#">確定名簿_BC級.xlsx</a>
+      <a href="#">会場案内図.pdf</a>
+    </div>
+    <div class="mbody">各位
+
+平素より大変お世話になっております。
+第46回北海道かるた大会の確定名簿を送付いたします。
+当日の受付は8時30分より開始いたします。</div>
+  </div>
+
+  <div class="card">
+    <div class="h2">処理</div>
+
+    <div class="sect"><span class="t">種別</span><span class="rule"></span></div>
+    <div class="seg">
+      <button class="on">未選択</button>
+      <button>大会案内</button>
+      <button>申込名簿</button>
+      <button>確定名簿</button>
+    </div>
+    <div class="hint">件名から種別を選ぶと、必要な入力だけが下に出ます。組合せ表・会場案内・領収書などは「未選択」のまま大会に紐付けられます。</div>
+
+    <div class="sect"><span class="t">対象の大会</span><span class="rule"></span></div>
+    <button class="pickbtn">大会を選ぶ</button>
+
+    <button class="cta" disabled>実行する</button>
+  </div>
+
+  <button class="cta ghost" style="margin-top:0">対応不要</button>
+
+  <!-- 種別=未選択 のときだけ出る。senseki-boundary で丸ごと削除できるよう1ブロックに閉じる -->
+  <div>
+    <div class="h2" style="margin-bottom:8px">試合結果の取込</div>
+    <div class="card">
+      <div class="hint" style="margin-top:0">Excel から試合結果を取り込みます。取込後にレビュー・承認画面で内容を確認してから確定できます。</div>
+      <button class="cta ghost">結果として取り込む</button>
+    </div>
+  </div>
+
+</div></div></div>
+
+</body></html>

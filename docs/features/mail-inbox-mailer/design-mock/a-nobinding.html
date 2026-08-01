@@ -1,0 +1,82 @@
+<!-- @dsCard group="メール処理（A案: 縦フロー ④LINEグループ未紐付け）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_form.css">
+</head><body>
+
+<div class="phone"><div class="main"><div class="page">
+
+  <div class="crumb">← メール受信箱</div>
+
+  <div class="card">
+    <div class="mhead">
+      <span class="mdate">2026/08/03 11:26</span>
+      <span class="mpills">
+        <span class="pill brand">申込名簿</span>
+        <span class="pill warn">未処理</span>
+      </span>
+    </div>
+    <div class="msubj">第8回道南かるた大会 申込者名簿</div>
+    <div class="mfrom">道南かるた会 &lt;dounan@example.jp&gt;</div>
+    <div class="matt"><a href="#">申込者一覧.pdf</a></div>
+    <div class="mbody">お世話になっております。
+第8回道南かるた大会の申込者名簿をお送りします。
+抽選結果は別途ご連絡いたします。</div>
+  </div>
+
+  <div class="card">
+    <div class="h2">処理</div>
+
+    <div class="sect"><span class="t">種別</span><span class="rule"></span></div>
+    <div class="seg">
+      <button>未選択</button>
+      <button>大会案内</button>
+      <button class="on">申込名簿</button>
+      <button>確定名簿</button>
+    </div>
+
+    <div class="sect"><span class="t">対象の大会</span><span class="rule"></span></div>
+    <div class="picked">
+      <span class="pname">道南CDE
+        <span class="pdate">2026-10-04 ・ 申込済み</span>
+      </span>
+      <a href="#" class="chg">変更</a>
+    </div>
+
+    <div class="sect"><span class="t">採用する名簿ファイル</span><span class="rule"></span></div>
+    <div class="files">
+      <div class="frow on">
+        <div class="ftop">
+          <span class="box on"></span>
+          <span class="fname">申込者一覧.pdf</span>
+          <span class="fsize">340 KB</span>
+        </div>
+        <div class="grades">
+          <span class="glabel">級</span>
+          <button class="g">A</button><button class="g">B</button><button class="g on">C</button><button class="g on">D</button><button class="g on">E</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sect"><span class="t">発表日</span><span class="rule"></span></div>
+    <div class="field"><input class="inp ph" value="未入力ならメール受信日（2026-08-03）"></div>
+
+    <div class="sect"><span class="t">LINE 配信</span><span class="rule"></span></div>
+    <label class="check disabled">
+      <span class="box off-disabled"></span>
+      <span class="ctext">LINE で配信する</span>
+    </label>
+    <div class="warnbar">
+      道南CDE には LINE グループがまだ紐付いていません。<a href="#">大会詳細</a>から Bot を招待すると配信できるようになります。
+    </div>
+
+    <button class="cta">実行する</button>
+  </div>
+
+  <button class="cta ghost" style="margin-top:0">対応不要</button>
+
+</div></div></div>
+
+</body></html>

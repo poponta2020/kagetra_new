@@ -17,7 +17,7 @@
 - `invite-link-registration` — 招待リンクによる会員セルフ登録→LINEログイン完結（主要領域: apps/web, packages/shared）
 - `invite-register-redesign` — 招待URL会員登録のリデザインとプロフィール項目拡張（主要領域: apps/web, packages/shared）
 - `mail-body-as-image` — メール本文をA4 JPEG画像化して安全に表示（主要領域: apps/web, apps/mail-worker）
-- `mail-inbox-mailer` — 受信箱のメーラーモデル化（機能定義のみ・実装未着手）（主要領域: apps/web）
+- `mail-inbox-mailer` — 受信箱のメーラーモデル化（出荷済み）＋2026-08-02 改修: メール詳細の処理導線を「種別→対象の大会→実行」の統合フォームへ集約（LINE配信可否・本文添付可否・名簿の複数一括採用）（主要領域: packages/shared schema + apps/web admin/mail-inbox・lib/line-broadcast）
 - `mail-tournament-import` — 大会案内メールのIMAP取込→Claude API振り分け→管理者承認（主要領域: apps/mail-worker, apps/web）
 - `mail-triage-badge` — メール振り分けの承認待ち件数をPWA/アプリ内バッジ表示（主要領域: apps/web）
 - `player-display-name-mode` — 選手表示名を出場記録の最頻表記へ自動再計算（主要領域: apps/web, packages/shared）

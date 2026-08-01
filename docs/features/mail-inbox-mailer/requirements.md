@@ -1,348 +1,344 @@
 ---
 status: completed
+design_required: true
 ---
 # mail-inbox-mailer 要件定義書
+
+> 本書は「メール受信箱＝メーラー」モデルの**生きた仕様**。2026-08-02 の改修
+> （メール詳細の処理導線を「種別 → 対象 → 実行」の 1 フォームへ統合）を反映済み。
+> 画面の見た目は `design-spec.md` が正典（本書は画面インベントリと遷移・ロジックのみ）。
+> 名簿ファイル採用そのもののルールは `docs/features/roster-file-adoption/requirements.md`
+> が正典で、本改修は**入口をメール詳細の統合フォームへ移す**だけ（採用ルールは不変）。
+
+## 変更履歴
+
+- 2026-08-02: メール詳細の処理導線を統合フォーム化（理由: LINE 配信で大会を選び、
+  名簿採用でもう一度大会を選ぶ二度手間が常態化していた。配信の紐付けは申込グループ単位、
+  名簿採用も申込グループ単位なのに、メールの紐付けだけがイベント単位で別セクションに
+  分かれていたのが根本原因）。あわせて AI 抽出の露出を「大会案内」選択時に限定し、
+  LINE 配信の可否・本文添付の可否を管理者が選べるようにした。
+- 2026-XX-XX（初版）: 自動 AI 分類モデルから「全件 inbox に並ぶメーラー」モデルへ転換。
 
 ## 1. 概要
 
 ### 目的
-現在の mail-inbox 画面を「AI が事前に大会案内を見つけて自動でドラフトを作っておく」モデルから、「**届いたメールは全部 inbox に並ぶ＝アプリがメーラー**」モデルに作り替える。AI 抽出は管理者が「これは会に流す」と明確に意思決定したメールに対してのみ起動する。
+届いたメールは全部 inbox に並ぶ＝アプリがメーラー。AI 抽出は管理者が「これは会に流す
+大会案内だ」と明確に意思決定したメールに対してのみ起動する。
+
+2026-08-02 改修ではさらに、**メール 1 通に対する処理を「種別を選ぶ → 対象の大会を選ぶ →
+実行」の 1 フォームに畳む**。件名を見れば人間には一瞬で分かる「大会案内か・申込名簿か・
+確定名簿か」を先に手で選ばせ、その選択で後続の入力欄（AI 抽出 / 名簿採用 / LINE 配信）を
+出し分ける。
 
 ### 背景・動機
-- 現状の AI 自動分類はメールの抜け漏れリスクがある（pre-filter のメルマガ誤判定、AI noise 判定の取りこぼし）
-- 管理者は「結局メールを全部見てから判断したい」状態。事前 AI が判断を奪っているのが逆にストレス
-- AI は「面倒な抽出作業の自動化道具」であるべきで、「振り分け判断者」ではない
-- コスト面でも、全メールを毎回 AI 通すより、管理者が指定したメールだけ抽出する方が圧倒的に安い
+- （初版）AI 自動分類はメールの抜け漏れリスクがある。AI は「振り分け判断者」ではなく
+  「面倒な抽出作業の自動化道具」であるべき
+- （2026-08-02）LINE 配信するときに大会を選び、名簿を紐づけるときにも大会を選ぶ、という
+  二度手間が定着していた。同じメール・同じ大会なのに導線が 2 本ある
+- （2026-08-02）AI 抽出ボタンが常時出ているため、名簿メール・領収書メールでも押せてしまう。
+  コストと誤操作の両面で無駄
+- （2026-08-02）既存イベント紐付けは**必ず** LINE 配信する仕様で、「記録だけ残したい」
+  領収書・事務連絡の逃げ道が無かった。逆に名簿メールは配信手段が無かった
 
 ## 2. ユーザーストーリー
 
 ### 対象ユーザー
-- 会の管理者（poponta2020 さん）。副管理者も含む
+会の管理者（poponta2020 さん）・副管理者
 
 ### ユーザーの目的
 - 受信したメールを取りこぼさず全件確認したい
-- 「これは会に流す大会案内だ」と判断したメールに対してだけ AI 抽出を起動して、楽に下書きを作りたい
-- 「組合せ表」「会場案内」のような既存大会への補足情報も、結びつけて LINE で流したい
-- 「会計の領収書」「個人連絡」のような会向け配信不要なメールは、未処理バッジから消すだけにしたい
+- メールの性格（大会案内 / 申込名簿 / 確定名簿 / それ以外）を自分で決めたい
+- **対象の大会は 1 回だけ選びたい**。その 1 回で LINE 配信先も名簿の採用先も決まってほしい
+- AI 抽出は「大会案内だ」と決めたときにだけ使いたい
+- LINE に流すか流さないか、流すならメール本文まで流すかを都度選びたい
+- 名簿が級別に分かれて複数ファイル届いても 1 回の操作で全部採用したい
 
 ### 利用シナリオ
 1. 30 分ごとの IMAP fetch でメールが届く → Web Push でバッジ通知
-2. 管理者がアプリを開く → mail-inbox にメールが時系列で並んでいる（メーラー風）
-3. メールを開く → 内容を読む（本文はトグル不要で即座に表示）
-4. 3 つのうちひとつを選ぶ：
-   - **(a) AI 大会抽出**: 「会で流す」と決めたメール → AI 抽出をバックグラウンド起動 → 完了したら Web Push で通知 → draft フォームで確認 → 承認 → LINE 配信
-   - **(b) 既存イベント結びつけ**: 「組合せ表」「訂正版」などの補足情報 → 既存の大会を選んで紐付け → LINE で補足として配信
-   - **(c) 対応不要**: 「領収書」「個人連絡」など → 未処理バッジから外すだけ
-5. 「保留」は廃止（処理しないこと自体が保留を意味する）
-6. 処理を間違えたら処理済セクションで「未処理に戻す」ボタンで undo
+2. 管理者が mail-inbox を開く → メールが時系列で並ぶ（メーラー風）
+3. メールを開く → 本文を読む（即時表示）
+4. 処理フォームで **種別**を選ぶ
+   - **大会案内** → AI 抽出を起動（バックグラウンド）→ 完了通知 → draft フォームで確認 → 承認
+   - **申込名簿 / 確定名簿** → 対象の大会（申込グループ）を選び、採用する添付にチェックを入れて
+     級を指定 → 必要なら LINE 配信も一緒に指定 → 実行
+   - **未選択**（組合せ表・会場案内・要項の訂正版・領収書など） → 対象の大会を選び、
+     LINE 配信するかを選ぶ → 実行
+   - どれでもない（メルマガ・個人連絡） → 「対応不要」ボタン
+5. 処理を間違えたら処理済セクションで「未処理に戻す」で undo
 
 ## 3. 機能要件
 
-### 3.1 画面仕様
+### 3.1 画面と遷移
 
-#### 3.1.1 mail-inbox 一覧画面（/admin/mail-inbox）
-- 現状の一覧レイアウトを維持
-- 並び順: 未処理セクションを上に集めて受信時間降順、処理済セクションはトグルで隠して最新 20 件を表示
-- カードレイアウト: 差出人、件名、本文プレビュー、受信日、添付バッジ（現状維持）
-- pre-filter で noise フラグ付きのメールも一覧に表示（現状の「noise 非表示」フィルタを外す）
-- 未処理カウントヘッダ + Web Push でリアルタイム更新（既存仕組み）
+#### 3.1.1 画面インベントリ
 
-#### 3.1.2 mail 詳細画面（/admin/mail-inbox/[id]）
-- 本文を即座に表示（現状のトグルボタンを廃止）
-- 上部: 件名 / 送信者 / 受信日 / 添付一覧
-- 中部: 本文（HTML or text）
-- 下部: アクションエリア（3 ボタン）
-  - **会で流す（AI 抽出）** — 確認ダイアログ「AI で抽出します、よろしいですか？」→ 「はい」で draft INSERT (status=ai_processing) → 「AI 抽出中…」のカード表示
-  - **既存イベントに紐付ける** — モーダル/シート起動 → 紐付け確定 → LINE 配信
-  - **対応不要** — triage_status='processed' → 一覧画面に自動戻り
+| 画面 | パス | 今回の改修 |
+|---|---|---|
+| メール一覧 | `/admin/mail-inbox` | 種別ピルの差し替えのみ |
+| **メール詳細** | `/admin/mail-inbox/mail/[id]` | **本改修の主戦場**（処理エリアを統合フォーム化） |
+| AI ドラフト確認 | `/admin/mail-inbox/[draftId]` | 変更なし |
+| 結果ドラフト確認 | `/admin/mail-inbox/result-drafts/[id]` | 変更なし |
+| 大会詳細 | `/events/[id]` | 変更なし（関連メール・名簿セクションは現行維持） |
 
-#### 3.1.3 AI 抽出処理中の表示
-- 同じ詳細画面に「AI 抽出中… 完了したら通知します」のカード表示（spinner 付き）
-- client side polling（3 秒間隔）で draft.status の変化を監視
-- 完了 (pending_review or ai_failed) でリアルタイム更新 → draft フォームまたは失敗カードに切り替え
-- バックグラウンド完了時に Web Push 通知も配信
+#### 3.1.2 メール一覧（`/admin/mail-inbox`）
+- レイアウト・並び順・未処理カウントは現行維持
+- **区分ピルを AI 由来の `classification`（大会案内 / ノイズ / 不明）から手動種別へ差し替える**。
+  種別が未選択のメールには種別ピルを出さない（`classification` 列自体は pre-filter・
+  AI 用途で残す＝表示から外すだけ）
 
-#### 3.1.4 AI 抽出完了後の draft フォーム
-- 現状の `/admin/mail-inbox/[id]` と同じレイアウト・フィールド
-- 抽出結果の編集 + 承認 / 却下
-- 承認 → events INSERT → LINE 配信（broadcastMailToEvent）
-- N 件分割（tournament-title-grade-split）ロジックそのまま流用
+#### 3.1.3 メール詳細（`/admin/mail-inbox/mail/[id]`）
+上部（件名 / 送信者 / 受信日 / 添付一覧 / 本文即時表示）は現行維持。種別ピルは一覧と同じ規約。
 
-#### 3.1.5 AI 抽出失敗時
-- draft.status='ai_failed' で表示
-- 「再試行」「手動でイベント作成」の 2 ボタン
-- **再試行**: 再度 manual_extract ジョブを enqueue
-- **手動でイベント作成**: 空の EventForm を mail 詳細画面に展開 → 入力 → events INSERT
-  - 完了時に draft.status='approved' で締めて mail.status='archived' + triage_status='processed'
+処理エリアは **triage 状態と AI ドラフトの有無**で 3 つに分岐する（現行の分岐構造を踏襲）。
 
-#### 3.1.6 既存イベント結びつけ UI
-- モーダル or ボトムシート
-- デフォルト表示: 未開催全て + 過去 30 日以内の events を受信日降順でリスト
-- 検索ボックスで大会名フィルタ
-- 選択 → 「結びつける」ボタン → 紐付け確定
-- 確定後: linked_event_id 更新、broadcastMailToEvent を起動、triage_status='processed' に倒す
-- 「訂正版」「補足情報」を区別せず、同じフローで処理
+**(A) 未処理 かつ AI ドラフトなし → 統合処理フォーム**
 
-#### 3.1.7 events 詳細画面の「関連メール」セクション
-- events 詳細ページ（/events/[id]）に新セクション「関連メール」を追加
-- 紐付いた mail を受信日降順で一覧表示
-- タイトル: 件名 / 送信者 / 受信日
-- クリック → mail 詳細画面に遷移
-- 3 経路を UNION で拾う：
-  - (A) `linked_event_id = :eventId`（既存イベント結びつけ経由）
-  - (B) `tournament_drafts.event_id = :eventId`（訂正版 draft → 既存イベント、linkDraftToEvent 経由）
-  - (C) `events.tournament_draft_id` 経由（AI 抽出 → 承認で生まれた event）
+1 つのフォームで、上から順に:
 
-#### 3.1.8 undo 機能（処理済→未処理に戻す）
-- 処理済セクションでメール詳細を開く
-- 「未処理に戻す」ボタンを表示
-- 押下で triage_status='unprocessed' に戻す
-- AI 抽出済み draft は残す（再度開けば編集可）
-- 既存イベント結びつけは linked_event_id を NULL にする（LINE 配信済みメッセージは取り消せないので「紐付けだけ外す」）
+| 入力 | 表示条件 | 内容 |
+|---|---|---|
+| 種別 | 常時 | 未選択（既定） / 大会案内 / 申込名簿 / 確定名簿 |
+| 対象の大会 | 種別 ≠ 大会案内 | 申込グループを 1 つ選ぶ |
+| 採用する添付 | 種別 = 申込名簿 / 確定名簿 | 添付を複数選択。選んだ添付ごとに対象の級を指定 |
+| 発表日 | 種別 = 申込名簿 / 確定名簿 | 任意。未入力ならメール受信日（現行維持） |
+| LINE 配信する | 種別 ≠ 大会案内 かつ 大会選択済み | チェックボックス |
+| メール本文を添付する | LINE 配信する = ON | チェックボックス。**既定 ON** |
+| 冒頭メッセージ | LINE 配信する = ON | 任意テキスト＋プリセットチップ（現行維持） |
+| 実行 | 種別 ≠ 大会案内 | 主ボタン |
+| AI 抽出 | 種別 = 大会案内 | 添付選択ダイアログ付きの主ボタン（現行の「会で流す」） |
+
+同フォームとは別に、常時表示のボタン・セクション:
+
+- **「対応不要」ボタン** — 種別を保存せず `triage_status='processed'` にして一覧へ戻る（現行維持）
+- **「試合結果の取込」セクション** — **種別 = 未選択 のときだけ**表示（かつ Excel 添付があるとき）。
+  中身は現行のまま
+
+**(B) AI ドラフトあり** — 現行どおり draft の状態で切替（抽出中カード / 失敗カード＋再試行 /
+承認導線リンク）。処理フォームは出さない
+
+**(C) 処理済み** — 現行どおり「処理済み」カード＋「未処理に戻す」
+
+#### 3.1.4 遷移
+- 実行成功 → 一覧へ戻る（現行の `linkMailToEvent` と同じ）
+- AI 抽出起動 → 同じ画面に留まり「AI 抽出中…」カードへ切替（現行維持）
+- 対応不要 → 一覧へ戻る（現行維持）
+- 未処理に戻す → 同じ画面が処理フォームに戻る
 
 ### 3.2 ビジネスルール
 
-#### 3.2.1 triage_status の遷移
-- `unprocessed`（デフォルト）↔ `processed`
-- 「保留 (deferred)」状態は廃止
-- 既存の deferred 状態のメールは migration で unprocessed に移行
+#### 3.2.1 種別
+- 値は「未選択 / 大会案内 / 申込名簿 / 確定名簿」の 4 状態。未選択が既定
+- **AI 由来の `classification` とは別の軸**。AI・pre-filter は種別を書き換えない
+- 種別の保存は**「実行」または「AI 抽出」の実行時のみ**。ラジオを触っただけでは保存しない
+  （フォームを閉じれば選択は消える）
+- 「対応不要」は種別を保存しない（未選択のまま処理済みになる）
+- 種別を選んだだけでは `triage_status` は動かない
 
-#### 3.2.2 処理アクションと triage_status の関係
-- AI 抽出ボタン押下時点では `unprocessed` のまま（draft 作成 + status=ai_processing）
-- draft 承認 / 却下 / 対応不要 / 既存イベント結びつけのいずれかで `processed` に倒す
-- undo で `unprocessed` に戻せる
+#### 3.2.2 対象の大会 = 申込グループ
+- 選択単位は**申込グループ**（複数日開催でも候補は 1 行）。LINE 紐付けも名簿採用も元々
+  申込グループ単位なので、1 回の選択が両方に効く
+- **1 メールに紐づく申込グループは高々 1 つ**（サーバー側でも検証する）
+- 候補の母集団は現行の 2 つを種別で使い分ける:
+  - 種別 = 未選択 → 「開催日が今日から過去 30 日以降 ∧ 非 cancelled」（団体戦も含む。
+    現行の `loadLinkableEvents` 相当をグループ単位にしたもの）
+  - 種別 = 申込名簿 / 確定名簿 → 上記に加えて**個人戦のみ**（名簿は個人戦のみの仕様。
+    現行 `loadRosterAdoptableGroups` の基本条件）
+- 名簿種別の候補は既定で「申込済み × その種別が未取込」に絞り、「すべて表示」トグルで
+  基本条件のみの全候補に広げられる（現行維持）
+- 候補行には識別のため開催日（範囲）を添える（同名グループの取り違え防止。現行維持）
 
-#### 3.2.3 pre-filter（メルマガ自動判定）
-- コード保持。`classification='noise'` 付与は維持
-- inbox UI のフィルタは外す（全件表示）
-- 将来「ノイズタブ」を追加できる余地を残す
+#### 3.2.3 AI 抽出
+- **種別 = 大会案内 のときだけ**導線を出す
+- 起動時に種別を保存し、ドラフトを作る（`status='ai_processing'`）。`triage_status` は
+  `unprocessed` のまま（現行維持。承認 / 却下で processed に倒れる）
+- AI ドラフトが未完了（`ai_processing` / `pending_review` / `ai_failed`）のあいだは
+  処理フォーム自体を出さない＝**種別を変更できない**。変更したい場合は先にドラフトを
+  却下 / 完了させる
+- 添付選択ダイアログ・サイズ上限・再試行時の選択復元は現行維持
 
-#### 3.2.4 自動 AI 分類・抽出の廃止
-- mail-worker の cron からは llmExtractor を渡さない運用に変更
-- pipeline.ts の AI phase コードは保持（manual_extract ジョブから再利用）
-- 既存 pending_review な draft はそのまま残置、既存の承認/却下フローで処理
+#### 3.2.4 名簿ファイルの採用
+- 採用のルール（entry_group × 種別 × 級の一意性、`grades=null` = グループ統一名簿、
+  発表日の既定、申込管理ボードへの反映）は `roster-file-adoption` の仕様のまま。
+  **本改修は入口を変えるだけ**
+- 選べる添付は**形式を問わない**（Excel / PDF / その他。現行維持）
+- 採用する添付は**複数選べる**。選んだ添付ごとに対象の級を指定し、**級を 1 つも指定しなければ
+  グループ統一名簿**として採用する
+- 1 回の実行で選択したすべての添付が採用される。1 件でも採用に失敗したら**全体を失敗**として
+  扱い、部分的な採用を残さない
+- 既に採用済みの添付は選択肢に出さず、採用状態（種別・級・対象大会）と解除ボタンを出す
+  （現行維持）
+- 大会（申込グループ）を選ばずに名簿種別で実行することはできない
 
-#### 3.2.5 AI 抽出コスト管理
-- 確認ダイアログで誤タップ防止
-- 再試行は明示的なボタン押下のみ
-- バックグラウンドジョブとしてキューイング、cron からは呼ばれない
+#### 3.2.5 LINE 配信
+- 種別 ≠ 大会案内 かつ 大会選択済みのときだけ選べる
+- 種別 = 大会案内 では配信の選択肢を出さない（AI 抽出 → 承認は新規の申込グループを作るため、
+  その時点で LINE グループが存在せず配信できない）
+- **選んだ申込グループに `status='linked'` の LINE 紐付けが無いときは「LINE 配信する」を
+  選択できず、理由（LINE グループ未紐付け）を表示する**。現行は黙ってスキップしていた
+- 「メール本文を添付する」= ON（既定）なら現行どおり本文を A4 画像化して配信し、画像化に
+  失敗したらテキストへフォールバックする（現行のフォールバック規則は不変）
+- 「メール本文を添付する」= OFF なら、**冒頭メッセージ（入力時）と添付ファイルのリンクだけ**を
+  配信する。本文画像も本文テキストも送らない
+- 本文添付の可否は配信監査行に保存し、**再送時も同じ構成が再現される**こと
+  （既配信ぶんを読み飛ばす再送ロジックが、初回と異なるメッセージ列で走ると誤った位置を
+  スキップするため）
+- 配信は現行どおり実行のレスポンス後に非同期で走る。配信失敗は実行の失敗にしない
 
-#### 3.2.6 既存イベント結びつけのビジネスルール
-- 1 メールに対して 1 イベントのみ紐付け可能（FK 設計）
-- 紐付け済みメールを別イベントに紐付け直す場合は、一度 undo してから再操作
-- 同じイベントに複数メールが紐付くのは OK
+#### 3.2.6 triage_status
+- `unprocessed`（既定）↔ `processed`（現行維持。保留は廃止済み）
+- `processed` に倒すのは「実行」「対応不要」「AI ドラフトの承認 / 却下」
+- 「未処理に戻す」で `unprocessed` に戻り、**種別・大会紐付け・そのメール由来の名簿採用を
+  まとめて取り消す**。LINE 配信済みメッセージは LINE の仕様上取り消せないため、その旨を
+  画面に明示する（現行の文言を拡張）
+- AI ドラフトは undo では消さない（現行維持）
 
-## 4. 技術設計
+#### 3.2.7 権限
+- 管理者 / 副管理者のみ（現行維持）。Server Action 側でも検証する
 
-### 4.1 API 設計（Server Actions）
+## 4. Acceptance Criteria
 
-| Action | 状態 | 内容 |
-|---|---|---|
-| `triggerExtractDraft(mailId)` | **新規** | `tournament_drafts` INSERT (status='ai_processing', payload='{}'::jsonb, prompt_version='', ai_model='') + `mail_worker_jobs` INSERT (kind='manual_extract', payload={mail_message_id: mailId}) |
-| `linkMailToEvent(mailId, eventId)` | **新規** | `linked_event_id`, `triage_status='processed'`, `triaged_at`, `triaged_by_user_id` 更新 + after() で `broadcastMailToEvent` |
-| `unlinkMailFromEvent(mailId)` | **新規** | `linked_event_id=NULL` + `triage_status='unprocessed'` 戻し（LINE 配信済みメッセージは取り消し不可） |
-| `triggerMailFetch(sinceDate)` | 既存維持 | `kind='fetch'` を明示 |
-| `approveDraft(draftId, formData)` | 既存維持 | そのまま流用 |
-| `rejectDraft(draftId, reason)` | 既存維持 | そのまま流用 |
-| `dismissMail(mailId)` | 既存維持 | `triage_status='processed'` |
-| `undoTriage(mailId)` | 既存維持 | `deferred` 経路は migration で削除 |
+| ID | 条件 | 検証手段 |
+|----|------|------|
+| AC-1 | メール詳細の処理フォームで種別（未選択 / 大会案内 / 申込名簿 / 確定名簿）を選べる | auto-test |
+| AC-2 | 種別は「実行」「AI 抽出」の実行時にのみ保存され、ラジオ操作だけでは保存されない | auto-test |
+| AC-3 | 種別 = 大会案内 のとき、対象の大会・名簿採用・LINE 配信の入力欄がいずれも表示されない | auto-test |
+| AC-4 | 種別 = 大会案内 のときだけ AI 抽出の導線が表示される（未選択・名簿種別では出ない） | auto-test |
+| AC-5 | 種別 ≠ 大会案内 のとき、対象の大会を申込グループ単位で選べる。複数日開催のグループも候補は 1 行 | auto-test |
+| AC-6 | 種別 = 未選択 の候補には団体戦のみのグループも含まれ、名簿種別の候補は個人戦を持つグループに限られる | auto-test |
+| AC-7 | 名簿種別の候補は既定で「申込済み × 当該種別が未取込」に絞られ、「すべて表示」で解除できる | auto-test |
+| AC-8 | 名簿種別で、採用する添付を複数選択でき、添付ごとに対象の級を指定できる | auto-test |
+| AC-9 | 級を 1 つも指定しなかった添付はグループ統一名簿（grades = null）として採用される | auto-test |
+| AC-10 | 名簿種別の実行 1 回で、選択したすべての添付が採用される | auto-test |
+| AC-11 | 名簿の採用が 1 件でも失敗したら全体が失敗し、部分的な採用が残らない | auto-test |
+| AC-12 | 名簿種別で対象の大会を選ばずに実行できない | auto-test |
+| AC-13 | 採用済みの添付は選択肢に出ず、採用状態と解除ボタンが表示される | auto-test |
+| AC-14 | LINE 配信する / しないを選べ、しないを選んだ実行では配信が起動しない（紐付け・採用だけ行われる） | auto-test |
+| AC-15 | LINE 配信する = ON のとき「メール本文を添付する」を選べ、既定は ON | auto-test |
+| AC-16 | 本文を添付しない配信では、冒頭メッセージ（入力時）と添付リンクだけが送られ、本文画像・本文テキストが送られない | auto-test |
+| AC-17 | 本文添付の可否が配信監査行に保存され、再送時も初回と同じメッセージ構成で再現される | auto-test |
+| AC-18 | 選んだ申込グループに linked 状態の LINE 紐付けが無いとき、「LINE 配信する」を選択できず理由が表示される | auto-test |
+| AC-19 | 1 メールに紐づく申込グループが高々 1 つであることをサーバー側でも検証する | auto-test |
+| AC-20 | 「試合結果の取込」セクションは種別 = 未選択 のときだけ表示される | auto-test |
+| AC-21 | 「対応不要」は種別を保存せず `triage_status='processed'` にする | auto-test |
+| AC-22 | 実行の成功で `triage_status='processed'` になる。AI 抽出の起動では `unprocessed` のまま | auto-test |
+| AC-23 | AI ドラフトが未完了のあいだは処理フォームが表示されず、種別を変更できない | auto-test |
+| AC-24 | 「未処理に戻す」で種別・大会紐付け・そのメール由来の名簿採用がまとめて取り消される | auto-test |
+| AC-25 | 「未処理に戻す」の画面に、LINE 配信済みメッセージは取り消せない旨が表示される | auto-test |
+| AC-26 | 一覧・詳細の区分ピルが手動種別になり、種別未選択のメールには種別ピルが出ない | auto-test |
+| AC-27 | （回帰）大会詳細の「関連メール」が従来どおり表示される | auto-test |
+| AC-28 | （回帰）AI 抽出 → 承認 → イベント作成 → 分割承認の既存フローが変わらない | auto-test |
+| AC-29 | （回帰）大会詳細の名簿セクション・申込管理ボードの進行判定が、採用済み名簿に対して従来どおり動く | auto-test |
+| AC-30 | （回帰）本文添付 = ON の配信が、本文画像化・失敗時テキストフォールバック・添付リンクを含めて従来どおり動く | auto-test |
+| AC-31 | （回帰）冒頭メッセージのプリセットチップと 200 字上限が従来どおり動く | auto-test |
+| AC-32 | （回帰）既存テスト・lint・typecheck が CI で green | auto-test |
+| AC-33 | 本番で 4 パターン（大会案内 / 申込名簿 / 確定名簿 / 未選択＋配信あり・なし）を 1 通ずつ実行し、意図どおりに動く | manual |
 
-### 4.2 DB 設計
+## 5. Non-goals
 
-#### 4.2.1 mail_messages テーブル
-追加カラム:
-```sql
-ALTER TABLE mail_messages
-  ADD COLUMN linked_event_id integer
-    REFERENCES events(id) ON DELETE SET NULL;
+機能面:
+- メール一覧のレイアウト・並び順・フィルタの変更（種別ピルの差し替えのみ）
+- 「試合結果の取込」の中身の変更（表示条件を種別 = 未選択 に限定するだけ）
+- 1 メールを複数の申込グループへ紐づけること
+- 大会詳細の「関連メール」を申込グループの全開催日へ広げること（現行の見え方を維持）
+- LINE 配信済みメッセージの取り消し（LINE の仕様上不可）
+- AI による種別の自動判定・提案
+- 種別ごとの一覧フィルタ・タブ
+- 名簿ファイルの中身のパース（決定論パーサは UI 退役済み・コード温存のまま）
 
-CREATE INDEX mail_messages_linked_event_id_idx
-  ON mail_messages (linked_event_id)
-  WHERE linked_event_id IS NOT NULL;
-```
+技術面:
+- `classification` 列の削除（pre-filter・AI 用途で残す。表示から外すだけ）
+- 決定論パーサ・`roster-drafts` 画面・`tournament_roster_import_drafts` への変更
+- mail-worker 側の変更（種別は Web 側だけで完結する）
+- LINE 配信の再送 UI（大会詳細側の既存導線のまま）
 
-#### 4.2.2 tournament_drafts.status enum 拡張
-新規 enum 値: `'ai_processing'`
-- 状態遷移: `ai_processing` → `pending_review`（成功）/ `ai_failed`（失敗）
-- 既存値: `pending_review` / `approved` / `rejected` / `ai_failed` / `superseded`
+## 6. 技術的制約・契約
 
-#### 4.2.3 mail_triage_status enum 縮小
-削除 enum 値: `'deferred'`
-- migration: `UPDATE mail_messages SET triage_status='unprocessed' WHERE triage_status='deferred'`
-- enum 値削除は再作成方式（一時 enum 経由）
+- **種別は新しい列を立てる。** `mail_messages.classification` は pre-filter と AI が書く列で
+  値の集合も意味も異なる。同居させると再抽出で手動選択が消える
+- **`event_broadcast_messages` の再送整合。** 既配信ぶんを先頭から読み飛ばす再送ロジックが
+  あるため、本文添付の可否は**メッセージ列を決める入力として永続化**しなければならない
+  （`leadText` / `isCorrection` と同じ扱い）
+- **配信先の解決。** LINE 紐付けは `event_line_broadcasts.entry_group_id` が UNIQUE で
+  申込グループ単位。現行の配信入口はイベント ID を受け取ってグループへ解決しているため、
+  グループ単位の入口が要る
+- **メールと大会の紐付け carrier。** 現行は `mail_messages.linked_event_id`（イベント単位）。
+  グループ選択に変えるにあたり、carrier をグループへ移すか代表イベントへ解決して保持するかは
+  技術計画で決める。いずれにせよ AC-27（関連メールの回帰）を壊さないこと
+- **「試合結果の取込」は種別 enum に入れない。** senseki-boundary の監査で配布版から
+  丸ごと物理削除するブロックと決まっている。表示条件は 1 箇所にまとめ、ブロックごと消せる形を保つ
+- **名簿採用の一意制約。** 添付 1 件 = 採用 1 件（UNIQUE）。複数添付の一括採用は
+  1 トランザクションで行い、部分成功を残さない
+- **権限。** すべての Server Action は冒頭で `auth()` + admin / vice_admin 検証（既存規約）
+- **クライアント純関数の制約。** 候補の仕分けを行う純関数は DB 依存を import しない
+  （既知の罠。`roster-adopt-utils.ts` 冒頭のコメント参照）
 
-#### 4.2.4 mail_worker_jobs テーブル変更
-追加カラム:
-```sql
-CREATE TYPE mail_worker_job_kind AS ENUM ('fetch', 'manual_extract');
+### 未解決の技術論点（→ 技術計画で解決）
+- carrier をグループへ移すか代表イベントで維持するか（上記）
+- 本文添付フラグを `broadcastMailToEvent` の引数と監査行にどう通すか
+- 名簿の一括採用を既存 `adoptRosterFile` の再利用でやるか、一括用の Server Action を立てるか
 
-ALTER TABLE mail_worker_jobs
-  ADD COLUMN kind mail_worker_job_kind NOT NULL DEFAULT 'fetch',
-  ADD COLUMN payload jsonb;
-```
-- `payload` 構造: `{ mail_message_id?: number }`（manual_extract 時のみ必須）
+## 7. デザインへの宿題（→ `/design-screen mail-inbox-mailer`）
 
-#### 4.2.5 migration ファイル
-- `packages/shared/drizzle/0022_mail_inbox_mailer.sql` (drizzle-kit generate)
-- 内容:
-  1. mail_worker_job_kind enum 作成
-  2. mail_worker_jobs.kind, payload 追加
-  3. mail_messages.linked_event_id 追加 + index
-  4. tournament_drafts.status enum 拡張（'ai_processing' 追加）
-  5. UPDATE mail_messages SET triage_status='unprocessed' WHERE triage_status='deferred'
-  6. mail_triage_status enum 再作成（deferred を削除）
+- 統合フォームの縦の流れ（種別 → 対象 → 添付 → 配信オプション → 実行）をモバイル 375px で
+  どう見せるか。入力が段階的に増えるので、折りたたみ／段組み／ボトムシートのどれに寄せるか
+- 種別の選択 UI（ラジオ / セグメント / チップ）と、未選択が既定であることの伝え方
+- 対象の大会の選び方。現行はボトムシート（検索付き）だが、フォーム内インラインに変える余地
+- 添付ごとの級指定 UI。**現行の「取込単位（グループ統一 / 級別）」ラジオを廃して、
+  「級チップ未選択 = グループ統一」に畳めるか**を視覚で検証したい
+- 「LINE 配信する」がグループ未紐付けで選べないときの表現（グレーアウト＋理由文）
+- 種別ピルの色・語（一覧と詳細で共通）
+- 「対応不要」ボタンと実行ボタンの位置関係（誤タップしない配置）
 
-### 4.3 フロントエンド設計
+## 8. 設計判断の根拠
 
-#### 4.3.1 既存コンポーネント変更
-- `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`
-  - クエリの noise フィルタ削除（全件表示）
-  - triage_status `deferred` フィルタ削除
-- `apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`
-  - 本文を即表示（トグル廃止）
-  - draft 状態に応じた表示分岐:
-    - draft なし: アクション 3 ボタン表示
-    - draft.status='ai_processing': ExtractionInProgressCard
-    - draft.status='pending_review': 既存 DraftCard + EventApprovalForm
-    - draft.status='ai_failed': 再試行ボタン + 「手動でイベント作成」ボタン
-- `apps/web/src/app/(app)/events/[id]/page.tsx`
-  - 「関連メール」セクション追加
+### 8.1 種別を手で選ばせる（2026-08-02）
+件名を見れば人間には一瞬で分かる分類に AI を使う必要がない。むしろ AI が判断すると
+外れたときに気づけない。手動選択なら「選んだ人の意図」がそのまま後続の分岐になる。
 
-#### 4.3.2 新規コンポーネント
-- `components/AIExtractConfirmDialog.tsx`: 「AI で抽出します、よろしいですか？」
-- `components/ExtractionInProgressCard.tsx`: spinner + ステータステキスト + polling
-- `components/ExistingEventLinkSheet.tsx`: 既存イベント選択ボトムシート（直近 30 日 + 検索）
-- `components/MailDetailActions.tsx`: 3 ボタンエリア
-- `components/UndoTriageButton.tsx`: 処理済画面用の戻すボタン
-- `components/EventRelatedMails.tsx`: events 詳細の「関連メール」セクション
+### 8.2 対象を申込グループに統一（2026-08-02）
+LINE 紐付け（`event_line_broadcasts.entry_group_id` UNIQUE）も名簿採用も元々グループ単位で、
+イベント単位なのはメールの紐付けだけだった。グループへ寄せると「2 日開催なのに候補が 2 行出て
+どちらを選んでも同じ」という現行の分かりにくさも消える。
 
-#### 4.3.3 状態管理
-- AI 抽出中のリアルタイム更新: client side polling（3 秒間隔）
-  - `/api/admin/mail-inbox/[id]/draft-status` で draft.status を返す
-  - status が `pending_review` / `ai_failed` に変わったら `router.refresh()` でサーバー側 RSC を再取得
+### 8.3 AI 抽出を大会案内に限定（2026-08-02）
+名簿メール・領収書メールで AI 抽出を押せてしまうのは、コスト面でも誤操作面でも無駄。
+種別が決まれば出す / 出さないは自明に決まる。
 
-### 4.4 バックエンド設計
+### 8.4 大会案内では LINE 配信の選択肢を出さない（2026-08-02）
+AI 抽出 → 承認は**新規の申込グループを作る**ルートで、その時点では Bot 未招待＝ LINE グループが
+存在しない。選択肢を出しても実際には配信されず「配信したつもり」を生むだけ。
 
-#### 4.4.1 mail-worker (apps/mail-worker)
-- `src/pipeline.ts`:
-  - cron 動作（kind='fetch'）では `llmExtractor` を渡さない運用に変更（CLI 引数で制御）
-  - AI phase コード自体は残置、manual_extract から再利用
-- `src/jobs.ts`:
-  - dispatcher に kind 分岐追加
-    - 'fetch': 既存の runOnce 呼び出し
-    - 'manual_extract': payload.mail_message_id から mail を取得 → classifyMail + persistOutcome を呼び出し
-- `src/index.ts`:
-  - CLI に `--mode=extract-only` フラグ追加
-  - extract-only モードは IMAP fetch を skip して manual_extract ジョブだけ処理
+### 8.5 未選択でも大会を選べる（2026-08-02）
+組合せ表・会場案内・要項の訂正版・領収書は 3 種別のどれにも当てはまらないが、現行の
+「既存イベントに紐付ける」が担っていた実運用の中心。未選択＋大会選択＋配信で従来どおり回る。
+種別を 4 つ目に増やすより、未選択の意味を「その他」として使う方が語彙が増えない。
 
-#### 4.4.2 systemd timer
-- 新規: `kagetra-mail-worker-extract.timer`（30 秒間隔、`--mode=extract-only`）
-- 既存: `kagetra-mail-worker.timer`（30 分間隔、fetch のみ、AI 抽出は呼ばない運用に変更）
+### 8.6 LINE 配信を任意にする（2026-08-02）
+現行は紐付け＝必ず配信で、「記録だけ残したい」領収書の逃げ道が無かった。逆に名簿メールは
+配信手段が無く、確定名簿の連絡を手打ちしていた。可否を選べるようにすると両方が 1 本で済む。
 
-#### 4.4.3 LINE 配信
-- 既存 `broadcastMailToEvent` をそのまま再利用（変更なし）
-- 既存 `mail-body-as-image` をそのまま再利用（変更なし）
-- 既存 `event_broadcast_messages` テーブルもそのまま
+### 8.7 本文添付を任意にする（2026-08-02）
+名簿メールの本文は定型の事務連絡で、LINE に流す価値が低い一方で画像 2〜3 枚を消費する。
+本文 OFF なら「冒頭メッセージ＋名簿ファイルのリンク」だけの簡潔な配信になる。既定は現行と
+同じ ON にして、挙動が黙って変わらないようにする。
 
-#### 4.4.4 API Routes
-- 新規 `apps/web/src/app/api/admin/mail-inbox/[id]/draft-status/route.ts`
-  - GET: `tournament_drafts.status` を返す軽量エンドポイント（polling 用）
-- 既存ルートは変更なし
+### 8.8 未紐付けグループでは配信を選べなくする（2026-08-02）
+現行は `no_active_binding` で黙ってスキップしており、「送ったつもりで届いていない」が
+起きうる。選択時点で塞ぐ方が事故が少ない。
 
-## 5. 影響範囲
+### 8.9 実行して初めて保存（2026-08-02）
+種別だけ即保存すると「途中まで選んだ状態」がサーバーに残り、undo の対象が増えて仕様が
+複雑になる。フォームは 1 回の実行で確定させ、やり直しは「未処理に戻す」1 本にする。
 
-### 5.1 変更が必要な既存ファイル
-- `apps/mail-worker/src/pipeline.ts`: AI phase を opts.llmExtractor で制御
-- `apps/mail-worker/src/jobs.ts`: dispatcher の kind 分岐
-- `apps/mail-worker/src/index.ts`: --mode=extract-only 追加
-- `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`: フィルタ条件変更
-- `apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`: 詳細画面の再構成
-- `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`: Server Actions 追加・修正
-- `apps/web/src/app/(app)/events/[id]/page.tsx`: 関連メールセクション追加
-- `packages/shared/src/schema/mail-messages.ts`: linked_event_id 追加
-- `packages/shared/src/schema/tournament-drafts.ts`: status enum 拡張
-- `packages/shared/src/schema/mail-worker.ts`: kind, payload 追加
-- `packages/shared/src/schema/enums.ts`: enum 定義変更
-- `packages/shared/drizzle/0022_mail_inbox_mailer.sql`: 新規 migration
-- `infra/systemd/kagetra-mail-worker-extract.timer`: 新規 systemd unit ファイル
+### 8.10 undo は種別・紐付け・名簿採用をまとめて戻す（2026-08-02）
+1 回の実行で作られたものは 1 回で戻せるのが直感的。名簿採用だけ残ると「メールは未処理なのに
+名簿は採用済み」という中途半端な状態になり、再実行時に採用済みで弾かれる。
 
-### 5.2 既存機能への影響
-- 既存 pending_review draft: 影響なし、現状の承認/却下フローで処理可能
-- 既存 events に紐付いた draft: 影響なし
-- 既存 LINE 配信 (broadcastMailToEvent): 影響なし
-- 既存 mail-body-as-image: 影響なし
-- 既存 event-lifecycle-notify / entry-notify-lottery-treasurer: events 経由なので影響なし
-- 既存 Web Push (mail-triage-badge): 影響なし、新規メール通知はそのまま動く
-- pre-filter: コード保持、UI フィルタを外すだけ
-
-### 5.3 共通コンポーネント・ユーティリティへの影響
-- EventForm: 影響なし、再利用
-- mail-worker の classifyMail/persistOutcome: 影響なし、再利用
-- broadcastMailToEvent: 影響なし、再利用
-
-### 5.4 API・DBスキーマの互換性
-- 後方互換性: 既存データはそのまま使える
-- 破壊的変更:
-  - `mail_triage_status` enum から 'deferred' 削除（migration で全件 unprocessed に倒すので実害なし）
-- 新規カラムは NOT NULL DEFAULT 付与で既存行に impact なし
-
-### 5.5 テスト影響
-- `apps/mail-worker/test/pipeline.test.ts`: cron 動作変更分のテスト修正
-- `apps/mail-worker/test/jobs.test.ts`: dispatcher kind 分岐の新テスト追加
-- `apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`: 新規 Server Action のテスト追加
-- 新規 E2E: AI 抽出→承認→LINE 配信の通しテスト
-- 新規 E2E: 既存イベント結びつけ→LINE 配信の通しテスト
-
-## 6. 設計判断の根拠
-
-### 6.1 ノイズ自動判定の廃止
-- メール抜け漏れリスクを最小化するため、AI 自動分類は廃止
-- ただし pre-filter のコード（ヘッダベースのメルマガ判定）は **残す**。inbox UI 側の「ノイズ非表示」フィルタを外すだけで全件見える状態にする
-- 将来「ノイズタブ」を作りたくなった時のためにフラグを残す
-
-### 6.2 AI 抽出のバックグラウンド化
-- Sonnet 4.6 で本文＋添付込みの抽出は 5〜30 秒。同期で待たせると UX 悪い
-- 「会で流す（AI 抽出）」ボタン押下 → 即座に draft 行 INSERT (status=ai_processing) → 画面遷移 → バックグラウンド完了後に Web Push で通知
-
-### 6.3 draft テーブルは残す
-- N 件分割（1 メール = 複数大会）、再抽出、承認 race 直列化、LINE 配信トリガー、訂正版管理の責務がある
-- 違いは「自動 INSERT」から「ボタン押下時 INSERT」への変更だけ
-
-### 6.4 triage_status の簡素化（3 状態 → 2 状態）
-- `unprocessed`（未処理）/ `processed`（処理済み）の 2 状態
-- 「保留」は廃止：処理せずに放置することが暗黙の保留である
-
-### 6.5 既存データ移行方針
-- 過去の `classification` カラムの値は残す（参照のみ）
-- 将来的に `classification` カラム自体は削除する migration を予定
-- 既存 deferred mails は unprocessed に倒す
-- 既存 pending_review draft はそのまま、現状の承認/却下フローで処理
-
-### 6.6 「訂正版」と「補足情報」を区別しない
-- どちらも「既存イベント結びつけ」アクションで統一処理
-- AI による is_correction 判定は廃止（手動判断に集約）
-- イベント本体の情報変更（開催日/会場等）は管理者が events テーブルを edit する手動運用
-
-### 6.7 既存イベント検索範囲（未開催 + 過去 30 日）
-- 未開催: 補足情報の主な対象（組合せ表など）
-- 過去 30 日: 領収書/事後連絡などの結びつけ用
-
-### 6.8 mail_messages.linked_event_id 直 FK（中間テーブルにしない）
-- 1 メール = 1 イベントのシンプル設計
-- AI 抽出経路（tournament_drafts.event_id / events.tournament_draft_id）と別 carrier
-- 将来 M:N が必要になれば中間テーブルに移行可能
-
-### 6.9 mail_worker_jobs に kind 追加（新規テーブルにしない）
-- 既存 dispatcher を流用できる
-- 既存 status, claimed_at, run_id などの仕組みも流用
-- 新規テーブルを作ると dispatcher/UI が二重化する
-
-### 6.10 polling 方式（SSE / WebSocket にしない）
-- SSE は Next.js App Router で動かすのに余計な設定が必要
-- 3 秒間隔の軽量 GET なら十分。AI 抽出は 5〜30 秒、平均 6 回程度の polling で完了する
-- 既存 fetch API と同じ仕組みで実装簡単
-
-### 6.11 systemd timer を別建て（既存 timer に乗らない）
-- 既存 30 分間隔 timer を変えると IMAP fetch 頻度も変わる
-- AI 抽出だけ高頻度（30 秒間隔）にしたいので別 timer
-- mail-worker 本体は 1 つのまま、CLI 引数で挙動を切り替える
+### 8.11 以下は初版からの継続判断（変更なし）
+- ノイズ自動判定の廃止（pre-filter のコードは残し、UI のフィルタだけ外す）
+- AI 抽出のバックグラウンド化（ジョブ + polling。SSE / WebSocket にしない）
+- draft テーブルを残す（N 件分割・再抽出・承認 race 直列化の責務がある）
+- triage_status の 2 状態化（保留は廃止）
+- 「訂正版」と「補足情報」を区別しない
+- 候補の検索範囲は「未開催 + 過去 30 日」
+- `mail_worker_jobs.kind` で dispatcher を共用する

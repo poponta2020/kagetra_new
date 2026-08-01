@@ -266,3 +266,4 @@
 - [名簿ファイル採用: 級別採用・候補フィルタ・パース取込UIの退役](project_ship-roster-file-adoption-delta.md) — shipped: PR #439
 - [ship後のworktree残骸が次の着手を止める](feedback_windows_ship_worktree_remnant.md) — Windowsでworktree削除が失敗し.git無しの残骸が残る。rm -rf で消す・remoteブランチも手動削除
 - [codex全差分レビューは10分上限を超える](feedback_codex_full_diff_review_timeout.md) — initial/final(sol/high)は run_in_background 必須。前景だとSIGTERMで結果JSONが残らない
+- [mail-inbox-mailer 統合処理フォーム 要件定義(2026-08-02改修)](project_mail_inbox_process_form_def.md) — 親Issue #440・子#441-446・実装未着手

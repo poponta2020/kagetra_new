@@ -1,137 +1,160 @@
 ---
 status: completed
 ---
-# mail-inbox-mailer 実装手順書
+# mail-inbox-mailer 実装手順書（2026-08-02 改修: 統合処理フォーム）
+
+要件は [requirements.md](requirements.md)、視覚の正は [design-spec.md](design-spec.md) と
+`design-mock/`（A案）。**初版（メーラー化）のタスクは完了済みで git 履歴が持つ。**
+本書は今回の改修ぶんで上書きしてある。
+
+## 技術設計の要点（タスク横断の前提）
+
+- **種別は新列。** `mail_messages.mail_kind`（nullable = 未選択）。AI/pre-filter が書く
+  `classification` とは別軸で、互いに書き換えない。
+- **メールと大会の carrier は `linked_event_id` のまま。** UI では申込グループを選ばせ、
+  保存時に `selectRepresentativeEvent` で代表イベントへ解決して入れる。グループは
+  `events.entry_group_id` から常に一意に引けるので二重管理しない。これにより
+  `EventRelatedMails`（3経路 UNION）は無改修で AC-27 を満たす。
+- **配信先の解決は既存のまま。** `broadcastMailToEvent(db, { eventId, ... })` は内部で
+  `events → entry_group → event_line_broadcasts` を辿るので、代表イベントを渡せばよい。
+- **本文添付は永続化して再送で再現する。** `event_broadcast_messages.include_body` を追加。
+  `manualBroadcast` が既に `isCorrection` / `leadText` を保存済み行から継承しているので、
+  同じ規約に乗せる。さらに **prefix-skip（`!force` かつ既配信あり）が効く経路では
+  保存値を優先**して列を再構成する（args を信じると再送で読み飛ばし位置がずれる）。
+- **級未選択はグループ統一。** 新 UI に「取込単位」ラジオは無いので、フォームは級ゼロ選択を
+  `null` として送る。**`[]` を送ってはならない**（`normalizeAdoptionGrades` は `[]` を
+  入力ミスとして弾く既存契約）。
+- **client-safe 純関数の制約。** 候補フィルタの純関数は `@kagetra/shared/schema` を
+  **型 import も含めて**参照しない（lint / vitest / typecheck では検知できず `next build` で
+  初めて壊れる既知の罠）。`roster-adopt-utils.ts` 冒頭と同じ警告コメントを付ける。
 
 ## 実装タスク
 
-### タスク1: DB スキーマ変更 + migration
-- [x] 完了
-- **概要:** linked_event_id、tournament_drafts.status='ai_processing'、mail_worker_jobs.kind/payload、mail_triage_status から deferred 削除を含む drizzle スキーマ更新と migration ファイル作成。既存 deferred mails の unprocessed 化も含む
-- **変更対象ファイル:**
-  - `packages/shared/src/schema/mail-messages.ts` — `linkedEventId` カラム追加（FK to events.id, ON DELETE SET NULL）+ index
-  - `packages/shared/src/schema/tournament-drafts.ts` — 既存維持（enum 変更は enums.ts 側）
-  - `packages/shared/src/schema/mail-worker.ts` — `mailWorkerJobs` に `kind`, `payload` カラム追加
-  - `packages/shared/src/schema/enums.ts` — `tournamentDraftStatusEnum` に `'ai_processing'` 追加、`mailTriageStatusEnum` から `'deferred'` 削除、`mailWorkerJobKindEnum` 新規（'fetch' | 'manual_extract'）
-  - `packages/shared/drizzle/0022_mail_inbox_mailer.sql` — 新規生成 migration
+### タスク1: スキーマとマイグレーション
+- [ ] 完了
+- **目的:** 種別列と本文添付フラグを持たせる
+- **対応AC:** AC-1, AC-15, AC-17, AC-26
+- **主な変更領域:** `packages/shared/src/schema/enums.ts` / `schema/mail-messages.ts` /
+  `schema/event-broadcast-messages.ts` / `packages/shared/drizzle/0055_*.sql`
 - **依存タスク:** なし
-- **対応Issue:** #120
+- **必要なテスト:** スキーマ単体テストは不要。マイグレーションが適用できること
 - **完了条件:**
-  - `pnpm --filter @kagetra/shared db:generate` で 0022 migration が生成される
-  - 既存 deferred 行を unprocessed に倒す UPDATE 句が migration に含まれる
-  - `pnpm --filter @kagetra/shared db:migrate` でテスト DB に適用できる
-  - `pnpm typecheck` 通過
+  - `mailKindEnum = pgEnum('mail_kind', ['tournament_notice','applicant_roster','confirmed_roster'])`
+  - `mail_messages.mail_kind`（nullable）・`event_broadcast_messages.include_body`
+    （`notNull().default(true)`）
+  - `drizzle-kit generate` 済み。採番は **0055**（0054 が最新）
+  - 型チェック green。列リネームではないので対話プロンプトは出ない想定（出たら中断して報告）
+- **対応Issue:** #441
 
-### タスク2: mail-worker の cron AI 廃止 + manual_extract dispatcher
-- [x] 完了
-- **概要:** cron 動作（kind='fetch'）では llmExtractor を渡さない運用に変更し、manual_extract ジョブを処理する dispatcher 分岐を追加。CLI に `--mode=extract-only` フラグも追加
-- **変更対象ファイル:**
-  - `apps/mail-worker/src/pipeline.ts` — `RunPipelineOptions.llmExtractor` を呼び出し側で制御
-  - `apps/mail-worker/src/jobs.ts` — dispatcher に kind 分岐追加。`manual_extract` 時は `payload.mail_message_id` から mail 取得 → `classifyMail` + `persistOutcome` 呼び出し
-  - `apps/mail-worker/src/index.ts` — CLI に `--mode=extract-only` フラグ追加。extract-only は IMAP fetch をスキップ
-  - `apps/mail-worker/test/pipeline.test.ts` — cron 動作変更分のテスト修正
-  - `apps/mail-worker/test/jobs.test.ts` — dispatcher kind 分岐の新テスト追加
-- **依存タスク:** タスク1 (#120)
-- **対応Issue:** #121
+### タスク2: 候補グループのローダと種別別フィルタ
+- [ ] 完了
+- **目的:** 「対象の大会」候補を申込グループ単位で1本にまとめ、種別で出し分けられるようにする
+- **対応AC:** AC-5, AC-6, AC-7, AC-18
+- **主な変更領域:**
+  - 新規 `apps/web/src/app/(app)/admin/mail-inbox/process-candidates.ts`（サーバー・DB）
+  - 新規 `apps/web/src/app/(app)/admin/mail-inbox/process-candidate-utils.ts`（**client-safe 純関数**）
+  - 既存 `roster-adopt-utils.ts` の4象限フィルタを再利用または移設
+- **依存タスク:** なし（`mail_kind` 列に依存しない。種別は引数で受ける）
+- **必要なテスト:** 純関数の単体テスト。種別=未選択で団体戦のみのグループが候補に残ること／
+  名簿種別では落ちること、既定フィルタと「すべて表示」の切替、LINE 未紐付けフラグ
 - **完了条件:**
-  - `pnpm --filter @kagetra/mail-worker test --no-file-parallelism` で全テスト pass
-  - `pnpm --filter @kagetra/mail-worker start --mode=extract-only` で manual_extract ジョブだけを処理することを確認
-  - cron 既定で AI 抽出が動かない（mock test）
+  - 母集団 = 「開催日 ≥ cutoff ∧ status≠cancelled」を満たす日を1つ以上持つ entry_group
+    （**団体戦のみのグループも含む** — 未選択種別の紐付けは個人戦に限る理由がない）
+  - DTO に `groupId / displayName / representativeEventId / days[] / files[] / lineLinked`
+  - `displayName` の導出規約は既存 `loadRosterAdoptableGroups` と同一
+  - `lineLinked` は `event_line_broadcasts.status='linked'` の有無
+  - **`process-candidate-utils.ts` が `@kagetra/shared/schema` / `drizzle-orm` / `@/lib/*` を
+    一切 import していない**（`grep` で確認。`Grade` は自前定義）
+- **対応Issue:** #442
 
-### タスク3: Server Actions の追加・修正
-- [x] 完了
-- **概要:** 新規 `triggerExtractDraft` / `linkMailToEvent` / `unlinkMailFromEvent` を追加。既存 `undoTriage` から deferred 経路を削除
-- **変更対象ファイル:**
-  - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — 上記 3 アクション追加 + undoTriage 修正
-  - `apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts` — 新規アクションのテスト追加
-- **依存タスク:** タスク1 (#120), タスク2 (#121)
-- **対応Issue:** #122
+### タスク3: LINE 配信の本文添付フラグ
+- [ ] 完了
+- **目的:** 本文を送る／送らないを選べるようにし、再送でも同じ構成を再現する
+- **対応AC:** AC-16, AC-17, AC-30
+- **主な変更領域:** `apps/web/src/lib/line-broadcast.ts` /
+  `apps/web/src/app/(app)/events/[id]/actions.ts`（`manualBroadcast` の継承）
+- **依存タスク:** タスク1
+- **必要なテスト:**
+  - `includeBody=false` で本文画像・本文テキストが列に入らず、lead + 添付リンクだけになる
+  - **★回帰の要:** `status='partial'` かつ `include_body=true` の監査行に対し、
+    `args.includeBody=false` で `!force` 再送しても、組み立てられる列が初回と一致する
+  - `includeBody=true` の既存挙動（画像化 → 失敗時テキストフォールバック → 添付リンク）が不変
+  - 本文OFF・lead 無し・添付無し → `skipped` を返し `sent` にしない
 - **完了条件:**
-  - 3 アクションのテストが全 pass（正常系、認可エラー、race condition）
-  - linkMailToEvent が broadcastMailToEvent を after() で起動することを確認
-  - linked_event_id 更新と triage_status='processed' が同一 tx 内
+  - `broadcastMailToEvent` の args に `includeBody?: boolean`（既定 true）
+  - upsert で `include_body` を保存
+  - **prefix-skip が効く経路（`!force` かつ `deliveredCount > 0`）では保存値を優先**
+  - `manualBroadcast` が `include_body` も既存行から継承する
+  - 空の列になったら distinct な reason で `skipped` を返し、`sent` にしない
+- **対応Issue:** #443
 
-### タスク4: mail-inbox UI 改修（一覧 + 詳細 + polling）
-- [x] 完了
-- **概要:** 一覧画面の noise/deferred フィルタ削除、詳細画面の本文即時表示・3 ボタンアクション・AI 抽出中カード・polling 接続。新規コンポーネント 5 つを追加
-- **変更対象ファイル:**
-  - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx` — noise/deferred フィルタ削除
-  - `apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx` — 本文即時表示、draft 状態分岐、3 ボタン
-  - `apps/web/src/app/api/admin/mail-inbox/[id]/draft-status/route.ts` — 新規 polling 用 GET エンドポイント
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/AIExtractConfirmDialog.tsx` — 新規確認ダイアログ
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/ExtractionInProgressCard.tsx` — 新規 spinner + polling
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/ExistingEventLinkSheet.tsx` — 新規イベント選択シート（未開催 + 過去 30 日 + 検索）
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/MailDetailActions.tsx` — 新規 3 ボタンエリア
-  - `apps/web/src/app/(app)/admin/mail-inbox/components/UndoTriageButton.tsx` — 新規 undo ボタン
-- **依存タスク:** タスク3 (#122)
-- **対応Issue:** #123
+### タスク4: Server Actions（実行・undo・AI 抽出）
+- [ ] 完了
+- **目的:** 1 回の実行で 種別保存・大会紐付け・名簿一括採用・LINE 配信を行い、undo で戻す
+- **対応AC:** AC-2, AC-9, AC-10, AC-11, AC-12, AC-14, AC-19, AC-21, AC-22, AC-24, AC-28
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`
+- **依存タスク:** タスク1, タスク2, タスク3
+- **必要なテスト:**
+  - 実行で mail_kind / linked_event_id / triage=processed が入る
+  - 名簿 N 件が 1 回で採用される。1 件失敗で**全体ロールバック**（部分採用が残らない）
+  - 級未選択の添付が `grades=null` で採用される
+  - 配信 OFF で `broadcastMailToEvent` が呼ばれない／ON で `includeBody` が渡る
+  - LINE 未紐付けグループに配信 ON を送るとサーバー側で拒否される
+  - 未完了 draft があるメールへの実行が拒否される
+  - undo で mail_kind / linked_event_id / 当該メール由来の採用が消える
+  - AI 抽出起動で mail_kind='tournament_notice' が入り、triage は unprocessed のまま
 - **完了条件:**
-  - dev server で全フロー（AI 抽出/結びつけ/対応不要/undo）が動く
-  - polling が 3 秒間隔で draft.status を fetch し、変化したら router.refresh()
-  - スマホ実機（iPhone PWA）で UI 確認
+  - `processMail(mailId, input)` を新設。**1 つの `db.transaction`** で全部行い、
+    `revalidatePath` は **commit 後に 1 回だけ**（N 回呼ばない）
+  - 名簿採用は `adoptRosterFile` から抽出した `adoptRosterFileTx(tx, …)` を再利用。
+    UNIQUE / FK 違反のメッセージに**どのファイルか**を含める
+  - 代表イベントの解決は `selectRepresentativeEvent`
+  - `undoTriage` を拡張（mail_kind / linked_event_id / 当該メール由来の
+    `tournament_entry_roster_files` を削除）
+  - `triggerExtractDraft` が mail_kind を保存
+  - `linkMailToEvent` は撤去（`processMail` が置換）。`dismissMail` / `releaseRosterFile` /
+    `unlinkMailFromEvent` の扱いは実装時に整理し、死にコードを残さない
+- **対応Issue:** #444
 
-### タスク5: events 詳細「関連メール」セクション
-- [x] 完了
-- **概要:** events 詳細ページに「関連メール」セクションを追加。3 経路 UNION で紐付いた mail を抽出して受信日降順表示
-- **変更対象ファイル:**
-  - `apps/web/src/app/(app)/events/[id]/page.tsx` — 関連メールセクション追加
-  - `apps/web/src/app/(app)/events/[id]/components/EventRelatedMails.tsx` — 新規セクションコンポーネント
-- **依存タスク:** タスク3 (#122)
-- **対応Issue:** #124
+### タスク5: メール詳細画面の統合フォーム
+- [ ] 完了
+- **目的:** design-mock の A案 を実コードに移植する
+- **対応AC:** AC-1, AC-3, AC-4, AC-5, AC-8, AC-9, AC-13, AC-14, AC-15, AC-18, AC-20, AC-23, AC-25, AC-26, AC-31
+- **主な変更領域:**
+  - 新規 `components/MailProcessForm.tsx`・`components/GroupPickerSheet.tsx`
+  - `mail/[id]/page.tsx`（候補ロード・種別ピル・分岐の作り替え）
+  - 撤去: `components/MailDetailActions.tsx` / `components/ExistingEventLinkSheet.tsx` /
+    `components/RosterFileAdoptSheet.tsx`（**採用済み状態の表示だけは移設**）
+  - 再利用: `AIExtractConfirmDialog` / `BROADCAST_LEAD_PRESETS` / `Card` `Btn` `Pill`
+- **依存タスク:** タスク2, タスク4
+- **必要なテスト:** フロントテスト（種別ごとの欄の出し分け、LINE 未紐付けで配信が選べない、
+  級未選択が `null` として送られる、結果取込が種別=未選択のときだけ出る、
+  未完了 draft でフォームが出ない）
 - **完了条件:**
-  - 既存イベント結びつけ（linked_event_id）経由のメールが表示される
-  - AI 抽出 → 承認経由のメール（events.tournament_draft_id）も表示される
-  - 訂正版 linkDraftToEvent 経由（tournament_drafts.event_id）も表示される
-  - 受信日降順、クリックで mail 詳細に遷移
+  - **design-spec の `## 忠実度チェックリスト` 全項目クリア**
+  - モックと同じトークン変数を使う（値を読み取って書き直さない）
+  - **既に採用済みの添付**はファイルリスト内に採用状態行（種別ピル・級ピル・解除ボタン）
+    として出す（モックに無い状態。既存 `RosterFileAdoptSheet` の採用済みカードの意匠を移設）
+  - 「本文を添付しない」かつ添付ゼロのときは冒頭メッセージを必須にする
+    （空配信をサーバーまで運ばない）
+  - ボトムシートは `createPortal(document.body)` + `.modal-overlay-h`、
+    スクロールコンテナに `min-h-0`（既存規約）
+- **対応Issue:** #445
 
-### タスク6: systemd timer + 運用設定
-- [x] 完了
-- **概要:** 30 秒間隔の manual_extract 専用 systemd timer を追加。本番デプロイ手順に組み込む
-- **変更対象ファイル:**
-  - `infra/systemd/kagetra-mail-worker-extract.service` — 新規 unit file
-  - `infra/systemd/kagetra-mail-worker-extract.timer` — 新規 timer file
-  - `infra/scripts/setup-systemd.sh`（既存があれば）— 新 timer の enable/start 追加
-  - `.github/workflows/auto-deploy.yml` — deploy 時の timer reload を追加（必要なら）
-- **依存タスク:** タスク2 (#121)
-- **対応Issue:** #125
-- **完了条件:**
-  - 本番環境で `kagetra-mail-worker-extract.timer` が動作
-  - manual_extract ジョブが 30 秒以内に拾われる
-  - 既存 fetch timer は 30 分のまま、AI を呼ばない設定が反映されている
+### タスク6: 一覧の種別ピル差し替え
+- [ ] 完了
+- **目的:** 一覧の区分ピルを AI 由来から手動種別へ変える
+- **対応AC:** AC-26
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`
+- **依存タスク:** タスク1
+- **必要なテスト:** 種別ありでピルが出る／未選択で出ない
+- **完了条件:** `classification` ピルを撤去し `mail_kind` ピルにする（`classification` 列は残す）
+- **対応Issue:** #446
 
-### タスク7: E2E テスト + 既存テスト修正 + DoD
-- [x] 完了
-- **概要:** AI 抽出→承認→LINE 配信の通し E2E、既存イベント結びつけ→LINE 配信の E2E、その他既存テストの修正。DoD チェックリスト消化
-- **変更対象ファイル:**
-  - `apps/web/test/e2e/mail-inbox-ai-extract.spec.ts` — 新規 E2E
-  - `apps/web/test/e2e/mail-inbox-link-event.spec.ts` — 新規 E2E
-  - 既存テストファイル — type error 修正
-- **依存タスク:** タスク1〜6 (#120〜#125)
-- **対応Issue:** #126
-- **完了条件:**
-  - 全 E2E pass（CI green）
-  - 既存テスト全 pass
-  - `/dod` でチェックリスト全項目クリア
-  - 本番デプロイ後、スマホ実機で AI 抽出→承認→LINE 受信を確認
-  - 本番デプロイ後、既存イベント結びつけ→LINE 受信を確認
+## 実装順序（Wave = 並行実装できるタスクの組）
 
-## 実装順序
-
-```
-タスク1 (#120, DB)
-    ↓
-タスク2 (#121, mail-worker) ──→ タスク6 (#125, systemd)
-    ↓
-タスク3 (#122, Server Actions)
-    ├──→ タスク4 (#123, mail-inbox UI)
-    └──→ タスク5 (#124, events 関連メール)
-                            ↓
-                        タスク7 (#126, E2E + DoD)
-```
-
-1. **タスク1** (#120): DB スキーマ変更 + migration（前提）
-2. **タスク2** (#121): mail-worker の cron AI 廃止 + manual_extract dispatcher
-3. **タスク3** (#122): Server Actions
-4. **タスク4, 5** (#123, #124): UI（並行可能、タスク3完了後）
-5. **タスク6** (#125): systemd timer（タスク2完了後でも可）
-6. **タスク7** (#126): E2E + 既存テスト修正 + DoD（最後）
+- **Wave 1:** タスク1（`packages/shared`）, タスク2（mail-inbox 配下の新規ファイル）— 変更領域が重ならない
+- **Wave 2:** タスク3（`lib/line-broadcast.ts` + `events/[id]/actions.ts`）,
+  タスク6（`admin/mail-inbox/page.tsx`）— 変更領域が重ならない
+- **Wave 3:** タスク4（`admin/mail-inbox/actions.ts` 単独）
+- **Wave 4:** タスク5（`mail/[id]/page.tsx` + components）
