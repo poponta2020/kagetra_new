@@ -1,6 +1,11 @@
 import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
-import { mailMessageStatusEnum, mailClassificationEnum, mailTriageStatusEnum } from './enums'
+import {
+  mailMessageStatusEnum,
+  mailClassificationEnum,
+  mailKindEnum,
+  mailTriageStatusEnum,
+} from './enums'
 import { users } from './auth'
 import { events } from './events'
 
@@ -31,6 +36,12 @@ export const mailMessages = pgTable(
     bodyHtml: text('body_html'),
     status: mailMessageStatusEnum('status').notNull().default('pending'),
     classification: mailClassificationEnum('classification'),
+    // mail-inbox-mailer (2026-08-02): 管理者が統合処理フォームで手選択した種別。
+    // NULL = 未選択（＝「その他」。組合せ表・会場案内・領収書などが該当し、
+    // 大会紐付け＋LINE 配信だけを行う経路）。`classification` とは別軸で、
+    // AI・pre-filter はこの列を書かない。保存されるのは「実行」「AI 抽出」の
+    // 実行時のみ（ラジオ操作だけでは保存しない。要件 §3.2.1）。
+    mailKind: mailKindEnum('mail_kind'),
     imapUid: integer('imap_uid'),
     imapBox: text('imap_box'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),

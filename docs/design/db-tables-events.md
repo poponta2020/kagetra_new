@@ -127,6 +127,7 @@
 | status | event_broadcast_message_status (enum) | NOT NULL | 'pending' | |
 | is_correction | boolean | NOT NULL | false | |
 | lead_text | text | NULL | — | 手動配信の見出し文（再配信用に保存） |
+| include_body | boolean | NOT NULL | true | メール本文を配信列に載せたか。再送で同じ列を再現するため永続化 |
 | sent_lead_count | integer | NOT NULL | 0 | |
 | sent_text_count | integer | NOT NULL | 0 | |
 | sent_image_count | integer | NOT NULL | 0 | |

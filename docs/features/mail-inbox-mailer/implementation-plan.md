@@ -31,7 +31,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマとマイグレーション
-- [ ] 完了
+- [x] 完了
 - **目的:** 種別列と本文添付フラグを持たせる
 - **対応AC:** AC-1, AC-15, AC-17, AC-26
 - **主な変更領域:** `packages/shared/src/schema/enums.ts` / `schema/mail-messages.ts` /
