@@ -55,7 +55,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 - 本文はA4 JPEGへ画像化して送る（画像化ロジック自体は `mail-body-image-render`、詳細は `spec/mail-worker.md`）。画像化が失敗・ページ超過・空・サイズ超過（10MB超）の場合はテキストfallback（`splitForLine` で分割）に切り替える。
 - 添付は形式を問わず全て署名URLリンクのテキストメッセージに統一する（かつてのPDF/Word画像化分岐は廃止済み）。
-- 冒頭見出し（`leadText`）は、進行中の大会に手動でメールを紐付ける操作（mail-inbox側の「既存イベントに紐付け」、`ExistingEventLinkSheet` — 詳細は `spec/mail-worker.md`）でのみ付与できる任意テキストで、`broadcast-lead-presets.ts` にプリセット文言（抽選結果・組合せ・オープンチャット案内等、最大200文字）を持つ。AI下書きの自動配信・訂正紐付けでは付与されない。
+- 冒頭見出し（`leadText`）は、進行中の大会に手動でメールを紐付ける操作（mail-inbox 側の統合処理フォーム（`MailProcessForm`）— 詳細は `spec/mail-worker.md`）でのみ付与できる任意テキストで、`broadcast-lead-presets.ts` にプリセット文言（抽選結果・組合せ・オープンチャット案内等、最大200文字）を持つ。AI下書きの自動配信・訂正紐付けでは付与されない。
 - LINE Messaging APIへは5メッセージ/バッチ・バッチ間1.5秒sleepで送信し、429（レート制限）は `Retry-After` に従い最大3回リトライする。1回のpushは30秒でタイムアウトする。
 - 途中失敗時は `partial` として送達済み件数を保存し、再送（`manualBroadcast`、UI操作）は未送達分のみ再送する。ただし前回と今回で送信計画（添付レンダリング結果等）が縮小していれば全件再送に切り替える。
 - 送信直前に紐付け（Bot/グループ）を再取得し、添付処理中に管理者が連携解除・再紐付けを行っていた場合は送信を中止する（`binding_changed`）。

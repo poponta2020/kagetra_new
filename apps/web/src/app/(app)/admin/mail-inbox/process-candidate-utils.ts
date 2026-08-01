@@ -101,6 +101,17 @@ export function formatGroupDayRange(days: readonly ProcessCandidateDay[]): strin
 }
 
 /**
+ * グループの申込状態ラベル。いずれかの日が applied なら申込済み扱い
+ * （`isGroupApplied` と同じ判定を人間向けの語にしたもの）。候補行と選択済み
+ * チップの両方で使う。
+ */
+export function formatGroupEntryStatus(group: ProcessCandidateGroup): string {
+  if (group.days.some((d) => d.entryStatus === 'applied')) return '申込済み'
+  if (group.days.some((d) => d.entryStatus === 'not_applying')) return '申込なし'
+  return '未申込'
+}
+
+/**
  * 種別ごとに「対象の大会」候補を絞り込む（AC-5, AC-6, AC-7）。入力の並び順を
  * 保つ（サーバー側で開催日順に並べてある）。
  */

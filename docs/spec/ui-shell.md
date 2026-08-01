@@ -37,7 +37,7 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 の順で列挙する専用クラスを用意し、カスケードの「最後に理解できた宣言が勝つ」性質を利用して確定的に `100svh` を勝たせている。`viewport-fit=cover` 指定時、iOS Safari の `100dvh` は下部URLバーのオーバーレイ領域を含んだ値を返すため、`dvh` のままだとシェルやモーダルの実際の高さがビューポートの表示可能域より大きくなり、BottomNav やシート下部のボタンがURLバーの下に隠れる。`100svh` はUAクロームが常に表示された状態の保守的な高さで、URLバーが後で縮んでも上下バーが隠れないことを優先し、代わりにURLバー縮小時に余白帯ができるトレードオフを取る。
 
-このクラスは `MobileShell` のルート `div`（`.mobile-shell-h`）と、共有ボトムシート/モーダル群（`RankingFilterBar`・`StatsPeriodFilter`・`InviteCodeModal`・`RegistrationInviteModal`・`ManualLinkModal`・`ExistingEventLinkSheet` 等、各ドメインの正典に実装詳細がある）の `.modal-overlay-h` に共通適用される。
+このクラスは `MobileShell` のルート `div`（`.mobile-shell-h`）と、共有ボトムシート/モーダル群（`RankingFilterBar`・`StatsPeriodFilter`・`InviteCodeModal`・`RegistrationInviteModal`・`ManualLinkModal`・`GroupPickerSheet` 等、各ドメインの正典に実装詳細がある）の `.modal-overlay-h` に共通適用される。
 
 ### ボトムナビ（`BottomNav`）
 

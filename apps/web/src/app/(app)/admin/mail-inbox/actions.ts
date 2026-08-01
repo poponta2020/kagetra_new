@@ -1267,8 +1267,8 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 //
 // mail-inbox-mailer (2026-06-07): 「保留 (deferred)」状態は廃止し 2 状態化。
 // 処理せず放置することが暗黙の保留である、というモデルに統合した。`deferMail`
-// は削除済み。3 アクション（AI 抽出 / 既存イベント結びつけ / 対応不要）の
-// 実体は後続タスク（タスク3 で triggerExtractDraft / linkMailToEvent 等を追加）。
+// は削除済み。2026-08-02 改修で処理導線は統合処理フォーム（`processMail`）＋
+// 「対応不要」（`dismissMail`）＋ AI 抽出（`triggerExtractDraft`）の 3 本になった。
 //
 // approve/reject/link は status='archived' も伴う「ドラフト処理」だが、以下は
 // triage_status だけを動かす軽量操作で status(AI/技術状態)は保持する。
@@ -1410,18 +1410,19 @@ export async function undoTriage(mailId: number) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// mail-inbox-mailer タスク3: 3 アクション Server Actions
+// mail-inbox-mailer: メール 1 通に対する処理の Server Actions
 //
-// (a) triggerExtractDraft  — 「会で流す（AI 抽出）」: draft 行 INSERT (ai_processing)
-//                            + manual_extract ジョブ enqueue。30 秒 timer が拾う。
-// (b) linkMailToEvent      — 「既存イベントに紐付ける」: linked_event_id 更新 +
-//                            triage processed + broadcastMailToEvent (after)。
-// (c) unlinkMailFromEvent  — 処理済画面 undo の補助: linked_event_id を NULL に
-//                            戻す。LINE 配信済メッセージの取り消しは不可。
+// (a) triggerExtractDraft — 種別 = 大会案内 の「AI で大会を読み取る」:
+//     draft 行 INSERT (ai_processing) + mail_kind 保存 + manual_extract ジョブ
+//     enqueue。30 秒 timer が拾う。triage_status は動かさない。
+// (b) processMail — 統合処理フォームの「実行する」: 種別・大会紐付け・名簿の
+//     一括採用・triage processed を 1 tx で行い、commit 後に配信を after で起動。
+// (c) undoTriage — 処理済画面の「未処理に戻す」: (b) が作ったものをまとめて戻す。
+//     LINE 配信済メッセージの取り消しは不可。
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * 「会で流す（AI 抽出）」ボタンの本体。
+ * 「AI で大会を読み取る」ボタンの本体（種別 = 大会案内 のときだけ UI に出る）。
  *
  * tournament_drafts.message_id は UNIQUE なので、既存 draft の有無で分岐する:
  *   - draft 無し                  → INSERT (status='ai_processing')
