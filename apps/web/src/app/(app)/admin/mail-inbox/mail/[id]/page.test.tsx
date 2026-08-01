@@ -419,6 +419,50 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
       expect(screen.getByText('A・B級')).toBeTruthy()
     })
 
+    it('種別を変えて選択済みの大会が新しい母集団に無ければ落とす', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      // 団体戦のみのグループ = 未選択では選べるが名簿種別では選べない。
+      await createEvent({ title: '団体戦の大会Z', kind: 'team', entryStatus: 'applied' })
+      await createAttachment(mail.id)
+
+      await renderDetail(mail.id)
+      fireEvent.click(screen.getByText('大会を選ぶ'))
+      fireEvent.click(screen.getByText(/団体戦の大会Z/))
+      fireEvent.click(screen.getByRole('button', { name: '決定' }))
+      expect(screen.getByText('変更')).toBeTruthy()
+
+      // 名簿種別へ切り替えると、その大会は候補外なので選択が外れる。
+      fireEvent.click(screen.getByRole('button', { name: '確定名簿' }))
+      expect(screen.getByText('大会を選ぶ')).toBeTruthy()
+      expect(screen.queryByText('変更')).toBeNull()
+    })
+
+    it('AC-26: 詳細の区分ピルも手動種別（未選択なら出ない）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const withKind = await createMailMessage({
+        subject: 'kind detail',
+        triageStatus: 'unprocessed',
+        mailKind: 'applicant_roster',
+      })
+
+      const { unmount } = await renderDetail(withKind.id)
+      expect(screen.getAllByText('申込名簿').length).toBeGreaterThan(0)
+      unmount()
+
+      const noKind = await createMailMessage({
+        subject: 'no kind detail',
+        triageStatus: 'processed',
+        mailKind: null,
+      })
+      await renderDetail(noKind.id)
+      expect(screen.queryByText('大会案内')).toBeNull()
+      expect(screen.queryByText('申込名簿')).toBeNull()
+      expect(screen.queryByText('ノイズ')).toBeNull()
+    })
+
     it('AC-23: AI ドラフトが未完了のあいだは処理フォームを出さない（種別を変更できない）', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })

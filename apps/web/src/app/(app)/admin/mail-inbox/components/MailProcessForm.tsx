@@ -9,6 +9,7 @@ import { dismissMail, processMail, releaseRosterFile } from '../actions'
 import {
   formatGroupDayRange,
   formatGroupEntryStatus,
+  listProcessCandidates,
   selectableGradesForGroup,
   type ProcessCandidateGroup,
   type ProcessCandidateKind,
@@ -176,6 +177,24 @@ export function MailProcessForm({
     if (value === 'tournament_notice') {
       setGroupId(null)
       setBroadcast(false)
+      return
+    }
+    // ★選択済みの大会が新しい種別の母集団に無ければ落とす。未選択で選べた
+    // 団体戦のみのグループを名簿種別へ持ち越すと、UI は選べたままなのに
+    // サーバーの採用検証で必ず失敗する（既定フィルタで落ちるだけのグループは
+    // 「すべて表示」から選び直せるので、showAll=true の母集団で判定する）。
+    if (groupId != null) {
+      const nextKind: ProcessCandidateKind =
+        value === 'none' ? 'none' : value
+      const stillSelectable = listProcessCandidates(candidateGroups, {
+        kind: nextKind,
+        cutoffStr,
+        showAll: true,
+      }).some((g) => g.groupId === groupId)
+      if (!stillSelectable) {
+        setGroupId(null)
+        setBroadcast(false)
+      }
     }
   }
 
