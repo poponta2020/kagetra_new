@@ -264,3 +264,5 @@
 - [roster-file-adoption 改修 タスク4](impl_roster-file-adoption-delta-task4.md) — 採用シートのグループ候補化・すべて表示トグル・パース取込UIの退役
 - [auto-review PR #439](auto-review-round-pr439.md) — R3 verdict=pass（R1 blocker 修正・R2 再掲は WONTFIX）
 - [名簿ファイル採用: 級別採用・候補フィルタ・パース取込UIの退役](project_ship-roster-file-adoption-delta.md) — shipped: PR #439
+- [ship後のworktree残骸が次の着手を止める](feedback_windows_ship_worktree_remnant.md) — Windowsでworktree削除が失敗し.git無しの残骸が残る。rm -rf で消す・remoteブランチも手動削除
+- [codex全差分レビューは10分上限を超える](feedback_codex_full_diff_review_timeout.md) — initial/final(sol/high)は run_in_background 必須。前景だとSIGTERMで結果JSONが残らない
