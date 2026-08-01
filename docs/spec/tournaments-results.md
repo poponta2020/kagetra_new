@@ -97,7 +97,7 @@
 - 会員突合: 正規化姓名が会員（`users.name`）に**単独一致**したときだけ `entry.userId` と `players.userId` を張る。0件または複数一致では両方を `null` にし、既存の曖昧な自動リンクも解除する
 - 出場状態（`roster_entry_status`）はファイルの状態列テキストから `mapEntryStatus` でマップする。繰上（繰上/繰り上）表記をまず判定し、その中で辞退/不参加を伴うものだけを `carried_up` より先に `carry_up_declined` とする順序が重要（そうしないと「繰り上げ辞退」が出場扱いに倒れる）。名簿は外部事実として扱い、取込では出欠を自動更新しない
 
-取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
+取込の入口は**メール取り込みの承認 UI（`/admin/mail-inbox/roster-drafts/[id]`）のみ**で、**2026-08-01 にメール詳細からの導線を退役させた**ため新規のドラフトは UI からは作られない（パーサ・Server Action・承認画面・テーブルは温存。直 URL では従来どおり動き、将来の AI 名簿取込が承認 UI と materialize を再利用する）。以下は温存されたパース経路の仕様。entry-groups 以降は採用先も申込グループで、承認時にグループ内の全日の詳細ページを revalidate する。大会詳細（`/events/[id]`）にあった Excel アップロードフォームと Server Action `uploadRoster` は event-detail-redesign で削除した — メール側が発行日の入力・訂正版の指定も含めて上位互換で、`applicant` / `confirmed` の両方を取り込めるため。削除に伴い `uploadRoster` が持っていた `kind !== 'individual'`（団体戦）ガードも失われるが、団体戦に名簿を取り込む運用が無いため許容している。`parseRosterGrid` / `materializeRoster` / `readExcel` はメール取込フローが使う共有ライブラリなので削除していない。大会詳細側の名簿**表示** UI（級タブ・級の若い順・会員突合）の詳細は [spec/events-attendance.md](events-attendance.md) を参照。ここでは解析・確定保存ロジックのみを正典として扱う。
 
 ### 名簿ファイルの採用（パース非依存の原本登録）
 

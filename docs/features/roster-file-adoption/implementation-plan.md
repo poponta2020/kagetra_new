@@ -121,7 +121,9 @@ grades  grade[]  NULL   -- NULL = グループ統一（既存行は無変換で�
 - **完了条件:** テスト green・`check-types`・lint 通過
 
 ### タスク4: メール詳細 — 候補クエリ・採用シート UI・パースセクション削除 — Issue #437
-- [ ] 完了
+- [x] 完了（候補の表示名は要件 §3.2.7 どおり**通称ベース**で導出した。手順書の
+  「`listMergeCandidateGroups` と同型」は title ベースの記述で要件と食い違うため、
+  申込管理ボードと同じ手順1〜3（通称+級 → deriveEntryGroupName → title フォールバック）を採った）
 - **目的:** シートに取込単位選択・絞込候補・トグルを実装し、パース取込導線を退役する
 - **対応AC:** AC-1（UI）, AC-17（トグル）, AC-18（採用済み表示の級ラベル）, AC-20, AC-21
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`

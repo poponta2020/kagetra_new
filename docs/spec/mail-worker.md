@@ -151,7 +151,11 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 `.xls`/`.xlsx` 添付がある場合、画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
-添付が 1 件でもあると、画面下部に「名簿ファイルの採用」セクションが独立して表示される（`RosterFileAdoptSheet` → `adoptRosterFile` / `releaseRosterFile`）。これは解析せず原本のまま名簿として登録する経路で、`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立している —— ドラフトの状態を読まず変えないため、`triage_status` や draft の有無に関わらず常に出る。対象イベント候補は「既存イベントに紐付ける」と同じ `linkable-events.ts` の条件を共有する。採用済みの添付には種別と対象大会が表示され、同じ場所から解除できる。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
+添付が 1 件でもあると、画面下部に「名簿ファイルの採用」セクションが独立して表示される（`RosterFileAdoptSheet` → `adoptRosterFile` / `releaseRosterFile`）。これは解析せず原本のまま名簿として登録する経路で、`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立している —— ドラフトの状態を読まず変えないため、`triage_status` や draft の有無に関わらず常に出る。採用済みの添付には種別・級・対象大会が表示され、同じ場所から解除できる。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
+
+採用シートは**名簿種別**（申込者／確定）と**取込単位**（グループ統一／級別）を選ぶと、対象候補がその組み合わせで切り替わる。サーバー（`loadRosterAdoptableGroups`）が渡すのは「個人戦 ∧ 非 cancelled ∧ 開催日が `linkable-events.ts` の cutoff 以降を**同一 event 行が同時に満たす**日を 1 つ以上持つ申込グループ」の平ら DTO（グループ表示名は申込管理ボードと同じ通称ベースの規約でサーバー側が導出し、日別の申込状態・対象級と既存の採用状況をそのまま渡す）で、4象限の絞り込みは client の純関数 `roster-adopt-utils.ts` が計算する（`/admin/entries` と同じ分担。この leaf は client バンドルへ DB 依存を漏らさないため schema / `@/lib/entry-groups` を import しない）。既定では「申込済み ∧ その種別が未取込」だけを出し、級別ファイルが一部の級しかカバーしていないグループは全級が揃うまでグループ統一の候補にも出し続ける。**「すべて表示」トグル**で既定フィルタを外すと基本条件のみの全候補になり、複数ファイル採用（「参加者一覧」と「参加費一覧」）や申込済みマーク忘れの大会にも採用できる。級別は同一グループ内でのみ複数級を同時選択できる（1 採用レコード = 1 グループのため）。
+
+**決定論パース取込の UI 導線は 2026-08-01 に退役した**。かつてこの画面にあった「大会名簿の取込」セクション（`RosterParseButton`・名簿ドラフトカード・`/admin/mail-inbox/roster-drafts/[id]` へのリンク）は表示しない —— 本番の実名簿ではパースが一度も成功せず、ファイル採用が事実上の唯一の取込経路になったため、導線が並ぶと迷いを生むだけだった。**コードは全て温存**してある（パーサ・`triggerRosterParse` / 承認 / 却下の Server Action・roster-drafts ページ・テーブル・既存テスト。直 URL では従来どおり動く）。将来の AI 名簿取込が承認 UI と materialize を土台に使うため削除しない。
 
 名簿候補は件名・本文・添付名だけで低コストに判定し、空の申込書や一般案内を除外する。`roster_parse` は `.xls` / `.xlsx` / `.xlsm` の氏名表を全シートから解析し、PDF・Word・本文は既存抽出テキストを確認用ドラフトとして保持する。添付は `source_attachment_id`、本文は `source_mail_message_id` ごとの部分一意制約で冪等化する。構造を確定できない原本は `parse_failed`、正規化氏名の同級重複は行を削除せず `pending_review` の `validationIssues` に残す。採用・訂正フローは tournament-lottery-trends の管理画面仕様が担当する。
 
