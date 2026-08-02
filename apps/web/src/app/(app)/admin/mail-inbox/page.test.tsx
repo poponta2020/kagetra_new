@@ -281,6 +281,38 @@ describe('admin/mail-inbox list page (mail-triage-badge)', () => {
     expect(screen.getByText('8/2(日) C級')).toBeTruthy()
   })
 
+  it('AC-26: mail_kind ありのメールに種別ピルが出る', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await createMailMessage({
+      subject: 'kind pill mail',
+      triageStatus: 'unprocessed',
+      mailKind: 'confirmed_roster',
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('確定名簿')).toBeTruthy()
+  })
+
+  it('AC-26: mail_kind 未選択のメールには種別ピルが出ない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await createMailMessage({
+      subject: 'no kind pill mail',
+      triageStatus: 'unprocessed',
+      mailKind: null,
+    })
+
+    await renderPage()
+
+    expect(screen.queryByText('大会案内')).toBeNull()
+    expect(screen.queryByText('申込名簿')).toBeNull()
+    expect(screen.queryByText('確定名簿')).toBeNull()
+    expect(screen.queryByText('ノイズ')).toBeNull()
+    expect(screen.queryByText('不明')).toBeNull()
+  })
+
   it('AC-34: confidence 等の旧フィールドを持つドラフトを開いても壊れない', async () => {
     // 2.x 世代のペイロード（short_name_stem を持ち formal_name も持つ）を
     // 模し、confidence 列に値が入っていてもクラッシュせず formal_name を表示する。

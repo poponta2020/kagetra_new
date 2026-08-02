@@ -31,7 +31,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマとマイグレーション
-- [ ] 完了
+- [x] 完了
 - **目的:** 種別列と本文添付フラグを持たせる
 - **対応AC:** AC-1, AC-15, AC-17, AC-26
 - **主な変更領域:** `packages/shared/src/schema/enums.ts` / `schema/mail-messages.ts` /
@@ -47,7 +47,7 @@ status: completed
 - **対応Issue:** #441
 
 ### タスク2: 候補グループのローダと種別別フィルタ
-- [ ] 完了
+- [x] 完了
 - **目的:** 「対象の大会」候補を申込グループ単位で1本にまとめ、種別で出し分けられるようにする
 - **対応AC:** AC-5, AC-6, AC-7, AC-18
 - **主な変更領域:**
@@ -68,7 +68,7 @@ status: completed
 - **対応Issue:** #442
 
 ### タスク3: LINE 配信の本文添付フラグ
-- [ ] 完了
+- [x] 完了
 - **目的:** 本文を送る／送らないを選べるようにし、再送でも同じ構成を再現する
 - **対応AC:** AC-16, AC-17, AC-30
 - **主な変更領域:** `apps/web/src/lib/line-broadcast.ts` /
@@ -89,7 +89,7 @@ status: completed
 - **対応Issue:** #443
 
 ### タスク4: Server Actions（実行・undo・AI 抽出）
-- [ ] 完了
+- [x] 完了
 - **目的:** 1 回の実行で 種別保存・大会紐付け・名簿一括採用・LINE 配信を行い、undo で戻す
 - **対応AC:** AC-2, AC-9, AC-10, AC-11, AC-12, AC-14, AC-19, AC-21, AC-22, AC-24, AC-28
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`
@@ -117,7 +117,7 @@ status: completed
 - **対応Issue:** #444
 
 ### タスク5: メール詳細画面の統合フォーム
-- [ ] 完了
+- [x] 完了
 - **目的:** design-mock の A案 を実コードに移植する
 - **対応AC:** AC-1, AC-3, AC-4, AC-5, AC-8, AC-9, AC-13, AC-14, AC-15, AC-18, AC-20, AC-23, AC-25, AC-26, AC-31
 - **主な変更領域:**
@@ -142,7 +142,7 @@ status: completed
 - **対応Issue:** #445
 
 ### タスク6: 一覧の種別ピル差し替え
-- [ ] 完了
+- [x] 完了
 - **目的:** 一覧の区分ピルを AI 由来から手動種別へ変える
 - **対応AC:** AC-26
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`

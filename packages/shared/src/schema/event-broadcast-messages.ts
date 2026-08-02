@@ -36,6 +36,11 @@ export const eventBroadcastMessages = pgTable(
     // Optional heading prepended to a manual existing-event link broadcast
     // (lead → body → attachment). Saved so manualBroadcast can resend it.
     leadText: text('lead_text'),
+    // mail-inbox-mailer (2026-08-02): メール本文を配信列に載せたか。
+    // ★`lead_text` / `is_correction` と同じく「メッセージ列を決める入力」なので
+    // 永続化が必須（要件 §6）。既配信ぶんを先頭から読み飛ばす再送ロジックが、
+    // 初回と異なる列で走ると誤った位置をスキップする。既定 true = 従来挙動。
+    includeBody: boolean('include_body').notNull().default(true),
     sentLeadCount: integer('sent_lead_count').notNull().default(0),
     sentTextCount: integer('sent_text_count').notNull().default(0),
     sentImageCount: integer('sent_image_count').notNull().default(0),

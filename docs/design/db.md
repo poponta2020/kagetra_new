@@ -41,6 +41,7 @@
 | event_lifecycle_notification_type | eventLifecycleNotificationTypeEnum | entry_applied, entry_deadline_advance, entry_deadline_day, payment_paid, payment_deadline_advance, payment_deadline_day, onsite_payment_advance, onsite_payment_day, entry_applied_treasurer |
 | event_lifecycle_notification_status | eventLifecycleNotificationStatusEnum | sent, failed, skipped |
 | mail_triage_status | mailTriageStatusEnum | unprocessed, processed |
+| mail_kind | mailKindEnum | tournament_notice, applicant_roster, confirmed_roster |
 | result_draft_status | resultDraftStatusEnum | pending_review, approved, rejected, parse_failed, superseded |
 | match_result | matchResultEnum | win, lose |
 | match_status | matchStatusEnum | normal, walkover, forfeit |

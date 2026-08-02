@@ -29,6 +29,7 @@
 | triaged_at | timestamptz | NULL | — | |
 | triaged_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
 | linked_event_id | integer | NULL | — | FK→events.id ON DELETE SET NULL |
+| mail_kind | mail_kind (enum) | NULL | — | 管理者が手選択した種別。NULL=未選択（その他）。`classification`とは別軸でAI/pre-filterは書かない |
 
 **制約・インデックス**:
 - UNIQUE(message_id)

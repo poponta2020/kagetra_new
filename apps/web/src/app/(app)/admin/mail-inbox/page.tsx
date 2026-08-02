@@ -37,10 +37,13 @@ const STATUS_LABEL: Record<string, { label: string; tone: PillTone }> = {
   archived: { label: 'アーカイブ', tone: 'neutral' },
 }
 
-const CLASSIFICATION_LABEL: Record<string, { label: string; tone: PillTone }> = {
-  tournament: { label: '大会案内', tone: 'brand' },
-  noise: { label: 'ノイズ', tone: 'neutral' },
-  unknown: { label: '不明', tone: 'neutral' },
+// mail-inbox-mailer タスク6 (AC-26): 一覧の区分ピルを AI 由来の classification
+// から手動選択の mail_kind へ差し替える。classification 列自体は pre-filter・
+// AI 用途で残すため、表示から外すだけ（schema は変更しない）。
+const MAIL_KIND_LABEL: Record<string, { label: string; tone: PillTone }> = {
+  tournament_notice: { label: '大会案内', tone: 'brand' },
+  applicant_roster: { label: '申込名簿', tone: 'brand' },
+  confirmed_roster: { label: '確定名簿', tone: 'brand' },
 }
 
 // PR5 Phase 4c — `mail_worker_runs.status` mapping for the recent-runs table.
@@ -66,7 +69,7 @@ const LIST_COLUMNS = {
   receivedAt: true,
   subject: true,
   status: true,
-  classification: true,
+  mailKind: true,
   triageStatus: true,
   // mail-inbox-mailer (Codex r3 blocker): 処理済セクションの「未処理に戻す」が
   // linked_event_id を解除しないと、紐付け先イベントの関連メールに残り続けて
@@ -157,18 +160,16 @@ export default async function MailInboxPage() {
       label: row.status,
       tone: 'neutral' as const,
     }
-    const classification = row.classification
-      ? CLASSIFICATION_LABEL[row.classification]
-      : null
+    const mailKind = row.mailKind ? MAIL_KIND_LABEL[row.mailKind] : null
     return (
       <Card key={row.id}>
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-ink-meta">{formatJst(row.receivedAt)}</span>
             <div className="flex items-center gap-1.5">
-              {classification && (
-                <Pill tone={classification.tone} size="sm">
-                  {classification.label}
+              {mailKind && (
+                <Pill tone={mailKind.tone} size="sm">
+                  {mailKind.label}
                 </Pill>
               )}
               <Pill tone={status.tone} size="sm">
@@ -190,19 +191,17 @@ export default async function MailInboxPage() {
           )}
           <div className="mt-1">
             {/* mail-inbox-mailer (Codex r3 blocker): processed 行の
-                「未処理に戻す」が undoTriage 単独だと linked_event_id を解除
-                しない。UndoTriageButton に振り替えて、linkedEventId がある場合は
-                unlinkMailFromEvent を呼ぶ動線にする。unprocessed 行はそのまま
+                「未処理に戻す」が triage だけを戻すと linked_event_id が残る。
+                2026-08-02 改修で undoTriage 自体が種別・紐付け・そのメール由来の
+                名簿採用をまとめて戻すようになったので、UndoTriageButton は
+                linkedEventId の有無で呼び分けない。unprocessed 行はそのまま
                 TriageActions（対応不要のクイックアクション）を維持。
                 Codex r6 should-fix: dismissMail はサーバー側で未完了 draft
                 (ai_processing/pending_review/ai_failed) があるメールを拒否する
                 ので、一覧でも該当 draft があれば「対応不要」を出さない。
                 draft 詳細 / 再試行は DraftCard リンク or 詳細画面に集約する。 */}
             {row.triageStatus === 'processed' ? (
-              <UndoTriageButton
-                mailId={row.id}
-                hasLinkedEvent={row.linkedEventId != null}
-              />
+              <UndoTriageButton mailId={row.id} />
             ) : row.draft?.status === 'ai_processing' ||
               row.draft?.status === 'pending_review' ||
               row.draft?.status === 'ai_failed' ? null : (

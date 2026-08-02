@@ -181,6 +181,17 @@ export const eventLifecycleNotificationStatusEnum = pgEnum('event_lifecycle_noti
 // 処理せず放置することが暗黙の保留である、というモデルに統合。
 export const mailTriageStatusEnum = pgEnum('mail_triage_status', ['unprocessed', 'processed'])
 
+// mail-inbox-mailer (2026-08-02): 管理者が手で選ぶメール種別。統合処理フォームの
+// 分岐（AI 抽出 / 名簿採用 / LINE 配信の出し分け）の起点。
+// ★AI・pre-filter が書く `mail_classification` とは**別軸**で、互いに書き換えない
+// （同居させると再抽出で手動選択が消える。要件 §6）。「未選択」は enum 値ではなく
+// 列の NULL で表す（「その他＝組合せ表・会場案内・領収書」の意味も兼ねる）。
+export const mailKindEnum = pgEnum('mail_kind', [
+  'tournament_notice',
+  'applicant_roster',
+  'confirmed_roster',
+])
+
 // tournament-results: 全国大会結果の取込ドラフト・試合勝敗。
 // result_draft_status: 結果 Excel 取込ドラフトの状態。tournament_draft_status の
 // 兄弟だが AI 状態がない代わりに決定的パース失敗の `parse_failed` を持つ。

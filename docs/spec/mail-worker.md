@@ -72,12 +72,13 @@ Message-ID が無いメールはパース失敗として `FetchedMailError`（`s
 
 ### AI 抽出（手動起動・cron では起動しない）
 
-以前は fetch cron が全新着メールに対して自動で AI 判定していたが、現在は**管理者が受信箱詳細で「会で流す（AI 抽出）」を明示的に押した時のみ**起動する（`triggerExtractDraft` Server Action、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）。この Server Action は 1 トランザクションで:
+以前は fetch cron が全新着メールに対して自動で AI 判定していたが、現在は**管理者が受信箱詳細で統合処理フォームの種別に「大会案内」を選び「AI で大会を読み取る」を押した時のみ**起動する（`triggerExtractDraft` Server Action、`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）。この Server Action は 1 トランザクションで:
 
 1. `tournament_drafts` へ `status='ai_processing'` の行を UPSERT（既存 `ai_failed` はリセットして再利用、`ai_processing` 中の重複起動はエラー）
-2. `mail_worker_jobs` へ `kind='manual_extract'`, `payload={mail_message_id}` を INSERT
+2. `mail_messages.mail_kind='tournament_notice'` を保存（`triage_status` は `unprocessed` のまま。承認／却下で `processed` に倒れる）
+3. `mail_worker_jobs` へ `kind='manual_extract'`, `payload={mail_message_id}` を INSERT
 
-「会で流す（AI 抽出）」は**添付選択ダイアログ**（`AIExtractConfirmDialog`）を経由する。添付をファイル名・種別・サイズ付きで一覧し、**既定は全て未チェック**。サイズ上限（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を超える PDF はチェックできない。添付が1件以上あるのに全て未チェックのまま実行しようとすると「本文だけで実行しますか？」の確認を1段挟む（添付0件のメールでは挟まない）。同じダイアログをドラフト詳細の「再 AI 抽出」でも使い、**前回の選択を初期値として復元**する（復元時は現在のサイズ上限で正規化し、上限を超えた／削除された添付は選択から落として警告する —— 外せないチェックが残ると再抽出が詰むため）。
+「AI で大会を読み取る」は**添付選択ダイアログ**（`AIExtractConfirmDialog`）を経由する。添付をファイル名・種別・サイズ付きで一覧し、**既定は全て未チェック**。サイズ上限（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を超える PDF はチェックできない。添付が1件以上あるのに全て未チェックのまま実行しようとすると「本文だけで実行しますか？」の確認を1段挟む（添付0件のメールでは挟まない）。同じダイアログをドラフト詳細の「再 AI 抽出」でも使い、**前回の選択を初期値として復元**する（復元時は現在のサイズ上限で正規化し、上限を超えた／削除された添付は選択から落として警告する —— 外せないチェックが残ると再抽出が詰むため）。
 
 選択は `tournament_drafts.selected_attachment_ids`（`integer[]`、NULL = 旧データ／未指定＝全添付）に永続化する。書き込みは**ジョブ enqueue より前**に同一トランザクションで行う —— ワーカーはジョブ実行時にこの列を読むので、順序が逆だと NULL を読んで全添付を送ってしまい、エラーも出ないまま機能が死ぬ。Server Action は UI を経由しない不正な選択を拒否する: **当該メールに属さない添付 id**（`mail_message_id` で絞ったクエリで存在確認する。他メールの添付を読ませられるのは情報漏洩）と、**サイズ上限超過の PDF**、そして**選択の合計サイズ超過**。検証は既存の `FOR UPDATE` トランザクション内で行い、多重起動ガードを弱めない。
 
@@ -140,20 +141,33 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 本文は折りたたみなしで即時表示（`bodyText` 優先、無ければ `bodyHtml` を生テキストとして `<pre>` 表示。HTML はエスケープされ `dangerouslySetInnerHTML` は使わない）。アクションエリアは `triage_status` + `draft.status` で分岐する:
 
-- `processed` → 「未処理に戻す」（`UndoTriageButton`。既存イベント紐付けがあれば同時に解除する旨を注記）
-- draft なし → `MailDetailActions` の 3 ボタン: (a) 会で流す（AI 抽出、**添付選択ダイアログ**経由で `triggerExtractDraft`）、(b) 既存イベントに紐付ける（`ExistingEventLinkSheet` → `linkMailToEvent`）、(c) 対応不要（`dismissMail`。未完了 draft がある行は拒否）
+- `processed` → 「未処理に戻す」（`UndoTriageButton` → `undoTriage`。種別・大会紐付け・そのメール由来の名簿採用がまとめて取り消される旨と、LINE 配信済みメッセージは取り消せない旨を注記）
+- draft なし → **統合処理フォーム**（`MailProcessForm`）。カード外に「対応不要」（`dismissMail`。未完了 draft がある行は拒否）
 - `draft.status='ai_processing'` → `ExtractionInProgressCard`（polling）
 - `draft.status='ai_failed'` → 再試行ボタン（`AIExtractConfirmDialog`）
 - `draft.status='pending_review'` → `DraftCard` + 承認詳細へのリンク
 - `approved`/`rejected`/`superseded` → `DraftCard` + 詳細リンク（読み取り専用）
 
-「既存イベントに紐付ける」候補は、キャンセル済みでなく開催日が「今日以降」または「過去 30 日以内」のイベントに限定される（`linkable-events.ts` の `linkableEventCutoffStr()` / `validateLinkableEvent()` が UI クエリと `linkMailToEvent` Server Action の両方で同じ条件を評価する二重防御）。紐付け時は任意の「冒頭メッセージ」（200 文字以内）を LINE 配信に付加できる。
+#### 統合処理フォーム（`MailProcessForm`）
 
-`.xls`/`.xlsx` 添付がある場合、画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
+「種別 → 対象の大会 → 実行」の 1 フォームに畳んだ処理導線。上から **種別**（未選択 / 大会案内 / 申込名簿 / 確定名簿 のセグメント）→ **対象の大会**（申込グループ単位。`GroupPickerSheet`）→ **採用する名簿ファイル**（名簿種別のみ）→ **発表日**（名簿種別のみ）→ **LINE 配信** → **実行する**。選んだ種別に応じて必要な欄だけが DOM に生える。
 
-添付が 1 件でもあると、画面下部に「名簿ファイルの採用」セクションが独立して表示される（`RosterFileAdoptSheet` → `adoptRosterFile` / `releaseRosterFile`）。これは解析せず原本のまま名簿として登録する経路で、`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立している —— ドラフトの状態を読まず変えないため、`triage_status` や draft の有無に関わらず常に出る。採用済みの添付には種別・級・対象大会が表示され、同じ場所から解除できる。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
+- 種別 = 大会案内 → 対象・名簿・配信の欄は出さず AI 抽出だけ（承認が新規の申込グループを作る経路で、その時点では LINE グループが存在しないため配信を選ばせない）
+- 種別 = 未選択 → 「その他」（組合せ表・会場案内・要項の訂正版・領収書）。大会紐付けと LINE 配信だけを行う
+- 種別 = 申込名簿 / 確定名簿 → 添付を複数選んで級を指定し、まとめて採用する
+- 種別・大会・級は**「実行する」または「AI で大会を読み取る」を押した時だけ**保存される（選択途中の状態はサーバーに残らない）
 
-採用シートは**名簿種別**（申込者／確定）と**取込単位**（グループ統一／級別）を選ぶと、対象候補がその組み合わせで切り替わる。サーバー（`loadRosterAdoptableGroups`）が渡すのは「個人戦 ∧ 非 cancelled ∧ 開催日が `linkable-events.ts` の cutoff 以降を**同一 event 行が同時に満たす**日を 1 つ以上持つ申込グループ」の平ら DTO（グループ表示名は申込管理ボードと同じ通称ベースの規約でサーバー側が導出し、日別の申込状態・対象級と既存の採用状況をそのまま渡す）で、4象限の絞り込みは client の純関数 `roster-adopt-utils.ts` が計算する（`/admin/entries` と同じ分担。この leaf は client バンドルへ DB 依存を漏らさないため schema / `@/lib/entry-groups` を import しない）。既定では「申込済み ∧ その種別が未取込」だけを出し、級別ファイルが一部の級しかカバーしていないグループは全級が揃うまでグループ統一の候補にも出し続ける。**「すべて表示」トグル**で既定フィルタを外すと基本条件のみの全候補になり、複数ファイル採用（「参加者一覧」と「参加費一覧」）や申込済みマーク忘れの大会にも採用できる。級別は同一グループ内でのみ複数級を同時選択できる（1 採用レコード = 1 グループのため）。
+対象の大会は**申込グループ**単位で選ぶ（複数日開催でも候補は 1 行）。候補は `process-candidates.ts` の `loadProcessCandidateGroups()` が「開催日が `linkable-events.ts` の cutoff 以降 ∧ 非 cancelled の日を 1 つ以上持つ申込グループ」として返し、種別ごとの絞り込みは client の純関数 `process-candidate-utils.ts` が行う（この leaf は client バンドルへ DB 依存を漏らさないため schema / `@/lib/*` / `drizzle-orm` を import しない）。未選択種別は団体戦のみのグループも候補に含み、名簿種別は「個人戦 ∧ cutoff 以降」を**同一 event 行が同時に満たす**日を持つグループに限る。
+
+保存時は選んだグループの「cutoff 以降 ∧ 非 cancelled」の日から代表イベントを解決して `mail_messages.linked_event_id` に入れる（グループは `events.entry_group_id` から一意に引けるので二重管理しない）。紐付け時は任意の「冒頭メッセージ」（200 文字以内）を LINE 配信に付加できる。
+
+LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 紐付けが無いときは選択できず**理由と大会詳細へのリンクを出す（従来は黙ってスキップしていた）。「メール本文を添付する」（既定 ON）を外すと本文画像も本文テキストも送らず、冒頭メッセージと添付リンクだけを配信する。この可否は `event_broadcast_messages.include_body` に保存され、再送時も同じメッセージ構成が再現される。
+
+`.xls`/`.xlsx` 添付がある場合、**種別 = 未選択のときだけ**画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
+
+名簿ファイルの採用（解析せず原本のまま名簿として登録する経路）は、統合処理フォームの「採用する名簿ファイル」欄が入口。**「取込単位（グループ統一／級別）」のラジオは無く、「級を 1 つも選ばない = グループ統一名簿」**に畳んである。1 回の実行で選んだ全添付が `processMail` の 1 トランザクションで採用され、1 件でも失敗したら全体が失敗する（部分採用を残さない）。既に採用済みの添付は選択肢に出さず、採用状態（種別ピル・級ピル・対象大会）と「採用を解除」（`releaseRosterFile`）を出す。`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立で、ドラフトの状態を読まず変えない。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
+
+名簿種別の候補は既定で「申込済み ∧ その種別が未取込」だけを出し、級別ファイルが一部の級しかカバーしていないグループは全級が揃うまで候補に出し続ける。**「すべて表示」トグル**で既定フィルタを外すと基本条件のみの全候補になり、複数ファイル採用（「参加者一覧」と「参加費一覧」）や申込済みマーク忘れの大会にも採用できる。4象限の絞り込み計算は `roster-adopt-utils.ts` の純関数を `process-candidate-utils.ts` がそのまま再利用する（`/admin/entries` と同じ分担）。級チップはグループの対象級だけが押せる（サーバー `adoptRosterFile` / `adoptRosterFileTx` の級集合検証と母集団を揃えるため、団体戦の日は除外して算出する）。
 
 **決定論パース取込の UI 導線は 2026-08-01 に退役した**。かつてこの画面にあった「大会名簿の取込」セクション（`RosterParseButton`・名簿ドラフトカード・`/admin/mail-inbox/roster-drafts/[id]` へのリンク）は表示しない —— 本番の実名簿ではパースが一度も成功せず、ファイル採用が事実上の唯一の取込経路になったため、導線が並ぶと迷いを生むだけだった。**コードは全て温存**してある（パーサ・`triggerRosterParse` / 承認 / 却下の Server Action・roster-drafts ページ・テーブル・既存テスト。直 URL では従来どおり動く）。将来の AI 名簿取込が承認 UI と materialize を土台に使うため削除しない。
 
@@ -215,10 +229,10 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 - `reextractDraft(draftId)` — 単一ドラフトの再 AI 抽出（materialize 済みがあれば拒否）
 - `linkDraftToEvent(draftId, eventId)` — 既存イベントへの単純紐付け
 - `dismissMail(mailId)` — 「対応不要」triage（未完了 draft があれば拒否）
-- `undoTriage(mailId)` — 処理済み → 未処理へ戻す
-- `triggerExtractDraft(mailId)` — 「会で流す（AI 抽出）」。`tournament_drafts` upsert + `manual_extract` ジョブ enqueue
-- `linkMailToEvent(mailId, eventId, leadText?)` — 「既存イベントに紐付ける」（draft 経由でない、補足メール向け）
-- `unlinkMailFromEvent(mailId)` — 既存イベント紐付けの取り消し（LINE 配信済みメッセージ自体は取り消せない）
+- `undoTriage(mailId)` — 処理済み → 未処理へ戻す。**種別・大会紐付け・そのメール由来の名簿採用をまとめて取り消す**（LINE 配信済みメッセージ自体は取り消せない）
+- `triggerExtractDraft(mailId)` — 「AI で大会を読み取る」。`tournament_drafts` upsert + `mail_kind='tournament_notice'` 保存 + `manual_extract` ジョブ enqueue
+- `processMail(mailId, input)` — 統合処理フォームの実行。種別保存・申込グループへの紐付け・名簿の一括採用・`triage_status='processed'` を 1 トランザクションで行い、コミット後に `after()` で LINE 配信を起動する
+- `adoptRosterFile(...)` / `releaseRosterFile(...)` — 名簿ファイルの単体採用／解除。採用の実処理は `adoptRosterFileTx` に切り出してあり、`processMail` が同じ tx に載せて複数添付を一括採用する
 - `triggerMailFetch(formData)` — 手動 IMAP 取得ジョブの enqueue（24h/3d/7d/custom プリセット）
 - `triggerResultParse(mailId, attachmentId)` / `approveResultDraft(...)` / `rejectResultDraft(...)` — 結果 Excel 取込系。ロジックの正典は [spec/tournaments-results.md](tournaments-results.md)（本ファイルはトリガ導線のみ記述）
 - `triggerRosterParse(mailId, attachmentId)` — 対応する添付（Excel/PDF/Word/text）または本文を指定し、同じ原本の未完了ジョブを重複させず `roster_parse` をenqueueする

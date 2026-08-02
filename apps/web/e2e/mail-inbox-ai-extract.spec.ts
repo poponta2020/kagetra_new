@@ -12,11 +12,12 @@ import { createMailMessage } from '../src/test-utils/seed'
 import { testDb, truncateAll } from '../src/test-utils/db'
 
 /**
- * mail-inbox-mailer タスク7: 「会で流す（AI 抽出）」確認ダイアログ → triggerExtractDraft
- * のフロントエンド連動を end-to-end で確認する。
+ * mail-inbox-mailer: AI 抽出の確認ダイアログ → triggerExtractDraft のフロントエンド
+ * 連動を end-to-end で確認する。
  *
- * DOM 契約:
- *   - 未処理 + draft なしの mail 詳細画面に「会で流す（AI 抽出）」ボタンが出る
+ * DOM 契約（2026-08-02 改修の統合処理フォーム）:
+ *   - 未処理 + draft なしの mail 詳細画面で **種別 = 大会案内** を選ぶと
+ *     「AI で大会を読み取る」ボタンが出る（未選択・名簿種別では出ない = AC-4）
  *   - ボタン押下で確認ダイアログが開く
  *   - 「はい」で tournament_drafts INSERT (status='ai_processing') と
  *     mail_worker_jobs INSERT (kind='manual_extract', payload={mail_message_id})
@@ -45,7 +46,7 @@ test.describe('mail-inbox-mailer: AI extract trigger', () => {
     await truncateAll()
   })
 
-  test('「会で流す」→ 確認 →「はい」で draft (ai_processing) + manual_extract job が作られる', async ({
+  test('種別=大会案内 → AI 抽出 → 確認 →「はい」で draft (ai_processing) + manual_extract job が作られる', async ({
     browser,
   }) => {
     const admin = await seedAdminSession({ name: 'Inbox Admin' })
@@ -64,11 +65,13 @@ test.describe('mail-inbox-mailer: AI extract trigger', () => {
     // mail-inbox-mailer: 本文は details トグルではなく即時表示。
     await expect(page.getByText('テストの本文です。')).toBeVisible()
 
-    // 3 ボタンが揃って出る。
-    const triggerButton = page.getByRole('button', { name: '会で流す（AI 抽出）' })
-    await expect(triggerButton).toBeVisible()
-    await expect(page.getByRole('button', { name: '既存イベントに紐付ける' })).toBeVisible()
+    // mail-inbox-mailer 2026-08-02 改修: AI 抽出は種別 = 大会案内 を選んだときだけ
+    // 出る（AC-4）。既定の未選択では導線が無い。
     await expect(page.getByRole('button', { name: '対応不要' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'AI で大会を読み取る' })).toHaveCount(0)
+    await page.getByRole('button', { name: '大会案内', exact: true }).click()
+    const triggerButton = page.getByRole('button', { name: 'AI で大会を読み取る' })
+    await expect(triggerButton).toBeVisible()
 
     // 確認ダイアログ → 「はい」
     await triggerButton.click()
@@ -111,7 +114,8 @@ test.describe('mail-inbox-mailer: AI extract trigger', () => {
     const page = await context.newPage()
 
     await page.goto(`/admin/mail-inbox/mail/${mail.id}`)
-    await page.getByRole('button', { name: '会で流す（AI 抽出）' }).click()
+    await page.getByRole('button', { name: '大会案内', exact: true }).click()
+    await page.getByRole('button', { name: 'AI で大会を読み取る' }).click()
     await page.getByRole('button', { name: 'いいえ' }).click()
 
     await expect(page.getByText('AI で抽出します')).not.toBeVisible()
