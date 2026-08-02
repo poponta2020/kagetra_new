@@ -267,3 +267,7 @@
 - [ship後のworktree残骸が次の着手を止める](feedback_windows_ship_worktree_remnant.md) — Windowsでworktree削除が失敗し.git無しの残骸が残る。rm -rf で消す・remoteブランチも手動削除
 - [codex全差分レビューは10分上限を超える](feedback_codex_full_diff_review_timeout.md) — initial/final(sol/high)は run_in_background 必須。前景だとSIGTERMで結果JSONが残らない
 - [mail-inbox-mailer 統合処理フォーム 要件定義(2026-08-02改修)](project_mail_inbox_process_form_def.md) — 親Issue #440・子#441-446・実装未着手
+- [mail-inbox-mailer 統合処理フォーム 実装](impl_mail-inbox-mailer-unified-form.md) — 全6タスク実装。adoptRosterFile export維持・代表イベント選定・include_body の保存値優先が要点
+- [fix PR #447](impl_fix-pr447.md) — review 指摘の修正（blocker 2件修正・3件見送り）
+- [auto-review PR #447](auto-review-round-pr447.md) — 3R(i+d2) token-budget で中断・R3修正はレビュー未検証
+- [mail-inbox-mailer 統合処理フォーム 出荷](project_ship-mail-inbox-mailer-unified-form.md) — shipped: PR #447（残DoD=本番4パターン実機確認・cab8550はレビュー未検証）
