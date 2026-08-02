@@ -1,7 +1,9 @@
 /**
  * 申込フロー（会内締切→大会申込→抽選→支払→開催）の done/now/warn/neutral/goal を
  * 決める純関数。UI から独立させて描画側（EntryFlow コンポーネント）から呼ぶ。
- * 仕様の正: docs/features/event-detail-redesign/requirements.md §3.2.1 / §4。
+ * 仕様の正: docs/spec/events-attendance.md「申込フロー」（初出は
+ * docs/features/event-detail-redesign/requirements.md §3.2.1 / §4。抽選の
+ * 確定名簿連動は 2026-08-02 の quickfix で追加）。
  *
  * 排他的な単一 status ではなく合成可能なフラグにしているのは、warn が now と
  * 併存しうる（期限超過の未完了ステップが現在地でもある）ことと、開催ステップが
@@ -44,6 +46,13 @@ export interface EntryFlowInput {
   entryStatus: 'not_applied' | 'applied' | 'not_applying'
   paymentType: 'advance' | 'onsite' | null
   paymentStatus: 'unpaid' | 'paid'
+  /**
+   * 確定名簿（`confirmed`）が取り込まれているか。定義は申込管理ボードと同じ
+   * 「パース済み（supersede されていない版）∪ 採用済み原本ファイル」で、
+   * `applicant`（申込者名簿）は含めない。確定名簿は抽選結果そのものなので、
+   * 抽選日が未設定・未来日でも true なら抽選ステップを完了扱いにする。
+   */
+  hasConfirmedRoster: boolean
   /** JST の今日（`YYYY-MM-DD`）。テスト容易性のため呼び出し側から注入する */
   todayStr: string
 }
@@ -84,6 +93,7 @@ export function buildEntryFlow(input: EntryFlowInput): EntryFlowStep[] {
     entryStatus,
     paymentType,
     paymentStatus,
+    hasConfirmedRoster,
     todayStr,
   } = input
 
@@ -107,7 +117,9 @@ export function buildEntryFlow(input: EntryFlowInput): EntryFlowStep[] {
     {
       key: 'lottery',
       date: dateCell(lotteryDate, '未定'),
-      done: isPast(lotteryDate, todayStr),
+      // 確定名簿=抽選結果そのもの。抽選日の経過を待たず（未設定でも）完了にする。
+      // 日付欄は変えない（null なら「未定」のまま。完了は done スタイルで伝わる）。
+      done: isPast(lotteryDate, todayStr) || hasConfirmedRoster,
       isWarn: false,
       neutral: entryLotteryPaymentNeutral,
     },

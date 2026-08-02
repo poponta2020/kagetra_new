@@ -457,6 +457,12 @@ export default async function EventDetailPage({
     perGradeCapacities.length > 0 || eligibleGradeList.length > 0
 
   // 申込フロー（両ビュー共通）。判定は純関数へ切り出してある（AC-1〜9）。
+  // 確定名簿の有無は申込管理ボード（/admin/entries）と同じ定義:
+  // パース済み（rosters は上のクエリで supersede 済みを除外済み）∪ 採用済み
+  // 原本ファイル。どちらも confirmed のみ数え、applicant は影響させない。
+  const hasConfirmedRoster =
+    event.entryGroup.rosters.some((r) => r.rosterType === 'confirmed') ||
+    event.entryGroup.rosterFiles.some((f) => f.rosterType === 'confirmed')
   const flowSteps = buildEntryFlow({
     internalDeadline: event.internalDeadline,
     entryDeadline: event.entryDeadline,
@@ -466,6 +472,7 @@ export default async function EventDetailPage({
     entryStatus: event.entryStatus,
     paymentType: event.paymentType,
     paymentStatus: event.paymentStatus,
+    hasConfirmedRoster,
     todayStr,
   })
 

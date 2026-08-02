@@ -15,6 +15,7 @@ const baseInput: EntryFlowInput = {
   entryStatus: 'not_applied',
   paymentType: 'advance',
   paymentStatus: 'unpaid',
+  hasConfirmedRoster: false,
   todayStr: '2026-06-01',
 }
 
@@ -120,6 +121,56 @@ describe('buildEntryFlow', () => {
       })
       expect(steps.find((s) => s.key === 'internal')?.done).toBe(false)
       expect(steps.find((s) => s.key === 'lottery')?.done).toBe(false)
+    })
+  })
+
+  describe('確定名簿連動: hasConfirmedRoster===true なら抽選日を待たず抽選が done になる', () => {
+    it('抽選日が未来でも done になる', () => {
+      const steps = buildEntryFlow({
+        ...baseInput,
+        lotteryDate: '2026-07-10',
+        hasConfirmedRoster: true,
+        todayStr: '2026-06-01',
+      })
+      expect(steps.find((s) => s.key === 'lottery')?.done).toBe(true)
+    })
+
+    it('抽選日 NULL でも done になり、日付欄は未定のまま', () => {
+      const steps = buildEntryFlow({
+        ...baseInput,
+        lotteryDate: null,
+        hasConfirmedRoster: true,
+      })
+      const lottery = steps.find((s) => s.key === 'lottery')
+      expect(lottery?.done).toBe(true)
+      expect(lottery?.date).toEqual({ kind: 'text', value: '未定' })
+    })
+
+    it('抽選が done になったぶん現在地が次の未完了ステップ（支払）へ進む', () => {
+      const steps = buildEntryFlow({
+        ...baseInput,
+        internalDeadline: '2026-01-01',
+        entryStatus: 'applied',
+        lotteryDate: null,
+        hasConfirmedRoster: true,
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        todayStr: '2026-06-01',
+      })
+      const nowSteps = steps.filter((s) => s.isNow)
+      expect(nowSteps).toHaveLength(1)
+      expect(nowSteps[0]?.key).toBe('payment')
+    })
+
+    it('not_applying なら hasConfirmedRoster===true でも抽選は中立のまま done にならない', () => {
+      const steps = buildEntryFlow({
+        ...baseInput,
+        entryStatus: 'not_applying',
+        hasConfirmedRoster: true,
+      })
+      const lottery = steps.find((s) => s.key === 'lottery')
+      expect(lottery?.neutral).toBe(true)
+      expect(lottery?.done).toBe(false)
     })
   })
 
