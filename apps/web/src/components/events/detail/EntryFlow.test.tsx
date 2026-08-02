@@ -19,6 +19,7 @@ const BASE: EntryFlowInput = {
   entryStatus: 'not_applied',
   paymentType: 'advance',
   paymentStatus: 'unpaid',
+  hasConfirmedRoster: false,
   todayStr: '2026-07-20',
 }
 
