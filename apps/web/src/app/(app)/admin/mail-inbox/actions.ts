@@ -1768,6 +1768,7 @@ export async function processMail(
             id: events.id,
             status: events.status,
             eventDate: events.eventDate,
+            kind: events.kind,
           })
           .from(events)
           .where(eq(events.entryGroupId, input.entryGroupId))
@@ -1777,14 +1778,28 @@ export async function processMail(
         // cancelled」の日**だけ**から選ぶ。グループ単位の候補判定を代表イベント
         // 1 件に対する validateLinkableEvent で代用すると、候補には正しく出て
         // いるグループを弾いてしまう（代表が過去日・cancelled のことがある）。
+        //
+        // ★名簿種別ではさらに **個人戦** を要求する（Codex r1 blocker）。名簿は
+        // 個人戦のみの仕様で、UI 候補（process-candidate-utils）もそう絞って
+        // いるが、サーバー側が日付と cancelled しか見ていないと、採用添付ゼロで
+        // 実行された場合に adoptRosterFileTx の個人戦検証も走らず、団体戦しか
+        // ないグループへ名簿種別が確定してしまう（Server Action 直叩き／画面
+        // 表示後に個人戦イベントが別グループへ移された場合）。3 条件は**同一の
+        // event 行が同時に満たす**ことを要求する（別々の存在判定に分けると
+        // 「団体戦だけが cutoff 内で個人戦は 30 日より古い」グループが通る）。
         const cutoffStr = linkableEventCutoffStr()
         const qualifying = groupEvents.filter(
-          (e) => e.eventDate >= cutoffStr && e.status !== 'cancelled',
+          (e) =>
+            e.eventDate >= cutoffStr &&
+            e.status !== 'cancelled' &&
+            (!isRosterKind || e.kind === 'individual'),
         )
         const representative = selectRepresentativeEvent(qualifying, todayInJst())
         if (!representative) {
           throw new Error(
-            'この申込グループには紐付けできる開催日がありません（キャンセル除外・開催日が過去30日以降）',
+            isRosterKind
+              ? 'このグループには名簿を採用できる個人戦の開催日がありません（個人戦・キャンセル除外・開催日が過去30日以降）'
+              : 'この申込グループには紐付けできる開催日がありません（キャンセル除外・開催日が過去30日以降）',
           )
         }
         linkedEventId = representative.id
@@ -1873,6 +1888,29 @@ export async function processMail(
     const eventId = linkedEventId
     after(async () => {
       try {
+        // ★配信は実行の**応答後**に走るので、その間に「未処理に戻す」が完了して
+        // いることがある。LINE は送信後に取り消せないため、push を始める直前に
+        // 処理状態を読み直し、取り消し済み／別の大会へ付け替え済みなら送らない
+        // （Codex r1 blocker。after 実行中の取り消しまでは塞げないが、実害の
+        // 大半を占める「実行 → すぐ取り消し」を止められる）。
+        const current = await db
+          .select({
+            triageStatus: mailMessages.triageStatus,
+            linkedEventId: mailMessages.linkedEventId,
+          })
+          .from(mailMessages)
+          .where(eq(mailMessages.id, mailId))
+          .limit(1)
+        if (
+          current[0]?.triageStatus !== 'processed' ||
+          current[0]?.linkedEventId !== eventId
+        ) {
+          console.warn(
+            '[processMail] skipped broadcast: mail was undone or re-linked before delivery',
+            { mailId, eventId },
+          )
+          return
+        }
         await broadcastMailToEvent(db, {
           eventId,
           mailMessageId: mailId,

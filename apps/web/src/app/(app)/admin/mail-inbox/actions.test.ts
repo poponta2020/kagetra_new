@@ -3191,7 +3191,13 @@ describe('admin/mail-inbox actions', () => {
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
 
       broadcastMailToEventMock.mockClear()
-      afterMock.mockImplementationOnce((cb) => cb())
+      // ★after のコールバックは配信前にメール状態を読み直す（取り消し済みなら
+      // 送らない）ので、spy 呼び出しは同期的に起きない。戻り値の Promise を
+      // 掴んで await してから検証する。
+      let afterPromise: void | Promise<void> = undefined
+      afterMock.mockImplementationOnce((cb) => {
+        afterPromise = cb()
+      })
 
       const result = await processMail(mail.id, {
         mailKind: null,
@@ -3202,6 +3208,7 @@ describe('admin/mail-inbox actions', () => {
         leadText: '組合せ表の訂正版です',
       })
       expect(result.ok).toBe(true)
+      await afterPromise
 
       expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
       const callArgs = broadcastMailToEventMock.mock.calls[0] as unknown as [
@@ -3321,6 +3328,107 @@ describe('admin/mail-inbox actions', () => {
       })
       expect(result.ok).toBe(true)
       expect((await getMail(mail.id))?.linkedEventId).toBe(early.id)
+    })
+
+    it('★Codex r1: 名簿種別では団体戦しかないグループをサーバーが拒否する（採用添付ゼロでも）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      // 団体戦だけのグループ。UI 候補には出ないが Server Action 直叩きは通り得た。
+      await createEvent({ entryGroupId: group.id, kind: 'team' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await processMail(mail.id, {
+        mailKind: 'confirmed_roster',
+        entryGroupId: group.id,
+        // ★採用添付ゼロ = adoptRosterFileTx の個人戦検証が走らない経路。
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('unprocessed')
+      expect(after?.mailKind).toBeNull()
+      expect(after?.linkedEventId).toBeNull()
+    })
+
+    it('★Codex r1: 団体戦だけが cutoff 内・個人戦は cutoff より古いグループも名簿種別で拒否する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      // 3 条件を別々の存在判定に分けると通ってしまう構成（同一行 AND の回帰）。
+      await createEvent({ entryGroupId: group.id, kind: 'team', eventDate: '2030-05-10' })
+      await createEvent({
+        entryGroupId: group.id,
+        kind: 'individual',
+        eventDate: '2000-01-01',
+      })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await processMail(mail.id, {
+        mailKind: 'applicant_roster',
+        entryGroupId: group.id,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(false)
+      expect((await getMail(mail.id))?.triageStatus).toBe('unprocessed')
+    })
+
+    it('種別 = 未選択 なら団体戦のみのグループへも紐付けられる（AC-6 の回帰）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      const event = await createEvent({ entryGroupId: group.id, kind: 'team' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: group.id,
+        rosterFiles: [],
+        broadcast: false,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(true)
+      expect((await getMail(mail.id))?.linkedEventId).toBe(event.id)
+    })
+
+    it('★Codex r1: 配信が走る前に未処理へ戻されていたら LINE へ送らない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      await createEvent({ entryGroupId: group.id })
+      await linkLineGroup(group.id)
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      broadcastMailToEventMock.mockClear()
+      // after() のコールバックを保留し、「応答は返ったが配信はまだ」の窓を作る。
+      let deferred: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementationOnce((cb) => {
+        deferred = cb
+      })
+
+      const result = await processMail(mail.id, {
+        mailKind: null,
+        entryGroupId: group.id,
+        rosterFiles: [],
+        broadcast: true,
+        includeBody: true,
+      })
+      expect(result.ok).toBe(true)
+      expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+
+      // 配信が始まる前に取り消しが完了する。
+      await undoTriage(mail.id)
+
+      // ここで初めて after のコールバックが走る。
+      expect(deferred).not.toBeNull()
+      await deferred!()
+
+      // LINE は送信後に取り消せないので、そもそも送らないことが要件。
+      expect(broadcastMailToEventMock).not.toHaveBeenCalled()
     })
 
     it('未認証 / member は実行できない', async () => {
