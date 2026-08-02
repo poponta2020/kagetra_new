@@ -3431,6 +3431,53 @@ describe('admin/mail-inbox actions', () => {
       expect(broadcastMailToEventMock).not.toHaveBeenCalled()
     })
 
+    it('★Codex r2: 取り消し後に同じ大会へ再処理しても、旧実行の配信予約は復活しない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+      await createEvent({ entryGroupId: group.id })
+      await linkLineGroup(group.id)
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      broadcastMailToEventMock.mockClear()
+      // 1 回目: 配信 ON。after のコールバックを保留する。
+      let deferred: (() => void | Promise<void>) | null = null
+      afterMock.mockImplementationOnce((cb) => {
+        deferred = cb
+      })
+      expect(
+        (
+          await processMail(mail.id, {
+            mailKind: null,
+            entryGroupId: group.id,
+            rosterFiles: [],
+            broadcast: true,
+            includeBody: true,
+          })
+        ).ok,
+      ).toBe(true)
+
+      // 取り消し → 同じ大会へ再処理（今度は配信 OFF）。triage も linked_event_id
+      // も旧コールバックの期待値と再び一致する状態になる。
+      await undoTriage(mail.id)
+      expect(
+        (
+          await processMail(mail.id, {
+            mailKind: null,
+            entryGroupId: group.id,
+            rosterFiles: [],
+            broadcast: false,
+            includeBody: true,
+          })
+        ).ok,
+      ).toBe(true)
+
+      // ここで旧コールバックが走っても、処理世代が違うので配信しない。
+      expect(deferred).not.toBeNull()
+      await deferred!()
+      expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+    })
+
     it('未認証 / member は実行できない', async () => {
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
       const input = (): Parameters<typeof processMail>[1] => ({

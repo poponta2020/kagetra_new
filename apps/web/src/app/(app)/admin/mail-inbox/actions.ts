@@ -1696,10 +1696,17 @@ export async function processMail(
     }
   }
 
-  let linkedEventId: number | null = null
+  // コミット結果は tx の戻り値で受ける（外側の `let` に代入して読むと、TS の
+  // 制御フロー解析が初期化子のまま narrowing してしまう）。`processedAt` は
+  // この実行の「処理世代」: after() の配信が始まる前に取り消し → 同じ大会へ
+  // 再処理、が起きると triage/linked だけでは旧コールバックを識別できず、
+  // 再処理で配信を選んでいなくても旧予約が送られてしまう（Codex r2 blocker）。
+  // triaged_at は tx ごとの now() なので世代トークンとして使える。
+  let committed: { linkedEventId: number | null; processedAt: Date | null }
 
   try {
-    await db.transaction(async (tx) => {
+    committed = await db.transaction(async (tx) => {
+      let linkedEventId: number | null = null
       // mail を FOR UPDATE で取り、triage / 紐付け / draft を tx 内で verify する
       // （複数タブ・別管理者操作で stale な画面からの実行を弾く。既存
       //  linkMailToEvent / triggerExtractDraft と同じガード）。
@@ -1855,7 +1862,7 @@ export async function processMail(
         }
       }
 
-      await tx
+      const updated = await tx
         .update(mailMessages)
         .set({
           mailKind: input.mailKind,
@@ -1866,6 +1873,9 @@ export async function processMail(
           updatedAt: sql`now()`,
         })
         .where(eq(mailMessages.id, mailId))
+        .returning({ triagedAt: mailMessages.triagedAt })
+
+      return { linkedEventId, processedAt: updated[0]?.triagedAt ?? null }
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -1884,6 +1894,7 @@ export async function processMail(
 
   // 配信は実行のレスポンス後に非同期で走る。配信失敗は実行の失敗にしない
   // （要件 §3.2.5）。
+  const { linkedEventId, processedAt: generation } = committed
   if (input.broadcast && linkedEventId != null) {
     const eventId = linkedEventId
     after(async () => {
@@ -1891,22 +1902,29 @@ export async function processMail(
         // ★配信は実行の**応答後**に走るので、その間に「未処理に戻す」が完了して
         // いることがある。LINE は送信後に取り消せないため、push を始める直前に
         // 処理状態を読み直し、取り消し済み／別の大会へ付け替え済みなら送らない
-        // （Codex r1 blocker。after 実行中の取り消しまでは塞げないが、実害の
-        // 大半を占める「実行 → すぐ取り消し」を止められる）。
+        // （Codex r1 blocker）。
+        //
+        // ★triage と linked_event_id だけでは足りない（Codex r2 blocker）:
+        // 取り消し → 同じ大会へ再処理（配信 OFF）まで進むと両方が再び一致し、
+        // 取り消したはずの旧コールバックが配信してしまう。この実行の triaged_at
+        // を世代トークンとして持ち回り、一致するときだけ送る。
         const current = await db
           .select({
             triageStatus: mailMessages.triageStatus,
             linkedEventId: mailMessages.linkedEventId,
+            triagedAt: mailMessages.triagedAt,
           })
           .from(mailMessages)
           .where(eq(mailMessages.id, mailId))
           .limit(1)
         if (
+          generation == null ||
           current[0]?.triageStatus !== 'processed' ||
-          current[0]?.linkedEventId !== eventId
+          current[0]?.linkedEventId !== eventId ||
+          current[0]?.triagedAt?.getTime() !== generation.getTime()
         ) {
           console.warn(
-            '[processMail] skipped broadcast: mail was undone or re-linked before delivery',
+            '[processMail] skipped broadcast: mail was undone or re-processed before delivery',
             { mailId, eventId },
           )
           return
