@@ -1702,7 +1702,10 @@ export async function processMail(
   // 再処理、が起きると triage/linked だけでは旧コールバックを識別できず、
   // 再処理で配信を選んでいなくても旧予約が送られてしまう（Codex r2 blocker）。
   // triaged_at は tx ごとの now() なので世代トークンとして使える。
-  let committed: { linkedEventId: number | null; processedAt: Date | null }
+  //
+  // ★**text のまま**持ち回る（Codex r3 blocker）。Date へ変換すると PostgreSQL の
+  // マイクロ秒がミリ秒へ丸められ、同一ミリ秒内の別世代を区別できなくなる。
+  let committed: { linkedEventId: number | null; processedAt: string | null }
 
   try {
     committed = await db.transaction(async (tx) => {
@@ -1873,9 +1876,11 @@ export async function processMail(
           updatedAt: sql`now()`,
         })
         .where(eq(mailMessages.id, mailId))
-        .returning({ triagedAt: mailMessages.triagedAt })
+        .returning({
+          triagedAtText: sql<string>`${mailMessages.triagedAt}::text`,
+        })
 
-      return { linkedEventId, processedAt: updated[0]?.triagedAt ?? null }
+      return { linkedEventId, processedAt: updated[0]?.triagedAtText ?? null }
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -1908,11 +1913,14 @@ export async function processMail(
         // 取り消し → 同じ大会へ再処理（配信 OFF）まで進むと両方が再び一致し、
         // 取り消したはずの旧コールバックが配信してしまう。この実行の triaged_at
         // を世代トークンとして持ち回り、一致するときだけ送る。
+        // ★比較は **text 同士**で行う（Codex r3 blocker）。Date に落とすと
+        // PostgreSQL のマイクロ秒がミリ秒へ丸められ、同一ミリ秒に収まった別世代を
+        // 取り違える。
         const current = await db
           .select({
             triageStatus: mailMessages.triageStatus,
             linkedEventId: mailMessages.linkedEventId,
-            triagedAt: mailMessages.triagedAt,
+            triagedAtText: sql<string>`${mailMessages.triagedAt}::text`,
           })
           .from(mailMessages)
           .where(eq(mailMessages.id, mailId))
@@ -1921,7 +1929,7 @@ export async function processMail(
           generation == null ||
           current[0]?.triageStatus !== 'processed' ||
           current[0]?.linkedEventId !== eventId ||
-          current[0]?.triagedAt?.getTime() !== generation.getTime()
+          current[0]?.triagedAtText !== generation
         ) {
           console.warn(
             '[processMail] skipped broadcast: mail was undone or re-processed before delivery',
