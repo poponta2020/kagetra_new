@@ -271,3 +271,5 @@
 - [fix PR #447](impl_fix-pr447.md) — review 指摘の修正（blocker 2件修正・3件見送り）
 - [auto-review PR #447](auto-review-round-pr447.md) — 3R(i+d2) token-budget で中断・R3修正はレビュー未検証
 - [mail-inbox-mailer 統合処理フォーム 出荷](project_ship-mail-inbox-mailer-unified-form.md) — shipped: PR #447（残DoD=本番4パターン実機確認・cab8550はレビュー未検証）
+- [auto-review PR #448](auto-review-round-pr448.md) — R1 verdict=pass
+- [quickfix: entry-flow-lottery-roster](quickfix_entry-flow-lottery-roster.md) — PR #448

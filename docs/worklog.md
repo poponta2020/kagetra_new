@@ -2974,3 +2974,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-08-01 PR #439 出荷: 名簿ファイル採用の改修（親#433・子#434-438 の全5タスク）。級別採用(grades列/migration 0054)・候補提示規則(申込済み×未取込の4象限＋すべて表示トグル)・パース取込UIの退役(コードは全温存)・大会詳細/メール詳細の級ラベル。Codex 3R(i+d+f) pass、R1 blocker=候補行の開催日欠落を修正、R2 再掲は WONTFIX。★残DoD=AC-23 本番実機で候補絞り込み・級ラベルを確認
 - 2026-08-02 /auto-review-loop PR #447: 3R(i+d2), verdict=needs_changes, effort=h→m→m, tokens=528238/500000, result=token-budget
 - 2026-08-02 PR #447 出荷: mail-inbox-mailer メール詳細の統合処理フォーム（親#440・子#441-446 の全6タスク）。mail_kind 新設・対象は申込グループ単位で1回選択・AI抽出は大会案内限定・LINE配信可否＋本文添付可否・名簿の複数一括採用（1tx）・undoで種別/紐付け/採用をまとめて取消。migration 0055。Codex 3R(i+d2) は token-budget で中断し、ユーザー指示によりレビュー打ち切りで出荷（C1 override）。★cab8550（処理世代の text 比較）はレビュー未検証＝CI が赤ならここが第一容疑。★残DoD=本番4パターン実機確認(AC-33)・375px 実機確認
+- 2026-08-02 /auto-review-loop PR #448: 1R(i), verdict=pass, effort=low(sol較正), tokens=78715/500000, result=pass
+- 2026-08-02 /ship PR #448: 申込フロー帯「抽選」に確定名簿連動を追加（quickfix）。merged dc8e6f3。CI pending のままマージ
