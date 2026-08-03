@@ -22,6 +22,22 @@ export interface LineFlexAttachmentMessage {
 
 const ALT_TEXT_MAX = 400
 
+/**
+ * altText を UTF-16 単位で上限まで切り詰める。`slice` を直接使うと、上限位置が
+ * サロゲートペアの途中に当たったとき単独サロゲートが末尾に残り、通知・トーク
+ * 一覧に不正な文字が出る (𠮟・𩸽 等の JIS 第3・第4水準漢字は人名・大会名で
+ * 実際に使われる)。コードポイント境界で止めることでこれを防ぐ。
+ */
+function truncateToUtf16Units(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  let out = ''
+  for (const ch of text) {
+    if (out.length + ch.length > limit) break
+    out += ch
+  }
+  return out
+}
+
 /** ファイル種別バッジ: アイコンボックスの背景色とラベル。 */
 interface FileBadge {
   label: string
@@ -87,9 +103,10 @@ export function buildAttachmentFlexMessage(
   const badge = fileBadge(args.filename)
   const size = args.sizeBytes != null ? formatFileSize(args.sizeBytes) : ''
   const subtitle = size ? `${size}・タップして開く` : 'タップして開く'
-  const altText = (
-    args.tag ? `📎【${args.tag}】${args.filename}` : `📎 ${args.filename}`
-  ).slice(0, ALT_TEXT_MAX)
+  const altText = truncateToUtf16Units(
+    args.tag ? `📎【${args.tag}】${args.filename}` : `📎 ${args.filename}`,
+    ALT_TEXT_MAX,
+  )
 
   const infoContents: Record<string, unknown>[] = []
   if (args.tag) {

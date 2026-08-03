@@ -208,6 +208,11 @@ describe('sendGuidelinesOnLink', () => {
       '/api/line-broadcast/attachments/',
     )
     expect(body.messages[1].altText).toBe('📎【大会要綱】振込先.pdf')
+    // サイズ行が実際に描画される = octet_length が number として返っている
+    // （sql<number> は未検証のアサーションなので、ここで型を固定する）。
+    expect(JSON.stringify(body.messages[0].contents)).toMatch(
+      /\d+ (B|KB|MB)・タップして開く/,
+    )
 
     // 署名トークンが既存の getOrCreateShareToken 経由で発行されている。
     const tokens = await db.select().from(attachmentShareTokens)

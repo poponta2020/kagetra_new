@@ -84,4 +84,24 @@ describe('buildAttachmentFlexMessage', () => {
     expect(msg.altText.length).toBe(400)
     expect(msg.altText.startsWith('📎 あ')).toBe(true)
   })
+
+  it('切り詰め位置がサロゲートペアに当たっても分断しない', () => {
+    // '📎 ' が 3 UTF-16 単位。以降を 2 単位の 𠮟 で埋めると 400 単位目が
+    // ペアの前半に当たる。素の slice だと単独サロゲートが末尾に残る。
+    const msg = buildAttachmentFlexMessage({
+      filename: '𠮟'.repeat(300),
+      url,
+    })
+    // 境界を割らないぶん 1 単位手前で止まる。
+    expect(msg.altText.length).toBe(399)
+    // 孤立サロゲートが 1 つも無い（for...of はペアを 2 単位の 1 要素として
+    // 返すので、長さ 1 でサロゲート域の要素が出たら分断されている）。
+    const lone = [...msg.altText].filter((ch) => {
+      const cp = ch.codePointAt(0)!
+      return ch.length === 1 && cp >= 0xd800 && cp <= 0xdfff
+    })
+    expect(lone).toEqual([])
+    // 末尾は 𠮟 のまま（前半だけが残っていない）。
+    expect(msg.altText.endsWith('𠮟')).toBe(true)
+  })
 })
