@@ -14,6 +14,7 @@ import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
 import { setCachedImage } from '@/lib/image-cache'
 import { splitForLine } from '@/lib/text-splitter'
 import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
+import { buildAttachmentFlexMessage } from '@/lib/line-flex-attachment'
 
 /**
  * 5-message LINE batch limit + 1.5s sleep between batches (requirements
@@ -84,10 +85,13 @@ export interface BroadcastResult {
 }
 
 interface LineMessage {
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'flex'
   text?: string
   originalContentUrl?: string
   previewImageUrl?: string
+  // flex 用 (line-attachment-flex-card): push API はこの2つをそのまま受ける。
+  altText?: string
+  contents?: Record<string, unknown>
 }
 
 interface BroadcastBindingRow {
@@ -355,31 +359,25 @@ interface AttachmentRow {
  * 1 添付を LINE メッセージに変換する。
  *
  * 要件 §3.4: PDF / Word / Excel / その他を問わず **全形式を署名 URL リンクに
- * 統一** する。以前あった PDF/Word の画像化分岐は撤廃し、添付は常に
- * 「📎 filename + ダウンロード URL」の text 1 本になった。本文だけが画像化
- * 対象 (buildBodyImageMessages) で、添付は明示的に開く運用に整えた。
+ * 統一** する。以前あった PDF/Word の画像化分岐は撤廃した。
+ *
+ * line-attachment-flex-card: 従来の「📎 filename + 生 URL」text 1 通は署名 URL
+ * がそのままトークに露出して読みづらかったため、Flex Message のファイルカード
+ * (色付き種別バッジ + ファイル名 + サイズ、カードタップで URL を開く) に置き
+ * 換えた。監査 role は従来どおり 'attachment_link' 1 通のまま。
  */
 async function renderAttachment(
   db: typeof appDb,
   attachment: AttachmentRow,
   baseUrl: string,
 ): Promise<LineMessage> {
-  return await buildFallbackTextMessage(db, attachment, baseUrl)
-}
-
-async function buildFallbackTextMessage(
-  db: typeof appDb,
-  attachment: AttachmentRow,
-  baseUrl: string,
-  prefixOverride?: string,
-): Promise<LineMessage> {
   const { token } = await getOrCreateShareToken(db, attachment.id)
   const url = attachmentDownloadUrl(token, baseUrl)
-  const prefix = prefixOverride ?? `📎 ${attachment.filename}`
-  return {
-    type: 'text',
-    text: `${prefix}\n${url}`,
-  }
+  return buildAttachmentFlexMessage({
+    filename: attachment.filename,
+    url,
+    sizeBytes: attachment.data.byteLength,
+  })
 }
 
 /**
