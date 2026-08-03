@@ -477,16 +477,25 @@ describe('broadcastMailToEvent', () => {
 
       const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
         const body = JSON.parse(String(init?.body)) as {
-          messages: Array<{ type: string; text?: string }>
+          messages: Array<{
+            type: string
+            text?: string
+            altText?: string
+            contents?: unknown
+          }>
         }
         return body.messages
       })
       expect(sentMessages).toHaveLength(3)
-      // 先頭は冒頭テキスト、続いて本文画像、最後に添付リンク。
+      // 先頭は冒頭テキスト、続いて本文画像、最後に添付カード (flex)。
       expect(sentMessages[0]).toEqual({ type: 'text', text: '抽選結果が出ました！' })
       expect(sentMessages[1]?.type).toBe('image')
-      expect(sentMessages[2]?.type).toBe('text')
-      expect(sentMessages[2]?.text).toContain('📎 shiori.pdf')
+      expect(sentMessages[2]?.type).toBe('flex')
+      expect(sentMessages[2]?.altText).toBe('📎 shiori.pdf')
+      // 生 URL はカードのタップアクションに隠れ、テキストとしては露出しない。
+      const flexJson = JSON.stringify(sentMessages[2]?.contents)
+      expect(flexJson).toContain('/api/line-broadcast/attachments/')
+      expect(flexJson).toContain('shiori.pdf')
     } finally {
       fetchSpy.mockRestore()
       if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
@@ -550,13 +559,22 @@ describe('broadcastMailToEvent', () => {
 
       const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
         const body = JSON.parse(String(init?.body)) as {
-          messages: Array<{ type: string; text?: string }>
+          messages: Array<{
+            type: string
+            text?: string
+            altText?: string
+            contents?: unknown
+          }>
         }
         return body.messages
       })
       expect(sentMessages).toHaveLength(2)
       expect(sentMessages[0]).toEqual({ type: 'text', text: '確定名簿が出ました！' })
-      expect(sentMessages[1]?.text).toContain('📎 meibo.xlsx')
+      expect(sentMessages[1]?.type).toBe('flex')
+      expect(sentMessages[1]?.altText).toBe('📎 meibo.xlsx')
+      expect(JSON.stringify(sentMessages[1]?.contents)).toContain(
+        '/api/line-broadcast/attachments/',
+      )
     } finally {
       fetchSpy.mockRestore()
       if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun

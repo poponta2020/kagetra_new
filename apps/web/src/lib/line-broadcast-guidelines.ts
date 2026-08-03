@@ -7,6 +7,10 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { getOrCreateShareToken } from '@/lib/attachment-image-render'
+import {
+  buildAttachmentFlexMessage,
+  type LineFlexAttachmentMessage,
+} from '@/lib/line-flex-attachment'
 
 /**
  * broadcast-guidelines-on-link: 紐付け完了 (linked) 時に、管理者が招待コード
@@ -19,8 +23,9 @@ import { getOrCreateShareToken } from '@/lib/attachment-image-render'
  * のは署名 URL の `getOrCreateShareToken` だけ（node builtins 依存のみで、重い
  * バイナリ処理は spawn/遅延なので webhook から呼んでも問題ない）。
  *
- * 送信は「1 添付 = 署名 URL リンクの text 1 通」。本文送信・画像化・partial
- * resume は行わない（要件 Non-goals）。既存の全メール自動配信
+ * 送信は「1 添付 = 署名 URL を開く Flex ファイルカード 1 通」
+ * (line-attachment-flex-card。以前は生 URL の text 1 通)。本文送信・画像化・
+ * partial resume は行わない（要件 Non-goals）。既存の全メール自動配信
  * (`event_broadcast_messages`) とは独立した経路で、監査行も流用しない。
  *
  * best-effort: 例外は投げず `logger.warn` で記録し、紐付け (linked) の成否には
@@ -106,7 +111,7 @@ interface PushGuidelinesResult {
 }
 
 /**
- * <=5 通/バッチ・バッチ間 sleep で LINE グループへ push する。link-only text
+ * <=5 通/バッチ・バッチ間 sleep で LINE グループへ push する。添付カード
  * 専用なので、line-broadcast.ts の pushMessages から role 別カウント・画像・
  * partial resume を落とした軽量版。`LINE_NOTIFY_DRY_RUN=1` のとき実 push を
  * 行わず配信済み扱いで返す（既存配信と同じ規約）。
@@ -115,7 +120,7 @@ async function pushGuidelineMessages(
   fetchImpl: typeof fetch,
   channelAccessToken: string,
   to: string,
-  messages: { type: 'text'; text: string }[],
+  messages: LineFlexAttachmentMessage[],
   opts: {
     logger: NonNullable<SendGuidelinesOptions['logger']>
     batchSleepMs: number
@@ -222,6 +227,8 @@ export async function sendGuidelinesOnLink(
       .select({
         attachmentId: eventBroadcastGuidelineAttachments.mailAttachmentId,
         filename: mailAttachments.filename,
+        // Flex カードのサイズ表示用。data 本体 (bytea) を引かずに長さだけ取る。
+        sizeBytes: sql<number>`octet_length(${mailAttachments.data})`,
       })
       .from(eventBroadcastGuidelineAttachments)
       .innerJoin(
@@ -265,17 +272,22 @@ export async function sendGuidelinesOnLink(
     // 送信対象がある場合だけ baseUrl を検証する（未設定なら throw → 下の catch）。
     const baseUrl = resolveBaseUrl(args.baseUrl)
 
-    // 各添付を「📎【大会要綱】ファイル名 + 署名 URL」の text 1 通に組む。
-    const messages: { type: 'text'; text: string }[] = []
+    // 各添付を「大会要綱タグ付き Flex ファイルカード」1 通に組む
+    // (line-attachment-flex-card。altText は 📎【大会要綱】ファイル名)。
+    const messages: LineFlexAttachmentMessage[] = []
     for (const att of selected) {
       const { token } = await getOrCreateShareToken(db, att.attachmentId, {
         now: options.now,
       })
       const url = `${baseUrl}/api/line-broadcast/attachments/${token}`
-      messages.push({
-        type: 'text',
-        text: `📎【大会要綱】${att.filename}\n${url}`,
-      })
+      messages.push(
+        buildAttachmentFlexMessage({
+          filename: att.filename,
+          url,
+          sizeBytes: att.sizeBytes,
+          tag: '大会要綱',
+        }),
+      )
     }
 
     // 送信直前に連携状態を再検証する（既存 broadcastMailToEvent の r-final-7 と

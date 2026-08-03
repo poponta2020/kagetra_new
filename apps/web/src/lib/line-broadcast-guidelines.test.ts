@@ -175,7 +175,7 @@ describe('sendGuidelinesOnLink', () => {
     else process.env.LINE_NOTIFY_DRY_RUN = originalDryRun
   })
 
-  it('要綱として選択された各添付を 📎【大会要綱】+ 署名URL で push し、guidelines_sent_at を刻む', async () => {
+  it('要綱として選択された各添付を 大会要綱タグ付き Flex カードで push し、guidelines_sent_at を刻む', async () => {
     const seed = await seedLinkedBroadcast()
     await addSelectedAttachment(seed, '要項.pdf')
     await addSelectedAttachment(seed, '振込先.pdf')
@@ -201,12 +201,13 @@ describe('sendGuidelinesOnLink', () => {
     const body = JSON.parse(String(init.body))
     expect(body.to).toBe(seed.lineGroupId)
     expect(body.messages).toHaveLength(2)
-    expect(body.messages[0].type).toBe('text')
-    expect(body.messages[0].text).toContain('📎【大会要綱】要項.pdf')
-    expect(body.messages[0].text).toContain(
+    expect(body.messages[0].type).toBe('flex')
+    expect(body.messages[0].altText).toBe('📎【大会要綱】要項.pdf')
+    // URL はカードの uri アクションに載り、テキスト露出しない。
+    expect(JSON.stringify(body.messages[0].contents)).toContain(
       '/api/line-broadcast/attachments/',
     )
-    expect(body.messages[1].text).toContain('📎【大会要綱】振込先.pdf')
+    expect(body.messages[1].altText).toBe('📎【大会要綱】振込先.pdf')
 
     // 署名トークンが既存の getOrCreateShareToken 経由で発行されている。
     const tokens = await db.select().from(attachmentShareTokens)

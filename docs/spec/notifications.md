@@ -54,7 +54,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 **メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。1回の承認で複数日グループの複数イベントが同時に作られても、配信呼び出し側（`broadcastApprovedUnits`）は `entry_group_id` で重複排除するため、実際のpushはグループにつき1回だけ発生する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。
 
 - 本文はA4 JPEGへ画像化して送る（画像化ロジック自体は `mail-body-image-render`、詳細は `spec/mail-worker.md`）。画像化が失敗・ページ超過・空・サイズ超過（10MB超）の場合はテキストfallback（`splitForLine` で分割）に切り替える。
-- 添付は形式を問わず全て署名URLリンクのテキストメッセージに統一する（かつてのPDF/Word画像化分岐は廃止済み）。
+- 添付は形式を問わず全て「署名URLを開くFlexファイルカード」1通に統一する（`line-flex-attachment.ts` の `buildAttachmentFlexMessage`。種別バッジ＝Excel緑/PDF赤/Word青/その他グレー＋ファイル名＋サイズ、カードタップのuriアクションで署名URLを開き、URL文字列はトークに露出しない。`altText`＝`📎 ファイル名`、400字上限）。かつてのPDF/Word画像化分岐、およびその後の「📎 ファイル名 + 生URL」テキスト形式はいずれも廃止済み。監査roleは従来どおり `attachment_link`。
 - 冒頭見出し（`leadText`）は、進行中の大会に手動でメールを紐付ける操作（mail-inbox 側の統合処理フォーム（`MailProcessForm`）— 詳細は `spec/mail-worker.md`）でのみ付与できる任意テキストで、`broadcast-lead-presets.ts` にプリセット文言（抽選結果・組合せ・オープンチャット案内等、最大200文字）を持つ。AI下書きの自動配信・訂正紐付けでは付与されない。
 - LINE Messaging APIへは5メッセージ/バッチ・バッチ間1.5秒sleepで送信し、429（レート制限）は `Retry-After` に従い最大3回リトライする。1回のpushは30秒でタイムアウトする。
 - 途中失敗時は `partial` として送達済み件数を保存し、再送（`manualBroadcast`、UI操作）は未送達分のみ再送する。ただし前回と今回で送信計画（添付レンダリング結果等）が縮小していれば全件再送に切り替える。
@@ -66,7 +66,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 
 - **選択**: 招待コード発行モーダル（`InviteCodeModal`）で、対象イベント（その日）の全関連メール（3経路union。詳細は `spec/events-attendance.md` の関連メール）の添付をメール別に列挙し、管理者が要綱にあたるファイルを複数選択する。選択は `setGuidelineAttachments`（admin/vice_admin・replace意味論・候補外の添付idは拒否）で `event_broadcast_guideline_attachments`（`event_line_broadcasts` への join、両FK ON DELETE CASCADE）に即時保存する。`event_line_broadcasts` は1申込グループ1行で、招待コード再発行は同一行UPDATEなので選択は再発行をまたいで保持される。関連メール候補自体は対象イベント（その日）単位のままなので、同一グループの別の日から見ると候補一覧が異なりうる点に注意（選択・送信対象はグループ単位で共通）。
 - **送信トリガー**: `event_line_broadcasts` が `linked` に遷移した時（Webhookの招待コード照合成功、および管理者の手動紐付け `manualLinkGroup`）に、選択済み添付があれば送信する。送信は紐付け成立**後**（reply枠は消費済み）に走るpushで、`sendGuidelinesOnLink`（`apps/web/src/lib/line-broadcast-guidelines.ts`）が担う。同モジュールはWebhook（nodejs runtime）から呼ばれるため `line-broadcast.ts`（本文画像化の重依存）を意図的にimportせず、署名URLの `getOrCreateShareToken` だけ再利用した自己完結の最小pushを持つ（5通/バッチ・1.5秒間隔・429リトライ・30秒タイムアウト・`LINE_NOTIFY_DRY_RUN` 尊重）。
-- **送信内容**: 選択ファイルごとに「📎【大会要綱】ファイル名 + 署名URL（`/api/line-broadcast/attachments/[token]`、60日）」のテキスト1通。既存の添付配信と同じ署名URL方式で、新規の公開エンドポイントは作らない。
+- **送信内容**: 選択ファイルごとに「大会要綱」タグ付きFlexファイルカード1通（`buildAttachmentFlexMessage` に `tag: '大会要綱'` を渡す。`altText`＝`📎【大会要綱】ファイル名`、タップで署名URL `/api/line-broadcast/attachments/[token]`（60日）を開く）。既存の添付配信と同じ署名URL方式で、新規の公開エンドポイントは作らない。
 - **best-effort**: 送信の成否は紐付け（`linked`）に影響しない（`sendGuidelinesOnLink` はthrowしない）。全通配信できたときだけ `event_line_broadcasts.guidelines_sent_at` を更新する。監査に `event_broadcast_messages`（メール単位・role別カウンタ）は流用しない（full-mail配信と衝突するため独立）。
 - **再送・再連携**: `linked` 状態で `resendGuidelines`（events画面の「要綱を再送」）を押すと選択済み要綱を同形式で再送できる（best-effortの取りこぼし復旧）。連携解除→再発行→再紐付けでは、選択は保持され `guidelines_sent_at` はリセットされて新グループへ改めて送信される。
 - **未選択時**: 紐付け完了時の要綱送信は行われない（既存挙動と完全に同じ）。多ファイル選択（>5）でWebhook応答が遅れLINEが再送しても、CASが再linkを弾くので二重送信にはならない。
@@ -259,7 +259,7 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 | `setGuidelineAttachments(eventId, attachmentIds)` | Server Action | admin/vice_admin | 紐付け完了時に送る「要綱」添付の選択保存（replace意味論・候補外id拒否） |
 | `resendGuidelines(eventId)` | Server Action | admin/vice_admin | `linked` 状態で選択済み要綱を再送（best-effort取りこぼし復旧） |
 | `broadcastMailToEvent(db, args, options)` | ライブラリ関数 | 呼び出し元（承認フロー/manualBroadcast）が認可を担保 | メール本文＋添付をLINEグループへ配信する本体処理 |
-| `sendGuidelinesOnLink(db, args, options)` | ライブラリ関数 | 呼び出し元（Webhook/manualLinkGroup/resendGuidelines）が認可を担保 | 選択済み要綱を署名URLリンクでpush（best-effort・throwしない） |
+| `sendGuidelinesOnLink(db, args, options)` | ライブラリ関数 | 呼び出し元（Webhook/manualLinkGroup/resendGuidelines）が認可を担保 | 選択済み要綱をFlexファイルカードでpush（best-effort・throwしない） |
 | `pushTextToEventGroup(db, eventId, text, opts)` | ライブラリ関数 | 同上 | 定型テキスト1通のpush（lifecycle通知の下請け） |
 | `claimLifecycleNotification` / `finalizeLifecycleNotification` / `sendClaimedNotification` / `sendReminderNotification` | ライブラリ関数 | 同上 | once-ever通知ログのclaim/finalize/送信ヘルパー群 |
 | `collectOverdueEntries` / `buildOverdueAlertMessage` / `loadSystemChannel` / `pushSystemText` / `sendEntryOverdueAlert` | ライブラリ関数 | 呼び出し元（日次バッチ）が実行環境を担保 | 締切超過アラートの抽出・文面組立・system_notifyチャネル解決・push（`entry-overdue-alert.ts`） |
