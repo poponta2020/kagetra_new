@@ -273,3 +273,5 @@
 - [mail-inbox-mailer 統合処理フォーム 出荷](project_ship-mail-inbox-mailer-unified-form.md) — shipped: PR #447（残DoD=本番4パターン実機確認・cab8550はレビュー未検証）
 - [auto-review PR #448](auto-review-round-pr448.md) — R1 verdict=pass
 - [quickfix: entry-flow-lottery-roster](quickfix_entry-flow-lottery-roster.md) — PR #448
+- [auto-review PR #449](auto-review-round-pr449.md) — R1 verdict=cutoff (blockers 0・局所 should_fix 打ち切り)
+- [LINE添付リンクをFlexファイルカード化](project_ship-line-attachment-flex-card.md) — shipped: PR #449（残DoD=本番実機でカード表示確認）

@@ -2976,3 +2976,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-08-02 PR #447 出荷: mail-inbox-mailer メール詳細の統合処理フォーム（親#440・子#441-446 の全6タスク）。mail_kind 新設・対象は申込グループ単位で1回選択・AI抽出は大会案内限定・LINE配信可否＋本文添付可否・名簿の複数一括採用（1tx）・undoで種別/紐付け/採用をまとめて取消。migration 0055。Codex 3R(i+d2) は token-budget で中断し、ユーザー指示によりレビュー打ち切りで出荷（C1 override）。★cab8550（処理世代の text 比較）はレビュー未検証＝CI が赤ならここが第一容疑。★残DoD=本番4パターン実機確認(AC-33)・375px 実機確認
 - 2026-08-02 /auto-review-loop PR #448: 1R(i), verdict=pass, effort=low(sol較正), tokens=78715/500000, result=pass
 - 2026-08-02 /ship PR #448: 申込フロー帯「抽選」に確定名簿連動を追加（quickfix）。merged dc8e6f3。CI pending のままマージ
+- 2026-08-04 /auto-review-loop PR #449: 1R(i), verdict=cutoff, effort=high, tokens=215209/500000, result=cutoff
+- 2026-08-04 /ship PR #449: LINE添付リンクをFlexファイルカード化（生URL非表示・種別バッジ・サイズ表示）。merged c8657cf。CI pending のままマージ。残DoD=本番実機でカード表示確認
