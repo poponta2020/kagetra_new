@@ -55,14 +55,22 @@
 
 ### RBAC（3層ロール）
 
-`users.role`（`packages/shared/src/schema/enums.ts` の `user_role` enum）は `admin` / `vice_admin` / `member` の3値。新規登録（招待リンク・管理者直接作成いずれも）のデフォルトロールは `member` で固定。ロール自体を変更する UI・Server Action は現状存在しない（ロール変更は DB を直接操作する運用）。
+`users.role`（`packages/shared/src/schema/enums.ts` の `user_role` enum）は `admin` / `vice_admin` / `member` の3値。新規登録（招待リンク・管理者直接作成いずれも）のデフォルトロールは `member` で固定。登録後のロール変更は会員編集ページの「ロール」セクション（`updateMemberRole`）で行う。**変更できるのは `admin` のみ**で、以下はすべてサーバー側で拒否する:
+
+- **実行者が `admin` 以外**。判定は他の認可と同じく実効ロール（`session.user.role`）で行うため、表示ロールをプレビュー中（下記 role-preview-switch）は変更できない。`assertAdminSession` は `vice_admin` も通すため**この操作では使わない** — 使うと副管理者が自分を `admin` へ昇格でき 3 層 RBAC が崩れる。
+- **自分自身のロール変更**。誤操作で自分の管理権限を失うと DB 直接操作でしか復旧できない。
+- **LINE 未紐付けの行を `admin` / `vice_admin` へ昇格**。`/self-identify` は「未紐付け ∧ 招待済み」の行を `role` を見ずに claim 可能な候補として出すため、未紐付けの管理者行は招待リンクを開いた第三者に名乗られうる。
+- **退会済み（`deactivated_at` 非 NULL）の行を `admin` / `vice_admin` へ昇格**（`member` への降格は許可）。
+- **有効な管理者が 0 人になる変更**。「有効」は `role = 'admin'` かつ `deactivated_at IS NULL`（退会済み管理者は `signIn` で弾かれログインできないため数に入れない）。
+
+判定と UPDATE は単一トランザクション内で行い、ロックは常に「有効な管理者の集合（`FOR UPDATE`）→ 対象行（`FOR UPDATE`）」の順に取って直列化する。同じロールの保存は no-op として成功扱い。変更は `users.role` の書き換えのみで履歴（監査ログ）は残さない。
 
 認可パターンは横断して同一の形（専用の共有ヘルパー関数は無く、各ファイルにローカルな `assertAdminSession` 相当の関数を都度定義する）:
 
 - **Server Action**: 関数の先頭で `await auth()` し、`session.user?.role` が `admin` または `vice_admin` でなければ `throw new Error('Unauthorized')`。例: `apps/web/src/app/(app)/admin/members/actions.ts` の `assertAdminSession`、`apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts` の同名関数。
 - **より厳しい制限**: LINE 紐付け解除（`unlinkLine`）は監査上の機微操作として `vice_admin` を含めず `admin` のみに絞る、という個別の追加制限を関数内で行うケースがある。
 - **ページ（Server Component）**: ページ関数の先頭で `await auth()` し、条件を満たさなければ `redirect('/403')`（例: `admin/members/page.tsx`、`admin/members/[id]/edit/page.tsx`）。`/403` はロール不足時の汎用エラーページで、メッセージ・アクションは持たない静的表示のみ。
-- 一覧・編集ページの `role` 表示ラベルは `apps/web/src/lib/role-label.ts` の `roleLabel()` が担う。`admin` → 管理者、`vice_admin` → 副管理者、それ以外（`member` 含む null/未知値）は一律「会員」にフォールバックする。
+- ロールの日本語表示ラベル（管理者 / 副管理者 / 一般会員）の正典は `apps/web/src/lib/role-preview.ts` の `roleViewLabel()`。設定シートの表示ロール切替・会員一覧のロール列・会員編集のロールセクションがこれを共有する。`apps/web/src/lib/role-label.ts` の `roleLabel()`（Pill tone 付き・`member` を「会員」にフォールバック）は現在どこからも使われていない別実装で、統合はされていない。
 
 **role-preview-switch（表示ロールの一時プレビュー）**: `session.user.role` は上記の認可判定がそのまま参照する**実効ロール**であり、`session.user.realRole` が DB 由来の**本物のロール**を保持する。両者は通常時（プレビュー未使用）は同値。環境変数 `ROLE_PREVIEW_USER_IDS`（カンマ区切りの `users.id`）で許可されたユーザーだけが、実効ロールを本物のロール以下へ一時的に落とせる（JWT クレーム `viewAsRole` として保持。DB の `users.role` は変更しない）。実効ロールの生成点は `apps/web/src/auth.config.ts` の `session` コールバック 1 箇所のみで、ここが UI の出し分けと Server Action / route handler の認可判定の両方に同時に反映される。プレビューの開始・終了を認可する条件（許可リスト所属・切替先が本物のロール以下）は**必ず `realRole` で判定し、実効ロール（`role`）を使わない**。実効ロールで判定すると、プレビュー中に自分自身を締め出して管理者へ戻れなくなるため。切替 Server Action は `apps/web/src/app/(app)/role-preview-actions.ts`。
 
@@ -92,6 +100,7 @@
 編集ページ（`[id]/edit/page.tsx`）でできること:
 
 - **プロフィール更新**（`updateMemberProfile`）: 級・性別・所属・段位・全日協フラグ・姓名/ふりがな・生年月日・電話・郵便番号・住所を編集する。`name`（合成表示名・UNIQUE 制約キー）自体はここでは再合成しない。
+- **ロール変更**（`updateMemberRole`、`MemberRoleSection`、**`admin` 限定**）: `admin` / `vice_admin` / `member` の3択を選んで保存する（確認ダイアログあり）。拒否条件は「RBAC（3層ロール）」節を参照。UI 側では自分自身の行はフォームごと出さず理由文のみを表示し、未紐付け・退会済みの行は昇格の選択肢を無効化する（現在のロールは選択可能なまま残して降格の導線を保つ）。この無効化は誤操作を減らすための案内で、認可そのものは Server Action 側が同じ条件で判定する。
 - **名前の変更**（`updateMemberName`）: LINE 未紐付けかつ `role = 'member'` の行に限定した「誤登録の取り消し」用の操作。対象条件は UPDATE の WHERE 句自体に埋め込まれており、`/self-identify` での紐付けと同時に起きる競合を単一 SQL 文で安全に弾く。
 - **退会切替**（`toggleMemberDeactivation`）: `deactivatedAt` を now() / null でトグルする。退会中はログイン不可（「認証方式」節を参照）。
 - **LINE 紐付け解除**（`unlinkLine`、`admin` 限定）: `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` を `null` に戻す。解除後の次回ログインでは再び `/self-identify` から選び直せる。
@@ -103,7 +112,7 @@
 - **`/403`**（`apps/web/src/app/403/page.tsx`）: ロール不足時の静的な汎用エラー画面。
 - **`/register/[token]`**（`apps/web/src/app/register/[token]/page.tsx` + `register-form.tsx`）: モバイルシェル外（ナビ無し）の単独ページ。分岐は「1. 既に紐付き済みなら `/` へ、2. トークンが無効/失効ならエラー表示のみ、3. 未ログインなら『LINE で認証する』ボタン、4. LINE ログイン済み・未紐付けなら登録フォーム」の4段。
 - **`/admin/members`**（`admin/members/page.tsx`）: 会員一覧 + 会員作成フォーム（`new-member-form.tsx`）+ 招待リンク発行セクション（`registration-invite-section.tsx`、発行ダイアログでプリセット選択・URL コピー・有効リンク一覧・失効操作を提供）。
-- **`/admin/members/[id]/edit`**（`[id]/edit/page.tsx` + `edit-member-form.tsx` + `delete-member-section.tsx`）: 個別会員のプロフィール編集フォーム、LINE 紐付け情報表示 + 解除ボタン（紐付け済みの場合のみ）、退会切替ボタン、削除セクション（未紐付けの `member` の場合のみ表示）。
+- **`/admin/members/[id]/edit`**（`[id]/edit/page.tsx` + `edit-member-form.tsx` + `member-role-section.tsx` + `delete-member-section.tsx`）: 個別会員のプロフィール編集フォーム、ロールセクション（`admin` の場合のみ表示）、LINE 紐付け情報表示 + 解除ボタン（紐付け済みの場合のみ）、退会切替ボタン、削除セクション（未紐付けの `member` の場合のみ表示）。
 
 ## フロー
 
@@ -129,6 +138,7 @@
 - 誤登録そのものを取り消す: 未紐付け＋`member` ＋参照ゼロの行に限り `deleteMember` でハード削除。
 - 本人の紐付けをやり直させたい: `admin` が `unlinkLine` で紐付けを解除し、本人の次回ログインで `/self-identify` から選び直させる。
 - 退会者を復帰させたい: `toggleMemberDeactivation` は同じボタンで退会/復帰を切り替える冪等操作。
+- 会員に役職を任せる／戻す: `admin` が `updateMemberRole` でロールを変更する。`token.role` は毎リクエスト DB 照合で同期されるため、対象会員は**再ログインせずに**次のリクエストから新しいロールで判定される。
 
 ## API（Server Actions）
 
@@ -145,6 +155,7 @@
   - `deleteMember(prevState, formData)` — ハード削除（未紐付け・`member`・無参照限定）。admin/vice_admin。
   - `toggleMemberDeactivation(formData)` — 退会切替。admin/vice_admin。
   - `unlinkLine(formData)` — LINE 紐付け解除。**admin のみ**。
+  - `updateMemberRole(prevState, formData)` — ロール変更。**admin のみ**（実効ロールで判定）。自分自身・未紐付けの昇格・退会済みの昇格・有効な管理者が 0 人になる変更を拒否する。
 - `apps/web/src/app/register/[token]/actions.ts`
   - `registerViaInvite(token, prevState, formData)` — 招待リンク経由の自己登録完了。認可は「有効な招待トークン + LINE ログイン済み」であることそのもの（ロールチェックは無い）。
 - `apps/web/src/app/(app)/role-preview-actions.ts`
@@ -156,5 +167,5 @@
 
 ## 既知のギャップ・未確認事項
 
-- ロール（`admin` / `vice_admin` / `member`）を変更する UI・Server Action は本ドメインには存在しない。運用上は DB 直接操作でロールを割り当てている。
+- 退会処理（`toggleMemberDeactivation`）には「最後の有効な管理者を退会させられる」穴が残っている。ロール変更（`updateMemberRole`）側は有効な管理者が 0 人になる変更を拒否するが、退会切替は同じ保護を持たない。この経路で全管理者が退会するとログインできる管理者が居なくなり、DB 直接操作でしか復旧できない（未対応・別件）。
 - 本人性検証（招待された本人が本当にログインしているか）は招待制であることを理由に意図的に省略されている（[docs/features/invite-link-registration/requirements.md](../features/invite-link-registration/requirements.md) 参照）。
