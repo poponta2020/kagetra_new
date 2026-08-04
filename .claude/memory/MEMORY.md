@@ -275,3 +275,7 @@
 - [quickfix: entry-flow-lottery-roster](quickfix_entry-flow-lottery-roster.md) — PR #448
 - [auto-review PR #449](auto-review-round-pr449.md) — R1 verdict=cutoff (blockers 0・局所 should_fix 打ち切り)
 - [LINE添付リンクをFlexファイルカード化](project_ship-line-attachment-flex-card.md) — shipped: PR #449（残DoD=本番実機でカード表示確認）
+- [member-role-management 要件定義](project_member_role_management_def.md) — 親Issue #450
+- [member-role-management 実装](impl_member_role_management.md) — 全4タスク完了・PR前
+- [auto-review PR #455](auto-review-round-pr455.md) — R4 verdict=pass（R1 blocker=unlinkLine の裏口）
+- [管理者による会員ロールの付与・剥奪](project_ship-member-role-management.md) — shipped: PR #455（unlinkLine が member 限定に）

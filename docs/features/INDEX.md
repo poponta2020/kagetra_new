@@ -51,3 +51,4 @@
 - `event-list-month-grouping` — /events 開催日順ビューを月ごとにセクション化（月見出し=ゼロ埋め2桁+英字月名+藍太罫）。日付を左ブロック化・申込可否を色帯+太字の二重符号化・ページ見出し行をフッター行へ（主要領域: apps/web events UI・純UI/design-spec が要件成果物） [shipped: PR #401]
 - `roster-file-adoption` — 名簿をパースせず原本ファイルのまま採用できる導線（メール添付→entry_group×種別）。会員向けビューア新設・申込管理ボードの hasConfirmedRoster をファイル採用へ拡張（主要領域: packages/shared schema + apps/web admin/mail-inbox・events・roster-files） [shipped: PR #409] [shipped: PR #439]
 - `mail-ai-extract-refinements` — メール大会案内取込のAI再設計（改修）。分類ロジック撤去＋抽出項目整理(通称/参加費/訂正版判定を廃止・振込締切の状態化・支払/申込方法の日本語enum化・全体定員追加)・Sonnet 5移行(thinking:disabled明示)・添付選択UI新設・PDFサイズ上限800→8000KB・本文常時送信の回帰固定（主要領域: apps/mail-worker classify + apps/web admin/mail-inbox）[shipped: PR #431]
+- `member-role-management` — 管理者による会員ロールの付与・剥奪（主要領域: apps/web admin/members） [shipped: PR #455]

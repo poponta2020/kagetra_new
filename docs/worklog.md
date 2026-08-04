@@ -2978,3 +2978,15 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-08-02 /ship PR #448: 申込フロー帯「抽選」に確定名簿連動を追加（quickfix）。merged dc8e6f3。CI pending のままマージ
 - 2026-08-04 /auto-review-loop PR #449: 1R(i), verdict=cutoff, effort=high, tokens=215209/500000, result=cutoff
 - 2026-08-04 /ship PR #449: LINE添付リンクをFlexファイルカード化（生URL非表示・種別バッジ・サイズ表示）。merged c8657cf。CI pending のままマージ。残DoD=本番実機でカード表示確認
+- 2026-08-05 /auto-review-loop PR #455: 4R(i+d2+f), verdict=pass, effort=m, tokens=434737/500000, result=pass
+
+## 2026-08-05 member-role-management 出荷（PR #455）
+
+管理者が会員のロール（管理者 / 副管理者 / 一般会員）をアプリ画面から付与・剥奪できるようにした。マイグレーション無し（enum・列とも既存）。
+
+- 会員編集画面に「ロール」セクション（admin にのみ表示・3択＋確認ダイアログ）
+- 会員一覧のロール列を日本語ラベル化
+- 拒否条件: admin 以外 / 表示ロールのプレビュー中 / 自分自身 / 未紐付けの昇格 / 退会済みの昇格 / 有効な管理者が 0 人になる変更
+- ★Codex R1 が実在の権限昇格経路を検出: 昇格後に `unlinkLine` すると未紐付けの管理者行が作れ、`/self-identify`（role を見ない）経由で第三者に名乗られる。`unlinkLine` の対象を `member` 限定に変更（**既存挙動の変更** — 管理者・副管理者の紐付けやり直しは先に降格が必要になった）
+- 新規テスト 39件 green。レビュー 4R（i+d2+f）で pass、累計 434,737 トークン
+- 残 DoD: 本番実機での動作確認（CI は pending のままマージ。赤なら追修正）
