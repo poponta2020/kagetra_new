@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, or } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
@@ -618,11 +618,19 @@ export async function updateMemberRole(
     }
 
     // 行はロック済みなので条件は変化しないが、防御的に WHERE にも残す
-    // (deleteMember / updateMemberName と同じ形)。
+    // (deleteMember / updateMemberName と同じ形)。昇格の前提 (紐付け済み・
+    // 有効) も条件に含める: 対象行の FOR UPDATE により unlinkLine や退会
+    // 切替とは既に直列化されているが、この 2 つは「昇格を成立させてよいか」
+    // の判断根拠そのものなので、読み取り時点ではなく書き込み時点の値で
+    // 効かせておく。
+    const conditions = [eq(users.id, targetId), eq(users.role, target.role)]
+    if (isPrivilegedRole(nextRole)) {
+      conditions.push(isNotNull(users.lineUserId), isNull(users.deactivatedAt))
+    }
     const updated = await tx
       .update(users)
       .set({ role: nextRole, updatedAt: new Date() })
-      .where(and(eq(users.id, targetId), eq(users.role, target.role)))
+      .where(and(...conditions))
       .returning({ id: users.id })
     if (updated.length === 0) {
       return { error: 'ロールを変更できませんでした' }
