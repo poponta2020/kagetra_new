@@ -6,6 +6,7 @@ import { users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
+import { roleViewLabel } from '@/lib/role-preview'
 import { formatLinkedAt, formatLinkMethod } from './_line-link-format'
 import { NewMemberForm } from './new-member-form'
 import { RegistrationInviteSection } from './registration-invite-section'
@@ -104,7 +105,9 @@ export default async function MembersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm">{member.role}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    {roleViewLabel(member.role)}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     <form action={updateMemberGrade} className="flex items-center gap-2">
                       <input type="hidden" name="userId" value={member.id} />

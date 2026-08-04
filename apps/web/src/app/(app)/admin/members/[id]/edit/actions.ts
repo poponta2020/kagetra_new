@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, or } from 'drizzle-orm'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
@@ -460,6 +460,16 @@ export async function toggleMemberDeactivation(formData: FormData) {
  * Non-admin access is rejected — `assertAdminSession` accepts `vice_admin`
  * too, but this action is deliberately stricter (only `admin`), matching the
  * plan's specification for audit-sensitive operations.
+ *
+ * The TARGET is restricted to plain `member` rows (member-role-management).
+ * `updateMemberRole` refuses to promote an unlinked row precisely because
+ * `/self-identify` offers every unlinked+invited row as a claimable identity
+ * without looking at `role` — but unlinking an already-promoted row would
+ * produce the same dangerous state through the back door (and the two actions
+ * racing each other would too). The restriction lives in the UPDATE's WHERE
+ * clause so a concurrent role change is re-evaluated against the committed
+ * role rather than a stale read. To unlink an admin / vice_admin, demote them
+ * to `member` first.
  */
 export async function unlinkLine(formData: FormData) {
   const session = await auth()
@@ -468,7 +478,7 @@ export async function unlinkLine(formData: FormData) {
   const parsed = unlinkLineInputSchema.safeParse({ userId: formData.get('userId') })
   if (!parsed.success) throw new Error('invalid_input')
 
-  await db
+  const updated = await db
     .update(users)
     .set({
       lineUserId: null,
@@ -476,8 +486,161 @@ export async function unlinkLine(formData: FormData) {
       lineLinkedMethod: null,
       updatedAt: new Date(),
     })
-    .where(eq(users.id, parsed.data.userId))
+    .where(and(eq(users.id, parsed.data.userId), eq(users.role, 'member')))
+    .returning({ id: users.id })
+
+  if (updated.length === 0) {
+    // 0 行 = 不在 または 権限持ち。不在は従来どおり無害に返す（誤った
+    // userId で画面を壊さない既存契約）。UPDATE は既に確定しているので、
+    // ここでの再読み込みは「なぜ効かなかったか」の判別にしか使わない。
+    const row = await db.query.users.findFirst({
+      where: eq(users.id, parsed.data.userId),
+      columns: { role: true },
+    })
+    if (row && row.role !== 'member') throw new Error('privileged_role')
+  }
 
   revalidatePath(`/admin/members/${parsed.data.userId}/edit`)
   revalidatePath('/admin/members')
+}
+
+const ROLES = ['admin', 'vice_admin', 'member'] as const
+
+const updateRoleSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(ROLES),
+})
+
+export type UpdateRoleState = {
+  error?: string
+  success?: boolean
+}
+
+/** admin / vice_admin への変更は「昇格」として追加条件を課す。 */
+function isPrivilegedRole(role: (typeof ROLES)[number]): boolean {
+  return role === 'admin' || role === 'vice_admin'
+}
+
+/**
+ * Change a member's role (member-role-management).
+ *
+ * `admin` only — `assertAdminSession` accepts `vice_admin`, and reusing it here
+ * would let a vice_admin promote themselves to `admin`, collapsing the 3-tier
+ * RBAC. Same reasoning as `unlinkLine`.
+ *
+ * The check reads the EFFECTIVE role (`session.user.role`), not `realRole`, so
+ * an admin previewing as 一般会員 (role-preview-switch) cannot change roles —
+ * that is the point of the preview. Every other authorization in the app reads
+ * the effective role too.
+ *
+ * Refusals (all enforced server-side, see requirements §3.2 R3):
+ *   - the caller's own row — a mis-click that drops your own admin rights is
+ *     only recoverable via direct DB access
+ *   - promoting a row with no LINE binding — `/self-identify` offers every
+ *     unlinked+invited row as a claimable identity WITHOUT looking at `role`,
+ *     so an unlinked admin row can be claimed by whoever opens an invite link
+ *   - promoting a deactivated row — they cannot log in, and it arms a
+ *     privileged row for a future reactivation
+ *   - leaving zero ACTIVE admins — a deactivated admin cannot log in
+ *     (`signIn` rejects them), so counting them would still lock everyone out
+ */
+export async function updateMemberRole(
+  _prev: UpdateRoleState,
+  formData: FormData,
+): Promise<UpdateRoleState> {
+  const session = await auth()
+  if (session?.user?.role !== 'admin') throw new Error('forbidden')
+
+  const parsed = updateRoleSchema.safeParse({
+    userId: formData.get('userId'),
+    role: formData.get('role'),
+  })
+  if (!parsed.success) {
+    return { error: '入力が不正です' }
+  }
+  const { userId: targetId, role: nextRole } = parsed.data
+
+  if (targetId === session.user.id) {
+    return { error: 'ご自身のロールは変更できません' }
+  }
+
+  const failure = await db.transaction(async (tx) => {
+    // ロックは常に「有効な管理者の集合 → 対象行」の順で取る。2つの
+    // ロール変更が同時に走っても、この順序が固定なら互いに待つだけで
+    // デッドロックにならず、「変更後に有効な管理者が 0 人」の判定が
+    // 直列化される (行を数えるだけでは READ COMMITTED で防げない)。
+    const activeAdmins = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'admin'), isNull(users.deactivatedAt)))
+      .for('update')
+
+    const targetRows = await tx
+      .select({
+        id: users.id,
+        role: users.role,
+        lineUserId: users.lineUserId,
+        deactivatedAt: users.deactivatedAt,
+      })
+      .from(users)
+      .where(eq(users.id, targetId))
+      .for('update')
+    const target = targetRows[0]
+    if (!target) {
+      return { error: '対象の会員が見つかりません' }
+    }
+
+    // 同じロールの保存は no-op として成功扱いにする (エラーにしない)。
+    if (target.role === nextRole) {
+      return null
+    }
+
+    if (isPrivilegedRole(nextRole)) {
+      if (target.lineUserId == null) {
+        return {
+          error:
+            'LINE 紐付け前の会員は管理者・副管理者にできません。紐付け後に変更してください',
+        }
+      }
+      if (target.deactivatedAt != null) {
+        return { error: '退会済みの会員は管理者・副管理者にできません' }
+      }
+    }
+
+    // 有効な管理者を 0 人にする変更を拒否する。呼び出し元自身が有効な
+    // admin である以上、自分以外を降格しても 0 人にはならない = 通常は
+    // 到達しない多重防御。自己変更の禁止が将来ゆるんでもここが残る。
+    if (target.role === 'admin' && target.deactivatedAt == null) {
+      const remaining = activeAdmins.filter((row) => row.id !== targetId).length
+      if (remaining === 0) {
+        return { error: '有効な管理者がいなくなるため変更できません' }
+      }
+    }
+
+    // 行はロック済みなので条件は変化しないが、防御的に WHERE にも残す
+    // (deleteMember / updateMemberName と同じ形)。昇格の前提 (紐付け済み・
+    // 有効) も条件に含める: 対象行の FOR UPDATE により unlinkLine や退会
+    // 切替とは既に直列化されているが、この 2 つは「昇格を成立させてよいか」
+    // の判断根拠そのものなので、読み取り時点ではなく書き込み時点の値で
+    // 効かせておく。
+    const conditions = [eq(users.id, targetId), eq(users.role, target.role)]
+    if (isPrivilegedRole(nextRole)) {
+      conditions.push(isNotNull(users.lineUserId), isNull(users.deactivatedAt))
+    }
+    const updated = await tx
+      .update(users)
+      .set({ role: nextRole, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning({ id: users.id })
+    if (updated.length === 0) {
+      return { error: 'ロールを変更できませんでした' }
+    }
+    return null
+  })
+
+  if (failure) return failure
+
+  revalidatePath('/admin/members')
+  revalidatePath(`/admin/members/${targetId}/edit`)
+  return { success: true }
 }

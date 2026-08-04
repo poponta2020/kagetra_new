@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm'
 import type { Grade, Gender } from '@kagetra/shared/types'
 import { EditMemberForm } from './edit-member-form'
 import { DeleteMemberSection } from './delete-member-section'
+import { MemberRoleSection } from './member-role-section'
 import { toggleMemberDeactivation, unlinkLine } from './actions'
 import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
@@ -97,6 +98,17 @@ export default async function EditMemberPage({
         genders={GENDERS}
       />
 
+      {session.user?.role === 'admin' && (
+        <MemberRoleSection
+          userId={member.id}
+          memberName={member.name ?? '未設定'}
+          currentRole={member.role}
+          isSelf={member.id === session.user.id}
+          lineLinked={member.lineUserId != null}
+          deactivated={member.deactivatedAt != null}
+        />
+      )}
+
       {member.lineUserId && (
         <section className="rounded-lg bg-surface p-4 shadow-sm">
           <h3 className="text-sm font-semibold">LINE 紐付け</h3>
@@ -112,17 +124,22 @@ export default async function EditMemberPage({
               <dd className="inline">{formatLinkMethod(member.lineLinkedMethod)}</dd>
             </div>
           </dl>
-          {session.user?.role === 'admin' && (
-            <form action={unlinkLine} className="mt-3">
-              <input type="hidden" name="userId" value={member.id} />
-              <button
-                type="submit"
-                className="rounded-md bg-danger-bg px-3 py-1.5 text-sm text-danger-fg hover:opacity-90"
-              >
-                LINE 紐付けを解除
-              </button>
-            </form>
-          )}
+          {session.user?.role === 'admin' &&
+            (member.role === 'member' ? (
+              <form action={unlinkLine} className="mt-3">
+                <input type="hidden" name="userId" value={member.id} />
+                <button
+                  type="submit"
+                  className="rounded-md bg-danger-bg px-3 py-1.5 text-sm text-danger-fg hover:opacity-90"
+                >
+                  LINE 紐付けを解除
+                </button>
+              </form>
+            ) : (
+              <p className="mt-3 text-xs text-ink-meta">
+                管理者・副管理者の紐付けは解除できません。先にロールを一般会員に変更してください。
+              </p>
+            ))}
           <p className="mt-2 text-xs text-ink-meta">
             解除すると本人の次回 LINE ログインで /self-identify から再選択できます。
           </p>
