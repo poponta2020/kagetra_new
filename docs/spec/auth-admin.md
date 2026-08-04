@@ -22,6 +22,7 @@
 > - `apps/web/src/app/(app)/admin/members/_line-link-format.ts`
 > - `apps/web/src/app/(app)/admin/members/[id]/edit/page.tsx`
 > - `apps/web/src/app/(app)/admin/members/[id]/edit/edit-member-form.tsx`
+> - `apps/web/src/app/(app)/admin/members/[id]/edit/member-role-section.tsx`
 > - `apps/web/src/app/(app)/admin/members/[id]/edit/delete-member-section.tsx`
 > - `apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts`
 > - `packages/shared/src/schema/auth.ts`
@@ -103,7 +104,7 @@
 - **ロール変更**（`updateMemberRole`、`MemberRoleSection`、**`admin` 限定**）: `admin` / `vice_admin` / `member` の3択を選んで保存する（確認ダイアログあり）。拒否条件は「RBAC（3層ロール）」節を参照。UI 側では自分自身の行はフォームごと出さず理由文のみを表示し、未紐付け・退会済みの行は昇格の選択肢を無効化する（現在のロールは選択可能なまま残して降格の導線を保つ）。この無効化は誤操作を減らすための案内で、認可そのものは Server Action 側が同じ条件で判定する。
 - **名前の変更**（`updateMemberName`）: LINE 未紐付けかつ `role = 'member'` の行に限定した「誤登録の取り消し」用の操作。対象条件は UPDATE の WHERE 句自体に埋め込まれており、`/self-identify` での紐付けと同時に起きる競合を単一 SQL 文で安全に弾く。
 - **退会切替**（`toggleMemberDeactivation`）: `deactivatedAt` を now() / null でトグルする。退会中はログイン不可（「認証方式」節を参照）。
-- **LINE 紐付け解除**（`unlinkLine`、`admin` 限定）: `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` を `null` に戻す。解除後の次回ログインでは再び `/self-identify` から選び直せる。
+- **LINE 紐付け解除**（`unlinkLine`、`admin` 限定・**対象は `member` ロールのみ**）: `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` を `null` に戻す。解除後の次回ログインでは再び `/self-identify` から選び直せる。対象を `member` に限る理由は「RBAC（3層ロール）」節の未紐付け昇格禁止と同じ — 権限持ちの行を未紐付けに戻すと `/self-identify` 経由で第三者に名乗られる。管理者・副管理者の紐付けをやり直させたいときは、先に `updateMemberRole` で一般会員へ降格してから解除する。対象条件は UPDATE の WHERE 句に埋め込んであり、ロール変更と並行しても確定後のロールで再評価される（0 行のとき、対象が存在しなければ従来どおり無害に返し、権限持ちなら `privileged_role` を throw する）。
 - **削除**（`deleteMember`、`DeleteMemberSection`）: 「誤登録の取り消し」専用のハード削除。`role = 'member'` かつ `lineUserId IS NULL` の行のみが対象で、かつ 10 テーブル・11 カラムに渡る参照ゼロチェック（`eventAttendances` / `events.createdBy` / `lineChannels.assignedUserId` / `mailMessages.triagedByUserId` / `mailWorkerRuns.triggeredByUserId` / `mailWorkerJobs.requestedByUserId` / `tournamentDrafts` の承認・却下者 / `pushSubscriptions.userId` / `accounts.userId` / `sessions.userId`）をすべて通過しないと実行されない。対象行ロック（`FOR UPDATE`）→ 参照チェック → `DELETE` を単一トランザクション内で行い、チェック後に参照が増える競合（子テーブルの FK 挿入が親行の `FOR KEY SHARE` を取るため本トランザクションの完了まで待たされる）を塞ぐ。1件でも参照があれば削除を拒否し「退会処理を使ってください」という文言で案内する。
 
 ## 画面

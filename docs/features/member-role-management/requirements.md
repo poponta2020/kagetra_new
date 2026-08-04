@@ -99,8 +99,9 @@ design_required: false
 | AC-22 | 既存の会員編集・改名・削除・退会切替・LINE 紐付け解除のテストが引き続き green | auto-test |
 | AC-23 | role-preview-switch の既存テスト（`role-preview-actions.test.ts` / `auth-config-callbacks.test.ts`）が引き続き green | auto-test |
 | AC-24 | 既存テスト・lint・typecheck が CI で green | auto-test |
+| AC-25 | 昇格させた管理者・副管理者の LINE 紐付けは解除できない（`privileged_role` で拒否され、紐付けが残る）。一般会員へ降格してからなら解除できる | auto-test |
 
-内訳: auto-test 24 件 / verify 0 件 / manual 0 件
+内訳: auto-test 25 件 / verify 0 件 / manual 0 件
 
 ## 5. Non-goals
 
@@ -122,9 +123,11 @@ design_required: false
 - **マイグレーション不要**: `user_role` enum は `admin` / `vice_admin` / `member` を既に持ち、`users.role` 列も存在する。スキーマ変更は行わない。
 - **認可**: ロール変更 Server Action は冒頭で `await auth()` し、`session.user.role === 'admin'` のみ通す（実効ロール判定。`realRole` は使わない）。既存 `assertAdminSession()` は `vice_admin` を通すため使わない。
 - **競合の直列化**: 「有効な管理者が 0 人になる変更の拒否」は読み取り→書き込みの間に他の変更が入りうる。既存の `deleteMember` と同じくトランザクション＋行ロック（`FOR UPDATE`）、および対象条件を UPDATE の `WHERE` 句に埋め込む方式で直列化する（チェックと書き込みの間に条件が変わっても静かに通らない形にする）。
+- **`unlinkLine` の対象を `member` 限定にする（レビュー R1 の blocker 対応・既存挙動の変更）**: 昇格時に LINE 紐付けを要求するだけでは「昇格 → 紐付け解除」の順で未紐付けの権限持ち行を作れてしまい、`/self-identify` 経由の乗っ取り経路が開いたままになる。対象条件は UPDATE の `WHERE` に埋め込む（ロール変更と並行しても確定後のロールで再評価させる）。管理者・副管理者の紐付けをやり直させたい場合は、先に一般会員へ降格してから解除する運用に変わる。
 - **維持すべき既存挙動**:
   - 会員編集画面・会員一覧に対する副管理者のアクセス権（閲覧・プロフィール編集）は変えない
   - `updateMemberName` / `deleteMember` が対象を `role = 'member'` に限定している既存の防御は残す
+  - `unlinkLine` に存在しない `userId` を渡したときは従来どおり無害に返す（誤った id で画面を壊さない）
   - JWT の `token.role`＝本物のロール、`session.user.role`＝実効ロールという role-preview-switch の契約を壊さない
 - **日本語ラベル**: `管理者` / `副管理者` / `一般会員` の対応は既存の `roleViewLabel`（`apps/web/src/lib/role-preview.ts`）に定義済み。新しいラベルマップを作らず再利用する。
 - **UI 規約**: 確認ダイアログは同画面の `DeleteMemberSection` と同じ `window.confirm` パターン。エラー表示は `role="alert"`、成功表示は `role="status"`（既存フォームに倣う）。

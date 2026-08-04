@@ -9,7 +9,7 @@ vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
-const { updateMemberRole } = await import('./actions')
+const { updateMemberRole, unlinkLine } = await import('./actions')
 const { revalidatePath } = await import('next/cache')
 
 function formOf(data: Record<string, string>) {
@@ -266,6 +266,73 @@ describe('updateMemberRole', () => {
 
       const result = await updateMemberRole({}, formOf({ userId: '', role: 'member' }))
       expect(result.error).toBe('入力が不正です')
+    })
+  })
+
+  describe('昇格後の LINE 解除（未紐付けの権限持ち行を作らせない）', () => {
+    // 昇格時の紐付けチェックだけでは塞げない裏口。昇格 → unlinkLine の順で
+    // 実行すると「未紐付けの管理者行」ができ、/self-identify（未紐付け ∧
+    // 招待済みを role 無視で候補化する）経由で第三者に名乗られる。
+    async function unlinkOf(userId: string) {
+      const fd = new FormData()
+      fd.set('userId', userId)
+      return unlinkLine(fd)
+    }
+
+    it('昇格させた副管理者の LINE 紐付けは解除できない', async () => {
+      const admin = await createAdmin({ name: 'admin-unlink-role-1', ...linked() })
+      const target = await createUser({ name: 'target-unlink-role-1', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await updateMemberRole({}, formOf({ userId: target.id, role: 'vice_admin' }))
+      await expect(unlinkOf(target.id)).rejects.toThrow(/privileged_role/)
+
+      const after = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+        columns: { role: true, lineUserId: true },
+      })
+      expect(after?.role).toBe('vice_admin')
+      expect(after?.lineUserId).not.toBeNull()
+    })
+
+    it('管理者の LINE 紐付けも解除できない', async () => {
+      const admin = await createAdmin({ name: 'admin-unlink-role-2', ...linked() })
+      const target = await createAdmin({ name: 'target-unlink-role-2', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await expect(unlinkOf(target.id)).rejects.toThrow(/privileged_role/)
+
+      const after = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+        columns: { lineUserId: true },
+      })
+      expect(after?.lineUserId).not.toBeNull()
+    })
+
+    it('一般会員に降格させれば解除できる（正規の手順）', async () => {
+      const admin = await createAdmin({ name: 'admin-unlink-role-3', ...linked() })
+      const target = await createViceAdmin({
+        name: 'target-unlink-role-3',
+        ...linked(),
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await updateMemberRole({}, formOf({ userId: target.id, role: 'member' }))
+      await expect(unlinkOf(target.id)).resolves.toBeUndefined()
+
+      const after = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+        columns: { role: true, lineUserId: true },
+      })
+      expect(after?.role).toBe('member')
+      expect(after?.lineUserId).toBeNull()
+    })
+
+    it('存在しない userId の解除は従来どおり無害（既存契約の回帰）', async () => {
+      const admin = await createAdmin({ name: 'admin-unlink-role-4', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      await expect(unlinkOf(crypto.randomUUID())).resolves.toBeUndefined()
     })
   })
 

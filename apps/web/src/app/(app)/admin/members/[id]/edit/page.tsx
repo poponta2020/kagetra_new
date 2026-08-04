@@ -124,17 +124,22 @@ export default async function EditMemberPage({
               <dd className="inline">{formatLinkMethod(member.lineLinkedMethod)}</dd>
             </div>
           </dl>
-          {session.user?.role === 'admin' && (
-            <form action={unlinkLine} className="mt-3">
-              <input type="hidden" name="userId" value={member.id} />
-              <button
-                type="submit"
-                className="rounded-md bg-danger-bg px-3 py-1.5 text-sm text-danger-fg hover:opacity-90"
-              >
-                LINE 紐付けを解除
-              </button>
-            </form>
-          )}
+          {session.user?.role === 'admin' &&
+            (member.role === 'member' ? (
+              <form action={unlinkLine} className="mt-3">
+                <input type="hidden" name="userId" value={member.id} />
+                <button
+                  type="submit"
+                  className="rounded-md bg-danger-bg px-3 py-1.5 text-sm text-danger-fg hover:opacity-90"
+                >
+                  LINE 紐付けを解除
+                </button>
+              </form>
+            ) : (
+              <p className="mt-3 text-xs text-ink-meta">
+                管理者・副管理者の紐付けは解除できません。先にロールを一般会員に変更してください。
+              </p>
+            ))}
           <p className="mt-2 text-xs text-ink-meta">
             解除すると本人の次回 LINE ログインで /self-identify から再選択できます。
           </p>

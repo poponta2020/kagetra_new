@@ -460,6 +460,16 @@ export async function toggleMemberDeactivation(formData: FormData) {
  * Non-admin access is rejected — `assertAdminSession` accepts `vice_admin`
  * too, but this action is deliberately stricter (only `admin`), matching the
  * plan's specification for audit-sensitive operations.
+ *
+ * The TARGET is restricted to plain `member` rows (member-role-management).
+ * `updateMemberRole` refuses to promote an unlinked row precisely because
+ * `/self-identify` offers every unlinked+invited row as a claimable identity
+ * without looking at `role` — but unlinking an already-promoted row would
+ * produce the same dangerous state through the back door (and the two actions
+ * racing each other would too). The restriction lives in the UPDATE's WHERE
+ * clause so a concurrent role change is re-evaluated against the committed
+ * role rather than a stale read. To unlink an admin / vice_admin, demote them
+ * to `member` first.
  */
 export async function unlinkLine(formData: FormData) {
   const session = await auth()
@@ -468,7 +478,7 @@ export async function unlinkLine(formData: FormData) {
   const parsed = unlinkLineInputSchema.safeParse({ userId: formData.get('userId') })
   if (!parsed.success) throw new Error('invalid_input')
 
-  await db
+  const updated = await db
     .update(users)
     .set({
       lineUserId: null,
@@ -476,7 +486,19 @@ export async function unlinkLine(formData: FormData) {
       lineLinkedMethod: null,
       updatedAt: new Date(),
     })
-    .where(eq(users.id, parsed.data.userId))
+    .where(and(eq(users.id, parsed.data.userId), eq(users.role, 'member')))
+    .returning({ id: users.id })
+
+  if (updated.length === 0) {
+    // 0 行 = 不在 または 権限持ち。不在は従来どおり無害に返す（誤った
+    // userId で画面を壊さない既存契約）。UPDATE は既に確定しているので、
+    // ここでの再読み込みは「なぜ効かなかったか」の判別にしか使わない。
+    const row = await db.query.users.findFirst({
+      where: eq(users.id, parsed.data.userId),
+      columns: { role: true },
+    })
+    if (row && row.role !== 'member') throw new Error('privileged_role')
+  }
 
   revalidatePath(`/admin/members/${parsed.data.userId}/edit`)
   revalidatePath('/admin/members')
