@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm'
 import type { Grade, Gender } from '@kagetra/shared/types'
 import { EditMemberForm } from './edit-member-form'
 import { DeleteMemberSection } from './delete-member-section'
+import { MemberRoleSection } from './member-role-section'
 import { toggleMemberDeactivation, unlinkLine } from './actions'
 import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
@@ -96,6 +97,17 @@ export default async function EditMemberPage({
         grades={GRADES}
         genders={GENDERS}
       />
+
+      {session.user?.role === 'admin' && (
+        <MemberRoleSection
+          userId={member.id}
+          memberName={member.name ?? '未設定'}
+          currentRole={member.role}
+          isSelf={member.id === session.user.id}
+          lineLinked={member.lineUserId != null}
+          deactivated={member.deactivatedAt != null}
+        />
+      )}
 
       {member.lineUserId && (
         <section className="rounded-lg bg-surface p-4 shadow-sm">
