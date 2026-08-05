@@ -196,6 +196,18 @@
 }
 
 /* ---------- Baseline ---------- */
+/* 画面端を超えて引っ張ったときのラバーバンド（ゴムのように伸びて戻る挙動）を
+   止める。(app) 配下は `.mobile-shell-h` で 100svh に固定されドキュメント自体は
+   スクロールしないが、iOS Safari はスクロール不能なページでも document を
+   バウンスさせるため html 側の指定が要る。Android Chrome では併せて
+   引き下げリロード（pull-to-refresh）も無効になる（アプリ的な挙動として意図的）。
+   `overscroll-behavior` は iOS Safari 16 以降のサポート。それ以前では効かない。
+   スクローラー内側のバウンスは mobile-shell.tsx の <main> 側で止めている。 */
+html,
+body {
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--kg-bg);
   color: var(--kg-fg);
