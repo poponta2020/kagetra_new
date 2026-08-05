@@ -2990,3 +2990,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - ★Codex R1 が実在の権限昇格経路を検出: 昇格後に `unlinkLine` すると未紐付けの管理者行が作れ、`/self-identify`（role を見ない）経由で第三者に名乗られる。`unlinkLine` の対象を `member` 限定に変更（**既存挙動の変更** — 管理者・副管理者の紐付けやり直しは先に降格が必要になった）
 - 新規テスト 39件 green。レビュー 4R（i+d2+f）で pass、累計 434,737 トークン
 - 残 DoD: 本番実機での動作確認（CI は pending のままマージ。赤なら追修正）
+- 2026-08-05 /auto-review-loop PR #456: 1R(i), verdict=pass, effort=low, tokens=35607/500000, result=pass
+- 2026-08-05 出荷: PR #456 fix(ui) スクロール端のラバーバンド（ばね挙動）を無効化（html/body + <main> に overscroll-behavior: none）。残 DoD: 本番実機確認（iOS Safari 16+ / PWA / Android Chrome）

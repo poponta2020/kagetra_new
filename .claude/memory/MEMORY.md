@@ -279,3 +279,5 @@
 - [member-role-management 実装](impl_member_role_management.md) — 全4タスク完了・PR前
 - [auto-review PR #455](auto-review-round-pr455.md) — R4 verdict=pass（R1 blocker=unlinkLine の裏口）
 - [管理者による会員ロールの付与・剥奪](project_ship-member-role-management.md) — shipped: PR #455（unlinkLine が member 限定に）
+- [auto-review PR #456](auto-review-round-pr456.md) — R1 verdict=pass
+- [スクロール端のラバーバンド無効化](project_ship-disable-overscroll-bounce.md) — shipped: PR #456
