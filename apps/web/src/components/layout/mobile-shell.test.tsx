@@ -74,6 +74,11 @@ describe('MobileShell', () => {
     // (BottomNav disappears while scrolling).
     expect(main.className).toContain('min-h-0')
     expect(main.className).toContain('overflow-y-auto')
+    // Regression guard: `overscroll-none` を落とすと、スクロール端で iOS/Android
+    // 既定のラバーバンド（引っ張ると伸びて戻る）が復活する。html/body 側の
+    // 同指定（globals.css）だけでは実スクローラーである <main> の内側は
+    // 止まらないので、この 1 クラスは必須。
+    expect(main.className).toContain('overscroll-none')
     expect(screen.getByTestId('child').textContent).toBe('child-content')
   })
 

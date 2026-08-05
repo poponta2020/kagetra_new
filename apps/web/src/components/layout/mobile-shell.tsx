@@ -66,7 +66,16 @@ export function MobileShell({
         carries BottomNav off-screen — exactly the bug we are trying
         to fix. See https://developer.mozilla.org/en-US/docs/Web/CSS/min-height#values
       */}
-      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
+      {/*
+        `overscroll-none` (= `overscroll-behavior: none`) は上下端でのラバー
+        バンド（引っ張ると伸びて戻る挙動）と、親へのスクロール連鎖の両方を
+        止める。html/body 側の同指定（globals.css の Baseline）はドキュメント
+        自体のバウンスを止めるもので、実スクローラーであるこの <main> の内側は
+        こちらでないと止まらない（2 箇所セットで初めて効く）。
+      */}
+      <main className="flex-1 min-h-0 overflow-y-auto overscroll-none">
+        {children}
+      </main>
       <BottomNav isAdmin={isAdmin} previewRoleLabel={previewRoleLabel} />
     </div>
   )
