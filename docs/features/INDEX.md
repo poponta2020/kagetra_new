@@ -52,3 +52,4 @@
 - `roster-file-adoption` — 名簿をパースせず原本ファイルのまま採用できる導線（メール添付→entry_group×種別）。会員向けビューア新設・申込管理ボードの hasConfirmedRoster をファイル採用へ拡張（主要領域: packages/shared schema + apps/web admin/mail-inbox・events・roster-files） [shipped: PR #409] [shipped: PR #439]
 - `mail-ai-extract-refinements` — メール大会案内取込のAI再設計（改修）。分類ロジック撤去＋抽出項目整理(通称/参加費/訂正版判定を廃止・振込締切の状態化・支払/申込方法の日本語enum化・全体定員追加)・Sonnet 5移行(thinking:disabled明示)・添付選択UI新設・PDFサイズ上限800→8000KB・本文常時送信の回帰固定（主要領域: apps/mail-worker classify + apps/web admin/mail-inbox）[shipped: PR #431]
 - `member-role-management` — 管理者による会員ロールの付与・剥奪（主要領域: apps/web admin/members） [shipped: PR #455]
+- `openchat-broadcast` — 大会当日用 LINE オープンチャットの招待 URL をメール本文・添付テキスト・QR から決定的に抽出し（AI なし）、管理者確認のうえ大会別 Bot グループへ Flex 1通で配信。級・開催日・自由ラベルの3属性＋パスワード対応（主要領域: packages/shared schema + apps/web lib/open-chat・admin/mail-inbox・events）

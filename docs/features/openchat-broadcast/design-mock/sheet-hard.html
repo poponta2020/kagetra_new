@@ -1,0 +1,265 @@
+<!-- @dsCard group="オープンチャット抽出" name="候補シート — つらいケース（5件重複ラベル / 候補ゼロ / QR）" subtitle="部門別5件・ラベル重複エラー・URL非存在の手入力救済" viewport="800x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../mail-inbox-mailer/_form.css">
+<link rel="stylesheet" href="_oc.css">
+</head>
+<body>
+<div class="rack">
+
+  <!-- ============ A. 5件・級でも日付でもない分かれ方 ============ -->
+  <div class="frame">
+    <div class="flabel">Ａ 部門別5件 — ラベル重複でブロック</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">中学生選手権</span>
+          <span class="td">8/22(土)・8/23(日)</span>
+        </div>
+
+        <div class="occount">添付「大会オープンチャット.pdf」から 5 件見つかりました</div>
+
+        <div class="oclist">
+
+          <div class="oc bad">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">添付</span>
+                </span>
+                <span class="ocurl">https://ourl.jp/Zx1Aq</span>
+              </span>
+            </div>
+            <div class="ocerr">同じラベルの行が 5 件あります。Flex のボタンが全部同じ名前になり区別できません。<b>ラベルを入力してください</b>（例「団体戦」）。</div>
+          </div>
+
+          <div class="oc open">
+            <div class="ocsum">
+              <span class="car">▾</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel">1年の部</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">添付</span>
+                </span>
+                <span class="ocurl">https://ourl.jp/Kd7Rv</span>
+              </span>
+            </div>
+            <div class="ocedit">
+              <div class="fl">
+                <span class="fk">対象級</span>
+                <span class="fv gset">
+                  <span class="g">A</span><span class="g">B</span><span class="g">C</span>
+                  <span class="g">D</span><span class="g">E</span>
+                  <span class="g allg on">全級</span>
+                </span>
+              </div>
+              <div class="fl">
+                <span class="fk">開催日</span>
+                <span class="fv"><span class="sel">全日共通</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">ラベル</span>
+                <span class="fv"><span class="inp">1年の部</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">パスワード</span>
+                <span class="fv"><span class="inp ph">なし</span></span>
+              </div>
+              <div class="ocacts">
+                <span class="open-url">URL を開いて確かめる ↗</span>
+                <span class="del">この候補を外す</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="oc bad">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">添付</span>
+                </span>
+                <span class="ocurl">https://ourl.jp/Pm4Ns</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="oc bad">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">添付</span>
+                </span>
+                <span class="ocurl">https://ourl.jp/Ty8Wb</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="oc bad">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">添付</span>
+                </span>
+                <span class="ocurl">https://ourl.jp/Hj2Lc</span>
+              </span>
+            </div>
+          </div>
+
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta" disabled>保存して配信（5件）</button>
+          <div class="fnote">ラベルが重複している 4 件を直すと押せます</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">級でも日付でもない分かれ方だと<b>自動ラベルが全部同じ</b>になる。ここを黙って通すと「同じボタンが5個並ぶ Flex」が配信される。</div>
+  </div>
+
+  <!-- ============ B. QR から取れたケース ============ -->
+  <div class="frame">
+    <div class="flabel">Ｂ QR コードから抽出</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">椿杯争奪全国大会D〜F級</span>
+          <span class="td">5/24(日)</span>
+        </div>
+
+        <div class="occount">添付画像の QR コードから 1 件見つかりました</div>
+
+        <div class="oclist">
+          <div class="oc">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="src qr">QR</span>
+                </span>
+                <span class="ocurl">https://line.me/ti/g2/QrDecodedTokenSample…</span>
+                <span class="ocaux">椿杯D級_QRコード.jpg</span>
+              </span>
+            </div>
+          </div>
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta">保存して配信（1件）</button>
+          <div class="fnote">椿杯争奪全国大会D〜F級 の LINE グループへ Flex 1通で送ります</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">QR 出典だけ<b>藍の塗りバッジ</b>にして、テキストに URL が無かった＝目視では見つけにくかった1件だと分かるようにしている。</div>
+  </div>
+
+  <!-- ============ C. 候補ゼロ ============ -->
+  <div class="frame">
+    <div class="flabel">Ｃ 候補ゼロ（URL がメールに存在しない）</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">協会法人化30周年記念ABC</span>
+          <span class="td">8/8(土)</span>
+        </div>
+
+        <div class="ocempty">
+          <div class="et">URL が見つかりませんでした</div>
+          <div class="eh">本文・添付テキスト・QR コードのいずれにも招待 URL がありませんでした。<br>
+            「大会用 LINE アカウント内でご案内」のように、メールの外にしか URL が無い場合があります。</div>
+        </div>
+
+        <div class="oclist">
+          <div class="oc open">
+            <div class="ocsum">
+              <span class="car">▾</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="src manual">手入力</span>
+                </span>
+                <span class="ocurl" style="color:var(--kg-fg-muted)">https://…</span>
+              </span>
+            </div>
+            <div class="ocedit">
+              <div class="fl">
+                <span class="fk">URL</span>
+                <span class="fv"><span class="inp ph">https://line.me/ti/g2/…</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">対象級</span>
+                <span class="fv gset">
+                  <span class="g">A</span><span class="g">B</span><span class="g">C</span>
+                  <span class="g">D</span><span class="g">E</span>
+                  <span class="g allg on">全級</span>
+                </span>
+              </div>
+              <div class="fl">
+                <span class="fk">開催日</span>
+                <span class="fv"><span class="sel">全日共通</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">ラベル</span>
+                <span class="fv"><span class="inp ph">オープンチャットに参加（自動）</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">パスワード</span>
+                <span class="fv"><span class="inp ph">なし</span></span>
+              </div>
+              <div class="ocacts">
+                <span class="open-url">　</span>
+                <span class="del">この行を削除</span>
+              </div>
+            </div>
+          </div>
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta" disabled>保存して配信（1件）</button>
+          <div class="fnote">URL を入力すると押せます</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">空状態でも<b>手入力の行が最初から1つ開いた状態</b>で出る。ここが「メールに URL が無い大会」の唯一の入口になる。</div>
+  </div>
+
+</div>
+</body></html>

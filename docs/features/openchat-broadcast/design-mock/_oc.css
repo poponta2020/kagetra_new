@@ -1,0 +1,260 @@
+/* openchat-broadcast — モック固有スタイル。
+   ベースは mail-inbox-mailer/_form.css（同じ画面なので共有）。
+   色・サイズ・フォントは colors_and_type.css の --kg-* からしか取らない。
+
+   ★唯一の例外＝ --oc-flex-* / --oc-line-*：
+   LINE の Flex Message は LINE アプリ側のレンダラで描画され、こちらの CSS も
+   --kg-* トークンも一切届かない（色は Flex JSON にリテラルで書く）。
+   モックでその「別世界」を再現するため、LINE 名前空間の値だけをここに
+   隔離して宣言する。実装では line-flex-attachment.ts と同じく Flex JSON 内の
+   リテラルになる。詳細は design-spec の「Flex はトークンの外」を参照。 */
+
+:root {
+  /* LINE トーク画面（背景・吹き出し）*/
+  --oc-line-talk-bg: #8CABD8;
+  --oc-line-time: #ffffff;
+
+  /* Flex バブル内部（LINE 標準の白カード）*/
+  --oc-flex-bg: #FFFFFF;
+  --oc-flex-fg: #111111;
+  --oc-flex-fg-2: #6E7B8A;
+  --oc-flex-fg-3: #999999;
+  --oc-flex-sep: #E7EBF0;
+  /* ボタン＝LINE ブランドではなく大会用の藍。kg-brand と同値だが
+     Flex JSON にはリテラルで入るため別変数にしている。 */
+  --oc-flex-btn: #2B4E8C;
+  --oc-flex-btn-fg: #FFFFFF;
+  --oc-flex-pw-bg: #F4F6F9;
+}
+
+/* ============================================================
+   カード内で複数フレームを並べるための骨組み（レイアウトのみ）
+   ============================================================ */
+.rack { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px; }
+.frame { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.flabel { font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-fg-2); }
+.fsub { font-size: var(--kg-text-xxs); color: var(--kg-fg-3); max-width: 375px; text-align: center; line-height: var(--kg-leading-normal); }
+
+/* ============================================================
+   抽出候補シート
+   ============================================================ */
+
+.ocsheet { max-height: 92%; }
+
+.shead { display: flex; align-items: baseline; gap: 8px; }
+.shead .st {
+  flex: 1; min-width: 0;
+  font-family: var(--kg-font-display); font-weight: var(--kg-w-bold);
+  font-size: var(--kg-text-md);
+}
+.shead .sx { flex: none; font-size: var(--kg-text-sm); color: var(--kg-fg-3); }
+
+/* 対象大会（読み取り専用の文脈表示） */
+.octarget {
+  margin-top: 8px; display: flex; align-items: baseline; gap: 6px;
+  border-left: 2px solid var(--kg-brand);
+  padding-left: 8px;
+}
+.octarget .tn { font-size: var(--kg-text-sm); font-weight: var(--kg-w-bold); color: var(--kg-brand-fg); }
+.octarget .td { font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+
+.occount { margin-top: 10px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+
+.oclist { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+
+/* ---- 候補1件（既定＝折りたたみ） ---- */
+.oc {
+  border: 1px solid var(--kg-border-soft); border-radius: var(--kg-radius-md);
+  background: var(--kg-surface);
+}
+.oc.open { border-color: var(--kg-brand); }
+.oc.bad { border-color: var(--kg-accent); }
+
+.ocsum { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; }
+.ocsum .car { flex: none; width: 10px; font-size: 10px; color: var(--kg-fg-3); line-height: 1.6; }
+.ocmid { flex: 1; min-width: 0; }
+
+/* 1行目: ラベル＋出典 */
+.ocr1 { display: flex; align-items: center; gap: 6px; }
+.oclabel {
+  flex: 1; min-width: 0;
+  font-size: var(--kg-text-sm); font-weight: var(--kg-w-bold);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 自動生成ラベル（未入力）はやや弱く出し、手入力との差を字面で示す */
+.oclabel.auto { font-weight: var(--kg-w-medium); color: var(--kg-fg-2); }
+
+/* 2行目: URL
+   ★display:block 必須 — span のままだと margin-top も overflow/ellipsis も効かない */
+.ocurl {
+  display: block; margin-top: 3px;
+  font-family: var(--kg-font-mono); font-size: var(--kg-text-xxs);
+  color: var(--kg-fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* 3行目: 付随情報（パスワード有無など） */
+.ocaux { display: block; margin-top: 3px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+
+/* ---- 出典バッジ ---- */
+.src {
+  flex: none; padding: 1px 6px; border-radius: var(--kg-radius-sm);
+  font-size: var(--kg-text-xxs); font-weight: var(--kg-w-medium);
+  border: 1px solid var(--kg-border); color: var(--kg-fg-3);
+  background: var(--kg-surface);
+  white-space: nowrap;
+}
+.src.qr      { border-color: var(--kg-brand); color: var(--kg-brand-fg); background: var(--kg-brand-bg); }
+.src.manual  { border-color: var(--kg-border-strong); color: var(--kg-fg-2); background: var(--kg-surface-alt); }
+
+/* 未検証＝短縮 URL。危険ではないので警告色を使わず、破線の下線で「確度が違う」ことだけ示す */
+.unver {
+  flex: none; font-size: var(--kg-text-xxs); color: var(--kg-fg-3);
+  border-bottom: 1px dashed var(--kg-border-strong);
+  white-space: nowrap;
+}
+
+/* ---- 展開時の編集エリア ---- */
+.ocedit {
+  border-top: 1px solid var(--kg-border-soft);
+  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+}
+.fl { display: flex; align-items: center; gap: 8px; }
+.fl .fk { flex: none; width: 62px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+.fl .fv { flex: 1; min-width: 0; }
+
+.gset { display: flex; gap: 4px; }
+.gset .allg { width: auto; padding: 3px 9px; }
+
+/* モックでは input/select を span で模しているため display:block を明示する
+   （_form.css の .inp も同様に、この文脈ではブロック化が要る） */
+.fl .fv > .inp { display: block; }
+.sel {
+  display: block; width: 100%; padding: 7px 9px;
+  border: 1px solid var(--kg-border-soft); border-radius: var(--kg-radius-md);
+  background: var(--kg-surface); color: var(--kg-fg);
+  font-family: var(--kg-font-sans); font-size: var(--kg-text-sm);
+}
+
+.ocacts { display: flex; justify-content: space-between; align-items: center; }
+.ocacts .del { font-size: var(--kg-text-xxs); color: var(--kg-accent-fg); }
+.ocacts .open-url { font-size: var(--kg-text-xxs); color: var(--kg-brand-fg); }
+
+/* ---- 行レベルのエラー（ラベル重複など） ---- */
+.ocerr {
+  margin: 0 10px 10px; padding: 7px 9px;
+  border-radius: var(--kg-radius-sm);
+  background: var(--kg-danger-bg); color: var(--kg-danger-fg);
+  font-size: var(--kg-text-xxs); line-height: var(--kg-leading-normal);
+}
+
+/* ---- 手入力で追加 ---- */
+.addrow {
+  margin-top: 6px; width: 100%; padding: 9px 0;
+  border: 1px dashed var(--kg-border-strong); border-radius: var(--kg-radius-md);
+  background: transparent; color: var(--kg-fg-2);
+  font-family: var(--kg-font-sans); font-size: var(--kg-text-sm);
+}
+
+/* ---- 空状態 ---- */
+.ocempty {
+  margin-top: 12px; padding: 16px 12px; text-align: center;
+  border: 1px solid var(--kg-border-soft); border-radius: var(--kg-radius-md);
+  background: var(--kg-surface-alt);
+}
+.ocempty .et { font-size: var(--kg-text-sm); font-weight: var(--kg-w-bold); color: var(--kg-fg-2); }
+.ocempty .eh { margin-top: 5px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); line-height: var(--kg-leading-normal); }
+
+/* シート下端の固定フッター（候補が多くても CTA を見失わない） */
+.ocfoot {
+  flex: none; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--kg-border-soft);
+}
+.ocfoot .cta { margin-top: 0; }
+.ocfoot .fnote { margin-top: 6px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); text-align: center; }
+
+/* ============================================================
+   確認ダイアログ（再配信）
+   ============================================================ */
+.dlgwrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.dlg {
+  width: 100%; background: var(--kg-surface);
+  border-radius: var(--kg-radius-lg); padding: 16px;
+  box-shadow: var(--kg-shadow-lg);
+}
+.dlg .dt { font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: var(--kg-text-md); }
+.dlg .db { margin-top: 8px; font-size: var(--kg-text-sm); color: var(--kg-fg-2); line-height: var(--kg-leading-normal); }
+.dlg .dlist { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.dlg .dlist span { font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+
+/* ============================================================
+   LINE トーク画面（Flex の見え方の再現）
+   ★ここから下だけ LINE 名前空間の色を使う
+   ============================================================ */
+.talk {
+  width: 375px; height: 812px; overflow: hidden;
+  background: var(--oc-line-talk-bg);
+  border: 1px solid var(--kg-border); border-radius: 14px;
+  padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  font-family: var(--kg-font-sans);
+}
+.talkhead { font-size: var(--kg-text-xxs); color: var(--oc-line-time); text-align: center; opacity: .85; }
+.msgrow { display: flex; align-items: flex-end; gap: 6px; }
+.msgrow .time { flex: none; font-size: 10px; color: var(--oc-line-time); opacity: .9; }
+
+.bubble {
+  width: 260px; flex: none;
+  background: var(--oc-flex-bg); border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Flex bubble body */
+.fx { padding: 16px; }
+.fxtag { font-size: 10px; font-weight: var(--kg-w-bold); color: var(--oc-flex-fg-2); }
+.fxtitle {
+  margin-top: 3px; font-size: 15px; font-weight: var(--kg-w-bold);
+  color: var(--oc-flex-fg); line-height: 1.35;
+}
+.fxsep { height: 1px; background: var(--oc-flex-sep); margin: 12px 0; }
+
+.fxbtns { display: flex; flex-direction: column; gap: 8px; }
+.fxbtn {
+  display: block; text-align: center;
+  background: var(--oc-flex-btn); color: var(--oc-flex-btn-fg);
+  border-radius: 6px; padding: 10px 8px;
+  font-size: 13px; font-weight: var(--kg-w-bold);
+  line-height: 1.2;
+}
+.fxpw {
+  display: block; margin-top: 5px; padding: 5px 8px; border-radius: 4px;
+  background: var(--oc-flex-pw-bg);
+  font-family: var(--kg-font-mono); font-size: 11px; color: var(--oc-flex-fg-2);
+  text-align: center;
+}
+
+/* トーク一覧・通知に出る altText の見え方 */
+.altbar {
+  width: 375px; background: var(--kg-surface);
+  border: 1px solid var(--kg-border); border-radius: var(--kg-radius-md);
+  padding: 9px 11px;
+}
+.altbar .ak { font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+.altbar .av { margin-top: 2px; font-size: var(--kg-text-sm); color: var(--kg-fg); }
+
+/* ============================================================
+   大会詳細のオープンチャット欄（罫線セクション様式）
+   ============================================================ */
+.sec { margin-top: 26px; }
+.sech { display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--kg-border-strong); padding-bottom: 5px; }
+.sech h2 { flex: 1; min-width: 0; font-family: var(--kg-font-display); font-weight: var(--kg-w-bold); font-size: var(--kg-text-lg); }
+.sech .aux { flex: none; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+
+.oclinks { list-style: none; margin-top: 4px; }
+.oclinks li { padding: 11px 0; display: flex; align-items: center; gap: 10px; }
+.oclinks li + li { border-top: 1px solid var(--kg-border-soft); }
+.ocl { flex: 1; min-width: 0; }
+.ocl .n { display: block; font-size: var(--kg-text-base); color: var(--kg-brand-fg); font-weight: var(--kg-w-medium); }
+.ocl .p { display: block; margin-top: 2px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); font-family: var(--kg-font-mono); }
+.oclinks .go { flex: none; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); }
+.ocnote { margin-top: 9px; font-size: var(--kg-text-xxs); color: var(--kg-fg-3); line-height: var(--kg-leading-normal); }

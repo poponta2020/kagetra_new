@@ -1,0 +1,124 @@
+<!-- @dsCard group="オープンチャット抽出" name="配信まわりの状態 — 再配信確認 / LINE未紐付け / 配信失敗" subtitle="保存と配信を切り離した見せ方" viewport="800x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../mail-inbox-mailer/_form.css">
+<link rel="stylesheet" href="_oc.css">
+</head>
+<body>
+<div class="rack">
+
+  <!-- ============ A. 再配信の確認 ============ -->
+  <div class="frame">
+    <div class="flabel">Ａ 2回目以降の配信（確認）</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="dlgwrap">
+        <div class="dlg">
+          <div class="dt">もう一度配信しますか</div>
+          <div class="db">この大会には <b>すでに 1 回</b> 配信しています。<br>保存済みの <b>全 4 件</b> を改めて送ります。</div>
+          <div class="dlist">
+            <span>・B級</span>
+            <span>・C級</span>
+            <span>・D級</span>
+            <span>・E級（今回追加）</span>
+          </div>
+          <div class="rowbtn">
+            <button class="cta ghost back">やめる</button>
+            <button class="cta">4件を配信</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">差分ではなく<b>全件</b>を送るので、増えた行だけでなく既存の行も並べて「何が送られるか」を見せる。今回増えた行には印を付ける。</div>
+  </div>
+
+  <!-- ============ B. LINE 未紐付け ============ -->
+  <div class="frame">
+    <div class="flabel">Ｂ LINE グループ未紐付け</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">宇都宮大会E級</span>
+          <span class="td">11/14(土)</span>
+        </div>
+
+        <div class="occount">本文から 1 件見つかりました</div>
+
+        <div class="oclist">
+          <div class="oc">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">E級</span>
+                  <span class="src">本文</span>
+                </span>
+                <span class="ocurl">https://line.me/ti/g2/UtsunomiyaSampleToken…</span>
+              </span>
+            </div>
+          </div>
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="warnbar">
+          この大会はまだ LINE グループに紐付いていません。<b>保存だけ行い、配信はしません。</b><br>
+          紐付けたあとに、この画面からもう一度配信できます。
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta">保存する（1件）</button>
+          <div class="fnote">配信は行いません</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">CTA の文言が<b>「保存して配信」→「保存する」</b>に変わる。押した結果と字面を一致させ、押してから「送られなかった」と気づく状態を作らない。</div>
+  </div>
+
+  <!-- ============ C. 配信失敗 ============ -->
+  <div class="frame">
+    <div class="flabel">Ｃ 保存は成功・配信は失敗</div>
+    <div class="phone">
+      <div class="main"><div class="page">
+        <div class="crumb">‹ 受信メール</div>
+
+        <div class="card">
+          <div class="mhead">
+            <span class="mdate">6/20(土) 18:42</span>
+            <span class="mpills"><span class="pill success">処理済み</span></span>
+          </div>
+          <div class="msubj">【東会大会】BCD級オープンチャットおよびご連絡事項について</div>
+          <div class="mfrom">azumakai.taikai@example.com</div>
+        </div>
+
+        <div>
+          <div class="sect"><span class="t">オープンチャット</span><span class="rule"></span></div>
+
+          <div class="warnbar">
+            <b>3件を保存しました。配信は失敗しました。</b><br>
+            LINE への送信中にエラーが発生しました（Bot がグループから退出している可能性があります）。
+          </div>
+
+          <div class="chips">
+            <span class="chip">B級</span>
+            <span class="chip">C級</span>
+            <span class="chip">D級</span>
+          </div>
+
+          <button class="cta">配信をやり直す</button>
+          <div class="hint">保存済みの内容は残っています。やり直しても重複して保存されることはありません。</div>
+        </div>
+      </div></div>
+    </div>
+    <div class="fsub">保存と配信は別々に扱う。<b>失敗しても抽出のやり直しは要らない</b>ことを字面で示し、再抽出という徒労を防ぐ。</div>
+  </div>
+
+</div>
+</body></html>

@@ -281,3 +281,4 @@
 - [管理者による会員ロールの付与・剥奪](project_ship-member-role-management.md) — shipped: PR #455（unlinkLine が member 限定に）
 - [auto-review PR #456](auto-review-round-pr456.md) — R1 verdict=pass
 - [スクロール端のラバーバンド無効化](project_ship-disable-overscroll-bounce.md) — shipped: PR #456
+- [openchat-broadcast 要件定義](project_openchat_broadcast_def.md) — 親Issue #457・★AIなし99%は不可を本番286件で実証

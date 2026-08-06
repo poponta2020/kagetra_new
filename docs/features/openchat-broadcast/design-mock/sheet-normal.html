@@ -1,0 +1,248 @@
+<!-- @dsCard group="オープンチャット抽出" name="候補シート — 通常（級別3件）" subtitle="折りたたみ既定＋1件展開。短縮URL＝未検証印" viewport="800x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../mail-inbox-mailer/_form.css">
+<link rel="stylesheet" href="_oc.css">
+</head>
+<body>
+<div class="rack">
+
+  <!-- ============ 1. 起点：統合処理フォームに増えるボタン ============ -->
+  <div class="frame">
+    <div class="flabel">① メール詳細（起点）</div>
+    <div class="phone">
+      <div class="main"><div class="page">
+        <div class="crumb">‹ 受信メール</div>
+
+        <div class="card">
+          <div class="mhead">
+            <span class="mdate">6/20(土) 18:42</span>
+            <span class="mpills"><span class="pill brand">大会</span></span>
+          </div>
+          <div class="msubj">【東会大会】BCD級オープンチャットおよびご連絡事項について</div>
+          <div class="mfrom">azumakai.taikai@example.com</div>
+          <div class="mbody">各会お申込者様
+
+本日現時点の名簿情報、オープンチャットなどの当日用の案内をお送りします。
+
+*①オープンチャットについて*
+各級別にオープンチャットをご用意しております。</div>
+        </div>
+
+        <div>
+          <div class="sect"><span class="t">種別</span><span class="rule"></span></div>
+          <div class="seg">
+            <button class="on">未選択</button>
+            <button>大会案内</button>
+            <button>申込名簿</button>
+            <button>確定名簿</button>
+          </div>
+
+          <div class="sect"><span class="t">対象の大会</span><span class="rule"></span></div>
+          <div class="picked">
+            <span class="pname">東京東会大会BCD級<span class="pdate">6/28(日)・申込グループ</span></span>
+            <span class="chg">変更</span>
+          </div>
+
+          <div class="sect"><span class="t">オープンチャット</span><span class="rule"></span></div>
+          <button class="cta ghost">オープンチャットを抽出</button>
+          <div class="hint">本文・添付・QR コードから招待 URL を探します。見つかった候補を確認してから配信します。</div>
+
+          <div class="sect"><span class="t">LINE 配信</span><span class="rule"></span></div>
+          <div class="check">
+            <span class="box"></span>
+            <span class="ctext">このメールを LINE へ配信する<span class="csub">本文＋添付</span></span>
+          </div>
+
+          <button class="cta">実行</button>
+        </div>
+      </div></div>
+    </div>
+    <div class="fsub">「オープンチャットを抽出」は<b>対象の大会を選ぶまで押せない</b>（どのグループへ保存するか決まらないため）。</div>
+  </div>
+
+  <!-- ============ 2. 抽出候補シート ============ -->
+  <div class="frame">
+    <div class="flabel">② 抽出候補シート（3件・1件展開）</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">東京東会大会BCD級</span>
+          <span class="td">6/28(日)</span>
+        </div>
+
+        <div class="occount">本文から 3 件見つかりました</div>
+
+        <div class="oclist">
+
+          <!-- 候補1: 折りたたみ -->
+          <div class="oc">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">D級</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">本文</span>
+                </span>
+                <span class="ocurl">https://x.gd/aB3xQ</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- 候補2: 展開して編集中 -->
+          <div class="oc open">
+            <div class="ocsum">
+              <span class="car">▾</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">C級</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">本文</span>
+                </span>
+                <span class="ocurl">https://x.gd/7hK2m</span>
+              </span>
+            </div>
+
+            <div class="ocedit">
+              <div class="fl">
+                <span class="fk">対象級</span>
+                <span class="fv gset">
+                  <span class="g">A</span><span class="g">B</span><span class="g on">C</span>
+                  <span class="g">D</span><span class="g">E</span>
+                  <span class="g allg">全級</span>
+                </span>
+              </div>
+
+              <div class="fl">
+                <span class="fk">開催日</span>
+                <span class="fv"><span class="sel">全日共通</span></span>
+              </div>
+
+              <div class="fl">
+                <span class="fk">ラベル</span>
+                <span class="fv"><span class="inp ph">C級（級から自動）</span></span>
+              </div>
+
+              <div class="fl">
+                <span class="fk">パスワード</span>
+                <span class="fv"><span class="inp ph">なし</span></span>
+              </div>
+
+              <div class="ocacts">
+                <span class="open-url">URL を開いて確かめる ↗</span>
+                <span class="del">この候補を外す</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 候補3: 折りたたみ -->
+          <div class="oc">
+            <div class="ocsum">
+              <span class="car">▸</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">B級</span>
+                  <span class="unver">未検証</span>
+                  <span class="src">本文</span>
+                </span>
+                <span class="ocurl">https://x.gd/Qw9Lz</span>
+              </span>
+            </div>
+          </div>
+
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta">保存して配信（3件）</button>
+          <div class="fnote">東京東会大会BCD級 の LINE グループへ Flex 1通で送ります</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">既定は<b>折りたたみ</b>。推定が合っていれば1度も開かずに配信できる。開くと級・開催日・ラベル・パスワードを直せる。</div>
+  </div>
+
+  <!-- ============ 3. 直リンク＋パスワードあり ============ -->
+  <div class="frame">
+    <div class="flabel">③ 直リンク1件・パスワードあり</div>
+    <div class="sheetwrap">
+      <div class="scrim"></div>
+      <div class="sheet ocsheet">
+
+        <div class="shead">
+          <span class="st">オープンチャット</span>
+          <span class="sx">閉じる</span>
+        </div>
+
+        <div class="octarget">
+          <span class="tn">鳳玉大会CD級</span>
+          <span class="td">9/6(日)</span>
+        </div>
+
+        <div class="occount">本文から 1 件見つかりました</div>
+
+        <div class="oclist">
+          <div class="oc open">
+            <div class="ocsum">
+              <span class="car">▾</span>
+              <span class="ocmid">
+                <span class="ocr1">
+                  <span class="oclabel auto">オープンチャットに参加</span>
+                  <span class="src">本文</span>
+                </span>
+                <span class="ocurl">https://line.me/ti/g2/SampleTokenAaBbCcDdEe…</span>
+                <span class="ocaux">パスワードを検出しました</span>
+              </span>
+            </div>
+
+            <div class="ocedit">
+              <div class="fl">
+                <span class="fk">対象級</span>
+                <span class="fv gset">
+                  <span class="g">A</span><span class="g">B</span><span class="g">C</span>
+                  <span class="g">D</span><span class="g">E</span>
+                  <span class="g allg on">全級</span>
+                </span>
+              </div>
+              <div class="fl">
+                <span class="fk">開催日</span>
+                <span class="fv"><span class="sel">全日共通</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">ラベル</span>
+                <span class="fv"><span class="inp">大会当日の連絡</span></span>
+              </div>
+              <div class="fl">
+                <span class="fk">パスワード</span>
+                <span class="fv"><span class="inp">hougyoku26</span></span>
+              </div>
+              <div class="ocacts">
+                <span class="open-url">URL を開いて確かめる ↗</span>
+                <span class="del">この候補を外す</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="addrow">＋ 手入力で追加</button>
+        </div>
+
+        <div class="ocfoot">
+          <button class="cta">保存して配信（1件）</button>
+          <div class="fnote">鳳玉大会CD級 の LINE グループへ Flex 1通で送ります</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">級も日付も無いときの自動ラベルは<b>「オープンチャットに参加」</b>。ここではラベルを手入力して上書きしている。</div>
+  </div>
+
+</div>
+</body></html>
