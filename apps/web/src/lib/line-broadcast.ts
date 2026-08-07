@@ -142,7 +142,9 @@ export async function pushMessages(
   channelAccessToken: string,
   to: string,
   messages: LineMessage[],
-  logger: NonNullable<BroadcastMailOptions['logger']>,
+  // openchat-broadcast タスク6: 外部から再利用するため既定を no-op にした
+  // （既存の呼び出し側はいずれも logger を渡しており挙動は変わらない）。
+  logger: BroadcastLogger = NOOP_LOGGER,
 ): Promise<PushMessagesResult> {
   if (process.env.LINE_NOTIFY_DRY_RUN === '1') {
     logger.info('LINE_NOTIFY_DRY_RUN=1; skipping push', {
