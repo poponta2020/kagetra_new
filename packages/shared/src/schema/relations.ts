@@ -1,6 +1,8 @@
 import { relations } from 'drizzle-orm'
 import { users } from './auth'
 import { entryGroups } from './entry-groups'
+import { entryGroupOpenChats } from './entry-group-open-chats'
+import { entryGroupOpenChatBroadcasts } from './entry-group-open-chat-broadcasts'
 import { events } from './events'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
@@ -70,7 +72,32 @@ export const entryGroupsRelations = relations(entryGroups, ({ many, one }) => ({
   rosters: many(tournamentEntryRosters),
   // roster-file-adoption: パースせず採用した原本ファイル（種別ごとに複数可）。
   rosterFiles: many(tournamentEntryRosterFiles),
+  // openchat-broadcast: 大会当日用オープンチャット（級別・開催日別・部門別で複数可）。
+  openChats: many(entryGroupOpenChats),
+  // openchat-broadcast: 配信履歴（追記専用。回数 = count(*)）。
+  openChatBroadcasts: many(entryGroupOpenChatBroadcasts),
 }))
+
+export const entryGroupOpenChatsRelations = relations(entryGroupOpenChats, ({ one }) => ({
+  entryGroup: one(entryGroups, {
+    fields: [entryGroupOpenChats.entryGroupId],
+    references: [entryGroups.id],
+  }),
+  sourceMailMessage: one(mailMessages, {
+    fields: [entryGroupOpenChats.sourceMailMessageId],
+    references: [mailMessages.id],
+  }),
+}))
+
+export const entryGroupOpenChatBroadcastsRelations = relations(
+  entryGroupOpenChatBroadcasts,
+  ({ one }) => ({
+    entryGroup: one(entryGroups, {
+      fields: [entryGroupOpenChatBroadcasts.entryGroupId],
+      references: [entryGroups.id],
+    }),
+  }),
+)
 
 export const eventsRelations = relations(events, ({ one, many }) => ({
   // entry-groups: 所属する申込グループ（NOT NULL なので必ず 1 件）。
