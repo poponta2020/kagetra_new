@@ -67,13 +67,16 @@ export interface BroadcastMailOptions {
   /**
    * Logger compatible with mail-worker's `NotifyLogger`. No-op by default.
    */
-  logger?: {
-    info(msg: string, ctx?: Record<string, unknown>): void
-    warn(msg: string, ctx?: Record<string, unknown>): void
-  }
+  logger?: BroadcastLogger
 }
 
-const NOOP_LOGGER = { info: () => undefined, warn: () => undefined }
+/** Logger compatible with mail-worker's `NotifyLogger`. */
+export interface BroadcastLogger {
+  info(msg: string, ctx?: Record<string, unknown>): void
+  warn(msg: string, ctx?: Record<string, unknown>): void
+}
+
+const NOOP_LOGGER: BroadcastLogger = { info: () => undefined, warn: () => undefined }
 
 export interface BroadcastResult {
   status: 'sent' | 'partial' | 'failed' | 'skipped'
@@ -135,7 +138,7 @@ interface PushMessagesResult {
  * 呼び出し側はその情報で event_broadcast_messages を `partial` に倒し、
  * 再送時の重複配信を防ぐ判断に使う。
  */
-async function pushMessages(
+export async function pushMessages(
   channelAccessToken: string,
   to: string,
   messages: LineMessage[],
@@ -436,6 +439,246 @@ export async function loadActiveBinding(
     status: hit.status,
     lineGroupId: hit.lineGroupId,
     channel: { id: hit.channelId, channelAccessToken: hit.channelAccessToken },
+  }
+}
+
+/**
+ * `loadActiveBinding` の申込グループ版（openchat-broadcast）。
+ *
+ * `loadActiveBinding` は「その日の eventId しか持たない」呼び出し側のために
+ * events 経由で引くが、オープンチャットは最初から申込グループ単位で操作される
+ * （`entry_group_open_chats.entry_group_id`）ため、events を経由する必要がない。
+ * 経由すると「グループ内のどの日を代表に選ぶか」という無意味な分岐が増える。
+ *
+ * 返り値の `eventId` は代表値を持てないため -1 を入れる。この値を使うのは
+ * `broadcastMailToEvent` のログ・監査行だけで、オープンチャット配信経路は
+ * `event_broadcast_messages` に一切書かない（requirements §6 の契約）。
+ */
+export async function loadActiveBindingByEntryGroup(
+  db: typeof appDb,
+  entryGroupId: number,
+): Promise<(BroadcastBindingRow & { channel: ChannelRow }) | null> {
+  const rows = await db
+    .select({
+      id: eventLineBroadcasts.id,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
+      lineChannelId: eventLineBroadcasts.lineChannelId,
+      status: eventLineBroadcasts.status,
+      lineGroupId: eventLineBroadcasts.lineGroupId,
+      channelId: lineChannels.id,
+      channelAccessToken: lineChannels.channelAccessToken,
+    })
+    .from(eventLineBroadcasts)
+    .innerJoin(lineChannels, eq(lineChannels.id, eventLineBroadcasts.lineChannelId))
+    .where(
+      and(
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
+        eq(eventLineBroadcasts.status, 'linked'),
+      ),
+    )
+    .limit(1)
+  const hit = rows[0]
+  if (!hit) return null
+  if (!hit.lineGroupId) return null
+  return {
+    id: hit.id,
+    eventId: -1,
+    entryGroupId: hit.entryGroupId,
+    lineChannelId: hit.lineChannelId,
+    status: hit.status,
+    lineGroupId: hit.lineGroupId,
+    channel: { id: hit.channelId, channelAccessToken: hit.channelAccessToken },
+  }
+}
+
+/**
+ * 送信開始時に保持していた binding が、push 直前の今も同一かを判定する純関数。
+ *
+ * 添付画像化が数十秒かかる前提なので、その間に管理者が連携解除・再紐付けを
+ * 行うと、すでに失効した groupId / channelAccessToken へ送信してしまう
+ * （r-final-7 should_fix）。
+ *
+ * ★**判定だけを返し、監査行（event_broadcast_messages）の更新はしない。**
+ * オープンチャット配信は同テーブルに一切書かない契約（requirements §6）なので、
+ * ここに書き込みを混ぜると再利用できなくなる。失敗時の記録は呼び出し側の責務。
+ */
+export function isBindingChanged(
+  original: BroadcastBindingRow & { channel: ChannelRow },
+  current: (BroadcastBindingRow & { channel: ChannelRow }) | null,
+): boolean {
+  return (
+    !current ||
+    current.id !== original.id ||
+    current.lineChannelId !== original.lineChannelId ||
+    current.lineGroupId !== original.lineGroupId ||
+    current.channel.channelAccessToken !== original.channel.channelAccessToken
+  )
+}
+
+export interface BindingVerdict {
+  changed: boolean
+  current: (BroadcastBindingRow & { channel: ChannelRow }) | null
+}
+
+/**
+ * binding を再取得し、{@link isBindingChanged} で verdict を返す（イベント基準）。
+ * 監査行の更新は呼び出し側が行う（上記の理由）。
+ */
+export async function assertBindingUnchanged(
+  db: typeof appDb,
+  eventId: number,
+  binding: BroadcastBindingRow & { channel: ChannelRow },
+): Promise<BindingVerdict> {
+  const current = await loadActiveBinding(db, eventId)
+  return { changed: isBindingChanged(binding, current), current }
+}
+
+/** {@link assertBindingUnchanged} の申込グループ版（openchat-broadcast）。 */
+export async function assertBindingUnchangedByEntryGroup(
+  db: typeof appDb,
+  entryGroupId: number,
+  binding: BroadcastBindingRow & { channel: ChannelRow },
+): Promise<BindingVerdict> {
+  const current = await loadActiveBindingByEntryGroup(db, entryGroupId)
+  return { changed: isBindingChanged(binding, current), current }
+}
+
+/**
+ * push 失敗時の状態遷移（要件 §3.2.9 の表。rr3 review should_fix）。
+ *
+ * - 401（access token 期限切れ / 無効）→ channel を disabled にし、binding も
+ *   revoke する。binding を残すと次の承認メールでも同じ disabled channel へ
+ *   push し続け失敗ループになる（r-final-2 should_fix）
+ * - 401 以外の 4xx（429 を除く。groupId 不正 / Bot kick 済み等）→ binding のみ
+ *   revoke して channel をプールへ戻す
+ * - それ以外（成功・5xx・429・transport error）→ 何もしない
+ *
+ * ★いずれも「**送信開始時に保持していた binding（lineChannelId + lineGroupId）が
+ * 今も active な場合に限る**」（r-final-7 / r-final-16 blocker）。送信中に管理者が
+ * 連携解除・再紐付けを完了して新しい binding になっていたら、stale cleanup で
+ * 新 binding を壊さない。UPDATE が 0 件なら channel 解放も連動して skip する。
+ *
+ * ★**event_broadcast_messages には触れない**（監査行の finalize は呼び出し側の責務）。
+ * オープンチャット配信からも同じ復旧を再利用するため（requirements §6 の契約）。
+ */
+export async function applyPushFailureRecovery(args: {
+  db: typeof appDb
+  binding: BroadcastBindingRow & { channel: ChannelRow }
+  httpStatus: number | null
+  logger?: BroadcastLogger
+  /** ログに載せる呼び出し元の文脈（eventId / entryGroupId など）。 */
+  logContext?: Record<string, unknown>
+}): Promise<void> {
+  const { db, binding, httpStatus } = args
+  const logger = args.logger ?? NOOP_LOGGER
+  const logContext = args.logContext ?? {}
+
+  if (httpStatus === 401) {
+    await db.transaction(async (tx) => {
+      const revoked = await tx
+        .update(eventLineBroadcasts)
+        .set({
+          status: 'revoked',
+          revokedAt: sql`now()`,
+          revokeReason: 'channel_disabled',
+          inviteCode: null,
+          inviteCodeExpiresAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, binding.id),
+            eq(eventLineBroadcasts.status, 'linked'),
+            eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
+            eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
+
+      if (revoked.length === 0) {
+        logger.warn('stale 401 cleanup skipped (binding changed)', {
+          ...logContext,
+          originalChannelId: binding.lineChannelId,
+        })
+        return
+      }
+
+      await tx
+        .update(lineChannels)
+        .set({
+          status: 'disabled',
+          assignedEntryGroupId: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(lineChannels.id, binding.lineChannelId),
+            eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
+          ),
+        )
+    })
+    logger.warn('LINE channel disabled + binding revoked due to 401', {
+      ...logContext,
+      channelId: binding.lineChannelId,
+    })
+    return
+  }
+
+  if (
+    httpStatus != null &&
+    httpStatus >= 400 &&
+    httpStatus < 500 &&
+    httpStatus !== 429 // rate limit はリトライ可能なので残す
+  ) {
+    await db.transaction(async (tx) => {
+      const revoked = await tx
+        .update(eventLineBroadcasts)
+        .set({
+          status: 'revoked',
+          revokedAt: sql`now()`,
+          revokeReason: 'line_api_4xx',
+          inviteCode: null,
+          inviteCodeExpiresAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(eventLineBroadcasts.id, binding.id),
+            eq(eventLineBroadcasts.status, 'linked'),
+            eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
+            eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
+          ),
+        )
+        .returning({ id: eventLineBroadcasts.id })
+
+      if (revoked.length === 0) {
+        logger.warn('stale 4xx cleanup skipped (binding changed)', {
+          ...logContext,
+          originalChannelId: binding.lineChannelId,
+          httpStatus,
+        })
+        return
+      }
+
+      await tx
+        .update(lineChannels)
+        .set({
+          status: 'available',
+          assignedEntryGroupId: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(lineChannels.id, binding.lineChannelId),
+            eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
+          ),
+        )
+    })
+    logger.warn('LINE binding revoked due to 4xx (groupId invalid / Bot kicked)', {
+      ...logContext,
+      channelId: binding.lineChannelId,
+      httpStatus,
+    })
   }
 }
 
@@ -917,14 +1160,12 @@ export async function broadcastMailToEvent(
     // 最初に読んだ値と一致するか検証する。添付画像化が数十秒かかる
     // 前提なので、その間に管理者が連携解除・再紐付けを行うと、すでに
     // 失効した groupId / channelAccessToken へ送信してしまう。
-    const currentBinding = await loadActiveBinding(db, args.eventId)
-    const bindingChanged =
-      !currentBinding ||
-      currentBinding.id !== binding.id ||
-      currentBinding.lineChannelId !== binding.lineChannelId ||
-      currentBinding.lineGroupId !== binding.lineGroupId ||
-      currentBinding.channel.channelAccessToken !==
-        binding.channel.channelAccessToken
+    //
+    // 判定は assertBindingUnchanged に切り出した（openchat-broadcast タスク6）。
+    // 監査行の更新はここに残す — オープンチャット配信は
+    // event_broadcast_messages に書かない契約のため（requirements §6）。
+    const { changed: bindingChanged, current: currentBinding } =
+      await assertBindingUnchanged(db, args.eventId, binding)
 
     if (bindingChanged) {
       logger.warn('binding changed during attachment processing; skipping push', {
@@ -1034,125 +1275,17 @@ export async function broadcastMailToEvent(
       // rr3 review should_fix: LINE API のエラー status に応じて
       // channel / broadcast 状態を遷移させ、運用復旧のフックを残す。
       // 要件 §3.2.9 の表に対応。
-      if (pushResult.httpStatus === 401) {
-        // Access token 期限切れ / 無効。Bot を disabled にしつつ、
-        // r-final-2 should_fix: binding も revoked にして assignedEntryGroupId
-        // を解放しないと、次の承認メールでも同じ disabled channel に
-        // push し続け失敗ループになる。
-        //
-        // r-final-7 / r-final-16 blocker: revoke は「送信開始時に保持
-        // していた binding (lineChannelId + lineGroupId)」が今も active
-        // な場合だけ。送信中に管理者が連携解除・再紐付けを完了して新しい
-        // binding になっていたら、stale cleanup で新 binding を壊さない。
-        // UPDATE が 0 件なら何もしない (channel 解放も連動して skip)。
-        await db.transaction(async (tx) => {
-          const revoked = await tx
-            .update(eventLineBroadcasts)
-            .set({
-              status: 'revoked',
-              revokedAt: sql`now()`,
-              revokeReason: 'channel_disabled',
-              inviteCode: null,
-              inviteCodeExpiresAt: null,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(eventLineBroadcasts.id, binding.id),
-                eq(eventLineBroadcasts.status, 'linked'),
-                eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
-                eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
-              ),
-            )
-            .returning({ id: eventLineBroadcasts.id })
-
-          if (revoked.length === 0) {
-            logger.warn('stale 401 cleanup skipped (binding changed)', {
-              eventId: args.eventId,
-              originalChannelId: binding.lineChannelId,
-            })
-            return
-          }
-
-          await tx
-            .update(lineChannels)
-            .set({
-              status: 'disabled',
-              assignedEntryGroupId: null,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
-              ),
-            )
-        })
-        logger.warn('LINE channel disabled + binding revoked due to 401', {
-          channelId: binding.lineChannelId,
-          eventId: args.eventId,
-        })
-      } else if (
-        pushResult.httpStatus != null &&
-        pushResult.httpStatus >= 400 &&
-        pushResult.httpStatus < 500 &&
-        pushResult.httpStatus !== 429 // rate limit はリトライ可能なので残す
-      ) {
-        // groupId 不正 / Bot kick 済み 等。binding を revoke して channel を
-        // プールに戻し、UI 側で再紐付けが必要なことを明示する。
-        // r-final-7 / r-final-16 blocker: 送信開始時の lineChannelId /
-        // lineGroupId が今も一致する場合だけ revoke。再紐付け済みの新
-        // binding は壊さない。UPDATE が 0 件なら channel も触らない。
-        await db.transaction(async (tx) => {
-          const revoked = await tx
-            .update(eventLineBroadcasts)
-            .set({
-              status: 'revoked',
-              revokedAt: sql`now()`,
-              revokeReason: 'line_api_4xx',
-              inviteCode: null,
-              inviteCodeExpiresAt: null,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(eventLineBroadcasts.id, binding.id),
-                eq(eventLineBroadcasts.status, 'linked'),
-                eq(eventLineBroadcasts.lineChannelId, binding.lineChannelId),
-                eq(eventLineBroadcasts.lineGroupId, binding.lineGroupId),
-              ),
-            )
-            .returning({ id: eventLineBroadcasts.id })
-
-          if (revoked.length === 0) {
-            logger.warn('stale 4xx cleanup skipped (binding changed)', {
-              eventId: args.eventId,
-              originalChannelId: binding.lineChannelId,
-              httpStatus: pushResult.httpStatus,
-            })
-            return
-          }
-
-          await tx
-            .update(lineChannels)
-            .set({
-              status: 'available',
-              assignedEntryGroupId: null,
-              updatedAt: sql`now()`,
-            })
-            .where(
-              and(
-                eq(lineChannels.id, binding.lineChannelId),
-                eq(lineChannels.assignedEntryGroupId, binding.entryGroupId),
-              ),
-            )
-        })
-        logger.warn('LINE binding revoked due to 4xx (groupId invalid / Bot kicked)', {
-          eventId: args.eventId,
-          channelId: binding.lineChannelId,
-          httpStatus: pushResult.httpStatus,
-        })
-      }
+      //
+      // 中身は applyPushFailureRecovery に切り出した（openchat-broadcast タスク6）。
+      // 挙動は変えていない — 監査行（event_broadcast_messages）の finalize は
+      // 上の UPDATE でこの分岐より前に済んでおり、復旧側には含まれない。
+      await applyPushFailureRecovery({
+        db,
+        binding,
+        httpStatus: pushResult.httpStatus,
+        logger,
+        logContext: { eventId: args.eventId },
+      })
     }
 
     return {

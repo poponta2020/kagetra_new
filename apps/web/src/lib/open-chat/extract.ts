@@ -101,19 +101,20 @@ interface RawMatch {
 function findTier1Matches(text: string): RawMatch[] {
   const out: RawMatch[] = []
   for (const m of text.matchAll(TIER1_URL_RE)) {
-    const prefix = m[0].slice(0, m[0].length - m[1].length)
+    let token = m[1]
+    if (!token) continue
+    const prefix = m[0].slice(0, m[0].length - token.length)
     const matchStart = m.index
     let matchEnd = m.index + m[0].length
-    let token = m[1]
 
     const wrap = /^\r?\n[ \t]*/.exec(text.slice(matchEnd))
     if (wrap && token.length < TOKEN_LENGTH) {
       // 改行で切れ、かつ規定桁に満たない＝折り返しの疑い（AC-2）。
       // 次の行の先頭から充当できる分だけ結合する。
-      const continuation = /^[A-Za-z0-9_-]+/.exec(text.slice(matchEnd + wrap[0].length))
+      const continuation = /^[A-Za-z0-9_-]+/.exec(text.slice(matchEnd + wrap[0].length))?.[0]
       if (continuation) {
-        token += continuation[0]
-        matchEnd += wrap[0].length + continuation[0].length
+        token += continuation
+        matchEnd += wrap[0].length + continuation.length
       }
       // 復元してもなお規定桁数と一致しない候補は出さない（AC-3）。壊れた URL の
       // 配信は「タップしても入れない」事故になるため、この場合だけは不確実なら
@@ -139,9 +140,9 @@ function findTier2Matches(text: string): RawMatch[] {
 function extractGrades(contextBefore: string): OpenChatGrade[] | null {
   const normalized = normalizeFullWidth(contextBefore)
   const matches = [...normalized.matchAll(/([A-E]{1,3})級/g)]
-  const last = matches.at(-1)
+  const last = matches.at(-1)?.[1]
   if (!last) return null
-  const letters = new Set(last[1].split('') as OpenChatGrade[])
+  const letters = new Set(last.split('') as OpenChatGrade[])
   const grades = GRADE_ORDER.filter((g) => letters.has(g))
   return grades.length > 0 ? grades : null
 }
@@ -168,10 +169,10 @@ function extractEventDate(contextBefore: string, groupEventDates: string[]): str
 /** URL 周辺（前後どちらでも）から `パスワード：xxxx` / `合言葉：xxxx` / `参加コード：xxxx` を拾う。 */
 function extractPassword(contextBefore: string, contextAfter: string): string | null {
   const re = /(?:パスワード|合言葉|参加コード)\s*[:：]\s*([^\s、。]+)/
-  const before = normalizeFullWidth(contextBefore).match(re)
-  if (before) return before[1]
-  const after = normalizeFullWidth(contextAfter).match(re)
-  if (after) return after[1]
+  const before = normalizeFullWidth(contextBefore).match(re)?.[1]
+  if (before) return before
+  const after = normalizeFullWidth(contextAfter).match(re)?.[1]
+  if (after) return after
   return null
 }
 

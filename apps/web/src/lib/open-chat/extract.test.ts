@@ -35,14 +35,14 @@ describe('extractOpenChatCandidates — Tier1 直リンク', () => {
       { source: 'body', groupEventDates: [] },
     )
     expect(withTwo).toHaveLength(1)
-    expect(withTwo[0].url).toBe(`https://line.me/R/ti/g2/${TOKEN_A}`)
+    expect(withTwo[0]?.url).toBe(`https://line.me/R/ti/g2/${TOKEN_A}`)
 
     const withoutTwo = extractOpenChatCandidates(
       `https://line.me/R/ti/g/${TOKEN_B}`,
       { source: 'body', groupEventDates: [] },
     )
     expect(withoutTwo).toHaveLength(1)
-    expect(withoutTwo[0].url).toBe(`https://line.me/R/ti/g/${TOKEN_B}`)
+    expect(withoutTwo[0]?.url).toBe(`https://line.me/R/ti/g/${TOKEN_B}`)
   })
 
   it('AC-2: 改行でトークンが分断された URL を結合して復元する', () => {
@@ -50,7 +50,7 @@ describe('extractOpenChatCandidates — Tier1 直リンク', () => {
     const text = `https://line.me/ti/g2/${TOKEN_A.slice(0, splitAt)}\n${TOKEN_A.slice(splitAt)}`
     const result = extractOpenChatCandidates(text, { source: 'body', groupEventDates: [] })
     expect(result).toHaveLength(1)
-    expect(result[0].url).toBe(`https://line.me/ti/g2/${TOKEN_A}`)
+    expect(result[0]?.url).toBe(`https://line.me/ti/g2/${TOKEN_A}`)
   })
 
   it('AC-2: feasibility.md 実例（さがみ野 mail#208。クエリ側が改行で割れるがトークンは無傷）でも抽出できる', () => {
@@ -62,7 +62,7 @@ describe('extractOpenChatCandidates — Tier1 直リンク', () => {
     expect(result).toHaveLength(1)
     // クエリ文字列は正規化の過程で落ちる（トークンの文字集合に '?' が含まれないため
     // マッチが自然に止まる＝正規化後の URL そのもの）。
-    expect(result[0].url).toBe('https://line.me/ti/g2/SampleTokenFfGgHhIiJjKkLlMmNnOoPp')
+    expect(result[0]?.url).toBe('https://line.me/ti/g2/SampleTokenFfGgHhIiJjKkLlMmNnOoPp')
   })
 
   it('AC-3: 改行の先が復元不能（非英数字で途切れる）な候補は提示しない', () => {
@@ -81,7 +81,7 @@ describe('extractOpenChatCandidates — Tier1 直リンク', () => {
     const text = `ご案内: https://line.me/ti/g2/${TOKEN_A}\n<https://line.me/ti/g2/${TOKEN_A}>`
     const result = extractOpenChatCandidates(text, { source: 'body', groupEventDates: [] })
     expect(result).toHaveLength(1)
-    expect(result[0].sources).toEqual(['body'])
+    expect(result[0]?.sources).toEqual(['body'])
   })
 
   it('AC-6: source に attachment_text を渡すと候補の出典が attachment_text になる', () => {
@@ -91,7 +91,7 @@ describe('extractOpenChatCandidates — Tier1 直リンク', () => {
       groupEventDates: [],
     })
     expect(result).toHaveLength(1)
-    expect(result[0].sources).toEqual(['attachment_text'])
+    expect(result[0]?.sources).toEqual(['attachment_text'])
   })
 })
 
@@ -139,7 +139,7 @@ describe('mergeOpenChatCandidateLists', () => {
     )
     const merged = mergeOpenChatCandidateLists([bodyCandidates, attachmentCandidates])
     expect(merged).toHaveLength(1)
-    expect([...merged[0].sources].sort()).toEqual(['attachment_text', 'body'])
+    expect([...(merged[0]?.sources ?? [])].sort()).toEqual(['attachment_text', 'body'])
   })
 
   it('異なる URL はマージしても別候補のまま残る', () => {
@@ -162,13 +162,13 @@ describe('extractOpenChatCandidates — 級・開催日・パスワードの推�
       source: 'body',
       groupEventDates: [],
     })
-    expect(dGrade[0].grades).toEqual(['D'])
+    expect(dGrade[0]?.grades).toEqual(['D'])
 
     const cGradeFullWidth = extractOpenChatCandidates(
       `【Ｃ級】https://line.me/ti/g2/${TOKEN_B}`,
       { source: 'body', groupEventDates: [] },
     )
-    expect(cGradeFullWidth[0].grades).toEqual(['C'])
+    expect(cGradeFullWidth[0]?.grades).toEqual(['C'])
   })
 
   it('AC-17: 「6/20(土)：」から対象開催日を推定する。グループ内に無い日は推定しない', () => {
@@ -176,13 +176,13 @@ describe('extractOpenChatCandidates — 級・開催日・パスワードの推�
       `6/20(土)：https://line.me/ti/g2/${TOKEN_A}`,
       { source: 'body', groupEventDates: ['2026-06-20', '2026-06-21'] },
     )
-    expect(inGroup[0].eventDate).toBe('2026-06-20')
+    expect(inGroup[0]?.eventDate).toBe('2026-06-20')
 
     const outOfGroup = extractOpenChatCandidates(
       `6/22：https://line.me/ti/g2/${TOKEN_B}`,
       { source: 'body', groupEventDates: ['2026-06-20'] },
     )
-    expect(outOfGroup[0].eventDate).toBeNull()
+    expect(outOfGroup[0]?.eventDate).toBeNull()
   })
 
   it('AC-18: URL 前後どちらの「パスワード：」「合言葉：」も推定する', () => {
@@ -190,13 +190,13 @@ describe('extractOpenChatCandidates — 級・開催日・パスワードの推�
       `パスワード：ABCD1234 https://line.me/ti/g2/${TOKEN_A}`,
       { source: 'body', groupEventDates: [] },
     )
-    expect(before[0].password).toBe('ABCD1234')
+    expect(before[0]?.password).toBe('ABCD1234')
 
     const after = extractOpenChatCandidates(
       `https://line.me/ti/g2/${TOKEN_B} 合言葉：xyz789`,
       { source: 'body', groupEventDates: [] },
     )
-    expect(after[0].password).toBe('xyz789')
+    expect(after[0]?.password).toBe('xyz789')
   })
 
   it('AC-19: 推定できない項目は未指定のまま提示され、エラーにならない', () => {
@@ -230,8 +230,8 @@ describe('extractOpenChatCandidates — 実文面ベースのケース', () => {
       groupEventDates: ['2026-06-20', '2026-06-21'],
     })
     expect(result).toHaveLength(2)
-    expect(result[0].eventDate).toBe('2026-06-20')
-    expect(result[1].eventDate).toBe('2026-06-21')
+    expect(result[0]?.eventDate).toBe('2026-06-20')
+    expect(result[1]?.eventDate).toBe('2026-06-21')
   })
 
   it('中学生選手権: 部門別5本（級でも日付でもない分かれ方）は級・日付とも未指定になる', () => {
@@ -257,6 +257,6 @@ describe('extractOpenChatCandidates — 実文面ベースのケース', () => {
       groupEventDates: [],
     })
     expect(result).toHaveLength(1)
-    expect(result[0].unverified).toBe(false)
+    expect(result[0]?.unverified).toBe(false)
   })
 })

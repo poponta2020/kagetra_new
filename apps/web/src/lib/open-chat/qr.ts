@@ -43,7 +43,7 @@ export async function decodeQrFromImage(buffer: Buffer): Promise<string | null> 
     if (pixelCount === 0 || data.length < pixelCount * info.channels) return null
     const rgba = new Uint8ClampedArray(pixelCount * 4)
     for (let i = 0; i < pixelCount; i++) {
-      const v = data[i * info.channels]
+      const v = data[i * info.channels] ?? 0
       rgba[i * 4] = v
       rgba[i * 4 + 1] = v
       rgba[i * 4 + 2] = v
