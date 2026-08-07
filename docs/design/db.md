@@ -34,6 +34,8 @@
 | line_channel_purpose | lineChannelPurposeEnum | system_notify, event_broadcast |
 | event_line_broadcast_status | eventLineBroadcastStatusEnum | invite_pending, joined_waiting_code, linked, revoked, released |
 | event_broadcast_message_status | eventBroadcastMessageStatusEnum | pending, sending, sent, partial, failed |
+| open_chat_source | openChatSourceEnum | body, attachment_text, qr, manual |
+| open_chat_broadcast_status | openChatBroadcastStatusEnum | sent, failed, skipped |
 | event_entry_status | eventEntryStatusEnum | not_applied, applied, not_applying |
 | event_payment_type | eventPaymentTypeEnum | advance, onsite |
 | event_payment_status | eventPaymentStatusEnum | unpaid, paid |
@@ -78,6 +80,8 @@
 | event_lifecycle_notifications | eventLifecycleNotifications | 申込/支払いライフサイクル通知のonce-everログ | schema/event-lifecycle-notifications.ts |
 | line_grade_group_bindings | lineGradeGroupBindings | 級(A〜E)⇔級別LINEグループの常設1:1紐付け | schema/line-grade-group-bindings.ts |
 | event_grade_broadcasts | eventGradeBroadcasts | (大会,級)単位の級グループ配信記録（claim/送信済み） | schema/event-grade-broadcasts.ts |
+| entry_group_open_chats | entryGroupOpenChats | 大会当日用LINEオープンチャットの招待URL（申込グループ帰属） | schema/entry-group-open-chats.ts |
+| entry_group_open_chat_broadcasts | entryGroupOpenChatBroadcasts | オープンチャット配信の追記専用ログ（UNIQUEを持たない） | schema/entry-group-open-chat-broadcasts.ts |
 | entry_form_drafts | entryFormDrafts | 申込書下書きの作成履歴（生成xlsxコピー含む） | schema/entry-form-drafts.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）
@@ -125,6 +129,7 @@
 - `mailAttachments` N : 1 `mailMessages`（`mail`）／1 : N `attachmentShareTokens`（`shareTokens`）
 - `tournamentDrafts` N : 1 `mailMessages`（`mail`）／N : 1 `events`（`event`、`eventId`経由・relationName: `draftCorrectionEvent`）／1 : N `events`（`materializedEvents`、relationName: `eventSourceDraft`）
 - `lineChannels` N : 1 `users`（`assignedUser`）／N : 1 `entryGroups`（`assignedEntryGroup`、entry-groups: Bot予約先を event → entry_group へ移した）
+- `entryGroupOpenChats` N : 1 `entryGroups`（`entryGroup`）／N : 1 `mailMessages`（`sourceMailMessage`）。`entryGroupOpenChatBroadcasts` N : 1 `entryGroups`（`entryGroup`）
 - `eventLineBroadcasts` N : 1 `entryGroups`（`entryGroup`、entry-groups: 帰属を event → entry_group へ移した）／N : 1 `lineChannels`（`lineChannel`）／1 : N `eventBroadcastMessages`（`messages`）
 - `eventBroadcastMessages` N : 1 `eventLineBroadcasts`（`broadcast`）／N : 1 `mailMessages`（`mail`）
 - `attachmentShareTokens` N : 1 `mailAttachments`（`attachment`）

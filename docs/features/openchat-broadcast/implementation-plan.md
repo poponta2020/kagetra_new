@@ -63,7 +63,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 ## 実装タスク
 
 ### タスク1: スキーマとマイグレーション
-- [ ] 完了
+- [x] 完了
 - **目的:** `entry_group_open_chats` / `entry_group_open_chat_broadcasts` と `open_chat_source` enum を追加する
 - **対応AC:** AC-25, AC-27, AC-29, AC-40
 - **主な変更領域:** `packages/shared/src/schema/entry-group-open-chats.ts`・`entry-group-open-chat-broadcasts.ts`・`enums.ts`・`relations.ts`・`index.ts`、`packages/shared/drizzle/0056_*.sql`
@@ -73,7 +73,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #458
 
 ### タスク2: 抽出（純関数）
-- [ ] 完了
+- [x] 完了
 - **目的:** テキストから候補 URL を決定的に抽出する
 - **対応AC:** AC-1〜AC-9, AC-16〜AC-19
 - **主な変更領域:** `apps/web/src/lib/open-chat/extract.ts`（＋ `extract.test.ts`）
@@ -85,7 +85,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #459
 
 ### タスク3: ラベル生成と重複判定（client-safe leaf）
-- [ ] 完了
+- [x] 完了
 - **目的:** 級・開催日から表示ラベルを組み立て、最終ラベルの重複を検出する
 - **対応AC:** AC-21〜AC-24, AC-47〜AC-49
 - **主な変更領域:** `apps/web/src/lib/open-chat/label.ts`（＋ `label.test.ts`）
@@ -99,7 +99,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #460
 
 ### タスク4: Flex ビルダー（純関数）
-- [ ] 完了
+- [x] 完了
 - **目的:** 保存済み行から Flex Message JSON を組み立てる
 - **対応AC:** AC-30〜AC-34, AC-50
 - **主な変更領域:** `apps/web/src/lib/open-chat/flex.ts`（＋ `flex.test.ts`）
@@ -110,7 +110,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #461
 
 ### タスク5: QR デコード
-- [ ] 完了
+- [x] 完了
 - **目的:** 画像バイト列から QR の URL を取り出す
 - **対応AC:** AC-10
 - **主な変更領域:** `apps/web/src/lib/open-chat/qr.ts`（＋ `qr.test.ts`）、`apps/web/package.json`（`jsqr` 追加）
@@ -121,7 +121,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #462
 
 ### タスク6: 配信経路の再利用ヘルパー抽出
-- [ ] 完了
+- [x] 完了
 - **目的:** binding 再検証と push 失敗時の復旧を、既存挙動を変えずに再利用可能にする
 - **対応AC:** AC-39（および requirements §6 の「既存挙動を壊さない」）
 - **主な変更領域:** `apps/web/src/lib/line-broadcast.ts`（`pushMessages` を export、
@@ -134,7 +134,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #463
 
 ### タスク7: 候補収集オーケストレータ
-- [ ] 完了
+- [x] 完了
 - **目的:** メール本文＋添付を走査して候補一覧を作る
 - **対応AC:** AC-6, AC-11, AC-12, AC-13, AC-14, AC-20
 - **主な変更領域:** `apps/web/src/lib/open-chat/collect.ts`（＋ `collect.test.ts`）
@@ -147,7 +147,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #464
 
 ### タスク8: Server Action（保存・配信・再配信）
-- [ ] 完了
+- [x] 完了
 - **目的:** 抽出・保存・Flex 配信・再配信を管理者操作として提供する
 - **対応AC:** AC-25〜AC-29, AC-35〜AC-41, AC-44, AC-47〜AC-49, AC-53
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/open-chat-actions.ts`（＋ `.test.ts`）
@@ -161,7 +161,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #465
 
 ### タスク9: メール詳細の抽出シート UI
-- [ ] 完了
+- [x] 完了
 - **目的:** 「オープンチャットを抽出」ボタンと候補確認シートを実装する
 - **対応AC:** AC-20, AC-35, AC-36, AC-37, AC-47
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/OpenChatExtractSheet.tsx`（新規）、
@@ -173,7 +173,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #466
 
 ### タスク10: 大会詳細のオープンチャット欄
-- [ ] 完了
+- [x] 完了
 - **目的:** 保存済みオープンチャットを全会員に表示する
 - **対応AC:** AC-42, AC-43, AC-45, AC-51, AC-52
 - **主な変更領域:** `apps/web/src/app/(app)/events/[id]/components/`（新規セクション）、`page.tsx`（クエリ追加）
@@ -184,7 +184,7 @@ DPI 引数追加か zxing-wasm への差し替えを**別変更**として起票
 - **対応Issue:** #467
 
 ### タスク11: 忠実度チェックと仕上げ
-- [ ] 完了
+- [x] 完了
 - **目的:** 確定デザインが実装で劣化していないことを確認し、出荷可能にする
 - **対応AC:** AC-15, AC-46, AC-54（および design-spec の忠実度チェックリスト全項目）
 - **主な変更領域:** 仕上げのみ（新規ファイルなし）
