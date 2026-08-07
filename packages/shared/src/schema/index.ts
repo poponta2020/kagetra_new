@@ -36,6 +36,9 @@ export * from './tournament-edition-grade-lottery-facts'
 export * from './tournament-roster-import-drafts'
 // roster-file-adoption: パースせず原本ファイルのまま採用した名簿
 export * from './tournament-entry-roster-files'
+// openchat-broadcast: 大会当日用オープンチャットの招待 URL + 配信履歴
+export * from './entry-group-open-chats'
+export * from './entry-group-open-chat-broadcasts'
 // tournament-results
 export * from './players'
 export * from './tournaments'

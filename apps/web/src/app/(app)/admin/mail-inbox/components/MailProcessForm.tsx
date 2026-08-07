@@ -21,6 +21,7 @@ import {
 } from '../roster-adopt-utils'
 import { AIExtractConfirmDialog, type AIExtractAttachment } from './AIExtractConfirmDialog'
 import { GroupPickerSheet } from './GroupPickerSheet'
+import { OpenChatExtractSheet } from './OpenChatExtractSheet'
 
 /**
  * mail-inbox-mailer 2026-08-02 改修: メール詳細の**統合処理フォーム**
@@ -102,6 +103,7 @@ export function MailProcessForm({
   const [kind, setKind] = useState<Kind>('none')
   const [groupId, setGroupId] = useState<number | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [openChatSheetOpen, setOpenChatSheetOpen] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<Map<number, RosterAdoptGrade[]>>(
     new Map(),
   )
@@ -457,6 +459,24 @@ export function MailProcessForm({
                 </>
               )}
 
+              {/* openchat-broadcast タスク9: 抽出候補シートの起点ボタン（要件 §3.1 / §3.2.8）。
+                  対象の大会（申込グループ）が未選択のときは押せない
+                  （どのグループへ保存するか決まらないため）。 */}
+              <SectionHeading label="オープンチャット" className="mt-3.5" />
+              <Btn
+                kind="ghost"
+                size="md"
+                block
+                disabled={pending || selectedGroup == null}
+                onClick={() => setOpenChatSheetOpen(true)}
+              >
+                オープンチャットを抽出
+              </Btn>
+              <p className="mt-1 text-[10px] leading-relaxed text-ink-meta">
+                本文・添付・QR コードから招待 URL を探します。見つかった候補を確認してから
+                配信します。
+              </p>
+
               {selectedGroup && (
                 <>
                   <SectionHeading label="LINE 配信" className="mt-3.5" />
@@ -608,6 +628,21 @@ export function MailProcessForm({
         cutoffStr={cutoffStr}
         selectedGroupId={groupId}
       />
+
+      {selectedGroup && (
+        <OpenChatExtractSheet
+          open={openChatSheetOpen}
+          onClose={() => {
+            setOpenChatSheetOpen(false)
+            router.refresh()
+          }}
+          mailMessageId={mailId}
+          entryGroupId={selectedGroup.groupId}
+          entryGroupDisplayName={selectedGroup.displayName}
+          groupEventDates={[...new Set(selectedGroup.days.map((d) => d.eventDate))].sort()}
+          lineLinked={selectedGroup.lineLinked}
+        />
+      )}
     </>
   )
 }

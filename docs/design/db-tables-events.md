@@ -154,6 +154,47 @@
 
 **制約**: UNIQUE `event_broadcast_guideline_attachments_uq` on (event_line_broadcast_id, mail_attachment_id) / INDEX `event_broadcast_guideline_attachments_mail_attachment_idx` on (mail_attachment_id)（FK ON DELETE CASCADE のカスケード探索用）
 
+## entry_group_open_chats（TS: `entryGroupOpenChats`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-open-chats.ts`
+
+大会当日用LINEオープンチャットの招待URL（openchat-broadcast）。1行=オープンチャット1つ。帰属は**申込グループ**（`event_line_broadcasts.entry_group_id`のUNIQUEと同じ単位）なので、グループ内のどの開催日の大会詳細を開いても同じ全行が見える（開催日での絞り込みは意図的にしない）。実データの分かれ方は級別・開催日別・部門別の3種で、前2つを`grades`/`event_date`に構造化し、部門別は`label`で吸収する。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| url | text | NOT NULL | — | `line.me/ti/g2/...`直リンクまたは短縮URL。https必須（保存時に検証） |
+| grades | grade[] (enum配列) | NULL | — | **NULL=全級共通**。`events.eligible_grades`と同じ表現 |
+| event_date | date | NULL | — | **NULL=全日共通**。グループ内の開催日のみ許す（判定はServer Action側） |
+| label | text | NULL | — | 表示ラベル。NULL/空なら級・開催日から自動生成。最終ラベルはグループ内で一意でなければならないが、**生成後の値なのでDB制約にできない**（Server Actionで判定） |
+| password | text | NULL | — | 参加コード（合言葉） |
+| source | open_chat_source (enum) | NOT NULL | — | body/attachment_text/qr/manual。監査用 |
+| source_mail_message_id | integer | NULL | — | FK→mail_messages.id ON DELETE SET NULL。プロビナンス（会員向け表示には出さない） |
+| sort_order | integer | NOT NULL | 0 | **Flexのボタン順・大会詳細の表示順の正**。読み手は`ORDER BY sort_order, id`で取り、取得順のまま消費する（ローカル再ソート禁止） |
+| created_at | timestamptz | NOT NULL | `now()` | 「前回配信以降に増えた行」の判定に使う |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE `entry_group_open_chats_group_url_unique` on (entry_group_id, url) / INDEX `entry_group_open_chats_group_idx` on (entry_group_id)
+
+## entry_group_open_chat_broadcasts（TS: `entryGroupOpenChatBroadcasts`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-open-chat-broadcasts.ts`
+
+オープンチャット配信の履歴（1行=1回の配信）。★**`event_broadcast_messages`は使わない**。同テーブルの`UNIQUE(event_line_broadcast_id, mail_message_id)`は「1メール=1配信」をDBレベルで強制しており、オープンチャットの「再配信は毎回全件を送る」と原理的に両立しない（同じメールからの2回目の配信が制約違反で落ちる）。したがってこの表は**UNIQUEを一切持たない追記専用ログ**。「N回配信済み」=`count(*)`、「前回配信以降に増えた行」=`entry_group_open_chats.created_at > max(sent_at)`。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| sent_at | timestamptz | NOT NULL | `now()` | |
+| sent_count | integer | NOT NULL | 0 | 毎回全件送るので保存時点の総数 |
+| status | open_chat_broadcast_status (enum) | NOT NULL | — | sent/failed/skipped。Flexは1通しか送らないため`partial`は存在しない |
+| error_message | text | NULL | — | |
+| sent_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
+
+**制約**: なし（UNIQUEを持たないのが仕様）
+
 ## line_grade_group_bindings（TS: `lineGradeGroupBindings`）
 
 定義ファイル: `packages/shared/src/schema/line-grade-group-bindings.ts`
