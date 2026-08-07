@@ -28,6 +28,34 @@ const mockAuth = vi.hoisted(() => vi.fn())
 vi.mock('@/auth', () => ({ auth: mockAuth }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
+/**
+ * push だけを差し替える。既定は実物（`LINE_NOTIFY_DRY_RUN=1` により送信せず成功）で、
+ * 失敗パスのテストだけが `mockPushMessages` を上書きする。
+ *
+ * ★これが無いと `pushResult.error` の分岐（復旧呼び出し・failed 履歴の記録・
+ * 保存済みデータの生存）が**一度も実行されない**まま AC-38 を green と誤認する。
+ */
+const mockPushMessages = vi.hoisted(() => vi.fn())
+/**
+ * 「binding を読んだ後・push する前に紐付けが変わった」状況は、その2点の間に
+ * 割り込む手段が本番コードに無い（あってはならない）ため、verdict をここで
+ * 差し替えて再現する。既定は実物。
+ */
+const mockAssertBinding = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/line-broadcast', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/line-broadcast')>()
+  return {
+    ...actual,
+    pushMessages: mockPushMessages,
+    assertBindingUnchangedByEntryGroup: mockAssertBinding,
+  }
+})
+
+const {
+  pushMessages: realPushMessages,
+  assertBindingUnchangedByEntryGroup: realAssertBinding,
+} = await vi.importActual<typeof import('@/lib/line-broadcast')>('@/lib/line-broadcast')
+
 const {
   broadcastOpenChats,
   listOpenChatsForGroup,
@@ -64,6 +92,13 @@ afterAll(() => {
 beforeEach(async () => {
   await resetDb()
   mockAuth.mockResolvedValue({ user: { id: 'admin-1', role: 'admin' } })
+  // 既定は実物（DRY_RUN で送信せず成功）。失敗パスのテストだけが上書きする。
+  // ★mockReset で**呼び出し履歴も**捨てる — mockImplementation だけだと履歴が
+  // テスト間で累積し、`not.toHaveBeenCalled()` が前のテストの分で落ちる。
+  mockPushMessages.mockReset()
+  mockPushMessages.mockImplementation(realPushMessages)
+  mockAssertBinding.mockReset()
+  mockAssertBinding.mockImplementation(realAssertBinding)
 })
 
 async function seedAdminUser() {
@@ -345,6 +380,78 @@ describe('保存と配信', () => {
     await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
   })
 
+  it('AC-38: 配信が失敗しても保存済みデータは残り、再試行できる', async () => {
+    const groupId = await seedGroup()
+    const channel = await seedBinding(groupId)
+    const mailId = await seedMail()
+
+    mockPushMessages.mockResolvedValue({
+      deliveredCount: 0,
+      error: new Error('LINE API 400'),
+      httpStatus: 400,
+    })
+
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: mailId,
+      rows: [row()],
+    })
+
+    // 保存は成功・配信は失敗として分けて返る（保存をロールバックしない）。
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.broadcast.status).toBe('failed')
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+
+    const history = await db.select().from(entryGroupOpenChatBroadcasts)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.status).toBe('failed')
+    expect(history[0]?.sentCount).toBe(0)
+
+    // ★失敗パスでも event_broadcast_messages に触れない（§6 の契約）。
+    // 復旧処理を将来いじったときに一番踏みやすいのがここ。
+    await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
+
+    // 4xx なので binding は revoke され channel はプールへ戻る（既存の復旧規約）。
+    const [broadcastRow] = await db.select().from(eventLineBroadcasts)
+    expect(broadcastRow?.status).toBe('revoked')
+    const [channelRow] = await db
+      .select()
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(channelRow?.status).toBe('available')
+
+    // 保存済みデータが残っているので再試行できる（紐付け直後に再配信可能）。
+    await db.delete(entryGroupOpenChatBroadcasts)
+    await db.update(eventLineBroadcasts).set({ status: 'linked' })
+    mockPushMessages.mockImplementation(realPushMessages)
+    await expect(broadcastOpenChats({ entryGroupId: groupId })).resolves.toEqual({
+      status: 'sent',
+      sentCount: 1,
+    })
+  })
+
+  it('AC-38: push が 401 でも保存は残り、failed 履歴が1件だけ増える', async () => {
+    const groupId = await seedGroup()
+    await seedBinding(groupId)
+
+    mockPushMessages.mockResolvedValue({
+      deliveredCount: 0,
+      error: new Error('invalid token'),
+      httpStatus: 401,
+    })
+
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row()],
+    })
+
+    expect(result.ok && result.broadcast.status).toBe('failed')
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+    await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(1)
+    await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
+  })
+
   it('AC-39: 配信直前に紐付けが解除されていたら配信を中止する', async () => {
     const groupId = await seedGroup()
     await seedBinding(groupId)
@@ -363,6 +470,32 @@ describe('保存と配信', () => {
     expect(result.status).toBe('not_linked')
     // 保存済みデータは残る（AC-38）。
     await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+  })
+
+  it('AC-39: 送信中に紐付けが差し替わっていたら push せず skipped を記録する', async () => {
+    const groupId = await seedGroup()
+    await seedBinding(groupId)
+    // binding は読めるが、push 直前の再検証で「変わっている」と判定される状況。
+    mockAssertBinding.mockResolvedValue({ changed: true, current: null })
+
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row()],
+    })
+
+    expect(result.ok && result.broadcast.status).toBe('binding_changed')
+    // 失効した groupId / token へ送っていない。
+    expect(mockPushMessages).not.toHaveBeenCalled()
+    // 保存は残る。
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+
+    const history = await db.select().from(entryGroupOpenChatBroadcasts)
+    expect(history).toHaveLength(1)
+    expect(history[0]?.status).toBe('skipped')
+    expect(history[0]?.errorMessage).toBe('binding_changed')
+    expect(history[0]?.sentCount).toBe(0)
+    await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
   })
 
   it('AC-29/AC-52: 保存はグループに紐付き、表示順は sort_order 昇順で安定する', async () => {
