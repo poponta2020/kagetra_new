@@ -58,10 +58,13 @@ const {
 
 const {
   broadcastOpenChats,
-  listOpenChatsForGroup,
+  extractOpenChatCandidatesFromMail,
   loadOpenChatBroadcastSummary,
   saveAndBroadcastOpenChats,
 } = await import('./open-chat-actions')
+// 読み取りクエリは `'use server'` の外（server-only モジュール）へ移した
+// ——`'use server'` から export すると認可ガードの無い公開エンドポイントになるため。
+const { listOpenChatsForGroup } = await import('@/lib/open-chat/queries')
 
 async function resetDb() {
   await db.delete(entryGroupOpenChatBroadcasts)
@@ -206,7 +209,7 @@ describe('認可（AC-44）', () => {
   it('一般会員は配信 Action も直接叩けない', async () => {
     mockAuth.mockResolvedValue({ user: { id: 'u1', role: 'member' } })
     const groupId = await seedGroup()
-    await expect(broadcastOpenChats({ entryGroupId: groupId })).rejects.toThrow('Forbidden')
+    await expect(broadcastOpenChats(groupId)).rejects.toThrow('Forbidden')
   })
 })
 
@@ -373,7 +376,7 @@ describe('保存と配信', () => {
 
     // 2回目は「毎回全件を送る」再配信。event_broadcast_messages を使っていたら
     // UNIQUE(event_line_broadcast_id, mail_message_id) で落ちるケース。
-    const second = await broadcastOpenChats({ entryGroupId: groupId })
+    const second = await broadcastOpenChats(groupId)
     expect(second.status).toBe('sent')
 
     await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(2)
@@ -424,7 +427,7 @@ describe('保存と配信', () => {
     await db.delete(entryGroupOpenChatBroadcasts)
     await db.update(eventLineBroadcasts).set({ status: 'linked' })
     mockPushMessages.mockImplementation(realPushMessages)
-    await expect(broadcastOpenChats({ entryGroupId: groupId })).resolves.toEqual({
+    await expect(broadcastOpenChats(groupId)).resolves.toEqual({
       status: 'sent',
       sentCount: 1,
     })
@@ -465,7 +468,7 @@ describe('保存と配信', () => {
     // 紐付けを解除してから再配信する。
     await db.update(eventLineBroadcasts).set({ status: 'revoked' })
 
-    const result = await broadcastOpenChats({ entryGroupId: groupId })
+    const result = await broadcastOpenChats(groupId)
     // 紐付けが消えているので not_linked（binding をそもそも取得できない）。
     expect(result.status).toBe('not_linked')
     // 保存済みデータは残る（AC-38）。
@@ -517,6 +520,129 @@ describe('保存と配信', () => {
 
     const rows = await listOpenChatsForGroup(groupId)
     expect(rows.map((r) => r.grades)).toEqual([['B'], ['C'], ['D']])
+  })
+})
+
+describe('レビュー指摘の回帰（PR #469 R1）', () => {
+  beforeEach(seedAdminUser)
+
+  it('既存行と最終ラベルが重複する新規行は保存できない（入力行どうしだけを見ない）', async () => {
+    const groupId = await seedGroup()
+    // 先に C級 を保存しておく。
+    await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', grades: ['C'] })],
+    })
+
+    // 別 URL だが最終ラベルは同じ「C級」。放置すると同名ボタンが2つ並ぶ Flex になる。
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['C'] })],
+    })
+    expect(result.ok).toBe(false)
+    // 返す index は**入力行のもの**（既存行の index を返しても UI が指せない）。
+    expect(result.ok === false && result.duplicateLabelIndexes).toEqual([0])
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+  })
+
+  it('既存行とラベルが衝突しなければ追記できる', async () => {
+    const groupId = await seedGroup()
+    await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', grades: ['C'] })],
+    })
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['D'] })],
+    })
+    expect(result.ok).toBe(true)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(2)
+  })
+
+  it('配信失敗（failed）は「配信済み回数」に数えない', async () => {
+    const groupId = await seedGroup()
+    await seedBinding(groupId)
+    mockPushMessages.mockResolvedValue({
+      deliveredCount: 0,
+      error: new Error('LINE API 400'),
+      httpStatus: 400,
+    })
+    await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ grades: ['C'] })],
+    })
+
+    // 履歴には failed が1件あるが、1度も届いていないので 0 回でなければならない。
+    await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(1)
+    const summary = await loadOpenChatBroadcastSummary(groupId)
+    expect(summary.broadcastCount).toBe(0)
+    expect(summary.lastSentAt).toBeNull()
+    // 未配達なので「（今回追加）」の印も消えてはいけない。
+    expect(summary.rows.map((r) => r.isNew)).toEqual([false])
+  })
+
+  it('`https://` 単体や解析不能な文字列は保存できない（前方一致だけでは弾けない）', async () => {
+    const groupId = await seedGroup()
+    // ※`https:///path` は WHATWG URL ではホスト `path` として解釈できてしまうので
+    //   ここには含めない（構文検証としては通って正しい）。
+    for (const url of ['https://', 'https://[', 'https:// line.me/ti/g2/x', 'httpsline.me']) {
+      const result = await saveAndBroadcastOpenChats({
+        entryGroupId: groupId,
+        mailMessageId: null,
+        rows: [row({ url })],
+      })
+      expect(result.ok, `url=${url} は拒否されるべき`).toBe(false)
+    }
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(0)
+  })
+
+  it('plain text があっても HTML 本文だけにある URL を抽出する', async () => {
+    const groupId = await seedGroup()
+    const mail = (
+      await db
+        .insert(mailMessages)
+        .values({
+          messageId: `oc-html-${Math.random().toString(36).slice(2, 10)}`,
+          subject: 'オープンチャットのご案内',
+          fromAddress: 'organizer@example.com',
+          toAddresses: ['club@example.com'],
+          receivedAt: new Date(),
+          // plain part には案内文だけ。招待 URL は HTML の href にしかない。
+          bodyText: 'オープンチャットのご案内です。詳細は本文をご覧ください。',
+          bodyHtml:
+            '<p>下記より参加してください</p><a href="https://line.me/ti/g2/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789">参加する</a>',
+        })
+        .returning()
+    )[0]!
+
+    const candidates = await extractOpenChatCandidatesFromMail({
+      mailMessageId: mail.id,
+      entryGroupId: groupId,
+    })
+    expect(candidates.map((c) => c.url)).toContain(
+      'https://line.me/ti/g2/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
+    )
+  })
+
+  it('配信 Action は entryGroupId だけを受け、送信者はセッションから決まる', async () => {
+    const groupId = await seedGroup()
+    await seedBinding(groupId)
+    await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row()],
+    })
+    await db.delete(entryGroupOpenChatBroadcasts)
+
+    await expect(broadcastOpenChats(groupId)).resolves.toEqual({ status: 'sent', sentCount: 1 })
+    const [history] = await db.select().from(entryGroupOpenChatBroadcasts)
+    // 呼び出し元は送信者を指定できない。セッションの admin-1 が記録される。
+    expect(history?.sentByUserId).toBe('admin-1')
   })
 })
 

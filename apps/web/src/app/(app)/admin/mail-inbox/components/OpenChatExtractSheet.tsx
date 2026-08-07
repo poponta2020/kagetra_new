@@ -11,6 +11,7 @@ import {
   type OpenChatGrade,
 } from '@/lib/open-chat/label'
 import {
+  broadcastOpenChats,
   extractOpenChatCandidatesFromMail,
   loadOpenChatBroadcastSummary,
   saveAndBroadcastOpenChats,
@@ -68,6 +69,16 @@ interface RebroadcastConfirmState {
   broadcastCount: number
   totalCount: number
   items: { label: string; isNew: boolean }[]
+}
+
+/**
+ * 既にこのグループへ保存済みの行。**シートからは編集しない**（編集導線は持たない）。
+ * 抽出候補から同一 URL を除くためと、配信専用モードの件数表示に使う。
+ */
+interface SavedOpenChatRow {
+  id: number
+  url: string
+  label: string
 }
 
 let nextRowId = 1
@@ -132,6 +143,9 @@ export function OpenChatExtractSheet({
   const [extractedCount, setExtractedCount] = useState(0)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<RebroadcastConfirmState | null>(null)
+  /** このグループに既に保存済みの行（配信対象。シートからは編集しない）。 */
+  const [savedRows, setSavedRows] = useState<SavedOpenChatRow[]>([])
+  const [broadcastCount, setBroadcastCount] = useState(0)
   const [pending, startTransition] = useTransition()
 
   // 開くたびに抽出をやり直す（メールと大会の組が変わっていても常に最新の状態から始める）。
@@ -142,17 +156,33 @@ export function OpenChatExtractSheet({
     setLoading(true)
     let cancelled = false
 
-    extractOpenChatCandidatesFromMail({ mailMessageId, entryGroupId })
-      .then((candidates) => {
+    // ★保存済み一覧を先に引き、**既に保存済みの URL は候補から除く**。
+    // 除かないと同じ URL を再 INSERT して `UNIQUE(entry_group_id, url)` 違反になり、
+    // 保存でエラーになって配信処理まで到達しない（＝再配信・push 失敗後の再試行が
+    // シートから一度も行えない）。除いた結果 新規行がゼロなら、CTA は
+    // 「配信する（M件）」に変わり保存を経由せず配信だけを行う。
+    Promise.all([
+      loadOpenChatBroadcastSummary(entryGroupId),
+      extractOpenChatCandidatesFromMail({ mailMessageId, entryGroupId }),
+    ])
+      .then(([summary, candidates]) => {
         if (cancelled) return
-        setExtractedCount(candidates.length)
-        if (candidates.length === 0) {
+        setSavedRows(summary.rows.map((r) => ({ id: r.id, url: r.url, label: r.label })))
+        setBroadcastCount(summary.broadcastCount)
+
+        const savedUrls = new Set(summary.rows.map((r) => r.url))
+        const fresh = candidates.filter((c) => !savedUrls.has(c.url))
+        setExtractedCount(fresh.length)
+
+        if (fresh.length === 0) {
           // AC-20: 候補ゼロでも手入力行を最初から1つ展開した状態で出す。
-          setRows([createManualRow(true)])
+          // ただし保存済みが既にあるなら配信専用モードなので手入力行は出さない
+          // （「＋ 手入力で追加」から明示的に追加できる）。
+          setRows(summary.rows.length > 0 ? [] : [createManualRow(true)])
           return
         }
         setRows(
-          candidates.map((c) => ({
+          fresh.map((c) => ({
             id: nextRowId++,
             url: c.url,
             grades: c.grades,
@@ -188,11 +218,20 @@ export function OpenChatExtractSheet({
   )
   const hasInvalidUrl = rows.some((r) => !isValidHttpsUrl(r.url))
   const hasDuplicates = duplicateIds.size > 0
-  const ctaDisabled = rows.length === 0 || hasInvalidUrl || hasDuplicates || loading || pending
+  /**
+   * 新規行がゼロで保存済みだけがある状態＝**配信専用モード**。保存 Action を
+   * 通さず配信だけを行う（通すと保存済み URL の再 INSERT で UNIQUE 違反になる）。
+   * 押した結果と字面を一致させるため CTA 文言もここで切り替える。
+   */
+  const broadcastOnly = rows.length === 0 && savedRows.length > 0 && lineLinked
+  const ctaDisabled =
+    (rows.length === 0 && !broadcastOnly) || hasInvalidUrl || hasDuplicates || loading || pending
 
-  const ctaLabel = lineLinked
-    ? `保存して配信（${rows.length}件）`
-    : `保存する（${rows.length}件）`
+  const ctaLabel = broadcastOnly
+    ? `配信する（${savedRows.length}件）`
+    : lineLinked
+      ? `保存して配信（${rows.length}件）`
+      : `保存する（${rows.length}件）`
 
   const footNote = hasInvalidUrl
     ? 'URL を入力すると押せます'
@@ -200,7 +239,9 @@ export function OpenChatExtractSheet({
       ? `ラベルが重複している ${duplicateIds.size} 件を直すと押せます`
       : !lineLinked
         ? '配信は行いません'
-        : `${entryGroupDisplayName} の LINE グループへ Flex 1通で送ります`
+        : broadcastOnly
+          ? `保存済みの ${savedRows.length} 件を ${entryGroupDisplayName} の LINE グループへ改めて送ります`
+          : `${entryGroupDisplayName} の LINE グループへ Flex 1通で送ります`
 
   function updateRow(id: number, patch: Partial<OpenChatRow>) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -258,6 +299,22 @@ export function OpenChatExtractSheet({
     )
   }
 
+  /** 配信専用モードの実行（保存 Action を通さない）。 */
+  async function performBroadcastOnly() {
+    setSaveError(null)
+    setConfirm(null)
+    const outcome = await broadcastOpenChats(entryGroupId)
+    if (outcome.status === 'sent' || outcome.status === 'not_linked') {
+      onClose()
+      return
+    }
+    setSaveError(
+      outcome.status === 'failed'
+        ? `配信に失敗しました（${outcome.error}）`
+        : '紐付けが変わったため配信を中止しました',
+    )
+  }
+
   function onCtaClick() {
     if (ctaDisabled) return
     startTransition(async () => {
@@ -269,7 +326,7 @@ export function OpenChatExtractSheet({
       // ここで保存はまだ行わない（キャンセルで保存も配信も起きない = AC-36）。
       const summary = await loadOpenChatBroadcastSummary(entryGroupId)
       if (summary.broadcastCount === 0) {
-        await performSave(true)
+        await (broadcastOnly ? performBroadcastOnly() : performSave(true))
         return
       }
       setConfirm({
@@ -293,7 +350,7 @@ export function OpenChatExtractSheet({
 
   function onConfirmSend() {
     startTransition(async () => {
-      await performSave(true)
+      await (broadcastOnly ? performBroadcastOnly() : performSave(true))
     })
   }
 
@@ -373,6 +430,12 @@ export function OpenChatExtractSheet({
             <p className="mt-3 text-xs text-ink-meta">抽出中…</p>
           ) : extractedCount > 0 ? (
             <p className="mt-2.5 text-[10px] text-ink-meta">{extractedCount} 件見つかりました</p>
+          ) : savedRows.length > 0 ? (
+            // 配信専用モード: 新しい候補は無いが保存済みがある。「見つかりませんでした」
+            // を出すと運営が保存済みの存在を見失うので、こちらを優先して出す。
+            <p className="mt-2.5 text-[10px] text-ink-meta">
+              新しい候補はありません（保存済み {savedRows.length} 件を配信できます）
+            </p>
           ) : (
             <div className="mt-3 rounded-md border border-border-soft bg-surface-alt p-4 text-center">
               <div className="text-sm font-bold text-ink-2">URL が見つかりませんでした</div>
@@ -382,6 +445,24 @@ export function OpenChatExtractSheet({
                 「大会用 LINE アカウント内でご案内」のように、メールの外にしか URL が
                 無い場合があります。
               </div>
+            </div>
+          )}
+
+          {!loading && savedRows.length > 0 && (
+            // 保存済み行は**表示のみ**（編集はしない）。配信すると何が送られるかを
+            // 押す前に見せる。broadcastCount は「配信済み回数」で、0 なら未配信。
+            <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
+              <div className="text-[10px] font-bold text-ink-2">
+                保存済み {savedRows.length} 件
+                {broadcastCount > 0 ? `（配信済み ${broadcastCount} 回）` : '（未配信）'}
+              </div>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {savedRows.map((r) => (
+                  <li key={r.id} className="truncate text-[10px] text-ink-meta">
+                    {r.label}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

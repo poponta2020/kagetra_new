@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { OpenChatExtractSheet } from './OpenChatExtractSheet'
 import { MailProcessForm } from './MailProcessForm'
 import {
+  broadcastOpenChats,
   extractOpenChatCandidatesFromMail,
   loadOpenChatBroadcastSummary,
   saveAndBroadcastOpenChats,
@@ -16,6 +17,7 @@ import type { ProcessCandidateGroup } from '../process-candidate-utils'
  * （純関数で副作用が無いため mock しない）。
  */
 vi.mock('../open-chat-actions', () => ({
+  broadcastOpenChats: vi.fn(),
   extractOpenChatCandidatesFromMail: vi.fn(),
   loadOpenChatBroadcastSummary: vi.fn(),
   saveAndBroadcastOpenChats: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock('next/navigation', () => ({
 const extractMock = vi.mocked(extractOpenChatCandidatesFromMail)
 const summaryMock = vi.mocked(loadOpenChatBroadcastSummary)
 const saveMock = vi.mocked(saveAndBroadcastOpenChats)
+const broadcastMock = vi.mocked(broadcastOpenChats)
 
 function renderSheet(
   props: Partial<React.ComponentProps<typeof OpenChatExtractSheet>> = {},
@@ -64,6 +67,71 @@ beforeEach(() => {
     ok: true,
     savedCount: 1,
     broadcast: { status: 'sent', sentCount: 1 },
+  })
+  broadcastMock.mockReset()
+  broadcastMock.mockResolvedValue({ status: 'sent', sentCount: 1 })
+})
+
+describe('OpenChatExtractSheet — 保存済みの再配信（PR #469 R1 の回帰）', () => {
+  /**
+   * ★保存済み URL を候補に残したまま保存 Action を呼ぶと
+   * `UNIQUE(entry_group_id, url)` 違反になり、**配信処理まで到達しない**。
+   * 再配信・push 失敗後の再試行がシートから一度も行えなくなるため、
+   * 保存済みは候補から除き、新規ゼロなら配信だけを行う。
+   */
+  const saved = {
+    id: 1,
+    url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    label: 'C級',
+    isNew: false,
+  }
+
+  it('保存済みと同じ URL の候補は再掲されず、CTA が「配信する」になる', async () => {
+    // 抽出は保存済みと同じ URL を返す（同じメールを開き直した状況）。
+    extractMock.mockResolvedValue([
+      {
+        url: saved.url,
+        sources: ['body'],
+        unverified: false,
+        grades: ['C'],
+        eventDate: null,
+        password: null,
+      },
+    ])
+    summaryMock.mockResolvedValue({ broadcastCount: 1, lastSentAt: new Date(), rows: [saved] })
+    renderSheet()
+
+    await waitFor(() => {
+      expect(screen.getByText(/配信する（1件）/)).toBeTruthy()
+    })
+    // 保存済みの存在が見えている（「見つかりませんでした」を出さない）。
+    expect(screen.getByText(/新しい候補はありません/)).toBeTruthy()
+    expect(screen.queryByText('URL が見つかりませんでした')).toBeNull()
+  })
+
+  it('配信専用モードでは保存 Action を呼ばず配信 Action だけを呼ぶ', async () => {
+    extractMock.mockResolvedValue([])
+    summaryMock.mockResolvedValue({ broadcastCount: 1, lastSentAt: new Date(), rows: [saved] })
+    const onClose = vi.fn()
+    renderSheet({ onClose })
+
+    await waitFor(() => {
+      expect(screen.getByText(/配信する（1件）/)).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(/配信する（1件）/))
+
+    // 2回目以降なので確認ダイアログを挟む（AC-35）。
+    await waitFor(() => {
+      expect(screen.getByText('もう一度配信しますか')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(/件を配信/))
+
+    await waitFor(() => {
+      expect(broadcastMock).toHaveBeenCalledWith(10)
+    })
+    // ★保存 Action は呼ばれない（呼ぶと UNIQUE 違反で止まる）。
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
   })
 })
 
@@ -259,9 +327,9 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
       broadcastCount: 1,
       lastSentAt: new Date('2026-01-01T00:00:00Z'),
       rows: [
-        { id: 1, label: 'B級', isNew: false },
-        { id: 2, label: 'C級', isNew: false },
-        { id: 3, label: 'D級', isNew: false },
+        { id: 1, url: 'https://line.me/ti/g2/saved1', label: 'B級', isNew: false },
+        { id: 2, url: 'https://line.me/ti/g2/saved2', label: 'C級', isNew: false },
+        { id: 3, url: 'https://line.me/ti/g2/saved3', label: 'D級', isNew: false },
       ],
     })
     renderSheet()
@@ -303,7 +371,7 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
     summaryMock.mockResolvedValue({
       broadcastCount: 2,
       lastSentAt: new Date('2026-01-01T00:00:00Z'),
-      rows: [{ id: 1, label: 'D級', isNew: false }],
+      rows: [{ id: 1, url: 'https://line.me/ti/g2/saved1', label: 'D級', isNew: false }],
     })
     const onClose = vi.fn()
     renderSheet({ onClose })

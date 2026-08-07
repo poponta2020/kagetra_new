@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, count, desc, eq, gt } from 'drizzle-orm'
+import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import {
@@ -27,6 +27,7 @@ import {
   resolveOpenChatLabel,
   type OpenChatGrade,
 } from '@/lib/open-chat/label'
+import { listOpenChatsForGroup } from '@/lib/open-chat/queries'
 
 /**
  * 大会オープンチャットの抽出・保存・配信（openchat-broadcast）。
@@ -70,13 +71,32 @@ const LABEL_MAX_LENGTH = 20
 const gradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
 
 /** 保存する1行の入力。UI（抽出候補シート）から受け取る形。 */
+/**
+ * AC-26: LINE Flex の uri アクションは https 必須。
+ *
+ * ★前方一致だけでは不十分。`https://` 単体や解析不能な文字列がすり抜け、
+ * LINE API が Flex 全体を拒否して**全件配信が失敗する**。`URL` で構文解析し、
+ * スキームが https でホストが空でないことまで確認する。
+ *
+ * ホストの allowlist（line.me ＋ 短縮 URL 5ドメイン）は**入れない**（ユーザー判断）。
+ * 手入力欄は「URL がメールに存在しない大会」を救う唯一の入口なので、
+ * 別の短縮サービスで届いたケースを弾く方が実害が大きい。
+ */
+function isValidHttpsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0
+  } catch {
+    return false
+  }
+}
+
 const openChatRowSchema = z.object({
   url: z
     .string()
     .trim()
     .min(1, 'URL を入力してください')
-    // AC-26: LINE Flex の uri アクションは https 必須。
-    .refine((v) => v.startsWith('https://'), 'URL は https:// で始まる必要があります'),
+    .refine(isValidHttpsUrl, 'URL は https:// で始まる有効な URL である必要があります'),
   grades: z.array(gradeSchema).nullable(),
   eventDate: z.string().nullable(),
   label: z.string().trim().max(LABEL_MAX_LENGTH, 'ラベルが長すぎます').nullable(),
@@ -148,10 +168,13 @@ export async function extractOpenChatCandidatesFromMail(args: {
 
   const { eventDates } = await loadGroupContext(args.entryGroupId)
 
-  // 本文は text を優先し、無ければ html をそのまま渡す。URL の正規表現照合には
-  // タグが混ざっていても支障がなく（`<https://...>` の二重表記も extract 側で
-  // 同一視される）、HTML を落とす処理を足すと壊れた URL を作る危険の方が大きい。
-  const bodyText = mail.bodyText ?? mail.bodyHtml ?? ''
+  // ★text と html の**両方**を抽出対象にする。`bodyText ?? bodyHtml` だと、
+  // plain part に案内文だけがあり招待 URL は HTML の <a href> にしか無い
+  // multipart メールで、plain が存在するというだけで HTML を丸ごと捨ててしまい
+  // 候補ゼロになる。URL の正規表現照合はタグが混ざっていても支障がなく
+  // （`<https://...>` の二重表記も extract 側で同一視される）、同一 URL は
+  // マージで1候補にまとまるので両方渡して困らない。
+  const bodyText = [mail.bodyText, mail.bodyHtml].filter(Boolean).join('\n')
 
   return collectOpenChatCandidates({
     bodyText,
@@ -160,38 +183,35 @@ export async function extractOpenChatCandidatesFromMail(args: {
   })
 }
 
-/** 保存済み行を表示順（Flex のボタン順と同一）で引く。★AC-52 の並び順の正。 */
-export async function listOpenChatsForGroup(entryGroupId: number) {
-  return db
-    .select({
-      id: entryGroupOpenChats.id,
-      url: entryGroupOpenChats.url,
-      grades: entryGroupOpenChats.grades,
-      eventDate: entryGroupOpenChats.eventDate,
-      label: entryGroupOpenChats.label,
-      password: entryGroupOpenChats.password,
-      source: entryGroupOpenChats.source,
-      createdAt: entryGroupOpenChats.createdAt,
-    })
-    .from(entryGroupOpenChats)
-    .where(eq(entryGroupOpenChats.entryGroupId, entryGroupId))
-    .orderBy(asc(entryGroupOpenChats.sortOrder), asc(entryGroupOpenChats.id))
-}
-
-/** 再配信の確認ダイアログ用のサマリー（AC-35, AC-53）。 */
+/**
+ * 再配信の確認ダイアログ用のサマリー（AC-35, AC-53）＋シートの初期状態。
+ *
+ * ★配信済み回数・前回配信時刻は **`status = 'sent'` の行だけ**から算出する。
+ * 失敗（failed）や紐付け変更による中止（skipped）は「配信した」ではないので、
+ * 数に入れると1度も届いていないのに「すでに1回配信しています」と出るうえ、
+ * 未配達の行から「（今回追加）」の印まで消えてしまう。
+ *
+ * 返す行に `url` を含めるのは、シートが**保存済み URL を抽出候補から除く**ために
+ * 必要なため（同じ URL を再 INSERT すると UNIQUE 違反で配信まで到達しない）。
+ */
 export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
   await requireAdminSession()
+
+  const sentOnly = and(
+    eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId),
+    eq(entryGroupOpenChatBroadcasts.status, 'sent'),
+  )
 
   const [countRow] = await db
     .select({ value: count() })
     .from(entryGroupOpenChatBroadcasts)
-    .where(eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId))
+    .where(sentOnly)
   const broadcastCount = countRow?.value ?? 0
 
   const [last] = await db
     .select({ sentAt: entryGroupOpenChatBroadcasts.sentAt })
     .from(entryGroupOpenChatBroadcasts)
-    .where(eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId))
+    .where(sentOnly)
     .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt))
     .limit(1)
 
@@ -205,6 +225,7 @@ export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
     lastSentAt,
     rows: rows.map((r) => ({
       id: r.id,
+      url: r.url,
       label: resolveOpenChatLabel({
         grades: r.grades as OpenChatGrade[] | null,
         eventDate: r.eventDate,
@@ -258,18 +279,36 @@ export async function saveAndBroadcastOpenChats(
     return { ok: false, error: '同じ URL が複数の行にあります' }
   }
 
+  const existing = await listOpenChatsForGroup(input.entryGroupId)
+
   // AC-47〜AC-49: 最終ラベル（自動生成後の値）の重複は保存できない。
   // 同じ名前のボタンが並ぶ Flex を配信させないための唯一のゲート。
-  const duplicateIndexes = [
-    ...findDuplicateOpenChatLabelIds(
-      input.rows.map((r, index) => ({
-        id: index,
-        grades: r.grades,
-        eventDate: r.eventDate,
-        freeLabel: r.label,
-      })),
-    ),
-  ]
+  //
+  // ★判定には**既にグループに保存されている行も含める**。入力行どうしだけを
+  // 見ていると「既に C級 が保存済みのグループへ、別 URL で最終ラベルが C級 に
+  // なる行を追加する」ケースが素通りし、requirements §3.2.1 の
+  // 「同一グループ内で表示ラベルが重複してはならない」に違反した状態で配信される。
+  // 既存行には負の id を振り、返すのは**入力行の index だけ**にする
+  // （UI が行単位でエラーを出せるのは入力行だけなので）。
+  //
+  // ※同一グループへの2リクエストが同時に走った場合の取りこぼしは残る。
+  //   行ロックは入れない（管理者は実質1名で同時保存の可能性が極めて低い、
+  //   というユーザー判断）。
+  const duplicateIds = findDuplicateOpenChatLabelIds([
+    ...existing.map((r, i) => ({
+      id: -(i + 1),
+      grades: r.grades as OpenChatGrade[] | null,
+      eventDate: r.eventDate,
+      freeLabel: r.label,
+    })),
+    ...input.rows.map((r, index) => ({
+      id: index,
+      grades: r.grades,
+      eventDate: r.eventDate,
+      freeLabel: r.label,
+    })),
+  ])
+  const duplicateIndexes = [...duplicateIds].filter((id) => id >= 0)
   if (duplicateIndexes.length > 0) {
     return {
       ok: false,
@@ -282,7 +321,6 @@ export async function saveAndBroadcastOpenChats(
   // 違反は 23505 として拾ってユーザー向けメッセージに変える。
   // sort_order は既存の最大値の続きにして、追記が既存の並びを崩さないようにする
   // （AC-52: 大会詳細の並び順と Flex のボタン順が一致し続ける）。
-  const existing = await listOpenChatsForGroup(input.entryGroupId)
   const baseSortOrder = existing.length
 
   try {
@@ -313,7 +351,7 @@ export async function saveAndBroadcastOpenChats(
     return { ok: true, savedCount, broadcast: { status: 'not_linked' } }
   }
 
-  const broadcast = await broadcastOpenChats({
+  const broadcast = await runOpenChatBroadcast({
     entryGroupId: input.entryGroupId,
     displayName,
     sentByUserId: session.user.id,
@@ -322,19 +360,37 @@ export async function saveAndBroadcastOpenChats(
 }
 
 /**
- * 保存済み全件を Flex 1通で配信する（AC-30〜AC-34）。**毎回全件を送る**
- * （差分配信は「前に何が送られたか」を受け手が覚えている前提になるため）。
+ * 保存済み全件を Flex 1通で配信する公開 Server Action（AC-30〜AC-34）。
  *
- * 再配信でも `event_broadcast_messages` を触らないので、同一メールから
+ * ★引数は **`entryGroupId` だけ**。送信者は認証セッションから、大会名は DB から
+ * 必ず導出する。以前は `sentByUserId` / `displayName` を引数で受けていたが、
+ * 公開 Action は**呼び出し元の申告を信頼できない** — 監査行の送信者を別人に
+ * 偽装できたうえ、存在しないユーザー ID を渡すと LINE への push が成功した**後**に
+ * 履歴 INSERT だけが外部キー違反で落ち、配信が未記録になった。
+ */
+export async function broadcastOpenChats(
+  entryGroupId: number,
+): Promise<OpenChatBroadcastOutcome> {
+  const session = await requireAdminSession()
+  return runOpenChatBroadcast({ entryGroupId, sentByUserId: session.user.id })
+}
+
+/**
+ * 配信の実処理。**非 export の内部ヘルパー**（`'use server'` ファイルで export すると
+ * それ自体が公開エンドポイントになり、引数を絞った意味が無くなる）。
+ *
+ * **毎回全件を送る**（差分配信は「前に何が送られたか」を受け手が覚えている前提に
+ * なるため）。再配信でも `event_broadcast_messages` を触らないので、同一メールから
  * 2回配信しても DB 制約違反にならない（AC-40, AC-41）。
  */
-export async function broadcastOpenChats(args: {
+async function runOpenChatBroadcast(args: {
   entryGroupId: number
+  /** 保存経路から呼ぶときの再取得の節約用。未指定なら DB から導出する。 */
   displayName?: string
-  sentByUserId?: string
+  /** 認証セッション由来の値だけを渡すこと（呼び出し元の申告を入れない）。 */
+  sentByUserId: string
 }): Promise<OpenChatBroadcastOutcome> {
-  const session = await requireAdminSession()
-  const sentByUserId = args.sentByUserId ?? session.user.id
+  const sentByUserId = args.sentByUserId
 
   const rows = await listOpenChatsForGroup(args.entryGroupId)
   if (rows.length === 0) return { status: 'failed', error: '配信するオープンチャットがありません' }
@@ -412,31 +468,4 @@ function revalidateOpenChatPaths(eventIds: readonly number[]): void {
     revalidatePath(`/events/${id}`)
   }
   revalidatePath('/admin/mail-inbox')
-}
-
-/**
- * 前回配信以降に追加された行があるかを判定するためのヘルパー
- * （UI が「（今回追加）」印を出すのに使う。AC-53）。
- */
-export async function countOpenChatsAddedSinceLastBroadcast(
-  entryGroupId: number,
-): Promise<number> {
-  const [last] = await db
-    .select({ sentAt: entryGroupOpenChatBroadcasts.sentAt })
-    .from(entryGroupOpenChatBroadcasts)
-    .where(eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId))
-    .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt))
-    .limit(1)
-  if (!last) return 0
-
-  const [row] = await db
-    .select({ value: count() })
-    .from(entryGroupOpenChats)
-    .where(
-      and(
-        eq(entryGroupOpenChats.entryGroupId, entryGroupId),
-        gt(entryGroupOpenChats.createdAt, last.sentAt),
-      ),
-    )
-  return row?.value ?? 0
 }
