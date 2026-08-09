@@ -1,0 +1,123 @@
+<!-- @dsCard group="会員メール検索（詳細）" name="処理の記録 — 全パターン" subtitle="H0〜H6 の7分岐を1枚に。実装の照合用" viewport="440x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="_mms.css">
+</head>
+<body>
+<div class="rack">
+
+  <div class="frame">
+    <div class="flabel">処理の記録 — 導出パターン一覧</div>
+    <div class="phone">
+      <div class="main"><div class="page">
+
+        <div class="fsub" style="text-align:left;max-width:none">
+          requirements.md §3.4 の H0〜H6 に1対1で対応する参考カード。
+          実画面ではこの並びは出ず、該当する行だけが日時の昇順で並ぶ。
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H1 大会案内として処理</div>
+          <div class="card flat">
+            <div class="tl"><div class="tlrow">
+              <div class="tlrail"><span class="tldot"></span></div>
+              <div class="tlbody">
+                <div class="tldate">2026年8月2日</div>
+                <div class="tltext"><a class="evlink">第46回九段大会AB</a> の案内として処理</div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H2 LINEグループへ配信</div>
+          <div class="card flat">
+            <div class="tl"><div class="tlrow">
+              <div class="tlrail"><span class="tldot"></span></div>
+              <div class="tlbody">
+                <div class="tldate">2026年8月4日</div>
+                <div class="tltext"><a class="evlink">第33回全国競技かるた多摩大会AB</a> の連絡としてLINEグループへ配信<br>（本文と添付1件）</div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H3 大会に紐付け（名簿種別あり／なし）</div>
+          <div class="card flat">
+            <div class="tl">
+              <div class="tlrow">
+                <div class="tlrail"><span class="tldot"></span><span class="tlline"></span></div>
+                <div class="tlbody">
+                  <div class="tldate">2026年8月4日</div>
+                  <div class="tltext"><a class="evlink">第33回全国競技かるた多摩大会AB</a> の申込名簿として処理</div>
+                </div>
+              </div>
+              <div class="tlrow">
+                <div class="tlrail"><span class="tldot"></span></div>
+                <div class="tlbody">
+                  <div class="tldate">2026年7月19日</div>
+                  <div class="tltext"><a class="evlink">第79回全国競技かるた福井大会ABCD</a> の連絡として紐付け</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H0 試合結果として取り込み（大会名は出さない）</div>
+          <div class="card flat">
+            <div class="tl"><div class="tlrow">
+              <div class="tlrail"><span class="tldot"></span></div>
+              <div class="tlbody">
+                <div class="tldate">2026年7月21日</div>
+                <div class="tltext">試合結果として取り込み</div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H4 対応不要として処理</div>
+          <div class="card flat">
+            <div class="tl"><div class="tlrow">
+              <div class="tlrail"><span class="tldot"></span></div>
+              <div class="tlbody">
+                <div class="tldate">2026年8月3日</div>
+                <div class="tltext">対応不要として処理</div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H5 対応不要・日付なし（実測67通）</div>
+          <div class="card flat">
+            <div class="tl"><div class="tlrow">
+              <div class="tlrail"><span class="tldot muted"></span></div>
+              <div class="tlbody">
+                <div class="tltext">対応不要として処理済み</div>
+                <div class="tlnote">処理日時の記録がありません</div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="seclabel" style="margin-bottom:7px">H6 未処理 — セクションごと描画しない</div>
+          <div class="card flat">
+            <div class="fsub" style="text-align:left;max-width:none">
+              「処理の記録」の見出しもカードも出さない。状態は詳細ヘッダの
+              <span class="pill warn" style="margin:0 2px">未処理</span> ピルだけで示す。
+            </div>
+          </div>
+        </div>
+
+      </div></div>
+    </div>
+    <div class="fsub">ドットが藍＝日時が確実な行、砂色＝日時の記録がない行。大会名はすべて /events/[id] へのリンク（藍・下線）。</div>
+  </div>
+
+</div>
+</body></html>

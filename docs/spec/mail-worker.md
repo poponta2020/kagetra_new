@@ -208,6 +208,39 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 添付ファイルは LINE 配信時に `attachment_share_tokens`（`packages/shared/src/schema/attachment-share-tokens.ts`）経由の公開ダウンロードリンクとしても共有される。トークンは添付 1 件につき最大 1 行（60 日 TTL、期限内は再利用、期限切れなら同一行を書き換えて発行し直す）で、`/api/line-broadcast/attachments/[token]` が配信するが、この公開ルートおよび LINE 配信自体の詳細は [spec/notifications.md](notifications.md) の管轄。
 
+### 会員向け 受信メール検索・閲覧（`/mail`）
+
+受信箱を一般会員にも開放した**読み取り専用**の別画面群。書き込み・状態変更の UI は一切持たず、管理者フロー（`/admin/mail-inbox` 配下の画面・Server Action・API）は共有しない。権限判定は `session.user.id` の有無だけで role を見ない（`/admin/entries` 開放と同じ形）。
+
+- `/mail` — 一覧＋検索。sticky 検索バー＋「添付ありのみ」トグル、受信日降順固定、初回20件＋Server Action での追加読込
+- `/mail/[id]` — 詳細。セクション順は ヘッダ → 添付ファイル → 本文 → 処理の記録（会員の主目的が添付を開くことなので、長文本文に押し出されない位置に置く）
+- `/mail/attachments/[id]` — 添付ビューア。振り分け・キャッシュ・`?from=` の戻り先方式は管理者ビューアと同一（許可プレフィックスだけ `/mail`）
+
+**公開範囲は受信箱の全メール**（未処理・`classification='noise'`・取込失敗を含む）。`noise` は AI の「新規の大会案内ではない」判定であってスパム判定ではなく、実体は抽選結果・名簿共有・結果報告などの有用な連絡なので除外基準に使えない。他会の申込名簿など第三者の個人情報を含む添付も開放する（招待制で外部から到達できず、同じ添付が既に LINE グループへ配信済みであることによるリスク受容）。
+
+検索（`lib/member-mail/search.ts`）は 件名 / 差出人名 / 差出人アドレス / 本文 / 添付ファイル名 / 添付抽出テキスト の6フィールドを `ILIKE` で横断し、空白区切りの複数語は AND。添付側の一致は `EXISTS` サブクエリで表現して添付数ぶんの行重複を防ぐ。292通・抽出テキスト計363kB の規模なので FTS インデックスは使わない。件名以外でヒットしたときだけ、出所（`本文 ／` / `添付 <ファイル名> ／`）つきの抜粋を1本出す。一覧・詳細のクエリは `mail_attachments.data`（bytea・85MB）を projection に含めない。
+
+**処理の記録**（`lib/mail-history.ts` / `.queries.ts` / `.result-import.ts`）は履歴専用テーブルを持たず**既存カラムからの導出**で作る。1通につき該当行を日時昇順で並べる:
+
+| 行 | 判定条件 | 日時ソース | 表示 |
+|---|---|---|---|
+| H0 | `result_drafts.status='approved'` | `approved_at` | 試合結果として取り込み（大会名なし） |
+| H1 | `tournament_drafts.status='approved'` | `approved_at` | ○○大会 の案内として処理 |
+| H2 | 当該メールを参照する `event_broadcast_messages.status='sent'` | `sent_at` | ○○大会 の連絡としてLINEグループへ配信（本文と添付N件） |
+| H3 | `linked_event_id IS NOT NULL` かつ H2 無し | `triaged_at` | ○○大会 の連絡として紐付け（`mail_kind` が名簿種別なら申込名簿／確定名簿として処理） |
+| H4 | `triage_status='processed'` かつ H0〜H3 無し | `triaged_at` | 対応不要として処理 |
+| H5 | H4 と同条件で `triaged_at IS NULL` | — | 対応不要として処理済み（日付を出さない） |
+| H6 | `triage_status='unprocessed'` | — | 履歴行なし（「未処理」ピルのみ） |
+
+導出上の要点:
+
+- 対象大会ラベルは H1/H2/H3 共通のヘルパーで作る。`deriveEntryGroupName()` で単一ラベルに畳めればそれ1つを出し**開催日が最も早いイベント**へリンク、畳めなければ全イベントを `・` 区切りで併記して各々にリンク、0件なら文言から大会名部分を落とす
+- H1 の対象イベントは `events.tournament_draft_id` の逆参照（級別分割承認）と `tournament_drafts.event_id`（訂正版の既存大会紐付け）の**和集合**。後者からしか引けないドラフトが実在するため片方だけでは大会名が欠ける
+- H2 は `event_line_broadcasts.entry_group_id → events.entry_group_id` の3ホップ。添付件数は配信ごとではなく**そのメールの添付総数**（配信側が `mail_message_id` 単位で全添付を送るため画面の添付一覧と一致する）
+- H3 の対象イベントも linked_event が属する申込グループ全件。`processMail` が書く `linked_event_id` は管理者が選んだ**グループ**の代表イベントだから
+- H5 は migration `0018_happy_human_robot.sql` が既存メールを一括処理済み化した際に `triaged_at` を入れなかったことに由来する。日付を捏造せず省略する
+- H0（試合結果）は結果取込ドメインなので判定・文言・クエリを `mail-history.result-import.ts` 1ファイルに隔離し、`deriveHistory(input, extraRows)` へ**注入**で合成する。切り離しの手順は [audits/senseki-boundary-audit.md](../audits/senseki-boundary-audit.md) 2章⑥
+
 ### メール本文の LINE 配信向け加工
 
 `apps/web/src/lib/mail-body-cleaner.ts`（`stripMailFooter()` / `buildBroadcastBody()`）は Google Groups 等の自動フッター除去と、件名・訂正フラグを本文先頭に埋め込むテキスト整形を行う。`mail-body-image-render.ts` はメール本文を A4 縦 HTML（`libreoffice --writer` で Web レイアウトのバグを回避）→ PDF → `pdftoppm` で JPEG 化し、LINE 上でスマホスクロールが伸びる問題をスクリーンショット的な 1 枚絵で解消する（要承認済みイベント紐付け後に配信されるため、実際の呼び出し元・配信条件は [spec/notifications.md](notifications.md)）。`text-splitter.ts` の `splitForLine()` は LINE のテキストメッセージ 5000 文字上限に合わせ、段落境界→文境界→ハードカットの順で安全に分割する（サロゲートペアを跨がない）。これら 3 つの lib は本ドメインが提供する加工ユーティリティで、実際の配信トリガー（`broadcastMailToEvent`）は notifications.md 側が呼び出す。
@@ -245,6 +278,17 @@ Route Handlers（すべて `admin`/`vice_admin` セッション必須）:
 - `GET /api/admin/mail/attachments/[id]/preview/[page]` — 添付プレビュー JPEG 配信
 - `GET /api/admin/mail/unprocessed-count` — 未処理バッジ件数（PWA フォアグラウンド同期用）
 - `GET /api/admin/mail-inbox/[id]/draft-status` — AI 抽出進行状況 polling（`id` は `mail_messages.id`）
+
+会員向け Route Handlers（ログイン済みなら role 不問）:
+
+- `GET /api/mail/attachments/[id]` — 添付バイナリ配信
+- `GET /api/mail/attachments/[id]/preview/[page]` — 添付プレビュー JPEG 配信
+
+この2本は管理者ルートの**意図的な複製**で、差分は認可判定（role を見ない）だけ。共有モジュールへ抽出すると管理者ルートの変更になるため採らなかった。複製の drift は `api/mail/attachments/attachment-route-parity.test.ts` が防ぐ（同一入力を両ルートへ投げ `Content-Type` / `Content-Disposition` / `X-Content-Type-Options` / `Cache-Control` / `Content-Length` の完全一致を assert する。両方とも admin セッションで叩く — member セッションでは管理者ルートが 403 になり drift ではなく認可差で落ちるため）。
+
+会員向け Server Action（`apps/web/src/app/(app)/mail/actions.ts`）:
+
+- `loadMoreMails(q, attachmentsOnly, offset)` — 一覧の「もっと読み込む」。未認証は `/auth/signin` へ redirect
 
 mail-worker 側 CLI エントリポイント（Server Action からは呼ばれない、systemd/手動実行専用）:
 
