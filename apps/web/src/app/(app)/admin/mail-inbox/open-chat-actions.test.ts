@@ -687,6 +687,54 @@ describe('レビュー指摘の回帰（PR #469 R1 第2回）', () => {
   })
 })
 
+describe('Flex ペイロード上限（PR #469 R2）', () => {
+  beforeEach(seedAdminUser)
+
+  it('個々の長さ制限を通っても合計が Flex 上限を超える入力は保存できない', async () => {
+    const groupId = await seedGroup()
+    // 多バイト文字（1文字3バイト）で URL 長の上限いっぱい × 行数上限いっぱい。
+    // 文字数・行数の固定チェックはすべて通るが、合計バイト長は 30KB を超える。
+    const multibyte = 'あ'.repeat(400)
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      url: `https://line.me/ti/g2/${i}${multibyte}`,
+      grades: null,
+      eventDate: null,
+      label: `部門${i}`,
+      password: 'ぱ'.repeat(90),
+      source: 'manual' as const,
+    }))
+
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows,
+    })
+    expect(result.ok).toBe(false)
+    // ★保存されないこと自体が要点 — 保存されると配信時に LINE が 400 を返し、
+    // 復旧処理が正常な紐付けを revoke して以降のメール配信まで止まる。
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(0)
+  })
+
+  it('現実的な件数・長さなら通る（上限が実運用を邪魔しない）', async () => {
+    const groupId = await seedGroup()
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      url: `https://line.me/ti/g2/Token${String(i).padStart(28, 'x')}`,
+      grades: null,
+      eventDate: null,
+      label: `第${i}部`,
+      password: 'code1234',
+      source: 'body' as const,
+    }))
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows,
+    })
+    expect(result.ok).toBe(true)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(5)
+  })
+})
+
 describe('再配信サマリー（AC-35, AC-53）', () => {
   beforeEach(seedAdminUser)
 

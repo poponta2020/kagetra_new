@@ -21,7 +21,7 @@ import {
   renderPdfToJpegs,
   runLibreofficeConvertToPdf,
 } from '@/lib/attachment-image-render'
-import { detectPreviewKind, normalizeContentType } from '@/lib/attachment-preview'
+import { normalizeContentType } from '@/lib/attachment-preview'
 import { extractOpenChatCandidates, type OpenChatCandidate, type OpenChatGrade } from './extract'
 import { decodeQrFromImage, decodeQrFromImages } from './qr'
 

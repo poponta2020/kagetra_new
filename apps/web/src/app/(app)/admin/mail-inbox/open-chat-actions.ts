@@ -87,6 +87,28 @@ const URL_MAX_LENGTH = 500
 const PASSWORD_MAX_LENGTH = 100
 const ROWS_PER_GROUP_MAX = 30
 
+/**
+ * Flex メッセージ JSON のバイト長上限（LINE の上限 30KB に対する余裕込みの値）。
+ *
+ * ★固定の文字数・行数だけでは足りない。上限いっぱいの多バイト URL（1文字3バイト）を
+ * 上限いっぱいの行数ぶん保存すると、個々の制限を全て通過したうえで合計が 30KB を
+ * 超え得る。そうなると LINE が 400 を返し、`applyPushFailureRecovery` が
+ * 「401 以外の 4xx ＝ groupId 不正」と見なして**正常な紐付けを revoke** し、
+ * オープンチャットだけでなく以降のメール配信まで止まる。
+ * そこで**実際に組み立てた Flex のバイト長**を保存前と配信前の両方で検証する。
+ */
+const FLEX_PAYLOAD_MAX_BYTES = 25_000
+
+/** 保存済み/保存予定の行から Flex を組み立て、バイト長が上限内かを判定する。 */
+function isFlexPayloadWithinLimit(
+  rows: readonly { url: string; label: string; password: string | null }[],
+  displayName: string,
+): boolean {
+  if (rows.length === 0) return true
+  const message = buildOpenChatFlexMessage([...rows], displayName)
+  return Buffer.byteLength(JSON.stringify(message), 'utf8') <= FLEX_PAYLOAD_MAX_BYTES
+}
+
 const gradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
 
 /** 保存する1行の入力。UI（抽出候補シート）から受け取る形。 */
@@ -351,6 +373,35 @@ export async function saveAndBroadcastOpenChats(
     }
   }
 
+  // ★実際に組み立てた Flex のバイト長を保存前に検証する（上記の revoke 波及を防ぐ）。
+  // 既存行＋今回行の全件で組む — 配信は毎回全件送るため、合計で判定しないと意味がない。
+  const prospectiveRows = [
+    ...existing.map((r) => ({
+      url: r.url,
+      label: resolveOpenChatLabel({
+        grades: r.grades as OpenChatGrade[] | null,
+        eventDate: r.eventDate,
+        freeLabel: r.label,
+      }).label,
+      password: r.password,
+    })),
+    ...input.rows.map((r) => ({
+      url: r.url,
+      label: resolveOpenChatLabel({
+        grades: r.grades,
+        eventDate: r.eventDate,
+        freeLabel: r.label,
+      }).label,
+      password: r.password,
+    })),
+  ]
+  if (!isFlexPayloadWithinLimit(prospectiveRows, displayName)) {
+    return {
+      ok: false,
+      error: '登録内容が多すぎて LINE で送れません。URL やパスワードを短くするか件数を減らしてください',
+    }
+  }
+
   // 保存。既存行との URL 重複（AC-25）は DB の UNIQUE(entry_group_id, url) が正で、
   // 違反は 23505 として拾ってユーザー向けメッセージに変える。
   // sort_order は既存の最大値の続きにして、追記が既存の並びを崩さないようにする
@@ -437,18 +488,35 @@ async function runOpenChatBroadcast(args: {
   // ——「配信した」記録が無いのが正しく、N 回配信済みのカウントを汚さない。
   if (!binding) return { status: 'not_linked' }
 
-  const message = buildOpenChatFlexMessage(
-    rows.map((r) => ({
-      url: r.url,
-      label: resolveOpenChatLabel({
-        grades: r.grades as OpenChatGrade[] | null,
-        eventDate: r.eventDate,
-        freeLabel: r.label,
-      }).label,
-      password: r.password,
-    })),
-    displayName,
-  )
+  const flexRows = rows.map((r) => ({
+    url: r.url,
+    label: resolveOpenChatLabel({
+      grades: r.grades as OpenChatGrade[] | null,
+      eventDate: r.eventDate,
+      freeLabel: r.label,
+    }).label,
+    password: r.password,
+  }))
+
+  // ★push する直前にもペイロード長を検証する。ここが**実際の防波堤** — 保存時の
+  // 検証をすり抜けた行（別経路で入った古いデータ等）でも、過大な Flex を LINE へ
+  // 投げない。投げると 400 が返り、`applyPushFailureRecovery` が正常な紐付けを
+  // revoke してしまい、以降のメール配信まで止まる。
+  if (!isFlexPayloadWithinLimit(flexRows, displayName)) {
+    await db.insert(entryGroupOpenChatBroadcasts).values({
+      entryGroupId: args.entryGroupId,
+      sentCount: 0,
+      status: 'failed',
+      errorMessage: 'flex_payload_too_large',
+      sentByUserId,
+    })
+    return {
+      status: 'failed',
+      error: '登録内容が多すぎて LINE で送れません。件数を減らすか URL を短くしてください',
+    }
+  }
+
+  const message = buildOpenChatFlexMessage(flexRows, displayName)
 
   // AC-39: push 直前に紐付けを再検証する。判定だけを行い、記録はここで書く
   // （ヘルパーは event_broadcast_messages に触れない契約）。
