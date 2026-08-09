@@ -2992,3 +2992,6 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 残 DoD: 本番実機での動作確認（CI は pending のままマージ。赤なら追修正）
 - 2026-08-05 /auto-review-loop PR #456: 1R(i), verdict=pass, effort=low, tokens=35607/500000, result=pass
 - 2026-08-05 出荷: PR #456 fix(ui) スクロール端のラバーバンド（ばね挙動）を無効化（html/body + <main> に overscroll-behavior: none）。残 DoD: 本番実機確認（iOS Safari 16+ / PWA / Android Chrome）
+- 2026-08-07 /auto-review-loop PR #469: 2R(i+d), verdict=needs_changes(R1 blockers 9 → 修正7/見送り2), effort=h→m, tokens=n/a, result=codex-error（利用上限。R2 未実行・修正は再レビュー未了）
+- 2026-08-07 /auto-review-loop PR #469 (2回目): 5R(i+d2+f+fd), verdict=pass, effort=h/m, result=pass（1回目は R2 で codex 利用上限により中断）。blockers 累計9件を修正、WONTFIX 4件
+- 2026-08-09 出荷: PR #469 feat(openchat) 大会オープンチャットの抽出・LINE配信（migration 0056。抽出=決定的3段/QR=sharp+jsqr、Flex 1通で大会別Botグループへ、大会詳細に全会員向け閲覧欄）。残 DoD: AC-15（本番相当のQR入りPDF）と AC-46（検証用グループへ実機push・長いラベル含む）

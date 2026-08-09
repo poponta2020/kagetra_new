@@ -282,3 +282,7 @@
 - [auto-review PR #456](auto-review-round-pr456.md) — R1 verdict=pass
 - [スクロール端のラバーバンド無効化](project_ship-disable-overscroll-bounce.md) — shipped: PR #456
 - [openchat-broadcast 要件定義](project_openchat_broadcast_def.md) — 親Issue #457・★AIなし99%は不可を本番286件で実証
+- [openchat-broadcast 実装](impl_openchat_broadcast.md) — 全11タスク実装。sharp grayscale は 1ch のまま・ワーカーは型エラーを素通しする・Flex に等幅指定は無い
+- [fix PR #469](impl_fix-pr469.md) — review 指摘の修正（'use server' の認可の穴・UI経路の再配信不能）
+- [auto-review PR #469](auto-review-round-pr469.md) — 5R(i+d2+f+fd) で pass。'use server' の認可の穴・UI経路限定バグ・Flexペイロード→binding revoke を検出
+- [openchat-broadcast 出荷](project_ship-openchat-broadcast.md) — shipped: PR #469。残DoD=AC-15(実機QR-PDF)・AC-46(検証用グループへ実機push)
