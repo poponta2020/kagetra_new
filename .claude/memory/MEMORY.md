@@ -286,3 +286,9 @@
 - [fix PR #469](impl_fix-pr469.md) — review 指摘の修正（'use server' の認可の穴・UI経路の再配信不能）
 - [auto-review PR #469](auto-review-round-pr469.md) — 5R(i+d2+f+fd) で pass。'use server' の認可の穴・UI経路限定バグ・Flexペイロード→binding revoke を検出
 - [openchat-broadcast 出荷](project_ship-openchat-broadcast.md) — shipped: PR #469。残DoD=AC-15(実機QR-PDF)・AC-46(検証用グループへ実機push)
+- [member-mail-search 要件定義・デザイン確定](project_member_mail_search_def.md) — 親Issue #470・子#471-478。履歴は導出方式／noise は除外不可／H1は2経路の和集合
+- [member-mail-search Wave 1（タスク1〜3）](impl_member-mail-search-wave1.md) — 履歴導出・検索・添付ルート。型契約3点をmainが先に確定。H3はentry_group全件
+- [member-mail-search Wave 2〜4（タスク4〜8）](impl_member-mail-search-wave2-4.md) — 一覧・詳細・ビューア・ナビ・忠実度。vitest beforeEach teardown罠でハマる
+- [vitest の beforeEach は返り値の関数を teardown 扱いする](feedback_vitest_beforeeach_returns_teardown.md) — beforeEach(() => mock.mockReset()) はモックを teardown 登録し never-resolve 実装で 10s タイムアウト。ブロックで囲む
+- [auto-review PR #479](auto-review-round-pr479.md) — 4R(i+d+f+fd) pass。blockers累計7→修正5/見送り2。finalがDoS系2件を追加検出
+- [会員向け 受信メール検索・閲覧](project_ship-member-mail-search.md) — shipped: PR #479。残DoD=実機375px(AC-34)とPDFページ画像(AC-21)
