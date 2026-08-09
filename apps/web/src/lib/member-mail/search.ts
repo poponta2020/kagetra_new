@@ -1,6 +1,10 @@
 import { and, desc, eq, exists, inArray, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { mailAttachments, mailMessages } from '@kagetra/shared/schema'
+// キーワードの分割規則は一覧の件名ハイライト（client component）と共有する必要がある。
+// このファイルは `@/lib/db` を引くのでクライアントから import できず、DB に触らない
+// format.ts が唯一の共有点になる。
+import { splitSearchTerms } from './format'
 
 /**
  * member-mail-search タスク2: 会員向け受信メール検索（`/mail`）のクエリ層。
@@ -71,12 +75,6 @@ const DEFAULT_LIMIT = 20
 /** ILIKE のワイルドカード（% _ \）をエスケープし literal 扱いにする（players/queries.ts と同じ規約）。 */
 function escapeLike(raw: string): string {
   return raw.replace(/([%_\\])/g, '\\$1')
-}
-
-/** 空白区切り（半角・全角スペース両方）でキーワードを分割。空語は捨てる。 */
-function splitTerms(q: string | undefined): string[] {
-  if (!q) return []
-  return q.split(/[ \t\n\r　]+/).filter((t) => t.length > 0)
 }
 
 /**
@@ -293,7 +291,7 @@ function deriveMatch(
  * `status` の値も対象。requirements.md §3.2・AC-9・AC-10）。
  */
 export async function searchMemberMails(params: MailSearchParams): Promise<MailSearchResult> {
-  const terms = splitTerms(params.q)
+  const terms = splitSearchTerms(params.q)
   const safeLimit =
     Number.isInteger(params.limit) && params.limit > 0 ? params.limit : DEFAULT_LIMIT
   const safeOffset = Number.isInteger(params.offset) && params.offset >= 0 ? params.offset : 0

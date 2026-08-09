@@ -8,6 +8,20 @@
  * 踏襲する（`toLocaleString` の既定書式には頼らない）。
  */
 
+/**
+ * 検索キーワードを空白区切り（半角・全角）で語に分割する。空語は捨てる。
+ *
+ * 置き場所がここなのは、**クエリ層とクライアント側の両方が同じ分割規則を要る**ため。
+ * `search.ts` は AND 条件の組み立てに、一覧の client component は件名ハイライトの
+ * 対象語に使う。`search.ts` に置くと `@/lib/db`（drizzle）ごとクライアントバンドルへ
+ * 引き込まれるので、DB に触らないこのモジュールが唯一の共有点になる。分割規則が
+ * 2箇所に分かれると「検索ではヒットしたのにハイライトされない」形で静かに壊れる。
+ */
+export function splitSearchTerms(q: string | undefined): string[] {
+  if (!q) return []
+  return q.split(/[ \t\n\r　]+/).filter((t) => t.length > 0)
+}
+
 const TOKYO_PARTS_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tokyo',
   year: 'numeric',
