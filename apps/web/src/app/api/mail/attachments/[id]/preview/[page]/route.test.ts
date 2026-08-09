@@ -15,6 +15,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 const mockGetCachedPreviewPage = vi.fn()
+const mockGetCachedPreviewMeta = vi.fn()
 const mockRenderAttachmentPreview = vi.fn()
 vi.mock('@/lib/attachment-preview', async (importOriginal) => {
   const actual =
@@ -23,6 +24,8 @@ vi.mock('@/lib/attachment-preview', async (importOriginal) => {
     ...actual,
     getCachedPreviewPage: (...args: unknown[]) =>
       mockGetCachedPreviewPage(...args),
+    getCachedPreviewMeta: (...args: unknown[]) =>
+      mockGetCachedPreviewMeta(...args),
     renderAttachmentPreview: (...args: unknown[]) =>
       mockRenderAttachmentPreview(...args),
   }
@@ -53,6 +56,7 @@ describe('GET /api/mail/attachments/:id/preview/:page', () => {
   beforeEach(() => {
     mockFindFirst.mockReset()
     mockGetCachedPreviewPage.mockReset()
+    mockGetCachedPreviewMeta.mockReset()
     mockRenderAttachmentPreview.mockReset()
   })
   afterEach(() => {
@@ -232,5 +236,62 @@ describe('GET /api/mail/attachments/:id/preview/:page', () => {
     })
     const res = await GET(makeRequest(), mkParams('1', '1'))
     expect(res.status).toBe(502)
+  })
+
+  // codex pr479 final blocker: メタが残っているのにページだけ無い場合、
+  // (a) LRU がページを落とした と (b) 存在しないページ番号を要求された を
+  // 区別せず force 再生成へ落とすと、1 ページの PDF に preview/30 を投げ続ける
+  // だけで LibreOffice + pdftoppm を毎回起動させられる（会員ルートは全会員に
+  // 開放されるので閉じる。管理者ルートは Non-goal のため意図的に据え置き）。
+  describe('存在しないページ番号の反復要求で変換を起動しない', () => {
+    it('メタあり・範囲外のページは変換せず 404', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockGetCachedPreviewPage.mockReturnValue(null)
+      mockGetCachedPreviewMeta.mockReturnValue({ pageCount: 1, truncated: false })
+
+      const res = await GET(makeRequest(), mkParams('1', '30'))
+
+      expect(res.status).toBe(404)
+      expect(mockRenderAttachmentPreview).not.toHaveBeenCalled()
+      // DB も叩かない（変換前に打ち切る）
+      expect(mockFindFirst).not.toHaveBeenCalled()
+    })
+
+    it('メタあり・範囲内のページ欠落（LRU 退避）は従来どおり再生成する', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockGetCachedPreviewMeta.mockReturnValue({ pageCount: 3, truncated: false })
+      mockFindFirst.mockResolvedValue(DOC_ROW)
+      mockRenderAttachmentPreview.mockResolvedValue({
+        pageCount: 3,
+        truncated: false,
+      })
+      // 再生成前は miss、再生成後は hit
+      mockGetCachedPreviewPage
+        .mockReturnValueOnce(null)
+        .mockReturnValue({ data: JPEG, contentType: 'image/jpeg' })
+
+      const res = await GET(makeRequest(), mkParams('1', '2'))
+
+      expect(res.status).toBe(200)
+      expect(mockRenderAttachmentPreview).toHaveBeenCalledTimes(1)
+    })
+
+    it('メタが無ければ（プロセス再起動直後など）従来どおり再生成へ進む', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockGetCachedPreviewMeta.mockReturnValue(null)
+      mockFindFirst.mockResolvedValue(DOC_ROW)
+      mockRenderAttachmentPreview.mockResolvedValue({
+        pageCount: 3,
+        truncated: false,
+      })
+      mockGetCachedPreviewPage
+        .mockReturnValueOnce(null)
+        .mockReturnValue({ data: JPEG, contentType: 'image/jpeg' })
+
+      const res = await GET(makeRequest(), mkParams('1', '2'))
+
+      expect(res.status).toBe(200)
+      expect(mockRenderAttachmentPreview).toHaveBeenCalledTimes(1)
+    })
   })
 })

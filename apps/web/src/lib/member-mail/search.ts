@@ -72,6 +72,44 @@ export interface MailSearchResult {
 
 const DEFAULT_LIMIT = 20
 
+/**
+ * キーワード入力の受け入れ上限（codex pr479 final blocker）。
+ *
+ * 1語につき「件名・差出人名・差出人アドレス・本文」の4条件と、添付を見る EXISTS
+ * サブクエリ（内側2条件）が生成される。上限が無いと、ログイン済みユーザーが
+ * `loadMoreMails`（Server Action）へ短い語を数千並べた `q` を渡すだけで数万条件の
+ * SQL を組み立てられ、Node と Postgres の CPU・メモリを占有できる。ILIKE の
+ * エスケープは注入を防ぐが入力**規模**は縛らないので、データアクセス境界の
+ * ここで切り詰める（ページ本体も Server Action も同じ入口を通るので一箇所で効く）。
+ *
+ * 実運用の検索は大会名・主催者名の1〜3語なので、通常利用には届かない値にしてある。
+ */
+const MAX_QUERY_LENGTH = 200
+const MAX_TERMS = 8
+const MAX_TERM_LENGTH = 60
+
+/**
+ * キーワードを検索語の配列へ正規化する。分割規則は `splitSearchTerms`（ハイライト側と
+ * 共有）に委ね、ここでは規模だけを縛る: 全体長 → 語ごとの長さ → 重複除去 → 語数、の順に
+ * 切り詰める。拒否ではなく切り詰めにするのは、通常利用者が上限に触れることはなく、
+ * 触れるのは意図的な巨大入力だけなので、エラー画面を増やす価値が無いため。
+ */
+export function normalizeTerms(q: string | undefined): string[] {
+  if (!q) return []
+  const capped = q.slice(0, MAX_QUERY_LENGTH)
+  const seen = new Set<string>()
+  const terms: string[] = []
+  for (const raw of splitSearchTerms(capped)) {
+    const term = raw.slice(0, MAX_TERM_LENGTH)
+    const key = term.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    terms.push(term)
+    if (terms.length >= MAX_TERMS) break
+  }
+  return terms
+}
+
 /** ILIKE のワイルドカード（% _ \）をエスケープし literal 扱いにする（players/queries.ts と同じ規約）。 */
 function escapeLike(raw: string): string {
   return raw.replace(/([%_\\])/g, '\\$1')
@@ -291,7 +329,7 @@ function deriveMatch(
  * `status` の値も対象。requirements.md §3.2・AC-9・AC-10）。
  */
 export async function searchMemberMails(params: MailSearchParams): Promise<MailSearchResult> {
-  const terms = splitSearchTerms(params.q)
+  const terms = normalizeTerms(params.q)
   const safeLimit =
     Number.isInteger(params.limit) && params.limit > 0 ? params.limit : DEFAULT_LIMIT
   const safeOffset = Number.isInteger(params.offset) && params.offset >= 0 ? params.offset : 0

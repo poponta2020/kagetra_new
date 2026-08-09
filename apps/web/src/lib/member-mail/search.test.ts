@@ -7,6 +7,7 @@ import {
   buildAttachmentsSelectQuery,
   buildExcerpt,
   buildMailListSelectQuery,
+  normalizeTerms,
   searchMemberMails,
 } from './search'
 
@@ -102,6 +103,46 @@ describe('searchMemberMails — AC-5 空白区切り AND', () => {
     await createMailMessage({ subject: '第46回九段大会のみ' })
     const { rows } = await searchMemberMails({ q: '九段　抽選', limit: 20, offset: 0 })
     expect(rows.map((r) => r.id)).toEqual([both.id])
+  })
+})
+
+// codex pr479 final blocker: 1 語につき本文4条件＋添付 EXISTS が生成されるため、
+// 語数が無制限だとログイン済みユーザーが Server Action へ短い語を数千並べるだけで
+// 巨大な SQL を組み立てられる（認証済み DoS）。データアクセス境界で規模を縛る。
+describe('normalizeTerms — 入力規模の上限', () => {
+  it('語数は上限まで切り詰められる', () => {
+    const q = Array.from({ length: 500 }, (_, i) => 'w' + i).join(' ')
+    expect(normalizeTerms(q)).toHaveLength(8)
+  })
+
+  it('重複語は 1 つに畳まれる（大文字小文字を区別しない）', () => {
+    expect(normalizeTerms('九段 九段 KUDAN kudan')).toEqual(['九段', 'KUDAN'])
+  })
+
+  it('1 語の長さと入力全体の長さが切り詰められる', () => {
+    const long = 'あ'.repeat(300)
+    const [first] = normalizeTerms(long)
+    expect(first).toHaveLength(60)
+    // 全体長 200 で切ってから分割するので、200 文字目以降の語は残らない
+    const many = 'あ'.repeat(199) + ' しっぽ'
+    expect(normalizeTerms(many)).toEqual(['あ'.repeat(60)])
+  })
+
+  it('未入力・空白のみは空配列', () => {
+    expect(normalizeTerms(undefined)).toEqual([])
+    expect(normalizeTerms('   ')).toEqual([])
+  })
+
+  it('巨大入力でも検索が破綻せず結果を返す', async () => {
+    await createMailMessage({ subject: '第46回九段大会のご案内' })
+    const q =
+      '九段 ' + Array.from({ length: 5000 }, (_, i) => 'x' + i).join(' ')
+
+    const { rows } = await searchMemberMails({ q, limit: 20, offset: 0 })
+
+    // 上限を超えた語は捨てられるので、SQL は上限内の語数で組み立てられる。
+    // ここでの要点は「例外を投げず・妥当な時間で返る」こと。
+    expect(Array.isArray(rows)).toBe(true)
   })
 })
 
