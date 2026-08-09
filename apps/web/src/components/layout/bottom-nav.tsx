@@ -16,6 +16,12 @@ interface Tab {
   matches: readonly string[]
   /** When true, tab is only rendered for admin/vice_admin users. */
   adminOnly?: boolean
+  /**
+   * member-mail-search: 一般会員向けの遷移先。`isAdmin=false` のときだけ
+   * `href` の代わりに使う。表示・並び・active 判定は共通で、行き先だけを
+   * role で振り分けるタブに使う（現状「メール」のみ）。
+   */
+  memberHref?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -39,14 +45,18 @@ const TABS: readonly Tab[] = [
     href: '/admin/entries',
     matches: ['/admin/entries'],
   },
-  // mail-tournament-import (PR1): admin-only inbox of mails fetched by
-  // apps/mail-worker. 未処理バッジを持つ日常動線なのでナビに残す。
+  // mail-tournament-import (PR1): apps/mail-worker が取り込んだ受信メール。
+  // 未処理バッジを持つ日常動線なのでナビに残す。
+  // member-mail-search: 一般会員にも開放した（会員側は読み取り専用の別画面
+  // `/mail`）。設定ハブ配下に埋めると日常導線として見つからず検索機能の価値が
+  // 出ないため、`/admin/entries` を開放したときと同じくタブとして出す。
+  // 表示・並び・active 判定は共通で、行き先だけ role で振り分ける。
   {
     id: 'mail-inbox',
     label: 'メール',
     href: '/admin/mail-inbox',
-    matches: ['/admin/mail-inbox'],
-    adminOnly: true,
+    memberHref: '/mail',
+    matches: ['/admin/mail-inbox', '/mail'],
   },
   // nav-settings-hub: 上部バー（ワードマーク＋`{name}さん` タップの設定シート）
   // 廃止に伴う設定の受け皿。会員 (`/admin/members`) と Bot
@@ -67,8 +77,9 @@ function matchesPath(pathname: string, prefix: string): boolean {
 
 export interface BottomNavProps {
   /**
-   * Whether the current user is admin/vice_admin. Controls visibility of
-   * admin-only tabs — currently メール only (申込管理 は全員に開放済み)。
+   * Whether the current user is admin/vice_admin. 現在 `adminOnly` のタブは
+   * 無く、この値は「メール」タブの遷移先の振り分けにだけ効く
+   * (`/admin/mail-inbox` か会員向けの `/mail` か)。
    */
   isAdmin: boolean
   /**
@@ -83,8 +94,10 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs: ホーム / イベント / 統計 / 申込管理 / 設定 を全員に、メール を
- * 管理者に追加（一般会員 5 タブ・管理者 6 タブ）。
+ * targets. Tabs: ホーム / イベント / 統計 / 申込管理 / メール / 設定 を全員に
+ * （member-mail-search で「メール」を開放し、一般会員も管理者も 6 タブ）。
+ * 「メール」だけ遷移先が role で分かれる（管理者 `/admin/mail-inbox` /
+ * 一般会員 `/mail`）。
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +
@@ -110,11 +123,15 @@ export function BottomNav({
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),
         )
+        // `isAdmin` は `session.user.role`（＝実効ロール）由来なので、管理者が
+        // 一般会員プレビュー中は memberHref 側が選ばれる。プレビューの目的
+        // （会員に何が見えるか）と一致する挙動。
+        const href = !isAdmin && tab.memberHref ? tab.memberHref : tab.href
         const showPreviewBadge = tab.id === 'settings' && !!previewRoleLabel
         return (
           <Link
             key={tab.id}
-            href={tab.href}
+            href={href}
             aria-label={
               showPreviewBadge
                 ? `${tab.label}（${previewRoleLabel}として表示中）`

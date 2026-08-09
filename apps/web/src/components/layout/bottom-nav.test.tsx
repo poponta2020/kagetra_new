@@ -14,11 +14,10 @@ describe('BottomNav', () => {
     mockUsePathname.mockReturnValue('/dashboard')
   })
 
-  // AC-4 / AC-6: 一般会員は ホーム/イベント/統計/申込管理/設定 の 5 タブ
-  // ちょうど、かつこの並び順で表示される（設定タブは常に最後尾）。
-  // 申込管理は表示専用ボードなので閲覧を全員に開放している（管理者専用は
-  // メールのみ）。
-  it('isAdmin=false のとき ホーム/イベント/統計/申込管理/設定 の 5 タブが、この順序ちょうどで表示される', () => {
+  // AC-27 / AC-27b（member-mail-search）: 「メール」を一般会員へ開放したので
+  // 一般会員も 6 タブちょうど、かつこの並び順（設定タブは常に最後尾）。
+  // 他タブの表示・並びは開放前から変わっていない＝この配列がその回帰ガード。
+  it('isAdmin=false のとき ホーム/イベント/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin={false} />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
@@ -26,15 +25,43 @@ describe('BottomNav', () => {
       'イベント',
       '統計',
       '申込管理',
+      'メール',
       '設定',
     ])
   })
 
-  // 一般会員に出さない管理者専用タブは「メール」だけ。
-  it('isAdmin=false のとき メール タブは表示されない', () => {
+  // AC-27: 一般会員のメールタブは会員向けの読み取り専用画面 `/mail` を指す。
+  it('isAdmin=false のとき メール タブが表示され href が /mail', () => {
     render(<BottomNav isAdmin={false} />)
-    expect(screen.queryByText('メール')).toBeNull()
+    const link = screen.getByText('メール').closest('a')
+    expect(link?.getAttribute('href')).toBe('/mail')
   })
+
+  // AC-27b: 管理者は従来どおり管理者受信箱へ。
+  it('isAdmin=true のとき メール タブの href は /admin/mail-inbox のまま', () => {
+    render(<BottomNav isAdmin />)
+    const link = screen.getByText('メール').closest('a')
+    expect(link?.getAttribute('href')).toBe('/admin/mail-inbox')
+  })
+
+  // `isAdmin` は `session.user.role`（＝実効ロール）由来なので、管理者が
+  // 一般会員プレビュー中は会員と同じ `/mail` を指すのが正しい（開放前は
+  // adminOnly でタブごと消えていた）。
+  it('role-preview 中（isAdmin=false + previewRoleLabel）でもメールタブが出て href が /mail', () => {
+    render(<BottomNav isAdmin={false} previewRoleLabel="一般会員" />)
+    const link = screen.getByText('メール').closest('a')
+    expect(link?.getAttribute('href')).toBe('/mail')
+  })
+
+  it.each(['/mail', '/mail/12', '/mail/attachments/34'])(
+    'pathname=%s で メール タブが active になる（一般会員）',
+    (pathname) => {
+      mockUsePathname.mockReturnValue(pathname)
+      render(<BottomNav isAdmin={false} />)
+      const link = screen.getByText('メール').closest('a')
+      expect(link?.className).toContain('border-brand')
+    },
+  )
 
   // AC-5 / AC-6: 管理者は ホーム/イベント/統計/申込管理/メール/設定 の
   // 6 タブちょうど（会員・Bot の独立タブは無い）、かつこの並び順。
