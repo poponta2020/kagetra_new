@@ -144,7 +144,7 @@
 
 **罫線＋余白主導（脱カード）**の画面。カードを使うのは関連メールの1件ずつだけで、他は下線付き見出し＋余白＋ヘアライン罫線で構造を作る。運営操作は `<details>` に畳み（**既定=閉**）、既定表示では会員も管理者も「どの大会か・今どの段階か・自分は出るか」だけが見える状態にする。ルート要素は `p-4` を持ち、`<main>`（共通シェル）には padding を足さない。
 
-上から: **固定ヘッダー**（`EventDetailHeader`。日付+大会名+会場+申込フローを1つのラッパーで sticky にする。分割するとオフセット計算が壊れる）→ **グループ日リンク**（`GroupDayLinks`。同じ申込グループ内の他の日への相互リンクを全ロールに表示。シングルトングループ（自分のみ）では非表示。sticky ヘッダーの外に置く）→ 進行管理（管理者のみ・`EventLifecycleSection`）→ 参加者（人数を見出しに出し、苗字を級の添え字つきで羅列）→ 級別定員 → 備考 → LINE 配信（管理者のみ・級別グループ配信を内包・[spec/notifications.md](notifications.md)）→ 名簿（`RosterSection`。個人戦のみ・級タブつき・[spec/tournaments-results.md](tournaments-results.md)。種別ごとに、パース済み名簿があれば構造化表示を主として採用済み原本ファイルを補助リンクで併記し、パース済みが無く原本ファイルだけあるときは「〜名簿（原本ファイル）」としてファイル名の一覧を出す。折りたたみ見出しの件数は原本のみの種別を「未取込」と言わず `原本N件` と出す。会員へ渡すのはファイル名・種別・発表日・級・ビューア導線だけで、取込元メール ID・採用者は RSC payload に載せない。級別採用のファイルにはファイル名の脇に級ラベル（「D級」「A・B級」）が付き、グループ統一の採用（`grades` が NULL。既存データを含む）はラベルなし）→ 関連メール（管理者のみ・[spec/mail-worker.md](mail-worker.md)）→ sticky な出欠トグルボタン。管理者は大会名の脇と備考見出しに「編集」リンクを持つ。
+上から: **固定ヘッダー**（`EventDetailHeader`。日付+大会名+会場+申込フローを1つのラッパーで sticky にする。分割するとオフセット計算が壊れる）→ **グループ日リンク**（`GroupDayLinks`。同じ申込グループ内の他の日への相互リンクを全ロールに表示。シングルトングループ（自分のみ）では非表示。sticky ヘッダーの外に置く）→ 進行管理（管理者のみ・`EventLifecycleSection`）→ 参加者（人数を見出しに出し、苗字を級の添え字つきで羅列）→ 級別定員 → 備考 → LINE 配信（管理者のみ・級別グループ配信を内包・[spec/notifications.md](notifications.md)）→ 名簿（`RosterSection`。個人戦のみ・級タブつき・[spec/tournaments-results.md](tournaments-results.md)。種別ごとに、パース済み名簿があれば構造化表示を主として採用済み原本ファイルを補助リンクで併記し、パース済みが無く原本ファイルだけあるときは「〜名簿（原本ファイル）」としてファイル名の一覧を出す。折りたたみ見出しの件数は原本のみの種別を「未取込」と言わず `原本N件` と出す。会員へ渡すのはファイル名・種別・発表日・級・ビューア導線だけで、取込元メール ID・採用者は RSC payload に載せない。級別採用のファイルにはファイル名の脇に級ラベル（「D級」「A・B級」）が付き、グループ統一の採用（`grades` が NULL。既存データを含む）はラベルなし）→ オープンチャット（`OpenChatSection`。**全ロールに表示・表示のみ**。下記「オープンチャット欄」）→ 関連メール（管理者のみ・[spec/mail-worker.md](mail-worker.md)）→ sticky な出欠トグルボタン。管理者は大会名の脇と備考見出しに「編集」リンクを持つ。
 
 **申込フロー**（`EntryFlow` ＋ 判定は `lib/events/entry-flow.ts` の `buildEntryFlow`）は 会内締切 → 大会申込 → 抽選 → 支払 → 開催 の5ステップを横一列に描く両ビュー共通の表示で、`events.entryStatus` / `paymentStatus` が「会としての進行」を表すため会員にも同じマイルストーンを見せる。**5ステップは日付が NULL でも消さず**、日付欄に「未定」と出す（ステップ数が大会ごとに変わると横並びの目安として機能しなくなるため）。判定はハイブリッドで、大会申込は `entryStatus==='applied'`、支払は `paymentType==='advance'` かつ `paymentStatus==='paid'`、会内締切・開催は対応する日付が JST の今日より前かで完了を決める。抽選は「抽選日が今日より前」**または**「確定名簿が取り込まれている」で完了になる — 確定名簿は抽選結果そのものなので、抽選日が未設定・未来日でも取込済みならフローを先へ進める（日付欄は「未定」のまま）。確定名簿の有無の定義は申込管理ボードと同一で、`confirmed` のパース済み名簿（supersede されていない版）∪ 採用済み原本ファイル。`applicant`（申込者名簿）は影響しない。事前払い以外の支払と `not_applying` 時の 大会申込〜支払 は**中立**（完了・警告・現在地のいずれにもならない）。現在地は「完了でも中立でもない」最先頭の高々1つで、`not_applying` のときは出さない。警告（朱）は**期限超過かつ未完了**のときだけで、単なる未払を警告にはしない。
 
@@ -160,6 +160,8 @@ DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixe
 出欠回答不可の会員には理由（対象外／会内締切超過／級未設定／対象外の級）をカードで示す。
 
 **参加費の解決**（`lib/entry-fee.ts` の `resolveEntryFee`。画面・LINE 通知の全経路がここを通る）: `official=true` かつ `kind='individual'` なら **`events.fee_jpy` を一切見ず**、級から公認大会の規定額（`OFFICIAL_ENTRY_FEE_JPY`）を常に導出する。それ以外（非公認・団体戦）は `events.fee_jpy` をそのまま単価にする。`fee_jpy ?? 導出` ではない — 公認大会の参加料は協会規定で大会ごとの裁量が無く、スカラー1列では同日に複数級が開催される大会の級別金額を表現できない（実際に本番データが誤っている）。対象級は `events.eligible_grades`（NULL / 空配列なら全級）で、同一単価の級はまとめて `A・B級 2,500円 / C級 2,000円` の形に整形する。管理者の「支払状態」トグルには単価に加えて**振込総額**と内訳（級ごとの人数×単価）を出す。振込総額は申込グループを1つにまとめた額で、**中止した日**と**事前払い以外の日**（現地払い＝当日各自が払う／NULL＝支払い通知なし）は除く（`setPaymentType` は1日単位で変更できるため同一グループ内で支払方法が混在しうる）。総額の母集団は参加者一覧（`attend=true` ∩ `is_invited` ∩ 対象級）と同一で、級未設定の会員は 0 円で足さず未算入として注記する（`lib/entry-fee-tally.ts`）。団体戦・非公認では人数×単価が成立しないため総額を出さない。
+
+**オープンチャット欄**（`OpenChatSection`。openchat-broadcast）は、大会当日用の LINE オープンチャット招待 URL を**ログイン済みの全会員**へ出す表示専用のセクション。追加・編集・削除の導線は置かない（編集はメール詳細の抽出フローからのみ）。帰属は**申込グループ**（`entry_group_open_chats.entry_group_id`）なので**開催日で絞らない** — 6/21 の詳細でも 6/20 対象の行が見える。対象日はラベルに出るので取り違えは起きず、「別の日のオプチャが見つからない」事故を防ぐ方を優先した。行は `ORDER BY sort_order, id` で取り、**取得順のまま描画する**（LINE を見逃した会員が配信済み Flex と同じ順序で辿れるようにするため。DTO は `sortOrder` を持たず、コンポーネント側で再ソートできない形にしてある）。ラベルは Flex と同一の `resolveOpenChatLabel`（`lib/open-chat/label.ts`）で解決するので必ず一致する。**保存済みが0件のときは見出しごと出さない** —「未設定」と出すと会員に「運営が忘れている」と読ませるが、実際は主催者がまだ配っていないだけのことが多い。
 
 ### `/events/[id]/edit` 編集
 
@@ -308,6 +310,10 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 ### `loadEntryFormContext(groupId)` / `analyzeTemplateAction(input)` / `saveMemberNamesAction(entries)` / `createEntryFormDraftAction(input)` — `admin/entry-form/[groupId]/actions.ts`
 
 いずれも admin / vice_admin のみ。`loadEntryFormContext` はグループのメタ情報・テンプレ候補・対象会員（出場回数のプレフィル込み）・会定数・最新の作成履歴を1度に返す。`analyzeTemplateAction` は列対応の推定（ヒューリスティック→低信頼時のみ AI）と、案内メール本文からの主催者指定（件名・添付ファイル名・申込先）の抽出を行う。`saveMemberNamesAction` は姓名・かなの4フィールドだけを `users` へ書き戻す。`createEntryFormDraftAction` は「xlsx 記入 → 履歴保存 → MIME → IMAP APPEND → status 更新」の順に実行し、APPEND 失敗時は `status='imap_failed'` と `imap_error` を記録して結果を返す（例外にしない）。どのシートにも該当しなかった会員数・テンプレ行数を超えた会員数も戻り値に含め、画面で警告する。
+
+### `extractOpenChatCandidatesFromMail(args)` / `saveAndBroadcastOpenChats(input, options)` / `broadcastOpenChats(args)` / `loadOpenChatBroadcastSummary(groupId)` — `admin/mail-inbox/open-chat-actions.ts`
+
+いずれも admin / vice_admin のみ（openchat-broadcast。詳細は [spec/notifications.md](notifications.md)）。`extractOpenChatCandidatesFromMail` はメール本文＋添付テキスト＋QR から候補を集めるだけで保存しない。`saveAndBroadcastOpenChats` は URL 空・非 https・グループ外の開催日・URL 重複・最終ラベル重複を弾いてから保存し、LINE 紐付けがあれば Flex を1通配信する（未紐付けなら保存のみ）。**保存と配信は別々に扱い、配信の失敗は保存をロールバックしない**。`broadcastOpenChats` は保存済み全件を毎回送る再配信で、`loadOpenChatBroadcastSummary` が確認ダイアログ用に配信済み回数・全件のラベル・前回配信以降に増えた行の印を返す。
 
 ### `saveEntryFormSettingsAction(values)` — `settings/entry-form/actions.ts`
 

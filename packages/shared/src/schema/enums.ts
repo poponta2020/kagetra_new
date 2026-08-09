@@ -292,3 +292,23 @@ export const entryFormDraftStatusEnum = pgEnum('entry_form_draft_status', [
   'created',
   'imap_failed',
 ])
+
+// openchat-broadcast: 大会オープンチャット招待 URL の出典（監査用・自動記録）。
+// body=メール本文 / attachment_text=添付の抽出済みテキスト /
+// qr=画像・ページ画像から QR デコード / manual=管理者の手入力
+// （URL がメールに存在しない大会を救う唯一の入口。requirements §3.2.2）。
+export const openChatSourceEnum = pgEnum('open_chat_source', [
+  'body',
+  'attachment_text',
+  'qr',
+  'manual',
+])
+
+// openchat-broadcast: オープンチャット配信 1 回の結果。
+// Flex は 1 通しか送らないため `partial` は存在し得ない（event_broadcast_messages
+// との違い）。skipped は配信直前に LINE 紐付けが変わっていた場合（AC-39）。
+export const openChatBroadcastStatusEnum = pgEnum('open_chat_broadcast_status', [
+  'sent',
+  'failed',
+  'skipped',
+])

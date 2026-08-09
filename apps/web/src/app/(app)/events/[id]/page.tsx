@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import {
   entryFormDrafts,
+  entryGroupOpenChats,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   eventGradeBroadcasts,
@@ -57,6 +58,7 @@ import {
   submitAttendance,
 } from './actions'
 import { EventRelatedMails } from './components/EventRelatedMails'
+import { OpenChatSection } from './components/OpenChatSection'
 import { RosterSection, type RosterFileView } from './components/RosterSection'
 import { surname } from '@/lib/surname'
 
@@ -168,6 +170,24 @@ export default async function EventDetailPage({
   // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
   // ダイアログの両方が使う。
   const groupSiblings = await listGroupSiblings(db, event.id)
+
+  // openchat-broadcast タスク10 (AC-29/AC-52): 帰属は申込グループなので
+  // 開催日で絞らない。並び順は Flex のボタン順と同一にする契約
+  // （entry-group-open-chats.ts のコメント）—— `ORDER BY sort_order, id` で
+  // 取得した順を OpenChatSection にそのまま渡し、sortOrder 自体は DTO に
+  // 含めない（呼び出し先で再ソートできない形にする）。
+  const openChatRows = await db
+    .select({
+      id: entryGroupOpenChats.id,
+      url: entryGroupOpenChats.url,
+      grades: entryGroupOpenChats.grades,
+      eventDate: entryGroupOpenChats.eventDate,
+      label: entryGroupOpenChats.label,
+      password: entryGroupOpenChats.password,
+    })
+    .from(entryGroupOpenChats)
+    .where(eq(entryGroupOpenChats.entryGroupId, event.entryGroupId))
+    .orderBy(asc(entryGroupOpenChats.sortOrder), asc(entryGroupOpenChats.id))
 
   // entry-form-autofill タスク8 (AC-17): 進行管理に出す最新の申込書下書き。
   // 管理者にしか描画しないので、非管理者には RSC payload にも載せない。
@@ -533,6 +553,10 @@ export default async function EventDetailPage({
           entryFormLatestDraft={entryFormLatestDraft}
         />
       )}
+
+      {/* openchat-broadcast タスク10 (AC-42/AC-43/AC-51): 保存済みオープンチャット
+          欄。全会員に表示・表示のみ。0件のときは null を返しセクションごと出ない。 */}
+      <OpenChatSection rows={openChatRows} />
 
       {/* 出欠状況カード（参加/不参加の2枚）は廃止し、参加人数を見出しへ移した。 */}
       <SectionRule
