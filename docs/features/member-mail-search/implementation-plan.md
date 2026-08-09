@@ -102,7 +102,7 @@ status: completed
 - **対応Issue:** #473
 
 ### タスク4: 一覧画面 `/mail`
-- [ ] 完了
+- [x] 完了
 - **目的:** 検索・絞り込み・追加読込つきの一覧を、design-mock `list-normal.html` / `edge.html`① の見た目で作る。
 - **対応AC:** AC-2, AC-6, AC-7, AC-8, AC-9, AC-10, AC-28
 - **主な変更領域（このタスクだけが触る）:**
@@ -117,7 +117,7 @@ status: completed
 - **対応Issue:** #474
 
 ### タスク5: 詳細画面 `/mail/[id]`
-- [ ] 完了
+- [x] 完了
 - **目的:** design-mock `detail-a-timeline.html` / `history-variants.html` / `edge.html`②③ の見た目で詳細を作る。**セクション順はユーザー確定事項**。
 - **対応AC:** AC-19, AC-20, AC-29
 - **主な変更領域（このタスクだけが触る）:**
@@ -131,7 +131,7 @@ status: completed
 - **対応Issue:** #475
 
 ### タスク6: 添付ビューア `/mail/attachments/[id]`
-- [ ] 完了
+- [x] 完了
 - **目的:** design-mock `viewer.html` の見た目で、PDF/Office はページ画像、画像はそのまま、text は `<pre>`、その他は不可カードに振り分ける。
 - **対応AC:** AC-21, AC-22, AC-26
 - **主な変更領域（このタスクだけが触る）:**
@@ -143,7 +143,7 @@ status: completed
 - **対応Issue:** #476
 
 ### タスク7: ボトムナビの「メール」タブ開放
-- [ ] 完了
+- [x] 完了
 - **目的:** 一般会員にも「メール」タブを出し、遷移先を role で振り分ける。
 - **対応AC:** AC-27, AC-27b
 - **主な変更領域（このタスクだけが触る）:** `apps/web/src/components/layout/bottom-nav.tsx` ＋ `bottom-nav.test.tsx`、呼び出し元（`mobile-shell.tsx` 等）で role を渡す箇所
@@ -153,7 +153,7 @@ status: completed
 - **対応Issue:** #477
 
 ### タスク8: 忠実度チェックと回帰
-- [ ] 完了
+- [x] 完了
 - **目的:** 確定デザインが実装で劣化していないことを確認し、既存への影響ゼロを担保する。
 - **対応AC:** AC-30, AC-31, AC-34
 - **主な変更領域:** 仕上げの微修正のみ（新規ファイルは作らない）
