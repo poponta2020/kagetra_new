@@ -155,8 +155,19 @@ export function OpenChatExtractSheet({
   // 開くたびに抽出をやり直す（メールと大会の組が変わっていても常に最新の状態から始める）。
   useEffect(() => {
     if (!open) return
+    // ★読み込み開始時に**前回の状態を全て捨てる**。同じコンポーネントが再利用される
+    // ため、大会Aを開いた後にBへ切り替えると、Bの読み込みが失敗した場合にAの
+    // 保存済みラベル・配信回数がBのシートに残る。重複判定に混入するだけでなく、
+    // 手入力行を消すと古い savedRows で broadcastOnly が成立し、**Aの内容を見ながら
+    // Bへ全件配信**できてしまう。
     setSaveError(null)
     setConfirm(null)
+    setRows([])
+    setSavedRows([])
+    setBroadcastCount(0)
+    setExtractedCount(0)
+    setQrUnread([])
+    setServerDuplicateRowIds(new Set())
     setLoading(true)
     let cancelled = false
 
@@ -206,6 +217,9 @@ export function OpenChatExtractSheet({
         setSaveError('抽出に失敗しました。手入力で追加してください')
         setExtractedCount(0)
         setQrUnread([])
+        // ★失敗時も保存済み状態は空のままにする（前のグループの値を見せない）。
+        setSavedRows([])
+        setBroadcastCount(0)
         setRows([createManualRow(true)])
       })
       .finally(() => {
@@ -340,11 +354,26 @@ export function OpenChatExtractSheet({
     setExtractedCount(0)
 
     // design-spec「保存と配信は別々に扱う」: 配信が失敗・中止していても保存は
-    // 成功している。黙って閉じると「送られた」と誤解させるため、sent / 未配信
-    // （not_linked）以外はシートを開いたまま結果を伝える（AC-38, AC-39 の外側の
-    // 配慮。抽出のやり直しは要らないので保存済み内容はそのまま残す）。
-    if (result.broadcast.status === 'sent' || result.broadcast.status === 'not_linked') {
+    // 成功している。黙って閉じると「送られた」と誤解させるため、結果を伝える。
+    //
+    // ★`not_linked` を成功扱いにしてよいのは、**最初から保存だけを選んだとき**
+    // （broadcast=false）に限る。配信を要求したのに not_linked が返るのは
+    // 「送るつもりだったのに届いていない」状態で、これを黙って閉じると管理者は
+    // 配信済みと誤解する。実際に起こる: 直前の push が 4xx で失敗すると復旧処理が
+    // binding を revoke するが、シートの `lineLinked` prop は true のままなので、
+    // 画面は「配信する」を出し続ける。
+    if (result.broadcast.status === 'sent') {
       onClose()
+      return
+    }
+    if (result.broadcast.status === 'not_linked') {
+      if (!broadcast) {
+        onClose()
+        return
+      }
+      setSaveError(
+        `${result.savedCount}件を保存しました。LINE グループが未紐付けのため配信していません。再紐付けしてから配信してください`,
+      )
       return
     }
     setSaveError(
@@ -359,14 +388,18 @@ export function OpenChatExtractSheet({
     setSaveError(null)
     setConfirm(null)
     const outcome = await broadcastOpenChats(entryGroupId)
-    if (outcome.status === 'sent' || outcome.status === 'not_linked') {
+    if (outcome.status === 'sent') {
       onClose()
       return
     }
+    // ★配信専用モードでの `not_linked` は常に「送るつもりだったのに届いていない」。
+    // 閉じずに理由を出す（保存はもともと済んでいるので失うものは無い）。
     setSaveError(
-      outcome.status === 'failed'
-        ? `配信に失敗しました（${outcome.error}）`
-        : '紐付けが変わったため配信を中止しました',
+      outcome.status === 'not_linked'
+        ? 'LINE グループが未紐付けのため配信できません。再紐付けしてから配信してください'
+        : outcome.status === 'failed'
+          ? `配信に失敗しました（${outcome.error}）`
+          : '紐付けが変わったため配信を中止しました',
     )
   }
 
@@ -415,7 +448,12 @@ export function OpenChatExtractSheet({
       aria-modal="true"
       aria-labelledby="open-chat-sheet-title"
       className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
-      onClick={confirm ? undefined : onClose}
+      // ★処理中は背景クリックで閉じさせない。保存 / push の実行中に閉じると
+      // Server Action は走り続ける一方、失敗・binding_changed の結果は
+      // アンマウント済みのシートへ setSaveError するだけになり管理者へ届かない
+      // （「保存は成功・配信は失敗」を必ず伝える設計契約が壊れる）。
+      // 既存の AIExtractConfirmDialog も同じ方式で閉じる操作を抑止している。
+      onClick={confirm || pending ? undefined : onClose}
     >
       {confirm ? (
         <div
@@ -465,7 +503,8 @@ export function OpenChatExtractSheet({
             </span>
             <button
               type="button"
-              className="flex-none text-sm text-ink-meta"
+              className="flex-none text-sm text-ink-meta disabled:opacity-50"
+              disabled={pending}
               onClick={onClose}
             >
               閉じる

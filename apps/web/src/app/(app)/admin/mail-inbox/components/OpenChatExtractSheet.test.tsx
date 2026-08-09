@@ -513,3 +513,129 @@ describe('MailProcessForm — オープンチャット抽出ボタン（要件 �
     expect((button as HTMLButtonElement).disabled).toBe(false)
   })
 })
+
+describe('OpenChatExtractSheet — final レビューの回帰（PR #469）', () => {
+  const saved = {
+    id: 1,
+    url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    label: 'C級',
+    isNew: false,
+  }
+
+  it('配信を要求して not_linked が返ったらシートを閉じず理由を出す', async () => {
+    // 直前の push が 4xx で失敗して binding が revoke された状況では、
+    // シートの lineLinked prop は true のままで「配信する」を出し続ける。
+    // ここで閉じてしまうと管理者は配信済みと誤解する。
+    extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
+    summaryMock.mockResolvedValue({ broadcastCount: 0, lastSentAt: null, rows: [saved] })
+    broadcastMock.mockResolvedValue({ status: 'not_linked' })
+    const onClose = vi.fn()
+    renderSheet({ onClose })
+
+    await waitFor(() => {
+      expect(screen.getByText(/配信する（1件）/)).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(/配信する（1件）/))
+
+    await waitFor(() => {
+      expect(screen.getByText(/未紐付けのため配信できません/)).toBeTruthy()
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('保存のみ（LINE 未紐付け）を選んだ場合は not_linked でも閉じる', async () => {
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
+        {
+          url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+          sources: ['body'],
+          unverified: false,
+          grades: null,
+          eventDate: null,
+          password: null,
+        },
+      ],
+    })
+    summaryMock.mockResolvedValue({ broadcastCount: 0, lastSentAt: null, rows: [] })
+    saveMock.mockResolvedValue({
+      ok: true,
+      savedCount: 1,
+      broadcast: { status: 'not_linked' },
+    })
+    const onClose = vi.fn()
+    renderSheet({ onClose, lineLinked: false })
+
+    await waitFor(() => {
+      expect(screen.getByText(/保存する（1件）/)).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(/保存する（1件）/))
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled()
+    })
+  })
+
+  it('処理中は「閉じる」も背景クリックも効かない', async () => {
+    extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
+    summaryMock.mockResolvedValue({ broadcastCount: 0, lastSentAt: null, rows: [saved] })
+    // 解決しない Promise で pending を維持する。
+    broadcastMock.mockImplementation(() => new Promise(() => {}))
+    const onClose = vi.fn()
+    renderSheet({ onClose })
+
+    await waitFor(() => {
+      expect(screen.getByText(/配信する（1件）/)).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(/配信する（1件）/))
+
+    await waitFor(() => {
+      expect(screen.getByText('閉じる').hasAttribute('disabled')).toBe(true)
+    })
+    fireEvent.click(screen.getByText('閉じる'))
+    // 実行中に閉じると、失敗結果が誰にも表示されないまま消える。
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('大会を切り替えたとき、前の大会の保存済み状態を持ち越さない', async () => {
+    // 大会A: 保存済み1件。
+    extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
+    summaryMock.mockResolvedValue({ broadcastCount: 3, lastSentAt: new Date(), rows: [saved] })
+    const { rerender } = render(
+      <OpenChatExtractSheet
+        open
+        onClose={vi.fn()}
+        mailMessageId={1}
+        entryGroupId={10}
+        entryGroupDisplayName="大会A"
+        groupEventDates={['2026-06-20']}
+        lineLinked
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByText(/配信済み 3 回/)).toBeTruthy()
+    })
+
+    // 大会B: 読み込みが失敗する。Aの保存済み・配信回数が残ってはいけない。
+    summaryMock.mockRejectedValue(new Error('boom'))
+    extractMock.mockRejectedValue(new Error('boom'))
+    rerender(
+      <OpenChatExtractSheet
+        open
+        onClose={vi.fn()}
+        mailMessageId={2}
+        entryGroupId={20}
+        entryGroupDisplayName="大会B"
+        groupEventDates={['2026-07-01']}
+        lineLinked
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/抽出に失敗しました/)).toBeTruthy()
+    })
+    expect(screen.queryByText(/配信済み 3 回/)).toBeNull()
+    expect(screen.queryByText('C級')).toBeNull()
+    expect(screen.queryByText(/配信する（1件）/)).toBeNull()
+  })
+})
