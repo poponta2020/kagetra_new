@@ -51,8 +51,14 @@ export default async function MemberAttachmentViewerPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
   const { id } = await params
-  const attachmentId = Number(id)
-  if (!Number.isInteger(attachmentId) || attachmentId <= 0) notFound()
+  // 正規な 10 進正整数だけを受ける。`Number('1e5')` は 100000、`Number('0x10')` は
+  // 16 を返すため、素の Number 変換だと URL とは別の添付を開いてしまう。API ルート
+  // （`api/mail/attachments/[id]`）と同じ境界に揃える。
+  if (!/^[1-9]\d*$/.test(id)) notFound()
+  const attachmentId = Number.parseInt(id, 10)
+  // `mail_attachments.id` は serial（int4）。上限超過はその列にあり得ないが、
+  // そのままクエリに載せると pg が範囲外エラーを投げて 500 になるので境界で 404 に倒す。
+  if (attachmentId > 2147483647) notFound()
 
   // ✕ の戻り先。チップが付与した from を使うが、URL は共有・改変できるので
   // `/mail` 配下のパスだけ許可し、それ以外は一覧に倒す。`startsWith('/mail')`
@@ -60,8 +66,15 @@ export default async function MemberAttachmentViewerPage({
   // ため、`//` 始まりも明示的に弾く（オープンリダイレクト対策）。
   const { from } = await searchParams
   const fromParam = typeof from === 'string' ? from : undefined
+  // 判定はパスセグメント境界で行う。単なる `startsWith('/mail')` だと
+  // `/mailbox` や `/mail-archive` のような別パスまで通ってしまい、AC-26 の
+  // 「`/mail` 配下でなければ `/mail` に倒す」を満たさない。この形なら
+  // `//evil.example` も自動的に弾ける（`/mail` で始まらないため）。
   const closeHref =
-    fromParam && fromParam.startsWith('/mail') && !fromParam.startsWith('//')
+    fromParam &&
+    (fromParam === '/mail' ||
+      fromParam.startsWith('/mail/') ||
+      fromParam.startsWith('/mail?'))
       ? fromParam
       : '/mail'
 

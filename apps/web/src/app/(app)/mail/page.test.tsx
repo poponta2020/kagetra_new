@@ -57,7 +57,9 @@ function makeRow(overrides: Partial<MailSearchRow> = {}): MailSearchRow {
   }
 }
 
-async function renderPage(searchParams: { q?: string; att?: string } = {}) {
+async function renderPage(
+  searchParams: Record<string, string | string[] | undefined> = {},
+) {
   const ui = await MailPage({ searchParams: Promise.resolve(searchParams) })
   return render(ui)
 }
@@ -154,5 +156,53 @@ describe('/mail 一覧ページ', () => {
 
     expect(screen.getByText('該当するメールがありません')).toBeTruthy()
     expect(screen.getByText(/添付ありのみ」を外してみてください/)).toBeTruthy()
+  })
+
+  // codex pr479 r1 blocker: Next.js App Router は同名 query の複数指定を配列で
+  // 渡す。型を string に決め打ちしていると splitSearchTerms の q.split で
+  // TypeError になり 500 になっていた。先頭値へ正規化する。
+  it('同名 query の複数指定（配列）でも 500 にならず先頭値が使われる', async () => {
+    await setAuthSession({ id: 'member-1', role: 'member' })
+
+    await renderPage({ q: ['九段', '多摩'], att: ['1', '0'] })
+
+    expect(searchMemberMailsMock).toHaveBeenCalledWith({
+      q: '九段',
+      attachmentsOnly: true,
+      limit: 20,
+      offset: 0,
+    })
+  })
+
+  // codex pr479 r1 blocker: 同一セグメント内の遷移では App Router が Client
+  // Component の state を保持するため、key が無いと useState(initialItems) が
+  // 新しい initialItems を取り込まず一覧が前の検索結果のまま残る。
+  // `players/ranking/page.tsx` と同じく検索条件を key に載せて再マウントさせる。
+  it('検索条件が変わると MailList / MailSearchBar の key も変わる（再マウント）', async () => {
+    await setAuthSession({ id: 'member-1', role: 'member' })
+
+    const keysFor = async (searchParams: Record<string, string>) => {
+      const ui = await MailPage({ searchParams: Promise.resolve(searchParams) })
+      const keys: string[] = []
+      const walk = (node: unknown): void => {
+        if (Array.isArray(node)) return void node.forEach(walk)
+        if (!node || typeof node !== 'object') return
+        const el = node as { key?: string | null; props?: { children?: unknown } }
+        if (el.key != null) keys.push(el.key)
+        if (el.props?.children != null) walk(el.props.children)
+      }
+      walk(ui)
+      return keys
+    }
+
+    const base = await keysFor({})
+    const searched = await keysFor({ q: '九段' })
+    const toggled = await keysFor({ q: '九段', att: '1' })
+
+    // 検索バーと一覧の 2 つに key が付いている
+    expect(base).toHaveLength(2)
+    expect(base).toEqual(['/mail', '/mail'])
+    expect(searched).toEqual(['/mail?q=%E4%B9%9D%E6%AE%B5', '/mail?q=%E4%B9%9D%E6%AE%B5'])
+    expect(toggled[0]).not.toBe(searched[0])
   })
 })

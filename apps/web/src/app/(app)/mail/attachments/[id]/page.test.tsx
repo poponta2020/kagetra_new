@@ -89,9 +89,22 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
     ).toBeTruthy()
   })
 
-  it('不正な id (0 / 負数 / abc / 1.5) は notFound', async () => {
+  // codex pr479 r1 blocker: `Number('1e5')` は 100000、`Number('0x10')` は 16 を
+  // 返すため、素の Number 変換だと URL とは別の添付が開く。`01` も `1` と同じ行を
+  // 指す別 URL になる。int4 上限超過はクエリに載ると pg の範囲外エラーで 500 に
+  // なる。API ルートと同じ境界であることを固定する。
+  it('不正な id (0 / 負数 / abc / 1.5 / 1e5 / 0x10 / 01 / int4超過) は notFound', async () => {
     await setAuthSession({ id: 'u1', role: 'member' })
-    for (const bad of ['0', '-1', 'abc', '1.5']) {
+    for (const bad of [
+      '0',
+      '-1',
+      'abc',
+      '1.5',
+      '1e5',
+      '0x10',
+      '01',
+      '2147483648',
+    ]) {
       await expect(renderViewer(bad)).rejects.toThrow('NEXT_NOT_FOUND')
     }
     expect(mockFindFirst).not.toHaveBeenCalled()
@@ -280,6 +293,39 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
 
       expect(screen.getByLabelText('閉じる').getAttribute('href')).toBe(
         '/mail',
+      )
+    })
+
+    // codex pr479 r1 blocker: `startsWith('/mail')` だと `/mail` で始まるだけの
+    // 別パスを通してしまい、閉じる操作で許可対象外の内部パスへ飛ぶ。
+    // 判定はセグメント境界（`/mail` 完全一致 / `/mail/` 配下 / `/mail?` クエリ付き）
+    // で行う。
+    it.each(['/mailbox', '/mail-archive', '/mailicious', '//mail/12'])(
+      '%s は /mail に倒れる（セグメント境界で判定）',
+      async (from) => {
+        await setAuthSession({ id: 'u1', role: 'member' })
+        mockFindFirst.mockResolvedValue(
+          makeRow({ contentType: 'application/zip' }),
+        )
+
+        await renderViewer(1, { from })
+
+        expect(screen.getByLabelText('閉じる').getAttribute('href')).toBe(
+          '/mail',
+        )
+      },
+    )
+
+    it('/mail?q=九段&att=1 のようなクエリ付きはそのまま戻り先になる', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockFindFirst.mockResolvedValue(
+        makeRow({ contentType: 'application/zip' }),
+      )
+
+      await renderViewer(1, { from: '/mail?q=九段&att=1' })
+
+      expect(screen.getByLabelText('閉じる').getAttribute('href')).toBe(
+        '/mail?q=九段&att=1',
       )
     })
   })

@@ -43,11 +43,13 @@ export default async function MailDetailPage({
   if (!session) redirect('/auth/signin')
 
   const { id } = await params
-  // 動的セグメントは 10 進整数のみを正規 URL とする（`1.5` `1e5` 等は 404。他の
-  // [id] ページと同じ規約 — tournaments/series/[id]/page.tsx を踏襲）。
-  if (!/^\d+$/.test(id)) notFound()
-  const mailId = Number(id)
-  if (!Number.isInteger(mailId) || mailId <= 0) notFound()
+  // 動的セグメントは正規な 10 進正整数のみを受ける（`1.5` `1e5` `0` `01` は 404）。
+  // 先頭ゼロを弾くのは `01` と `1` が同じ行を指す別 URL になるのを避けるため。
+  if (!/^[1-9]\d*$/.test(id)) notFound()
+  const mailId = Number.parseInt(id, 10)
+  // `mail_messages.id` は int4。上限超過をそのままクエリに載せると pg が範囲外
+  // エラーを投げて 500 になるので、境界で 404 に倒す（API ルートと同じ規約）。
+  if (mailId > 2147483647) notFound()
 
   // AC-28: mail_attachments.data（bytea）は projection に含めない。attachments の
   // columns を明示列挙することで data 列を SELECT させない（既存

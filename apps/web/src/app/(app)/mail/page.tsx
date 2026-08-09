@@ -21,14 +21,17 @@ const PAGE_SIZE = 20
 export default async function MailPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; att?: string }>
+  // Next.js App Router は同名 query の複数指定を配列で渡す（`?q=九段&q=大会`）。
+  // 型を `string` に決め打ちすると `q.split(...)` が TypeError になり 500 に
+  // なるため、配列も受けて先頭値へ正規化する（ranking ページと同じ規約）。
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
 
-  const { q, att } = await searchParams
-  const query = q ?? ''
-  const attachmentsOnly = att === '1'
+  const params = await searchParams
+  const query = firstParam(params.q) ?? ''
+  const attachmentsOnly = firstParam(params.att) === '1'
 
   const { rows, total } = await searchMemberMails({
     q: query,
@@ -52,11 +55,26 @@ export default async function MailPage({
 
   return (
     <div className="flex flex-col">
+      {/*
+        key に検索条件を載せて条件変更時に再マウントさせる（`players/ranking/page.tsx`
+        と同じ手当て）。同一セグメント内の遷移では App Router が Client Component の
+        state を保持するため、key が無いと `useState(initialItems)` が新しい
+        initialItems を取り込まず、件数だけ更新されて一覧は前の検索結果のまま残る。
+        その状態で追加読込すると新しい条件＋古い items.length の offset が送られ、
+        結果がさらに崩れる。検索バー側も同じ key で入力値を条件に追随させる
+        （ブラウザの戻る/進むで入力欄と一覧がずれないようにする）。
+      */}
       <div className="sticky top-0 z-10 border-b border-border-soft bg-canvas px-4 pt-2.5 pb-2">
-        <MailSearchBar initialQuery={query} attachmentsOnly={attachmentsOnly} total={total} />
+        <MailSearchBar
+          key={from}
+          initialQuery={query}
+          attachmentsOnly={attachmentsOnly}
+          total={total}
+        />
       </div>
       <div className="flex flex-col gap-2 px-4 pt-2.5 pb-6">
         <MailList
+          key={from}
           initialItems={items}
           total={total}
           q={query}
@@ -66,6 +84,11 @@ export default async function MailPage({
       </div>
     </div>
   )
+}
+
+/** 同名 query が複数指定されたときは先頭値を採る（Next.js は配列で渡す）。 */
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
 }
 
 /** 現在の検索条件を表す `/mail` パス（添付ビューアの `?from=` に使う）。 */

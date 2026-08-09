@@ -56,12 +56,15 @@ describe('/mail/[id] 詳細ページ', () => {
     await expect(renderDetail(mail.id)).rejects.toThrow('NEXT_REDIRECT:/auth/signin')
   })
 
+  // codex pr479 r1 blocker: `01` は `1` と同じ行を指す別 URL になり、int4 上限
+  // 超過はクエリに載ると pg の範囲外エラーで 500 になる。API ルートと同じ境界に
+  // 揃えたことを固定する。
   it('不正な id は notFound', async () => {
     const member = await createUser()
     await setAuthSession({ id: member.id, role: 'member' })
-    await expect(renderDetail('abc')).rejects.toThrow('NEXT_NOT_FOUND')
-    await expect(renderDetail('1.5')).rejects.toThrow('NEXT_NOT_FOUND')
-    await expect(renderDetail('-1')).rejects.toThrow('NEXT_NOT_FOUND')
+    for (const bad of ['abc', '1.5', '-1', '0', '01', '1e5', '2147483648']) {
+      await expect(renderDetail(bad)).rejects.toThrow('NEXT_NOT_FOUND')
+    }
   })
 
   it('存在しない id は notFound', async () => {
