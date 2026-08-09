@@ -21,6 +21,24 @@ import jsQR from 'jsqr'
 import sharp from 'sharp'
 
 /**
+ * デコード前に受け付ける最大ピクセル数（約40MP ＝ 6300×6300 相当）。
+ *
+ * ★sharp の既定上限は約 2.68 億ピクセル（16383×16383）で、そこまで許すと
+ * grayscale の raw だけで約 268MB、さらに下の RGBA 展開が
+ * `pixelCount * 4` ＝ **約 1.07GB を一度に確保**し、jsQR の作業領域も乗って
+ * Web プロセスが落ちる。入力は**信頼できない添付バイト列**（圧縮率の高い PNG なら
+ * 数百 KB でこのサイズになる）なので、エンコード済みバイト数の上限では防げない。
+ * 超過分は sharp が例外を投げ、下の catch が null にする（＝その添付だけスキップ）。
+ */
+const MAX_INPUT_PIXELS = 40_000_000
+
+/**
+ * デコード時の最大辺。印刷 PDF をラスタライズしたページ画像でも QR モジュールは
+ * 十分に残る大きさで、かつ RGBA 展開が約 16MB に収まる（2000×2000×4）。
+ */
+const MAX_DECODE_EDGE = 2000
+
+/**
  * 画像バイト列から QR の文字列をデコードする。読めなければ null。
  *
  * grayscale → normalize（コントラスト伸長）で、印刷 PDF をラスタライズした
@@ -29,9 +47,17 @@ import sharp from 'sharp'
  */
 export async function decodeQrFromImage(buffer: Buffer): Promise<string | null> {
   try {
-    const { data, info } = await sharp(buffer)
+    const { data, info } = await sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS })
       .grayscale()
       .normalize()
+      // ★巨大画像は QR 判定に十分な最大辺まで縮小してから raw 化する。
+      // `withoutEnlargement` で小さい画像は素通り（拡大すると QR が甘くなる）。
+      .resize({
+        width: MAX_DECODE_EDGE,
+        height: MAX_DECODE_EDGE,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
       .raw()
       .toBuffer({ resolveWithObject: true })
 

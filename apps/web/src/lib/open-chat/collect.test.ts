@@ -75,7 +75,7 @@ describe('collectOpenChatCandidates', () => {
       attachments: [],
       groupEventDates: [],
     })
-    expect(result).toEqual([
+    expect(result.candidates).toEqual([
       expect.objectContaining({ url: FIXTURE_URL, sources: ['body'] }),
     ])
   })
@@ -86,7 +86,7 @@ describe('collectOpenChatCandidates', () => {
       attachments: [textAttachment(`案内: ${FIXTURE_URL}`)],
       groupEventDates: [],
     })
-    expect(result).toEqual([
+    expect(result.candidates).toEqual([
       expect.objectContaining({ url: FIXTURE_URL, sources: ['attachment_text'] }),
     ])
   })
@@ -106,7 +106,7 @@ describe('collectOpenChatCandidates', () => {
       groupEventDates: [],
     })
     expect(mockDecodeQrFromImage).toHaveBeenCalledWith(qrImage)
-    expect(result).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
+    expect(result.candidates).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
   })
 
   it('QR の無い画像添付では候補が増えない', async () => {
@@ -123,7 +123,7 @@ describe('collectOpenChatCandidates', () => {
       ],
       groupEventDates: [],
     })
-    expect(result).toEqual([])
+    expect(result.candidates).toEqual([])
   })
 
   it('gif 等 jpeg/png 以外の画像は QR 走査の対象外（仕様どおりの絞り込み）', async () => {
@@ -140,7 +140,7 @@ describe('collectOpenChatCandidates', () => {
       groupEventDates: [],
     })
     expect(mockDecodeQrFromImage).not.toHaveBeenCalled()
-    expect(result).toEqual([])
+    expect(result.candidates).toEqual([])
   })
 
   it('PDF 添付では renderPdfToJpegs 経由のページ画像がデコーダへ渡る（AC-12）', async () => {
@@ -166,7 +166,7 @@ describe('collectOpenChatCandidates', () => {
       { maxPages: RENDER_PAGE_LIMIT },
     )
     expect(mockDecodeQrFromImages).toHaveBeenCalledWith([plainImage, qrImage])
-    expect(result).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
+    expect(result.candidates).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
   })
 
   it('Word 添付は libreoffice で PDF に変換してからページ画像化する', async () => {
@@ -194,7 +194,7 @@ describe('collectOpenChatCandidates', () => {
       Buffer.from('%PDF-converted'),
       { maxPages: RENDER_PAGE_LIMIT },
     )
-    expect(result).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
+    expect(result.candidates).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['qr'] })])
   })
 
   it('AC-14: レンダラ/デコーダに渡すページ数が RENDER_PAGE_LIMIT を超えない', async () => {
@@ -241,7 +241,7 @@ describe('collectOpenChatCandidates', () => {
       ],
       groupEventDates: [],
     })
-    expect(result).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['body'] })])
+    expect(result.candidates).toEqual([expect.objectContaining({ url: FIXTURE_URL, sources: ['body'] })])
   })
 
   it('添付1件が壊れて（レンダリングで例外が出る）も他の候補で続行する', async () => {
@@ -262,7 +262,7 @@ describe('collectOpenChatCandidates', () => {
       groupEventDates: [],
     })
 
-    expect(result).toEqual([
+    expect(result.candidates).toEqual([
       expect.objectContaining({ url: otherUrl, sources: ['attachment_text'] }),
     ])
   })
@@ -281,7 +281,7 @@ describe('collectOpenChatCandidates', () => {
       ],
       groupEventDates: [],
     })
-    expect(result).toEqual([
+    expect(result.candidates).toEqual([
       expect.objectContaining({ url: FIXTURE_URL, sources: ['body', 'qr'] }),
     ])
   })
@@ -292,6 +292,50 @@ describe('collectOpenChatCandidates', () => {
       attachments: [],
       groupEventDates: [],
     })
-    expect(result).toEqual([])
+    expect(result.candidates).toEqual([])
+  })
+})
+
+describe('QR 読み取り失敗の可視化（requirements §3.2.3 / PR #469 R1）', () => {
+  it('QR を走査したが読めなかった添付名を返す', async () => {
+    const result = await collectOpenChatCandidates({
+      bodyText: '',
+      attachments: [
+        { filename: 'noqr.png', contentType: 'image/png', data: await fixture('no-qr-plain.png'), extractedText: null },
+      ],
+      groupEventDates: [],
+    })
+    expect(result.candidates).toEqual([])
+    // ★「QR が無かった」と「読めなかった」を呼び出し側が区別できること。
+    // これが無いと画面は「いずれにも招待 URL がありませんでした」と断定してしまう。
+    expect(result.qrUnreadAttachments).toEqual(['noqr.png'])
+  })
+
+  it('QR が読めた添付は警告に載せない', async () => {
+    const result = await collectOpenChatCandidates({
+      bodyText: '',
+      attachments: [
+        { filename: 'qr.png', contentType: 'image/png', data: await fixture('qr-openchat-invite.png'), extractedText: null },
+      ],
+      groupEventDates: [],
+    })
+    expect(result.candidates).toHaveLength(1)
+    expect(result.qrUnreadAttachments).toEqual([])
+  })
+
+  it('QR 走査の対象外（xlsx 等）は警告に載せない', async () => {
+    const result = await collectOpenChatCandidates({
+      bodyText: '',
+      attachments: [
+        {
+          filename: 'roster.xlsx',
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          data: Buffer.from('dummy'),
+          extractedText: null,
+        },
+      ],
+      groupEventDates: [],
+    })
+    expect(result.qrUnreadAttachments).toEqual([])
   })
 })

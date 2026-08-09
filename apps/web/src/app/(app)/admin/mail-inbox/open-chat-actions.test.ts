@@ -620,11 +620,11 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
         .returning()
     )[0]!
 
-    const candidates = await extractOpenChatCandidatesFromMail({
+    const result = await extractOpenChatCandidatesFromMail({
       mailMessageId: mail.id,
       entryGroupId: groupId,
     })
-    expect(candidates.map((c) => c.url)).toContain(
+    expect(result.candidates.map((c) => c.url)).toContain(
       'https://line.me/ti/g2/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
     )
   })
@@ -643,6 +643,47 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
     const [history] = await db.select().from(entryGroupOpenChatBroadcasts)
     // 呼び出し元は送信者を指定できない。セッションの admin-1 が記録される。
     expect(history?.sentByUserId).toBe('admin-1')
+  })
+})
+
+describe('レビュー指摘の回帰（PR #469 R1 第2回）', () => {
+  beforeEach(seedAdminUser)
+
+  it('長すぎる URL は保存できない（btree 上限超えと Flex ペイロード超過を未然に防ぐ）', async () => {
+    const groupId = await seedGroup()
+    const longUrl = 'https://line.me/ti/g2/' + 'x'.repeat(600)
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ url: longUrl })],
+    })
+    expect(result.ok).toBe(false)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(0)
+  })
+
+  it('長すぎるパスワードは保存できない', async () => {
+    const groupId = await seedGroup()
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row({ password: 'p'.repeat(200) })],
+    })
+    expect(result.ok).toBe(false)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(0)
+  })
+
+  it('1グループの行数上限を超える保存はできない（Flex が肥大して 4xx→紐付け revoke に至る経路を塞ぐ）', async () => {
+    const groupId = await seedGroup()
+    const rows = Array.from({ length: 31 }, (_, i) =>
+      row({ url: `https://line.me/ti/g2/token${String(i).padStart(27, '0')}`, label: `部門${i}` }),
+    )
+    const result = await saveAndBroadcastOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows,
+    })
+    expect(result.ok).toBe(false)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(0)
   })
 })
 

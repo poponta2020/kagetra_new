@@ -61,7 +61,7 @@ beforeEach(() => {
   extractMock.mockReset()
   summaryMock.mockReset()
   saveMock.mockReset()
-  extractMock.mockResolvedValue([])
+  extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
   summaryMock.mockResolvedValue({ broadcastCount: 0, lastSentAt: null, rows: [] })
   saveMock.mockResolvedValue({
     ok: true,
@@ -88,7 +88,9 @@ describe('OpenChatExtractSheet — 保存済みの再配信（PR #469 R1 の回�
 
   it('保存済みと同じ URL の候補は再掲されず、CTA が「配信する」になる', async () => {
     // 抽出は保存済みと同じ URL を返す（同じメールを開き直した状況）。
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: saved.url,
         sources: ['body'],
@@ -97,7 +99,8 @@ describe('OpenChatExtractSheet — 保存済みの再配信（PR #469 R1 の回�
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     summaryMock.mockResolvedValue({ broadcastCount: 1, lastSentAt: new Date(), rows: [saved] })
     renderSheet()
 
@@ -110,7 +113,7 @@ describe('OpenChatExtractSheet — 保存済みの再配信（PR #469 R1 の回�
   })
 
   it('配信専用モードでは保存 Action を呼ばず配信 Action だけを呼ぶ', async () => {
-    extractMock.mockResolvedValue([])
+    extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
     summaryMock.mockResolvedValue({ broadcastCount: 1, lastSentAt: new Date(), rows: [saved] })
     const onClose = vi.fn()
     renderSheet({ onClose })
@@ -137,7 +140,7 @@ describe('OpenChatExtractSheet — 保存済みの再配信（PR #469 R1 の回�
 
 describe('OpenChatExtractSheet — 候補ゼロ（AC-20）', () => {
   it('「見つかりませんでした」と表示し、手入力行が展開済みで1つ出る', async () => {
-    extractMock.mockResolvedValue([])
+    extractMock.mockResolvedValue({ candidates: [], qrUnreadAttachments: [] })
     renderSheet()
 
     await waitFor(() => {
@@ -158,7 +161,9 @@ describe('OpenChatExtractSheet — 候補ゼロ（AC-20）', () => {
 
 describe('OpenChatExtractSheet — 折りたたみ既定（design-spec 忠実度）', () => {
   it('候補行は既定で折りたたみ、展開すると編集欄が出る', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/AAAA1111',
         sources: ['body'],
@@ -167,7 +172,8 @@ describe('OpenChatExtractSheet — 折りたたみ既定（design-spec 忠実度
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     renderSheet()
 
     await waitFor(() => {
@@ -188,7 +194,9 @@ describe('OpenChatExtractSheet — 折りたたみ既定（design-spec 忠実度
 
 describe('OpenChatExtractSheet — extract.ts が http:// を拾った場合の詰み回避', () => {
   it('抽出候補の URL が https:// でなくても、展開すれば直せる', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'http://line.me/ti/g2/AAAA1111',
         sources: ['body'],
@@ -197,7 +205,8 @@ describe('OpenChatExtractSheet — extract.ts が http:// を拾った場合の�
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     renderSheet()
 
     await waitFor(() => {
@@ -222,7 +231,9 @@ describe('OpenChatExtractSheet — extract.ts が http:// を拾った場合の�
 
 describe('OpenChatExtractSheet — 保存と配信は別々に扱う', () => {
   it('配信が失敗すると、保存済みでもシートを閉じずに結果を伝える', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/FAILCASE01',
         sources: ['body'],
@@ -231,7 +242,8 @@ describe('OpenChatExtractSheet — 保存と配信は別々に扱う', () => {
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     saveMock.mockResolvedValue({
       ok: true,
       savedCount: 1,
@@ -258,7 +270,9 @@ describe('OpenChatExtractSheet — 保存と配信は別々に扱う', () => {
 
 describe('OpenChatExtractSheet — ラベル重複（AC-47）', () => {
   it('最終ラベルが重複するとCTAが無効になり、重複行にエラーが表示される', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/AAAA1111',
         sources: ['body'],
@@ -275,7 +289,8 @@ describe('OpenChatExtractSheet — ラベル重複（AC-47）', () => {
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     renderSheet()
 
     await waitFor(() => {
@@ -292,7 +307,9 @@ describe('OpenChatExtractSheet — ラベル重複（AC-47）', () => {
 
 describe('OpenChatExtractSheet — LINE 未紐付け（AC-37）', () => {
   it('CTA文言が「保存する（N件）」になり、「配信は行いません」が出る', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/CCCC3333',
         sources: ['body'],
@@ -301,7 +318,8 @@ describe('OpenChatExtractSheet — LINE 未紐付け（AC-37）', () => {
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     renderSheet({ lineLinked: false })
 
     await waitFor(() => {
@@ -313,7 +331,9 @@ describe('OpenChatExtractSheet — LINE 未紐付け（AC-37）', () => {
 
 describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）', () => {
   it('全件のラベルが列挙され、増えた行に「（今回追加）」が付く。キャンセルで保存は呼ばれない', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/NEWURL001',
         sources: ['body'],
@@ -322,7 +342,8 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     summaryMock.mockResolvedValue({
       broadcastCount: 1,
       lastSentAt: new Date('2026-01-01T00:00:00Z'),
@@ -358,7 +379,9 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
   })
 
   it('確認で配信を選ぶと保存 Action が呼ばれる', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/NEWURL002',
         sources: ['body'],
@@ -367,7 +390,8 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     summaryMock.mockResolvedValue({
       broadcastCount: 2,
       lastSentAt: new Date('2026-01-01T00:00:00Z'),
@@ -400,7 +424,9 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
   })
 
   it('初回配信（配信済み0回）は確認を挟まず保存する', async () => {
-    extractMock.mockResolvedValue([
+    extractMock.mockResolvedValue({
+      qrUnreadAttachments: [],
+      candidates: [
       {
         url: 'https://line.me/ti/g2/FIRSTTIME1',
         sources: ['body'],
@@ -409,7 +435,8 @@ describe('OpenChatExtractSheet — 再配信の確認（AC-35, AC-36, AC-53）',
         eventDate: null,
         password: null,
       },
-    ])
+      ],
+    })
     summaryMock.mockResolvedValue({ broadcastCount: 0, lastSentAt: null, rows: [] })
     const onClose = vi.fn()
     renderSheet({ onClose })

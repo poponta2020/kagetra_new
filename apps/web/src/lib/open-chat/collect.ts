@@ -57,6 +57,19 @@ export interface CollectOpenChatCandidatesInput {
   groupEventDates: string[]
 }
 
+export interface CollectOpenChatCandidatesResult {
+  candidates: OpenChatCollectedCandidate[]
+  /**
+   * QR 走査を試みたが1件も読み取れなかった添付のファイル名（requirements §3.2.3）。
+   *
+   * ★これを返さないと「読めなかった」が「QR が無かった」と区別できない。招待を運ぶ
+   * メールの30%は**テキストに URL が無く QR だけ**なので、デコード失敗を黙って捨てると
+   * 画面は「いずれにも招待 URL がありませんでした」と**断定**し、管理者は取りこぼしに
+   * 気づけないまま処理を完了してしまう。
+   */
+  qrUnreadAttachments: string[]
+}
+
 /**
  * QR デコード対象を jpeg/png に限定する（requirements §3.2.3）。
  * `detectPreviewKind` の `image` 判定は gif/webp/heic も含むため使わず、ここで直接絞る。
@@ -122,24 +135,32 @@ async function convertOfficeToPdf(attachment: OpenChatCollectAttachment): Promis
   }
 }
 
+/** QR 走査の結果。`scanned` が true なら「走査対象だった」＝読めなければ警告に出す。 */
+interface QrScanOutcome {
+  scanned: boolean
+  texts: string[]
+}
+
 /**
  * 添付1件から QR 文字列を集める。image/jpeg・image/png は直接デコード、
  * PDF・Word はページ画像化してから各ページをデコードする（AC-11, AC-12）。
  */
 async function collectQrTextsFromAttachment(
   attachment: OpenChatCollectAttachment,
-): Promise<string[]> {
+): Promise<QrScanOutcome> {
   const ct = normalizeContentType(attachment.contentType)
   if (QR_IMAGE_CONTENT_TYPES.has(ct)) {
     const text = await decodeQrFromImage(attachment.data)
-    return text ? [text] : []
+    return { scanned: true, texts: text ? [text] : [] }
   }
 
-  // detectPreviewKind は PDF/Office をまとめて 'document' として返す
-  // （既存の判定ロジックをそのまま再利用。gif/webp/heic は QR 走査対象外なので
-  // ここに来ない＝上の image 分岐で弾かれる）。
-  if (detectPreviewKind(attachment.contentType, attachment.filename) !== 'document') {
-    return []
+  // ★QR 走査の対象は **PDF と Word だけ**（requirements §3.2.3）。
+  // `detectPreviewKind` の 'document' は xlsx / pptx も含むため使えない —
+  // 名簿の xlsx にまで libreoffice 変換を掛けることになり、時間を捨てるうえ
+  // 「読めなかった添付」の警告に名簿が並んで実際の取りこぼしが埋もれる
+  // （XLSX からの抽出は Non-goals で unsupported と決めてある）。
+  if (!isQrDocumentTarget(attachment)) {
+    return { scanned: false, texts: [] }
   }
 
   const pdfBuffer = isPdfAttachment(attachment)
@@ -149,7 +170,7 @@ async function collectQrTextsFromAttachment(
   // AC-14: renderPdfToJpegs 自体も走査ページ数の上限を持つが、テストの mock は
   // それを無視して多く返せてしまうため、ここでも明示的に切ってからデコーダへ渡す。
   const cappedPages = pages.slice(0, RENDER_PAGE_LIMIT)
-  return decodeQrFromImages(cappedPages)
+  return { scanned: true, texts: await decodeQrFromImages(cappedPages) }
 }
 
 /** extract.ts の候補（sources: body/attachment_text）を広い型へ持ち上げる。 */
@@ -198,7 +219,7 @@ function mergeCollectedCandidates(
  */
 export async function collectOpenChatCandidates(
   input: CollectOpenChatCandidatesInput,
-): Promise<OpenChatCollectedCandidate[]> {
+): Promise<CollectOpenChatCandidatesResult> {
   const { bodyText, attachments, groupEventDates } = input
 
   const bodyCandidates = widenSources(
@@ -207,8 +228,12 @@ export async function collectOpenChatCandidates(
 
   const attachmentTextCandidates: OpenChatCollectedCandidate[] = []
   const qrCandidates: OpenChatCollectedCandidate[] = []
+  const qrUnreadAttachments: string[] = []
 
   for (const attachment of attachments) {
+    // 走査に着手したかを try の外で持つ。ページ画像化の途中で例外が出た場合も
+    // 「走査したが読めなかった」として警告に載せるため（黙って捨てない）。
+    let scanned = false
     try {
       if (attachment.extractedText) {
         // QR 走査より先に積む: QR 側が例外を投げても、この添付のテキスト由来候補は失わない
@@ -223,8 +248,12 @@ export async function collectOpenChatCandidates(
         )
       }
 
-      const qrTexts = await collectQrTextsFromAttachment(attachment)
-      for (const qrText of qrTexts) {
+      const qrOutcome = await collectQrTextsFromAttachment(attachment)
+      scanned = qrOutcome.scanned
+      if (qrOutcome.scanned && qrOutcome.texts.length === 0) {
+        qrUnreadAttachments.push(attachment.filename)
+      }
+      for (const qrText of qrOutcome.texts) {
         // extract.ts の source は body/attachment_text の2値のみ。QR から得た URL も
         // Tier1/2 と同じ検証（line.me 形式か・短縮 URL か）を通すため
         // extractOpenChatCandidates に食わせ、出典だけ 'qr' に差し替える
@@ -236,10 +265,38 @@ export async function collectOpenChatCandidates(
       }
     } catch {
       // requirements §3.2.8: 添付が破損して抽出に失敗 → その添付だけスキップし、
-      // 他の候補で続行する（AC-13）。
+      // 他の候補で続行する（AC-13）。★ただし黙ってはいない — 走査に着手していた
+      // 添付は「読めなかった」として警告に載せる（PDF 変換の失敗もここに来る）。
+      if (!scanned && isQrScanTarget(attachment)) qrUnreadAttachments.push(attachment.filename)
       continue
     }
   }
 
-  return mergeCollectedCandidates([bodyCandidates, attachmentTextCandidates, qrCandidates])
+  return {
+    candidates: mergeCollectedCandidates([
+      bodyCandidates,
+      attachmentTextCandidates,
+      qrCandidates,
+    ]),
+    qrUnreadAttachments,
+  }
+}
+
+/** Word の MIME（PDF は `isPdfAttachment` が見る）。 */
+const WORD_CONTENT_TYPES = new Set([
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+
+/** ページ画像化して QR を探す対象か（PDF・Word のみ。xlsx / pptx は対象外）。 */
+function isQrDocumentTarget(attachment: OpenChatCollectAttachment): boolean {
+  if (isPdfAttachment(attachment)) return true
+  if (WORD_CONTENT_TYPES.has(normalizeContentType(attachment.contentType))) return true
+  return ['doc', 'docx'].includes(fileExtension(attachment.filename))
+}
+
+/** QR 走査の対象になる添付か（画像 or PDF/Word）。警告に載せるかの判定に使う。 */
+function isQrScanTarget(attachment: OpenChatCollectAttachment): boolean {
+  if (QR_IMAGE_CONTENT_TYPES.has(normalizeContentType(attachment.contentType))) return true
+  return isQrDocumentTarget(attachment)
 }

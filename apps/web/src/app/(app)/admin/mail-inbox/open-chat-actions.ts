@@ -68,6 +68,25 @@ async function requireAdminSession() {
  */
 const LABEL_MAX_LENGTH = 20
 
+/**
+ * URL・パスワード・1グループの行数の上限。
+ *
+ * ★これが無いと2段階で壊れる:
+ * 1. 極端に長い URL は `UNIQUE(entry_group_id, url)` の btree エントリ上限
+ *    （約2704バイト）を超え、未処理の DB エラーになる
+ * 2. ★より重い: DB を通る長さでも Flex のペイロード上限を超えると LINE が 400 を返し、
+ *    `applyPushFailureRecovery` が「401 以外の 4xx ＝ groupId 不正 / Bot kick」と
+ *    見なして**正常な LINE 紐付けを revoke する**。するとオープンチャットだけでなく
+ *    以降の既存メール配信まで、再紐付けするまで止まる
+ *
+ * そこで「過大なペイロードをそもそも送らない」を保存時に担保する。
+ * LINE 招待 URL は実測33文字トークンで 60 文字前後、短縮 URL はさらに短いので
+ * 500 文字あれば実運用は通る。
+ */
+const URL_MAX_LENGTH = 500
+const PASSWORD_MAX_LENGTH = 100
+const ROWS_PER_GROUP_MAX = 30
+
 const gradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
 
 /** 保存する1行の入力。UI（抽出候補シート）から受け取る形。 */
@@ -96,11 +115,12 @@ const openChatRowSchema = z.object({
     .string()
     .trim()
     .min(1, 'URL を入力してください')
+    .max(URL_MAX_LENGTH, 'URL が長すぎます')
     .refine(isValidHttpsUrl, 'URL は https:// で始まる有効な URL である必要があります'),
   grades: z.array(gradeSchema).nullable(),
   eventDate: z.string().nullable(),
   label: z.string().trim().max(LABEL_MAX_LENGTH, 'ラベルが長すぎます').nullable(),
-  password: z.string().trim().nullable(),
+  password: z.string().trim().max(PASSWORD_MAX_LENGTH, 'パスワードが長すぎます').nullable(),
   source: z.enum(['body', 'attachment_text', 'qr', 'manual']),
 })
 
@@ -141,6 +161,10 @@ async function loadGroupContext(entryGroupId: number) {
 /**
  * メール本文＋添付から候補を集める（AC-6, AC-11〜AC-14, AC-20）。
  * 保存はしない — 候補を確認シートへ返すだけ。
+ *
+ * 返り値には**QR を走査したが読めなかった添付名**も含む（requirements §3.2.3）。
+ * これを画面に出さないと「読めなかった」が「QR が無かった」と同じ見え方になり、
+ * QR にしか URL が無い大会で管理者が取りこぼしに気づけない。
  */
 export async function extractOpenChatCandidatesFromMail(args: {
   mailMessageId: number
@@ -280,6 +304,16 @@ export async function saveAndBroadcastOpenChats(
   }
 
   const existing = await listOpenChatsForGroup(input.entryGroupId)
+
+  // 1グループの行数上限（既存＋今回）。Flex のボタンが青天井に増えて
+  // ペイロード上限を超えると、上記のとおり LINE の 400 が紐付けの revoke まで
+  // 波及するため、保存の時点で止める。
+  if (existing.length + input.rows.length > ROWS_PER_GROUP_MAX) {
+    return {
+      ok: false,
+      error: `1つの大会に登録できるオープンチャットは ${ROWS_PER_GROUP_MAX} 件までです`,
+    }
+  }
 
   // AC-47〜AC-49: 最終ラベル（自動生成後の値）の重複は保存できない。
   // 同じ名前のボタンが並ぶ Flex を配信させないための唯一のゲート。

@@ -146,6 +146,10 @@ export function OpenChatExtractSheet({
   /** このグループに既に保存済みの行（配信対象。シートからは編集しない）。 */
   const [savedRows, setSavedRows] = useState<SavedOpenChatRow[]>([])
   const [broadcastCount, setBroadcastCount] = useState(0)
+  /** サーバーが返した重複行（保存済みとの衝突はクライアント判定では出せないため）。 */
+  const [serverDuplicateRowIds, setServerDuplicateRowIds] = useState<Set<number>>(new Set())
+  /** QR を走査したが読めなかった添付名（requirements §3.2.3）。 */
+  const [qrUnread, setQrUnread] = useState<string[]>([])
   const [pending, startTransition] = useTransition()
 
   // 開くたびに抽出をやり直す（メールと大会の組が変わっていても常に最新の状態から始める）。
@@ -165,13 +169,14 @@ export function OpenChatExtractSheet({
       loadOpenChatBroadcastSummary(entryGroupId),
       extractOpenChatCandidatesFromMail({ mailMessageId, entryGroupId }),
     ])
-      .then(([summary, candidates]) => {
+      .then(([summary, extracted]) => {
         if (cancelled) return
         setSavedRows(summary.rows.map((r) => ({ id: r.id, url: r.url, label: r.label })))
         setBroadcastCount(summary.broadcastCount)
+        setQrUnread(extracted.qrUnreadAttachments)
 
         const savedUrls = new Set(summary.rows.map((r) => r.url))
-        const fresh = candidates.filter((c) => !savedUrls.has(c.url))
+        const fresh = extracted.candidates.filter((c) => !savedUrls.has(c.url))
         setExtractedCount(fresh.length)
 
         if (fresh.length === 0) {
@@ -200,6 +205,7 @@ export function OpenChatExtractSheet({
         if (cancelled) return
         setSaveError('抽出に失敗しました。手入力で追加してください')
         setExtractedCount(0)
+        setQrUnread([])
         setRows([createManualRow(true)])
       })
       .finally(() => {
@@ -213,8 +219,27 @@ export function OpenChatExtractSheet({
 
   if (!open) return null
 
-  const duplicateIds = findDuplicateOpenChatLabelIds(
-    rows.map((r) => ({ id: r.id, grades: r.grades, eventDate: r.eventDate, freeLabel: r.label })),
+  // ★保存済み行の最終ラベルも判定に含める。入力行どうしだけを見ていると、
+  // 「既に C級 が保存済みのグループへ最終ラベル C級 の行を足す」ケースで
+  // CTA が有効なまま押せてしまい、サーバーに弾かれて初めて分かる（AC-47 の
+  // 行単位エラーが成立しない）。保存済みには負の ID を振り、返るのは入力行だけ。
+  const clientDuplicateIds = findDuplicateOpenChatLabelIds([
+    ...savedRows.map((r, i) => ({
+      id: -(i + 1),
+      grades: null,
+      eventDate: null,
+      // 保存済みは解決済みのラベル文字列なので freeLabel として渡せばそのまま最終ラベルになる。
+      freeLabel: r.label,
+    })),
+    ...rows.map((r) => ({
+      id: r.id,
+      grades: r.grades,
+      eventDate: r.eventDate,
+      freeLabel: r.label,
+    })),
+  ])
+  const duplicateIds = new Set<number>(
+    [...clientDuplicateIds].filter((id) => id >= 0).concat([...serverDuplicateRowIds]),
   )
   const hasInvalidUrl = rows.some((r) => !isValidHttpsUrl(r.url))
   const hasDuplicates = duplicateIds.size > 0
@@ -279,11 +304,41 @@ export function OpenChatExtractSheet({
     // 再配信確認から呼ばれた場合、結果が判明するまで確認ダイアログを閉じておく
     // （閉じないと保存失敗時に確認ダイアログの裏でエラーが見えなくなる）。
     setConfirm(null)
+    setServerDuplicateRowIds(new Set())
     const result = await saveAndBroadcastOpenChats(buildSaveInput(), { broadcast })
     if (!result.ok) {
       setSaveError(result.error)
+      // AC-47: サーバーが返した重複行の index を行 ID へ対応付けて、該当行だけを
+      // 展開・エラー表示する。既存の保存済み行とラベルが衝突したケースは
+      // クライアント側の重複判定では出せない（保存済みを知らない）ので、
+      // ここで拾わないと「どれを直せばいいか分からない全体エラー」で終わる。
+      if (result.duplicateLabelIndexes) {
+        const ids = new Set<number>()
+        for (const index of result.duplicateLabelIndexes) {
+          const target = rows[index]
+          if (target) ids.add(target.id)
+        }
+        setServerDuplicateRowIds(ids)
+        setRows((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, expanded: true } : r)))
+      }
       return
     }
+
+    // ★保存が通った時点で、これらの行は**保存済み**になった。`rows` に残したまま
+    // にすると、配信失敗後に CTA を押し直したとき同じ URL を再 INSERT して
+    // UNIQUE 違反になり、画面から配信の再試行が一切できなくなる。
+    // サマリーを取り直して保存済みへ移し、`rows` を空にする＝配信専用モードへ遷移。
+    try {
+      const summary = await loadOpenChatBroadcastSummary(entryGroupId)
+      setSavedRows(summary.rows.map((r) => ({ id: r.id, url: r.url, label: r.label })))
+      setBroadcastCount(summary.broadcastCount)
+    } catch {
+      // サマリー再取得に失敗しても保存自体は成功している。行だけは必ず空にする
+      // （残すと上記の UNIQUE 違反ループに入るため）。
+    }
+    setRows([])
+    setExtractedCount(0)
+
     // design-spec「保存と配信は別々に扱う」: 配信が失敗・中止していても保存は
     // 成功している。黙って閉じると「送られた」と誤解させるため、sent / 未配信
     // （not_linked）以外はシートを開いたまま結果を伝える（AC-38, AC-39 の外側の
@@ -294,7 +349,7 @@ export function OpenChatExtractSheet({
     }
     setSaveError(
       result.broadcast.status === 'failed'
-        ? `${result.savedCount}件を保存しました。配信は失敗しました（${result.broadcast.error}）`
+        ? `${result.savedCount}件を保存しました。配信は失敗しました（${result.broadcast.error}）。「配信する」で再試行できます`
         : `${result.savedCount}件を保存しました。紐付けが変わったため配信を中止しました`,
     )
   }
@@ -444,6 +499,23 @@ export function OpenChatExtractSheet({
                 <br />
                 「大会用 LINE アカウント内でご案内」のように、メールの外にしか URL が
                 無い場合があります。
+              </div>
+            </div>
+          )}
+
+          {!loading && qrUnread.length > 0 && (
+            // requirements §3.2.3: デコードできなくても機能は失敗しないが、
+            // **黙ってもいけない**。QR にしか URL が無い大会（実測で招待メールの30%）で
+            // 「見つかりませんでした」だけを出すと、管理者は取りこぼしに気づけない。
+            // 警告色は使わない（エラーではなく確度の情報。design-spec の方針）。
+            <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
+              <div className="text-[10px] font-bold text-ink-2">
+                QR コードを読み取れませんでした
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-ink-meta">
+                {qrUnread.join('・')}
+                <br />
+                添付を開いて QR を確認し、URL は手入力で追加してください。
               </div>
             </div>
           )}
