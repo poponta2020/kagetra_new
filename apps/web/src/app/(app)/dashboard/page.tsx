@@ -64,6 +64,19 @@ function cmp(a: string, b: string): number {
 }
 
 /**
+ * userId で重複排除する（先勝ち）。確定パスは名簿由来（会員）とゲスト合流
+ * （出欠回答）の 2 集合を合成するため、同じ人が両方に入る余地を構造的に消す
+ * 最終防波堤。呼び出し側は会員側を先に spread する。
+ */
+function dedupeByUserId(entrants: HomeEntrant[]): HomeEntrant[] {
+  const byUserId = new Map<string | null, HomeEntrant>()
+  for (const e of entrants) {
+    if (!byUserId.has(e.userId)) byUserId.set(e.userId, e)
+  }
+  return [...byUserId.values()]
+}
+
+/**
  * ホーム（`/dashboard`）= 会の出場予定。
  *
  * サーバー側の仕事は {@link HomeTimelineData} を組むことだけで、表示は
@@ -198,6 +211,13 @@ export default async function DashboardPage() {
                 'waitlisted',
                 'rejected',
               ]),
+              // guest-role: ゲストは会経由で申し込まないので、名簿に載っているのは
+              // 「登録会が変わって過去に会員だった名残」（管理者が後から role を
+              // guest へ変更したケース）でしかない。会員は名簿が正・ゲストは
+              // 出欠回答が唯一の正という非対称（design-spec §7）を保つため、現在の
+              // role が guest の行は名簿由来の集合から落とし、ゲスト合流
+              // （entrantsFromAttendance の guestsOnly）にだけ委ねる。
+              ne(users.role, 'guest'),
             ),
           )
 
@@ -333,11 +353,15 @@ export default async function DashboardPage() {
     const entrants = hasConfirmedRoster
       ? // guest-role AC-22: 確定パスでも、名簿には構造的に載らないゲストを
         // 出欠回答から合流させる（会員は名簿ベースのまま。上の
-        // entrantsFromAttendance の doc コメントが理由の正典）。
-        sortEntrants([
-          ...confirmedEntrantsOf(e.entryGroupId),
-          ...entrantsFromAttendance(e.id, e.eligibleGrades, { guestsOnly: true }),
-        ])
+        // entrantsFromAttendance の doc コメントが理由の正典）。dedupeByUserId は
+        // 保険 —— 名簿クエリ側の role フィルタが効いていれば重複は起きないが、
+        // 万一同じ userId が両集合に入っても人数を過大にしない。
+        sortEntrants(
+          dedupeByUserId([
+            ...confirmedEntrantsOf(e.entryGroupId),
+            ...entrantsFromAttendance(e.id, e.eligibleGrades, { guestsOnly: true }),
+          ]),
+        )
       : hopedEntrantsOf(e.id, e.eligibleGrades)
 
     // 出場者 0 名の大会はホームに載せない（design-spec §6）。

@@ -13,6 +13,10 @@ import {
   registrationInviteExpiresAt,
 } from '@/lib/registration-invite'
 import { registrationInvites, users } from '@kagetra/shared/schema'
+import {
+  REGISTRATION_INVITE_KINDS,
+  type RegistrationInviteKind,
+} from './registration-invite-kinds'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 
@@ -121,14 +125,6 @@ export type CreateRegistrationInviteState = {
   /** ISO expiry, for the modal countdown / failure date display. */
   expiresAt?: string
 }
-
-/**
- * guest-role: the invite's `kind` fixes what registering through it creates.
- * Kept as its own union (not reusing `UserRole`) so an invite can only ever be
- * issued as `member` or `guest` — never `admin`/`vice_admin`.
- */
-export const REGISTRATION_INVITE_KINDS = ['member', 'guest'] as const
-export type RegistrationInviteKind = (typeof REGISTRATION_INVITE_KINDS)[number]
 
 function isValidInviteKind(value: unknown): value is RegistrationInviteKind {
   return value === 'member' || value === 'guest'

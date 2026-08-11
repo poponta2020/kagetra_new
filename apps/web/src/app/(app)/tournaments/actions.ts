@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
+import { isGuestRole } from '@/lib/guest-access'
 import { getTournamentList, type TournamentListRow } from '@/lib/stats/tournaments'
 
 /**
@@ -16,6 +17,10 @@ export async function loadMoreTournaments(
 ): Promise<TournamentListRow[]> {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // ページ側の /403 ガードは画面遷移しか塞がない。この action は許可パス
+  // （/events 等）から任意の Server Action ID で直接呼べるため、ここでも
+  // 同じロール判定を重ねる。
+  if (isGuestRole(session.user?.role)) redirect('/403')
   const { rows } = await getTournamentList(query, undefined, 200, offset)
   return rows
 }

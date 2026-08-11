@@ -227,6 +227,22 @@ describe('/settings（設定ハブ）', () => {
       expect(screen.getByText('隣町かるた会')).toBeTruthy()
     })
 
+    // guest-role R1 修正: 毎リクエストの JWT 再検証（node-jwt-callback.ts）は
+    // role / LINE 情報こそ同期するが name は同期しない。session.user.name の
+    // まま表示すると、管理者がゲストの表示名を変更してもこの画面には古い
+    // 名前が出続けてしまうため、DB の最新値を使う。
+    it('セッションの表示名が古くても DB の最新の表示名が出る', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({ name: 'ゲスト新姓', grade: 'B' })
+      await setAuthSession({ id: guest.id, role: 'guest', name: 'ゲスト旧姓' })
+      await renderPage()
+
+      expect(screen.getByText('ゲスト新姓さん')).toBeTruthy()
+      expect(screen.getByText('ゲスト新姓')).toBeTruthy()
+      expect(screen.queryByText('ゲスト旧姓')).toBeNull()
+      expect(screen.queryByText('ゲスト旧姓さん')).toBeNull()
+    })
+
     it('級・所属会が未設定なら「未設定」と出る', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
       const guest = await createGuest({

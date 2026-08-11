@@ -342,6 +342,41 @@ describe('/dashboard（会の出場予定）', () => {
       expect(row.textContent).toContain('2')
     })
 
+    // guest-role R7: 登録会が他会へ移った等で、確定名簿に載っている会員が
+    // 後からゲストへ変更されるケース。名簿由来の集合からは落とし、出欠の
+    // ゲスト合流だけがその人を拾う（＝チップは1件・ゲスト印つき）。落とさないと
+    // 名簿由来（isGuest:false）とゲスト合流の2件に重複してしまう。
+    it('確定名簿に載っている会員をゲストへ変更した場合、チップが1件だけになりゲスト印が付く', async () => {
+      const viewer = await createUser({ grade: 'C' })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+
+      const group = await createEntryGroup()
+      const event = await createEvent({
+        title: '石狩CD',
+        eventDate: addDays(todayJst(), 5),
+        eligibleGrades: ['C', 'D'],
+        entryGroupId: group.id,
+      })
+
+      // 名簿登録後にロールが guest へ変更された会員。
+      const tenkai = await createGuest({ name: '転会 太郎', grade: 'C' })
+      await seedConfirmedRoster(group.id, [
+        { userId: tenkai.id, grade: 'C', status: 'confirmed' },
+      ])
+      await createEventAttendance({
+        eventId: event.id,
+        userId: tenkai.id,
+        attend: true,
+      })
+
+      await renderPage()
+      const row = rowOf(event.title)
+      // ゲスト印つきで1件だけ（名簿由来の isGuest:false 側と重複しない）
+      expect(row.textContent).toContain('転会Cゲスト')
+      expect(row.textContent).toContain('1')
+      expect((row.textContent?.match(/転会/g) ?? []).length).toBe(1)
+    })
+
     it('差し替え済み（superseded）の確定名簿は使わず、希望へフォールバックする', async () => {
       const viewer = await createUser({ grade: 'C' })
       await setAuthSession({ id: viewer.id, role: 'member' })

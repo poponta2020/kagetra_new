@@ -49,17 +49,22 @@ export default async function SettingsPage() {
   // 消えるが、それ以外（アカウントセクション・管理セクション）はここで
   // 明示的に描画しないことで担保する。
   if (isGuestRole(role)) {
+    // 表示名も級・所属会と同じく DB の最新値を使う。毎リクエストの JWT
+    // 再検証（node-jwt-callback.ts）は role / LINE 情報こそ同期するが name は
+    // 同期しないため、`session.user.name` のままだと管理者がゲストの表示名を
+    // 変更してもこの画面には古い名前が出続けてしまう。
     const guestProfile = await db.query.users.findFirst({
       where: eq(users.id, session.user.id),
-      columns: { grade: true, affiliation: true },
+      columns: { name: true, grade: true, affiliation: true },
     })
+    const guestLabel = guestProfile?.name ? `${guestProfile.name}さん` : ''
 
     return (
       <div className="flex flex-col gap-5 p-4">
         <div className="flex flex-col gap-1">
           <h1 className="font-display text-xl font-bold text-ink">設定</h1>
-          {userLabel ? (
-            <p className="text-[13px] text-ink-meta">{userLabel}</p>
+          {guestLabel ? (
+            <p className="text-[13px] text-ink-meta">{guestLabel}</p>
           ) : null}
         </div>
 
@@ -68,7 +73,7 @@ export default async function SettingsPage() {
           <dl className="divide-y divide-border border-y border-border bg-surface">
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <dt className="text-sm text-ink-2">表示名</dt>
-              <dd className="text-sm text-ink">{session.user.name ?? '未設定'}</dd>
+              <dd className="text-sm text-ink">{guestProfile?.name ?? '未設定'}</dd>
             </div>
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <dt className="text-sm text-ink-2">級</dt>

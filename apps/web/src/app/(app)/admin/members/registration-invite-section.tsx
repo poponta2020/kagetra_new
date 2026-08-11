@@ -4,10 +4,12 @@ import { useState, useTransition } from 'react'
 import {
   createRegistrationInvite,
   revokeRegistrationInvite,
-  REGISTRATION_INVITE_KINDS,
   type ActiveRegistrationInvite,
-  type RegistrationInviteKind,
 } from './actions'
+import {
+  REGISTRATION_INVITE_KINDS,
+  type RegistrationInviteKind,
+} from './registration-invite-kinds'
 import {
   RegistrationInviteModal,
   type RegistrationInvitePayload,
