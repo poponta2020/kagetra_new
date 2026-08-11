@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
   eventAttendances,
+  events,
   eventBroadcastMessages,
   eventLineBroadcasts,
   lineChannels,
@@ -33,7 +34,8 @@ vi.mock('@/lib/line-broadcast', () => ({
 }))
 
 // Import under test AFTER mocks so @/auth resolution uses the mock.
-const { submitAttendance, manualBroadcast } = await import('./actions')
+const { submitAttendance, manualBroadcast, setEntryApplied, setEntryNotApplying } =
+  await import('./actions')
 
 function formWith(attend: boolean, comment?: string): FormData {
   const fd = new FormData()
@@ -271,5 +273,61 @@ describe('manualBroadcast — lead text inheritance', () => {
       { leadText: string | null },
     ]
     expect(callArgs[1].leadText).toBeNull()
+  })
+})
+
+// guest-role AC-30: ゲストが管理系 Server Action を直接呼んでも拒否され、
+// DB が変わらない。画面を出さないだけの防御にしない（requirements R8）。
+// これらは既存の `requireAdminSession()` で守られており、guest は
+// `role === 'admin' || role === 'vice_admin'` の判定に構造的に一致しない——
+// その構造が実際に効いていることを、ゲストのセッションで実測して固定する。
+describe('guest-role AC-30: 管理系 Server Action の直接呼び出し', () => {
+  beforeEach(async () => {
+    await truncateAll()
+    // ★このモックはファイル全体で共有されており、上の manualBroadcast の
+    // テスト群が既に呼び出しを積んでいる。クリアせずに
+    // `not.toHaveBeenCalled()` を書くと必ず失敗し、しかも失敗メッセージが
+    // 積み上がった引数（配信payload）を pretty-print しようとして
+    // `RangeError: Invalid string length` → ヒープ枯渇でプロセスごと落ちる。
+    broadcastMailToEventMock.mockClear()
+  })
+
+  it('ゲストは進行管理（申込済トグル）を呼べず、entry_status が変わらない', async () => {
+    const guest = await createGuest()
+    const event = await createEvent({ title: '管理系AC30-1' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    await expect(setEntryApplied(event.id, true)).rejects.toThrow()
+
+    const [row] = await testDb
+      .select({ entryStatus: events.entryStatus })
+      .from(events)
+      .where(eq(events.id, event.id))
+    expect(row?.entryStatus).toBe('not_applied')
+  })
+
+  it('ゲストは「今回は申し込まない」を呼べず、entry_status が変わらない', async () => {
+    const guest = await createGuest()
+    const event = await createEvent({ title: '管理系AC30-2' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    await expect(setEntryNotApplying(event.id)).rejects.toThrow()
+
+    const [row] = await testDb
+      .select({ entryStatus: events.entryStatus })
+      .from(events)
+      .where(eq(events.id, event.id))
+    expect(row?.entryStatus).toBe('not_applied')
+  })
+
+  it('ゲストは LINE 再配信を呼べず、配信が発生しない', async () => {
+    const guest = await createGuest()
+    const event = await createEvent({ title: '管理系AC30-3' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    // mailMessageId は認可より後に使われるので、存在しない id で構わない
+    // （認可で弾かれることの確認が目的）。
+    await expect(manualBroadcast(event.id, 1)).rejects.toThrow()
+    expect(broadcastMailToEventMock).not.toHaveBeenCalled()
   })
 })
