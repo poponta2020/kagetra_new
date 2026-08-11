@@ -15,6 +15,7 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createGuest,
   createMailMessage,
   createUser,
 } from '@/test-utils/seed'
@@ -893,5 +894,102 @@ describe('/events/[id] — 表示ロールのプレビュー追随 (AC-31 回帰
 
     expect(screen.getByText('進行管理')).toBeTruthy()
     expect(screen.getByText('編集')).toBeTruthy()
+  })
+})
+
+describe('/events/[id] — ゲストの出欠回答条件 (guest-role タスク5 AC-12/AC-13/AC-14)', () => {
+  it('ゲストは会内締切を過ぎていても対象級の大会に回答できる', async () => {
+    const guest = await createGuest({ grade: 'A' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      internalDeadline: addDays(todayJst(), -1),
+    })
+
+    render(await renderPage(ev.id))
+
+    expect(screen.getByRole('button', { name: '参加する' })).toBeTruthy()
+    expect(screen.queryByText('会内締切を過ぎています')).toBeNull()
+  })
+
+  it('ゲストは対象級外の大会には回答できない（理由表示は「対象外の級です」）', async () => {
+    const guest = await createGuest({ grade: 'E' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      eligibleGrades: ['A', 'B'],
+    })
+
+    render(await renderPage(ev.id))
+
+    expect(screen.queryByRole('button', { name: '参加する' })).toBeNull()
+    expect(screen.getByText('対象外の級です')).toBeTruthy()
+  })
+
+  // AC-14 回帰: 一般会員は従来どおり会内締切超過で回答できない。
+  it('一般会員は従来どおり会内締切超過で回答できない（回帰）', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({
+      eventDate: addDays(todayJst(), 30),
+      internalDeadline: addDays(todayJst(), -1),
+    })
+
+    render(await renderPage(ev.id))
+
+    expect(screen.getByText('会内締切を過ぎています')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '参加する' })).toBeNull()
+  })
+})
+
+describe('/events/[id] — 参加者欄のゲスト印 (guest-role タスク5 AC-15)', () => {
+  it('参加者欄にゲストがゲスト印つきで表示され、人数にも含まれる', async () => {
+    const viewer = await createUser({ role: 'admin' })
+    await setAuthSession({ id: viewer.id, role: 'admin' })
+    const member = await createUser({ role: 'member', grade: 'C', name: '山田 太郎' })
+    const guest = await createGuest({ grade: 'C', name: '佐藤 次郎' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+    await createEventAttendance({ eventId: ev.id, userId: member.id, attend: true })
+    await createEventAttendance({ eventId: ev.id, userId: guest.id, attend: true })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('山田')
+    expect(container.textContent).toContain('佐藤')
+    expect(container.textContent).toContain('ゲスト')
+    // 見出しの人数にゲストを含めて 2 名。
+    expect(screen.getByText('参加者').textContent).toContain('2')
+  })
+})
+
+describe('/events/[id] — ゲストには「あなたの参加費」を出さない (guest-role タスク5 AC-16)', () => {
+  it('ゲストには「あなたの参加費」の行が DOM にも RSC payload にも出ない', async () => {
+    const guest = await createGuest({ grade: 'A' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const ui = await renderPage(ev.id)
+    const propValues: string[] = []
+    collectPropValues(ui, propValues)
+    const payload = propValues.join(' ')
+    const { container } = render(ui)
+
+    expect(container.textContent).not.toContain('あなたの参加費')
+    expect(payload).not.toContain('あなたの参加費')
+    // A 級の公認個人戦規定額 2,500円が RSC payload にも一切載らないこと
+    // （JSX の条件分岐だけで隠すのではなく、計算前にサーバー側で分岐する）。
+    expect(payload).not.toContain('2,500')
+  })
+
+  // 同じ大会・同じ級で会員には出ることの対照（分岐がゲスト固有であることの確認）。
+  it('同条件の会員には従来どおり出る（対照）', async () => {
+    const member = await createUser({ role: 'member', grade: 'A' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('あなたの参加費')
+    expect(container.textContent).toContain('2,500円')
   })
 })

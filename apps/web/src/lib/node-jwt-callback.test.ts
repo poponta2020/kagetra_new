@@ -110,6 +110,35 @@ describe('nodeJwtCallback — Node-side DB revalidation', () => {
     expect(result).toBeNull()
   })
 
+  // guest-role AC-29: 退会済みのゲストは出欠回答できない。
+  // 退会の効き方は会員とまったく同じ（requirements R8「会員と同様に」）で、
+  // `submitAttendance` に退会チェックは無い —— セッションそのものが消えるので
+  // Server Action へ到達できない、という構造で担保されている。したがって
+  // AC はこの層で固定する（回答側に判定を足すと二重管理になる）。
+  it('通常リクエスト: 退会済みのゲストも会員と同じく null（AC-29）', async () => {
+    const guest = await createUser({
+      name: 'retired-guest',
+      role: 'guest',
+      affiliation: 'よその会',
+      deactivatedAt: new Date('2026-04-18T00:00:00Z'),
+    })
+    const result = await nodeJwtCallback(
+      { token: { id: guest.id, sub: guest.id } as JWT, user: undefined, trigger: undefined },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).toBeNull()
+  })
+
+  it('通常リクエスト: 有効なゲストは token.role が guest として下流へ渡る（AC-29 の対照）', async () => {
+    const guest = await createUser({ name: 'active-guest', role: 'guest' })
+    const result = await nodeJwtCallback(
+      { token: { id: guest.id, sub: guest.id } as JWT, user: undefined, trigger: undefined },
+      edgeStyleBase as unknown as Parameters<typeof nodeJwtCallback>[1],
+    )
+    expect(result).not.toBeNull()
+    expect((result as JWT).role).toBe('guest')
+  })
+
   it('通常リクエスト: token.id が DB に存在しない → null', async () => {
     const result = await nodeJwtCallback(
       {

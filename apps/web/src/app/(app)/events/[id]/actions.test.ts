@@ -8,7 +8,7 @@ import {
   mailMessages,
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createEvent, createUser } from '@/test-utils/seed'
+import { createAdmin, createEvent, createGuest, createUser } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 const { broadcastMailToEventMock } = vi.hoisted(() => ({
@@ -164,6 +164,40 @@ describe('submitAttendance — permission control', () => {
     ).resolves.toBeUndefined()
     const row = await getAttendance(event.id, admin.id)
     expect(row).toMatchObject({ attend: true, comment: 'admin override' })
+  })
+
+  // guest-role タスク5 (AC-12): ゲストは会内締切に縛られない — 会経由で申し込まない
+  // ため「会が主催者へ申し込む準備の締切」に意味が無い（requirements R3）。
+  it('ゲスト: 会内締切経過後でも回答できる', async () => {
+    const guest = await createGuest({ grade: 'A' })
+    const event = await createEvent({
+      title: 'E-guest-deadline',
+      internalDeadline: '2020-01-01',
+    })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    await expect(
+      submitAttendance(event.id, formWith(true)),
+    ).resolves.toBeUndefined()
+    const row = await getAttendance(event.id, guest.id)
+    expect(row).toMatchObject({ attend: true })
+  })
+
+  // guest-role タスク5 (AC-13): 対象級の縛りはゲストにも会員と同じ強さで効く。
+  // UI 判定を信頼せず Server Action を直接呼んでも拒否されることを検証する。
+  it('ゲスト: 対象級外の大会には回答できない（Server Action 直接呼び出しでも拒否）', async () => {
+    const guest = await createGuest({ grade: 'E' })
+    const event = await createEvent({
+      title: 'E-guest-grade',
+      eligibleGrades: ['A', 'B'],
+    })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    await expect(submitAttendance(event.id, formWith(true))).rejects.toThrow(
+      '対象外の級です',
+    )
+    expect(await getAttendance(event.id, guest.id)).toBeUndefined()
+    // DB が変更されていないこと（AC-30 と同じ観点: 拒否時に副作用が残らない）。
   })
 
   // Regression: sticky single-toggle UI submits only `attend`, so the action
