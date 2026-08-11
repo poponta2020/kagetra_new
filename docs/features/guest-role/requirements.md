@@ -118,7 +118,7 @@ design_required: false
 
 | # | 対象 | 現在の母集団 | 対応 |
 |---|---|---|---|
-| E1 | 申込書 xlsx の対象会員（`/admin/entry-form/[groupId]` ステップ2） | `attend=true` ∧ 退会していない（role も招待フラグも見ない） | `role='guest'` を除外 |
+| E1 | 申込書 xlsx の対象会員（`/admin/entry-form/[groupId]` ステップ2） | `attend=true` ∧ 退会していない（role も招待フラグも見ない） | `role='guest'` を除外。**xlsx へ到達する導線をすべて塞ぐ**＝①自動抽出 ②手動追加のピッカー ③**確定時の再検証**（①②はウィザードを開いた時点の結果でしかなく、開いたまま別画面でロールを変更されると古い一覧のまま確定できるため。ゲストが混ざっていたらエラーで止め、黙って除外はしない＝プレビューと成果物を食い違わせない） |
 | E2 | 参加費の集計（振込総額・級別内訳。支払締切リマインド／支払完了通知／進行管理パネルの3経路） | `attend=true` ∧ `is_invited=true` ∧ 対象級 | `role='guest'` を除外 |
 | E3 | 申込管理ボードの参加希望者数 | `event_attendances` を単独で数える（`users` を join していない） | `users` を **inner join** して `role='guest'` を除外 |
 | E4 | 毎朝の未申込督促 LINE（entry-overdue-alert） | **E3 とはコードを共有していない独立実装**。`collectOverdueEntries` の相関サブクエリが `event_attendances` を単独で数え、その式を「参加1名以上」の抽出条件・件数表示の両方で使い回している | 同サブクエリに `users` を join して `role='guest'` を除外（1つの式を共有しているので、抽出条件と文面の「参加 N名」が同時に直る） |

@@ -617,6 +617,12 @@ export interface CreateEntryFormDraftInput {
   uploaded?: UploadedTemplate | null
   cellMap: CellMap
   members: EntryFormMember[]
+  /**
+   * `members` と**同じ順序・同じ長さ**の users.id。xlsx に書く値そのものは
+   * `members`（平たい記入用の型）が持つが、確定時にロールを引き直すために
+   * 本人の id が要る（guest-role E1）。
+   */
+  memberUserIds: string[]
   toEmail: string
   subject: string
   body: string
@@ -789,6 +795,30 @@ export async function createEntryFormDraftAction(
   // Server Action 境界の防御にならないのでここでも拒否する。
   if (input.members.length === 0) {
     throw new Error('記入する会員が0名です。会員を追加してから作成してください')
+  }
+
+  // guest-role E1/AC-17: 確定の直前に**現在の**ロールを DB から引き直す。
+  // 対象会員の抽出（loadEntryFormContext）と手動追加（listAddableMembersAction）
+  // では既にゲストを外しているが、どちらも「ウィザードを開いた時点」の結果でしかない。
+  // 管理者がウィザードを開いたまま別画面でその会員をゲストへ変更すると、
+  // クライアントが持っている古い一覧のまま確定でき、xlsx にゲストが載ってしまう。
+  // 「ゲストは申込書に載らない」は経路ではなく**成果物**に対する要件なので、
+  // 成果物を作る直前のここで最終確認する。
+  //
+  // 黙って除外せずエラーで止めるのは、管理者がプレビューで見た一覧と実際に
+  // 生成される xlsx を食い違わせないため（既存の再試行競合と同じ扱い）。
+  if (input.memberUserIds.length !== input.members.length) {
+    throw new Error('会員情報の受け渡しが不正です。画面を再読み込みしてください')
+  }
+  const guestRows = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(and(inArray(users.id, input.memberUserIds), eq(users.role, 'guest')))
+  if (guestRows.length > 0) {
+    const names = guestRows.map((r) => r.name).join('・')
+    throw new Error(
+      `${names} は作成中にゲストへ変更されました。ゲストは申込書に載せられません。画面を再読み込みしてください`,
+    )
   }
 
   assertCellMapUsable(input.cellMap)
