@@ -167,7 +167,7 @@ export default async function LineChannelsAdminPage({ searchParams }: PageProps)
   return (
     <div className="flex flex-col gap-4 p-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-base font-semibold text-ink-1">LINE 配信 Bot 管理</h1>
+        <h1 className="text-base font-semibold text-ink">LINE 配信 Bot 管理</h1>
         <span className="text-xs text-ink-meta tabular-nums">
           {activeCount} / {totalCount} 稼働中
         </span>

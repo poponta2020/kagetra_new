@@ -58,7 +58,7 @@ export default async function LineGradeGroupsAdminPage() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <header>
-        <h1 className="text-base font-semibold text-ink-1">級 LINE グループ管理</h1>
+        <h1 className="text-base font-semibold text-ink">級 LINE グループ管理</h1>
         <p className="text-[11px] text-ink-meta mt-1">
           A〜E 級ごとに常設の LINE グループを紐付けます。招待コードを発行し、Bot をグループへ招待してコードを発言すると紐付けが完了します。
         </p>
