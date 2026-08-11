@@ -14,6 +14,7 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createGuest,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -165,6 +166,15 @@ describe('/admin/entries（申込管理ボード）', () => {
       await setAuthSession({ id: vice.id, role: 'vice_admin' })
       await renderPage()
       expect(screen.getByRole('heading', { name: '申込管理' })).toBeTruthy()
+    })
+
+    // guest-role タスク6 追加スコープ (AC-10): このページは PR #378 で role 判定を
+    // 外し「ログイン済みなら誰でも」になっているため、middleware の早期ゲートに
+    // 加えて Node 側でもゲストを明示的に弾く（降格直後の stale な JWT 対策）。
+    it('guest-role AC-10: ゲストは /403 へリダイレクトされる', async () => {
+      const guest = await createGuest()
+      await setAuthSession({ id: guest.id, role: 'guest' })
+      await expect(EntryManagementPage()).rejects.toThrow('NEXT_REDIRECT:/403')
     })
   })
 
@@ -327,6 +337,51 @@ describe('/admin/entries（申込管理ボード）', () => {
       // 通称が引けない大会は title をそのまま表示（級は連結しない。Issue #335）
       const row = screen.getByText('人数集計大会').closest('a')
       expect(row?.textContent).toContain('（3名）')
+    })
+
+    // guest-role タスク6 E3 (AC-19): 参加希望者数は「会として何人ぶん申し込む
+    // 必要があるか」を見る数値なので、ゲストは数えない（参加者欄の「誰が出るか」
+    // とは問いが違う。requirements §7）。
+    it('guest-role AC-19: 参加希望者数にゲストは数えられない', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+      const event = await createEvent({
+        title: 'ゲスト混在大会',
+        eventDate: future,
+        internalDeadline: future,
+        eligibleGrades: ['A'],
+      })
+      const member = await createUser({ grade: 'A' })
+      const guest = await createGuest({ grade: 'A' })
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+      await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+      await renderPage()
+
+      const row = screen.getByText('ゲスト混在大会').closest('a')
+      expect(row?.textContent).toContain('（1名）')
+    })
+
+    it('guest-role AC-19/AC-20: ゲストだけが参加希望している大会は参加希望者0名になる', async () => {
+      const today = todayJst()
+      const future = addDays(today, 10)
+      const event = await createEvent({
+        title: 'ゲストのみ大会',
+        eventDate: future,
+        internalDeadline: future,
+        eligibleGrades: ['A'],
+      })
+      const guest = await createGuest({ grade: 'A' })
+      await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+      await renderPage()
+
+      const row = screen.getByText('ゲストのみ大会').closest('a')
+      // このボードは 0 名のとき「（0名）」ではなく**人数チップごと出さない**
+      // （EntryBoardClient の `attendCount > 0 &&`）。ゲストしか希望していない
+      // 大会は会として申し込む相手がいないので、会員が誰も希望していない大会と
+      // まったく同じ見え方になるのが正しい。
+      expect(row?.textContent).not.toMatch(/（\d+名）/)
     })
 
     // AC-13: 確定名簿の判定は roster_type='confirmed' かつ superseded_at IS NULL。

@@ -1,7 +1,13 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eventLifecycleNotifications, eventLineBroadcasts, lineChannels } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEntryGroup, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import {
+  createEntryGroup,
+  createEvent,
+  createEventAttendance,
+  createGuest,
+  createUser,
+} from '@/test-utils/seed'
 import {
   buildOverdueAlertMessage,
   collectOverdueEntries,
@@ -514,6 +520,41 @@ describe('entry-overdue-alert — DB', () => {
       expect(rows.map((r) => r.eventId)).toContain(event.id)
     })
 
+    // guest-role タスク6 E4 (AC-20): ゲストは会経由で申し込まないので、
+    // ゲストだけが参加希望している大会は「参加希望者0名」扱いとなり抽出条件
+    // （attendCount >= 1）から自然に落ちる。/admin/entries の参加希望者数
+    // （AC-19）と同じ定義を共有する。
+    it('guest-role AC-20: ゲストだけが参加希望している大会は対象外', async () => {
+      const event = await createEvent({
+        title: 'ゲストのみ参加希望',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const guest = await createGuest()
+      await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+      const rows = await collectOverdueEntries(testDb, { today })
+      expect(rows.map((r) => r.eventId)).not.toContain(event.id)
+    })
+
+    it('guest-role AC-20: 参加希望者数（attendCount）にゲストは数えられない（会員1名+ゲスト1名 → 1名）', async () => {
+      const event = await createEvent({
+        title: 'ゲスト混在',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const member = await createUser()
+      const guest = await createGuest()
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+      await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+      const rows = await collectOverdueEntries(testDb, { today })
+      const hit = rows.find((r) => r.eventId === event.id)!
+      expect(hit.attendCount).toBe(1)
+    })
+
     it('AC-13: entry_group_id を各行に含む（グループ集約のキー）', async () => {
       const group = await createEntryGroup()
       const a = await createEventWithAttendee({
@@ -566,6 +607,28 @@ describe('entry-overdue-alert — DB', () => {
     })
 
     it('AC-7: 対象 0 件なら push されない', async () => {
+      await seedSystemChannel()
+      const fetchImpl = okFetch()
+      const result = await sendEntryOverdueAlert(testDb, {
+        today,
+        baseUrl: 'https://kagetra.example.com',
+        fetchImpl,
+      })
+      expect(result).toEqual({ skipped: 'no-candidates' })
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    // guest-role AC-20 を送信経路まで通して確認する。抽出で落ちるので
+    // 「対象 0 件」に合流し、push は起きない。
+    it('guest-role AC-20: ゲストだけが参加希望している大会しか無ければ push されない', async () => {
+      const event = await createEvent({
+        title: 'ゲストのみ参加希望',
+        eventDate: '2030-01-01',
+        internalDeadline: '2026-06-01',
+        entryStatus: 'not_applied',
+      })
+      const guest = await createGuest()
+      await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
       await seedSystemChannel()
       const fetchImpl = okFetch()
       const result = await sendEntryOverdueAlert(testDb, {

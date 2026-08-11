@@ -9,6 +9,7 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createGuest,
   createMailMessage,
   createTournamentDraft,
   createUser,
@@ -182,6 +183,21 @@ describe('admin/entry-form actions', () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       await expect(loadEntryFormContext(99999)).rejects.toThrow('申込グループが見つかりません')
+    })
+
+    // guest-role タスク6 E1 (AC-17): ゲストは会経由で申し込まないので、
+    // attend=true でも申込書の対象会員一覧に現れない。
+    it('guest-role AC-17: attend=true のゲストは対象会員一覧に現れない', async () => {
+      const { group, day1, both, only2 } = await seedGroupWithAttendees()
+      const guest = await createGuest({ name: 'ゲスト 参加希望' })
+      await createEventAttendance({ eventId: day1.id, userId: guest.id, attend: true })
+
+      const context = await loadEntryFormContext(group.id)
+
+      const userIds = context.members.map((m) => m.userId)
+      expect(userIds).toContain(both.id)
+      expect(userIds).toContain(only2.id)
+      expect(userIds).not.toContain(guest.id)
     })
   })
 

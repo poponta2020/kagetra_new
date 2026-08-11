@@ -173,7 +173,7 @@ official = true  かつ kind = 'individual' → 級別規定額を常に導出�
 
 | ID | 条件 | 検証手段 |
 |----|------|------|
-| AC-9 | 総額の母集団がイベント詳細の参加者一覧と一致する（`attend=true` ∩ `is_invited` ∩ 対象級） | auto-test |
+| AC-9 | 総額の母集団がイベント詳細の参加者一覧と**ゲスト除外を除いて**一致する（`attend=true` ∩ `is_invited` ∩ 対象級 ∩ `role<>'guest'`。ゲストは会経由で申し込まないので参加費集計だけ除外する。参加者一覧側はゲストを含める — guest-role §7・docs/features/guest-role/requirements.md） | auto-test |
 | AC-10 | 級未設定の会員は総額に算入されず、`※級未設定 N名は未算入` が付く（0円として加算しない） | auto-test |
 | AC-11 | `kind='team'` / `official=false` では総額を算出しない | auto-test |
 | AC-12 | 複数日グループの総額が、日別に割られずグループ全日の合算になる | auto-test |

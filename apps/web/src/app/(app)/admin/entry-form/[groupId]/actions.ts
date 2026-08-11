@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -149,11 +149,14 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     .from(eventAttendances)
     .innerJoin(users, eq(users.id, eventAttendances.userId))
     // 退会済み会員は申込対象にしない（過去の出欠だけが残っているケースがある）。
+    // guest-role E1/AC-17: ゲストは会経由で申し込まないので対象会員から除外する
+    // （出欠は取れても申込書には現れない。requirements R4）。
     .where(
       and(
         inArray(eventAttendances.eventId, eventIds),
         eq(eventAttendances.attend, true),
         isNull(users.deactivatedAt),
+        ne(users.role, 'guest'),
       ),
     )
     .orderBy(asc(users.id))
@@ -329,7 +332,11 @@ export async function listAddableMembersAction(
       givenKana: users.givenKana,
     })
     .from(users)
-    .where(isNull(users.deactivatedAt))
+    // guest-role E1/AC-17: 手動追加のピッカーからもゲストを外す。自動抽出
+    // （attend=true）側だけ除外しても、ここから選べば同じ xlsx に載ってしまう
+    // ——「ゲストは申込書に載らない」は経路ではなく成果物に対する要件なので、
+    // 申込書へ到達する導線はすべて閉じる（requirements R4 / §5 Non-goals）。
+    .where(and(isNull(users.deactivatedAt), ne(users.role, 'guest')))
     .orderBy(asc(users.name))
 
   const excluded = new Set(excludeUserIds)
