@@ -11,6 +11,7 @@ import {
   type AttachmentPreviewMeta,
 } from '@/lib/attachment-preview'
 import { pickAttachmentIcon } from '../../../admin/mail-inbox/components/AttachmentList'
+import { isGuestRole } from '@/lib/guest-access'
 
 /**
  * /mail/attachments/[id] — 会員向け添付ビューア。
@@ -81,6 +82,10 @@ export default async function MemberAttachmentViewerPage({
   // 権限判定は role を見ずログイン済みかのみ (会員は完全な読み取り専用)。
   const session = await auth()
   if (!session?.user?.id) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   // bytea を持たないメタ投影。pdf/office で preview が未キャッシュのとき、
   // text 表示のときだけ、必要になった時点で data 込みの行を引き直す。

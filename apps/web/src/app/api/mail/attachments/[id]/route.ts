@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isGuestRole } from '@/lib/guest-access'
 import { mailAttachments } from '@kagetra/shared/schema'
 
 export const dynamic = 'force-dynamic'
@@ -50,6 +51,14 @@ export const dynamic = 'force-dynamic'
  * feature's requirements deliberately open the whole inbox to all members;
  * see requirements.md §3.2/§7).
  *
+ * guest-role: the one exception is `role='guest'` — an outsider who is not a
+ * member of the club. Received mail is member-facing, so guests are refused
+ * here as well as in middleware. This route is NOT under `(app)/`, so a page
+ * guard would not protect it at all; and the middleware check reads a JWT
+ * claim that can be stale right after a demotion, so this Node-side check is
+ * the real boundary (requirements §6, AC-33). The parity with the admin route
+ * is about response *headers*, which this leaves untouched.
+ *
  * Refs:
  *   - https://nextjs.org/docs/app/building-your-application/routing/route-handlers
  *   - https://datatracker.ietf.org/doc/html/rfc5987
@@ -86,6 +95,9 @@ export async function GET(
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (isGuestRole(session.user.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { id } = await params

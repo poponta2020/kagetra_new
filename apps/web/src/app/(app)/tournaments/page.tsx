@@ -4,6 +4,7 @@ import { SectionTabs } from '@/components/stats/section-tabs'
 import { getTournamentList } from '@/lib/stats/tournaments'
 import { TournamentsHeader } from './TournamentsHeader'
 import { TournamentYearList } from './TournamentYearList'
+import { isGuestRole } from '@/lib/guest-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,10 @@ export default async function TournamentsPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const sp = await searchParams
   const query = firstParam(sp.q)?.trim() ?? ''

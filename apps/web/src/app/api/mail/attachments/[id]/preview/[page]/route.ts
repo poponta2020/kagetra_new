@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isGuestRole } from '@/lib/guest-access'
 import { mailAttachments } from '@kagetra/shared/schema'
 import { RENDER_PAGE_LIMIT } from '@/lib/attachment-image-render'
 import {
@@ -48,7 +49,9 @@ export const dynamic = 'force-dynamic'
  * MIME allowlist decision to make here.
  *
  * Authorization is `session.user.id` presence only, mirroring the parent
- * binary route — no role check.
+ * binary route — no role check, except that `role='guest'` is refused
+ * (guest-role: received mail is member-facing; see the parent route and
+ * requirements §6 / AC-33).
  */
 export async function GET(
   _req: Request,
@@ -57,6 +60,9 @@ export async function GET(
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (isGuestRole(session.user.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { id, page } = await params

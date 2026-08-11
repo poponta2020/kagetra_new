@@ -4,6 +4,7 @@ import { SectionTabs } from '@/components/stats/section-tabs'
 import { searchPlayers } from '@/lib/players/queries'
 import { PlayerSearchForm } from './components/PlayerSearchForm'
 import { PlayerResultRow } from './components/PlayerResultRow'
+import { isGuestRole } from '@/lib/guest-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,10 @@ export default async function PlayersSearchPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const { q } = await searchParams
   const query = (q ?? '').trim()

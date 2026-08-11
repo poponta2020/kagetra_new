@@ -51,6 +51,18 @@
 - 未認証: `/auth/signin`、`/auth/error`、`/register/*` のみ通過可。それ以外は `/auth/signin` へリダイレクト。
 - 認証済みだが未紐付け（`session.user.id` 無し）: `/self-identify` と `/register/*` のみ通過可。それ以外は `/self-identify` へリダイレクト。
 - 紐付け済みユーザーが `/auth/signin` に来た場合、または `/register/*` に来た場合はダッシュボード（`/`）へリダイレクト。
+- 実効ロールが `guest`: **許可リスト（fail-closed）**で判定する。許可外はページなら `/403` へリダイレクト（クエリは持ち越さない）、`/api/` 配下なら 403 の JSON を返す（リダイレクトを返すと fetch / `<img>` 側が HTML を掴んで意味不明な失敗になるため）。
+
+### ゲストの許可リスト（guest-access）
+
+判定の正典は `apps/web/src/lib/guest-access.ts` の純関数 `isGuestAllowedPath(pathname)` / `isGuestRole(role)`。DB・next-auth・`process.env` を import しないので、Edge の middleware と Node のページ / route handler の**両方から同じ関数を呼ぶ**。
+
+許可されるのは `/`・`/403`・`/events`・`/events/:id`・`/events-archive`・`/settings`（完全一致のみ）・`/roster-files/:id`・`/api/roster-files/:id[/preview/:page]`・`/api/auth/**` **だけ**で、他はすべて拒否。`/events/new`・`/events/:id/edit`・`/settings/*` の下位ページは明示的に拒否側に落ちる。名簿ファイルはページと API の両方を許可する（片方だけ開けてもビューアが成立しないため）。
+
+**二段構えである理由**: middleware が読む JWT の `role` は、Node 側の jwt callback が DB から再同期して cookie を再発行するまで stale になりうる（会員 → ゲストへ降格した直後など）。したがって middleware は早期ゲート（UX）と位置づけ、実防御は Node 側にも置く:
+
+- ルートハンドラ: `api/mail/attachments/[id]` と同 `preview/[page]` が `isGuestRole(session.user.role)` で 403 を返す。`api/` は `(app)/` 配下ではないため、画面側のガードでは**一切保護されない**。
+- ページ: ログイン済みなら誰でも見られる会員向けページ（`mail/**`・`players/**`・`tournaments/**`・`settings/line-link`・`dashboard`）が `isGuestRole` で `/403` へ。管理者専用ページは既存の `role === 'admin' || role === 'vice_admin'` 判定でゲストが自動的に落ちるので追加のガードは不要。
 
 `matcher` は LINE Webhook（`/api/webhook/line`）、LINE 一斉配信の公開エンドポイント（`/api/line-broadcast`）、無認証・無鍵の郵便番号プロキシ（`/api/zip`）、Auth.js 自体のルート（`/api/auth`）を除外している。`/api/zip` は `/register/*` 中の未紐付けユーザーが住所補完のために叩くため、ミドルウェアを通すと `/self-identify` へ弾かれて機能しなくなるという理由で明示的に除外されている。
 

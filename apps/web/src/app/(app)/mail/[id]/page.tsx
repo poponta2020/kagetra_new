@@ -10,6 +10,7 @@ import { Card, Pill, SectionLabel, type PillTone } from '@/components/ui'
 import { MailAttachmentRows } from '../MailAttachmentRows'
 import { MailBody } from '../MailBody'
 import { MailHistory } from '../MailHistory'
+import { isGuestRole } from '@/lib/guest-access'
 
 /**
  * /mail/[id] — 会員向けメール検索・詳細画面（requirements.md §3.1 S2・§3.5・design-spec.md
@@ -41,6 +42,10 @@ export default async function MailDetailPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const { id } = await params
   // 動的セグメントは正規な 10 進正整数のみを受ける（`1.5` `1e5` `0` `01` は 404）。

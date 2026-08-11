@@ -13,6 +13,7 @@ import { getStatsOverview } from '@/lib/stats/overview'
 import { GRADE_TONES } from '@/lib/stats/grade-tones'
 import { ALL_GRADES } from '@/lib/stats/types'
 import { detailHref, parsePeriodParams } from './params'
+import { isGuestRole } from '@/lib/guest-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +35,10 @@ export default async function TournamentStatsPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const filter = parsePeriodParams(await searchParams)
   const ov = await getStatsOverview(filter)

@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
 import { eq } from 'drizzle-orm'
 import { startLineLink } from './actions'
+import { isGuestRole } from '@/lib/guest-access'
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_env: 'LINE Login の設定が未完了です。管理者にお問い合わせください。',
@@ -29,6 +30,10 @@ export default async function LineLinkPage({
 }) {
   const session = await auth()
   if (!session?.user?.id) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const user = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
