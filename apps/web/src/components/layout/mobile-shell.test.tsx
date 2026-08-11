@@ -6,12 +6,15 @@ vi.mock('./bottom-nav', () => ({
   BottomNav: ({
     isAdmin,
     previewRoleLabel,
+    isGuest,
   }: {
     isAdmin: boolean
     previewRoleLabel?: string | null
+    isGuest?: boolean
   }) => (
     <nav data-testid="bottom-nav">
-      bottom-nav:{String(isAdmin)}:{previewRoleLabel ?? 'none'}
+      bottom-nav:{String(isAdmin)}:{previewRoleLabel ?? 'none'}:
+      {String(isGuest ?? false)}
     </nav>
   ),
 }))
@@ -141,5 +144,28 @@ describe('MobileShell', () => {
       </MobileShell>,
     )
     expect(screen.getByTestId('bottom-nav').textContent).toContain('none')
+  })
+
+  // guest-role AC-8: isGuest は BottomNav へそのまま透過するだけ。
+  it('isGuest が BottomNav へ透過される', () => {
+    render(
+      <MobileShell isAdmin={false} isGuest>
+        <div>child</div>
+      </MobileShell>,
+    )
+    expect(screen.getByTestId('bottom-nav').textContent).toContain(
+      'bottom-nav:false:none:true',
+    )
+  })
+
+  it('isGuest 省略時は false として透過される（既定・回帰）', () => {
+    render(
+      <MobileShell isAdmin={false}>
+        <div>child</div>
+      </MobileShell>,
+    )
+    expect(screen.getByTestId('bottom-nav').textContent).toContain(
+      'bottom-nav:false:none:false',
+    )
   })
 })
