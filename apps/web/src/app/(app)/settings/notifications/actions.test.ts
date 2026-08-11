@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { pushSubscriptions } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createUser, createViceAdmin } from '@/test-utils/seed'
+import { createAdmin, createGuest, createUser, createViceAdmin } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 vi.mock('@/auth', () => mockAuthModule())
@@ -83,6 +83,20 @@ describe('settings/notifications actions (mail-triage-badge)', () => {
     await expect(
       savePushSubscription({ endpoint: 'e', p256dh: 'k', auth: 'a' }),
     ).rejects.toThrow('Forbidden')
+
+    const rows = await testDb.select().from(pushSubscriptions)
+    expect(rows).toHaveLength(0)
+  })
+
+  // guest-role AC-28: ゲストは通知の購読自体ができない。送信側（mail-worker の
+  // 宛先クエリが admin/vice_admin のアローリスト）と合わせた二重防御の入口側。
+  it('ゲストは購読を作れない（AC-28）', async () => {
+    const guest = await createGuest()
+    await setAuthSession({ id: guest.id, role: 'guest' })
+    await expect(
+      savePushSubscription({ endpoint: 'e', p256dh: 'k', auth: 'a' }),
+    ).rejects.toThrow('Forbidden')
+    await expect(deletePushSubscription('e')).rejects.toThrow('Forbidden')
 
     const rows = await testDb.select().from(pushSubscriptions)
     expect(rows).toHaveLength(0)

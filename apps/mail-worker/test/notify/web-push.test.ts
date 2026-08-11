@@ -25,7 +25,7 @@ async function reset() {
   )
 }
 
-async function seedUser(role: 'admin' | 'vice_admin' | 'member') {
+async function seedUser(role: 'admin' | 'vice_admin' | 'member' | 'guest') {
   const [u] = await testDb
     .insert(users)
     .values({
@@ -94,6 +94,45 @@ describe('notifyNewMailPush (mail-triage-badge)', () => {
     expect(payload.url).toBe('/admin/mail-inbox')
     expect(payload.body).toContain('テスト大会のご案内')
     expect(payload.body).toContain('主催者')
+  })
+
+  // guest-role AC-28: ゲストへはアプリから一切通知を送らない。
+  // 宛先クエリは `role IN ('admin','vice_admin')` のアローリストなので guest は
+  // 構造的に入らないが、「ここをブロックリスト（`ne(role,'guest')` 等）へ書き
+  // 換えると第4のロールが漏れる」という invariant をテストで固定しておく。
+  // 購読作成側（settings/notifications の Server Action）も admin 限定なので、
+  // 本来ゲストの購読行は生まれない — その二重防御のうち送信側を検証する。
+  it('ゲストの購読行があっても送信対象にならない（AC-28）', async () => {
+    const admin = await seedUser('admin')
+    const guest = await seedUser('guest')
+    await seedSub(admin.id, 'https://push.example/admin')
+    await seedSub(guest.id, 'https://push.example/guest')
+    await seedMail('unprocessed')
+
+    await notifyNewMailPush(testDb, CONFIG, {
+      subject: 'S',
+      fromName: null,
+      fromAddress: 'f@example.com',
+    })
+
+    expect(mocks.send).toHaveBeenCalledTimes(1)
+    expect(
+      (mocks.send.mock.calls[0]![0] as { endpoint: string }).endpoint,
+    ).toBe('https://push.example/admin')
+  })
+
+  it('ゲストだけが購読していれば1件も送信しない（AC-28）', async () => {
+    const guest = await seedUser('guest')
+    await seedSub(guest.id, 'https://push.example/guest')
+    await seedMail('unprocessed')
+
+    await notifyNewMailPush(testDb, CONFIG, {
+      subject: 'S',
+      fromName: null,
+      fromAddress: 'f@example.com',
+    })
+
+    expect(mocks.send).not.toHaveBeenCalled()
   })
 
   it('購読が無ければ送信しない', async () => {

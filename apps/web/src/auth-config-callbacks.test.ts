@@ -86,6 +86,33 @@ describe('authConfig.callbacks.session — 実効ロールの生成点', () => {
     expect(session.user.role).toBe('member')
   })
 
+  // guest-role: セッション層でも guest が正しく実効ロールとして届くこと
+  // （届かないと下流の許可リストがゲストを認識できない）と、guest が
+  // プレビュー先として通らないことの両方を固定する。
+  it('role=guest は実効ロールも guest（下流の許可リストへ届く）', async () => {
+    const session = await callSession({ id: 'g1', role: 'guest' } as JWT)
+    expect(session.user.role).toBe('guest')
+    expect(session.user.realRole).toBe('guest')
+  })
+
+  it('role=guest は viewAsRole で昇格できない（AC-36）', async () => {
+    const session = await callSession({
+      id: 'g1',
+      role: 'guest',
+      viewAsRole: 'admin',
+    } as unknown as JWT)
+    expect(session.user.role).toBe('guest')
+  })
+
+  it('管理者の JWT に viewAsRole=guest が直接入っていても実効は admin（AC-36）', async () => {
+    const session = await callSession({
+      id: 'u1',
+      role: 'admin',
+      viewAsRole: 'guest',
+    } as unknown as JWT)
+    expect(session.user.role).toBe('admin')
+  })
+
   it('viewAsRole=null は非プレビュー扱い', async () => {
     const session = await callSession({ id: 'u1', role: 'admin', viewAsRole: null } as JWT)
     expect(session.user.role).toBe('admin')
@@ -152,6 +179,30 @@ describe('authConfig.callbacks.jwt — update パッチ経路', () => {
       token: { id: 'u1', role: 'admin', viewAsRole: 'member' } as JWT,
       trigger: 'update',
       session: { user: { viewAsRole: 'superadmin' } },
+    })
+    expect(token.viewAsRole).toBe('member')
+  })
+
+  // guest-role AC-36: 表示ロールのプレビュー先に guest は選べない。実効ロール
+  // が guest になると設定画面から切替セクションが消え、管理者が復帰できなく
+  // なる（requirements R7）。UI の選択肢に出さないだけでは
+  // `POST /api/auth/session` へ直接送られたときに防げないので、JWT を書き換え
+  // るこの一点で拒否することがそのまま AC-36 の担保になる。
+  it('viewAsRole="guest" は許可ユーザーの管理者が送っても拒否される（AC-36）', async () => {
+    const token = await callJwt({
+      token: { id: 'u1', role: 'admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'guest' } },
+    })
+    expect(token.viewAsRole).toBeUndefined()
+    expect(token.role).toBe('admin')
+  })
+
+  it('viewAsRole="guest" はプレビュー中の値も上書きしない（AC-36）', async () => {
+    const token = await callJwt({
+      token: { id: 'u1', role: 'admin', viewAsRole: 'member' } as JWT,
+      trigger: 'update',
+      session: { viewAsRole: 'guest' },
     })
     expect(token.viewAsRole).toBe('member')
   })
