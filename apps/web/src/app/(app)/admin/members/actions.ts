@@ -123,13 +123,30 @@ export type CreateRegistrationInviteState = {
 }
 
 /**
+ * guest-role: the invite's `kind` fixes what registering through it creates.
+ * Kept as its own union (not reusing `UserRole`) so an invite can only ever be
+ * issued as `member` or `guest` — never `admin`/`vice_admin`.
+ */
+export const REGISTRATION_INVITE_KINDS = ['member', 'guest'] as const
+export type RegistrationInviteKind = (typeof REGISTRATION_INVITE_KINDS)[number]
+
+function isValidInviteKind(value: unknown): value is RegistrationInviteKind {
+  return value === 'member' || value === 'guest'
+}
+
+/**
  * Issue a self-registration link. admin / vice_admin only (same authz as
  * createMember). One link is reusable by multiple people until it expires or is
  * revoked — there is no usage cap (requirements §6). Returns the full URL so the
  * modal can display and copy it; the token itself is never shown elsewhere.
+ *
+ * `kind` defaults to `'member'` (pre-guest-role behaviour): it fixes at issue
+ * time whether the link produces a `role='member'` or `role='guest'` row —
+ * `registerViaInvite` re-reads it from the token, never from client input.
  */
 export async function createRegistrationInvite(
   preset: string,
+  kind: string = 'member',
 ): Promise<CreateRegistrationInviteState> {
   const session = await assertAdminSession()
   const createdBy = session.user?.id
@@ -141,6 +158,9 @@ export async function createRegistrationInvite(
   if (!isValidExpiryPreset(preset)) {
     return { error: '有効期限の指定が不正です' }
   }
+  if (!isValidInviteKind(kind)) {
+    return { error: '招待リンクの種別が不正です' }
+  }
 
   const now = new Date()
   const expiresAt = registrationInviteExpiresAt(preset, now)
@@ -148,6 +168,7 @@ export async function createRegistrationInvite(
 
   await db.insert(registrationInvites).values({
     token,
+    kind,
     expiresAt,
     createdBy,
     createdAt: now,
@@ -186,6 +207,7 @@ export async function revokeRegistrationInvite(
 export type ActiveRegistrationInvite = {
   id: string
   token: string
+  kind: RegistrationInviteKind
   createdAt: Date
   expiresAt: Date
 }
@@ -205,6 +227,7 @@ export async function listActiveRegistrationInvites(
     .select({
       id: registrationInvites.id,
       token: registrationInvites.token,
+      kind: registrationInvites.kind,
       createdAt: registrationInvites.createdAt,
       expiresAt: registrationInvites.expiresAt,
     })

@@ -16,11 +16,16 @@ const initialState: RegisterViaInviteState = {}
 const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
 
 /**
- * Invite-link registration form (A-flat). Staged display driven by 級 + 全日協:
- *   - 級 D/E/未選択 → 氏名＋級のみ
- *   - 級 A          → ＋段位（必須・既定四段）＋全日協チェック
- *   - 級 B/C        → ＋全日協チェック
- *   - 全日協 ON     → ＋全日協登録情報（性別/生年月日/電話/郵便→住所検索/住所1・2）
+ * Invite-link registration form (A-flat). `kind` (from the invite row, decided
+ * at issue time — never chosen here) selects which form renders:
+ *   - kind='guest'  → 3 fields only: 表示名・級・所属会. No structured name/かな,
+ *     no 段位/全日協/PII (guest-role requirements §R1/AC-3).
+ *   - kind='member' (default, pre-guest-role behaviour) → staged display driven
+ *     by 級 + 全日協:
+ *       - 級 D/E/未選択 → 氏名＋級のみ
+ *       - 級 A          → ＋段位（必須・既定四段）＋全日協チェック
+ *       - 級 B/C        → ＋全日協チェック
+ *       - 全日協 ON     → ＋全日協登録情報（性別/生年月日/電話/郵便→住所検索/住所1・2）
  *
  * Inputs are controlled so a validation / duplicate error keeps what the user
  * typed (React 19 resets uncontrolled fields after a form action). Server-side
@@ -29,7 +34,16 @@ const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
  * `token` is fixed via `.bind`. On success the action redirects to the
  * dashboard, so there is no success state to render here.
  */
-export function RegisterForm({ token }: { token: string }) {
+export function RegisterForm({
+  token,
+  kind = 'member',
+}: {
+  token: string
+  kind?: 'member' | 'guest'
+}) {
+  const [guestName, setGuestName] = useState('')
+  const [guestGrade, setGuestGrade] = useState('')
+  const [guestAffiliation, setGuestAffiliation] = useState('')
   const [familyName, setFamilyName] = useState('')
   const [givenName, setGivenName] = useState('')
   const [familyKana, setFamilyKana] = useState('')
@@ -50,6 +64,67 @@ export function RegisterForm({ token }: { token: string }) {
 
   const boundAction = registerViaInvite.bind(null, token)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
+
+  if (kind === 'guest') {
+    return (
+      <form action={formAction} className="space-y-7">
+        <section className="space-y-2">
+          <Field label="表示名" htmlFor="guest-name">
+            <UnderlineInput
+              id="guest-name"
+              name="name"
+              required
+              maxLength={50}
+              value={guestName}
+              onChange={setGuestName}
+              autoComplete="name"
+            />
+          </Field>
+          <p className="text-xs text-ink-meta">
+            姓と名の間にスペースを入れて入力してください（例: 山田 太郎）。
+          </p>
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-ink">級</h2>
+          <SegmentGroup
+            name="grade"
+            ariaLabel="級"
+            value={guestGrade}
+            onChange={setGuestGrade}
+            options={GRADES.map((g) => ({ value: g, label: g, ariaLabel: `${g}級` }))}
+          />
+        </section>
+
+        <section className="space-y-2">
+          <Field label="所属会" htmlFor="guest-affiliation">
+            <UnderlineInput
+              id="guest-affiliation"
+              name="affiliation"
+              required
+              maxLength={100}
+              value={guestAffiliation}
+              onChange={setGuestAffiliation}
+            />
+          </Field>
+        </section>
+
+        {state.error && (
+          <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
+            {state.error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={pending}
+          className="w-full rounded-[4px] bg-brand px-4 py-3 text-sm font-semibold text-ink-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pending ? '登録中…' : '登録する'}
+        </button>
+      </form>
+    )
+  }
 
   const showDan = grade === 'A'
   const showZen = gradeAllowsZen(grade)

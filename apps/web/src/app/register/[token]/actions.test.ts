@@ -58,11 +58,12 @@ function expectRedirect(err: unknown, pathPart: string) {
 
 async function seedInvite(
   createdBy: string,
-  opts?: { token?: string; expiresAt?: Date; revokedAt?: Date | null },
+  opts?: { token?: string; expiresAt?: Date; revokedAt?: Date | null; kind?: 'member' | 'guest' },
 ): Promise<string> {
   const token = opts?.token ?? 'valid-token'
   await testDb.insert(registrationInvites).values({
     token,
+    kind: opts?.kind ?? 'member',
     expiresAt: opts?.expiresAt ?? new Date(Date.now() + 7 * DAY_MS),
     createdBy,
     revokedAt: opts?.revokedAt ?? null,
@@ -70,16 +71,30 @@ async function seedInvite(
   return token
 }
 
+// Minimal guest-registration FormData: 表示名・級・所属会 only.
+function guestForm(extra: Record<string, string> = {}): FormData {
+  return formOf({
+    name: '山田 太郎',
+    grade: 'B',
+    affiliation: 'よその会',
+    ...extra,
+  })
+}
+
 const NEXT_REDIRECT = { digest: expect.stringContaining('NEXT_REDIRECT') }
+
+// ★ teardown はファイル単位で 1 回だけ。describe ごとに afterAll(closeTestDb)
+// を置くと、先に終わった describe が後続 describe 用のプールまで閉じてしまい
+// "Cannot use a pool after calling end on the pool" になる。
+afterAll(async () => {
+  await closeTestDb()
+})
 
 describe('registerViaInvite', () => {
   beforeEach(async () => {
     await truncateAll()
   })
   afterEach(() => vi.restoreAllMocks())
-  afterAll(async () => {
-    await closeTestDb()
-  })
 
   it('正常系(D級): 構造化氏名+級 → role=member / method=invite_link / 合成name で作成され / へ', async () => {
     const issuer = await createUser({ name: 'issuer-1', role: 'admin' })
@@ -365,5 +380,142 @@ describe('registerViaInvite', () => {
       expectRedirect(err, `/register/${token}`)
     }
     expect(await testDb.query.users.findFirst({ where: eq(users.name, '山田 太郎') })).toBeUndefined()
+  })
+})
+
+describe('registerViaInvite (guest invite)', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('ゲスト用トークンで登録: role=guest / is_invited=true / grade・affiliation を保存、PII 列は NULL', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-1', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-1' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-1' })
+
+    await expect(
+      registerViaInvite(token, {}, guestForm({ name: '来場 花子', grade: 'C', affiliation: '隣町かるた会' })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '来場 花子') })
+    expect(created).toBeDefined()
+    expect(created?.role).toBe('guest')
+    expect(created?.isInvited).toBe(true)
+    expect(created?.invitedAt).toBeInstanceOf(Date)
+    expect(created?.grade).toBe('C')
+    expect(created?.affiliation).toBe('隣町かるた会')
+    expect(created?.lineUserId).toBe('Uguest-1')
+    expect(created?.lineLinkedMethod).toBe('invite_link')
+    // 姓名・かな・段位・全日協・住所・電話等の PII 列は一切書かれない。
+    expect(created?.familyName).toBeNull()
+    expect(created?.givenName).toBeNull()
+    expect(created?.familyKana).toBeNull()
+    expect(created?.givenKana).toBeNull()
+    expect(created?.dan).toBeNull()
+    expect(created?.zenNichikyo).toBe(false)
+    expect(created?.gender).toBeNull()
+    expect(created?.birthDate).toBeNull()
+    expect(created?.phone).toBeNull()
+    expect(created?.postalCode).toBeNull()
+    expect(created?.address1).toBeNull()
+    expect(created?.address2).toBeNull()
+  })
+
+  it('ゲスト用トークンは会員用フォーム相当の入力が混入しても role=guest で作られる（クライアント入力の種別は信用しない）', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-2', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-2' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-2' })
+
+    // 会員用フォーム相当のフィールド（姓名かな等）が混入していても、
+    // ゲスト用トークンでは parseGuestRegistration の 3 項目しか読まれず、
+    // role は常に 'guest'（formData 由来の役割選択は存在しない）。
+    const fd = guestForm({
+      name: '混入 太郎',
+      grade: 'A',
+      familyName: '混入',
+      givenName: '太郎',
+      familyKana: 'こんにゅう',
+      givenKana: 'たろう',
+      dan: '6',
+      zenNichikyo: 'on',
+    })
+
+    await expect(registerViaInvite(token, {}, fd)).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '混入 太郎') })
+    expect(created?.role).toBe('guest')
+    expect(created?.familyName).toBeNull()
+    expect(created?.dan).toBeNull()
+    expect(created?.zenNichikyo).toBe(false)
+  })
+
+  it('ゲスト登録: 級未選択は拒否され、行は作成されない', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-3', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-3' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-3' })
+
+    const result = await registerViaInvite(token, {}, guestForm({ grade: '' }))
+    expect(result.error).toContain('級')
+    expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-3') })).toBeUndefined()
+  })
+
+  it('ゲスト登録: 所属会未入力は拒否され、行は作成されない', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-4', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-4' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-4' })
+
+    const result = await registerViaInvite(token, {}, guestForm({ affiliation: '   ' }))
+    expect(result.error).toContain('所属会')
+    expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-4') })).toBeUndefined()
+  })
+
+  it('ゲスト登録: 表示名未入力は拒否され、行は作成されない', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-5', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-5' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-5' })
+
+    const result = await registerViaInvite(token, {}, guestForm({ name: '   ' }))
+    expect(result.error).toBeDefined()
+    expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-5') })).toBeUndefined()
+  })
+
+  it('ゲスト登録: 表示名が既存ユーザーと衝突すると日本語エラーで拒否される', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-6', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-6' })
+    await createUser({ name: '山田 太郎', lineUserId: null })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-6' })
+
+    const result = await registerViaInvite(token, {}, guestForm({ name: '山田 太郎' }))
+    expect(result.error).toBe('同名の会員が既に存在します。管理者にご連絡ください。')
+    expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-6') })).toBeUndefined()
+  })
+
+  it('ゲスト登録: 同一LINEアカウントの二重登録は / へ誘導し、新規行は作られない', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-7', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-7' })
+    await createUser({ name: '既存 ゲスト', role: 'guest', lineUserId: 'Uguestdup', isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguestdup' })
+
+    await expect(
+      registerViaInvite(token, {}, guestForm({ name: '別名 ゲスト' })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    expect(await testDb.query.users.findFirst({ where: eq(users.name, '別名 ゲスト') })).toBeUndefined()
+    expect(await testDb.select().from(users).where(eq(users.lineUserId, 'Uguestdup'))).toHaveLength(1)
+  })
+
+  it('ゲスト用トークンも期限切れ・無効化の扱いは会員用と同じ', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-8', role: 'admin' })
+    const expiredToken = await seedInvite(issuer.id, {
+      kind: 'guest',
+      token: 'guest-token-expired',
+      expiresAt: new Date(Date.now() - DAY_MS),
+    })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-8' })
+
+    const result = await registerViaInvite(expiredToken, {}, guestForm())
+    expect(result.error).toBeDefined()
+    expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-8') })).toBeUndefined()
   })
 })
