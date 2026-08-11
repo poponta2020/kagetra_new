@@ -118,6 +118,12 @@ export const authConfig = {
           const realRole = parseUserRole(token.role)
           if (
             requested &&
+            // guest-role: `selectableRoles` は既に guest を返さないので、この
+            // 判定は実行時には冗長。それでも書いているのは、`token.viewAsRole`
+            // の型が guest を含まないことを型検査で保証させるため（配列の
+            // includes からは TS が絞り込めない）。型とランタイムの防御が
+            // 同じ形で並ぶ状態を保つ（requirements R7 / AC-36）。
+            requested !== 'guest' &&
             allowed &&
             realRole &&
             selectableRoles(realRole).includes(requested)

@@ -50,6 +50,21 @@ export async function createViceAdmin(overrides: Partial<NewUser> = {}) {
 }
 
 /**
+ * guest-role: ゲスト行。招待リンク登録でしか作られないので、実際に発生し得る形
+ * （`is_invited=true`・級あり・所属会あり・PII 列は NULL）を既定にする。
+ * `is_invited` はゲストかどうかの判別に使えない（会員と同じ true）ことを、
+ * このヘルパーを使うテストが常に踏むようにしている。
+ */
+export async function createGuest(overrides: Partial<NewUser> = {}) {
+  return createUser({
+    role: 'guest',
+    isInvited: true,
+    affiliation: 'よその会',
+    ...overrides,
+  })
+}
+
+/**
  * entry-groups: 申込グループを1件作って id を返す。複数イベントを**同じグループ**に
  * 入れたいテストは、これで作った id を `createEvent({ entryGroupId })` へ渡す。
  */

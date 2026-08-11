@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { users } from './auth'
+import { registrationInviteKindEnum } from './enums'
 
 /**
  * registration_invites: admin-issued self-registration links.
@@ -19,12 +20,18 @@ import { users } from './auth'
  * guard — expiry is the primary one). No FK back from `users` is kept: the
  * registration audit trail is `users.line_link_method='invite_link'`, which is
  * sufficient and avoids coupling member rows to ephemeral invite rows.
+ *
+ * guest-role: `kind` fixes WHAT the link creates at issue time. The registration
+ * action re-reads it from the token and never trusts a client-submitted role, so
+ * a guest link can only ever produce `users.role='guest'`. Existing rows default
+ * to `'member'`, keeping the pre-guest behaviour unchanged.
  */
 export const registrationInvites = pgTable('registration_invites', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   token: text('token').notNull().unique(),
+  kind: registrationInviteKindEnum('kind').notNull().default('member'),
   expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
   createdBy: text('created_by')
     .notNull()

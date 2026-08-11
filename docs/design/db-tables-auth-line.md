@@ -94,6 +94,7 @@ Auth.js v5 標準カラム + kagetra拡張プロフィール/権限。
 |---|---|---|---|---|
 | id | text | NOT NULL | `crypto.randomUUID()` | PK |
 | token | text | NOT NULL | — | UNIQUE。`crypto.randomBytes(32).toString('base64url')` |
+| kind | registration_invite_kind (enum) | NOT NULL | 'member' | このリンクが作るロール。登録処理はトークンから引き直して分岐し、クライアント送信値では決めない |
 | expires_at | timestamptz | NOT NULL | — | |
 | created_by | text | NOT NULL | — | FK→users.id ON DELETE CASCADE |
 | created_at | timestamptz | NOT NULL | `now()` | |
