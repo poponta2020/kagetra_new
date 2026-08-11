@@ -12,6 +12,7 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createGuest,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -134,6 +135,14 @@ describe('/dashboard（会の出場予定）', () => {
         user: { role: 'member', lineUserId: 'U-unbound' },
         expires: new Date(Date.now() + 60_000).toISOString(),
       })
+      await expect(DashboardPage()).rejects.toThrow('NEXT_REDIRECT:/403')
+    })
+
+    // guest-role AC-9: middleware の早期ゲート（Edge・stale になりうる）に
+    // 加えた Node 側の実防御。
+    it('ゲストは /403 へリダイレクトされる', async () => {
+      const guest = await createGuest()
+      await setAuthSession({ id: guest.id, role: 'guest' })
       await expect(DashboardPage()).rejects.toThrow('NEXT_REDIRECT:/403')
     })
   })
@@ -282,6 +291,57 @@ describe('/dashboard（会の出場予定）', () => {
       expect(row.textContent).toContain('1')
     })
 
+    // guest-role AC-22（回帰込み）: 確定名簿はゲストを構造的に含まないので、
+    // ゲストは attend=true から別に合流する。会員は名簿ベースのまま変わらない。
+    it('確定名簿があっても attend=true のゲストがゲスト印つきで合流し、会員は名簿ベースのまま変わらない', async () => {
+      const viewer = await createUser({ grade: 'C' })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+
+      const group = await createEntryGroup()
+      const event = await createEvent({
+        title: '石狩CD',
+        eventDate: addDays(todayJst(), 5),
+        eligibleGrades: ['C', 'D'],
+        entryGroupId: group.id,
+      })
+
+      const meibo = await createMember('名簿', 'C')
+      await seedConfirmedRoster(group.id, [
+        { userId: meibo.id, grade: 'C', status: 'confirmed' },
+      ])
+
+      // ★合流が「ゲストだけ」であることの決め手。抽選に落ちた（＝確定名簿に
+      // 載らなかった）会員は attend=true のまま残るので、合流を role で絞らず
+      // 「名簿に居ない attend=true」で拾うと、この会員が確定パスに復活して
+      // しまう。AC-22 の後半（会員は名簿ベースのまま変わらない）はこの行が
+      // 無いと素通りする。
+      const rakusen = await createMember('落選', 'C')
+      await createEventAttendance({
+        eventId: event.id,
+        userId: rakusen.id,
+        attend: true,
+      })
+
+      const guest = await createGuest({ name: '客人 太郎', grade: 'C' })
+      await createEventAttendance({
+        eventId: event.id,
+        userId: guest.id,
+        attend: true,
+      })
+
+      await renderPage()
+      const row = rowOf(event.title)
+      expect(row.textContent).toContain('確定')
+      // 会員は名簿ベースのまま（ゲスト印は付かない）
+      expect(row.textContent).toContain('名簿C')
+      // 落選した会員は attend=true でも確定パスには現れない
+      expect(row.textContent).not.toContain('落選')
+      // ゲストは出欠回答から合流し、ゲスト印が付く
+      expect(row.textContent).toContain('客人Cゲスト')
+      // 人数は名簿1名 + ゲスト1名の2名（落選会員は数えない）
+      expect(row.textContent).toContain('2')
+    })
+
     it('差し替え済み（superseded）の確定名簿は使わず、希望へフォールバックする', async () => {
       const viewer = await createUser({ grade: 'C' })
       await setAuthSession({ id: viewer.id, role: 'member' })
@@ -349,6 +409,31 @@ describe('/dashboard（会の出場予定）', () => {
       expect(row.textContent).not.toContain('確定')
       expect(row.textContent).toContain('参加C')
       expect(row.textContent).not.toContain('不参')
+    })
+
+    // guest-role AC-21: 確定名簿が無いグループ（希望パス）ではゲストも
+    // 会員と同じ出欠回答から拾われ、ゲスト印つきで載る。
+    it('出欠 attend=true のゲストがゲスト印つきで載る', async () => {
+      const viewer = await createUser({ grade: 'C' })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+
+      const event = await createEvent({
+        title: '石狩CD',
+        eventDate: addDays(todayJst(), 5),
+        eligibleGrades: ['C', 'D'],
+      })
+
+      const guest = await createGuest({ name: '客人 太郎', grade: 'C' })
+      await createEventAttendance({
+        eventId: event.id,
+        userId: guest.id,
+        attend: true,
+      })
+
+      await renderPage()
+      const row = rowOf(event.title)
+      expect(row.textContent).toContain('希望')
+      expect(row.textContent).toContain('客人Cゲスト')
     })
 
     it('対象級外の stale な attend=true は除外される（希望パスのみの絞り）', async () => {

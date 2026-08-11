@@ -17,8 +17,13 @@ import type {
 
 const VIEWER_ID = 'viewer-1'
 
-function entrant(surname: string, grade: Grade | null, userId?: string): HomeEntrant {
-  return { userId: userId ?? `u-${surname}`, surname, grade }
+function entrant(
+  surname: string,
+  grade: Grade | null,
+  userId?: string,
+  isGuest = false,
+): HomeEntrant {
+  return { userId: userId ?? `u-${surname}`, surname, grade, isGuest }
 }
 
 function event(
@@ -178,7 +183,9 @@ describe('HomeTimeline', () => {
             viewerUserId: null,
             upcoming: [
               event(1, {
-                entrants: [{ userId: null, surname: '他会', grade: 'B' }],
+                entrants: [
+                  { userId: null, surname: '他会', grade: 'B', isGuest: false },
+                ],
               }),
             ],
           })}
@@ -189,6 +196,27 @@ describe('HomeTimeline', () => {
   })
 
   describe('チップ・行の中身', () => {
+    // guest-role R5/AC-21/AC-22: 出場者チップにゲスト印を付ける（events/[id]
+    // の参加者欄と同じ最小表現）。
+    it('isGuest なチップにはゲスト印が付き、会員のチップには付かない', () => {
+      render(
+        <HomeTimeline
+          data={data({
+            upcoming: [
+              event(1, {
+                entrants: [
+                  entrant('宮下', 'C'),
+                  entrant('外来', 'C', undefined, true),
+                ],
+              }),
+            ],
+          })}
+        />,
+      )
+      expect(chipOf('宮下').textContent).toBe('宮下C')
+      expect(chipOf('外来').textContent).toBe('外来Cゲスト')
+    })
+
     it('級が null の会員は級の添え字を出さない（チップ自体は出す）', () => {
       render(
         <HomeTimeline
