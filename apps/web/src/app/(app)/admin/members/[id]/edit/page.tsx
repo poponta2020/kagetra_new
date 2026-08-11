@@ -137,7 +137,7 @@ export default async function EditMemberPage({
               </form>
             ) : (
               <p className="mt-3 text-xs text-ink-meta">
-                管理者・副管理者の紐付けは解除できません。先にロールを一般会員に変更してください。
+                管理者・副管理者・ゲストの紐付けは解除できません。先にロールを一般会員に変更してください。
               </p>
             ))}
           <p className="mt-2 text-xs text-ink-meta">

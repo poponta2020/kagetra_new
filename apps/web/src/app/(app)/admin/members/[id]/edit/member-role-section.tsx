@@ -6,8 +6,9 @@ import { updateMemberRole, type UpdateRoleState } from './actions'
 
 const initialState: UpdateRoleState = {}
 
-/** 上位 → 下位。設定シートの並びと同じ順。 */
-const ROLES: readonly UserRole[] = ['admin', 'vice_admin', 'member']
+// guest-role: 4択（管理者 / 副管理者 / 一般会員 / ゲスト）。ゲストは
+// 一般会員と双方向に変更できる（requirements R7）。
+const ROLES: readonly UserRole[] = ['admin', 'vice_admin', 'member', 'guest']
 
 function isPrivileged(role: UserRole): boolean {
   return role === 'admin' || role === 'vice_admin'

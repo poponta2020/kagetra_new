@@ -56,10 +56,15 @@ describe('MemberRoleSection', () => {
     expect(screen.getByText('現在: 副管理者')).toBeTruthy()
   })
 
-  it('選択肢が日本語ラベルで並ぶ（AC-18）', () => {
+  it('現在のロールがゲストのときも日本語で表示される（AC-25）', () => {
+    renderSection({ currentRole: 'guest' })
+    expect(screen.getByText('現在: ゲスト')).toBeTruthy()
+  })
+
+  it('選択肢が日本語ラベルで並ぶ（AC-18・AC-25 の4択化）', () => {
     renderSection()
     const labels = screen.getAllByRole('option').map((el) => el.textContent)
-    expect(labels).toEqual(['管理者', '副管理者', '一般会員'])
+    expect(labels).toEqual(['管理者', '副管理者', '一般会員', 'ゲスト'])
   })
 
   it('保存でダイアログが出て、キャンセルすると action が呼ばれない（AC-19）', () => {
@@ -104,22 +109,24 @@ describe('MemberRoleSection', () => {
     expect(screen.queryByLabelText('ロール')).toBeNull()
   })
 
-  it('LINE 未紐付けの行は昇格の選択肢が無効になり理由が出る（AC-21）', () => {
+  it('LINE 未紐付けの行は昇格の選択肢が無効になり理由が出る（AC-21・AC-26 はゲストに及ばない）', () => {
     renderSection({ lineLinked: false })
 
     expect(screen.getByText(/LINE 紐付け前の会員は管理者・副管理者にできません/)).toBeTruthy()
     expect(optionByLabel('管理者').disabled).toBe(true)
     expect(optionByLabel('副管理者').disabled).toBe(true)
     expect(optionByLabel('一般会員').disabled).toBe(false)
+    expect(optionByLabel('ゲスト').disabled).toBe(false)
   })
 
-  it('退会済みの行は昇格の選択肢が無効になり理由が出る（AC-21）', () => {
+  it('退会済みの行は昇格の選択肢が無効になり理由が出る（AC-21・AC-26 はゲストに及ばない）', () => {
     renderSection({ deactivated: true })
 
     expect(screen.getByText(/退会済みの会員は管理者・副管理者にできません/)).toBeTruthy()
     expect(optionByLabel('管理者').disabled).toBe(true)
     expect(optionByLabel('副管理者').disabled).toBe(true)
     expect(optionByLabel('一般会員').disabled).toBe(false)
+    expect(optionByLabel('ゲスト').disabled).toBe(false)
   })
 
   it('昇格が塞がれていても現在のロールは選択できる（退会済みの副管理者を降格する導線）', () => {

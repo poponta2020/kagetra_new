@@ -504,7 +504,9 @@ export async function unlinkLine(formData: FormData) {
   revalidatePath('/admin/members')
 }
 
-const ROLES = ['admin', 'vice_admin', 'member'] as const
+// guest-role: 4択（管理者 / 副管理者 / 一般会員 / ゲスト）。ゲストは登録会の
+// 移動に対応するため一般会員と双方向に変更できる（requirements R7）。
+const ROLES = ['admin', 'vice_admin', 'member', 'guest'] as const
 
 const updateRoleSchema = z.object({
   userId: z.string().min(1),
@@ -516,7 +518,14 @@ export type UpdateRoleState = {
   success?: boolean
 }
 
-/** admin / vice_admin への変更は「昇格」として追加条件を課す。 */
+/**
+ * admin / vice_admin への変更だけを「昇格」として追加条件を課す。
+ *
+ * guest-role: `guest` はここに含めない。既存の昇格制限（LINE 紐付け必須・
+ * 退会済み不可）は「権限を持つ行を第三者に名乗られない」ための防御であり、
+ * ゲストは権限を持たないので同じ制限を課す理由がない（requirements §7）。
+ * ゲストは `member` と同じ「制限なしで変更できる側」に置く。
+ */
 function isPrivilegedRole(role: (typeof ROLES)[number]): boolean {
   return role === 'admin' || role === 'vice_admin'
 }

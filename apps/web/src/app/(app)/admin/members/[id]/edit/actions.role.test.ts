@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createAdmin, createUser, createViceAdmin } from '@/test-utils/seed'
+import { createAdmin, createGuest, createUser, createViceAdmin } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 vi.mock('@/auth', () => mockAuthModule())
@@ -379,6 +379,111 @@ describe('updateMemberRole', () => {
       )
       expect(result.success).toBe(true)
       expect(await roleOf(target.id)).toBe('member')
+    })
+  })
+
+  describe('guest-role: 4択化（AC-25 / AC-26 / AC-37）', () => {
+    it('一般会員をゲストにできる（AC-25）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-1', ...linked() })
+      const target = await createUser({ name: 'target-guest-1', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'guest' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+      expect(await roleOf(target.id)).toBe('guest')
+    })
+
+    it('ゲストを一般会員にできる（AC-25）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-2', ...linked() })
+      const target = await createGuest({ name: 'target-guest-2', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'member' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+      expect(await roleOf(target.id)).toBe('member')
+    })
+
+    it('LINE 未紐付けの会員でもゲストへの変更は拒否されない（AC-26）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-3', ...linked() })
+      const target = await createUser({ name: 'target-guest-3', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'guest' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+      expect(await roleOf(target.id)).toBe('guest')
+    })
+
+    it('退会済みの会員でもゲストへの変更は拒否されない（AC-26）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-4', ...linked() })
+      const target = await createUser({
+        name: 'target-guest-4',
+        ...linked({ deactivatedAt: new Date() }),
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'guest' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+      expect(await roleOf(target.id)).toBe('guest')
+    })
+
+    it('LINE 紐付け済み・有効なゲストは admin にできる（昇格制限は満たせば通る）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-5', ...linked() })
+      const target = await createGuest({ name: 'target-guest-5', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'admin' }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+      expect(await roleOf(target.id)).toBe('admin')
+    })
+
+    it('LINE 未紐付けのゲストは admin にできない（昇格制限は guest → admin にも効く）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-6', ...linked() })
+      const target = await createGuest({ name: 'target-guest-6', lineUserId: null })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberRole(
+        {},
+        formOf({ userId: target.id, role: 'admin' }),
+      )
+      expect(result.error).toContain('LINE 紐付け前')
+      expect(await roleOf(target.id)).toBe('guest')
+    })
+
+    it('ゲストの LINE 紐付け解除は拒否される（AC-37）', async () => {
+      const admin = await createAdmin({ name: 'admin-guest-7', ...linked() })
+      const target = await createGuest({ name: 'target-guest-7', ...linked() })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const fd = new FormData()
+      fd.set('userId', target.id)
+      await expect(unlinkLine(fd)).rejects.toThrow(/privileged_role/)
+
+      const after = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+        columns: { role: true, lineUserId: true },
+      })
+      expect(after?.role).toBe('guest')
+      expect(after?.lineUserId).not.toBeNull()
     })
   })
 })

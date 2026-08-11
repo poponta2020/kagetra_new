@@ -102,7 +102,7 @@ status: completed
 
 ### タスク6: 会の申込作業からの除外（E1〜E5）★本機能の核
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 申込書 xlsx・参加費集計・申込管理ボード・未申込督促からゲストを確実に外す。
 - **対応AC:** AC-17, AC-18, AC-19, AC-20, AC-23
 - **主な変更領域:**
@@ -124,7 +124,7 @@ status: completed
 
 ### タスク7: ホーム（ゲストガード・タイムラインのゲスト印・確定名簿との合流）
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 会員が見るホームの出場タイムラインにゲストを印つきで載せる。確定名簿があるグループでもゲストが消えないようにする。
 - **対応AC:** AC-9（Node 側ガード）, AC-21, AC-22
 - **主な変更領域:** `apps/web/src/app/(app)/dashboard/**`（`page.tsx` / `HomeTimeline.tsx` / `home-timeline-types.ts` / `home-timeline-utils.ts`）
@@ -136,7 +136,7 @@ status: completed
 
 ### タスク8: ロール変更の4択化
 
-- [ ] 完了
+- [x] 完了
 - **目的:** 管理者が会員 ⇄ ゲストを切り替えられるようにする。
 - **対応AC:** AC-25, AC-26, AC-37
 - **主な変更領域:** `apps/web/src/app/(app)/admin/members/[id]/edit/**`（`member-role-section.tsx` / `actions.ts` / `actions.role.test.ts`）
