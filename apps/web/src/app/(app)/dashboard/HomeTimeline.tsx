@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { Card, Pill, SectionLabel } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { formatEventDate } from '@/lib/event-date'
+// guest-role R5/AC-21/AC-22: ゲスト印のラベルは events/[id] の参加者欄と同じ
+// `roleViewLabel('guest')` を再利用する（新しいラベルマップを作らない）。
+import { roleViewLabel } from '@/lib/role-preview'
 import type {
   HomeEntrant,
   HomeTimelineData,
@@ -293,6 +296,25 @@ function EntrantChip({
           )}
         >
           {entrant.grade}
+        </span>
+      )}
+      {/* guest-role R5/AC-21/AC-22: 既存の級添字の隣に短いラベルを添えるだけの
+          ゲスト印（events/[id] の参加者欄と同じ最小表現。design-spec 不要と
+          明示された）。ゲストは /dashboard を開けない（AC-9）ので isViewer と
+          同時に真になることはなく、色分岐は要らない。 */}
+      {entrant.isGuest && (
+        <span
+          className={cn(
+            // 級添字と同じ理由で ink-meta は使えない —— 10px の添え字は
+            // surface-alt 上で ink-meta (4.16:1) では足りず neutral-fg
+            // (6.71:1) が要る（globals.css のコントラスト注記）。
+            // 大会詳細の参加者欄は bg-surface 上なので ink-meta のままでよく、
+            // ここだけ色が違うのは背景が違うため。
+            'ml-0.5 text-[10px]',
+            isViewer ? 'text-ink-on-brand' : 'text-neutral-fg',
+          )}
+        >
+          {roleViewLabel('guest')}
         </span>
       )}
     </span>

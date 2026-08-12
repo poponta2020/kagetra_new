@@ -7,6 +7,10 @@ import {
   type ActiveRegistrationInvite,
 } from './actions'
 import {
+  REGISTRATION_INVITE_KINDS,
+  type RegistrationInviteKind,
+} from './registration-invite-kinds'
+import {
   RegistrationInviteModal,
   type RegistrationInvitePayload,
 } from '@/components/admin/RegistrationInviteModal'
@@ -20,6 +24,11 @@ const PRESET_LABELS: Record<RegistrationInviteExpiryPreset, string> = {
   '1d': '1日',
   '7d': '7日',
   '30d': '30日',
+}
+
+const KIND_LABELS: Record<RegistrationInviteKind, string> = {
+  member: '会員用',
+  guest: 'ゲスト用',
 }
 
 function formatDateTime(d: Date): string {
@@ -38,6 +47,7 @@ export function RegistrationInviteSection({
   activeInvites: ActiveRegistrationInvite[]
 }) {
   const [preset, setPreset] = useState<RegistrationInviteExpiryPreset>(DEFAULT_EXPIRY_PRESET)
+  const [kind, setKind] = useState<RegistrationInviteKind>('member')
   const [payload, setPayload] = useState<RegistrationInvitePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [issuing, startIssue] = useTransition()
@@ -47,7 +57,7 @@ export function RegistrationInviteSection({
   function handleIssue() {
     setError(null)
     startIssue(async () => {
-      const result = await createRegistrationInvite(preset)
+      const result = await createRegistrationInvite(preset, kind)
       if (result.error) {
         setError(result.error)
         return
@@ -79,6 +89,21 @@ export function RegistrationInviteSection({
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
+        <label className="text-sm text-ink-2">
+          種別
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as RegistrationInviteKind)}
+            className="ml-2 rounded-md border border-border px-2 py-1 text-sm"
+            aria-label="招待リンクの種別"
+          >
+            {REGISTRATION_INVITE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-sm text-ink-2">
           有効期限
           <select
@@ -120,6 +145,9 @@ export function RegistrationInviteSection({
                 className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
               >
                 <span className="text-ink-2">
+                  <span className="mr-1 rounded bg-surface-alt px-1.5 py-0.5 text-[10px] font-medium text-ink-2">
+                    {KIND_LABELS[inv.kind]}
+                  </span>
                   発行 {formatDateTime(inv.createdAt)} ／ 失効 {formatDateTime(inv.expiresAt)}
                 </span>
                 <button

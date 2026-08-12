@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 
-type UserRole = 'admin' | 'vice_admin' | 'member'
+type UserRole = 'admin' | 'vice_admin' | 'member' | 'guest'
 type LineLinkedMethod = 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link'
 
 export type MockSessionUser = {

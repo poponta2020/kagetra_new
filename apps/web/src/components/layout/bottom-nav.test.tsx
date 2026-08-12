@@ -287,4 +287,38 @@ describe('BottomNav', () => {
     expect(homeLink?.textContent).not.toContain('一般会員')
     expect(homeLink?.getAttribute('aria-label')).toBeNull()
   })
+
+  // guest-role AC-8: ゲストは「イベント」「設定」の2タブだけ。ホーム・統計・
+  // 申込管理・メールは描画されない。
+  describe('isGuest（guest-role AC-8）', () => {
+    it('isGuest=true のとき イベント/設定 の2タブだけが、この順序で表示される', () => {
+      render(<BottomNav isAdmin={false} isGuest />)
+      const links = screen.getAllByRole('link')
+      expect(links.map((link) => link.textContent?.trim())).toEqual([
+        'イベント',
+        '設定',
+      ])
+    })
+
+    it('isGuest=true のとき ホーム・統計・申込管理・メールが描画されない', () => {
+      render(<BottomNav isAdmin={false} isGuest />)
+      expect(screen.queryByText('ホーム')).toBeNull()
+      expect(screen.queryByText('統計')).toBeNull()
+      expect(screen.queryByText('申込管理')).toBeNull()
+      expect(screen.queryByText('メール')).toBeNull()
+    })
+
+    it('isGuest 省略時（既定 false）は従来どおり6タブ表示される（回帰）', () => {
+      render(<BottomNav isAdmin={false} />)
+      expect(screen.getAllByRole('link')).toHaveLength(6)
+    })
+
+    it('isGuest=true でも イベント タブの href/active 判定は変わらない', () => {
+      mockUsePathname.mockReturnValue('/events/123')
+      render(<BottomNav isAdmin={false} isGuest />)
+      const link = screen.getByText('イベント').closest('a')
+      expect(link?.getAttribute('href')).toBe('/events')
+      expect(link?.className).toContain('border-brand')
+    })
+  })
 })

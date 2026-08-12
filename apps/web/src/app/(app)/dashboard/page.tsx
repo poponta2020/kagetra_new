@@ -12,6 +12,7 @@ import {
 } from '@kagetra/shared/schema'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isGuestRole } from '@/lib/guest-access'
 import { diffDays, todayInJst } from '@/lib/jst-date'
 import { surname } from '@/lib/surname'
 // 表示名（通称 + 対象級）の導出は `/admin/entries` の純関数が唯一の実装なので
@@ -63,6 +64,19 @@ function cmp(a: string, b: string): number {
 }
 
 /**
+ * userId で重複排除する（先勝ち）。確定パスは名簿由来（会員）とゲスト合流
+ * （出欠回答）の 2 集合を合成するため、同じ人が両方に入る余地を構造的に消す
+ * 最終防波堤。呼び出し側は会員側を先に spread する。
+ */
+function dedupeByUserId(entrants: HomeEntrant[]): HomeEntrant[] {
+  const byUserId = new Map<string | null, HomeEntrant>()
+  for (const e of entrants) {
+    if (!byUserId.has(e.userId)) byUserId.set(e.userId, e)
+  }
+  return [...byUserId.values()]
+}
+
+/**
  * ホーム（`/dashboard`）= 会の出場予定。
  *
  * サーバー側の仕事は {@link HomeTimelineData} を組むことだけで、表示は
@@ -77,6 +91,12 @@ export default async function DashboardPage() {
   // 未ログイン・会員未紐付けは通さない（通常は middleware が先に弾く。ここは
   // その fail-safe。`/admin/entries` と同じ形）。
   if (!session?.user?.id) {
+    redirect('/403')
+  }
+  // guest-role AC-9: ゲストはホームへ入れない（許可リストに `/dashboard` が
+  // 無い）。middleware の早期ゲート（Edge・token.role は降格直後 stale に
+  // なりうる）に加えた Node 側の実防御。requirements R2。
+  if (isGuestRole(session.user.role)) {
     redirect('/403')
   }
   const viewerUserId = session.user.id
@@ -191,14 +211,30 @@ export default async function DashboardPage() {
                 'waitlisted',
                 'rejected',
               ]),
+              // guest-role: ゲストは会経由で申し込まないので、名簿に載っているのは
+              // 「登録会が変わって過去に会員だった名残」（管理者が後から role を
+              // guest へ変更したケース）でしかない。会員は名簿が正・ゲストは
+              // 出欠回答が唯一の正という非対称（design-spec §7）を保つため、現在の
+              // role が guest の行は名簿由来の集合から落とし、ゲスト合流
+              // （entrantsFromAttendance の guestsOnly）にだけ委ねる。
+              ne(users.role, 'guest'),
             ),
           )
 
-  // ⑤ eligible 会員（**希望パス専用**）。イベント詳細 AC-26 と同じ
-  //    （`is_invited=true` ∧ 対象級。`eligible_grades` が空/null なら is_invited のみ）。
-  //    級ごとに集合が変わるので、招待済み会員を 1 回引いて JS 側でイベント単位に絞る。
+  // ⑤ eligible 会員 + ゲスト（**希望パス・確定パスのゲスト合流の両方で使う**）。
+  //    イベント詳細 AC-26 と同じ母集団（`is_invited=true` ∧ 対象級。
+  //    `eligible_grades` が空/null なら is_invited のみ）。ゲストは登録時に
+  //    必ず `is_invited=true` になる（requirements R1）ので、role を除外しない
+  //    限りここに混ざる —— それを利用して希望パスは会員・ゲストを区別せず拾い、
+  //    確定パスはこの中からゲストだけを合流させる（下の entrantsFromAttendance）。
+  //    級ごとに集合が変わるので、対象者を 1 回引いて JS 側でイベント単位に絞る。
   const invitedUsers = await db
-    .select({ id: users.id, name: users.name, grade: users.grade })
+    .select({
+      id: users.id,
+      name: users.name,
+      grade: users.grade,
+      role: users.role,
+    })
     .from(users)
     .where(eq(users.isInvited, true))
   const invitedUserById = new Map(invitedUsers.map((u) => [u.id, u]))
@@ -264,24 +300,50 @@ export default async function DashboardPage() {
           surname: surname(row.userName),
           // その大会で出る級。名簿行に級が無いときだけ現在の級へ落とす。
           grade: row.entryGrade ?? row.userGrade,
+          // guest-role: 確定名簿の行は常に「会員として同定できた」ゲート
+          // （innerJoin）を通っているので、ここに現れるのは会員だけ。
+          // ゲストは名簿に構造的に載らない（requirements §7）。
+          isGuest: false,
         })
       }
     }
     return sortEntrants([...byUserId.values()])
   }
 
-  /** 出欠（希望）から 1 イベントぶんの出場者を作る。対象級外の stale 行はここで落とす。 */
-  function hopedEntrantsOf(
+  /**
+   * 出欠（`attend=true`）から 1 イベントぶんの出場者を作る共通処理。
+   * 対象級外の stale 行はここで落とす（イベント詳細 AC-26 と同じ）。
+   *
+   * `guestsOnly` は確定パス専用の合流口 —— guest-role AC-22: 確定名簿がある
+   * グループでも、名簿は会経由で申し込まないゲストを構造的に含まないため、
+   * ゲストだけは出欠回答を正として別に足す（会員は名簿だけが正のまま。
+   * design-spec §7 の意図的な非対称）。**新しいクエリは投げない**
+   * —— ②の attendanceRows と ⑤の invitedUsers を再利用するだけ。
+   */
+  function entrantsFromAttendance(
     eventId: number,
     eligibleGrades: Grade[] | null,
+    { guestsOnly }: { guestsOnly: boolean },
   ): HomeEntrant[] {
     const entrants = (attendancesByEvent.get(eventId) ?? []).flatMap((a) => {
       if (!a.attend) return []
       const user = invitedUserById.get(a.userId)
       if (!user || !isEligibleGrade(eligibleGrades, user.grade)) return []
-      return [{ userId: user.id, surname: surname(user.name), grade: user.grade }]
+      const isGuest = isGuestRole(user.role)
+      if (guestsOnly && !isGuest) return []
+      return [
+        { userId: user.id, surname: surname(user.name), grade: user.grade, isGuest },
+      ]
     })
     return sortEntrants(entrants)
+  }
+
+  /** 確定名簿が無いイベントの出場者（希望パス）。会員・ゲストを区別せず拾う。 */
+  function hopedEntrantsOf(
+    eventId: number,
+    eligibleGrades: Grade[] | null,
+  ): HomeEntrant[] {
+    return entrantsFromAttendance(eventId, eligibleGrades, { guestsOnly: false })
   }
 
   const timelineEvents: HomeTimelineEvent[] = []
@@ -289,7 +351,17 @@ export default async function DashboardPage() {
     // 確定名簿があるグループは確定パス。無ければ出欠（希望）へフォールバックする。
     const hasConfirmedRoster = (rosterIdsByGroup.get(e.entryGroupId) ?? []).length > 0
     const entrants = hasConfirmedRoster
-      ? confirmedEntrantsOf(e.entryGroupId)
+      ? // guest-role AC-22: 確定パスでも、名簿には構造的に載らないゲストを
+        // 出欠回答から合流させる（会員は名簿ベースのまま。上の
+        // entrantsFromAttendance の doc コメントが理由の正典）。dedupeByUserId は
+        // 保険 —— 名簿クエリ側の role フィルタが効いていれば重複は起きないが、
+        // 万一同じ userId が両集合に入っても人数を過大にしない。
+        sortEntrants(
+          dedupeByUserId([
+            ...confirmedEntrantsOf(e.entryGroupId),
+            ...entrantsFromAttendance(e.id, e.eligibleGrades, { guestsOnly: true }),
+          ]),
+        )
       : hopedEntrantsOf(e.id, e.eligibleGrades)
 
     // 出場者 0 名の大会はホームに載せない（design-spec §6）。

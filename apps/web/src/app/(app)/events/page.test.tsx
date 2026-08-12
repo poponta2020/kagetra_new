@@ -1,7 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { closeTestDb, truncateAll } from '@/test-utils/db'
-import { createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import {
+  createEvent,
+  createEventAttendance,
+  createGuest,
+  createUser,
+} from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 
 // entry-overdue-alert タスク4: /events 一覧は entry_status='not_applying' を
@@ -189,5 +194,55 @@ describe('/events-archive — not_applying も従来どおり表示される（�
     render(ui)
 
     expect(screen.getByText('過去の見送り大会')).toBeDefined()
+  })
+})
+
+// guest-role AC-23: 一覧の参加人数はゲストを含む（大会詳細の人数と食い違わせ
+// ないため。requirements R5）。一覧側の集計は元から attend=true の素通しなので
+// **実装変更は無い** —— この describe は「将来ここに role フィルタを足すと
+// 詳細と数字がずれる」ことを固定するための回帰テストである。
+// 姓の羅列にゲスト印は付けない（情報密度を優先。誰がゲストかは詳細で分かる）。
+describe('guest-role AC-23: 一覧の参加人数にゲストを含む', () => {
+  it('/events 一覧の人数がゲストを含み、姓の羅列にはゲスト印を付けない', async () => {
+    const viewer = await createUser({ name: '閲覧 太郎', grade: 'C' })
+    await setAuthSession({ id: viewer.id, role: 'member' })
+
+    const event = await createEvent({
+      title: 'ゲスト混在大会',
+      eventDate: addDays(todayJst(), 10),
+      eligibleGrades: ['C'],
+    })
+    const member = await createUser({ name: '会員 花子', grade: 'C' })
+    const guest = await createGuest({ name: '客人 太郎', grade: 'C' })
+    await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+    await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+    render(await EventsPage())
+
+    // 会員1名 + ゲスト1名 = 2名
+    expect(screen.getByText('2')).toBeDefined()
+    expect(screen.getByText('会員')).toBeDefined()
+    expect(screen.getByText('客人')).toBeDefined()
+    // 姓の羅列にゲスト印は出さない
+    expect(screen.queryByText('ゲスト')).toBeNull()
+  })
+
+  it('/events-archive の人数もゲストを含む', async () => {
+    const viewer = await createUser({ name: '閲覧 太郎', grade: 'C' })
+    await setAuthSession({ id: viewer.id, role: 'member' })
+
+    const event = await createEvent({
+      title: '過去のゲスト混在大会',
+      eventDate: addDays(todayJst(), -10),
+      eligibleGrades: ['C'],
+    })
+    const member = await createUser({ name: '会員 花子', grade: 'C' })
+    const guest = await createGuest({ name: '客人 太郎', grade: 'C' })
+    await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+    await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+    render(await EventsArchivePage())
+
+    expect(screen.getByText('参加 2名')).toBeDefined()
   })
 })

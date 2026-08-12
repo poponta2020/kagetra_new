@@ -236,6 +236,40 @@ describe('createRegistrationInvite', () => {
     expect(result.url).toBeUndefined()
     expect(await testDb.select().from(registrationInvites)).toHaveLength(0)
   })
+
+  it('kind を指定しない発行は kind=member で保存される（既存挙動）', async () => {
+    const admin = await createAdmin({ name: 'inv-admin-3' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await createRegistrationInvite('7d')
+    expect(result.error).toBeUndefined()
+
+    const rows = await testDb.select().from(registrationInvites)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.kind).toBe('member')
+  })
+
+  it('kind=guest で発行すると行の kind=guest が保存される', async () => {
+    const admin = await createAdmin({ name: 'inv-admin-4' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await createRegistrationInvite('7d', 'guest')
+    expect(result.error).toBeUndefined()
+    expect(result.url).toBeDefined()
+
+    const rows = await testDb.select().from(registrationInvites)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.kind).toBe('guest')
+  })
+
+  it('不正な kind はエラー、行は作成されない', async () => {
+    const admin = await createAdmin({ name: 'inv-admin-5' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await createRegistrationInvite('7d', 'admin')
+    expect(result.error).toBeDefined()
+    expect(await testDb.select().from(registrationInvites)).toHaveLength(0)
+  })
 })
 
 describe('revokeRegistrationInvite', () => {
@@ -360,5 +394,21 @@ describe('listActiveRegistrationInvites', () => {
     const member = await createUser({ name: 'list-member-1', role: 'member' })
     await setAuthSession({ id: member.id, role: 'member' })
     await expect(listActiveRegistrationInvites()).rejects.toThrow(/Unauthorized/)
+  })
+
+  it('種別 (kind) を含めて返す', async () => {
+    const admin = await createAdmin({ name: 'list-admin-2' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const future = new Date(Date.now() + 86_400_000)
+
+    await testDb.insert(registrationInvites).values([
+      { token: 'kind-member', kind: 'member', expiresAt: future, createdBy: admin.id },
+      { token: 'kind-guest', kind: 'guest', expiresAt: future, createdBy: admin.id },
+    ])
+
+    const list = await listActiveRegistrationInvites()
+    const byToken = Object.fromEntries(list.map((l) => [l.token, l.kind]))
+    expect(byToken['kind-member']).toBe('member')
+    expect(byToken['kind-guest']).toBe('guest')
   })
 })

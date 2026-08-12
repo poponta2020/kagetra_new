@@ -63,6 +63,15 @@ type RegistrationValues = {
   address2: string | null
 }
 
+// guest-role: guest registration collects only 3 fields — no structured name,
+// no PII. `grade` is required here (unlike the member flow's nullable grade)
+// since 対象級判定 needs it for every guest.
+type GuestRegistrationValues = {
+  name: string
+  grade: (typeof GRADES)[number]
+  affiliation: string
+}
+
 function strOf(raw: FormDataEntryValue | null): string {
   return typeof raw === 'string' ? raw : ''
 }
@@ -205,13 +214,59 @@ function parseRegistration(
   }
 }
 
+/**
+ * guest-role: 3-field guest registration (表示名・級・所属会, all required —
+ * requirements §R1/R8). No structured name/かな, no 全日協 PII. `grade` is
+ * required (not nullable, unlike the member flow) since 対象級判定 needs it.
+ */
+function parseGuestRegistration(
+  formData: FormData,
+): { data: GuestRegistrationValues } | { error: string } {
+  const name = strOf(formData.get('name')).trim()
+  if (name.length === 0) return { error: '表示名を入力してください' }
+  if (name.length > 50) return { error: '表示名は50文字以内で入力してください' }
+
+  const gradeRaw = gradeEntryOrNull(formData.get('grade'))
+  if (gradeRaw === null || !(GRADES as readonly string[]).includes(gradeRaw)) {
+    return { error: '級を選択してください' }
+  }
+  const grade = gradeRaw as (typeof GRADES)[number]
+
+  const affiliation = strOf(formData.get('affiliation')).trim()
+  if (affiliation.length === 0) return { error: '所属会を入力してください' }
+  if (affiliation.length > 100) return { error: '所属会は100文字以内で入力してください' }
+
+  return { data: { name, grade, affiliation } }
+}
+
 export type RegisterViaInviteState = {
   error?: string
 }
 
 /**
- * Complete invite-link self-registration: create the member row and bind it to
- * the current LINE session.
+ * Best-effort JWT refresh + redirect-home, shared by both the member and guest
+ * insert paths after a successful row creation. Self-heals via nodeJwtCallback
+ * on the next Node render if the refresh itself fails.
+ */
+async function finishRegistration(now: Date): Promise<never> {
+  try {
+    await unstable_update({
+      user: {
+        lineLinkedAt: now.toISOString(),
+        lineLinkedMethod: 'invite_link',
+      },
+    })
+  } catch {
+    // JWT refresh failure self-heals on the next Node render via nodeJwtCallback.
+  }
+
+  revalidatePath('/')
+  redirect('/')
+}
+
+/**
+ * Complete invite-link self-registration: create the member/guest row and bind
+ * it to the current LINE session.
  *
  * `token` is bound via `.bind(null, token)` in the form so this stays a
  * useActionState `(prevState, formData)` action. Flow:
@@ -219,11 +274,17 @@ export type RegisterViaInviteState = {
  *      No LINE session yet → bounce back to the link to (re)start OAuth.
  *   2. Re-validate the token (not revoked, not expired) — the page also checked
  *      at render, but an open tab can cross the expiry, so re-check at submit.
- *   3. Validate the structured name + conditional 段位/全日協 PII and 合成 `name`.
- *   4. INSERT users(role=member, isInvited, lineUserId, method=invite_link) plus
- *      the structured-name + PII columns. users.name UNIQUE → contact-admin
- *      message; users.line_user_id UNIQUE (double-submit / race — this LINE
- *      account already registered) → just log them in.
+ *      The invite's `kind` (re-read from the token, never from client input —
+ *      guest-role requirements §R1) decides which branch runs below.
+ *   3a. kind='guest' → validate 表示名/級/所属会 (all required) and INSERT
+ *       users(role=guest, isInvited, grade, affiliation, lineUserId,
+ *       method=invite_link) with every structured-name/PII column left at its
+ *       default (NULL/false) — guests are never asked for PII.
+ *   3b. kind='member' → validate the structured name + conditional 段位/全日協
+ *       PII and 合成 `name`, then INSERT users(role=member, ...) as before.
+ *   4. Either branch: users.name UNIQUE → contact-admin message;
+ *      users.line_user_id UNIQUE (double-submit / race — this LINE account
+ *      already registered) → just log them in.
  *   5. Best-effort JWT refresh (self-heals via nodeJwtCallback if it fails) →
  *      dashboard.
  */
@@ -243,10 +304,45 @@ export async function registerViaInvite(
   // Re-validate the token at submit time (revoked / expired since render).
   const invite = await db.query.registrationInvites.findFirst({
     where: eq(registrationInvites.token, token),
-    columns: { revokedAt: true, expiresAt: true },
+    columns: { revokedAt: true, expiresAt: true, kind: true },
   })
-  if (!isRegistrationInviteUsable(invite)) {
+  if (!invite || !isRegistrationInviteUsable(invite)) {
     return { error: '招待リンクの有効期限が切れています。' }
+  }
+
+  const now = new Date()
+
+  if (invite.kind === 'guest') {
+    const parsed = parseGuestRegistration(formData)
+    if ('error' in parsed) {
+      return { error: parsed.error }
+    }
+    const g = parsed.data
+    try {
+      await db.insert(users).values({
+        name: g.name,
+        grade: g.grade,
+        affiliation: g.affiliation,
+        role: 'guest',
+        isInvited: true,
+        invitedAt: now,
+        lineUserId,
+        lineLinkedAt: now,
+        lineLinkedMethod: 'invite_link',
+      })
+    } catch (err) {
+      if (isRedirectError(err)) throw err
+      if (isUniqueViolation(err)) {
+        const constraint = uniqueViolationConstraint(err) ?? ''
+        if (constraint.includes('line_user_id')) {
+          redirect('/')
+        }
+        return { error: '同名の会員が既に存在します。管理者にご連絡ください。' }
+      }
+      throw err
+    }
+
+    return finishRegistration(now)
   }
 
   const parsed = parseRegistration(formData)
@@ -255,7 +351,6 @@ export async function registerViaInvite(
   }
   const v = parsed.data
 
-  const now = new Date()
   try {
     await db.insert(users).values({
       name: v.name,
@@ -295,19 +390,7 @@ export async function registerViaInvite(
     throw err
   }
 
-  try {
-    await unstable_update({
-      user: {
-        lineLinkedAt: now.toISOString(),
-        lineLinkedMethod: 'invite_link',
-      },
-    })
-  } catch {
-    // JWT refresh failure self-heals on the next Node render via nodeJwtCallback.
-  }
-
-  revalidatePath('/')
-  redirect('/')
+  return finishRegistration(now)
 }
 
 function isRedirectError(err: unknown): boolean {

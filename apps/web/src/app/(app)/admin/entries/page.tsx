@@ -7,10 +7,12 @@ import {
   tournamentEntryRosters,
   tournamentSeries,
   tournamentSeriesEditions,
+  users,
 } from '@kagetra/shared/schema'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { isGuestRole } from '@/lib/guest-access'
 import { todayInJst } from '@/lib/jst-date'
 import { EntryBoardClient } from './EntryBoardClient'
 import { displayName, type EntryBoardItem } from './entry-board-utils'
@@ -35,10 +37,15 @@ export const dynamic = 'force-dynamic'
 export default async function EntryManagementPage() {
   const session = await auth()
   // 未ログイン・会員未紐付けは通さない（通常は middleware が先に弾く。ここは
-  // その fail-safe）。role による絞りはしない。
+  // その fail-safe）。admin/vice_admin/member 間では role による絞りはしない
+  // （閲覧は表示専用ボードとして会員全員に開放済み）。
   if (!session?.user?.id) {
     redirect('/403')
   }
+  // guest-role: ゲストは申込管理ボードに入れない（AC-10）。このページは
+  // PR #378 で role 判定を外し「ログイン済みなら誰でも」になっているため、
+  // middleware の早期ゲートだけに頼ると降格直後の stale な JWT が素通りする。
+  if (isGuestRole(session.user.role)) redirect('/403')
 
   // JST today。events の日付列は YYYY-MM-DD なので辞書順比較で正しい。
   // クライアントへ渡して共有する（クライアントで Date.now() を呼ぶと
@@ -91,16 +98,22 @@ export default async function EntryManagementPage() {
   // ② 参加希望者数。attend=true の素通し件数（/events 一覧と同じセマンティクス。
   //    対象級・isInvited で絞らない）。表示中の大会ぶんを 1 クエリで取り JS で集計する。
   //    inArray に空配列を渡さないよう母集団 0 件なら投げない。
+  //    guest-role E3/AC-19: 「参加希望者数」は会として何人ぶん申し込む必要が
+  //    あるかを見る数値なので、ゲストは数えない（参加者欄の「誰が出るか」とは
+  //    問いが違う。requirements §7）。単独では欠けている users 列を要らないので
+  //    left join ではなく inner join にする（role=NULL の心配をしない）。
   const attendanceRows =
     eventIds.length === 0
       ? []
       : await db
           .select({ eventId: eventAttendances.eventId })
           .from(eventAttendances)
+          .innerJoin(users, eq(users.id, eventAttendances.userId))
           .where(
             and(
               inArray(eventAttendances.eventId, eventIds),
               eq(eventAttendances.attend, true),
+              ne(users.role, 'guest'),
             ),
           )
 

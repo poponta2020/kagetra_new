@@ -204,3 +204,58 @@ describe('RegisterForm', () => {
     expect((screen.getByLabelText('姓（漢字）') as HTMLInputElement).value).toBe('山田')
   })
 })
+
+describe('RegisterForm (kind=guest)', () => {
+  beforeEach(() => {
+    registerMock.mockReset()
+    registerMock.mockResolvedValue({})
+  })
+
+  it('表示名・級・所属会の3項目だけが描画され、PII 入力欄は無い', () => {
+    render(<RegisterForm token="t" kind="guest" />)
+    expect(screen.getByLabelText('表示名')).toBeTruthy()
+    expect(screen.getByRole('radiogroup', { name: '級' })).toBeTruthy()
+    expect(screen.getByLabelText('所属会')).toBeTruthy()
+
+    // 会員用フォームの入力欄が一切無いこと。
+    expect(screen.queryByLabelText('姓（漢字）')).toBeNull()
+    expect(screen.queryByLabelText('名（漢字）')).toBeNull()
+    expect(screen.queryByLabelText('せい（ふりがな）')).toBeNull()
+    expect(screen.queryByLabelText('めい（ふりがな）')).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: '段位' })).toBeNull()
+    expect(screen.queryByText('全日本かるた協会（全日協）に登録済み')).toBeNull()
+    expect(screen.queryByText('全日協登録情報')).toBeNull()
+    expect(screen.queryByLabelText('生年月日')).toBeNull()
+    expect(screen.queryByLabelText('電話番号')).toBeNull()
+    expect(screen.queryByLabelText('郵便番号')).toBeNull()
+  })
+
+  it('送信FormDataに表示名・級・所属会が渡る', async () => {
+    const { container } = render(<RegisterForm token="t" kind="guest" />)
+    fireEvent.change(screen.getByLabelText('表示名'), { target: { value: '山田 太郎' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'C級' }))
+    fireEvent.change(screen.getByLabelText('所属会'), { target: { value: 'よその会' } })
+    submit(container)
+
+    await waitFor(() => expect(registerMock).toHaveBeenCalled())
+    const fd = lastFormData()
+    expect(fd.get('name')).toBe('山田 太郎')
+    expect(fd.get('grade')).toBe('C')
+    expect(fd.get('affiliation')).toBe('よその会')
+    // 会員用フィールドは提出されない。
+    expect(fd.get('familyName')).toBeNull()
+    expect(fd.get('dan')).toBeNull()
+  })
+
+  it('action エラーは role=alert で表示される', async () => {
+    registerMock.mockResolvedValue({ error: '同名の会員が既に存在します。管理者にご連絡ください。' })
+    const { container } = render(<RegisterForm token="t" kind="guest" />)
+    fireEvent.change(screen.getByLabelText('表示名'), { target: { value: '山田 太郎' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'C級' }))
+    fireEvent.change(screen.getByLabelText('所属会'), { target: { value: 'よその会' } })
+    submit(container)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('同名の会員が既に存在します')
+  })
+})

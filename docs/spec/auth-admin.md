@@ -1,6 +1,6 @@
 # 認証・会員管理
 
-> **責務:** LINE 認証（Auth.js v5・招待制）、JWT セッションの内部ユーザー解決、3層 RBAC（admin / vice_admin / member）、招待リンク自己登録、管理者による会員管理（作成・編集・退会・削除）の仕様
+> **責務:** LINE 認証（Auth.js v5・招待制）、JWT セッションの内部ユーザー解決、3層 RBAC（admin / vice_admin / member）+ ゲスト（guest）、招待リンク自己登録、管理者による会員管理（作成・編集・退会・削除）の仕様
 > **関連画面:** `/auth/signin`、`/403`、`/register/[token]`、`/admin/members`、`/admin/members/[id]/edit`
 > **主要実装:**
 > - `apps/web/src/auth.ts`
@@ -51,12 +51,28 @@
 - 未認証: `/auth/signin`、`/auth/error`、`/register/*` のみ通過可。それ以外は `/auth/signin` へリダイレクト。
 - 認証済みだが未紐付け（`session.user.id` 無し）: `/self-identify` と `/register/*` のみ通過可。それ以外は `/self-identify` へリダイレクト。
 - 紐付け済みユーザーが `/auth/signin` に来た場合、または `/register/*` に来た場合はダッシュボード（`/`）へリダイレクト。
+- 実効ロールが `guest`: **許可リスト（fail-closed）**で判定する。許可外はページなら `/403` へリダイレクト（クエリは持ち越さない）、`/api/` 配下なら 403 の JSON を返す（リダイレクトを返すと fetch / `<img>` 側が HTML を掴んで意味不明な失敗になるため）。
+
+### ゲストの許可リスト（guest-access）
+
+判定の正典は `apps/web/src/lib/guest-access.ts` の純関数 `isGuestAllowedPath(pathname)` / `isGuestRole(role)`。DB・next-auth・`process.env` を import しないので、Edge の middleware と Node のページ / route handler の**両方から同じ関数を呼ぶ**。
+
+許可されるのは `/`・`/403`・`/events`・`/events/:id`・`/events-archive`・`/settings`（完全一致のみ）・`/roster-files/:id`・`/api/roster-files/:id[/preview/:page]`・`/api/auth/**` **だけ**で、他はすべて拒否。`/events/new`・`/events/:id/edit`・`/settings/*` の下位ページは明示的に拒否側に落ちる。名簿ファイルはページと API の両方を許可する（片方だけ開けてもビューアが成立しないため）。
+
+**二段構えである理由**: middleware が読む JWT の `role` は、Node 側の jwt callback が DB から再同期して cookie を再発行するまで stale になりうる（会員 → ゲストへ降格した直後など）。したがって middleware は早期ゲート（UX）と位置づけ、実防御は Node 側にも置く:
+
+- ルートハンドラ: `api/mail/attachments/[id]` と同 `preview/[page]` が `isGuestRole(session.user.role)` で 403 を返す。`api/` は `(app)/` 配下ではないため、画面側のガードでは**一切保護されない**。
+- ページ: ログイン済みなら誰でも見られる会員向けページ（`mail/**`・`players/**`・`tournaments/**`・`settings/line-link`・`dashboard`）が `isGuestRole` で `/403` へ。管理者専用ページは既存の `role === 'admin' || role === 'vice_admin'` 判定でゲストが自動的に落ちるので追加のガードは不要。
 
 `matcher` は LINE Webhook（`/api/webhook/line`）、LINE 一斉配信の公開エンドポイント（`/api/line-broadcast`）、無認証・無鍵の郵便番号プロキシ（`/api/zip`）、Auth.js 自体のルート（`/api/auth`）を除外している。`/api/zip` は `/register/*` 中の未紐付けユーザーが住所補完のために叩くため、ミドルウェアを通すと `/self-identify` へ弾かれて機能しなくなるという理由で明示的に除外されている。
 
-### RBAC（3層ロール）
+### RBAC（3層ロール + ゲスト）
 
-`users.role`（`packages/shared/src/schema/enums.ts` の `user_role` enum）は `admin` / `vice_admin` / `member` の3値。新規登録（招待リンク・管理者直接作成いずれも）のデフォルトロールは `member` で固定。登録後のロール変更は会員編集ページの「ロール」セクション（`updateMemberRole`）で行う。**変更できるのは `admin` のみ**で、以下はすべてサーバー側で拒否する:
+`users.role`（`packages/shared/src/schema/enums.ts` の `user_role` enum）は `admin` / `vice_admin` / `member` の3層に、権限を持たない第4のロール `guest` を加えた4値。管理者判定はすべて `role === 'admin' || role === 'vice_admin'` の形なので `guest` は自動的に非管理者へ落ちる（3層 RBAC の判定式は一切変わらない）。ゲストは「大会の参加登録だけができる」外部会員で、できることの正典は `docs/features/guest-role/requirements.md`。
+
+`guest` は権限順序の最下位だが**`member` の下位互換ではない** — 会内締切に縛られず出欠回答できるなど、member にできないこともする。したがって「member 用の判定を通せばゲストも安全」とは限らず、許可リストで明示的に判定する。
+
+管理者直接作成のデフォルトロールは `member` で固定。招待リンク経由の登録はリンク発行時に固定した `registration_invites.kind`（`member` / `guest`）で決まる。登録後のロール変更は会員編集ページの「ロール」セクション（`updateMemberRole`）で行う。**変更できるのは `admin` のみ**で、以下はすべてサーバー側で拒否する:
 
 - **実行者が `admin` 以外**。判定は他の認可と同じく実効ロール（`session.user.role`）で行うため、表示ロールをプレビュー中（下記 role-preview-switch）は変更できない。`assertAdminSession` は `vice_admin` も通すため**この操作では使わない** — 使うと副管理者が自分を `admin` へ昇格でき 3 層 RBAC が崩れる。
 - **自分自身のロール変更**。誤操作で自分の管理権限を失うと DB 直接操作でしか復旧できない。
@@ -71,7 +87,7 @@
 - **Server Action**: 関数の先頭で `await auth()` し、`session.user?.role` が `admin` または `vice_admin` でなければ `throw new Error('Unauthorized')`。例: `apps/web/src/app/(app)/admin/members/actions.ts` の `assertAdminSession`、`apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts` の同名関数。
 - **より厳しい制限**: LINE 紐付け解除（`unlinkLine`）は監査上の機微操作として `vice_admin` を含めず `admin` のみに絞る、という個別の追加制限を関数内で行うケースがある。
 - **ページ（Server Component）**: ページ関数の先頭で `await auth()` し、条件を満たさなければ `redirect('/403')`（例: `admin/members/page.tsx`、`admin/members/[id]/edit/page.tsx`）。`/403` はロール不足時の汎用エラーページで、メッセージ・アクションは持たない静的表示のみ。
-- ロールの日本語表示ラベル（管理者 / 副管理者 / 一般会員）の正典は `apps/web/src/lib/role-preview.ts` の `roleViewLabel()`。設定シートの表示ロール切替・会員一覧のロール列・会員編集のロールセクションがこれを共有する。`apps/web/src/lib/role-label.ts` の `roleLabel()`（Pill tone 付き・`member` を「会員」にフォールバック）は現在どこからも使われていない別実装で、統合はされていない。
+- ロールの日本語表示ラベル（管理者 / 副管理者 / 一般会員 / ゲスト）の正典は `apps/web/src/lib/role-preview.ts` の `roleViewLabel()`。設定シートの表示ロール切替・会員一覧のロール列・会員編集のロールセクションがこれを共有する。`apps/web/src/lib/role-label.ts` の `roleLabel()`（Pill tone 付き・`member` を「会員」にフォールバック）は現在どこからも使われていない別実装で、統合はされていない。
 
 **role-preview-switch（表示ロールの一時プレビュー）**: `session.user.role` は上記の認可判定がそのまま参照する**実効ロール**であり、`session.user.realRole` が DB 由来の**本物のロール**を保持する。両者は通常時（プレビュー未使用）は同値。環境変数 `ROLE_PREVIEW_USER_IDS`（カンマ区切りの `users.id`）で許可されたユーザーだけが、実効ロールを本物のロール以下へ一時的に落とせる（JWT クレーム `viewAsRole` として保持。DB の `users.role` は変更しない）。実効ロールの生成点は `apps/web/src/auth.config.ts` の `session` コールバック 1 箇所のみで、ここが UI の出し分けと Server Action / route handler の認可判定の両方に同時に反映される。プレビューの開始・終了を認可する条件（許可リスト所属・切替先が本物のロール以下）は**必ず `realRole` で判定し、実効ロール（`role`）を使わない**。実効ロールで判定すると、プレビュー中に自分自身を締め出して管理者へ戻れなくなるため。切替 Server Action は `apps/web/src/app/(app)/role-preview-actions.ts`。
 

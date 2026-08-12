@@ -1,8 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { eq } from 'drizzle-orm'
 import { auth, signOut } from '@/auth'
+import { db } from '@/lib/db'
+import { users } from '@kagetra/shared/schema'
 import { Pill, SectionLabel } from '@/components/ui'
 import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
+import { isGuestRole } from '@/lib/guest-access'
 import { setRolePreviewAction } from '../role-preview-actions'
 
 interface SettingsLink {
@@ -31,6 +35,73 @@ export default async function SettingsPage() {
   const isAdmin = role === 'admin' || role === 'vice_admin'
   const userLabel = session.user.name ? `${session.user.name}さん` : ''
 
+  const signOutAction = async () => {
+    'use server'
+    await signOut({ redirectTo: '/auth/signin' })
+  }
+
+  // guest-role: ゲストは表示のみ（表示名・級・所属会）＋ログアウトの専用
+  // ビュー（requirements S7 / AC-24）。通知設定・申込書設定・会員一覧への
+  // 導線も、切替不能な LINE アカウント切替（`/settings/line-link` は
+  // ゲストを /403 へ弾く）も一切出さないので、下の会員/管理者向けの
+  // レンダリングとは分岐する。表示ロールのプレビューセクションは
+  // `buildRolePreviewSelection` が guest に対して null を返すため自然に
+  // 消えるが、それ以外（アカウントセクション・管理セクション）はここで
+  // 明示的に描画しないことで担保する。
+  if (isGuestRole(role)) {
+    // 表示名も級・所属会と同じく DB の最新値を使う。毎リクエストの JWT
+    // 再検証（node-jwt-callback.ts）は role / LINE 情報こそ同期するが name は
+    // 同期しないため、`session.user.name` のままだと管理者がゲストの表示名を
+    // 変更してもこの画面には古い名前が出続けてしまう。
+    const guestProfile = await db.query.users.findFirst({
+      where: eq(users.id, session.user.id),
+      columns: { name: true, grade: true, affiliation: true },
+    })
+    const guestLabel = guestProfile?.name ? `${guestProfile.name}さん` : ''
+
+    return (
+      <div className="flex flex-col gap-5 p-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-display text-xl font-bold text-ink">設定</h1>
+          {guestLabel ? (
+            <p className="text-[13px] text-ink-meta">{guestLabel}</p>
+          ) : null}
+        </div>
+
+        <section>
+          <SectionLabel>登録情報</SectionLabel>
+          <dl className="divide-y divide-border border-y border-border bg-surface">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <dt className="text-sm text-ink-2">表示名</dt>
+              <dd className="text-sm text-ink">{guestProfile?.name ?? '未設定'}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <dt className="text-sm text-ink-2">級</dt>
+              <dd className="text-sm text-ink">
+                {guestProfile?.grade ? `${guestProfile.grade}級` : '未設定'}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <dt className="text-sm text-ink-2">所属会</dt>
+              <dd className="text-sm text-ink">
+                {guestProfile?.affiliation || '未設定'}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <form action={signOutAction} className="pt-1">
+          <button
+            type="submit"
+            className="w-full rounded-md border border-border bg-surface px-4 py-3 text-sm font-medium text-ink-2 transition-colors hover:bg-surface-alt"
+          >
+            ログアウト
+          </button>
+        </form>
+      </div>
+    )
+  }
+
   const realRole = session.user.realRole ?? session.user.role
   const rolePreview = buildRolePreviewSelection(
     session.user.id,
@@ -40,11 +111,6 @@ export default async function SettingsPage() {
   )
   const isPreviewing =
     !!rolePreview && rolePreview.current !== rolePreview.real
-
-  const signOutAction = async () => {
-    'use server'
-    await signOut({ redirectTo: '/auth/signin' })
-  }
 
   const accountLinks: SettingsLink[] = [
     {

@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { MobileShell } from '@/components/layout/mobile-shell'
 import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
+import { isGuestRole } from '@/lib/guest-access'
 
 export default async function AppLayout({
   children,
@@ -13,6 +14,8 @@ export default async function AppLayout({
 
   const role = session.user?.role
   const isAdmin = role === 'admin' || role === 'vice_admin'
+  // guest-role: ボトムナビを「イベント」「設定」の2タブへ絞る（AC-8）。
+  const isGuest = isGuestRole(role)
 
   // role-preview-switch: `ROLE_PREVIEW_USER_IDS` は関数内で読む（モジュール
   // トップで読むとビルド時にインライン化され、本番で再起動しても値が
@@ -34,7 +37,11 @@ export default async function AppLayout({
       : null
 
   return (
-    <MobileShell isAdmin={isAdmin} previewRoleLabel={previewRoleLabel}>
+    <MobileShell
+      isAdmin={isAdmin}
+      previewRoleLabel={previewRoleLabel}
+      isGuest={isGuest}
+    >
       {children}
     </MobileShell>
   )

@@ -167,6 +167,43 @@ describe('buildRolePreviewSelection', () => {
   })
 })
 
+describe('guest-role（AC-1 / AC-24 / AC-36）', () => {
+  it('parseUserRole は guest を受理する（実効ロールが下流の認可へ届くため）', () => {
+    expect(parseUserRole('guest')).toBe('guest')
+  })
+
+  it('roleViewLabel は guest を「ゲスト」と返す（AC-27 の表示元）', () => {
+    expect(roleViewLabel('guest')).toBe('ゲスト')
+  })
+
+  it('selectableRoles のどの結果にも guest は現れない（AC-36 の拒否そのもの）', () => {
+    expect(selectableRoles('admin')).toEqual(['admin', 'vice_admin', 'member'])
+    expect(selectableRoles('vice_admin')).toEqual(['vice_admin', 'member'])
+    expect(selectableRoles('member')).toEqual(['member'])
+    expect(selectableRoles('guest')).toEqual([])
+  })
+
+  it('viewAsRole="guest" は誰も適用できず本物のロールのまま（管理者の締め出し防止）', () => {
+    expect(resolveEffectiveRole('admin', 'guest')).toBe('admin')
+    expect(resolveEffectiveRole('vice_admin', 'guest')).toBe('vice_admin')
+    expect(resolveEffectiveRole('member', 'guest')).toBe('member')
+  })
+
+  it('ゲスト本人は昇格できない（実効ロールは guest のまま）', () => {
+    expect(resolveEffectiveRole('guest', 'admin')).toBe('guest')
+    expect(resolveEffectiveRole('guest', 'vice_admin')).toBe('guest')
+    expect(resolveEffectiveRole('guest', 'member')).toBe('guest')
+    expect(resolveEffectiveRole('guest', undefined)).toBe('guest')
+  })
+
+  it('ゲストには表示ロール切替セクションを描画しない（許可リストに載っていても null）', () => {
+    expect(buildRolePreviewSelection('u1', 'guest', 'guest', 'u1')).toBeNull()
+    expect(buildRolePreviewSelection('u1', 'guest', 'guest', undefined)).toBeNull()
+    // 実効ロールだけが guest（原理的に起きないが fail-closed で塞ぐ）
+    expect(buildRolePreviewSelection('u1', 'admin', 'guest', 'u1')).toBeNull()
+  })
+})
+
 describe('sanitizeReturnPath', () => {
   it('相対パスはそのまま通す', () => {
     expect(sanitizeReturnPath('/')).toBe('/')

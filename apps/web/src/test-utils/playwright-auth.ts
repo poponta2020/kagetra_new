@@ -27,7 +27,7 @@ export type SeededSession = {
 type LineLinkedMethod = 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link'
 
 type IssueOptions = {
-  role: 'admin' | 'vice_admin' | 'member'
+  role: 'admin' | 'vice_admin' | 'member' | 'guest'
   lineUserId?: string | null
   lineLinkedAt?: string | null
   lineLinkedMethod?: LineLinkedMethod | null

@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isGuestRole } from '@/lib/guest-access'
 import { searchMemberMails, type MailSearchRow } from '@/lib/member-mail/search'
 import { loadHistories } from '@/lib/mail-history.queries'
 import type { HistoryRow } from '@/lib/mail-history'
@@ -52,6 +53,10 @@ export async function loadMoreMails(
 ): Promise<MailListItem[]> {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // ページ側の /403 ガードは画面遷移しか塞がない。この action は許可パス
+  // （/events 等）から任意の Server Action ID で直接呼べるため、ここでも
+  // 同じロール判定を重ねる。
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const { rows } = await searchMemberMails({
     q,

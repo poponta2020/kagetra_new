@@ -6,6 +6,7 @@ import { buildRankingHref, metricDef, parseRankingParams } from './metrics'
 import { RankingMetricChips } from './RankingMetricChips'
 import { RankingFilterBar } from './RankingFilterBar'
 import { RankingList } from './RankingList'
+import { isGuestRole } from '@/lib/guest-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,10 @@ export default async function PlayerRankingPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   // 当年はサーバー時刻で算出し、parse（デフォルト直近5年の注入）と期間セレクト候補で共有する。
   const currentYear = new Date().getFullYear()

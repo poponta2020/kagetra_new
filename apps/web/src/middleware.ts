@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth'
 import { NextResponse } from 'next/server'
 import { authConfig } from './auth.config'
+import { isGuestAllowedPath, isGuestRole } from './lib/guest-access'
 
 /**
  * Edge-safe middleware using JWT sessions.
@@ -14,6 +15,7 @@ import { authConfig } from './auth.config'
  *   - token.id unset  → LINE login succeeded but no matching internal user row
  *                        yet; force /self-identify so the user can claim
  *   - no session      → force /auth/signin
+ *   - token.role='guest' → allowlist gate (see lib/guest-access.ts)
  *
  * `/register/*` (invite-link self-registration) is a special category:
  *   - no session            → allow through (welcome + "LINEで登録" button)
@@ -72,6 +74,24 @@ export default auth((req) => {
   ) {
     const url = nextUrl.clone()
     url.pathname = '/'
+    return NextResponse.redirect(url)
+  }
+
+  // guest-role: ゲストの許可リスト（fail-closed）。ここは**早期ゲート（UX）**で、
+  // Edge が読む JWT の role は Node 側の jwt callback が DB から再同期するまで
+  // stale になりうる（会員 → ゲストへ降格した直後など）。したがって本当の防御は
+  // Node 側（route handler・ページ）の `isGuestRole(session.user.role)` 判定にも
+  // 置いてある（二段構え。requirements §6）。
+  //
+  // API とページで応答を変える: `/api/` は 403 の JSON（リダイレクトを返すと
+  // fetch/<img> 側が HTML を掴んで意味不明な失敗になる）、それ以外は /403 へ。
+  if (isGuestRole(session.user?.role) && !isGuestAllowedPath(pathname)) {
+    if (pathname === '/api' || pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    const url = nextUrl.clone()
+    url.pathname = '/403'
+    url.search = ''
     return NextResponse.redirect(url)
   }
 

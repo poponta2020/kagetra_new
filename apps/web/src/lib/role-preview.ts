@@ -13,27 +13,48 @@
  * されても権限は上がらない (昇格不能)。
  */
 
-export type UserRole = 'admin' | 'vice_admin' | 'member'
+export type UserRole = 'admin' | 'vice_admin' | 'member' | 'guest'
 
 /** 大きいほど強い権限。丸め込みの比較に使う。 */
 const ROLE_RANK: Record<UserRole, number> = {
   admin: 3,
   vice_admin: 2,
   member: 1,
+  guest: 0,
 }
 
-/** 上位 → 下位。設定シートのボタン並び順の正。 */
+/**
+ * 上位 → 下位。設定シートのボタン並び順の正。
+ *
+ * ⚠️ guest-role: **`guest` はここに入れない**（`parseUserRole` が受理するのと
+ * 逆を向いているのは意図的）。`auth.config.ts` の JWT 更新経路は
+ * `selectableRoles(realRole).includes(requested)` で切替を認可しているので、
+ * この配列から外すことがそのまま「ゲストビューへは切り替えられない」になる。
+ * ゲストの設定画面には切替セクション自体が無いため、管理者が一度ゲストビューへ
+ * 入ると復帰導線を失う（requirements R7 / AC-36）。
+ */
 const ROLES_HIGH_TO_LOW: readonly UserRole[] = ['admin', 'vice_admin', 'member']
 
 const ROLE_VIEW_LABEL: Record<UserRole, string> = {
   admin: '管理者',
   vice_admin: '副管理者',
   member: '一般会員',
+  guest: 'ゲスト',
 }
 
-/** enum 外の値 (改竄された JWT クレーム・FormData の任意文字列) は null。 */
+/**
+ * enum 外の値 (改竄された JWT クレーム・FormData の任意文字列) は null。
+ *
+ * ⚠️ guest-role: **`guest` は受理する**。ここで弾くと `resolveEffectiveRole` が
+ * ゲストの実効ロールを解決できず、`session.user.role` が `'guest'` として下流の
+ * 認可（許可リスト）に届かない。「切替先として選べない」ことは
+ * `ROLES_HIGH_TO_LOW` 側で表現しており、この関数の責務ではない。
+ */
 export function parseUserRole(value: unknown): UserRole | null {
-  return value === 'admin' || value === 'vice_admin' || value === 'member'
+  return value === 'admin' ||
+    value === 'vice_admin' ||
+    value === 'member' ||
+    value === 'guest'
     ? value
     : null
 }
@@ -53,6 +74,12 @@ export function resolveEffectiveRole(
   if (!real) return realRole
   const view = parseUserRole(viewAsRole)
   if (!view) return real
+  // guest-role: ゲストは**プレビュー先になれない**。ランクだけで丸めると
+  // guest(0) <= admin(3) が成立して管理者がゲストビューへ落ち、ゲストの設定
+  // 画面には切替セクションが無いので復帰不能になる（requirements R7）。
+  // `selectableRoles` からの除外に加えて、実効ロールの生成点であるここでも
+  // 塞ぐ（JWT が直接書き換えられた場合の最後の砦）。
+  if (view === 'guest') return real
   return ROLE_RANK[view] <= ROLE_RANK[real] ? view : real
 }
 
@@ -113,6 +140,10 @@ export function buildRolePreviewSelection(
   const real = parseUserRole(realRole)
   const current = parseUserRole(effectiveRole)
   if (!real || !current) return null
+  // guest-role: ゲストはプレビュー機能を一切持たない。許可リスト任せにすると、
+  // ゲストの id が誤って ROLE_PREVIEW_USER_IDS に入っていた場合に
+  // selectable が空のセクションだけが描画される（AC-24 の「表示のみ」が崩れる）。
+  if (real === 'guest' || current === 'guest') return null
   const allowed = isRolePreviewAllowed(userId, rawEnv)
   const isPreviewing = current !== real
   if (!allowed && !isPreviewing) return null

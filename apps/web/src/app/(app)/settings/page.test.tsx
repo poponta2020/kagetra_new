@@ -1,13 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
+import { closeTestDb, truncateAll } from '@/test-utils/db'
+import { createGuest } from '@/test-utils/seed'
 
 // 設定ハブ（/settings）: 権限による項目出し分けと、role-preview-switch の
-// 「表示ロール」セクションの描画条件を固定する。DB へは触れないページなので
-// テスト DB のシード (test-utils/seed) は使わない。
+// 「表示ロール」セクションの描画条件を固定する。会員・管理者は DB に触れない
+// ページなのでテスト DB のシード (test-utils/seed) を使わないが、guest-role
+// タスク4で追加したゲスト分岐は級・所属会を DB から引くため、その describe
+// ブロックだけテスト DB を使う。
 
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((path: string): never => {
@@ -188,6 +192,91 @@ describe('/settings（設定ハブ）', () => {
     it('ログアウトボタンが form の submit として存在する', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
       await setAuthSession({ id: 'u-member', role: 'member' })
+      await renderPage()
+
+      const button = screen.getByRole('button', { name: 'ログアウト' })
+      expect(button.getAttribute('type')).toBe('submit')
+      expect(button.closest('form')).not.toBeNull()
+    })
+  })
+
+  // guest-role タスク4（AC-24）: ゲストは表示名・級・所属会が表示のみで出て、
+  // 編集フォーム・通知設定・申込書設定・会員一覧・LINE アカウント切替への
+  // 導線が無い。級・所属会はセッションに載っていないので DB から引く。
+  describe('ゲスト（AC-24）', () => {
+    beforeEach(async () => {
+      await truncateAll()
+    })
+
+    afterAll(async () => {
+      await closeTestDb()
+    })
+
+    it('表示名・級・所属会が表示のみで出る', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({
+        name: 'ゲスト太郎',
+        grade: 'B',
+        affiliation: '隣町かるた会',
+      })
+      await setAuthSession({ id: guest.id, role: 'guest', name: guest.name })
+      await renderPage()
+
+      expect(screen.getByText('ゲスト太郎')).toBeTruthy()
+      expect(screen.getByText('B級')).toBeTruthy()
+      expect(screen.getByText('隣町かるた会')).toBeTruthy()
+    })
+
+    // guest-role R1 修正: 毎リクエストの JWT 再検証（node-jwt-callback.ts）は
+    // role / LINE 情報こそ同期するが name は同期しない。session.user.name の
+    // まま表示すると、管理者がゲストの表示名を変更してもこの画面には古い
+    // 名前が出続けてしまうため、DB の最新値を使う。
+    it('セッションの表示名が古くても DB の最新の表示名が出る', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({ name: 'ゲスト新姓', grade: 'B' })
+      await setAuthSession({ id: guest.id, role: 'guest', name: 'ゲスト旧姓' })
+      await renderPage()
+
+      expect(screen.getByText('ゲスト新姓さん')).toBeTruthy()
+      expect(screen.getByText('ゲスト新姓')).toBeTruthy()
+      expect(screen.queryByText('ゲスト旧姓')).toBeNull()
+      expect(screen.queryByText('ゲスト旧姓さん')).toBeNull()
+    })
+
+    it('級・所属会が未設定なら「未設定」と出る', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({
+        name: 'ゲスト次郎',
+        grade: null,
+        affiliation: null,
+      })
+      await setAuthSession({ id: guest.id, role: 'guest', name: guest.name })
+      await renderPage()
+
+      const unset = screen.getAllByText('未設定')
+      expect(unset.length).toBe(2)
+    })
+
+    it('編集フォーム・通知設定・申込書設定・会員一覧・LINE アカウント切替への導線が無い', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({ name: 'ゲスト三郎' })
+      await setAuthSession({ id: guest.id, role: 'guest', name: guest.name })
+      await renderPage()
+
+      expect(screen.queryByRole('link', { name: /LINE アカウント切替/ })).toBeNull()
+      expect(screen.queryByText('メール通知')).toBeNull()
+      expect(screen.queryByText('申込書設定')).toBeNull()
+      expect(screen.queryByText('会員')).toBeNull()
+      expect(screen.queryByText('管理')).toBeNull()
+      expect(screen.queryByText('表示ロール')).toBeNull()
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(screen.queryByRole('combobox')).toBeNull()
+    })
+
+    it('ログアウトボタンは残る', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
+      const guest = await createGuest({ name: 'ゲスト四郎' })
+      await setAuthSession({ id: guest.id, role: 'guest', name: guest.name })
       await renderPage()
 
       const button = screen.getByRole('button', { name: 'ログアウト' })

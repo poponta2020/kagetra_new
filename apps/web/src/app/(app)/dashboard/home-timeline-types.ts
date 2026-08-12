@@ -15,6 +15,10 @@ import type { Grade } from '@kagetra/shared/types'
  *   （名簿の帰属は event ではなく `entry_group_id`）
  * - 対象級外の stale 行除外: イベント詳細 AC-26 と同じ
  *   （`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`）
+ * - guest-role R5/AC-22: `confidence === 'confirmed'` のイベントでも、ゲスト
+ *   （`users.role = 'guest'`）だけは出欠回答（`attend = true`）から別に合流する
+ *   —— ゲストは会の申込名簿に構造的に載らないため。会員は名簿だけが正のまま
+ *   変えない（design-spec §7 の意図的な非対称）
  */
 
 /** 出場者リストの確度。確定名簿があれば `confirmed`、無ければ出欠○の `hoped`。 */
@@ -40,6 +44,13 @@ export interface HomeEntrant {
   surname: string
   /** 級。未設定なら null（チップの級注記を出さない）。 */
   grade: Grade | null
+  /**
+   * guest-role R5/AC-21/AC-22: `users.role === 'guest'` ならゲスト印を出す。
+   * 確定名簿があるグループでもゲストは名簿に載らない（会経由で申し込まない
+   * ため）ので、`confidence === 'confirmed'` のイベントでも出欠回答
+   * （`attend=true`）から合流したゲストが混ざりうる（design-spec §7）。
+   */
+  isGuest: boolean
 }
 
 export interface HomeTimelineEvent {

@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -149,11 +149,14 @@ export async function loadEntryFormContext(groupId: number): Promise<EntryFormCo
     .from(eventAttendances)
     .innerJoin(users, eq(users.id, eventAttendances.userId))
     // 退会済み会員は申込対象にしない（過去の出欠だけが残っているケースがある）。
+    // guest-role E1/AC-17: ゲストは会経由で申し込まないので対象会員から除外する
+    // （出欠は取れても申込書には現れない。requirements R4）。
     .where(
       and(
         inArray(eventAttendances.eventId, eventIds),
         eq(eventAttendances.attend, true),
         isNull(users.deactivatedAt),
+        ne(users.role, 'guest'),
       ),
     )
     .orderBy(asc(users.id))
@@ -329,7 +332,11 @@ export async function listAddableMembersAction(
       givenKana: users.givenKana,
     })
     .from(users)
-    .where(isNull(users.deactivatedAt))
+    // guest-role E1/AC-17: 手動追加のピッカーからもゲストを外す。自動抽出
+    // （attend=true）側だけ除外しても、ここから選べば同じ xlsx に載ってしまう
+    // ——「ゲストは申込書に載らない」は経路ではなく成果物に対する要件なので、
+    // 申込書へ到達する導線はすべて閉じる（requirements R4 / §5 Non-goals）。
+    .where(and(isNull(users.deactivatedAt), ne(users.role, 'guest')))
     .orderBy(asc(users.name))
 
   const excluded = new Set(excludeUserIds)
@@ -610,6 +617,12 @@ export interface CreateEntryFormDraftInput {
   uploaded?: UploadedTemplate | null
   cellMap: CellMap
   members: EntryFormMember[]
+  /**
+   * `members` と**同じ順序・同じ長さ**の users.id。xlsx に書く値そのものは
+   * `members`（平たい記入用の型）が持つが、確定時にロールを引き直すために
+   * 本人の id が要る（guest-role E1）。
+   */
+  memberUserIds: string[]
   toEmail: string
   subject: string
   body: string
@@ -782,6 +795,30 @@ export async function createEntryFormDraftAction(
   // Server Action 境界の防御にならないのでここでも拒否する。
   if (input.members.length === 0) {
     throw new Error('記入する会員が0名です。会員を追加してから作成してください')
+  }
+
+  // guest-role E1/AC-17: 確定の直前に**現在の**ロールを DB から引き直す。
+  // 対象会員の抽出（loadEntryFormContext）と手動追加（listAddableMembersAction）
+  // では既にゲストを外しているが、どちらも「ウィザードを開いた時点」の結果でしかない。
+  // 管理者がウィザードを開いたまま別画面でその会員をゲストへ変更すると、
+  // クライアントが持っている古い一覧のまま確定でき、xlsx にゲストが載ってしまう。
+  // 「ゲストは申込書に載らない」は経路ではなく**成果物**に対する要件なので、
+  // 成果物を作る直前のここで最終確認する。
+  //
+  // 黙って除外せずエラーで止めるのは、管理者がプレビューで見た一覧と実際に
+  // 生成される xlsx を食い違わせないため（既存の再試行競合と同じ扱い）。
+  if (input.memberUserIds.length !== input.members.length) {
+    throw new Error('会員情報の受け渡しが不正です。画面を再読み込みしてください')
+  }
+  const guestRows = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(and(inArray(users.id, input.memberUserIds), eq(users.role, 'guest')))
+  if (guestRows.length > 0) {
+    const names = guestRows.map((r) => r.name).join('・')
+    throw new Error(
+      `${names} は作成中にゲストへ変更されました。ゲストは申込書に載せられません。画面を再読み込みしてください`,
+    )
   }
 
   assertCellMapUsable(input.cellMap)

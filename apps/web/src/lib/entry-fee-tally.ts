@@ -11,12 +11,18 @@ import { resolveEntryFee, summarizeFeeTally, type GradeHeadcount } from '@/lib/e
  * 母集団の定義だけ。
  *
  * 母集団は `apps/web/src/app/(app)/events/[id]/page.tsx` の
- * `eligibleAttendingList` と **1文字も違わない条件**にする（AC-9）:
+ * `eligibleAttendingList` と**ゲスト除外を除いて同一の条件**にする（AC-9）:
  *
  * ```
  * eligible_grades が非空 → is_invited = true AND grade IN (eligible_grades)
  * eligible_grades が NULL/空配列 → is_invited = true だけ
  * ```
+ * （+ いずれの場合も `role <> 'guest'` を追加で課す）
+ *
+ * guest-role: 参加者欄（page.tsx）は「誰が出るか」を見る場所なのでゲストを含め、
+ * 参加費集計は「会として何人ぶん申し込む必要があるか」を見る場所なのでゲストを
+ * 除く——同じ「人数」でも問いが違うので、この2箇所は意図的に条件を分けている
+ * （requirements §6/§7。docs/features/grade-entry-fee/requirements.md AC-9 改訂）。
  *
  * `resolveTargetGrades`（NULL/空 → 全級 A〜E を返す、単価解決専用のヘルパー）を
  * 母集団フィルタに流用してはならない — それを使うと `grade IS NULL` の会員が
@@ -86,10 +92,12 @@ export async function tallyEntryFees(
     if (!resolution.perPersonPriced) continue
     anyPriced = true
 
-    // page.tsx の eligibleAttendingList と同じ母集団定義（AC-9）。eligible_grades が
-    // 非空なら inArray(users.grade, ...) の SQL 性質上 grade IS NULL の行が自然に
-    // 落ちる（=このケースでは unknownGradeCount は増えない）。NULL/空配列なら
-    // is_invited=true だけが条件になり、級未設定者も母集団に入る。
+    // page.tsx の eligibleAttendingList と**ゲスト除外を除いて同一**の母集団定義
+    // （AC-9。両者を意図的に分けた理由は entry-fee-tally.ts 冒頭のコメント参照）。
+    // eligible_grades が非空なら inArray(users.grade, ...) の SQL 性質上
+    // grade IS NULL の行が自然に落ちる（=このケースでは unknownGradeCount は
+    // 増えない）。NULL/空配列なら is_invited=true だけが条件になり、級未設定者も
+    // 母集団に入る。
     const gradeFilter = ev.eligibleGrades?.length
       ? and(eq(users.isInvited, true), inArray(users.grade, ev.eligibleGrades))
       : eq(users.isInvited, true)
@@ -103,6 +111,10 @@ export async function tallyEntryFees(
           eq(eventAttendances.eventId, ev.id),
           eq(eventAttendances.attend, true),
           gradeFilter,
+          // guest-role E2/AC-18: ゲストは会経由で申し込まないので参加費の
+          // 集計母集団からも除外する（is_invited だけでは判別できない — ゲストも
+          // 出欠回答のために is_invited=true になるため。requirements §6）。
+          ne(users.role, 'guest'),
         ),
       )
 

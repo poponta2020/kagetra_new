@@ -9,6 +9,7 @@ import {
   createEntryGroup,
   createEvent,
   createEventAttendance,
+  createGuest,
   createMailMessage,
   createTournamentDraft,
   createUser,
@@ -183,6 +184,21 @@ describe('admin/entry-form actions', () => {
       await setAuthSession({ id: admin.id, role: 'admin' })
       await expect(loadEntryFormContext(99999)).rejects.toThrow('申込グループが見つかりません')
     })
+
+    // guest-role タスク6 E1 (AC-17): ゲストは会経由で申し込まないので、
+    // attend=true でも申込書の対象会員一覧に現れない。
+    it('guest-role AC-17: attend=true のゲストは対象会員一覧に現れない', async () => {
+      const { group, day1, both, only2 } = await seedGroupWithAttendees()
+      const guest = await createGuest({ name: 'ゲスト 参加希望' })
+      await createEventAttendance({ eventId: day1.id, userId: guest.id, attend: true })
+
+      const context = await loadEntryFormContext(group.id)
+
+      const userIds = context.members.map((m) => m.userId)
+      expect(userIds).toContain(both.id)
+      expect(userIds).toContain(only2.id)
+      expect(userIds).not.toContain(guest.id)
+    })
   })
 
   describe('analyzeTemplateAction（AC-4 手動アップロード経路）', () => {
@@ -312,9 +328,12 @@ describe('admin/entry-form actions', () => {
       )
     }
 
-    async function draftInput(groupId: number) {
+    async function draftInput(groupId: number, memberUserId?: string) {
       const base64 = await fixtureBase64('standard.xlsx')
       const cellMap = estimateCellMap(await loadWorkbook(Buffer.from(base64, 'base64')))
+      // guest-role: 確定 Action がロールを引き直すので、対象会員の id を必ず渡す。
+      // 既定は「この 1 件だけを対象にする」ダミー会員を作って id を得る。
+      const userId = memberUserId ?? (await createUser({ role: 'member' })).id
       return {
         groupId,
         uploaded: { filename: 'standard.xlsx', base64 },
@@ -331,6 +350,7 @@ describe('admin/entry-form actions', () => {
             note: null,
           },
         ],
+        memberUserIds: [userId],
         toEmail: 'entry@example.invalid',
         subject: '青森大会申込み（北海道大学かるた会）',
         body: '本文',
@@ -570,8 +590,58 @@ describe('admin/entry-form actions', () => {
       const input = await draftInput(group.id)
 
       await expect(
-        createEntryFormDraftAction({ ...input, members: [] }),
+        createEntryFormDraftAction({ ...input, members: [], memberUserIds: [] }),
       ).rejects.toThrow('記入する会員が0名です')
+
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(0)
+    })
+
+    // guest-role E1/AC-17: 抽出時・手動追加時のゲスト除外は「ウィザードを開いた
+    // 時点」の結果でしかない。管理者がウィザードを開いたまま別画面でその会員を
+    // ゲストへ変更したら、古い一覧のまま確定できてしまう——成果物（xlsx）に対する
+    // 要件なので、生成の直前でも現在のロールを引き直す。
+    it('確定時にゲストへ変わっていた会員がいれば拒否し、xlsx も履歴も作らない', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      // ウィザードを開いた時点では会員だった人が、確定までの間にゲストへ変わった。
+      const turnedGuest = await createUser({ name: '転出 太郎', role: 'member' })
+      const input = await draftInput(group.id, turnedGuest.id)
+      await testDb
+        .update(users)
+        .set({ role: 'guest' })
+        .where(eq(users.id, turnedGuest.id))
+
+      await expect(createEntryFormDraftAction(input)).rejects.toThrow(
+        'ゲストは申込書に載せられません',
+      )
+
+      expect(appendDraftMock).not.toHaveBeenCalled()
+      const rows = await testDb.select().from(entryFormDrafts)
+      expect(rows).toHaveLength(0)
+    })
+
+    it('会員のままなら従来どおり作成できる（上のゲスト判定の対照・回帰）', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const stillMember = await createUser({ name: '在籍 花子', role: 'member' })
+
+      const result = await createEntryFormDraftAction(
+        await draftInput(group.id, stillMember.id),
+      )
+
+      expect(result.status).toBe('created')
+      expect(appendDraftMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('members と memberUserIds の件数が食い違う入力は拒否する', async () => {
+      const { group } = await seedGroupWithAttendees()
+      await seedClubSettings()
+      const input = await draftInput(group.id)
+
+      await expect(
+        createEntryFormDraftAction({ ...input, memberUserIds: [] }),
+      ).rejects.toThrow('会員情報の受け渡しが不正です')
 
       const rows = await testDb.select().from(entryFormDrafts)
       expect(rows).toHaveLength(0)

@@ -12,6 +12,11 @@ export interface MobileShellProps {
    * `BottomNav` の「設定」タブのバッジへ素通しするだけ。非プレビュー時は null。
    */
   previewRoleLabel?: string | null
+  /**
+   * guest-role: 実効ロールがゲストか。`BottomNav` へ素通しして
+   * タブを「イベント」「設定」の2つに絞らせる。既定 false。
+   */
+  isGuest?: boolean
   children: ReactNode
 }
 
@@ -37,6 +42,7 @@ export interface MobileShellProps {
 export function MobileShell({
   isAdmin,
   previewRoleLabel = null,
+  isGuest = false,
   children,
 }: MobileShellProps) {
   // Height is supplied by the `.mobile-shell-h` rule in globals.css, which
@@ -76,7 +82,11 @@ export function MobileShell({
       <main className="flex-1 min-h-0 overflow-y-auto overscroll-none">
         {children}
       </main>
-      <BottomNav isAdmin={isAdmin} previewRoleLabel={previewRoleLabel} />
+      <BottomNav
+        isAdmin={isAdmin}
+        previewRoleLabel={previewRoleLabel}
+        isGuest={isGuest}
+      />
     </div>
   )
 }

@@ -41,6 +41,8 @@ import { listGroupSiblings } from '@/lib/entry-groups'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
+import { isGuestRole } from '@/lib/guest-access'
+import { roleViewLabel } from '@/lib/role-preview'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
@@ -423,7 +425,14 @@ export default async function EventDetailPage({
 
   // Check if current user can respond to attendance (JST-based comparison)
   const todayStr = todayInJst()
-  const isBeforeDeadline = !event.internalDeadline || event.internalDeadline >= todayStr
+  // guest-role R3: ゲストは会内締切に縛られない（会経由で申し込まないため、
+  // 「会が主催者へ申し込む準備の締切」に意味が無い）。この 1 行を bypass
+  // するだけで、下の理由表示（「会内締切を過ぎています」）にもゲストには
+  // 出さないという要件が自動的に満たされる——両方とも isBeforeDeadline を
+  // 見ているので、片方だけ直すとズレる。
+  const isGuest = isGuestRole(session?.user.role)
+  const isBeforeDeadline =
+    isGuest || !event.internalDeadline || event.internalDeadline >= todayStr
   const myAttendance = session
     ? event.attendances.find((a) => a.userId === session.user.id)
     : null
@@ -441,7 +450,13 @@ export default async function EventDetailPage({
 
   // grade-entry-fee タスク7 (AC-21/AC-22): 「あなたの参加費」。出欠の回答状況は
   // 問わない（申し込む前に金額を知りたいため、myAttendance を見ない）。
-  const memberFeeJpy = memberEntryFeeJpy(feeSource, currentUserGrade)
+  //
+  // guest-role AC-16: ゲストには出さない（会へ振り込むと誤解させないため）。
+  // ★JSX の条件分岐で隠すのではなく、ここで computed before branch —— この
+  // ページ自体が Server Component の戻り値としてテストで直列化検査されるため、
+  // 値を計算して JSX 側の `{cond && <p>...}` だけで隠すと RSC payload には
+  // 載ってしまう。ゲストのときはそもそも算出しない。
+  const memberFeeJpy = isGuest ? null : memberEntryFeeJpy(feeSource, currentUserGrade)
 
   const isEligible =
     !event.eligibleGrades?.length ||
@@ -575,6 +590,14 @@ export default async function EventDetailPage({
                     <i className="ml-0.5 font-mono not-italic text-ink-meta">
                       {a.user.grade}
                     </i>
+                  )}
+                  {/* guest-role R5/AC-15: 参加者欄は会員と同じ欄にゲストも
+                      並べ、既存の級添字の隣に短いラベルを添えるだけの
+                      ゲスト印を付ける（design-spec 不要と明示された最小表現）。 */}
+                  {isGuestRole(a.user.role) && (
+                    <span className="ml-0.5 text-[10px] text-ink-meta">
+                      {roleViewLabel('guest')}
+                    </span>
                   )}
                 </span>
               </Fragment>

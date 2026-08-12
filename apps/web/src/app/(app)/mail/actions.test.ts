@@ -59,6 +59,16 @@ describe('loadMoreMails', () => {
     expect(searchMemberMailsMock).not.toHaveBeenCalled()
   })
 
+  // guest-role: ページ側の /403 ガードは画面遷移しか塞がない。この action は
+  // 許可パス（/events 等）から任意の Server Action ID で直接呼べるため、
+  // ゲストを弾く判定を action 自身にも重ねている。
+  it('ゲストは /403 へ redirect する', async () => {
+    await setAuthSession({ id: 'guest-1', role: 'guest' })
+
+    await expect(loadMoreMails('', false, 20)).rejects.toThrow('NEXT_REDIRECT:/403')
+    expect(searchMemberMailsMock).not.toHaveBeenCalled()
+  })
+
   it('searchMemberMails と loadHistories の結果を合成して返す', async () => {
     await setAuthSession({ id: 'member-1', role: 'member' })
     const row1 = makeRow({ id: 1 })

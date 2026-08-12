@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
-import { createEntryGroup, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
+import {
+  createEntryGroup,
+  createEvent,
+  createEventAttendance,
+  createGuest,
+  createUser,
+} from '@/test-utils/seed'
 import { tallyEntryFees, tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 
 /**
@@ -233,6 +239,44 @@ describe('tallyEntryFees', () => {
     const result = await tallyEntryFees(testDb, [])
 
     expect(result).toEqual({ totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 })
+  })
+
+  // guest-role タスク6 E2 (AC-18): ゲストは会経由で申し込まないので参加費の
+  // 総額・内訳に算入しない。is_invited=true でも role='guest' なら除外する
+  // （is_invited だけではゲスト判別できないため — requirements §6）。
+  it('guest-role AC-18: attend=true・is_invited=true・対象級のゲストは総額・内訳に算入されない', async () => {
+    const event = await createEvent({
+      official: true,
+      kind: 'individual',
+      eligibleGrades: ['A'],
+    })
+    const member = await createUser({ grade: 'A', isInvited: true })
+    await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+    const guest = await createGuest({ grade: 'A' })
+    await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+    const result = await tallyEntryFees(testDb, [event.id])
+
+    // ゲストが混ざっていても会員1名ぶんの2,500円のまま（5,000円にならない）。
+    expect(result.totalJpy).toBe(2500)
+    expect(result.breakdownLabel).toBe('A級 1名×2,500')
+    expect(result.unknownGradeCount).toBe(0)
+  })
+
+  it('guest-role AC-18: ゲストのみが参加希望している大会は総額0円・内訳なし', async () => {
+    const event = await createEvent({
+      official: true,
+      kind: 'individual',
+      eligibleGrades: ['A'],
+    })
+    const guest = await createGuest({ grade: 'A' })
+    await createEventAttendance({ eventId: event.id, userId: guest.id, attend: true })
+
+    const result = await tallyEntryFees(testDb, [event.id])
+
+    expect(result.totalJpy).toBe(0)
+    expect(result.breakdownLabel).toBeNull()
+    expect(result.unknownGradeCount).toBe(0)
   })
 })
 

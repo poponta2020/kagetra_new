@@ -36,9 +36,9 @@ export default async function RegisterPage({
   // 2. Validate the token before exposing any button/form.
   const invite = await db.query.registrationInvites.findFirst({
     where: eq(registrationInvites.token, token),
-    columns: { revokedAt: true, expiresAt: true },
+    columns: { revokedAt: true, expiresAt: true, kind: true },
   })
-  if (!isRegistrationInviteUsable(invite)) {
+  if (!invite || !isRegistrationInviteUsable(invite)) {
     return (
       <Shell>
         <p className="rounded-[4px] border border-accent/40 bg-accent-bg px-4 py-3 text-sm text-accent-fg">
@@ -50,11 +50,12 @@ export default async function RegisterPage({
 
   // 3. Not logged in → welcome + LINE login (comes back to this URL).
   const lineUserId = session?.user?.lineUserId
+  const isGuestInvite = invite.kind === 'guest'
   if (!lineUserId) {
     return (
       <Shell>
         <p className="text-sm leading-relaxed text-ink-2">
-          招待リンクから会員登録します。まず LINE アカウントで認証してください。
+          招待リンクから{isGuestInvite ? 'ゲスト登録' : '会員登録'}します。まず LINE アカウントで認証してください。
         </p>
         <form
           action={async () => {
@@ -70,7 +71,9 @@ export default async function RegisterPage({
           </button>
         </form>
         <p className="text-xs text-ink-meta">
-          認証のあと、お名前と級を入力します。
+          {isGuestInvite
+            ? '認証のあと、表示名・級・所属会を入力します。'
+            : '認証のあと、お名前と級を入力します。'}
         </p>
       </Shell>
     )
@@ -87,7 +90,7 @@ export default async function RegisterPage({
         />
         LINE 認証済み
       </p>
-      <RegisterForm token={token} />
+      <RegisterForm token={token} kind={invite.kind} />
     </Shell>
   )
 }

@@ -15,13 +15,14 @@
 
 | enum名 (DB) | TSエクスポート名 | 値 |
 |---|---|---|
-| user_role | userRoleEnum | admin, vice_admin, member |
+| user_role | userRoleEnum | admin, vice_admin, member, guest |
 | event_status | eventStatusEnum | published, cancelled, done |
 | grade | gradeEnum | A, B, C, D, E |
 | gender | genderEnum | male, female |
 | event_kind | eventKindEnum | individual, team |
 | schedule_kind | scheduleKindEnum | legacy: practice, meeting, social, other（第2段階の DB 削除対象） |
 | line_link_method | lineLinkMethodEnum | self_identify, admin_link, account_switch, invite_link |
+| registration_invite_kind | registrationInviteKindEnum | member, guest（招待リンクが作るロール。`user_role` の再利用ではなく専用enum＝リンクから admin を作れない） |
 | mail_message_status | mailMessageStatusEnum | pending, fetched, parse_failed, fetch_failed, ai_processing, ai_done, ai_failed, oversize_skipped, archived |
 | mail_classification | mailClassificationEnum | tournament, noise, unknown |
 | attachment_extraction_status | attachmentExtractionStatusEnum | pending, extracted, failed, unsupported |

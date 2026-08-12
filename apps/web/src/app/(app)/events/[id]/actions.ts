@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { isGuestRole } from '@/lib/guest-access'
 import {
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
@@ -627,6 +628,11 @@ export async function submitAttendance(eventId: number, formData: FormData) {
   if (!session?.user?.id) throw new Error('Unauthorized')
   const isAdminUser =
     session.user.role === 'admin' || session.user.role === 'vice_admin'
+  // guest-role R3/AC-12: ゲストは会内締切に縛られない。この判定はページ側の
+  // `isBeforeDeadline` と対になっている——片方だけ直すと UI の見た目（回答
+  // ボタンの表示）と実際の可否がずれる。UI 側の判定はサーバーで信頼しない
+  // 方針（下の全チェックが再検証している）なので、ここでも同じ条件を持つ。
+  const isGuestUser = isGuestRole(session.user.role)
 
   const attend = formData.get('attend') === 'true'
   // Comment is only updated when the form actually submits a `comment` field.
@@ -650,6 +656,7 @@ export async function submitAttendance(eventId: number, formData: FormData) {
   }
   if (
     !isAdminUser &&
+    !isGuestUser &&
     targetEvent.internalDeadline &&
     targetEvent.internalDeadline < todayJst
   ) {

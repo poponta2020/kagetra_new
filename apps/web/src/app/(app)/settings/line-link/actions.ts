@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
+import { isGuestRole } from '@/lib/guest-access'
 import {
   LINE_STATE_COOKIE,
   LINE_STATE_MAX_AGE,
@@ -29,6 +30,12 @@ export async function startLineLink() {
   const session = await auth()
   if (!session?.user?.id) {
     redirect('/auth/signin')
+  }
+  // ページ側の /403 ガードは画面遷移しか塞がない。この action は許可パス
+  // （/events 等）から任意の Server Action ID で直接呼べるため、ここでも
+  // 同じロール判定を重ねる（§6: ゲストの LINE 紐付け切替は提供しない）。
+  if (isGuestRole(session.user.role)) {
+    redirect('/403')
   }
 
   const env = readLineOAuthEnv()

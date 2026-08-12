@@ -142,4 +142,20 @@ describe('GET /api/roster-files/:id', () => {
     expect(res.headers.get('content-type')).toBe('application/octet-stream')
     expect(res.headers.get('content-disposition')).toMatch(/^attachment;/)
   })
+
+  // guest-role AC-34: 名簿ファイルは大会詳細の一部としてゲストにも見せると
+  // 決めたもの。ここに role ガードを足すと、ゲストの大会詳細で名簿ビューアが
+  // 壊れる（許可リストは middleware 側で `/api/roster-files/**` を通している）。
+  it('ゲストのセッションでも従来どおり取得できる（AC-34）', async () => {
+    await setAuthSession({ id: 'g1', role: 'guest' })
+    mockRosterFileFindFirst.mockResolvedValue(ADOPTED_ROW)
+    mockAttachmentFindFirst.mockResolvedValue({
+      data: Buffer.from('PK'),
+      filename: '確定名簿.xlsx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const res = await GET(makeRequest(), mkParams('5'))
+    expect(res.status).toBe(200)
+  })
 })

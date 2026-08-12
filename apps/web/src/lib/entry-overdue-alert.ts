@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, ne, sql } from 'drizzle-orm'
-import { events, eventAttendances, lineChannels } from '@kagetra/shared/schema'
+import { events, eventAttendances, lineChannels, users } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { diffDays } from '@/lib/jst-date'
 import { formatMMDD, jstTodayIso } from '@/lib/event-lifecycle-notify'
@@ -93,12 +93,21 @@ export async function collectOverdueEntries(
   // event_attendances.id との名前衝突を避けるため alias `ea` を明示する。埋め込んだ
   // ${events.id} は event_attendances 側の id 列と同名衝突し、テーブル修飾子なしの
   // "id" に潰れて誤って自己相関する（実測で発覚。events 側は raw text "events.id"
-  // で外側クエリのテーブル名を直接参照して曖昧さを断つ）。
+  // で外側クエリのテーブル名を直接参照して曖昧さを断つ）。users 側も同じ理由で
+  // alias `u` を明示する。
+  //
+  // guest-role E4/AC-20: この式は下の SELECT と WHERE 双方で使い回されている
+  // （「参加1名以上」の抽出条件と「参加 N名」の文面表示を1箇所で同時に直す）。
+  // ゲストは会経由で申し込まないので、参加希望者カウントから除外する
+  // （requirements R4。/admin/entries の参加希望者数と同じ定義を共有する — 定義を
+  // 二重化しない）。
   const attendCountExpr = sql<number>`(
     select count(*)::int
     from ${eventAttendances} ea
+    inner join ${users} u on u.id = ea.user_id
     where ea.event_id = events.id
       and ea.attend = true
+      and u.role <> 'guest'
   )`
 
   const rows = await dbc

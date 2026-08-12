@@ -22,11 +22,24 @@ interface Tab {
    * role で振り分けるタブに使う（現状「メール」のみ）。
    */
   memberHref?: string
+  /**
+   * guest-role: ゲストにも見せるタブか。既定 false（会員・管理者専用）。
+   * ゲストは許可リスト（`isGuestAllowedPath`）で `/events` と `/settings`
+   * のみ開けるため、ナビもそれに合わせて「イベント」「設定」の2つだけを true
+   * にする（requirements S3 / AC-8）。
+   */
+  guestVisible?: boolean
 }
 
 const TABS: readonly Tab[] = [
   { id: 'home', label: 'ホーム', href: '/dashboard', matches: ['/dashboard'] },
-  { id: 'events', label: 'イベント', href: '/events', matches: ['/events'] },
+  {
+    id: 'events',
+    label: 'イベント',
+    href: '/events',
+    matches: ['/events'],
+    guestVisible: true,
+  },
   // senseki-stats (PR-2): 戦績 → 統計 に改称。href は /players 据え置き
   // （着地点＝選手検索）だが、配下の 4 セクション（選手検索/大会結果/ランキング/
   // 大会統計）は /players・/tournaments の 2 基底に分かれるため両方を active 判定。
@@ -68,6 +81,7 @@ const TABS: readonly Tab[] = [
     label: '設定',
     href: '/settings',
     matches: ['/settings', '/admin/members', '/admin/line-channels'],
+    guestVisible: true,
   },
 ]
 
@@ -88,6 +102,11 @@ export interface BottomNavProps {
    * 切替を行う場所と同じ「設定」タブの上に出す。
    */
   previewRoleLabel?: string | null
+  /**
+   * guest-role: 実効ロールがゲストか。true のときは `guestVisible` な
+   * タブ（イベント・設定）だけを描画する。既定 false。
+   */
+  isGuest?: boolean
 }
 
 /**
@@ -98,6 +117,10 @@ export interface BottomNavProps {
  * （member-mail-search で「メール」を開放し、一般会員も管理者も 6 タブ）。
  * 「メール」だけ遷移先が role で分かれる（管理者 `/admin/mail-inbox` /
  * 一般会員 `/mail`）。
+ *
+ * guest-role: `isGuest` のときは上記から「イベント」「設定」の2タブだけに
+ * 絞る（requirements S3 / AC-8）。ゲストは許可リスト
+ * （`isGuestAllowedPath`）でこの2つ以外を開けないため、ナビも一致させる。
  *
  * IMPORTANT — border-box trap: Tailwind defaults to `box-sizing: border-
  * box`, so `min-h-[52px]` measures the **outer** box (border + padding +
@@ -114,9 +137,12 @@ export interface BottomNavProps {
 export function BottomNav({
   isAdmin,
   previewRoleLabel = null,
+  isGuest = false,
 }: BottomNavProps) {
   const pathname = usePathname() ?? ''
-  const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin)
+  const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin).filter(
+    (tab) => !isGuest || tab.guestVisible,
+  )
   return (
     <nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
       {visibleTabs.map((tab) => {

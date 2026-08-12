@@ -1,6 +1,19 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 
-export const userRoleEnum = pgEnum('user_role', ['admin', 'vice_admin', 'member'])
+// guest-role: `guest` は「大会の参加登録だけができる」第4ロール。サークル員だが
+// 協会への登録会が他会である人を、会の申込作業（申込書 xlsx・参加費集計・申込管理
+// ボード・未申込督促）から外したまま「出場予定がある人」として保持するために足した。
+// 権限順序としては member より下だが、**member の下位互換ではない**（member ができる
+// ことの部分集合でもない: 会内締切に縛られず回答できる）。認可は許可リストで判定する。
+export const userRoleEnum = pgEnum('user_role', ['admin', 'vice_admin', 'member', 'guest'])
+
+// guest-role: 招待リンクの種別。`user_role` を再利用せず専用 enum にしているのは、
+// 招待リンクから作れるロールを `member` / `guest` の2つに構造的に限定するため
+// （`admin` を入れられる形にしない）。
+export const registrationInviteKindEnum = pgEnum('registration_invite_kind', [
+  'member',
+  'guest',
+])
 export const eventStatusEnum = pgEnum('event_status', ['published', 'cancelled', 'done'])
 export const gradeEnum = pgEnum('grade', ['A', 'B', 'C', 'D', 'E'])
 export const genderEnum = pgEnum('gender', ['male', 'female'])

@@ -319,6 +319,9 @@ export function EntryFormWizard({ context, currentUserName }: EntryFormWizardPro
             note: m.note,
           }),
         ),
+        // guest-role: 記入用の平たい型には userId を持ち込まないが、確定 Action が
+        // ロールを引き直すために id だけ別配列で渡す（members と同じ順序・長さ）。
+        memberUserIds: activeMembers.map((m) => m.userId),
         toEmail: mail.toEmail,
         subject: mail.subject,
         body: mail.body,

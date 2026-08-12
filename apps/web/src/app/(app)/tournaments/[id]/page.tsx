@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getTournamentResults, sortBlocks } from '@/lib/stats/results'
 import { TournamentDetailTabs } from './TournamentDetailTabs'
+import { isGuestRole } from '@/lib/guest-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,10 @@ export default async function TournamentDetailPage({
 }) {
   const session = await auth()
   if (!session) redirect('/auth/signin')
+  // guest-role: ゲストは会員向け画面に入れない（許可リスト。middleware の
+  // 早期ゲートに加えた Node 側の実防御 — Edge の JWT role は降格直後 stale
+  // になりうる）。requirements R2 / AC-10
+  if (isGuestRole(session.user?.role)) redirect('/403')
 
   const { id } = await params
   // 動的セグメントは 10 進整数のみを正規 URL とする（`1.0`/`1e3` 等の非正規表現は 404）。
