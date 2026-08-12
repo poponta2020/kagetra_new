@@ -292,3 +292,10 @@
 - [vitest の beforeEach は返り値の関数を teardown 扱いする](feedback_vitest_beforeeach_returns_teardown.md) — beforeEach(() => mock.mockReset()) はモックを teardown 登録し never-resolve 実装で 10s タイムアウト。ブロックで囲む
 - [auto-review PR #479](auto-review-round-pr479.md) — 4R(i+d+f+fd) pass。blockers累計7→修正5/見送り2。finalがDoS系2件を追加検出
 - [会員向け 受信メール検索・閲覧](project_ship-member-mail-search.md) — shipped: PR #479。残DoD=実機375px(AC-34)とPDFページ画像(AC-21)
+- [guest-role 要件定義](project_guest_role_def.md) — 親Issue #480・子#481-488・Wave1=基盤単独/Wave2=7並行
+- [guest-role タスク1・2](impl_guest-role-task1-2.md) — 基盤(enum/migration0057/role-preview)とアクセス制御(許可リスト二段構え)。管理者がゲストビューで復帰不能になる穴を追加で塞いだ
+- [guest-role Wave A](impl_guest-role-wave-a.md) — タスク3/4/5を3並行。バリアでmainが直した3件(pool早期close・await では TS が never を認識しない・未定義トークン)
+- [guest-role Wave B・完了](impl_guest-role-wave-b.md) — タスク6/7/8 + AC漏れ補完。共有vi.fnへのnot.toHaveBeenCalledはmockClear必須(ヒープ枯渇でプロセス死)
+- [共有モックへのnot.toHaveBeenCalledはmockClear必須](feedback_vitest_shared_mock_not_called_oom.md) — クリアせず否定アサートすると失敗時のpretty-printでヒープ枯渇→プロセス死。単体では通るのにファイル全体で落ちる
+- [auto-review PR #489](auto-review-round-pr489.md) — 3R(i+d+f)+cutoff。'use server'の値exportがbuildを壊す/ページガードはServer Actionを守らない。TOCTOU系4件はユーザー判断で見送り
+- [guest-role（第4ロール・ゲスト）出荷](project_ship-guest-role.md) — shipped: PR #489。★残DoD=本番実機確認5項目。レビューで'use server'の値export(build失敗)とServer Actionのガード漏れを捕捉
