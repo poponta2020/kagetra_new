@@ -26,6 +26,14 @@ import { GET } from './route'
 
 const KEY = 'route-test-external-key'
 
+// 時刻を絶対日時に固定する（Date のみ fake。DB I/O のタイマーは実時間のまま）。
+// 下の monthStart 等は**モジュール評価時**に導出される一方、ルートは
+// **リクエスト時**に当月1日を計算するため、JST 月末深夜0時をまたぐ実行で
+// 両者の「当月」が食い違い AC-6 が偽陽性で落ちる（R1 レビュー指摘）。
+// 固定はモジュール評価と同じタイミングで行い、afterAll で実時間へ戻す。
+vi.useFakeTimers({ toFake: ['Date'] })
+vi.setSystemTime(new Date('2026-08-13T12:00:00+09:00'))
+
 /** 当月1日（JST）。route が使う since と同じ導出。 */
 const monthStart = `${todayInJst().slice(0, 8)}01`
 /** 先月末日（当月境界の外）。 */
@@ -97,6 +105,7 @@ describe('GET /api/external/tournament-entrants', () => {
     vi.unstubAllEnvs()
   })
   afterAll(async () => {
+    vi.useRealTimers()
     await closeTestDb()
   })
 
