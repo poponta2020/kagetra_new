@@ -49,7 +49,7 @@ status: completed
 - **完了条件:** middleware.test.ts green・typecheck 通過
 
 ### タスク4: 契約ドキュメント（external-api ドメイン新設）（#494）
-- [ ] 完了
+- [x] 完了
 - **目的:** match-tracker 側実装が参照する公開契約の正典を docs レジストリに置く
 - **対応AC:** —（docs。gate-dod D2 対応）
 - **主な変更領域:** `docs/spec/external-api.md`（新規: レスポンス JSON スキーマ・認証・「キーを URL クエリで渡さない」・鍵管理と本番配備手順・キー未設定=fail-closed・将来のローテはカンマ区切り複数キー許容で無停止化できる旨のメモ）, `docs/SPECIFICATION.md`（索引行追加）, `docs/features/INDEX.md`（主要領域を確定値へ更新）

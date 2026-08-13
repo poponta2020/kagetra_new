@@ -31,6 +31,7 @@
 | メール取込 | IMAP 取込・AI 大会案内抽出・管理者承認・受信箱 UI・添付プレビュー配信 | [spec/mail-worker.md](spec/mail-worker.md) |
 | 通知・LINE・Push | 大会単位 LINE グループ配信（Bot プール）・ライフサイクル通知・LINE アカウント切替・Web Push バッジ | [spec/notifications.md](spec/notifications.md) |
 | UI シェル | 共通外枠（ボトムナビ）・PWA・設定ハブ（`/settings`）・モーダル/ボトムシート CSS 規約 | [spec/ui-shell.md](spec/ui-shell.md) |
+| 外部連携 API | 他システム（match-tracker）への読み取り専用データ提供（`/api/external/**`・静的 API キー認証・大会出場予定者） | [spec/external-api.md](spec/external-api.md) |
 
 ## 横断ドキュメント
 
