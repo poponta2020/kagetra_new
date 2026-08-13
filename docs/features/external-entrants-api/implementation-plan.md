@@ -31,7 +31,7 @@ status: completed
 - **完了条件:** `pnpm --filter=@kagetra/web test` 対象スイート green・typecheck 通過・page.test.tsx 無変更
 
 ### タスク2: API ルート新設（認証・シリアライズ・テスト）（#492）
-- [ ] 完了
+- [x] 完了
 - **目的:** AC-1〜AC-10 を満たす読み取り専用エンドポイントの提供
 - **対応AC:** AC-1〜AC-10
 - **主な変更領域:** `apps/web/src/app/api/external/tournament-entrants/route.ts`（新規）, `apps/web/src/lib/external-api-key.ts`（新規・キー検証純関数＋隣接テスト）
