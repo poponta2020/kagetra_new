@@ -108,6 +108,12 @@ export const config = {
     // (id 未設定) ユーザーが叩くため、ここを通すと /self-identify へ
     // リダイレクトされ郵便番号→住所補完が失敗する。無認証・無鍵の
     // 公開 zipcloud プロキシなので matcher から除外する。
-    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
+    // external-entrants-api: /api/external/** は他システム連携（match-tracker）
+    // 用で、Auth.js セッションとは独立の静的 API キー認証（Authorization:
+    // Bearer・fail-closed）。middleware を通すと /auth/signin へリダイレクト
+    // されて到達不能になるため除外する。ガードはルート内の
+    // verifyExternalApiKey が全部担う。この名前空間には外部連携ルート以外を
+    // 作らないこと。
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|api/external|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
   ],
 }

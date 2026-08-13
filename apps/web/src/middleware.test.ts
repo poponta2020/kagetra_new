@@ -15,9 +15,9 @@ vi.mock('next-auth', () => ({
   }),
 }))
 
-const middleware = (await import('./middleware')).default as (
-  req: unknown,
-) => Response
+const middlewareModule = await import('./middleware')
+const middleware = middlewareModule.default as (req: unknown) => Response
+const matcher = middlewareModule.config.matcher[0] as string
 
 type Session = {
   user?: { id?: string; role?: string }
@@ -131,5 +131,21 @@ describe('middleware — ゲストの許可リスト（AC-9 / AC-10 / AC-11 / AC
   it('リダイレクト先にクエリを持ち越さない', () => {
     const res = middleware(request('/players?q=%E5%B1%B1%E7%94%B0', guest))
     expect(new URL(res.headers.get('location') as string).search).toBe('')
+  })
+})
+
+describe('middleware — matcher（未認証前提ルートの除外。external-entrants-api）', () => {
+  // matcher のカスタム正規表現グループ `((?!...).*)` をそのまま JS の RegExp
+  // として評価する（Next の matcher コンパイルの近似。除外リストの回帰網）。
+  const pattern = new RegExp(`^${matcher}$`)
+
+  it('/api/external/* は matcher の対象外（セッション認証へ誘導されない）', () => {
+    expect(pattern.test('/api/external/tournament-entrants')).toBe(false)
+  })
+
+  it('既存の除外（LINE webhook）と保護対象（ページ・通常 API）は変わらない', () => {
+    expect(pattern.test('/api/webhook/line')).toBe(false)
+    expect(pattern.test('/dashboard')).toBe(true)
+    expect(pattern.test('/api/mail/attachments/7')).toBe(true)
   })
 })
