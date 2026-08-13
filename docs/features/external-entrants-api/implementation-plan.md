@@ -22,7 +22,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 出場者導出の共通モジュール化（純リファクタ）（#491）
-- [ ] 完了
+- [x] 完了
 - **目的:** ホームの出場者導出を API と共有できる形に切り出し、ホームの挙動を変えない
 - **対応AC:** AC-10（基盤）, AC-11
 - **主な変更領域:** `apps/web/src/lib/upcoming-entrants.ts`（新規・隣接テスト同時作成）, `apps/web/src/app/(app)/dashboard/page.tsx`
