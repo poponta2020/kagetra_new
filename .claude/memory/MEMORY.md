@@ -299,3 +299,11 @@
 - [共有モックへのnot.toHaveBeenCalledはmockClear必須](feedback_vitest_shared_mock_not_called_oom.md) — クリアせず否定アサートすると失敗時のpretty-printでヒープ枯渇→プロセス死。単体では通るのにファイル全体で落ちる
 - [auto-review PR #489](auto-review-round-pr489.md) — 3R(i+d+f)+cutoff。'use server'の値exportがbuildを壊す/ページガードはServer Actionを守らない。TOCTOU系4件はユーザー判断で見送り
 - [guest-role（第4ロール・ゲスト）出荷](project_ship-guest-role.md) — shipped: PR #489。★残DoD=本番実機確認5項目。レビューで'use server'の値export(build失敗)とServer Actionのガード漏れを捕捉
+- [external-entrants-api 要件定義](project_external_entrants_api_def.md) — 親Issue #490・match-tracker抽選優先枠向け出場予定者API
+- [external-entrants-api タスク1](impl_external-entrants-api-task1.md) — 出場者導出の共通モジュール化（純リファクタ）完了・commit 5054cef
+- [external-entrants-api タスク2](impl_external-entrants-api-task2.md) — 外部提供 API ルート新設（認証+シリアライズ）完了・commit 21a6009
+- [external-entrants-api タスク3](impl_external-entrants-api-task3.md) — middleware matcher 除外+env example 完了・commit b135a3e
+- [external-entrants-api タスク4](impl_external-entrants-api-task4.md) — 契約ドキュメント external-api.md 新設・commit 911994b
+- [fix PR #495](impl_fix-pr495.md) — R1 blocker（時刻境界flaky）修正
+- [auto-review PR #495](auto-review-round-pr495.md) — R3(final) verdict=pass・ループ成功
+- [feat: 大会出場予定者の外部提供 API（match-tracker 連携）](project_ship-external-entrants-api.md) — shipped: PR #495。残DoD=本番キー投入+curl確認

@@ -3000,3 +3000,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-08-10 出荷: PR #479 feat(member-mail-search) 会員向け受信メール検索・閲覧（読み取り専用）。マイグレーション無し・管理者側は差分ゼロ。★残DoD=AC-34（実機375pxで一覧→詳細→添付ビューア→戻る）と AC-21（PDF のページ画像表示）。消化手順は 2026-08-09 行に併記
 - 2026-08-12 /auto-review-loop PR #489: 3R(i+d+f), verdict=cutoff(user-wontfix), effort=high→medium→high, tokens=1055830/500000(上限超過をユーザー了承のうえ継続), result=pass相当。修正8件（うち★'use server'の値exportによるbuild失敗）・ユーザー判断の見送り4件（TOCTOU系3・スコープ外の既存問題1）
 - 2026-08-12 出荷: PR #489 feat(guest-role) 大会の参加登録だけができる第4ロール「ゲスト」。migration 0057（user_role へ guest・registration_invite_kind 新設）。申込書xlsx・参加費・申込ボード人数・督促から除外、参加者欄とホームには印つきで表示。★残DoD=本番実機5項目（ゲスト登録の3項目フォーム／ナビ2タブと /events 着地／ゲスト印の375px可読性／設定は表示のみ／会員・管理者の既存画面が不変）。レビューで 'use server' の値 export による build 失敗と Server Action のガード漏れを捕捉
+- 2026-08-13 /auto-review-loop PR #495: 3R(i+d1+f), verdict=pass, effort=h→m→h, tokens=441914/500000, result=pass
+- 2026-08-13 /ship PR #495: external-entrants-api（match-tracker 連携の外部提供 API）マージ。親 #490・子 #491〜#494 クローズ。CI pending のままマージ（赤なら追修正）。残 DoD=本番キー投入+curl 確認（docs/spec/external-api.md）
