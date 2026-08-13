@@ -40,7 +40,7 @@ status: completed
 - **完了条件:** 上記テスト green・typecheck 通過
 
 ### タスク3: middleware matcher 除外 + env example（#493）
-- [ ] 完了
+- [x] 完了
 - **目的:** 新ルートがセッション認証へリダイレクトされず到達可能になる
 - **対応AC:** AC-1（到達性の前提）
 - **主な変更領域:** `apps/web/src/middleware.ts`（matcher に `api/external` 追加＋既存流儀の理由コメント）, `apps/web/src/middleware.test.ts`（matcher 正規表現が `/api/external/tournament-entrants` を除外することの回帰テスト追加）, `apps/web/.env.local.example`（`EXTERNAL_ENTRANTS_API_KEY` 追記）
