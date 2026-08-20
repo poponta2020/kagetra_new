@@ -100,7 +100,7 @@ status: completed
 - **対応Issue:** #498
 
 ### タスク3: グループページ本体
-- [ ] 完了
+- [x] 完了
 - **目的:** `/admin/entries/[groupId]` を design-spec の確定形で作る。
 - **対応AC:** AC-1〜AC-9, AC-22, AC-23, AC-24, AC-25, AC-26, AC-35
 - **主な変更領域:**
@@ -127,7 +127,7 @@ status: completed
 - **対応Issue:** #499
 
 ### タスク4: 日ページと編集フォームの整理（delta）
-- [ ] 完了
+- [x] 完了
 - **目的:** 移設元から撤去し、日ページを会員向けに純化する。**タスク3 の後に行う**（先に外すと機能が一時的に消える）。
 - **対応AC:** AC-21, AC-28, AC-29, AC-30
 - **主な変更領域:**
@@ -139,8 +139,9 @@ status: completed
   - `apps/web/src/app/(app)/events/[id]/edit/page.tsx` ＋ `components/events/event-form.tsx` —
     共通7項目を撤去。`EventEditSubmit` の伝播確認ダイアログと `GroupToggleDialog` を撤去
     （`diffPropagatableFields` / `propagateFieldsToGroup` は**タスク2 が使うので残す**）
-  - `apps/web/src/components/events/EventLifecycleSection.tsx` — 日ページから外れるので
-    グループページ専用になる。`groupSiblings` によるダイアログ分岐を落とす
+  - `apps/web/src/components/events/EventLifecycleSection.tsx` — ★確定事項7 のとおり
+    **参照ゼロになるので `GroupToggleDialog` / `EventEditSubmit` ごと削除**した
+    （グループページの進行管理は表示専用の `GroupProgressSection` が担う）
 - **依存タスク:** タスク3
 - **必要なテスト:**
   - 日ページに3セクションと日リンク帯が出ないこと（管理者でも）
@@ -152,7 +153,7 @@ status: completed
 - **対応Issue:** #500
 
 ### タスク5: 着地点の張り替え
-- [ ] 完了
+- [x] 完了
 - **目的:** ボードとアラートの遷移先をグループページへ向ける。
 - **対応AC:** AC-27, AC-31, AC-34
 - **主な変更領域:**
@@ -170,7 +171,7 @@ status: completed
 - **対応Issue:** #501
 
 ### タスク6: 回帰の確認と正典の整合
-- [ ] 完了
+- [x] 完了
 - **目的:** 撤回した既存 AC を記録に残し、回帰が無いことを機械で確認する。
 - **対応AC:** AC-32, AC-33, AC-36, AC-37
 - **主な変更領域:**
