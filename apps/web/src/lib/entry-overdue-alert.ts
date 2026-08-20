@@ -277,7 +277,11 @@ interface OverdueGroupSummary {
   entryGroupId: number
   /** 導出表示名（導出不能なら代表イベントのタイトルへフォールバック）。 */
   name: string
-  /** 代表イベント（今日以降で最も近い開催日、無ければ最新）の id。詳細 URL に使う。 */
+  /**
+   * 代表イベント（今日以降で最も近い開催日、無ければ最新）の id。
+   * 導出不能時の表示名フォールバックにのみ使う（詳細 URL は entry-group-page
+   * AC-31 でグループページへ変更したため、代表イベント id を経由しない）。
+   */
   representativeEventId: number
   /**
    * 名前・代表イベントの導出母集団（＝グループ全体、無ければ対象日）の件数。
@@ -396,7 +400,9 @@ export function buildOverdueAlertMessage(
       lines.push(formatEntryDeadlineLine(row, today))
     }
     lines.push(`参加 ${group.attendCount}名`)
-    lines.push(`${baseUrl}/events/${group.representativeEventId}`)
+    // entry-group-page AC-31: 管理者向けアラートの着地点は代表イベントの
+    // 日ページではなく申込グループページ（要件 §3.2.8）。
+    lines.push(`${baseUrl}/admin/entries/${group.entryGroupId}`)
   }
 
   if (sorted.length > head.length) {

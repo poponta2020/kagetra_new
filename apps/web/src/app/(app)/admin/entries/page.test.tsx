@@ -692,10 +692,11 @@ describe('/admin/entries（申込管理ボード）', () => {
       await setAuthSession({ id: admin.id, role: 'admin' })
     })
 
-    it('同じ entry_group_id の複数日は1枚のカードにまとまり、代表イベントへのリンクを持つ', async () => {
+    // entry-group-page AC-27: 遷移先は代表イベントではなく申込グループページ。
+    it('同じ entry_group_id の複数日は1枚のカードにまとまり、申込グループページへのリンクを持つ', async () => {
       const today = todayJst()
       const group = await createEntryGroup()
-      const nearer = await createEvent({
+      await createEvent({
         entryGroupId: group.id,
         title: '多摩A',
         eligibleGrades: ['A'],
@@ -716,7 +717,7 @@ describe('/admin/entries（申込管理ボード）', () => {
       // グループ表示名（多摩A+多摩B → 多摩AB）は1回だけ
       expect(within(section).getAllByText('多摩AB')).toHaveLength(1)
       const headerLink = within(section).getByText('多摩AB').closest('a')
-      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+      expect(headerLink?.getAttribute('href')).toBe(`/admin/entries/${group.id}`)
     })
 
     // r3 review should_fix: 表示名・代表イベントはボードの表示対象（今日以降・
@@ -733,7 +734,7 @@ describe('/admin/entries（申込管理ボード）', () => {
         eventDate: addDays(today, -10),
         internalDeadline: addDays(today, -20),
       })
-      const nearer = await createEvent({
+      await createEvent({
         entryGroupId: group.id,
         title: '多摩B',
         eligibleGrades: ['B'],
@@ -755,9 +756,9 @@ describe('/admin/entries（申込管理ボード）', () => {
       // （表示対象だけから導出していた頃は「多摩BC」になっていた）
       expect(within(section).getAllByText('多摩ABC')).toHaveLength(1)
       expect(within(section).queryByText('多摩BC')).toBeNull()
-      // 代表イベントは今日以降で最も近い日 = 多摩B。
+      // entry-group-page AC-27: 遷移先は代表イベントではなく申込グループページ。
       const headerLink = within(section).getByText('多摩ABC').closest('a')
-      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+      expect(headerLink?.getAttribute('href')).toBe(`/admin/entries/${group.id}`)
     })
   })
 
@@ -839,7 +840,7 @@ describe('/admin/entries（申込管理ボード）', () => {
       const today = todayJst()
       const group = await createEntryGroup()
       const edition = await seedEditionWithShortName('杉並', 20)
-      const nearer = await createEvent({
+      await createEvent({
         entryGroupId: group.id,
         editionId: edition.id,
         title: '臨時開催イベント甲',
@@ -865,13 +866,16 @@ describe('/admin/entries（申込管理ボード）', () => {
       // title へフォールバックする。
       expect(within(section).getAllByText('臨時開催イベント甲')).toHaveLength(1)
       expect(within(section).queryByText(/杉並/)).toBeNull()
+      // entry-group-page AC-27: 遷移先は代表イベントではなく申込グループページ。
       const headerLink = within(section).getByText('臨時開催イベント甲').closest('a')
-      expect(headerLink?.getAttribute('href')).toBe(`/events/${nearer.id}`)
+      expect(headerLink?.getAttribute('href')).toBe(`/admin/entries/${group.id}`)
     })
   })
 
-  describe('行の遷移先（AC-26）', () => {
-    it('行が /events/[id] へのリンクになっている', async () => {
+  describe('行の遷移先（AC-27）', () => {
+    // entry-group-page AC-27: シングルトングループを含む全行が
+    // 申込グループページ（/admin/entries/[groupId]）へ着地する。
+    it('行が /admin/entries/[groupId] へのリンクになっている', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const today = todayJst()
@@ -884,7 +888,7 @@ describe('/admin/entries（申込管理ボード）', () => {
       await renderPage()
 
       const row = screen.getByText('リンク確認大会').closest('a')
-      expect(row?.getAttribute('href')).toBe(`/events/${event.id}`)
+      expect(row?.getAttribute('href')).toBe(`/admin/entries/${event.entryGroupId}`)
     })
   })
 })
