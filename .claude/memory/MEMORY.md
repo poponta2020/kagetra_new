@@ -308,3 +308,6 @@
 - [auto-review PR #495](auto-review-round-pr495.md) — R3(final) verdict=pass・ループ成功
 - [feat: 大会出場予定者の外部提供 API（match-tracker 連携）](project_ship-external-entrants-api.md) — shipped: PR #495。残DoD=本番キー投入+curl確認
 - [entry-group-page 要件定義](project_entry_group_page_def.md) — 親Issue #496・design-spec locked(案C)・マイグレーション無し
+- [entry-group-page 実装（タスク1-6）](impl_entry_group_page.md) — 申込グループページ新設。計画からの逸脱2件（7語彙固定・進行管理は表示専用で新設）。ローカルテスト未実行=Docker不起動
+- [auto-review PR #503](auto-review-round-pr503.md) — R1 verdict=needs_changes→cutoff(blocker3件は全件WONTFIX)・CI が7件のテスト誤りを検出
+- [entry-group-page 出荷（PR #503）](project_ship-entry-group-page.md) — shipped: PR #503。★マージ後 E2E 2件が赤=日ページ撤去セクションの e2e 更新漏れ
