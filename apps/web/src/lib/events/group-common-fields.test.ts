@@ -57,7 +57,7 @@ describe('aggregateGroupCommonFields', () => {
 
   it('日付以外が食い違う場合は代表イベントの値＋varies: true（代表=今日以降で最も近い日）', () => {
     const days = [
-      day({ id: 1, eventDate: '2026-09-01', paymentMethod: '現金' }), // 今日より前
+      day({ id: 1, eventDate: '2026-08-01', paymentMethod: '現金' }), // 今日より前
       day({ id: 2, eventDate: '2026-09-28', paymentMethod: '銀行振込' }), // 今日以降で最も近い
       day({ id: 3, eventDate: '2026-10-05', paymentMethod: '郵便振替' }),
     ]
@@ -78,8 +78,8 @@ describe('aggregateGroupCommonFields', () => {
 
   it('paymentDeadlineKind も日付以外の項目と同じ規則（食い違えば代表イベントの値）', () => {
     const days = [
-      day({ id: 1, eventDate: '2026-09-01', paymentDeadlineKind: 'fixed' }),
-      day({ id: 2, eventDate: '2026-09-28', paymentDeadlineKind: 'later_notice' }),
+      day({ id: 1, eventDate: '2026-08-01', paymentDeadlineKind: 'fixed' }), // 今日より前
+      day({ id: 2, eventDate: '2026-09-28', paymentDeadlineKind: 'later_notice' }), // 今日以降で最も近い＝代表
     ]
     const result = aggregateGroupCommonFields(days, TODAY)!
     expect(result.paymentDeadlineKind).toEqual({ value: 'later_notice', varies: true })

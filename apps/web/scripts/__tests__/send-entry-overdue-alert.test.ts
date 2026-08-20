@@ -83,7 +83,8 @@ describe('send-entry-overdue-alert — --dry-run', () => {
     expect(out).toContain('DRY RUN')
     expect(out).toContain('1 candidate(s)')
     expect(out).toContain('締切超過大会')
-    expect(out).toContain(`${BASE_URL}/events/${event.id}`)
+    // entry-group-page AC-31: 管理者向けアラートの着地点はグループページ
+    expect(out).toContain(`${BASE_URL}/admin/entries/${event.entryGroupId}`)
   })
 
   it('候補 0 件なら文面を出さない', async () => {

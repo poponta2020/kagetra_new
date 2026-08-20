@@ -163,6 +163,7 @@ describe('aggregateGroupFlowInput', () => {
           id: 1,
           eventDate: '2026-09-05',
           internalDeadline: '2026-08-01', // 会内締切は完了済みにしておく
+          lotteryDate: '2026-08-16', // 抽選日は過去（本番は 8/16 に確定名簿が出ている）
           entryStatus: 'applied',
           paymentType: 'advance',
           paymentStatus: 'unpaid',
@@ -171,6 +172,7 @@ describe('aggregateGroupFlowInput', () => {
           id: 2,
           eventDate: '2026-09-06',
           internalDeadline: '2026-08-01',
+          lotteryDate: '2026-08-16', // 抽選日は過去（本番は 8/16 に確定名簿が出ている）
           entryStatus: 'applied',
           paymentType: 'advance',
           paymentStatus: 'unpaid',
