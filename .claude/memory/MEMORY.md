@@ -307,3 +307,4 @@
 - [fix PR #495](impl_fix-pr495.md) — R1 blocker（時刻境界flaky）修正
 - [auto-review PR #495](auto-review-round-pr495.md) — R3(final) verdict=pass・ループ成功
 - [feat: 大会出場予定者の外部提供 API（match-tracker 連携）](project_ship-external-entrants-api.md) — shipped: PR #495。残DoD=本番キー投入+curl確認
+- [entry-group-page 要件定義](project_entry_group_page_def.md) — 親Issue #496・design-spec locked(案C)・マイグレーション無し
