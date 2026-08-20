@@ -47,12 +47,19 @@ test.describe.configure({ mode: 'serial' })
 /**
  * event-detail-redesign: LINE 配信は `<details>`（既定=閉）に畳まれた。中の
  * 「LINE 配信を有効化」は閉じている間 not visible なので、先に開く。
+ * entry-group-page: セクションの置き場が日ページから申込グループページへ移った
+ * だけで、`<details>` の構造は同じなのでこのヘルパーはそのまま使える。
  */
 async function openLineBroadcastToggle(page: import('@playwright/test').Page) {
   await page.locator('summary').filter({ hasText: 'LINE 配信' }).first().click()
 }
 
-test.describe('/events/[id] LINE 配信セクション', () => {
+/**
+ * entry-group-page: LINE 紐付け・配信は申込グループ帰属なので、操作の入口は
+ * `/admin/entries/[groupId]`（申込グループページ）へ移設された。日ページ
+ * `/events/[id]` からは撤去済み。
+ */
+test.describe('/admin/entries/[groupId] LINE 配信セクション', () => {
   test.beforeEach(async () => {
     await truncateAll()
   })
@@ -63,7 +70,8 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     const session = await seedAdminSession()
     await addSessionCookie(context, session.sessionToken)
 
-    await page.goto(`/events/${event.id}`)
+    await page.goto(`/admin/entries/${event.entryGroupId}`)
+    // シングルトングループなのでグループ名は大会名そのもの（deriveEntryGroupName）。
     await expect(page.getByRole('heading', { name: 'E2Eテスト大会' })).toBeVisible()
 
     await openLineBroadcastToggle(page)
@@ -90,7 +98,7 @@ test.describe('/events/[id] LINE 配信セクション', () => {
     const session = await seedAdminSession()
     await addSessionCookie(context, session.sessionToken)
 
-    await page.goto(`/events/${event.id}`)
+    await page.goto(`/admin/entries/${event.entryGroupId}`)
     await openLineBroadcastToggle(page)
     await page.getByRole('button', { name: 'LINE 配信を有効化' }).click()
 
