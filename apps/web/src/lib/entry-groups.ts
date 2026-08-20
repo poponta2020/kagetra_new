@@ -422,8 +422,11 @@ export function diffPropagatableFields(
 export interface PropagateFieldsInput {
   /** 伝播元イベントが属するグループ（re-verification の対象）。 */
   groupId: number
-  /** 伝播元イベント自身は対象から除く。 */
-  excludeEventId: number
+  /**
+   * 伝播元イベント自身は対象から除く。グループページからの一括保存のように
+   * 「伝播元」という概念が無い呼び出しでは省略する（＝誰も除外しない）。
+   */
+  excludeEventId?: number
   /** フォームから送られてきた伝播先候補（クライアントの申告。信用しない）。 */
   targetEventIds: readonly number[]
   /** {@link diffPropagatableFields} で求めた「実際に変わったフィールド」。 */
