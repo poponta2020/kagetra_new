@@ -81,6 +81,27 @@ function dayPhase(page: import('@playwright/test').Page, label: string) {
 }
 
 /**
+ * 一括操作の完了を待つ。Server Action → `revalidatePath` → RSC 再取得という
+ * 往復が入るため、UI だけを既定の 5s で待つと CI で不安定になる（実測で失敗）。
+ * **DB を真実として先にポーリング**し、そのうえで UI の反映を長めに待つ。
+ * こうすると「Server Action が失敗した」のか「反映が遅いだけ」なのかが
+ * 失敗メッセージで切り分けられる。
+ */
+async function expectEntryStatusApplied(eventId: number) {
+  await expect
+    .poll(
+      async () => {
+        const row = await testDb.query.events.findFirst({
+          where: eq(events.id, eventId),
+        })
+        return row?.entryStatus
+      },
+      { timeout: 15_000, message: '一括操作の Server Action が entry_status を applied にしなかった' },
+    )
+    .toBe('applied')
+}
+
+/**
  * entry-group-page: 進行管理と一括操作は `/admin/entries/[groupId]`（申込グループ
  * ページ）へ移設された。日ページ `/events/[id]` に残るのは会員向けの情報だけ。
  */
@@ -108,12 +129,10 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
 
     // 状態の切り替えは日程表の一括操作バー。既定で選択可能な日は全チェック済み。
     await page.getByRole('button', { name: '申込済にする' }).click()
+    await expectEntryStatusApplied(event.id)
     // 支払タイプ未設定なので applied になった時点でフェーズは「完了」へ進む。
     // `<details>` の開閉状態に依存しない位置で確認する。
-    await expect(dayPhase(page, '完了')).toBeVisible()
-
-    const row = await testDb.query.events.findFirst({ where: eq(events.id, event.id) })
-    expect(row?.entryStatus).toBe('applied')
+    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
   })
 
   test('admin: linked 大会は確認ダイアログを経て申込済になる', async ({ context, page }) => {
@@ -130,11 +149,9 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
     })
 
     await page.getByRole('button', { name: '申込済にする' }).click()
-    await expect(dayPhase(page, '完了')).toBeVisible()
+    await expectEntryStatusApplied(event.id)
+    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
     expect(dialogMessage).toContain('通知が送られます')
-
-    const row = await testDb.query.events.findFirst({ where: eq(events.id, event.id) })
-    expect(row?.entryStatus).toBe('applied')
   })
 
   test('一般会員: 進行管理セクションごと出ず、申込フローで段階を見る', async ({ context, page }) => {
@@ -170,8 +187,20 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
     await page.getByRole('button', { name: '編集' }).click()
     await page.locator('input[name="lotteryDate"]').fill('2026-01-20')
     await page.getByRole('button', { name: /全\d+日へ保存/ }).click()
-    // 保存後は表示に戻り、共通項目の表へ M/D 表記で反映される。
-    await expect(page.getByRole('button', { name: '編集' })).toBeVisible()
+    // 保存も Server Action → revalidatePath の往復なので DB を真実として待つ。
+    await expect
+      .poll(
+        async () => {
+          const row = await testDb.query.events.findFirst({
+            where: eq(events.id, event.id),
+          })
+          return row?.lotteryDate
+        },
+        { timeout: 15_000, message: '共通項目の保存が lotteryDate を書き込まなかった' },
+      )
+      .toBe('2026-01-20')
+    // 保存が終わると編集フォームは表示に戻る。
+    await expect(page.getByRole('button', { name: '編集' })).toBeVisible({ timeout: 15_000 })
 
     // 2) 日ページの申込フロー「抽選」ステップに日付が出る。旧「抽選日」参照行は
     //    詳細表ごと廃止され、日付は生 ISO ではなく M/D 表記になった（AC-22）。
@@ -184,9 +213,10 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
     page.on('dialog', (dialog) => void dialog.accept())
     await page.goto(`/admin/entries/${event.entryGroupId}`)
     await page.getByRole('button', { name: '申込済にする' }).click()
-    // 抽選日が過去でなく確定名簿も無いので、applied 後のフェーズは「抽選待ち」
-    // …ではなく支払タイプ未設定のため「完了」になる（classify の評価順）。
-    await expect(dayPhase(page, '完了')).toBeVisible()
+    await expectEntryStatusApplied(event.id)
+    // 抽選日が過去でなく確定名簿も無いが、支払タイプ未設定なので classify の
+    // 評価順により「完了」になる。
+    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
 
     // 4) DB: entry_applied と entry_applied_treasurer の 2 種別ログが作成される
     //    （DRY_RUN 下では push は飛ばないが claim → finalize は走るので sent で記録される）
