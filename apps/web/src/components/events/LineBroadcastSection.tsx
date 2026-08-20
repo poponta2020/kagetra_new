@@ -74,7 +74,18 @@ export interface LineBroadcastSectionProps {
    * AC-29）。
    */
   gradeBroadcast?: {
-    rows: readonly GradeBroadcastRow[]
+    /**
+     * entry-group-page タスク3: **日ごとに1件**。日ページ（単一イベント）は
+     * 1件、グループページはグループの全日ぶんを渡す。級別配信は event 単位の
+     * 状態（`event_grade_broadcasts.event_id` / 対象級は各日の `eligible_grades`）
+     * なので、代表イベントだけに畳むと他の日へ配信する手段が失われる。
+     * `label` は複数日のときだけ日を添えて行を区別するために使う。
+     */
+    days: readonly {
+      eventId: number
+      label?: string
+      rows: readonly GradeBroadcastRow[]
+    }[]
     resendAction: (eventId: number) => Promise<void>
   } | null
 }
@@ -295,13 +306,17 @@ export function LineBroadcastSection({
           グループの連携状態（unbound / invite_pending / joined_waiting_code /
           linked）に**関係なく**描画する — status 分岐の中に入れると、未連携の
           新規大会で管理者が級別配信の状況確認・再送に到達できなくなる。 */}
-      {gradeBroadcast && gradeBroadcast.rows.length > 0 ? (
-        <GradeBroadcastSection
-          eventId={eventId}
-          rows={gradeBroadcast.rows}
-          resendAction={gradeBroadcast.resendAction}
-        />
-      ) : null}
+      {gradeBroadcast?.days
+        .filter((day) => day.rows.length > 0)
+        .map((day) => (
+          <GradeBroadcastSection
+            key={day.eventId}
+            eventId={day.eventId}
+            label={day.label}
+            rows={day.rows}
+            resendAction={gradeBroadcast.resendAction}
+          />
+        ))}
 
       {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
 

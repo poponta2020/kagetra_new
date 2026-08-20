@@ -2,9 +2,9 @@ import Link from 'next/link'
 import { desc, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { mailMessages } from '@kagetra/shared/schema'
-import { collectRelatedMailIds } from '@/lib/event-related-mails'
+import { collectRelatedMailIdsForGroup } from '@/lib/event-related-mails'
 import { formatDateTimeShort } from '@/lib/event-date'
-import { DisclosureSection } from '@/components/events/detail'
+import { DisclosureSection } from './detail'
 
 /**
  * mail-inbox-mailer タスク5 / event-detail-redesign タスク4:
@@ -21,9 +21,17 @@ import { DisclosureSection } from '@/components/events/detail'
  *       events.tournament_draft_id → tournament_drafts.id → message_id → mail
  *
  * 結果は受信日降順 + クリックで mail/[id] へ遷移。重複は mail_messages.id で dedup。
+ *
+ * entry-group-page タスク3 (AC-25): 受け取るのは**イベント id の配列**。申込
+ * グループページがグループ全日分を UNION して渡す（日ページからこのセクションは
+ * 撤去される）。3 経路 UNION の中身は従来と同一。
  */
-export async function EventRelatedMails({ eventId }: { eventId: number }) {
-  const mailIds = await collectRelatedMailIds(db, eventId)
+export async function EventRelatedMails({
+  eventIds,
+}: {
+  eventIds: readonly number[]
+}) {
+  const mailIds = await collectRelatedMailIdsForGroup(db, eventIds)
   if (mailIds.length === 0) return null
 
   const rows = await db

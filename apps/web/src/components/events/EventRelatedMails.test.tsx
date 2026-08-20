@@ -30,7 +30,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
 
   it('関連メールが 1 件も無ければ何も描画しない', async () => {
     const ev = await createEvent({ title: 'no related' })
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     expect(ui).toBeNull()
   })
 
@@ -42,7 +42,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
       .set({ linkedEventId: ev.id })
       .where(eq(mailMessages.id, mail.id))
 
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     const { container } = render(ui!)
 
     const details = container.querySelector('details')
@@ -70,7 +70,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
       eventId: ev.id,
     })
 
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     const { container } = render(ui!)
 
     expect(screen.getByText('1件')).toBeTruthy()
@@ -94,7 +94,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
       .set({ tournamentDraftId: draft.id })
       .where(eq(events.id, ev.id))
 
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     const { container } = render(ui!)
 
     expect(screen.getByText('1件')).toBeTruthy()
@@ -127,7 +127,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
       .set({ tournamentDraftId: draft.id })
       .where(eq(events.id, ev.id))
 
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     render(ui!)
 
     // 同じ mail が 3 経路で拾えても 1 件としてカウント。
@@ -153,7 +153,7 @@ describe('EventRelatedMails (mail-inbox-mailer task5)', () => {
       .set({ linkedEventId: ev.id })
       .where(eq(mailMessages.id, newer.id))
 
-    const ui = await EventRelatedMails({ eventId: ev.id })
+    const ui = await EventRelatedMails({ eventIds: [ev.id] })
     const { container } = render(ui!)
 
     const subjects = Array.from(container.querySelectorAll('span.font-medium')).map(

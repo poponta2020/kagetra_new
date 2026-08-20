@@ -23,6 +23,9 @@ export type { EntryFlowProps } from './EntryFlow'
 export { EventDetailHeader } from './EventDetailHeader'
 export type { EventDetailHeaderProps } from './EventDetailHeader'
 
+export { GroupDetailHeader } from './GroupDetailHeader'
+export type { GroupDetailHeaderProps } from './GroupDetailHeader'
+
 export { LinkAction, LinkActionLink, linkActionClass } from './LinkAction'
 export type {
   LinkActionLinkProps,
@@ -30,11 +33,5 @@ export type {
   LinkActionTone,
 } from './LinkAction'
 
-export { GroupDayLinks } from './GroupDayLinks'
-export type { GroupDayLinksProps } from './GroupDayLinks'
-
-export { GroupToggleDialog } from './GroupToggleDialog'
-export type {
-  GroupToggleDialogOption,
-  GroupToggleDialogProps,
-} from './GroupToggleDialog'
+export { GroupBackLink } from './GroupBackLink'
+export type { GroupBackLinkProps } from './GroupBackLink'
