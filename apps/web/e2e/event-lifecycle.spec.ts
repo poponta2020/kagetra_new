@@ -130,9 +130,11 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
     // 状態の切り替えは日程表の一括操作バー。既定で選択可能な日は全チェック済み。
     await page.getByRole('button', { name: '申込済にする' }).click()
     await expectEntryStatusApplied(event.id)
-    // 支払タイプ未設定なので applied になった時点でフェーズは「完了」へ進む。
+    // events.payment_type の既定は 'advance'（NULL ではない）。よって applied 直後は
+    // 事前払い・未払・確定名簿なし＝ボードの `applied_waiting` に落ち、
+    // 日程表のフェーズは「抽選待ち」になる（classify の評価順）。
     // `<details>` の開閉状態に依存しない位置で確認する。
-    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
+    await expect(dayPhase(page, '抽選待ち')).toBeVisible({ timeout: 15_000 })
   })
 
   test('admin: linked 大会は確認ダイアログを経て申込済になる', async ({ context, page }) => {
@@ -150,7 +152,7 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
 
     await page.getByRole('button', { name: '申込済にする' }).click()
     await expectEntryStatusApplied(event.id)
-    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
+    await expect(dayPhase(page, '抽選待ち')).toBeVisible({ timeout: 15_000 })
     expect(dialogMessage).toContain('通知が送られます')
   })
 
@@ -214,9 +216,9 @@ test.describe('進行管理セクション（/admin/entries/[groupId] へ移設�
     await page.goto(`/admin/entries/${event.entryGroupId}`)
     await page.getByRole('button', { name: '申込済にする' }).click()
     await expectEntryStatusApplied(event.id)
-    // 抽選日が過去でなく確定名簿も無いが、支払タイプ未設定なので classify の
-    // 評価順により「完了」になる。
-    await expect(dayPhase(page, '完了')).toBeVisible({ timeout: 15_000 })
+    // payment_type の既定は 'advance' なので、applied 直後は未払・確定名簿なしで
+    // 「抽選待ち」になる。
+    await expect(dayPhase(page, '抽選待ち')).toBeVisible({ timeout: 15_000 })
 
     // 4) DB: entry_applied と entry_applied_treasurer の 2 種別ログが作成される
     //    （DRY_RUN 下では push は飛ばないが claim → finalize は走るので sent で記録される）
