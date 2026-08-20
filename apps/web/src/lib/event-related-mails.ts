@@ -27,38 +27,61 @@ export async function collectRelatedMailIds(
   db: typeof appDb,
   eventId: number,
 ): Promise<number[]> {
+  return collectRelatedMailIdsForGroup(db, [eventId])
+}
+
+/**
+ * entry-group-page タスク3 (AC-25): {@link collectRelatedMailIds} の複数イベント版。
+ * 申込グループの**全日分**を同じ 3 経路で集め、`mail_messages.id` で dedup する
+ * （関連メールはグループページへ移設され、日ページからは撤去される）。
+ *
+ * 日ごとに 3 クエリを撃たず、`inArray` でまとめて 1 経路 1 クエリに畳む
+ * （グループは高々数日だが、経路ごとのクエリ本数を日数に比例させない）。
+ * 単一イベントで呼んだときの結果は従来と同一（{@link collectRelatedMailIds} は
+ * この関数への薄いラッパー）。
+ */
+export async function collectRelatedMailIdsForGroup(
+  db: typeof appDb,
+  eventIds: readonly number[],
+): Promise<number[]> {
+  const ids = Array.from(new Set(eventIds))
+  if (ids.length === 0) return []
+
   // (A) linked_event_id 直接。
   const linkedRows = await db
     .select({ id: mailMessages.id })
     .from(mailMessages)
-    .where(eq(mailMessages.linkedEventId, eventId))
+    .where(inArray(mailMessages.linkedEventId, ids))
 
-  // (B) tournament_drafts.event_id = eventId 経由（linkDraftToEvent 経路）。
+  // (B) tournament_drafts.event_id 経由（linkDraftToEvent 経路）。
   //     event_id → draft → message_id (= mail_messages.id)。
   const draftLinkedRows = await db
     .select({ id: tournamentDrafts.messageId })
     .from(tournamentDrafts)
-    .where(eq(tournamentDrafts.eventId, eventId))
+    .where(inArray(tournamentDrafts.eventId, ids))
 
   // (C) events.tournament_draft_id → drafts.message_id → mail_messages.id
   //     （tournament-title-grade-split 経路: 1 draft : N events、events 側に
   //     tournament_draft_id が立つ）。対象 event の tournamentDraftId を先に
-  //     取得し、それが non-null のときに draft を直接 SELECT して messageId を
-  //     取り出す。
+  //     取得し、非 null のものだけ draft を SELECT して messageId を取り出す。
   const eventDraftRows = await db
     .select({ draftId: events.tournamentDraftId })
     .from(events)
-    .where(eq(events.id, eventId))
-    .limit(1)
-  const targetDraftId = eventDraftRows[0]?.draftId ?? null
-  const synthRows: { id: number }[] = []
-  if (targetDraftId !== null) {
-    const rows = await db
-      .select({ id: tournamentDrafts.messageId })
-      .from(tournamentDrafts)
-      .where(eq(tournamentDrafts.id, targetDraftId))
-    for (const r of rows) synthRows.push(r)
-  }
+    .where(inArray(events.id, ids))
+  const draftIds = Array.from(
+    new Set(
+      eventDraftRows
+        .map((r) => r.draftId)
+        .filter((id): id is number => id !== null),
+    ),
+  )
+  const synthRows =
+    draftIds.length === 0
+      ? []
+      : await db
+          .select({ id: tournamentDrafts.messageId })
+          .from(tournamentDrafts)
+          .where(inArray(tournamentDrafts.id, draftIds))
 
   const set = new Set<number>()
   for (const r of linkedRows) set.add(r.id)

@@ -18,8 +18,12 @@ status: completed
    - `AreaId` → 日程表の短縮ラベルの対応（**ボードの `AREAS.label` から機械的に短縮**）:
      `before_deadline`→締切前 / `action_required`→**要申込** / `applied_waiting`→抽選待ち /
      `payment_due`→**要振込** / `done`→完了
-   - `classify` は「申し込まない」と「未申込かつ希望者0名」を**どちらも `no_applicants`** に畳むので、
-     日程表では `entryStatus` で割り直す: `not_applying`→**申込なし** / `not_applied`→**希望者なし**
+   - `classify` は「申し込まない」と「未申込かつ希望者0名」を**どちらも `no_applicants`** に畳む。
+     ★**2026-08-20 実装時に修正**: 計画当初はこれを `not_applying`→申込なし / `not_applied`→希望者なし へ
+     割り直す想定だったが、**「希望者なし」は locked な design-spec §2／§8 忠実度チェックリストと
+     requirements §3.3 が固定した7語（要申込 / 抽選待ち / 要振込 / 完了 / 申込なし / 締切前 / 中止）に
+     無い8語目**＝「この画面だけの造語を作っていない」に違反する。**両者とも「申込なし」に畳む**。
+     情報欠落は起きない — 同じ行の参加希望者数（0名）が理由を示す
    - `status='cancelled'` の日は `classify` にかけず **中止** 固定
 2. **共通項目の編集はインライン**（サブページを作らない）。7項目すべて日付/短いテキストで、
    往復するほどの分量ではない。`/admin/entries/[groupId]/edit` を作ると `/events/[id]/edit` と
@@ -34,11 +38,23 @@ status: completed
 5. **日程表の大会名は `displayName(item)`**（通称ベース）をボードと同じく使う。
 6. **ボトムナビは変更不要** — `matches: ['/admin/entries']` が前方一致なので `[groupId]` でも点灯する
    （`bottom-nav.test.tsx` に `/admin/entries/42` のケースが既にある）。テストの追加だけ。
+7. ★**2026-08-20 実装時に修正: 進行管理は `EventLifecycleSection` を再利用しない。**
+   design-spec §4 は「そのまま移設・見た目不変」と書いているが、**レイアウトの正である
+   `design-mock/page-admin.html` §④ には操作コントロールが1つも無い** — 表示専用の `<details>` 3本
+   （申込状態「2日とも申込済」／申込書／支払状態「2日とも未払」）＋「日ごとの申込は上の『日程』で
+   選んで切り替える。」の注記だけ。design-spec §3 の「進行管理セクションの中に日ごとのトグルを
+   置かない」も同じことを言っている。現行 `EventLifecycleSection` は `eventId` 必須・
+   `ENTRY_SUMMARY[entryStatus]` が単一状態しか語れず・アクション props が必須なので、この形を描けない。
+   **タスク3 で `GroupProgressSection`（表示専用・集約ラベル）を新設**し（`SectionRule` /
+   `DisclosureRow` / `FlatTable` は再利用）、**タスク4 で `EventLifecycleSection` と
+   `GroupToggleDialog` は参照ゼロになるので削除する**。
+   → 「計画的に壊れる既存テスト」に `EventLifecycleSection.test.tsx` /
+   `event-edit-submit.test.tsx` / `GroupToggleDialog` 系を追加（requirements §6 の一覧は不足していた）。
 
 ## 実装タスク
 
-### タスク1: 集約の純関数2本
-- [ ] 完了
+### タスク1: 集約の純関数3本
+- [x] 完了
 - **目的:** グループのフロー帯入力と、日程表のフェーズ1語を、DB 非依存の純関数として確定させる。
 - **対応AC:** AC-10, AC-11, AC-12, AC-13, AC-14, AC-15
 - **主な変更領域:**
@@ -62,7 +78,7 @@ status: completed
 - **対応Issue:** #497
 
 ### タスク2: Server Action の不足分と共通項目の一括保存
-- [ ] 完了
+- [x] 完了
 - **目的:** グループページから必要な書き込みが全部できる状態にする（UI より先に）。
 - **対応AC:** AC-16, AC-17, AC-18, AC-19, AC-20
 - **主な変更領域:**
@@ -84,7 +100,7 @@ status: completed
 - **対応Issue:** #498
 
 ### タスク3: グループページ本体
-- [ ] 完了
+- [x] 完了
 - **目的:** `/admin/entries/[groupId]` を design-spec の確定形で作る。
 - **対応AC:** AC-1〜AC-9, AC-22, AC-23, AC-24, AC-25, AC-26, AC-35
 - **主な変更領域:**
@@ -111,7 +127,7 @@ status: completed
 - **対応Issue:** #499
 
 ### タスク4: 日ページと編集フォームの整理（delta）
-- [ ] 完了
+- [x] 完了
 - **目的:** 移設元から撤去し、日ページを会員向けに純化する。**タスク3 の後に行う**（先に外すと機能が一時的に消える）。
 - **対応AC:** AC-21, AC-28, AC-29, AC-30
 - **主な変更領域:**
@@ -123,8 +139,9 @@ status: completed
   - `apps/web/src/app/(app)/events/[id]/edit/page.tsx` ＋ `components/events/event-form.tsx` —
     共通7項目を撤去。`EventEditSubmit` の伝播確認ダイアログと `GroupToggleDialog` を撤去
     （`diffPropagatableFields` / `propagateFieldsToGroup` は**タスク2 が使うので残す**）
-  - `apps/web/src/components/events/EventLifecycleSection.tsx` — 日ページから外れるので
-    グループページ専用になる。`groupSiblings` によるダイアログ分岐を落とす
+  - `apps/web/src/components/events/EventLifecycleSection.tsx` — ★確定事項7 のとおり
+    **参照ゼロになるので `GroupToggleDialog` / `EventEditSubmit` ごと削除**した
+    （グループページの進行管理は表示専用の `GroupProgressSection` が担う）
 - **依存タスク:** タスク3
 - **必要なテスト:**
   - 日ページに3セクションと日リンク帯が出ないこと（管理者でも）
@@ -136,7 +153,7 @@ status: completed
 - **対応Issue:** #500
 
 ### タスク5: 着地点の張り替え
-- [ ] 完了
+- [x] 完了
 - **目的:** ボードとアラートの遷移先をグループページへ向ける。
 - **対応AC:** AC-27, AC-31, AC-34
 - **主な変更領域:**
@@ -154,7 +171,7 @@ status: completed
 - **対応Issue:** #501
 
 ### タスク6: 回帰の確認と正典の整合
-- [ ] 完了
+- [x] 完了
 - **目的:** 撤回した既存 AC を記録に残し、回帰が無いことを機械で確認する。
 - **対応AC:** AC-32, AC-33, AC-36, AC-37
 - **主な変更領域:**

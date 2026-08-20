@@ -180,9 +180,12 @@ describe('EntryBoardClient', () => {
     expect(links[1]?.textContent).not.toContain('名）')
   })
 
-  // AC-26: 表示専用。状態変更は /events/[id] の進行管理パネルに一本化されており、
-  // 一覧から直接押せると LINE 通知 2 通が飛ぶ操作を誤タップできてしまう。
-  it('AC-26: 行タップで /events/[id] へ遷移し、状態を変える操作は存在しない', () => {
+  // AC-26: 表示専用。状態変更は進行管理パネル（申込グループページ側）に
+  // 一本化されており、一覧から直接押せると LINE 通知 2 通が飛ぶ操作を誤タップ
+  // できてしまう。
+  // entry-group-page AC-27: 行の遷移先は申込グループページ
+  // （/admin/entries/[groupId]）。makeItem の既定では entryGroupId = id。
+  it('AC-26: 行タップで /admin/entries/[groupId] へ遷移し、状態を変える操作は存在しない', () => {
     render(
       <EntryBoardClient
         items={[
@@ -194,7 +197,7 @@ describe('EntryBoardClient', () => {
     )
 
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'))
-    expect(hrefs).toEqual(['/events/42', '/events/7'])
+    expect(hrefs).toEqual(['/admin/entries/42', '/admin/entries/7'])
 
     // ボタンは「締切前」の折りたたみトグルだけ。フォーム要素も無い。
     const buttons = screen.getAllByRole('button')
@@ -556,7 +559,9 @@ describe('EntryBoardClient', () => {
       expect(document.body.textContent).not.toContain('8/2')
     })
 
-    it('行タップは代表イベント（今日以降で最も近い開催日）へ遷移する', () => {
+    // entry-group-page AC-27: 遷移先は代表イベントではなく申込グループページ
+    // （groupId=entryGroupId）。representativeEventId はもう href に使わない。
+    it('行タップは申込グループページ（/admin/entries/[groupId]）へ遷移する', () => {
       render(
         <EntryBoardClient
           items={[
@@ -588,7 +593,7 @@ describe('EntryBoardClient', () => {
       const section = sectionOf('要申込')
       const links = within(section).getAllByRole('link')
       expect(links).toHaveLength(1)
-      expect(links[0]?.getAttribute('href')).toBe('/events/21')
+      expect(links[0]?.getAttribute('href')).toBe('/admin/entries/901')
     })
 
     // design-spec §3-5: 日別展開の廃止で失う情報を受容する。締切が食い違う

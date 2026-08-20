@@ -55,16 +55,18 @@ describe('buildOverdueAlertMessage', () => {
     expect(text).toContain('会内締切 6/1（5日超過）')
     expect(text).toContain('大会申込締切 6/10（あと4日）')
     expect(text).toContain('参加 3名')
-    expect(text).toContain('https://kagetra.example.com/events/42')
+    // entry-group-page AC-31: 着地点は日ページではなく申込グループページ
+    // （URL は entryGroupId ベース。既定では entryGroupId = eventId）。
+    expect(text).toContain('https://kagetra.example.com/admin/entries/42')
   })
 
-  it('baseUrl の末尾スラッシュを取り除いてから /events/{id} を連結する', () => {
+  it('baseUrl の末尾スラッシュを取り除いてから /admin/entries/{groupId} を連結する', () => {
     const text = buildOverdueAlertMessage([row({ eventId: 7 })], {
       today,
       baseUrl: 'https://kagetra.example.com/',
     })
-    expect(text).toContain('https://kagetra.example.com/events/7')
-    expect(text).not.toContain('.com//events')
+    expect(text).toContain('https://kagetra.example.com/admin/entries/7')
+    expect(text).not.toContain('.com//admin')
   })
 
   it('基準締切が entry_deadline 代替のときはその旨が分かる表記になる', () => {
@@ -160,9 +162,10 @@ describe('buildOverdueAlertMessage', () => {
       expect(text).toContain('8/15(木)多摩A')
       // 参加人数は最大値（延べ人数の合算ではない）
       expect(text).toContain('参加 7名')
-      // 代表イベント（今日以降で最も近い開催日）の URL
-      expect(text).toContain(`${baseUrl}/events/12`)
-      expect(text).not.toContain(`${baseUrl}/events/11`)
+      // entry-group-page AC-31: URL は代表イベントではなく entryGroupId ベースの
+      // 申込グループページ
+      expect(text).toContain(`${baseUrl}/admin/entries/100`)
+      expect(text).not.toContain(`${baseUrl}/events/`)
       // 件数はグループ数（1件）
       expect(text).toContain('未申込大会が1件あります')
     })
@@ -205,10 +208,11 @@ describe('buildOverdueAlertMessage', () => {
       // 表示名はグループ全体から（多摩A だけを見た「多摩A」ではない）
       const bulletLines = text.split('\n').filter((l) => l.startsWith('・'))
       expect(bulletLines).toEqual(['・多摩AB'])
-      // 代表イベントもグループ全体から選ぶ（対象外の 8/11 が真の代表）
-      expect(text).toContain(`${baseUrl}/events/12`)
-      expect(text).not.toContain(`${baseUrl}/events/11`)
-      // 代表 URL が非対象日を指すので、どの日が超過かを日別ラベルで明示する
+      // entry-group-page AC-31: URL は entryGroupId ベースの申込グループページ
+      // （代表イベントの選定は名前導出フォールバックにのみ影響する）
+      expect(text).toContain(`${baseUrl}/admin/entries/100`)
+      expect(text).not.toContain(`${baseUrl}/events/`)
+      // 代表イベントが非対象日を指すので、どの日が超過かを日別ラベルで明示する
       expect(text).toContain('8/15(木)多摩A')
       // 締切明細は超過対象の日だけ（対象外の 8/11 の締切行は出さない）
       expect(text).toContain('（5日超過）')
@@ -222,7 +226,8 @@ describe('buildOverdueAlertMessage', () => {
       ]
       const text = buildOverdueAlertMessage(rows, { today, baseUrl })
       expect(text).toContain('・多摩A')
-      expect(text).toContain(`${baseUrl}/events/11`)
+      // entry-group-page AC-31: URL は entryGroupId ベースの申込グループページ
+      expect(text).toContain(`${baseUrl}/admin/entries/100`)
     })
 
     it('超過日数の並び替えはグループ内最大値で行う', () => {

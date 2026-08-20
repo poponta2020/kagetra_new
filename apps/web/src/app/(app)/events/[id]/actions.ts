@@ -51,6 +51,23 @@ async function revalidateGroupEventPaths(eventId: number): Promise<void> {
   for (const id of ids) revalidatePath(`/events/${id}`)
 }
 
+/**
+ * entry-group-page タスク3: 進行状態を動かしたあとに再検証するパス群。
+ *
+ * 一括操作の入口が申込グループページ `/admin/entries/[groupId]` へ移ったので、
+ * 日ページだけを revalidate すると**操作した当の画面**が古いフェーズ語のまま残る。
+ * 申込管理ボードも `entry_status` / `payment_*` で仕分けが変わるので併せて捨てる。
+ * （`/events` 一覧は表示可否が変わる分岐でのみ必要なので、呼び出し側が個別に足す。）
+ */
+function revalidateAfterLifecycleChange(
+  eventIds: readonly number[],
+  entryGroupId: number,
+): void {
+  for (const id of eventIds) revalidatePath(`/events/${id}`)
+  revalidatePath(`/admin/entries/${entryGroupId}`)
+  revalidatePath('/admin/entries')
+}
+
 async function requireAdminSession() {
   const session = await auth()
   if (!session?.user?.id) throw new Error('Unauthorized')
@@ -789,7 +806,7 @@ export async function setEntriesApplied(
         .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
         .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
     })
-    for (const id of ids) revalidatePath(`/events/${id}`)
+    revalidateAfterLifecycleChange(ids, entryGroupId)
     // entry-overdue-alert: entry_status は /events 一覧の表示可否も左右する
     // ようになった（not_applying が除外条件）。この revert 分岐は
     // not_applying → not_applied の復帰も担うため、一覧側のキャッシュも
@@ -905,7 +922,7 @@ export async function setEntriesApplied(
     }
   }
 
-  for (const id of ids) revalidatePath(`/events/${id}`)
+  revalidateAfterLifecycleChange(ids, entryGroupId)
 }
 
 /**
@@ -924,27 +941,47 @@ export async function setEntryApplied(
 }
 
 /**
- * entry-overdue-alert: 「申込者がいないため今回は申し込まない」を記録する
- * （admin/vice_admin のみ）。`not_applied` / `applied` どちらからでも遷移可
+ * entry-group-page タスク2 (AC-16/17): 「申込者がいないため今回は申し込まない」の
+ * 一括版（admin/vice_admin のみ）。`not_applied` / `applied` どちらからでも遷移可
  * （要件 §3.2.2 の状態遷移表）。通知 claim・push は一切行わない — 対外的な
- * アクションを伴わない内部判断のため（要件 §7-9）。
+ * アクションを伴わない内部判断のため（要件 §7-9）。`eventIds` は重複除去して id
+ * 昇順ソートし、先頭 id から解決した `entry_group_id` を WHERE に併記する
+ * fail-closed（`setEntriesApplied` 等と同じ規律）。
  *
  * ここから直接 `applied` へは戻さない（UI 側も用意しない）。復帰は
- * `setEntryApplied(id, false)` で `not_applied` を経由させ、既存の遷移ガード
+ * `setEntriesApplied(ids, false)` で `not_applied` を経由させ、既存の遷移ガード
  * `WHERE entry_status = 'not_applied'` を変更せずに済ませる。
  */
-export async function setEntryNotApplying(eventId: number): Promise<void> {
+export async function setEntriesNotApplying(eventIds: number[]): Promise<void> {
   await requireAdminSession()
 
-  await db
-    .update(events)
-    .set({ entryStatus: 'not_applying', entryAppliedAt: null, updatedAt: sql`now()` })
-    .where(eq(events.id, eventId))
+  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
+  if (ids.length === 0) return
+  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
 
-  revalidatePath(`/events/${eventId}`)
+  await db.transaction(async (tx) => {
+    await lockEventRowsAscending(tx, ids, entryGroupId)
+    await tx
+      .update(events)
+      .set({ entryStatus: 'not_applying', entryAppliedAt: null, updatedAt: sql`now()` })
+      .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
+  })
+
+  revalidateAfterLifecycleChange(ids, entryGroupId)
   // /events 一覧は entry_status='not_applying' を除外条件にしているため、
   // 一覧側のキャッシュも更新する。
   revalidatePath('/events')
+}
+
+/**
+ * 「申込者がいないため今回は申し込まない」を記録する（admin/vice_admin のみ）。
+ * 通知は送らない。
+ *
+ * entry-group-page タスク2: `setEntriesNotApplying([eventId])` への薄い
+ * ラッパー（挙動は変わらない）。
+ */
+export async function setEntryNotApplying(eventId: number): Promise<void> {
+  await setEntriesNotApplying([eventId])
 }
 
 /**
@@ -983,7 +1020,7 @@ export async function setPaymentTypes(
       })
       .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
   })
-  for (const id of ids) revalidatePath(`/events/${id}`)
+  revalidateAfterLifecycleChange(ids, entryGroupId)
 }
 
 /**
@@ -1061,7 +1098,7 @@ export async function setPaymentsPaid(
           ),
         )
     })
-    for (const id of ids) revalidatePath(`/events/${id}`)
+    revalidateAfterLifecycleChange(ids, entryGroupId)
     return
   }
 
@@ -1131,7 +1168,7 @@ export async function setPaymentsPaid(
       // best-effort
     }
   }
-  for (const id of ids) revalidatePath(`/events/${id}`)
+  revalidateAfterLifecycleChange(ids, entryGroupId)
 }
 
 /**

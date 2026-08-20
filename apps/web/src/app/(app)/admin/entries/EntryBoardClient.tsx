@@ -283,7 +283,9 @@ function EntryGroupRow({
 
   return (
     <Link
-      href={`/events/${group.representativeEventId}`}
+      // entry-group-page AC-27: 行の遷移先は代表イベントの日ページではなく
+      // 申込グループページへ統一する（シングルトンを含む全行。要件 §3.1・設計判断4）。
+      href={`/admin/entries/${group.groupId}`}
       className="flex items-baseline gap-1.5 py-[3px] text-[12px] leading-[16px] transition-colors hover:bg-surface-alt"
     >
       <span className="flex min-w-0 flex-1 items-baseline">

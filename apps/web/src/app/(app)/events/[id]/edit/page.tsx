@@ -9,15 +9,12 @@ import { resolveEditionFromForm } from '@/lib/edition/resolve'
 import { todayInJst } from '@/lib/jst-date'
 import {
   applyEntryGroupChange,
-  diffPropagatableFields,
   listGroupSiblings,
   listMergeCandidateGroups,
-  propagateFieldsToGroup,
   type EntryGroupFormAction,
 } from '@/lib/entry-groups'
 import { EventForm } from '@/components/events/event-form'
 import { EntryGroupFieldset } from '@/components/events/entry-group-fieldset'
-import { EventEditSubmit } from '@/components/events/event-edit-submit'
 
 export default async function EditEventPage({
   params,
@@ -49,14 +46,12 @@ export default async function EditEventPage({
       }
     : { seriesName: '', editionNumber: null, linked: false }
 
-  // entry-groups: 「申込グループ」欄・締切系伝播ダイアログの pre-fill データ。
+  // entry-groups: 「申込グループ」欄の pre-fill データ。entry-group-page (AC-21)
+  // で締切系伝播ダイアログは撤去したが、グループの付け替え自体は日ページに残る。
   const [groupSiblings, mergeCandidates] = await Promise.all([
     listGroupSiblings(db, eventId),
     listMergeCandidateGroups(db, eventId, todayInJst()),
   ])
-  const propagationSiblings = groupSiblings
-    .filter((s) => s.id !== eventId)
-    .map((s) => ({ id: s.id, title: s.title, eventDate: s.eventDate }))
 
   async function updateEvent(formData: FormData) {
     'use server'
@@ -84,82 +79,48 @@ export default async function EditEventPage({
     const targetGroupId =
       typeof targetGroupIdRaw === 'string' && targetGroupIdRaw !== '' ? Number(targetGroupIdRaw) : null
 
-    // entry-groups: 伝播ダイアログで選ばれた event id（クライアントの申告。tx 内で
-    // 同一グループかを再検証してから使う。グループ付け替えと同時には適用しない
-    // ——ダイアログは旧グループの日一覧から作られているため、旧グループに他の日が
-    // 残っている場合でも意味がズレる。両者を同時にしない設計は EventEditSubmit 側にも
-    // 明記している）。
-    const propagateEventIds = formData
-      .getAll('propagate_event_ids')
-      .map((v) => Number(v))
-      .filter((n) => Number.isInteger(n))
+    // entry-group-page (AC-21): グループ共通7項目（締切4種・支払方法・振込先・
+    // 申込方法）はこのフォームから消えた。`extractEventFormData` はそれらを null
+    // として読んでしまうため、UPDATE の SET から必ず除外する —— 含めると
+    // グループページ（`/admin/entries/[groupId]`）で設定した値が日ページの
+    // 保存のたびに null で上書きされて消える。
+    const {
+      entryDeadline: _entryDeadline,
+      internalDeadline: _internalDeadline,
+      lotteryDate: _lotteryDate,
+      paymentDeadline: _paymentDeadline,
+      paymentDeadlineKind: _paymentDeadlineKind,
+      paymentMethod: _paymentMethod,
+      paymentInfo: _paymentInfo,
+      entryMethod: _entryMethod,
+      ...dayLocalData
+    } = data
 
     // tournament-entry-rosters (Codex R6): edition 紐付けを解決して更新（link OFF なら null=解除）。
-    const propagationResult = await db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       const editionId = await resolveEditionFromForm(tx, formData, {
         kind: data.kind,
         year: editionYear,
         status: 'unconfirmed',
       })
 
-      // entry-groups: 伝播フィールドの差分検出用に「保存前」の値を読んでおく。
-      const before = await tx.query.events.findFirst({
-        where: eq(events.id, eventId),
-        columns: {
-          entryDeadline: true,
-          internalDeadline: true,
-          paymentDeadline: true,
-          paymentDeadlineKind: true,
-          lotteryDate: true,
-          paymentMethod: true,
-          paymentInfo: true,
-          entryMethod: true,
-        },
-      })
-
       await tx
         .update(events)
         .set({
-          ...data,
+          ...dayLocalData,
           eligibleGrades: eligibleGrades.length > 0 ? eligibleGrades : null,
           editionId,
           updatedAt: new Date(),
         })
         .where(eq(events.id, eventId))
 
-      // entry-groups: グループ付け替え（単独化/合流）。
-      const groupResult = await applyEntryGroupChange(tx, eventId, groupAction, targetGroupId)
-
-      // entry-groups: 締切・支払い系の伝播は「グループを変更しない」保存のときだけ行う
-      // （groupAction==='keep' 以外はダイアログの前提が崩れるため、送られてきていても無視する）。
-      if (groupAction === 'keep' && propagateEventIds.length > 0 && before) {
-        const changed = diffPropagatableFields(before, {
-          entryDeadline: data.entryDeadline,
-          internalDeadline: data.internalDeadline,
-          paymentDeadline: data.paymentDeadline,
-          paymentDeadlineKind: data.paymentDeadlineKind,
-          lotteryDate: data.lotteryDate,
-          paymentMethod: data.paymentMethod,
-          paymentInfo: data.paymentInfo,
-          entryMethod: data.entryMethod,
-        })
-        await propagateFieldsToGroup(tx, {
-          groupId: groupResult.entryGroupId,
-          excludeEventId: eventId,
-          targetEventIds: propagateEventIds,
-          changed,
-        })
-        return { propagatedIds: Object.keys(changed).length > 0 ? propagateEventIds : [] }
-      }
-
-      return { propagatedIds: [] as number[] }
+      // entry-groups: グループ付け替え（単独化/合流）。entry-group-page (AC-21) で
+      // 締切系の伝播確認ダイアログは撤去したので、ここは付け替え自体のみ行う。
+      await applyEntryGroupChange(tx, eventId, groupAction, targetGroupId)
     })
 
     revalidatePath(`/events/${eventId}`)
     revalidatePath('/events')
-    for (const id of propagationResult.propagatedIds) {
-      revalidatePath(`/events/${id}`)
-    }
 
     redirect(`/events/${eventId}`)
   }
@@ -172,6 +133,7 @@ export default async function EditEventPage({
         action={updateEvent}
         cancelHref={`/events/${event.id}`}
         editionDefault={editionDefault}
+        hideGroupCommonFields
         defaultValues={{
           title: event.title,
           formalName: event.formalName,
@@ -180,18 +142,10 @@ export default async function EditEventPage({
           eventDate: event.eventDate,
           location: event.location,
           capacity: event.capacity,
-          entryDeadline: event.entryDeadline,
-          internalDeadline: event.internalDeadline,
-          lotteryDate: event.lotteryDate,
           eligibleGrades: event.eligibleGrades,
           description: event.description,
           status: event.status,
           feeJpy: event.feeJpy,
-          paymentDeadline: event.paymentDeadline,
-          paymentDeadlineKind: event.paymentDeadlineKind,
-          paymentInfo: event.paymentInfo,
-          paymentMethod: event.paymentMethod,
-          entryMethod: event.entryMethod,
           organizer: event.organizer,
           capacityA: event.capacityA,
           capacityB: event.capacityB,
@@ -201,22 +155,6 @@ export default async function EditEventPage({
         }}
         entryGroupSection={
           <EntryGroupFieldset siblings={groupSiblings} mergeCandidates={mergeCandidates} />
-        }
-        submitButton={
-          <EventEditSubmit
-            label="更新"
-            initialValues={{
-              entryDeadline: event.entryDeadline,
-              internalDeadline: event.internalDeadline,
-              paymentDeadline: event.paymentDeadline,
-              paymentDeadlineKind: event.paymentDeadlineKind,
-              lotteryDate: event.lotteryDate,
-              paymentMethod: event.paymentMethod,
-              paymentInfo: event.paymentInfo,
-              entryMethod: event.entryMethod,
-            }}
-            siblings={propagationSiblings}
-          />
         }
       />
     </div>

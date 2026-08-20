@@ -113,11 +113,18 @@ describe('LineBroadcastSection — 状態別の文言とアクション', () => 
 })
 
 describe('LineBroadcastSection — AC-13c/AC-29: 級別グループ配信の内包', () => {
+  // entry-group-page タスク3: 級別配信は event 単位なので `days` の配列で渡す
+  // （日ページ＝1件、グループページ＝全日ぶん）。1件のときの描画は従来と同一。
   const gradeBroadcast = {
-    rows: [
-      { grade: 'C' as const, sentAt: new Date('2026-07-20T14:40:00+09:00'), linked: true },
-      { grade: 'D' as const, sentAt: null, linked: true },
-      { grade: 'E' as const, sentAt: null, linked: false },
+    days: [
+      {
+        eventId: 1,
+        rows: [
+          { grade: 'C' as const, sentAt: new Date('2026-07-20T14:40:00+09:00'), linked: true },
+          { grade: 'D' as const, sentAt: null, linked: true },
+          { grade: 'E' as const, sentAt: null, linked: false },
+        ],
+      },
     ],
     resendAction: vi.fn().mockResolvedValue(undefined),
   }
@@ -204,9 +211,14 @@ describe('LineBroadcastSection — 級別配信は大会側の連携状態に依
   // 常設（spec/notifications.md）。status 分岐の中に入れると、未連携の新規大会で
   // 管理者が級別配信の状況確認・再送に到達できなくなる（機能回帰）。
   const gradeBroadcast = {
-    rows: [
-      { grade: 'C' as const, sentAt: null, linked: true },
-      { grade: 'D' as const, sentAt: null, linked: false },
+    days: [
+      {
+        eventId: 1,
+        rows: [
+          { grade: 'C' as const, sentAt: null, linked: true },
+          { grade: 'D' as const, sentAt: null, linked: false },
+        ],
+      },
     ],
     resendAction: vi.fn().mockResolvedValue(undefined),
   }

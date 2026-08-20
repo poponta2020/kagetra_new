@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, type ReactNode } from 'react'
 import type { Grade } from '@kagetra/shared/types'
 import { formatDateTimeShort } from '@/lib/event-date'
 import {
@@ -22,6 +22,12 @@ export interface GradeBroadcastRow {
 export interface GradeBroadcastSectionProps {
   eventId: number
   /**
+   * 行の見出し。既定は `級別グループ配信`。entry-group-page タスク3: グループ
+   * ページは**日ごとに1行**出すので、複数日のときだけ呼び出し側が日を添えた
+   * ラベル（例 `級別配信 9/5`）を渡して行を区別する。
+   */
+  label?: ReactNode
+  /**
    * 対象級ごとの配信状況。`events.eligible_grades` から解決した級だけを
    * 並べる（null/空なら全5級）。
    */
@@ -40,6 +46,7 @@ export interface GradeBroadcastSectionProps {
  */
 export function GradeBroadcastSection({
   eventId,
+  label = '級別グループ配信',
   rows,
   resendAction,
 }: GradeBroadcastSectionProps) {
@@ -95,7 +102,7 @@ export function GradeBroadcastSection({
 
   return (
     <DisclosureRow
-      label="級別グループ配信"
+      label={label}
       value={`${sentCount} / ${rows.length} 送信済み`}
       aux={aux}
       auxTone="warn"

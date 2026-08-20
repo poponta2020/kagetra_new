@@ -49,9 +49,13 @@
   最新のもの。`cancelled` も候補に含める（詳細画面には到達できるため）
 - **進行状態（`entryStatus` / `paymentType` / `paymentStatus`）は日別のまま**。「C級の日だけ申し込む」
   が本番で実在するため。一括化したのは**操作**だけで、状態は日ごとに持つ
+- **グループ専用の画面がある**: `/admin/entries/[groupId]`（下記「申込グループページ」）。管理者の
+  申込運用（進行管理・共通締切の編集・LINE配信・申込書・関連メール）はすべてそこに集約され、
+  `/events/[id]`（日ページ）は会員が「その日に出るか」を答える画面に純化されている
 - グループ帰属になったもの: LINE 紐付け・配信（[spec/notifications.md](notifications.md)）と
-  名簿（[spec/tournaments-results.md](tournaments-results.md)）。締切カラムは events に残し、
-  「同じ締切」は生成規則＋伝播ダイアログで運用的に維持する
+  名簿（[spec/tournaments-results.md](tournaments-results.md)）。締切カラムは events に残すが、
+  **編集の入口はグループページの「共通項目」1箇所**で、保存はグループ全日（`cancelled` 含む）へ
+  同一トランザクションで書く（伝播という概念は無くなった）
 - 空グループは条件付きで自動削除（`deleteGroupIfEmpty`。events / event_line_broadcasts /
   tournament_entry_rosters / line_channels.assigned_entry_group_id が**全て0件のときだけ**。
   削除条件はこの関数に集約されている）。LINE 紐付けや名簿は付け替え時に移動元グループへ
@@ -144,22 +148,22 @@
 
 **罫線＋余白主導（脱カード）**の画面。カードを使うのは関連メールの1件ずつだけで、他は下線付き見出し＋余白＋ヘアライン罫線で構造を作る。運営操作は `<details>` に畳み（**既定=閉**）、既定表示では会員も管理者も「どの大会か・今どの段階か・自分は出るか」だけが見える状態にする。ルート要素は `p-4` を持ち、`<main>`（共通シェル）には padding を足さない。
 
-上から: **固定ヘッダー**（`EventDetailHeader`。日付+大会名+会場+申込フローを1つのラッパーで sticky にする。分割するとオフセット計算が壊れる）→ **グループ日リンク**（`GroupDayLinks`。同じ申込グループ内の他の日への相互リンクを全ロールに表示。シングルトングループ（自分のみ）では非表示。sticky ヘッダーの外に置く）→ 進行管理（管理者のみ・`EventLifecycleSection`）→ 参加者（人数を見出しに出し、苗字を級の添え字つきで羅列）→ 級別定員 → 備考 → LINE 配信（管理者のみ・級別グループ配信を内包・[spec/notifications.md](notifications.md)）→ 名簿（`RosterSection`。個人戦のみ・級タブつき・[spec/tournaments-results.md](tournaments-results.md)。種別ごとに、パース済み名簿があれば構造化表示を主として採用済み原本ファイルを補助リンクで併記し、パース済みが無く原本ファイルだけあるときは「〜名簿（原本ファイル）」としてファイル名の一覧を出す。折りたたみ見出しの件数は原本のみの種別を「未取込」と言わず `原本N件` と出す。会員へ渡すのはファイル名・種別・発表日・級・ビューア導線だけで、取込元メール ID・採用者は RSC payload に載せない。級別採用のファイルにはファイル名の脇に級ラベル（「D級」「A・B級」）が付き、グループ統一の採用（`grades` が NULL。既存データを含む）はラベルなし）→ オープンチャット（`OpenChatSection`。**全ロールに表示・表示のみ**。下記「オープンチャット欄」）→ 関連メール（管理者のみ・[spec/mail-worker.md](mail-worker.md)）→ sticky な出欠トグルボタン。管理者は大会名の脇と備考見出しに「編集」リンクを持つ。
+上から: **固定ヘッダー**（`EventDetailHeader`。日付+大会名+会場+申込フローを1つのラッパーで sticky にする。分割するとオフセット計算が壊れる）→ **グループ導線**（`GroupBackLink`。申込グループページへの戻りリンクを全ロールに表示。ラベルは固定文言「‹ 大会全体（申込・名簿）」で大会名を繰り返さず、**シングルトングループでも常に出す**——ボードが常にグループページへ着地するので、出さないと group → day で戻り導線が消える。複数日のときだけグループ名を薄く添える。sticky ヘッダーの外に置く）→ 参加者（人数を見出しに出し、苗字を級の添え字つきで羅列）→ 級別定員 → 備考 → 名簿（`RosterSection`。個人戦のみ・級タブつき・[spec/tournaments-results.md](tournaments-results.md)。種別ごとに、パース済み名簿があれば構造化表示を主として採用済み原本ファイルを補助リンクで併記し、パース済みが無く原本ファイルだけあるときは「〜名簿（原本ファイル）」としてファイル名の一覧を出す。折りたたみ見出しの件数は原本のみの種別を「未取込」と言わず `原本N件` と出す。会員へ渡すのはファイル名・種別・発表日・級・ビューア導線だけで、取込元メール ID・採用者は RSC payload に載せない。級別採用のファイルにはファイル名の脇に級ラベル（「D級」「A・B級」）が付き、グループ統一の採用（`grades` が NULL。既存データを含む）はラベルなし）→ オープンチャット（`OpenChatSection`。**全ロールに表示・表示のみ**。下記「オープンチャット欄」）→ sticky な出欠トグルボタン。**管理者に残る操作は大会名の脇と備考見出しの「編集」リンクだけ**——進行管理・LINE配信・関連メールの3セクションは申込グループページへ移設した（2026-08-20。[features/entry-group-page/requirements.md](../features/entry-group-page/requirements.md) §3.2.7）。名簿とオープンチャットはグループ帰属の同一データなので**日ページとグループページの両方に出す**（表示を増やしても状態は増えず、会員の主動線から名簿が消える方が害が大きい）。
 
 **申込フロー**（`EntryFlow` ＋ 判定は `lib/events/entry-flow.ts` の `buildEntryFlow`）は 会内締切 → 大会申込 → 抽選 → 支払 → 開催 の5ステップを横一列に描く両ビュー共通の表示で、`events.entryStatus` / `paymentStatus` が「会としての進行」を表すため会員にも同じマイルストーンを見せる。**5ステップは日付が NULL でも消さず**、日付欄に「未定」と出す（ステップ数が大会ごとに変わると横並びの目安として機能しなくなるため）。判定はハイブリッドで、大会申込は `entryStatus==='applied'`、支払は `paymentType==='advance'` かつ `paymentStatus==='paid'`、会内締切・開催は対応する日付が JST の今日より前かで完了を決める。抽選は「抽選日が今日より前」**または**「確定名簿が取り込まれている」で完了になる — 確定名簿は抽選結果そのものなので、抽選日が未設定・未来日でも取込済みならフローを先へ進める（日付欄は「未定」のまま）。確定名簿の有無の定義は申込管理ボードと同一で、`confirmed` のパース済み名簿（supersede されていない版）∪ 採用済み原本ファイル。`applicant`（申込者名簿）は影響しない。事前払い以外の支払と `not_applying` 時の 大会申込〜支払 は**中立**（完了・警告・現在地のいずれにもならない）。現在地は「完了でも中立でもない」最先頭の高々1つで、`not_applying` のときは出さない。警告（朱）は**期限超過かつ未完了**のときだけで、単なる未払を警告にはしない。
 
 
 **振込締切の「状態」**（`events.payment_deadline_kind`。`fixed` / `later_notice` / `unspecified`）は日付と対で扱う。`payment_deadline` が空である理由には「案内に『振込先は抽選後に別途連絡』と書いてあった（`later_notice`）」と「そもそも記載が無い／読み取れなかった（`unspecified`）」の2種類があり、前者は追加調査不要・後者は原文を当たるべき状態で対応がまったく違う。承認時に AI ペイロードの3値からマッピングされ（[spec/mail-worker.md](mail-worker.md)）、その後は編集フォームで人が変更できる（後日連絡だったものに連絡が来たとき日付へ書き換えられることが実用上の要）。
 
-DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` で双条件に縛られているため、**この2列は必ず同じ INSERT / UPDATE で揃えて書く**。正規化は `apps/web/src/lib/events/payment-deadline.ts` の `normalizePaymentDeadline`（日付が正 —— 日付があれば必ず `fixed`）で、`eventFormSchema` の transform に置いてある。作成・編集・メール承認の3経路がすべてこの schema を通るので、日付を入れたら状態が `fixed` へ倒れるのは**サーバー側で**担保される（クライアント側のバリデーションだけに頼ると CHECK 違反で 500 になる）。申込グループへの伝播だけは schema を通らないため、`diffPropagatableFields` が日付と状態を必ず束ねて返す。UI は日本語表示（`fixed`→日付そのもの / `later_notice`→「後日連絡」/ `unspecified`→「締切未設定」）。「後日連絡」は**期限超過扱いにしない**（締切が決まっていないのだから遅延ではない）。
+DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')` で双条件に縛られているため、**この2列は必ず同じ INSERT / UPDATE で揃えて書く**。正規化は `apps/web/src/lib/events/payment-deadline.ts` の `normalizePaymentDeadline`（日付が正 —— 日付があれば必ず `fixed`）で、`eventFormSchema` の transform に置いてある。作成・編集・メール承認の3経路がすべてこの schema を通るので、日付を入れたら状態が `fixed` へ倒れるのは**サーバー側で**担保される（クライアント側のバリデーションだけに頼ると CHECK 違反で 500 になる）。グループページの共通項目保存も schema を通らないため、そちらは `normalizePaymentDeadline` を直接経由して2列を揃える（`saveGroupCommonFields`）。UI は日本語表示（`fixed`→日付そのもの / `later_notice`→「後日連絡」/ `unspecified`→「締切未設定」）。「後日連絡」は**期限超過扱いにしない**（締切が決まっていないのだから遅延ではない）。
 
 
-一般会員には 支払締切・支払方法・支払情報・申込方法・`events.fee_jpy` の格納値・振込総額 を描画しない（RSC payload にも載せない）。これらは管理者の「支払状態」「申込状態」トグル内に集約されており、会員向けの周知は LINE グループへ配信される要綱に委ねている。**例外は「あなたの参加費」の1行**で、参加者セクション内に自分の級の単価だけを全ロールへ出す（`memberEntryFeeJpy`。個人戦のみ・級が対象級に含まれるときのみ・出欠の回答状況は問わない。他人の額も総額も見えない）。単価の決め方は下記「参加費の解決」。日付は生 ISO を出さず、文脈ごとに `9/6(日)`（見出し・フラット表）／`7/31`（申込フロー・曜日なし）／`2026/07/20 14:32`（LINE 連携状況）／`7/25 18:02`（配信履歴・名簿の発行日）を使い分ける（整形は `lib/event-date.ts`）。
+一般会員には 支払締切・支払方法・支払情報・申込方法・`events.fee_jpy` の格納値・振込総額 を描画しない（RSC payload にも載せない）。これらは申込グループページの「進行管理」（管理者のみ）に集約されており、会員向けの周知は LINE グループへ配信される要綱に委ねている。**例外は「あなたの参加費」の1行**で、参加者セクション内に自分の級の単価だけを全ロールへ出す（`memberEntryFeeJpy`。個人戦のみ・級が対象級に含まれるときのみ・出欠の回答状況は問わない。他人の額も総額も見えない）。単価の決め方は下記「参加費の解決」。日付は生 ISO を出さず、文脈ごとに `9/6(日)`（見出し・フラット表）／`7/31`（申込フロー・曜日なし）／`2026/07/20 14:32`（LINE 連携状況）／`7/25 18:02`（配信履歴・名簿の発行日）を使い分ける（整形は `lib/event-date.ts`）。
 
 
 出欠回答不可の会員には理由（対象外／会内締切超過／級未設定／対象外の級）をカードで示す。
 
-**参加費の解決**（`lib/entry-fee.ts` の `resolveEntryFee`。画面・LINE 通知の全経路がここを通る）: `official=true` かつ `kind='individual'` なら **`events.fee_jpy` を一切見ず**、級から公認大会の規定額（`OFFICIAL_ENTRY_FEE_JPY`）を常に導出する。それ以外（非公認・団体戦）は `events.fee_jpy` をそのまま単価にする。`fee_jpy ?? 導出` ではない — 公認大会の参加料は協会規定で大会ごとの裁量が無く、スカラー1列では同日に複数級が開催される大会の級別金額を表現できない（実際に本番データが誤っている）。対象級は `events.eligible_grades`（NULL / 空配列なら全級）で、同一単価の級はまとめて `A・B級 2,500円 / C級 2,000円` の形に整形する。管理者の「支払状態」トグルには単価に加えて**振込総額**と内訳（級ごとの人数×単価）を出す。振込総額は申込グループを1つにまとめた額で、**中止した日**と**事前払い以外の日**（現地払い＝当日各自が払う／NULL＝支払い通知なし）は除く（`setPaymentType` は1日単位で変更できるため同一グループ内で支払方法が混在しうる）。総額の母集団は参加者一覧（`attend=true` ∩ `is_invited` ∩ 対象級）と同一で、級未設定の会員は 0 円で足さず未算入として注記する（`lib/entry-fee-tally.ts`）。団体戦・非公認では人数×単価が成立しないため総額を出さない。
+**参加費の解決**（`lib/entry-fee.ts` の `resolveEntryFee`。画面・LINE 通知の全経路がここを通る）: `official=true` かつ `kind='individual'` なら **`events.fee_jpy` を一切見ず**、級から公認大会の規定額（`OFFICIAL_ENTRY_FEE_JPY`）を常に導出する。それ以外（非公認・団体戦）は `events.fee_jpy` をそのまま単価にする。`fee_jpy ?? 導出` ではない — 公認大会の参加料は協会規定で大会ごとの裁量が無く、スカラー1列では同日に複数級が開催される大会の級別金額を表現できない（実際に本番データが誤っている）。対象級は `events.eligible_grades`（NULL / 空配列なら全級）で、同一単価の級はまとめて `A・B級 2,500円 / C級 2,000円` の形に整形する。申込グループページの「支払状態」には単価に加えて**振込総額**と内訳（級ごとの人数×単価）を出す。振込総額は申込グループを1つにまとめた額で、**中止した日**と**事前払い以外の日**（現地払い＝当日各自が払う／NULL＝支払い通知なし）は除く（`setPaymentType` は1日単位で変更できるため同一グループ内で支払方法が混在しうる）。総額の母集団は参加者一覧（`attend=true` ∩ `is_invited` ∩ 対象級）と同一で、級未設定の会員は 0 円で足さず未算入として注記する（`lib/entry-fee-tally.ts`）。団体戦・非公認では人数×単価が成立しないため総額を出さない。
 
 **オープンチャット欄**（`OpenChatSection`。openchat-broadcast）は、大会当日用の LINE オープンチャット招待 URL を**ログイン済みの全会員**へ出す表示専用のセクション。追加・編集・削除の導線は置かない（編集はメール詳細の抽出フローからのみ）。帰属は**申込グループ**（`entry_group_open_chats.entry_group_id`）なので**開催日で絞らない** — 6/21 の詳細でも 6/20 対象の行が見える。対象日はラベルに出るので取り違えは起きず、「別の日のオプチャが見つからない」事故を防ぐ方を優先した。行は `ORDER BY sort_order, id` で取り、**取得順のまま描画する**（LINE を見逃した会員が配信済み Flex と同じ順序で辿れるようにするため。DTO は `sortOrder` を持たず、コンポーネント側で再ソートできない形にしてある）。ラベルは Flex と同一の `resolveOpenChatLabel`（`lib/open-chat/label.ts`）で解決するので必ず一致する。**保存済みが0件のときは見出しごと出さない** —「未設定」と出すと会員に「運営が忘れている」と読ませるが、実際は主催者がまだ配っていないだけのことが多い。
 
@@ -173,24 +177,27 @@ DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixe
 検索）ができる。付け替えは `updateEvent` と同一トランザクションで行い、移動元グループに対して
 `deleteGroupIfEmpty` を呼ぶ。合流先 id はサーバー側で実在を再検証する。
 
-**締切・支払い系フィールドの伝播**（`EventEditSubmit`）。`entryDeadline` / `internalDeadline` /
-`paymentDeadline` / `lotteryDate` / `paymentMethod` / `paymentInfo` / `entryMethod` のいずれかを
-変更して保存するとき、同グループに他の日があれば**チェックボックス付き確認ダイアログ**（既定全チェック）
-を出し、選択した日にも同じ値を保存する。伝播対象は UPDATE の WHERE に `entry_group_id` を併記して
-DB レベルで再検証する fail-closed（クライアントが他グループの id を混ぜても更新されない）。
-開催日・級・定員・参加費・タイトル等の**日固有フィールドは伝播しない** — 差分検出関数へ渡す値を
-7フィールドだけ手で列挙しているのがその唯一の砦。**グループ付け替えと伝播は同時に成立させない**
-（ダイアログは移動前のグループの日一覧から作られるため前提が崩れる。client と server の両側で
-同じ判断をしている）。
+**このフォームは日固有項目だけを扱う**（2026-08-20）。グループ共通の7項目（申込締切・会内締切・
+抽選日・支払締切〔日付＋状態〕・支払方法・振込先・申込方法＝`PROPAGATABLE_FIELD_KEYS`）は
+`EventForm` の `hideGroupCommonFields` で**描画しない**。編集はグループページの「共通項目」1箇所に
+定まり、伝播確認ダイアログ（`EventEditSubmit`）は撤去した。残るのはタイトル・正式名称・開催日・場所・
+対象級・級別定員・全体定員・参加費・主催・区分・公認/非公認・備考・edition 紐付け・申込グループ欄。
+
+★**`updateEvent` は共通7項目（8キー）を UPDATE の SET から明示的に除外する。** 入力が描画されないと
+`extractEventFormData` はそれらを `null` として読むため、除外しないとグループページで設定した締切・
+振込先が日ページの保存のたびに `null` で上書きされて消える。作成経路（`/events/new`・メール承認
+`ApprovalForm`）は従来どおり全項目を出す（グループがまだ確定していないため）。
 
 ### `/admin/entries` 申込管理ボード
 
-ログイン会員なら誰でもアクセス可（未ログイン・未紐付けのみ `/403` へリダイレクト。role による絞りはしない）。会レベルの申込進捗を大会単位で一望する**表示専用**画面で、状態を変える操作は持たない（変更はすべて `/events/[id]` の進行管理パネル）。ボトムナビの `申込管理` タブから入る。当初は管理者専用だったが、表示専用であり会員も知りたい情報なので閲覧を開放した——表示項目の role 出し分けはせず、行タップの遷移先も全員 `/events/[id]`（管理者向けパネルはその画面側が出し分ける）。URL の `/admin/` プレフィックスは既存導線・テストへの波及を避けて据え置いている。
+ログイン会員なら誰でもアクセス可（未ログイン・未紐付けのみ `/403` へリダイレクト。role による絞りはしない）。会レベルの申込進捗を大会単位で一望する**表示専用**画面で、状態を変える操作は持たない（変更はすべて `/events/[id]` の進行管理パネル）。ボトムナビの `申込管理` タブから入る。当初は管理者専用だったが、表示専用であり会員も知りたい情報なので閲覧を開放した——表示項目の role 出し分けはせず、行タップの遷移先も全員 `/admin/entries/[groupId]`（申込グループページ。操作 UI はその画面側が role で出し分ける）。URL の `/admin/` プレフィックスは既存導線・テストへの波及を避けて据え置いている。
 
 母集団は「開催日が JST 今日以降」「`status != 'cancelled'`」「`kind = 'individual'`」を満たす `events` から、**非表示条件**（`entryStatus='not_applying'` ／ 基準締切が非NULLかつ超過済みで出欠「参加」0名）に該当するものを引いたもの。団体戦を外すのは確定名簿が個人戦専用の仕様で、含めると「確定名簿が永遠に出ない」大会が申込済み区画に滞留するため。
 
 **entry-groups: 1グループ = 常に1行**（2026-07-28 変更。それ以前は日別行を持つカードだった）。行にはグループ表示名・
-参加希望者数・残日数・日付だけを出し、タップすると**代表イベント**の詳細へ遷移する。件数ピルはグループ数を数える
+参加希望者数・残日数・日付だけを出し、タップすると**申込グループページ**へ遷移する（2026-08-20 変更。
+それ以前は代表イベントの詳細だった）。シングルトングループを含む**全行**が同じ着地点になる——行によって
+着地先が変わると「大会名を押したら何が出るか」が予測できなくなるため。件数ピルはグループ数を数える
 （複数日グループは1件）。グループがどの区画に入るかは `[要申込, 名簿確定・要振込, 申込完了・抽選待ち, 締切前, 完了]` の優先順位で
 **最も対応が必要な区画**へ寄せる（管理者が見落とさない側＝安全側）。
 
@@ -232,6 +239,28 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 日付判定はサーバーで確定した JST の `YYYY-MM-DD` を渡して文字列比較する（クライアントで `Date.now()` を呼ぶと hydration mismatch になる）。仕分け・並び順・日付バッジ・強調判定は `admin/entries/entry-board-utils.ts` の純関数。毎朝の `entry-overdue-alert` も「要申込」と同じ対象定義を使う（[spec/notifications.md](notifications.md)）。
 
+### `/admin/entries/[groupId]` 申込グループページ
+
+申込・締切・名簿・LINE 連絡・入金は申込グループ単位で行われるため、**管理者の申込運用の起点**をこの1画面に集約する（2026-08-20 新設。[features/entry-group-page/requirements.md](../features/entry-group-page/requirements.md)）。
+
+**閲覧はログイン済みの全ロール**（admin / vice_admin / member）。ゲストは middleware の許可リストに該当せず `/403`（ページ側にも fail-safe の `redirect`）。ボード `/admin/entries` が会員全員に開放済みなので、その遷移先を管理者専用にすると会員に死んだリンクが生まれる。**操作 UI（進行管理・共通項目・LINE配信・申込書・関連メール）は管理者/副管理者にのみ描画し、非管理者には値を計算せず RSC payload にも載せない**（`/events/[id]` と同じ規約。JSX の条件分岐で隠すだけでは client component へ渡した props が payload に出る）。表示ロールのプレビュー中は表示ロールに従う。存在しない `groupId` とイベント0件のグループはどちらも 404。
+
+セクションは上から **ヘッダー（パンくず・グループ名・開催日の並び・共通締切）→ 申込フロー帯 → 日程 → 進行管理 → 共通項目 → LINE配信 → 名簿 → オープンチャット → 関連メール**。ヘッダーとフロー帯は1つのラッパーで sticky にし（日ページと同じ型なので行き来しても目が迷わない）、運営操作は既定=閉の `<details>` に畳む。グループ名は `deriveEntryGroupName`（保存しない）で、導出不能なら代表イベントのタイトルへフォールバックする。
+
+**申込フロー帯**は日ページと**同じ `EntryFlow` / `buildEntryFlow`** を使い、グループから集約した入力（`aggregateGroupFlowInput`）を渡すだけ。判定規則が2箇所に分裂しないようにするため。集約は判定母集団＝`status <> 'cancelled'` の日（対象日）で、開催日＝対象日の最も早い日、申込状態＝申込対象日（`not_applying` でない対象日）が0件なら `not_applying`・すべて `applied` なら `applied`・それ以外は `not_applied`、支払タイプ＝申込対象日に `advance` があれば `advance`／無く `onsite` があれば `onsite`／どちらも無ければ NULL、支払状態＝申込対象日の `advance` の日がすべて `paid` なら `paid`。**対象日が0件（全日中止）ならフロー帯を描かない**。「申し込まない日を除いた残りが全部揃ったら完了」にしたのは、本番の多摩CDE（C だけ申込済・D/E は申し込まない）で「1日でも進んでいれば完了」は楽観的すぎ、「全日揃って完了」は永遠に完了しないため。
+
+**日程表**（`GroupDayTable`）はグループ内の全イベントを開催日昇順（同着は id 昇順）で並べ、`cancelled` の日も行として残す。各行は 開催日 → 大会名（通称ベース `displayName`）→ 対象級 → 自分の回答印 → **進行フェーズ1語** → 参加希望者数 → シェブロン で、行タップで `/events/[id]` へ遷移する。**フェーズ1語の語彙は申込管理ボードの区画名と同一**（`要申込 / 抽選待ち / 要振込 / 完了 / 申込なし / 締切前 / 中止`。この画面だけの造語を作らない）で、判定はボードの `classify` をそのまま日ごとに回し、短縮ラベルは `AREAS` の `label` から機械的に導出する（`admin/entries/day-phase.ts`）。`no_applicants` に畳まれる2ケース（申し込まない／未申込かつ希望者0名かつ締切超過）はどちらも「申込なし」で、理由は同じ行の参加希望者数が示す。参加希望者数は `attend=true` の素通しで**ゲストは数えない**（`/events` 一覧・ボードと同じセマンティクス）。**日程表の内容は管理者と一般会員で同一で、差は選択チェックボックスの有無だけ**。中止の日は色を足さず `opacity` で落とし、チェックボックスを押せなくする。フェーズ語も表示用の値もサーバーで確定させて client へ渡す（`classify` を client バンドルへ持ち込まないため）。
+
+**一括操作**は日程表の直下。「日を選んでまとめて適用する」1つの形に統一され、既定は選択可能な日すべてにチェック。前進3種（申込済にする・支払済にする・支払タイプ変更）はボタン、後退3種（未申込に戻す・申し込まない・未払に戻す）は「戻す操作」の `<details>` に畳んで誤操作を1段遠ざける。1日も選択していない、または選択した日の状態が1つも動かないときはボタンを無効化する。通知の集約規則は変えていない（下記「進行管理フロー」）。
+
+**進行管理**（管理者のみ）は**表示専用**で、申込状態・申込書・支払状態（振込総額・級別内訳・振込先・支払締切）を集約ラベル（例「2日とも申込済」「1／3日 支払済」）で示す。**日ごとのトグルを置かない**——状態の切り替えは必ず日程表で日を選んでから行い、「どこで申込済にするのか」を1箇所に定める。申込書ウィザード（`/admin/entry-form/[groupId]`）への導線は個人戦のみ（団体戦では名簿セクションともども出さない）。
+
+**共通項目**（管理者のみ）は7項目のインライン編集で、保存はグループ全日（`cancelled` 含む）へ同一トランザクション。値は全日一致ならその値、食い違えば**最も早い日付**（日付以外の項目は代表イベントの値）を主に出し、朱で「（日により異なる）」を添える（`aggregateGroupCommonFields`）。食い違ったまま運用することは許容されている（締切リマインドは締切日ごとに別通で飛ぶ）が、大半は伝播し忘れの事故なので気づける形にした。アクションは「編集して揃える」1本。
+
+**LINE配信・名簿・オープンチャット・関連メール**はいずれもグループ帰属。関連メールはグループ**全日分の UNION**（`collectRelatedMailIdsForGroup`。重複は `mail_messages.id` で dedup・受信日降順）。級別グループ配信だけは event 単位の状態なので**日ごとに1行**出す（代表イベントだけに畳むと複数日グループで他の日へ配信する手段が失われる。1日だけのグループの描画は日ページ時代と同一）。
+
+朱（`--kg-accent` 系）を使うのは **期限超過・要対応フェーズ（要申込／要振込）・共通項目の食い違い**の3つだけ。視覚の正は [features/entry-group-page/design-spec.md](../features/entry-group-page/design-spec.md)（locked・案C）と同ディレクトリの `design-mock/`。
+
 ### `/admin/entry-form/[groupId]` 申込書作成プレビュー
 
 申込グループ単位で申込書 xlsx を自動記入し、Yahoo メールの下書きを作る（admin / vice_admin のみ）。3ステップのウィザード。
@@ -264,7 +293,7 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 2. サーバーが `isAdmin` / `isInvited` / `internalDeadline` / `eligibleGrades` から `canRespond` を算出し、回答可否と UI 出し分けを決める
 3. 回答可能なら sticky ボタンで参加/キャンセルをトグル（`attend` のみ送信）、または折り畳みのコメント欄から `comment` のみ送信
 4. `submitAttendance` がサーバー側でも同じガードを再検証し、`event_attendances` を upsert
-5. `revalidatePath` でイベント詳細を再検証
+5. `revalidatePath` でグループ内の各イベント詳細・**申込グループページ・申込管理ボード**を再検証する（`revalidateAfterLifecycleChange`。操作の入口がグループページへ移ったので、日ページだけ捨てると操作した当の画面が古いフェーズ語のまま残る）
 
 ### イベント作成・編集フロー
 
@@ -277,15 +306,15 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 ### 進行管理（申込/支払い状態）フロー
 
-1. 管理者が `/events/[id]` の「進行管理」→「申込状態」トグルを開いて「申込済にする」等をクリック。ボタン構成は状態で変わる: `not_applied` → 「申込済にする」＋「申し込まない」、`applied` → 「未申込に戻す」のみ、`not_applying` → 「未申込に戻す」のみ。**「申し込まない」は `not_applied` のときだけ出す** — `applied` から直接 `not_applying` へは遷移させず「未申込に戻す」を経由する2手順にして、状態機械を単純に保つ
+1. 管理者が `/admin/entries/[groupId]`（申込グループページ）の**日程表で対象の日を選び**、一括操作バーのボタンを押す（2026-08-20 変更。それ以前は `/events/[id]` の進行管理トグル＋伝播確認ダイアログだった）。前進3種はボタン、後退3種は「戻す操作」の `<details>` の中。既定は選択可能な日すべてにチェックで、`cancelled` の日は選択できない。ボタンは選択した日のうち1日でも状態が動くときだけ活性になる（`applied` から直接 `not_applying` へは遷移させず「未申込に戻す」を経由する2手順は維持。状態機械を単純に保つため）
 2. LINE グループが紐付き済み（`isLineLinked`）かつ通知を伴う操作（申込済化・支払済化。取り消し方向や支払いタイプ変更は通知なし）なら、クライアントで `window.confirm` による確認を挟む。「申し込まない」は LINE 通知を伴わないが `/events` 一覧から消える不可視化を伴うため、`isLineLinked` に関係なく別文言の確認を必ず出す（解除側は確認なし）
-3. `setEntryApplied` / `setPaymentPaid` が対象トランザクション内で状態を `not_applied → applied` 等の初回遷移でのみ更新し、同一トランザクションで通知 claim（`claimLifecycleNotification`）を行う。再トグルや二重呼び出しでは 2 回目以降は通知されない（once-ever）
+3. `setEntriesApplied` / `setPaymentsPaid` が選択した全 `eventId` を1回の Server Action 呼び出しで受け、id 昇順で各日をガード付き UPDATE（`not_applied → applied` 等の初回遷移のみ）し、同一トランザクションで通知 claim（`claimLifecycleNotification`）を行う。再トグルや二重呼び出しでは 2 回目以降は通知されない（once-ever は `(event_id, type)` 単位）
 4. コミット後、push 送信は best-effort（失敗しても状態変更はロールバックしない）
 5. `revalidatePath` でイベント詳細を再検証
 
 支払いタイプを `advance` から離れる方向へ変更すると、`paymentStatus`/`paymentPaidAt` は自動的に未払へ戻す（ただし once-ever 通知 claim ログ自体は削除しない＝再度支払済にしても完了通知は再送されない）。
 
-**entry-groups タスク4: 同グループの複数日への一括適用。** 同じ申込グループに他の日があるとき（`groupSiblings.length > 1`）、「申込済にする」「支払済にする」「支払いタイプ」変更のいずれかを操作すると、通知確認（上記2.）の手前に**チェックボックス付き確認ダイアログ**（`GroupToggleDialog`）が挟まる。既定で該当しうる日は全チェック、`cancelled` の日はチェックボックスが disabled で選択できない（クライアント側の防御に加え、サーバー側の `setEntriesApplied` 等も tx 内で `cancelled` を再ガードして claim 対象から除外する）。確定すると選択した全 `eventId` を1回の Server Action 呼び出しにまとめ、id 昇順で各日をガード付き UPDATE → flip できた日のうち claim できた集合だけで参加者向け・会計向けそれぞれ1通に集約して push する（通知組み立ての詳細は [spec/notifications.md](notifications.md)）。単独グループ（他の日がない）では従来どおり単一 `eventId` の直接呼び出しになる。
+**通知の集約規則は変わっていない。** 選択した全 `eventId` を同一 tx で claim し、flip できた日のうち claim できた集合だけで参加者向け・会計向けそれぞれ**1通に集約**して push する。後から追加した日を申込済にすると「新たに claim できた日の分だけ」の通知が1通飛ぶ（既送分は再送しない）。`cancelled` の日はサーバー側でも tx 内で再ガードして claim 対象から除外する（クライアントの選択を信用しない fail-closed）。通知組み立ての詳細は [spec/notifications.md](notifications.md)。
 
 ## API（Server Actions）
 
@@ -301,11 +330,15 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 いずれも管理者・副管理者専用（`requireAdminSession()`）。`entryStatus` / `paymentType` / `paymentStatus` の更新自体はこのドメインの管轄だが、初回遷移で発火する LINE 通知の組み立て・送信ロジックは [spec/notifications.md](notifications.md) が正典。`cancelled` ステータスの大会には通知しない（状態変更自体は記録する）。
 
-`setEntryNotApplying` は `entryStatus='not_applying'`・`entryAppliedAt=null` へ無条件 UPDATE し、通知 claim も push も行わない。`entryStatus` が `/events` 一覧の表示可否を左右するため、詳細ページに加えて `/events` も `revalidatePath` する（`setEntryApplied` の解除分岐も同様）。
+`setEntryNotApplying` は `entryStatus='not_applying'`・`entryAppliedAt=null` へ UPDATE し、通知 claim も push も行わない（対外的なアクションを伴わない内部判断のため）。`entryStatus` が `/events` 一覧の表示可否を左右するため、詳細ページに加えて `/events` も `revalidatePath` する（`setEntryApplied` の解除分岐も同様）。
 
-### `setEntriesApplied(eventIds, applied)` / `setPaymentsPaid(eventIds, paid)` / `setPaymentTypes(eventIds, type)` — `events/[id]/actions.ts`（entry-groups タスク4）
+### `setEntriesApplied(eventIds, applied)` / `setEntriesNotApplying(eventIds)` / `setPaymentsPaid(eventIds, paid)` / `setPaymentTypes(eventIds, type)` — `events/[id]/actions.ts`
 
-`setEntryApplied` / `setPaymentPaid` / `setPaymentType` はそれぞれこの複数形版への薄いラッパー（`bulk([eventId], ...)`）で、単一 `eventId` を渡した場合の状態遷移・claim・文面・`revalidatePath` は従来と完全に同一。`eventIds` は重複除去して id 昇順にソートし、先頭 id から解決した `entry_group_id` を全 UPDATE の WHERE に併記する fail-closed（グループ外の id はクライアントの申告を信用せず無条件に対象から外れる）。`setEntriesApplied(ids, true)` / `setPaymentsPaid(ids, true)` は各 id をガード付き UPDATE → flip できた行のうち `cancelled` はここで再ガードして claim 対象から除外 → 種別ごとに独立 claim → **claim できた集合だけ**で参加者向け・会計向けそれぞれ1通に集約 push する（`sendClaimedNotificationBulk`、[spec/notifications.md](notifications.md)）。逆方向（`applied=false` / `paid=false`）と `setPaymentTypes` は通知を送らない。
+`setEntryApplied` / `setEntryNotApplying` / `setPaymentPaid` / `setPaymentType` はそれぞれこの複数形版への薄いラッパー（`bulk([eventId], ...)`）で、単一 `eventId` を渡した場合の状態遷移・claim・文面は従来と完全に同一。`eventIds` は重複除去して id 昇順にソートし、先頭 id から解決した `entry_group_id` を全 UPDATE の WHERE に併記する fail-closed（グループ外の id はクライアントの申告を信用せず無条件に対象から外れる）。`setEntriesApplied(ids, true)` / `setPaymentsPaid(ids, true)` は各 id をガード付き UPDATE → flip できた行のうち `cancelled` はここで再ガードして claim 対象から除外 → 種別ごとに独立 claim → **claim できた集合だけ**で参加者向け・会計向けそれぞれ1通に集約 push する（`sendClaimedNotificationBulk`、[spec/notifications.md](notifications.md)）。逆方向（`applied=false` / `paid=false`）と `setPaymentTypes` / `setEntriesNotApplying` は通知を送らない。`revalidatePath` は共通ヘルパー `revalidateAfterLifecycleChange` でグループ内の各 `/events/[id]`・`/admin/entries/[groupId]`・`/admin/entries` を再検証する（一括操作の入口がグループページになったため）。
+
+### `saveGroupCommonFields(groupId, input)` — `admin/entries/[groupId]/actions.ts`
+
+admin / vice_admin のみ。申込グループページの「共通項目」からグループ共通7項目（`PROPAGATABLE_FIELD_KEYS` と同一の集合）を**グループ内の全イベント（`cancelled` 含む）へ同一トランザクションで**保存する。入力は zod で再検証し、支払締切は `normalizePaymentDeadline` を必ず経由して日付と `payment_deadline_kind` を揃える（CHECK 制約）。書き込みは `propagateFieldsToGroup` を再利用するので、id 昇順ロック（デッドロック回避）と `WHERE entry_group_id` の再検証（fail-closed）はそのまま効く。日ページの編集フォーム経由の伝播と違い `diffPropagatableFields` は**使わない** ——「差分を伝播する」のではなく「グループ全日をこの入力値へ揃える」操作だから。7項目以外の列は SET しない。
 
 ### `loadEntryFormContext(groupId)` / `analyzeTemplateAction(input)` / `saveMemberNamesAction(entries)` / `createEntryFormDraftAction(input)` — `admin/entry-form/[groupId]/actions.ts`
 

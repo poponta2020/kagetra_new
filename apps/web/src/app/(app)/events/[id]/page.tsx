@@ -2,73 +2,37 @@ import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import {
-  entryFormDrafts,
   entryGroupOpenChats,
-  eventBroadcastGuidelineAttachments,
-  eventBroadcastMessages,
-  eventGradeBroadcasts,
-  eventLineBroadcasts,
   events,
-  lineChannels,
-  lineGradeGroupBindings,
-  mailMessages,
   tournamentEntryRosterFiles,
   tournamentEntryRosters,
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
-import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
-import { memberEntryFeeJpy, resolveEntryFee, type EntryFeeSource } from '@/lib/entry-fee'
-import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
-import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { memberEntryFeeJpy, type EntryFeeSource } from '@/lib/entry-fee'
 import { auth } from '@/auth'
 import { Btn } from '@/components/ui'
 import {
-  LineBroadcastSection,
-  type LineBroadcastBindingStatus,
-} from '@/components/events/LineBroadcastSection'
-import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTable'
-import type { GradeBroadcastRow } from '@/components/events/GradeBroadcastSection'
-import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
-import {
   EventDetailHeader,
-  GroupDayLinks,
+  GroupBackLink,
   LinkActionLink,
   SectionRule,
 } from '@/components/events/detail'
-import { listGroupSiblings } from '@/lib/entry-groups'
+import {
+  deriveEntryGroupName,
+  listGroupSiblings,
+  selectRepresentativeEvent,
+} from '@/lib/entry-groups'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
 import { isGuestRole } from '@/lib/guest-access'
 import { roleViewLabel } from '@/lib/role-preview'
-import {
-  generateInviteCodeForEvent,
-  manualBroadcast,
-  resendGradeBroadcast,
-  resendGuidelines,
-  revokeBroadcast,
-  setEntriesApplied,
-  setEntryApplied,
-  setEntryNotApplying,
-  setGuidelineAttachments,
-  setPaymentPaid,
-  setPaymentsPaid,
-  setPaymentType,
-  setPaymentTypes,
-  submitAttendance,
-} from './actions'
-import { EventRelatedMails } from './components/EventRelatedMails'
+import { submitAttendance } from './actions'
 import { OpenChatSection } from './components/OpenChatSection'
 import { RosterSection, type RosterFileView } from './components/RosterSection'
 import { surname } from '@/lib/surname'
-
-const ACTIVE_BROADCAST_STATUSES = [
-  'invite_pending',
-  'joined_waiting_code',
-  'linked',
-] as const
 
 /**
  * 大会申込詳細。event-detail-redesign: 罫線＋余白主導（脱カード）へ作り替えた。
@@ -76,6 +40,12 @@ const ACTIVE_BROADCAST_STATUSES = [
  * 畳む。既定表示では会員も管理者も「どの大会か・今どの段階か・自分は出るか」
  * だけが見える。要件は docs/features/event-detail-redesign/requirements.md、
  * 視覚の正は同ディレクトリの design-spec.md / design-mock/redesign.html。
+ *
+ * entry-group-page タスク4 (AC-28/AC-29/AC-30): 進行管理・LINE配信・関連メール・
+ * 日リンク帯（`GroupDayLinks`）は `/admin/entries/[groupId]`（申込グループページ）
+ * へ移設し、このページから撤去した。管理者に残る操作は見出しの「編集」リンクのみ。
+ * 代わりにグループページへの固定文言の戻り導線（`GroupBackLink`）を持つ。
+ * 申込フロー帯は従来どおり**日別のまま**（判定を変えていない）。
  *
  * ★このファイルにヘルパーコンポーネントを増やさないこと。`page-padding.test.ts`
  * （AC-23）が「ファイル全体で `  return (` がちょうど1本・その次行が padding
@@ -158,20 +128,29 @@ export default async function EventDetailPage({
 
   // grade-entry-fee タスク7: 単価解決は entry-fee.ts の resolveEntryFee に
   // 一切を委ねる（page 側で official/kind の分岐を再実装しない）。会員向け
-  // 「あなたの参加費」・進行管理の「参加費」「振込総額」の全てがこの1つの
-  // feeSource から導出される。
+  // 「あなたの参加費」がこの feeSource から導出される。
   const feeSource: EntryFeeSource = {
     official: event.official,
     kind: event.kind,
     eligibleGrades: event.eligibleGrades,
     feeJpy: event.feeJpy,
   }
-  const feeResolution = resolveEntryFee(feeSource)
 
   // entry-groups タスク4 (AC-16): 同じ申込グループの日一覧（開催日昇順・自分を
-  // 含む）。全ロールへ表示するグループ日リンクと、管理者向け進行操作の一括
-  // ダイアログの両方が使う。
+  // 含む）。entry-group-page タスク4以降はグループ導線のグループ名導出にのみ使う
+  // （進行管理の一括ダイアログは `/admin/entries/[groupId]` へ移設済み）。
   const groupSiblings = await listGroupSiblings(db, event.id)
+
+  const todayStr = todayInJst()
+
+  // entry-group-page タスク4 (AC-29): グループページの見出しと同じ規則で
+  // グループ名を導出する（食い違うと同じグループが2つの名前で呼ばれてしまう）。
+  // シングルトングループでは添え字を出さない（大会名と同一になるため null）。
+  const groupName =
+    groupSiblings.length > 1
+      ? (deriveEntryGroupName(groupSiblings.map((s) => s.title)) ??
+         selectRepresentativeEvent(groupSiblings, todayStr)!.title)
+      : null
 
   // openchat-broadcast タスク10 (AC-29/AC-52): 帰属は申込グループなので
   // 開催日で絞らない。並び順は Flex のボタン順と同一にする契約
@@ -191,223 +170,6 @@ export default async function EventDetailPage({
     .where(eq(entryGroupOpenChats.entryGroupId, event.entryGroupId))
     .orderBy(asc(entryGroupOpenChats.sortOrder), asc(entryGroupOpenChats.id))
 
-  // entry-form-autofill タスク8 (AC-17): 進行管理に出す最新の申込書下書き。
-  // 管理者にしか描画しないので、非管理者には RSC payload にも載せない。
-  const entryFormLatestDraft = isAdmin
-    ? ((
-        await db
-          .select({
-            id: entryFormDrafts.id,
-            createdAt: entryFormDrafts.createdAt,
-            createdByName: users.name,
-            attachmentFilename: entryFormDrafts.attachmentFilename,
-            status: entryFormDrafts.status,
-          })
-          .from(entryFormDrafts)
-          .leftJoin(users, eq(users.id, entryFormDrafts.createdBy))
-          .where(eq(entryFormDrafts.entryGroupId, event.entryGroupId))
-          .orderBy(desc(entryFormDrafts.createdAt), desc(entryFormDrafts.id))
-          .limit(1)
-      )[0] ?? null)
-    : null
-
-  // grade-entry-fee タスク7 (AC-24): 振込総額・内訳は管理者にのみ渡す。
-  // 一般会員には無駄なクエリを撃たない。
-  const feeTally = isAdmin
-    ? await tallyEntryFeesForGroup(db, event.entryGroupId)
-    : null
-
-  // event-line-broadcast: 紐付け状態と配信履歴を取得する。
-  //
-  // rr2 review blocker: LineBroadcastSection は `use client` なので、
-  // props は RSC payload としてブラウザに必ず届く。非管理者には Bot 名 /
-  // グループ ID 末尾 / 配信履歴 / エラーメッセージなど管理者専用情報を
-  // **そもそも送らない** こと（AC-28）。event-detail-redesign 後の
-  // LineBroadcastSection は非管理者に何も描画しないが、status のみスタブを
-  // 渡す遮断方式は要件 §6 の契約としてそのまま維持する。
-  // entry-groups タスク3: 帰属は entry_group_id。event は既に全列取得済み
-  // なので追加クエリなしで event.entryGroupId を使う（AC-4: グループ内の
-  // どの日から見ても同一の紐付け状態が見える）。
-  const broadcastStatusRow = await db
-    .select({ status: eventLineBroadcasts.status })
-    .from(eventLineBroadcasts)
-    .where(
-      and(
-        eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
-        inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
-      ),
-    )
-    .limit(1)
-  const activeBroadcastStatus = broadcastStatusRow[0]?.status ?? null
-  // Lifecycle notifications only fire on a live (linked) group. Drives the
-  // confirm prompt in the 進行管理 section.
-  const isLineLinked = activeBroadcastStatus === 'linked'
-
-  let broadcastBinding:
-    | {
-        status: LineBroadcastBindingStatus
-        botLabel: string | null
-        lineGroupIdTail: string | null
-        linkedAt: Date | string | null
-        lastBroadcastAt: Date | string | null
-        guidelineCount: number
-        guidelinesSentAt: Date | string | null
-      }
-    | null = null
-  let broadcastHistory: BroadcastHistoryRow[] = []
-
-  if (activeBroadcastStatus != null) {
-    if (isAdmin) {
-      // 管理者向け: フル情報を取得して RSC payload に乗せる。
-      const broadcastRow = await db
-        .select({
-          id: eventLineBroadcasts.id,
-          status: eventLineBroadcasts.status,
-          lineGroupId: eventLineBroadcasts.lineGroupId,
-          linkedAt: eventLineBroadcasts.linkedAt,
-          guidelinesSentAt: eventLineBroadcasts.guidelinesSentAt,
-          botId: lineChannels.botId,
-          botLabel: lineChannels.note,
-        })
-        .from(eventLineBroadcasts)
-        .innerJoin(
-          lineChannels,
-          eq(lineChannels.id, eventLineBroadcasts.lineChannelId),
-        )
-        .where(
-          and(
-            eq(eventLineBroadcasts.entryGroupId, event.entryGroupId),
-            inArray(eventLineBroadcasts.status, ACTIVE_BROADCAST_STATUSES),
-          ),
-        )
-        .limit(1)
-      const activeBroadcast = broadcastRow[0]
-      if (activeBroadcast) {
-        // broadcast-guidelines-on-link: 選択済み要綱の件数（招待コード発行
-        // モーダルで選択された添付の join 件数）。
-        const guidelineCountRows = await db
-          .select({ n: count() })
-          .from(eventBroadcastGuidelineAttachments)
-          .where(
-            eq(
-              eventBroadcastGuidelineAttachments.eventLineBroadcastId,
-              activeBroadcast.id,
-            ),
-          )
-        // 要綱件数・guidelines_sent_at は broadcast 行そのものから取る値で、
-        // 配信履歴 (event_broadcast_messages) の有無には依存しない。linked 直後で
-        // 履歴が空でも、選択済みなら guidelineCount は正しく > 0 になり再送導線が出る。
-        const guidelineCount = guidelineCountRows[0]?.n ?? 0
-
-        const historyRows = await db
-          .select({
-            id: eventBroadcastMessages.id,
-            status: eventBroadcastMessages.status,
-            isCorrection: eventBroadcastMessages.isCorrection,
-            mailMessageId: eventBroadcastMessages.mailMessageId,
-            subject: mailMessages.subject,
-            receivedAt: mailMessages.receivedAt,
-            sentAt: eventBroadcastMessages.sentAt,
-            sentTextCount: eventBroadcastMessages.sentTextCount,
-            sentImageCount: eventBroadcastMessages.sentImageCount,
-            fallbackLinkCount: eventBroadcastMessages.fallbackLinkCount,
-            errorMessage: eventBroadcastMessages.errorMessage,
-          })
-          .from(eventBroadcastMessages)
-          .innerJoin(
-            eventLineBroadcasts,
-            eq(
-              eventLineBroadcasts.id,
-              eventBroadcastMessages.eventLineBroadcastId,
-            ),
-          )
-          .leftJoin(
-            mailMessages,
-            eq(mailMessages.id, eventBroadcastMessages.mailMessageId),
-          )
-          .where(eq(eventLineBroadcasts.entryGroupId, event.entryGroupId))
-          .orderBy(desc(eventBroadcastMessages.createdAt))
-          .limit(20)
-
-        const lastBroadcastAt =
-          historyRows.find((row) => row.sentAt)?.sentAt ?? null
-
-        broadcastBinding = {
-          status: activeBroadcast.status as LineBroadcastBindingStatus,
-          botLabel: activeBroadcast.botLabel ?? activeBroadcast.botId,
-          lineGroupIdTail: activeBroadcast.lineGroupId
-            ? activeBroadcast.lineGroupId.slice(-8)
-            : null,
-          linkedAt: activeBroadcast.linkedAt,
-          lastBroadcastAt,
-          guidelineCount,
-          guidelinesSentAt: activeBroadcast.guidelinesSentAt,
-        }
-        broadcastHistory = historyRows.map((row) => ({
-          id: row.id,
-          status: row.status,
-          isCorrection: row.isCorrection,
-          mailMessageId: row.mailMessageId,
-          subject: row.subject,
-          receivedAt: row.receivedAt,
-          sentAt: row.sentAt,
-          sentTextCount: row.sentTextCount,
-          sentImageCount: row.sentImageCount,
-          fallbackLinkCount: row.fallbackLinkCount,
-          errorMessage: row.errorMessage,
-        }))
-      }
-    } else {
-      // 一般会員向け: status だけのスタブ。Bot 名・履歴・エラーは含めない。
-      broadcastBinding = {
-        status: activeBroadcastStatus as LineBroadcastBindingStatus,
-        botLabel: null,
-        lineGroupIdTail: null,
-        linkedAt: null,
-        lastBroadcastAt: null,
-        guidelineCount: 0,
-        guidelinesSentAt: null,
-      }
-    }
-  }
-
-  // event-grade-group-broadcast: 級別グループへの配信状況（AC-29 により admin 限定。
-  // vice_admin にも渡さないので、page 冒頭の isAdmin（vice_admin を含む）ではなく
-  // role を直接見る）。event-detail-redesign 後は独立セクションをやめ、
-  // LineBroadcastSection の `gradeBroadcast` prop 経由で LINE 配信トグルの中に
-  // 描画する。非 admin には props ごと渡さない。
-  const isStrictAdmin = session?.user.role === 'admin'
-  let gradeBroadcastRows: GradeBroadcastRow[] = []
-  if (isStrictAdmin) {
-    const targetGrades = resolveTargetGrades(event.eligibleGrades)
-    const [sentRows, linkedRows] = await Promise.all([
-      db
-        .select({ grade: eventGradeBroadcasts.grade, sentAt: eventGradeBroadcasts.sentAt })
-        .from(eventGradeBroadcasts)
-        .where(eq(eventGradeBroadcasts.eventId, idNum)),
-      db
-        .select({ grade: lineGradeGroupBindings.grade })
-        .from(lineGradeGroupBindings)
-        .where(
-          and(
-            eq(lineGradeGroupBindings.status, 'linked'),
-            isNotNull(lineGradeGroupBindings.lineGroupId),
-          ),
-        ),
-    ])
-    // claim 中（sent_at NULL）の行は「未送信」として扱う — 送信が確定した級だけを
-    // 送信済みと表示する（コアロジックの claim 契約と同じ判定）。
-    const sentAtByGrade = new Map(
-      sentRows.filter((r) => r.sentAt != null).map((r) => [r.grade, r.sentAt]),
-    )
-    const linkedGrades = new Set(linkedRows.map((r) => r.grade))
-    gradeBroadcastRows = targetGrades.map((grade) => ({
-      grade,
-      sentAt: sentAtByGrade.get(grade) ?? null,
-      linked: linkedGrades.has(grade),
-    }))
-  }
-
   // 対象会員（分母）。event-detail-redesign で不参加人数の算出はやめたが、この
   // クエリ自体は残す — 参加者一覧から対象級外の stale な attend=true 行を除外する
   // のに必要（AC-26）。isInvited=false の旧データ行も同時に除外される。
@@ -424,7 +186,6 @@ export default async function EventDetailPage({
   )
 
   // Check if current user can respond to attendance (JST-based comparison)
-  const todayStr = todayInJst()
   // guest-role R3: ゲストは会内締切に縛られない（会経由で申し込まないため、
   // 「会が主催者へ申し込む準備の締切」に意味が無い）。この 1 行を bypass
   // するだけで、下の理由表示（「会内締切を過ぎています」）にもゲストには
@@ -491,8 +252,9 @@ export default async function EventDetailPage({
   const showCapacitySection =
     perGradeCapacities.length > 0 || eligibleGradeList.length > 0
 
-  // 申込フロー（両ビュー共通）。判定は純関数へ切り出してある（AC-1〜9）。
-  // 確定名簿の有無は申込管理ボード（/admin/entries）と同じ定義:
+  // 申込フロー（両ビュー共通）。判定は純関数へ切り出してある（AC-1〜9）。entry-group-page
+  // タスク4 (AC-30): この帯は**日別のまま**——グループ帯（`/admin/entries/[groupId]`）と
+  // 判定を混ぜない。確定名簿の有無は申込管理ボードと同じ定義:
   // パース済み（rosters は上のクエリで supersede 済みを除外済み）∪ 採用済み
   // 原本ファイル。どちらも confirmed のみ数え、applicant は影響させない。
   const hasConfirmedRoster =
@@ -534,40 +296,10 @@ export default async function EventDetailPage({
         canEdit={isAdmin}
       />
 
-      {/* entry-groups タスク4 (AC-16): 全ロールに表示。sticky ヘッダーの外に
-          置く（design-spec の明示指定。ヘッダーのラッパー内では分割しない）。 */}
-      <GroupDayLinks siblings={groupSiblings} currentEventId={event.id} />
-
-      {isAdmin && (
-        <EventLifecycleSection
-          eventId={event.id}
-          entryStatus={event.entryStatus}
-          paymentType={event.paymentType}
-          paymentStatus={event.paymentStatus}
-          feeJpy={feeResolution.singleUnitJpy}
-          unitPricesLabel={feeResolution.unitPricesLabel}
-          totalJpy={feeTally?.totalJpy ?? null}
-          breakdownLabel={feeTally?.breakdownLabel ?? null}
-          unknownGradeNote={formatUnknownGradeNote(feeTally?.unknownGradeCount)}
-          entryDeadline={event.entryDeadline}
-          paymentDeadline={event.paymentDeadline}
-          paymentDeadlineKind={event.paymentDeadlineKind}
-          entryMethod={event.entryMethod}
-          paymentMethod={event.paymentMethod}
-          paymentInfo={event.paymentInfo}
-          isLineLinked={isLineLinked}
-          setEntryAppliedAction={setEntryApplied}
-          setEntryNotApplyingAction={setEntryNotApplying}
-          setPaymentTypeAction={setPaymentType}
-          setPaymentPaidAction={setPaymentPaid}
-          groupSiblings={groupSiblings}
-          setEntriesAppliedAction={setEntriesApplied}
-          setPaymentsPaidAction={setPaymentsPaid}
-          setPaymentTypesAction={setPaymentTypes}
-          entryFormGroupId={event.kind === 'individual' ? event.entryGroupId : undefined}
-          entryFormLatestDraft={entryFormLatestDraft}
-        />
-      )}
+      {/* entry-group-page タスク4 (AC-29): グループページへの戻り導線。全ロールに
+          表示・シングルトングループでも常に出す。sticky ヘッダーの外に置く
+          （design-spec の明示指定。ヘッダーのラッパー内では分割しない）。 */}
+      <GroupBackLink entryGroupId={event.entryGroupId} groupName={groupName} />
 
       {/* openchat-broadcast タスク10 (AC-42/AC-43/AC-51): 保存済みオープンチャット
           欄。全会員に表示・表示のみ。0件のときは null を返しセクションごと出ない。 */}
@@ -667,43 +399,16 @@ export default async function EventDetailPage({
         </SectionRule>
       )}
 
-      {/* 以下3セクションはセクション間余白（34px）を自前で持つ。ここで
-          ラッパー div に付けると、条件を満たさず null を返したときに空の
-          34px が残ってしまうため（非管理者の LINE 配信・団体戦の名簿・
-          0件の関連メール）。 */}
-
-      {/* 非管理者には何も描画しない（AC-13b）。級別グループ配信は
-          gradeBroadcast prop でこの中の1項目として描画される（AC-13c）。 */}
-      <LineBroadcastSection
-        eventId={event.id}
-        eventTitle={event.title}
-        isAdmin={isAdmin}
-        binding={broadcastBinding}
-        history={broadcastHistory}
-        generateInviteCodeAction={generateInviteCodeForEvent}
-        revokeBroadcastAction={revokeBroadcast}
-        manualBroadcastAction={manualBroadcast}
-        setGuidelineAttachmentsAction={setGuidelineAttachments}
-        resendGuidelinesAction={resendGuidelines}
-        gradeBroadcast={
-          isStrictAdmin && gradeBroadcastRows.length > 0
-            ? { rows: gradeBroadcastRows, resendAction: resendGradeBroadcast }
-            : null
-        }
-      />
-
       {/* tournament-entry-rosters PR-4: 申込/確定名簿＋会員突合（個人戦のみ）。
-          Excel 取込は廃止し、この画面は閲覧専用（名簿はメール取込経由のみ）。 */}
+          Excel 取込は廃止し、この画面は閲覧専用（名簿はメール取込経由のみ）。
+          セクション間余白（34px）は RosterSection 自身が持つ（0件/団体戦のときに
+          空の余白が残らないよう null を返す設計）。 */}
       <RosterSection
         kind={event.kind}
         rosters={event.entryGroup.rosters}
         rosterFiles={rosterFiles}
         currentUserId={session?.user.id ?? null}
       />
-
-      {/* mail-inbox-mailer タスク5: 関連メール。リンク先が
-          /admin/mail-inbox/mail/[id] (管理者専用) なので一般会員には出さない。 */}
-      {isAdmin && <EventRelatedMails eventId={idNum} />}
 
       {!canRespond && session && (
         <p className="pt-[34px] text-xs text-ink-meta">

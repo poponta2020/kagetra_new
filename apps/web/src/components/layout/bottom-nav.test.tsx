@@ -177,6 +177,9 @@ describe('BottomNav', () => {
     expect(link?.className).toContain('border-brand')
   })
 
+  // entry-group-page AC-34: このパス形は申込グループページ
+  // （/admin/entries/[groupId]）そのものを指す。matches の前方一致
+  // （'/admin/entries'）により追加設定なしで active になることをここで固定する。
   it('pathname=/admin/entries/42 のような詳細パスでも 申込管理 タブが active', () => {
     mockUsePathname.mockReturnValue('/admin/entries/42')
     render(<BottomNav isAdmin />)
