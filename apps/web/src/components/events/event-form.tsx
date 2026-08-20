@@ -67,8 +67,9 @@ export interface EventFormProps {
    */
   entryGroupSection?: ReactNode
   /**
-   * entry-groups: 締切・支払い系フィールドの伝播確認を行う submit ボタン。指定時は
-   * 既定の「更新」ボタンをこれに置き換える（events/[id]/edit が `EventEditSubmit` を渡す）。
+   * 指定時は既定の「更新」ボタンをこれに置き換える。entry-group-page (AC-21) で
+   * 締切・支払い系フィールドの伝播確認ダイアログ（`EventEditSubmit`）を撤去した後は
+   * 呼び出し元が独自の submit UI を差し込みたいときのための汎用の口として残す。
    */
   submitButton?: ReactNode
   /**
@@ -80,6 +81,14 @@ export interface EventFormProps {
    */
   titleValue?: string
   onTitleChange?: (value: string) => void
+  /**
+   * entry-group-page (AC-21): グループ共通7項目（締切4種・支払方法・振込先・申込方法）を
+   * 描画しない。`/events/[id]/edit` だけが true を渡す —— これらの編集は
+   * `/admin/entries/[groupId]` の共通項目セクションへ移り、日ページの編集は
+   * 日固有項目だけになった。作成経路（events/new・メール承認 ApprovalForm）は
+   * 従来どおり全項目を出す（グループがまだ無い/確定していないため）。
+   */
+  hideGroupCommonFields?: boolean
 }
 
 const LABEL_CLASS = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
@@ -110,6 +119,7 @@ export function EventForm({
   submitButton,
   titleValue,
   onTitleChange,
+  hideGroupCommonFields = false,
 }: EventFormProps) {
   const eligibleGrades = defaultValues?.eligibleGrades ?? null
   const submitLabel = mode === 'create' ? '作成' : '更新'
@@ -211,31 +221,37 @@ export function EventForm({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={LABEL_CLASS}>大会申込締切</label>
-            <input
-              name={n('entryDeadline')}
-              type="date"
-              defaultValue={defaultValues?.entryDeadline ?? ''}
-              className={FIELD_CLASS}
-            />
+        {/* entry-group-page (AC-21): 大会申込締切／会内締切はグループ共通項目
+            （`/admin/entries/[groupId]` へ移設済み）。日ページの編集フォームからは
+            grid ごと消える。 */}
+        {!hideGroupCommonFields && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL_CLASS}>大会申込締切</label>
+              <input
+                name={n('entryDeadline')}
+                type="date"
+                defaultValue={defaultValues?.entryDeadline ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>会内締切</label>
+              <input
+                name={n('internalDeadline')}
+                type="date"
+                defaultValue={defaultValues?.internalDeadline ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
           </div>
-          <div>
-            <label className={LABEL_CLASS}>会内締切</label>
-            <input
-              name={n('internalDeadline')}
-              type="date"
-              defaultValue={defaultValues?.internalDeadline ?? ''}
-              className={FIELD_CLASS}
-            />
-          </div>
-        </div>
+        )}
 
         {/* entry-notify-lottery-treasurer: 抽選日は単体行で締切群の直下に置く。
             承認画面 (embedded) では描画しない（要件 §5.2: 承認直後は NULL、編集画面で後入力）。
-            申込完了通知の参加者向け文面に「抽選日は M/D です」を差し込むため手動入力。 */}
-        {!embedded && (
+            申込完了通知の参加者向け文面に「抽選日は M/D です」を差し込むため手動入力。
+            entry-group-page (AC-21): 抽選日もグループ共通項目なので日ページからは消える。 */}
+        {!embedded && !hideGroupCommonFields && (
           <div>
             <label className={LABEL_CLASS}>抽選日</label>
             <input
@@ -320,7 +336,10 @@ export function EventForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* entry-group-page (AC-21): 支払締切はグループ共通項目なので日ページの
+            編集からは消える。参加費だけは日固有項目として残すため、隠すときは
+            grid をやめて単体行にする（半幅で取り残さない）。 */}
+        {hideGroupCommonFields ? (
           <div>
             <label className={LABEL_CLASS}>参加費 (円)</label>
             <input
@@ -332,21 +351,36 @@ export function EventForm({
               className={FIELD_CLASS}
             />
           </div>
-          <div>
-            <label className={LABEL_CLASS}>支払締切</label>
-            <input
-              name={n('paymentDeadline')}
-              type="date"
-              defaultValue={defaultValues?.paymentDeadline ?? ''}
-              className={FIELD_CLASS}
-            />
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL_CLASS}>参加費 (円)</label>
+              <input
+                name={n('feeJpy')}
+                type="number"
+                min="0"
+                step="100"
+                defaultValue={defaultValues?.feeJpy ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLASS}>支払締切</label>
+              <input
+                name={n('paymentDeadline')}
+                type="date"
+                defaultValue={defaultValues?.paymentDeadline ?? ''}
+                className={FIELD_CLASS}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* mail-ai-extract-refinements §3.2.7: 振込締切の状態。承認フォーム
             (embedded) は AI ペイロードのマッピングを別途持つのでここでは出さない
-            （events/[id]/edit・events/new の手動入力のみ）。 */}
-        {!embedded && (
+            （events/[id]/edit・events/new の手動入力のみ）。
+            entry-group-page (AC-21): グループ共通項目なので日ページからは消える。 */}
+        {!embedded && !hideGroupCommonFields && (
           <div>
             <label className={LABEL_CLASS}>振込締切の状態</label>
             <select
@@ -366,35 +400,43 @@ export function EventForm({
           </div>
         )}
 
-        <div>
-          <label className={LABEL_CLASS}>支払方法</label>
-          <input
-            name={n('paymentMethod')}
-            type="text"
-            defaultValue={defaultValues?.paymentMethod ?? ''}
-            className={FIELD_CLASS}
-          />
-        </div>
+        {/* entry-group-page (AC-21): 支払方法・支払情報（振込先）・申込方法は
+            いずれもグループ共通項目。日ページの編集からは消える。 */}
+        {!hideGroupCommonFields && (
+          <div>
+            <label className={LABEL_CLASS}>支払方法</label>
+            <input
+              name={n('paymentMethod')}
+              type="text"
+              defaultValue={defaultValues?.paymentMethod ?? ''}
+              className={FIELD_CLASS}
+            />
+          </div>
+        )}
 
-        <div>
-          <label className={LABEL_CLASS}>支払情報</label>
-          <textarea
-            name={n('paymentInfo')}
-            rows={2}
-            defaultValue={defaultValues?.paymentInfo ?? ''}
-            className={FIELD_CLASS}
-          />
-        </div>
+        {!hideGroupCommonFields && (
+          <div>
+            <label className={LABEL_CLASS}>支払情報</label>
+            <textarea
+              name={n('paymentInfo')}
+              rows={2}
+              defaultValue={defaultValues?.paymentInfo ?? ''}
+              className={FIELD_CLASS}
+            />
+          </div>
+        )}
 
-        <div>
-          <label className={LABEL_CLASS}>申込方法</label>
-          <input
-            name={n('entryMethod')}
-            type="text"
-            defaultValue={defaultValues?.entryMethod ?? ''}
-            className={FIELD_CLASS}
-          />
-        </div>
+        {!hideGroupCommonFields && (
+          <div>
+            <label className={LABEL_CLASS}>申込方法</label>
+            <input
+              name={n('entryMethod')}
+              type="text"
+              defaultValue={defaultValues?.entryMethod ?? ''}
+              className={FIELD_CLASS}
+            />
+          </div>
+        )}
 
         <div>
           <label className={LABEL_CLASS}>主催</label>

@@ -1,11 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import {
-  eventBroadcastMessages,
-  eventLineBroadcasts,
-  lineChannels,
   mailAttachments,
-  mailMessages,
   tournamentEntryRosterEntries,
   tournamentEntryRosterFiles,
   tournamentEntryRosters,
@@ -21,23 +17,18 @@ import {
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 import { RosterSection } from './components/RosterSection'
-import { EventLifecycleSection } from '@/components/events/EventLifecycleSection'
 
 /**
  * event-detail-redesign タスク6: `/events/[id]` 本体の組み替えに対する検証。
  * 対応 AC は AC-10 / AC-13 / AC-17 / AC-18 / AC-22 / AC-23 / AC-25 / AC-26 / AC-31。
  * AC-1〜9（申込フローの判定）は `lib/events/entry-flow.test.ts`、描画は
  * `components/events/detail/EntryFlow.test.tsx` が担当する。
+ *
+ * entry-group-page タスク4 (AC-28/AC-29/AC-30): 進行管理・LINE配信・関連メール・
+ * 日リンク帯を撤去した後の回帰は「日ページの整理」の describe が持つ。
  */
 
 vi.mock('@/auth', () => mockAuthModule())
-
-// 関連メールは async Server Component で、jsdom の render では実行できない
-// （非同期コンポーネントはクライアント側でレンダリングできない）。この画面の
-// 検証対象ではないのでスタブへ差し替える。中身は EventRelatedMails.test.tsx が持つ。
-vi.mock('./components/EventRelatedMails', () => ({
-  EventRelatedMails: () => null,
-}))
 
 const { default: EventDetailPage } = await import('./page')
 
@@ -132,54 +123,6 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** LINE 連携済み（linked）＋失敗履歴つきの大会を作る。AC-28 の遮断検証用。 */
-const BOT_NOTE = 'かげとら07（若草）テスト'
-const LINE_GROUP_ID = 'C123456789ABCDEF'
-const BROADCAST_ERROR = '画像1件の送信がタイムアウトしましたテスト'
-
-async function seedLinkedBroadcast(entryGroupId: number): Promise<void> {
-  const channelRows = await testDb
-    .insert(lineChannels)
-    .values({
-      channelId: `ch-${entryGroupId}-${Math.random().toString(36).slice(2, 8)}`,
-      channelSecret: 'secret',
-      channelAccessToken: 'token',
-      botId: '@bot-test-secret',
-      note: BOT_NOTE,
-      purpose: 'event_broadcast',
-      status: 'active',
-    })
-    .returning({ id: lineChannels.id })
-  const broadcastRows = await testDb
-    .insert(eventLineBroadcasts)
-    .values({
-      entryGroupId,
-      lineChannelId: channelRows[0]!.id,
-      status: 'linked',
-      lineGroupId: LINE_GROUP_ID,
-      linkedAt: new Date(),
-    })
-    .returning({ id: eventLineBroadcasts.id })
-  const mailRows = await testDb
-    .insert(mailMessages)
-    .values({
-      messageId: `m-${entryGroupId}-${Math.random().toString(36).slice(2, 8)}`,
-      fromAddress: 'organiser@example.com',
-      toAddresses: ['admin@kagetra'],
-      subject: '要綱のご案内テスト',
-      receivedAt: new Date(),
-      bodyText: '本文',
-      status: 'ai_done',
-    })
-    .returning({ id: mailMessages.id })
-  await testDb.insert(eventBroadcastMessages).values({
-    eventLineBroadcastId: broadcastRows[0]!.id,
-    mailMessageId: mailRows[0]!.id,
-    status: 'failed',
-    errorMessage: BROADCAST_ERROR,
-  })
-}
-
 beforeEach(async () => {
   await truncateAll()
 })
@@ -228,94 +171,6 @@ describe('/events/[id] — 一般会員から隠す情報 (AC-10)', () => {
     // 会員に出るのは自分の級の導出額だけ（C級=2,000円）。格納値 24,680 は出ない。
     expect(screen.getByText(/あなたの参加費/)).toBeTruthy()
     expect(screen.getByText(/2,000円/)).toBeTruthy()
-  })
-
-  it('管理者の支払状態トグル内には参加費・支払方法・振込先が渡る (AC-11 の呼び出し側)', async () => {
-    const admin = await createUser({ role: 'admin' })
-    await setAuthSession({ id: admin.id, role: 'admin' })
-    const ev = await createEvent({
-      eventDate: addDays(todayJst(), 30),
-      feeJpy: 24680,
-      paymentMethod: '事前振込テスト方法',
-      paymentInfo: 'ゆうちょ銀行テスト支店',
-      entryMethod: '会でとりまとめテスト',
-    })
-
-    const ui = await renderPage(ev.id)
-    const propValues: string[] = []
-    collectPropValues(ui, propValues)
-    const payload = propValues.join(' ')
-
-    expect(payload).toContain('事前振込テスト方法')
-    expect(payload).toContain('ゆうちょ銀行テスト支店')
-    expect(payload).toContain('会でとりまとめテスト')
-  })
-
-  // mail-ai-extract-refinements タスク12 (§3.2.7 / AC-44): 振込締切の状態を
-  // EventLifecycleSection へ渡す配線。日本語表示そのものの検証は
-  // EventLifecycleSection.test.tsx が持つ（この画面は「渡っているか」だけを見る）。
-  it('AC-44: event.paymentDeadlineKind が EventLifecycleSection の paymentDeadlineKind へ渡る', async () => {
-    const admin = await createUser({ role: 'admin' })
-    await setAuthSession({ id: admin.id, role: 'admin' })
-    const ev = await createEvent({
-      eventDate: addDays(todayJst(), 30),
-      paymentDeadlineKind: 'later_notice',
-    })
-
-    const ui = await renderPage(ev.id)
-    const sections = findElementsByType(ui, EventLifecycleSection)
-    expect(sections).toHaveLength(1)
-    expect(sections[0]!.props.paymentDeadlineKind).toBe('later_notice')
-    expect(sections[0]!.props.paymentDeadline).toBeNull()
-  })
-
-  it('AC-44: paymentDeadlineKind=unspecified（既定）もそのまま渡る（回帰）', async () => {
-    const admin = await createUser({ role: 'admin' })
-    await setAuthSession({ id: admin.id, role: 'admin' })
-    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
-
-    const ui = await renderPage(ev.id)
-    const sections = findElementsByType(ui, EventLifecycleSection)
-    expect(sections).toHaveLength(1)
-    expect(sections[0]!.props.paymentDeadlineKind).toBe('unspecified')
-  })
-})
-
-describe('/events/[id] — LINE 情報の遮断 (AC-28)', () => {
-  it('連携済みでも一般会員には Bot 名・グループID・配信エラーが渡らない', async () => {
-    const member = await createUser({ role: 'member', grade: 'C' })
-    await setAuthSession({ id: member.id, role: 'member' })
-    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
-    await seedLinkedBroadcast(ev.entryGroupId)
-
-    const ui = await renderPage(ev.id)
-    const propValues: string[] = []
-    collectPropValues(ui, propValues)
-    const payload = propValues.join(' ')
-
-    // ネストした binding / history の中身まで走査した上で 0 件であること。
-    expect(payload).not.toContain(BOT_NOTE)
-    expect(payload).not.toContain('@bot-test-secret')
-    expect(payload).not.toContain(LINE_GROUP_ID)
-    expect(payload).not.toContain(LINE_GROUP_ID.slice(-8))
-    expect(payload).not.toContain(BROADCAST_ERROR)
-    expect(payload).not.toContain('要綱のご案内テスト')
-  })
-
-  it('管理者には Bot 名・配信エラーが渡る（遮断が admin まで効いていないことの対照）', async () => {
-    const admin = await createUser({ role: 'admin' })
-    await setAuthSession({ id: admin.id, role: 'admin' })
-    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
-    await seedLinkedBroadcast(ev.entryGroupId)
-
-    const ui = await renderPage(ev.id)
-    const propValues: string[] = []
-    collectPropValues(ui, propValues)
-    const payload = propValues.join(' ')
-
-    expect(payload).toContain(BOT_NOTE)
-    expect(payload).toContain(LINE_GROUP_ID.slice(-8))
-    expect(payload).toContain(BROADCAST_ERROR)
   })
 })
 
@@ -638,44 +493,109 @@ describe('/events/[id] — ページ余白 (AC-23)', () => {
   })
 })
 
-describe('/events/[id] — グループ日リンク (entry-groups タスク4 AC-16)', () => {
-  it('同グループの他の日があれば一般会員にもリンクが表示される（現在地はリンクにしない）', async () => {
-    const member = await createUser({ role: 'member' })
-    await setAuthSession({ id: member.id, role: 'member' })
+describe('/events/[id] — 日ページの整理 (entry-group-page タスク4 AC-28/AC-29/AC-30)', () => {
+  it('管理者でも進行管理・LINE配信・関連メール・日リンク帯が DOM に出ない', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
     const { id: entryGroupId } = await createEntryGroup()
     const day1 = await createEvent({
-      title: '多摩A',
+      title: '杉並A',
       eventDate: addDays(todayJst(), 20),
       entryGroupId,
     })
     await createEvent({
-      title: '多摩B',
+      title: '杉並B',
       eventDate: addDays(todayJst(), 25),
       entryGroupId,
     })
 
     const { container } = render(await renderPage(day1.id))
 
-    // 多摩A（現在の日）は h1 見出しにも出るので重複マッチを避け textContent で見る。
-    expect(container.textContent).toContain('多摩A')
-    expect(container.textContent).toContain('多摩B')
-    // 現在見ている日（多摩A）はリンクにならない。
-    expect(screen.queryByRole('link', { name: /多摩A/ })).toBeNull()
-    // 別の日（多摩B）はリンク。
-    const otherLink = screen.getByRole('link', { name: /多摩B/ })
-    expect(otherLink.getAttribute('href')).toMatch(/^\/events\/\d+$/)
+    expect(screen.queryByText('進行管理')).toBeNull()
+    expect(screen.queryByText('LINE 配信')).toBeNull()
+    expect(screen.queryByText('関連メール')).toBeNull()
+    // 撤去した日リンク帯（GroupDayLinks）の nav も、同グループの他の日
+    // （杉並B）を指すリンクも、もう出ない。
+    expect(
+      screen.queryByRole('navigation', { name: '同じ申込グループの日程' }),
+    ).toBeNull()
+    expect(container.textContent).not.toContain('杉並B')
   })
 
-  it('シングルトングループ（1件のみ）ではグループ日リンクを表示しない', async () => {
+  it('管理者に残る操作はヘッダーの「編集」リンクだけ', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    render(await renderPage(ev.id))
+
+    const editLinks = screen.getAllByRole('link', { name: '編集' })
+    expect(editLinks).toHaveLength(1)
+    expect(editLinks[0]!.getAttribute('href')).toBe(`/events/${ev.id}/edit`)
+  })
+
+  it('グループ導線はシングルトングループでも常に出る（固定文言・href=/admin/entries/[groupId]）', async () => {
     const member = await createUser({ role: 'member' })
     await setAuthSession({ id: member.id, role: 'member' })
     const ev = await createEvent({ title: '単独大会', eventDate: addDays(todayJst(), 30) })
 
     render(await renderPage(ev.id))
 
-    expect(
-      screen.queryByRole('navigation', { name: '同じ申込グループの日程' }),
-    ).toBeNull()
+    const link = screen.getByRole('link', { name: '‹ 大会全体（申込・名簿）' })
+    expect(link.getAttribute('href')).toBe(`/admin/entries/${ev.entryGroupId}`)
+    // シングルトングループなのでグループ名の添え字は出ない
+    // （見出しの h1 分の1件だけに留まる。添え字が出れば2件になる）。
+    expect(screen.getAllByText('単独大会')).toHaveLength(1)
+  })
+
+  it('複数日のグループでは戻り導線にグループ名が薄く添えられる', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const { id: entryGroupId } = await createEntryGroup()
+    const day1 = await createEvent({
+      title: '杉並A',
+      eventDate: addDays(todayJst(), 20),
+      entryGroupId,
+    })
+    await createEvent({
+      title: '杉並B',
+      eventDate: addDays(todayJst(), 25),
+      entryGroupId,
+    })
+
+    render(await renderPage(day1.id))
+
+    const link = screen.getByRole('link', { name: '‹ 大会全体（申込・名簿）' })
+    expect(link.getAttribute('href')).toBe(`/admin/entries/${entryGroupId}`)
+    expect(screen.getByText('杉並AB')).toBeTruthy()
+  })
+
+  it('申込フロー帯は日別のまま：同グループの別日が applied でも、この日が not_applied なら「大会申込」は完了にならない (AC-30)', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const { id: entryGroupId } = await createEntryGroup()
+    const day1 = await createEvent({
+      title: '杉並A',
+      eventDate: addDays(todayJst(), 20),
+      entryGroupId,
+      entryStatus: 'not_applied',
+      internalDeadline: addDays(todayJst(), -5),
+      entryDeadline: addDays(todayJst(), 10),
+    })
+    await createEvent({
+      title: '杉並B',
+      eventDate: addDays(todayJst(), 25),
+      entryGroupId,
+      entryStatus: 'applied',
+    })
+
+    render(await renderPage(day1.id))
+
+    // 「大会申込」ステップが現在地（未完了）のままであること。もしグループの
+    // 別日（applied）を集約して判定していれば、このステップは完了扱いになり
+    // aria-current が次のステップへ移ってしまう。
+    const entryLabel = screen.getByText('大会申込')
+    expect(entryLabel.parentElement?.getAttribute('aria-current')).toBe('step')
   })
 })
 
@@ -873,7 +793,7 @@ describe('/events/[id] — 会員向け「あなたの参加費」(grade-entry-f
 })
 
 describe('/events/[id] — 表示ロールのプレビュー追随 (AC-31 回帰)', () => {
-  it('DB 上は admin でもセッションの実効ロールが member なら会員ビューになる', async () => {
+  it('DB 上は admin でもセッションの実効ロールが member なら会員ビューになる（編集リンクが出ない）', async () => {
     const admin = await createUser({ role: 'admin' })
     // role-preview-switch: session.user.role が実効ロール。
     await setAuthSession({ id: admin.id, role: 'member' })
@@ -881,19 +801,20 @@ describe('/events/[id] — 表示ロールのプレビュー追随 (AC-31 回帰
 
     render(await renderPage(ev.id))
 
-    expect(screen.queryByText('進行管理')).toBeNull()
     expect(screen.queryByText('編集')).toBeNull()
   })
 
-  it('実効ロールが admin なら管理者ビューになる', async () => {
+  // entry-group-page タスク4 (AC-28): 進行管理は撤去済みなので、実効ロールが
+  // admin でもこのページには出ない（「編集」リンクだけが管理者の目印）。
+  it('実効ロールが admin なら管理者ビューになる（「編集」リンクが出る）', async () => {
     const admin = await createUser({ role: 'admin' })
     await setAuthSession({ id: admin.id, role: 'admin' })
     const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
 
     render(await renderPage(ev.id))
 
-    expect(screen.getByText('進行管理')).toBeTruthy()
     expect(screen.getByText('編集')).toBeTruthy()
+    expect(screen.queryByText('進行管理')).toBeNull()
   })
 })
 

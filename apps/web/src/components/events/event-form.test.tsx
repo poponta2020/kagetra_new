@@ -305,4 +305,61 @@ describe('EventForm', () => {
       expect(container.querySelector('[name="paymentDeadlineKind"]')).toBeNull()
     })
   })
+
+  // entry-group-page タスク4 (AC-21): 日ページの編集フォームからグループ共通7項目を撤去。
+  describe('hideGroupCommonFields', () => {
+    it('未指定（既定）では7項目が全部出る（events/new・承認フォームの回帰）', () => {
+      const { container } = render(
+        <EventForm mode="create" action={noop} cancelHref="/events" />,
+      )
+      for (const name of [
+        'entryDeadline',
+        'internalDeadline',
+        'lotteryDate',
+        'paymentDeadline',
+        'paymentDeadlineKind',
+        'paymentMethod',
+        'paymentInfo',
+        'entryMethod',
+      ]) {
+        expect(
+          container.querySelector(`[name="${name}"]`),
+          `field ${name} should be rendered by default`,
+        ).toBeTruthy()
+      }
+    })
+
+    it('true を渡すと7項目が消え、参加費・タイトル・級別定員などの日固有項目は残る', () => {
+      const { container } = render(
+        <EventForm
+          mode="edit"
+          action={noop}
+          cancelHref="/events/1"
+          hideGroupCommonFields
+          defaultValues={{ title: '杉並A', feeJpy: 2500, capacityA: 128 }}
+        />,
+      )
+      for (const name of [
+        'entryDeadline',
+        'internalDeadline',
+        'lotteryDate',
+        'paymentDeadline',
+        'paymentDeadlineKind',
+        'paymentMethod',
+        'paymentInfo',
+        'entryMethod',
+      ]) {
+        expect(
+          container.querySelector(`[name="${name}"]`),
+          `field ${name} should NOT be rendered when hideGroupCommonFields`,
+        ).toBeNull()
+      }
+      // 日固有項目は残る。
+      expect(container.querySelector('[name="title"]')).toBeTruthy()
+      expect(container.querySelector('[name="feeJpy"]')).toBeTruthy()
+      expect(container.querySelector('[name="capacityA"]')).toBeTruthy()
+      const fee = container.querySelector('[name="feeJpy"]') as HTMLInputElement
+      expect(fee.value).toBe('2500')
+    })
+  })
 })
