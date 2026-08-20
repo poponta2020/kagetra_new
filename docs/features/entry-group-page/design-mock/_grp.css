@@ -1,0 +1,229 @@
+/* ============================================================
+   entry-group-page 共有スタイル
+   語彙は event-detail-redesign/design-mock/redesign.html の確定 CSS を継承する
+   （罫線＋余白主導・脱カード）。本ファイルで足すのは日程表・一括操作・
+   共通項目・グループ導線だけ。
+
+   色・フォント・角丸・影は colors_and_type.css の --kg-* からしか取らない。
+   リテラル px はレイアウト都合の一回限りの値（列幅・ドット径など）のみ。
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--kg-font-sans);display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:24px;padding:24px 12px;color:var(--kg-fg)}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px}
+.collabel{font-size:13px;font-weight:var(--kg-w-semibold);color:var(--kg-fg-2);letter-spacing:.04em}
+.colnote{width:375px;font-size:12px;line-height:1.7;color:var(--kg-fg-3)}
+.colnote b{color:var(--kg-fg-2);font-weight:var(--kg-w-medium)}
+
+.phone{width:375px;height:812px;display:flex;flex-direction:column;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;overflow:hidden;font-size:var(--kg-text-base);line-height:var(--kg-leading-normal);box-shadow:var(--kg-shadow-md)}
+.phone.auto{height:auto}
+.main{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.main::-webkit-scrollbar{display:none}
+.page{min-height:100%;display:flex;flex-direction:column;padding:0 16px}
+.page>*{flex:none}
+.bottomnav{height:52px;flex:none;display:flex;align-items:stretch;background:var(--kg-surface);border-top:1px solid var(--kg-border)}
+.bottomnav .tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:var(--kg-text-xs);font-weight:var(--kg-w-medium);border-top:2px solid transparent;color:var(--kg-neutral-fg)}
+.bottomnav .tab.active{border-top-color:var(--kg-brand);color:var(--kg-brand)}
+
+/* ── 固定ヘッダー（日ページと同じ型） ── */
+.stickyhead{position:sticky;top:0;z-index:3;margin:0 -16px;padding:14px 16px 0;background:var(--kg-bg);border-bottom:1px solid var(--kg-border-soft)}
+.stickyhead .flow{border-bottom:0;padding-top:11px}
+.crumb{display:flex;align-items:baseline;gap:5px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);padding-bottom:4px}
+.crumb a{color:var(--kg-brand)}
+h1.title{font-family:var(--kg-font-display);font-weight:var(--kg-w-bold);font-size:28px;line-height:var(--kg-leading-tight);display:flex;align-items:baseline;column-gap:10px;row-gap:2px;min-width:0}
+h1.title .tdate{flex:none;font-size:19px;color:var(--kg-fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.subline{margin-top:3px;padding-bottom:10px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);font-variant-numeric:tabular-nums}
+.subline .vary{color:var(--kg-accent-fg)}
+.editlink{margin-left:auto;flex:none;font-size:var(--kg-text-sm);font-weight:var(--kg-w-regular);color:var(--kg-brand)}
+
+/* ── 申込フロー（日ページから完全に同一の型を継承） ── */
+.flow{display:flex;padding:13px 0 12px;border-bottom:1px solid var(--kg-border-soft)}
+.fs{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px}
+.fs::before,.fs::after{content:'';position:absolute;top:4px;height:1px;background:var(--kg-border)}
+.fs::before{left:0;right:50%}
+.fs::after{left:50%;right:0}
+.fs:first-child::before,.fs:last-child::after{display:none}
+.fs.done::before,.fs.done::after,.fs.now::before{background:var(--kg-brand)}
+.fs .d{position:relative;z-index:1;width:9px;height:9px;border-radius:50%;background:var(--kg-surface);box-shadow:0 0 0 1px var(--kg-border-strong)}
+.fs.done .d{background:var(--kg-brand);box-shadow:0 0 0 1px var(--kg-brand)}
+.fs.now .d{background:var(--kg-bg);box-shadow:0 0 0 2px var(--kg-brand)}
+.fs.warn .d{box-shadow:0 0 0 1px var(--kg-accent)}
+.fs.mute .d{background:var(--kg-bg);box-shadow:0 0 0 1px var(--kg-border)}
+.fs .l{font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);white-space:nowrap}
+.fs.now .l{color:var(--kg-brand);font-weight:var(--kg-w-bold)}
+.fs.warn .l{color:var(--kg-accent-fg)}
+.fs.mute .l{color:var(--kg-fg-muted)}
+.fs .t{font-family:var(--kg-font-display);font-size:var(--kg-text-xs);color:var(--kg-fg-3);font-variant-numeric:tabular-nums}
+.fs .t.txt{font-family:var(--kg-font-sans);color:var(--kg-brand)}
+.fs .t.und{font-family:var(--kg-font-sans)}
+.fs.mute .t{color:var(--kg-fg-muted)}
+.fs.goal .d{width:11px;height:11px;background:var(--kg-bg);box-shadow:0 0 0 1.5px var(--kg-fg-2)}
+.fs.goal .l{color:var(--kg-fg);font-weight:var(--kg-w-bold)}
+
+/* ── 罫線セクション（日ページと同一） ── */
+.sec{padding:34px 0 0}
+.sec.tight{padding-top:22px}
+.sech{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding-bottom:7px;border-bottom:1px solid var(--kg-border-strong);margin-bottom:13px}
+.sech h2{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.sech h2 .cntnum{font-size:20px;font-weight:var(--kg-w-bold);color:var(--kg-brand);margin-left:8px;font-variant-numeric:tabular-nums}
+.sech h2 .cntunit{font-family:var(--kg-font-sans);font-size:var(--kg-text-xs);font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-left:1px}
+.sech .aux{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.sech .aux.warn{color:var(--kg-accent-fg)}
+.sech .aux a{color:var(--kg-brand);text-decoration:none}
+
+/* ============================================================
+   日程表（新規）— 3案の共通土台
+   行は「選択チェック」「識別」「状態」「人数」「遷移」の5要素を持つ。
+   案ごとに違うのは状態の出し方と行の高さだけ。
+   ============================================================ */
+.days{width:100%}
+.drow{display:flex;align-items:baseline;gap:8px;padding:9px 0;min-width:0}
+.drow+.drow{border-top:1px solid var(--kg-border-soft)}
+.drow.off{opacity:.55}
+
+/* 選択チェック（管理者のみ）。タップ標的を左端に独立させて行リンクと分ける */
+.ck{flex:none;align-self:center;width:17px;height:17px;border-radius:var(--kg-radius-xs);border:1px solid var(--kg-border-strong);background:var(--kg-surface);position:relative}
+.ck.on{background:var(--kg-brand);border-color:var(--kg-brand)}
+.ck.on::after{content:'';position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid var(--kg-fg-on-brand);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.ck.dis{background:var(--kg-surface-alt);border-color:var(--kg-border);opacity:.6}
+
+/* 日付・級・人数の固定幅列（行をまたいで縦に揃える） */
+.dd{flex:none;width:60px;font-size:var(--kg-text-xs);color:var(--kg-fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dn{flex:1;min-width:0;font-size:var(--kg-text-sm);color:var(--kg-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dg{flex:none;font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-fg-3);white-space:nowrap}
+.dcnt{flex:none;width:34px;text-align:right;font-size:var(--kg-text-xs);color:var(--kg-fg-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dchev{flex:none;font-size:10px;color:var(--kg-fg-muted)}
+
+/* 状態語。藍＝済み / 朱＝未 / 砂＝対象外 */
+.st{font-size:var(--kg-text-xs);white-space:nowrap}
+.st.ok{color:var(--kg-brand-fg);font-weight:var(--kg-w-bold)}
+.st.ng{color:var(--kg-accent-fg);font-weight:var(--kg-w-bold)}
+.st.na{color:var(--kg-fg-muted)}
+.st.wait{color:var(--kg-neutral-fg)}
+
+/* 自分の回答印。参加=藍の小さな丸、不参加=砂の横線、未回答=無印 */
+.me{flex:none;align-self:center;width:14px;text-align:center;font-size:10px;line-height:1;color:var(--kg-fg-muted)}
+.me.yes{color:var(--kg-brand)}
+
+/* 案A: 申込・支払を独立した固定幅列に並べる */
+.opt-a .st.entry{flex:none;width:46px}
+.opt-a .st.pay{flex:none;width:38px}
+
+/* 案B: 2行組み（識別行＋状態行） */
+.opt-b .drow{flex-wrap:wrap;row-gap:2px}
+.opt-b .drow>.line2{flex-basis:100%;display:flex;align-items:baseline;gap:8px;padding-left:25px}
+.opt-b .sep{color:var(--kg-fg-muted);font-size:var(--kg-text-xs)}
+
+/* 案C: 進行フェーズ1語（ボードと同じ語彙）へ集約 */
+.opt-c .ph{flex:none;font-size:var(--kg-text-xs);white-space:nowrap;text-align:right;width:62px}
+.opt-c .ph.act{color:var(--kg-accent-fg);font-weight:var(--kg-w-bold)}
+.opt-c .ph.wait{color:var(--kg-neutral-fg)}
+.opt-c .ph.done{color:var(--kg-brand-fg)}
+.opt-c .ph.na{color:var(--kg-fg-muted)}
+
+/* ── 一括操作 ── */
+.bulk{margin-top:13px;padding-top:11px;border-top:1px solid var(--kg-border)}
+.bulkhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.bulkhead .n{color:var(--kg-fg-2);font-weight:var(--kg-w-medium);font-variant-numeric:tabular-nums}
+.bulkhead .toggles{display:flex;gap:10px}
+.bulkacts{margin-top:9px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.bulkrow{margin-top:9px;display:flex;align-items:baseline;gap:9px;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+
+/* ボタン / リンクアクション（日ページと同一） */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:var(--kg-radius-md);font-weight:var(--kg-w-semibold);white-space:nowrap}
+.b-sm{height:30px;padding:0 11px;font-size:var(--kg-text-xs)}
+.b-lg{height:48px;padding:0 20px;font-size:15px;border-radius:var(--kg-radius-lg)}
+.b-primary{background:var(--kg-brand);color:var(--kg-fg-on-brand)}
+.b-outline{background:transparent;color:var(--kg-fg-2);border:1px solid var(--kg-border-strong)}
+.b-dis{background:var(--kg-surface-alt);color:var(--kg-fg-muted)}
+.b-block{width:100%}
+.lnk{font-size:var(--kg-text-xs);color:var(--kg-brand);white-space:nowrap}
+.lnk.danger{color:var(--kg-accent-fg)}
+.select{border-bottom:1px solid var(--kg-border-strong);padding:2px 1px;font-size:var(--kg-text-sm);color:var(--kg-fg)}
+
+/* ── フラット表（共通項目・進行管理の中身） ── */
+table.flat{width:100%;border-collapse:collapse;font-size:var(--kg-text-sm)}
+table.flat th,table.flat td{padding:7px 0;text-align:left;vertical-align:baseline;font-weight:var(--kg-w-regular)}
+table.flat tr+tr th,table.flat tr+tr td{border-top:1px solid var(--kg-border-soft)}
+table.flat th{width:104px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);white-space:nowrap}
+table.flat td{color:var(--kg-fg)}
+table.flat td.num{text-align:right;font-family:var(--kg-font-display);font-variant-numeric:tabular-nums}
+table.flat td.date{font-variant-numeric:tabular-nums}
+table.flat td .vary{margin-left:6px;font-size:var(--kg-text-xs);color:var(--kg-accent-fg)}
+
+/* ── 開閉トグル（日ページと同一） ── */
+.mg{border-top:1px solid var(--kg-border-soft)}
+.mg:first-of-type{border-top:0}
+.mg>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:9px;padding:10px 0}
+.mg>summary::-webkit-details-marker{display:none}
+.mg>summary::before{content:'▸';flex:none;font-size:10px;color:var(--kg-fg-3)}
+.mg[open]>summary::before{content:'▾'}
+.mg .k{flex:none;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.mg .v{font-size:var(--kg-text-sm);color:var(--kg-fg)}
+.mg .v.ok{font-size:var(--kg-text-base);font-weight:var(--kg-w-bold);color:var(--kg-brand-fg)}
+.mg .v.ng{font-size:var(--kg-text-base);font-weight:var(--kg-w-bold);color:var(--kg-accent-fg)}
+.mg .mgaux{margin-left:auto;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.mg .mgaux.warn{color:var(--kg-accent-fg)}
+.mg.outer{border-top:0}
+.mg.outer>summary{padding:0 0 7px;border-bottom:1px solid var(--kg-border-strong);margin-bottom:0;gap:8px}
+.mg.outer>summary h2{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.mg .mgbody{padding:2px 0 13px}
+.mg .mgbody.nest{padding:0 0 0 12px}
+.mgacts{margin-top:11px;display:flex;align-items:center;justify-content:flex-end;gap:10px}
+
+/* ── 関連メール（日ページと同一・唯一のカード） ── */
+.mailcard{display:block;background:var(--kg-surface);border:1px solid var(--kg-border-soft);border-radius:var(--kg-radius-lg);padding:10px 12px;box-shadow:var(--kg-shadow-sm)}
+.mailcard+.mailcard{margin-top:7px}
+.mgbody.nest>.mailcard:first-child{margin-top:10px}
+.mailcard .r{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.mailcard .s{font-size:var(--kg-text-sm);font-weight:var(--kg-w-medium);color:var(--kg-fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mailcard .d{flex:none;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);font-variant-numeric:tabular-nums}
+.mailcard .f{margin-top:2px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── 日ページ側の delta: グループ導線 ── */
+.grouplink{display:flex;align-items:baseline;gap:5px;padding-top:10px;font-size:var(--kg-text-xs)}
+.grouplink a{color:var(--kg-brand)}
+.grouplink .gname{color:var(--kg-fg-3)}
+
+/* ── 名簿・オープンチャット（日ページと同一の断片） ── */
+.ocbadge{flex:none;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);border:1px solid var(--kg-border);border-radius:var(--kg-radius-sm);padding:1px 6px}
+table.oc{margin-top:10px}
+table.oc th{width:52px;font-family:var(--kg-font-mono);font-size:var(--kg-text-sm);color:var(--kg-fg-2)}
+table.oc td{max-width:0}
+.ocurl{display:block;font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-brand);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rost{border-top:1px solid var(--kg-border-soft)}
+.rost:first-of-type{border-top:0}
+.rost>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:8px;padding:11px 0}
+.rost>summary::-webkit-details-marker{display:none}
+.rost>summary::before{content:'▸';flex:none;font-size:10px;color:var(--kg-fg-3)}
+.rost .rt{font-size:var(--kg-text-sm);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.rost .cnt{font-family:var(--kg-font-display);font-size:var(--kg-text-sm);color:var(--kg-fg-2);font-variant-numeric:tabular-nums}
+.rost .pub{margin-left:auto;font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);font-variant-numeric:tabular-nums}
+.partrow .who{font-size:var(--kg-text-xs);line-height:1.7;color:var(--kg-neutral-fg)}
+.subnote{font-size:var(--kg-text-xs);color:var(--kg-neutral-fg);margin-top:3px}
+.body{font-family:var(--kg-font-display);font-size:var(--kg-text-md);line-height:1.9;color:var(--kg-fg-2)}
+.caprow{display:flex;align-items:baseline;gap:26px}
+.caprow .ci{display:flex;align-items:baseline;gap:4px}
+.caprow .g{font-family:var(--kg-font-mono);font-size:var(--kg-text-md);font-weight:var(--kg-w-bold);color:var(--kg-fg-2)}
+.caprow .n{font-family:var(--kg-font-display);font-size:var(--kg-text-lg);font-weight:var(--kg-w-bold);color:var(--kg-fg);line-height:1;font-variant-numeric:tabular-nums}
+.caprow .u{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.sticky{position:sticky;bottom:0;margin:16px -16px 0;margin-top:auto;background:var(--kg-surface);border-top:1px solid var(--kg-border);padding:12px 16px}
+
+/* ── 解説ノート（モック外の注釈。実装対象ではない） ── */
+.note{flex-basis:100%;max-width:840px;margin:4px auto 0;font-size:12.5px;line-height:1.8;color:var(--kg-fg-2)}
+.note h3{font-family:var(--kg-font-display);font-size:15px;color:var(--kg-fg);margin-bottom:6px}
+.note b{color:var(--kg-fg)}
+.note ul{margin:7px 0 0 17px}
+.note li{margin-bottom:4px}
+a{color:var(--kg-brand)}
+
+/* ── 状態バリエーション用の断片カード（本編に描かれない状態を並べる） ── */
+.vars{flex-basis:100%;max-width:840px;margin:0 auto}
+.vars h3{font-family:var(--kg-font-display);font-size:15px;color:var(--kg-fg);margin-bottom:5px}
+.vars .lead{font-size:12.5px;line-height:1.8;color:var(--kg-fg-2);margin-bottom:13px}
+.vgrid{display:flex;flex-wrap:wrap;gap:16px}
+.vcard{width:375px;background:var(--kg-bg);border:1px solid var(--kg-border);border-radius:14px;padding:0 16px 14px}
+.vcard .vlabel{font-size:var(--kg-text-xs);font-weight:var(--kg-w-semibold);color:var(--kg-fg-3);padding:11px 0 0;letter-spacing:.03em}
+.vcard .sec{padding:10px 0 0}
+.vcard .flow{border-bottom:0}
+.vcard .vnote{margin-top:9px;font-size:12px;line-height:1.7;color:var(--kg-fg-3)}
+.vcard .vnote b{color:var(--kg-fg-2);font-weight:var(--kg-w-medium)}

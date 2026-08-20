@@ -1,0 +1,219 @@
+<!-- @dsCard group="申込グループページ（管理者・全体）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_grp.css">
+<title>申込グループページ — 管理者ビュー</title>
+</head><body>
+
+<!-- ============================================================
+     /admin/entries/[groupId] — 管理者ビュー（ページ全体）
+     題材: 杉並AB（本番実在。杉並B 9/5 + 杉並A 9/6・申込締切 8/7・両日 申込済/未払）
+     日程表は【案C（進行フェーズ1語）】で描いてある。案が変われば差し替える。
+
+     セクション順（要件 §3.1）:
+       ヘッダー → フロー帯 → 日程 → 進行管理 → 共通項目 → LINE配信 → 名簿 → オープンチャット → 関連メール
+     「まず目に入るべきは締切と進行のサマリー」というユーザー判断に従い、
+     フロー帯を sticky ヘッダーの中に入れてスクロールしても消えないようにしている。
+
+     ★名簿の中身（選手名）はモックに出さない。移設対象であって見た目は変えないため、
+       件数と発表日だけを出す。PII をモックへ持ち込まない。
+     ============================================================ -->
+
+<div class="col">
+  <div class="collabel">管理者ビュー — 杉並AB（2日・両日 申込済／未払）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <!-- ── ① ヘッダー ＋ ② フロー帯（sticky） ── -->
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>杉並AB</span></div>
+        <h1 class="title">杉並AB</h1>
+        <div class="subline">9/5・9/6 ／ 申込締切 8/7 ／ 抽選 8/16</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/3</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/7</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">抽選</span><span class="t">8/16</span></div>
+          <div class="fs now warn"><span class="d"></span><span class="l">支払</span><span class="t">8/28</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/5</span></div>
+        </div>
+      </div>
+
+      <!-- ── ③ 日程（日×状態） ── -->
+      <section class="sec tight">
+        <div class="sech"><h2>日程<span class="cntnum">2</span><span class="cntunit">日</span></h2><span class="aux">参加希望 のべ7名</span></div>
+
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/5(土)</span><span class="dn">杉並B</span><span class="dg">B</span>
+            <span class="me"></span><span class="ph act">要振込</span><span class="dcnt">4名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/6(日)</span><span class="dn">杉並A</span><span class="dg">A</span>
+            <span class="me yes">●</span><span class="ph act">要振込</span><span class="dcnt">3名</span><span class="dchev">›</span>
+          </div>
+        </div>
+
+        <div class="bulk">
+          <div class="bulkhead">
+            <span><span class="n">2日</span>を選択中</span>
+            <span class="toggles"><a class="lnk" href="#">全選択</a><a class="lnk" href="#">解除</a></span>
+          </div>
+          <div class="bulkacts">
+            <span class="btn b-sm b-dis">申込済にする</span>
+            <span class="btn b-sm b-primary">支払済にする</span>
+          </div>
+          <div class="bulkrow"><span>支払タイプ</span><span class="select">事前払い ▾</span></div>
+          <details class="mg" style="margin-top:9px">
+            <summary><span class="k">戻す操作</span><span class="v">未申込・申し込まない・未払</span></summary>
+            <div class="mgbody nest">
+              <div class="bulkacts">
+                <span class="btn b-sm b-outline">未申込に戻す</span>
+                <span class="btn b-sm b-outline">申し込まない</span>
+                <span class="btn b-sm b-outline">未払に戻す</span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ── ④ 進行管理（管理者のみ） ── -->
+      <section class="sec">
+        <details class="mg outer" open>
+          <summary><h2>進行管理</h2><span class="mgaux warn">振込まで 8日</span></summary>
+          <div class="mgbody nest">
+
+            <details class="mg">
+              <summary><span class="k">申込状態</span><span class="v ok">2日とも申込済</span></summary>
+              <div class="mgbody">
+                <table class="flat">
+                  <tr><th>申込方法</th><td>郵送（申込書）</td></tr>
+                  <tr><th>申込締切</th><td class="date">8/7（済）</td></tr>
+                  <tr><th>会内締切</th><td class="date">8/3</td></tr>
+                </table>
+                <div class="subnote">日ごとの申込は上の「日程」で選んで切り替える。</div>
+              </div>
+            </details>
+
+            <details class="mg">
+              <summary><span class="k">申込書</span><span class="v">作成済</span><span class="mgaux">8/5 12:41</span></summary>
+              <div class="mgbody">
+                <table class="flat">
+                  <tr><th>ファイル</th><td>杉並大会申込書_かげとら.xlsx <a class="lnk" href="#">DL</a></td></tr>
+                </table>
+                <div class="mgacts"><a class="lnk" href="#">再作成</a></div>
+              </div>
+            </details>
+
+            <details class="mg" open>
+              <summary><span class="k">支払状態</span><span class="v ng">2日とも未払</span><span class="mgaux warn">8/28</span></summary>
+              <div class="mgbody">
+                <table class="flat">
+                  <tr><th>振込総額</th><td class="num">17,500 円</td></tr>
+                  <tr><th>級別内訳</th><td>A 2,500×3名 ／ B 2,500×4名</td></tr>
+                  <tr><th>振込先</th><td>ゆうちょ銀行 〇八九店 普通 1234567</td></tr>
+                  <tr><th>支払締切</th><td class="date">8/28</td></tr>
+                </table>
+              </div>
+            </details>
+
+          </div>
+        </details>
+      </section>
+
+      <!-- ── ⑤ 共通項目（グループ全日に効く。管理者のみ） ── -->
+      <section class="sec">
+        <details class="mg outer">
+          <summary><h2>共通項目</h2><span class="mgaux">全2日に反映</span></summary>
+          <div class="mgbody nest">
+            <table class="flat">
+              <tr><th>申込締切</th><td class="date">8/7</td></tr>
+              <tr><th>会内締切</th><td class="date">8/3</td></tr>
+              <tr><th>抽選日</th><td class="date">8/16</td></tr>
+              <tr><th>支払締切</th><td class="date">8/28</td></tr>
+              <tr><th>支払方法</th><td>事前振込</td></tr>
+              <tr><th>振込先</th><td>ゆうちょ銀行 〇八九店 普通 1234567</td></tr>
+              <tr><th>申込方法</th><td>郵送（申込書）</td></tr>
+            </table>
+            <div class="mgacts"><a class="lnk" href="#">編集</a></div>
+            <div class="subnote">ここでの保存はグループの全2日へ同時に書き込む。開催日・級・定員・参加費は日ごとの項目なので大会詳細の編集で直す。</div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ── ⑥ LINE配信（管理者のみ・グループ帰属） ── -->
+      <section class="sec">
+        <details class="mg outer">
+          <summary><h2>LINE配信</h2><span class="mgaux">紐付け済</span></summary>
+          <div class="mgbody nest">
+            <table class="flat">
+              <tr><th>グループ</th><td>杉並AB 参加者連絡</td></tr>
+              <tr><th>Bot</th><td>かげとら通知 07</td></tr>
+              <tr><th>要綱</th><td>杉並大会要綱.pdf</td></tr>
+            </table>
+            <div class="mgacts"><a class="lnk" href="#">要綱を再送</a><a class="lnk" href="#">手動再配信</a><a class="lnk danger" href="#">紐付け解除</a></div>
+            <div class="subnote">1グループ＝1LINEグループ。9/5・9/6 のどちらの連絡もこの1つへ届く。</div>
+          </div>
+        </details>
+      </section>
+
+      <!-- ── ⑦ 名簿（全ロール・グループ帰属） ── -->
+      <section class="sec">
+        <div class="sech"><h2>名簿</h2><span class="aux">グループ共通</span></div>
+        <details class="rost">
+          <summary><span class="rt">確定名簿</span><span class="cnt">A 64 ／ B 96</span><span class="pub">8/16 発表</span></summary>
+        </details>
+        <details class="rost">
+          <summary><span class="rt">申込者名簿</span><span class="cnt">A 88 ／ B 121</span><span class="pub">8/9 発表</span></summary>
+        </details>
+      </section>
+
+      <!-- ── ⑧ オープンチャット（全ロール・グループ帰属） ── -->
+      <section class="sec">
+        <div class="sech"><h2>オープンチャット</h2><span class="aux">大会当日用</span></div>
+        <table class="flat oc">
+          <tr><th>A級</th><td><span class="ocurl">https://line.me/ti/g2/xxxxxxxxxxxxxxxxxxxxxxxx</span></td></tr>
+          <tr><th>B級</th><td><span class="ocurl">https://line.me/ti/g2/yyyyyyyyyyyyyyyyyyyyyyyy</span></td></tr>
+        </table>
+      </section>
+
+      <!-- ── ⑨ 関連メール（管理者のみ・グループ全日分の UNION） ── -->
+      <section class="sec">
+        <details class="mg outer">
+          <summary><h2>関連メール</h2><span class="mgaux">4件</span></summary>
+          <div class="mgbody nest">
+            <a class="mailcard" href="#"><span class="r"><span class="s">第58回杉並大会 確定名簿のご案内</span><span class="d">8/16</span></span><span class="f">杉並かるた会 大会係</span></a>
+            <a class="mailcard" href="#"><span class="r"><span class="s">第58回杉並大会 参加費のお振込について</span><span class="d">8/12</span></span><span class="f">杉並かるた会 会計</span></a>
+            <a class="mailcard" href="#"><span class="r"><span class="s">第58回杉並大会 申込者名簿</span><span class="d">8/9</span></span><span class="f">杉並かるた会 大会係</span></a>
+            <a class="mailcard" href="#"><span class="r"><span class="s">第58回杉並大会 開催のご案内</span><span class="d">7/14</span></span><span class="f">杉並かるた会 大会係</span></a>
+            <div class="subnote">9/5・9/6 の両日に紐づくメールをまとめて出す（重複は1件に畳む）。</div>
+          </div>
+        </details>
+      </section>
+
+      <div style="height:24px"></div>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab">イベント</div><div class="tab">統計</div>
+      <div class="tab active">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めていること</h3>
+  <ul>
+    <li><b>フロー帯を sticky ヘッダーに入れた。</b>「まず目に入るべきは締切と進行のサマリー」というユーザー判断に従い、下へスクロールしても消えない。日ページ（event-detail-redesign）と同じ型なので、行き来しても目が迷わない。</li>
+    <li><b>運営操作は既定=閉の <code>&lt;details&gt;</code>。</b>開いた直後に見えるのは ヘッダー → フロー帯 → 日程 → 進行管理の見出しだけ。日ページで確立した「既定表示では今どの段階かだけが見える」を踏襲する。</li>
+    <li><b>進行管理を開いても日ごとのトグルは無い。</b>状態の切り替えは必ず日程表で日を選んでから。「どこで申込済にするのか」が1箇所に定まる。</li>
+    <li><b>共通項目は7項目ちょうど。</b>実コードの <code>PROPAGATABLE_FIELD_KEYS</code> と同じ集合で、ここでの保存が全日に効く。</li>
+    <li><b>名簿・オープンチャットはここにも日ページにも出る。</b>同じグループ帰属のデータなので、どちらから見ても同じ。</li>
+    <li>級別参加料（A/B 2,500・C/D 2,000・E 1,500）は協会規定の実値。振込総額はそこから導出した仮の集計。</li>
+  </ul>
+</div>
+
+</body></html>

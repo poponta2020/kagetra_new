@@ -1,0 +1,218 @@
+<!-- @dsCard group="申込グループページ（つらいケース）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_grp.css">
+<title>申込グループページ — つらいケース</title>
+</head><body>
+
+<div class="vars">
+  <h3>つらいケース（すべて本番実データ由来）</h3>
+  <p class="lead">日程表は<b>確定案＝案C（進行フェーズ1語）</b>。
+  ★開催日・締切だけ、生きた状態を見せるため一部を未来へずらしてある。</p>
+
+  <div class="vgrid">
+
+    <!-- ① シングルトン（本番の83%） -->
+    <div class="vcard">
+      <div class="vlabel">① 1日だけのグループ — 本番ボードの 83%（15／18）</div>
+      <div class="crumb" style="padding-top:8px"><a href="#">申込管理</a><span>›</span><span>広島CDE</span></div>
+      <h1 class="title">広島CDE</h1>
+      <div class="subline">9/6 ／ 申込締切 8/25</div>
+      <div class="flow">
+        <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/21</span></div>
+        <div class="fs now"><span class="d"></span><span class="l">大会申込</span><span class="t">8/25</span></div>
+        <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t und">未定</span></div>
+        <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t">9/1</span></div>
+        <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/6</span></div>
+      </div>
+      <section class="sec">
+        <div class="sech"><h2>日程<span class="cntnum">1</span><span class="cntunit">日</span></h2><span class="aux">参加希望 6名</span></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/6(土)</span><span class="dn">広島CDE</span><span class="dg">CDE</span>
+            <span class="me yes">●</span><span class="ph act">要申込</span><span class="dcnt">6名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote"><b>結論: 1日でも畳まず、この形のまま出す。</b>畳む分岐は本番の 83% に効くうえ、
+      <b>この1行がグループページから日ページへ行く唯一のリンク</b>なので、畳むと導線が消える。<br>
+      1行でも参加希望者数・自分の回答印・進行フェーズを運んでいて、空の表ではない。
+      日ページ側の戻り導線は固定文言なので、ここでも自己リンクには見えない。</div>
+    </div>
+
+    <!-- ② 締切超過 -->
+    <div class="vcard">
+      <div class="vlabel">② 申込締切を過ぎたまま未申込 — 九段E＋九段CDE</div>
+      <div class="crumb" style="padding-top:8px"><a href="#">申込管理</a><span>›</span><span>九段E</span></div>
+      <h1 class="title">九段E</h1>
+      <div class="subline">8/22・8/23 ／ 申込締切 <span class="vary">8/16（超過）</span></div>
+      <div class="flow">
+        <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/12</span></div>
+        <div class="fs now warn"><span class="d"></span><span class="l">大会申込</span><span class="t">8/16</span></div>
+        <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t und">未定</span></div>
+        <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t und">未定</span></div>
+        <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">8/22</span></div>
+      </div>
+      <section class="sec">
+        <div class="sech"><h2>日程<span class="cntnum">2</span><span class="cntunit">日</span></h2><span class="aux warn">申込 0／2日</span></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">8/22(金)</span><span class="dn">九段E</span><span class="dg">E</span>
+            <span class="me"></span><span class="ph act">要申込</span><span class="dcnt">3名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">8/23(土)</span><span class="dn">九段CDE</span><span class="dg">CDE</span>
+            <span class="me yes">●</span><span class="ph act">要申込</span><span class="dcnt">6名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote"><b>グループ名の導出が効かない実例。</b>「九段E」と「九段CDE」は共通接頭辞「九段」の残りが <code>E</code> と <code>CDE</code> で、
+      <code>CDE</code> が1文字の級文字でないため <code>deriveEntryGroupName</code> は <b>null</b> を返す。
+      フォールバック先は<b>代表イベントのタイトル</b>＝今日以降で最も近い 8/22 の「<b>九段E</b>」。
+      上の見出しはその実際の描画。<b>結論: 要件どおりこのままにする。</b>
+      見出しの下の subline に全開催日が出て、日程表に両方の大会名が並ぶので情報は失われない。
+      「九段E・九段CDE」の連結見出しは、1件のときと N 件のときで形が変わるぶん一貫性を損なう。</div>
+    </div>
+
+    <!-- ③ 締切が日により異なる -->
+    <div class="vcard">
+      <div class="vlabel">③ 共通項目がグループ内で食い違っている</div>
+      <div class="crumb" style="padding-top:8px"><a href="#">申込管理</a><span>›</span><span>多摩CDE</span></div>
+      <h1 class="title">多摩CDE</h1>
+      <div class="subline">9/12・9/19・9/20 ／ 申込締切 9/1 <span class="vary">（日により異なる）</span></div>
+      <div class="flow">
+        <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/28</span></div>
+        <div class="fs now"><span class="d"></span><span class="l">大会申込</span><span class="t">9/1</span></div>
+        <div class="fs"><span class="d"></span><span class="l">抽選</span><span class="t und">未定</span></div>
+        <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t und">未定</span></div>
+        <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/12</span></div>
+      </div>
+      <section class="sec">
+        <div class="sech"><h2>共通項目</h2><span class="aux warn">2項目が日により異なる</span></div>
+        <table class="flat">
+          <tr><th>申込締切</th><td class="date">9/1<span class="vary">・9/5（日により異なる）</span></td></tr>
+          <tr><th>会内締切</th><td class="date">8/28</td></tr>
+          <tr><th>抽選日</th><td class="date">—</td></tr>
+          <tr><th>支払締切</th><td class="date">—<span class="vary">・9/25（日により異なる）</span></td></tr>
+        </table>
+        <div class="mgacts"><a class="lnk" href="#">編集して揃える</a></div>
+      </section>
+      <div class="vnote"><b>最も早い値を主に出し、食い違いを朱で添える。</b>食い違ったまま運用することは許容されているが
+      （締切リマインドは締切日ごとに別の通で飛ぶ）、<b>大半は伝播し忘れの事故</b>なので気づける形にする。
+      アクションは「編集して揃える」の1本だけ。</div>
+    </div>
+
+    <!-- ④ 中止の日が混ざる -->
+    <div class="vcard">
+      <div class="vlabel">④ 中止になった日が混ざる</div>
+      <section class="sec" style="padding-top:14px">
+        <div class="sech"><h2>日程<span class="cntnum">3</span><span class="cntunit">日</span></h2><span class="aux">1日が中止</span></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/12(土)</span><span class="dn">多摩C</span><span class="dg">C</span>
+            <span class="me yes">●</span><span class="ph wait">抽選待ち</span><span class="dcnt">5名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow off">
+            <span class="ck dis"></span><span class="dd">9/19(土)</span><span class="dn">多摩D</span><span class="dg">D</span>
+            <span class="me"></span><span class="ph na">中止</span><span class="dcnt">2名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/20(日)</span><span class="dn">多摩E</span><span class="dg">E</span>
+            <span class="me"></span><span class="ph act">要申込</span><span class="dcnt">1名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote">中止の日は<b>行としては残す</b>（詳細へは行ける）が、チェックボックスは押せない。
+      全体を落とす（<code>opacity</code>）ことで「選べない」を色を足さずに伝える。
+      フロー帯の判定母集団からも外れる。</div>
+    </div>
+
+    <!-- ⑤ 長い大会名 -->
+    <div class="vcard">
+      <div class="vlabel">⑤ 大会名が長い — 本番実在の最長級</div>
+      <section class="sec" style="padding-top:14px">
+        <div class="sech"><h2>日程<span class="cntnum">2</span><span class="cntunit">日</span></h2></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">9/8(土)</span><span class="dn">全日本かるた協会法人化30周年記念ABC</span><span class="dg">ABC</span>
+            <span class="me yes">●</span><span class="ph done">完了</span><span class="dcnt">8名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span><span class="dd">9/9(日)</span><span class="dn">全日本かるた協会法人化30周年記念A</span><span class="dg">A</span>
+            <span class="me"></span><span class="ph na">申込なし</span><span class="dcnt">2名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote"><b>案C でも切れる</b>（実測 77〜89px ＝「全日本かるた…」まで）。<b>名前では2日を見分けられない。</b><br>
+      <b>結論: 名前は truncate のままにする。</b>接頭辞を抜いて差分（「ABC」「A」）だけ出す案は、
+      この例でちょうど破綻する——<code>deriveEntryGroupName</code> の共通接頭辞が「全日本かるた協会法人化30周年記念A」まで伸び、
+      片方の残りが<b>空文字</b>になるため。代わりに<b>日付と級（ABC / A）で見分ける</b>。
+      級の列は絶対に truncate させない（忠実度チェックリスト）。</div>
+    </div>
+
+    <!-- ⑥ 団体戦 -->
+    <div class="vcard">
+      <div class="vlabel">⑥ 団体戦のグループ</div>
+      <div class="crumb" style="padding-top:8px"><a href="#">申込管理</a><span>›</span><span>北海道団体戦</span></div>
+      <h1 class="title">北海道団体戦</h1>
+      <div class="subline">10/12 ／ 申込締切 9/20</div>
+      <section class="sec">
+        <div class="sech"><h2>日程<span class="cntnum">1</span><span class="cntunit">日</span></h2></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">10/12(日)</span><span class="dn">北海道団体戦</span><span class="dg">—</span>
+            <span class="me"></span><span class="ph act">要申込</span><span class="dcnt">12名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote"><b>名簿セクションと申込書の導線は出ない</b>（どちらも個人戦だけの機能）。
+      それ以外（日程・進行管理・共通項目・LINE配信・関連メール）は同じ。
+      セクションが2つ減るだけで、レイアウトの別案は要らない。</div>
+    </div>
+
+    <!-- ⑦ 全日が中止 -->
+    <div class="vcard">
+      <div class="vlabel">⑦ 全日が中止（フロー帯を描かない）</div>
+      <div class="crumb" style="padding-top:8px"><a href="#">申込管理</a><span>›</span><span>多摩CDE</span></div>
+      <h1 class="title">多摩CDE</h1>
+      <div class="subline">9/12・9/19・9/20 ／ 申込締切 8/22</div>
+      <section class="sec">
+        <div class="sech"><h2>日程<span class="cntnum">3</span><span class="cntunit">日</span></h2><span class="aux">すべて中止</span></div>
+        <div class="days opt-c">
+          <div class="drow off">
+            <span class="ck dis"></span><span class="dd">9/12(土)</span><span class="dn">多摩C</span><span class="dg">C</span>
+            <span class="me"></span><span class="ph na">中止</span><span class="dcnt">5名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow off">
+            <span class="ck dis"></span><span class="dd">9/19(土)</span><span class="dn">多摩D</span><span class="dg">D</span>
+            <span class="me"></span><span class="ph na">中止</span><span class="dcnt">2名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow off">
+            <span class="ck dis"></span><span class="dd">9/20(日)</span><span class="dn">多摩E</span><span class="dg">E</span>
+            <span class="me"></span><span class="ph na">中止</span><span class="dcnt">0名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+      <div class="vnote"><b>フロー帯を丸ごと出さない</b>（要件 AC-14）。判定母集団が空になり、
+      「今どの段階か」という問いが成立しないため。ヘッダーは残すので、どのグループを見ているかは分かる。
+      日程表・進行管理・共通項目などのセクションはそのまま出る（過去の記録として読める）。</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="note">
+  <h3>決着（2026-08-20・round 2 で確定）</h3>
+  <ul>
+    <li>① <b>シングルトンでも畳まない。</b>要件変更なし。</li>
+    <li>② <b>導出 null のときは代表イベントのタイトル。</b>要件変更なし。</li>
+    <li>⑤ <b>長い大会名は truncate のまま、日付と級で見分ける。</b>接頭辞を抜く案は当の実例で破綻するため不採用。要件変更なし。</li>
+    <li>③④⑥⑦ はモックのとおり。要件 §3.2.4 / §3.2.5 / エラーケース節と一致している。</li>
+  </ul>
+</div>
+
+</body></html>

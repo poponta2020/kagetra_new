@@ -1,0 +1,316 @@
+<!-- @dsCard group="申込グループページ（日程表 3案比較）" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_grp.css">
+<title>申込グループページ — 日程表 3案</title>
+</head><body>
+
+<!-- ============================================================
+     ★2026-08-20 決着: 【案C】を採用。このカードは不採用案の記録として残す。
+     日程表（日×状態）の3案。同じグループ・同じ実データで並べる。
+     題材は 多摩CDE（3日・C だけ申込済／D・E は申し込まない）。
+     グループ内で日別に状態が食い違う本番実例で、この表の存在理由そのもの。
+     ★開催日と締切だけ、生きた状態を見せるため未来へずらしてある（design-spec §必要データ）。
+     ============================================================ -->
+
+<!-- ─────────────── 案A: 表形式（申込・支払を独立列に） ─────────────── -->
+<div class="col">
+  <div class="collabel">案A — 表形式（申込・支払を独立した列に揃える）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>多摩CDE</span></div>
+        <h1 class="title">多摩CDE</h1>
+        <div class="subline">9/12・9/19・9/20 ／ 申込締切 8/22</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/18</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/22</span></div>
+          <div class="fs now"><span class="d"></span><span class="l">抽選</span><span class="t">8/30</span></div>
+          <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t">9/5</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/12</span></div>
+        </div>
+      </div>
+
+      <section class="sec tight">
+        <div class="sech"><h2>日程<span class="cntnum">3</span><span class="cntunit">日</span></h2><span class="aux">申込 1／3日</span></div>
+
+        <div class="days opt-a">
+          <div class="drow">
+            <span class="ck on"></span>
+            <span class="dd">9/12(土)</span>
+            <span class="dn">多摩C</span>
+            <span class="dg">C</span>
+            <span class="st entry ok">申込済</span>
+            <span class="st pay ng">未払</span>
+            <span class="me yes">●</span>
+            <span class="dcnt">5名</span>
+            <span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/19(土)</span>
+            <span class="dn">多摩D</span>
+            <span class="dg">D</span>
+            <span class="st entry na">申込なし</span>
+            <span class="st pay na">—</span>
+            <span class="me"></span>
+            <span class="dcnt">2名</span>
+            <span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/20(日)</span>
+            <span class="dn">多摩E</span>
+            <span class="dg">E</span>
+            <span class="st entry na">申込なし</span>
+            <span class="st pay na">—</span>
+            <span class="me"></span>
+            <span class="dcnt">0名</span>
+            <span class="dchev">›</span>
+          </div>
+        </div>
+
+        <div class="bulk">
+          <div class="bulkhead">
+            <span><span class="n">1日</span>を選択中</span>
+            <span class="toggles"><a class="lnk" href="#">全選択</a><a class="lnk" href="#">解除</a></span>
+          </div>
+          <div class="bulkacts">
+            <span class="btn b-sm b-primary">申込済にする</span>
+            <span class="btn b-sm b-outline">支払済にする</span>
+          </div>
+          <div class="bulkrow"><span>支払タイプ</span><span class="select">事前払い ▾</span></div>
+          <details class="mg" style="margin-top:9px">
+            <summary><span class="k">戻す操作</span><span class="v">未申込・申し込まない・未払</span></summary>
+            <div class="mgbody nest">
+              <div class="bulkacts">
+                <span class="btn b-sm b-outline">未申込に戻す</span>
+                <span class="btn b-sm b-outline">申し込まない</span>
+                <span class="btn b-sm b-outline">未払に戻す</span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab">イベント</div><div class="tab">統計</div>
+      <div class="tab active">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+  <div class="colnote"><b>長所</b> 申込・支払が縦に揃い、3日ぶんを一目で比較できる。<br>
+  <b>短所</b> 大会名に残る幅が <b>59px（約4文字）</b>しかない。「全日本かるた協会法人化30周年記念ABC」は「全日本か…」で切れ、同じ接頭辞の日を見分けられない。</div>
+</div>
+
+<!-- ─────────────── 案B: 2行組み ─────────────── -->
+<div class="col">
+  <div class="collabel">案B — 2行組み（識別行＋状態行）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>多摩CDE</span></div>
+        <h1 class="title">多摩CDE</h1>
+        <div class="subline">9/12・9/19・9/20 ／ 申込締切 8/22</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/18</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/22</span></div>
+          <div class="fs now"><span class="d"></span><span class="l">抽選</span><span class="t">8/30</span></div>
+          <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t">9/5</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/12</span></div>
+        </div>
+      </div>
+
+      <section class="sec tight">
+        <div class="sech"><h2>日程<span class="cntnum">3</span><span class="cntunit">日</span></h2><span class="aux">申込 1／3日</span></div>
+
+        <div class="days opt-b">
+          <div class="drow">
+            <span class="ck on"></span>
+            <span class="dd">9/12(土)</span>
+            <span class="dn">多摩C</span>
+            <span class="dg">C級</span>
+            <span class="me yes">●</span>
+            <span class="dcnt">5名</span>
+            <span class="dchev">›</span>
+            <span class="line2"><span class="st ok">申込済</span><span class="sep">・</span><span class="st ng">未払</span></span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/19(土)</span>
+            <span class="dn">多摩D</span>
+            <span class="dg">D級</span>
+            <span class="me"></span>
+            <span class="dcnt">2名</span>
+            <span class="dchev">›</span>
+            <span class="line2"><span class="st na">申し込まない</span></span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/20(日)</span>
+            <span class="dn">多摩E</span>
+            <span class="dg">E級</span>
+            <span class="me"></span>
+            <span class="dcnt">0名</span>
+            <span class="dchev">›</span>
+            <span class="line2"><span class="st na">申し込まない</span></span>
+          </div>
+        </div>
+
+        <div class="bulk">
+          <div class="bulkhead">
+            <span><span class="n">1日</span>を選択中</span>
+            <span class="toggles"><a class="lnk" href="#">全選択</a><a class="lnk" href="#">解除</a></span>
+          </div>
+          <div class="bulkacts">
+            <span class="btn b-sm b-primary">申込済にする</span>
+            <span class="btn b-sm b-outline">支払済にする</span>
+          </div>
+          <div class="bulkrow"><span>支払タイプ</span><span class="select">事前払い ▾</span></div>
+          <details class="mg" style="margin-top:9px">
+            <summary><span class="k">戻す操作</span><span class="v">未申込・申し込まない・未払</span></summary>
+            <div class="mgbody nest">
+              <div class="bulkacts">
+                <span class="btn b-sm b-outline">未申込に戻す</span>
+                <span class="btn b-sm b-outline">申し込まない</span>
+                <span class="btn b-sm b-outline">未払に戻す</span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab">イベント</div><div class="tab">統計</div>
+      <div class="tab active">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+  <div class="colnote"><b>長所</b> 大会名に <b>147px（約11文字）</b>渡せる。状態を素の言葉のまま書ける。<br>
+  <b>短所</b> 行の高さが <b>59px</b>（案A・案Cは 38px）。日数が増えるほど縦に伸び、状態が縦に揃わないので3日の比較がしにくい。</div>
+</div>
+
+<!-- ─────────────── 案C: 進行フェーズ1語 ─────────────── -->
+<div class="col">
+  <div class="collabel">案C — 進行フェーズ1語（ボードと同じ語彙）★採用</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>多摩CDE</span></div>
+        <h1 class="title">多摩CDE</h1>
+        <div class="subline">9/12・9/19・9/20 ／ 申込締切 8/22</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/18</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/22</span></div>
+          <div class="fs now"><span class="d"></span><span class="l">抽選</span><span class="t">8/30</span></div>
+          <div class="fs"><span class="d"></span><span class="l">支払</span><span class="t">9/5</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/12</span></div>
+        </div>
+      </div>
+
+      <section class="sec tight">
+        <div class="sech"><h2>日程<span class="cntnum">3</span><span class="cntunit">日</span></h2><span class="aux">申込 1／3日</span></div>
+
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span>
+            <span class="dd">9/12(土)</span>
+            <span class="dn">多摩C</span>
+            <span class="dg">C</span>
+            <span class="me yes">●</span>
+            <span class="ph wait">抽選待ち</span>
+            <span class="dcnt">5名</span>
+            <span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/19(土)</span>
+            <span class="dn">多摩D</span>
+            <span class="dg">D</span>
+            <span class="me"></span>
+            <span class="ph na">申込なし</span>
+            <span class="dcnt">2名</span>
+            <span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck"></span>
+            <span class="dd">9/20(日)</span>
+            <span class="dn">多摩E</span>
+            <span class="dg">E</span>
+            <span class="me"></span>
+            <span class="ph na">申込なし</span>
+            <span class="dcnt">0名</span>
+            <span class="dchev">›</span>
+          </div>
+        </div>
+
+        <div class="bulk">
+          <div class="bulkhead">
+            <span><span class="n">1日</span>を選択中</span>
+            <span class="toggles"><a class="lnk" href="#">全選択</a><a class="lnk" href="#">解除</a></span>
+          </div>
+          <div class="bulkacts">
+            <span class="btn b-sm b-primary">申込済にする</span>
+            <span class="btn b-sm b-outline">支払済にする</span>
+          </div>
+          <div class="bulkrow"><span>支払タイプ</span><span class="select">事前払い ▾</span></div>
+          <details class="mg" style="margin-top:9px">
+            <summary><span class="k">戻す操作</span><span class="v">未申込・申し込まない・未払</span></summary>
+            <div class="mgbody nest">
+              <div class="bulkacts">
+                <span class="btn b-sm b-outline">未申込に戻す</span>
+                <span class="btn b-sm b-outline">申し込まない</span>
+                <span class="btn b-sm b-outline">未払に戻す</span>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- 参考: 同じ案で「要申込・要振込」が出ている状態（九段CDE・締切超過） -->
+      <section class="sec">
+        <div class="sech"><h2>参考</h2><span class="aux">別グループ「九段CDE」（締切超過）</span></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">8/22(金)</span><span class="dn">九段E</span><span class="dg">E</span>
+            <span class="me"></span><span class="ph act">要申込</span><span class="dcnt">3名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="ck on"></span><span class="dd">8/23(土)</span><span class="dn">九段CDE</span><span class="dg">CDE</span>
+            <span class="me yes">●</span><span class="ph act">要申込</span><span class="dcnt">6名</span><span class="dchev">›</span>
+          </div>
+        </div>
+      </section>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab">イベント</div><div class="tab">統計</div>
+      <div class="tab active">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+  <div class="colnote"><b>長所</b> 行の高さは案Aと同じ 38px のまま、大会名に <b>89px（約6文字）</b>残る。ボード（要申込／抽選待ち／要振込／完了）と同じ語彙なので、
+  一覧と詳細で言葉が一致する。「今この日に何をすべきか」が朱で立つ。<br>
+  <b>短所</b> 申込と支払の2軸が1語に潰れる（「申込済・未払」が「要振込」の一語になる）。
+  <b>ボードの区画判定はグループ単位なので、日ごとに同じ判定を回す実装が要る。</b></div>
+</div>
+
+<div class="note">
+  <h3>3案に共通していること</h3>
+  <ul>
+    <li>行の左端の <b>チェックボックスだけが管理者に増える</b>。一般会員は同じ行から選択枠が消えるだけで、列も情報量も変わらない（要件 AC-9）。</li>
+    <li>チェックボックスは行リンクの外に独立したタップ標的として置く。<b>行の残り全体</b>がその日の大会詳細（<code>/events/[id]</code>）へのリンク。</li>
+    <li>「●」は<b>自分がその日に参加すると答えた印</b>。未回答は無印。管理者・一般会員とも同じ位置に出る。</li>
+    <li>右端の人数は<b>参加希望者数</b>（<code>attend=true</code> の素通し・ゲストは数えない）。0名でも数字を出す。</li>
+    <li>一括操作は日程表の直下。前進3種はボタン、後退3種は「戻す操作」に畳む（誤操作を1段遠ざける）。</li>
+    <li>フロー帯の「大会申込」は<b>申し込まない日を除いた残りが全部揃ったら完了</b>。多摩CDE は C だけが対象日で、それが申込済なので<b>完了</b>になっている。</li>
+  </ul>
+</div>
+
+</body></html>

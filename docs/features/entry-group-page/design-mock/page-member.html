@@ -1,0 +1,158 @@
+<!-- @dsCard group="申込グループページ（一般会員）＋ 日ページの変化" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_grp.css">
+<title>申込グループページ — 一般会員ビュー ＋ 日ページの変化</title>
+</head><body>
+
+<!-- ============================================================
+     左: /admin/entries/[groupId] を一般会員が開いたとき
+     右: /events/[id]（日ページ）が本機能でどう変わるか
+     ★会員名はすべて架空。実在の会員名をモックへ持ち込まない。
+     ============================================================ -->
+
+<!-- ─────────────── 一般会員のグループページ ─────────────── -->
+<div class="col">
+  <div class="collabel">一般会員ビュー — 杉並AB</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>杉並AB</span></div>
+        <h1 class="title">杉並AB</h1>
+        <div class="subline">9/5・9/6 ／ 申込締切 8/7 ／ 抽選 8/16</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/3</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/7</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">抽選</span><span class="t">8/16</span></div>
+          <div class="fs now warn"><span class="d"></span><span class="l">支払</span><span class="t">8/28</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/5</span></div>
+        </div>
+      </div>
+
+      <section class="sec tight">
+        <div class="sech"><h2>日程<span class="cntnum">2</span><span class="cntunit">日</span></h2><span class="aux">参加希望 のべ7名</span></div>
+        <div class="days opt-c">
+          <div class="drow">
+            <span class="dd">9/5(土)</span><span class="dn">杉並B</span><span class="dg">B</span>
+            <span class="me"></span><span class="ph act">要振込</span><span class="dcnt">4名</span><span class="dchev">›</span>
+          </div>
+          <div class="drow">
+            <span class="dd">9/6(日)</span><span class="dn">杉並A</span><span class="dg">A</span>
+            <span class="me yes">●</span><span class="ph act">要振込</span><span class="dcnt">3名</span><span class="dchev">›</span>
+          </div>
+        </div>
+        <div class="subnote">● は自分が参加すると答えた日。回答は各日の大会詳細で行う。</div>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>名簿</h2><span class="aux">グループ共通</span></div>
+        <details class="rost">
+          <summary><span class="rt">確定名簿</span><span class="cnt">A 64 ／ B 96</span><span class="pub">8/16 発表</span></summary>
+        </details>
+        <details class="rost">
+          <summary><span class="rt">申込者名簿</span><span class="cnt">A 88 ／ B 121</span><span class="pub">8/9 発表</span></summary>
+        </details>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>オープンチャット</h2><span class="aux">大会当日用</span></div>
+        <table class="flat oc">
+          <tr><th>A級</th><td><span class="ocurl">https://line.me/ti/g2/xxxxxxxxxxxxxxxxxxxxxxxx</span></td></tr>
+          <tr><th>B級</th><td><span class="ocurl">https://line.me/ti/g2/yyyyyyyyyyyyyyyyyyyyyyyy</span></td></tr>
+        </table>
+      </section>
+
+      <div style="height:24px"></div>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab">イベント</div><div class="tab">統計</div>
+      <div class="tab active">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+  <div class="colnote">管理者との差は <b>チェックボックスが無いこと</b>と、<b>進行管理・共通項目・LINE配信・関連メールの4セクションが出ないこと</b>だけ。
+  日程表の列も情報量も同じ（要件 AC-9）。</div>
+</div>
+
+<!-- ─────────────── 日ページ（変更後） ─────────────── -->
+<div class="col">
+  <div class="collabel">日ページ（変更後）— 杉並A 9/6 ・管理者で見た状態</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <h1 class="title">杉並A<span class="tdate">9/6(日)</span><a class="editlink" href="#">編集</a></h1>
+        <div class="subline">杉並区立中央体育館</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">8/3</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">8/7</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">抽選</span><span class="t">8/16</span></div>
+          <div class="fs now warn"><span class="d"></span><span class="l">支払</span><span class="t">8/28</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">9/6</span></div>
+        </div>
+      </div>
+
+      <!-- ★新設: グループページへの導線。固定文言・シングルトンでも常に出す -->
+      <div class="grouplink"><a href="#">‹ 大会全体（申込・名簿）</a><span class="gname">杉並AB</span></div>
+
+      <section class="sec">
+        <div class="sech"><h2>オープンチャット</h2><span class="aux">大会当日用</span></div>
+        <table class="flat oc">
+          <tr><th>A級</th><td><span class="ocurl">https://line.me/ti/g2/xxxxxxxxxxxxxxxxxxxxxxxx</span></td></tr>
+        </table>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>参加者<span class="cntnum">3</span><span class="cntunit">名</span></h2></div>
+        <div class="partrow"><div class="who">
+          <span>青木<i>A</i></span><em>・</em><span>井上<i>A</i></span><em>・</em><span>遠藤<i>A</i></span>
+        </div></div>
+        <p class="subnote">あなたの参加費 2,500円</p>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>級別定員</h2><span class="aux">計 128名</span></div>
+        <div class="caprow"><span class="ci"><span class="g">A</span><span class="n">128</span><span class="u">名</span></span></div>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>備考</h2><span class="aux"><a href="#">編集</a></span></div>
+        <div class="body">昼食の販売はありません。近隣のコンビニをご利用ください。</div>
+      </section>
+
+      <section class="sec">
+        <div class="sech"><h2>名簿</h2><span class="aux">グループ共通</span></div>
+        <details class="rost">
+          <summary><span class="rt">確定名簿</span><span class="cnt">A 64 ／ B 96</span><span class="pub">8/16 発表</span></summary>
+        </details>
+      </section>
+
+      <div class="sticky"><span class="btn b-lg b-outline b-block">参加をキャンセル</span></div>
+
+    </div></div>
+    <nav class="bottomnav">
+      <div class="tab">ホーム</div><div class="tab active">イベント</div><div class="tab">統計</div>
+      <div class="tab">申込管理</div><div class="tab">メール</div><div class="tab">設定</div>
+    </nav>
+  </div>
+  <div class="colnote"><b>消えるもの</b>（管理者にも出なくなる）: 進行管理／LINE配信／関連メール／先頭の日リンク帯（「杉並B 9/5・杉並A 9/6」）。<br>
+  <b>増えるもの</b>: グループページへの導線 1 行だけ。<br>
+  この画面に残る管理者向けの操作は、見出し右の「編集」リンクだけになる。</div>
+</div>
+
+<div class="note">
+  <h3>戻り導線の文言について</h3>
+  <ul>
+    <li>ラベルは <b>「‹ 大会全体（申込・名簿）」の固定文言</b>。大会名を繰り返さないので、1日だけの大会（例「広島CDE」）でも自己リンクに見えない。</li>
+    <li>複数日のグループでは、固定文言の右にグループ名（杉並AB）を薄く添えて「どこへ戻るか」を示す。<b>1日だけのグループではこの添え字が消える</b>（名前が大会名と同一になるため）。</li>
+    <li>日どうしの行き来は<b>グループページの日程表を経由</b>する。従来の日リンク帯（<code>GroupDayLinks</code>）は廃止する。</li>
+    <li>置き場所は sticky ヘッダーの<b>外</b>。ヘッダー内に入れるとスクロール中ずっと居座り、日ページの主役（大会名と申込フロー）を押しのける。</li>
+  </ul>
+</div>
+
+</body></html>
