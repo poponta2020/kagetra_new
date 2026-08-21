@@ -221,6 +221,42 @@ describe('/events-archive — not_applying も従来どおり表示される（�
   })
 })
 
+// events-no-entrants AC-12 / AC-13: 締切超過で一覧から消えた「申込者 0 名」の
+// 大会を辿る唯一の導線をフッター 2 段目に置く。行き先 `/events-no-entrants` は
+// ゲストに開いていない（`isGuestAllowedPath` に載せない＝middleware が /403 へ
+// 飛ばす）ので、ゲストにはリンク自体を描画しない。
+describe('/events 一覧 — 「申込者なしで締切済 →」導線 (AC-12 / AC-13)', () => {
+  it('管理者: リンクがあり href が /events-no-entrants である', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    render(await EventsPage())
+
+    const link = screen.getByText('申込者なしで締切済 →')
+    expect(link.getAttribute('href')).toBe('/events-no-entrants')
+  })
+
+  it('一般会員: リンクがあり href が /events-no-entrants である', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+
+    render(await EventsPage())
+
+    const link = screen.getByText('申込者なしで締切済 →')
+    expect(link.getAttribute('href')).toBe('/events-no-entrants')
+  })
+
+  it('ゲスト: リンクは描画されないが「過去の大会 →」は残る', async () => {
+    const guest = await createGuest()
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    render(await EventsPage())
+
+    expect(screen.queryByText('申込者なしで締切済 →')).toBeNull()
+    expect(screen.getByText('過去の大会 →')).toBeDefined()
+  })
+})
+
 // AC-15: 見出し・戻りリンクの文言を「大会」へ統一する。
 describe('/events-archive — 見出し・戻りリンクの文言 (AC-15)', () => {
   it('h1 が「過去の大会」、戻りリンクが「現在の大会 →」で href が /events である', async () => {

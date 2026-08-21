@@ -4,6 +4,7 @@ import { events, eventAttendances, users } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
 import { and, asc, eq, gte, inArray, ne } from 'drizzle-orm'
 import { auth } from '@/auth'
+import { isGuestRole } from '@/lib/guest-access'
 import { surname } from '@/lib/surname'
 import { EventListClient } from './EventListClient'
 import { isGradeEligible, type EventListItem } from './event-list-utils'
@@ -16,6 +17,10 @@ const NEW_LINK_CLASS =
 export default async function EventsPage() {
   const session = await auth()
   const isAdmin = session?.user.role === 'admin' || session?.user.role === 'vice_admin'
+  // events-no-entrants §3.5: 「申込者なしで締切済 →」の行き先はゲストに
+  // 開いていない（`isGuestAllowedPath` の許可リストに載せない＝middleware が
+  // /403 へ飛ばす）。403 へ飛ぶ導線を見せないよう、リンク自体を描画しない。
+  const isGuest = isGuestRole(session?.user.role)
 
   // JST today; events.eventDate is YYYY-MM-DD so lexicographic compare is correct.
   // Past events are surfaced on /events-archive — listing them here too would double-list.
@@ -105,16 +110,25 @@ export default async function EventsPage() {
   // 削除し、「過去の大会 →」と「新規作成」はリスト末尾のフッター行へ移す。
   // フッターはクライアント側ではなくここに置く: ソートにも 0 件表示にも
   // 左右されず必ず出す必要がある（§2-7・§5「ナビゲーション欠落なし」）。
+  // events-no-entrants §3.1: 2 段目に「申込者なしで締切済 →」を足す。締切超過で
+  // この一覧から消えた（＝申込者 0 名の）大会を辿れる唯一の導線。
   return (
     <div className="flex flex-col gap-4 p-4">
       <EventListClient items={items} todayStr={todayStr} />
-      <div className="flex items-center justify-between">
-        <Link href="/events-archive" className="text-sm text-brand">
-          過去の大会 →
-        </Link>
-        {isAdmin && (
-          <Link href="/events/new" className={NEW_LINK_CLASS}>
-            新規作成
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <Link href="/events-archive" className="text-sm text-brand">
+            過去の大会 →
+          </Link>
+          {isAdmin && (
+            <Link href="/events/new" className={NEW_LINK_CLASS}>
+              新規作成
+            </Link>
+          )}
+        </div>
+        {!isGuest && (
+          <Link href="/events-no-entrants" className="text-sm text-brand">
+            申込者なしで締切済 →
           </Link>
         )}
       </div>
