@@ -311,3 +311,5 @@
 - [entry-group-page 実装（タスク1-6）](impl_entry_group_page.md) — 申込グループページ新設。計画からの逸脱2件（7語彙固定・進行管理は表示専用で新設）。ローカルテスト未実行=Docker不起動
 - [auto-review PR #503](auto-review-round-pr503.md) — R1 verdict=needs_changes→cutoff(blocker3件は全件WONTFIX)・CI が7件のテスト誤りを検出
 - [entry-group-page 出荷（PR #503）](project_ship-entry-group-page.md) — shipped: PR #503。★マージ後 E2E 2件が赤=日ページ撤去セクションの e2e 更新漏れ
+- [auto-review PR #504](auto-review-round-pr504.md) — R1 verdict=pass（E2E 張り替えの追修正）
+- [E2E をグループページへ張り替え（PR #504）](project_ship-e2e-group-page-sections.md) — shipped: PR #504。★payment_type 既定は advance／e2e も撤去対象に含める／serial は後続スキップ

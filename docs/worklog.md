@@ -3004,3 +3004,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-08-13 /ship PR #495: external-entrants-api（match-tracker 連携の外部提供 API）マージ。親 #490・子 #491〜#494 クローズ。CI pending のままマージ（赤なら追修正）。残 DoD=本番キー投入+curl 確認（docs/spec/external-api.md）
 - 2026-08-20 /auto-review-loop PR #503: 1R(i), verdict=cutoff(user-wontfix), effort=high(sol), tokens=n/a, result=cutoff（blocker3件は全件ユーザー判断で見送り／CI が検出したテスト誤り7件を修正）
 - 2026-08-20 /ship PR #503: entry-group-page（申込グループページ新設・日ページの会員向け純化）マージ。親 #496・子 #497〜#502 クローズ。★マージ後 CI で Playwright E2E 2件が赤（日ページから撤去した進行管理・LINE配信セクションを対象にした既存 e2e の更新漏れ）→ /quickfix で追修正。残 DoD=本番実機で複数日グループの一括申込済 LINE 通知1通確認（AC-38）・375px 横スクロール確認（AC-37 の1項目）
+- 2026-08-20 /auto-review-loop PR #504: 1R(i), verdict=pass, effort=low(sol), result=pass（PR #503 のマージ後に赤くなった E2E の張り替え）
+- 2026-08-20 /ship PR #504: entry-group-page の追修正（日ページから撤去した進行管理・LINE配信を対象にした E2E をグループページへ張り替え）マージ。**main の CI が全green に復帰**（Vitest 3183 passed / E2E 44 passed）。★payment_type のスキーマ既定は advance＝申込済化直後のフェーズは「抽選待ち」／serial describe は最初の失敗以降スキップ／CI は 15分上限に近い（一度 timeout で cancelled）
