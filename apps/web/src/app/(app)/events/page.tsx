@@ -102,7 +102,7 @@ export default async function EventsPage() {
   })
 
   // event-list-month-grouping §2-5: ページ見出し行（h1・リンク・新規作成）は
-  // 削除し、「過去のイベント →」と「新規作成」はリスト末尾のフッター行へ移す。
+  // 削除し、「過去の大会 →」と「新規作成」はリスト末尾のフッター行へ移す。
   // フッターはクライアント側ではなくここに置く: ソートにも 0 件表示にも
   // 左右されず必ず出す必要がある（§2-7・§5「ナビゲーション欠落なし」）。
   return (
@@ -110,7 +110,7 @@ export default async function EventsPage() {
       <EventListClient items={items} todayStr={todayStr} />
       <div className="flex items-center justify-between">
         <Link href="/events-archive" className="text-sm text-brand">
-          過去のイベント →
+          過去の大会 →
         </Link>
         {isAdmin && (
           <Link href="/events/new" className={NEW_LINK_CLASS}>

@@ -17,12 +17,12 @@ describe('BottomNav', () => {
   // AC-27 / AC-27b（member-mail-search）: 「メール」を一般会員へ開放したので
   // 一般会員も 6 タブちょうど、かつこの並び順（設定タブは常に最後尾）。
   // 他タブの表示・並びは開放前から変わっていない＝この配列がその回帰ガード。
-  it('isAdmin=false のとき ホーム/イベント/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
+  it('isAdmin=false のとき ホーム/大会/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin={false} />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
       'ホーム',
-      'イベント',
+      '大会',
       '統計',
       '申込管理',
       'メール',
@@ -63,14 +63,14 @@ describe('BottomNav', () => {
     },
   )
 
-  // AC-5 / AC-6: 管理者は ホーム/イベント/統計/申込管理/メール/設定 の
+  // AC-5 / AC-6: 管理者は ホーム/大会/統計/申込管理/メール/設定 の
   // 6 タブちょうど（会員・Bot の独立タブは無い）、かつこの並び順。
-  it('isAdmin=true のとき ホーム/イベント/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
+  it('isAdmin=true のとき ホーム/大会/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
       'ホーム',
-      'イベント',
+      '大会',
       '統計',
       '申込管理',
       'メール',
@@ -187,26 +187,26 @@ describe('BottomNav', () => {
     expect(link?.className).toContain('border-brand')
   })
 
-  it('pathname=/events で イベント タブが active になる', () => {
+  it('pathname=/events で 大会 タブが active になる', () => {
     mockUsePathname.mockReturnValue('/events')
     render(<BottomNav isAdmin />)
-    const link = screen.getByText('イベント').closest('a')
+    const link = screen.getByText('大会').closest('a')
     expect(link?.className).toContain('border-brand')
   })
 
-  it('pathname=/events/123 のような詳細パスでも イベント タブが active', () => {
+  it('pathname=/events/123 のような詳細パスでも 大会 タブが active', () => {
     mockUsePathname.mockReturnValue('/events/123')
     render(<BottomNav isAdmin />)
-    const link = screen.getByText('イベント').closest('a')
+    const link = screen.getByText('大会').closest('a')
     expect(link?.className).toContain('border-brand')
   })
 
   // AC-8（回帰）: `startsWith('/events')` previously matched `/events-archive`
   // and lit up the wrong tab. Segment-boundary matching fixes this.
-  it('pathname=/events-archive では イベント タブが active にならない', () => {
+  it('pathname=/events-archive では 大会 タブが active にならない', () => {
     mockUsePathname.mockReturnValue('/events-archive')
     render(<BottomNav isAdmin />)
-    const link = screen.getByText('イベント').closest('a')
+    const link = screen.getByText('大会').closest('a')
     expect(link?.className).not.toContain('border-brand')
     expect(link?.className).toContain('border-transparent')
   })
@@ -240,11 +240,11 @@ describe('BottomNav', () => {
     expect(nav.className).not.toMatch(/(?<!\+)min-h-\[52px\]/)
   })
 
-  it('各タブの href が正しい（ホーム/イベント/統計/申込管理/メール/設定）', () => {
+  it('各タブの href が正しい（ホーム/大会/統計/申込管理/メール/設定）', () => {
     render(<BottomNav isAdmin />)
     const expected: ReadonlyArray<[string, string]> = [
       ['ホーム', '/dashboard'],
-      ['イベント', '/events'],
+      ['大会', '/events'],
       ['統計', '/players'],
       ['申込管理', '/admin/entries'],
       ['メール', '/admin/mail-inbox'],
@@ -291,14 +291,14 @@ describe('BottomNav', () => {
     expect(homeLink?.getAttribute('aria-label')).toBeNull()
   })
 
-  // guest-role AC-8: ゲストは「イベント」「設定」の2タブだけ。ホーム・統計・
+  // guest-role AC-8: ゲストは「大会」「設定」の2タブだけ。ホーム・統計・
   // 申込管理・メールは描画されない。
   describe('isGuest（guest-role AC-8）', () => {
-    it('isGuest=true のとき イベント/設定 の2タブだけが、この順序で表示される', () => {
+    it('isGuest=true のとき 大会/設定 の2タブだけが、この順序で表示される', () => {
       render(<BottomNav isAdmin={false} isGuest />)
       const links = screen.getAllByRole('link')
       expect(links.map((link) => link.textContent?.trim())).toEqual([
-        'イベント',
+        '大会',
         '設定',
       ])
     })
@@ -316,10 +316,10 @@ describe('BottomNav', () => {
       expect(screen.getAllByRole('link')).toHaveLength(6)
     })
 
-    it('isGuest=true でも イベント タブの href/active 判定は変わらない', () => {
+    it('isGuest=true でも 大会 タブの href/active 判定は変わらない', () => {
       mockUsePathname.mockReturnValue('/events/123')
       render(<BottomNav isAdmin={false} isGuest />)
-      const link = screen.getByText('イベント').closest('a')
+      const link = screen.getByText('大会').closest('a')
       expect(link?.getAttribute('href')).toBe('/events')
       expect(link?.className).toContain('border-brand')
     })

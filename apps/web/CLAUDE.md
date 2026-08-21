@@ -5,7 +5,7 @@
 ## ルート構成 (src/app/)
 
 - `(app)/` — 認証必須のメイン画面群（共通モバイルシェル layout）
-  - `dashboard/` ホーム / `events/` イベント出欠・大会申込 / `events-archive/` 過去イベント
+  - `dashboard/` ホーム / `events/` 大会出欠・申込 / `events-archive/` 過去の大会 / `events-no-entrants/` 申込者なしで締切済の大会
   - `players/` 選手検索・戦績詳細・ランキング / `tournaments/` 大会結果閲覧（一覧・詳細・シリーズ・統計）
   - `admin/` 管理（members・mail-inbox〔結果ドラフト承認含む〕・line-channels） / `settings/` 設定
 - `api/` — BFF ルートハンドラ（auth / webhook / line-broadcast / line-link / zip / admin）

@@ -115,10 +115,10 @@ describe('EventListClient — 可視フィルタ（締切超過の非表示・AC
     expect(barOf(row).className).not.toContain('bg-brand')
   })
 
-  it('items は非空でも全行が締切超過なら「現在のイベントはありません」（フィルタ0件文言とは別）', () => {
+  it('items は非空でも全行が締切超過なら「現在の大会はありません」（フィルタ0件文言とは別）', () => {
     const rows = [item({ id: 1, title: '超過のみ', internalDeadline: '2026-07-05' })]
     render(<EventListClient items={rows} todayStr={TODAY} />)
-    expect(screen.getByText('現在のイベントはありません')).toBeTruthy()
+    expect(screen.getByText('現在の大会はありません')).toBeTruthy()
     expect(screen.queryByText('申込可能な大会はありません')).toBeNull()
     expect(screen.queryByRole('tab')).toBeNull()
     expect(screen.queryByRole('switch')).toBeNull()
@@ -465,7 +465,7 @@ describe('EventListClient — 中止 / 空表示 / 遷移（回帰）', () => {
 
   it('全体 0 件は現状文言（コントロール非表示）', () => {
     render(<EventListClient items={[]} todayStr={TODAY} />)
-    expect(screen.getByText('現在のイベントはありません')).toBeTruthy()
+    expect(screen.getByText('現在の大会はありません')).toBeTruthy()
     expect(screen.queryByRole('tab')).toBeNull()
     expect(screen.queryByRole('switch')).toBeNull()
   })

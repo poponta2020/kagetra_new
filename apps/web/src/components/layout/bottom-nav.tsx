@@ -25,7 +25,7 @@ interface Tab {
   /**
    * guest-role: ゲストにも見せるタブか。既定 false（会員・管理者専用）。
    * ゲストは許可リスト（`isGuestAllowedPath`）で `/events` と `/settings`
-   * のみ開けるため、ナビもそれに合わせて「イベント」「設定」の2つだけを true
+   * のみ開けるため、ナビもそれに合わせて「大会」「設定」の2つだけを true
    * にする（requirements S3 / AC-8）。
    */
   guestVisible?: boolean
@@ -35,7 +35,7 @@ const TABS: readonly Tab[] = [
   { id: 'home', label: 'ホーム', href: '/dashboard', matches: ['/dashboard'] },
   {
     id: 'events',
-    label: 'イベント',
+    label: '大会',
     href: '/events',
     matches: ['/events'],
     guestVisible: true,
@@ -50,7 +50,7 @@ const TABS: readonly Tab[] = [
     matches: ['/players', '/tournaments'],
   },
   // entry-management: 大会申込進捗ボード。当初は管理者専用だったが閲覧を全員に
-  // 開放した（ボード自体が表示専用）。共通 3 タブ（ホーム/イベント/統計）の
+  // 開放した（ボード自体が表示専用）。共通 3 タブ（ホーム/大会/統計）の
   // 直後・管理者専用ブロック（メール）の前に置く。
   {
     id: 'entries',
@@ -104,7 +104,7 @@ export interface BottomNavProps {
   previewRoleLabel?: string | null
   /**
    * guest-role: 実効ロールがゲストか。true のときは `guestVisible` な
-   * タブ（イベント・設定）だけを描画する。既定 false。
+   * タブ（大会・設定）だけを描画する。既定 false。
    */
   isGuest?: boolean
 }
@@ -113,12 +113,12 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs: ホーム / イベント / 統計 / 申込管理 / メール / 設定 を全員に
+ * targets. Tabs: ホーム / 大会 / 統計 / 申込管理 / メール / 設定 を全員に
  * （member-mail-search で「メール」を開放し、一般会員も管理者も 6 タブ）。
  * 「メール」だけ遷移先が role で分かれる（管理者 `/admin/mail-inbox` /
  * 一般会員 `/mail`）。
  *
- * guest-role: `isGuest` のときは上記から「イベント」「設定」の2タブだけに
+ * guest-role: `isGuest` のときは上記から「大会」「設定」の2タブだけに
  * 絞る（requirements S3 / AC-8）。ゲストは許可リスト
  * （`isGuestAllowedPath`）でこの2つ以外を開けないため、ナビも一致させる。
  *
