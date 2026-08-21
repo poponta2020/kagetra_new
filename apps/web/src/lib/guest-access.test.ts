@@ -24,7 +24,7 @@ describe('isGuestAllowedPath — 許可されるもの（AC-11 / AC-34）', () =
     expect(isGuestAllowedPath('/403')).toBe(true)
   })
 
-  it('大会申込一覧・大会詳細・過去のイベント・設定', () => {
+  it('大会申込一覧・大会詳細・過去の大会・設定', () => {
     expect(isGuestAllowedPath('/events')).toBe(true)
     expect(isGuestAllowedPath('/events/12')).toBe(true)
     expect(isGuestAllowedPath('/events/12/')).toBe(true)
@@ -88,6 +88,14 @@ describe('isGuestAllowedPath — 拒否されるもの（AC-9 / AC-10 / AC-33 / 
     expect(isGuestAllowedPath('/some-future-page')).toBe(false)
     expect(isGuestAllowedPath('/api/some-future-route')).toBe(false)
     expect(isGuestAllowedPath('/self-identify')).toBe(false)
+  })
+
+  // events-no-entrants AC-14: 「申込者なしで締切済の大会」は会員・管理者専用。
+  // 許可リストへ**追加しないこと自体が仕様**（fail-closed）なので、`/events` の
+  // 前方一致に化けたり、将来うっかり許可側へ移されたりしないことを固定する。
+  it('/events-no-entrants はゲストに開かない（events-no-entrants AC-14）', () => {
+    expect(isGuestAllowedPath('/events-no-entrants')).toBe(false)
+    expect(isGuestAllowedPath('/events-no-entrants/')).toBe(false)
   })
 
   it('パストラバーサル風のセグメントは許可に化けない', () => {
