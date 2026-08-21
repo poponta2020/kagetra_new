@@ -18,7 +18,7 @@ type: project
 - この「開催日が過ぎたものは archive で見える」事実をユーザーに提示した結果、**新ページの守備範囲は開催日前に限る**と確定（一度「開催日条件を外す」指示が出たが、事実提示後に撤回された）。
 
 ## 掲載条件（4つすべて）
-`eventDate >= 今日(JST)` / `internal_deadline` が過去（NULL・当日は対象外）/ `attend=true` が0名 / `entry_status <> 'not_applying'`。開催日昇順。中止(cancelled)も条件を満たせば載せる。閲覧者によって内容が変わらない（全員同じ一覧）。
+`eventDate >= 今日(JST)` / `internal_deadline` が過去（NULL・当日は対象外）/ `attend=true` が0名（**出欠行が無い、ではない** — 全員が不参加回答の大会も0名として載せる。seed の `createEventAttendance` は attend 既定 true なので要明示）/ `entry_status <> 'not_applying'`。開催日昇順。中止(cancelled)も条件を満たせば載せる。閲覧者によって内容が変わらない（全員同じ一覧）。
 
 ## 設計判断
 - **母集団を「参加者0名」にした理由**: isRowVisible は閲覧者ごとに結果が変わる（他人が出る大会も自分には隠れる）。「申込者がいない」は attend=true が0件という全会員共通条件で表せ、サーバークエリが archive 並みに単純になる。
@@ -29,5 +29,5 @@ type: project
 - **design_required: false**: 視覚の契約が「/events-archive と同じ」で実ページが存在するため design-screen を回さない（差分はカード右側1点のみ・requirements §3.3 で規定）。
 
 ## AC / タスク
-AC 21件（auto-test 20 / manual 1＝本番実機確認）。回帰ACに「isRowVisible 不変」「/events-archive の掲載条件不変」「ゲスト2タブ構成維持」を明示。
+AC 22件（auto-test 21 / manual 1＝本番実機確認）。回帰ACに「isRowVisible 不変」「/events-archive の掲載条件不変」「ゲスト2タブ構成維持」を明示。
 Wave1= タスク1(文言統一・bottom-nav.test.tsx の「イベント」18箇所を含む) ∥ タスク2(新ページ+テスト+page-padding.test.ts 登録+guest-access 回帰) → Wave2= タスク3(/events フッター2段化＋ゲスト非描画)。マイグレーション不要。

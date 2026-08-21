@@ -21,7 +21,7 @@ status: completed
 ### タスク1: 「イベント」→「大会」文言統一
 - [ ] 完了
 - **目的:** ボトムナビのタブ名と一覧まわりの見出し・空状態文言を「大会」に揃える（requirements §3.4）
-- **対応AC:** AC-1, AC-2, AC-3, AC-15, AC-16, AC-17（回帰）
+- **対応AC:** AC-1, AC-2, AC-3, AC-15, AC-16, AC-17（回帰）, AC-18（回帰）
 - **主な変更領域:**
   - `apps/web/src/components/layout/bottom-nav.tsx`（`TABS` の `label`・関連コメント）
   - `apps/web/src/components/layout/bottom-nav.test.tsx`（「イベント」を含む 18 箇所。タブ順・href・active・guest-role の各テスト）
@@ -31,33 +31,33 @@ status: completed
   - `apps/web/src/app/(app)/events/page.test.tsx`・`EventListClient.test.tsx`（文言アサートの追随）
   - `apps/web/CLAUDE.md`（ルート構成の説明文）
 - **依存タスク:** なし
-- **必要なテスト:** 既存の bottom-nav テストを「大会」へ改訂（タブ順・href・active・ゲスト2タブ）。`/events-archive` の見出し・戻りリンク・0 件文言のアサートを追加（既存の archive describe に足す）。`isRowVisible` の回帰テスト（既存）はそのまま green を維持。
+- **必要なテスト:** 既存の bottom-nav テストを「大会」へ改訂（タブ順・href・active・ゲスト2タブ）。`/events-archive` の見出し・戻りリンク・0 件文言のアサートを追加（既存の archive describe に足す）。AC-18: 開催日が過ぎた大会が参加者 0 名でも `not_applying` でも archive に出る既存回帰（`page.test.tsx` の archive describe）を維持する。`isRowVisible` の回帰テスト（既存）もそのまま green を維持。
 - **完了条件:** `pnpm --filter web test` の対象ファイル群が green・typecheck 通過。ユーザー向け文言に「イベント」が残るのは Non-goals の箇所（作成/編集画面・メール承認）だけ。
 - **対応Issue:** #506
 
 ### タスク2: `/events-no-entrants` ページ新設
 - [ ] 完了
 - **目的:** 会内締切超過・申込者 0 名・開催日前の大会だけを開催日昇順で並べるページを作る（requirements §3.2 / §3.3）
-- **対応AC:** AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-14, AC-19
+- **対応AC:** AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-14, AC-19, AC-22
 - **主な変更領域:**
   - `apps/web/src/app/(app)/events-no-entrants/page.tsx`（新規）
   - `apps/web/src/app/(app)/events-no-entrants/page.test.tsx`（新規）
   - `apps/web/src/app/(app)/page-padding.test.ts`（`TARGET_PAGES` に `events-no-entrants/page.tsx` を追加）
   - `apps/web/src/lib/guest-access.test.ts`（`isGuestAllowedPath('/events-no-entrants') === false` の回帰。**`guest-access.ts` 本体は変更しない**）
 - **依存タスク:** なし（`/events` 側のファイルには触らない）
-- **必要なテスト:** 実 test DB ＋ RSC 直呼びで、`/events` の既存テストと同じ形（`createEvent` / `createEventAttendance` / `setAuthSession`）。掲載: 締切超過×0名。非掲載: 締切 NULL・締切当日・締切未来・参加 1 名以上・`not_applying`・開催日が過去。並びが開催日昇順。0 件文言。カードの href と「会内締切 M/D」表示。
+- **必要なテスト:** 実 test DB ＋ RSC 直呼びで、`/events` の既存テストと同じ形（`createEvent` / `createEventAttendance` / `setAuthSession`）。掲載: 締切超過×0名／**全員が `attend: false` で回答した大会（AC-22）**。⚠️ `createEventAttendance` は `attend` の既定が `true` なので、不参加ケースは `attend: false` を明示して seed する。非掲載: 締切 NULL・締切当日・締切未来・参加 1 名以上・`not_applying`・開催日が過去。並びが開催日昇順。0 件文言。カードの href と「会内締切 M/D」表示。
 - **完了条件:** 新規テストが green・typecheck 通過・`page-padding` テスト green。
 - **対応Issue:** #507
 
 ### タスク3: `/events` から新ページへの導線
 - [ ] 完了
 - **目的:** `/events` フッターに「申込者なしで締切済 →」を追加し、ゲストには出さない（requirements §3.1 / §3.5）
-- **対応AC:** AC-12, AC-13, AC-18（回帰）
+- **対応AC:** AC-12, AC-13
 - **主な変更領域:**
   - `apps/web/src/app/(app)/events/page.tsx`（フッターを 2 段化＋`isGuestRole` 判定を追加）
   - `apps/web/src/app/(app)/events/page.test.tsx`（導線のテストを追加）
 - **依存タスク:** タスク1（同じ `events/page.tsx` の文言を先に変える）、タスク2（リンク先ページの存在＝型付きルートの解決）
-- **必要なテスト:** 会員/管理者で「申込者なしで締切済 →」が `/events-no-entrants` を指すこと。ゲストではそのリンクが無く「過去の大会 →」はあること。参加 0 名・締切超過の大会が `/events` に出ないこと（既存の可視性テストに 1 ケース追加でよい）。
+- **必要なテスト:** 会員/管理者で「申込者なしで締切済 →」が `/events-no-entrants` を指すこと。ゲストではそのリンクが無く「過去の大会 →」はあること。（`/events` の可視性そのものは AC-17 の既存回帰が担保するので、ここでは追加しない。）
 - **完了条件:** `/events` のテストが green・typecheck 通過。
 - **対応Issue:** #508
 
