@@ -414,6 +414,13 @@
       "when": 1787361669305,
       "tag": "0058_lovely_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787384079296,
+      "tag": "0059_rapid_thaddeus_ross",
+      "breakpoints": true
     }
   ]
 }

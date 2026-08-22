@@ -8,6 +8,7 @@ import type { Grade, Gender } from '@kagetra/shared/types'
 import { EditMemberForm } from './edit-member-form'
 import { DeleteMemberSection } from './delete-member-section'
 import { MemberRoleSection } from './member-role-section'
+import { MemberTreasurerSection } from './member-treasurer-section'
 import { toggleMemberDeactivation, unlinkLine } from './actions'
 import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
@@ -34,6 +35,7 @@ export default async function EditMemberPage({
       id: true,
       name: true,
       role: true,
+      isTreasurer: true,
       grade: true,
       gender: true,
       affiliation: true,
@@ -108,6 +110,10 @@ export default async function EditMemberPage({
           deactivated={member.deactivatedAt != null}
         />
       )}
+
+      {/* 会計フラグは admin / vice_admin の両方が更新できる（§3.1.2）。
+          ロール変更（admin 限定）とは別セクションにしてある。 */}
+      <MemberTreasurerSection userId={member.id} isTreasurer={member.isTreasurer} />
 
       {member.lineUserId && (
         <section className="rounded-lg bg-surface p-4 shadow-sm">
