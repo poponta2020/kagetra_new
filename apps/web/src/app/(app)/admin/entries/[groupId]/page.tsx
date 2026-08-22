@@ -27,6 +27,7 @@ import { formatFlowDate } from '@/lib/event-date'
 import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
+import { loadConfirmedRosterState } from '@/lib/events/confirmed-roster'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { aggregateGroupCommonFields } from '@/lib/events/group-common-fields'
 import { aggregateGroupFlowInput } from '@/lib/events/group-entry-flow'
@@ -41,6 +42,7 @@ import { EventRelatedMails } from '@/components/events/EventRelatedMails'
 import { OpenChatSection } from '@/app/(app)/events/[id]/components/OpenChatSection'
 import {
   RosterSection,
+  type RosterAdminControls,
   type RosterFileView,
 } from '@/app/(app)/events/[id]/components/RosterSection'
 import {
@@ -49,6 +51,7 @@ import {
   resendGradeBroadcast,
   resendGuidelines,
   revokeBroadcast,
+  setConfirmedRosterOverride,
   setEntriesApplied,
   setEntriesNotApplying,
   setGuidelineAttachments,
@@ -186,8 +189,10 @@ export default async function EntryGroupPage({
     myAttendanceRows.map((r) => [r.eventId, r.attend]),
   )
 
-  // ③ 確定名簿（グループ帰属）。定義は申込管理ボードと同じ「パース済み
-  //    （supersede されていない版）∪ 採用済み原本ファイル」で confirmed のみ。
+  // ③ 確定名簿（グループ帰属）。ここで引くのは**表示用**の一覧（名簿セクションに
+  //    そのまま渡す）で、フェーズ判定には使わない——判定は下の
+  //    `loadConfirmedRosterState` が正典（confirmed-roster-signal。材料が
+  //    パース済み ∪ 採用ファイル ∪ 確定名簿メール ∪ 手動フラグ の 4 つに増えたため）。
   const rosters = await db.query.tournamentEntryRosters.findMany({
     where: and(
       eq(tournamentEntryRosters.entryGroupId, groupIdNum),
@@ -226,9 +231,26 @@ export default async function EntryGroupPage({
     filename: f.sourceAttachment?.filename ?? '',
     grades: f.grades,
   }))
-  const hasConfirmedRoster =
-    rosters.some((r) => r.rosterType === 'confirmed') ||
-    rosterFiles.some((f) => f.rosterType === 'confirmed')
+  // 確定名簿の有無＋手動フラグの生値。判定の正典は 1 つ（要件 §6）——`settled` は
+  // フロー帯と日程表のフェーズ語へ、`override` は名簿セクションのトグルの現在値へ。
+  // トグルの状態を別クエリで読み直さない（判定の正典が2つに割れる）。
+  const { settled: hasConfirmedRoster, override: confirmedRosterOverride } =
+    await loadConfirmedRosterState(groupIdNum)
+
+  // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
+  // **管理者のときだけ**組み立てる（`RosterSection` は `'use client'`。日ページと
+  // 同じ規約）。団体戦グループでは `RosterSection` 自体が null を返すので、bind した
+  // Server Action を payload へ載せない（`entryFormGroupId` と同じ規律。要件 §5）。
+  const rosterAdminControls: RosterAdminControls | undefined =
+    isAdmin && !isTeamGroup
+    ? {
+        confirmedRosterOverride,
+        setConfirmedRosterOverride: setConfirmedRosterOverride.bind(
+          null,
+          groupIdNum,
+        ),
+      }
+    : undefined
 
   // ④ 申込フロー帯（集約入力を作って既存 `buildEntryFlow` へ渡す。§3.2.4）。
   //    対象日（非 cancelled）が0件なら null が返り、帯を丸ごと描かない（AC-14）。
@@ -598,6 +620,7 @@ export default async function EntryGroupPage({
         rosters={rosters}
         rosterFiles={rosterFiles}
         currentUserId={session.user.id}
+        adminControls={rosterAdminControls}
       />
 
       <OpenChatSection rows={openChatRows} />

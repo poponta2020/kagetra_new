@@ -1,10 +1,8 @@
 import { redirect } from 'next/navigation'
-import { and, eq, gte, inArray, isNull, ne } from 'drizzle-orm'
+import { and, eq, gte, inArray, ne } from 'drizzle-orm'
 import {
   events,
   eventAttendances,
-  tournamentEntryRosterFiles,
-  tournamentEntryRosters,
   tournamentSeries,
   tournamentSeriesEditions,
   users,
@@ -12,6 +10,7 @@ import {
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { loadConfirmedRosterStates } from '@/lib/events/confirmed-roster'
 import { isGuestRole } from '@/lib/guest-access'
 import { todayInJst } from '@/lib/jst-date'
 import { EntryBoardClient } from './EntryBoardClient'
@@ -31,7 +30,8 @@ export const dynamic = 'force-dynamic'
  * 既存テーブル（出欠・確定名簿）から毎回導出する。仕分け・並び順・締切表示の判断は
  * すべて entry-board-utils.ts の純関数側にあり、ここはその入力 DTO を組むだけ。
  *
- * 母集団は数十件規模なのでクエリは 3 本に固定する（区画ごとに投げない）。
+ * 母集団は数十件規模なので、区画ごとにクエリを投げず本数を固定する（確定名簿の
+ * 判定は `loadConfirmedRosterStates` が材料ごとに一括で引く）。
  * 要件: docs/features/entry-management/requirements.md §3.2
  */
 export default async function EntryManagementPage() {
@@ -122,50 +122,18 @@ export default async function EntryManagementPage() {
     attendCountByEvent.set(row.eventId, (attendCountByEvent.get(row.eventId) ?? 0) + 1)
   }
 
-  // ③ 確定名簿の有無。roster_type='confirmed' かつ superseded_at IS NULL の行が
-  //    1 つでもあれば true（申込者名簿・差し替え済みの版は数えない）。名簿の帰属は
-  //    event → entry_group へ移った（entry-groups タスク8）ので、グループ単位で
-  //    判定する — グループ内のどの日から見ても確定名簿の有無が同じになる（AC-17）。
-  const groupIds = [...new Set(eventRows.map((e) => e.entryGroupId))]
-  const rosterRows =
-    groupIds.length === 0
-      ? []
-      : await db
-          .select({ entryGroupId: tournamentEntryRosters.entryGroupId })
-          .from(tournamentEntryRosters)
-          .where(
-            and(
-              inArray(tournamentEntryRosters.entryGroupId, groupIds),
-              eq(tournamentEntryRosters.rosterType, 'confirmed'),
-              isNull(tournamentEntryRosters.supersededAt),
-            ),
-          )
-
-  //    roster-file-adoption: 「確定名簿がある」の定義を**パース済み ∪ ファイル採用**へ
-  //    拡張する。決定論パーサは主催者ごとに多様な様式へ追随できず、本番では確定名簿が
-  //    1件も取り込めないまま事前払いの大会が「申込完了・抽選待ち」に滞留していた。
-  //    原本ファイルを採用しただけでフェーズを進められるようにする（AC-3）。
-  //    applicant のファイル採用は分類に影響させない（AC-4。現行仕様どおり confirmed のみ）。
+  // ③ 確定名簿の有無。判定は `@/lib/events/confirmed-roster` が正典
+  //    （confirmed-roster-signal）。材料は 4 つ——パース済み確定名簿 ∪ 採用済み原本
+  //    ファイル ∪ 確定名簿メール ∪ 手動フラグ——で、以前ここに直書きしていた 2 材料の
+  //    クエリはそちらへ移した。3 画面で条件がずれると滞留が再発するため、組み立ては
+  //    1 箇所に寄せる（要件 §6）。名簿の帰属は event → entry_group へ移った
+  //    （entry-groups タスク8）ので判定はグループ単位——グループ内のどの日から見ても
+  //    同じ結果になる（AC-17）。
   //    ★`classify`（entry-board-utils.ts）は `hasConfirmedRoster: boolean` を受け取る
   //    だけなので純関数側は無変更 — 判定条件・評価順・並び順キーは一切動かさない。
-  //    ファイル採用は版管理を持たないので superseded_at 相当の絞り込みは無い。
-  const rosterFileRows =
-    groupIds.length === 0
-      ? []
-      : await db
-          .select({ entryGroupId: tournamentEntryRosterFiles.entryGroupId })
-          .from(tournamentEntryRosterFiles)
-          .where(
-            and(
-              inArray(tournamentEntryRosterFiles.entryGroupId, groupIds),
-              eq(tournamentEntryRosterFiles.rosterType, 'confirmed'),
-            ),
-          )
-
-  const groupIdsWithConfirmedRoster = new Set([
-    ...rosterRows.map((r) => r.entryGroupId),
-    ...rosterFileRows.map((r) => r.entryGroupId),
-  ])
+  //    ボードはトグルを持たないので `override` の生値は使わず `settled` だけ読む。
+  const groupIds = [...new Set(eventRows.map((e) => e.entryGroupId))]
+  const confirmedRosterStates = await loadConfirmedRosterStates(groupIds)
 
   // ④ タスク6: グループ表示名・代表イベントはグループごとに一度だけ計算する
   //    （`@/lib/entry-groups` の正典実装。呼び出し側で再実装しない）。
@@ -265,7 +233,7 @@ export default async function EntryManagementPage() {
       paymentType: e.paymentType,
       paymentStatus: e.paymentStatus,
       attendCount: attendCountByEvent.get(e.id) ?? 0,
-      hasConfirmedRoster: groupIdsWithConfirmedRoster.has(e.entryGroupId),
+      hasConfirmedRoster: confirmedRosterStates.get(e.entryGroupId)?.settled ?? false,
     }
   })
 

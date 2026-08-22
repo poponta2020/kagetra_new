@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { formatFlowDate } from '@/lib/event-date'
 import { surname } from '@/lib/surname'
-import { DisclosureSection } from '@/components/events/detail'
+import { Btn } from '@/components/ui'
+import { DisclosureActions, DisclosureSection } from '@/components/events/detail'
 
 export interface RosterEntryView {
   id: number
@@ -348,6 +349,71 @@ function RosterList({
 }
 
 /**
+ * confirmed-roster-signal タスク2: 管理者だけに渡す値と Server Action を **1つの
+ * optional prop に束ねる**。
+ *
+ * ★`isAdmin` を受けて `{isAdmin && <JSX>}` で隠すだけにしない。この
+ * コンポーネントは `'use client'` なので、props は全ロールぶん RSC payload に
+ * 載る——非管理者には**この prop 自体を渡さない**（`undefined`）ことで、操作 UI も
+ * Server Action の参照も payload に現れない（PR #376 の教訓。要件 §6 / AC-11）。
+ */
+export interface RosterAdminControls {
+  /** そのグループの `entry_groups.confirmed_roster_override` の現在値。 */
+  confirmedRosterOverride: boolean
+  /** `setConfirmedRosterOverride` を entryGroupId で bind したもの。 */
+  setConfirmedRosterOverride: (value: boolean) => Promise<void>
+}
+
+/**
+ * 「確定名簿ありとして扱う」トグル（管理者・副管理者のみ）。
+ *
+ * 確定連絡が別経路（会場掲示・口頭・他会からの連絡）で届いたときに、名簿も
+ * メールも無いまま申込フローを次（振込）へ進めるための逃げ道。効くのは
+ * **申込済みのグループの抽選→支払だけ**で、任意のフェーズを選ぶ機能ではない
+ * （要件 §3.2.2 / §5 Non-goals）。
+ */
+function ConfirmedRosterOverrideRow({ controls }: { controls: RosterAdminControls }) {
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const on = controls.confirmedRosterOverride
+
+  function toggle() {
+    setError(null)
+    startTransition(async () => {
+      try {
+        await controls.setConfirmedRosterOverride(!on)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '更新に失敗しました')
+      }
+    })
+  }
+
+  return (
+    <div className="border-t border-border-soft pt-[11px]">
+      <p className="text-xs leading-[1.75] text-ink-meta">
+        確定連絡が別の経路で届いていて名簿もメールも登録できないときは、ここで
+        「確定名簿あり」として扱えます（申込済みの大会の抽選→支払だけが進みます）。
+      </p>
+      <DisclosureActions>
+        <span className={cn('text-xs', on ? 'text-brand-fg' : 'text-ink-meta')}>
+          {on ? '確定名簿ありとして扱っています' : '確定名簿ありとして扱っていません'}
+        </span>
+        <Btn
+          kind={on ? 'secondary' : 'primary'}
+          size="sm"
+          disabled={isPending}
+          aria-pressed={on}
+          onClick={toggle}
+        >
+          {on ? '扱いを解除' : '確定名簿ありとして扱う'}
+        </Btn>
+      </DisclosureActions>
+      {error && <p className="mt-1.5 text-right text-xs text-accent-fg">{error}</p>}
+    </div>
+  )
+}
+
+/**
  * event-detail-redesign タスク4: 大会詳細の名簿表示＋会員突合。
  * 名簿は個人戦のみ（AC-30）。級タブ（初期選択=全体）で絞り込み、級の若い順
  * （A→E、級なしは最後）に並べる（AC-19/AC-20）。この画面からの Excel 取込は
@@ -358,6 +424,7 @@ export function RosterSection({
   rosters,
   rosterFiles = [],
   currentUserId,
+  adminControls,
 }: {
   kind: 'individual' | 'team'
   rosters: RosterView[]
@@ -367,6 +434,11 @@ export function RosterSection({
    */
   rosterFiles?: RosterFileView[]
   currentUserId: string | null
+  /**
+   * confirmed-roster-signal タスク2: 管理者向けの値＋操作。**管理者のときだけ
+   * 渡す**（非管理者は `undefined`）。詳細は {@link RosterAdminControls}。
+   */
+  adminControls?: RosterAdminControls
 }) {
   // 名簿は個人戦のみ（AC-30）。団体戦では出さない。
   if (kind !== 'individual') return null
@@ -403,6 +475,7 @@ export function RosterSection({
         currentUserId={currentUserId}
         emptyText="まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。"
       />
+      {adminControls && <ConfirmedRosterOverrideRow controls={adminControls} />}
     </DisclosureSection>
   )
 }

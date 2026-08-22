@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import { eq } from 'drizzle-orm'
 import {
+  entryGroups,
   mailAttachments,
   mailMessages,
   tournamentEntryRosterFiles,
@@ -15,6 +17,7 @@ import {
   createEvent,
   createEventAttendance,
   createGuest,
+  createMailMessage,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
@@ -627,6 +630,144 @@ describe('/admin/entries（申込管理ボード）', () => {
       const section = sectionOf('名簿確定・要振込')
       expect(within(section).getByText('締切情報なし大会')).toBeTruthy()
       expect(within(section).getByText('締切未設定')).toBeTruthy()
+    })
+  })
+
+  // confirmed-roster-signal: 「確定名簿あり」の判定材料が 2 → 4 に増えた
+  // （+ 確定名簿メール / + 手動フラグ）。純関数とローダーは
+  // `lib/events/confirmed-roster.test.ts` が持ち、ここでは**ボードの区画へ実際に
+  // 効くこと**——DB の状態から `classify` まで通した結線——を固定する。
+  describe('確定名簿シグナルの拡張（AC-2, AC-6, AC-10, AC-18）', () => {
+    beforeEach(async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+    })
+
+    /** 確定名簿メール（処理済み）を1件、指定イベントに紐付ける。 */
+    async function seedConfirmedRosterMail(linkedEventId: number) {
+      await createMailMessage({
+        subject: '第三回全国競技かるた杉並大会(AB級)確定連絡',
+        linkedEventId,
+        mailKind: 'confirmed_roster',
+        triageStatus: 'processed',
+      })
+    }
+
+    // 杉並AB（本番 group 13）相当。名簿レコードも採用ファイルも 0 件で、
+    // 確定連絡メールだけが届いている状態。改修前は「申込完了・抽選待ち」で滞留していた。
+    it('AC-2/AC-10: 名簿0件でも確定名簿メールがあれば「名簿確定・要振込」へ移る（振込締切未設定でも区画に入る）', async () => {
+      const today = todayJst()
+      const event = await createEvent({
+        title: '杉並AB',
+        eventDate: addDays(today, 15),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+        // 本番同様 payment_deadline は未設定（kind は既定の unspecified）。
+      })
+      await seedConfirmedRosterMail(event.id)
+
+      await renderPage()
+
+      const section = sectionOf('名簿確定・要振込')
+      expect(within(section).getByText('杉並AB')).toBeTruthy()
+      // AC-10: 締切が無くても区画には入る（強調はされない＝表示は「締切未設定」）。
+      expect(within(section).getByText('締切未設定')).toBeTruthy()
+      expect(
+        within(sectionOf('申込完了・抽選待ち')).queryByText('杉並AB'),
+      ).toBeNull()
+    })
+
+    it('AC-8: グループ内の1日にしか紐付いていないメールでも、グループのカードごと区画が動く', async () => {
+      const today = todayJst()
+      const group = await createEntryGroup()
+      const day1 = await createEvent({
+        entryGroupId: group.id,
+        title: '杉並B',
+        eligibleGrades: ['B'],
+        eventDate: addDays(today, 15),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await createEvent({
+        entryGroupId: group.id,
+        title: '杉並A',
+        eligibleGrades: ['A'],
+        eventDate: addDays(today, 16),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      // メールは 9/5（day1）にしか紐付いていない。
+      await seedConfirmedRosterMail(day1.id)
+
+      await renderPage()
+
+      const section = sectionOf('名簿確定・要振込')
+      const headerLink = within(section)
+        .getAllByRole('link')
+        .find((a) => a.getAttribute('href') === `/admin/entries/${group.id}`)
+      expect(headerLink).toBeTruthy()
+    })
+
+    it('AC-6: 手動フラグ（confirmed_roster_override）だけでも区画が進む', async () => {
+      const today = todayJst()
+      const event = await createEvent({
+        title: '口頭で確定を聞いた大会',
+        eventDate: addDays(today, 15),
+        entryStatus: 'applied',
+        paymentType: 'advance',
+        paymentStatus: 'unpaid',
+      })
+      await testDb
+        .update(entryGroups)
+        .set({ confirmedRosterOverride: true })
+        .where(eq(entryGroups.id, event.entryGroupId))
+
+      await renderPage()
+
+      expect(
+        within(sectionOf('名簿確定・要振込')).getByText('口頭で確定を聞いた大会'),
+      ).toBeTruthy()
+    })
+
+    // §3.2.2 の境界: `classify` が `hasConfirmedRoster` を見るのは `applied` 分岐だけ。
+    // 未申込のグループで手動フラグを立てても区画は動かない（任意のフェーズへ進める
+    // 汎用の逃げ道ではない）。
+    it('AC-18: entry_status=not_applied なら override を立てても区画は変わらない', async () => {
+      const today = todayJst()
+      const beforeDeadline = await createEvent({
+        title: '締切前のまま',
+        eventDate: addDays(today, 30),
+        internalDeadline: addDays(today, 5),
+        entryStatus: 'not_applied',
+      })
+      await testDb
+        .update(entryGroups)
+        .set({ confirmedRosterOverride: true })
+        .where(eq(entryGroups.id, beforeDeadline.entryGroupId))
+
+      const overdue = await createEvent({
+        title: '要申込のまま',
+        eventDate: addDays(today, 30),
+        internalDeadline: addDays(today, -5),
+        entryStatus: 'not_applied',
+      })
+      await seedAttendees(overdue.id, 1)
+      await testDb
+        .update(entryGroups)
+        .set({ confirmedRosterOverride: true })
+        .where(eq(entryGroups.id, overdue.entryGroupId))
+
+      await renderPage()
+
+      expect(within(sectionOf('締切前')).getByText('締切前のまま')).toBeTruthy()
+      expect(within(sectionOf('要申込')).getByText('要申込のまま')).toBeTruthy()
+      // 区画は動かない = 「名簿確定・要振込」にはどちらも現れない。
+      const settled = sectionOf('名簿確定・要振込')
+      expect(within(settled).queryByText('締切前のまま')).toBeNull()
+      expect(within(settled).queryByText('要申込のまま')).toBeNull()
     })
   })
 

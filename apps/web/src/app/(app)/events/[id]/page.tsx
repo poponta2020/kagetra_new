@@ -24,14 +24,22 @@ import {
   listGroupSiblings,
   selectRepresentativeEvent,
 } from '@/lib/entry-groups'
+import {
+  isIndividualOnlyGroup,
+  loadConfirmedRosterState,
+} from '@/lib/events/confirmed-roster'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
 import { isGuestRole } from '@/lib/guest-access'
 import { roleViewLabel } from '@/lib/role-preview'
-import { submitAttendance } from './actions'
+import { setConfirmedRosterOverride, submitAttendance } from './actions'
 import { OpenChatSection } from './components/OpenChatSection'
-import { RosterSection, type RosterFileView } from './components/RosterSection'
+import {
+  RosterSection,
+  type RosterAdminControls,
+  type RosterFileView,
+} from './components/RosterSection'
 import { surname } from '@/lib/surname'
 
 /**
@@ -254,12 +262,14 @@ export default async function EventDetailPage({
 
   // 申込フロー（両ビュー共通）。判定は純関数へ切り出してある（AC-1〜9）。entry-group-page
   // タスク4 (AC-30): この帯は**日別のまま**——グループ帯（`/admin/entries/[groupId]`）と
-  // 判定を混ぜない。確定名簿の有無は申込管理ボードと同じ定義:
-  // パース済み（rosters は上のクエリで supersede 済みを除外済み）∪ 採用済み
-  // 原本ファイル。どちらも confirmed のみ数え、applicant は影響させない。
-  const hasConfirmedRoster =
-    event.entryGroup.rosters.some((r) => r.rosterType === 'confirmed') ||
-    event.entryGroup.rosterFiles.some((f) => f.rosterType === 'confirmed')
+  // 判定を混ぜない。確定名簿の有無は申込管理ボードと同じ定義で、その正典は
+  // `@/lib/events/confirmed-roster`（confirmed-roster-signal。パース済み ∪ 採用済み
+  // 原本ファイル ∪ 確定名簿メール ∪ 手動フラグ の 4 材料）。上で引いてある
+  // `entryGroup.rosters` / `rosterFiles` は**表示用として残す**——判定だけ差し替える。
+  // 会員向けのこの画面にも反映するのは意図どおり（要件 §3.2.4。ボードと会員画面で
+  // フェーズがずれない）。
+  const { settled: hasConfirmedRoster, override: confirmedRosterOverride } =
+    await loadConfirmedRosterState(event.entryGroupId)
   const flowSteps = buildEntryFlow({
     internalDeadline: event.internalDeadline,
     entryDeadline: event.entryDeadline,
@@ -284,6 +294,26 @@ export default async function EventDetailPage({
     filename: f.sourceAttachment?.filename ?? '',
     grades: f.grades,
   }))
+
+  // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
+  // **管理者のときだけ**組み立てる。`RosterSection` は `'use client'` なので、
+  // 非管理者にも渡すと `{cond && <JSX>}` で隠しても RSC payload に載る。
+  //
+  // ★露出条件は**グループ単位**で見る（`event.kind` ではない）。この画面の
+  //   `RosterSection` は「その日の kind」で描かれるので、個人戦と団体戦が混在する
+  //   グループでは個人戦の日からグループ全体のフラグを立てられてしまう。手動フラグは
+  //   グループ単位の値なので、グループページ（`isTeamGroup`）と同じ「1日でも団体戦なら
+  //   出さない」規律に揃える（Server Action 側にも同じガードがある）。
+  const rosterAdminControls: RosterAdminControls | undefined =
+    isAdmin && (await isIndividualOnlyGroup(event.entryGroupId))
+    ? {
+        confirmedRosterOverride,
+        setConfirmedRosterOverride: setConfirmedRosterOverride.bind(
+          null,
+          event.entryGroupId,
+        ),
+      }
+    : undefined
 
   return (
     <div className="flex min-h-full flex-col p-4">
@@ -408,6 +438,7 @@ export default async function EventDetailPage({
         rosters={event.entryGroup.rosters}
         rosterFiles={rosterFiles}
         currentUserId={session?.user.id ?? null}
+        adminControls={rosterAdminControls}
       />
 
       {!canRespond && session && (

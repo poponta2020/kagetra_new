@@ -7,6 +7,7 @@ import {
   events,
   lineChannels,
 } from '@kagetra/shared/schema'
+import { truncateAll } from '@/test-utils/db'
 import { createEntryGroup } from '@/test-utils/seed'
 import { db } from './db'
 import {
@@ -28,12 +29,19 @@ import {
  * 「同じメールから2回目のオープンチャット配信」が制約違反で落ちる。
  */
 
+/**
+ * ★共通の `truncateAll()` を使う（このファイル固有の手書き削除は使わない）。
+ *
+ * 以前は `eventBroadcastMessages → eventLineBroadcasts → lineChannels → events →
+ * entryGroups` を順に `delete` していたが、`tournament_entry_rosters` /
+ * `tournament_entry_roster_files` → `entry_groups` の FK は **RESTRICT** なので、
+ * このファイルより前に走ったテストファイルが名簿行を残していると
+ * `delete from entry_groups` が FK 違反で落ちる（実測: confirmed-roster-signal で
+ * `src/lib/events/confirmed-roster.test.ts` を足したところ、実行順が隣接して 17 件が
+ * 一斉に落ちた）。リポジトリの規約どおり `truncateAll()`（CASCADE）へ寄せる。
+ */
 async function resetDb() {
-  await db.delete(eventBroadcastMessages)
-  await db.delete(eventLineBroadcasts)
-  await db.delete(lineChannels)
-  await db.delete(events)
-  await db.delete(entryGroups)
+  await truncateAll()
 }
 
 let originalBaseUrl: string | undefined

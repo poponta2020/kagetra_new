@@ -1,0 +1,1 @@
+ALTER TABLE "entry_groups" ADD COLUMN "confirmed_roster_override" boolean DEFAULT false NOT NULL;

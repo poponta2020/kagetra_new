@@ -73,6 +73,7 @@
 
 | テーブル名 (DB) | TSエクスポート名 | 責務 | 定義ファイル |
 |---|---|---|---|
+| entry_groups | entryGroups | 申込グループ（同じ案内メール×同じ申込締切の束。events の親） | schema/entry-groups.ts |
 | events | events | 大会・イベント本体（申込/支払い状態含む） | schema/events.ts |
 | event_attendances | eventAttendances | イベントへの出欠回答 | schema/event-attendances.ts |
 | schedule_items | scheduleItems | legacy: 廃止済み予定機能の保持データ（第2段階の DB 削除対象） | schema/schedule-items.ts |
