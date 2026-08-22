@@ -48,6 +48,26 @@ describe('(app)/layout', () => {
     )
   })
 
+  // role-preview-switch AC-23 / AC-13: `isGuest`（2タブ化）と
+  // `previewRoleLabel`（設定タブのバッジ）が同時に導出される唯一の場所。
+  it('ゲストビュー中の管理者は isGuest=true かつバッジが「ゲスト」（AC-13 / AC-23）', async () => {
+    await setAuthSession({ id: 'u-admin', role: 'guest', realRole: 'admin' })
+    await renderLayout()
+    expect(screen.getByTestId('mobile-shell').textContent).toContain(
+      'shell:false:true:ゲスト',
+    )
+  })
+
+  it('本物のゲストは許可リストに載っていてもバッジが出ない（AC-26）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-guest')
+    await setAuthSession({ id: 'u-guest', role: 'guest' })
+    await renderLayout()
+    expect(screen.getByTestId('mobile-shell').textContent).toContain(
+      'shell:false:true:none',
+    )
+    vi.unstubAllEnvs()
+  })
+
   it('一般会員は isGuest=false（回帰）', async () => {
     await setAuthSession({ id: 'u-member', role: 'member' })
     await renderLayout()

@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { users } from '@kagetra/shared/schema'
 import { Pill, SectionLabel } from '@/components/ui'
 import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
+import type { RolePreviewSelection } from '@/lib/role-preview'
 import { isGuestRole } from '@/lib/guest-access'
 import { setRolePreviewAction } from '../role-preview-actions'
 
@@ -40,14 +41,30 @@ export default async function SettingsPage() {
     await signOut({ redirectTo: '/auth/signin' })
   }
 
+  // role-preview-switch: ゲスト分岐より**前**で組み立てる。ゲストビュー中の
+  // 設定ページに出す「表示ロール」セクションが唯一の復帰導線で、分岐の後で
+  // 計算するとゲストビューでは到達しない（requirements R7 / AC-21）。
+  // `ROLE_PREVIEW_USER_IDS` は関数内で読む（モジュールトップだとビルド時に
+  // インライン化され、本番で再起動しても値が反映されない）。
+  const realRole = session.user.realRole ?? session.user.role
+  const rolePreview = buildRolePreviewSelection(
+    session.user.id,
+    realRole,
+    session.user.role,
+    process.env.ROLE_PREVIEW_USER_IDS,
+  )
+
   // guest-role: ゲストは表示のみ（表示名・級・所属会）＋ログアウトの専用
-  // ビュー（requirements S7 / AC-24）。通知設定・申込書設定・会員一覧への
-  // 導線も、切替不能な LINE アカウント切替（`/settings/line-link` は
-  // ゲストを /403 へ弾く）も一切出さないので、下の会員/管理者向けの
-  // レンダリングとは分岐する。表示ロールのプレビューセクションは
-  // `buildRolePreviewSelection` が guest に対して null を返すため自然に
-  // 消えるが、それ以外（アカウントセクション・管理セクション）はここで
-  // 明示的に描画しないことで担保する。
+  // ビュー（guest-role requirements S7 / AC-24）。通知設定・申込書設定・
+  // 会員一覧への導線も、切替不能な LINE アカウント切替（`/settings/line-link`
+  // はゲストを /403 へ弾く）も一切出さないので、下の会員/管理者向けの
+  // レンダリングとは分岐する。
+  //
+  // role-preview-switch: 唯一の例外が「表示ロール」セクションで、これだけは
+  // ここにも描画する（AC-21）。ゲストビュー中の管理者が管理者へ戻る唯一の
+  // 導線だから。本物のゲストには `buildRolePreviewSelection` が null を
+  // 返すので出ない（AC-26）。それ以外（アカウントセクション・管理セクション）
+  // をここで描画しないことは従来どおり。
   if (isGuestRole(role)) {
     // 表示名も級・所属会と同じく DB の最新値を使う。毎リクエストの JWT
     // 再検証（node-jwt-callback.ts）は role / LINE 情報こそ同期するが name は
@@ -90,6 +107,8 @@ export default async function SettingsPage() {
           </dl>
         </section>
 
+        <RolePreviewSection selection={rolePreview} />
+
         <form action={signOutAction} className="pt-1">
           <button
             type="submit"
@@ -101,16 +120,6 @@ export default async function SettingsPage() {
       </div>
     )
   }
-
-  const realRole = session.user.realRole ?? session.user.role
-  const rolePreview = buildRolePreviewSelection(
-    session.user.id,
-    realRole,
-    session.user.role,
-    process.env.ROLE_PREVIEW_USER_IDS,
-  )
-  const isPreviewing =
-    !!rolePreview && rolePreview.current !== rolePreview.real
 
   const accountLinks: SettingsLink[] = [
     {
@@ -168,48 +177,7 @@ export default async function SettingsPage() {
         </section>
       ) : null}
 
-      {rolePreview ? (
-        <section>
-          <SectionLabel>表示ロール</SectionLabel>
-          <div className="divide-y divide-border border-y border-border bg-surface">
-            <form action={setRolePreviewAction} className="flex flex-col">
-              {/* nav-settings-hub: 設定ページ内で切り替えるので、切替後も
-                  この画面に留まる。以前は「シートを開いた画面」へ戻していたが、
-                  それはシートが全画面から開けた前提の設計だった。 */}
-              <input type="hidden" name="returnTo" value="/settings" />
-              {rolePreview.selectable.map((r) => {
-                const current = rolePreview.current === r
-                return (
-                  <button
-                    key={r}
-                    type="submit"
-                    name="role"
-                    value={r}
-                    aria-current={current ? 'true' : undefined}
-                    className="flex items-center justify-between gap-3 px-4 py-3 text-left text-sm text-ink-1 transition-colors hover:bg-surface-alt"
-                  >
-                    <span className={current ? 'font-semibold text-brand' : undefined}>
-                      {roleViewLabel(r)}
-                    </span>
-                    {current ? (
-                      <Pill tone="brand" size="sm">
-                        {isPreviewing ? '表示中' : '本来のロール'}
-                      </Pill>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </form>
-          </div>
-          {isPreviewing ? (
-            <p className="px-1 pt-2 text-xs text-ink-meta">
-              いま {roleViewLabel(rolePreview.current)}
-              として表示しています。元に戻すには
-              {roleViewLabel(rolePreview.real)}を選んでください。
-            </p>
-          ) : null}
-        </section>
-      ) : null}
+      <RolePreviewSection selection={rolePreview} />
 
       <form action={signOutAction} className="pt-1">
         <button
@@ -220,6 +188,66 @@ export default async function SettingsPage() {
         </button>
       </form>
     </div>
+  )
+}
+
+/**
+ * role-preview-switch の「表示ロール」セクション。
+ *
+ * ゲスト分岐（表示のみビュー）と会員/管理者ビューの**両方**から描画する。
+ * ゲストビュー中はこれが管理者へ戻る唯一の導線なので、ゲスト分岐から外すと
+ * 復帰不能になる（requirements R7 / AC-21）。`selection` が null のとき
+ * （非プレビュー かつ 許可リスト外、または本物のゲスト）はセクションごと
+ * 描画しない。
+ */
+function RolePreviewSection({
+  selection,
+}: {
+  selection: RolePreviewSelection | null
+}) {
+  if (!selection) return null
+  const isPreviewing = selection.current !== selection.real
+  return (
+    <section>
+      <SectionLabel>表示ロール</SectionLabel>
+      <div className="divide-y divide-border border-y border-border bg-surface">
+        <form action={setRolePreviewAction} className="flex flex-col">
+          {/* nav-settings-hub: 設定ページ内で切り替えるので、切替後も
+              この画面に留まる。以前は「シートを開いた画面」へ戻していたが、
+              それはシートが全画面から開けた前提の設計だった。 */}
+          <input type="hidden" name="returnTo" value="/settings" />
+          {selection.selectable.map((r) => {
+            const current = selection.current === r
+            return (
+              <button
+                key={r}
+                type="submit"
+                name="role"
+                value={r}
+                aria-current={current ? 'true' : undefined}
+                className="flex items-center justify-between gap-3 px-4 py-3 text-left text-sm text-ink-1 transition-colors hover:bg-surface-alt"
+              >
+                <span className={current ? 'font-semibold text-brand' : undefined}>
+                  {roleViewLabel(r)}
+                </span>
+                {current ? (
+                  <Pill tone="brand" size="sm">
+                    {isPreviewing ? '表示中' : '本来のロール'}
+                  </Pill>
+                ) : null}
+              </button>
+            )
+          })}
+        </form>
+      </div>
+      {isPreviewing ? (
+        <p className="px-1 pt-2 text-xs text-ink-meta">
+          いま {roleViewLabel(selection.current)}
+          として表示しています。元に戻すには
+          {roleViewLabel(selection.real)}を選んでください。
+        </p>
+      ) : null}
+    </section>
   )
 }
 

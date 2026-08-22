@@ -323,5 +323,19 @@ describe('BottomNav', () => {
       expect(link?.getAttribute('href')).toBe('/events')
       expect(link?.className).toContain('border-brand')
     })
+
+    // role-preview-switch AC-13 / AC-23: ゲストビュー中は 2 タブ化とバッジが
+    // 同時に起きる。タブの絞り込み（`guestVisible`）がバッジを道連れに落とすと
+    // 復帰導線が「どのロールで見ているか分からない」状態になる。
+    it('isGuest=true でも 設定 タブのバッジは出る（2タブ化と両立する）', () => {
+      render(<BottomNav isAdmin={false} isGuest previewRoleLabel="ゲスト" />)
+      const links = screen.getAllByRole('link')
+      expect(links).toHaveLength(2)
+      const settingsLink = screen.getByText('設定').closest('a')
+      expect(settingsLink?.textContent).toContain('ゲスト')
+      expect(settingsLink?.getAttribute('aria-label')).toBe(
+        '設定（ゲストとして表示中）',
+      )
+    })
   })
 })

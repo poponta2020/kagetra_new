@@ -98,8 +98,13 @@ describe('isRolePreviewAllowed', () => {
 })
 
 describe('selectableRoles', () => {
-  it('admin は 3 件（上位から）', () => {
-    expect(selectableRoles('admin')).toEqual(['admin', 'vice_admin', 'member'])
+  it('admin は 4 件（上位から。guest は末尾）', () => {
+    expect(selectableRoles('admin')).toEqual([
+      'admin',
+      'vice_admin',
+      'member',
+      'guest',
+    ])
   })
 
   it('vice_admin は 2 件で admin を含まない（AC-4 昇格不可）', () => {
@@ -120,11 +125,11 @@ describe('roleViewLabel', () => {
 })
 
 describe('buildRolePreviewSelection', () => {
-  it('許可された admin は 3 択（AC-3）', () => {
+  it('許可された admin は 4 択（AC-3）', () => {
     expect(buildRolePreviewSelection('u1', 'admin', 'admin', 'u1')).toEqual({
       current: 'admin',
       real: 'admin',
-      selectable: ['admin', 'vice_admin', 'member'],
+      selectable: ['admin', 'vice_admin', 'member', 'guest'],
     })
   })
 
@@ -149,7 +154,7 @@ describe('buildRolePreviewSelection', () => {
     expect(buildRolePreviewSelection('u1', 'admin', 'member', 'u1')).toEqual({
       current: 'member',
       real: 'admin',
-      selectable: ['admin', 'vice_admin', 'member'],
+      selectable: ['admin', 'vice_admin', 'member', 'guest'],
     })
   })
 
@@ -167,40 +172,63 @@ describe('buildRolePreviewSelection', () => {
   })
 })
 
-describe('guest-role（AC-1 / AC-24 / AC-36）', () => {
+describe('ゲストビュー（AC-20 / AC-25 / AC-26。guest-role AC-36 の撤回後）', () => {
   it('parseUserRole は guest を受理する（実効ロールが下流の認可へ届くため）', () => {
     expect(parseUserRole('guest')).toBe('guest')
   })
 
-  it('roleViewLabel は guest を「ゲスト」と返す（AC-27 の表示元）', () => {
+  it('roleViewLabel は guest を「ゲスト」と返す（AC-3 の選択肢表示元）', () => {
     expect(roleViewLabel('guest')).toBe('ゲスト')
   })
 
-  it('selectableRoles のどの結果にも guest は現れない（AC-36 の拒否そのもの）', () => {
-    expect(selectableRoles('admin')).toEqual(['admin', 'vice_admin', 'member'])
+  it('guest が選択肢に出るのは本物のロールが admin のときだけ（AC-3 / AC-4）', () => {
+    expect(selectableRoles('admin')).toEqual([
+      'admin',
+      'vice_admin',
+      'member',
+      'guest',
+    ])
     expect(selectableRoles('vice_admin')).toEqual(['vice_admin', 'member'])
     expect(selectableRoles('member')).toEqual(['member'])
     expect(selectableRoles('guest')).toEqual([])
   })
 
-  it('viewAsRole="guest" は誰も適用できず本物のロールのまま（管理者の締め出し防止）', () => {
-    expect(resolveEffectiveRole('admin', 'guest')).toBe('admin')
+  it('viewAsRole="guest" が効くのは admin だけ（AC-20 / AC-25）', () => {
+    expect(resolveEffectiveRole('admin', 'guest')).toBe('guest')
+    // 改竄 JWT で副管理者・一般会員をゲストビューへ落とせないこと。ランク
+    // 比較だけだと guest(0) <= vice_admin(2) で通ってしまう。
     expect(resolveEffectiveRole('vice_admin', 'guest')).toBe('vice_admin')
     expect(resolveEffectiveRole('member', 'guest')).toBe('member')
   })
 
-  it('ゲスト本人は昇格できない（実効ロールは guest のまま）', () => {
+  it('ゲスト本人は昇格できない（実効ロールは guest のまま。AC-12）', () => {
     expect(resolveEffectiveRole('guest', 'admin')).toBe('guest')
     expect(resolveEffectiveRole('guest', 'vice_admin')).toBe('guest')
     expect(resolveEffectiveRole('guest', 'member')).toBe('guest')
     expect(resolveEffectiveRole('guest', undefined)).toBe('guest')
   })
 
-  it('ゲストには表示ロール切替セクションを描画しない（許可リストに載っていても null）', () => {
+  it('ゲストビュー中の admin には切替セクションが出る（AC-21 の復帰導線）', () => {
+    expect(buildRolePreviewSelection('u1', 'admin', 'guest', 'u1')).toEqual({
+      current: 'guest',
+      real: 'admin',
+      selectable: ['admin', 'vice_admin', 'member', 'guest'],
+    })
+  })
+
+  it('許可リストから外されてもゲストビューからは戻れる（AC-10b の最悪ケース）', () => {
+    expect(
+      buildRolePreviewSelection('u1', 'admin', 'guest', undefined),
+    ).toEqual({
+      current: 'guest',
+      real: 'admin',
+      selectable: ['admin'],
+    })
+  })
+
+  it('本物のゲストには切替セクションを描画しない（許可リストに載っていても null。AC-26）', () => {
     expect(buildRolePreviewSelection('u1', 'guest', 'guest', 'u1')).toBeNull()
     expect(buildRolePreviewSelection('u1', 'guest', 'guest', undefined)).toBeNull()
-    // 実効ロールだけが guest（原理的に起きないが fail-closed で塞ぐ）
-    expect(buildRolePreviewSelection('u1', 'admin', 'guest', 'u1')).toBeNull()
   })
 })
 

@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { render, screen, within } from '@testing-library/react'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 import { closeTestDb, truncateAll } from '@/test-utils/db'
-import { createGuest } from '@/test-utils/seed'
+import { createAdmin, createGuest } from '@/test-utils/seed'
 
 // 設定ハブ（/settings）: 権限による項目出し分けと、role-preview-switch の
 // 「表示ロール」セクションの描画条件を固定する。会員・管理者は DB に触れない
@@ -30,6 +30,13 @@ async function renderPage() {
 describe('/settings（設定ハブ）', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+  })
+
+  // DB を使う describe（ゲスト / ゲストビュー中の管理者）が複数あるので、
+  // 接続の後始末はファイル全体の afterAll に置く（describe 単位に置くと
+  // 先に閉じられて後続の describe が接続不能になる）。
+  afterAll(async () => {
+    await closeTestDb()
   })
 
   describe('一般会員（AC-9）', () => {
@@ -117,7 +124,7 @@ describe('/settings（設定ハブ）', () => {
       expect(screen.queryByText('表示ロール')).toBeNull()
     })
 
-    it('許可リストに載った admin は選択肢が並び、現在ロールに aria-current と「本来のロール」Pill が付く', async () => {
+    it('許可リストに載った admin は4択が並び、現在ロールに aria-current と「本来のロール」Pill が付く（AC-3）', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-admin')
       await setAuthSession({ id: 'u-admin', role: 'admin' })
       await renderPage()
@@ -130,6 +137,18 @@ describe('/settings（設定ハブ）', () => {
       expect(within(adminButton).getByText('本来のロール')).toBeTruthy()
       expect(screen.getByRole('button', { name: /副管理者/ })).toBeTruthy()
       expect(screen.getByRole('button', { name: /一般会員/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /ゲスト/ })).toBeTruthy()
+    })
+
+    it('許可リストに載った vice_admin の選択肢に ゲスト は現れない（AC-4）', async () => {
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-vice')
+      await setAuthSession({ id: 'u-vice', role: 'vice_admin' })
+      await renderPage()
+
+      expect(screen.getByRole('button', { name: /副管理者/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /一般会員/ })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /ゲスト/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /^管理者/ })).toBeNull()
     })
 
     it('プレビュー中は現在ロールに aria-current と「表示中」Pill が付く', async () => {
@@ -208,10 +227,6 @@ describe('/settings（設定ハブ）', () => {
       await truncateAll()
     })
 
-    afterAll(async () => {
-      await closeTestDb()
-    })
-
     it('表示名・級・所属会が表示のみで出る', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
       const guest = await createGuest({
@@ -273,6 +288,8 @@ describe('/settings（設定ハブ）', () => {
       expect(screen.queryByRole('combobox')).toBeNull()
     })
 
+    // role-preview-switch AC-26: 本物のゲストは許可リストに載っていても
+    // プレビュー機能を持たない（guest-role AC-24 の「表示のみ」が崩れない）。
     it('ログアウトボタンは残る', async () => {
       vi.stubEnv('ROLE_PREVIEW_USER_IDS', '')
       const guest = await createGuest({ name: 'ゲスト四郎' })
@@ -283,5 +300,82 @@ describe('/settings（設定ハブ）', () => {
       expect(button.getAttribute('type')).toBe('submit')
       expect(button.closest('form')).not.toBeNull()
     })
+
+    it('本物のゲストは許可リストに載っていても「表示ロール」が出ない（AC-26）', async () => {
+      const guest = await createGuest({ name: 'ゲスト五郎' })
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', guest.id)
+      await setAuthSession({ id: guest.id, role: 'guest', name: guest.name })
+      await renderPage()
+
+      expect(screen.queryByText('表示ロール')).toBeNull()
+      expect(screen.queryByRole('button', { name: /^管理者/ })).toBeNull()
+    })
+  })
+
+  // role-preview-switch AC-21 / AC-22: 管理者のゲストビュー。ゲスト用の
+  // 「表示のみ」ビューに「表示ロール」セクションだけが加わる。DB から引く
+  // 登録情報は（ゲストではなく）プレビュー中の管理者自身の行になる。
+  describe('ゲストビュー中の管理者（AC-21）', () => {
+    beforeEach(async () => {
+      await truncateAll()
+    })
+
+    it('登録情報（表示のみ）＋「表示ロール」4択＋ログアウトだけが出る', async () => {
+      const admin = await createAdmin({
+        name: 'ぽぽん',
+        grade: 'A',
+        affiliation: '北大かるた会',
+      })
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', admin.id)
+      await setAuthSession({
+        id: admin.id,
+        role: 'guest',
+        realRole: 'admin',
+        name: admin.name,
+      })
+      await renderPage()
+
+      // ゲスト用の表示のみビュー（中身は自分自身の行）
+      expect(screen.getByText('ぽぽん')).toBeTruthy()
+      expect(screen.getByText('A級')).toBeTruthy()
+      expect(screen.getByText('北大かるた会')).toBeTruthy()
+
+      // 唯一の復帰導線
+      expect(screen.getByText('表示ロール')).toBeTruthy()
+      const adminButton = screen.getByRole('button', { name: /^管理者/ })
+      expect(adminButton.getAttribute('aria-current')).toBeNull()
+      const guestButton = screen.getByRole('button', { name: /^ゲスト/ })
+      expect(guestButton.getAttribute('aria-current')).toBe('true')
+      expect(within(guestButton).getByText('表示中')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /副管理者/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /一般会員/ })).toBeTruthy()
+
+      // 管理者向けの中身は復活しない（requirements R7 / Non-goals）
+      expect(screen.queryByRole('link', { name: /LINE アカウント切替/ })).toBeNull()
+      expect(screen.queryByText('メール通知')).toBeNull()
+      expect(screen.queryByText('申込書設定')).toBeNull()
+      expect(screen.queryByText('アカウント')).toBeNull()
+      expect(screen.queryByText('管理')).toBeNull()
+
+      expect(screen.getByRole('button', { name: 'ログアウト' })).toBeTruthy()
+    })
+
+    it('許可リストから外れていても「管理者」へ戻す 1 択は残る（AC-10b の最悪ケース）', async () => {
+      const admin = await createAdmin({ name: 'ぽぽん' })
+      vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'someone-else')
+      await setAuthSession({
+        id: admin.id,
+        role: 'guest',
+        realRole: 'admin',
+        name: admin.name,
+      })
+      await renderPage()
+
+      expect(screen.getByText('表示ロール')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /^管理者/ })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /副管理者/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /一般会員/ })).toBeNull()
+    })
+
   })
 })

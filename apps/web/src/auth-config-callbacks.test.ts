@@ -86,16 +86,16 @@ describe('authConfig.callbacks.session — 実効ロールの生成点', () => {
     expect(session.user.role).toBe('member')
   })
 
-  // guest-role: セッション層でも guest が正しく実効ロールとして届くこと
-  // （届かないと下流の許可リストがゲストを認識できない）と、guest が
-  // プレビュー先として通らないことの両方を固定する。
+  // セッション層でも guest が正しく実効ロールとして届くこと（届かないと
+  // 下流の許可リストがゲストを認識できない）と、ゲストビューへ落とせるのが
+  // admin だけであることの両方を固定する。
   it('role=guest は実効ロールも guest（下流の許可リストへ届く）', async () => {
     const session = await callSession({ id: 'g1', role: 'guest' } as JWT)
     expect(session.user.role).toBe('guest')
     expect(session.user.realRole).toBe('guest')
   })
 
-  it('role=guest は viewAsRole で昇格できない（AC-36）', async () => {
+  it('role=guest は viewAsRole で昇格できない（AC-12）', async () => {
     const session = await callSession({
       id: 'g1',
       role: 'guest',
@@ -104,13 +104,31 @@ describe('authConfig.callbacks.session — 実効ロールの生成点', () => {
     expect(session.user.role).toBe('guest')
   })
 
-  it('管理者の JWT に viewAsRole=guest が直接入っていても実効は admin（AC-36）', async () => {
+  it('viewAsRole=guest / role=admin → 実効 guest・realRole は admin のまま（AC-20）', async () => {
     const session = await callSession({
       id: 'u1',
       role: 'admin',
       viewAsRole: 'guest',
-    } as unknown as JWT)
-    expect(session.user.role).toBe('admin')
+    } as JWT)
+    expect(session.user.role).toBe('guest')
+    expect(session.user.realRole).toBe('admin')
+  })
+
+  // AC-25: 改竄 JWT でも副管理者・一般会員はゲストビューへ落ちない。ランク
+  // 比較だけだと guest(0) <= vice_admin(2) が成立して通ってしまう。
+  it('viewAsRole=guest は副管理者・一般会員の JWT に直接入っていても効かない（AC-25）', async () => {
+    const viceAdmin = await callSession({
+      id: 'u2',
+      role: 'vice_admin',
+      viewAsRole: 'guest',
+    } as JWT)
+    expect(viceAdmin.user.role).toBe('vice_admin')
+    const member = await callSession({
+      id: 'u3',
+      role: 'member',
+      viewAsRole: 'guest',
+    } as JWT)
+    expect(member.user.role).toBe('member')
   })
 
   it('viewAsRole=null は非プレビュー扱い', async () => {
@@ -183,24 +201,41 @@ describe('authConfig.callbacks.jwt — update パッチ経路', () => {
     expect(token.viewAsRole).toBe('member')
   })
 
-  // guest-role AC-36: 表示ロールのプレビュー先に guest は選べない。実効ロール
-  // が guest になると設定画面から切替セクションが消え、管理者が復帰できなく
-  // なる（requirements R7）。UI の選択肢に出さないだけでは
-  // `POST /api/auth/session` へ直接送られたときに防げないので、JWT を書き換え
-  // るこの一点で拒否することがそのまま AC-36 の担保になる。
-  it('viewAsRole="guest" は許可ユーザーの管理者が送っても拒否される（AC-36）', async () => {
+  // AC-20 / AC-25: ゲストビューへの切替は本物のロールが admin のときだけ。
+  // UI の選択肢に出さないだけでは `POST /api/auth/session` へ直接送られた
+  // ときに防げないので、JWT を書き換えるこの一点にも同じ条件を置く
+  // （`selectableRoles` が admin 限定を内包する）。
+  it('viewAsRole="guest" は許可ユーザーの管理者なら転記される（AC-20）', async () => {
     const token = await callJwt({
       token: { id: 'u1', role: 'admin' } as JWT,
       trigger: 'update',
       session: { user: { viewAsRole: 'guest' } },
     })
-    expect(token.viewAsRole).toBeUndefined()
+    expect(token.viewAsRole).toBe('guest')
     expect(token.role).toBe('admin')
   })
 
-  it('viewAsRole="guest" はプレビュー中の値も上書きしない（AC-36）', async () => {
+  it('viewAsRole="guest" は許可された副管理者・一般会員からは拒否される（AC-25）', async () => {
+    const viceAdmin = await callJwt({
+      token: { id: 'u1', role: 'vice_admin' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'guest' } },
+    })
+    expect(viceAdmin.viewAsRole).toBeUndefined()
+    expect(viceAdmin.role).toBe('vice_admin')
+
+    const member = await callJwt({
+      token: { id: 'u1', role: 'member' } as JWT,
+      trigger: 'update',
+      session: { user: { viewAsRole: 'guest' } },
+    })
+    expect(member.viewAsRole).toBeUndefined()
+    expect(member.role).toBe('member')
+  })
+
+  it('拒否された guest 要求はプレビュー中の値も上書きしない（AC-25 の状態不変）', async () => {
     const token = await callJwt({
-      token: { id: 'u1', role: 'admin', viewAsRole: 'member' } as JWT,
+      token: { id: 'u1', role: 'vice_admin', viewAsRole: 'member' } as JWT,
       trigger: 'update',
       session: { viewAsRole: 'guest' },
     })

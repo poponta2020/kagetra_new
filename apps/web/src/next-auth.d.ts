@@ -46,12 +46,11 @@ declare module 'next-auth/jwt' {
      * role-preview-switch のプレビュー先ロール。未設定 / null で非プレビュー。
      * 実効ロールは session コールバックで `role` 以下へ丸められる。
      *
-     * ⚠️ guest-role: **`'guest'` は意図的に含めない**。型がランタイムの防御
-     * （`selectableRoles` にゲストを入れない・`resolveEffectiveRole` が
-     * `view === 'guest'` を弾く）と同じ形をしているべきなので、ゲストビューへ
-     * 切り替えられる余地を型の上でも作らない（requirements R7 / AC-36）。
+     * `'guest'` が入りうるのは**本物のロールが admin のときだけ**
+     * （requirements R1）。その条件は型では表現できないのでランタイム側
+     * （`selectableRoles` / `resolveEffectiveRole` / jwt コールバック）が持つ。
      */
-    viewAsRole?: 'admin' | 'vice_admin' | 'member' | null
+    viewAsRole?: 'admin' | 'vice_admin' | 'member' | 'guest' | null
     lineUserId?: string | null
     lineLinkedAt?: string | null
     lineLinkedMethod?: 'self_identify' | 'admin_link' | 'account_switch' | 'invite_link' | null

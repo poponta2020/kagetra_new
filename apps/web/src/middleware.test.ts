@@ -134,6 +134,36 @@ describe('middleware — ゲストの許可リスト（AC-9 / AC-10 / AC-11 / AC
   })
 })
 
+// role-preview-switch AC-24: 管理者のゲストビューは本物のゲストと同じ扱いに
+// なる。middleware が読むのは `session.user.role`＝実効ロールなので、実装上は
+// 上の describe と同じ経路を通る（このテストは新しい分岐を検証しない）。
+// 明示的な**将来の回帰網**として置く: middleware が `realRole` / `token.role`
+// （本物のロール）を読むように書き換えられた瞬間にここが赤くなる。
+describe('middleware — ゲストビュー中の管理者（role-preview-switch AC-24）', () => {
+  const previewGuest = { user: { id: 'u-admin', role: 'guest' } }
+
+  it('本物のゲストと同じく許可外ページは /403 へ', () => {
+    for (const path of [
+      '/dashboard',
+      '/players',
+      '/tournaments',
+      '/mail',
+      '/admin/entries',
+      '/admin/members',
+    ]) {
+      const res = middleware(request(path, previewGuest))
+      expect(res.status, path).toBe(307)
+      expect(locationOf(res), path).toBe('/403')
+    }
+  })
+
+  it('許可ページ（大会・設定）は素通し＝復帰導線が残る（AC-21 の前提）', () => {
+    for (const path of ['/events', '/events/12', '/settings']) {
+      expect(middleware(request(path, previewGuest)).status, path).toBe(200)
+    }
+  })
+})
+
 describe('middleware — matcher（未認証前提ルートの除外。external-entrants-api）', () => {
   // matcher のカスタム正規表現グループ `((?!...).*)` をそのまま JS の RegExp
   // として評価する（Next の matcher コンパイルの近似。除外リストの回帰網）。
