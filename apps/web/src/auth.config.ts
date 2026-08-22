@@ -116,14 +116,12 @@ export const authConfig = {
             process.env.ROLE_PREVIEW_USER_IDS,
           )
           const realRole = parseUserRole(token.role)
+          // `selectableRoles` が「本物のロール以下」と「ゲストは admin 限定」
+          // （requirements R1）の両方を内包するので、ここで guest を個別に
+          // 弾く必要はない。副管理者・一般会員が viewAsRole='guest' を直接
+          // 送ってもこの includes が false になって拒否される（AC-25）。
           if (
             requested &&
-            // guest-role: `selectableRoles` は既に guest を返さないので、この
-            // 判定は実行時には冗長。それでも書いているのは、`token.viewAsRole`
-            // の型が guest を含まないことを型検査で保証させるため（配列の
-            // includes からは TS が絞り込めない）。型とランタイムの防御が
-            // 同じ形で並ぶ状態を保つ（requirements R7 / AC-36）。
-            requested !== 'guest' &&
             allowed &&
             realRole &&
             selectableRoles(realRole).includes(requested)

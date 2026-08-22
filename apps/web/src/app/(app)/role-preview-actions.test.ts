@@ -126,6 +126,57 @@ describe('setRolePreviewAction', () => {
     })
   })
 
+  it('許可された admin が guest を指定 → viewAsRole=guest で更新（AC-20）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-admin')
+    await setAuthSession({ id: 'u-admin', role: 'admin' })
+    await expect(setRolePreviewAction(form({ role: 'guest' }))).rejects.toThrow(
+      'REDIRECT:/',
+    )
+    const update = await updateMock()
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith({ user: { viewAsRole: 'guest' } })
+  })
+
+  it('許可された vice_admin が guest を指定 → 拒否・状態不変（AC-25）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-vice')
+    await setAuthSession({ id: 'u-vice', role: 'vice_admin' })
+    await expect(setRolePreviewAction(form({ role: 'guest' }))).rejects.toThrow(
+      'REDIRECT:/403',
+    )
+    expect(await updateMock()).not.toHaveBeenCalled()
+  })
+
+  it('許可された member が guest を指定 → 拒否・状態不変（AC-25）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-member')
+    await setAuthSession({ id: 'u-member', role: 'member' })
+    await expect(setRolePreviewAction(form({ role: 'guest' }))).rejects.toThrow(
+      'REDIRECT:/403',
+    )
+    expect(await updateMock()).not.toHaveBeenCalled()
+  })
+
+  it('ゲストビュー中の admin が 管理者 を指定 → 解除される（AC-22 の復帰）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-admin')
+    await setAuthSession({ id: 'u-admin', role: 'guest', realRole: 'admin' })
+    await expect(setRolePreviewAction(form({ role: 'admin' }))).rejects.toThrow(
+      'REDIRECT:/',
+    )
+    expect(await updateMock()).toHaveBeenCalledWith({
+      user: { viewAsRole: null },
+    })
+  })
+
+  it('ゲストビュー中に de-list されても 管理者 へ戻せる（AC-10b の最悪ケース）', async () => {
+    vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'someone-else')
+    await setAuthSession({ id: 'u-admin', role: 'guest', realRole: 'admin' })
+    await expect(setRolePreviewAction(form({ role: 'admin' }))).rejects.toThrow(
+      'REDIRECT:/',
+    )
+    expect(await updateMock()).toHaveBeenCalledWith({
+      user: { viewAsRole: null },
+    })
+  })
+
   it('role が enum 外 → 拒否・状態不変（AC-11）', async () => {
     vi.stubEnv('ROLE_PREVIEW_USER_IDS', 'u-admin')
     await setAuthSession({ id: 'u-admin', role: 'admin' })

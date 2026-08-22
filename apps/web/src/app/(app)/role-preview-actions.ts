@@ -15,7 +15,8 @@ import {
  *
  * 認可は二重条件:
  *   1. `ROLE_PREVIEW_USER_IDS` の許可リストに載っていること
- *   2. 切替先が**本物のロール以下**であること
+ *   2. 切替先が `selectableRoles(realRole)` に含まれること（＝本物のロール
+ *      以下。ゲストだけは本物のロールが admin のときに限る = R1）
  *
  * どちらの判定にも **実効ロール (`session.user.role`) を使ってはならない**。
  * 実効ロールで判定するとプレビュー中に自分を締め出し、管理者へ戻れなくなる
@@ -48,8 +49,9 @@ export async function setRolePreviewAction(formData: FormData): Promise<void> {
   // 許可リスト外は「プレビュー中の解除」以外すべて拒否する。拒否時は
   // unstable_update を呼ばないので状態は一切変化しない（AC-10）。
   if (!allowed && !(isReset && isPreviewing)) redirect('/403')
-  // 本物のロールより上へは切り替えられない（AC-11）。丸め込みは session
-  // コールバック側にもあるが、ここで弾いて JWT に嘘の値を残さない。
+  // 本物のロールより上へは切り替えられない（AC-11）。副管理者・一般会員の
+  // ゲストへの切替もここで落ちる（AC-25）。丸め込みは session コールバック
+  // 側にもあるが、ここで弾いて JWT に嘘の値を残さない。
   if (!selectableRoles(realRole).includes(requested)) redirect('/403')
 
   // `unstable_update` の引数は Session 型だが、実際に渡しているのは

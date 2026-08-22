@@ -24,14 +24,13 @@ const ROLE_RANK: Record<UserRole, number> = {
 }
 
 /**
- * 上位 → 下位。設定シートのボタン並び順の正。
+ * 上位 → 下位。設定ページのボタン並び順の正。
  *
- * ⚠️ guest-role: **`guest` はここに入れない**（`parseUserRole` が受理するのと
- * 逆を向いているのは意図的）。`auth.config.ts` の JWT 更新経路は
- * `selectableRoles(realRole).includes(requested)` で切替を認可しているので、
- * この配列から外すことがそのまま「ゲストビューへは切り替えられない」になる。
- * ゲストの設定画面には切替セクション自体が無いため、管理者が一度ゲストビューへ
- * 入ると復帰導線を失う（requirements R7 / AC-36）。
+ * ⚠️ **`guest` はここに入れない**（`parseUserRole` が受理するのと逆を向いて
+ * いるのは意図的）。この配列はランク比較 (`ROLE_RANK[role] <= ROLE_RANK[real]`)
+ * にかけられるため、guest(0) を足すと**副管理者・一般会員の選択肢にもゲストが
+ * 生える**。ゲストへの切替は「本物のロールが admin のときだけ」なので、
+ * `selectableRoles` の中で別立てに末尾へ足す（requirements R1）。
  */
 const ROLES_HIGH_TO_LOW: readonly UserRole[] = ['admin', 'vice_admin', 'member']
 
@@ -45,10 +44,10 @@ const ROLE_VIEW_LABEL: Record<UserRole, string> = {
 /**
  * enum 外の値 (改竄された JWT クレーム・FormData の任意文字列) は null。
  *
- * ⚠️ guest-role: **`guest` は受理する**。ここで弾くと `resolveEffectiveRole` が
- * ゲストの実効ロールを解決できず、`session.user.role` が `'guest'` として下流の
- * 認可（許可リスト）に届かない。「切替先として選べない」ことは
- * `ROLES_HIGH_TO_LOW` 側で表現しており、この関数の責務ではない。
+ * `guest` も受理する。ここで弾くと `resolveEffectiveRole` がゲストの実効
+ * ロールを解決できず、`session.user.role` が `'guest'` として下流の認可
+ * （許可リスト）に届かない。誰がゲストへ切り替えられるかは
+ * `selectableRoles` / `resolveEffectiveRole` 側の責務。
  */
 export function parseUserRole(value: unknown): UserRole | null {
   return value === 'admin' ||
@@ -74,12 +73,12 @@ export function resolveEffectiveRole(
   if (!real) return realRole
   const view = parseUserRole(viewAsRole)
   if (!view) return real
-  // guest-role: ゲストは**プレビュー先になれない**。ランクだけで丸めると
-  // guest(0) <= admin(3) が成立して管理者がゲストビューへ落ち、ゲストの設定
-  // 画面には切替セクションが無いので復帰不能になる（requirements R7）。
-  // `selectableRoles` からの除外に加えて、実効ロールの生成点であるここでも
-  // 塞ぐ（JWT が直接書き換えられた場合の最後の砦）。
-  if (view === 'guest') return real
+  // ⚠️ この 1 行は冗長ではない。ゲストビューへ落とせるのは**本物のロールが
+  // admin のときだけ**（requirements R1）で、ランク比較だけに任せると
+  // guest(0) <= vice_admin(2) が成立して副管理者・一般会員も改竄 JWT で
+  // ゲストビューへ落とせてしまう（AC-25）。実効ロールの生成点であるここが
+  // `selectableRoles` を通らない `/api/auth/session` 経路に対する最後の砦。
+  if (view === 'guest' && real !== 'admin') return real
   return ROLE_RANK[view] <= ROLE_RANK[real] ? view : real
 }
 
@@ -101,9 +100,20 @@ export function isRolePreviewAllowed(
     .includes(target)
 }
 
-/** 切替先として選べるロール (本物のロール以下) を上位から並べる。 */
+/**
+ * 切替先として選べるロール (本物のロール以下) を上位から並べる。
+ *
+ * ゲストだけは「本物のロール以下なら選べる」の例外で、**本物のロールが
+ * admin のときだけ**末尾に足す（requirements R1）。ランク比較に混ぜない
+ * 理由は `ROLES_HIGH_TO_LOW` のコメントを参照。この関数は UI の選択肢生成と
+ * 切替の認可（Server Action・jwt コールバック）が**共に**読むので、ここが
+ * admin 限定を内包していることがそのまま AC-4 / AC-25 の拒否になる。
+ */
 export function selectableRoles(realRole: UserRole): UserRole[] {
-  return ROLES_HIGH_TO_LOW.filter((role) => ROLE_RANK[role] <= ROLE_RANK[realRole])
+  const roles = ROLES_HIGH_TO_LOW.filter(
+    (role) => ROLE_RANK[role] <= ROLE_RANK[realRole],
+  )
+  return realRole === 'admin' ? [...roles, 'guest'] : roles
 }
 
 /** 設定シートのボタン文言。 */
@@ -140,10 +150,12 @@ export function buildRolePreviewSelection(
   const real = parseUserRole(realRole)
   const current = parseUserRole(effectiveRole)
   if (!real || !current) return null
-  // guest-role: ゲストはプレビュー機能を一切持たない。許可リスト任せにすると、
-  // ゲストの id が誤って ROLE_PREVIEW_USER_IDS に入っていた場合に
-  // selectable が空のセクションだけが描画される（AC-24 の「表示のみ」が崩れる）。
-  if (real === 'guest' || current === 'guest') return null
+  // **本物の**ゲストはプレビュー機能を一切持たない。許可リスト任せにすると、
+  // ゲストの id が誤って ROLE_PREVIEW_USER_IDS に入っていた場合に selectable が
+  // 空のセクションだけが描画される（guest-role AC-24 の「表示のみ」が崩れる）。
+  // 一方 `current === 'guest'`（= admin のゲストビュー）は**通す**。ここが
+  // ゲストビューからの唯一の復帰導線で、塞ぐと戻れなくなる（AC-21 / R7）。
+  if (real === 'guest') return null
   const allowed = isRolePreviewAllowed(userId, rawEnv)
   const isPreviewing = current !== real
   if (!allowed && !isPreviewing) return null
