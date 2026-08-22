@@ -28,6 +28,7 @@ import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
 import { loadConfirmedRosterState } from '@/lib/events/confirmed-roster'
+import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { aggregateGroupCommonFields } from '@/lib/events/group-common-fields'
 import { aggregateGroupFlowInput } from '@/lib/events/group-entry-flow'
@@ -60,10 +61,11 @@ import {
 } from '@/app/(app)/events/[id]/actions'
 import { displayName, type EntryBoardItem } from '../entry-board-utils'
 import { dayPhase } from '../day-phase'
-import { saveGroupCommonFields } from './actions'
+import { saveGroupCommonFields, sendPaymentNotice } from './actions'
 import { GroupDayTable, type GroupDayRow } from './components/GroupDayTable'
 import { GroupProgressSection, type GroupSummary } from './components/GroupProgressSection'
 import { CommonFieldsSection } from './components/CommonFieldsSection'
+import { PaymentNoticeSection } from './components/PaymentNoticeSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -481,6 +483,9 @@ export default async function EntryGroupPage({
 
   // ⑩ 進行管理（管理者のみ）。非管理者にはそもそも計算しない（AC-2）。
   const feeTally = isAdmin ? await tallyEntryFeesForGroup(db, groupIdNum) : null
+  // line-bot-message-revamp §3.3.1: 名簿確定フェーズ（settled ∧ 事前払い ∧ 未振込）の
+  // グループにだけ振込連絡を出す。判定と初期値の組み立ては1箇所（AC-9/10/11）。
+  const paymentNotice = isAdmin ? await loadPaymentNoticeContext(groupIdNum) : null
   const entryFormLatestDraft =
     isAdmin && !isTeamGroup
       ? ((
@@ -610,6 +615,19 @@ export default async function EntryGroupPage({
               ? { days: gradeBroadcastDays, resendAction: resendGradeBroadcast }
               : null
           }
+        />
+      )}
+
+      {/* 振込連絡は名簿確定フェーズ＋LINE 紐付けありのときだけ出す（§3.3.1 / §3.3.4）。 */}
+      {isAdmin && paymentNotice && paymentNotice.hasLineBinding && (
+        <PaymentNoticeSection
+          groupId={groupIdNum}
+          rows={paymentNotice.rows}
+          hasSavedCounts={paymentNotice.hasSavedCounts}
+          paymentDeadline={paymentNotice.paymentDeadline}
+          paymentInfo={paymentNotice.paymentInfo}
+          lastSentAt={paymentNotice.lastSentAt}
+          sendAction={sendPaymentNotice}
         />
       )}
 
