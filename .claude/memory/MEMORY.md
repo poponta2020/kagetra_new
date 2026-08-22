@@ -330,3 +330,7 @@
 - [表示ロールのプレビュー切替に「ゲスト」を追加（管理者限定）](project_ship-role-preview-guest.md) — shipped: PR #518
 - [auto-review PR #529](auto-review-round-pr529.md) — R1 verdict=pass
 - [bug-fix: /mail 添付チップが sticky 検索バーの手前に描画される](project_ship-mail-chip-z-index.md) — shipped: PR #529
+- [line-bot-message-revamp 実装](impl_line-bot-message-revamp.md) — Wave編成の実績・トランスポート契約変更の跨りタスク・zod v4 record の罠
+- [fix PR #530](impl_fix-pr530.md) — review 指摘の修正
+- [auto-review PR #530](auto-review-round-pr530.md) — 3R(i+d+f) → final で cutoff。blockers 16件中8件修正・7件見送り
+- [大会別LINE Botメッセージ全面改訂＋会計メンション・振込連絡](project_ship-line-bot-message-revamp.md) — shipped: PR #530。★残DoD=migration 0059/0060 本番適用＋AC-21 実機確認（メンション表示も同時に見る）

@@ -59,4 +59,4 @@
 - `entry-group-page` — 申込グループ単位のページを新設し、管理者の申込運用（進行管理・共通締切編集・LINE配信・申込書・関連メール）をそこへ集約。日ページは会員が「その日に出るか」を答える画面に純化（主要領域: apps/web admin/entries・events） [shipped: PR #503] [shipped: PR #504]
 - `events-no-entrants` — ボトムナビ「イベント」→「大会」改称と、参加者0名のまま会内締切を過ぎて /events から消えた大会の専用ページ新設（主要領域: apps/web/src/app/(app)/events-no-entrants/・events/・events-archive/・components/layout/bottom-nav.tsx） [shipped: PR #512]
 - `confirmed-roster-signal` — 確定名簿ありの判定を「確定名簿メール」と「手動フラグ」へ拡張し、添付のない確定連絡でもフェーズが進むようにする改修（主要領域: 申込管理ボード / 申込フロー帯 / 名簿セクション） [shipped: PR #513]
-- `line-bot-message-revamp` — 大会別LINE Botのメッセージ全面改訂（会計フラグ・@All/@会計メンション基盤・名簿確定後の振込連絡を新設し、紐付け案内とライフサイクル通知8種の文面を差し替え）（主要領域: packages/shared schema + apps/web lib/line-mention・webhook・admin/entries・admin/members）
+- `line-bot-message-revamp` — 大会別LINE Botのメッセージ全面改訂（会計フラグ・@All/@会計メンション基盤・名簿確定後の振込連絡を新設し、紐付け案内とライフサイクル通知8種の文面を差し替え）（主要領域: packages/shared schema + apps/web lib/line-mention・webhook・admin/entries・admin/members） [shipped: PR #530]
