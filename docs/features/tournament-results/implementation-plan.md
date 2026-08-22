@@ -1,99 +1,101 @@
 ---
 status: completed
 ---
-# tournament-results 実装手順書
+# tournament-results 実装手順書（2026-08-22 改修: AI 取込補助 + 突合・部分承認・差し替え）
 
-要件定義書：`docs/features/tournament-results/requirements.md`
-親Issue：#157（子 #158〜#162）
+> 対象要件 = [requirements.md](requirements.md)（2026-08-22 改修版）。初版（決定的パーサ v1）のタスクは完了済み・git 履歴参照。
+> 現行仕様の正典 = docs/spec/tournaments-results.md。
 
-方針：テストファースト（API/ロジック→実装→フロント→E2E）。1PR=1タスク。AI は使わない（決定的パース）。
-既存 `mail-tournament-import` 基盤（IMAP・添付 bytea・ジョブキュー・Web Push・レビュー UI）を再利用。
+## 設計メモ（タスク共通の確定事項）
+
+- **AI モジュール**: `apps/mail-worker/src/result-import/ai/` 新設。既存 `classify/llm/` と同じパターン（provider 中立インターフェース + forced tool use + Zod 検証 + fixture 注入 + `calculateCostUsd` 流用）。モデル定数はモジュール内に `ANTHROPIC_MODEL_ID = 'claude-sonnet-5'`（classify とは独立に bump 可能）。ルーティングは非ストリーミング max_tokens 4096・thinking disabled。フル抽出は `client.messages.stream()` + max_tokens 100_000・thinking disabled（出力中央値33k/p90 74k トークンの実測による）。
+- **ルーティング出力スキーマ**（`RoutingResultSchema`）: `verdict: 'adopt'|'escalate'|'out_of_scope'` / `outOfScopeKind: 'team'|'roster_or_lottery'|'other'|null` / `classMap: [{ className, normalizedClassName, grade(A-E|null), exclude, note }]` / `meta: { tournamentName|null, editionNumber|null, eventDate|null, isCorrection }` / `issues: string[]`。
+- **payload 拡張**: `ParsedClassSchema` に optional `rawClassName: string | null` を追加（正規化適用時に原値を保持。optional なので既存 payload と後方互換）。フル抽出産 payload は `parserVersion: 'ai-extract-<PROMPT_VERSION>'`。
+- **result_drafts 新列**（全て nullable・既存行に影響なし）: `ai_routing jsonb` / `ai_model text` / `ai_prompt_version text` / `ai_tokens_input integer` / `ai_tokens_output integer` / `ai_cost_usd numeric(10,6)`（ルーティング+抽出の合算） / `ai_error text`（fail-open 時の記録） / `extraction_source text`（'parser' | 'ai'）。
+- **承認フォームの契約**（T5/T6 共通。ここを正とする）: 既存フィールドに加えて `selectedClasses`（payload.classes の index 配列を JSON 文字列で送る。例 `"[0,2,3]"`）と `replaceGrades`（差し替えを明示した grade の配列 JSON。例 `"[\"C\"]"`）。approveResultDraft(draftId, formData) のシグネチャは不変。
+- **差し替えトランザクション順序**（deep-advisor 設計・要件 §3.4）: ①draft/edition FOR UPDATE → ②旧 class id 群と旧側 player_id 集合を収集 → ③選択級のみで materialize（新 tournaments 行） → ④差し替え級の active fact（valid_to IS NULL）が旧 class を指すなら `linkActualResultClass(..., replaceExisting: true)` で新級へ → ⑤旧 class 群 DELETE（cascade）・class が 0 になった旧 tournaments 行も DELETE → ⑥監査: 全級差し替え時は旧 draft を status='superseded' + superseded_by_draft_id、部分差し替え時は旧 tournaments.note へ追記 → ⑦`recomputePlayerDisplayNames` + `syncPlayersToUniqueMembers` を（旧側∪新側 player）で再実行。
+- **edition×級 突合データ**: `getEditionImportedGrades(editionId)` — edition 配下の tournaments→tournament_classes を grade 別に集計して返す read-only Server Action（`result-drafts/[id]/actions.ts` に新設。admin/mail-inbox/actions.ts には足さない=T4/T6 との衝突回避）。
+- **将来制約の注記**: メール添付のプルーニングを将来導入する場合、approved / superseded の result_drafts が参照する添付は削除対象から除外すること（差し替えの復旧原本のため）。T7 で spec に明記。
 
 ## 実装タスク
 
-### タスク1: shared スキーマ＋migration
-- [x] 完了
-- **概要:** 選手マスタ含む 6 テーブルと enum、relations、migration を追加。
-- **詳細:**
-  - enum 追加：`result_draft_status`(pending_review/approved/rejected/parse_failed/superseded) / `match_result`(win/lose) / `match_status`(normal/walkover/forfeit)。`mail_worker_job_kind` に `result_parse` 追加。grade(A–E) 既存流用。
-  - テーブル：`players`（normalized_name・UNIQUE(normalized_name,affiliation)・user_id=会員同定後続）/ `tournaments` / `tournament_classes` / `tournament_participants`（player_id・生スナップショット・wins/losses は持たない）/ `matches`（result/score_diff(null可)/status）/ `result_drafts`（tournament_drafts 踏襲）。
-  - index：players(normalized_name) / players(user_id) / participants(player_id) / participants(class_id) / matches(class_id) / matches(participant_id) / result_drafts(status,created_at)。
-- **変更対象ファイル:**
-  - `packages/shared/src/schema/enums.ts` — enum 追加・job kind 拡張
-  - `packages/shared/src/schema/players.ts` / `tournaments.ts` / `tournament-classes.ts` / `tournament-participants.ts` / `matches.ts` / `result-drafts.ts` — 新規
-  - `packages/shared/src/schema/index.ts` / `relations.ts` — export・relations 追加
-  - `packages/shared/drizzle/00xx_*.sql` — migration 生成（`db:generate`）
-  - `packages/shared/__tests__/` — スキーマ/挿入・cascade テスト
-- **依存タスク:** なし
-- **完了条件:** 型チェック通過・migration 適用・FK/cascade を含む基本挿入テスト green。
-- **対応Issue:** #158
+### タスク1: shared スキーマ + migration（result_drafts AI 列）
+- [ ] 完了
+- **目的:** AI 所見・コスト記録の永続化列を追加する
+- **対応AC:** AC-5（記録先）、AC-9（extraction_source）
+- **主な変更領域:** `packages/shared/src/schema/result-drafts.ts`、`packages/shared/drizzle/`（新規 migration 1本）、`docs/design/db.md`
+- **依存タスク:** なし（migration 生成は main が担当）
+- **必要なテスト:** スキーマ snapshot（既存パターンがあれば）。migration はテスト DB の自動 push で検証される
+- **完了条件:** `pnpm check-types` 通過・migration が生成済み・db.md 更新
+- **対応Issue:** #534
 
-### タスク2: パーサ中核＋fixtureテスト（最重要・最難）
-- [x] 完了
-- **概要:** Excel リーダー＋ヘッダ署名駆動パーサ＋正規化を純関数で実装し、42 サンプルで検証。
-- **詳細:**
-  - リーダー：`.xlsx`=`exceljs`、`.xls`=libreoffice で `.xlsx` 変換後に読む（脆弱な `xlsx` lib 不使用。fods 経由も可・PR 内で最終選定）。出力＝シート→セルグリッド。
-  - パーサ：「選手名＋相手/枚数/勝敗」署名でシート判定（無し=スキップ）→ 列を名前で特定 → (相手,枚数,勝敗) 抽出 → 級は級/クラス列 or シート名。
-  - 正規化：枚数(不戦勝/棄権)→status、勝敗(○/〇/×)、`normalized_name`（空白除去・NFKC・字体揺れ）。Zod payload 型。
-- **変更対象ファイル:**
-  - `apps/mail-worker/src/result-import/reader.ts` / `parser.ts` / `normalize.ts` / `schema.ts` — 新規
-  - `apps/mail-worker/package.json` — `exceljs` 追加
-  - `apps/mail-worker/src/result-import/__tests__/` ＋ fixtures（サンプル xls/xlsx。**個人情報のため fixtures は gitignore か匿名化**）
-- **依存タスク:** なし（payload 型は単独で作成可）
-- **完了条件:** 各系統の代表サンプルで参加者数・試合数・特定選手の成績が期待一致。不戦勝/棄権/○〇/非AE級/兵庫(1シート全級)/山形(列順可変)/署名なしスキップを網羅。
-- **対応Issue:** #159
+### タスク2: mail-worker AI 基盤モジュール（result-import/ai/）
+- [ ] 完了
+- **目的:** ルーティングとフル抽出の AI クライアントを、テスト可能な provider 中立モジュールとして実装する
+- **対応AC:** AC-1（classMap 生成）、AC-8（フル抽出出力の Zod 検証）
+- **主な変更領域:** `apps/mail-worker/src/result-import/ai/`（新規: types.ts / routing-schema.ts / prompt.ts / anthropic.ts / fixture.ts）、`apps/mail-worker/src/result-import/schema.ts`（rawClassName 追加）、`apps/mail-worker/test/result-import/ai-*.test.ts`
+- **依存タスク:** なし（新規ファイル群 + schema.ts の後方互換追加のみ）
+- **必要なテスト:** ルーティングスキーマ検証・classMap 適用純関数・フル抽出出力の schema 不整合→エラー・fixture クライアントの契約テスト（classify/llm/fixture.ts 踏襲）
+- **完了条件:** 新規テスト green（ファイルスコープ lint 通過）
+- **対応Issue:** #535
 
-### タスク3: result_parse ジョブ＋取込トリガ＋ボタン
-- [x] 完了
-- **概要:** mail-worker に取込ジョブ、web に「結果として取り込む」導線を追加。
-- **詳細:**
-  - mail-worker：job kind `result_parse`（payload=`{mail_message_id, attachment_id}`）、`runResultParse`（reader+parser→`result_drafts` 格納 pending_review/parse_failed→Web Push）。既存 extract-only timer に相乗り。
-  - web：Server Action `triggerResultParse`、mail-inbox 詳細に「結果として取り込む」ボタン（.xls/.xlsx 添付時表示、複数なら選択）。
-- **変更対象ファイル:**
-  - `apps/mail-worker/src/jobs.ts`（dispatch）/ `src/result-import/run.ts`（新規）/ `src/index.ts`（mode）
-  - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（triggerResultParse）/ `[id]/` 配下（ボタン・添付選択 UI）
-  - 各テスト（action が draft+job 作成 / runResultParse が draft 格納）
-- **依存タスク:** タスク1, タスク2
-- **完了条件:** ボタン→ジョブ→draft(pending_review/parse_failed)生成、Web Push 到達。
-- **対応Issue:** #160
+### タスク3: run.ts へのルーティング統合（fail-open・エスカレート・PDF・AI 列保存）
+- [ ] 完了
+- **目的:** result_parse ジョブに AI ルーティングを組み込み、判定に応じて採用/フル抽出/警告へ振り分ける
+- **対応AC:** AC-1, AC-2（fail-open）, AC-4（メタ保存）, AC-5, AC-6（worker 側 PDF 経路）, AC-7, AC-8, AC-9
+- **主な変更領域:** `apps/mail-worker/src/result-import/run.ts`、`apps/mail-worker/src/index.ts` / `config.ts`（API キーの受け渡し配線）、`apps/mail-worker/test/result-import/run.test.ts`
+- **依存タスク:** タスク1（AI 列）、タスク2（モジュール）
+- **必要なテスト:** fixture 注入で ①adopt 時の classMap 適用+原値保持 ②AI 例外時の fail-open（ai_error 記録・pending_review 生成） ③0 classes→フル抽出発動 ④PDF→抽出直行 ⑤escalate verdict→フル抽出 ⑥AI 列（トークン・コスト合算・extraction_source）の保存
+- **完了条件:** run.test.ts green・既存ケースの回帰なし
+- **対応Issue:** #536
 
-### タスク4: レビューUI＋承認/却下＋確定保存
-- [x] 完了
-- **概要:** 結果ドラフトのレビュー画面と、承認時の確定保存（名寄せ・相手解決込み）。
-- **詳細:**
-  - レビュー UI：大会名編集（件名/ファイル名プリフィル）・開催日/会場任意・級/選手/試合プレビュー・承認/却下。
-  - `approveResultDraft`：1 トランザクションで tournaments/classes/participants/matches 作成＋`players` get-or-create(正規化キー)で player_id 付与＋同一級内 opponent 解決。draft=approved・mail=processed。訂正版 supersede。
-  - `rejectResultDraft`：draft=rejected。`parse_failed` は却下のみ。
-- **変更対象ファイル:**
-  - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（approve/reject）
-  - `apps/web/src/app/(app)/admin/mail-inbox/[id]/` 配下（レビューコンポーネント）
-  - `apps/web/src/lib/result-import/materialize.ts`（新規・確定保存）
-  - テスト（materialize：players 名寄せ・opponent 解決・walkover/forfeit・supersede）
-- **依存タスク:** タスク1, タスク3
-- **完了条件:** 承認で 6 テーブルへ正しく確定（名寄せ/相手解決/不戦勝・棄権の status）。却下・supersede 動作。
-- **対応Issue:** #161
+### タスク4: PDF トリガー許可（web 側導線）
+- [ ] 完了
+- **目的:** `.pdf` 添付でも「結果として取り込む」を実行できるようにする
+- **対応AC:** AC-6（トリガー側）
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（triggerResultParse の拡張子条件 L2106-2109）、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`（セクション表示条件）、`apps/web/src/app/(app)/admin/mail-inbox/components/ResultParseButton.tsx`
+- **依存タスク:** なし（**actions.ts はタスク6 も触るため、タスク6 より先に完了させる順序制約**）
+- **必要なテスト:** triggerResultParse の拡張子受理（.pdf 許可・その他拒否）テスト
+- **完了条件:** テスト green
+- **対応Issue:** #537
 
-### タスク5: 選手戦績ページ（会員向け）
-- [x] 完了
-- **概要:** 会員向け。選手名検索→players引当→全出場（大会/級/順位/各試合）表示。勝敗は status=normal 集計。
-- **詳細:**
-  - 検索（`players.normalized_name`）→ `participant.player_id` で全出場 → 大会/級/順位/各試合（相手/枚数/勝敗）。
-  - 勝敗集計は `matches` から `status=normal` のみ（不戦勝・棄権除外）。
-- **変更対象ファイル:**
-  - `apps/web/src/app/(app)/players/` 配下（検索＋一覧＋詳細）・ナビ追加
-  - `apps/web/src/lib/players/queries.ts`（新規）
-  - テスト（検索・集計が status=normal のみ）
-- **依存タスク:** タスク1（表示データはタスク4投入後）
-- **完了条件:** 名前検索→戦績表示、勝敗集計が status=normal のみ。
-- **対応Issue:** #162
+### タスク5: 承認画面 UI（AI 所見・級チェックボックス・突合バッジ・差し替え操作）
+- [ ] 完了
+- **目的:** 部分承認・差し替え・AI 所見を承認画面で操作/確認できるようにする
+- **対応AC:** AC-3, AC-4（プリフィル）, AC-9（由来表示）, AC-10, AC-13（クライアント側ガード）, AC-16, AC-17
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/`（page.tsx / components/ApproveResultDraftForm.tsx / **新規** actions.ts=getEditionImportedGrades）・同ディレクトリのコンポーネントテスト
+- **依存タスク:** タスク1（AI 列の読み出し）。フォーム契約は本書「設計メモ」を正とする
+- **必要なテスト:** ①AI 所見（対象外警告・訂正版促し・AI 抽出由来・AI 検証なし）の表示分岐 ②edition 確定時の取込済みバッジ+既定 OFF ③edition 未確定時の全級既定 ON ④0級選択時の submit ガード ⑤eventDate/大会名プリフィル
+- **完了条件:** コンポーネントテスト green
+- **対応Issue:** #538
 
-## 実装順序
-1. タスク1（依存なし）— #158
-2. タスク2（依存なし・1 と並行可）— #159
-3. タスク3（1,2 依存）— #160
-4. タスク4（1,3 依存）— #161
-5. タスク5（1 依存・実データは 4 後）— #162
+### タスク6: 承認アクション（級選択フィルタ・差し替えトランザクション）
+- [ ] 完了
+- **目的:** 部分承認と差し替え（物理削除+fact 再リンク+監査記録）を approveResultDraft に実装する
+- **対応AC:** AC-11, AC-12（回帰）, AC-13, AC-14, AC-15, AC-18（回帰）, AC-22
+- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（approveResultDraft）、必要なら `apps/web/src/lib/result-import/`（差し替えヘルパー切り出し）、対応テスト
+- **依存タスク:** タスク1、タスク4（actions.ts 順序）、タスク5（フォーム契約の確定。並行させず後続にする）
+- **必要なテスト:** ①部分承認: 選択級のみ materialize ②全級選択=現行結果と同一（回帰） ③0級エラー ④差し替え: 旧級 DELETE・空 tournaments DELETE・draft superseded（全級時）/note 追記（部分時） ⑤active fact の新級への再リンク（revision 生成） ⑥display_name/会員リンクの削除後再計算 ⑦既存の状態ガード回帰
+- **完了条件:** テスト green（DB 依存テストはテスト DB・--no-file-parallelism）
+- **対応Issue:** #539
 
-## 補足
-- **個人情報**：パーサ fixtures は実選手名を含むため、リポジトリには gitignore か匿名化して置く（`docs/調査用/` の生ファイルはコミットしない方針を踏襲）。
-- 真の定型外（署名不一致）は `parse_failed`→管理者却下＝手動対応は後続フェーズ。
+### タスク7: docs 更新 + 総合回帰
+- [ ] 完了
+- **目的:** 正典 docs を変更後の姿へ更新し、全体回帰を確認する
+- **対応AC:** AC-19, AC-20（CI green）
+- **主な変更領域:** `docs/spec/tournaments-results.md`（取込フロー・AI ルーティング・部分承認・差し替え・復旧手順）、`docs/spec/mail-worker.md`（添付プルーニング将来制約の注記）、`docs/design/db.md`（タスク1で未反映なら）
+- **依存タスク:** タスク3、タスク5、タスク6
+- **必要なテスト:** なし（docs）。全パッケージのテスト・lint・typecheck は CI に委譲
+- **完了条件:** docs 更新済み・CI green
+- **対応Issue:** #540
+
+## 実装順序（Wave = 並行実装できるタスクの組）
+
+- Wave 1: タスク1（shared+migration・main 担当）, タスク2（mail-worker 新規モジュール）, タスク4（web actions.ts+mail 詳細） — 3タスクは変更領域が重ならない
+- Wave 2: タスク3（mail-worker run.ts。T1+T2 依存）, タスク5（web result-drafts/[id]/**。T1 依存） — 領域直交で並行可
+- Wave 3: タスク6（actions.ts。T4 完了済み・T5 のフォーム契約確定後）
+- Wave 4: タスク7（docs+総合回帰）
+
+## AC-21（manual）の消化手順
+
+出荷後、本番で級別分割の後続メール（例: 次に届く多摩/さがみ野系の級別報告）を1通取り込み、①先行取込済みの級に「取込済み」バッジが出る ②未取込級だけの部分承認が通る ことを実機確認する。確認完了を memory の残 DoD に記録する。
