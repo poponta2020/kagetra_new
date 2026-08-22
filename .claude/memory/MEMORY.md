@@ -324,3 +324,7 @@
 - [role-preview-switch ゲストビュー解禁 要件定義](project_role_preview_guest_view_def.md) — 親Issue #514
 - [テストDBの持ち越し行がFK RESTRICTで隣のファイルを落とす](feedback_test_db_leftover_rows_fk_restrict.md) — 手書きresetDb禁止・truncateAll一択。新規DBテスト追加時は隣接ファイルと順に実行して確認
 - [確定名簿シグナルの拡張（確定名簿メール・手動フラグ）](project_ship-confirmed-roster-signal.md) — shipped: PR #513。残DoD=AC-17 本番で杉並AB(group 13)が「名簿確定・要振込」に出るか確認
+- [role-preview-switch ゲストビュー解禁 実装](impl_role-preview-switch-guest.md) — 表示ロールのプレビューにゲストを追加（管理者限定）・タスク1-3完了
+- [auto-review PR #518](auto-review-round-pr518.md) — R1 verdict=needs_changes→cutoff(user-wontfix)・修正なし
+- [大会別LINE Bot メッセージ全面改訂 要件定義](project_line_bot_message_revamp_def.md) — 親Issue #519
+- [表示ロールのプレビュー切替に「ゲスト」を追加（管理者限定）](project_ship-role-preview-guest.md) — shipped: PR #518

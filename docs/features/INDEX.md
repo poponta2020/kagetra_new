@@ -39,7 +39,7 @@
 - `entry-overdue-alert` — 会内締切超過の未申込大会を管理者個人LINEへ毎朝アラート＋進行管理に「申込なし」を追加（主要領域: apps/web, packages/shared）[shipped: PR #312]
 - `event-grade-group-broadcast` — 新規大会の概要を級別LINEグループへ自動配信（主要領域: apps/web, packages/shared）[shipped: PR #321]
 - `entry-management` — 管理者向け大会申込進捗ボード（5区画へ自動仕分け）＋ボトムナビ導線（主要領域: apps/web）[shipped: PR #334] [shipped: PR #380] [shipped: PR #398]
-- `role-preview-switch` — 許可された管理者だけが表示ロール（管理者/副管理者/一般会員）をUIから切り替え、会員としての見え方・触れ方を実機確認できるようにする（主要領域: apps/web） [shipped: PR #336]
+- `role-preview-switch` — 許可された管理者だけが表示ロール（管理者/副管理者/一般会員/ゲスト）をUIから切り替え、会員・ゲストとしての見え方・触れ方を実機確認できるようにする（主要領域: apps/web） [shipped: PR #336] [shipped: PR #518]
 - `event-list-redesign` — /events 大会申込一覧の再リデザイン（主要領域: apps/web events） [shipped: PR #345]
 - `nav-settings-hub` — 上部バー(かげとら＋ユーザー名)を廃止し、ボトムナビに設定タブ＋独立した設定ページを新設。会員・Botはナビから設定ハブへ移設（主要領域: apps/web layout） [shipped: PR #351]
 - `event-detail-redesign` — /events/[id] 大会申込詳細を管理者・一般会員とも「罫線＋余白主導（脱カード）」へ再設計（主要領域: apps/web events） [shipped: PR #376]
@@ -59,3 +59,4 @@
 - `entry-group-page` — 申込グループ単位のページを新設し、管理者の申込運用（進行管理・共通締切編集・LINE配信・申込書・関連メール）をそこへ集約。日ページは会員が「その日に出るか」を答える画面に純化（主要領域: apps/web admin/entries・events） [shipped: PR #503] [shipped: PR #504]
 - `events-no-entrants` — ボトムナビ「イベント」→「大会」改称と、参加者0名のまま会内締切を過ぎて /events から消えた大会の専用ページ新設（主要領域: apps/web/src/app/(app)/events-no-entrants/・events/・events-archive/・components/layout/bottom-nav.tsx） [shipped: PR #512]
 - `confirmed-roster-signal` — 確定名簿ありの判定を「確定名簿メール」と「手動フラグ」へ拡張し、添付のない確定連絡でもフェーズが進むようにする改修（主要領域: 申込管理ボード / 申込フロー帯 / 名簿セクション） [shipped: PR #513]
+- `line-bot-message-revamp` — 大会別LINE Botのメッセージ全面改訂（会計フラグ・@All/@会計メンション基盤・名簿確定後の振込連絡を新設し、紐付け案内とライフサイクル通知8種の文面を差し替え）（主要領域: packages/shared schema + apps/web lib/line-mention・webhook・admin/entries・admin/members）

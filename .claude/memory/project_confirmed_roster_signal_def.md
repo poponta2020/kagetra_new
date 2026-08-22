@@ -35,4 +35,4 @@ type: project
 - docs/features/confirmed-roster-signal/{requirements.md, implementation-plan.md}
 - AC 18件（auto-test 17 / manual 1）・Non-goals 8件・design_required=false（既存 DisclosureSection パターン踏襲）
 - 親 #509 / 子 #510（判定拡張＋migration 0058）・#511（トグル UI）。Wave1=#510 → Wave2=#511 の直列（同じ列とページを触る）
-- 実装未着手
+- 実装済み・出荷済み（PR #513）。判定の正典は apps/web/src/lib/events/confirmed-roster.ts、手動フラグは entry_groups.confirmed_roster_override（migration 0058）
