@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createEntryGroup } from '@/test-utils/seed'
+import type { LineMessage } from '@/lib/line-mention'
 import { createHmac } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
@@ -169,16 +170,25 @@ function signBody(body: string, secret = CHANNEL_SECRET): string {
 
 interface CapturedReply {
   replyToken: string
+  /** その reply リクエストに積まれた全メッセージ（reply は1回5通まで）。 */
+  messages: readonly LineMessage[]
+  /** 全メッセージの本文を改行で連結したもの（「どれかに含まれるか」の検証用）。 */
   text: string
 }
+
+const NEWLINE = '\n'
 
 function makeReplyClient(): { client: LineReplyClient; captured: CapturedReply[] } {
   const captured: CapturedReply[] = []
   return {
     captured,
     client: {
-      async reply({ replyToken, text }) {
-        captured.push({ replyToken, text })
+      async reply({ replyToken, messages }) {
+        captured.push({
+          replyToken,
+          messages,
+          text: messages.map((m) => m.text).join(NEWLINE),
+        })
       },
     },
   }

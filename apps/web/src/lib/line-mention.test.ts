@@ -4,7 +4,7 @@ import type { LineTextV2Message } from './line-mention'
 
 /** 本文から `{m0}` のようなプレースホルダ名を抽出する。 */
 function extractPlaceholderNames(text: string): string[] {
-  return [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
+  return [...text.matchAll(/\{(\w+)\}/g)].flatMap((m) => (m[1] == null ? [] : [m[1]]))
 }
 
 describe('buildMentionMessage', () => {

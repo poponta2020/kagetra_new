@@ -11,6 +11,7 @@ import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 import { todayInJst } from '@/lib/jst-date'
+import { buildTextMessage, type LineMessage } from '@/lib/line-mention'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -67,7 +68,17 @@ export interface LineWebhookPayload {
 }
 
 export interface LineReplyClient {
-  reply(args: { replyToken: string; text: string; channelAccessToken: string }): Promise<void>
+  /**
+   * line-bot-message-revamp: 引数は**メッセージオブジェクトの配列**。
+   * 紐付け完了の案内が①〜④の4通に分かれ、②③が `textV2`（メンション付き）に
+   * なったため、`text: string` 1本では表現できなくなった（要件 §3.1.3）。
+   * reply は1リクエスト最大5通まで。
+   */
+  reply(args: {
+    replyToken: string
+    messages: readonly LineMessage[]
+    channelAccessToken: string
+  }): Promise<void>
 }
 
 export interface HandleWebhookOptions {
@@ -179,8 +190,9 @@ async function loadChannelByDestination(
  * shimming `global.fetch`.
  */
 export const defaultLineReplyClient: LineReplyClient = {
-  async reply({ replyToken, text, channelAccessToken }) {
+  async reply({ replyToken, messages, channelAccessToken }) {
     if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
+    if (messages.length === 0) return
     const res = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
@@ -189,7 +201,7 @@ export const defaultLineReplyClient: LineReplyClient = {
       },
       body: JSON.stringify({
         replyToken,
-        messages: [{ type: 'text', text }],
+        messages,
       }),
     })
     if (!res.ok) {
@@ -369,7 +381,7 @@ async function handleJoin(
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      text: 'このグループは大会連絡用 Bot です。30 分以内に管理者から提示された 6 桁の招待コードを発言してください。',
+      messages: [buildTextMessage('このグループは大会連絡用 Bot です。30 分以内に管理者から提示された 6 桁の招待コードを発言してください。')],
       channelAccessToken,
     })
   }
@@ -480,7 +492,7 @@ async function handleInviteCode(
     if (event.replyToken) {
       await replyClient.reply({
         replyToken: event.replyToken,
-        text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+        messages: [buildTextMessage('❌ 招待コードが無効です。管理者に最新のコードを確認してください。')],
         channelAccessToken,
       })
     }
@@ -562,7 +574,7 @@ async function handleInviteCode(
       if (event.replyToken) {
         await replyClient.reply({
           replyToken: event.replyToken,
-          text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+          messages: [buildTextMessage('❌ 招待コードが無効です。管理者に最新のコードを確認してください。')],
           channelAccessToken,
         })
       }
@@ -595,7 +607,7 @@ async function handleInviteCode(
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      text: `✅ 大会「${groupName}」と紐付けました。今後この大会宛の連絡をこのグループに自動配信します。`,
+      messages: [buildTextMessage(`✅ 大会「${groupName}」と紐付けました。今後この大会宛の連絡をこのグループに自動配信します。`)],
       channelAccessToken,
     })
   }
@@ -652,7 +664,7 @@ async function handleGradeGroupJoin(
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      text: 'このグループは級別連絡用 Bot です。管理者から提示された 6 桁の招待コードを発言してください。',
+      messages: [buildTextMessage('このグループは級別連絡用 Bot です。管理者から提示された 6 桁の招待コードを発言してください。')],
       channelAccessToken,
     })
   }
@@ -733,7 +745,7 @@ async function handleGradeGroupInviteCode(
     if (event.replyToken) {
       await replyClient.reply({
         replyToken: event.replyToken,
-        text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+        messages: [buildTextMessage('❌ 招待コードが無効です。管理者に最新のコードを確認してください。')],
         channelAccessToken,
       })
     }
@@ -772,7 +784,7 @@ async function handleGradeGroupInviteCode(
     if (event.replyToken) {
       await replyClient.reply({
         replyToken: event.replyToken,
-        text: '❌ 招待コードが無効です。管理者に最新のコードを確認してください。',
+        messages: [buildTextMessage('❌ 招待コードが無効です。管理者に最新のコードを確認してください。')],
         channelAccessToken,
       })
     }
@@ -785,7 +797,7 @@ async function handleGradeGroupInviteCode(
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      text: `✅ ${updated[0]!.grade}級グループと紐付けました。今後この級宛の連絡をこのグループに自動配信します。`,
+      messages: [buildTextMessage(`✅ ${updated[0]!.grade}級グループと紐付けました。今後この級宛の連絡をこのグループに自動配信します。`)],
       channelAccessToken,
     })
   }
