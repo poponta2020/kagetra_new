@@ -328,3 +328,5 @@
 - [auto-review PR #518](auto-review-round-pr518.md) — R1 verdict=needs_changes→cutoff(user-wontfix)・修正なし
 - [大会別LINE Bot メッセージ全面改訂 要件定義](project_line_bot_message_revamp_def.md) — 親Issue #519
 - [表示ロールのプレビュー切替に「ゲスト」を追加（管理者限定）](project_ship-role-preview-guest.md) — shipped: PR #518
+- [auto-review PR #529](auto-review-round-pr529.md) — R1 verdict=pass
+- [bug-fix: /mail 添付チップが sticky 検索バーの手前に描画される](project_ship-mail-chip-z-index.md) — shipped: PR #529
