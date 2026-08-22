@@ -239,8 +239,10 @@ export default async function EntryGroupPage({
 
   // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
   // **管理者のときだけ**組み立てる（`RosterSection` は `'use client'`。日ページと
-  // 同じ規約）。
-  const rosterAdminControls: RosterAdminControls | undefined = isAdmin
+  // 同じ規約）。団体戦グループでは `RosterSection` 自体が null を返すので、bind した
+  // Server Action を payload へ載せない（`entryFormGroupId` と同じ規律。要件 §5）。
+  const rosterAdminControls: RosterAdminControls | undefined =
+    isAdmin && !isTeamGroup
     ? {
         confirmedRosterOverride,
         setConfirmedRosterOverride: setConfirmedRosterOverride.bind(
