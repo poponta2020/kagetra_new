@@ -30,6 +30,7 @@ import { isResultImportAttachment } from '@/lib/result-import/attachment'
 import {
   collectReplacementTargets,
   deleteReplacedClasses,
+  findAlreadyImportedGrade,
 } from '@/lib/result-import/replace'
 import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
 import { syncPlayersToUniqueMembers } from '@/lib/players/member-link'
@@ -2744,6 +2745,34 @@ export async function approveResultDraft(
         let lockedEdition = selectedEditionId === undefined
           ? null
           : await lockLotteryEdition(tx, selectedEditionId)
+
+        // 既取込級の重複防止（Codex R1 修正3）: 「明示的な差し替え操作でのみ
+        // 承認対象にできる」を UI の既定チェック OFF だけに委ねず、サーバー側でも
+        // 確認する。edition が未選択（自動解決に委ねる）ときは突合できないので
+        // スキップ（現行挙動＝edition 未確定時は全級既定 ON のまま）。
+        if (selectedEditionId !== undefined) {
+          const candidateGrades = [
+            ...new Set(
+              selectedPayload.classes
+                .map((cls) => cls.grade)
+                .filter(
+                  (grade): grade is LotteryGrade =>
+                    grade !== null && !replaceGrades.includes(grade),
+                ),
+            ),
+          ]
+          const alreadyImported = await findAlreadyImportedGrade(
+            tx,
+            selectedEditionId,
+            candidateGrades,
+          )
+          if (alreadyImported !== null) {
+            return {
+              ok: false,
+              error: `${alreadyImported}級はこの開催回に既に取り込まれています。差し替える場合は「この級を差し替える」を指定してください`,
+            }
+          }
+        }
 
         // 旧側の収集は **materialize より前**（後だと今から作る新級まで拾う）。
         const replacementSnapshot =

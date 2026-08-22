@@ -4297,6 +4297,66 @@ describe('approveResultDraft — 部分承認と差し替え', () => {
     expect(result.error).toMatch(/取り込む級/)
     expect(await testDb.select().from(tournaments)).toHaveLength(0)
   })
+
+  it('既取込の級を replaceGrades なしで再承認しようとするとエラーになる（Codex R1 修正3）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤太郎')]),
+    )
+    const second = await approveResultDraft(
+      secondDraft.id,
+      approveForm('重複大会', { editionId }),
+    )
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.error).toMatch(/C級/)
+    expect(second.error).toMatch(/差し替える/)
+
+    // 大会・クラスは初回承認分のみ（二重計上されていない）。
+    expect(await testDb.select().from(tournaments)).toHaveLength(1)
+    expect(await testDb.select().from(tournamentClasses)).toHaveLength(1)
+  })
+
+  it('開催回を選ばなければ既取込チェックはスキップされ、従来どおり承認できる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会'))
+    expect(first.ok).toBe(true)
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤太郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('2件目大会'))
+    expect(second.ok).toBe(true)
+
+    expect(await testDb.select().from(tournaments)).toHaveLength(2)
+  })
 })
 
 describe('rejectResultDraft', () => {

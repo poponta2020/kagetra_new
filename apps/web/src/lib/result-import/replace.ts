@@ -49,6 +49,32 @@ export interface ReplacementAudit {
 }
 
 /**
+ * 差し替え指定に含まれない grade が、この edition 配下に既に取り込まれて
+ * いないかを確認する（Codex R1 修正3）。「既取込の級は明示的な差し替え操作
+ * でのみ承認対象にできる」というルールを、UI の既定チェック OFF だけに
+ * 委ねずサーバー側でも保証する。存在する場合は最初に見つかった grade を返す
+ * （呼び出し側がエラーメッセージに使う）。materialize より前に呼ぶこと。
+ */
+export async function findAlreadyImportedGrade(
+  tx: DbLike,
+  editionId: number,
+  candidateGrades: LotteryGrade[],
+): Promise<LotteryGrade | null> {
+  if (candidateGrades.length === 0) return null
+
+  const rows = await tx
+    .select({ grade: tournamentClasses.grade })
+    .from(tournamentClasses)
+    .innerJoin(tournaments, eq(tournaments.id, tournamentClasses.tournamentId))
+    .where(
+      and(eq(tournaments.editionId, editionId), inArray(tournamentClasses.grade, candidateGrades)),
+    )
+    .limit(1)
+
+  return (rows[0]?.grade as LotteryGrade | undefined) ?? null
+}
+
+/**
  * 差し替え対象 grade の旧クラスと、その配下の選手・所属大会を収集する。
  * **materialize より前**に呼ぶこと（後から呼ぶと今まさに作った新クラスまで
  * 拾ってしまい、作った直後に消すことになる）。
