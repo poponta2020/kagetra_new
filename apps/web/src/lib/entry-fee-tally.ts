@@ -1,6 +1,7 @@
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import { events, eventAttendances, users } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
+import type { Grade } from '@kagetra/shared/types'
 import { resolveEntryFee, summarizeFeeTally, type GradeHeadcount } from '@/lib/entry-fee'
 
 /**
@@ -42,9 +43,39 @@ export interface FeeTallyResult {
   breakdownLabel: string | null
   /** 級未設定で総額に算入できなかった延べ人数。 */
   unknownGradeCount: number
+  /**
+   * 級ごとに合算した人数と単価（A→E 順・人数 0 の級は含まない）。
+   *
+   * line-bot-message-revamp §3.3.2: 振込連絡の級別人数の**初期値**がここから来る。
+   * `totalJpy` だけを返していた時代の呼び出し元（通知文面）は今までどおりで、
+   * この配列は**追加**にとどめている — 母集団の定義（ゲスト除外・複数日は延べ・
+   * `is_invited` + `eligible_grades`）を振込連絡側で再実装させないためのフィールド
+   * （AC-12）。
+   */
+  headcounts: GradeHeadcount[]
 }
 
-const EMPTY_RESULT: FeeTallyResult = { totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 }
+const EMPTY_RESULT: FeeTallyResult = {
+  totalJpy: null,
+  breakdownLabel: null,
+  unknownGradeCount: 0,
+  headcounts: [],
+}
+
+/** 級を A→E の正順に並べるための序数（`entry-fee.ts` の GRADE_ORDER と同じ規則）。 */
+const GRADE_ORDER: Record<Grade, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
+
+/** 1人単位の行を級ごとに合算し、A→E 順に並べる。人数 0 の級は落とす。 */
+function aggregateHeadcounts(rows: readonly GradeHeadcount[]): GradeHeadcount[] {
+  const byGrade = new Map<Grade, GradeHeadcount>()
+  for (const row of rows) {
+    if (row.count <= 0) continue
+    const cur = byGrade.get(row.grade)
+    if (cur) cur.count += row.count
+    else byGrade.set(row.grade, { grade: row.grade, count: row.count, unitJpy: row.unitJpy })
+  }
+  return [...byGrade.values()].sort((a, b) => GRADE_ORDER[a.grade] - GRADE_ORDER[b.grade])
+}
 
 /**
  * 指定イベント群（＝グループの全日など）の総額と内訳を引く。
@@ -138,6 +169,7 @@ export async function tallyEntryFees(
     totalJpy: summary.totalJpy,
     breakdownLabel: summary.breakdownLabel,
     unknownGradeCount,
+    headcounts: aggregateHeadcounts(headcounts),
   }
 }
 
