@@ -10,8 +10,10 @@ import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
+import { countGroupEntrants, formatEntrantCountParts } from '@/lib/entry-headcount'
 import { todayInJst } from '@/lib/jst-date'
-import { buildTextMessage, type LineMessage } from '@/lib/line-mention'
+import { buildMentionMessage, buildTextMessage, type LineMessage } from '@/lib/line-mention'
+import { resolveAdminMention } from '@/lib/line-mention-targets'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -245,7 +247,7 @@ export async function applyWebhookEvents(
     try {
       switch (event.type) {
         case 'join': {
-          await handleJoin(db, channelId, event, channelAccessToken, replyClient)
+          await handleJoin(db, channelId, event)
           break
         }
         case 'leave': {
@@ -353,8 +355,6 @@ async function handleJoin(
   db: typeof appDb,
   channelId: number,
   event: LineWebhookEvent,
-  channelAccessToken: string,
-  replyClient: LineReplyClient,
 ): Promise<void> {
   const groupId = event.source.groupId
   if (!groupId) return
@@ -378,13 +378,9 @@ async function handleJoin(
       ),
     )
 
-  if (event.replyToken) {
-    await replyClient.reply({
-      replyToken: event.replyToken,
-      messages: [buildTextMessage('このグループは大会連絡用 Bot です。30 分以内に管理者から提示された 6 桁の招待コードを発言してください。')],
-      channelAccessToken,
-    })
-  }
+  // line-bot-message-revamp (AC-22): join 時点の案内は廃止した。招待コード
+  // 入力を促す旨は招待発行時に管理者へ別途伝わっている前提で、Bot が
+  // グループへ入っただけの段階では reply を送らない（replyToken は消費しない）。
 }
 
 async function handleLeave(
@@ -593,7 +589,12 @@ async function handleInviteCode(
   // タイトルへフォールバックする（r2 review should_fix）。id 昇順の先頭では、作成順と
   // 開催日順が食い違うグループで他画面と別の大会名が出てしまう。
   const groupEvents = await db
-    .select({ id: events.id, title: events.title, eventDate: events.eventDate })
+    .select({
+      id: events.id,
+      title: events.title,
+      eventDate: events.eventDate,
+      entryDeadline: events.entryDeadline,
+    })
     .from(events)
     .where(eq(events.entryGroupId, candidate.entryGroupId))
     .orderBy(asc(events.id))
@@ -604,10 +605,60 @@ async function handleInviteCode(
     representative?.title ??
     String(candidate.entryGroupId)
 
+  // line-bot-message-revamp (AC-23〜25): ②の締切はグループ単位で同一という
+  // 運用前提なので、日別に出し分けない。groupName のフォールバックに使った
+  // のと同じ代表イベント（今日以降で最も近い開催日、無ければ最新）の
+  // entry_deadline（= 主催者締切。internal_deadline ではない）を根拠に採用する
+  // — 決定的な1件を選ぶ基準をこれ以上増やさないため。
+  const entryDeadline = representative?.entryDeadline ?? null
+
+  const headcountParts = formatEntrantCountParts(
+    await countGroupEntrants(db, candidate.entryGroupId),
+  )
+  const adminMention = await resolveAdminMention(db)
+
+  // line-bot-message-revamp (AC-23): A-1（join 時の案内）廃止・A-3（紐付け成立時
+  // の案内）を①〜④へ分割した（要件 §3.1.3）。①④は自由記述を含むので素テキスト、
+  // ②③はメンション付きなので textV2（buildMentionMessage 経由）。1回の reply
+  // で4通まとめて送る（reply は1リクエスト最大5通、⑤以降の要綱は別途 push）。
+  const linkedMessages: LineMessage[] = [
+    // ①: 大会名は自由記述なのでメンションを持たせず buildTextMessage で送る。
+    buildTextMessage(`${groupName}大会案内用LINEグループです！\n以下確認をお願いします。`),
+    // ②: entry_deadline が NULL（未定）のときは %s を持たない別テンプレートへ
+    // 倒す — MentionValue に自由記述の文字列を渡せない設計のため（AC-8, AC-25）。
+    entryDeadline == null
+      ? buildMentionMessage({
+          mention: { kind: 'all' },
+          label: '@All',
+          template:
+            '大会の申し込み締め切りは未定です。当日までにこのLINE BOTから申込をした旨のアナウンスが届かない場合は申込を忘れているので、管理者を急かしてください。',
+        })
+      : buildMentionMessage({
+          mention: { kind: 'all' },
+          label: '@All',
+          template:
+            '大会の申し込み締め切りは%sです。当日までにこのLINE BOTから申込をした旨のアナウンスが届かない場合は申込を忘れているので、管理者を急かしてください。',
+          values: [{ dateIso: entryDeadline }],
+        }),
+    // ③: 人数の文言（〇名／〇名（内他会〇名）)は formatEntrantCountParts が
+    // 数値だけを返す（自由記述を textV2 本文へ混ぜられないため）。
+    buildMentionMessage({
+      mention: adminMention,
+      label: '@管理者',
+      template:
+        '景虎上の申込人数は' +
+        headcountParts.template +
+        'です。管理者・会計を除いたグループの人数が一致していることを確認してください。',
+      values: headcountParts.values,
+    }),
+    // ④: 固定文。
+    buildTextMessage('以下大会要項になります、適宜ご確認ください'),
+  ]
+
   if (event.replyToken) {
     await replyClient.reply({
       replyToken: event.replyToken,
-      messages: [buildTextMessage(`✅ 大会「${groupName}」と紐付けました。今後この大会宛の連絡をこのグループに自動配信します。`)],
+      messages: linkedMessages,
       channelAccessToken,
     })
   }
