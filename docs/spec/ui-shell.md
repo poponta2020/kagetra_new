@@ -70,6 +70,8 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 `rolePreview` は `(app)/settings/page.tsx` がサーバー側で `session.user` と `process.env.ROLE_PREVIEW_USER_IDS` から都度算出する（`(app)/layout.tsx` 側でも別途算出し、`BottomNav` の設定タブバッジ用に `previewRoleLabel` として渡す — 2 箇所での算出はどちらも `buildRolePreviewSelection` を通すため不整合は生じない）。プレビュー中は設定タブの上に `previewRoleLabel` のバッジが表示される（ボトムナビ節を参照）。
 
+**実効ロールがゲストのときは専用の分岐**（表示のみビュー: 見出し＋「登録情報」（表示名・級・所属会。値は DB の最新値）＋ログアウト）になり、アカウント／管理セクションは描画されない。ここに**唯一加わるのが「表示ロール」セクション**で、管理者がゲストビューから戻る唯一の導線になる（両分岐が同じローカルコンポーネント `RolePreviewSection` を描画する。`rolePreview` の算出をゲスト分岐より前に置くのはこのため）。本物のゲスト（`realRole === 'guest'`）には `buildRolePreviewSelection` が null を返すので出ない。ゲストビュー中の「登録情報」に出るのは**プレビュー中の管理者自身の行**（`session.user.id` で引くため）。
+
 ### 設定ページの配置と `(app)` グループの内外
 
 `/settings`・`/settings/notifications`・`/settings/line-link` はいずれも `(app)` ルートグループ配下にあり、`MobileShell` の内側（ボトムナビ付き）で描画される。`/settings/line-link`（`apps/web/src/app/(app)/settings/line-link/page.tsx`）は LINE OAuth のリダイレクトを伴う切り替えフローだが、URL は移設前と変わらず、シェル内ページとして描画される点だけが変わった（以前は `(app)` グループの外にある独立ページで、遷移するとボトムナビへ戻る手段が無かった）。ページ内容は [spec/notifications.md](notifications.md) と [spec/auth-admin.md](auth-admin.md) にそれぞれ委譲する。
