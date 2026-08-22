@@ -507,6 +507,40 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
     expect(written.extractionSource).toBe('ai')
   })
 
+  it('PDF: oversize guard (MAIL_WORKER_PDF_SIZE_LIMIT_KB) blocks the AI call and reports parse_failed', async () => {
+    // Default limit is 8000KB (loadCostGuardConfig, config.ts) — well above
+    // anything a unit test buffer can hit at real size, so we lie about
+    // sizeBytes on the attachment row (the guard trusts the DB column, not
+    // `attachment.data.length` — see the run.ts comment on this guard).
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 908 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.pdf', data: Buffer.from('dummy-pdf-bytes'), sizeBytes: 9_000_000 },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: 'テスト大会' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 918 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi()
+    const extractSpy = vi.spyOn(ai, 'extract')
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(extractSpy).not.toHaveBeenCalled()
+    expect(result.status).toBe('parse_failed')
+    const written = valuesFn.mock.calls[0]?.[0] as { status: string; parseError: string | null }
+    expect(written.status).toBe('parse_failed')
+    expect(written.parseError).toContain('上限')
+  })
+
   it('escalate: routes then runs full extraction; extraction_source=ai (AC-7)', async () => {
     dbMock.insert.mockReturnValueOnce({
       values: () => ({ returning: () => Promise.resolve([{ id: 904 }]) }),
