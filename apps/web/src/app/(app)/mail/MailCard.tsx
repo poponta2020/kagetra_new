@@ -16,6 +16,14 @@ import type { HistoryRow } from '@/lib/mail-history'
  * 描画される）でチップをオーバーレイより手前に出す。他の静的コンテンツ（日時・
  * ピル・件名・抜粋・履歴サマリ）は非 positioned のままでよく、pointer-events の
  * 調整は不要（overlay が positioned 層で最後に描画されるため自然に手前へ回る）。
+ *
+ * ただし `relative` だけではカードは `z-index: auto` のままでスタッキングコンテキストを
+ * 作らないため、チップの `z-10` はカードの外へ抜ける。すると `/mail` の sticky 検索バー
+ * （`sticky top-0 z-10`）と z-10 同士のタイになり、DOM 順で後ろのチップがヘッダーの手前に
+ * 描画されてスクロール時に重なった（Issue #528）。ルートの `isolate`（`isolation: isolate`）
+ * でカード内へ閉じ込める — 内部の overlay(`z-0`) < チップ(`z-10`) は保ったまま、カード全体は
+ * 検索バーより後ろへ回る。検索バー側の z を上げる対症療法は採らない（`players/page.tsx` /
+ * `components/stats/section-tabs.tsx` の「検索バー=z-10 / タブ=z-20」慣習に合わせる）。
  */
 
 const MAIL_KIND_LABEL: Record<string, string> = {
@@ -66,7 +74,7 @@ export function MailCard({ row, historySummary, terms, from }: MailCardProps) {
   const subject = row.subject || '(件名なし)'
 
   return (
-    <div className="relative flex flex-col gap-[5px] rounded-lg border border-border-soft bg-surface px-3 py-[11px] shadow-sm">
+    <div className="relative isolate flex flex-col gap-[5px] rounded-lg border border-border-soft bg-surface px-3 py-[11px] shadow-sm">
       <Link
         href={`/mail/${row.id}`}
         aria-label={subject}
