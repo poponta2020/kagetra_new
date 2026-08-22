@@ -83,7 +83,7 @@ async function noticeRow(entryGroupId: number) {
 }
 
 /** push された messages を fetch spy から取り出す。 */
-function pushedMessages(spy: ReturnType<typeof vi.spyOn>) {
+function pushedMessages(spy: { mock: { calls: unknown[][] } }) {
   return spy.mock.calls.flatMap((call) => {
     const init = call[1] as RequestInit | undefined
     if (typeof init?.body !== 'string') return []

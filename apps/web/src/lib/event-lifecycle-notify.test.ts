@@ -11,6 +11,7 @@ import { createEntryGroup, createEvent } from '@/test-utils/seed'
 import {
   addDaysIso,
   buildLifecycleMessage,
+  buildTreasurerNoticeMessage,
   claimLifecycleNotification,
   finalizeLifecycleNotification,
   formatFeeAmount,
@@ -31,10 +32,10 @@ describe('buildLifecycleMessage', () => {
   const title = '春の大会'
 
   // ---------------------------------------------------------------------
-  // 2026-08-22 line-bot-message-revamp タスク5: entry_applied_treasurer を除く
-  // 8種別の文面を全面差し替えた（大会名・金額を廃止、複数日ラベルを廃止、日付は
-  // formatEventDate へ）。以下 entry_applied 〜 onsite_payment_day のブロックが対象。
-  // entry_applied_treasurer はタスク6の担当のため未変更（既存アサーションをそのまま残す）。
+  // 2026-08-22 line-bot-message-revamp タスク5/6: 全9種別の文面を全面差し替えた
+  // （大会名・金額を廃止、複数日ラベルを廃止、日付は formatEventDate へ）。
+  // entry_applied_treasurer（タスク6・AC-29）はメンション付き予告文へ差し替え、
+  // 正本の文面テストは下の `describe('buildTreasurerNoticeMessage')` に置く。
   // ---------------------------------------------------------------------
 
   it('申込完了: 抽選日ありは空行を挟んで「抽選日はM/D(曜)です。」を追記する（AC-26/27/30）', () => {
@@ -67,64 +68,14 @@ describe('buildLifecycleMessage', () => {
     expect(msg).not.toContain('【')
   })
 
-  it('会計向け (💴) — 期限のみ', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentDeadlineIso: '2026-01-25',
-      }),
-    ).toBe('💴【春の大会】会計の方へ\n振込期限：1/25')
-  })
-
-  it('会計向け (💴) — 方法のみ', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentMethod: '銀行振込',
-      }),
-    ).toBe('💴【春の大会】会計の方へ\n振込方法：銀行振込')
-  })
-
-  it('会計向け (💴) — 期限・方法・詳細すべてあり', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentDeadlineIso: '2026-01-25',
-        paymentMethod: '銀行振込',
-        paymentInfo: '◯◯銀行 △△支店 普通 1234567',
-      }),
-    ).toBe(
-      '💴【春の大会】会計の方へ\n振込期限：1/25\n振込方法：銀行振込\n◯◯銀行 △△支店 普通 1234567',
-    )
-  })
-
-  it('会計向け (💴) — 全項目空なら最小文面', () => {
+  it('会計向け（entry_applied_treasurer）: buildLifecycleMessage は素テキスト版（メンション0件相当）を返す。正本の文面テストは buildTreasurerNoticeMessage 側（AC-29）', () => {
     expect(buildLifecycleMessage('entry_applied_treasurer', { title })).toBe(
-      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
+      '@会計\n振込連絡は名簿確定時に連絡します。',
     )
-  })
-
-  it('会計向け (💴) — 空白のみの method/info は無視（最小文面に落ちる）', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentMethod: '   ',
-        paymentInfo: '\n  \t',
-      }),
-    ).toBe(
-      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
+    // title を渡しても文面に一切出ない（大会名を出さない・AC-26）。
+    expect(buildLifecycleMessage('entry_applied_treasurer', { title: 'テスト大会' })).not.toContain(
+      'テスト大会',
     )
-  })
-
-  it('会計向け (💴) — feeJpy を渡しても金額は文面に出ない（会計は合計振込のため）', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title,
-      feeJpy: 1500,
-      paymentDeadlineIso: '2026-01-25',
-    })
-    expect(msg).not.toContain('1,500')
-    expect(msg).not.toContain('1500')
-    expect(msg).not.toContain('円')
   })
 
   it('申込締切・事前: 日付（曜日つき）とリードタイムを差し込む（数字と「日」の間は空けない・AC-30）', () => {
@@ -143,11 +94,7 @@ describe('buildLifecycleMessage', () => {
   })
 
   it('支払完了: 固定文言（金額を出さない・AC-26）', () => {
-    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: 11000 })).toBe(
-      '参加費の振り込みが完了しました。',
-    )
-    // totalJpy を渡しても渡さなくても同一文面。
-    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: null })).toBe(
+    expect(buildLifecycleMessage('payment_paid', { title })).toBe(
       '参加費の振り込みが完了しました。',
     )
   })
@@ -171,28 +118,23 @@ describe('buildLifecycleMessage', () => {
     expect(
       buildLifecycleMessage('onsite_payment_advance', {
         title,
-        feeJpy: 1500,
         dateIso: '2026-06-20',
       }),
     ).toBe('参加費は現地払いです。当日忘れないようにしてください。')
   })
 
   it('現地払い・当日: 固定文言（金額を出さない・AC-26）', () => {
-    expect(buildLifecycleMessage('onsite_payment_day', { title, feeJpy: 1500 })).toBe(
+    expect(buildLifecycleMessage('onsite_payment_day', { title })).toBe(
       '大会当日です！参加費を忘れないようにしてください。',
     )
   })
 
-  it('全 9 種別が非空メッセージを返す（branch 漏れ検出）。entry_applied_treasurer 以外は title を含まない（AC-26）', () => {
+  it('全 9 種別が非空メッセージを返す（branch 漏れ検出）。どの種別も title（大会名）を含まない（AC-26）', () => {
     expect(eventLifecycleNotificationTypeEnum.enumValues.length).toBe(9)
     for (const type of eventLifecycleNotificationTypeEnum.enumValues) {
-      const msg = buildLifecycleMessage(type, { title, feeJpy: 800, dateIso: '2026-06-05' })
+      const msg = buildLifecycleMessage(type, { title, dateIso: '2026-06-05' })
       expect(msg.length).toBeGreaterThan(5)
-      if (type === 'entry_applied_treasurer') {
-        expect(msg).toContain('春の大会')
-      } else {
-        expect(msg).not.toContain('春の大会')
-      }
+      expect(msg).not.toContain('春の大会')
     }
   })
 
@@ -203,139 +145,57 @@ describe('buildLifecycleMessage', () => {
     })
     expect(msg).toContain('あと3日')
   })
-
-  it('金額系フィールド（feeJpy/totalJpy/unitPricesLabel/breakdownLabel/unknownGradeCount）はどの種別の文面にも現れない（AC-26）', () => {
-    for (const type of eventLifecycleNotificationTypeEnum.enumValues) {
-      if (type === 'entry_applied_treasurer') continue // 会計向けは別途金額なし方針を確認済み
-      const msg = buildLifecycleMessage(type, {
-        title,
-        feeJpy: 12345,
-        totalJpy: 67890,
-        unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
-        breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
-        unknownGradeCount: 2,
-        dateIso: '2026-06-05',
-      })
-      expect(msg).not.toContain('円')
-      expect(msg).not.toContain('未算入')
-    }
-  })
 })
 
 // ---------------------------------------------------------------------------
-// entry-groups タスク4: buildLifecycleMessage の複数日拡張（AC-8/9/10）。
-// entry_applied_treasurer はタスク6管轄・line-bot-message-revamp タスク5では未変更
-// のため、以下の複数日テストはそのまま残す。
-// entry_applied / payment_paid は大会名を出さなくなったため、複数日でも単一日と
-// 文面が同一になった（束ね処理＝ ctx.days 自体は引き続き受け取れるが無視する）。
-// AC-28 回帰は「対応 Issue #524」の回帰スイート（send-lifecycle-reminders 側）が
-// 本体（束ね処理が1通にまとまること）を担保するので、ここでは
-// 「純関数として days を無視する」契約だけを固定する。
+// 2026-08-22 line-bot-message-revamp タスク6（Issue #525・AC-29）:
+// entry_applied_treasurer の正本文面。`payment_deadline` / `payment_method` /
+// `payment_info` を一切参照しない・複数日でも単一日と同一の固定文面（大会名を
+// 出さない以上、束ねても出し分ける材料がない）ことをここで固定する。
 // ---------------------------------------------------------------------------
-describe('buildLifecycleMessage — 複数日拡張（entry-groups タスク4 / entry_applied_treasurer は未変更）', () => {
-  it('entry_applied: days を渡しても渡さなくても同一の固定文面になる（AC-28 回帰・大会名を出さないため出し分け不要）', () => {
-    const withoutDays = buildLifecycleMessage('entry_applied', {
-      title: 'テスト大会',
-      lotteryDateIso: '2026-08-15',
+describe('buildTreasurerNoticeMessage', () => {
+  it('メンション対象がいれば textV2 で @会計 相当のメンションを本文の上に置く', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'users', userIds: ['Uaaa', 'Ubbb'] })
+    expect(msg).toEqual({
+      type: 'textV2',
+      text: '{m0} {m1}\n振込連絡は名簿確定時に連絡します。',
+      substitution: {
+        m0: { type: 'mention', mentionee: { type: 'user', userId: 'Uaaa' } },
+        m1: { type: 'mention', mentionee: { type: 'user', userId: 'Ubbb' } },
+      },
     })
-    const withDays = buildLifecycleMessage('entry_applied', {
-      title: 'テスト大会',
-      lotteryDateIso: '2026-08-15',
-      days: [
-        { dateIso: '2026-08-08', title: 'D級' },
-        { dateIso: '2026-08-01', title: 'C級' },
-      ],
-    })
-    expect(withDays).toBe(withoutDays)
-    expect(withDays).toBe('申し込みが完了しました！\n\n抽選日は8/15(土)です。')
   })
 
-  it('entry_applied_treasurer: payment 系が全日同値なら1回だけ表記する', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        {
-          dateIso: '2026-08-01',
-          title: 'C級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-          paymentInfo: '◯◯銀行 普通 1234567',
-        },
-        {
-          dateIso: '2026-08-08',
-          title: 'D級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-          paymentInfo: '◯◯銀行 普通 1234567',
-        },
-      ],
+  it('会計0人なら素テキストへ倒れ、文面は崩さない（AC-5）', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'users', userIds: [] })
+    expect(msg).toEqual({
+      type: 'text',
+      text: '@会計\n振込連絡は名簿確定時に連絡します。',
     })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n振込期限：7/25\n振込方法：銀行振込\n◯◯銀行 普通 1234567',
-    )
   })
 
-  it('entry_applied_treasurer: payment 系に差があれば日別行にする', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        {
-          dateIso: '2026-08-01',
-          title: 'C級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-        },
-        {
-          dateIso: '2026-08-08',
-          title: 'D級',
-          paymentDeadlineIso: '2026-08-01',
-          paymentMethod: '現金書留',
-        },
-      ],
+  it('mention.kind==="all" でも textV2 になる', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'all' })
+    expect(msg).toEqual({
+      type: 'textV2',
+      text: '{m0}\n振込連絡は名簿確定時に連絡します。',
+      substitution: { m0: { type: 'mention', mentionee: { type: 'all' } } },
     })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n' +
-        '8/1(土)C級\n振込期限：7/25\n振込方法：銀行振込\n\n' +
-        '8/8(土)D級\n振込期限：8/1\n振込方法：現金書留',
-    )
   })
 
-  it('entry_applied_treasurer: 全日 payment 系が空なら1回だけ最小文面になる', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        { dateIso: '2026-08-01', title: 'C級' },
-        { dateIso: '2026-08-08', title: 'D級' },
-      ],
-    })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
-    )
-  })
-
-  it('payment_paid: days を渡しても渡さなくても同一の固定文面になる（AC-28 回帰）', () => {
-    const withoutDays = buildLifecycleMessage('payment_paid', { title: 'テスト大会', totalJpy: 2000 })
-    const withDays = buildLifecycleMessage('payment_paid', {
-      title: 'テスト大会',
-      feeJpy: 2000,
-      days: [
-        { dateIso: '2026-08-08', title: 'D級' },
-        { dateIso: '2026-08-01', title: 'C級' },
-      ],
-    })
-    expect(withDays).toBe(withoutDays)
-    expect(withDays).toBe('参加費の振り込みが完了しました。')
+  it('引数はメンション対象だけで、payment_deadline/payment_method/payment_info を受け取る余地が無い（AC-29）', () => {
+    // 本文はメンション対象に関わらず常に同一固定文言（大会名・金額・複数日の
+    // 出し分けなし）。呼び出し側がどんな振込情報を持っていても、この関数の
+    // シグネチャ上そもそも渡しようがない＝型で参照禁止を保証している。
+    const withEmpty = buildTreasurerNoticeMessage({ kind: 'users', userIds: [] })
+    const withUsers = buildTreasurerNoticeMessage({ kind: 'users', userIds: ['U1'] })
+    expect(withEmpty.text).toContain('振込連絡は名簿確定時に連絡します。')
+    expect(withUsers.text).toContain('振込連絡は名簿確定時に連絡します。')
+    expect(withEmpty.text).not.toContain('振込期限')
+    expect(withUsers.text).not.toContain('振込期限')
   })
 })
 
-// ---------------------------------------------------------------------------
-// 2026-08-22 line-bot-message-revamp タスク5: grade-entry-fee タスク4 が実装した
-// 振込総額・級別単価の文面表示（AC-13〜20）は、全種別から金額を撤去したこの改訂で
-// 丸ごと撤回された。totalJpy/breakdownLabel/unknownGradeCount/unitPricesLabel が
-// 一切文面へ現れないことは上の `describe('buildLifecycleMessage')` 内の回帰テスト
-// （「金額系フィールドは…現れない」）で網羅している。旧 AC-13〜20 のバイト固定
-// テスト群はここでは削除した（対象の分岐・関数 (`buildTotalSuffix`) 自体を削除したため）。
-// ---------------------------------------------------------------------------
 
 describe('date / fee helpers', () => {
   it('formatMMDD は先頭ゼロを落とす', () => {

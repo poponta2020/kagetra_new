@@ -8,7 +8,7 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { formatEventDate } from '@/lib/event-date'
-import { buildTextMessage, type LineMessage } from '@/lib/line-mention'
+import { buildMentionMessage, buildTextMessage, type LineMessage, type MentionTarget } from '@/lib/line-mention'
 
 /**
  * event-lifecycle-notify: lifecycle LINE notifications (申込/支払い完了 +
@@ -91,18 +91,10 @@ export function formatFeeAmount(feeJpy: number | null | undefined): string | nul
 
 export interface LifecycleMessageContext {
   /**
-   * 大会名。line-bot-message-revamp タスク5で `entry_applied_treasurer` を除く
-   * 8種別からは大会名を出さなくなったため、その8種別では未使用（呼び出し側は互換の
-   * ため空文字などを渡してよい）。`entry_applied_treasurer`（タスク6管轄・未変更）は
-   * 引き続きこの値を使う。
+   * 大会名。line-bot-message-revamp タスク5/6 で全10種別から大会名を出さなくなった
+   * ため未使用（呼び出し側は互換のため空文字などを渡してよい）。
    */
   title: string
-  /**
-   * Participation fee in JPY; null/undefined omits the amount from the text.
-   * line-bot-message-revamp タスク5で全種別から金額を外したため未使用化。呼び出し側の
-   * 整理（feeJpy 算出そのものの削除）は後続（Wave 完了後に main がまとめて行う）。
-   */
-  feeJpy?: number | null
   /** Relevant date as 'YYYY-MM-DD' (entry/payment deadline, or event date). */
   dateIso?: string
   /** Lead days for `*_advance` reminders. Defaults to `reminderLeadDays()`. */
@@ -113,104 +105,6 @@ export interface LifecycleMessageContext {
    * 「抽選日はM/D(曜)です。」を追記、NULL なら「抽選日は未定です。」（§3.2.1）。
    */
   lotteryDateIso?: string | null
-  /** 振込期限 'YYYY-MM-DD'。entry_applied_treasurer の「振込期限：M/D」に使う（§3.2.3）。 */
-  paymentDeadlineIso?: string | null
-  /** 振込方法（自由記述）。entry_applied_treasurer の「振込方法：…」に使う。 */
-  paymentMethod?: string | null
-  /** 振込先などの支払情報詳細（自由記述）。entry_applied_treasurer にそのまま載せる。 */
-  paymentInfo?: string | null
-  // entry-groups タスク4: 複数日の一括操作で claim できた日の内訳。
-  // line-bot-message-revamp タスク5で `entry_applied_treasurer` を除く8種別は
-  // multiDay 分岐を撤去したため、この8種別では `days` は無視される（渡しても
-  // 単一日と同一の固定文面になる）。`entry_applied_treasurer`（タスク6管轄・未変更）
-  // だけが2件以上のときに複数日文面へ分岐する。
-  days?: readonly LifecycleDayEntry[]
-  // grade-entry-fee タスク4: 総額・級別単価は任意フィールドで足す。未指定なら既存の
-  // feeJpy 分岐にそのまま落ちるため、既存アサーションを変えずに AC-14/15/19/20 が通る
-  // （整形は entry-fee.ts が担い、ここへは整形済み文字列/数値を渡す。循環 import 回避のため
-  // このファイルは entry-fee.ts を import しない）。
-  /**
-   * 多級のときの級別単価表記（例: 'A・B級 2,500円 / C級 2,000円'）。
-   * line-bot-message-revamp タスク5で onsite_payment_* から金額表記自体を外したため未使用化。
-   */
-  unitPricesLabel?: string | null
-  /**
-   * 振込総額（旧: payment_deadline_* / payment_paid）。
-   * line-bot-message-revamp タスク5で全種別から金額を外したため未使用化。
-   */
-  totalJpy?: number | null
-  /**
-   * 総額の内訳（例 'A・B級 2名×2,500 / C級 3名×2,000'）。
-   * line-bot-message-revamp タスク5で総額行自体を撤去したため未使用化。
-   */
-  breakdownLabel?: string | null
-  /**
-   * 級未設定で総額に未算入の人数。
-   * line-bot-message-revamp タスク5で総額行自体を撤去したため未使用化（payment_deadline_* も対象外）。
-   */
-  unknownGradeCount?: number
-}
-
-/**
- * entry-groups タスク4: 一括操作の複数日文面に使う1日分の内訳。
- * `dateIso`+`title` は参加者向け・会計向け両方の日別ラベルに使う
- * （例: `8/1(土)C級`）。`payment*` は会計向け（entry_applied_treasurer）専用。
- */
-export interface LifecycleDayEntry {
-  /** `YYYY-MM-DD`。 */
-  dateIso: string
-  /** 日別ラベルに使う大会名（例: `8/1(土)C級` の `C級` 部分）。 */
-  title: string
-  paymentDeadlineIso?: string | null
-  paymentMethod?: string | null
-  paymentInfo?: string | null
-}
-
-/** `days` を開催日昇順（同日は title 昇順）に安定ソートする。 */
-export function sortDays<T extends LifecycleDayEntry>(days: readonly T[]): T[] {
-  return [...days].sort(
-    (a, b) => a.dateIso.localeCompare(b.dateIso) || a.title.localeCompare(b.title),
-  )
-}
-
-/**
- * 複数日の日別ラベルを `・` で連結する（例: `8/1(土)C級・8/8(土)D級`）。
- *
- * **この2関数が「複数日ラベルの規則」の唯一の置き場所**。entry-groups では一括トグル
- * （このファイル内の entry_applied 等）と締切リマインド（`scripts/send-lifecycle-reminders.ts`）の
- * 両方が同じラベル形式を使うため export している。script 側で複製すると、片方だけ書式を
- * 変えたときに通知の見た目が経路によって食い違う。
- */
-export function formatDaysLabel(days: readonly LifecycleDayEntry[]): string {
-  return days.map((d) => `${formatEventDate(d.dateIso)}${d.title}`).join('・')
-}
-
-/** trim 後の値で比較する（null/undefined は空文字と同値）。 */
-function normalize(value: string | null | undefined): string {
-  return (value ?? '').trim()
-}
-
-/** `days` 全件で `key` の値（trim 後）が一致するか。 */
-function allDaysMatch(
-  days: readonly LifecycleDayEntry[],
-  key: 'paymentDeadlineIso' | 'paymentMethod' | 'paymentInfo',
-): boolean {
-  const first = normalize(days[0]?.[key])
-  return days.every((d) => normalize(d[key]) === first)
-}
-
-const TREASURER_FALLBACK_BODY =
-  '参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。'
-
-/** 1日分の会計向け行を組み立てる（期限・方法・詳細のうち値があるものだけ）。 */
-function buildTreasurerLines(day: LifecycleDayEntry): string[] {
-  const lines: string[] = []
-  if (day.paymentDeadlineIso) lines.push(`振込期限：${formatMMDD(day.paymentDeadlineIso)}`)
-  const method = day.paymentMethod?.trim()
-  if (method) lines.push(`振込方法：${method}`)
-  const info = day.paymentInfo?.trim()
-  if (info) lines.push(info)
-  return lines
 }
 
 /**
@@ -228,28 +122,45 @@ export function formatUnknownGradeNote(count: number | undefined): string | null
 }
 
 /**
+ * `entry_applied_treasurer`（申込完了の2通目・会計向け）の予告文（要件 §3.2.3・
+ * line-bot-message-revamp タスク6・AC-29）。
+ *
+ * 申込完了の時点では抽選前で当選者が決まっておらず、振り込むべき金額が確定しない
+ * （会計が実際に動くのは名簿確定後）。そのため `payment_deadline` / `payment_method` /
+ * `payment_info` を一切参照しない・金額を載せない・大会名を出さない・支払いタイプ
+ * （事前払い／現地払い／未設定）で出し分けない・複数日でも単一日と同一の固定文面
+ * （大会名を出さない以上、束ねても出し分ける材料がないため）。
+ *
+ * `buildLifecycleMessage` は戻り値が `string` 固定（他8種別が使う契約）なので、
+ * メンション付き `LineMessage` を返すこの種別専用の関数として独立させた。
+ */
+export function buildTreasurerNoticeMessage(mention: MentionTarget): LineMessage {
+  return buildMentionMessage({
+    mention,
+    label: '@会計',
+    template: '振込連絡は名簿確定時に連絡します。',
+  })
+}
+
+/**
  * Build the fixed-template text for a lifecycle notification.
  *
- * **2026-08-22 全面改訂（line-bot-message-revamp タスク5）。** `entry_applied_treasurer`
- * を除く8種別の文面を requirements §3.2.1 の表へ差し替えた: 宛先は1グループ＝1大会な
- * ので大会名を出さない・金額は会計向け（`entry_applied_treasurer`）にしか出さないため
- * ここでは一切出さない。日付は `formatEventDate`（曜日つき）を使う（旧 `formatMMDD` の
- * 曜日なし表記から変更）。複数日（`ctx.days`）を束ねても大会名を出さない以上、単一日と
- * 文面が同一になるため、この8種別は `multiDay` の出し分けを持たない（束ね処理自体は
- * `event_lifecycle_notifications` の claim/finalize 側・呼び出し元で維持する）。
- * `entry_applied_treasurer` はタスク6の担当領域のため未変更（旧仕様のまま: 大会名・
- * 複数日の日別ラベル・`formatMMDD` を使い続ける）。
+ * **2026-08-22 全面改訂（line-bot-message-revamp タスク5/6）。** 全9種別の文面を
+ * requirements §3.2.1/§3.2.3 の表へ差し替えた: 宛先は1グループ＝1大会なので大会名を
+ * 出さない・金額も一切出さない。日付は `formatEventDate`（曜日つき）を使う（旧
+ * `formatMMDD` の曜日なし表記から変更）。複数日（`ctx.days`）を束ねても大会名を出さ
+ * ない以上、単一日と文面が同一になるため、全種別が `multiDay` の出し分けを持たない
+ * （束ね処理自体は `event_lifecycle_notifications` の claim/finalize 側・呼び出し元で
+ * 維持する）。`entry_applied_treasurer` はメンション付き文面（`buildTreasurerNoticeMessage`）
+ * が正本で、この関数の分岐は型の網羅性ガードを壊さないための素テキスト版
+ * （メンション対象0件相当）を返す。
  */
 export function buildLifecycleMessage(
   type: LifecycleNotificationType,
   ctx: LifecycleMessageContext,
 ): string {
-  const { title } = ctx
   const date = ctx.dateIso ? formatEventDate(ctx.dateIso) : ''
   const lead = ctx.leadDays ?? reminderLeadDays()
-  // entry_applied_treasurer だけがまだ複数日分岐を持つ（タスク6管轄・未変更）。他の
-  // 8種別は line-bot-message-revamp タスク5で multiDay 分岐を撤去した。
-  const multiDay = ctx.days != null && ctx.days.length > 1 ? sortDays(ctx.days) : null
 
   switch (type) {
     case 'entry_applied': {
@@ -261,42 +172,9 @@ export function buildLifecycleMessage(
         : '申し込みが完了しました！\n\n抽選日は未定です。'
     }
     case 'entry_applied_treasurer': {
-      if (multiDay) {
-        // タスク4: payment 系（期限・方法・詳細）が全日同値なら1回だけ表記し、
-        // 差があれば日別行にする。
-        const allSame =
-          allDaysMatch(multiDay, 'paymentDeadlineIso') &&
-          allDaysMatch(multiDay, 'paymentMethod') &&
-          allDaysMatch(multiDay, 'paymentInfo')
-        const body = allSame
-          ? (() => {
-              const lines = buildTreasurerLines(multiDay[0]!)
-              return lines.length > 0 ? lines.join('\n') : TREASURER_FALLBACK_BODY
-            })()
-          : multiDay
-              .map((d) => {
-                const lines = buildTreasurerLines(d)
-                const dayLabel = `${formatEventDate(d.dateIso)}${d.title}`
-                return lines.length > 0
-                  ? [dayLabel, ...lines].join('\n')
-                  : [dayLabel, TREASURER_FALLBACK_BODY].join('\n')
-              })
-              .join('\n\n')
-        return `💴${formatDaysLabel(multiDay)}会計の方へ\n${body}`
-      }
-      // §3.2.3: 申込完了の 2 通目（会計向け）。値があるものだけ行連結、全空なら最小文面。
-      // 金額（feeJpy）は載せない／支払いタイプでは出し分けない（現地払い・未設定でも常に送る）。
-      const lines: string[] = []
-      if (ctx.paymentDeadlineIso) lines.push(`振込期限：${formatMMDD(ctx.paymentDeadlineIso)}`)
-      const method = ctx.paymentMethod?.trim()
-      if (method) lines.push(`振込方法：${method}`)
-      const info = ctx.paymentInfo?.trim()
-      if (info) lines.push(info)
-      const body =
-        lines.length > 0
-          ? lines.join('\n')
-          : TREASURER_FALLBACK_BODY
-      return `💴【${title}】会計の方へ\n${body}`
+      // §3.2.3・タスク6: 正本は `buildTreasurerNoticeMessage`（メンション付き textV2）。
+      // ここは型の網羅性ガード用の素テキスト版（メンション対象0件相当）を返すだけ。
+      return buildTreasurerNoticeMessage({ kind: 'users', userIds: [] }).text
     }
     case 'entry_deadline_advance':
       return `申込締切は${date}（あと${lead}日）です。まだ申し込みが行われていません。`

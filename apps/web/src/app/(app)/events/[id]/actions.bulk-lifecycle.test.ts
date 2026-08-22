@@ -119,15 +119,15 @@ describe('entry-groups タスク4 — 進行操作の一括化 + 通知集約', 
         // 必ず restore の前（try 内）で行うこと（line-broadcast.test.ts と同じ規律）。
         expect(fetchSpy).toHaveBeenCalledTimes(2)
         const messages = fetchMessages(fetchSpy)
-        // 参加者向け（entry_applied）は line-bot-message-revamp タスク5（2026-08-22）で
-        // 大会名・日別ラベルを一切出さなくなったため、常に同一の固定文言になる。
+        // 参加者向け（entry_applied）・会計向け（entry_applied_treasurer、
+        // line-bot-message-revamp タスク6）とも大会名・日別ラベルを一切出さなくなった
+        // ため、束ねても常に同一の固定文言になる（会計はメンション対象0人なので
+        // 素テキスト）。
         expect(
           messages.some((m) => m === '申し込みが完了しました！\n\n抽選日は未定です。'),
         ).toBe(true)
-        // 会計向け（entry_applied_treasurer、タスク6管轄・未変更）は引き続き
-        // 大会名を含む日別ラベルを列挙する。
         expect(
-          messages.some((m) => m.includes('8/1(土)C級') && m.includes('8/8(土)D級')),
+          messages.some((m) => m === '@会計\n振込連絡は名簿確定時に連絡します。'),
         ).toBe(true)
       } finally {
         fetchSpy.mockRestore()
@@ -175,24 +175,27 @@ describe('entry-groups タスク4 — 進行操作の一括化 + 通知集約', 
         // ため、通知も day2 分だけの1通×2種別（参加者+会計）= 2回の push で済む。
         expect(secondFetch).toHaveBeenCalledTimes(2)
         const messages = fetchMessages(secondFetch)
-        // 参加者向け（entry_applied）は大会名を出さないため固定文言（day1/day2 の
-        // 区別自体が文面上は無くなった）。会計向け（entry_applied_treasurer、
-        // タスク6管轄・未変更）は引き続き大会名を載せるので、既送の day1 (C級) を
-        // 含まず新規 claim の day2 (D級) だけが載ることをそちらで確認する。
+        // line-bot-message-revamp タスク5/6 で参加者向け・会計向けとも大会名を
+        // 出さなくなったため、day1(C級)/day2(D級) の区別は文面上には現れない
+        // （常に同一の固定文言）。「day2 分だけが新規 claim された」ことは push
+        // 回数（2回）と、下の claim ログ行の内訳（day2 だけ増える）で確認する。
         expect(
           messages.some((m) => m === '申し込みが完了しました！\n\n抽選日は未定です。'),
         ).toBe(true)
-        const treasurerMessage = messages.find((m) => m.includes('会計の方へ'))!
-        expect(treasurerMessage).toContain('D級')
-        expect(treasurerMessage).not.toContain('C級')
+        expect(
+          messages.some((m) => m === '@会計\n振込連絡は名簿確定時に連絡します。'),
+        ).toBe(true)
       } finally {
         secondFetch.mockRestore()
       }
 
       expect((await getEvent(day2))?.entryStatus).toBe('applied')
-      // ログ行は day1(2) + day2(2) = 4行のまま（day1 の再 INSERT は起きない）。
+      // ログ行は day1(2) + day2(2) = 4行のまま（day1 の再 INSERT は起きない＝
+      // day2 分だけが新規 claim されたことの実体的な証拠）。
       const logs = await notificationsFor(ids)
       expect(logs).toHaveLength(4)
+      expect(await notificationsFor([day1])).toHaveLength(2)
+      expect(await notificationsFor([day2])).toHaveLength(2)
     })
   })
 

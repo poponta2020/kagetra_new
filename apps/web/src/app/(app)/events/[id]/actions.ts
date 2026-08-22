@@ -34,10 +34,12 @@ import {
 } from '@/lib/event-related-mails'
 import {
   buildLifecycleMessage,
+  buildTreasurerNoticeMessage,
   claimLifecycleNotification,
   sendClaimedNotificationBulk,
-  type LifecycleDayEntry,
 } from '@/lib/event-lifecycle-notify'
+import { resolveTreasurerMention } from '@/lib/line-mention-targets'
+import type { LineMessage } from '@/lib/line-mention'
 import { isIndividualOnlyGroup } from '@/lib/events/confirmed-roster'
 
 /**
@@ -712,11 +714,16 @@ export async function submitAttendance(eventId: number, formData: FormData) {
 // や LINE 未紐付けは状態変更を巻き戻さない（best-effort、要件 §3.2.3）。
 // ---------------------------------------------------------------------------
 
-/** entry-groups タスク4: `setEntriesApplied` の tx 内で使う1件分の flip 結果。 */
+/**
+ * entry-groups タスク4: `setEntriesApplied` の tx 内で使う1件分の flip 結果。
+ *
+ * `title` / `eventDate` / `paymentDeadline` / `paymentMethod` / `paymentInfo` は
+ * line-bot-message-revamp タスク6（AC-29）で通知文面が固定文言化したため、以下の
+ * message builder からは参照されなくなった（クエリの戻り値としては引き続き保持）。
+ */
 interface AppliedFlipRow {
   id: number
   title: string
-  /** `YYYY-MM-DD`。複数日メッセージの日別ラベルに使う。 */
   eventDate: string
   lotteryDate: string | null
   paymentDeadline: string | null
@@ -738,27 +745,15 @@ function buildParticipantAppliedMessage(rows: readonly AppliedFlipRow[]): string
 }
 
 /**
- * 会計向け文面を組み立てる。**1件のときは既存の単一日ロジックへそのまま渡す**
- * （N=1 バイト互換）。2件以上は payment 系の全日同値/日別判定を
- * `buildLifecycleMessage` 側の `days` 分岐に委譲する。
+ * 会計向け文面を組み立てる（line-bot-message-revamp タスク6・AC-29）。
+ *
+ * §3.2.3 の予告文へ差し替えたため、件数（rows.length）・大会名・振込情報は一切
+ * 参照しない — `@会計` メンション対象を解決して固定文言に載せるだけ。複数日でも
+ * 単一日と同一の文面になるため、旧 `days` 組み立ては撤去した。
  */
-function buildTreasurerAppliedMessage(rows: readonly AppliedFlipRow[]): string {
-  if (rows.length === 1) {
-    return buildLifecycleMessage('entry_applied_treasurer', {
-      title: rows[0]!.title,
-      paymentDeadlineIso: rows[0]!.paymentDeadline,
-      paymentMethod: rows[0]!.paymentMethod,
-      paymentInfo: rows[0]!.paymentInfo,
-    })
-  }
-  const days: LifecycleDayEntry[] = rows.map((r) => ({
-    dateIso: r.eventDate,
-    title: r.title,
-    paymentDeadlineIso: r.paymentDeadline,
-    paymentMethod: r.paymentMethod,
-    paymentInfo: r.paymentInfo,
-  }))
-  return buildLifecycleMessage('entry_applied_treasurer', { title: '', days })
+async function buildTreasurerAppliedMessage(): Promise<LineMessage> {
+  const mention = await resolveTreasurerMention(db)
+  return buildTreasurerNoticeMessage(mention)
 }
 
 /**
@@ -898,15 +893,16 @@ export async function setEntriesApplied(
     }
   }
 
-  // 会計向け（claim できた集合だけで1通。payment 系が全日同値なら1回表記）。
+  // 会計向け（claim できた集合だけで1通。§3.2.3 の予告文は固定・件数に関わらず同一）。
   // 参加者向けの push 失敗ともう片方の送信成否は独立（要件 §3.2.5）。
   if (result.treasurerNotificationIds.length > 0) {
-    const message = buildTreasurerAppliedMessage(result.treasurerClaimed)
+    const message = await buildTreasurerAppliedMessage()
     try {
       await sendClaimedNotificationBulk(db, {
         notificationIds: result.treasurerNotificationIds,
         eventId: result.treasurerClaimed[0]!.id,
-        message,
+        // 会計向けはメンション付き textV2 の1通（push は配列を受け取る契約）。
+        message: [message],
       })
     } catch {
       // best-effort

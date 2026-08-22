@@ -168,6 +168,38 @@ describe('event lifecycle actions', () => {
     // ここでは「会計向け 2 通目の slot 消費＋送信成功」だけ担保する。
   })
 
+  it('setEntryApplied(true): payment_deadline/payment_method/payment_info を持つ大会でも会計向け文面は参照しない固定予告文（AC-29）', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent({
+      title: '新春かるた大会',
+      paymentDeadline: '2026-01-25',
+      paymentMethod: '北洋銀行',
+      paymentInfo: '普通 1234567 北大かるた会',
+    })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      await setEntryApplied(event.id, true)
+      // 参加者向け1回 + 会計向け1回。
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+      const messages = fetchMessages(fetchSpy)
+      const treasurerMessage = messages.find((m) => m.includes('振込連絡は名簿確定時に連絡します。'))!
+      expect(treasurerMessage).toBe('@会計\n振込連絡は名簿確定時に連絡します。')
+      // payment_deadline/payment_method/payment_info を一切参照しない（AC-29）。
+      expect(treasurerMessage).not.toContain('北洋銀行')
+      expect(treasurerMessage).not.toContain('1234567')
+      expect(treasurerMessage).not.toContain('振込期限')
+      expect(treasurerMessage).not.toContain('新春かるた大会')
+    } finally {
+      fetchSpy.mockRestore()
+      process.env.LINE_NOTIFY_DRY_RUN = '1'
+    }
+  })
+
   it('setEntryApplied(false): 申込日時を null に戻し通知しない', async () => {
     const admin = await createAdmin()
     const event = await seedLinkedEvent()
