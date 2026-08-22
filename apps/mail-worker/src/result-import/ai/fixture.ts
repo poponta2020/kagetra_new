@@ -48,6 +48,12 @@ export interface FixtureResultImportAiOpts {
   extraction?: ParsedResultPayload
   failRoute?: Error
   failExtract?: Error
+  // Cost-guard test overrides (run.test.ts: AI 列の合算検証)。既定は現行の
+  // 0 / 100 / 200 のまま — 省略時は ai-fixture.test.ts の既存アサーションを
+  // 壊さない。
+  tokensInput?: number
+  tokensOutput?: number
+  costUsd?: number
 }
 
 export class FixtureResultImportAi implements ResultImportAi {
@@ -63,9 +69,9 @@ export class FixtureResultImportAi implements ResultImportAi {
     return {
       parsed,
       raw: JSON.stringify(parsed),
-      tokensInput: 100,
-      tokensOutput: 200,
-      costUsd: 0,
+      tokensInput: this.opts.tokensInput ?? 100,
+      tokensOutput: this.opts.tokensOutput ?? 200,
+      costUsd: this.opts.costUsd ?? 0,
       model: FIXTURE_MODEL,
       promptVersion: FIXTURE_PROMPT_VERSION,
     }
@@ -79,9 +85,9 @@ export class FixtureResultImportAi implements ResultImportAi {
     return {
       parsed,
       raw: JSON.stringify(parsed),
-      tokensInput: 100,
-      tokensOutput: 200,
-      costUsd: 0,
+      tokensInput: this.opts.tokensInput ?? 100,
+      tokensOutput: this.opts.tokensOutput ?? 200,
+      costUsd: this.opts.costUsd ?? 0,
       model: FIXTURE_MODEL,
       promptVersion: FIXTURE_PROMPT_VERSION,
     }

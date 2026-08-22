@@ -40,7 +40,7 @@ status: completed
 - **対応Issue:** #535
 
 ### タスク3: run.ts へのルーティング統合（fail-open・エスカレート・PDF・AI 列保存）
-- [ ] 完了
+- [x] 完了
 - **目的:** result_parse ジョブに AI ルーティングを組み込み、判定に応じて採用/フル抽出/警告へ振り分ける
 - **対応AC:** AC-1, AC-2（fail-open）, AC-4（メタ保存）, AC-5, AC-6（worker 側 PDF 経路）, AC-7, AC-8, AC-9
 - **主な変更領域:** `apps/mail-worker/src/result-import/run.ts`、`apps/mail-worker/src/index.ts` / `config.ts`（API キーの受け渡し配線）、`apps/mail-worker/test/result-import/run.test.ts`
