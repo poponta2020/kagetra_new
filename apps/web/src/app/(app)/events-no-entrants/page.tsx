@@ -30,10 +30,13 @@ export default async function EventsNoEntrantsPage() {
     timeZone: 'Asia/Tokyo',
   })
 
-  // SQL では粗く絞るだけ。締切超過の確定は取得後に `isPastDeadline` で行う
-  // （しきい値ロジックの唯一の真実は `formatDeadlineCountdown` の past tone。
-  // SQL 側へ書き写して二重定義しない）。母集団は開催日以降の大会だけなので
-  // 高々数十件で、`/events` と同じ取り方。
+  // SQL は候補を粗く絞る**前段フィルタ**で、掲載可否の確定は取得後の
+  // `isPastDeadline` だけが決める（しきい値ロジックの唯一の真実は
+  // `formatDeadlineCountdown` の past tone。判定ロジックを SQL へ書き写さない）。
+  // ⚠️ 前段が `isPastDeadline` より広いか等しいことに依存する 2 段構え。
+  // `isPastDeadline` の境界（締切当日の扱い等）を変えるときは、SQL 側が先に行を
+  // 落とさないか必ず併せて見直すこと（requirements.md §6）。母集団は開催日以降の
+  // 大会だけなので高々数十件で、`/events` と同じ取り方。
   const candidates = await db.query.events.findMany({
     where: and(
       gte(events.eventDate, todayStr),

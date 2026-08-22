@@ -128,7 +128,9 @@ design_required: false
 
 ## 6. 技術的制約・契約
 
-- **締切超過判定を二重定義しない**: `event-list-utils.ts` の `isPastDeadline`（`formatDeadlineCountdown` の `past` tone が唯一の真実）を新ページでも使う。SQL 側に締切比較を書き写さず、開催日以降のイベントを取得してから既存関数で絞る（未来日イベントは高々数十件で、`/events` と同じ母集団の取り方）。
+- **締切超過の最終判定は `isPastDeadline` に一本化する**: `event-list-utils.ts` の `isPastDeadline`（`formatDeadlineCountdown` の `past` tone が唯一の真実）を新ページでも使い、掲載可否はこの関数の戻り値だけで決める。SQL 側は候補を粗く絞る**前段フィルタ**として `internal_deadline IS NOT NULL` と`internal_deadline < today` を持つ（全件取得を避けるため。境界セマンティクスは持たせない）。
+  - ⚠️ この 2 段構えは、SQL の前段が `isPastDeadline` より**広いか等しい**ことに依存する。`isPastDeadline` の境界（締切当日の扱い等）を将来変えるときは、SQL 前段が先に行を落とさないかを必ず併せて見直すこと。判定ロジックそのものは SQL へ書き写さない。
+  - 2026-08-22 のレビュー（PR #512）で「二重定義では」と指摘されたが、ユーザー判断で前段フィルタを残す方針を確定した（未来日イベントは高々数十件とはいえ、締切未設定・締切未来の大会まで毎回取得する必要はないため）。
 - **参加者数の定義は既存と同じ**: `event_attendances.attend = true` の件数。ゲストの回答も含む（`/events`・`/events-archive` と同じセマンティクス。`page.test.tsx` の既存回帰あり）。
 - **N+1 を作らない**: `/events-archive` と同じく、表示対象イベント ID にスコープした集計 1 クエリで参加者数を取る。
 - **ルートは兄弟パス**（`/events/...` の配下にしない）: `bottom-nav` の `matches` はセグメント境界一致なので、`/events/no-entrants` にすると「大会」タブが光ってしまう。`/events-archive` の先例に合わせ、タブは光らせない。
