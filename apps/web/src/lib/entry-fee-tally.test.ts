@@ -238,7 +238,12 @@ describe('tallyEntryFees', () => {
   it('eventIds が空配列ならクエリを撃たずに即返す', async () => {
     const result = await tallyEntryFees(testDb, [])
 
-    expect(result).toEqual({ totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 })
+    expect(result).toEqual({
+      totalJpy: null,
+      breakdownLabel: null,
+      unknownGradeCount: 0,
+      headcounts: [],
+    })
   })
 
   // guest-role タスク6 E2 (AC-18): ゲストは会経由で申し込まないので参加費の
@@ -377,7 +382,12 @@ describe('tallyEntryFeesForGroup', () => {
     const result = await tallyEntryFeesForGroup(testDb, group.id)
 
     // 振込対象の日が1つも無い → 「0円」ではなく「算出できない」を返す（金額行を出さない）。
-    expect(result).toEqual({ totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 })
+    expect(result).toEqual({
+      totalJpy: null,
+      breakdownLabel: null,
+      unknownGradeCount: 0,
+      headcounts: [],
+    })
   })
 
   it('グループにイベントが無ければ即返す', async () => {
@@ -385,6 +395,11 @@ describe('tallyEntryFeesForGroup', () => {
 
     const result = await tallyEntryFeesForGroup(testDb, group.id)
 
-    expect(result).toEqual({ totalJpy: null, breakdownLabel: null, unknownGradeCount: 0 })
+    expect(result).toEqual({
+      totalJpy: null,
+      breakdownLabel: null,
+      unknownGradeCount: 0,
+      headcounts: [],
+    })
   })
 })

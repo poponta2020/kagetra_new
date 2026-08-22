@@ -39,6 +39,8 @@ export * from './tournament-entry-roster-files'
 // openchat-broadcast: 大会当日用オープンチャットの招待 URL + 配信履歴
 export * from './entry-group-open-chats'
 export * from './entry-group-open-chat-broadcasts'
+// line-bot-message-revamp: 名簿確定後の振込連絡（級別人数の保存 + 送信記録）
+export * from './entry-group-payment-notices'
 // tournament-results
 export * from './players'
 export * from './tournaments'

@@ -23,6 +23,12 @@ export const users = pgTable(
     // kagetra extensions
     lineUserId: text('line_user_id').unique(),
     role: userRoleEnum('role').notNull().default('member'),
+    // line-bot-message-revamp: 「@会計 で誰をメンションするか」の識別だけに使う列。
+    // **認可判断には一切使わない**（会計の権限は副管理者と同一なので、会計担当には
+    // role='vice_admin' を付与して運用する。requirements §3.1.1 / §6）。
+    // ロール enum を増やさないのは、`role !== 'admin' && role !== 'vice_admin'` の
+    // 判定が43ファイル・58箇所にインライン展開されているため（§7-1）。
+    isTreasurer: boolean('is_treasurer').notNull().default(false),
     grade: gradeEnum('grade'),
     isInvited: boolean('is_invited').notNull().default(false),
     invitedAt: timestamp('invited_at', { mode: 'date' }),

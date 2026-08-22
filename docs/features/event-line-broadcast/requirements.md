@@ -32,7 +32,7 @@ P2「大会運営」と P3「AI+メール」のクロスオーバー。`mail-tou
 2. 管理者が `/admin/mail-inbox/[id]` で承認 → events 登録
 3. 管理者が `/events/[id]` の「LINE 配信」セクションを開く → 「招待コード生成」ボタンで 6 桁コード発行 + Bot 友だち追加 URL 表示
 4. LINE で管理者が大会参加者グループを作成、表示されている `kagetra-event-bot-N` を友だち追加 → グループに招待
-5. グループで管理者が「123456」と発言 → Bot が認識して紐付け完了「✅ 大会『〇〇大会』と紐付けました」と返信
+5. グループで管理者が「123456」と発言 → Bot が認識して紐付け完了。案内メッセージ①〜④（§3.1.3）を返信し、続けて選択済みの要綱ファイルを送る
 6. 以降、この大会宛の追加メール（補足連絡・訂正版）が承認されるたびに、自動でこのグループに配信される
 
 **シナリオ B: 訂正版メール**
@@ -95,15 +95,36 @@ P2「大会運営」と P3「AI+メール」のクロスオーバー。`mail-tou
 
 Bot が処理する Webhook イベント:
 - `join` (Bot がグループに招待された):
-  - 一度だけ「このグループは大会連絡用 Bot です。30 分以内に管理者から提示された招待コードを発言してください」と返信
+  - **返信しない**（2026-08-22 改訂。従来の「30 分以内に招待コードを発言してください」案内を廃止）。
+    replyToken は消費せず、状態の記録だけを行う
   - `event_line_broadcasts.status` を該当行 (channel_id 一致) に対して `joined_waiting_code` に遷移、`line_group_id` を記録
 - `message` (type=text, `^\d{6}$` パターン):
   - 該当 invite_code を持つ `event_line_broadcasts` 行を検索
-  - 期限内 + status='joined_waiting_code' + line_channel_id == destination → `linked` に遷移、「✅ 大会『〇〇大会』と紐付けました」返信
-  - 不一致 / 期限切れ → 「❌ 招待コードが無効です」返信
+  - 期限内 + status='joined_waiting_code' + line_channel_id == destination → `linked` に遷移し、
+    **下記①〜④を4通の別メッセージとして返信**（reply は1回5通までなので4通は1リクエストに収まる）。
+    続けて選択済みの要綱ファイルを Flex カードで push する（§3.4 の既存挙動・⑤以降にあたる）
+  - 不一致 / 期限切れ → 「❌ 招待コードが無効です。管理者に最新のコードを確認してください。」返信
 - `leave` (Bot がグループから外された) / `memberLeft` (Bot 自身):
   - `event_line_broadcasts.status='revoked'`、`line_channels.status='available'` に戻す
 - 上記以外のメッセージ (type=text で 6 桁数字パターン外、image, sticker など): **完全無視・無応答**
+
+**紐付け完了時の案内（①〜④）** — 2026-08-22 新設。番号ごとに吹き出しを分ける。
+
+| # | 文面 | 情報源 |
+|---|---|---|
+| ① | `〇〇大会案内用LINEグループです！`<br>`以下確認をお願いします。` | `〇〇` = `deriveEntryGroupName`（複数日は `大阪AB` 形式） |
+| ② | `@All`<br>`大会の申し込み締め切りはM/D(曜)です。当日までにこのLINE BOTから申込をした旨のアナウンスが届かない場合は申込を忘れているので、管理者を急かしてください。` | `events.entry_deadline`（**主催者締切**。会内締切ではない）。書式は `formatEventDate` |
+| ③ | `@管理者`<br>`景虎上の申込人数は〇名（内他会〇名）です。管理者・会計を除いたグループの人数が一致していることを確認してください。` | 出欠回答「参加」の**実人数**（グループ全体で重複排除）。**ゲストを含み**、その内訳を「内他会」として併記 |
+| ④ | `以下大会要項になります、適宜ご確認ください` | 固定文 |
+
+- **②③のメンション**は `textV2` で送る。②は `@All`、③は `role IN ('admin','vice_admin')` の会員全員。
+  規則の正典は [line-bot-message-revamp/requirements.md](../line-bot-message-revamp/requirements.md) §3.1.3 / §3.2
+- **締切はグループ単位で必ず同一**という運用前提に立ち、日別に出し分けない（万一ずれたら運用で吸収する）
+- ③の人数がゲストを含む点は意図的。この数字は**LINE グループの在籍人数と突き合わせるため**のもので、
+  「会として何人分申し込むか」を表す参加費集計（ゲスト除外）とは母集団が異なる。
+  同じグループで2つの人数が並ぶことを許容する
+- ③の「内他会〇名」は**ゲストが0名なら括弧ごと省略**する
+- `entry_deadline` が NULL のときは②の日付部分を「未定」とする
 
 ### 3.2 ビジネスルール
 
@@ -634,3 +655,7 @@ pnpm tsx apps/web/scripts/seed-broadcast-channels.ts --file=/etc/kagetra/broadca
 - **PR5**: `attachment-image-render.ts` (libreoffice + pdfjs) + `attachment_share_tokens` + 署名 URL API
 - **PR6**: `line-broadcast.ts` 配信ロジック + `approveDraft` 連動 + 配信履歴 UI
 - **PR7**: 日次 cron (`release-expired-broadcasts.ts`, `cleanup-expired-tokens.ts`) + systemd + 本番デプロイ
+
+## 変更履歴
+
+- 2026-08-22: join 時の案内返信を廃止。紐付け完了の返信を①〜④の4通へ分割し、②③にメンションを導入（理由: 案内文が運用上不要になり、紐付け直後に確認事項を渡したいため。親 Issue は line-bot-message-revamp を参照）

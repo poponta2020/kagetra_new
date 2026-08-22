@@ -8,7 +8,11 @@
 > - `apps/web/src/lib/event-related-mails.ts`（関連メール収集・要綱候補ローダー）
 > - `apps/web/src/lib/line-webhook-handler.ts`（LINE Webhook: join/leave/招待コード）
 > - `apps/web/src/lib/line-oauth.ts`（LINEアカウント切替の生OAuth2ヘルパー）
-> - `apps/web/src/lib/event-lifecycle-notify.ts`（申込/支払い等の定型LINE通知）
+> - `apps/web/src/lib/event-lifecycle-notify.ts`（申込/支払い等の定型LINE通知・push transport）
+> - `apps/web/src/lib/line-mention.ts`（textV2 メンションメッセージの組み立て・pure）
+> - `apps/web/src/lib/line-mention-targets.ts`（`@会計` / `@管理者` の対象解決）
+> - `apps/web/src/lib/entry-headcount.ts`（紐付け案内③の申込人数。実人数・ゲスト込み）
+> - `apps/web/src/lib/payment-notice.ts` / `apps/web/src/lib/events/payment-notice-context.ts`（名簿確定後の振込連絡）
 > - `apps/web/src/lib/broadcast-lead-presets.ts`（配信冒頭見出しのプリセット文言）
 > - `apps/web/src/lib/invite-code.ts`（6桁招待コードの生成・検証）
 > - `apps/web/src/app/api/webhook/line/route.ts`（LINE Webhookエンドポイント）
@@ -35,6 +39,9 @@
 4. **LINEアカウント連携**: 会員個人がどのLINEアカウントで一次ログインしているか（Auth.js）とは別に、既存セッションのまま連携先LINEアカウントを切り替える機能。
 4b. **openchat-broadcast**: 大会当日用の LINE オープンチャット招待 URL を、メールから抽出して 1. と同じ大会別 Bot グループへ Flex Message で配信する。**トリガーは人間**（管理者がメールを大会に紐付ける既存操作の延長）で、抽出は決定的（AI なし）。詳細は下記。
 5. **mail-triage-badge (Web Push)**: 管理者/副管理者の端末に、新着メール到着をWeb Pushで通知し、未処理件数をPWAのアプリアイコンバッジに反映する。
+6. **payment-notice**: 確定名簿が出た申込グループの会計へ、振込金額を 1. と同じ大会別 Bot グループへ手動で連絡する。宛先は 2. と同じグループだが、`@会計` メンションを使い、金額を扱う唯一の通知である点が違う。
+
+メンションを使う仕組み（1. の紐付け案内・2. の会計向け・6.）は共通のメンション基盤に載る（後述）。
 
 ### event-line-broadcast: Botプールと配信
 
@@ -47,8 +54,13 @@ invite_pending → joined_waiting_code → linked → revoked / released
 ```
 
 - `invite_pending`: 管理者が `generateInviteCodeForEvent`（`apps/web/src/app/(app)/events/[id]/actions.ts`。シグネチャは `eventId` を受けるが、内部でその日が属する `entry_group_id` へ解決してからグループ基準で動く）を呼び、`available` なチャネルを1つ予約して6桁招待コード（`invite-code.ts`、TTL 30分・`crypto.randomInt` によるCSPRNG）を発行した直後の状態。同じ申込グループに既に `invite_pending`/`joined_waiting_code` の行があれば同じ行を再利用し（`entry_group_id` UNIQUE）、`linked` 中なら「現在配信中」としてエラーにする。招待コードのUNIQUE制約（`invite_code` の部分インデックス、有効なコードのみ対象）衝突時は3回までリトライする。
-- `joined_waiting_code`: LINE Webhookの `join` イベントで、Botが招待されたグループの `groupId` を記録し、この状態に遷移する。返信で「30分以内に6桁コードを発言してください」と案内する。
-- `linked`: グループ内で正しい6桁コードが発言されると、`event_line_broadcasts` を `linked` に、対応する `line_channels` を `status='active'` に更新する（同一トランザクション、CAS条件付きUPDATEで多重発言・レースを弾く）。招待コードはグループ紐付け専用のため、`user`/`room` からの発言や、別グループでの発言、既存 `lineGroupId` との不一致は拒否する。
+- `joined_waiting_code`: LINE Webhookの `join` イベントで、Botが招待されたグループの `groupId` を記録し、この状態に遷移する。**返信はしない**（replyTokenを消費せず状態の記録だけを行う）。管理者が招待コードを手元に持っている運用なので、グループ全員に見える案内を出す意味が無い。級別グループ用の `join` 案内は従来どおり残る。
+- `linked`: グループ内で正しい6桁コードが発言されると、`event_line_broadcasts` を `linked` に、対応する `line_channels` を `status='active'` に更新する（同一トランザクション、CAS条件付きUPDATEで多重発言・レースを弾く）。招待コードはグループ紐付け専用のため、`user`/`room` からの発言や、別グループでの発言、既存 `lineGroupId` との不一致は拒否する。紐付け成立時は**4通の案内を1リクエストで返信**する（reply は1回5通まで）:
+  1. `〇〇大会案内用LINEグループです！` / `以下確認をお願いします。`（`〇〇` は `deriveEntryGroupName`。複数日は `大阪AB` 形式）
+  2. `@All` メンション＋主催者の申込締切（`events.entry_deadline`・`M/D(曜)`。NULLなら「未定」）と、締切までに申込アナウンスが届かなければ管理者を急かすよう促す文
+  3. `@管理者` メンション＋景虎上の申込人数（`〇名（内他会〇名）`。ゲスト0名なら括弧ごと省略）と、グループ在籍人数との突き合わせ依頼
+  4. `以下大会要項になります、適宜ご確認ください`（固定文。直後の要綱Flex送信への前置き）
+  ③の人数は**実人数**（グループ全体で重複排除・ゲスト込み）で、参加費集計（延べ・ゲスト除外）とは母集団が異なる。LINEグループの在籍人数と突き合わせるための数字なので意図的に別物（`lib/entry-headcount.ts`）。締切・抽選日はグループ単位で同一という運用前提に立ち、日別に出し分けない。
 - `revoked`: Botがグループから追い出された（`leave` イベント、`source.groupId` が現在の紐付け先と一致する場合のみ）、管理者による強制解放（`/admin/line-channels/[id]` の「強制解放」、`releaseChannel`）、または配信失敗時の自動リカバリ（後述）で遷移する。チャネルは `available` に戻り、招待コードはNULL化される。
 - `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, グループ内 MAX(event_date) + 30日)` を過ぎた行を自動解放する。複数日グループは最も遅い開催日を基準にする（相関サブクエリで算出。events への単純JOINは1行が日数分にfan outし誤判定するため使わない）。**イベントが0件になったグループ**（付け替えで空になったが紐付けを残しているグループ）は MAX(event_date) が NULL になるため、`extended_until` が未設定なら即解放対象として Bot をプールへ戻す。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
 
@@ -104,42 +116,74 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 
 到達範囲の限界（受容済み）: 級グループに参加していない会員には届かない（会員100名超に対しグループ計50名程度）。通数超過は静かに送信不能になる（自動検知なし・手動対応）。遅延キュー・送信取消・配信時間帯ガードは持たないため、深夜に登録すれば深夜に通知が飛ぶ。
 
+### メンション基盤と会計フラグ
+
+LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` をメッセージに埋め込む。
+
+- **組み立て**: `lib/line-mention.ts`（pure。DB・`node:`・`@kagetra/shared` を持ち込まない）。`buildMentionMessage({ mention, label, template, values })` が `{ type:'textV2', text, substitution }` を返す。プレースホルダは `m0` `m1` … の連番で、個人メンションは1人につき1つ。**メンションは1メッセージ20件が上限**（`substitution` 全体の100件とは別の制約。超過分は捨てる — 超えるとメッセージ全体が拒否されるため厳しい側で切る）。
+- ★**メンションを含むメッセージに自由記述を混ぜない。** `textV2` は本文中の中括弧をプレースホルダ構文として解釈するため、大会名・支払情報などのユーザー入力が中括弧を含むと本文が壊れる。差し込める値を `number` と `{ dateIso }`（`M/D(曜)` へ整形）だけに型で限定し、`template` / `label` に中括弧が無いことを実行時にも検証する。自由記述は `buildTextMessage` でメンションを持たない別メッセージとして送る。
+- **対象の解決**: `lib/line-mention-targets.ts`。共通条件は `line_user_id IS NOT NULL AND deactivated_at IS NULL` で、並び順は `users.id` 昇順（メンションの並びを決定的にするため）。`@会計` は `users.is_treasurer = true`、`@管理者` は `role IN ('admin','vice_admin')`。**0人なら素テキストの `@会計` / `@管理者` を出すだけ**でメッセージ自体は送る。`line_user_id` が無い担当者は黙って外れる。
+- **会計フラグ**: `users.is_treasurer`（boolean）。**`@会計` で誰をメンションするかの識別専用で、認可判断には一切使わない**。会計の権限は副管理者と同一なので、会計担当には `role='vice_admin'` を併せて付与して運用する（`user_role` enum を増やさない理由は、`role !== 'admin' && role !== 'vice_admin'` の判定が多数のファイルにインライン展開されているため）。設定 UI は会員編集（`spec/auth-admin.md`）。
+- **transport**: reply（`LineReplyClient.reply`）と push（`pushMessagesToEventGroup` / `pushMessagesToEntryGroup`）はいずれも `LineMessage[]` を受け取る。`pushMessagesToEntryGroup` は申込グループ単位で `event_line_broadcasts` を直接引く（振込連絡がグループ単位のキーを持つため、代表イベントを経由しない）。
+
 ### event-lifecycle-notify: 定型LINE通知
 
-大会の状態遷移に応じて、`linked` なLINEグループへ固定テンプレートのテキストを1通push する（`pushTextToEventGroup` / `event-lifecycle-notify.ts`）。通知種別は9種（`entry_applied`、`entry_applied_treasurer`、`entry_deadline_advance`、`entry_deadline_day`、`payment_paid`、`payment_deadline_advance`、`payment_deadline_day`、`onsite_payment_advance`、`onsite_payment_day`）で、`event_lifecycle_notifications` の `UNIQUE(eventId, type)` により **同一イベント×種別は生涯一度きり** しか送らない。
+大会の状態遷移に応じて、`linked` なLINEグループへ固定テンプレートのテキストを1通push する（`event-lifecycle-notify.ts`）。通知種別は9種（`entry_applied`、`entry_applied_treasurer`、`entry_deadline_advance`、`entry_deadline_day`、`payment_paid`、`payment_deadline_advance`、`payment_deadline_day`、`onsite_payment_advance`、`onsite_payment_day`）で、`event_lifecycle_notifications` の `UNIQUE(eventId, type)` により **同一イベント×種別は生涯一度きり** しか送らない。
 
-- **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。参加者向けは抽選日が設定されていれば1行追記する。会計向けは振込期限・振込方法・振込先詳細のうち設定されている行だけを連結し、全て未設定なら最小文面になる。大会が `cancelled` の場合はいずれも送らない。
-- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。文面の金額は**1人あたり額ではなく振込総額**（`参加費（総額 N円）`）で、集計はトランザクションの外（flip 後）で claim できたイベントを対象に行う。総額が算出できない（団体戦・非公認・参加者0名）ときは金額を省略する。複数日一括では従来どおり金額を出さない。
-- **金額の出どころ**: 通知に載る参加費は `events.fee_jpy` の格納値ではなく `lib/entry-fee.ts` の `resolveEntryFee` が解決した単価（`official` な個人戦は級別規定額を常に導出）。総額と内訳は `lib/entry-fee-tally.ts` が引く。整形（`振込総額 N円（内訳）` と `※級未設定 N名は未算入`）は `event-lifecycle-notify.ts` の `buildTotalSuffix` / `formatUnknownGradeNote` が唯一の置き場所で、日次バッチの複数日文面もこれを import して共有する。
-- **entry-groups タスク4: 進行操作の一括化**（`setEntryApplied` / `setPaymentPaid` / `setPaymentType` は
-  それぞれ `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes`（複数 `eventId` を取る）への
-  薄いラッパー。単一 `eventId` を渡した場合の文面・claim・revalidate 挙動は従来と完全に同一）。
-  同グループの複数日を選んで一括トグルすると、id昇順ソート→各日ガード付きUPDATE（`cancelled` は
-  ここで再ガードしてclaim対象から除外）→**flipできた日のうちclaimできた集合だけ**で参加者向け・
-  会計向けそれぞれ1通に集約してpushする（`sendClaimedNotificationBulk`。後から追加の日だけ
-  claimできた場合はその分だけの1通になる）。`buildLifecycleMessage` は選択日が2件以上のとき
-  `M/D(曜)<日別ラベル>` を`・`で連結した文面へ切り替わる（1件のときは既存文面と同一）。
-  会計向けは振込期限・方法・詳細が全日同値なら1回だけ表記し、差があれば日別行にする
-  （`apps/web/src/lib/event-lifecycle-notify.ts` の `days` パラメータ）。
-- **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`claimLifecycleNotification` 相当の `sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
+**文面（2026-08-22 全面改訂）**。宛先は1グループ＝1大会なので**大会名を出さない**。**金額もどの種別にも出さない** — 金額を知る必要があるのは会計だけで、その連絡は名簿確定後の振込連絡が担う。日付は `formatEventDate`（`M/D(曜)`）。`⚠️` は絵文字（U+26A0 U+FE0F）。
+
+| 種別 | 文面 |
+|---|---|
+| `entry_applied` | `申し込みが完了しました！` + 空行 + `抽選日は7/20(月)です。`（`lottery_date` が NULL なら `抽選日は未定です。`） |
+| `entry_applied_treasurer` | `@会計` + `振込連絡は名簿確定時に連絡します。` |
+| `entry_deadline_advance` | `申込締切は7/20(月)（あと3日）です。まだ申し込みが行われていません。` |
+| `entry_deadline_day` | `⚠️申込は今日までです！⚠️` |
+| `payment_paid` | `参加費の振り込みが完了しました。` |
+| `payment_deadline_advance` | `支払い締切は7/25(金)（あと3日）です。まだ振込が行われていません。` |
+| `payment_deadline_day` | `⚠️振込締切は今日までです！⚠️` |
+| `onsite_payment_advance` | `参加費は現地払いです。当日忘れないようにしてください。` |
+| `onsite_payment_day` | `大会当日です！参加費を忘れないようにしてください。` |
+
+- **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。大会が `cancelled` の場合はいずれも送らない。会計向けは `payment_deadline` / `payment_method` / `payment_info` を**参照しない**（申込完了の時点では抽選前で当選者が決まっておらず、振り込むべき金額が確定しないため、予告文だけを送る）。支払いタイプでも出し分けない。
+- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
+- **複数日（entry-groups の一括操作）**: `setEntryApplied` / `setPaymentPaid` / `setPaymentType` は複数 `eventId` を取る `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes` への薄いラッパー。同グループの複数日を選んで一括トグルすると、id昇順ソート→各日ガード付きUPDATE（`cancelled` はここで再ガードしてclaim対象から除外）→**flipできた日のうちclaimできた集合だけ**で参加者向け・会計向けそれぞれ1通に集約してpushする（`sendClaimedNotificationBulk`）。大会名を名乗らなくなったため**日別ラベルは無く、束ねた文面は単一日と同一**になる（束ね処理そのものは維持する — 3日グループで3通に増やしてはならない）。
+- **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
-  - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件。**この2種別だけが振込総額を載せる**（1行目は従来の文面のまま、2行目に `振込総額 N円（内訳）`、級未設定者がいれば3行目に注記）。総額は**申込グループの全日**が対象で、その通知に並ぶ日付の範囲とは一致しうるとは限らない（バケットに入っていない日・claim できなかった日も含む）ため、必ず「振込総額」というラベルで示す。総額が算出できない・0円のときは追加行を出さず、従来の文面とバイト単位で一致する
-  - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件。金額は導出した単価で、単一料金なら従来の文面のまま、多級のときだけ `参加費 A・B級 2,500円 / C級 2,000円` の級別表記になる（複数日バケットでは従来どおり金額を出さない）
+  - 事前払い締切: `paymentType='advance'` かつ `paymentStatus='unpaid'` かつ `paymentDeadline` が同様の条件
+  - 現地払い: `paymentType='onsite'` かつ `eventDate` が同様の条件
   - `events.payment_type` の既定値は `'advance'`（参加費は基本前払い。設定箇所が進行管理の select 1つしか無く既定 NULL では支払締切リマインドが構造的に黙るため）
   - リード日数は既定3日（`EVENT_LIFECYCLE_REMINDER_LEAD_DAYS` env で上書き可）。日付判定はすべてJSTの `YYYY-MM-DD` 文字列比較（`jstTodayIso`）で行う。
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
-  - **entry-groups: 送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーで
-    バケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` +
-    `RETURNING`** で claim して、claim できた日を列挙した1通を push する。once-ever の単位は
-    `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」
-    だけが追加で1通送られる。グループ内で締切が同じ日同士が1通にまとまり、（伝播を外して）
-    締切が異なる日は別バケット＝別通になる。バケットが1件のときは単一日ロジックで組んだ文面を
-    そのまま使うので、従来の文面とバイト互換。
-  - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id`
-    かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない —
-    claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。紐付けがグループ単位に
-    なったことで、従来未紐付けだった日（多摩 B/D/E 等）のリマインドも同じ LINE グループへ届く。
-- push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、その他4xx→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール。将来的な統合はrequirements §6.9で「マージ後リファクタ」として据え置かれている）。
+  - **送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーでバケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` + `RETURNING`** で claim して1通 push する。once-ever の単位は `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」だけが追加で1通送られる。
+  - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id` かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない — claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。
+- push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、403/404→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール）。★**400（メッセージ内容の不備）では紐付けを解除しない** — `textV2` の導入でペイロード起因の400が起こりうるようになり、宛先と無関係な不備で正常な紐付けを壊すとその大会の通知が以後すべて止まるため。400・429・5xx は送信失敗として記録するだけ。
+
+### payment-notice: 名簿確定後の振込連絡
+
+確定名簿が出たグループの会計へ、振込金額を LINE で連絡する。**手動送信のみ・全自動送信はしない**（`/admin/entries/[groupId]` の「振込連絡」セクション）。
+
+- **露出条件**（申込管理ボードの `payment_due` 区画と同じ）: `settled`（確定名簿あり。判定の正典は `lib/events/confirmed-roster.ts`）∧ 事前払い（`payment_type='advance'`）∧ 未振込（`payment_status='unpaid'`）∧ 申込済。手動トグル（`entry_groups.confirmed_roster_override`）で進めたグループも含む。現地払い・支払済・LINE未紐付けのグループでは出ない。判定と初期値は `lib/events/payment-notice-context.ts` に集約し、画面と Server Action の両方が呼ぶ（client から直接叩かれても fail-closed）。
+- **人数**: 級ごとの人数の初期値は参加費集計と同じ母集団（`lib/entry-fee-tally.ts`。出欠回答「参加」・`is_invited`・`eligible_grades` 該当・**ゲスト除外**・複数日は延べ）。★対象の日は**露出条件を満たす日（申込済 ∧ 事前払い ∧ 未振込）だけ**に絞る — グループ全日を合算する `tallyEntryFeesForGroup` は支払済みの日を除外しないので、日ごとに支払済みトグルを進めたグループでは二重請求になる。振込期限・支払情報も同じ集合から開催日昇順で決定的に選ぶ。管理者は**級ごとの人数だけ**を直せ、**単価は直せない**（単価は協会規定額から `resolveEntryFee` が導出する値で、管理者が上書きしてよい種類の数字ではない）。**単価が解決できる対象級は人数0でも入力欄として出す**（0人の級を落とすと、確定名簿に合わせて増やすことができなくなる）。直した人数は `entry_group_payment_notices` に保存し、再送時に同じ数字を再現する。集計の母集団は確定名簿ではなく出欠回答なので、抽選のある大会では落選者が混ざる — だからプレビューと人数編集が必須になっている。
+- **文面**（`lib/payment-notice.ts`）は**2通**。1通目は `@会計` メンション＋数値由来の値だけ、2通目は支払情報（`payment_info`）の自由記述。**2通に分かれているのは `textV2` の中括弧問題を構造的に避けるためで、読みやすさのための分割ではない**（1通にまとめてはならない）。
+
+  ```
+  @会計
+  7/25(金)までに
+  A級：2500*3 = 7500円、
+  B級：2500*2 = 5000円
+
+  計12500円
+
+  を、以下の口座に振り込んでください
+  ```
+
+  - 日付は `payment_deadline`。**NULL なら日付行ごと省略**する
+  - 級ごとに1行（`{単価}*{人数} = {小計}円`。A→E順・人数0の級は行を出さない）。数値に桁区切りは入れない
+  - 明細と `計` の間、`計` と末尾行の間に空行を1つ置く
+  - `payment_info` が空なら2通目を送らない
+  - 単価が解決できない級（非公認・団体戦）は明細から除外する（既存の総額計算と同じ規律）
+  - `payment_info` が LINE の1通上限（5000文字）を超える場合は分割して送る（push は1リクエスト5通までなので支払情報は最大4通。超過分は末尾を切って `…（以下省略）` を付ける）
+- **送信**: 人数は push の前に保存し、**push が成功したときだけ** `last_sent_at` / `last_sent_by` を進める（失敗時は送信済みにせず再送できる状態のまま残す）。人数が全級0のときは送信させない。再送は要綱再送・オープンチャット再送と同じ扱いで何度でもできる。
 
 ### entry-overdue-alert: 管理者向け毎日アラート
 
@@ -174,9 +218,9 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 チャネルの解決は `purpose IN ('event_broadcast','grade_broadcast')` で行い、**解決したチャネルの `purpose` で処理を振り分ける**。1チャネル = 1 purpose なので、大会用フローと級グループ用フローの排他は構造的に保証される（振り分け方式を新設していない）。以下は大会用（`event_broadcast`）の挙動で、級グループ用は専用ハンドラが同じイベントタイプを別テーブル（`line_grade_group_bindings`）に対して処理する。
 
 処理するイベントタイプ:
-- `join`: 上述の `joined_waiting_code` 遷移。
+- `join`: 上述の `joined_waiting_code` 遷移。**返信はしない**（大会用のみ。級別グループ用は従来どおり案内を返す）。
 - `leave`: Bot自身がグループから外れた場合のみ（`memberLeft`＝一般メンバー退出は無視）。`source.groupId` が現在の紐付け先と一致する場合のみ `revoked` にする。
-- `message`（テキストが `/^\d{6}$/` に一致）: 招待コード照合→`linked` 遷移。不一致・形式不正・グループ以外からの発言はすべて同一の「❌ 招待コードが無効です」を返す（攻撃者に失敗理由を教えない設計）。
+- `message`（テキストが `/^\d{6}$/` に一致）: 招待コード照合→`linked` 遷移。成功時は案内①〜④を1リクエストで返信する（上述）。不一致・形式不正・グループ以外からの発言はすべて同一の「❌ 招待コードが無効です」を返す（攻撃者に失敗理由を教えない設計）。
 - その他（`follow`、`memberJoined` 等）は no-op。
 
 ### LINEアカウント切替（account-switch）
@@ -223,6 +267,8 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 - **`/(app)/admin/line-grade-groups`**: 級別グループ紐付けの管理（**admin のみ。vice_admin は不可**）。A〜Eの5行固定で、各行に状態（未紐付け/招待コード発行済み/参加済みコード待ち/紐付け済み）と操作（招待コード発行・解除）を出す。招待コード発行時に `event_broadcast` の空きチャネルを1個確保して `grade_broadcast` へ転換するため、転換後のチャネルは `/admin/line-channels` の一覧（`purpose='event_broadcast'` 固定）から自動的に消える。導線は `/admin/line-channels` からのリンク（ボトムナビは admin 時点で既に6タブのため追加しない）。
 - **`/(app)/admin/line-channels/[id]`**: 個別Botの詳細。現在の紐付け先、紐付け履歴（直近20件）、操作ボタン（強制解放/無効化/有効化/手動紐付けモーダル `ManualLinkModal`）。手動紐付けは、Webhookが `join`/コード発言を受け取れなかった場合の運用フォールバックで、対象イベント・LINEグループIDを直接入力してその場で `linked` にする。
 
+- **`/(app)/admin/entries/[groupId]`**: 申込グループページ内の「振込連絡」セクション（管理者/副管理者のみ・名簿確定フェーズかつLINE紐付けありのときだけ描画）。級ごとの人数入力とプレビュー、送信/再送ボタン、最終送信日時を持つ。**単価の入力欄は無い**。画面全体の構成は `spec/events-attendance.md`。
+
 大会単体の配信状況（配信履歴・招待コード発行UI・現在の紐付け状態）は `/events/[id]` の「LINE 配信」開閉トグル（`LineBroadcastSection` / `BroadcastHistoryTable`）として表示される。**管理者以外には何も描画しない** — 会員向けの「この大会は LINE グループに自動配信されています」という案内は event-detail-redesign で廃止した。級別グループ配信（`GradeBroadcastSection`）も独立セクションをやめ、この LINE 配信トグルの中の1項目へ移した（`role === 'admin'` 限定は維持し、`vice_admin` には props ごと渡さない）。これらは大会本体の画面構成に属するため詳細は `spec/events-attendance.md` を参照。
 
 ## フロー
@@ -248,6 +294,13 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 1. 管理者が申込状態を「申込済」にトグル → `setEntryApplied` が状態遷移とonce-ever claimを同一トランザクションで行い、コミット後に参加者向け＋会計向けの2通をLINEグループへpush。
 2. 事前払いの支払いを「支払済」にトグル → `setPaymentPaid` が同様に一度だけ完了通知をpush。
 3. 締切が近づく/当日になると、日次バッチ（`send-lifecycle-reminders.ts`）が対象イベントを走査してリマインドをpush。
+
+### 名簿確定後の振込連絡
+
+1. 確定名簿が届く（パース済み名簿・採用済み原本・確定名簿メール・手動トグルのいずれか）と、グループが名簿確定フェーズへ入る。
+2. 管理者が `/admin/entries/[groupId]` の「振込連絡」を開く → 級ごとの人数の初期値（参加費集計と同じ母集団）とプレビューが出る。
+3. 抽選の落選者などを見て人数を直す（単価は直せない）→ 送信。`@会計` メンション付きの1通目と、支払情報の2通目がグループへ届く。
+4. 人数は保存され、再送すると同じ数字が再現される。push に失敗したときは送信済みにならず、そのまま再送できる。
 
 ### Web Push購読
 

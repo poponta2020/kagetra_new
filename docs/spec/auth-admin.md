@@ -114,12 +114,13 @@
 
 ### 会員管理（`/admin/members`）
 
-一覧ページ（`admin/members/page.tsx`）は全会員（`users` 全行）を表示し、名前・ロール・級（インライン編集フォーム）・招待状態（`isInvited`）・登録日・LINE 紐付け日時/方法（`_line-link-format.ts` の `formatLinkedAt` / `formatLinkMethod`）・編集リンクを列挙する。退会済み（`deactivatedAt` あり）の行はグレーアウト＋「退会」バッジで視覚的に区別する。
+一覧ページ（`admin/members/page.tsx`）は全会員（`users` 全行）を表示し、名前・ロール（会計担当には「会計」の印を併記）・級（インライン編集フォーム）・招待状態（`isInvited`）・登録日・LINE 紐付け日時/方法（`_line-link-format.ts` の `formatLinkedAt` / `formatLinkMethod`）・編集リンクを列挙する。退会済み（`deactivatedAt` あり）の行はグレーアウト＋「退会」バッジで視覚的に区別する。
 
 編集ページ（`[id]/edit/page.tsx`）でできること:
 
 - **プロフィール更新**（`updateMemberProfile`）: 級・性別・所属・段位・全日協フラグ・姓名/ふりがな・生年月日・電話・郵便番号・住所を編集する。`name`（合成表示名・UNIQUE 制約キー）自体はここでは再合成しない。
 - **ロール変更**（`updateMemberRole`、`MemberRoleSection`、**`admin` 限定**）: `admin` / `vice_admin` / `member` の3択を選んで保存する（確認ダイアログあり）。拒否条件は「RBAC（3層ロール）」節を参照。UI 側では自分自身の行はフォームごと出さず理由文のみを表示し、未紐付け・退会済みの行は昇格の選択肢を無効化する（現在のロールは選択可能なまま残して降格の導線を保つ）。この無効化は誤操作を減らすための案内で、認可そのものは Server Action 側が同じ条件で判定する。
+- **会計フラグ**（`updateMemberTreasurer`、`MemberTreasurerSection`、admin/vice_admin）: `users.is_treasurer` のトグル。★**この列は権限ではない** — 大会グループへの振込連絡で `@会計` のメンション対象を決めるためだけに使い、認可判断には一切使わない（[spec/notifications.md](notifications.md)）。会計担当に操作権限が要る場合は、別途ロールを副管理者にする。ロール変更が `admin` 限定なのに対しこちらは会員編集の既存ガード（admin/vice_admin）のままなので、`MemberRoleSection` とは別セクションに分けてある。退会済み・LINE 未紐付けの会員にも立てられる（メンション対象の解決側が絞るので、フラグの付け外しを制限すると「復帰したら会計に戻す」運用が壊れる）。
 - **名前の変更**（`updateMemberName`）: LINE 未紐付けかつ `role = 'member'` の行に限定した「誤登録の取り消し」用の操作。対象条件は UPDATE の WHERE 句自体に埋め込まれており、`/self-identify` での紐付けと同時に起きる競合を単一 SQL 文で安全に弾く。
 - **退会切替**（`toggleMemberDeactivation`）: `deactivatedAt` を now() / null でトグルする。退会中はログイン不可（「認証方式」節を参照）。
 - **LINE 紐付け解除**（`unlinkLine`、`admin` 限定・**対象は `member` ロールのみ**）: `lineUserId` / `lineLinkedAt` / `lineLinkedMethod` を `null` に戻す。解除後の次回ログインでは再び `/self-identify` から選び直せる。対象を `member` に限る理由は「RBAC（3層ロール）」節の未紐付け昇格禁止と同じ — 権限持ちの行を未紐付けに戻すと `/self-identify` 経由で第三者に名乗られる。管理者・副管理者の紐付けをやり直させたいときは、先に `updateMemberRole` で一般会員へ降格してから解除する。対象条件は UPDATE の WHERE 句に埋め込んであり、ロール変更と並行しても確定後のロールで再評価される（0 行のとき、対象が存在しなければ従来どおり無害に返し、権限持ちなら `privileged_role` を throw する）。
@@ -131,7 +132,7 @@
 - **`/403`**（`apps/web/src/app/403/page.tsx`）: ロール不足時の静的な汎用エラー画面。
 - **`/register/[token]`**（`apps/web/src/app/register/[token]/page.tsx` + `register-form.tsx`）: モバイルシェル外（ナビ無し）の単独ページ。分岐は「1. 既に紐付き済みなら `/` へ、2. トークンが無効/失効ならエラー表示のみ、3. 未ログインなら『LINE で認証する』ボタン、4. LINE ログイン済み・未紐付けなら登録フォーム」の4段。
 - **`/admin/members`**（`admin/members/page.tsx`）: 会員一覧 + 会員作成フォーム（`new-member-form.tsx`）+ 招待リンク発行セクション（`registration-invite-section.tsx`、発行ダイアログでプリセット選択・URL コピー・有効リンク一覧・失効操作を提供）。
-- **`/admin/members/[id]/edit`**（`[id]/edit/page.tsx` + `edit-member-form.tsx` + `member-role-section.tsx` + `delete-member-section.tsx`）: 個別会員のプロフィール編集フォーム、ロールセクション（`admin` の場合のみ表示）、LINE 紐付け情報表示 + 解除ボタン（紐付け済みの場合のみ）、退会切替ボタン、削除セクション（未紐付けの `member` の場合のみ表示）。
+- **`/admin/members/[id]/edit`**（`[id]/edit/page.tsx` + `edit-member-form.tsx` + `member-role-section.tsx` + `member-treasurer-section.tsx` + `delete-member-section.tsx`）: 個別会員のプロフィール編集フォーム、ロールセクション（`admin` の場合のみ表示）、会計セクション（admin/vice_admin）、LINE 紐付け情報表示 + 解除ボタン（紐付け済みの場合のみ）、退会切替ボタン、削除セクション（未紐付けの `member` の場合のみ表示）。
 
 ## フロー
 
@@ -175,6 +176,7 @@
   - `toggleMemberDeactivation(formData)` — 退会切替。admin/vice_admin。
   - `unlinkLine(formData)` — LINE 紐付け解除。**admin のみ**。
   - `updateMemberRole(prevState, formData)` — ロール変更。**admin のみ**（実効ロールで判定）。自分自身・未紐付けの昇格・退会済みの昇格・有効な管理者が 0 人になる変更を拒否する。
+  - `updateMemberTreasurer(prevState, formData)` — 会計フラグ（`users.is_treasurer`）の切替。admin/vice_admin。**認可判断には使われない識別専用の列**。
 - `apps/web/src/app/register/[token]/actions.ts`
   - `registerViaInvite(token, prevState, formData)` — 招待リンク経由の自己登録完了。認可は「有効な招待トークン + LINE ログイン済み」であることそのもの（ロールチェックは無い）。
 - `apps/web/src/app/(app)/role-preview-actions.ts`

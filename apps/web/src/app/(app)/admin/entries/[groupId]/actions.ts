@@ -5,13 +5,22 @@ import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { events } from '@kagetra/shared/schema'
+import { entryGroupPaymentNotices, events } from '@kagetra/shared/schema'
 import {
   normalizePaymentDeadline,
   PAYMENT_DEADLINE_KINDS,
   type PaymentDeadlineKind,
 } from '@/lib/events/payment-deadline'
+import type { Grade } from '@kagetra/shared/types'
 import { propagateFieldsToGroup, type PropagatableFields } from '@/lib/entry-groups'
+import { pushMessagesToEntryGroup } from '@/lib/event-lifecycle-notify'
+import { resolveTreasurerMention } from '@/lib/line-mention-targets'
+import {
+  buildPaymentNoticeMessages,
+  rowsFromSavedCounts,
+  savedCountsFromRows,
+} from '@/lib/payment-notice'
+import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
 
 /**
  * entry-group-page タスク2: `events/[id]/actions.ts` の同名ヘルパーは export
@@ -138,4 +147,115 @@ export async function saveGroupCommonFields(
   for (const id of affectedEventIds) revalidatePath(`/events/${id}`)
   revalidatePath('/events')
   revalidatePath('/admin/entries')
+}
+
+// ---------------------------------------------------------------------------
+// line-bot-message-revamp: 名簿確定後の振込連絡（要件 §3.3）
+// ---------------------------------------------------------------------------
+
+const GRADES = ['A', 'B', 'C', 'D', 'E'] as const satisfies readonly Grade[]
+
+// 級 → 人数。client から直接呼べる Server Action なので、値は実行時に検証する。
+// `z.record(z.enum(...), ...)` は全キーの存在を要求するので使わない（人数0の級は
+// キーごと落ちてくる）。キーの絞り込みは下の `pickGradeCounts` が行う。
+const paymentNoticeCountsSchema = z.record(z.string(), z.number().int().min(0).max(9999))
+
+/** 級として妥当なキーだけを残す（未知のキーは黙って捨てる）。 */
+function pickGradeCounts(raw: Record<string, number>): Partial<Record<Grade, number>> {
+  const out: Partial<Record<Grade, number>> = {}
+  for (const grade of GRADES) {
+    const count = raw[grade]
+    if (count != null) out[grade] = count
+  }
+  return out
+}
+
+export interface SendPaymentNoticeResult {
+  ok?: true
+  error?: string
+}
+
+/**
+ * 振込連絡を送る（§3.3.4）。**手動のみ・再送できる**（要綱再送と同じ扱い）。
+ *
+ * 流れ:
+ *   1. 級ごとの人数を受け取り（管理者が直した値）、単価は `resolveEntryFee` から
+ *      **都度導出**する（単価は保存しないし、上書きもさせない・AC-13）
+ *   2. 文面を組み立てる（`buildPaymentNoticeMessages`）。全級0名なら送らない（AC-18）
+ *   3. 人数を upsert してから push し、**push が成功したときだけ** `last_sent_at` を
+ *      進める（失敗時は送信済みにしない＝再送できる状態のまま残す・AC-19）
+ *
+ * 露出条件（settled ∧ 事前払い ∧ 未振込）は page.tsx が判定するが、Server Action は
+ * client から直接叩けるのでここでも再判定する（fail-closed）。
+ */
+export async function sendPaymentNotice(
+  groupId: number,
+  counts: Record<string, number>,
+): Promise<SendPaymentNoticeResult> {
+  const session = await requireAdminSession()
+
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    return { error: '入力が不正です' }
+  }
+  const parsedCounts = paymentNoticeCountsSchema.safeParse(counts)
+  if (!parsedCounts.success) {
+    return { error: '人数の入力が不正です' }
+  }
+
+  const context = await loadPaymentNoticeContext(groupId)
+  if (!context) {
+    return { error: '振込連絡の対象ではありません（名簿確定・事前払い・未振込のグループのみ）' }
+  }
+  if (!context.hasLineBinding) {
+    return { error: 'LINE グループが紐付いていません' }
+  }
+
+  const rows = rowsFromSavedCounts(pickGradeCounts(parsedCounts.data), context.unitPriceByGrade)
+  const mention = await resolveTreasurerMention(db)
+  const notice = buildPaymentNoticeMessages({
+    mention,
+    rows,
+    paymentDeadlineIso: context.paymentDeadline,
+    paymentInfo: context.paymentInfo,
+  })
+  if (!notice) {
+    return { error: '人数が全級0名です。1名以上にしてください' }
+  }
+
+  // 人数は push の前に保存する。送信が失敗しても、管理者が直した人数は残す
+  // （やり直しのたびに数え直させない）。`last_sent_at` だけを成否で分ける。
+  await db
+    .insert(entryGroupPaymentNotices)
+    .values({
+      entryGroupId: groupId,
+      gradeCounts: savedCountsFromRows(notice.rows),
+      totalJpy: notice.totalJpy,
+    })
+    .onConflictDoUpdate({
+      target: entryGroupPaymentNotices.entryGroupId,
+      set: {
+        gradeCounts: savedCountsFromRows(notice.rows),
+        totalJpy: notice.totalJpy,
+        updatedAt: new Date(),
+      },
+    })
+
+  const result = await pushMessagesToEntryGroup(db, groupId, notice.messages)
+  if (result.outcome !== 'sent') {
+    revalidatePath(`/admin/entries/${groupId}`)
+    return {
+      error:
+        result.outcome === 'skipped'
+          ? 'LINE グループが紐付いていません'
+          : `LINE 送信に失敗しました: ${result.reason ?? '不明なエラー'}`,
+    }
+  }
+
+  await db
+    .update(entryGroupPaymentNotices)
+    .set({ lastSentAt: new Date(), lastSentBy: session.user.id, updatedAt: new Date() })
+    .where(eq(entryGroupPaymentNotices.entryGroupId, groupId))
+
+  revalidatePath(`/admin/entries/${groupId}`)
+  return { ok: true }
 }

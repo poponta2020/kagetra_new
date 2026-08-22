@@ -84,22 +84,34 @@ status: completed
 
 - 2 通とも **同じトリガー**（`setEntryApplied(eventId, true)` の初回遷移）で送る。経路は同じ紐付け済み参加者グループ。
 
-#### 3.2.2 参加者向け（`entry_applied`）文面の拡張
-- `lottery_date` が **非 NULL** のとき、既存メッセージの末尾に改行＋ `抽選日は {M/D} です。` を追記。
-- `lottery_date` が NULL のときは **従来どおり**（追記なし）。
-- 日付整形は既存の `formatMMDD`（`M/D`、ゼロ埋めなし）を流用。
+#### 3.2.2 参加者向け（`entry_applied`）文面
+2026-08-22 改訂。文面の正典は
+[event-lifecycle-notify/requirements.md](../event-lifecycle-notify/requirements.md) §3.2.1 に移した
+（抽選日の有無で分岐する仕様はそちらに統合済み）。この機能が持つのは
+**抽選日カラム（`events.lottery_date`）の新設と入力 UI** の部分だけになる。
 
 #### 3.2.3 会計向け（`entry_applied_treasurer`）文面
-- ヘッダ: `💴【{title}】会計の方へ`
-- 本文（値があるものだけを行として連結）:
-  - `payment_deadline` があれば `振込期限：{M/D}`
-  - `payment_method` があれば `振込方法：{payment_method}`
-  - `payment_info` があれば `{payment_info}`（口座番号等の詳細。自由記述をそのまま）
-- 上記いずれも空なら: `参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。`
-- **金額（`fee_jpy`）は載せない**（会計が集めた額を主催者へ振り込むため、1 人あたり額の併記はしない＝ユーザー確定）。
-- **支払いタイプ（`payment_type`）では出し分けない**（事前払い／現地払い／未設定いずれでも常に送る＝ユーザー確定）。
 
-> ※ 正確な文面・改行・絵文字はドラフトレビューで微調整可。
+2026-08-22 改訂。**振込情報（期限・方法・詳細）を載せるのをやめ、固定の予告文に置き換えた。**
+
+```
+@会計
+振込連絡は名簿確定時に連絡します。
+```
+
+- 1行目は `@会計` のメンション。対象の解決規則は
+  [line-bot-message-revamp/requirements.md](../line-bot-message-revamp/requirements.md) §3.1.3 が正典
+  （`is_treasurer=true` かつ `line_user_id` 非 NULL かつ未無効化の会員全員・id 昇順。0人なら素テキスト）
+- **`payment_deadline` / `payment_method` / `payment_info` は参照しない**。これらは引き続き
+  申込グループの共通項目として画面から編集でき、実際の振込依頼（金額つき）は
+  名簿確定後に別メッセージで送る（line-bot-message-revamp §3.3）
+- **金額は載せない**（従来どおり）
+- **支払いタイプでは出し分けない**（従来どおり。事前払い／現地払い／未設定いずれでも常に送る）
+- **複数日の出し分けを廃止**。大会名を名乗らなくなったため、`days` による日別文面の分岐は不要
+
+> なぜ予告文に変えたか: 申込完了の時点では抽選前で当選者が決まっておらず、
+> 振り込むべき金額が確定しない。会計が実際に動くのは名簿確定後なので、
+> ここでは「後で連絡が来る」ことだけを伝える。
 
 #### 3.2.4 通知の前提条件（既存 `entry_applied` と同一・2 通共通）
 1. 当該 event に `event_line_broadcasts.status='linked'` かつ `line_group_id` がある（無ければ送信せず `skipped`）。
@@ -234,3 +246,7 @@ status: completed
 - **統合（Vitest + 実 DB）**: `setEntryApplied(true)` の初回遷移で `entry_applied` と `entry_applied_treasurer` の 2 行が claim され、2 通 push されること（`LINE_NOTIFY_DRY_RUN=1`）。再トグルで再送されないこと（UNIQUE）。cancelled で 2 通とも送られないこと。未紐付けで `skipped`・スロット消費されること。
 - **E2E（Playwright）**: `/events/[id]/edit` で抽選日を入力→保存、`/events/[id]` で申込済トグル（DRY_RUN 下で例外なく完了）。会員には抽選日が参照のみで表示されること。
 - **デプロイ**: migration（`db:migrate`）→ apps/web リビルド（static cp 忘れ注意）→ DRY_RUN で 1 大会動作確認 → 本番。新規 systemd / cron なし。
+
+## 変更履歴
+
+- 2026-08-22: 会計向け2通目から振込情報を外し、@会計 メンション＋「振込連絡は名簿確定時に連絡します。」の予告文へ変更（理由: 申込時点では当選者が未確定で金額が出せない。実際の振込依頼は名簿確定後の新メッセージが担う）

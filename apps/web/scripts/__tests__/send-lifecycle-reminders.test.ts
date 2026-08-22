@@ -7,7 +7,6 @@ import {
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createEntryGroup, createEvent, createEventAttendance, createUser } from '@/test-utils/seed'
-import { formatEventDate } from '@/lib/event-date'
 import {
   bucketReminderCandidates,
   collectReminderCandidates,
@@ -396,10 +395,14 @@ describe('send-lifecycle-reminders — sending', () => {
         .where(eq(eventLifecycleNotifications.eventId, event.id))
       expect(rows.map((r) => r.type).sort()).toEqual(['entry_deadline_day', 'onsite_payment_day'])
 
-      // 2通それぞれが自分の種別の文面であること（取り違えなし）。
+      // 2通それぞれが自分の種別の固定文面であること（取り違えなし）。
+      // line-bot-message-revamp タスク5: 大会名・日付を出さない固定文言になったため、
+      // 完全一致でそれぞれの種別を識別する。
       expect(sentTexts).toHaveLength(2)
-      expect(sentTexts.filter((t) => t.includes('申込締切は本日'))).toHaveLength(1)
-      expect(sentTexts.filter((t) => t.includes('現地払い'))).toHaveLength(1)
+      expect(sentTexts.filter((t) => t === '⚠️申込は今日までです！⚠️')).toHaveLength(1)
+      expect(
+        sentTexts.filter((t) => t === '大会当日です！参加費を忘れないようにしてください。'),
+      ).toHaveLength(1)
     } finally {
       vi.unstubAllGlobals()
       process.env.LINE_NOTIFY_DRY_RUN = '1'
@@ -432,7 +435,11 @@ describe('send-lifecycle-reminders — sending', () => {
   })
 })
 
-describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出単価', () => {
+// grade-entry-fee タスク5 (AC-13〜16) が実装した振込総額・級別単価の情報算出は
+// line-bot-message-revamp タスク5（2026-08-22）でも候補フィールドとしては残した
+// （totalJpy/feeJpy 等）。ただし通知文面からは完全に撤去した（AC-26）ため、以下は
+// 「算出は保持される・文面には出ない」という組み合わせを固定する回帰テスト群。
+describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出単価（line-bot-message-revamp タスク5後: 算出は保持・文面には非表示）', () => {
   /**
    * fetch を stub して実送信テキストを観測する（r1 テストと同じパターン。
    * dry-run では push を呼ばないため、複数日バケットの実文面はこの経路でしか見えない）。
@@ -457,7 +464,7 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
     return sentTexts
   }
 
-  it('AC-13: 単一日 payment_deadline_advance に振込総額行が付く', async () => {
+  it('単一日 payment_deadline_advance: totalJpy は候補フィールドに残るが文面には出ない（line-bot-message-revamp タスク5・旧AC-13）', async () => {
     const event = await seedEvent(
       {
         title: 'PayFee',
@@ -476,13 +483,15 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       leadDays: LEAD,
     })
     const candidate = candidates.find((c) => c.type === 'payment_deadline_advance')!
+    // totalJpy 自体は引き続き算出・格納される（他用途の情報として残す）が、message
+    // には一切現れない。
+    expect(candidate.totalJpy).toBe(2500)
     expect(candidate.message).toBe(
-      '⏰【PayFee】の参加費の支払締切は 6/13（あと 3 日）です。まだ支払いが完了していません。\n' +
-        '振込総額 2,500円（A級 1名×2,500）',
+      '支払い締切は6/13(土)（あと3日）です。まだ振込が行われていません。',
     )
   })
 
-  it('AC-12: 複数日バケットは対象日だけの日別ラベル・総額はグループ全日の合算になる', async () => {
+  it('複数日バケット: 束ね処理は維持しつつ、送信文面は日別ラベル・総額行を持たない固定文言になる（line-bot-message-revamp タスク5・旧AC-12）', async () => {
     const group = await createEntryGroup()
     const eventA = await createEvent({
       title: 'グループA',
@@ -512,15 +521,10 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       expect(result.sent).toBe(2)
     })
 
+    // 締切が同一の2日は束ねられ、送信は1通だけ（束ね処理自体は維持）。
     expect(sentTexts).toHaveLength(1)
-    const text = sentTexts[0]!
-    const daysLabel = `${formatEventDate('2026-08-11')}グループB・${formatEventDate('2026-08-15')}グループA`
-    // 1行目の日別ラベルは対象日（TODAY 締切の2件）だけ。
-    expect(text).toContain(
-      `⚠️${daysLabel}の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。`,
-    )
-    // 総額はグループ全日の合算（A級2,500 + C級2,000 = 4,500）。
-    expect(text).toContain('振込総額 4,500円（A級 1名×2,500 / C級 1名×2,000）')
+    // 文面は日別ラベルも振込総額も持たない固定文言（AC-26）。
+    expect(sentTexts[0]).toBe('⚠️振込締切は今日までです！⚠️')
   })
 
   it('AC-12: バケットに入っていない同グループの日の参加者も総額に含まれる', async () => {
@@ -580,7 +584,7 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
     expect(advanceCandidateC.totalJpy).toBe(6000)
   })
 
-  it('AC-14: 参加者0名/団体戦/非公認では総額行が出ず、文面が現行と一致する', async () => {
+  it('参加者0名/団体戦/非公認でも payment_deadline_day は同一の固定文言になる（line-bot-message-revamp タスク5・旧AC-14）', async () => {
     const noAttendee = await seedEvent(
       {
         title: 'NoAttendee',
@@ -627,13 +631,11 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       [unofficial, 'Unofficial'],
     ] as const) {
       const c = candidates.find((c) => c.eventId === event.id && c.type === 'payment_deadline_day')!
-      expect(c.message).toBe(
-        `⚠️【${title}】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。`,
-      )
+      expect(c.message).toBe('⚠️振込締切は今日までです！⚠️')
     }
   })
 
-  it('AC-15: onsite_payment_advance は eligible_grades={E} で導出単価 1,500円（fee_jpy は無視される）', async () => {
+  it('onsite_payment_advance: eligible_grades={E} の導出単価（fee_jpy 無視）は候補フィールドに残るが文面には出ない（line-bot-message-revamp タスク5・旧AC-15）', async () => {
     const event = await seedEvent(
       {
         title: 'OnsiteE',
@@ -651,10 +653,12 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       leadDays: LEAD,
     })
     const c = candidates.find((c) => c.eventId === event.id)!
-    expect(c.message).toBe('💰【OnsiteE】は当日現地払いです。参加費 1,500円 を 6/13 当日お持ちください。')
+    // feeJpy（導出単価）自体は引き続き算出・格納される。
+    expect(c.feeJpy).toBe(1500)
+    expect(c.message).toBe('参加費は現地払いです。当日忘れないようにしてください。')
   })
 
-  it('AC-16: onsite_payment_advance は多級で級別単価表記になる', async () => {
+  it('onsite_payment_advance: 多級の級別単価導出は保持されるが、文面には金額を一切出さない（line-bot-message-revamp タスク5・旧AC-16）', async () => {
     const event = await seedEvent(
       {
         title: 'OnsiteABC',
@@ -670,12 +674,12 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       leadDays: LEAD,
     })
     const c = candidates.find((c) => c.eventId === event.id)!
-    expect(c.message).toBe(
-      '💰【OnsiteABC】は当日現地払いです。参加費 A・B級 2,500円 / C級 2,000円 を 6/13 当日お持ちください。',
-    )
+    // 多級のときの単価導出は resolveEntryFee 内部で継続するが、message は他の
+    // onsite_payment_advance と同一の固定文になる（AC-26）。
+    expect(c.message).toBe('参加費は現地払いです。当日忘れないようにしてください。')
   })
 
-  it('回帰: entry_deadline_* のバケット文面は変更なし', async () => {
+  it('回帰: entry_deadline_* も束ね処理を維持したまま新文面（日別ラベルなし）になる（AC-28）', async () => {
     const group = await createEntryGroup()
     await createEvent({
       title: 'グループA',
@@ -697,9 +701,9 @@ describe('grade-entry-fee タスク5 — payment_deadline 総額 / onsite 導出
       await sendLifecycleReminders(testDb, { today: TODAY, leadDays: LEAD })
     })
 
+    // 締切が同一の2日は束ねられ、送信は1通だけ。
     expect(sentTexts).toHaveLength(1)
-    const daysLabel = `${formatEventDate('2026-08-11')}グループB・${formatEventDate('2026-08-15')}グループA`
-    expect(sentTexts[0]).toBe(`⚠️${daysLabel}の申込締切は本日 6/10 です。まだ申込が完了していません。`)
+    expect(sentTexts[0]).toBe('⚠️申込は今日までです！⚠️')
   })
 })
 

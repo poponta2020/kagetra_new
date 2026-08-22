@@ -9,6 +9,7 @@ import { db } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db-errors'
 import {
   accounts,
+  entryGroupPaymentNotices,
   eventAttendances,
   events,
   lineChannels,
@@ -317,7 +318,7 @@ export async function deleteMember(
       return { error: DELETE_BLOCKED_ERROR }
     }
 
-    // users.id を FK 参照する全テーブル (11 カラム / 10 テーブル) の存在チェック。
+    // users.id を FK 参照する全テーブル (12 カラム / 11 テーブル) の存在チェック。
     // 参照列そのものを select するので各テーブルの PK 形状に依存しない。
     const referenceChecks = [
       () =>
@@ -355,6 +356,15 @@ export async function deleteMember(
           .select({ ref: mailWorkerJobs.requestedByUserId })
           .from(mailWorkerJobs)
           .where(eq(mailWorkerJobs.requestedByUserId, targetId))
+          .limit(1),
+      () =>
+        // 振込連絡の最終送信者。ON DELETE SET NULL だが、送信者を消すと
+        // 「誰が最後に送ったか」の監査情報が不可逆に失われるため、他の
+        // 参照と同様にここで拒否する（line-bot-message-revamp §3.3）。
+        tx
+          .select({ ref: entryGroupPaymentNotices.lastSentBy })
+          .from(entryGroupPaymentNotices)
+          .where(eq(entryGroupPaymentNotices.lastSentBy, targetId))
           .limit(1),
       () =>
         tx
@@ -651,5 +661,62 @@ export async function updateMemberRole(
 
   revalidatePath('/admin/members')
   revalidatePath(`/admin/members/${targetId}/edit`)
+  return { success: true }
+}
+
+// ---------------------------------------------------------------------------
+// line-bot-message-revamp: 会計フラグ（users.is_treasurer）
+// ---------------------------------------------------------------------------
+
+const updateTreasurerSchema = z.object({
+  userId: z.string().min(1),
+  // チェックボックス未チェックの form 送信ではキー自体が来ないため、
+  // 'on' / null の2値で受ける（hidden input を挟まない素直な form で扱える）。
+  isTreasurer: z.boolean(),
+})
+
+export type UpdateTreasurerState = {
+  error?: string
+  success?: boolean
+}
+
+/**
+ * 会計フラグの切り替え（requirements §3.1.2）。
+ *
+ * ★この列は「@会計 で誰をメンションするか」の識別**専用**で、認可判断には
+ * 一切使わない（§6）。したがってここでのガードは既存の会員編集と同じ
+ * `assertAdminSession`（admin / vice_admin）で足りる — ロール変更のような
+ * 権限昇格を伴わないため、`updateMemberRole` の admin 限定ガードには揃えない。
+ *
+ * 退会済み・LINE 未紐付けの会員にも立てられる（メンション対象の解決側が
+ * `line_user_id IS NOT NULL AND deactivated_at IS NULL` で絞るので、
+ * フラグ自体の付け外しを制限すると「復帰したら会計に戻す」運用が壊れる）。
+ */
+export async function updateMemberTreasurer(
+  _prev: UpdateTreasurerState,
+  formData: FormData,
+): Promise<UpdateTreasurerState> {
+  await assertAdminSession()
+
+  const parsed = updateTreasurerSchema.safeParse({
+    userId: formData.get('userId'),
+    isTreasurer: formData.get('isTreasurer') === 'on',
+  })
+  if (!parsed.success) {
+    return { error: '入力が不正です' }
+  }
+  const { userId, isTreasurer } = parsed.data
+
+  const updated = await db
+    .update(users)
+    .set({ isTreasurer, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id })
+  if (updated.length === 0) {
+    return { error: '対象の会員が見つかりません' }
+  }
+
+  revalidatePath('/admin/members')
+  revalidatePath(`/admin/members/${userId}/edit`)
   return { success: true }
 }

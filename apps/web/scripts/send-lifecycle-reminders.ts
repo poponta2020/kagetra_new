@@ -40,13 +40,9 @@ import type { EventKind, Grade } from '@kagetra/shared/types'
 import {
   addDaysIso,
   buildLifecycleMessage,
-  buildTotalSuffix,
-  formatDaysLabel,
-  formatMMDD,
   jstTodayIso,
   reminderLeadDays,
   sendClaimedNotificationBulk,
-  sortDays,
   type LifecycleNotificationType,
 } from '../src/lib/event-lifecycle-notify'
 import { resolveEntryFee } from '../src/lib/entry-fee'
@@ -62,10 +58,11 @@ interface Logger {
 
 /**
  * entry-groups タスク5: 1件のイベントに対する1種別分のリマインド候補。
- * `message` は従来どおり単一日ロジックで組み立てた文面（dry-run 表示・
- * バケットが1件だけのときの送信文面にそのまま使う。バイト互換の担保はここで
- * `buildLifecycleMessage` を1回だけ呼ぶことで自明にする ―
- * バケット化後に作り直さない）。
+ * `message` は `buildLifecycleMessage` を1回だけ呼んで組み立てた文面（dry-run 表示用）。
+ *
+ * line-bot-message-revamp タスク5: `buildBucketMessage`（バケット化後の送信文面）は
+ * もうこの `message` を読まない — 大会名・金額を出さなくなったため
+ * `bucket.type`/`bucket.dateIso` だけで文面が一意に決まるようになった。
  *
  * `entryGroupId` / `dateIso` は AC-12 のバケットキー
  * （グループ, 種別, 締切日）を組むために追加した。`dateIso` は種別ごとに
@@ -83,9 +80,10 @@ export interface ReminderCandidate {
   dateIso: string
   message: string
   /**
-   * grade-entry-fee タスク5 (AC-13): payment_deadline_* のみ非 null。
-   * `tallyEntryFeesForGroup` が返す**グループ全日の合算**（イベント単体ではない）。
-   * バケット化後の複数日文面（`buildBucketMessage`）が総額行を組み立てるのに使う。
+   * grade-entry-fee タスク5 (AC-13) で導入した振込総額。`tallyEntryFeesForGroup` が
+   * 返す**グループ全日の合算**（イベント単体ではない）。line-bot-message-revamp
+   * タスク5で文面から金額を撤去したため `buildBucketMessage` はもう読まない
+   * （情報としてフィールドは残す）。
    */
   totalJpy?: number | null
   breakdownLabel?: string | null
@@ -229,14 +227,10 @@ export async function collectReminderCandidates(
       totalJpy: tally.totalJpy,
       breakdownLabel: tally.breakdownLabel,
       unknownGradeCount: tally.unknownGradeCount,
-      message: buildLifecycleMessage('payment_deadline_advance', {
-        title: e.title,
-        dateIso,
-        leadDays,
-        totalJpy: tally.totalJpy,
-        breakdownLabel: tally.breakdownLabel,
-        unknownGradeCount: tally.unknownGradeCount,
-      }),
+      // line-bot-message-revamp タスク5 (AC-26): 文面から金額を撤去したため
+      // totalJpy 等は buildLifecycleMessage へ渡さない（候補フィールドには引き続き
+      // 残す — 他画面表示等の情報として今後使う可能性があるため未使用化に留める）。
+      message: buildLifecycleMessage('payment_deadline_advance', { title: e.title, dateIso, leadDays }),
     })
   }
   for (const e of await queryLinkedEvents(
@@ -260,13 +254,8 @@ export async function collectReminderCandidates(
       totalJpy: tally.totalJpy,
       breakdownLabel: tally.breakdownLabel,
       unknownGradeCount: tally.unknownGradeCount,
-      message: buildLifecycleMessage('payment_deadline_day', {
-        title: e.title,
-        dateIso,
-        totalJpy: tally.totalJpy,
-        breakdownLabel: tally.breakdownLabel,
-        unknownGradeCount: tally.unknownGradeCount,
-      }),
+      // line-bot-message-revamp タスク5 (AC-26): 上と同じ理由で金額は渡さない。
+      message: buildLifecycleMessage('payment_deadline_day', { title: e.title, dateIso }),
     })
   }
 
@@ -292,13 +281,10 @@ export async function collectReminderCandidates(
       eventDate: e.eventDate,
       feeJpy: resolution.singleUnitJpy,
       dateIso: e.eventDate,
-      message: buildLifecycleMessage('onsite_payment_advance', {
-        title: e.title,
-        feeJpy: resolution.singleUnitJpy,
-        unitPricesLabel: resolution.unitPricesLabel,
-        dateIso: e.eventDate,
-        leadDays,
-      }),
+      // line-bot-message-revamp タスク5 (AC-26): 現地払いも文面から金額を撤去した。
+      // `resolveEntryFee` の呼び出し・`feeJpy`/`unitPricesLabel` フィールド自体は
+      // 候補の情報として残すが、buildLifecycleMessage へは渡さない（固定文言）。
+      message: buildLifecycleMessage('onsite_payment_advance', { title: e.title }),
     })
   }
   for (const e of await queryLinkedEvents(
@@ -319,12 +305,7 @@ export async function collectReminderCandidates(
       eventDate: e.eventDate,
       feeJpy: resolution.singleUnitJpy,
       dateIso: e.eventDate,
-      message: buildLifecycleMessage('onsite_payment_day', {
-        title: e.title,
-        feeJpy: resolution.singleUnitJpy,
-        unitPricesLabel: resolution.unitPricesLabel,
-        dateIso: e.eventDate,
-      }),
+      message: buildLifecycleMessage('onsite_payment_day', { title: e.title }),
     })
   }
 
@@ -344,17 +325,18 @@ export interface ReminderBucketMember {
   /**
    * `collectReminderCandidates` が組んだ**このメンバー自身の**単一日メッセージ。
    *
-   * ★eventId をキーにした Map から後で引き直してはならない（r1 review blocker）。
-   * 1つのイベントは同日に複数の種別の候補になり得る（申込締切日＝現地払い当日など）ため、
-   * eventId だけのキーでは後の候補が前の候補を上書きし、N=1 バケットで別種別の文面を
-   * 送ってしまう。候補と1:1で持ち回ることで種別の取り違えを構造的に不可能にする。
+   * line-bot-message-revamp タスク5: `buildBucketMessage` は大会名・日別ラベル・
+   * 金額を一切出さなくなったため `bucket.type` + `bucket.dateIso` だけで文面が
+   * 一意に決まるようになり、この `message` はもう `buildBucketMessage` からは
+   * 読まれない（r1 review blocker で守っていた「eventId 取り違え」の懸念自体が
+   * 構造的に解消された）。dry-run 表示（`collectReminderCandidates` の呼び出し元）
+   * 用の情報としてフィールド自体は残す。
    */
   message: string
   /**
-   * grade-entry-fee タスク5 (AC-13): payment_deadline_* のバケットが N>1 のとき、
-   * `buildBucketMessage` が総額行を組み立てるのに使う。同一バケットのメンバーは
-   * 必ず同じグループに属する（バケットキーが entryGroupId を含むため）ので、
-   * 全メンバーが同一の値を持つ。
+   * grade-entry-fee タスク5 (AC-13) で導入した振込総額。line-bot-message-revamp
+   * タスク5で文面から金額を撤去したため `buildBucketMessage` はもう読まない
+   * （情報としてフィールドは残す）。
    */
   totalJpy?: number | null
   breakdownLabel?: string | null
@@ -405,75 +387,21 @@ export function bucketReminderCandidates(
 }
 
 /**
- * 複数日の日別ラベル。**規則そのものは event-lifecycle-notify.ts の
- * `sortDays` / `formatDaysLabel` が唯一の置き場所**で、ここはその共通実装へ
- * 委譲するだけ（複製すると片方だけ書式を変えたときに経路によって通知の
- * 見た目が食い違う）。`LifecycleDayEntry` は `dateIso`/`title` を持つので、
- * バケットメンバーをその形へ写して渡す。
- */
-function formatMembersLabel(members: readonly ReminderBucketMember[]): string {
-  return formatDaysLabel(
-    sortDays(members.map((m) => ({ dateIso: m.eventDate, title: m.title }))),
-  )
-}
-
-/**
- * バケット（claim できたメンバーのみに絞り込み済み）から送信文面を組み立てる。
+ * バケットから送信文面を組み立てる。
  *
- * - **1件のときはそのメンバーが持つ元の単一日メッセージをそのまま返す**
- *   （`buildLifecycleMessage` を作り直さないので N=1 のバイト互換は自明に保たれる —
- *   タスク4が固めた性質を壊さないため、この経路を経由しない）。文面はメンバー自身が
- *   持っているので、eventId から引き直して別種別の文面を掴む余地がない
- * - 2件以上のときは event-lifecycle-notify.ts の `entry_applied` 等と同じ日別ラベル
- *   規則（`formatEventDate(eventDate)+title` を `・` 連結）でローカルに文面を組む。
- *   `buildLifecycleMessage` はリマインド系6種別の複数日分岐を持たない（タスク4は
- *   一括トグルで使う entry_applied/entry_applied_treasurer/payment_paid のみ拡張済み）
- *   ため、**リマインド系の文面テンプレートはこのスクリプトが所有する**（この6種別を使うのは
- *   このバッチだけなので、文言の持ち主をここに置く）。ただし**日別ラベルの整形規則は
- *   共通化してある** — `sortDays`/`formatDaysLabel` を event-lifecycle-notify.ts から
- *   import しており、一括トグル側とラベル書式が食い違わない
- * - `feeJpy`（現地払いの参加費）は §3.2.7 の伝播対象外で日別に異なりうるため、
- *   `payment_paid` の複数日文面と同じ方針で金額を出し分けず割愛する
- *   （2件以上のときは常に金額なしの最小文面）
- * - `payment_deadline_advance`/`_day` は単一日と同じく2行目以降に振込総額行が付く
- *   （AC-12/13）。書式は event-lifecycle-notify.ts の `buildTotalSuffix` を import して
- *   共有する（単一日と複数日で見た目が食い違わないようにするため、複製しない）。
- *   渡す値は `bucket.members[0]` の1件だけでよい — 総額はグループ単位の値で、バケット
- *   キーが `entryGroupId` を含む以上メンバー全員が同じ値を持つ。**メンバー集合を合計しては
- *   ならない**（`bucket.members` に入っていない同グループの日の分も総額には含まれるので
- *   範囲が違う。requirements §3.2.2「文面に並ぶ日付とは範囲が異なりうる」）
+ * **2026-08-22 line-bot-message-revamp タスク5で全面簡略化。** 大会名を出さなく
+ * なったため、束ねた結果の文面は単一日と完全に同一になった（日別ラベルの列挙・
+ * 振込総額行は全種別で撤去 — requirements §3.2.1）。そのためバケットの文面は
+ * `bucket.type` と `bucket.dateIso`（バケットキーの一部＝メンバー全員で共通）だけ
+ * から一意に決まり、`buildLifecycleMessage` をそのまま呼べば足りる。
+ * `bucket.members` はもう読まない（旧実装は N=1/N>1 で分岐し、日別ラベル整形や
+ * 振込総額行の合成をここで担っていたが、その分岐ごと不要になった）。
  */
 function buildBucketMessage(
-  bucket: Pick<ReminderBucket, 'type' | 'dateIso' | 'members'>,
+  bucket: Pick<ReminderBucket, 'type' | 'dateIso'>,
   leadDays: number,
 ): string {
-  if (bucket.members.length === 1) return bucket.members[0]!.message
-
-  const daysLabel = formatMembersLabel(bucket.members)
-  const date = formatMMDD(bucket.dateIso)
-
-  switch (bucket.type) {
-    case 'entry_deadline_advance':
-      return `⏰${daysLabel}の申込締切は ${date}（あと ${leadDays} 日）です。まだ申込が完了していません。`
-    case 'entry_deadline_day':
-      return `⚠️${daysLabel}の申込締切は本日 ${date} です。まだ申込が完了していません。`
-    case 'payment_deadline_advance':
-      return (
-        `⏰${daysLabel}の参加費の支払締切は ${date}（あと ${leadDays} 日）です。まだ支払いが完了していません。` +
-        buildTotalSuffix(bucket.members[0]!)
-      )
-    case 'payment_deadline_day':
-      return (
-        `⚠️${daysLabel}の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。` +
-        buildTotalSuffix(bucket.members[0]!)
-      )
-    case 'onsite_payment_advance':
-      return `💰${daysLabel}は当日現地払いです。参加費を ${date} 当日お持ちください。`
-    case 'onsite_payment_day':
-      return `💰 本日は${daysLabel}です。参加費の現地払いをお忘れなく。`
-    default:
-      throw new Error(`send-lifecycle-reminders: unsupported bucket type ${String(bucket.type)}`)
-  }
+  return buildLifecycleMessage(bucket.type, { title: '', dateIso: bucket.dateIso, leadDays })
 }
 
 /**
@@ -548,10 +476,7 @@ export async function sendLifecycleReminders(
     }
 
     const claimedMembers = bucket.members.filter((m) => claimedEventIds.has(m.eventId))
-    const message = buildBucketMessage(
-      { type: bucket.type, dateIso: bucket.dateIso, members: claimedMembers },
-      leadDays,
-    )
+    const message = buildBucketMessage({ type: bucket.type, dateIso: bucket.dateIso }, leadDays)
     const representativeEventId = claimedMembers[0]!.eventId
     const result = await sendClaimedNotificationBulk(
       db,

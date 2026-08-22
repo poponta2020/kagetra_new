@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEntryGroup } from '@/test-utils/seed'
+import {
+  createEntryGroup,
+  createEvent,
+  createUser,
+  createAdmin,
+  createGuest,
+  createEventAttendance,
+} from '@/test-utils/seed'
+import type { LineMessage, LineTextV2Message } from '@/lib/line-mention'
+import { formatEventDate } from '@/lib/event-date'
 import { createHmac } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
@@ -169,16 +178,25 @@ function signBody(body: string, secret = CHANNEL_SECRET): string {
 
 interface CapturedReply {
   replyToken: string
+  /** その reply リクエストに積まれた全メッセージ（reply は1回5通まで）。 */
+  messages: readonly LineMessage[]
+  /** 全メッセージの本文を改行で連結したもの（「どれかに含まれるか」の検証用）。 */
   text: string
 }
+
+const NEWLINE = '\n'
 
 function makeReplyClient(): { client: LineReplyClient; captured: CapturedReply[] } {
   const captured: CapturedReply[] = []
   return {
     captured,
     client: {
-      async reply({ replyToken, text }) {
-        captured.push({ replyToken, text })
+      async reply({ replyToken, messages }) {
+        captured.push({
+          replyToken,
+          messages,
+          text: messages.map((m) => m.text).join(NEWLINE),
+        })
       },
     },
   }
@@ -232,7 +250,7 @@ describe('handleLineWebhook', () => {
     expect(res.status).toBe(404)
   })
 
-  it('routes verified events to the handler via webhookDestinationId', async () => {
+  it('routes verified join events via webhookDestinationId and records state without replying (AC-22)', async () => {
     const channel = await insertChannel({ status: 'assigned' })
     const entryGroupId = await insertEvent()
     await insertBroadcast(entryGroupId, channel.id, { status: 'invite_pending' })
@@ -255,10 +273,11 @@ describe('handleLineWebhook', () => {
     const broadcast = await db.query.eventLineBroadcasts.findFirst({
       where: eq(eventLineBroadcasts.lineChannelId, channel.id),
     })
+    // line-bot-message-revamp (AC-22): join では状態（joined_waiting_code +
+    // line_group_id）だけを記録し、reply は送らない（replyToken は消費しない）。
     expect(broadcast?.status).toBe('joined_waiting_code')
     expect(broadcast?.lineGroupId).toBe('C123')
-    expect(replyClient.captured).toHaveLength(1)
-    expect(replyClient.captured[0]!.text).toMatch(/招待コード/)
+    expect(replyClient.captured).toHaveLength(0)
   })
 
   it('falls back to botId when webhookDestinationId is NULL (legacy row)', async () => {
@@ -290,7 +309,7 @@ describe('applyWebhookEvents — invite code path', () => {
     entryGroupId = await insertEvent()
   })
 
-  it('flips broadcast to linked and channel to active on a valid code', async () => {
+  it('flips broadcast to linked and channel to active on a valid code, replying once with 4 messages (AC-23)', async () => {
     const future = new Date(Date.now() + 10 * 60 * 1000)
     await insertBroadcast(entryGroupId, channelId, {
       status: 'joined_waiting_code',
@@ -325,8 +344,201 @@ describe('applyWebhookEvents — invite code path', () => {
     })
     expect(channel?.status).toBe('active')
 
+    // A-1 廃止・A-3 を①〜④の4通に分割した紐付け成立時の案内が、1回の reply に
+    // まとめて積まれる（AC-23）。
     expect(reply.captured).toHaveLength(1)
-    expect(reply.captured[0]!.text).toMatch(/紐付けました/)
+    expect(reply.captured[0]!.messages).toHaveLength(4)
+  })
+
+  it('①④: 大会名を先頭に置いた確認案内と固定の要綱案内文になる', async () => {
+    // beforeEach の insertEvent() は「テスト大会」1件だけなので
+    // deriveEntryGroupName がそのままタイトルを返す（フォールバック不要）。
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(entryGroupId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-msg1',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const messages = reply.captured[0]!.messages
+    expect(messages[0]).toEqual({
+      type: 'text',
+      text: 'テスト大会大会案内用LINEグループです！\n以下確認をお願いします。',
+    })
+    expect(messages[3]).toEqual({
+      type: 'text',
+      text: '以下大会要項になります、適宜ご確認ください',
+    })
+  })
+
+  it('②: entry_deadline がある場合、textV2 で @All メンションと M/D(曜) 表記になる (AC-23)', async () => {
+    const group = await createEntryGroup()
+    await createEvent({
+      entryGroupId: group.id,
+      title: 'テスト大会2',
+      eventDate: '2030-01-01',
+      entryDeadline: '2026-09-15',
+    })
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(group.id, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-msg2',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const deadlineMessage = reply.captured[0]!.messages[1]! as LineTextV2Message
+    expect(deadlineMessage.type).toBe('textV2')
+    expect(deadlineMessage.substitution.m0).toEqual({
+      type: 'mention',
+      mentionee: { type: 'all' },
+    })
+    expect(deadlineMessage.text).toContain(formatEventDate('2026-09-15'))
+    expect(deadlineMessage.text).toContain('大会の申し込み締め切りは')
+  })
+
+  it('②: entry_deadline が NULL のときは「未定」になる (AC-25)', async () => {
+    // beforeEach の insertEvent() は entry_deadline を渡さないので NULL のまま。
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(entryGroupId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-msg2-null',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const deadlineMessage = reply.captured[0]!.messages[1]! as LineTextV2Message
+    expect(deadlineMessage.type).toBe('textV2')
+    expect(deadlineMessage.text).toContain('大会の申し込み締め切りは未定です')
+  })
+
+  it('③: 参加人数はゲスト込みで〇名（内他会〇名）になり、@管理者へメンションする (AC-24)', async () => {
+    const group = await createEntryGroup()
+    const ev = await createEvent({
+      entryGroupId: group.id,
+      title: 'テスト大会3',
+      eventDate: '2030-02-02',
+    })
+    const admin = await createAdmin({
+      lineUserId: 'Uadmin00000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+    const member = await createUser({ isInvited: true })
+    const guest = await createGuest({ isInvited: true })
+    await createEventAttendance({ eventId: ev.id, userId: member.id, attend: true })
+    await createEventAttendance({ eventId: ev.id, userId: guest.id, attend: true })
+
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(group.id, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-msg3',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
+    expect(headcountMessage.type).toBe('textV2')
+    expect(headcountMessage.substitution.m0).toEqual({
+      type: 'mention',
+      mentionee: { type: 'user', userId: admin.lineUserId! },
+    })
+    expect(headcountMessage.text).toContain('景虎上の申込人数は2名（内他会1名）です')
+  })
+
+  it('③: ゲストが0名のときは括弧を省略する (AC-24)', async () => {
+    const group = await createEntryGroup()
+    const ev = await createEvent({
+      entryGroupId: group.id,
+      title: 'テスト大会4',
+      eventDate: '2030-03-03',
+    })
+    const member = await createUser({ isInvited: true })
+    await createEventAttendance({ eventId: ev.id, userId: member.id, attend: true })
+
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(group.id, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C123',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'r-msg4',
+          source: { type: 'group', groupId: 'C123' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+
+    // 管理者を LINE 紐付けしていないので userIds が空 → 素テキストへ倒れる
+    // (buildMentionMessage の仕様。AC-5 と同じ挙動)。
+    const headcountMessage = reply.captured[0]!.messages[2]!
+    expect(headcountMessage.text).toContain('景虎上の申込人数は1名です')
+    expect(headcountMessage.text).not.toContain('内他会')
   })
 
   it('rejects expired codes without altering state', async () => {
@@ -1065,7 +1277,10 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     await applyWebhookEvents(db, channel.id, 'token', payload, reply.client)
 
     // 代表 = 今日以降で最も近い「アルファ大会」（id は後発で大きい）。
-    expect(reply.captured[0]!.text).toContain('大会「アルファ大会」と紐付けました')
+    expect(reply.captured[0]!.messages[0]).toEqual({
+      type: 'text',
+      text: 'アルファ大会大会案内用LINEグループです！\n以下確認をお願いします。',
+    })
     expect(reply.captured[0]!.text).not.toContain('ベータ大会')
   })
 
@@ -1106,7 +1321,10 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
       where: eq(eventLineBroadcasts.lineChannelId, eventChannel.id),
     })
     expect(broadcast?.status).toBe('linked')
-    expect(reply.captured[0]!.text).toMatch(/大会「.*」と紐付けました/)
+    expect(reply.captured[0]!.messages[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('大会案内用LINEグループです'),
+    })
 
     const eventChannelAfter = await db.query.lineChannels.findFirst({
       where: eq(lineChannels.id, eventChannel.id),

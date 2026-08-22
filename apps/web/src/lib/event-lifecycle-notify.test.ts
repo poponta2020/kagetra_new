@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
   eventLifecycleNotificationTypeEnum,
@@ -11,6 +11,7 @@ import { createEntryGroup, createEvent } from '@/test-utils/seed'
 import {
   addDaysIso,
   buildLifecycleMessage,
+  buildTreasurerNoticeMessage,
   claimLifecycleNotification,
   finalizeLifecycleNotification,
   formatFeeAmount,
@@ -30,168 +31,110 @@ import {
 describe('buildLifecycleMessage', () => {
   const title = '春の大会'
 
-  it('申込完了 (✅) — 抽選日なしは従来どおり', () => {
-    expect(buildLifecycleMessage('entry_applied', { title })).toBe(
-      '✅【春の大会】への参加申込が完了しました。',
-    )
-  })
+  // ---------------------------------------------------------------------
+  // 2026-08-22 line-bot-message-revamp タスク5/6: 全9種別の文面を全面差し替えた
+  // （大会名・金額を廃止、複数日ラベルを廃止、日付は formatEventDate へ）。
+  // entry_applied_treasurer（タスク6・AC-29）はメンション付き予告文へ差し替え、
+  // 正本の文面テストは下の `describe('buildTreasurerNoticeMessage')` に置く。
+  // ---------------------------------------------------------------------
 
-  it('申込完了 (✅) — lotteryDateIso 非 null で末尾に「抽選日は M/D です」を追記', () => {
+  it('申込完了: 抽選日ありは空行を挟んで「抽選日はM/D(曜)です。」を追記する（AC-26/27/30）', () => {
     expect(
       buildLifecycleMessage('entry_applied', { title, lotteryDateIso: '2026-01-20' }),
-    ).toBe('✅【春の大会】への参加申込が完了しました。\n抽選日は 1/20 です。')
+    ).toBe('申し込みが完了しました！\n\n抽選日は1/20(火)です。')
   })
 
-  it('申込完了 (✅) — lotteryDateIso が null/空文字なら追記なし', () => {
+  it('申込完了: lotteryDateIso 未指定は「抽選日は未定です。」（AC-27）', () => {
+    expect(buildLifecycleMessage('entry_applied', { title })).toBe(
+      '申し込みが完了しました！\n\n抽選日は未定です。',
+    )
+  })
+
+  it('申込完了: lotteryDateIso が null/空文字でも「抽選日は未定です。」（AC-27）', () => {
     expect(buildLifecycleMessage('entry_applied', { title, lotteryDateIso: null })).toBe(
-      '✅【春の大会】への参加申込が完了しました。',
+      '申し込みが完了しました！\n\n抽選日は未定です。',
     )
     expect(buildLifecycleMessage('entry_applied', { title, lotteryDateIso: '' })).toBe(
-      '✅【春の大会】への参加申込が完了しました。',
+      '申し込みが完了しました！\n\n抽選日は未定です。',
     )
   })
 
-  it('会計向け (💴) — 期限のみ', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentDeadlineIso: '2026-01-25',
-      }),
-    ).toBe('💴【春の大会】会計の方へ\n振込期限：1/25')
-  })
-
-  it('会計向け (💴) — 方法のみ', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentMethod: '銀行振込',
-      }),
-    ).toBe('💴【春の大会】会計の方へ\n振込方法：銀行振込')
-  })
-
-  it('会計向け (💴) — 期限・方法・詳細すべてあり', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentDeadlineIso: '2026-01-25',
-        paymentMethod: '銀行振込',
-        paymentInfo: '◯◯銀行 △△支店 普通 1234567',
-      }),
-    ).toBe(
-      '💴【春の大会】会計の方へ\n振込期限：1/25\n振込方法：銀行振込\n◯◯銀行 △△支店 普通 1234567',
-    )
-  })
-
-  it('会計向け (💴) — 全項目空なら最小文面', () => {
-    expect(buildLifecycleMessage('entry_applied_treasurer', { title })).toBe(
-      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
-    )
-  })
-
-  it('会計向け (💴) — 空白のみの method/info は無視（最小文面に落ちる）', () => {
-    expect(
-      buildLifecycleMessage('entry_applied_treasurer', {
-        title,
-        paymentMethod: '   ',
-        paymentInfo: '\n  \t',
-      }),
-    ).toBe(
-      '💴【春の大会】会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
-    )
-  })
-
-  it('会計向け (💴) — feeJpy を渡しても金額は文面に出ない（会計は合計振込のため）', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title,
-      feeJpy: 1500,
-      paymentDeadlineIso: '2026-01-25',
+  it('申込完了: title（大会名）を渡しても文面に一切出ない（AC-26）', () => {
+    const msg = buildLifecycleMessage('entry_applied', {
+      title: 'テスト大会',
+      lotteryDateIso: '2026-01-20',
     })
-    expect(msg).not.toContain('1,500')
-    expect(msg).not.toContain('1500')
-    expect(msg).not.toContain('円')
+    expect(msg).not.toContain('テスト大会')
+    expect(msg).not.toContain('【')
   })
 
-  it('申込締切・事前 (⏰) は MM/DD とリードタイムを差し込む', () => {
+  it('会計向け（entry_applied_treasurer）: buildLifecycleMessage は素テキスト版（メンション0件相当）を返す。正本の文面テストは buildTreasurerNoticeMessage 側（AC-29）', () => {
+    expect(buildLifecycleMessage('entry_applied_treasurer', { title })).toBe(
+      '@会計\n振込連絡は名簿確定時に連絡します。',
+    )
+    // title を渡しても文面に一切出ない（大会名を出さない・AC-26）。
+    expect(buildLifecycleMessage('entry_applied_treasurer', { title: 'テスト大会' })).not.toContain(
+      'テスト大会',
+    )
+  })
+
+  it('申込締切・事前: 日付（曜日つき）とリードタイムを差し込む（数字と「日」の間は空けない・AC-30）', () => {
     expect(
       buildLifecycleMessage('entry_deadline_advance', {
         title,
         dateIso: '2026-06-05',
         leadDays: 3,
       }),
-    ).toBe('⏰【春の大会】の申込締切は 6/5（あと 3 日）です。まだ申込が完了していません。')
+    ).toBe('申込締切は6/5(金)（あと3日）です。まだ申し込みが行われていません。')
   })
 
-  it('申込締切・当日 (⚠️)', () => {
-    expect(
-      buildLifecycleMessage('entry_deadline_day', { title, dateIso: '2026-06-05' }),
-    ).toBe('⚠️【春の大会】の申込締切は本日 6/5 です。まだ申込が完了していません。')
+  it('申込締切・当日: 固定文言（⚠️ は絵文字 U+26A0 U+FE0F・AC-30）', () => {
+    const msg = buildLifecycleMessage('entry_deadline_day', { title, dateIso: '2026-06-05' })
+    expect(msg).toBe('⚠️申込は今日までです！⚠️')
   })
 
-  // grade-entry-fee タスク4: payment_paid は 1人あたり額（feeJpy）ではなく振込総額
-  // （totalJpy）を使うよう意味が変わった（AC-17。要件 §破壊的変更 2 で承認済みの2件）。
-  it('支払完了 (✅) は総額ありで（総額 …円）を付ける', () => {
-    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: 11000 })).toBe(
-      '✅【春の大会】の参加費（総額 11,000円）の支払いが完了しました。',
+  it('支払完了: 固定文言（金額を出さない・AC-26）', () => {
+    expect(buildLifecycleMessage('payment_paid', { title })).toBe(
+      '参加費の振り込みが完了しました。',
     )
   })
 
-  it('支払完了 (✅) は総額 NULL で金額部分を省略する', () => {
-    expect(buildLifecycleMessage('payment_paid', { title, totalJpy: null })).toBe(
-      '✅【春の大会】の参加費の支払いが完了しました。',
-    )
-  })
-
-  it('支払締切・事前 (⏰)', () => {
+  it('支払締切・事前: 日付（曜日つき）とリードタイムを差し込む', () => {
     expect(
       buildLifecycleMessage('payment_deadline_advance', {
         title,
         dateIso: '2026-06-10',
         leadDays: 3,
       }),
-    ).toBe('⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。')
+    ).toBe('支払い締切は6/10(水)（あと3日）です。まだ振込が行われていません。')
   })
 
-  it('支払締切・当日 (⚠️)', () => {
-    expect(
-      buildLifecycleMessage('payment_deadline_day', { title, dateIso: '2026-06-10' }),
-    ).toBe('⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。')
+  it('支払締切・当日: 固定文言', () => {
+    const msg = buildLifecycleMessage('payment_deadline_day', { title, dateIso: '2026-06-10' })
+    expect(msg).toBe('⚠️振込締切は今日までです！⚠️')
   })
 
-  it('現地払い・事前 (💰) は金額ありで当日持参を促す', () => {
+  it('現地払い・事前: 固定文言（金額を出さない・AC-26）', () => {
     expect(
       buildLifecycleMessage('onsite_payment_advance', {
         title,
-        feeJpy: 1500,
         dateIso: '2026-06-20',
       }),
-    ).toBe('💰【春の大会】は当日現地払いです。参加費 1,500円 を 6/20 当日お持ちください。')
+    ).toBe('参加費は現地払いです。当日忘れないようにしてください。')
   })
 
-  it('現地払い・事前 (💰) は金額 NULL で金額を省略する', () => {
-    expect(
-      buildLifecycleMessage('onsite_payment_advance', { title, feeJpy: null, dateIso: '2026-06-20' }),
-    ).toBe('💰【春の大会】は当日現地払いです。参加費を 6/20 当日お持ちください。')
-  })
-
-  it('現地払い・当日 (💰) は金額ありで現地払いを念押し', () => {
-    expect(buildLifecycleMessage('onsite_payment_day', { title, feeJpy: 1500 })).toBe(
-      '💰 本日は【春の大会】です。現地払い 1,500円 をお忘れなく。',
+  it('現地払い・当日: 固定文言（金額を出さない・AC-26）', () => {
+    expect(buildLifecycleMessage('onsite_payment_day', { title })).toBe(
+      '大会当日です！参加費を忘れないようにしてください。',
     )
   })
 
-  it('現地払い・当日 (💰) は金額 NULL でも自然な文面', () => {
-    expect(buildLifecycleMessage('onsite_payment_day', { title, feeJpy: null })).toBe(
-      '💰 本日は【春の大会】です。参加費の現地払いをお忘れなく。',
-    )
-  })
-
-  it('全 9 種別が title を含む非空メッセージを返す（branch 漏れ検出）', () => {
-    // entry_applied_treasurer も title 行を含む（最小文面に落ちても見出しの【title】会計の方へ が出る）。
+  it('全 9 種別が非空メッセージを返す（branch 漏れ検出）。どの種別も title（大会名）を含まない（AC-26）', () => {
     expect(eventLifecycleNotificationTypeEnum.enumValues.length).toBe(9)
     for (const type of eventLifecycleNotificationTypeEnum.enumValues) {
-      const msg = buildLifecycleMessage(type, { title, feeJpy: 800, dateIso: '2026-06-05' })
-      expect(msg).toContain('春の大会')
+      const msg = buildLifecycleMessage(type, { title, dateIso: '2026-06-05' })
       expect(msg.length).toBeGreaterThan(5)
+      expect(msg).not.toContain('春の大会')
     }
   })
 
@@ -200,281 +143,59 @@ describe('buildLifecycleMessage', () => {
       title,
       dateIso: '2026-06-05',
     })
-    expect(msg).toContain('あと 3 日')
+    expect(msg).toContain('あと3日')
   })
 })
 
 // ---------------------------------------------------------------------------
-// entry-groups タスク4: buildLifecycleMessage の複数日拡張（AC-8/9/10）。
+// 2026-08-22 line-bot-message-revamp タスク6（Issue #525・AC-29）:
+// entry_applied_treasurer の正本文面。`payment_deadline` / `payment_method` /
+// `payment_info` を一切参照しない・複数日でも単一日と同一の固定文面（大会名を
+// 出さない以上、束ねても出し分ける材料がない）ことをここで固定する。
 // ---------------------------------------------------------------------------
-describe('buildLifecycleMessage — 複数日拡張（entry-groups タスク4）', () => {
-  it('entry_applied: days が1件のときは既存の単一日ロジックへ流れる（days は無視）', () => {
-    // ctx.title を渡さず days を1件だけ渡しても、multiDay 分岐（length > 1）には
-    // 入らないため、単一日ロジックが title を使う（空文字になる）ことを固定する。
-    // これにより「days.length<=1 は既存ロジック不変」という契約をテストで担保する。
-    const withTitle = buildLifecycleMessage('entry_applied', {
-      title: '単日大会',
-      days: [{ dateIso: '2026-08-01', title: '単日大会' }],
+describe('buildTreasurerNoticeMessage', () => {
+  it('メンション対象がいれば textV2 で @会計 相当のメンションを本文の上に置く', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'users', userIds: ['Uaaa', 'Ubbb'] })
+    expect(msg).toEqual({
+      type: 'textV2',
+      text: '{m0} {m1}\n振込連絡は名簿確定時に連絡します。',
+      substitution: {
+        m0: { type: 'mention', mentionee: { type: 'user', userId: 'Uaaa' } },
+        m1: { type: 'mention', mentionee: { type: 'user', userId: 'Ubbb' } },
+      },
     })
-    expect(withTitle).toBe('✅【単日大会】への参加申込が完了しました。')
   })
 
-  it('entry_applied: 2件以上は日別ラベルを・で連結する（開催日昇順に並べ替える）', () => {
-    const msg = buildLifecycleMessage('entry_applied', {
-      title: '',
-      days: [
-        { dateIso: '2026-08-08', title: 'D級' },
-        { dateIso: '2026-08-01', title: 'C級' },
-      ],
+  it('会計0人なら素テキストへ倒れ、文面は崩さない（AC-5）', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'users', userIds: [] })
+    expect(msg).toEqual({
+      type: 'text',
+      text: '@会計\n振込連絡は名簿確定時に連絡します。',
     })
-    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加申込が完了しました。')
   })
 
-  it('entry_applied: 複数日でも lotteryDateIso を渡せば単一日と同じ追記書式になる', () => {
-    const msg = buildLifecycleMessage('entry_applied', {
-      title: '',
-      lotteryDateIso: '2026-08-15',
-      days: [
-        { dateIso: '2026-08-01', title: 'C級' },
-        { dateIso: '2026-08-08', title: 'D級' },
-      ],
+  it('mention.kind==="all" でも textV2 になる', () => {
+    const msg = buildTreasurerNoticeMessage({ kind: 'all' })
+    expect(msg).toEqual({
+      type: 'textV2',
+      text: '{m0}\n振込連絡は名簿確定時に連絡します。',
+      substitution: { m0: { type: 'mention', mentionee: { type: 'all' } } },
     })
-    expect(msg).toBe(
-      '✅8/1(土)C級・8/8(土)D級の参加申込が完了しました。\n抽選日は 8/15 です。',
-    )
   })
 
-  it('entry_applied_treasurer: payment 系が全日同値なら1回だけ表記する', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        {
-          dateIso: '2026-08-01',
-          title: 'C級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-          paymentInfo: '◯◯銀行 普通 1234567',
-        },
-        {
-          dateIso: '2026-08-08',
-          title: 'D級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-          paymentInfo: '◯◯銀行 普通 1234567',
-        },
-      ],
-    })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n振込期限：7/25\n振込方法：銀行振込\n◯◯銀行 普通 1234567',
-    )
-  })
-
-  it('entry_applied_treasurer: payment 系に差があれば日別行にする', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        {
-          dateIso: '2026-08-01',
-          title: 'C級',
-          paymentDeadlineIso: '2026-07-25',
-          paymentMethod: '銀行振込',
-        },
-        {
-          dateIso: '2026-08-08',
-          title: 'D級',
-          paymentDeadlineIso: '2026-08-01',
-          paymentMethod: '現金書留',
-        },
-      ],
-    })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n' +
-        '8/1(土)C級\n振込期限：7/25\n振込方法：銀行振込\n\n' +
-        '8/8(土)D級\n振込期限：8/1\n振込方法：現金書留',
-    )
-  })
-
-  it('entry_applied_treasurer: 全日 payment 系が空なら1回だけ最小文面になる', () => {
-    const msg = buildLifecycleMessage('entry_applied_treasurer', {
-      title: '',
-      days: [
-        { dateIso: '2026-08-01', title: 'C級' },
-        { dateIso: '2026-08-08', title: 'D級' },
-      ],
-    })
-    expect(msg).toBe(
-      '💴8/1(土)C級・8/8(土)D級会計の方へ\n参加費の振込手続きをお願いします。振込方法・期限は大会ページでご確認ください。',
-    )
-  })
-
-  it('payment_paid: 2件以上は金額を出さず日別ラベルの列挙のみにする', () => {
-    const msg = buildLifecycleMessage('payment_paid', {
-      title: '',
-      feeJpy: 2000,
-      days: [
-        { dateIso: '2026-08-08', title: 'D級' },
-        { dateIso: '2026-08-01', title: 'C級' },
-      ],
-    })
-    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
+  it('引数はメンション対象だけで、payment_deadline/payment_method/payment_info を受け取る余地が無い（AC-29）', () => {
+    // 本文はメンション対象に関わらず常に同一固定文言（大会名・金額・複数日の
+    // 出し分けなし）。呼び出し側がどんな振込情報を持っていても、この関数の
+    // シグネチャ上そもそも渡しようがない＝型で参照禁止を保証している。
+    const withEmpty = buildTreasurerNoticeMessage({ kind: 'users', userIds: [] })
+    const withUsers = buildTreasurerNoticeMessage({ kind: 'users', userIds: ['U1'] })
+    expect(withEmpty.text).toContain('振込連絡は名簿確定時に連絡します。')
+    expect(withUsers.text).toContain('振込連絡は名簿確定時に連絡します。')
+    expect(withEmpty.text).not.toContain('振込期限')
+    expect(withUsers.text).not.toContain('振込期限')
   })
 })
 
-// ---------------------------------------------------------------------------
-// grade-entry-fee タスク4: buildLifecycleMessage の総額・級別単価拡張（AC-13〜20）。
-// ---------------------------------------------------------------------------
-describe('buildLifecycleMessage — 総額・級別単価拡張（grade-entry-fee タスク4）', () => {
-  it('payment_deadline_advance: 1行目は現行文面のまま・2行目に振込総額（内訳）を足す（AC-13）', () => {
-    const msg = buildLifecycleMessage('payment_deadline_advance', {
-      title: '春の大会ABC級',
-      dateIso: '2026-06-10',
-      leadDays: 3,
-      totalJpy: 11000,
-      breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
-    })
-    expect(msg).toBe(
-      '⏰【春の大会ABC級】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n' +
-        '振込総額 11,000円（A・B級 2名×2,500 / C級 3名×2,000）',
-    )
-  })
-
-  it('payment_deadline_day: 1行目は現行文面のまま・2行目に振込総額を足す（AC-13）', () => {
-    const msg = buildLifecycleMessage('payment_deadline_day', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      totalJpy: 5000,
-    })
-    expect(msg).toBe(
-      '⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。\n振込総額 5,000円',
-    )
-  })
-
-  it('payment_deadline_advance: totalJpy が null なら現行文面とバイト単位で一致する（AC-14）', () => {
-    const msg = buildLifecycleMessage('payment_deadline_advance', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      leadDays: 3,
-      totalJpy: null,
-    })
-    expect(msg).toBe(
-      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。',
-    )
-  })
-
-  it('payment_deadline_day: totalJpy が 0 なら現行文面とバイト単位で一致する（AC-14）', () => {
-    const msg = buildLifecycleMessage('payment_deadline_day', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      totalJpy: 0,
-    })
-    expect(msg).toBe('⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。')
-  })
-
-  it('payment_deadline_advance: unknownGradeCount だけがあり totalJpy が null/未指定なら追加行を出さない', () => {
-    const msg = buildLifecycleMessage('payment_deadline_advance', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      leadDays: 3,
-      unknownGradeCount: 2,
-    })
-    expect(msg).toBe(
-      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。',
-    )
-  })
-
-  it('payment_deadline_advance: unknownGradeCount > 0 で3行目に「※級未設定 N名は未算入」が付く', () => {
-    const msg = buildLifecycleMessage('payment_deadline_advance', {
-      title: '春の大会ABC級',
-      dateIso: '2026-06-10',
-      leadDays: 3,
-      totalJpy: 11000,
-      breakdownLabel: 'A・B級 2名×2,500 / C級 3名×2,000',
-      unknownGradeCount: 1,
-    })
-    expect(msg).toBe(
-      '⏰【春の大会ABC級】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n' +
-        '振込総額 11,000円（A・B級 2名×2,500 / C級 3名×2,000）\n' +
-        '※級未設定 1名は未算入',
-    )
-  })
-
-  it('payment_deadline_day: unknownGradeCount が 0 なら3行目を出さない', () => {
-    const msg = buildLifecycleMessage('payment_deadline_day', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      totalJpy: 5000,
-      unknownGradeCount: 0,
-    })
-    expect(msg).toBe(
-      '⚠️【春の大会】の参加費の支払締切は本日 6/10 です。まだ支払いが完了していません。\n振込総額 5,000円',
-    )
-  })
-
-  it('payment_deadline_advance: breakdownLabel が null/未指定なら総額行の括弧を省略する', () => {
-    const msg = buildLifecycleMessage('payment_deadline_advance', {
-      title: '春の大会',
-      dateIso: '2026-06-10',
-      leadDays: 3,
-      totalJpy: 5000,
-      breakdownLabel: null,
-    })
-    expect(msg).toBe(
-      '⏰【春の大会】の参加費の支払締切は 6/10（あと 3 日）です。まだ支払いが完了していません。\n振込総額 5,000円',
-    )
-  })
-
-  it('onsite_payment_advance: unitPricesLabel 未指定は現行の feeJpy 分岐のまま（バイト互換・AC-15）', () => {
-    const msg = buildLifecycleMessage('onsite_payment_advance', {
-      title: '春の大会',
-      feeJpy: 1500,
-      dateIso: '2026-06-20',
-    })
-    expect(msg).toBe('💰【春の大会】は当日現地払いです。参加費 1,500円 を 6/20 当日お持ちください。')
-  })
-
-  it('onsite_payment_advance: unitPricesLabel 指定で級別表記になる（AC-16。feeJpy より優先）', () => {
-    const msg = buildLifecycleMessage('onsite_payment_advance', {
-      title: '春の大会',
-      dateIso: '2026-06-20',
-      feeJpy: 1500,
-      unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
-    })
-    expect(msg).toBe(
-      '💰【春の大会】は当日現地払いです。参加費 A・B級 2,500円 / C級 2,000円 を 6/20 当日お持ちください。',
-    )
-  })
-
-  it('onsite_payment_day: unitPricesLabel 指定で級別表記になる（AC-16）', () => {
-    const msg = buildLifecycleMessage('onsite_payment_day', {
-      title: '春の大会',
-      feeJpy: 1500,
-      unitPricesLabel: 'A・B級 2,500円 / C級 2,000円',
-    })
-    expect(msg).toBe('💰 本日は【春の大会】です。現地払い A・B級 2,500円 / C級 2,000円 をお忘れなく。')
-  })
-
-  it('onsite_payment_advance: unitPricesLabel が null なら現行の feeJpy 分岐のまま', () => {
-    const msg = buildLifecycleMessage('onsite_payment_advance', {
-      title: '春の大会',
-      dateIso: '2026-06-20',
-      feeJpy: 1500,
-      unitPricesLabel: null,
-    })
-    expect(msg).toBe('💰【春の大会】は当日現地払いです。参加費 1,500円 を 6/20 当日お持ちください。')
-  })
-
-  it('payment_paid の複数日は totalJpy を渡しても金額なしのまま（AC-18）', () => {
-    const msg = buildLifecycleMessage('payment_paid', {
-      title: '',
-      totalJpy: 11000,
-      days: [
-        { dateIso: '2026-08-08', title: 'D級' },
-        { dateIso: '2026-08-01', title: 'C級' },
-      ],
-    })
-    expect(msg).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
-  })
-})
 
 describe('date / fee helpers', () => {
   it('formatMMDD は先頭ゼロを落とす', () => {
@@ -726,5 +447,72 @@ describe('lifecycle notify — DB', () => {
       .where(eq(eventLifecycleNotifications.type, 'entry_applied'))
     expect(rows).toHaveLength(2)
     expect(rows.every((r) => r.status === 'sent' && r.lineGroupId === 'Gbulk')).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // push 失敗時のリカバリ（line-bot-message-revamp のレビュー指摘）
+  // -------------------------------------------------------------------------
+
+  /** 指定ステータスを返す fetch を差し込んで push を1回走らせる。 */
+  async function pushWithStatus(eventId: number, status: number) {
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('err', { status }))
+    try {
+      return await pushTextToEventGroup(testDb, eventId, 'test')
+    } finally {
+      spy.mockRestore()
+      process.env.LINE_NOTIFY_DRY_RUN = '1'
+    }
+  }
+
+  async function broadcastStatusOf(entryGroupId: number) {
+    const rows = await testDb
+      .select({ status: eventLineBroadcasts.status })
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
+    return rows[0]?.status
+  }
+
+  it('400（メッセージ内容の不備）では紐付けを解除しない', async () => {
+    // textV2 の導入でペイロード起因の 400 が起こりうる。宛先とは無関係な不備で
+    // 正常な紐付けを壊すと、その大会の通知が以後すべて止まる。
+    const { event } = await seedLinkedEvent({ lineGroupId: 'G400' })
+    const result = await pushWithStatus(event.id, 400)
+    expect(result.outcome).toBe('failed')
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('linked')
+  })
+
+  it('403（Bot 追放・宛先無効）では紐付けを解除しチャネルをプールへ返す', async () => {
+    const { event, channel } = await seedLinkedEvent({ lineGroupId: 'G403' })
+    const result = await pushWithStatus(event.id, 403)
+    expect(result.outcome).toBe('failed')
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('revoked')
+    const [ch] = await testDb
+      .select({ status: lineChannels.status, assigned: lineChannels.assignedEntryGroupId })
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(ch).toMatchObject({ status: 'available', assigned: null })
+  })
+
+  it('401（トークン失効）ではチャネルを無効化する', async () => {
+    const { event, channel } = await seedLinkedEvent({ lineGroupId: 'G401' })
+    await pushWithStatus(event.id, 401)
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('revoked')
+    const [ch] = await testDb
+      .select({ status: lineChannels.status })
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(ch?.status).toBe('disabled')
+  })
+
+  it('429（レート制限）・5xx では紐付けを維持する', async () => {
+    for (const status of [429, 500]) {
+      await truncateAll()
+      const { event } = await seedLinkedEvent({ lineGroupId: `G${status}` })
+      await pushWithStatus(event.id, status)
+      expect(await broadcastStatusOf(event.entryGroupId)).toBe('linked')
+    }
   })
 })

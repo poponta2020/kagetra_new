@@ -57,6 +57,7 @@ export default async function MembersPage() {
         id: true,
         name: true,
         role: true,
+        isTreasurer: true,
         grade: true,
         isInvited: true,
         createdAt: true,
@@ -107,6 +108,13 @@ export default async function MembersPage() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {roleViewLabel(member.role)}
+                    {/* line-bot-message-revamp §3.1.2: 会計は権限ではないので
+                        ロール表記を置き換えず、印を併記する。 */}
+                    {member.isTreasurer && (
+                      <span className="ml-2 inline-block rounded bg-surface-alt px-1.5 py-0.5 text-[10px] font-medium text-ink-2">
+                        会計
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     <form action={updateMemberGrade} className="flex items-center gap-2">
