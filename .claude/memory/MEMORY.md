@@ -338,3 +338,7 @@
 - [auto-review PR #531](auto-review-round-pr531.md) — R1 verdict=pass (initial, sol/low, 90k tokens)
 - [未定義トークン text-ink-1 の修正](project_ship-fix-undefined-ink-token.md) — shipped: PR #531
 - [未定義トークン warning/border-warn の修正](project_ship-fix-undefined-warn-token.md) — shipped: PR #532。#531 の残作業2件。★1ファイル単位の検証手順(source(none)+@source)。warn/danger/accent は同一hexなのでhex照合は無効
+- [tournament-results 改修（AI取込+突合・部分承認・差し替え）要件定義](project_tournament_results_ai_revamp_def.md) — 親Issue #533・実装待ち
+- [tournament-results AI改修 実装記録](impl_tournament_results_ai_revamp.md) — T1/T2/T4完了。main直タスクはWaveから外す運用・finalMessage()でusage取得・fact FKはSET NULL
+- [auto-review PR #541](auto-review-round-pr541.md) — R3 verdict=pass（R1 blockers7→全対応）。cumulative 512k で token-budget 停止
+- [tournament-results AI改修 出荷](project_ship-tournament-results-ai-revamp.md) — shipped: PR #541。★残DoD=AC-21実機確認＋worker側ANTHROPIC_API_KEY配線確認
