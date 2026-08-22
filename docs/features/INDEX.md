@@ -57,4 +57,5 @@
 - `guest-role` — 大会の参加登録だけができる「ゲスト」ロールを追加（サークル員だが登録会が他会の人）。申込書xlsx・参加費集計・申込管理ボード・未申込督促からは除外し、参加者欄・ホームの出場タイムラインには印つきで載せる。将来の match-tracker 連携（出場予定者）の母集団を会員以外へ広げるのが目的（主要領域: packages/shared schema + apps/web middleware・register・events・dashboard・admin） [shipped: PR #489]
 - `external-entrants-api` — match-tracker 抽選の優先枠デフォルト選択用に、大会出場予定者（人×出場日・確定/希望・ゲスト印）を返す APIキー認証の読み取り専用 API。ウィンドウ判定・名寄せ・UI は match-tracker 側（主要領域: apps/web api/external・lib/upcoming-entrants・middleware） [shipped: PR #495]
 - `entry-group-page` — 申込グループ単位のページを新設し、管理者の申込運用（進行管理・共通締切編集・LINE配信・申込書・関連メール）をそこへ集約。日ページは会員が「その日に出るか」を答える画面に純化（主要領域: apps/web admin/entries・events） [shipped: PR #503] [shipped: PR #504]
-- `events-no-entrants` — ボトムナビ「イベント」→「大会」改称と、参加者0名のまま会内締切を過ぎて /events から消えた大会の専用ページ新設（主要領域: 未定）
+- `events-no-entrants` — ボトムナビ「イベント」→「大会」改称と、参加者0名のまま会内締切を過ぎて /events から消えた大会の専用ページ新設（主要領域: apps/web/src/app/(app)/events-no-entrants/・events/・events-archive/・components/layout/bottom-nav.tsx） [shipped: PR #512]
+- `confirmed-roster-signal` — 確定名簿ありの判定を「確定名簿メール」と「手動フラグ」へ拡張し、添付のない確定連絡でもフェーズが進むようにする改修（主要領域: 申込管理ボード / 申込フロー帯 / 名簿セクション）

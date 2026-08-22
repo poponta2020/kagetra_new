@@ -314,3 +314,8 @@
 - [auto-review PR #504](auto-review-round-pr504.md) — R1 verdict=pass（E2E 張り替えの追修正）
 - [E2E をグループページへ張り替え（PR #504）](project_ship-e2e-group-page-sections.md) — shipped: PR #504。★payment_type 既定は advance／e2e も撤去対象に含める／serial は後続スキップ
 - [events-no-entrants 要件定義](project_events_no_entrants_def.md) — 親Issue #505・ナビ「大会」改称＋申込者0名で締切済ページ新設
+- [confirmed-roster-signal 要件定義(2026-08-21)](project_confirmed_roster_signal_def.md) — 親Issue #509。杉並AB滞留=添付0件の確定連絡メール。判定材料2→4
+- [events-no-entrants 実装(タスク1-3)](impl_events_no_entrants.md) — 「大会」改称＋/events-no-entrants 新設。Wave1=T1委譲/T2main・T3はmain。ローカルテストはDocker不起動で未実行
+- [gh issue edit --body-file - の空 stdin は本文を全消しする](feedback_gh_issue_edit_empty_stdin.md) — 読む目的で edit を使わない。復旧は GraphQL userContentEdits の diff
+- [auto-review PR #512](auto-review-round-pr512.md) — R1 verdict=needs_changes→cutoff(user-wontfix)。締切判定の2段構えは要件定義書側を訂正して確定
+- [「大会」への呼称統一と「申込者なしで締切済の大会」ページ新設](project_ship-events-no-entrants.md) — shipped: PR #512。★残DoD=AC-21本番実機確認・ローカルvitest未実行でマージ
