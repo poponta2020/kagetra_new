@@ -80,7 +80,7 @@ status: completed
 - **対応Issue:** #539
 
 ### タスク7: docs 更新 + 総合回帰
-- [ ] 完了
+- [x] 完了
 - **目的:** 正典 docs を変更後の姿へ更新し、全体回帰を確認する
 - **対応AC:** AC-19, AC-20（CI green）
 - **主な変更領域:** `docs/spec/tournaments-results.md`（取込フロー・AI ルーティング・部分承認・差し替え・復旧手順）、`docs/spec/mail-worker.md`（添付プルーニング将来制約の注記）、`docs/design/db.md`（タスク1で未反映なら）

@@ -30,11 +30,11 @@
 
 ### 概要
 
-大会結果は「解析（draft）→ 管理者承認 → 確定保存（materialize）」の2段階で取り込む。ドラフト自体は改変不可能なデータではなく、承認前は再解析（再取込）で上書きできる。承認は不可逆で、承認後は `tournaments` / `tournament_classes` / `tournament_participants` / `matches` へ実データとして書き込まれる（`result_drafts.status` は `pending_review` → `approved` / `rejected` / `parse_failed`。`superseded` はスキーマ上定義済みだが現行の取込フローには遷移させるコードパスがなく、将来の訂正版再取込向けの予約値）。
+大会結果は「解析（draft）→ 管理者承認 → 確定保存（materialize）」の2段階で取り込む。ドラフト自体は改変不可能なデータではなく、承認前は再解析（再取込）で上書きできる。承認後は `tournaments` / `tournament_classes` / `tournament_participants` / `matches` へ実データとして書き込まれる（`result_drafts.status` は `pending_review` → `approved` / `rejected` / `parse_failed`）。承認済みの結果は、後続の訂正版ドラフトによる**明示的な差し替え**でだけ置き換わり、そのとき旧ドラフトは `superseded` へ遷移する（後述「差し替え承認」）。
 
 取込元は2系統ある。
 
-- **メール添付の Excel**: 管理者がメール詳細（`/admin/mail-inbox/mail/[id]`、mail-worker ドメイン管轄）で `.xls`/`.xlsx` 添付を指定して「結果として取り込む」を実行すると `triggerResultParse` が `mail_worker_jobs`（`kind='result_parse'`）を積み、mail-worker の 30 秒タイマーが `runResultParse` を実行して解析する
+- **メール添付の Excel / PDF**: 管理者がメール詳細（`/admin/mail-inbox/mail/[id]`、mail-worker ドメイン管轄）で `.xls`/`.xlsx`/`.pdf` 添付を指定して「結果として取り込む」を実行すると `triggerResultParse` が `mail_worker_jobs`（`kind='result_parse'`）を積み、mail-worker の 30 秒タイマーが `runResultParse` を実行して解析する（受理拡張子の判定は `apps/web/src/lib/result-import/attachment.ts` の単一ソース）
 - **かるた協会公式サイトの HTML**: `parseResultHtml` が同じ `ParsedClass[]` 契約に変換する。この関数はメール取込の承認フロー（`result_drafts`）には配線されていない。呼び出し元は本コードベース内の一括投入用ワンオフスクリプト（`scripts/diagnostics/_rehearse_load.mts`・`scripts/diagnostics/_probe.mts`）で、パース結果を `result_drafts` を経由せず `materializeResultDraft` へ直接渡し、過去大会データの一括投入に使われた
 
 パーサは Excel/HTML どちらも同一の中間表現 `ParsedResultPayload`（`parserVersion` + `ParsedClass[]`）に正規化する（`apps/mail-worker/src/result-import/schema.ts`）。これにより承認画面・`materializeResultDraft` はソース形式を意識しない。
@@ -47,6 +47,29 @@
 - 相手列の並びから回戦ブロックを切り出し、各ブロック内で枚数列・勝敗列を探索する（見つからなければ「相手・枚数・勝敗」の慣例オフセットへフォールバック）。回戦ラベルは1行上のセルから「N回戦」等を拾う
 - 見出し語ではなく「氏名列を持つ行」で参加者行と非参加者行（印刷ページの繰り返しヘッダ行、複数級を1シートに積む様式の級区切り行 `A2級` 等）を判別し、非参加者行はスキップする
 - 段位（`normalizeDan`）・勝敗マーク（`parseResultChar`：○/〇/◯=win、×/✕/●/X/x=lose）・枚数差/不戦/棄権（`parseScoreCell`）を正規化する。回戦セル1個分の解析は `round-cell.ts` の `parseRoundCellText` に共通化されており、Excel の位置ベース列と HTML の1セルテキストの両方から呼ばれる
+
+### AI ルーティング・級名正規化（`apps/mail-worker/src/result-import/ai/`）
+
+決定的パーサは署名検出で高い成功率を出すが、非標準の様式ではシート名がそのまま級名になったり、複数級が1クラスに潰れたりする（パースが「成功」しても人が気づけない破綻）。これを検出するために、`result_parse` ジョブは**決定的パースを常に先に試行**し、その試行結果と生データを AI に突き合わせさせて**どのパース結果を採用するか**を判定させる。中身を見ずにパーサを選ばせるのではなく、無料・即時の試行結果を証拠にした判定である点が設計の要。
+
+- **入力**: ファイル名・メール件名・シート名一覧・各シート先頭数行・決定的パースの試行結果要約（級名と人数）
+- **出力**（`RoutingResultSchema`）:
+  - `verdict` — `adopt`（決定的パースを採用）/ `escalate`（フル AI 抽出へ回す）/ `out_of_scope`（団体戦・名簿・抽選結果等）。`out_of_scope` でもドラフトは作り、承認画面に警告を出す（却下の最終判断は人）
+  - `classMap` — className → 正規化級名 + `grade`(A–E|null) + `exclude`（非級シートの除外フラグ）。`applyClassMap` が payload に適用し、**原値は `ParsedClass.rawClassName` に保持**する（DB 列は追加していない。payload 内のみ）
+  - `meta` — 大会名・回次・開催日・訂正版フラグ（`isCorrection`）。承認フォームのプリフィルに使う
+  - `issues` — 整合検証で見つかった問題点
+- **fail-open**: AI 呼び出しが失敗しても取込は止めない。決定的パース結果だけで `pending_review` を作り、失敗理由を `result_drafts.ai_error` に記録して承認画面に「AI 検証なし」と表示する。`ANTHROPIC_API_KEY` が未設定の環境でも同じく決定的パースのみで動く（ワーカー起動時に警告ログを出して AI を無効化する）。**唯一の例外はフル抽出出力の Zod 検証失敗**で、これだけは `parse_failed` にする（検証を通っていないデータを承認可能にしないため）
+- **コスト記録**: モデル・プロンプト版・トークン・USD を `result_drafts` の `ai_model` / `ai_prompt_version` / `ai_tokens_input` / `ai_tokens_output` / `ai_cost_usd`（ルーティング + フル抽出の合算）へ保存する
+
+### フル AI 抽出フォールバック
+
+次のいずれかで発動し、上位モデルに全シートの CSV 化テキスト（PDF はネイティブ document block）を渡して `ParsedResultPayload` 互換の構造化データを生成する。
+
+- 決定的パースが 0 クラス
+- ルーティングの `verdict` が `escalate`（整合検証で破綻判定）
+- 添付が PDF（ルーティングを経ずに直行。`readExcel` は PDF を読めないため分岐は Excel 読込より前）
+
+出力は `ParsedResultPayloadSchema` で検証し、不整合なら `parse_failed`（不正データが承認可能にならない）。由来は `result_drafts.extraction_source='ai'` と `parserVersion='ai-extract-<PROMPT_VERSION>'` に記録し、承認画面に「AI 抽出（要注意レビュー）」を表示する。PDF は既存の `MAIL_WORKER_PDF_SIZE_LIMIT_KB` ガードを流用する。
 
 ### HTML パーサ（`apps/mail-worker/src/result-import/html-parser.ts`）
 
@@ -68,6 +91,27 @@
 承認・却下は `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `approveResultDraft` / `rejectResultDraft`（画面は `/admin/mail-inbox/result-drafts/[id]`）。承認対象editionとドラフト行をトランザクション内でロックして状態を再確認し、`materializeResultDraft` と実出場原本の初回リンクを同一トランザクションで実行することで、二重承認による重複materializeを防ぐ。承認済みの `mail_messages` は `triage_status='processed'` に同期される。却下は `pending_review` / `parse_failed` のみ可能で理由必須。既存の実出場原本を別の承認済み結果へ差し替える場合は `replaceActualResultFact` を使い、画面に表示したactive fact IDを再検証してから旧factの `valid_to` を閉じ、新revisionを挿入する。
 
 `result_parse` ジョブハンドラ（`apps/mail-worker/src/result-import/run.ts` の `runResultParse`）は解析結果を `result_drafts` に UPSERT する。既存ドラフトが `approved`/`pending_review` なら上書きせず、`parse_failed`/`rejected`/`superseded` のときだけ再取込で置き換える（`triggerResultParse` の状態ガードと同じ方針をワーカー側でも二重に持つ）。解析失敗時は `status='parse_failed'` として `parseError` を保存し、承認は不可・却下のみ可能な画面になる。
+
+### edition×級 突合・部分承認・差し替え
+
+同一大会の結果は級別分割・再送・訂正版という形で**複数のメールに分かれて届くのが日常**であり、承認するたび新規 `tournaments` 行を作る素朴な運用では二重登録が起きる。これを承認画面の粒度で防ぐのが突合・部分承認・差し替えの3点セット。
+
+**突合**: 承認画面で管理者が開催回を選択している場合、payload の各級の `grade` を同 edition 配下の既存 `tournament_classes` と突き合わせる（`getEditionImportedGrades`。`result-drafts/[id]/actions.ts` の read-only Server Action）。既取込の級は「取込済み」バッジ付き・**既定チェック OFF**、未取込の級は既定 ON。edition 未確定なら突合バッジを出さず全級既定 ON（従来挙動）。
+
+**部分承認**: チェックした級だけを materialize する（`tournaments` 行は選択級のみで作成）。全級選択時の結果は従来の承認と同一。0級選択での承認はエラー。選択は承認フォームの `selectedClasses`（payload.classes の index 配列 JSON）で送る。未指定は全級選択とみなす（既存の呼び出しとの後方互換）。
+
+**差し替え承認**: 既取込の級は明示操作（`replaceGrades`。grade 配列 JSON）でのみ承認対象にできる。**開催回の明示選択が必須**（未選択だと「どの旧データを差し替えるのか」が決まらないため、大会名の自動解決には委ねずエラーにする）。1トランザクションで次を実行する。
+
+1. ドラフト行と edition をロックし、差し替え対象 grade の**旧クラス群**と、その配下の**旧側 player id 集合**を先に収集する
+2. 選択級だけで materialize（新 `tournaments` 行）
+3. 差し替え級の active fact（`valid_to IS NULL`）が旧クラスを指していれば `linkActualResultClass(replaceExisting: true)` で**新クラスへ revision 付きで再リンク**する（当落線・出場回数の集計が新データで継続する）。差し替え級の新クラスが級内で一意に定まらない場合は承認を拒否する
+4. 旧クラス群を**物理削除**する（`tournament_participants` / `matches` は FK cascade）。クラスが 0 件になった旧 `tournaments` 行も削除する
+5. 監査記録: クラスが全滅した旧 `tournaments` を生んだドラフトは `status='superseded'` + `superseded_by_draft_id`。一部だけ差し替えた旧 `tournaments` は `note` へ差し替え記録を追記する
+6. **旧側の選手**について `syncPlayersToUniqueMembers` + `recomputePlayerDisplayNames` を再実行する（削除で消えた出場を反映して表示名・会員リンクを引き直す）。新側の選手は `materializeResultDraft` が内部で済ませており、新旧どちらにも出る選手は旧側集合に含まれるのでここで最新化される
+
+**なぜ論理削除ではなく物理削除か**: materialize 済みの4表は `result_drafts.extracted_payload` とメール添付から常に再導出できる「導出層」である。supersede 列による論理削除は統計・戦績・当落線の読み取り約35箇所へ除外フィルタを恒久的に課し、1箇所の漏れが当落線の静かな二重計上になる。物理削除なら読み取り側は無変更で済む。復旧は該当メールから再取込 → 再承認（`superseded` は再取込可能ステータス）。
+
+> **運用制約**: この復旧はメール添付が残っていることが前提。添付のプルーニングを導入する場合は `approved` / `superseded` ドラフトが参照する添付を除外すること（[spec/mail-worker.md](mail-worker.md) に同旨を記載）。
 
 ### 大会系列（series）・開催（edition）の解決
 
@@ -143,14 +187,19 @@ edition を紐付けるため、コピーすると stale になる。集計結�
 
 ルートは mail-inbox（メール受信箱）配下だが、結果取込の承認・却下という本ドメインの中核操作を行う画面のため本書が正典として扱う。ドラフトの状態（承認待ち/承認済み/却下/取込失敗/差替済み）に応じた表示切り替え、解析結果プレビュー（級ごとの参加者数・試合数、参加者上位10名の順位/氏名/所属/勝敗数）、承認フォーム（大会名必須・開催日/会場任意）、却下ボタン（理由必須のテキストエリア）を持つ。`parse_failed` は却下のみ可能（承認不可）。
 
+AI 所見の表示（`result_drafts` の AI 列由来）: `verdict='out_of_scope'` なら対象外の警告、`meta.isCorrection` なら差し替え操作を促す表示、`extraction_source='ai'` なら「AI 抽出」の由来、`ai_error` が非 null なら「AI 検証なし」。大会名・開催日は AI が抽出したメタでプリフィルする。級ごとのチェックボックス（部分承認）と「取込済み」バッジ・差し替えチェックは前述「edition×級 突合・部分承認・差し替え」を参照。
+
 ## フロー
 
 ### 結果取込フロー（メール添付Excel）
 
-1. 管理者がメール詳細で添付Excelを指定し「結果として取り込む」→ `triggerResultParse` が `mail_worker_jobs`（`kind='result_parse'`）を作成（既存ドラフトが `pending_review`/`approved` ならエラーで弾く）
-2. mail-worker のタイマーが `runResultParse` を実行: `readExcel` → `parseResultExcel` → `result_drafts` を UPSERT（`pending_review` または `parse_failed`）。Web Push で管理者へ完了通知（best-effort）
-3. 管理者が `/admin/mail-inbox/result-drafts/[id]` でプレビューを確認し、大会名・開催日・会場を入力して承認、または理由を入力して却下
-4. 承認時は `approveResultDraft` → `materializeResultDraft` が同一トランザクションで実行され、`tournaments`/`tournament_classes`/`tournament_participants`/`matches` が確定保存される。以後この大会結果は `/tournaments/[id]` 等の閲覧画面（stats ドメイン集計経由）に反映される
+1. 管理者がメール詳細で添付（Excel または PDF）を指定し「結果として取り込む」→ `triggerResultParse` が `mail_worker_jobs`（`kind='result_parse'`）を作成（既存ドラフトが `pending_review`/`approved` ならエラーで弾く）。**取込の起点は手動トリガーのみ**（受信時の自動検知はしない）
+2. mail-worker のタイマーが `runResultParse` を実行:
+   - PDF → フル AI 抽出へ直行
+   - Excel → `readExcel` → `parseResultExcel`（決定的パース。常に先に試行）→ AI ルーティングで採用可否を判定 → `adopt` なら級名正規化マップを適用、`escalate` / 0クラスならフル AI 抽出へ
+   - 結果を `result_drafts` へ UPSERT（`pending_review` または `parse_failed`）し、AI 所見・トークン・コストを同じ行に記録する。AI 呼び出しが失敗しても決定的パース結果で `pending_review` を作る（fail-open）。Web Push で管理者へ完了通知（best-effort）
+3. 管理者が `/admin/mail-inbox/result-drafts/[id]` でプレビューと AI 所見を確認し、大会名・開催日・会場（AI 抽出値でプリフィル）と**取り込む級**を選んで承認、または理由を入力して却下
+4. 承認時は `approveResultDraft` → `materializeResultDraft` が同一トランザクションで実行され、**選択した級だけ**が `tournaments`/`tournament_classes`/`tournament_participants`/`matches` へ確定保存される。既取込級の差し替えを指定していれば旧級の削除と実出場原本の再リンクも同じトランザクションで行う。以後この大会結果は `/tournaments/[id]` 等の閲覧画面（stats ドメイン集計経由）に反映される
 
 ### 名簿取込フロー
 
@@ -160,12 +209,14 @@ edition を紐付けるため、コピーすると stale になる。集計結�
 
 ## API（Server Actions / ジョブハンドラ）
 
-- `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx` 添付を指定して `result_parse` ジョブを積む。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
-- `approveResultDraft(draftId, formData)` — 大会名/開催日/会場を受け取り `materializeResultDraft` を実行、`result_drafts.status='approved'` に遷移。`FOR UPDATE` で二重承認をガード
+- `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx`/`.pdf` 添付を指定して `result_parse` ジョブを積む。受理拡張子の判定は `isResultImportAttachment`（`apps/web/src/lib/result-import/attachment.ts`。承認画面・メール詳細と共有する単一ソース）。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
+- `approveResultDraft(draftId, formData)` — 大会名/開催日/会場に加えて `selectedClasses`（取り込む級の index 配列 JSON。未指定＝全級）と `replaceGrades`（差し替える grade の配列 JSON）を受け取り、選択級だけで `materializeResultDraft` を実行して `result_drafts.status='approved'` に遷移。差し替え指定があれば旧級の物理削除・実出場原本の再リンク・監査記録まで同一トランザクションで行う。`FOR UPDATE` で二重承認をガード
+- `getEditionImportedGrades(editionId)` — 開催回配下で既に取込済みの級を返す read-only Server Action（`result-drafts/[id]/actions.ts`）。承認画面の突合バッジ・既定チェック状態の入力
 - `replaceActualResultFact(draftId, classId, expectedFactId)` — 承認済み結果の単独級クラスを実出場原本へ明示的に差し替える。画面表示時のactive fact IDが変わっていれば拒否し、旧factを削除せずrevision化する
 - `rejectResultDraft(draftId, reason)` — `pending_review`/`parse_failed` のドラフトを理由付きで却下
 - `triggerRosterParse(mailId, attachmentId)` / `approveRosterImportDraft(draftId, formData)` / `rejectRosterImportDraft(draftId, reason)` — メール原本の解析enqueue、レビュー済み名簿の版管理採用、却下。採用時はedition/event/全級設定を再検証し、roster/publication/級別factを同一トランザクションで更新する
-- `runResultParse(opts)`（`apps/mail-worker/src/result-import/run.ts`）— ジョブ本体。Excel 読込・解析・`result_drafts` UPSERT・`mail_worker_runs` 記録・Web Push 通知
+- `runResultParse(opts)`（`apps/mail-worker/src/result-import/run.ts`）— ジョブ本体。Excel 読込・決定的パース・AI ルーティング（fail-open）・必要ならフル AI 抽出・`result_drafts` UPSERT・`mail_worker_runs` 記録・Web Push 通知
+- `AnthropicResultImportAi` / `FixtureResultImportAi` / `applyClassMap`（`apps/mail-worker/src/result-import/ai/`）— provider 中立の AI クライアントと級名正規化マップの適用（純関数）。テストは fixture 実装を注入する
 - `materializeResultDraft(tx, payload, opts)`（`apps/web/src/lib/result-import/materialize.ts`）— 解析済みペイロードから確定テーブル群への書き込み本体。呼び出し元トランザクション内で実行する前提（単体では commit しない）
 - `autoResolveEdition` / `findOrCreateEdition` / `findOrCreateSeries` / `suggestEditionFromName`（`apps/web/src/lib/edition/resolve.ts`）— 系列・開催の解決 API 群。結果取込・大会案内承認の双方から呼ばれる共通コア
 - `loadMoreTournaments(query, offset)`（`apps/web/src/app/(app)/tournaments/actions.ts`）— 年別一覧の追加読み込み（audience=全ログインユーザー、認証必須）

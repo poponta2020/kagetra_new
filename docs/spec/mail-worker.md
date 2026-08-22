@@ -206,6 +206,8 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 添付バイナリ配信（`/api/admin/mail/attachments/[id]`）は fail-closed allowlist を実装する: PDF / Office 文書 / ラスタ画像 / プレーンテキストのみ宣言 MIME のまま `inline` で配信し、それ以外（HTML/SVG/XML/JS 等の active content・不明型）は `application/octet-stream` + `Content-Disposition: attachment` に強制ダウングレードする（`X-Content-Type-Options: nosniff` を常に付与）。ページプレビュー配信（`/api/admin/mail/attachments/[id]/preview/[page]`）は常に pdftoppm が生成した JPEG（送信元の危険性に関わらず inert）を返すため MIME allowlist 判断が不要。両ルートとも `admin`/`vice_admin` セッション必須。
 
+**将来の添付プルーニング（ストレージ肥大対策）への制約**: `mail_attachments.data` の一括削除・古い添付の物理削除を将来導入する場合、`result_drafts` の `approved` / `superseded` 行が参照する添付は削除対象から**除外**すること。結果取込の差し替えは旧データを物理削除する設計で、復旧原本はドラフトの `extracted_payload` と**メール添付そのもの**だけになる（[spec/tournaments-results.md](tournaments-results.md) の「差し替え承認」参照）。添付を消すと差し替えの巻き戻しができなくなる。
+
 添付ファイルは LINE 配信時に `attachment_share_tokens`（`packages/shared/src/schema/attachment-share-tokens.ts`）経由の公開ダウンロードリンクとしても共有される。トークンは添付 1 件につき最大 1 行（60 日 TTL、期限内は再利用、期限切れなら同一行を書き換えて発行し直す）で、`/api/line-broadcast/attachments/[token]` が配信するが、この公開ルートおよび LINE 配信自体の詳細は [spec/notifications.md](notifications.md) の管轄。
 
 ### 会員向け 受信メール検索・閲覧（`/mail`）
