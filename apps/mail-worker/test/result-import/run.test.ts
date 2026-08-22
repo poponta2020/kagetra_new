@@ -772,4 +772,71 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
     expect(written.status).toBe('parse_failed')
     expect(written.aiError).toBe('bad')
   })
+
+  it('readExcel 自体が失敗 → 空シートを AI フル抽出へ渡さず parse_failed になる（Codex R1 修正1）', async () => {
+    readExcelMock.mockRejectedValueOnce(new Error('サポートされていない形式です'))
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 923 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.xlsx', data: Buffer.alloc(0), sizeBytes: 0 },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: 'テスト大会' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 933 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi()
+    const extractSpy = vi.spyOn(ai, 'extract')
+    const routeSpy = vi.spyOn(ai, 'route')
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(extractSpy).not.toHaveBeenCalled()
+    expect(routeSpy).not.toHaveBeenCalled()
+    expect(result.status).toBe('parse_failed')
+    const written = valuesFn.mock.calls[0]?.[0] as { status: string; parseError: string | null }
+    expect(written.status).toBe('parse_failed')
+    expect(written.parseError).toBe('サポートされていない形式です')
+  })
+
+  it('AI フル抽出が classes: [] を返す → 成功扱いにせず parse_failed になる（Codex R1 修正2）', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 924 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.pdf', data: Buffer.from('dummy-pdf-bytes'), sizeBytes: Buffer.from('dummy-pdf-bytes').length },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: 'テスト大会' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 934 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi({
+      extraction: { parserVersion: 'ai-extract-x', classes: [] },
+    })
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(result.status).toBe('parse_failed')
+    const written = valuesFn.mock.calls[0]?.[0] as {
+      status: string
+      parseError: string | null
+      extractedPayload: { classes: unknown[] } | Record<string, unknown>
+    }
+    expect(written.status).toBe('parse_failed')
+    expect(written.parseError).toContain('AI 抽出の結果に取り込める級がありませんでした')
+  })
 })

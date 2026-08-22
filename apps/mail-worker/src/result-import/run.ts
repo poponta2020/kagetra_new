@@ -161,9 +161,14 @@ export async function runResultParse(opts: {
     let classes: ParsedResultPayload['classes'] = []
     let sheets: SheetData[] = []
     let deterministicError: string | null = null
+    // Distinguishes "readExcel itself threw" (nothing to hand to AI full
+    // extraction — sheets stays []) from "sheets read fine but the parser
+    // found 0 classes" (sheets has real content, safe to send to AI). See 2b.
+    let sheetsRead = false
     if (!isPdf) {
       try {
         sheets = await readExcel(attachment.data, attachment.filename)
+        sheetsRead = true
         classes = parseResultExcel(sheets)
         if (classes.length === 0) {
           throw new Error(
@@ -240,10 +245,18 @@ export async function runResultParse(opts: {
         aiTokensInputSum += extraction.tokensInput
         aiTokensOutputSum += extraction.tokensOutput
         aiCostSum += extraction.costUsd
-        payload = extraction.parsed
         extractionSource = 'ai'
-        parseStatus = 'success'
-        parseError = null
+        if (extraction.parsed.classes.length === 0) {
+          // Schema-valid but empty — a 0-class draft renders an approval
+          // screen with a permanently disabled button and no way to fix it.
+          // Never let an empty AI payload through as a "success" draft.
+          parseStatus = 'parse_failed'
+          parseError = 'AI 抽出の結果に取り込める級がありませんでした'
+        } else {
+          payload = extraction.parsed
+          parseStatus = 'success'
+          parseError = null
+        }
       }
 
       try {
@@ -263,6 +276,18 @@ export async function runResultParse(opts: {
           log.info('result_parse: AI full extraction from PDF', {
             mailMessageId: opts.mailMessageId,
             filename: attachment.filename,
+          })
+        } else if (classes.length === 0 && !sheetsRead) {
+          // readExcel itself failed — sheets is empty, not just "0 classes
+          // parsed". Sending an empty { kind: 'sheets', sheets: [] } to AI
+          // full extraction can't recover the data; treat it as a parse
+          // failure with the original read error instead.
+          parseStatus = 'parse_failed'
+          parseError = deterministicError
+          log.warn('result_parse: Excel read failed — skipping AI full extraction', {
+            mailMessageId: opts.mailMessageId,
+            filename: attachment.filename,
+            err: deterministicError,
           })
         } else if (classes.length === 0) {
           log.info('result_parse: no deterministic classes — running AI full extraction', {
