@@ -346,7 +346,7 @@ export default async function MailDraftDetailPage({
           文書に見える」と申告したときの警告。ドラフトは通常どおり pending_review
           で作られ、**承認はブロックしない**（人間の判断が AI より上位）。 */}
       {extractedPayload?.source_mismatch === true && (
-        <Card className="border-warn bg-warn-bg">
+        <Card className="border-warn-fg/30 bg-warn-bg">
           <div className="space-y-1 text-sm">
             <div className="font-semibold text-warn-fg">
               ⚠ 渡した資料が要綱ではない可能性があります
