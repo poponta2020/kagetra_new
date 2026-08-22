@@ -45,6 +45,7 @@ import {
   type RosterPurpose,
 } from '@/lib/roster-import/adoption'
 import {
+  autoResolveEdition,
   createConfirmedSeries,
   findOrCreateEdition,
   getSeriesForEditionLink,
@@ -2742,15 +2743,34 @@ export async function approveResultDraft(
           }
         }
 
-        let lockedEdition = selectedEditionId === undefined
-          ? null
-          : await lockLotteryEdition(tx, selectedEditionId)
+        // 開催回を **materialize より前に確定させる**（Codex R2 blocker）。
+        // 未選択のときは materialize が内部で自動解決するが、それでは下の重複
+        // チェックが解決先の開催回を見られず、自動解決経路だけ二重登録の穴が
+        // 残る。ここで一度だけ解決し、確定した id を materialize へ明示的に渡す
+        // （materialize は editionId が undefined のときだけ自動解決するので、
+        // 解決が二重に走ることはない）。
+        const resolvedEditionId =
+          selectedEditionId !== undefined
+            ? selectedEditionId
+            : (
+                await autoResolveEdition(tx, {
+                  rawName: tournamentName,
+                  year:
+                    eventDateRaw && /^\d{4}-/.test(eventDateRaw)
+                      ? Number(eventDateRaw.slice(0, 4))
+                      : null,
+                  status: 'held',
+                })
+              ).editionId
 
-        // 既取込級の重複防止（Codex R1 修正3）: 「明示的な差し替え操作でのみ
-        // 承認対象にできる」を UI の既定チェック OFF だけに委ねず、サーバー側でも
-        // 確認する。edition が未選択（自動解決に委ねる）ときは突合できないので
-        // スキップ（現行挙動＝edition 未確定時は全級既定 ON のまま）。
-        if (selectedEditionId !== undefined) {
+        let lockedEdition =
+          resolvedEditionId === null ? null : await lockLotteryEdition(tx, resolvedEditionId)
+
+        // 既取込級の重複防止（Codex R1/R2）: 「明示的な差し替え操作でのみ承認対象に
+        // できる」を UI の既定チェック OFF だけに委ねず、サーバー側でも保証する。
+        // 開催回が解決できなかった場合（大会名から特定できない）は突合対象が無い
+        // ので素通しする＝現行挙動。
+        if (resolvedEditionId !== null) {
           const candidateGrades = [
             ...new Set(
               selectedPayload.classes
@@ -2763,14 +2783,16 @@ export async function approveResultDraft(
           ]
           const alreadyImported = await findAlreadyImportedGrade(
             tx,
-            selectedEditionId,
+            resolvedEditionId,
             candidateGrades,
           )
           if (alreadyImported !== null) {
-            return {
-              ok: false,
-              error: `${alreadyImported}級はこの開催回に既に取り込まれています。差し替える場合は「この級を差し替える」を指定してください`,
-            }
+            // return ではなく throw。自動解決の副作用（findOrCreateEdition が
+            // 開催回を新規作成しうる）をトランザクションごと巻き戻すため。
+            // 呼び出し元の catch が同じ形の { ok: false, error } に変換する。
+            throw new Error(
+              `${alreadyImported}級はこの開催回に既に取り込まれています。差し替える場合は「この級を差し替える」を指定してください`,
+            )
           }
         }
 
@@ -2785,7 +2807,9 @@ export async function approveResultDraft(
           eventDate: eventDateRaw,
           venue,
           sourceResultDraftId: draftId,
-          editionId: selectedEditionId,
+          // 上で確定済み（null = 解決できず未紐付け）。undefined を渡すと
+          // materialize 側でもう一度自動解決が走る。
+          editionId: resolvedEditionId,
         })
 
         if (editionId !== null && lockedEdition === null) {

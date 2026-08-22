@@ -98,6 +98,8 @@
 
 **突合**: 承認画面で管理者が開催回を選択している場合、payload の各級の `grade` を同 edition 配下の既存 `tournament_classes` と突き合わせる（`getEditionImportedGrades`。`result-drafts/[id]/actions.ts` の read-only Server Action）。既取込の級は「取込済み」バッジ付き・**既定チェック OFF**、未取込の級は既定 ON。edition 未確定なら突合バッジを出さず全級既定 ON（従来挙動）。
 
+**重複ガード（サーバー側）**: 開催回が確定している場合（管理者の明示選択、または大会名からの自動解決）、承認しようとする級の grade が同 edition 配下に既に存在し、かつ `replaceGrades` に含まれていなければ**承認を拒否する**。UI の既定チェック OFF だけに依存させない（フォームの状態を触れば素通りでき、素通りすると戦績・統計・当落線が二重計上される）。自動解決経路も materialize より前に開催回を確定させてからこのチェックを通す。
+
 **部分承認**: チェックした級だけを materialize する（`tournaments` 行は選択級のみで作成）。全級選択時の結果は従来の承認と同一。0級選択での承認はエラー。選択は承認フォームの `selectedClasses`（payload.classes の index 配列 JSON）で送る。未指定は全級選択とみなす（既存の呼び出しとの後方互換）。
 
 **差し替え承認**: 既取込の級は明示操作（`replaceGrades`。grade 配列 JSON）でのみ承認対象にできる。**開催回の明示選択が必須**（未選択だと「どの旧データを差し替えるのか」が決まらないため、大会名の自動解決には委ねずエラーにする）。1トランザクションで次を実行する。
@@ -212,7 +214,7 @@ AI 所見の表示（`result_drafts` の AI 列由来）: `verdict='out_of_scope
 - `triggerResultParse(mailId, attachmentId)` — `.xls`/`.xlsx`/`.pdf` 添付を指定して `result_parse` ジョブを積む。受理拡張子の判定は `isResultImportAttachment`（`apps/web/src/lib/result-import/attachment.ts`。承認画面・メール詳細と共有する単一ソース）。既存ドラフトの状態ガードあり（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts`）
 - `approveResultDraft(draftId, formData)` — 大会名/開催日/会場に加えて `selectedClasses`（取り込む級の index 配列 JSON。未指定＝全級）と `replaceGrades`（差し替える grade の配列 JSON）を受け取り、選択級だけで `materializeResultDraft` を実行して `result_drafts.status='approved'` に遷移。差し替え指定があれば旧級の物理削除・実出場原本の再リンク・監査記録まで同一トランザクションで行う。`FOR UPDATE` で二重承認をガード
 - `getEditionImportedGrades(editionId)` — 開催回配下で既に取込済みの級を返す read-only Server Action（`result-drafts/[id]/actions.ts`）。承認画面の突合バッジ・既定チェック状態の入力
-- `replaceActualResultFact(draftId, classId, expectedFactId)` — 承認済み結果の単独級クラスを実出場原本へ明示的に差し替える。画面表示時のactive fact IDが変わっていれば拒否し、旧factを削除せずrevision化する
+- `replaceActualResultFact(draftId, classId, expectedFactId)` — 承認済み結果の単独級クラスを実出場原本へ明示的に差し替える。画面表示時のactive fact IDが変わっていれば拒否し、旧factを削除せずrevision化する。**2026-08 改修以降、承認フローからは同一 edition に同 grade のクラスを2つ作れない**（下記の重複ガード）ため、この API が効くのは過去の一括投入由来など既に複数クラスがある edition に限られる
 - `rejectResultDraft(draftId, reason)` — `pending_review`/`parse_failed` のドラフトを理由付きで却下
 - `triggerRosterParse(mailId, attachmentId)` / `approveRosterImportDraft(draftId, formData)` / `rejectRosterImportDraft(draftId, reason)` — メール原本の解析enqueue、レビュー済み名簿の版管理採用、却下。採用時はedition/event/全級設定を再検証し、roster/publication/級別factを同一トランザクションで更新する
 - `runResultParse(opts)`（`apps/mail-worker/src/result-import/run.ts`）— ジョブ本体。Excel 読込・決定的パース・AI ルーティング（fail-open）・必要ならフル AI 抽出・`result_drafts` UPSERT・`mail_worker_runs` 記録・Web Push 通知

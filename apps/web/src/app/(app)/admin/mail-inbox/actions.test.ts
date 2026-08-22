@@ -4276,6 +4276,80 @@ describe('approveResultDraft — 部分承認と差し替え', () => {
     expect(await testDb.select().from(tournamentClasses)).toHaveLength(1)
   })
 
+  // Codex R2 blocker: 開催回を選ばずに承認すると materialize が大会名から
+  // 開催回を自動解決するため、その解決先に同じ級が既にあると二重登録できていた
+  // （サーバー側チェックが「明示選択したとき」しか走っていなかった）。
+  it('開催回を自動解決した場合も、既取込級は差し替え指定なしで再承認できない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    // 「第3回差し替えテスト大会」で autoResolveEdition が完全一致する系列を用意する。
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    // 1回目は開催回を明示選択して取り込む。
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    // 2回目は開催回を選ばず、大会名から自動解決させる。
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '鈴木二郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('第3回差し替えテスト大会'))
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.error).toMatch(/既に取り込まれています/)
+
+    // 二重登録されていない（C 級のクラスは1件のまま）。
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.grade, 'C'))
+    expect(classRows).toHaveLength(1)
+    expect(classRows[0]!.tournamentId).toBe(first.tournamentId)
+  })
+
+  it('自動解決先に未取込の級なら、開催回を選ばなくても承認できる（回帰）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+
+    // D 級は未取込なので、自動解決経路でもそのまま通る。
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('D', '鈴木二郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('第3回差し替えテスト大会'))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+
+    // 自動解決で同じ開催回に紐付いている。
+    const tournament = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, second.tournamentId),
+    })
+    expect(tournament?.editionId).toBe(editionId)
+  })
+
   it('selectedClasses が壊れた JSON ならエラーになる', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
