@@ -162,7 +162,7 @@ export function TournamentSeriesSelectSheet({
                   一致する既存系列がありません
                 </p>
                 {hasCrossKindExactMatch && (
-                  <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-ink">
+                  <p className="rounded-md border border-warn-fg/30 bg-warn-bg p-3 text-ink">
                     同じ名前の系列が別の大会種別で登録されています。大会種別を確認してください。
                   </p>
                 )}
