@@ -218,11 +218,13 @@ describe('ApproveResultDraftForm — 級選択', () => {
   // Codex R1: 開催回を素早く切り替えたとき、前の開催回の応答が後着して
   // 選択状態を上書きすると、画面と送信内容が食い違ったまま承認できてしまう。
   it('古い開催回の照合応答が後着しても、最新の開催回の結果で上書きされない', async () => {
-    let resolveFirst: ((v: ImportedGradeSummary[]) => void) | null = null
+    // オブジェクト経由で保持する（`let x: F | null = null` だと TS の制御フロー
+    // 解析が呼び出し地点で `never` に絞り込んでしまい呼べなくなる）。
+    const deferred: { resolve?: (v: ImportedGradeSummary[]) => void } = {}
     const loadImportedGrades = vi.fn(async (editionId: number): Promise<ImportedGradeSummary[]> => {
       if (editionId === 1) {
         return new Promise<ImportedGradeSummary[]>((resolve) => {
-          resolveFirst = resolve
+          deferred.resolve = resolve
         })
       }
       return [{ grade: 'B', classCount: 1, tournamentNames: ['第2回テスト大会'] }]
@@ -243,7 +245,7 @@ describe('ApproveResultDraftForm — 級選択', () => {
     })
 
     // 開催回1 の応答（A 級が取込済み）を今になって返す
-    resolveFirst?.([{ grade: 'A', classCount: 1, tournamentNames: ['第1回テスト大会'] }])
+    deferred.resolve?.([{ grade: 'A', classCount: 1, tournamentNames: ['第1回テスト大会'] }])
     await waitFor(() => {
       expect(loadImportedGrades).toHaveBeenCalledTimes(2)
     })
