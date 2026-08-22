@@ -16,15 +16,19 @@ type: project
 - **波及**: reply / push を `LineMessage[]` 受けへ拡張。`FeeTallyResult.headcounts` 追加
 
 ## レビュー（/auto-review-loop 3R = i+d+f）
-- R1 initial（sol/high）needs_changes・blockers 12 → 6件修正・5件見送り／R2 delta（terra/medium）pass／R3 final（sol/high）blockers 4 → 2件修正・2件見送りで cutoff
-- **累計 704,758 トークン**（上限 500,000 超過。R3 完了時点の判定で次ラウンドは発生せず）
-- ★**修正したが再レビューしていない指摘が2件ある**（CI が赤くなったときの手がかり）:
-  1. `PaymentNoticeSection.tsx` — 再検証後に古い人数 state で送信していたのを、rows の署名変化で state を作り直すよう修正
-  2. `admin/members/[id]/edit/actions.ts` — `deleteMember` の参照ゼロチェックに `entry_group_payment_notices.last_sent_by` を追加
-- **見送り（受容した既知の制限）**: メンション対象のグループ所属検証（LINE のメンバー確認 API が要る）／送信の TOCTOU 排他制御／監査スナップショットの分離／重複防止キー／送信直前の binding 再検証／送信後に対象日が減ったときの保存人数の再利用／振込期限と支払情報が別の日から選ばれうる。後ろ2件は要件定義書 §3.3.2 に既知の制限として明記済み
+- R1 initial（sol/high）needs_changes・blockers 12 → 6件修正・5件見送り／R2 delta（terra/medium）pass／R3 final（sol/high）blockers 4 → 2件修正・2件見送りで cutoff。累計 704,758 トークン
+- ★**修正したが再レビューしていない指摘が2件**（CI が赤くなったときの手がかり）: `PaymentNoticeSection.tsx` の stale state ／ `deleteMember` の参照チェックに `last_sent_by` 追加
+- **見送り（受容した既知の制限）**: メンション対象のグループ所属検証／TOCTOU 排他制御／監査スナップショットの分離／重複防止キー／送信直前の binding 再検証／送信後に対象日が減ったときの保存人数の再利用／振込期限と支払情報が別の日から選ばれうる。後ろ2件は要件定義書 §3.3.2 に明記済み
 
-## ★残 DoD（本番作業）
-1. **migration 0059・0060 を本番へ適用**（`db:migrate`。`db:push` は対話プロンプトで詰む）
-2. **AC-21: 本番で会計フラグを設定し、実際の大会グループへ振込連絡が届くことを確認**
-3. **同時に「メンションが実際に表示されるか」を確認する** — 会計担当がその大会の LINE グループに居ない場合に textV2 全体が拒否される可能性を、レビュー指摘のうえ見送っている。届かなければ追修正（素テキストへのフォールバック等）
-4. CI は R3 修正の push 直後で pending のままマージした。赤なら追修正
+## 本番作業（2026-08-22 実施）
+- ✅ **migration 0059/0060 適用済み**。デプロイパイプラインが自動実行（`gh run 32573070239` の Deploy to production = success）。`drizzle.__drizzle_migrations` に2件・`users.is_treasurer` 列と `entry_group_payment_notices` テーブルの実在を psql で確認
+- ✅ **会計フラグ設定**: 酒井 美波（`afa942c0-7551-4cc7-85fe-31c2192f6d69`・vice_admin・LINE 紐付け済み）に `is_treasurer=true`
+- ✅ **AC-21 用の共通項目を整備**: 露出条件を満たす本番グループは**グループ13「杉並A/杉並B」の1件のみ**（Issue #509 の杉並AB。LINE 紐付け `@203bedkp` / `C2c4812d...`）。
+  - 変更前: `payment_deadline`=NULL / `payment_deadline_kind`=unspecified / `payment_info`=「参加確定後に別途お振込み依頼のご連絡をいたします。振込手数料については振込人様ご負担でお願いします。」（**revert するならこの値**）
+  - 変更後: `payment_deadline`=2026-08-31 / `kind`=fixed / `payment_info`=確定連絡メール（mail_messages.id=341）の振込先。**口座情報は本番 DB 参照（git に書かない）**
+- ⏳ **AC-21 の送信は未実施**。本番に `LINE_NOTIFY_DRY_RUN` は無く押せば実送信で、宛先は大会グループ全員なのでユーザーが `/admin/entries/13` の「振込連絡」で押す。押下後に `entry_group_payment_notices.last_sent_at` と LINE 実表示を検証する
+  - 送信予定の人数は**出欠回答ベースで A級1名・B級0名**。確定名簿と食い違うなら送信画面で直す（そのための人数編集）
+
+## ★残 DoD
+1. **AC-21**: `/admin/entries/13` の「振込連絡」で送信 → 届くこと・`@会計` が酒井さんの表示名でメンション表示されることを確認
+2. 会計担当がその大会 LINE グループに居ない場合に textV2 全体が拒否される可能性を見送っている。1 で届かなければ追修正（素テキストへのフォールバック等）

@@ -333,4 +333,5 @@
 - [line-bot-message-revamp 実装](impl_line-bot-message-revamp.md) — Wave編成の実績・トランスポート契約変更の跨りタスク・zod v4 record の罠
 - [fix PR #530](impl_fix-pr530.md) — review 指摘の修正
 - [auto-review PR #530](auto-review-round-pr530.md) — 3R(i+d+f) → final で cutoff。blockers 16件中8件修正・7件見送り
-- [大会別LINE Botメッセージ全面改訂＋会計メンション・振込連絡](project_ship-line-bot-message-revamp.md) — shipped: PR #530。★残DoD=migration 0059/0060 本番適用＋AC-21 実機確認（メンション表示も同時に見る）
+- [大会別LINE Botメッセージ全面改訂＋会計メンション・振込連絡](project_ship-line-bot-message-revamp.md) — shipped: PR #530。migration適用済・会計=酒井美波設定済。★残DoD=AC-21 送信（/admin/entries/13）
+- [auto-review PR #531](auto-review-round-pr531.md) — R1 verdict=pass (initial, sol/low, 90k tokens)
