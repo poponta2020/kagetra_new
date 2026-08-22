@@ -60,7 +60,7 @@ status: completed
 - **対応Issue:** #537
 
 ### タスク5: 承認画面 UI（AI 所見・級チェックボックス・突合バッジ・差し替え操作）
-- [ ] 完了
+- [x] 完了
 - **目的:** 部分承認・差し替え・AI 所見を承認画面で操作/確認できるようにする
 - **対応AC:** AC-3, AC-4（プリフィル）, AC-9（由来表示）, AC-10, AC-13（クライアント側ガード）, AC-16, AC-17
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/`（page.tsx / components/ApproveResultDraftForm.tsx / **新規** actions.ts=getEditionImportedGrades）・同ディレクトリのコンポーネントテスト
