@@ -36,6 +36,7 @@ import {
   buildLifecycleMessage,
   buildTreasurerNoticeMessage,
   claimLifecycleNotification,
+  finalizeLifecycleNotification,
   sendClaimedNotificationBulk,
 } from '@/lib/event-lifecycle-notify'
 import { resolveTreasurerMention } from '@/lib/line-mention-targets'
@@ -896,16 +897,31 @@ export async function setEntriesApplied(
   // 会計向け（claim できた集合だけで1通。§3.2.3 の予告文は固定・件数に関わらず同一）。
   // 参加者向けの push 失敗ともう片方の送信成否は独立（要件 §3.2.5）。
   if (result.treasurerNotificationIds.length > 0) {
-    const message = await buildTreasurerAppliedMessage()
+    // claim（status='skipped' 行の INSERT）は tx で既にコミット済みなので、
+    // ここから先で throw しても状態は巻き戻らない。buildTreasurerAppliedMessage
+    // は resolveTreasurerMention 経由で DB を引くため throw しうる — try の外に
+    // 置くと claim 済み行が 'skipped' のまま finalize されず、UNIQUE により
+    // 再実行でも再 claim できなくなる（通知が恒久的に失われる）。
     try {
+      const message = await buildTreasurerAppliedMessage()
       await sendClaimedNotificationBulk(db, {
         notificationIds: result.treasurerNotificationIds,
         eventId: result.treasurerClaimed[0]!.id,
         // 会計向けはメンション付き textV2 の1通（push は配列を受け取る契約）。
         message: [message],
       })
-    } catch {
-      // best-effort
+    } catch (err) {
+      // best-effort: 状態変更はコミット済み。push/文面組立の失敗で巻き戻さない。
+      // ただし claim 済み行を 'skipped' のまま放置しないよう、送信失敗と同じ
+      // 扱いで finalize する（finalize 自体も best-effort）。
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      await Promise.all(
+        result.treasurerNotificationIds.map((id) =>
+          finalizeLifecycleNotification(db, id, { status: 'failed', errorMessage }).catch(
+            () => undefined,
+          ),
+        ),
+      )
     }
   }
 

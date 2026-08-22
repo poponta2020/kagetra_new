@@ -13,6 +13,24 @@ import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 vi.mock('@/auth', () => mockAuthModule())
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
+/**
+ * line-bot-message-revamp レビュー修正: 会計メンション解決（DB クエリ）の失敗を
+ * 再現するための差し替え。既定は実物（`realResolveTreasurerMention` を包む）で、
+ * 失敗パスのテストだけ `mockResolveTreasurerMention` を上書きする
+ * （`open-chat-actions.test.ts` の `mockPushMessages` と同じパターン）。
+ */
+const mockResolveTreasurerMention = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/line-mention-targets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/line-mention-targets')>()
+  return {
+    ...actual,
+    resolveTreasurerMention: mockResolveTreasurerMention,
+  }
+})
+const { resolveTreasurerMention: realResolveTreasurerMention } = await vi.importActual<
+  typeof import('@/lib/line-mention-targets')
+>('@/lib/line-mention-targets')
+
 // Import under test AFTER mocks so @/auth resolves to the mock.
 const {
   setEntryApplied,
@@ -81,6 +99,8 @@ describe('event lifecycle actions', () => {
   beforeEach(async () => {
     process.env.LINE_NOTIFY_DRY_RUN = '1'
     await truncateAll()
+    mockResolveTreasurerMention.mockReset()
+    mockResolveTreasurerMention.mockImplementation(realResolveTreasurerMention)
   })
   afterAll(async () => {
     if (ORIGINAL_DRY_RUN === undefined) delete process.env.LINE_NOTIFY_DRY_RUN
@@ -221,6 +241,34 @@ describe('event lifecycle actions', () => {
     await expect(setEntryApplied(event.id, true)).rejects.toThrow('Forbidden')
     expect((await getEvent(event.id))?.entryStatus).toBe('not_applied')
     expect(await notifications(event.id)).toHaveLength(0)
+  })
+
+  it('setEntryApplied(true): 会計メンション解決（DB クエリ）が失敗しても Server Action は reject せず、申込状態は保たれ会計向け claim は failed で finalize される', async () => {
+    const admin = await createAdmin()
+    const event = await seedLinkedEvent()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    mockResolveTreasurerMention.mockRejectedValueOnce(new Error('db down'))
+
+    // claim（状態変更 + 通知ログ INSERT）は tx で既にコミット済みのため、この後
+    // 会計向け文面組立が throw しても Server Action 自体は reject しない
+    // （best-effort 境界の外に出ないことの確認）。
+    await expect(setEntryApplied(event.id, true)).resolves.toBeUndefined()
+
+    const row = await getEvent(event.id)
+    expect(row?.entryStatus).toBe('applied')
+    expect(row?.entryAppliedAt).not.toBeNull()
+
+    const logs = await notifications(event.id)
+    const byType = new Map(logs.map((l) => [l.type, l]))
+    expect(byType.size).toBe(2)
+    // 参加者向けは会計向けの失敗と独立して sent のまま。
+    expect(byType.get('entry_applied')).toMatchObject({ status: 'sent' })
+    // 会計向けは claim 済み行が 'skipped' のまま放置されず、送信失敗と同じ
+    // 'failed' で finalize される（UNIQUE により再 claim できなくなる恒久喪失を防ぐ）。
+    expect(byType.get('entry_applied_treasurer')).toMatchObject({
+      status: 'failed',
+      errorMessage: 'db down',
+    })
   })
 
   it('setPaymentType: 事前払い/現地払い/未設定を切り替える', async () => {
