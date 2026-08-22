@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Btn, Pill } from '@/components/ui'
 import type { Grade } from '@kagetra/shared/types'
@@ -45,6 +45,11 @@ export function ApproveResultDraftForm({
   // AC-10 の差し替え明示（既定 OFF）。
   const [replaceGrades, setReplaceGrades] = useState<Set<Grade>>(new Set())
   const [importedGrades, setImportedGrades] = useState<ImportedGradeSummary[]>([])
+  const [importError, setImportError] = useState<string | null>(null)
+  // 開催回の突合リクエストの世代番号（Codex R1 修正）。開催回を素早く切り替えると
+  // 前の開催回の応答が後着して選択状態を上書きし、画面には B が出ているのに A 基準の
+  // 級で承認できてしまう。最新世代の応答だけを反映する。
+  const importReqId = useRef(0)
 
   const visibleEditions = useMemo(() => {
     const query = editionSearch.normalize('NFKC').toLowerCase().trim()
@@ -61,6 +66,10 @@ export function ApproveResultDraftForm({
   // edition select の値が変わるたびに突合結果を取り直し、既定チェック状態を
   // 再計算する（AC-10）。空に戻したら全級 ON へ戻す（AC-16）。
   useEffect(() => {
+    // 世代番号は「開催回が変わった時点」で進める（空へ戻した場合も含む）。
+    // これより古い応答は破棄される。
+    const reqId = ++importReqId.current
+    setImportError(null)
     if (!editionId) {
       setImportedGrades([])
       setChecked(new Set(classes.map((cls) => cls.index)))
@@ -70,29 +79,52 @@ export function ApproveResultDraftForm({
     const parsedEditionId = Number(editionId)
     if (!Number.isInteger(parsedEditionId) || parsedEditionId <= 0) return
     startImportTransition(async () => {
-      const result = await loadImportedGrades(parsedEditionId)
-      setImportedGrades(result)
-      const imported = new Set(result.map((g) => g.grade))
-      setChecked(
-        new Set(
-          classes
-            .filter((cls) => !(cls.grade != null && imported.has(cls.grade)))
-            .map((cls) => cls.index),
-        ),
-      )
-      setReplaceGrades(new Set())
+      try {
+        const result = await loadImportedGrades(parsedEditionId)
+        if (importReqId.current !== reqId) return // 古い応答は捨てる
+        setImportedGrades(result)
+        const imported = new Set(result.map((g) => g.grade))
+        setChecked(
+          new Set(
+            classes
+              .filter((cls) => !(cls.grade != null && imported.has(cls.grade)))
+              .map((cls) => cls.index),
+          ),
+        )
+        setReplaceGrades(new Set())
+      } catch (err) {
+        if (importReqId.current !== reqId) return
+        // 突合できないまま承認させない（既取込級を二重登録する経路になる）。
+        setImportedGrades([])
+        setImportError(
+          `開催回の取込状況を確認できませんでした。画面を再読み込みしてください。（${
+            err instanceof Error ? err.message : String(err)
+          }）`,
+        )
+      }
     })
   }, [editionId, classes, loadImportedGrades])
 
   const toggleClass = (index: number) => {
-    setChecked((current) => {
-      const next = new Set(current)
-      if (next.has(index)) {
-        next.delete(index)
-      } else {
-        next.add(index)
-      }
-      return next
+    const next = new Set(checked)
+    if (next.has(index)) {
+      next.delete(index)
+    } else {
+      next.add(index)
+    }
+    setChecked(next)
+    // 差し替えチェックは「取込済み級を再選択したとき」だけ画面に出る。級を外すと
+    // チェックボックスは消えるのに replaceGrades には残り、送信時にサーバーが
+    // 「取り込む級の中にその級が無い」と拒否して承認不能になる（Codex R1 修正）。
+    // 外した時点で、その級を選んでいるクラスが他に無ければ replaceGrades からも落とす。
+    const stillCheckedGrades = new Set(
+      classes.flatMap((cls) =>
+        next.has(cls.index) && cls.grade != null ? [cls.grade] : [],
+      ),
+    )
+    setReplaceGrades((current) => {
+      const filtered = new Set([...current].filter((grade) => stillCheckedGrades.has(grade)))
+      return filtered.size === current.size ? current : filtered
     })
   }
 
@@ -116,12 +148,28 @@ export function ApproveResultDraftForm({
       setError('取り込む級を1つ以上選択してください')
       return
     }
+    // 突合が終わる前・失敗したままの承認は、既取込級の二重登録につながるので止める。
+    if (importLoading) {
+      setError('開催回の取込状況を確認中です。完了までお待ちください')
+      return
+    }
+    if (importError !== null) {
+      setError(importError)
+      return
+    }
     const fd = new FormData(e.currentTarget)
     fd.set(
       'selectedClasses',
       JSON.stringify(Array.from(checked).sort((a, b) => a - b)),
     )
-    fd.set('replaceGrades', JSON.stringify(Array.from(replaceGrades)))
+    // 送信直前にも現在の選択と突き合わせる（状態遷移の取りこぼしに対する保険）。
+    const checkedGrades = new Set(
+      classes.flatMap((cls) => (checked.has(cls.index) && cls.grade != null ? [cls.grade] : [])),
+    )
+    fd.set(
+      'replaceGrades',
+      JSON.stringify(Array.from(replaceGrades).filter((grade) => checkedGrades.has(grade))),
+    )
     startTransition(async () => {
       const result = await approveResultDraft(draftId, fd)
       if (result.ok) {
@@ -282,9 +330,15 @@ export function ApproveResultDraftForm({
         </div>
       )}
 
+      {importError && <p className="text-xs text-danger-fg">{importError}</p>}
       {error && <p className="text-xs text-danger-fg">{error}</p>}
 
-      <Btn kind="primary" size="md" type="submit" disabled={pending || checked.size === 0}>
+      <Btn
+        kind="primary"
+        size="md"
+        type="submit"
+        disabled={pending || checked.size === 0 || importLoading || importError !== null}
+      >
         {pending ? '保存中…' : '承認して確定保存'}
       </Btn>
     </form>

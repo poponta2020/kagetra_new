@@ -299,8 +299,13 @@ describe('guest-role AC-23: 一覧の参加人数にゲストを含む', () => {
 
     render(await EventsPage())
 
-    // 会員1名 + ゲスト1名 = 2名
-    expect(screen.getByText('2')).toBeDefined()
+    // 会員1名 + ゲスト1名 = 2名。
+    // `getByText('2')` にすると、開催日が「◯月2日」になる日（＝毎月2日の10日前）
+    // にカードの日付表示「2」と衝突して落ちる（日付依存の flaky）。人数バッジは
+    // `<span>2<small>名</small></span>` なので textContent が「2名」の要素で一意に取る。
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === '2名'),
+    ).toBeDefined()
     expect(screen.getByText('会員')).toBeDefined()
     expect(screen.getByText('客人')).toBeDefined()
     // 姓の羅列にゲスト印は出さない

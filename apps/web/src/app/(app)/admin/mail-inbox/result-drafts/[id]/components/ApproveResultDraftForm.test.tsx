@@ -183,4 +183,91 @@ describe('ApproveResultDraftForm — 級選択', () => {
     expect(JSON.parse(fd.get('replaceGrades') as string)).toEqual(['C'])
     expect(JSON.parse(fd.get('selectedClasses') as string)).toEqual([0, 1, 2])
   })
+
+  // Codex R1: 級を外すと差し替えチェックは画面から消えるのに replaceGrades に
+  // 残り、サーバーが「取り込む級の中にその級が無い」と拒否して承認不能になっていた。
+  it('差し替えを ON にした級を外すと replaceGrades からも落ちる', async () => {
+    const loadImportedGrades = vi.fn(async (): Promise<ImportedGradeSummary[]> => [
+      { grade: 'C', classCount: 1, tournamentNames: ['第1回テスト大会'] },
+    ])
+    renderForm({ loadImportedGrades })
+    selectEdition(1)
+    await waitFor(() => {
+      expect(classCheckbox(2).checked).toBe(false)
+    })
+
+    // 取込済み C 級を再チェック → 差し替えを ON
+    fireEvent.click(classCheckbox(2))
+    const replaceBox = await screen.findByLabelText('この級を差し替える')
+    fireEvent.click(replaceBox)
+    expect((replaceBox as HTMLInputElement).checked).toBe(true)
+
+    // C 級を外す（差し替えチェックは画面から消える）
+    fireEvent.click(classCheckbox(2))
+    expect(screen.queryByLabelText('この級を差し替える')).toBeNull()
+
+    fireEvent.submit(screen.getByRole('button', { name: '承認して確定保存' }).closest('form')!)
+    await waitFor(() => {
+      expect(approveResultDraftMock).toHaveBeenCalled()
+    })
+    const fd = approveResultDraftMock.mock.calls[0]![1] as FormData
+    expect(JSON.parse(fd.get('replaceGrades') as string)).toEqual([])
+    expect(JSON.parse(fd.get('selectedClasses') as string)).not.toContain(2)
+  })
+
+  // Codex R1: 開催回を素早く切り替えたとき、前の開催回の応答が後着して
+  // 選択状態を上書きすると、画面と送信内容が食い違ったまま承認できてしまう。
+  it('古い開催回の照合応答が後着しても、最新の開催回の結果で上書きされない', async () => {
+    let resolveFirst: ((v: ImportedGradeSummary[]) => void) | null = null
+    const loadImportedGrades = vi.fn(async (editionId: number): Promise<ImportedGradeSummary[]> => {
+      if (editionId === 1) {
+        return new Promise<ImportedGradeSummary[]>((resolve) => {
+          resolveFirst = resolve
+        })
+      }
+      return [{ grade: 'B', classCount: 1, tournamentNames: ['第2回テスト大会'] }]
+    })
+    renderForm({
+      loadImportedGrades,
+      editionOptions: [
+        { id: 1, label: '第1回テスト大会 (2026)' },
+        { id: 2, label: '第2回テスト大会 (2026)' },
+      ],
+    })
+
+    selectEdition(1) // 応答は保留のまま
+    selectEdition(2) // 切り替え。こちらは即解決する
+
+    await waitFor(() => {
+      expect(classCheckbox(1).checked).toBe(false) // 開催回2 の取込済み = B 級
+    })
+
+    // 開催回1 の応答（A 級が取込済み）を今になって返す
+    resolveFirst?.([{ grade: 'A', classCount: 1, tournamentNames: ['第1回テスト大会'] }])
+    await waitFor(() => {
+      expect(loadImportedGrades).toHaveBeenCalledTimes(2)
+    })
+
+    // 表示は開催回2 基準のまま（A 級は ON・B 級は OFF）
+    expect(classCheckbox(0).checked).toBe(true)
+    expect(classCheckbox(1).checked).toBe(false)
+  })
+
+  // 突合できていない状態で承認させない（既取込級の二重登録経路になる）。
+  it('照合に失敗したら承認を止めてエラーを表示する', async () => {
+    const loadImportedGrades = vi.fn(async (): Promise<ImportedGradeSummary[]> => {
+      throw new Error('DB unreachable')
+    })
+    renderForm({ loadImportedGrades })
+    selectEdition(1)
+
+    await waitFor(() => {
+      expect(screen.getByText(/開催回の取込状況を確認できませんでした/)).toBeDefined()
+    })
+    const button = screen.getByRole('button', { name: '承認して確定保存' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+
+    fireEvent.submit(button.closest('form')!)
+    expect(approveResultDraftMock).not.toHaveBeenCalled()
+  })
 })
