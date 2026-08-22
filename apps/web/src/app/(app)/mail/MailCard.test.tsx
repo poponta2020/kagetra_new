@@ -189,6 +189,43 @@ describe('MailCard', () => {
     // カード全体のリンクと添付チップぶんのリンクが個別に存在すること。
     expect(container.querySelectorAll('a').length).toBe(3)
   })
+
+  // #528: カードのルートが `relative` だけ（= z-index: auto）だとスタッキング
+  // コンテキストを作らず、添付チップの `z-10` がカードの外＝ページのコンテキストへ
+  // 抜ける。すると `/mail` の sticky 検索バー（`sticky top-0 z-10`）と z-10 同士の
+  // タイになり、DOM 順で後ろにあるチップが手前に描画されて検索バーに重なる。
+  // `isolate` でカード内へ閉じ込める（内部の overlay `z-0` < チップ `z-10` は維持）。
+  it('#528: カードのルートがスタッキングコンテキストを閉じている（relative + isolate）', () => {
+    const { container } = render(
+      <MailCard
+        row={makeRow({
+          attachments: [
+            {
+              id: 42,
+              filename: '要項.pdf',
+              contentType: 'application/pdf',
+              sizeBytes: 1000,
+              extractionStatus: 'extracted',
+            },
+          ],
+        })}
+        historySummary={null}
+        terms={[]}
+        from="/mail"
+      />,
+    )
+
+    const card = container.firstElementChild as HTMLElement
+    const cardClasses = card.className.split(/\s+/)
+    expect(cardClasses).toContain('relative')
+    expect(cardClasses).toContain('isolate')
+
+    // カード内の上下関係（オーバーレイ Link より添付チップが手前）は維持する。
+    const overlay = card.querySelector('a[aria-label]') as HTMLElement
+    expect(overlay.className.split(/\s+/)).toContain('z-0')
+    const chipLink = screen.getByText('要項.pdf').closest('a') as HTMLElement
+    expect(chipLink.className.split(/\s+/)).toContain('z-10')
+  })
 })
 
 describe('highlightTerms', () => {

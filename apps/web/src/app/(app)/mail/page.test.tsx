@@ -205,4 +205,20 @@ describe('/mail 一覧ページ', () => {
     expect(searched).toEqual(['/mail?q=%E4%B9%9D%E6%AE%B5', '/mail?q=%E4%B9%9D%E6%AE%B5'])
     expect(toggled[0]).not.toBe(searched[0])
   })
+
+  // #528: 重なりの片側の契約。検索バーは `z-10` のまま（`z-20` へ上げる対症療法は
+  // 採らない — `players/page.tsx` / `components/stats/section-tabs.tsx` の
+  // 「検索バー=z-10 / タブ=z-20」慣習に合わせる）。背景が無いと一覧が透ける。
+  it('#528: 検索バーは sticky top-0 z-10 + bg-canvas を保つ', async () => {
+    await setAuthSession({ id: 'member-1', role: 'member' })
+
+    await renderPage()
+
+    const sticky = screen.getByLabelText('検索キーワード').closest('.sticky')
+    expect(sticky).not.toBeNull()
+    const stickyClasses = (sticky as HTMLElement).className.split(/\s+/)
+    expect(stickyClasses).toContain('top-0')
+    expect(stickyClasses).toContain('z-10')
+    expect(stickyClasses).toContain('bg-canvas')
+  })
 })
