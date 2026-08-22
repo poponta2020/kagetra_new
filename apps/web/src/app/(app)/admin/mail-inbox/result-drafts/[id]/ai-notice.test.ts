@@ -7,6 +7,7 @@ function baseDraft(overrides: Partial<AiNoticeDraftInput> = {}): AiNoticeDraftIn
     aiError: null,
     extractionSource: null,
     parserVersion: 'v1',
+    status: 'pending_review',
     ...overrides,
   }
 }
@@ -40,6 +41,30 @@ describe('buildAiNotices', () => {
     expect(notices[0]).toMatchObject({ tone: 'warn', title: 'AI 検証なし' })
     expect(notices[0]!.body).toContain('AI 呼び出しが失敗したため')
     expect(notices[0]!.body).toContain('Anthropic timeout')
+  })
+
+  // Codex R1 修正4: status=parse_failed のときは「決定的パース結果のみを表示」と
+  // 誤認させる文言を出さず、結果が無いことをそのまま伝える。
+  it('aiError かつ status=parse_failed なら「表示できる結果はありません」を出す', () => {
+    const notices = buildAiNotices(
+      baseDraft({ aiError: 'PDF サイズが上限を超えています', status: 'parse_failed' }),
+    )
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatchObject({ tone: 'warn', title: 'AI 検証なし' })
+    expect(notices[0]!.body).toContain('AI 抽出に失敗し、表示できる結果はありません')
+    expect(notices[0]!.body).toContain('PDF サイズが上限を超えています')
+    expect(notices[0]!.body).not.toContain('決定的パース結果のみを表示しています')
+  })
+
+  // status が parse_failed 以外（pending_review 等）なら、決定的パース結果が
+  // 実際に残っている fail-open ケースなので従来文言のまま。
+  it('aiError かつ status=pending_review なら従来どおり「決定的パース結果のみを表示」を出す', () => {
+    const notices = buildAiNotices(
+      baseDraft({ aiError: 'boom', status: 'pending_review' }),
+    )
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('決定的パース結果のみを表示しています')
+    expect(notices[0]!.body).not.toContain('表示できる結果はありません')
   })
 
   // AC-3: out_of_scope は danger トーンの警告。kind ごとに文言が変わる。

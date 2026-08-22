@@ -73,6 +73,7 @@ export default async function ResultDraftReviewPage({
     aiError: draft.aiError,
     extractionSource: draft.extractionSource,
     parserVersion: draft.parserVersion,
+    status: draft.status,
   })
 
   // AC-4: AI の meta からプリフィルできればそちらを優先する（管理者が上書き可能）。

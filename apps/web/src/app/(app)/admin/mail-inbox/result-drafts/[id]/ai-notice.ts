@@ -23,6 +23,12 @@ export type AiNoticeDraftInput = {
   aiError: string | null
   extractionSource: string | null
   parserVersion: string
+  /**
+   * result_drafts.status（Codex R1 修正4）。`aiError` の文言分岐に使う —
+   * `parse_failed` は決定的パース結果が存在せず保存 payload も `{}` なので、
+   * 「決定的パース結果のみを表示しています」という案内は誤り。
+   */
+  status: string
 }
 
 const OUT_OF_SCOPE_LABEL: Record<'team' | 'roster_or_lottery' | 'other', string> = {
@@ -40,11 +46,22 @@ export function buildAiNotices(draft: AiNoticeDraftInput): AiNotice[] {
   const notices: AiNotice[] = []
 
   if (draft.aiError != null) {
-    notices.push({
-      tone: 'warn',
-      title: 'AI 検証なし',
-      body: `AI 呼び出しが失敗したため、決定的パース結果のみを表示しています。（${draft.aiError}）`,
-    })
+    if (draft.status === 'parse_failed') {
+      // PDF サイズ超過・PDF/0クラス Excel の抽出失敗など、決定的パース結果が
+      // 存在しない失敗。「決定的パース結果のみを表示」は実際には無い結果が
+      // あるかのように誤認させるため、失敗のみを伝える文言にする。
+      notices.push({
+        tone: 'warn',
+        title: 'AI 検証なし',
+        body: `AI 抽出に失敗し、表示できる結果はありません。（${draft.aiError}）`,
+      })
+    } else {
+      notices.push({
+        tone: 'warn',
+        title: 'AI 検証なし',
+        body: `AI 呼び出しが失敗したため、決定的パース結果のみを表示しています。（${draft.aiError}）`,
+      })
+    }
   }
 
   const routingParsed = RoutingResultSchema.safeParse(draft.aiRouting)
