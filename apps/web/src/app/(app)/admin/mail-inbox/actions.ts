@@ -27,6 +27,12 @@ import type { Grade } from '@kagetra/shared/types'
 import { todayInJst } from '@/lib/jst-date'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
 import { isResultImportAttachment } from '@/lib/result-import/attachment'
+import {
+  collectReplacementTargets,
+  deleteReplacedClasses,
+} from '@/lib/result-import/replace'
+import { recomputePlayerDisplayNames } from '@/lib/players/recompute-display-name'
+import { syncPlayersToUniqueMembers } from '@/lib/players/member-link'
 import { materializeRoster, publishConfirmedRoster } from '@/lib/roster-import/materialize'
 import {
   createLotteryFactRevision,
@@ -2151,6 +2157,29 @@ export async function triggerResultParse(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const rosterGradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
+
+/**
+ * tournament-results 2026-08 改修: 承認フォームが JSON 文字列で送る配列パラメータを
+ * 読む共通ヘルパー。未指定（null / 空文字）は `null` を返し、呼び出し側が「従来
+ * どおり全件」と解釈する。JSON として壊れている・配列でない・要素が想定外の型、
+ * のいずれも throw して呼び出し側でユーザー向けエラーへ変換させる（黙って空配列
+ * に落とすと「0件選択」と区別が付かず、意図しない全級承認や承認失敗になる）。
+ */
+function parseJsonArrayParam<T>(
+  raw: string | null,
+  pick: (value: unknown) => T | null,
+): T[] | null {
+  if (raw === null) return null
+  const trimmed = raw.trim()
+  if (trimmed === '') return null
+  const parsed: unknown = JSON.parse(trimmed)
+  if (!Array.isArray(parsed)) throw new Error('not an array')
+  return parsed.map((value) => {
+    const picked = pick(value)
+    if (picked === null) throw new Error('unexpected element')
+    return picked
+  })
+}
 const rosterPurposeSchema = z.enum([
   'applicant',
   'selection_result',
@@ -2602,6 +2631,40 @@ export async function approveResultDraft(
     return { ok: false, error: '開催回を確認してください' }
   }
 
+  // tournament-results 2026-08 改修: 部分承認と差し替えの指定。
+  // どちらも「JSON 文字列で送られる配列」で、**未指定は従来どおりの全級承認**
+  // （既存の呼び出し・既存テストとの後方互換。AC-12 / AC-16）。
+  const selectedClassesRaw = formData.get('selectedClasses') as string | null
+  const replaceGradesRaw = formData.get('replaceGrades') as string | null
+
+  let requestedClassIndexes: number[] | null
+  try {
+    requestedClassIndexes = parseJsonArrayParam(selectedClassesRaw, (value) =>
+      typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null,
+    )
+  } catch {
+    return { ok: false, error: '取り込む級の指定を確認してください' }
+  }
+  if (requestedClassIndexes !== null && requestedClassIndexes.length === 0) {
+    return { ok: false, error: '取り込む級を1つ以上選択してください' }
+  }
+
+  let replaceGrades: LotteryGrade[]
+  try {
+    replaceGrades =
+      parseJsonArrayParam(replaceGradesRaw, (value) =>
+        rosterGradeSchema.safeParse(value).success ? (value as LotteryGrade) : null,
+      ) ?? []
+  } catch {
+    return { ok: false, error: '差し替える級の指定を確認してください' }
+  }
+  replaceGrades = [...new Set(replaceGrades)]
+  if (replaceGrades.length > 0 && selectedEditionId === undefined) {
+    // 突合の粒度は edition×級。edition が確定していない状態では「どの旧データを
+    // 差し替えるのか」が決まらないので、自動解決には委ねず明示選択を求める。
+    return { ok: false, error: '差し替えを行うには開催回を選択してください' }
+  }
+
   const { ParsedResultPayloadSchema } = await import(
     '@kagetra/mail-worker/result-import/schema'
   )
@@ -2624,6 +2687,8 @@ export async function approveResultDraft(
             messageId: number
             seriesId: number | null
             eventIds: number[]
+            supersededDraftIds: number[]
+            deletedTournamentIds: number[]
           }
       > => {
         const lockedRows = await tx
@@ -2647,11 +2712,46 @@ export async function approveResultDraft(
           return { ok: false, error: `ペイロードの解析に失敗しました: ${parsed.error.message}` }
         }
 
+        // 部分承認: 選択された級だけを materialize する。未指定なら全級（従来と同一）。
+        const allClasses = parsed.data.classes
+        const classIndexes = requestedClassIndexes ?? allClasses.map((_, index) => index)
+        if (classIndexes.some((index) => index >= allClasses.length)) {
+          return { ok: false, error: '取り込む級の指定が解析結果と一致しません' }
+        }
+        const uniqueIndexes = [...new Set(classIndexes)].sort((a, b) => a - b)
+        if (uniqueIndexes.length === 0) {
+          return { ok: false, error: '取り込む級を1つ以上選択してください' }
+        }
+        const selectedPayload = {
+          ...parsed.data,
+          classes: uniqueIndexes.map((index) => allClasses[index]!),
+        }
+
+        // 差し替え級は、この結果の中で級が一意に定まっていなければ受け付けない。
+        // 旧級を消す一方で実出場原本の再リンク先が決まらず、fact の
+        // actual_result_class_id が FK(ON DELETE SET NULL) で黙って null 化する
+        // ——「当落線の根拠が消えたのに誰も気づかない」事故を断つためのガード。
+        for (const grade of replaceGrades) {
+          const count = selectedPayload.classes.filter((cls) => cls.grade === grade).length
+          if (count !== 1) {
+            return {
+              ok: false,
+              error: `${grade}級を差し替えるには、取り込む級の中に${grade}級がちょうど1つ必要です（現在 ${count} 件）`,
+            }
+          }
+        }
+
         let lockedEdition = selectedEditionId === undefined
           ? null
           : await lockLotteryEdition(tx, selectedEditionId)
 
-        const { tournamentId, editionId } = await materializeResultDraft(tx, parsed.data, {
+        // 旧側の収集は **materialize より前**（後だと今から作る新級まで拾う）。
+        const replacementSnapshot =
+          replaceGrades.length > 0 && selectedEditionId !== undefined
+            ? await collectReplacementTargets(tx, selectedEditionId, replaceGrades)
+            : null
+
+        const { tournamentId, editionId } = await materializeResultDraft(tx, selectedPayload, {
           tournamentName,
           eventDate: eventDateRaw,
           venue,
@@ -2678,8 +2778,30 @@ export async function approveResultDraft(
               classId: gradeClasses[0]!.id,
               sourceMailMessageId: draft.messageId,
               verifiedByUserId: session.user.id,
-              replaceExisting: false,
+              // 差し替えを明示した級だけ、既存の採用リンクを新級へ revision 付きで
+              // 移す（AC-22）。通常の承認は従来どおり既存リンクを上書きしない。
+              replaceExisting: replaceGrades.includes(grade),
             })
+          }
+        }
+
+        // 差し替え: 再リンクを終えてから旧級を物理削除する（順序が逆だと FK の
+        // ON DELETE SET NULL で active fact の参照が先に消える）。
+        let replacementAudit: Awaited<ReturnType<typeof deleteReplacedClasses>> | null = null
+        if (replacementSnapshot !== null) {
+          replacementAudit = await deleteReplacedClasses(tx, {
+            snapshot: replacementSnapshot,
+            newDraftId: draftId,
+            replacedGrades: replaceGrades,
+            today: todayInJst(),
+          })
+
+          // 削除で出場が減った旧側の選手について、会員リンクと display_name を
+          // 引き直す（materialize は新側の選手について既に実行済み。両方に出る
+          // 選手は旧側集合に含まれるのでここで最新化される）。
+          if (replacementSnapshot.playerIds.length > 0) {
+            await syncPlayersToUniqueMembers(tx, replacementSnapshot.playerIds)
+            await recomputePlayerDisplayNames(tx, replacementSnapshot.playerIds)
           }
         }
 
@@ -2718,6 +2840,8 @@ export async function approveResultDraft(
           messageId: draft.messageId,
           seriesId: lockedEdition?.seriesId ?? null,
           eventIds: editionEventIds,
+          supersededDraftIds: replacementAudit?.supersededDraftIds ?? [],
+          deletedTournamentIds: replacementAudit?.deletedTournamentIds ?? [],
         }
       },
     )
@@ -2729,6 +2853,13 @@ export async function approveResultDraft(
     revalidatePath(`/admin/mail-inbox/mail/${result.messageId}`)
     if (result.seriesId !== null) revalidatePath(`/tournaments/series/${result.seriesId}`)
     for (const eventId of result.eventIds) revalidatePath(`/events/${eventId}`)
+    // 差し替えで状態が変わった旧ドラフト・消えた大会詳細も再検証する。
+    for (const supersededId of result.supersededDraftIds) {
+      revalidatePath(`/admin/mail-inbox/result-drafts/${supersededId}`)
+    }
+    for (const deletedId of result.deletedTournamentIds) {
+      revalidatePath(`/tournaments/${deletedId}`)
+    }
     return { ok: true, tournamentId: result.tournamentId }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

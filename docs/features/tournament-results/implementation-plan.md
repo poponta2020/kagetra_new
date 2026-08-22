@@ -70,7 +70,7 @@ status: completed
 - **対応Issue:** #538
 
 ### タスク6: 承認アクション（級選択フィルタ・差し替えトランザクション）
-- [ ] 完了
+- [x] 完了
 - **目的:** 部分承認と差し替え（物理削除+fact 再リンク+監査記録）を approveResultDraft に実装する
 - **対応AC:** AC-11, AC-12（回帰）, AC-13, AC-14, AC-15, AC-18（回帰）, AC-22
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（approveResultDraft）、必要なら `apps/web/src/lib/result-import/`（差し替えヘルパー切り出し）、対応テスト
