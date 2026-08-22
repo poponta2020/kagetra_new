@@ -208,6 +208,12 @@ export function ApproveResultDraftForm({
         )}
       </div>
 
+      {classes.length === 0 && (
+        <p className="text-xs text-danger-fg">
+          解析結果に取り込める級がありません。却下してメール詳細から再取込してください。
+        </p>
+      )}
+
       {classes.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-xs font-semibold text-ink-2">取り込む級</span>

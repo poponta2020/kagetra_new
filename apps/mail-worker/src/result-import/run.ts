@@ -297,6 +297,19 @@ export async function runResultParse(opts: {
           if (routing.parsed.verdict === 'adopt') {
             payload = applyClassMap(payload, routing.parsed.classMap)
             extractionSource = 'parser'
+            if (payload.classes.length === 0) {
+              // The classMap excluded every parsed class (e.g. the only sheet
+              // was 選手一覧). `adopt` + "nothing left" is the model
+              // contradicting itself, and an empty payload would sail through
+              // as pending_review and render an approval screen with no rows
+              // and a permanently disabled button. Escalate instead — this is
+              // exactly the shape where the real results live in a sheet the
+              // deterministic parser mis-titled.
+              log.warn('result_parse: classMap excluded every class — escalating to full extraction', {
+                mailMessageId: opts.mailMessageId,
+              })
+              await runFullExtraction(buildSheetsSource())
+            }
           } else if (routing.parsed.verdict === 'escalate') {
             log.info('result_parse: AI escalate — running full extraction', {
               mailMessageId: opts.mailMessageId,
@@ -312,6 +325,14 @@ export async function runResultParse(opts: {
               mailMessageId: opts.mailMessageId,
               outOfScopeKind: routing.parsed.outOfScopeKind,
             })
+            if (payload.classes.length === 0) {
+              // 対象外判定 + 取り込める級ゼロ。フル抽出に回してもコストを払って
+              // 名簿を書き写すだけなので、ここで打ち切って理由を残す（空 payload の
+              // まま pending_review にすると承認画面が操作不能になる）。
+              parseStatus = 'parse_failed'
+              parseError =
+                'AI が対象外（団体戦・名簿・抽選結果など）と判定し、取り込める級がありませんでした'
+            }
           }
         }
       } catch (err) {

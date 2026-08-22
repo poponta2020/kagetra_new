@@ -10,7 +10,7 @@ import type { ExtractionInput, RoutingInput } from './types.js'
  * ルーティング用プロンプトとフル抽出用プロンプトは同じバージョン番号を共有する
  * (両者は result-import AI パイプラインの1つの「版」として一緒に進化させる)。
  */
-export const PROMPT_VERSION = '1.0.0'
+export const PROMPT_VERSION = '1.1.0'
 
 /**
  * ルーティング用システムプロンプト。決定的パーサの試行結果(級名と人数)と、
@@ -61,7 +61,10 @@ classMap は \`parserAttempt\` の各エントリに対応する写像のみを�
 
 # meta(メタデータ)
 
-- **tournamentName**: 大会名(正式名称)。読み取れなければ null。
+- **tournamentName**: 大会名(正式名称)。**「第◯回」が付く大会は回次を含めた
+  フルネームで返すこと**(例:「第11回東大阪競技かるた大会」)。この値は開催回の
+  自動解決にそのまま渡されるため、回次を落とすと解決できなくなる。級名
+  (「A級」等)は含めない。読み取れなければ null。
 - **editionNumber**: 「第◯回」の◯部分の数値。読み取れなければ null。
 - **eventDate**: 開催日("YYYY-MM-DD"、JST)。読み取れなければ null。
 - **isCorrection**: 件名・ファイル名に「訂正」「差替」「再送」「修正版」等の

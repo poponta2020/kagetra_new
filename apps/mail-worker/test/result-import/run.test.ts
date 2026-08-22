@@ -541,6 +541,129 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
     expect(written.parseError).toContain('上限')
   })
 
+  it('adopt なのに classMap が全クラスを exclude → フル抽出へエスカレートする（空 payload で承認不能画面を作らない）', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 920 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.xlsx', data: Buffer.alloc(0), sizeBytes: 0 },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: 'テスト大会' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 930 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi({
+      routing: {
+        verdict: 'adopt',
+        outOfScopeKind: null,
+        classMap: [
+          { className: 'D1', normalizedClassName: '選手一覧', grade: null, exclude: true, note: null },
+        ],
+        meta: { tournamentName: null, editionNumber: null, eventDate: null, isCorrection: false },
+        issues: [],
+      },
+    })
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(result.status).toBe('success')
+    const written = valuesFn.mock.calls[0]?.[0] as {
+      status: string
+      extractedPayload: { classes: unknown[] }
+      extractionSource: string | null
+    }
+    expect(written.status).toBe('pending_review')
+    expect(written.extractionSource).toBe('ai')
+    expect(written.extractedPayload.classes.length).toBeGreaterThan(0)
+  })
+
+  it('out_of_scope で classMap が全クラスを exclude → parse_failed（フル抽出にコストを払わない）', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 921 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'roster.xlsx', data: Buffer.alloc(0), sizeBytes: 0 },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: '出場者名簿' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 931 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi({
+      routing: {
+        verdict: 'out_of_scope',
+        outOfScopeKind: 'roster_or_lottery',
+        classMap: [
+          { className: 'D1', normalizedClassName: '選手一覧', grade: null, exclude: true, note: null },
+        ],
+        meta: { tournamentName: null, editionNumber: null, eventDate: null, isCorrection: false },
+        issues: [],
+      },
+    })
+    const extractSpy = vi.spyOn(ai, 'extract')
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(extractSpy).not.toHaveBeenCalled()
+    expect(result.status).toBe('parse_failed')
+    const written = valuesFn.mock.calls[0]?.[0] as { status: string; parseError: string | null }
+    expect(written.status).toBe('parse_failed')
+    expect(written.parseError).toContain('対象外')
+  })
+
+  it('out_of_scope でも取り込める級が残っていれば pending_review（警告表示は画面側の責務）', async () => {
+    dbMock.insert.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 922 }]) }),
+    })
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [
+      { id: ATT_ID, mailMessageId: MAIL_ID, filename: 'result.xlsx', data: Buffer.alloc(0), sizeBytes: 0 },
+    ]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => [{ subject: 'テスト大会' }]))
+    dbMock.select.mockReturnValueOnce(makeSelectChain(() => []))
+    const valuesFn = queueCapturedDraftInsert([{ id: 932 }])
+    dbMock.update.mockReturnValueOnce({ set: () => ({ where: () => Promise.resolve() }) })
+
+    const ai = new FixtureResultImportAi({
+      routing: {
+        verdict: 'out_of_scope',
+        outOfScopeKind: 'team',
+        classMap: [],
+        meta: { tournamentName: null, editionNumber: null, eventDate: null, isCorrection: false },
+        issues: [],
+      },
+    })
+
+    const result = await runResultParse({
+      mailMessageId: MAIL_ID,
+      attachmentId: ATT_ID,
+      triggeredByUserId: USER_ID,
+      webPushConfig: null,
+      ai,
+    })
+
+    expect(result.status).toBe('success')
+    const written = valuesFn.mock.calls[0]?.[0] as {
+      status: string
+      aiRouting: { verdict: string; outOfScopeKind: string | null } | null
+    }
+    expect(written.status).toBe('pending_review')
+    expect(written.aiRouting?.verdict).toBe('out_of_scope')
+    expect(written.aiRouting?.outOfScopeKind).toBe('team')
+  })
+
   it('escalate: routes then runs full extraction; extraction_source=ai (AC-7)', async () => {
     dbMock.insert.mockReturnValueOnce({
       values: () => ({ returning: () => Promise.resolve([{ id: 904 }]) }),
