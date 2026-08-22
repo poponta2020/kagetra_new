@@ -100,6 +100,30 @@ describe('/events 一覧 — 締切超過行の可視性 (AC-2)', () => {
     expect(screen.getByText('自分参加済み大会')).toBeDefined()
     expect(screen.queryByText('他人だけ参加大会')).toBeNull()
   })
+
+  // AC-18（回帰・/events 側の半分）: 参加者が誰も attend=true していない
+  // （出欠行が無い、または全員 attend=false）締切超過の大会は、閲覧者が
+  // 誰であっても /events から消える（isRowVisible は viewerAttending=false
+  // の一択になるため）。もう半分（/events-no-entrants にだけ出る）は
+  // events-no-entrants page 側のテストが担当する。
+  it('参加者0名で締切超過の大会は、閲覧者を問わず /events に出ない', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const future = addDays(todayJst(), 10)
+    const yesterday = addDays(todayJst(), -1)
+
+    await createEvent({
+      title: '誰も申し込まなかった大会',
+      eventDate: future,
+      internalDeadline: yesterday,
+    })
+
+    const ui = await EventsPage()
+    render(ui)
+
+    expect(screen.queryByText('誰も申し込まなかった大会')).toBeNull()
+  })
 })
 
 describe('/events 一覧 — 参加者の苗字は全員分表示される (AC-6)', () => {
@@ -134,11 +158,11 @@ describe('/events 一覧 — 参加者の苗字は全員分表示される (AC-6
   })
 })
 
-// event-list-month-grouping §2-5/§2-7: ページ見出し行を削除し、「過去のイベント」
+// event-list-month-grouping §2-5/§2-7: ページ見出し行を削除し、「過去の大会」
 // と「新規作成」はリスト末尾のフッター行へ移す。フッターはソートにも 0 件表示にも
 // 左右されず必ず出す（見出し行が無くなった以上、ここが唯一のアーカイブ導線）。
 describe('/events 一覧 — 見出し行の削除とフッター行', () => {
-  it('管理者: h1 が無く、リストの後ろに「過去のイベント →」と「新規作成」が並ぶ', async () => {
+  it('管理者: h1 が無く、リストの後ろに「過去の大会 →」と「新規作成」が並ぶ', async () => {
     const admin = await createUser({ role: 'admin' })
     await setAuthSession({ id: admin.id, role: 'admin' })
     await createEvent({ title: 'フッター確認大会', eventDate: addDays(todayJst(), 10) })
@@ -148,7 +172,7 @@ describe('/events 一覧 — 見出し行の削除とフッター行', () => {
     expect(container.querySelector('h1')).toBeNull()
     expect(screen.queryByText('大会申込')).toBeNull()
 
-    const archive = screen.getByText('過去のイベント →')
+    const archive = screen.getByText('過去の大会 →')
     const create = screen.getByText('新規作成')
     expect(archive.getAttribute('href')).toBe('/events-archive')
     expect(create.getAttribute('href')).toBe('/events/new')
@@ -158,14 +182,14 @@ describe('/events 一覧 — 見出し行の削除とフッター行', () => {
     expect(row.compareDocumentPosition(archive) & 4).toBeTruthy()
   })
 
-  it('一般会員: 「新規作成」は出ないが「過去のイベント →」は残る', async () => {
+  it('一般会員: 「新規作成」は出ないが「過去の大会 →」は残る', async () => {
     const member = await createUser({ role: 'member' })
     await setAuthSession({ id: member.id, role: 'member' })
     await createEvent({ title: '会員から見る大会', eventDate: addDays(todayJst(), 10) })
 
     render(await EventsPage())
 
-    expect(screen.getByText('過去のイベント →')).toBeDefined()
+    expect(screen.getByText('過去の大会 →')).toBeDefined()
     expect(screen.queryByText('新規作成')).toBeNull()
   })
 
@@ -175,8 +199,8 @@ describe('/events 一覧 — 見出し行の削除とフッター行', () => {
 
     render(await EventsPage())
 
-    expect(screen.getByText('現在のイベントはありません')).toBeDefined()
-    expect(screen.getByText('過去のイベント →')).toBeDefined()
+    expect(screen.getByText('現在の大会はありません')).toBeDefined()
+    expect(screen.getByText('過去の大会 →')).toBeDefined()
   })
 })
 
@@ -194,6 +218,62 @@ describe('/events-archive — not_applying も従来どおり表示される（�
     render(ui)
 
     expect(screen.getByText('過去の見送り大会')).toBeDefined()
+  })
+})
+
+// events-no-entrants AC-12 / AC-13: 締切超過で一覧から消えた「申込者 0 名」の
+// 大会を辿る唯一の導線をフッター 2 段目に置く。行き先 `/events-no-entrants` は
+// ゲストに開いていない（`isGuestAllowedPath` に載せない＝middleware が /403 へ
+// 飛ばす）ので、ゲストにはリンク自体を描画しない。
+describe('/events 一覧 — 「申込者なしで締切済 →」導線 (AC-12 / AC-13)', () => {
+  it('管理者: リンクがあり href が /events-no-entrants である', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    render(await EventsPage())
+
+    const link = screen.getByText('申込者なしで締切済 →')
+    expect(link.getAttribute('href')).toBe('/events-no-entrants')
+  })
+
+  it('一般会員: リンクがあり href が /events-no-entrants である', async () => {
+    const member = await createUser({ role: 'member' })
+    await setAuthSession({ id: member.id, role: 'member' })
+
+    render(await EventsPage())
+
+    const link = screen.getByText('申込者なしで締切済 →')
+    expect(link.getAttribute('href')).toBe('/events-no-entrants')
+  })
+
+  it('ゲスト: リンクは描画されないが「過去の大会 →」は残る', async () => {
+    const guest = await createGuest()
+    await setAuthSession({ id: guest.id, role: 'guest' })
+
+    render(await EventsPage())
+
+    expect(screen.queryByText('申込者なしで締切済 →')).toBeNull()
+    expect(screen.getByText('過去の大会 →')).toBeDefined()
+  })
+})
+
+// AC-15: 見出し・戻りリンクの文言を「大会」へ統一する。
+describe('/events-archive — 見出し・戻りリンクの文言 (AC-15)', () => {
+  it('h1 が「過去の大会」、戻りリンクが「現在の大会 →」で href が /events である', async () => {
+    const past = addDays(todayJst(), -10)
+    await createEvent({ title: '過去の確認大会', eventDate: past })
+
+    const { container } = render(await EventsArchivePage())
+
+    expect(container.querySelector('h1')?.textContent).toBe('過去の大会')
+    const back = screen.getByText('現在の大会 →')
+    expect(back.getAttribute('href')).toBe('/events')
+  })
+
+  it('0 件のとき「過去の大会はまだありません」が表示される', async () => {
+    render(await EventsArchivePage())
+
+    expect(screen.getByText('過去の大会はまだありません')).toBeDefined()
   })
 })
 

@@ -63,7 +63,7 @@ export function EventListClient({
     return (
       <Card>
         <div className="text-center text-ink-meta py-6">
-          現在のイベントはありません
+          現在の大会はありません
         </div>
       </Card>
     )

@@ -40,16 +40,16 @@ export default async function EventsArchivePage() {
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-ink">
-          過去のイベント
+          過去の大会
         </h1>
         <Link href="/events" className="text-sm text-brand">
-          現在のイベント →
+          現在の大会 →
         </Link>
       </div>
       {eventList.length === 0 ? (
         <Card>
           <div className="text-center text-ink-meta py-6">
-            過去のイベントはまだありません
+            過去の大会はまだありません
           </div>
         </Card>
       ) : (

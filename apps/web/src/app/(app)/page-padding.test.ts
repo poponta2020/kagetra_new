@@ -7,14 +7,14 @@ import { fileURLToPath } from 'node:url'
 // 持たないページの見出しが画面最上端 (y=0) に張り付く」問題を、各ページ側に
 // `p-4` を足すことで解消した。<main>（共通シェル）に padding を足さない境界
 // は PR #345 の回帰ガードとして維持したまま（mobile-shell.test.tsx 参照）、
-// この 14 ページ側の p-4 だけを機械的に固定する。
+// この 15 ページ側の p-4 だけを機械的に固定する。
 //
-// サーバーコンポーネントを 14 個実際にレンダリングして DOM を検証するのは
+// サーバーコンポーネントを 15 個実際にレンダリングして DOM を検証するのは
 // mock コスト（認可ガード・DB 呼び出し・Server Action 等を全ページ分スタブ
 // する必要がある）が見合わないため、<main> の padding 禁止ガードと同種の
 // 「ソースレベルの機械ガード」として実装する。
 //
-// アンカー規則（14 ファイル全てで実測済み）:
+// アンカー規則（15 ファイル全てで実測済み）:
 //   1. ファイル全体から `^  return \($`（2 スペースインデント + `return (`
 //      + 行末）にマッチする行を集める。
 //   2. ちょうど 1 本であることを assert する（複数あればアンカーが曖昧に
@@ -23,7 +23,8 @@ import { fileURLToPath } from 'node:url'
 //      assert する（その行が default export の JSX 根要素）。
 const RETURN_ANCHOR = /^ {2}return \($/
 
-// requirements.md §3.5: 対象 14 ページ（(app) 配下からの相対パス）。
+// nav-settings-hub requirements.md §3.5 の 14 ページ + events-no-entrants で
+// 対象 15 ページ（(app) 配下からの相対パス）。新規ページを足したらここに追記する。
 // 対象外（意図的な全幅レイアウト。ここには含めない）:
 //   - players/page.tsx, players/ranking/page.tsx（sticky フィルタバーが全幅）
 //   - admin/mail-inbox/attachments/[id]/page.tsx（画像ビューア）
@@ -38,6 +39,7 @@ const TARGET_PAGES: readonly string[] = [
   'admin/mail-inbox/result-drafts/[id]/page.tsx',
   'admin/mail-inbox/roster-drafts/[id]/page.tsx',
   'events-archive/page.tsx',
+  'events-no-entrants/page.tsx',
   'events/new/page.tsx',
   'events/[id]/page.tsx',
   'events/[id]/edit/page.tsx',

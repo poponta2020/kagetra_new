@@ -313,3 +313,4 @@
 - [entry-group-page 出荷（PR #503）](project_ship-entry-group-page.md) — shipped: PR #503。★マージ後 E2E 2件が赤=日ページ撤去セクションの e2e 更新漏れ
 - [auto-review PR #504](auto-review-round-pr504.md) — R1 verdict=pass（E2E 張り替えの追修正）
 - [E2E をグループページへ張り替え（PR #504）](project_ship-e2e-group-page-sections.md) — shipped: PR #504。★payment_type 既定は advance／e2e も撤去対象に含める／serial は後続スキップ
+- [events-no-entrants 要件定義](project_events_no_entrants_def.md) — 親Issue #505・ナビ「大会」改称＋申込者0名で締切済ページ新設
