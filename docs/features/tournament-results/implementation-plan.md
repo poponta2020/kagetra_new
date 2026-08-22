@@ -30,7 +30,7 @@ status: completed
 - **対応Issue:** #534
 
 ### タスク2: mail-worker AI 基盤モジュール（result-import/ai/）
-- [ ] 完了
+- [x] 完了
 - **目的:** ルーティングとフル抽出の AI クライアントを、テスト可能な provider 中立モジュールとして実装する
 - **対応AC:** AC-1（classMap 生成）、AC-8（フル抽出出力の Zod 検証）
 - **主な変更領域:** `apps/mail-worker/src/result-import/ai/`（新規: types.ts / routing-schema.ts / prompt.ts / anthropic.ts / fixture.ts）、`apps/mail-worker/src/result-import/schema.ts`（rawClassName 追加）、`apps/mail-worker/test/result-import/ai-*.test.ts`
@@ -50,7 +50,7 @@ status: completed
 - **対応Issue:** #536
 
 ### タスク4: PDF トリガー許可（web 側導線）
-- [ ] 完了
+- [x] 完了
 - **目的:** `.pdf` 添付でも「結果として取り込む」を実行できるようにする
 - **対応AC:** AC-6（トリガー側）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（triggerResultParse の拡張子条件 L2106-2109）、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`（セクション表示条件）、`apps/web/src/app/(app)/admin/mail-inbox/components/ResultParseButton.tsx`

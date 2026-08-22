@@ -26,6 +26,7 @@ import { isForeignKeyViolation, isUniqueViolation } from '@/lib/db-errors'
 import type { Grade } from '@kagetra/shared/types'
 import { todayInJst } from '@/lib/jst-date'
 import { materializeResultDraft } from '@/lib/result-import/materialize'
+import { isResultImportAttachment } from '@/lib/result-import/attachment'
 import { materializeRoster, publishConfirmedRoster } from '@/lib/roster-import/materialize'
 import {
   createLotteryFactRevision,
@@ -2103,9 +2104,8 @@ export async function triggerResultParse(
       if (att.mailMessageId !== mailId) {
         throw new Error('指定された添付ファイルはこのメールに属していません')
       }
-      const lower = att.filename.toLowerCase()
-      if (!lower.endsWith('.xls') && !lower.endsWith('.xlsx')) {
-        throw new Error('Excel ファイル (.xls/.xlsx) のみ取り込めます')
+      if (!isResultImportAttachment(att.filename)) {
+        throw new Error('Excel (.xls/.xlsx) または PDF ファイルのみ取り込めます')
       }
 
       // Check existing result_draft state.

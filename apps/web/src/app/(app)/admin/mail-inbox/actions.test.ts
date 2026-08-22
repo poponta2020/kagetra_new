@@ -3710,7 +3710,29 @@ describe('triggerResultParse', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('Excel でない添付はエラー', async () => {
+  it('PDF 添付も受け付ける', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id, { filename: 'result.pdf' })
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('拡張子が大文字の PDF 添付も受け付ける', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id, { filename: 'RESULT.PDF' })
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('Excel でも PDF でもない添付はエラー', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
 
@@ -3719,10 +3741,10 @@ describe('triggerResultParse', () => {
       .insert(mailAttachments)
       .values({
         mailMessageId: mail.id,
-        filename: 'document.pdf',
-        contentType: 'application/pdf',
+        filename: 'document.docx',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         sizeBytes: 512,
-        data: Buffer.from('pdf'),
+        data: Buffer.from('docx'),
         extractionStatus: 'pending',
       })
       .returning()
@@ -3731,6 +3753,7 @@ describe('triggerResultParse', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toMatch(/Excel/)
+    expect(result.error).toMatch(/PDF/)
   })
 
   it('別 mail の添付は拒否', async () => {
