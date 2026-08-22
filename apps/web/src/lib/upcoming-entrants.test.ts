@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Grade } from '@kagetra/shared/types'
+import { eq } from 'drizzle-orm'
 import {
+  entryGroups,
   tournamentEntryRosterEntries,
   tournamentEntryRosters,
 } from '@kagetra/shared/schema'
@@ -10,6 +12,7 @@ import {
   createEvent,
   createEventAttendance,
   createGuest,
+  createMailMessage,
   createUser,
 } from '@/test-utils/seed'
 import { getUpcomingEntrants, type UpcomingEntrantsEvent } from './upcoming-entrants'
@@ -258,4 +261,61 @@ describe('getUpcomingEntrants', () => {
     expect(entrant?.familyKana).toBe('ショウキュウ')
     expect(entrant?.givenKana).toBe('タロウ')
   })
+
+  /**
+   * confirmed-roster-signal AC-14（回帰・意図した非対称）: 出場者解決は
+   * **パース済み名簿の中身**だけで判定する。確定名簿メール・手動フラグは名前の
+   * データを持たないので、ここで confirmed パスへ切り替えると出場者が空リストに
+   * なり、ホームと外部 API が壊れる（要件 §3.2.5）。ボードでは「名簿確定・要振込」
+   * でも、ここでは従来どおり希望（basis=attendance）のまま。
+   */
+  describe('AC-14 回帰: 確定名簿メール・手動フラグでは confirmed パスへ切り替わらない', () => {
+    it('確定名簿メールだけのグループは hasConfirmedRoster=false・basis=attendance のまま', async () => {
+      const group = await createEntryGroup()
+      const event = await createEvent({
+        title: 'メールのみ確定',
+        eventDate: '2030-03-01',
+        entryGroupId: group.id,
+      })
+      const member = await createMember('希望', { grade: 'C' })
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+      await createMailMessage({
+        subject: '確定連絡',
+        linkedEventId: event.id,
+        mailKind: 'confirmed_roster',
+        triageStatus: 'processed',
+      })
+
+      const found = findEvent(
+        await getUpcomingEntrants({ since: '2030-01-01' }),
+        event.id,
+      )
+      expect(found.hasConfirmedRoster).toBe(false)
+      expect(found.entrants.map((e) => e.userId)).toEqual([member.id])
+      expect(found.entrants.every((e) => e.basis === 'attendance')).toBe(true)
+    })
+
+    it('手動フラグ（confirmed_roster_override）だけのグループも同様', async () => {
+      const group = await createEntryGroup()
+      const event = await createEvent({
+        title: '手動フラグのみ',
+        eventDate: '2030-03-01',
+        entryGroupId: group.id,
+      })
+      const member = await createMember('希望', { grade: 'C' })
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+      await testDb
+        .update(entryGroups)
+        .set({ confirmedRosterOverride: true })
+        .where(eq(entryGroups.id, group.id))
+
+      const found = findEvent(
+        await getUpcomingEntrants({ since: '2030-01-01' }),
+        event.id,
+      )
+      expect(found.hasConfirmedRoster).toBe(false)
+      expect(found.entrants.every((e) => e.basis === 'attendance')).toBe(true)
+    })
+  })
+
 })

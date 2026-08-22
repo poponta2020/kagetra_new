@@ -2,6 +2,16 @@
 
 `docs/design/db.md` から分割。生成元は `packages/shared/src/schema/` の各Drizzle定義。スキーマ変更時は同じコミットで更新すること。
 
+## entry_groups（TS: `entryGroups`）
+
+申込グループ。開催日ごとに分かれた `events` を「同じ案内メール×同じ申込締切」の単位で束ねる薄い親テーブル（`events.entry_group_id` は NOT NULL。単独イベントもシングルトングループを持つ）。表示名・締切・支払い系のカラムは**意図的に持たない**（表示名は `deriveEntryGroupName` で導出、締切は events 側に残す）。
+
+| カラム | 型 | NULL | デフォルト | 備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| confirmed_roster_override | boolean | NOT NULL | false | 「確定名簿ありとして扱う」手動フラグ（confirmed-roster-signal）。判定材料がすべてグループスコープのためここに置く。監査情報は持たない |
+| created_at | timestamptz | NOT NULL | now() | |
+
 ## events（TS: `events`）
 
 定義ファイル: `packages/shared/src/schema/events.ts`

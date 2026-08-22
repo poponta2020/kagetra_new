@@ -914,3 +914,59 @@ describe('/events/[id] — ゲストには「あなたの参加費」を出さ�
     expect(container.textContent).toContain('2,500円')
   })
 })
+
+/**
+ * confirmed-roster-signal AC-9: 会員が見る日ページのフロー帯にも確定名簿シグナルを
+ * 反映する（ボードと会員画面でフェーズがずれない。要件 §3.2.4）。
+ * 判定そのものは `lib/events/confirmed-roster.test.ts` が持つ。
+ */
+describe('/events/[id] — 確定名簿シグナルとフロー帯 (confirmed-roster-signal AC-9)', () => {
+  /**
+   * 会内締切・大会申込を既に通過した状態（そうしないと現在地が「会内締切」で
+   * 止まり、抽選/支払の判定まで到達しない）。
+   */
+  async function seedAppliedEvent() {
+    const today = todayJst()
+    return createEvent({
+      title: '杉並B',
+      eventDate: addDays(today, 15),
+      internalDeadline: addDays(today, -20),
+      entryDeadline: addDays(today, -15),
+      entryStatus: 'applied',
+      paymentType: 'advance',
+      paymentStatus: 'unpaid',
+    })
+  }
+
+  it('確定名簿メールだけでも抽選が完了になり、現在地が支払へ移る', async () => {
+    const member = await createUser({ role: 'member', grade: 'B' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await seedAppliedEvent()
+    await createMailMessage({
+      subject: '第三回全国競技かるた杉並大会(AB級)確定連絡',
+      linkedEventId: ev.id,
+      mailKind: 'confirmed_roster',
+      triageStatus: 'processed',
+    })
+
+    const { container } = render(await renderPage(ev.id))
+
+    const lotteryDot = container.querySelector('[aria-current="step"]')
+    expect(lotteryDot?.textContent).toContain('支払')
+    // 抽選ステップの点が done（藍の塗り）になっている。
+    const lotteryStep = [...container.querySelectorAll('span')].find(
+      (el) => el.textContent === '抽選',
+    )?.parentElement
+    expect(lotteryStep?.querySelector('span')?.className).toContain('bg-brand')
+  })
+
+  it('回帰: シグナルが何も無ければ現在地は抽選のまま', async () => {
+    const member = await createUser({ role: 'member', grade: 'B' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await seedAppliedEvent()
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('抽選')
+  })
+})

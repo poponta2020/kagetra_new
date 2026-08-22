@@ -27,6 +27,7 @@ import { formatFlowDate } from '@/lib/event-date'
 import { resolveTargetGrades } from '@/lib/event-grade-broadcast'
 import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
+import { loadConfirmedRosterState } from '@/lib/events/confirmed-roster'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { aggregateGroupCommonFields } from '@/lib/events/group-common-fields'
 import { aggregateGroupFlowInput } from '@/lib/events/group-entry-flow'
@@ -186,8 +187,10 @@ export default async function EntryGroupPage({
     myAttendanceRows.map((r) => [r.eventId, r.attend]),
   )
 
-  // ③ 確定名簿（グループ帰属）。定義は申込管理ボードと同じ「パース済み
-  //    （supersede されていない版）∪ 採用済み原本ファイル」で confirmed のみ。
+  // ③ 確定名簿（グループ帰属）。ここで引くのは**表示用**の一覧（名簿セクションに
+  //    そのまま渡す）で、フェーズ判定には使わない——判定は下の
+  //    `loadConfirmedRosterState` が正典（confirmed-roster-signal。材料が
+  //    パース済み ∪ 採用ファイル ∪ 確定名簿メール ∪ 手動フラグ の 4 つに増えたため）。
   const rosters = await db.query.tournamentEntryRosters.findMany({
     where: and(
       eq(tournamentEntryRosters.entryGroupId, groupIdNum),
@@ -226,9 +229,9 @@ export default async function EntryGroupPage({
     filename: f.sourceAttachment?.filename ?? '',
     grades: f.grades,
   }))
-  const hasConfirmedRoster =
-    rosters.some((r) => r.rosterType === 'confirmed') ||
-    rosterFiles.some((f) => f.rosterType === 'confirmed')
+  // 確定名簿の有無。判定の正典は 1 つ（要件 §6）。`settled` はフロー帯と日程表の
+  // フェーズ語へ渡す（同じローダーが返す `override` はタスク2 のトグルが使う）。
+  const { settled: hasConfirmedRoster } = await loadConfirmedRosterState(groupIdNum)
 
   // ④ 申込フロー帯（集約入力を作って既存 `buildEntryFlow` へ渡す。§3.2.4）。
   //    対象日（非 cancelled）が0件なら null が返り、帯を丸ごと描かない（AC-14）。
