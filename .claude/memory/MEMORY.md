@@ -125,6 +125,7 @@
 - [Tailwind min-h+pはborder-boxでpadding算入](feedback_tailwind_min_h_border_box.md) — calc合算必須
 - [Tailwind arbitrary内スペースは_エスケープ](feedback_tailwind_arbitrary_underscore_space.md)
 - [iOS 100dvhはURLバー込み](feedback_ios_safari_dvh_url_bar.md) — vh→dvh→svhカスケードを専用クラスで
+- [Tailwind v4は未定義トークンを無言で握り潰す](feedback_tailwind_v4_undefined_token_silent.md) — タイポでもbuild/lint/typecheck/vitest全green のまま無色化。生成CSS照合＋コントラスト検算の2段で検証
 - [Tailwind utility出力順はclassName順で制御不可](feedback_tailwind_utility_output_order_not_className.md) — 専用クラスを切る
 - [standaloneリビルドのstatic cp](feedback_nextjs_standalone_static_cp.md) — .next/static+publicコピー忘れで画面真っ白
 - [本番ホストにNoto CJK必須](feedback_libreoffice_ja_fonts.md) — 日本語フォントapt install必須
@@ -336,3 +337,4 @@
 - [大会別LINE Botメッセージ全面改訂＋会計メンション・振込連絡](project_ship-line-bot-message-revamp.md) — shipped: PR #530。migration適用済・会計=酒井美波設定済。★残DoD=AC-21 送信（/admin/entries/13）
 - [auto-review PR #531](auto-review-round-pr531.md) — R1 verdict=pass (initial, sol/low, 90k tokens)
 - [未定義トークン text-ink-1 の修正](project_ship-fix-undefined-ink-token.md) — shipped: PR #531
+- [未定義トークン warning/border-warn の修正](project_ship-fix-undefined-warn-token.md) — shipped: PR #532。#531 の残作業2件。★1ファイル単位の検証手順(source(none)+@source)。warn/danger/accent は同一hexなのでhex照合は無効

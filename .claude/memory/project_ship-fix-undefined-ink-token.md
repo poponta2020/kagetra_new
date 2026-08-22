@@ -19,7 +19,7 @@ Tailwind v4 は未定義トークンを無言で握り潰すため、globals.css
 
 **DoD**: D2 が初回 FAIL（src 変更あり docs 差分なし）→ トークン置換のみで仕様・挙動不変のため PR 本文に `Docs: no-change-needed` を明記して PASS。CI は pending のままマージ（赤になったら追修正）。
 
-**★残作業（本PRのスコープ外・別タスク化済み）**: 同種の未定義トークンが 2 件。`warning` というトークンは定義に一切存在せず、`warn` も --color-warn-bg / --color-warn-fg のみでスカラーは無い。
+**残作業（本PRのスコープ外だった同種2件）は PR #532 で解消済** → [[ship-fix-undefined-warn-token]]。当時の記録: `warning` というトークンは定義に一切存在せず、`warn` も --color-warn-bg / --color-warn-fg のみでスカラーは無い。
 - admin/mail-inbox/components/TournamentSeriesSelectSheet.tsx:165 `border border-warning/30 bg-warning/10` — **影響大**: 背景が出ず素の border で枠線が currentColor（≒黒）になり、警告ボックスが「黒枠・無地の箱」として描画される。正しくは border-warn-fg / bg-warn-bg
 - admin/mail-inbox/[id]/page.tsx:349 `<Card className="border-warn bg-warn-bg">` — 枠線色だけ既定のまま。軽微
 
