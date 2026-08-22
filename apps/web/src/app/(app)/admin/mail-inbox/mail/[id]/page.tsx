@@ -21,8 +21,9 @@ import { linkableEventCutoffStr } from '../../linkable-events'
 import { loadProcessCandidateGroups } from '../../process-candidates'
 import {
   ResultParseButton,
-  type ExcelAttachment,
+  type ResultAttachment,
 } from '../../components/ResultParseButton'
+import { isResultImportAttachment } from '@/lib/result-import/attachment'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer 「メーラー詳細」画面。
@@ -147,12 +148,9 @@ export default async function MailDetailPage({
   })
   if (!mail) notFound()
 
-  // tournament-results: .xls/.xlsx 添付のみ「結果として取り込む」対象。
-  const excelAttachments: ExcelAttachment[] = mail.attachments
-    .filter((a) => {
-      const lower = a.filename.toLowerCase()
-      return lower.endsWith('.xls') || lower.endsWith('.xlsx')
-    })
+  // tournament-results: .xls/.xlsx/.pdf 添付のみ「結果として取り込む」対象。
+  const resultAttachments: ResultAttachment[] = mail.attachments
+    .filter((a) => isResultImportAttachment(a.filename))
     .map((a) => ({ id: a.id, filename: a.filename }))
 
   const triage = TRIAGE_LABEL[mail.triageStatus] ?? {
@@ -196,11 +194,11 @@ export default async function MailDetailPage({
 
   // ★senseki-boundary: 配布版から丸ごと物理削除するブロック。表示条件も JSX も
   // ここ 1 箇所に閉じておく（統合フォームへは prop で渡すだけ）。
-  {/* tournament-results Task3: 結果 Excel 取込エリア。
+  {/* tournament-results Task3/4: 結果 Excel/PDF 取込エリア。
           AI 取込フロー（tournament_drafts）とは独立した別セクション。
-          .xls/.xlsx 添付があるときだけ表示する。 */}
+          .xls/.xlsx/.pdf 添付があるときだけ表示する。 */}
   const resultImportSection =
-    excelAttachments.length > 0 ? (
+    resultAttachments.length > 0 ? (
         <section className="flex flex-col gap-2">
           <h2 className="font-display text-base font-bold text-ink">
             試合結果の取込
@@ -209,12 +207,13 @@ export default async function MailDetailPage({
             <Card>
               <div className="flex flex-col gap-3">
                 <p className="text-xs text-ink-meta">
-                  Excel から試合結果を取り込みます。取込後にレビュー・承認画面で
-                  内容を確認してから確定できます。
+                  Excel または PDF から試合結果を取り込みます。PDF は AI が全文を
+                  抽出するため、取込後にレビュー・承認画面でより丁寧に内容を
+                  確認してから確定してください。
                 </p>
                 <ResultParseButton
                   mailId={mail.id}
-                  excelAttachments={excelAttachments}
+                  attachments={resultAttachments}
                 />
               </div>
             </Card>
@@ -249,7 +248,7 @@ export default async function MailDetailPage({
                 )}
                 <ResultParseButton
                   mailId={mail.id}
-                  excelAttachments={excelAttachments}
+                  attachments={resultAttachments}
                 />
               </div>
             </Card>
@@ -261,7 +260,7 @@ export default async function MailDetailPage({
                 </span>
                 <ResultParseButton
                   mailId={mail.id}
-                  excelAttachments={excelAttachments}
+                  attachments={resultAttachments}
                 />
               </div>
             </Card>

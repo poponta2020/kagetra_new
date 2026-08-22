@@ -24,6 +24,8 @@ import { FixtureLLMExtractor, loadFixturesFromDir } from './classify/llm/fixture
 import { AnthropicExtractor } from './classify/llm/anthropic.js'
 import type { LLMExtractor } from './classify/llm/types.js'
 import type { ExtractionPayload } from './classify/schema.js'
+import { AnthropicResultImportAi, FixtureResultImportAi } from './result-import/ai/index.js'
+import type { ResultImportAi } from './result-import/ai/index.js'
 
 /**
  * Default lookback for live IMAP when `--since` is omitted. Avoids the worst
@@ -398,12 +400,14 @@ async function runExtractOnlyDispatcher(opts: {
     if (job.kind === 'result_parse') {
       const { mail_message_id: mailMessageId, attachment_id: attachmentId } =
         parseResultParsePayload(job.payload)
+      const ai = await buildResultImportAi(opts.flags, opts.log)
       const result = await runResultParse({
         mailMessageId,
         attachmentId,
         triggeredByUserId: job.requestedByUserId,
         webPushConfig: opts.webPushConfig,
         logger: opts.log,
+        ai,
       })
       await markJobDone(db, job.id, result.runId)
 
@@ -490,6 +494,37 @@ async function buildLlmExtractor(flags: WorkerCliFlags): Promise<LLMExtractor | 
 
   const llmConfig = loadLlmConfig()
   return new AnthropicExtractor({ apiKey: llmConfig.anthropicApiKey })
+}
+
+/**
+ * tournament-results AI revamp: build the result-import AI abstraction for
+ * the `result_parse` job handler. Same思想 as `buildLlmExtractor`:
+ *   --dry-run  → undefined (runResultParse never reaches this branch anyway)
+ *   --mock-llm → FixtureResultImportAi (deterministic; no API key needed)
+ *   otherwise  → AnthropicResultImportAi via loadLlmConfig()
+ *
+ * Unlike `buildLlmExtractor`, a missing `ANTHROPIC_API_KEY` must NOT crash
+ * result_parse — the deterministic Excel parser still works standalone
+ * (fail-open at the config level, mirroring `runResultParse`'s own fail-open
+ * for AI call failures). We catch `loadLlmConfig()`'s throw and degrade to
+ * `undefined`, logging so the missing key doesn't go unnoticed in prod.
+ */
+async function buildResultImportAi(
+  flags: WorkerCliFlags,
+  log: ReturnType<typeof consoleLogger>,
+): Promise<ResultImportAi | undefined> {
+  if (flags.dryRun) return undefined
+  if (flags.mockLlm) return new FixtureResultImportAi()
+
+  try {
+    const llmConfig = loadLlmConfig()
+    return new AnthropicResultImportAi({ apiKey: llmConfig.anthropicApiKey })
+  } catch (err) {
+    log.warn('buildResultImportAi: ANTHROPIC_API_KEY not configured — result_parse will run without AI (deterministic parser only)', {
+      err: err instanceof Error ? err.message : String(err),
+    })
+    return undefined
+  }
 }
 
 /**
