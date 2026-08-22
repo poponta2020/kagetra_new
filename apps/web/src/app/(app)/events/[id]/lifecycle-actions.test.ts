@@ -233,12 +233,14 @@ describe('event lifecycle actions', () => {
     expect(await notifications(event.id)).toHaveLength(0)
   })
 
-  // grade-entry-fee タスク6 (AC-17/18): payment_paid の完了通知を 1人あたり額
-  // （feeJpy）ではなく実際に振り込む総額へ変える。
-  describe('payment_paid の総額文言', () => {
-    it('setPaymentPaid(true): 総額を算出できるとき「参加費（総額 N円）」が送られる（feeJpy は参照しない・AC-17）', async () => {
+  // grade-entry-fee タスク6 (AC-17/18) が実装した「payment_paid に振込総額を載せる」
+  // 挙動は line-bot-message-revamp タスク5（2026-08-22, Issue #524）で撤回された。
+  // 全種別から大会名・金額を外したため、payment_paid は claimed 件数に関わらず
+  // 常に同一の固定文面になる（AC-26）。
+  describe('payment_paid は固定文言になる（line-bot-message-revamp タスク5・旧「総額文言」）', () => {
+    it('setPaymentPaid(true): 参加者・金額に関わらず固定文言が送られる（大会名・金額は出ない・AC-26）', async () => {
       const admin = await createAdmin()
-      // feeJpy に無関係な値を入れておき、参照されないことも固定する。
+      // 大会名・feeJpy に無関係な値を入れておき、参照されないことを固定する。
       const event = await seedLinkedEvent({
         title: '新春かるた大会',
         official: true,
@@ -261,137 +263,14 @@ describe('event lifecycle actions', () => {
         await setPaymentPaid(event.id, true)
         expect(fetchSpy).toHaveBeenCalledTimes(1)
         const [messageText] = fetchMessages(fetchSpy)
-        // A級規定額 2,500円 × 2名 = 5,000円。feeJpy=99999 は無視される。
-        expect(messageText).toBe(
-          '✅【新春かるた大会】の参加費（総額 5,000円）の支払いが完了しました。',
-        )
+        expect(messageText).toBe('参加費の振り込みが完了しました。')
       } finally {
         fetchSpy.mockRestore()
         process.env.LINE_NOTIFY_DRY_RUN = '1'
       }
     })
 
-    it('setPaymentPaid(true): 複数日グループの1日だけを支払済にしても、総額はグループ全日ぶん', async () => {
-      // requirements §3.2.2「会計はグループ単位で一括請求される」。1日ぶんの額を出すと、
-      // 同じグループの支払締切リマインドが既に伝えた「振込総額」と食い違う（どちらも
-      // once-ever で訂正できない）。
-      const admin = await createAdmin()
-      const day1 = await seedLinkedEvent({
-        title: '2日制大会 1日目',
-        official: true,
-        kind: 'individual',
-        eligibleGrades: ['A'],
-      })
-      const day2 = await createEvent({
-        title: '2日制大会 2日目',
-        entryGroupId: day1.entryGroupId,
-        official: true,
-        kind: 'individual',
-        eligibleGrades: ['A'],
-      })
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      await setPaymentType(day1.id, 'advance')
-      const member = await createUser({ grade: 'A', isInvited: true })
-      await createEventAttendance({ eventId: day1.id, userId: member.id, attend: true })
-      await createEventAttendance({ eventId: day2.id, userId: member.id, attend: true })
-
-      delete process.env.LINE_NOTIFY_DRY_RUN
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(new Response(null, { status: 200 }))
-      try {
-        // 1日目だけを支払済にする（claimed は1件 → 金額が文面に出る経路）。
-        await setPaymentPaid(day1.id, true)
-        const [messageText] = fetchMessages(fetchSpy)
-        // A級 2,500円 × 2日分 = 5,000円（1日ぶんの 2,500円 ではない）。
-        expect(messageText).toBe(
-          '✅【2日制大会 1日目】の参加費（総額 5,000円）の支払いが完了しました。',
-        )
-      } finally {
-        fetchSpy.mockRestore()
-        process.env.LINE_NOTIFY_DRY_RUN = '1'
-      }
-    })
-
-    it('setPaymentPaid(true): 参加者0名は総額0円のため金額を出さない', async () => {
-      const admin = await createAdmin()
-      const event = await seedLinkedEvent({
-        official: true,
-        kind: 'individual',
-        eligibleGrades: ['A'],
-      })
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      await setPaymentType(event.id, 'advance')
-
-      delete process.env.LINE_NOTIFY_DRY_RUN
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(new Response(null, { status: 200 }))
-      try {
-        await setPaymentPaid(event.id, true)
-        const [messageText] = fetchMessages(fetchSpy)
-        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
-      } finally {
-        fetchSpy.mockRestore()
-        process.env.LINE_NOTIFY_DRY_RUN = '1'
-      }
-    })
-
-    it("setPaymentPaid(true): kind='team' は総額を算出できないため金額を出さない", async () => {
-      const admin = await createAdmin()
-      const event = await seedLinkedEvent({
-        official: true,
-        kind: 'team',
-        eligibleGrades: ['A'],
-        feeJpy: 10_000,
-      })
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      await setPaymentType(event.id, 'advance')
-      const member = await createUser({ grade: 'A', isInvited: true })
-      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
-
-      delete process.env.LINE_NOTIFY_DRY_RUN
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(new Response(null, { status: 200 }))
-      try {
-        await setPaymentPaid(event.id, true)
-        const [messageText] = fetchMessages(fetchSpy)
-        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
-      } finally {
-        fetchSpy.mockRestore()
-        process.env.LINE_NOTIFY_DRY_RUN = '1'
-      }
-    })
-
-    it('setPaymentPaid(true): official=false は総額を算出できないため金額を出さない', async () => {
-      const admin = await createAdmin()
-      const event = await seedLinkedEvent({
-        official: false,
-        kind: 'individual',
-        eligibleGrades: ['A'],
-        feeJpy: 3000,
-      })
-      await setAuthSession({ id: admin.id, role: 'admin' })
-      await setPaymentType(event.id, 'advance')
-      const member = await createUser({ grade: 'A', isInvited: true })
-      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
-
-      delete process.env.LINE_NOTIFY_DRY_RUN
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(new Response(null, { status: 200 }))
-      try {
-        await setPaymentPaid(event.id, true)
-        const [messageText] = fetchMessages(fetchSpy)
-        expect(messageText).toBe('✅【Linked】の参加費の支払いが完了しました。')
-      } finally {
-        fetchSpy.mockRestore()
-        process.env.LINE_NOTIFY_DRY_RUN = '1'
-      }
-    })
-
-    it('setPaymentsPaid（複数日一括）: 現行どおり金額を出さず日別ラベルで送られる（AC-18 回帰）', async () => {
+    it('setPaymentsPaid（複数日一括）: 現行どおり束ねて1通・文面は単一日と同一の固定文言になる', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const day1 = await seedLinkedEvent({
@@ -422,8 +301,10 @@ describe('event lifecycle actions', () => {
         await setPaymentsPaid([day1.id, day2.id], true)
         expect(fetchSpy).toHaveBeenCalledTimes(1)
         const [messageText] = fetchMessages(fetchSpy)
-        expect(messageText).toBe('✅8/1(土)C級・8/8(土)D級の参加費の支払いが完了しました。')
+        expect(messageText).toBe('参加費の振り込みが完了しました。')
         expect(messageText).not.toContain('総額')
+        expect(messageText).not.toContain('C級')
+        expect(messageText).not.toContain('D級')
       } finally {
         fetchSpy.mockRestore()
         process.env.LINE_NOTIFY_DRY_RUN = '1'

@@ -8,6 +8,7 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { formatEventDate } from '@/lib/event-date'
+import { buildTextMessage, type LineMessage } from '@/lib/line-mention'
 
 /**
  * event-lifecycle-notify: lifecycle LINE notifications (申込/支払い完了 +
@@ -89,15 +90,28 @@ export function formatFeeAmount(feeJpy: number | null | undefined): string | nul
 // ---------------------------------------------------------------------------
 
 export interface LifecycleMessageContext {
+  /**
+   * 大会名。line-bot-message-revamp タスク5で `entry_applied_treasurer` を除く
+   * 8種別からは大会名を出さなくなったため、その8種別では未使用（呼び出し側は互換の
+   * ため空文字などを渡してよい）。`entry_applied_treasurer`（タスク6管轄・未変更）は
+   * 引き続きこの値を使う。
+   */
   title: string
-  /** Participation fee in JPY; null/undefined omits the amount from the text. */
+  /**
+   * Participation fee in JPY; null/undefined omits the amount from the text.
+   * line-bot-message-revamp タスク5で全種別から金額を外したため未使用化。呼び出し側の
+   * 整理（feeJpy 算出そのものの削除）は後続（Wave 完了後に main がまとめて行う）。
+   */
   feeJpy?: number | null
   /** Relevant date as 'YYYY-MM-DD' (entry/payment deadline, or event date). */
   dateIso?: string
   /** Lead days for `*_advance` reminders. Defaults to `reminderLeadDays()`. */
   leadDays?: number
   // entry-notify-lottery-treasurer ------------------------------------------
-  /** 抽選日 'YYYY-MM-DD'。entry_applied で非 null のとき「抽選日は M/D です」を追記（§3.2.2）。 */
+  /**
+   * 抽選日 'YYYY-MM-DD'。entry_applied で非 null のとき空行を挟んで
+   * 「抽選日はM/D(曜)です。」を追記、NULL なら「抽選日は未定です。」（§3.2.1）。
+   */
   lotteryDateIso?: string | null
   /** 振込期限 'YYYY-MM-DD'。entry_applied_treasurer の「振込期限：M/D」に使う（§3.2.3）。 */
   paymentDeadlineIso?: string | null
@@ -105,22 +119,35 @@ export interface LifecycleMessageContext {
   paymentMethod?: string | null
   /** 振込先などの支払情報詳細（自由記述）。entry_applied_treasurer にそのまま載せる。 */
   paymentInfo?: string | null
-  // entry-groups タスク4: 複数日の一括操作で claim できた日の内訳。2件以上のときだけ
-  // 複数日文面へ分岐する（1件以下・未指定なら既存の単一日ロジックを一切変更しない —
-  // N=1 の文面バイト互換を保証するため、この分岐に入れず title/lotteryDateIso 等の
-  // スカラ引数のパスをそのまま通す）。
+  // entry-groups タスク4: 複数日の一括操作で claim できた日の内訳。
+  // line-bot-message-revamp タスク5で `entry_applied_treasurer` を除く8種別は
+  // multiDay 分岐を撤去したため、この8種別では `days` は無視される（渡しても
+  // 単一日と同一の固定文面になる）。`entry_applied_treasurer`（タスク6管轄・未変更）
+  // だけが2件以上のときに複数日文面へ分岐する。
   days?: readonly LifecycleDayEntry[]
   // grade-entry-fee タスク4: 総額・級別単価は任意フィールドで足す。未指定なら既存の
   // feeJpy 分岐にそのまま落ちるため、既存アサーションを変えずに AC-14/15/19/20 が通る
   // （整形は entry-fee.ts が担い、ここへは整形済み文字列/数値を渡す。循環 import 回避のため
   // このファイルは entry-fee.ts を import しない）。
-  /** 多級のときの級別単価表記（例: 'A・B級 2,500円 / C級 2,000円'）。未指定なら feeJpy の現行分岐（onsite_payment_*）。 */
+  /**
+   * 多級のときの級別単価表記（例: 'A・B級 2,500円 / C級 2,000円'）。
+   * line-bot-message-revamp タスク5で onsite_payment_* から金額表記自体を外したため未使用化。
+   */
   unitPricesLabel?: string | null
-  /** 振込総額（payment_deadline_* / payment_paid）。null / 0 なら金額行を出さない。 */
+  /**
+   * 振込総額（旧: payment_deadline_* / payment_paid）。
+   * line-bot-message-revamp タスク5で全種別から金額を外したため未使用化。
+   */
   totalJpy?: number | null
-  /** 総額の内訳（例 'A・B級 2名×2,500 / C級 3名×2,000'）。payment_deadline_* の総額行に括弧書きで続く。 */
+  /**
+   * 総額の内訳（例 'A・B級 2名×2,500 / C級 3名×2,000'）。
+   * line-bot-message-revamp タスク5で総額行自体を撤去したため未使用化。
+   */
   breakdownLabel?: string | null
-  /** 級未設定で総額に未算入の人数。0/未指定なら注記を出さない（payment_deadline_* のみ）。 */
+  /**
+   * 級未設定で総額に未算入の人数。
+   * line-bot-message-revamp タスク5で総額行自体を撤去したため未使用化（payment_deadline_* も対象外）。
+   */
   unknownGradeCount?: number
 }
 
@@ -189,66 +216,49 @@ function buildTreasurerLines(day: LifecycleDayEntry): string[] {
 /**
  * grade-entry-fee: 級未設定で総額に未算入の人数の注記。0/未指定なら null。
  *
- * **この文言の唯一の置き場所**。通知文面（下の `buildTotalSuffix`）と管理者向けの
- * 画面表示（イベント詳細の「振込総額」行）が同じ書式を使う。`entry-fee.ts` は
- * `formatFeeAmount` をこのファイルから import しているので、依存の向きを保つため
- * 注記の整形もこちら側に置く（逆向きに張ると循環する）。
+ * **この文言の唯一の置き場所**。管理者向け画面表示（イベント詳細の「振込総額」行）が
+ * この書式を使う。`entry-fee.ts` は `formatFeeAmount` をこのファイルから import して
+ * いるので、依存の向きを保つため注記の整形もこちら側に置く（逆向きに張ると循環する）。
+ *
+ * line-bot-message-revamp タスク5: 通知文面側の呼び出し元（旧 `buildTotalSuffix`）は
+ * 全種別から金額を外したため削除した。この関数自体は画面表示側がまだ使うので残す。
  */
 export function formatUnknownGradeNote(count: number | undefined): string | null {
   return count != null && count > 0 ? `※級未設定 ${count}名は未算入` : null
 }
 
 /**
- * grade-entry-fee: payment_deadline_advance/day の2行目以降（振込総額・内訳・
- * 級未設定注記）。`totalJpy` が null/0 のときは空文字を返し、1行目のみの現行文面と
- * バイト単位で一致させる（AC-14）。
+ * Build the fixed-template text for a lifecycle notification.
  *
- * **この書式の唯一の置き場所**。複数日バケットの文面テンプレートは
- * `scripts/send-lifecycle-reminders.ts` の `buildBucketMessage` が所有するが、
- * 総額行だけはそちらからもこの関数を import して使う（複製すると片方だけ書式を
- * 変えたときに、単一日と複数日で通知の見た目が食い違う）。
- */
-export function buildTotalSuffix(
-  ctx: Pick<LifecycleMessageContext, 'totalJpy' | 'breakdownLabel' | 'unknownGradeCount'>,
-): string {
-  const totalLabel = ctx.totalJpy != null && ctx.totalJpy > 0 ? formatFeeAmount(ctx.totalJpy) : null
-  if (!totalLabel) return ''
-  const lines = [`振込総額 ${totalLabel}${ctx.breakdownLabel ? `（${ctx.breakdownLabel}）` : ''}`]
-  const note = formatUnknownGradeNote(ctx.unknownGradeCount)
-  if (note) lines.push(note)
-  return `\n${lines.join('\n')}`
-}
-
-/**
- * Build the fixed-template text for a lifecycle notification. Prefixes per
- * requirements §3.2.1 (✅ 完了 / ⏰ 事前 / ⚠️ 当日 / 💰 現地払い). When `feeJpy`
- * is null the amount is dropped from payment messages (§3.2.4).
+ * **2026-08-22 全面改訂（line-bot-message-revamp タスク5）。** `entry_applied_treasurer`
+ * を除く8種別の文面を requirements §3.2.1 の表へ差し替えた: 宛先は1グループ＝1大会な
+ * ので大会名を出さない・金額は会計向け（`entry_applied_treasurer`）にしか出さないため
+ * ここでは一切出さない。日付は `formatEventDate`（曜日つき）を使う（旧 `formatMMDD` の
+ * 曜日なし表記から変更）。複数日（`ctx.days`）を束ねても大会名を出さない以上、単一日と
+ * 文面が同一になるため、この8種別は `multiDay` の出し分けを持たない（束ね処理自体は
+ * `event_lifecycle_notifications` の claim/finalize 側・呼び出し元で維持する）。
+ * `entry_applied_treasurer` はタスク6の担当領域のため未変更（旧仕様のまま: 大会名・
+ * 複数日の日別ラベル・`formatMMDD` を使い続ける）。
  */
 export function buildLifecycleMessage(
   type: LifecycleNotificationType,
   ctx: LifecycleMessageContext,
 ): string {
   const { title } = ctx
-  const date = ctx.dateIso ? formatMMDD(ctx.dateIso) : ''
+  const date = ctx.dateIso ? formatEventDate(ctx.dateIso) : ''
   const lead = ctx.leadDays ?? reminderLeadDays()
-  const fee = formatFeeAmount(ctx.feeJpy)
-  // entry-groups タスク4: 2件以上のときだけ複数日文面へ分岐する。1件以下・未指定は
-  // 下の既存ロジックへそのまま流す（N=1 バイト互換）。
+  // entry_applied_treasurer だけがまだ複数日分岐を持つ（タスク6管轄・未変更）。他の
+  // 8種別は line-bot-message-revamp タスク5で multiDay 分岐を撤去した。
   const multiDay = ctx.days != null && ctx.days.length > 1 ? sortDays(ctx.days) : null
 
   switch (type) {
     case 'entry_applied': {
-      if (multiDay) {
-        const applied = `✅${formatDaysLabel(multiDay)}の参加申込が完了しました。`
-        return ctx.lotteryDateIso
-          ? `${applied}\n抽選日は ${formatMMDD(ctx.lotteryDateIso)} です。`
-          : applied
-      }
-      const applied = `✅【${title}】への参加申込が完了しました。`
-      // §3.2.2: 抽選日が設定されていれば末尾に追記。NULL のときは従来どおり追記なし。
+      // §3.2.1: 大会名は出さない。抽選日が設定されていれば空行を挟んで追記、NULL なら
+      // 「抽選日は未定です。」（抽選日はグループ単位で同一という運用前提のため、複数日
+      // でも出し分けない＝ ctx.days は参照しない）。
       return ctx.lotteryDateIso
-        ? `${applied}\n抽選日は ${formatMMDD(ctx.lotteryDateIso)} です。`
-        : applied
+        ? `申し込みが完了しました！\n\n抽選日は${formatEventDate(ctx.lotteryDateIso)}です。`
+        : '申し込みが完了しました！\n\n抽選日は未定です。'
     }
     case 'entry_applied_treasurer': {
       if (multiDay) {
@@ -289,52 +299,19 @@ export function buildLifecycleMessage(
       return `💴【${title}】会計の方へ\n${body}`
     }
     case 'entry_deadline_advance':
-      return `⏰【${title}】の申込締切は ${date}（あと ${lead} 日）です。まだ申込が完了していません。`
+      return `申込締切は${date}（あと${lead}日）です。まだ申し込みが行われていません。`
     case 'entry_deadline_day':
-      return `⚠️【${title}】の申込締切は本日 ${date} です。まだ申込が完了していません。`
+      return '⚠️申込は今日までです！⚠️'
     case 'payment_paid':
-      if (multiDay) {
-        // タスク4: 一括支払済は金額の日別差を出し分けず、対象日を列挙する最小文面に留める
-        // （金額の全日同値/日別判定は entry_applied_treasurer ほど要件で明示されておらず、
-        // 過剰な複雑化を避ける設計選択。main レビューで確認）。
-        return `✅${formatDaysLabel(multiDay)}の参加費の支払いが完了しました。`
-      }
-      // grade-entry-fee タスク4: 1人あたり額（feeJpy）ではなく振込総額（totalJpy）を使う
-      // （総額へ意味が変わったため。feeJpy はここでは参照しない — AC-17）。
-      {
-        const total = ctx.totalJpy != null && ctx.totalJpy > 0 ? formatFeeAmount(ctx.totalJpy) : null
-        return total
-          ? `✅【${title}】の参加費（総額 ${total}）の支払いが完了しました。`
-          : `✅【${title}】の参加費の支払いが完了しました。`
-      }
+      return '参加費の振り込みが完了しました。'
     case 'payment_deadline_advance':
-      // grade-entry-fee タスク4: 1行目は現行文面のまま。totalJpy が非 null かつ 0 より
-      // 大きいときだけ2行目以降（振込総額・内訳・級未設定注記）を足す（AC-13/14）。
-      return (
-        `⏰【${title}】の参加費の支払締切は ${date}（あと ${lead} 日）です。まだ支払いが完了していません。` +
-        buildTotalSuffix(ctx)
-      )
+      return `支払い締切は${date}（あと${lead}日）です。まだ振込が行われていません。`
     case 'payment_deadline_day':
-      return (
-        `⚠️【${title}】の参加費の支払締切は本日 ${date} です。まだ支払いが完了していません。` +
-        buildTotalSuffix(ctx)
-      )
+      return '⚠️振込締切は今日までです！⚠️'
     case 'onsite_payment_advance':
-      // grade-entry-fee タスク4: unitPricesLabel（多級の級別単価）が feeJpy より優先。
-      // 未指定なら現行の feeJpy 分岐のまま（バイト互換・AC-15）。
-      if (ctx.unitPricesLabel) {
-        return `💰【${title}】は当日現地払いです。参加費 ${ctx.unitPricesLabel} を ${date} 当日お持ちください。`
-      }
-      return fee
-        ? `💰【${title}】は当日現地払いです。参加費 ${fee} を ${date} 当日お持ちください。`
-        : `💰【${title}】は当日現地払いです。参加費を ${date} 当日お持ちください。`
+      return '参加費は現地払いです。当日忘れないようにしてください。'
     case 'onsite_payment_day':
-      if (ctx.unitPricesLabel) {
-        return `💰 本日は【${title}】です。現地払い ${ctx.unitPricesLabel} をお忘れなく。`
-      }
-      return fee
-        ? `💰 本日は【${title}】です。現地払い ${fee} をお忘れなく。`
-        : `💰 本日は【${title}】です。参加費の現地払いをお忘れなく。`
+      return '大会当日です！参加費を忘れないようにしてください。'
     default: {
       // Exhaustiveness guard: adding an enum value without a branch is a compile error.
       const _exhaustive: never = type
@@ -397,6 +374,43 @@ export async function loadLinkedBinding(
   }
 }
 
+/**
+ * グループ単位の binding ローダー（line-bot-message-revamp §3.3.4）。
+ * `loadLinkedBinding` の JOIN から events を外しただけの変種で、条件は同じ
+ * （`status='linked'` かつ `line_group_id` あり）。
+ */
+export async function loadLinkedBindingForGroup(
+  dbc: DbOrTx,
+  entryGroupId: number,
+): Promise<LinkedEventBinding | null> {
+  const rows = await dbc
+    .select({
+      broadcastId: eventLineBroadcasts.id,
+      entryGroupId: eventLineBroadcasts.entryGroupId,
+      lineChannelId: eventLineBroadcasts.lineChannelId,
+      lineGroupId: eventLineBroadcasts.lineGroupId,
+      channelAccessToken: lineChannels.channelAccessToken,
+    })
+    .from(eventLineBroadcasts)
+    .innerJoin(lineChannels, eq(lineChannels.id, eventLineBroadcasts.lineChannelId))
+    .where(
+      and(
+        eq(eventLineBroadcasts.entryGroupId, entryGroupId),
+        eq(eventLineBroadcasts.status, 'linked'),
+      ),
+    )
+    .limit(1)
+  const hit = rows[0]
+  if (!hit || !hit.lineGroupId) return null
+  return {
+    broadcastId: hit.broadcastId,
+    entryGroupId: hit.entryGroupId,
+    lineChannelId: hit.lineChannelId,
+    lineGroupId: hit.lineGroupId,
+    channelAccessToken: hit.channelAccessToken,
+  }
+}
+
 interface SinglePushResult {
   ok: boolean
   httpStatus: number | null
@@ -404,14 +418,18 @@ interface SinglePushResult {
 }
 
 /**
- * Push a single text message to a LINE group over `fetch`. Honors
- * `LINE_NOTIFY_DRY_RUN=1` (skips the API and reports success) and bounds the
- * request with a 30s AbortController timeout, matching line-broadcast.ts.
+ * Push messages to a LINE group over `fetch`. Honors `LINE_NOTIFY_DRY_RUN=1`
+ * (skips the API and reports success) and bounds the request with a 30s
+ * AbortController timeout, matching line-broadcast.ts.
+ *
+ * line-bot-message-revamp: 引数が**メッセージオブジェクトの配列**なのは、会計向け
+ * 通知と振込連絡が `textV2`（メンション付き）になり、振込連絡は2通に分かれるため
+ * （要件 §3.2.2）。push は1リクエスト最大5通まで。
  */
-async function pushSingleText(
+async function pushMessages(
   channelAccessToken: string,
   to: string,
-  text: string,
+  messages: readonly LineMessage[],
   logger: Logger,
 ): Promise<SinglePushResult> {
   if (process.env.LINE_NOTIFY_DRY_RUN === '1') {
@@ -428,7 +446,7 @@ async function pushSingleText(
         Authorization: `Bearer ${channelAccessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ to, messages: [{ type: 'text', text }] }),
+      body: JSON.stringify({ to, messages }),
       signal: controller.signal,
     })
     if (res.ok) return { ok: true, httpStatus: res.status, error: null }
@@ -467,7 +485,7 @@ async function pushSingleText(
 async function applyPushFailureRecovery(
   dbc: Database,
   binding: LinkedEventBinding,
-  eventId: number,
+  eventId: number | null,
   httpStatus: number | null,
   logger: Logger,
 ): Promise<void> {
@@ -538,29 +556,69 @@ export interface PushTextResult {
 }
 
 /**
- * Push one text to the LINE group bound to an event. Returns 'skipped' when the
+ * Push messages to the LINE group bound to an event. Returns 'skipped' when the
  * event has no linked group (no push, not an error). On API failure, records
  * the failure and runs the 401/4xx recovery before returning 'failed'.
  */
+export async function pushMessagesToEventGroup(
+  dbc: Database,
+  eventId: number,
+  messages: readonly LineMessage[],
+  opts: { logger?: Logger } = {},
+): Promise<PushTextResult> {
+  const binding = await loadLinkedBinding(dbc, eventId)
+  return pushToBinding(dbc, binding, eventId, messages, opts)
+}
+
+/** 従来の「1通のテキストを送る」経路。ライフサイクル通知8種はこちらのまま。 */
 export async function pushTextToEventGroup(
   dbc: Database,
   eventId: number,
   text: string,
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
+  return pushMessagesToEventGroup(dbc, eventId, [buildTextMessage(text)], opts)
+}
+
+/**
+ * line-bot-message-revamp §3.3.4: **申込グループ単位**で push する（振込連絡）。
+ *
+ * 紐付け（`event_line_broadcasts`）は元からグループ帰属なので、代表イベントを
+ * 経由せず直接引く。`entry_group_payment_notices` がグループ単位のキーを持つのと
+ * 揃える（代表イベントを挟むと、付け替え時にどのイベントを代表にしたかで
+ * 結果が変わりうる）。
+ */
+export async function pushMessagesToEntryGroup(
+  dbc: Database,
+  entryGroupId: number,
+  messages: readonly LineMessage[],
+  opts: { logger?: Logger } = {},
+): Promise<PushTextResult> {
+  const binding = await loadLinkedBindingForGroup(dbc, entryGroupId)
+  return pushToBinding(dbc, binding, null, messages, opts)
+}
+
+/** 解決済み binding へ push し、失敗時は 401/4xx リカバリを回す共通部。 */
+async function pushToBinding(
+  dbc: Database,
+  binding: LinkedEventBinding | null,
+  eventId: number | null,
+  messages: readonly LineMessage[],
+  opts: { logger?: Logger } = {},
+): Promise<PushTextResult> {
   const logger = opts.logger ?? NOOP_LOGGER
-  const binding = await loadLinkedBinding(dbc, eventId)
   if (!binding) {
     return { outcome: 'skipped', reason: 'no_linked_binding', lineGroupId: null }
   }
 
-  const res = await pushSingleText(binding.channelAccessToken, binding.lineGroupId, text, logger)
+  const res = await pushMessages(binding.channelAccessToken, binding.lineGroupId, messages, logger)
   if (res.ok) {
     return { outcome: 'sent', httpStatus: res.httpStatus, lineGroupId: binding.lineGroupId }
   }
 
   logger.warn('lifecycle push failed', {
     eventId,
+    entryGroupId: binding.entryGroupId,
     httpStatus: res.httpStatus,
     error: res.error?.message,
   })
@@ -626,6 +684,11 @@ export async function finalizeLifecycleNotification(
     .where(eq(eventLifecycleNotifications.id, id))
 }
 
+/** 文字列で渡された文面を `type:'text'` 1通に正規化する（既存呼び出しの互換）。 */
+function toMessages(message: string | readonly LineMessage[]): readonly LineMessage[] {
+  return typeof message === 'string' ? [buildTextMessage(message)] : message
+}
+
 /**
  * Given an already-claimed log row, push the text to the event's group and
  * finalize the row's status. Shared by the completion path (after the
@@ -633,10 +696,10 @@ export async function finalizeLifecycleNotification(
  */
 export async function sendClaimedNotification(
   dbc: Database,
-  args: { notificationId: number; eventId: number; message: string },
+  args: { notificationId: number; eventId: number; message: string | readonly LineMessage[] },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
-  const result = await pushTextToEventGroup(dbc, args.eventId, args.message, opts)
+  const result = await pushMessagesToEventGroup(dbc, args.eventId, toMessages(args.message), opts)
   await finalizeLifecycleNotification(dbc, args.notificationId, {
     status: result.outcome,
     lineGroupId: result.lineGroupId ?? null,
@@ -654,10 +717,14 @@ export async function sendClaimedNotification(
  */
 export async function sendClaimedNotificationBulk(
   dbc: Database,
-  args: { notificationIds: readonly number[]; eventId: number; message: string },
+  args: {
+    notificationIds: readonly number[]
+    eventId: number
+    message: string | readonly LineMessage[]
+  },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
-  const result = await pushTextToEventGroup(dbc, args.eventId, args.message, opts)
+  const result = await pushMessagesToEventGroup(dbc, args.eventId, toMessages(args.message), opts)
   await Promise.all(
     args.notificationIds.map((id) =>
       finalizeLifecycleNotification(dbc, id, {
@@ -677,7 +744,11 @@ export async function sendClaimedNotificationBulk(
  */
 export async function sendReminderNotification(
   dbc: Database,
-  args: { eventId: number; type: LifecycleNotificationType; message: string },
+  args: {
+    eventId: number
+    type: LifecycleNotificationType
+    message: string | readonly LineMessage[]
+  },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
   const claim = await claimLifecycleNotification(dbc, args.eventId, args.type)

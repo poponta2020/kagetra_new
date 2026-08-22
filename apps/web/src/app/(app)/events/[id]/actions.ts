@@ -38,7 +38,6 @@ import {
   sendClaimedNotificationBulk,
   type LifecycleDayEntry,
 } from '@/lib/event-lifecycle-notify'
-import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 import { isIndividualOnlyGroup } from '@/lib/events/confirmed-roster'
 
 /**
@@ -726,26 +725,16 @@ interface AppliedFlipRow {
 }
 
 /**
- * 参加者向け文面を組み立てる。**1件のときは既存の単一日ロジックへそのまま渡す**
- * （`days` を付けない＝event-lifecycle-notify.ts の N=1 分岐に入らないので、
- * N=1 の文面はバイト互換）。2件以上のときだけ複数日文面へ分岐する。
- * 抽選日は全日で値が一致するときだけ追記する（一致しない/一部 null なら省略）。
+ * 参加者向け文面を組み立てる。line-bot-message-revamp タスク5で `entry_applied` は
+ * 大会名・複数日ラベルを一切出さなくなったため、件数（rows.length）に関わらず同一の
+ * 固定文面になる（`days` を組み立てて渡す必要が無くなった）。
+ * 抽選日は全日で値が一致するときだけ追記する（一致しない/一部 null なら「未定」扱い。
+ * 1件のときは自明に「全日一致」）。
  */
 function buildParticipantAppliedMessage(rows: readonly AppliedFlipRow[]): string {
-  if (rows.length === 1) {
-    return buildLifecycleMessage('entry_applied', {
-      title: rows[0]!.title,
-      lotteryDateIso: rows[0]!.lotteryDate,
-    })
-  }
   const lotteryDates = new Set(rows.map((r) => r.lotteryDate ?? ''))
   const commonLotteryDate = lotteryDates.size === 1 ? rows[0]!.lotteryDate : null
-  const days: LifecycleDayEntry[] = rows.map((r) => ({ dateIso: r.eventDate, title: r.title }))
-  return buildLifecycleMessage('entry_applied', {
-    title: '',
-    lotteryDateIso: commonLotteryDate,
-    days,
-  })
+  return buildLifecycleMessage('entry_applied', { title: '', lotteryDateIso: commonLotteryDate })
 }
 
 /**
@@ -1046,27 +1035,15 @@ interface PaymentPaidFlipRow {
 }
 
 /**
- * 支払完了メッセージを組み立てる。**1件のときは既存の単一日ロジックへそのまま
- * 渡す**（N=1 バイト互換）。2件以上は日別ラベルを列挙する最小文面にする
- * （金額の全日同値/日別判定までは要件で明示されていない設計選択。日別の金額
- * 内訳が必要になったら `buildLifecycleMessage` の `payment_paid` 分岐を拡張する）。
+ * 支払完了メッセージを組み立てる。line-bot-message-revamp タスク5で `payment_paid`
+ * は大会名・金額を一切出さなくなったため、件数に関わらず同一の固定文面になる。
  *
- * grade-entry-fee タスク6 (AC-17): N=1 のときだけ `totalJpy`（実際に振り込んだ
- * 総額）を渡す。1人あたり額（feeJpy）を「総額」と偽らないため feeJpy はここでは
- * 参照しない。N>1（AC-18）は現行どおり金額を出さないので totalJpy は不要。
+ * grade-entry-fee タスク6 (AC-17/18) で導入した「N=1 のときだけ振込総額を載せる」
+ * 分岐はこの改訂で丸ごと不要になった（呼び出し元の `tallyEntryFeesForGroup` 呼び出し
+ * も削除済み）。
  */
-function buildPaymentPaidMessage(
-  rows: readonly PaymentPaidFlipRow[],
-  totalJpy: number | null,
-): string {
-  if (rows.length === 1) {
-    return buildLifecycleMessage('payment_paid', {
-      title: rows[0]!.title,
-      totalJpy,
-    })
-  }
-  const days: LifecycleDayEntry[] = rows.map((r) => ({ dateIso: r.eventDate, title: r.title }))
-  return buildLifecycleMessage('payment_paid', { title: '', days })
+function buildPaymentPaidMessage(): string {
+  return buildLifecycleMessage('payment_paid', { title: '' })
 }
 
 /**
@@ -1140,26 +1117,10 @@ export async function setPaymentsPaid(
   })
 
   if (result.notificationIds.length > 0) {
-    // grade-entry-fee タスク6 (AC-17): 総額の取得は tx の外（flip 後）で行う——集計
-    // クエリを状態更新 tx に混ぜない。金額が文面に出るのは claimed が1件のときだけ
-    // （複数日一括は AC-18 で金額を出さない）。
-    //
-    // ★対象は claim できた1日ではなく**申込グループの全日**（requirements §3.2.2
-    // 「会計はグループ単位で一括請求される」）。3日グループの1日目だけを支払済に
-    // したとき、1日ぶんの額を出すと、同じグループの支払締切リマインドが既に伝えた
-    // 「振込総額」と食い違う。どちらの通知も once-ever で訂正できないため、
-    // 同じ数字を指すグループ単位に揃える。
-    let totalJpy: number | null = null
-    if (result.claimed.length === 1) {
-      try {
-        const tally = await tallyEntryFeesForGroup(db, entryGroupId)
-        totalJpy = tally.totalJpy
-      } catch {
-        // best-effort: 総額が引けなくても、金額なしで通知は飛ばす。
-        totalJpy = null
-      }
-    }
-    const message = buildPaymentPaidMessage(result.claimed, totalJpy)
+    // line-bot-message-revamp タスク5 (AC-26): payment_paid は金額を一切出さなく
+    // なったため、grade-entry-fee タスク6 (AC-17/18) が行っていたグループ単位の
+    // 振込総額集計（`tallyEntryFeesForGroup`）はここでは不要になった。
+    const message = buildPaymentPaidMessage()
     try {
       await sendClaimedNotificationBulk(db, {
         notificationIds: result.notificationIds,
