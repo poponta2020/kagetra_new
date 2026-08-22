@@ -319,3 +319,8 @@
 - [gh issue edit --body-file - の空 stdin は本文を全消しする](feedback_gh_issue_edit_empty_stdin.md) — 読む目的で edit を使わない。復旧は GraphQL userContentEdits の diff
 - [auto-review PR #512](auto-review-round-pr512.md) — R1 verdict=needs_changes→cutoff(user-wontfix)。締切判定の2段構えは要件定義書側を訂正して確定
 - [「大会」への呼称統一と「申込者なしで締切済の大会」ページ新設](project_ship-events-no-entrants.md) — shipped: PR #512。★残DoD=AC-21本番実機確認・ローカルvitest未実行でマージ
+- [確定名簿シグナルの拡張 実装（タスク1・2）](impl_confirmed-roster-signal.md) — 判定4材料化＋手動フラグトグル。#510/#511 実装完了・PR未作成
+- [auto-review PR #513](auto-review-round-pr513.md) — R5まで。R1 blocker修正・R3 blocker見送り(WONTFIX)・CI失敗修正
+- [role-preview-switch ゲストビュー解禁 要件定義](project_role_preview_guest_view_def.md) — 親Issue #514
+- [テストDBの持ち越し行がFK RESTRICTで隣のファイルを落とす](feedback_test_db_leftover_rows_fk_restrict.md) — 手書きresetDb禁止・truncateAll一択。新規DBテスト追加時は隣接ファイルと順に実行して確認
+- [確定名簿シグナルの拡張（確定名簿メール・手動フラグ）](project_ship-confirmed-roster-signal.md) — shipped: PR #513。残DoD=AC-17 本番で杉並AB(group 13)が「名簿確定・要振込」に出るか確認
