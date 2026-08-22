@@ -30,9 +30,13 @@ import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
 import { isGuestRole } from '@/lib/guest-access'
 import { roleViewLabel } from '@/lib/role-preview'
-import { submitAttendance } from './actions'
+import { setConfirmedRosterOverride, submitAttendance } from './actions'
 import { OpenChatSection } from './components/OpenChatSection'
-import { RosterSection, type RosterFileView } from './components/RosterSection'
+import {
+  RosterSection,
+  type RosterAdminControls,
+  type RosterFileView,
+} from './components/RosterSection'
 import { surname } from '@/lib/surname'
 
 /**
@@ -261,9 +265,8 @@ export default async function EventDetailPage({
   // `entryGroup.rosters` / `rosterFiles` は**表示用として残す**——判定だけ差し替える。
   // 会員向けのこの画面にも反映するのは意図どおり（要件 §3.2.4。ボードと会員画面で
   // フェーズがずれない）。
-  const { settled: hasConfirmedRoster } = await loadConfirmedRosterState(
-    event.entryGroupId,
-  )
+  const { settled: hasConfirmedRoster, override: confirmedRosterOverride } =
+    await loadConfirmedRosterState(event.entryGroupId)
   const flowSteps = buildEntryFlow({
     internalDeadline: event.internalDeadline,
     entryDeadline: event.entryDeadline,
@@ -288,6 +291,19 @@ export default async function EventDetailPage({
     filename: f.sourceAttachment?.filename ?? '',
     grades: f.grades,
   }))
+
+  // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
+  // **管理者のときだけ**組み立てる。`RosterSection` は `'use client'` なので、
+  // 非管理者にも渡すと `{cond && <JSX>}` で隠しても RSC payload に載る。
+  const rosterAdminControls: RosterAdminControls | undefined = isAdmin
+    ? {
+        confirmedRosterOverride,
+        setConfirmedRosterOverride: setConfirmedRosterOverride.bind(
+          null,
+          event.entryGroupId,
+        ),
+      }
+    : undefined
 
   return (
     <div className="flex min-h-full flex-col p-4">
@@ -412,6 +428,7 @@ export default async function EventDetailPage({
         rosters={event.entryGroup.rosters}
         rosterFiles={rosterFiles}
         currentUserId={session?.user.id ?? null}
+        adminControls={rosterAdminControls}
       />
 
       {!canRespond && session && (

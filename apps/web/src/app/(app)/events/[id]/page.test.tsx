@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { eq } from 'drizzle-orm'
 import {
+  entryGroups,
   mailAttachments,
   tournamentEntryRosterEntries,
   tournamentEntryRosterFiles,
@@ -968,5 +970,83 @@ describe('/events/[id] — 確定名簿シグナルとフロー帯 (confirmed-ro
     const { container } = render(await renderPage(ev.id))
 
     expect(container.querySelector('[aria-current="step"]')?.textContent).toContain('抽選')
+  })
+})
+
+/**
+ * confirmed-roster-signal タスク2 (AC-11/AC-13): 「確定名簿ありとして扱う」トグル。
+ *
+ * `RosterSection` は `'use client'` で全ロールに描かれるので、`{isAdmin && <JSX>}`
+ * で隠すだけでは props が RSC payload に載る。管理者向けの値と Server Action は
+ * `adminControls` 1 つに束ねて**管理者のときだけ**渡す（PR #376 の教訓）。
+ */
+describe('/events/[id] — 確定名簿ありトグル (confirmed-roster-signal AC-11/AC-13)', () => {
+  const TOGGLE_LABEL = '確定名簿ありとして扱う'
+
+  it('AC-13: 名簿が1件も無いグループでも名簿セクションが描画されトグルへ到達できる（管理者）', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const ui = await renderPage(ev.id)
+    const { container } = render(ui)
+
+    // 名簿セクション自体が出ている（0件でも null を返さない設計）。
+    expect(container.textContent).toContain('名簿')
+    expect(container.textContent).toContain(TOGGLE_LABEL)
+
+    const rosterSections = findElementsByType(ui, RosterSection)
+    expect(rosterSections).toHaveLength(1)
+    const controls = rosterSections[0]!.props.adminControls as
+      | Record<string, unknown>
+      | undefined
+    expect(controls).toBeTruthy()
+    expect(controls!.confirmedRosterOverride).toBe(false)
+    expect(typeof controls!.setConfirmedRosterOverride).toBe('function')
+  })
+
+  it('AC-11: 一般会員には DOM にも RSC payload にもトグルと Server Action が現れない', async () => {
+    const member = await createUser({ role: 'member', grade: 'C' })
+    await setAuthSession({ id: member.id, role: 'member' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const ui = await renderPage(ev.id)
+    const propValues: string[] = []
+    collectPropValues(ui, propValues)
+    const { container } = render(ui)
+
+    expect(container.textContent).not.toContain(TOGGLE_LABEL)
+    expect(propValues.join(' ')).not.toContain(TOGGLE_LABEL)
+
+    const rosterSections = findElementsByType(ui, RosterSection)
+    expect(rosterSections).toHaveLength(1)
+    expect(rosterSections[0]!.props.adminControls).toBeUndefined()
+  })
+
+  it('AC-11: ゲストにも現れない', async () => {
+    const guest = await createGuest({ grade: 'C' })
+    await setAuthSession({ id: guest.id, role: 'guest' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+
+    const ui = await renderPage(ev.id)
+    const { container } = render(ui)
+
+    expect(container.textContent).not.toContain(TOGGLE_LABEL)
+    expect(findElementsByType(ui, RosterSection)[0]!.props.adminControls).toBeUndefined()
+  })
+
+  it('override が立っているグループではトグルが ON の見た目になる（管理者）', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const ev = await createEvent({ eventDate: addDays(todayJst(), 30) })
+    await testDb
+      .update(entryGroups)
+      .set({ confirmedRosterOverride: true })
+      .where(eq(entryGroups.id, ev.entryGroupId))
+
+    const { container } = render(await renderPage(ev.id))
+
+    expect(container.textContent).toContain('確定名簿ありとして扱っています')
+    expect(container.textContent).toContain('扱いを解除')
   })
 })

@@ -88,11 +88,11 @@ describe('isConfirmedRosterSettled（純関数・4材料の OR）', () => {
   })
 
   it.each([
-    ['hasParsedRoster', 'パース済み確定名簿'],
-    ['hasAdoptedFile', '採用済み原本ファイル'],
-    ['hasConfirmedRosterMail', '確定名簿メール'],
-    ['override', '手動フラグ'],
-  ] as const)('%s だけでも成立する（%s）', (key) => {
+    'hasParsedRoster',
+    'hasAdoptedFile',
+    'hasConfirmedRosterMail',
+    'override',
+  ] as const)('%s だけでも成立する（4材料はそれぞれ単独で立つ）', (key) => {
     expect(isConfirmedRosterSettled({ ...NONE, [key]: true })).toBe(true)
   })
 

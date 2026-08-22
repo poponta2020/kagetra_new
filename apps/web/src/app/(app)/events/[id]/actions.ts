@@ -6,6 +6,7 @@ import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { isGuestRole } from '@/lib/guest-access'
 import {
+  entryGroups,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   events,
@@ -1182,4 +1183,51 @@ export async function setPaymentPaid(
   paid: boolean,
 ): Promise<void> {
   await setPaymentsPaid([eventId], paid)
+}
+
+/**
+ * confirmed-roster-signal タスク2: 「確定名簿ありとして扱う」手動フラグの ON/OFF
+ * （admin / vice_admin のみ）。
+ *
+ * 名簿レコードも確定名簿メールも無いが、別経路（会場掲示・口頭・他会からの連絡）で
+ * 確定を知ったときの逃げ道。判定の正典は `@/lib/events/confirmed-roster` で、
+ * ここはその材料④を書くだけ——`classify` / `buildEntryFlow` には触れない。
+ *
+ * ★**任意のフェーズへ進める汎用の逃げ道ではない**。`classify` が
+ * `hasConfirmedRoster` を見るのは `applied` 分岐だけなので、未申込のグループで
+ * ON にしても区画は動かない（要件 §3.2.2）。
+ *
+ * 通知は送らない。誰がいつ立てたかも記録しない（要件 §5 Non-goals）。
+ */
+export async function setConfirmedRosterOverride(
+  entryGroupId: number,
+  value: boolean,
+): Promise<void> {
+  await requireAdminSession()
+
+  // グループ実在確認（存在しない id への UPDATE を無言で 0 行にしない）。
+  const [group] = await db
+    .select({ id: entryGroups.id })
+    .from(entryGroups)
+    .where(eq(entryGroups.id, entryGroupId))
+    .limit(1)
+  if (!group) throw new Error('Not found')
+
+  await db
+    .update(entryGroups)
+    .set({ confirmedRosterOverride: value })
+    .where(eq(entryGroups.id, entryGroupId))
+
+  // グループ内の全日の詳細画面・グループページ・ボードを捨てる。フロー帯は
+  // 日ページにも出るので、`revalidatePath('/admin/entries/[groupId]')` だけでは
+  // 会員が見る `/events/[id]` に古いフェーズが残る（要件 §3.2.4）。
+  // `listGroupSiblings` は eventId 起点なので、ここはグループから直接引く。
+  const dayRows = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+  revalidateAfterLifecycleChange(
+    dayRows.map((r) => r.id),
+    entryGroupId,
+  )
 }

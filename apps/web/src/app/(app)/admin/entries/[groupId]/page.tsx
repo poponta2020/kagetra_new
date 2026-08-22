@@ -42,6 +42,7 @@ import { EventRelatedMails } from '@/components/events/EventRelatedMails'
 import { OpenChatSection } from '@/app/(app)/events/[id]/components/OpenChatSection'
 import {
   RosterSection,
+  type RosterAdminControls,
   type RosterFileView,
 } from '@/app/(app)/events/[id]/components/RosterSection'
 import {
@@ -50,6 +51,7 @@ import {
   resendGradeBroadcast,
   resendGuidelines,
   revokeBroadcast,
+  setConfirmedRosterOverride,
   setEntriesApplied,
   setEntriesNotApplying,
   setGuidelineAttachments,
@@ -229,9 +231,24 @@ export default async function EntryGroupPage({
     filename: f.sourceAttachment?.filename ?? '',
     grades: f.grades,
   }))
-  // 確定名簿の有無。判定の正典は 1 つ（要件 §6）。`settled` はフロー帯と日程表の
-  // フェーズ語へ渡す（同じローダーが返す `override` はタスク2 のトグルが使う）。
-  const { settled: hasConfirmedRoster } = await loadConfirmedRosterState(groupIdNum)
+  // 確定名簿の有無＋手動フラグの生値。判定の正典は 1 つ（要件 §6）——`settled` は
+  // フロー帯と日程表のフェーズ語へ、`override` は名簿セクションのトグルの現在値へ。
+  // トグルの状態を別クエリで読み直さない（判定の正典が2つに割れる）。
+  const { settled: hasConfirmedRoster, override: confirmedRosterOverride } =
+    await loadConfirmedRosterState(groupIdNum)
+
+  // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
+  // **管理者のときだけ**組み立てる（`RosterSection` は `'use client'`。日ページと
+  // 同じ規約）。
+  const rosterAdminControls: RosterAdminControls | undefined = isAdmin
+    ? {
+        confirmedRosterOverride,
+        setConfirmedRosterOverride: setConfirmedRosterOverride.bind(
+          null,
+          groupIdNum,
+        ),
+      }
+    : undefined
 
   // ④ 申込フロー帯（集約入力を作って既存 `buildEntryFlow` へ渡す。§3.2.4）。
   //    対象日（非 cancelled）が0件なら null が返り、帯を丸ごと描かない（AC-14）。
@@ -601,6 +618,7 @@ export default async function EntryGroupPage({
         rosters={rosters}
         rosterFiles={rosterFiles}
         currentUserId={session.user.id}
+        adminControls={rosterAdminControls}
       />
 
       <OpenChatSection rows={openChatRows} />
