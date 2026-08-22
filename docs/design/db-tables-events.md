@@ -187,6 +187,25 @@
 
 **制約**: UNIQUE `entry_group_open_chats_group_url_unique` on (entry_group_id, url) / INDEX `entry_group_open_chats_group_idx` on (entry_group_id)
 
+## entry_group_payment_notices（TS: `entryGroupPaymentNotices`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-payment-notices.ts`
+
+名簿確定後の振込連絡（line-bot-message-revamp）。1申込グループ1行の upsert で、**履歴は持たない**。振込連絡は再送できるが、送るのは常に「いま確定している人数・金額」であって過去の版を引き直す用途が無いため（要綱再送・オープンチャット再送と同じ扱い）。★**単価は保存しない** — 単価は協会規定額から `resolveEntryFee` が都度導出する値で、管理者が上書きしてよい種類の数字ではない。規定額が改定されたら次回の送信から新しい額になるのが正しい。保存するのは管理者が直した級別人数だけ。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | UNIQUE。FK→entry_groups.id ON DELETE CASCADE |
+| grade_counts | jsonb | NOT NULL | — | 級→人数（`{"A":3,"B":2}`）。人数0の級はキーごと落とす。初期値は参加費集計と同じ母集団（ゲスト除外・複数日は延べ）から引く |
+| total_jpy | integer | NOT NULL | — | 送信時点の総額（Σ 人数×単価）のスナップショット。文面の再構築には使わない |
+| last_sent_at | timestamptz | NULL | — | 最後に送信できた日時。**push 失敗では更新しない**（送信済みにせず再送できる状態のまま残す） |
+| last_sent_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| created_at | timestamptz | NOT NULL | `now()` | |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE `entry_group_payment_notices_group_unique` on (entry_group_id)
+
 ## entry_group_open_chat_broadcasts（TS: `entryGroupOpenChatBroadcasts`）
 
 定義ファイル: `packages/shared/src/schema/entry-group-open-chat-broadcasts.ts`

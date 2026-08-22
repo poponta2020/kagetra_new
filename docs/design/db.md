@@ -84,6 +84,7 @@
 | event_grade_broadcasts | eventGradeBroadcasts | (大会,級)単位の級グループ配信記録（claim/送信済み） | schema/event-grade-broadcasts.ts |
 | entry_group_open_chats | entryGroupOpenChats | 大会当日用LINEオープンチャットの招待URL（申込グループ帰属） | schema/entry-group-open-chats.ts |
 | entry_group_open_chat_broadcasts | entryGroupOpenChatBroadcasts | オープンチャット配信の追記専用ログ（UNIQUEを持たない） | schema/entry-group-open-chat-broadcasts.ts |
+| entry_group_payment_notices | entryGroupPaymentNotices | 名簿確定後の振込連絡（級別人数の保存＋送信記録。申込グループ1行） | schema/entry-group-payment-notices.ts |
 | entry_form_drafts | entryFormDrafts | 申込書下書きの作成履歴（生成xlsxコピー含む） | schema/entry-form-drafts.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）

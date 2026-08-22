@@ -17,6 +17,7 @@ Auth.js v5 標準カラム + kagetra拡張プロフィール/権限。
 | image | text | NULL | — | |
 | line_user_id | text | NULL | — | UNIQUE |
 | role | user_role (enum) | NOT NULL | 'member' | |
+| is_treasurer | boolean | NOT NULL | false | 会計担当か。**`@会計` のメンション対象の識別専用で、認可判断には使わない**（会計の権限は副管理者と同一なので role='vice_admin' を併せて付与して運用する） |
 | grade | grade (enum) | NULL | — | |
 | is_invited | boolean | NOT NULL | false | |
 | invited_at | timestamp | NULL | — | |
