@@ -225,7 +225,7 @@ function RolePreviewSection({
                 name="role"
                 value={r}
                 aria-current={current ? 'true' : undefined}
-                className="flex items-center justify-between gap-3 px-4 py-3 text-left text-sm text-ink-1 transition-colors hover:bg-surface-alt"
+                className="flex items-center justify-between gap-3 px-4 py-3 text-left text-sm text-ink transition-colors hover:bg-surface-alt"
               >
                 <span className={current ? 'font-semibold text-brand' : undefined}>
                   {roleViewLabel(r)}
@@ -261,7 +261,7 @@ function SettingsLinkList({ items }: { items: SettingsLink[] }) {
           className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-alt"
         >
           <span className="flex flex-col gap-0.5">
-            <span className="text-sm text-ink-1">{item.label}</span>
+            <span className="text-sm text-ink">{item.label}</span>
             {item.description ? (
               <span className="text-xs text-ink-meta">{item.description}</span>
             ) : null}

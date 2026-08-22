@@ -59,7 +59,7 @@ export function LineChannelTable({ rows }: LineChannelTableProps) {
             return (
               <tr key={row.id} className="border-b border-border/60">
                 <td className="px-3 py-2 align-top">
-                  <div className="font-medium text-ink-1">
+                  <div className="font-medium text-ink">
                     {row.note ?? row.botId}
                   </div>
                   <div className="text-[10px] text-ink-meta">id: {row.id}</div>

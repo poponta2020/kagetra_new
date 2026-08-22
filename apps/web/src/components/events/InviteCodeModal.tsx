@@ -150,14 +150,14 @@ export function InviteCodeModal({
       >
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-ink-1">招待コード</h2>
+            <h2 className="text-base font-semibold text-ink">招待コード</h2>
             <p className="text-[11px] text-ink-meta truncate">{eventTitle}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="閉じる"
-            className="text-ink-meta hover:text-ink-1 text-xl leading-none"
+            className="text-ink-meta hover:text-ink text-xl leading-none"
           >
             ×
           </button>
@@ -165,7 +165,7 @@ export function InviteCodeModal({
 
         <div className="flex flex-col items-center gap-2 py-4 bg-surface-alt rounded-xl">
           <div className="text-[11px] text-ink-meta">6 桁数字を LINE グループで発言</div>
-          <div className="text-4xl font-mono font-semibold tracking-[0.4em] text-ink-1">
+          <div className="text-4xl font-mono font-semibold tracking-[0.4em] text-ink">
             {payload.inviteCode}
           </div>
           <div className="flex items-center gap-2 text-[11px] text-ink-meta tabular-nums">
@@ -197,7 +197,7 @@ export function InviteCodeModal({
         </ol>
 
         <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold text-ink-1">
+          <h3 className="text-xs font-semibold text-ink">
             要綱として送信するファイル
           </h3>
           {payload.guidelineCandidates.length === 0 ? (
@@ -218,7 +218,7 @@ export function InviteCodeModal({
                   <ul className="flex flex-col gap-1 pl-1">
                     {mail.attachments.map((att) => (
                       <li key={att.id}>
-                        <label className="flex items-center gap-2 rounded-lg bg-surface-alt px-2.5 py-2 text-xs text-ink-1">
+                        <label className="flex items-center gap-2 rounded-lg bg-surface-alt px-2.5 py-2 text-xs text-ink">
                           <input
                             type="checkbox"
                             className="h-4 w-4 rounded border-border disabled:opacity-50"

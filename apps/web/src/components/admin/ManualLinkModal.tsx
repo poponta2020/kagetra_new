@@ -104,7 +104,7 @@ export function ManualLinkModal({
             className="max-h-full overflow-y-auto w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl p-4 flex flex-col gap-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-base font-semibold text-ink-1">手動紐付け</h2>
+            <h2 className="text-base font-semibold text-ink">手動紐付け</h2>
 
             {candidateEvents.length === 0 ? (
               <p className="text-sm text-ink-2 py-4">
@@ -118,7 +118,7 @@ export function ManualLinkModal({
                     name="eventId"
                     value={eventId}
                     onChange={(e) => setEventId(e.target.value)}
-                    className="h-10 px-3 rounded-md border border-border bg-surface text-sm text-ink-1"
+                    className="h-10 px-3 rounded-md border border-border bg-surface text-sm text-ink"
                     required
                     disabled={pending}
                   >
@@ -139,7 +139,7 @@ export function ManualLinkModal({
                     value={lineGroupId}
                     onChange={(e) => setLineGroupId(e.target.value)}
                     placeholder="Cxxxxxxxxxxxxxxxxxxxxx"
-                    className="h-10 px-3 rounded-md border border-border bg-surface text-sm text-ink-1 font-mono"
+                    className="h-10 px-3 rounded-md border border-border bg-surface text-sm text-ink font-mono"
                     required
                     disabled={pending}
                   />

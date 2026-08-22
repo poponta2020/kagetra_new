@@ -213,7 +213,7 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
 
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-base font-semibold text-ink-1">
+          <h1 className="text-base font-semibold text-ink">
             {channel.note ?? channel.botId}
           </h1>
           <p className="text-[11px] text-ink-meta">id: {channel.id}</p>
@@ -292,7 +292,7 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
       </div>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-ink-1">紐付け履歴</h2>
+        <h2 className="text-sm font-semibold text-ink">紐付け履歴</h2>
         {broadcastHistory.length === 0 ? (
           <Card className="px-3 py-6">
             <p className="text-xs text-ink-meta text-center">
@@ -310,7 +310,7 @@ export default async function LineChannelDetailPage({ params }: PageProps) {
                 return (
                   <li key={row.id} className="px-3 py-3 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-ink-1 truncate">
+                      <div className="text-xs text-ink truncate">
                         {row.eventId ? (
                           <Link
                             href={`/events/${row.eventId}`}
