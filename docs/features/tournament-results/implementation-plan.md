@@ -20,7 +20,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: shared スキーマ + migration（result_drafts AI 列）
-- [ ] 完了
+- [x] 完了
 - **目的:** AI 所見・コスト記録の永続化列を追加する
 - **対応AC:** AC-5（記録先）、AC-9（extraction_source）
 - **主な変更領域:** `packages/shared/src/schema/result-drafts.ts`、`packages/shared/drizzle/`（新規 migration 1本）、`docs/design/db.md`
