@@ -30,6 +30,10 @@ export const ParsedClassSchema = z.object({
   grade: GradeSchema,
   sheetName: z.string().nullable(),
   participants: z.array(ParsedParticipantSchema),
+  // 級名正規化(AI ルーティングの classMap 適用)を行ったときに、正規化前の
+  // 原値(元の className)を保持するフィールド。optional なので、正規化を
+  // 経ない既存 payload(決定的パーサ単体の出力)とは後方互換。
+  rawClassName: z.string().nullable().optional(),
 })
 
 export const ParsedResultPayloadSchema = z.object({

@@ -1,106 +1,160 @@
 ---
 status: completed
-completed_sections: [ユーザーストーリー, データ調査, 機能要件, 技術設計, 影響範囲]
+completed_sections: [ユーザーストーリー, 機能要件, Acceptance Criteria と Non-goals, 技術的制約・契約]
 next_section: null
+design_required: false
+approved_at: 2026-08-22
 ---
 # tournament-results 要件定義書
 
-全国の競技かるた大会の結果（メーリングリストで届く Excel）をアプリに取り込み、**全選手の試合勝敗を DB に記録・保存**し、会員が閲覧できるようにする機能。
+全国の競技かるた大会の結果（メーリングリストで届く Excel / PDF）をアプリに取り込み、全選手の試合勝敗を DB に記録・保存し、会員が閲覧できるようにする機能。
 
-> 実データ 42 ファイル（`docs/調査用/大会結果`＋`大会結果2`、5か月分）を解析して設計。フォーマットは多様だが
-> **全対戦シートが「選手名＋相手/枚数/勝敗×N回戦」の普遍シグネチャに収束**するため、**ヘッダ署名駆動の決定的パーサ 1 本**で
-> 処理できる。**AI は使わない（API コスト $0）**。署名に合致しない真の定型外のみ管理者が手動補正（これも $0）。
+> **現行仕様の正典は [docs/spec/tournaments-results.md](../../spec/tournaments-results.md)**（取込フロー・パーサ・materialize・edition 解決）。
+> 本書は 2026-08-22 の改修（AI 検証+級名正規化・フル AI 抽出フォールバック・edition×級 突合+部分承認）を反映した「変更後の姿」を定義する。
+> 初版（2026-06、決定的パーサ v1）の全文は git 履歴を参照。
 
 ## 1. 概要
-- **目的**：全国大会結果の記録・保存（最優先）。蓄積データから選手成績・統計を後段で引き出す土台。
-- **背景**：旧 kagetra の `contest_*`（試合結果）機能の再実装。結果は標準ツール（マクロ「大会結果入力シート」/「伊助」）製 Excel でメーリス着。
-- **位置づけ**：既存 `mail-tournament-import`（大会“案内”取込）の兄弟。基盤（IMAP・添付保存・ジョブキュー・レビュー UI）を再利用。
+
+- **目的**: 全国大会結果の記録・保存。蓄積データから選手成績・統計・当落線を引き出す土台。
+- **改修の動機**（2026-08-22 実態調査。詳細 = memory `project_result_import_reality_audit`）:
+  1. **品質**: 決定的パーサの署名検出は個人戦 57/58 (98%) 成功だが、非標準級でシート名がそのまま級名になる（「選手一覧」「対戦結果表_初1級」）。最悪例=松山DE級が「Entry:104名」の1クラスに潰れた。パース"成功"でも人が気づけない破綻がある。
+  2. **重複防御ゼロ**: 同一大会・同一級が別メールで届いた場合の突合が存在せず、承認するたび新規 `tournaments` 行ができる。実データでは同一ファイルの再送（丸亀3回）・級別分割送信（多摩 C→D→E→B→A）・訂正版（なにはえ・大分・多摩D・益田D2）が日常。
+  3. **受け皿なし**: 署名パース失敗（新人育成大会）・PDF 結果報告（3ヶ月で7件）は取込手段がない。
+  4. **運用実績**: 3ヶ月で結果 Excel 61通が届いたのに取込は2件のみ（1件は6/17から pending_review 放置）。承認時の品質不安と重複不安が利用を妨げている。
+- **コスト前提**: AI 補助は実測ベースで月300円規模（ルーティング全通 ≈ 月30円 + フル抽出 月4件 ≈ 月270円）。現行 AI 支出は月100〜130円。
 
 ## 2. ユーザーストーリー
-- 管理者/副管理者が、受信メールの結果 Excel を「結果として取り込む」→ 自動パース → 内容確認 → 承認で DB 保存。
-- 全会員が、選手名で検索して「その選手の全大会の戦績」を閲覧できる。
-- 記録対象は会員＋外部選手の全選手。記録粒度は試合単位（勝敗＋枚数差）。
+
+- 管理者/副管理者が、受信メールの結果 Excel / PDF を「結果として取り込む」→ 自動パース（+AI 検証）→ 内容確認 → **取り込みたい級だけ選んで**承認で DB 保存。
+- 同じ大会の結果が別メールで再度届いても（級別分割・再送・訂正版）、**取込済みの級が一目で分かり**、二重登録せずに未取込分だけ・または明示的な差し替えだけができる。
+- 全会員が、選手名で検索して戦績・統計・当落線を閲覧できる（従来どおり）。
 
 ## 3. 機能要件
 
-### 3.1 取り込み（管理者）
-- mail-inbox 詳細に **「結果として取り込む」** アクション追加（.xls/.xlsx 添付があるメールで表示。既存の「会で流す(AI抽出)」「既存イベントに紐付け」「対応不要」と並ぶ）。
-- 押下で `result_parse` ジョブ投入 → mail-worker が Excel をパース → `result_drafts` に格納（成功=`pending_review` / 失敗=`parse_failed`）。完了は Web Push（既存流用）。添付が複数 Excel なら対象選択。
+### 3.1 画面と遷移
 
-### 3.2 レビューと確定（管理者）
-- レビュー画面に解析結果を表示：**大会名（編集可、件名/ファイル名からプリフィル）**、開催日・会場（任意、null 可）、級ごとの一覧（class_name/grade/参加者数/試合数）と参加者・試合プレビュー。
-- **承認**：1 トランザクションで `tournaments`/`tournament_classes`/`tournament_participants`/`matches` を作成し、**`players` を get-or-create して participant に紐付け**。draft=approved、メール=processed。
-- **却下**：draft=rejected。`parse_failed` は内容表示の上で却下のみ（v1 はセル補正・手動登録は非対応＝後続）。
-- 訂正版の再取込は既存 supersede（差し替え）で対応。
+画面の新設はなし。既存画面の変更のみ（見た目は既存 UI プリミティブ踏襲、design-spec 不要）:
 
-### 3.3 閲覧（全会員）
-- **選手戦績ページ**：選手名で検索 → `players` を引き当て → その選手の全出場（大会・級・順位・各試合の相手/枚数/勝敗）を読み取り専用で表示。
-- 勝敗数は表示時に `matches` から集計（後述の集計ルール）。
+- `/admin/mail-inbox/mail/[id]`（メール詳細）: 「試合結果の取込」セクションの対象添付を `.xls`/`.xlsx` に加えて **`.pdf` にも拡張**。
+- `/admin/mail-inbox/result-drafts/[id]`（結果ドラフト承認）: ①AI 所見の表示 ②級ごとのチェックボックス（部分承認）③既取込級バッジと差し替え操作 を追加。
 
-### 3.4 ビジネスルール / パース・集計仕様
-- **普遍シグネチャ**：ヘッダ行に「選手名」＋「相手/枚数/勝敗」×N を持つシートを対戦シートと判定。無いシート（大会報告・入賞者・表紙・マニュアル・集計のみ級シート・歴代優勝 等）は**スキップ**。
-- 列は**名前で特定**（位置・列順非依存）。級は「級/クラス列があれば列、無ければシート名」。class_name は**自由文字列**、grade(A–E) は best-effort 導出（非該当は null）。
-- 1 行=1 選手。各回戦 (相手,枚数,勝敗) を 1 試合として**選手視点 2 行**で取り込み（勝者○/敗者×で重複出現＝ロスレス）。**不戦勝のみ 1 行**（相手なし）。
-- トークン正規化：枚数 ∈ {整数, `不戦勝`, `棄権`}、勝敗 ∈ {○, 〇, ×}。3 ケースを `status` で表現（下表）。
-  | ケース | 行数 | 相手 | score_diff | result | status |
-  |---|---|---|---|---|---|
-  | 通常 | 2（○/×） | あり | 数値 | win/lose | `normal` |
-  | 不戦勝 | 1（○のみ） | なし | null | win | `walkover` |
-  | 棄権 | 2（○/×） | あり | null | win/lose | `forfeit` |
-- **勝敗数は固定カラムに保存せず `matches` から導出**（数え方変更で再取込不要）。集計は **`status=normal` の実戦のみ**：勝ち数=count(normal & win)、負け数=count(normal & lose)。**不戦勝・棄権は勝敗数に含めない**（不戦勝/棄権の回数は必要なら `status` で別集計）。
-- `final_rank` は順位列の生テキスト（優勝/準優勝/３位/４位）をそのまま保持（導出不可のため）。
-- 相手は同一級内の参加者名で解決（解決時 opponent_participant_id、未解決時は opponent_name 保持）。
-- **選手マスタ名寄せ**：取込承認時に各 participant を **正規化した (名前, 所属) で `players` を get-or-create** して `player_id` を付与。正規化＝空白除去・全半角統一(NFKC)・○/〇や髙/高等の揺れ吸収。participant は「その大会の生スナップショット」を別途保持（players は再解決・マージ可能なグルーピング層＝生データが常に正）。
-- 1 ファイル=1 tournament（同一大会が複数ファイルでも各 1 行。マージは後続）。
+### 3.2 パイプライン1: AI ルーティング（どのパースに乗せるかの判定）+級名正規化+メタ抽出（全ドラフト対象）
 
-## 4. 技術設計
+`result_parse` ジョブに AI ルーティングを追加する。**どのパース結果を採用するか（決定的パース採用 / フル AI 抽出行き / 対象外警告）の決定権は AI が持つ**。人が行うのは最後の承認だけ。
 
-### 4.1 DB 設計（新規 5 テーブル＋ドラフト、旧 contest_* と整合）
-**enum 追加**：`result_draft_status`(pending_review/approved/rejected/parse_failed/superseded)、`match_result`(win/lose)、`match_status`(normal/walkover/forfeit)。`mail_worker_job_kind` に `result_parse` 追加。grade(A–E) は既存流用。
+判定フロー:
 
-| テーブル | 主な列 |
-|---|---|
-| `players`（選手マスタ：全国の競技者・会員/非会員問わず） | id / display_name(text,notNull) / **normalized_name**(text,notNull) / name_kana(null) / affiliation(null) / prefecture(null) / **user_id**(FK users set null,null=会員同定/後続) / created_at / updated_at ／ **UNIQUE(normalized_name, affiliation)** |
-| `tournaments`（大会＝取込ファイル 1 つ） | id / name(notNull) / event_date(date,null) / venue(text,null) / source_result_draft_id(null) / note(null) / created_at / updated_at |
-| `tournament_classes`（級） | id / tournament_id(FK cascade) / class_name(text,notNull) / grade(grade,null) / num_players(int,null) / sheet_name(text,null) |
-| `tournament_participants`（大会ごとの出場スナップショット） | id / class_id(FK cascade) / **player_id**(FK players set null) / seq_no(int,null) / name(text,notNull) / name_kana(null) / affiliation(null) / prefecture(null) / dan(null) / member_no(null) / final_rank(text,null) |
-| `matches`（試合＝選手視点 1 行） | id / class_id(FK cascade) / round(int) / round_label(text,null) / participant_id(FK cascade) / opponent_participant_id(FK set null,null) / opponent_name(text,null) / result(match_result) / score_diff(int,null) / status(match_status,'normal') |
-| `result_drafts`（取込ドラフト＝メール 1 通） | id / message_id(FK mail_messages cascade,unique) / status / extracted_payload(jsonb) / parser_version(text) / parse_error(null) / superseded_by_draft_id(null) / tournament_id(FK set null,null) / approved_by/at / rejected_by/at/reason / created/updated |
+1. 添付が PDF → フル AI 抽出（3.3）へ直行。
+2. Excel → 決定的パースを**常に先に試行**する（無料・即時。署名→回戦レイアウトの内部 fallback 含む。パーサ本体は無変更）。
+3. AI ルーティングが生データと試行結果を突き合わせて判定し、採用 / フル抽出エスカレート / 対象外警告 のいずれかへ振り分ける。
 
-- index：players(normalized_name)〔選手検索〕 / players(user_id) / participants(player_id) / participants(class_id) / matches(class_id) / matches(participant_id) / result_drafts(status,created_at)。
-- **正規化単一保持**（自会選手の別テーブル複製はしない。自会成績は players.user_id（会員紐付け後）or affiliation のクエリで抽出）。
+> 前段で中身を見ずにパーサを当てさせるのではなく、無料の試行結果を証拠として判定させる。級分割の消失（松山「Entry:104名」型の事故）は試行結果と生データの突合でのみ検出できるため。
 
-### 4.2 バックエンド（mail-worker）
-- Excel 読取：**.xlsx は `exceljs`、.xls は libreoffice で .xlsx 変換してから読む**（脆弱な `xlsx` lib 不使用。最終選定は PR2、fods 経由も可）。
-- パーサ：ヘッダ署名探索 → 列名マッピング → (相手,枚数,勝敗) 抽出 → トークン/丸正規化 → payload 生成（純関数化、42 サンプルで fixture テスト）。
-- ジョブ：`result_parse`（payload=`{mail_message_id, attachment_id}`）。`runResultParse` が parse→`result_drafts` 格納→Web Push。既存 extract-only timer に相乗り。
+- **入力**: ファイル名・メール件名・シート名一覧・各シート先頭数行・決定的パースの試行結果要約（級名と人数）。
+- **AI が返すもの**:
+  1. **ルーティング判定**: 決定的パース採用 / フル AI 抽出へエスカレート / 対象外（団体戦・名簿・抽選結果・その他）+確信度。対象外でもドラフトは作り、承認画面に警告表示する（却下の最終判断は人）。
+  2. **級名正規化マップ**: className →（正規化級名, grade A〜F/初段認定等, 非級シート除外フラグ）。payload に適用し、**原値（rawClassName / sheetName）は保持**する。
+  3. **メタデータ**: 大会名・回次（第N回）・開催日・**訂正版/差替/再送フラグ**（件名・ファイル名から）。大会名/回次は edition 自動解決（`autoResolveEdition`）の入力に使い、承認フォームのプリフィルにも使う。
+  4. **整合検証**: 決定的パースの試行結果が生データと整合するか（級の欠落・級分割の消失・人数の異常）。破綻判定なら**フル抽出へ自動エスカレートする**（人の操作を待たない）。
+- **fail-open**: AI 呼び出しが失敗しても取込は止めない。決定的パース結果のみで `pending_review` を作り、承認画面に「AI 検証なし」と表示する。
+- **コスト記録**: 呼び出しごとのモデル・トークン・USD を `result_drafts` に記録する（`tournament_drafts` の AI 列と同型）。
 
-### 4.3 フロント（web）
-- Server Action：`triggerResultParse` / `approveResultDraft` / `rejectResultDraft`（既存 `triggerExtractDraft`/`approveDraftUnits` 踏襲）。承認時に players get-or-create＋opponent 解決。
-- 管理 UI：mail-inbox 詳細にアクション＋結果レビューコンポーネント。会員 UI：選手戦績ページ（検索＋表示、全ログインユーザー可）。
+### 3.3 パイプライン2: フル AI 抽出フォールバック
 
-## 5. 影響範囲
-- 追加：shared に 5 テーブル＋3 enum＋relations＋migration、mail-worker に parser＋result_parse 経路、web に取込/レビュー UI＋選手戦績ページ。
-- 既存への破壊的変更なし（mail_worker_job_kind への値追加のみ。AI 抽出経路に影響なし）。
+- **発動条件**（いずれか。すべて 3.2 のルーティング判定から自動で遷移する）: (a) 決定的パースが 0 classes (b) AI 整合検証が「破綻」判定 (c) 添付が PDF（ルーティングを経ず直行）。
+- **処理**: 上位モデルに全シートの CSV 化テキスト（PDF は document block）を渡し、`ParsedResultPayload` 互換の構造化データを生成して同じ承認フローに乗せる。
+- **検証**: 出力は既存の Zod スキーマ（`ParsedResultPayloadSchema`）で検証し、不整合は `parse_failed`。
+- **表示**: 承認画面に「AI 抽出（要注意レビュー）」の由来表示。`parserVersion` に AI 抽出であることを記録。
+- **ガード**: 既存の PDF サイズガード（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）を流用。1ドラフトあたりフル抽出は1回（再取込時は再実行可）。
 
-## 6. v1 スコープ境界（明示）
-- レビューは確認＋大会メタ編集＋承認/却下（**セル単位の補正 UI なし**）。`parse_failed`/真の定型外は却下＝手動対応は後続。
-- **会員同定（players.user_id 紐付け）は後続/管理者操作**（v1 は名寄せ＝players 自動 get-or-create までで、user_id は基本 null）。
-- 選手マスタの**マージ/分割 UI は後続**（v1 は自動 get-or-create のみ。生データが正なので後から是正可）。
-- 統計/ランキング/対戦成績・大会報告(日付/会場)パース・複数ファイルの大会マージ・**団体戦**は v1 対象外。
+### 3.4 パイプライン3: edition×級 突合+部分承認
+
+- **突合**: 承認画面で edition が確定している場合（管理者の明示選択 or 自動解決）、payload の各級（grade）を同 edition 配下の既存 `tournament_classes` と突合する。
+  - 既取込の級: 「取込済み」バッジ + **既定でチェック OFF**（承認対象から除外）。
+  - 未取込の級: 既定でチェック ON。
+- **部分承認**: チェックされた級だけを materialize する（`tournaments` 行は選択級のみで作成）。全級選択時の結果は現行の承認と同一。
+- **差し替え**: 既取込の級は明示操作（「この級を差し替える」）でのみ承認対象にできる。差し替え承認時（1トランザクション）:
+  - 新データを materialize し、実出場原本の active fact が旧級を指す場合は**新級へ revision 付きで再リンク**する。
+  - **旧データ（該当級の classes/participants/matches、全級が消えた場合は tournaments 行も）は削除する**。復旧原本は承認済みドラフトの `extracted_payload` とメール添付そのもの（再承認で復元可能）。承認済み/superseded ドラフトとその添付は削除しない。
+  - 監査記録: 全級差し替え時は旧ドラフトを `status='superseded'` + `superseded_by_draft_id`。部分差し替え時は旧ドラフトは approved のまま、旧 `tournaments.note` に差し替え記録を追記する。
+  - 削除後に display_name 再計算・会員リンク同期を旧側・新側の選手全員で再実行する。
+  - AI が訂正版フラグを立てたドラフトでは、差し替え操作を促す表示を出す。
+- **edition 未確定時**: 突合不可の旨を表示し、全級既定 ON（現行挙動）。
+- **0級選択での承認は不可**（エラー）。
+
+### 3.5 変わらないもの（回帰境界）
+
+- 取込の起点は**管理者の手動トリガーのみ**（「結果として取り込む」ボタン存続。自動検知は導入しない）。
+- 決定的パーサ本体（署名検出・回戦レイアウト fallback・正規化）のロジックは変更しない。級名正規化はパーサの**後段**で適用する。
+- materialize の識別粒度（開催×級）・選手同定（正規化姓名のみ）・相手解決（級内単独一致）・display_name 再計算・実出場原本の自動リンク条件。
+- `result_drafts` の状態遷移ガード（`message_id` UNIQUE・二重承認の FOR UPDATE 防止・再取込可能ステータス）。
+- 大会案内 AI 抽出（`tournament_drafts`）・名簿取込・LINE 配信の各パイプラインには触れない。
+
+## 4. Acceptance Criteria
+
+| ID | 条件 | 検証手段 |
+|----|------|------|
+| AC-1 | AI 検証ステップが級名正規化マップを payload に適用し、原値（rawClassName/sheetName）が保持される | auto-test |
+| AC-2 | AI 呼び出しが失敗（例外・タイムアウト）しても決定的パース結果で `pending_review` ドラフトが作られる（fail-open） | auto-test |
+| AC-3 | AI ルーティング判定が「対象外（団体戦・名簿・抽選）」のとき、承認画面に警告が表示される | auto-test |
+| AC-4 | AI 抽出の大会名・回次が edition 自動解決の入力に渡り、承認フォームにプリフィルされる | auto-test |
+| AC-5 | AI 呼び出しごとにモデル・トークン数・コスト(USD)が `result_drafts` に記録される | auto-test |
+| AC-6 | `.pdf` 添付のあるメールで「結果として取り込む」が実行でき、フル抽出経由でドラフトが作られる | auto-test |
+| AC-7 | 決定的パースが 0 classes の Excel でフル抽出が発動し、`ParsedResultPayload` 互換のドラフトが作られる | auto-test |
+| AC-8 | フル抽出の出力が Zod スキーマ検証に失敗した場合 `parse_failed` になる（不正データが承認可能にならない） | auto-test |
+| AC-9 | フル抽出由来のドラフトは承認画面に「AI 抽出」の由来が表示される | auto-test |
+| AC-10 | edition 確定時、同 edition 配下に取込済みの級が「取込済み」バッジ付き・既定チェック OFF で表示される | auto-test |
+| AC-11 | 未取込の級のみ選択して承認すると、選択級だけが materialize される | auto-test |
+| AC-12 | 全級選択で承認した場合の materialize 結果が現行実装と同一（回帰） | auto-test |
+| AC-13 | 級を1つも選択せずに承認するとエラーになる | auto-test |
+| AC-14 | 差し替え承認で旧級の導出データ（classes/participants/matches、全級消滅時は tournaments 行も）がトランザクション内で削除され、戦績・統計・当落線の集計から消える。旧ドラフトの `extracted_payload` は保持され再承認で復元できる | auto-test |
+| AC-15 | 差し替え承認後、選手の戦績詳細・大会詳細には新データのみが表示される | auto-test |
+| AC-16 | edition 未確定のドラフトでは突合バッジが出ず、全級既定 ON で承認できる（現行挙動の回帰） | auto-test |
+| AC-17 | AI 訂正版フラグが立ったドラフトの承認画面に差し替えを促す表示が出る | auto-test |
+| AC-18 | 手動トリガーの状態ガード（pending_review/approved の再取込拒否・rejected/parse_failed の再取込許可）が維持される（回帰） | auto-test |
+| AC-19 | 大会案内 AI 抽出・名簿取込の既存テストが変更なしで green（回帰） | auto-test |
+| AC-20 | 既存テスト・lint・typecheck が CI で green | auto-test |
+| AC-21 | 本番で実メール1通（級別分割の後続メール）を取込→既取込級の除外を確認→部分承認まで実機確認 | manual |
+| AC-22 | 差し替え対象の旧級を active な実出場原本 fact が指していた場合、fact が revision 付きで新級へ再リンクされ、当落線・出場回数の集計が新データで継続する | auto-test |
+
+## 5. Non-goals
+
+- **結果メールの自動検知・自動 AI 分類**（受信時の自動パイプライン化）。取込の起点は手動トリガーのまま。将来検討。
+- 団体戦結果のパース対応（種別判定で警告するのみ）。
+- 名簿・抽選結果メールの AI 取込（別機能。種別判定で誤トリガーを警告するのみ）。
+- セル単位の補正 UI・手動結果入力。
+- 過去未取込分（2026年5月〜8月の約60通）の一括バックフィル機構。出荷後に管理者が手動トリガーで順次取り込む運用とする（部分承認・突合があるため安全に流せる）。
+- 選手同定・display_name・players マージ等の名寄せ仕様の変更。
+- Batch API によるコスト最適化（リアルタイムジョブで十分・コスト僅少）。
+- `tournaments` 行そのものの同名・同日 dedup（突合は edition×級の粒度でのみ行う）。
+
+## 6. 技術的制約・契約
+
+- **互換性**: `ParsedResultPayload` の既存フィールドは維持（拡張は可）。`result_drafts` への列追加は nullable で既存行に影響を与えない。承認済みの既存 `tournaments` データは変更しない。
+- **公開契約**: `/api/external/tournament-entrants` 等の外部 API・stats 系公開画面のレスポンス形は変えない（supersede 除外は集計クエリ内部の変更）。
+- **セキュリティ・権限**: 取込・承認・差し替えは admin / vice_admin のみ（現行同様）。AI へ送信するのはメール添付の内容（大会案内 AI 抽出と同等の既存運用範囲）。
+- **AI 運用**: fail-open 必須（AI 障害が取込を止めない）。コストは呼び出し単位で DB 記録。モデル ID はハードコードせず一元管理（既存 `ANTHROPIC_MODEL_ID` パターン踏襲）。
+- **DB**: マイグレーションは Drizzle（`db:generate`→`db:migrate`）。本番適用は自動デプロイ経路。
+- **未解決の技術論点**（技術計画で解決する）:
+  1. 検証/正規化のモデル選定（Haiku 4.5 vs Sonnet 5）とフル抽出のモデル（Sonnet 5 想定）
+  2. supersede の実装方式（`tournament_classes` への superseded 列 vs 別テーブル）と、統計・戦績・当落線クエリ群への除外条件の波及範囲
+  3. AI クライアントの共通化（`classify/llm/anthropic.ts` の流用 or result-import 専用モジュール）
+  4. フル抽出の入出力形式（入力 CSV 化 / PDF document block、出力のコンパクト化と `ParsedResultPayload` への変換）
+  5. 部分承認時の `tournaments.name` の扱い（選択級のみの場合の命名規則）
+  6. 承認 Server Action の後方互換（級選択パラメータの追加方式）
 
 ## 7. 設計判断の根拠
-- **ヘッダ署名駆動の単一パーサ**：列を名前で特定し列順/ツール差/級の持ち方/版差(伊助 V0.93→V1.10)を吸収。42 ファイル全変則をカバー。
-- **決定的パース > AI**：定型に収束＝コスト $0（無料原則）。真の定型外のみ手動。
-- **旧 contest_* 踏襲＋選手マスタ追加**：実データ構造と旧実績モデルが一致。players で名寄せ・通算成績・会員紐付けの土台。[[reference_legacy_dump]]
-- **勝敗数は導出（status=normal のみ）**：数え方を後から変えられる。不戦勝・棄権は勝敗数に含めない。
-- **players はグルーピング層・participants は生スナップショット**：名寄せ誤りを生データを壊さず是正可能。
 
-## 8. 実装 PR 分割（実装手順書で詳細化）
-1. shared スキーマ＋migration（players 含む 5 テーブル＋enum＋relations）
-2. パーサ中核（reader＋署名駆動パーサ）＋42 サンプル fixture テスト ← 最重要・最難
-3. result_parse ジョブ＋triggerResultParse＋mail-inbox 取込ボタン
-4. レビュー UI＋承認/却下 Server Action＋確定保存（players get-or-create・opponent 解決含むトランザクション）
-5. 選手戦績ページ（検索＋表示、勝敗は status=normal 集計）
+- **決定的パーサは残し、AI は「ルーティング・正規化・検証」に絞る**: 実測で署名検出 98% 成功。フル AI 抽出は出力トークンが支配的（中央値33k）で全件転記は桁で高い。AI に書き写させず判定させる構成が品質・コストの両面で最適（実測 = memory `project_result_import_reality_audit`）。
+- **ルーティングは「前段のブラインド判定」ではなく「無料試行の結果を証拠にした判定」**: 決定的パースは無料・即時なので常に先に試行し、AI はその結果と生データの突合で採用可否を決める。中身を見ずにパーサを選ばせるより精度が高く、コストは同じ。決定権は AI、最終承認だけが人。
+- **fail-open**: 取込は会運営の基幹作業であり、外部 API 障害で止まってはならない。AI なしでも現行水準で動く。
+- **突合は edition×級の粒度**: materialize の識別粒度（開催×級）と一致し、既存 DB 構造のまま照会できる。`tournaments` 行の同名 dedup はやらない（bulk load 期の正当な分割データと衝突するため）。
+- **差し替えは物理削除+ドラフト原本復旧（2026-08-22 改定・deep-advisor 助言）**: materialized 4表は `result_drafts.extracted_payload` とメール添付から常に再導出できる「導出層」。論理削除（supersede 列）は統計・戦績・当落線の読み取り約35箇所へ除外フィルタを恒久追加する義務を生み、1箇所の漏れが当落線の静かな二重計上になる。物理削除なら読み取りは無変更でリスクゼロ、「生データが正・誤りは生データから再構築」の設計原則にも合致する。監査はドラフトの superseded ステータスと tournaments.note で記録。
+- **自動検知の見送り（ユーザー判断 2026-08-22）**: 手動トリガー起点を維持。管理者が「取り込む」と決めたメールだけに AI コストを掛ける現行方針とも整合。
+- **既取込級は既定除外+明示差し替え（ユーザー判断 2026-08-22）**: 日常の級別分割・再送では除外が正しく、訂正版だけが例外のため。
 
-依存：1→2→3→4、1→5。
+## 8. 変更履歴
+
+- 2026-06: 初版（決定的パーサ v1・AI 不使用・親 Issue #157）。全文は git 履歴参照。
+- 2026-08-22: AI 検証+級名正規化・フル AI 抽出フォールバック（PDF 対応）・edition×級 突合+部分承認+差し替えを追加（理由: 実態調査で級名品質・重複防御・失敗受け皿の3課題が判明。自動検知はスコープ外と判断）。
+- 2026-08-22: AC-14 を論理削除（supersede 列）から物理削除+ドラフト原本復旧へ改定・AC-22 追加（理由: 影響調査で読み取り約35箇所への分散フィルタが必要と判明、当落線の静かな二重計上リスクを恒久化するため。deep-advisor 助言・ユーザー承認済み）。

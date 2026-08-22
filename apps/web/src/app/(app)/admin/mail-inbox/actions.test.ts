@@ -14,6 +14,9 @@ import {
   tournamentDrafts,
   tournamentEntryRosterFiles,
   tournaments,
+  tournamentClasses,
+  tournamentEditionGradeLotteryFacts,
+  tournamentParticipants,
   tournamentSeries,
   tournamentSeriesEditions,
 } from '@kagetra/shared/schema'
@@ -3710,7 +3713,29 @@ describe('triggerResultParse', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('Excel でない添付はエラー', async () => {
+  it('PDF 添付も受け付ける', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id, { filename: 'result.pdf' })
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('拡張子が大文字の PDF 添付も受け付ける', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const att = await createMailAttachment(mail.id, { filename: 'RESULT.PDF' })
+
+    const result = await triggerResultParse(mail.id, att.id)
+    expect(result.ok).toBe(true)
+  })
+
+  it('Excel でも PDF でもない添付はエラー', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
 
@@ -3719,10 +3744,10 @@ describe('triggerResultParse', () => {
       .insert(mailAttachments)
       .values({
         mailMessageId: mail.id,
-        filename: 'document.pdf',
-        contentType: 'application/pdf',
+        filename: 'document.docx',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         sizeBytes: 512,
-        data: Buffer.from('pdf'),
+        data: Buffer.from('docx'),
         extractionStatus: 'pending',
       })
       .returning()
@@ -3731,6 +3756,7 @@ describe('triggerResultParse', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toMatch(/Excel/)
+    expect(result.error).toMatch(/PDF/)
   })
 
   it('別 mail の添付は拒否', async () => {
@@ -3915,6 +3941,495 @@ describe('approveResultDraft', () => {
     const member = await createUser()
     await setAuthSession({ id: member.id, role: 'member' })
     await expect(approveResultDraft(draft.id, fd)).rejects.toThrow('Forbidden')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────
+// approveResultDraft — 部分承認・差し替え（tournament-results 2026-08 改修）
+// ───────────────────────────────────────────────────────────────────────
+
+describe('approveResultDraft — 部分承認と差し替え', () => {
+  /** 級を指定して作る payload（参加者1名・試合なしの最小形）。 */
+  function buildClass(
+    grade: 'A' | 'B' | 'C' | 'D' | 'E',
+    playerName: string,
+  ): Record<string, unknown> {
+    return {
+      className: `${grade}級`,
+      grade,
+      sheetName: `対戦結果表_${grade}級`,
+      participants: [
+        {
+          seqNo: 1,
+          name: playerName,
+          nameKana: null,
+          affiliation: '札幌',
+          prefecture: null,
+          dan: null,
+          memberNo: null,
+          finalRank: '優勝',
+          matches: [],
+        },
+      ],
+    }
+  }
+
+  function buildPayload(classes: Array<Record<string, unknown>>): Record<string, unknown> {
+    return { parserVersion: '1.0.0', classes }
+  }
+
+  async function seedEdition() {
+    const [series] = await testDb
+      .insert(tournamentSeries)
+      .values({ name: '差し替えテスト大会', kind: 'individual' })
+      .returning({ id: tournamentSeries.id })
+    const [edition] = await testDb
+      .insert(tournamentSeriesEditions)
+      .values({ seriesId: series!.id, editionNumber: 3, year: 2026, status: 'held' })
+      .returning({ id: tournamentSeriesEditions.id })
+    return edition!.id
+  }
+
+  function approveForm(
+    tournamentName: string,
+    extra: { editionId?: number; selectedClasses?: number[]; replaceGrades?: string[] } = {},
+  ) {
+    const fd = new FormData()
+    fd.set('tournamentName', tournamentName)
+    if (extra.editionId !== undefined) fd.set('editionId', String(extra.editionId))
+    if (extra.selectedClasses !== undefined) {
+      fd.set('selectedClasses', JSON.stringify(extra.selectedClasses))
+    }
+    if (extra.replaceGrades !== undefined) {
+      fd.set('replaceGrades', JSON.stringify(extra.replaceGrades))
+    }
+    return fd
+  }
+
+  it('選択した級だけが materialize される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎'), buildClass('D', '鈴木二郎')]),
+    )
+
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('部分承認大会', { selectedClasses: [1] }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, result.tournamentId))
+    expect(classRows).toHaveLength(1)
+    expect(classRows[0]!.grade).toBe('D')
+
+    // 未選択の級の選手は作られない。
+    const playerRows = await testDb.select().from(players)
+    expect(playerRows.map((p) => p.displayName)).toEqual(['鈴木二郎'])
+  })
+
+  it('全級を選択した場合は selectedClasses 未指定と同じ結果になる（回帰）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎'), buildClass('D', '鈴木二郎')]),
+    )
+
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('全級承認大会', { selectedClasses: [0, 1] }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, result.tournamentId))
+    expect(classRows.map((row) => row.grade).sort()).toEqual(['C', 'D'])
+    expect(await testDb.select().from(players)).toHaveLength(2)
+  })
+
+  it('級を1つも選択しないとエラーになり、大会は作られない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('空選択大会', { selectedClasses: [] }),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/1つ以上/)
+    expect(await testDb.select().from(tournaments)).toHaveLength(0)
+  })
+
+  it('差し替えは開催回を選ばないと拒否される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('差し替え大会', { replaceGrades: ['C'] }),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/開催回/)
+    expect(await testDb.select().from(tournaments)).toHaveLength(0)
+  })
+
+  it('全級差し替えで旧大会が削除され、旧ドラフトが superseded になる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '田中 太郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    // 初回承認で実出場原本の fact が自動リンクされている（AC-22 の前提）。
+    const [firstClass] = await testDb
+      .select({ id: tournamentClasses.id })
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, first.tournamentId))
+    const factsBefore = await testDb
+      .select()
+      .from(tournamentEditionGradeLotteryFacts)
+      .where(eq(tournamentEditionGradeLotteryFacts.editionId, editionId))
+    expect(factsBefore).toHaveLength(1)
+    expect(factsBefore[0]!.actualResultClassId).toBe(firstClass!.id)
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '田中太郎')]),
+    )
+    const second = await approveResultDraft(
+      secondDraft.id,
+      approveForm('訂正版大会', { editionId, replaceGrades: ['C'] }),
+    )
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+
+    // 旧大会は級が全滅したので行ごと消える。
+    const remainingTournaments = await testDb.select().from(tournaments)
+    expect(remainingTournaments.map((row) => row.id)).toEqual([second.tournamentId])
+    expect(await testDb.select().from(tournamentClasses)).toHaveLength(1)
+    expect(await testDb.select().from(tournamentParticipants)).toHaveLength(1)
+
+    // 監査: 旧ドラフトは superseded + 新ドラフトを指す。payload は保持される。
+    const oldDraft = await testDb.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, firstDraft.id),
+    })
+    expect(oldDraft?.status).toBe('superseded')
+    expect(oldDraft?.supersededByDraftId).toBe(secondDraft.id)
+    expect(
+      (oldDraft?.extractedPayload as { classes?: unknown[] } | null)?.classes,
+    ).toHaveLength(1)
+
+    // AC-22: active fact が新クラスへ revision 付きで移っている。
+    const [newClass] = await testDb
+      .select({ id: tournamentClasses.id })
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, second.tournamentId))
+    const facts = await testDb
+      .select()
+      .from(tournamentEditionGradeLotteryFacts)
+      .where(eq(tournamentEditionGradeLotteryFacts.editionId, editionId))
+    expect(facts).toHaveLength(2)
+    const active = facts.filter((row) => row.validTo === null)
+    expect(active).toHaveLength(1)
+    expect(active[0]!.actualResultClassId).toBe(newClass!.id)
+    expect(active[0]!.supersedesFactId).toBe(factsBefore[0]!.id)
+
+    // 削除後に display_name が再計算され、新データの表記へ寄る
+    // （旧「田中 太郎」が残っていれば variant 優先でそちらが選ばれてしまう）。
+    const playerRows = await testDb.select().from(players)
+    expect(playerRows).toHaveLength(1)
+    expect(playerRows[0]!.displayName).toBe('田中太郎')
+  })
+
+  it('一部の級だけ差し替えると旧大会は残り、note に記録が追記される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎'), buildClass('D', '鈴木二郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一朗')]),
+    )
+    const second = await approveResultDraft(
+      secondDraft.id,
+      approveForm('C級訂正版', { editionId, replaceGrades: ['C'] }),
+    )
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+
+    // 旧大会は D 級が残るので削除されない。
+    const oldTournament = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, first.tournamentId),
+    })
+    expect(oldTournament).toBeDefined()
+    expect(oldTournament?.note).toMatch(/差し替え/)
+    expect(oldTournament?.note).toContain(`#${secondDraft.id}`)
+
+    const oldClasses = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.tournamentId, first.tournamentId))
+    expect(oldClasses.map((row) => row.grade)).toEqual(['D'])
+
+    // 旧ドラフトは D 級の原本であり続けるので approved のまま。
+    const oldDraft = await testDb.query.resultDrafts.findFirst({
+      where: eq(resultDrafts.id, firstDraft.id),
+    })
+    expect(oldDraft?.status).toBe('approved')
+    expect(oldDraft?.supersededByDraftId).toBeNull()
+  })
+
+  it('差し替え級が取り込む級の中に一意でないと拒否される', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎'), buildClass('D', '鈴木二郎')]),
+    )
+
+    // D 級を差し替え指定しているのに、取り込む級には C しか入っていない。
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('不一致大会', { editionId, selectedClasses: [0], replaceGrades: ['D'] }),
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/D級/)
+    expect(await testDb.select().from(tournaments)).toHaveLength(0)
+  })
+
+  it('差し替え対象の旧データが無くても新データの承認は通る', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+
+    const result = await approveResultDraft(
+      draft.id,
+      approveForm('旧データなし大会', { editionId, replaceGrades: ['C'] }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(await testDb.select().from(tournamentClasses)).toHaveLength(1)
+  })
+
+  // Codex R2 blocker: 開催回を選ばずに承認すると materialize が大会名から
+  // 開催回を自動解決するため、その解決先に同じ級が既にあると二重登録できていた
+  // （サーバー側チェックが「明示選択したとき」しか走っていなかった）。
+  it('開催回を自動解決した場合も、既取込級は差し替え指定なしで再承認できない', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    // 「第3回差し替えテスト大会」で autoResolveEdition が完全一致する系列を用意する。
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    // 1回目は開催回を明示選択して取り込む。
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    // 2回目は開催回を選ばず、大会名から自動解決させる。
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '鈴木二郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('第3回差し替えテスト大会'))
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.error).toMatch(/既に取り込まれています/)
+
+    // 二重登録されていない（C 級のクラスは1件のまま）。
+    const classRows = await testDb
+      .select()
+      .from(tournamentClasses)
+      .where(eq(tournamentClasses.grade, 'C'))
+    expect(classRows).toHaveLength(1)
+    expect(classRows[0]!.tournamentId).toBe(first.tournamentId)
+  })
+
+  it('自動解決先に未取込の級なら、開催回を選ばなくても承認できる（回帰）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+
+    // D 級は未取込なので、自動解決経路でもそのまま通る。
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('D', '鈴木二郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('第3回差し替えテスト大会'))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+
+    // 自動解決で同じ開催回に紐付いている。
+    const tournament = await testDb.query.tournaments.findFirst({
+      where: eq(tournaments.id, second.tournamentId),
+    })
+    expect(tournament?.editionId).toBe(editionId)
+  })
+
+  it('selectedClasses が壊れた JSON ならエラーになる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const mail = await createMailMessage()
+    const draft = await createResultDraft(
+      mail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+
+    const fd = new FormData()
+    fd.set('tournamentName', '壊れた指定大会')
+    fd.set('selectedClasses', 'not-json')
+
+    const result = await approveResultDraft(draft.id, fd)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/取り込む級/)
+    expect(await testDb.select().from(tournaments)).toHaveLength(0)
+  })
+
+  it('既取込の級を replaceGrades なしで再承認しようとするとエラーになる（Codex R1 修正3）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const editionId = await seedEdition()
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会', { editionId }))
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤太郎')]),
+    )
+    const second = await approveResultDraft(
+      secondDraft.id,
+      approveForm('重複大会', { editionId }),
+    )
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.error).toMatch(/C級/)
+    expect(second.error).toMatch(/差し替える/)
+
+    // 大会・クラスは初回承認分のみ（二重計上されていない）。
+    expect(await testDb.select().from(tournaments)).toHaveLength(1)
+    expect(await testDb.select().from(tournamentClasses)).toHaveLength(1)
+  })
+
+  it('開催回を選ばなければ既取込チェックはスキップされ、従来どおり承認できる', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const firstMail = await createMailMessage()
+    const firstDraft = await createResultDraft(
+      firstMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤一郎')]),
+    )
+    const first = await approveResultDraft(firstDraft.id, approveForm('初回大会'))
+    expect(first.ok).toBe(true)
+
+    const secondMail = await createMailMessage()
+    const secondDraft = await createResultDraft(
+      secondMail.id,
+      'pending_review',
+      buildPayload([buildClass('C', '佐藤太郎')]),
+    )
+    const second = await approveResultDraft(secondDraft.id, approveForm('2件目大会'))
+    expect(second.ok).toBe(true)
+
+    expect(await testDb.select().from(tournaments)).toHaveLength(2)
   })
 })
 

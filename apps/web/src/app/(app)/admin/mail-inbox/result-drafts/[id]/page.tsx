@@ -13,9 +13,26 @@ import {
 } from '@kagetra/shared/schema'
 import { Card, Pill } from '@/components/ui'
 import { ParsedResultPayloadSchema } from '@kagetra/mail-worker/result-import/schema'
+import { RoutingResultSchema } from '@kagetra/mail-worker/result-import/ai/routing-schema'
 import { ApproveResultDraftForm } from './components/ApproveResultDraftForm'
 import { RejectResultDraftButton } from './components/RejectResultDraftButton'
 import { ReplaceActualResultButton } from './components/ReplaceActualResultButton'
+import { buildAiNotices, type AiNoticeTone } from './ai-notice'
+import { getEditionImportedGrades } from './actions'
+
+const AI_NOTICE_CARD_CLASS: Record<AiNoticeTone, string> = {
+  warn: 'border-warn-fg/30 bg-warn-bg',
+  danger: 'border-danger-fg/30 bg-danger-bg',
+  info: 'border-info-fg/30 bg-info-bg',
+  neutral: 'border-border bg-neutral-bg',
+}
+
+const AI_NOTICE_TEXT_CLASS: Record<AiNoticeTone, string> = {
+  warn: 'text-warn-fg',
+  danger: 'text-danger-fg',
+  info: 'text-info-fg',
+  neutral: 'text-neutral-fg',
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -50,8 +67,39 @@ export default async function ResultDraftReviewPage({
   const payloadResult = ParsedResultPayloadSchema.safeParse(draft.extractedPayload)
   const payload = payloadResult.success ? payloadResult.data : null
 
-  // Pre-fill tournament name from mail subject
-  const defaultTournamentName = draft.mail?.subject?.replace(/^(Re:|FW:|Fw:)\s*/i, '').trim() ?? ''
+  // AI 所見カード（AC-3/AC-9/AC-17）。表示分岐は純関数（ai-notice.ts）に切り出し済み。
+  const aiNotices = buildAiNotices({
+    aiRouting: draft.aiRouting,
+    aiError: draft.aiError,
+    extractionSource: draft.extractionSource,
+    parserVersion: draft.parserVersion,
+    status: draft.status,
+  })
+
+  // AC-4: AI の meta からプリフィルできればそちらを優先する（管理者が上書き可能）。
+  const routingResult = RoutingResultSchema.safeParse(draft.aiRouting)
+  const routingMeta = routingResult.success ? routingResult.data.meta : null
+
+  // Pre-fill tournament name from mail subject (AI の meta.tournamentName があれば優先)
+  const defaultTournamentName =
+    routingMeta?.tournamentName ??
+    draft.mail?.subject?.replace(/^(Re:|FW:|Fw:)\s*/i, '').trim() ??
+    ''
+
+  const defaultEventDate =
+    routingMeta?.eventDate && /^\d{4}-\d{2}-\d{2}$/.test(routingMeta.eventDate)
+      ? routingMeta.eventDate
+      : undefined
+
+  const formClasses =
+    payload?.classes.map((cls, index) => ({
+      index,
+      className: cls.className,
+      rawClassName: cls.rawClassName ?? null,
+      grade: cls.grade,
+      participantCount: cls.participants.length,
+      matchCount: cls.participants.reduce((sum, p) => sum + p.matches.length, 0),
+    })) ?? []
 
   const statusLabel: Record<string, string> = {
     pending_review: '承認待ち',
@@ -145,6 +193,32 @@ export default async function ResultDraftReviewPage({
           対象メール：{draft.mail.subject || '(件名なし)'}
         </p>
       )}
+
+      {/* AI 所見カード */}
+      {aiNotices.map((notice, ni) => (
+        <Card
+          key={ni}
+          className={AI_NOTICE_CARD_CLASS[notice.tone]}
+        >
+          <div className="flex flex-col gap-1">
+            <span className={`text-sm font-semibold ${AI_NOTICE_TEXT_CLASS[notice.tone]}`}>
+              {notice.title}
+            </span>
+            {notice.body && (
+              <p className={`text-xs opacity-90 ${AI_NOTICE_TEXT_CLASS[notice.tone]}`}>
+                {notice.body}
+              </p>
+            )}
+            {notice.items && notice.items.length > 0 && (
+              <ul className={`list-disc pl-4 text-xs opacity-90 ${AI_NOTICE_TEXT_CLASS[notice.tone]}`}>
+                {notice.items.map((item, ii) => (
+                  <li key={ii}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+      ))}
 
       {/* 解析エラー (parse_failed) */}
       {draft.status === 'parse_failed' && draft.parseError && (
@@ -266,6 +340,9 @@ export default async function ResultDraftReviewPage({
             <ApproveResultDraftForm
               draftId={draftId}
               defaultTournamentName={defaultTournamentName}
+              defaultEventDate={defaultEventDate}
+              classes={formClasses}
+              loadImportedGrades={getEditionImportedGrades}
               editionOptions={editionRows.map((edition) => ({
                 id: edition.id,
                 label: `${edition.seriesName} 第${edition.editionNumber}回${edition.year ? ` (${edition.year})` : ''}`,

@@ -6,6 +6,7 @@ import {
   mailWorkerJobs,
   resultDrafts,
   tournamentClasses,
+  tournaments,
   tournamentConfirmedRosterPublications,
   tournamentEditionGradeLotteryFacts,
   tournamentEntryRosters,
@@ -637,22 +638,52 @@ describe('roster import review actions', () => {
     })
     expect(active?.actualResultClassId).toBe(firstClass?.id)
 
+    // tournament-results 2026-08 改修: 既取込の級を差し替え指定なしで再承認する
+    // ことは**できなくなった**（同一 edition に同 grade のクラスが2つでき、戦績・
+    // 統計・当落線が二重計上されるため。要件 §3.4）。旧フロー（2回承認してから
+    // fact を切り替える）はこのガードに置き換わっている。
     const secondMail = await createMailMessage()
     const secondDraft = await createResultDraft(secondMail.id)
     const secondForm = new FormData()
     secondForm.set('tournamentName', '第1回テスト大会 訂正版')
     secondForm.set('editionId', String(edition.id))
     const second = await approveResultDraft(secondDraft.id, secondForm)
-    expect(second.ok).toBe(true)
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.error).toMatch(/既に取り込まれています/)
+
+    // fact は初回のまま動かない。
     active = await testDb.query.tournamentEditionGradeLotteryFacts.findFirst({
       where: eq(tournamentEditionGradeLotteryFacts.editionId, edition.id),
     })
     expect(active?.actualResultClassId).toBe(firstClass?.id)
 
-    const secondClass = (await testDb
-      .select()
-      .from(tournamentClasses)
-      .where(eq(tournamentClasses.tournamentId, second.ok ? second.tournamentId : -1)))[0]!
+    // `replaceActualResultFact` は「同一 edition に同 grade のクラスが複数ある」
+    // 既存データ（過去の一括投入由来など）向けの明示置換 API として残っている。
+    // 承認フローからはもう作れない形なので、ここでは直接 seed して再現する。
+    const [secondTournament] = await testDb
+      .insert(tournaments)
+      .values({
+        name: '第1回テスト大会 訂正版',
+        editionId: edition.id,
+        sourceResultDraftId: secondDraft.id,
+      })
+      .returning({ id: tournaments.id })
+    const [seededClass] = await testDb
+      .insert(tournamentClasses)
+      .values({
+        tournamentId: secondTournament!.id,
+        className: 'A級',
+        grade: 'A',
+        numPlayers: 1,
+        sheetName: 'A級',
+      })
+      .returning({ id: tournamentClasses.id })
+    await testDb
+      .update(resultDrafts)
+      .set({ status: 'approved', tournamentId: secondTournament!.id })
+      .where(eq(resultDrafts.id, secondDraft.id))
+    const secondClass = { id: seededClass!.id }
     const stale = await replaceActualResultFact(
       secondDraft.id,
       'A',

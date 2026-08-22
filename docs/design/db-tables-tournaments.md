@@ -319,7 +319,17 @@
 | rejected_by_user_id | text | NULL | — | FK→users.id ON DELETE SET NULL |
 | rejected_at | timestamptz | NULL | — | |
 | rejection_reason | text | NULL | — | |
+| ai_routing | jsonb | NULL | — | AIルーティング判定の生JSON（verdict / classMap / meta / issues） |
+| ai_model | text | NULL | — | 呼び出したモデルID |
+| ai_prompt_version | text | NULL | — | |
+| ai_tokens_input | integer | NULL | — | |
+| ai_tokens_output | integer | NULL | — | |
+| ai_cost_usd | numeric(10,6) | NULL | — | ルーティング+フル抽出の合算コスト |
+| ai_error | text | NULL | — | fail-open時の失敗理由。非nullなら承認画面に「AI検証なし」を表示 |
+| extraction_source | text | NULL | — | payloadの由来: 'parser' / 'ai' |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 
 **制約・インデックス**: UNIQUE(message_id) / INDEX `idx_result_drafts_status_created` on (status, created_at DESC)
+
+`ai_*` / `extraction_source` は2026-08の改修で追加（全てnullable）。AIを通していない既存行・fail-open行ではnullのまま。

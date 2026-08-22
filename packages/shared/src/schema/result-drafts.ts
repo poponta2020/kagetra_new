@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { index, integer, jsonb, numeric, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { mailMessages } from './mail-messages'
 import { tournaments } from './tournaments'
@@ -59,6 +59,21 @@ export const resultDrafts = pgTable(
     }),
     rejectedAt: timestamp('rejected_at', { mode: 'date', withTimezone: true }),
     rejectionReason: text('rejection_reason'),
+    // ── tournament-results 2026-08 改修: AI ルーティング/フル抽出の所見とコスト ──
+    // すべて nullable。AI を通していない既存行・fail-open 行では null のまま。
+    // 形は tournament_drafts の ai_* 列に合わせる（同じ運用で monitoring できる）。
+    /** ルーティング判定の生 JSON（verdict / classMap / meta / issues）。 */
+    aiRouting: jsonb('ai_routing'),
+    aiModel: text('ai_model'),
+    aiPromptVersion: text('ai_prompt_version'),
+    aiTokensInput: integer('ai_tokens_input'),
+    aiTokensOutput: integer('ai_tokens_output'),
+    /** ルーティング + フル抽出の合算コスト（USD）。 */
+    aiCostUsd: numeric('ai_cost_usd', { precision: 10, scale: 6 }),
+    /** fail-open した際の失敗理由。値が入っていれば「AI 検証なし」表示の根拠。 */
+    aiError: text('ai_error'),
+    /** payload の由来: 'parser'（決定的パーサ） | 'ai'（フル AI 抽出）。 */
+    extractionSource: text('extraction_source'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .notNull()
       .defaultNow(),
