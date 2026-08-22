@@ -28,6 +28,40 @@ import {
 /** 級を A→E の正順に並べるための序数。 */
 const GRADE_ORDER: Record<Grade, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
 
+/** LINE のテキストメッセージ1通の文字数上限。 */
+const LINE_TEXT_MAX_LENGTH = 5000
+
+/**
+ * 2通目（支払情報）に使えるメッセージ数の上限。push は1リクエスト最大5通で、
+ * 1通目（メンション付き）が1枠を使うので残りは4枠。
+ */
+const MAX_INFO_MESSAGES = 4
+
+/** 上限を超えて捨てた分がある場合に末尾へ付ける印。 */
+const TRUNCATION_MARK = '…（以下省略）'
+
+/**
+ * 支払情報（自由記述・長さ無制限）を LINE の1通あたり上限で分割する。
+ *
+ * `payment_info` には DB・フォームのどちらにも文字数上限が無く、上限超過の本文を
+ * そのまま送るとリクエスト全体が 400 で拒否される（1通目の振込金額まで届かなくなる）。
+ * 4通に収まらない分は末尾を切って印を付ける — 送れないより、切れても届く方がよい。
+ */
+export function splitPaymentInfo(info: string): string[] {
+  const chunks: string[] = []
+  let rest = info
+  while (rest.length > 0 && chunks.length < MAX_INFO_MESSAGES) {
+    chunks.push(rest.slice(0, LINE_TEXT_MAX_LENGTH))
+    rest = rest.slice(LINE_TEXT_MAX_LENGTH)
+  }
+  if (rest.length > 0 && chunks.length > 0) {
+    const last = chunks[chunks.length - 1]!
+    chunks[chunks.length - 1] =
+      last.slice(0, LINE_TEXT_MAX_LENGTH - TRUNCATION_MARK.length) + TRUNCATION_MARK
+  }
+  return chunks
+}
+
 /** 1通目の1行目に出す素テキスト（会計が0人のときはこれがそのまま出る・AC-5）。 */
 export const TREASURER_MENTION_LABEL = '@会計'
 
@@ -120,9 +154,11 @@ export function buildPaymentNoticeMessages(
     }),
   ]
 
-  // 2通目は自由記述なのでメンションを持たない素の text。空なら送らない（AC-17）。
+  // 2通目以降は自由記述なのでメンションを持たない素の text。空なら送らない（AC-17）。
+  // LINE の1通あたり上限を超える支払情報は分割する（超過すると 400 でリクエスト全体が
+  // 落ち、1通目の振込金額まで届かなくなるため）。
   const info = input.paymentInfo?.trim()
-  if (info) messages.push(buildTextMessage(info))
+  if (info) for (const chunk of splitPaymentInfo(info)) messages.push(buildTextMessage(chunk))
 
   return { messages, totalJpy, rows }
 }

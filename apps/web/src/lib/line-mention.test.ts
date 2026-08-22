@@ -121,20 +121,37 @@ describe('buildMentionMessage', () => {
     expect(v2.text).toBe('{m0}\n締め切りは7/25(土)です')
   })
 
-  it('caps substitutions at 100 when userIds exceeds 100', () => {
-    const userIds = Array.from({ length: 101 }, (_, i) => `u${i}`)
+  // LINE のメンション上限は20件（substitution 全体の100件とは別の制約）。超過すると
+  // メッセージ全体が拒否されるので、厳しい側で切る。
+  it('caps mentions at 20 when userIds exceeds 20', () => {
+    const userIds = Array.from({ length: 21 }, (_, i) => `u${i}`)
     const result = buildMentionMessage({
       mention: { kind: 'users', userIds },
       label: '@会計',
       template: '振込連絡です',
     })
     const v2 = result as LineTextV2Message
-    expect(Object.keys(v2.substitution)).toHaveLength(100)
-    expect(v2.substitution.m99).toEqual({
+    expect(Object.keys(v2.substitution)).toHaveLength(20)
+    expect(v2.substitution.m19).toEqual({
       type: 'mention',
-      mentionee: { type: 'user', userId: 'u99' },
+      mentionee: { type: 'user', userId: 'u19' },
     })
-    expect(v2.substitution.m100).toBeUndefined()
+    expect(v2.substitution.m20).toBeUndefined()
+    // 本文のプレースホルダも20件に揃う（本文と substitution のキーは常に一致する）。
+    expect(v2.text.startsWith('{m0} ')).toBe(true)
+    expect(v2.text).not.toContain('{m20}')
+  })
+
+  it('keeps all 20 mentions at the boundary', () => {
+    const userIds = Array.from({ length: 20 }, (_, i) => `u${i}`)
+    const result = buildMentionMessage({
+      mention: { kind: 'users', userIds },
+      label: '@会計',
+      template: '振込連絡です',
+    })
+    const v2 = result as LineTextV2Message
+    expect(Object.keys(v2.substitution)).toHaveLength(20)
+    expect(v2.text).toContain('{m19}')
   })
 })
 

@@ -6,6 +6,7 @@ import {
   normalizeNoticeRows,
   rowsFromSavedCounts,
   savedCountsFromRows,
+  splitPaymentInfo,
   totalOfNoticeRows,
 } from './payment-notice'
 
@@ -131,6 +132,57 @@ describe('buildPaymentNoticeMessages', () => {
     expect(
       buildPaymentNoticeMessages({ mention: NO_TREASURER, rows: [] }),
     ).toBeNull()
+  })
+})
+
+describe('支払情報の長さガード', () => {
+  // LINE のテキストは1通5000文字まで。上限超過を1通で送るとリクエスト全体が 400 で
+  // 落ち、1通目の振込金額まで届かなくなる。
+  it('5000文字ちょうどは1通のまま', () => {
+    const info = 'あ'.repeat(5000)
+    const preview = buildPaymentNoticeMessages({
+      mention: NO_TREASURER,
+      rows: ROWS,
+      paymentDeadlineIso: '2026-07-25',
+      paymentInfo: info,
+    })
+    expect(preview!.messages).toHaveLength(2)
+    expect(preview!.messages[1]!.text).toBe(info)
+  })
+
+  it('5000文字を超えると分割して送る', () => {
+    const info = 'あ'.repeat(12000)
+    const preview = buildPaymentNoticeMessages({
+      mention: NO_TREASURER,
+      rows: ROWS,
+      paymentDeadlineIso: '2026-07-25',
+      paymentInfo: info,
+    })
+    // 1通目（金額）＋ 支払情報3通。
+    expect(preview!.messages).toHaveLength(4)
+    for (const m of preview!.messages) expect(m.text.length).toBeLessThanOrEqual(5000)
+    expect(preview!.messages.slice(1).map((m) => m.text).join('')).toBe(info)
+  })
+
+  it('push の5通制限に収まるよう、4通を超える分は末尾を切る', () => {
+    // 1通目が1枠を使うので支払情報は最大4通 = 20000文字。
+    const info = 'あ'.repeat(25000)
+    const chunks = splitPaymentInfo(info)
+    expect(chunks).toHaveLength(4)
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(5000)
+    expect(chunks[3]!.endsWith('…（以下省略）')).toBe(true)
+
+    const preview = buildPaymentNoticeMessages({
+      mention: NO_TREASURER,
+      rows: ROWS,
+      paymentDeadlineIso: '2026-07-25',
+      paymentInfo: info,
+    })
+    expect(preview!.messages).toHaveLength(5)
+  })
+
+  it('上限以内なら印を付けない', () => {
+    expect(splitPaymentInfo('〇〇銀行 普通 1234567')).toEqual(['〇〇銀行 普通 1234567'])
   })
 })
 

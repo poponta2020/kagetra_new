@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import {
   eventLifecycleNotificationTypeEnum,
@@ -447,5 +447,72 @@ describe('lifecycle notify — DB', () => {
       .where(eq(eventLifecycleNotifications.type, 'entry_applied'))
     expect(rows).toHaveLength(2)
     expect(rows.every((r) => r.status === 'sent' && r.lineGroupId === 'Gbulk')).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // push 失敗時のリカバリ（line-bot-message-revamp のレビュー指摘）
+  // -------------------------------------------------------------------------
+
+  /** 指定ステータスを返す fetch を差し込んで push を1回走らせる。 */
+  async function pushWithStatus(eventId: number, status: number) {
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('err', { status }))
+    try {
+      return await pushTextToEventGroup(testDb, eventId, 'test')
+    } finally {
+      spy.mockRestore()
+      process.env.LINE_NOTIFY_DRY_RUN = '1'
+    }
+  }
+
+  async function broadcastStatusOf(entryGroupId: number) {
+    const rows = await testDb
+      .select({ status: eventLineBroadcasts.status })
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.entryGroupId, entryGroupId))
+    return rows[0]?.status
+  }
+
+  it('400（メッセージ内容の不備）では紐付けを解除しない', async () => {
+    // textV2 の導入でペイロード起因の 400 が起こりうる。宛先とは無関係な不備で
+    // 正常な紐付けを壊すと、その大会の通知が以後すべて止まる。
+    const { event } = await seedLinkedEvent({ lineGroupId: 'G400' })
+    const result = await pushWithStatus(event.id, 400)
+    expect(result.outcome).toBe('failed')
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('linked')
+  })
+
+  it('403（Bot 追放・宛先無効）では紐付けを解除しチャネルをプールへ返す', async () => {
+    const { event, channel } = await seedLinkedEvent({ lineGroupId: 'G403' })
+    const result = await pushWithStatus(event.id, 403)
+    expect(result.outcome).toBe('failed')
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('revoked')
+    const [ch] = await testDb
+      .select({ status: lineChannels.status, assigned: lineChannels.assignedEntryGroupId })
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(ch).toMatchObject({ status: 'available', assigned: null })
+  })
+
+  it('401（トークン失効）ではチャネルを無効化する', async () => {
+    const { event, channel } = await seedLinkedEvent({ lineGroupId: 'G401' })
+    await pushWithStatus(event.id, 401)
+    expect(await broadcastStatusOf(event.entryGroupId)).toBe('revoked')
+    const [ch] = await testDb
+      .select({ status: lineChannels.status })
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(ch?.status).toBe('disabled')
+  })
+
+  it('429（レート制限）・5xx では紐付けを維持する', async () => {
+    for (const status of [429, 500]) {
+      await truncateAll()
+      const { event } = await seedLinkedEvent({ lineGroupId: `G${status}` })
+      await pushWithStatus(event.id, status)
+      expect(await broadcastStatusOf(event.entryGroupId)).toBe('linked')
+    }
   })
 })

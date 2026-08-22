@@ -120,7 +120,7 @@ push の結末は **3 値**で扱う。`accepted`（2xx / 同一キーの 409）
 
 LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` をメッセージに埋め込む。
 
-- **組み立て**: `lib/line-mention.ts`（pure。DB・`node:`・`@kagetra/shared` を持ち込まない）。`buildMentionMessage({ mention, label, template, values })` が `{ type:'textV2', text, substitution }` を返す。プレースホルダは `m0` `m1` … の連番で、個人メンションは1人につき1つ。substitution は1メッセージ100件が上限（超過分は捨てる）。
+- **組み立て**: `lib/line-mention.ts`（pure。DB・`node:`・`@kagetra/shared` を持ち込まない）。`buildMentionMessage({ mention, label, template, values })` が `{ type:'textV2', text, substitution }` を返す。プレースホルダは `m0` `m1` … の連番で、個人メンションは1人につき1つ。**メンションは1メッセージ20件が上限**（`substitution` 全体の100件とは別の制約。超過分は捨てる — 超えるとメッセージ全体が拒否されるため厳しい側で切る）。
 - ★**メンションを含むメッセージに自由記述を混ぜない。** `textV2` は本文中の中括弧をプレースホルダ構文として解釈するため、大会名・支払情報などのユーザー入力が中括弧を含むと本文が壊れる。差し込める値を `number` と `{ dateIso }`（`M/D(曜)` へ整形）だけに型で限定し、`template` / `label` に中括弧が無いことを実行時にも検証する。自由記述は `buildTextMessage` でメンションを持たない別メッセージとして送る。
 - **対象の解決**: `lib/line-mention-targets.ts`。共通条件は `line_user_id IS NOT NULL AND deactivated_at IS NULL` で、並び順は `users.id` 昇順（メンションの並びを決定的にするため）。`@会計` は `users.is_treasurer = true`、`@管理者` は `role IN ('admin','vice_admin')`。**0人なら素テキストの `@会計` / `@管理者` を出すだけ**でメッセージ自体は送る。`line_user_id` が無い担当者は黙って外れる。
 - **会計フラグ**: `users.is_treasurer`（boolean）。**`@会計` で誰をメンションするかの識別専用で、認可判断には一切使わない**。会計の権限は副管理者と同一なので、会計担当には `role='vice_admin'` を併せて付与して運用する（`user_role` enum を増やさない理由は、`role !== 'admin' && role !== 'vice_admin'` の判定が多数のファイルにインライン展開されているため）。設定 UI は会員編集（`spec/auth-admin.md`）。
@@ -156,14 +156,14 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
   - 送信失敗は再試行しない（翌日には日付条件が外れるため、ベストエフォート設計）。`--dry-run` で候補一覧のみ確認できる。
   - **送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーでバケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` + `RETURNING`** で claim して1通 push する。once-ever の単位は `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」だけが追加で1通送られる。
   - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id` かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない — claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。
-- push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、その他4xx→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール）。
+- push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、403/404→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール）。★**400（メッセージ内容の不備）では紐付けを解除しない** — `textV2` の導入でペイロード起因の400が起こりうるようになり、宛先と無関係な不備で正常な紐付けを壊すとその大会の通知が以後すべて止まるため。400・429・5xx は送信失敗として記録するだけ。
 
 ### payment-notice: 名簿確定後の振込連絡
 
 確定名簿が出たグループの会計へ、振込金額を LINE で連絡する。**手動送信のみ・全自動送信はしない**（`/admin/entries/[groupId]` の「振込連絡」セクション）。
 
 - **露出条件**（申込管理ボードの `payment_due` 区画と同じ）: `settled`（確定名簿あり。判定の正典は `lib/events/confirmed-roster.ts`）∧ 事前払い（`payment_type='advance'`）∧ 未振込（`payment_status='unpaid'`）∧ 申込済。手動トグル（`entry_groups.confirmed_roster_override`）で進めたグループも含む。現地払い・支払済・LINE未紐付けのグループでは出ない。判定と初期値は `lib/events/payment-notice-context.ts` に集約し、画面と Server Action の両方が呼ぶ（client から直接叩かれても fail-closed）。
-- **人数**: 級ごとの人数の初期値は参加費集計と同じ母集団（`lib/entry-fee-tally.ts`。出欠回答「参加」・`is_invited`・`eligible_grades` 該当・**ゲスト除外**・複数日は延べ）。管理者は**級ごとの人数だけ**を直せ、**単価は直せない**（単価は協会規定額から `resolveEntryFee` が導出する値で、管理者が上書きしてよい種類の数字ではない）。直した人数は `entry_group_payment_notices` に保存し、再送時に同じ数字を再現する。集計の母集団は確定名簿ではなく出欠回答なので、抽選のある大会では落選者が混ざる — だからプレビューと人数編集が必須になっている。
+- **人数**: 級ごとの人数の初期値は参加費集計と同じ母集団（`lib/entry-fee-tally.ts`。出欠回答「参加」・`is_invited`・`eligible_grades` 該当・**ゲスト除外**・複数日は延べ）。★対象の日は**露出条件を満たす日（申込済 ∧ 事前払い ∧ 未振込）だけ**に絞る — グループ全日を合算する `tallyEntryFeesForGroup` は支払済みの日を除外しないので、日ごとに支払済みトグルを進めたグループでは二重請求になる。振込期限・支払情報も同じ集合から開催日昇順で決定的に選ぶ。管理者は**級ごとの人数だけ**を直せ、**単価は直せない**（単価は協会規定額から `resolveEntryFee` が導出する値で、管理者が上書きしてよい種類の数字ではない）。**単価が解決できる対象級は人数0でも入力欄として出す**（0人の級を落とすと、確定名簿に合わせて増やすことができなくなる）。直した人数は `entry_group_payment_notices` に保存し、再送時に同じ数字を再現する。集計の母集団は確定名簿ではなく出欠回答なので、抽選のある大会では落選者が混ざる — だからプレビューと人数編集が必須になっている。
 - **文面**（`lib/payment-notice.ts`）は**2通**。1通目は `@会計` メンション＋数値由来の値だけ、2通目は支払情報（`payment_info`）の自由記述。**2通に分かれているのは `textV2` の中括弧問題を構造的に避けるためで、読みやすさのための分割ではない**（1通にまとめてはならない）。
 
   ```
@@ -182,6 +182,7 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
   - 明細と `計` の間、`計` と末尾行の間に空行を1つ置く
   - `payment_info` が空なら2通目を送らない
   - 単価が解決できない級（非公認・団体戦）は明細から除外する（既存の総額計算と同じ規律）
+  - `payment_info` が LINE の1通上限（5000文字）を超える場合は分割して送る（push は1リクエスト5通までなので支払情報は最大4通。超過分は末尾を切って `…（以下省略）` を付ける）
 - **送信**: 人数は push の前に保存し、**push が成功したときだけ** `last_sent_at` / `last_sent_by` を進める（失敗時は送信済みにせず再送できる状態のまま残す）。人数が全級0のときは送信させない。再送は要綱再送・オープンチャット再送と同じ扱いで何度でもできる。
 
 ### entry-overdue-alert: 管理者向け毎日アラート

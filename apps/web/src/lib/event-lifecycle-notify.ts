@@ -354,11 +354,19 @@ async function pushMessages(
 /**
  * On a push failure, mirror line-broadcast.ts recovery (requirements §3.2.5):
  *   - 401 (token expired/invalid): disable the channel + revoke the binding.
- *   - other 4xx (≠429; groupId invalid / Bot kicked): revoke the binding and
- *     return the channel to the pool.
+ *   - 403 / 404 (Bot kicked / group gone): revoke the binding and return the
+ *     channel to the pool.
  * Both are guarded on the original (channel, group) so a binding that was
  * re-linked since send-time is never clobbered. 429 / 5xx / transport errors
  * are left alone (best-effort; the date condition expires next day, §3.2.3).
+ *
+ * ★**400 では紐付けを解除しない**（line-bot-message-revamp のレビュー指摘）。
+ * かつては 429 以外の 4xx をすべて「宛先が無効」とみなして revoke していたが、
+ * textV2（メンション付き）を導入したことで**メッセージ内容起因の 400**
+ * （メンション超過・文字数超過など）が起こりうるようになった。宛先とは無関係な
+ * ペイロード不正で正常な紐付けを壊すと、その大会の通知が以後すべて止まる。
+ * 400 は送信失敗として記録するだけに留め、宛先の無効を明確に示す 403 / 404 だけを
+ * 解除対象にする。
  */
 async function applyPushFailureRecovery(
   dbc: Database,
@@ -368,9 +376,9 @@ async function applyPushFailureRecovery(
   logger: Logger,
 ): Promise<void> {
   const isAuthFailure = httpStatus === 401
-  const isOtherClientError =
-    httpStatus != null && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429
-  if (!isAuthFailure && !isOtherClientError) return
+  // 宛先の無効を明確に示すものだけ（400 = ペイロード不正は対象外）。
+  const isDestinationGone = httpStatus === 403 || httpStatus === 404
+  if (!isAuthFailure && !isDestinationGone) return
 
   await dbc.transaction(async (tx) => {
     const revoked = await tx
@@ -402,7 +410,7 @@ async function applyPushFailureRecovery(
       return
     }
 
-    // 401 → channel is dead (disabled); other 4xx → channel is fine, return to pool.
+    // 401 → channel is dead (disabled); 403/404 → channel is fine, return to pool.
     await tx
       .update(lineChannels)
       .set({
@@ -421,7 +429,7 @@ async function applyPushFailureRecovery(
   logger.warn(
     isAuthFailure
       ? 'LINE channel disabled + binding revoked due to 401 (lifecycle)'
-      : 'LINE binding revoked due to 4xx (lifecycle)',
+      : 'LINE binding revoked due to 403/404 (lifecycle)',
     { eventId, channelId: binding.lineChannelId, httpStatus },
   )
 }
@@ -436,7 +444,7 @@ export interface PushTextResult {
 /**
  * Push messages to the LINE group bound to an event. Returns 'skipped' when the
  * event has no linked group (no push, not an error). On API failure, records
- * the failure and runs the 401/4xx recovery before returning 'failed'.
+ * the failure and runs the 401/403/404 recovery before returning 'failed'.
  */
 export async function pushMessagesToEventGroup(
   dbc: Database,
@@ -476,7 +484,7 @@ export async function pushMessagesToEntryGroup(
   return pushToBinding(dbc, binding, null, messages, opts)
 }
 
-/** 解決済み binding へ push し、失敗時は 401/4xx リカバリを回す共通部。 */
+/** 解決済み binding へ push し、失敗時は 401/403/404 リカバリを回す共通部。 */
 async function pushToBinding(
   dbc: Database,
   binding: LinkedEventBinding | null,

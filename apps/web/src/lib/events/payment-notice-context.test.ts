@@ -133,11 +133,27 @@ describe('loadPaymentNoticeContext', () => {
 
     const ctx = await loadPaymentNoticeContext(group.id)
     // ゲストは参加費集計の母集団から外れる（A級は2名）。
+    // 単価が解決できる対象級は人数0でも行を出す（管理者が確定名簿に合わせて直せるように）。
     expect(ctx!.rows).toEqual([
       { grade: 'A', count: 2, unitJpy: 2500 },
       { grade: 'B', count: 1, unitJpy: 2500 },
+      { grade: 'C', count: 0, unitJpy: 2000 },
+      { grade: 'D', count: 0, unitJpy: 2000 },
+      { grade: 'E', count: 0, unitJpy: 1500 },
     ])
     expect(ctx!.hasSavedCounts).toBe(false)
+  })
+
+  it('出欠0人の級にも入力欄になる行を出す（確定名簿で増やせるようにする）', async () => {
+    const { group, event } = await seedDueGroup({ eligibleGrades: ['A', 'B'] })
+    const a1 = await createUser({ name: 'pn-z1', grade: 'A' })
+    await createEventAttendance({ eventId: event.id, userId: a1.id })
+
+    const ctx = await loadPaymentNoticeContext(group.id)
+    expect(ctx!.rows).toEqual([
+      { grade: 'A', count: 1, unitJpy: 2500 },
+      { grade: 'B', count: 0, unitJpy: 2500 },
+    ])
   })
 
   it('複数日は延べ人数で数える（同じ会員が2日出れば2名分）', async () => {
@@ -156,7 +172,70 @@ describe('loadPaymentNoticeContext', () => {
     await createEventAttendance({ eventId: day2.id, userId: user.id })
 
     const ctx = await loadPaymentNoticeContext(group.id)
-    expect(ctx!.rows).toEqual([{ grade: 'A', count: 2, unitJpy: 2500 }])
+    expect(ctx!.rows.find((r) => r.grade === 'A')).toEqual({
+      grade: 'A',
+      count: 2,
+      unitJpy: 2500,
+    })
+  })
+
+  it('支払済みの日は金額の母集団から外れる（二重請求の防止）', async () => {
+    const group = await createEntryGroup()
+    await markRosterOverride(group.id)
+    const common = {
+      entryGroupId: group.id,
+      eligibleGrades: null,
+      entryStatus: 'applied' as const,
+      paymentType: 'advance' as const,
+    }
+    const unpaid = await createEvent({
+      ...common,
+      eventDate: '2026-08-01',
+      paymentStatus: 'unpaid',
+    })
+    const paid = await createEvent({ ...common, eventDate: '2026-08-08', paymentStatus: 'paid' })
+    const user = await createUser({ name: 'pn-paid', grade: 'A' })
+    await createEventAttendance({ eventId: unpaid.id, userId: user.id })
+    await createEventAttendance({ eventId: paid.id, userId: user.id })
+
+    const ctx = await loadPaymentNoticeContext(group.id)
+    // 未振込の1日分だけ（支払済みの日を足すと2名分＝二重請求になる）。
+    expect(ctx!.rows.find((r) => r.grade === 'A')).toEqual({
+      grade: 'A',
+      count: 1,
+      unitJpy: 2500,
+    })
+  })
+
+  it('支払情報・振込期限は未振込の日から決定的に選ぶ', async () => {
+    const group = await createEntryGroup()
+    await markRosterOverride(group.id)
+    const common = {
+      entryGroupId: group.id,
+      entryStatus: 'applied' as const,
+      paymentType: 'advance' as const,
+    }
+    // 支払済みの早い日（対象外）と、未振込の遅い日（対象）。
+    await createEvent({
+      ...common,
+      eventDate: '2026-08-01',
+      paymentStatus: 'paid',
+      paymentDeadline: '2026-07-10',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '旧口座 0000000',
+    })
+    await createEvent({
+      ...common,
+      eventDate: '2026-08-08',
+      paymentStatus: 'unpaid',
+      paymentDeadline: '2026-07-25',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '新口座 1234567',
+    })
+
+    const ctx = await loadPaymentNoticeContext(group.id)
+    expect(ctx!.paymentDeadline).toBe('2026-07-25')
+    expect(ctx!.paymentInfo).toBe('新口座 1234567')
   })
 
   it('保存済みの人数があればそれを初期値にする（AC-14）', async () => {
@@ -175,7 +254,13 @@ describe('loadPaymentNoticeContext', () => {
 
     const ctx = await loadPaymentNoticeContext(group.id)
     // 集計は2名だが、管理者が直した1名が再現される。
-    expect(ctx!.rows).toEqual([{ grade: 'A', count: 1, unitJpy: 2500 }])
+    expect(ctx!.rows.find((r) => r.grade === 'A')).toEqual({
+      grade: 'A',
+      count: 1,
+      unitJpy: 2500,
+    })
+    // 保存に無い級は0名（行自体は残す）。
+    expect(ctx!.rows.find((r) => r.grade === 'B')?.count).toBe(0)
     expect(ctx!.hasSavedCounts).toBe(true)
     expect(ctx!.lastSentAt).toEqual(new Date('2026-07-20T00:00:00Z'))
   })
@@ -203,6 +288,10 @@ describe('loadPaymentNoticeContext', () => {
     await createEventAttendance({ eventId: dead.id, userId: user.id })
 
     const ctx = await loadPaymentNoticeContext(group.id)
-    expect(ctx!.rows).toEqual([{ grade: 'A', count: 1, unitJpy: 2500 }])
+    expect(ctx!.rows.find((r) => r.grade === 'A')).toEqual({
+      grade: 'A',
+      count: 1,
+      unitJpy: 2500,
+    })
   })
 })

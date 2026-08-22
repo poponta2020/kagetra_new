@@ -56,8 +56,14 @@ export interface MentionMessageInput {
   values?: readonly MentionValue[]
 }
 
-/** LINE の substitution 上限（1メッセージあたり最大100オブジェクト）。 */
-const MAX_SUBSTITUTIONS = 100
+/**
+ * LINE のメンション上限（1メッセージあたり最大20件）。
+ *
+ * `substitution` 全体の上限は100オブジェクトだが、**メンションはそれとは別に20件**という
+ * 制約がある。超過するとメッセージ全体が拒否されるので、厳しい側（20）で切る
+ * （会計・管理者はいずれも数名の運用なので実際には到達しない）。
+ */
+const MAX_MENTIONS = 20
 
 /** `template` / `label` の中括弧禁止を検証する（AC-8）。 */
 function assertNoBraces(value: string, fieldName: string): void {
@@ -95,7 +101,8 @@ function renderTemplate(template: string, values: readonly MentionValue[]): stri
  * メンション付きメッセージを組み立てる。
  * - `mention.kind === 'all'` → 常に textV2（`mentionee.type='all'`）
  * - `mention.kind === 'users'` かつ userIds が1件以上 → textV2。**1件につき1つの substitution**
- *   （`m0` `m1` …）を作り、1行目はそれらを**半角スペース区切り**で並べる
+ *   （`m0` `m1` …）を作り、1行目はそれらを**半角スペース区切り**で並べる。
+ *   LINE のメンション上限（20件）を超える分は黙って捨てる
  * - `mention.kind === 'users'` かつ userIds が空 → メンションを付けず `{ type:'text' }` を返す。
  *   1行目は `label` の素テキスト（AC-5: 会計0人でも文面は崩さない）
  */
@@ -117,7 +124,7 @@ export function buildMentionMessage(input: MentionMessageInput): LineMessage {
     substitution.m0 = { type: 'mention', mentionee: { type: 'all' } }
     placeholders.push('{m0}')
   } else {
-    const userIds = mention.userIds.slice(0, MAX_SUBSTITUTIONS)
+    const userIds = mention.userIds.slice(0, MAX_MENTIONS)
     userIds.forEach((userId, i) => {
       const key = `m${i}`
       substitution[key] = { type: 'mention', mentionee: { type: 'user', userId } }
