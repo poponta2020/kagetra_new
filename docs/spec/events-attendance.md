@@ -342,7 +342,7 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 ### `setConfirmedRosterOverride(entryGroupId, value)` — `events/[id]/actions.ts`
 
-admin / vice_admin のみ（`requireAdminSession()`）。`entry_groups.confirmed_roster_override` を書き換えるだけの操作で、通知は送らず監査情報も残さない。グループ実在確認のうえ UPDATE し、`revalidateAfterLifecycleChange` にグループ内の全 `events.id` を渡して各日の詳細・グループページ・ボードを再検証する（フロー帯は会員が見る `/events/[id]` にも出るため、グループページだけを捨てると会員側に古いフェーズが残る）。UI は名簿セクション（`RosterSection`）の末尾で、管理者向けの値と bind 済みアクションは `adminControls` 1 つに束ねて管理者のときだけ渡す。効くのは申込済みグループの抽選→支払だけで、任意のフェーズを選ぶ機能ではない（[features/confirmed-roster-signal/requirements.md](../features/confirmed-roster-signal/requirements.md)）。
+admin / vice_admin のみ（`requireAdminSession()`）。`entry_groups.confirmed_roster_override` を書き換えるだけの操作で、通知は送らず監査情報も残さない。グループ実在確認のうえ UPDATE し、`revalidateAfterLifecycleChange` にグループ内の全 `events.id` を渡して各日の詳細・グループページ・ボードを再検証する（フロー帯は会員が見る `/events/[id]` にも出るため、グループページだけを捨てると会員側に古いフェーズが残る）。UI は名簿セクション（`RosterSection`）の末尾で、管理者向けの値と bind 済みアクションは `adminControls` 1 つに束ねて管理者のときだけ渡す。**露出条件はグループ単位**——`/events/[id]` の `RosterSection` は「その日の `kind`」で描かれるため、個人戦と団体戦が混在するグループでは個人戦の日からグループ全体のフラグを立てられてしまう。日ページ・グループページとも「グループに1日でも団体戦があれば出さない」で揃え、Server Action 側も `value=true` のときだけ同じ検証を行う（`isIndividualOnlyGroup`。Action ID 直叩きに対して fail-closed）。**OFF は常に許可する**——ON の後にグループへ団体戦の日が加わっても解除できなくなる状態を作らないため。効くのは申込済みグループの抽選→支払だけで、任意のフェーズを選ぶ機能ではない（[features/confirmed-roster-signal/requirements.md](../features/confirmed-roster-signal/requirements.md)）。
 
 ### `saveGroupCommonFields(groupId, input)` — `admin/entries/[groupId]/actions.ts`
 

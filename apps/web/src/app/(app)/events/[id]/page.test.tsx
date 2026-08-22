@@ -1035,6 +1035,31 @@ describe('/events/[id] — 確定名簿ありトグル (confirmed-roster-signal 
     expect(findElementsByType(ui, RosterSection)[0]!.props.adminControls).toBeUndefined()
   })
 
+  // r1 review: 露出条件はグループ単位。個人戦の日から団体戦を含むグループの
+  // フラグを立てられてはいけない（グループページの `isTeamGroup` と同じ規律）。
+  it('団体戦の日を含むグループでは、個人戦の日を開いてもトグルを出さない（管理者）', async () => {
+    const admin = await createUser({ role: 'admin' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const group = await createEntryGroup()
+    const individualDay = await createEvent({
+      entryGroupId: group.id,
+      eventDate: addDays(todayJst(), 30),
+      kind: 'individual',
+    })
+    await createEvent({
+      entryGroupId: group.id,
+      eventDate: addDays(todayJst(), 31),
+      kind: 'team',
+    })
+
+    const ui = await renderPage(individualDay.id)
+    const { container } = render(ui)
+
+    // 名簿セクション自体はその日の kind で描かれる（既存仕様・変更しない）。
+    expect(container.textContent).not.toContain(TOGGLE_LABEL)
+    expect(findElementsByType(ui, RosterSection)[0]!.props.adminControls).toBeUndefined()
+  })
+
   it('override が立っているグループではトグルが ON の見た目になる（管理者）', async () => {
     const admin = await createUser({ role: 'admin' })
     await setAuthSession({ id: admin.id, role: 'admin' })

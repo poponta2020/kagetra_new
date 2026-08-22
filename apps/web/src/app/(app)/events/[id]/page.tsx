@@ -24,7 +24,10 @@ import {
   listGroupSiblings,
   selectRepresentativeEvent,
 } from '@/lib/entry-groups'
-import { loadConfirmedRosterState } from '@/lib/events/confirmed-roster'
+import {
+  isIndividualOnlyGroup,
+  loadConfirmedRosterState,
+} from '@/lib/events/confirmed-roster'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
@@ -295,7 +298,14 @@ export default async function EventDetailPage({
   // confirmed-roster-signal タスク2 (AC-11): 管理者向けの値と Server Action は
   // **管理者のときだけ**組み立てる。`RosterSection` は `'use client'` なので、
   // 非管理者にも渡すと `{cond && <JSX>}` で隠しても RSC payload に載る。
-  const rosterAdminControls: RosterAdminControls | undefined = isAdmin
+  //
+  // ★露出条件は**グループ単位**で見る（`event.kind` ではない）。この画面の
+  //   `RosterSection` は「その日の kind」で描かれるので、個人戦と団体戦が混在する
+  //   グループでは個人戦の日からグループ全体のフラグを立てられてしまう。手動フラグは
+  //   グループ単位の値なので、グループページ（`isTeamGroup`）と同じ「1日でも団体戦なら
+  //   出さない」規律に揃える（Server Action 側にも同じガードがある）。
+  const rosterAdminControls: RosterAdminControls | undefined =
+    isAdmin && (await isIndividualOnlyGroup(event.entryGroupId))
     ? {
         confirmedRosterOverride,
         setConfirmedRosterOverride: setConfirmedRosterOverride.bind(

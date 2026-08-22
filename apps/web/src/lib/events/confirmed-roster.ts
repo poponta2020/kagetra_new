@@ -159,3 +159,22 @@ export async function loadConfirmedRosterState(
   const states = await loadConfirmedRosterStates([groupId])
   return states.get(groupId) ?? { settled: false, override: false }
 }
+
+/**
+ * そのグループの**全イベント**が個人戦か（1日でも団体戦なら false）。
+ *
+ * 名簿は個人戦専用の仕様で、手動フラグもグループ単位の値なので、露出条件も
+ * グループ単位で揃える必要がある。日ページは `events.kind`（その日の kind）で
+ * `RosterSection` を描くため、個人戦と団体戦が混在するグループでは
+ * 「個人戦の日から団体戦を含むグループのフラグを立てられる」状態になっていた。
+ * 判定は cancelled も含めた**グループの全日**を見る（`/admin/entries/[groupId]` の
+ * `isTeamGroup` と同じ「1日でも団体戦なら安全側へ倒す」規律。同ページ AC-35）。
+ */
+export async function isIndividualOnlyGroup(entryGroupId: number): Promise<boolean> {
+  const rows = await db
+    .select({ kind: events.kind })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+  // イベント0件のグループ（付け替え直後の残骸）は個人戦とみなさない fail-closed。
+  return rows.length > 0 && rows.every((r) => r.kind === 'individual')
+}
