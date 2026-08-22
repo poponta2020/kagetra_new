@@ -9,6 +9,7 @@ import { db } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db-errors'
 import {
   accounts,
+  entryGroupPaymentNotices,
   eventAttendances,
   events,
   lineChannels,
@@ -317,7 +318,7 @@ export async function deleteMember(
       return { error: DELETE_BLOCKED_ERROR }
     }
 
-    // users.id を FK 参照する全テーブル (11 カラム / 10 テーブル) の存在チェック。
+    // users.id を FK 参照する全テーブル (12 カラム / 11 テーブル) の存在チェック。
     // 参照列そのものを select するので各テーブルの PK 形状に依存しない。
     const referenceChecks = [
       () =>
@@ -355,6 +356,15 @@ export async function deleteMember(
           .select({ ref: mailWorkerJobs.requestedByUserId })
           .from(mailWorkerJobs)
           .where(eq(mailWorkerJobs.requestedByUserId, targetId))
+          .limit(1),
+      () =>
+        // 振込連絡の最終送信者。ON DELETE SET NULL だが、送信者を消すと
+        // 「誰が最後に送ったか」の監査情報が不可逆に失われるため、他の
+        // 参照と同様にここで拒否する（line-bot-message-revamp §3.3）。
+        tx
+          .select({ ref: entryGroupPaymentNotices.lastSentBy })
+          .from(entryGroupPaymentNotices)
+          .where(eq(entryGroupPaymentNotices.lastSentBy, targetId))
           .limit(1),
       () =>
         tx

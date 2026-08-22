@@ -1,9 +1,15 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { eventAttendances, scheduleItems, users } from '@kagetra/shared/schema'
+import {
+  entryGroupPaymentNotices,
+  eventAttendances,
+  scheduleItems,
+  users,
+} from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
+  createEntryGroup,
   createEvent,
   createEventAttendance,
   createUser,
@@ -726,6 +732,28 @@ describe('Admin member profile edit actions', () => {
       const admin = await createAdmin({ name: 'admin-del-4' })
       const target = await createUser({ name: '作成者対象', lineUserId: null })
       await createEvent({ title: '作成者チェック大会', createdBy: target.id })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await deleteMember({}, formOf({ userId: target.id }))
+      expect(result?.error).toBe(BLOCKED)
+
+      const still = await testDb.query.users.findFirst({
+        where: eq(users.id, target.id),
+      })
+      expect(still).toBeDefined()
+    })
+
+    it('振込連絡の最終送信者として記録されている会員は削除できない（監査情報を守る）', async () => {
+      const admin = await createAdmin({ name: 'admin-del-payment-notice' })
+      const target = await createUser({ name: '振込連絡送信者対象', lineUserId: null })
+      const group = await createEntryGroup()
+      await testDb.insert(entryGroupPaymentNotices).values({
+        entryGroupId: group.id,
+        gradeCounts: { A: 1 },
+        totalJpy: 2500,
+        lastSentAt: new Date(),
+        lastSentBy: target.id,
+      })
       await setAuthSession({ id: admin.id, role: 'admin' })
 
       const result = await deleteMember({}, formOf({ userId: target.id }))

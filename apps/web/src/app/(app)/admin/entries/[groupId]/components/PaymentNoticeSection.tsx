@@ -53,6 +53,11 @@ export interface PaymentNoticeSectionProps {
 const INPUT_CLASS =
   'w-16 rounded-md border border-border bg-canvas px-2 py-1 text-right text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand/30'
 
+/** 級・人数・単価だけを見た署名。これが変われば「対象が変わった」とみなす。 */
+function rowsSignature(rows: readonly PaymentNoticeRow[]): string {
+  return rows.map((r) => `${r.grade}:${r.count}:${r.unitJpy}`).join('|')
+}
+
 export function PaymentNoticeSection({
   groupId,
   rows,
@@ -65,6 +70,19 @@ export function PaymentNoticeSection({
   const [counts, setCounts] = useState<Record<string, number>>(() =>
     Object.fromEntries(rows.map((r) => [r.grade, r.count])),
   )
+  // 画面を開いたまま Server Component が再検証されると props.rows が新しい
+  // 人数（例: 対象外になった日を除いた集計）へ更新されるが、counts は
+  // useState の初期化関数（初回レンダーのみ実行）のままだと古い値が残る。
+  // その古い counts が editedRows / sendAction にそのまま使われ、対象外の
+  // 人数で振込連絡を送ってしまうバグを防ぐため、rows の署名が変わったら
+  // レンダー中に counts を作り直す（useEffect だと1レンダー遅れる。
+  // React 公式の「props が変わったら state を調整する」パターン）。
+  const [prevRowsSignature, setPrevRowsSignature] = useState(() => rowsSignature(rows))
+  const nextRowsSignature = rowsSignature(rows)
+  if (nextRowsSignature !== prevRowsSignature) {
+    setPrevRowsSignature(nextRowsSignature)
+    setCounts(Object.fromEntries(rows.map((r) => [r.grade, r.count])))
+  }
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<SendPaymentNoticeResult | null>(null)
 

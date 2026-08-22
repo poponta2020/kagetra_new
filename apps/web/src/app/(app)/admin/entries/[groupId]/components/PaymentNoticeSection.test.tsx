@@ -125,6 +125,45 @@ describe('PaymentNoticeSection', () => {
     expect(container.textContent).toContain('送信済 7/20 10:00')
   })
 
+  it('再検証で rows の人数が変わったら counts を作り直す（対象外の人数で送らない）', async () => {
+    const sendAction = vi.fn().mockResolvedValue({ ok: true })
+    const { container, rerender } = render(
+      <PaymentNoticeSection
+        {...baseProps({ rows: [{ grade: 'A', count: 2, unitJpy: 2500 }], sendAction })}
+      />,
+    )
+    openAllDetails(container)
+
+    // Server Component の再検証で rows が新しい集計（1名）へ更新される。
+    rerender(
+      <PaymentNoticeSection
+        {...baseProps({ rows: [{ grade: 'A', count: 1, unitJpy: 2500 }], sendAction })}
+      />,
+    )
+    openAllDetails(container)
+
+    const preview = container.querySelectorAll('pre')
+    expect(preview[0]!.textContent).toContain('A級：2500*1 = 2500円')
+
+    fireEvent.click(screen.getByRole('button', { name: '振込連絡を送る' }))
+    await vi.waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1))
+    expect(sendAction).toHaveBeenCalledWith(1, { A: 1 })
+  })
+
+  it('rows が変わらない再レンダーでは、ユーザーが入力した人数を巻き戻さない', () => {
+    const { container, rerender } = render(<PaymentNoticeSection {...baseProps()} />)
+    openAllDetails(container)
+
+    fireEvent.change(screen.getByLabelText('A級の人数'), { target: { value: '1' } })
+
+    // rows の内容は変わらない再レンダー（例: 親の他の state 更新による再描画）。
+    rerender(<PaymentNoticeSection {...baseProps()} />)
+    openAllDetails(container)
+
+    const input = screen.getByLabelText('A級の人数') as HTMLInputElement
+    expect(input.value).toBe('1')
+  })
+
   it('送信ボタンで人数がそのまま Server Action へ渡る', async () => {
     const sendAction = vi.fn().mockResolvedValue({ ok: true })
     const { container } = render(
