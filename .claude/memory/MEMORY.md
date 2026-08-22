@@ -335,3 +335,4 @@
 - [auto-review PR #530](auto-review-round-pr530.md) — 3R(i+d+f) → final で cutoff。blockers 16件中8件修正・7件見送り
 - [大会別LINE Botメッセージ全面改訂＋会計メンション・振込連絡](project_ship-line-bot-message-revamp.md) — shipped: PR #530。migration適用済・会計=酒井美波設定済。★残DoD=AC-21 送信（/admin/entries/13）
 - [auto-review PR #531](auto-review-round-pr531.md) — R1 verdict=pass (initial, sol/low, 90k tokens)
+- [未定義トークン text-ink-1 の修正](project_ship-fix-undefined-ink-token.md) — shipped: PR #531
