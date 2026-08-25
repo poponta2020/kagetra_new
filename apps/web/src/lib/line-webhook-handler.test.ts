@@ -491,7 +491,11 @@ describe('applyWebhookEvents — invite code path', () => {
       ],
     }
     const reply = makeReplyClient()
-    await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
+    // bug #542: ③のメンションは在籍プローブで絞られるようになったので、
+    // このテストは「全員在籍」のフェイクで従来挙動（全員メンション）を検証する。
+    await applyWebhookEvents(db, channelId, 'token', payload, reply.client, {
+      membershipClient: { isMember: async () => true },
+    })
 
     const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
     expect(headcountMessage.type).toBe('textV2')
@@ -1338,5 +1342,253 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     })
     expect(gradeBinding?.status).toBe('invite_pending')
     expect(gradeBinding?.lineGroupId).toBeNull()
+  })
+})
+
+// bug #542: 紐付け成立案内の @管理者 個人メンションがグループ在籍を考慮せず、
+// LINE が reply 全体を 400 で拒否 → 4通全滅・要綱 push 巻き添え・痕跡ゼロだった。
+// - ③のメンションは在籍プローブで絞る（AC-1〜3, AC-7）
+// - reply 失敗時は push フォールバック + 要綱 push は独立実行（AC-4〜5）
+// - 既定 logger は console へ JSON を書く（AC-6）
+describe('linked 案内の在籍プローブと送信フォールバック (bug #542)', () => {
+  let channelId: number
+  let webhookDestinationId: string
+
+  beforeEach(async () => {
+    await resetDb()
+    sendGuidelinesOnLinkSpy.mockClear()
+    const channel = await insertChannel({ status: 'assigned' })
+    channelId = channel.id
+    webhookDestinationId = channel.webhookDestinationId!
+  })
+
+  async function seedLinkableBroadcast(): Promise<number> {
+    const entryGroupId = await insertEvent()
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(entryGroupId, channelId, {
+      status: 'joined_waiting_code',
+      inviteCode: '123456',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C542',
+    })
+    return entryGroupId
+  }
+
+  function codePayload(replyToken = 'r-542'): LineWebhookPayload {
+    return {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken,
+          source: { type: 'group', groupId: 'C542' },
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+  }
+
+  /** 在籍プローブのフェイク。memberIds は在籍(true)、failIds は probe 自体が throw。 */
+  function makeMembershipClient(memberIds: string[], failIds: string[] = []) {
+    const probed: string[] = []
+    return {
+      probed,
+      client: {
+        async isMember({ userId }: { groupId: string; userId: string; channelAccessToken: string }) {
+          probed.push(userId)
+          if (failIds.includes(userId)) throw new Error('probe boom')
+          return memberIds.includes(userId)
+        },
+      },
+    }
+  }
+
+  function makePushClient(shouldThrow = false) {
+    const captured: Array<{ to: string; messages: readonly LineMessage[] }> = []
+    return {
+      captured,
+      client: {
+        async push({ to, messages }: { to: string; messages: readonly LineMessage[]; channelAccessToken: string }) {
+          if (shouldThrow) throw new Error('push boom')
+          captured.push({ to, messages })
+        },
+      },
+    }
+  }
+
+  function makeThrowingReplyClient(): LineReplyClient {
+    return {
+      async reply() {
+        throw new Error('LINE reply failed: 400 mention rejected')
+      },
+    }
+  }
+
+  it('AC-1: グループ未在籍の管理者は③のメンションから除外される', async () => {
+    await seedLinkableBroadcast()
+    const admin1 = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+    await createAdmin({
+      lineUserId: 'Uadmin2b000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const reply = makeReplyClient()
+    const membership = makeMembershipClient([admin1.lineUserId!])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: membership.client,
+    })
+
+    // 2名ともプローブされ、在籍している admin1 だけがメンションされる。
+    expect(membership.probed).toHaveLength(2)
+    const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
+    expect(headcountMessage.type).toBe('textV2')
+    expect(headcountMessage.substitution).toEqual({
+      m0: { type: 'mention', mentionee: { type: 'user', userId: admin1.lineUserId! } },
+    })
+  })
+
+  it('AC-2: 在籍管理者が0名なら③は素テキスト（@管理者 行）で送られる', async () => {
+    await seedLinkableBroadcast()
+    await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const reply = makeReplyClient()
+    const membership = makeMembershipClient([])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: membership.client,
+    })
+
+    expect(reply.captured[0]!.messages).toHaveLength(4)
+    const headcountMessage = reply.captured[0]!.messages[2]!
+    expect(headcountMessage.type).toBe('text')
+    expect(headcountMessage.text).toContain('@管理者')
+    expect(headcountMessage.text).toContain('景虎上の申込人数は')
+  })
+
+  it('AC-3: プローブがエラーを返した管理者は除外され、送信は継続する', async () => {
+    await seedLinkableBroadcast()
+    const admin1 = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+    const admin2 = await createAdmin({
+      lineUserId: 'Uadmin2b000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
+    const reply = makeReplyClient()
+    const membership = makeMembershipClient([admin1.lineUserId!, admin2.lineUserId!], [admin1.lineUserId!])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: membership.client,
+      logger: (event, ctx) => logged.push({ event, ctx }),
+    })
+
+    const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
+    expect(headcountMessage.substitution).toEqual({
+      m0: { type: 'mention', mentionee: { type: 'user', userId: admin2.lineUserId! } },
+    })
+    expect(logged.map((l) => l.event)).toContain('membership_probe_failed')
+  })
+
+  it('AC-7: 全員在籍なら従来どおり全員メンションされる（挙動不変）', async () => {
+    await seedLinkableBroadcast()
+    const admin1 = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+    const admin2 = await createAdmin({
+      lineUserId: 'Uadmin2b000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const reply = makeReplyClient()
+    const membership = makeMembershipClient([admin1.lineUserId!, admin2.lineUserId!])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: membership.client,
+    })
+
+    // メンション順は users.id（ランダム文字列）昇順で決まり作成順とは無関係な
+    // ので、順序非依存で「2名とも含まれる」ことを検証する。
+    const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
+    const mentionedIds = Object.values(headcountMessage.substitution).map(
+      (s) => (s.mentionee as { type: 'user'; userId: string }).userId,
+    )
+    expect(mentionedIds).toHaveLength(2)
+    expect(new Set(mentionedIds)).toEqual(new Set([admin1.lineUserId!, admin2.lineUserId!]))
+  })
+
+  it('AC-4: reply 失敗時は同一4通を push で再送し、エラーを記録し、要綱 push も実行する', async () => {
+    await seedLinkableBroadcast()
+
+    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
+    const push = makePushClient()
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), makeThrowingReplyClient(), {
+      pushClient: push.client,
+      logger: (event, ctx) => logged.push({ event, ctx }),
+    })
+
+    // linked 遷移はそのまま成立している。
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, channelId),
+    })
+    expect(broadcast?.status).toBe('linked')
+
+    // reply 失敗が記録され、同一4通が同じグループへ push される。
+    expect(logged.map((l) => l.event)).toContain('linked_reply_failed')
+    expect(push.captured).toHaveLength(1)
+    expect(push.captured[0]!.to).toBe('C542')
+    expect(push.captured[0]!.messages).toHaveLength(4)
+    expect(push.captured[0]!.messages[0]!.text).toContain('大会案内用LINEグループです')
+
+    // 要綱 push は案内送信の失敗に巻き込まれず実行される。
+    expect(sendGuidelinesOnLinkSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('AC-5: push フォールバックも失敗した場合、失敗を記録しつつ要綱 push は実行し webhook は 200 を返す', async () => {
+    await seedLinkableBroadcast()
+
+    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
+    const payload = { ...codePayload(), destination: webhookDestinationId }
+    const body = JSON.stringify(payload)
+    // handleLineWebhook 経由（本番の入口）で 200 が返ることまで確認する。
+    const res = await handleLineWebhook(db, body, signBody(body), makeThrowingReplyClient(), {
+      pushClient: makePushClient(true).client,
+      logger: (event, ctx) => logged.push({ event, ctx }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(logged.map((l) => l.event)).toContain('linked_reply_failed')
+    expect(logged.map((l) => l.event)).toContain('linked_push_fallback_failed')
+    expect(sendGuidelinesOnLinkSpy).toHaveBeenCalledTimes(1)
+
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, channelId),
+    })
+    expect(broadcast?.status).toBe('linked')
+  })
+
+  it('AC-6: logger 未指定の既定では失敗イベントが console へ JSON 出力される', async () => {
+    await seedLinkableBroadcast()
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    try {
+      await applyWebhookEvents(db, channelId, 'token', codePayload(), makeThrowingReplyClient(), {
+        pushClient: makePushClient(true).client,
+      })
+      const lines = errorSpy.mock.calls.map((args) => String(args[0]))
+      const parsed = lines.map((l) => JSON.parse(l) as { src: string; event: string })
+      expect(parsed.some((p) => p.src === 'line-webhook' && p.event === 'linked_reply_failed')).toBe(true)
+      expect(parsed.some((p) => p.src === 'line-webhook' && p.event === 'linked_push_fallback_failed')).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+      logSpy.mockRestore()
+    }
   })
 })

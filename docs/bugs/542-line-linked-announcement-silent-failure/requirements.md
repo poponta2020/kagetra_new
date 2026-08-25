@@ -35,7 +35,7 @@ details: [{ message: "The mentioned user is not found in the group.",
 ## 修正方針
 
 1. **③のメンション対象をグループ在籍者に絞る（主修正）**: linked 案内の組み立て時、admin 候補の各 line_user_id を `GET /v2/bot/group/{groupId}/member/{userId}`（200=在籍 / 404=未在籍。全 Bot で利用可能なことを実測済み）でプローブし、在籍者だけをメンションする。在籍0名なら `buildMentionMessage` の既存仕様（空配列 → 素テキスト `@管理者` 行）に倒す。プローブの失敗（404 以外のエラー）は安全側=メンションしない。テスト差し替え可能な形（fetchImpl 注入 or 専用モジュール）で実装する
-2. **logger 配線**: route.ts から構造化 logger（`console.error`/`console.log` に JSON 1行）を渡し、`webhook_event_failed` / `guidelines_warn` 等を journalctl で追えるようにする（大会用・級グループ用の両フローに効く）
+2. **既定 logger の console 化**: `line-webhook-handler` の既定 logger（従来 no-op）を console への JSON 1行出力に変更する（失敗系 `*_failed`/`*_warn` は `console.error`、それ以外は `console.log`）。route.ts は無変更のまま本番構成に効き、`webhook_event_failed` / `guidelines_warn` 等が journalctl で追える（大会用・級グループ用の両フローに効く）。テストは従来どおり `options.logger` で差し替え可能
 3. **linked 案内の push フォールバック + 要綱 push の独立実行**: 案内 reply を try/catch で包み、失敗時はエラーログ + 同一4通を push（宛先 = linkedGroupId）で1回再送。push も失敗したらログのみ（linked 状態は維持）。案内送信の成否に関わらず `sendGuidelinesOnLink` へ到達させる
 
 不採用の代替案: ③のメンションを常に素テキスト化（プローブ不要で最简だが、PR #530 で意図的に導入した「在籍管理者への ping」仕様を失うため見送り）。
@@ -64,8 +64,8 @@ details: [{ message: "The mentioned user is not found in the group.",
 
 ## 影響範囲
 
-- `apps/web/src/app/api/webhook/line/route.ts` — logger 配線
-- `apps/web/src/lib/line-webhook-handler.ts` — ③の在籍プローブ絞り込み・案内送信 try/catch + push フォールバック・要綱 push の独立化
-- 在籍プローブ用の新モジュール（`line-group-membership.ts` 等、fetchImpl 注入可能な形）
-- `apps/web/src/lib/line-webhook-handler.test.ts` — 回帰テスト追加
+- `apps/web/src/lib/line-webhook-handler.ts` — ③の在籍プローブ絞り込み・案内送信 try/catch + push フォールバック（`LinePushClient`）・要綱 push の独立化・既定 logger の console 化
+- `apps/web/src/lib/line-group-membership.ts`（新設） — 在籍プローブ（`LineGroupMembershipClient` 注入可能）
+- `apps/web/src/lib/line-webhook-handler.test.ts` — 回帰テスト追加（bug #542 describe ブロック）
+- `apps/web/src/app/api/webhook/line/route.ts` — 変更なし（既定 logger 化により配線不要）
 - 挙動への影響: 全員在籍の正常系は不変（AC-7）。未在籍者がいる場合のみメンション対象が減る（従来はその場合送信自体が全滅していた）。プローブは linked 成立時のみ・管理者数回の GET（数件）で頻度・負荷とも軽微

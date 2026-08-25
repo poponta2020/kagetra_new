@@ -12,8 +12,13 @@ import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 import { countGroupEntrants, formatEntrantCountParts } from '@/lib/entry-headcount'
 import { todayInJst } from '@/lib/jst-date'
+import {
+  defaultLineGroupMembershipClient,
+  filterToGroupMembers,
+  type LineGroupMembershipClient,
+} from '@/lib/line-group-membership'
 import { buildMentionMessage, buildTextMessage, type LineMessage } from '@/lib/line-mention'
-import { resolveAdminMention } from '@/lib/line-mention-targets'
+import { loadAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -89,10 +94,34 @@ export interface HandleWebhookOptions {
    */
   now?: Date
   /**
-   * Side-channel for tests / observability — invoked with structured
-   * logging tuples instead of writing to stdout.
+   * Structured logging hook. 省略時は console へ JSON 1行を書く
+   * （bug #542: 以前の既定は no-op で、本番の webhook 内エラーが痕跡ゼロに
+   * なっていた）。テストはここを差し替えてイベントを検証する。
    */
   logger?: (event: string, ctx: Record<string, unknown>) => void
+  /**
+   * bug #542: ③（@管理者）のメンション対象をグループ在籍者へ絞るための
+   * プローブ。省略時は LINE API を叩く既定実装。
+   */
+  membershipClient?: LineGroupMembershipClient
+  /**
+   * bug #542: 紐付け成立案内の reply が失敗したときの push フォールバック。
+   * 省略時は LINE push API を叩く既定実装。
+   */
+  pushClient?: LinePushClient
+}
+
+/**
+ * 既定 logger。journalctl で追えるよう stdout/stderr へ JSON 1行を書く。
+ * 失敗系イベント（*_failed / *_warn）は console.error、それ以外は console.log。
+ */
+function defaultWebhookLogger(event: string, ctx: Record<string, unknown>): void {
+  const line = JSON.stringify({ src: 'line-webhook', event, ...ctx })
+  if (/_failed$|_warn$/.test(event)) {
+    console.error(line)
+  } else {
+    console.log(line)
+  }
 }
 
 export interface HandleWebhookResult {
@@ -213,6 +242,38 @@ export const defaultLineReplyClient: LineReplyClient = {
   },
 }
 
+/**
+ * bug #542: 紐付け成立案内の push フォールバック用クライアント。
+ * reply と違い replyToken を要さないので、reply 失敗（トークン失効・LINE 側
+ * エラー等）後の再送に使える。
+ */
+export interface LinePushClient {
+  push(args: {
+    to: string
+    messages: readonly LineMessage[]
+    channelAccessToken: string
+  }): Promise<void>
+}
+
+export const defaultLinePushClient: LinePushClient = {
+  async push({ to, messages, channelAccessToken }) {
+    if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
+    if (messages.length === 0) return
+    const res = await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${channelAccessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ to, messages }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`LINE push failed: ${res.status} ${body.slice(0, 200)}`)
+    }
+  },
+}
+
 const INVITE_CODE_PATTERN = /^\d{6}$/
 
 /**
@@ -236,7 +297,9 @@ export async function applyWebhookEvents(
   purpose: LineChannelPurpose = 'event_broadcast',
 ): Promise<void> {
   const now = options.now ?? new Date()
-  const log = options.logger ?? (() => undefined)
+  const log = options.logger ?? defaultWebhookLogger
+  const membershipClient = options.membershipClient ?? defaultLineGroupMembershipClient
+  const pushClient = options.pushClient ?? defaultLinePushClient
 
   if (purpose === 'grade_broadcast') {
     await applyGradeGroupWebhookEvents(db, channelId, channelAccessToken, payload, replyClient, log)
@@ -270,6 +333,8 @@ export async function applyWebhookEvents(
                 replyClient,
                 now,
                 log,
+                membershipClient,
+                pushClient,
               )
             }
             // Non-code text and non-text messages are intentionally ignored.
@@ -443,6 +508,8 @@ async function handleInviteCode(
   replyClient: LineReplyClient,
   now: Date,
   log: (event: string, ctx: Record<string, unknown>) => void,
+  membershipClient: LineGroupMembershipClient,
+  pushClient: LinePushClient,
 ): Promise<void> {
   if (!isValidInviteCodeFormat(text)) return
 
@@ -615,7 +682,23 @@ async function handleInviteCode(
   const headcountParts = formatEntrantCountParts(
     await countGroupEntrants(db, candidate.entryGroupId),
   )
-  const adminMention = await resolveAdminMention(db)
+
+  // groupIdMissing ガードを通過しているので sourceGroupId は string 確定。
+  const linkedGroupId = storedGroupId ?? sourceGroupId!
+
+  // bug #542: LINE の textV2 メンションは**グループ未在籍ユーザーを1人でも
+  // 含むとメッセージ全体が 400 で拒否**され、reply は1リクエスト4通なので
+  // 案内が全滅する。紐付け直後の新設グループに管理者全員が揃っていることは
+  // 稀なので、③のメンション対象は在籍プローブで在籍者だけへ絞る
+  // （0名なら buildMentionMessage の仕様で素テキスト `@管理者` 行へ倒れる）。
+  const adminLineUserIds = await loadAdminLineUserIds(db)
+  const memberAdminIds = await filterToGroupMembers(
+    adminLineUserIds,
+    { groupId: linkedGroupId, channelAccessToken },
+    membershipClient,
+    log,
+  )
+  const adminMention = toMentionTarget(memberAdminIds)
 
   // line-bot-message-revamp (AC-23): A-1（join 時の案内）廃止・A-3（紐付け成立時
   // の案内）を①〜④へ分割した（要件 §3.1.3）。①④は自由記述を含むので素テキスト、
@@ -655,12 +738,38 @@ async function handleInviteCode(
     buildTextMessage('以下大会要項になります、適宜ご確認ください'),
   ]
 
+  // bug #542: 案内送信の失敗で要綱 push まで巻き添えにしない。reply が失敗
+  // したらログへ残し、同一4通を push で1回だけ再送する（replyToken の失効や
+  // LINE 側の一過性エラー対策）。push も失敗したらログのみ — DB は linked
+  // 済みで正しい状態なので巻き戻さず、後続の配信機能はそのまま生かす。
   if (event.replyToken) {
-    await replyClient.reply({
-      replyToken: event.replyToken,
-      messages: linkedMessages,
-      channelAccessToken,
-    })
+    try {
+      await replyClient.reply({
+        replyToken: event.replyToken,
+        messages: linkedMessages,
+        channelAccessToken,
+      })
+    } catch (err) {
+      log('linked_reply_failed', {
+        channelId,
+        broadcastId: candidate.id,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      try {
+        await pushClient.push({
+          to: linkedGroupId,
+          messages: linkedMessages,
+          channelAccessToken,
+        })
+        log('linked_push_fallback_sent', { channelId, broadcastId: candidate.id })
+      } catch (pushErr) {
+        log('linked_push_fallback_failed', {
+          channelId,
+          broadcastId: candidate.id,
+          message: pushErr instanceof Error ? pushErr.message : String(pushErr),
+        })
+      }
+    }
   }
 
   // broadcast-guidelines-on-link: 紐付け成立後に、管理者が選んだ「要綱」添付を
@@ -671,7 +780,6 @@ async function handleInviteCode(
   // 再送しても、CAS が再 link を弾く (STALE_BROADCAST) ので二重送信にはならない。
   // push は webhook 応答と独立に完走するため、fire-and-forget に「最適化」せず
   // あえて await してエラーログを残す。
-  const linkedGroupId = storedGroupId ?? sourceGroupId!
   await sendGuidelinesOnLink(
     db,
     {
