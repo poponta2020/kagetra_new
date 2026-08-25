@@ -17,7 +17,12 @@ import {
   filterToGroupMembers,
   type LineGroupMembershipClient,
 } from '@/lib/line-group-membership'
-import { buildMentionMessage, buildTextMessage, type LineMessage } from '@/lib/line-mention'
+import {
+  buildMentionMessage,
+  buildTextMessage,
+  type LineMessage,
+  type MentionTarget,
+} from '@/lib/line-mention'
 import { loadAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
 
 /**
@@ -220,24 +225,46 @@ async function loadChannelByDestination(
  * `fetch`. Lives in this module so callers can swap it in tests without
  * shimming `global.fetch`.
  */
+/** reply / push の明示的タイムアウト（既存 line-broadcast 系と同じ 30 秒）。
+ *  期限なしだと LINE API の応答停止が webhook 応答まで止め、招待コードは
+ *  消費済みのため案内・要綱を再実行できなくなる (r1 should_fix)。 */
+const LINE_SEND_TIMEOUT_MS = 30_000
+
+/** AbortError を人間可読なタイムアウトエラーへ正規化して rethrow する。 */
+function rethrowSendError(err: unknown, label: string): never {
+  const isAbort =
+    err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message))
+  if (isAbort) throw new Error(`LINE ${label} timed out after 30s`)
+  throw err
+}
+
 export const defaultLineReplyClient: LineReplyClient = {
   async reply({ replyToken, messages, channelAccessToken }) {
     if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
     if (messages.length === 0) return
-    const res = await fetch('https://api.line.me/v2/bot/message/reply', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${channelAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        replyToken,
-        messages,
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`LINE reply failed: ${res.status} ${body.slice(0, 200)}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), LINE_SEND_TIMEOUT_MS)
+    try {
+      const res = await fetch('https://api.line.me/v2/bot/message/reply', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          replyToken,
+          messages,
+        }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`LINE reply failed: ${res.status} ${body.slice(0, 200)}`)
+      }
+    } catch (err) {
+      rethrowSendError(err, 'reply')
+    } finally {
+      clearTimeout(timer)
     }
   },
 }
@@ -259,17 +286,26 @@ export const defaultLinePushClient: LinePushClient = {
   async push({ to, messages, channelAccessToken }) {
     if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
     if (messages.length === 0) return
-    const res = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${channelAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ to, messages }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`LINE push failed: ${res.status} ${body.slice(0, 200)}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), LINE_SEND_TIMEOUT_MS)
+    try {
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ to, messages }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`LINE push failed: ${res.status} ${body.slice(0, 200)}`)
+      }
+    } catch (err) {
+      rethrowSendError(err, 'push')
+    } finally {
+      clearTimeout(timer)
     }
   },
 }
@@ -704,7 +740,11 @@ async function handleInviteCode(
   // の案内）を①〜④へ分割した（要件 §3.1.3）。①④は自由記述を含むので素テキスト、
   // ②③はメンション付きなので textV2（buildMentionMessage 経由）。1回の reply
   // で4通まとめて送る（reply は1リクエスト最大5通、⑤以降の要綱は別途 push）。
-  const linkedMessages: LineMessage[] = [
+  //
+  // r1 blocker: ③のメンション対象だけを差し替えられるビルダーにしてある —
+  // reply がメンション起因で失敗したとき、push フォールバックは③をメンション
+  // 無しへ降格した別 payload で送る（同じ payload の再送は同じ 400 で全滅する）。
+  const buildLinkedMessages = (mention: MentionTarget): LineMessage[] => [
     // ①: 大会名は自由記述なのでメンションを持たせず buildTextMessage で送る。
     buildTextMessage(`${groupName}大会案内用LINEグループです！\n以下確認をお願いします。`),
     // ②: entry_deadline が NULL（未定）のときは %s を持たない別テンプレートへ
@@ -726,7 +766,7 @@ async function handleInviteCode(
     // ③: 人数の文言（〇名／〇名（内他会〇名）)は formatEntrantCountParts が
     // 数値だけを返す（自由記述を textV2 本文へ混ぜられないため）。
     buildMentionMessage({
-      mention: adminMention,
+      mention,
       label: '@管理者',
       template:
         '景虎上の申込人数は' +
@@ -737,12 +777,33 @@ async function handleInviteCode(
     // ④: 固定文。
     buildTextMessage('以下大会要項になります、適宜ご確認ください'),
   ]
+  const linkedMessages = buildLinkedMessages(adminMention)
+
+  // r1 blocker: 在籍プローブは数秒かかり得るので、その間に管理者の連携解除
+  // (revoke) や再割当が走っていないか送信直前に再検証する（要綱 push 側の
+  // sendGuidelinesOnLink 内の再検証と対称のガード）。変化していたら案内は
+  // 送らない — 解除済みの旧グループへ「紐付けました」と誤送信しない。
+  // 要綱 push は自前の再検証で同様に skip されるため、ここでは案内だけ止める。
+  const recheck = await db.query.eventLineBroadcasts.findFirst({
+    where: eq(eventLineBroadcasts.id, candidate.id),
+    columns: { status: true, lineGroupId: true, lineChannelId: true },
+  })
+  const bindingStillLinked =
+    recheck?.status === 'linked' &&
+    recheck.lineGroupId === linkedGroupId &&
+    recheck.lineChannelId === channelId
 
   // bug #542: 案内送信の失敗で要綱 push まで巻き添えにしない。reply が失敗
-  // したらログへ残し、同一4通を push で1回だけ再送する（replyToken の失効や
+  // したらログへ残し、4通を push で1回だけ再送する（replyToken の失効や
   // LINE 側の一過性エラー対策）。push も失敗したらログのみ — DB は linked
   // 済みで正しい状態なので巻き戻さず、後続の配信機能はそのまま生かす。
-  if (event.replyToken) {
+  if (!bindingStillLinked) {
+    log('linked_announce_skipped', {
+      channelId,
+      broadcastId: candidate.id,
+      currentStatus: recheck?.status ?? null,
+    })
+  } else if (event.replyToken) {
     try {
       await replyClient.reply({
         replyToken: event.replyToken,
@@ -756,9 +817,12 @@ async function handleInviteCode(
         message: err instanceof Error ? err.message : String(err),
       })
       try {
+        // r1 blocker: reply の失敗理由が「未在籍者へのメンション」でも同じ
+        // payload で再失敗しないよう、③はメンション無しの素テキストへ降格して
+        // 送る（ping より到達を優先する）。
         await pushClient.push({
           to: linkedGroupId,
-          messages: linkedMessages,
+          messages: buildLinkedMessages(toMentionTarget([])),
           channelAccessToken,
         })
         log('linked_push_fallback_sent', { channelId, broadcastId: candidate.id })

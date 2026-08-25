@@ -28,15 +28,37 @@ export interface LineGroupMembershipClient {
   }): Promise<boolean>
 }
 
+/** 各プローブの明示的タイムアウト（既存 LINE push 実装と同じ 30 秒）。
+ *  期限なしだと LINE API の応答停止時に webhook 応答まで巻き込んで止まり、
+ *  招待コードは消費済みのため案内・要綱を再実行できなくなる (r1 should_fix)。 */
+const PROBE_TIMEOUT_MS = 30_000
+
 export const defaultLineGroupMembershipClient: LineGroupMembershipClient = {
   async isMember({ groupId, userId, channelAccessToken }) {
-    const res = await fetch(
-      `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`,
-      { headers: { Authorization: `Bearer ${channelAccessToken}` } },
-    )
-    if (res.status === 200) return true
-    if (res.status === 404) return false
-    throw new Error(`LINE group membership probe failed: ${res.status}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+    try {
+      const res = await fetch(
+        `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`,
+        {
+          headers: { Authorization: `Bearer ${channelAccessToken}` },
+          signal: controller.signal,
+        },
+      )
+      if (res.status === 200) return true
+      if (res.status === 404) return false
+      throw new Error(`LINE group membership probe failed: ${res.status}`)
+    } catch (err) {
+      const isAbort =
+        err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message))
+      if (isAbort) {
+        // timeout は throw で返す — filterToGroupMembers が安全側 (除外+ログ) に倒す。
+        throw new Error('LINE group membership probe timed out after 30s')
+      }
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
   },
 }
 

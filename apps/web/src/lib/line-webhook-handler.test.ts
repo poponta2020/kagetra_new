@@ -1573,6 +1573,68 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
     expect(broadcast?.status).toBe('linked')
   })
 
+  it('r1 blocker: reply 失敗時のフォールバック push は③をメンション無しの素テキストへ降格する', async () => {
+    await seedLinkableBroadcast()
+    const admin = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    // reply 側は元 payload（メンション付き）を受け取ったうえで throw する。
+    const replyCaptured: Array<readonly LineMessage[]> = []
+    const throwingReply: LineReplyClient = {
+      async reply({ messages }) {
+        replyCaptured.push(messages)
+        throw new Error('LINE reply failed: 400 mention rejected')
+      },
+    }
+    const push = makePushClient()
+    const membership = makeMembershipClient([admin.lineUserId!])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), throwingReply, {
+      membershipClient: membership.client,
+      pushClient: push.client,
+    })
+
+    // reply には在籍プローブを通ったメンション付き③が積まれていた。
+    expect((replyCaptured[0]![2]! as LineTextV2Message).type).toBe('textV2')
+    // フォールバック push の③はメンション無しの素テキストへ降格される
+    // （プローブ後の退出等で同じ payload が再び 400 になるのを防ぐ）。
+    expect(push.captured).toHaveLength(1)
+    const fallbackThird = push.captured[0]!.messages[2]!
+    expect(fallbackThird.type).toBe('text')
+    expect(fallbackThird.text).toContain('@管理者')
+    expect(push.captured[0]!.messages).toHaveLength(4)
+  })
+
+  it('r1 blocker: プローブ中に紐付けが解除されたら案内を送らず linked_announce_skipped を記録する', async () => {
+    await seedLinkableBroadcast()
+    const admin = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
+    const reply = makeReplyClient()
+    // プローブの最中に管理者の revoke が走った状況を、プローブ内の副作用で再現する。
+    const revokingMembership = {
+      async isMember({ userId }: { groupId: string; userId: string; channelAccessToken: string }) {
+        await db
+          .update(eventLineBroadcasts)
+          .set({ status: 'revoked' })
+          .where(eq(eventLineBroadcasts.lineChannelId, channelId))
+        return userId === admin.lineUserId
+      },
+    }
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: revokingMembership,
+      logger: (event, ctx) => logged.push({ event, ctx }),
+    })
+
+    // 送信直前の再検証が変化を検出し、案内は reply もフォールバック push も送られない。
+    expect(reply.captured).toHaveLength(0)
+    expect(logged.map((l) => l.event)).toContain('linked_announce_skipped')
+  })
+
   it('AC-6: logger 未指定の既定では失敗イベントが console へ JSON 出力される', async () => {
     await seedLinkableBroadcast()
 
