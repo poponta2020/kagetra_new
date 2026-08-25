@@ -12,8 +12,18 @@ import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
 import { countGroupEntrants, formatEntrantCountParts } from '@/lib/entry-headcount'
 import { todayInJst } from '@/lib/jst-date'
-import { buildMentionMessage, buildTextMessage, type LineMessage } from '@/lib/line-mention'
-import { resolveAdminMention } from '@/lib/line-mention-targets'
+import {
+  defaultLineGroupMembershipClient,
+  filterToGroupMembers,
+  type LineGroupMembershipClient,
+} from '@/lib/line-group-membership'
+import {
+  buildMentionMessage,
+  buildTextMessage,
+  type LineMessage,
+  type MentionTarget,
+} from '@/lib/line-mention'
+import { loadAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -89,10 +99,34 @@ export interface HandleWebhookOptions {
    */
   now?: Date
   /**
-   * Side-channel for tests / observability — invoked with structured
-   * logging tuples instead of writing to stdout.
+   * Structured logging hook. 省略時は console へ JSON 1行を書く
+   * （bug #542: 以前の既定は no-op で、本番の webhook 内エラーが痕跡ゼロに
+   * なっていた）。テストはここを差し替えてイベントを検証する。
    */
   logger?: (event: string, ctx: Record<string, unknown>) => void
+  /**
+   * bug #542: ③（@管理者）のメンション対象をグループ在籍者へ絞るための
+   * プローブ。省略時は LINE API を叩く既定実装。
+   */
+  membershipClient?: LineGroupMembershipClient
+  /**
+   * bug #542: 紐付け成立案内の reply が失敗したときの push フォールバック。
+   * 省略時は LINE push API を叩く既定実装。
+   */
+  pushClient?: LinePushClient
+}
+
+/**
+ * 既定 logger。journalctl で追えるよう stdout/stderr へ JSON 1行を書く。
+ * 失敗系イベント（*_failed / *_warn）は console.error、それ以外は console.log。
+ */
+function defaultWebhookLogger(event: string, ctx: Record<string, unknown>): void {
+  const line = JSON.stringify({ src: 'line-webhook', event, ...ctx })
+  if (/_failed$|_warn$/.test(event)) {
+    console.error(line)
+  } else {
+    console.log(line)
+  }
 }
 
 export interface HandleWebhookResult {
@@ -191,24 +225,87 @@ async function loadChannelByDestination(
  * `fetch`. Lives in this module so callers can swap it in tests without
  * shimming `global.fetch`.
  */
+/** reply / push の明示的タイムアウト（既存 line-broadcast 系と同じ 30 秒）。
+ *  期限なしだと LINE API の応答停止が webhook 応答まで止め、招待コードは
+ *  消費済みのため案内・要綱を再実行できなくなる (r1 should_fix)。 */
+const LINE_SEND_TIMEOUT_MS = 30_000
+
+/** AbortError を人間可読なタイムアウトエラーへ正規化して rethrow する。 */
+function rethrowSendError(err: unknown, label: string): never {
+  const isAbort =
+    err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message))
+  if (isAbort) throw new Error(`LINE ${label} timed out after 30s`)
+  throw err
+}
+
 export const defaultLineReplyClient: LineReplyClient = {
   async reply({ replyToken, messages, channelAccessToken }) {
     if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
     if (messages.length === 0) return
-    const res = await fetch('https://api.line.me/v2/bot/message/reply', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${channelAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        replyToken,
-        messages,
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`LINE reply failed: ${res.status} ${body.slice(0, 200)}`)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), LINE_SEND_TIMEOUT_MS)
+    try {
+      const res = await fetch('https://api.line.me/v2/bot/message/reply', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          replyToken,
+          messages,
+        }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`LINE reply failed: ${res.status} ${body.slice(0, 200)}`)
+      }
+    } catch (err) {
+      rethrowSendError(err, 'reply')
+    } finally {
+      clearTimeout(timer)
+    }
+  },
+}
+
+/**
+ * bug #542: 紐付け成立案内の push フォールバック用クライアント。
+ * reply と違い replyToken を要さないので、reply 失敗（トークン失効・LINE 側
+ * エラー等）後の再送に使える。
+ */
+export interface LinePushClient {
+  push(args: {
+    to: string
+    messages: readonly LineMessage[]
+    channelAccessToken: string
+  }): Promise<void>
+}
+
+export const defaultLinePushClient: LinePushClient = {
+  async push({ to, messages, channelAccessToken }) {
+    if (process.env.LINE_NOTIFY_DRY_RUN === '1') return
+    if (messages.length === 0) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), LINE_SEND_TIMEOUT_MS)
+    try {
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ to, messages }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        throw new Error(`LINE push failed: ${res.status} ${body.slice(0, 200)}`)
+      }
+    } catch (err) {
+      rethrowSendError(err, 'push')
+    } finally {
+      clearTimeout(timer)
     }
   },
 }
@@ -236,7 +333,9 @@ export async function applyWebhookEvents(
   purpose: LineChannelPurpose = 'event_broadcast',
 ): Promise<void> {
   const now = options.now ?? new Date()
-  const log = options.logger ?? (() => undefined)
+  const log = options.logger ?? defaultWebhookLogger
+  const membershipClient = options.membershipClient ?? defaultLineGroupMembershipClient
+  const pushClient = options.pushClient ?? defaultLinePushClient
 
   if (purpose === 'grade_broadcast') {
     await applyGradeGroupWebhookEvents(db, channelId, channelAccessToken, payload, replyClient, log)
@@ -270,6 +369,8 @@ export async function applyWebhookEvents(
                 replyClient,
                 now,
                 log,
+                membershipClient,
+                pushClient,
               )
             }
             // Non-code text and non-text messages are intentionally ignored.
@@ -443,6 +544,8 @@ async function handleInviteCode(
   replyClient: LineReplyClient,
   now: Date,
   log: (event: string, ctx: Record<string, unknown>) => void,
+  membershipClient: LineGroupMembershipClient,
+  pushClient: LinePushClient,
 ): Promise<void> {
   if (!isValidInviteCodeFormat(text)) return
 
@@ -615,13 +718,33 @@ async function handleInviteCode(
   const headcountParts = formatEntrantCountParts(
     await countGroupEntrants(db, candidate.entryGroupId),
   )
-  const adminMention = await resolveAdminMention(db)
+
+  // groupIdMissing ガードを通過しているので sourceGroupId は string 確定。
+  const linkedGroupId = storedGroupId ?? sourceGroupId!
+
+  // bug #542: LINE の textV2 メンションは**グループ未在籍ユーザーを1人でも
+  // 含むとメッセージ全体が 400 で拒否**され、reply は1リクエスト4通なので
+  // 案内が全滅する。紐付け直後の新設グループに管理者全員が揃っていることは
+  // 稀なので、③のメンション対象は在籍プローブで在籍者だけへ絞る
+  // （0名なら buildMentionMessage の仕様で素テキスト `@管理者` 行へ倒れる）。
+  const adminLineUserIds = await loadAdminLineUserIds(db)
+  const memberAdminIds = await filterToGroupMembers(
+    adminLineUserIds,
+    { groupId: linkedGroupId, channelAccessToken },
+    membershipClient,
+    log,
+  )
+  const adminMention = toMentionTarget(memberAdminIds)
 
   // line-bot-message-revamp (AC-23): A-1（join 時の案内）廃止・A-3（紐付け成立時
   // の案内）を①〜④へ分割した（要件 §3.1.3）。①④は自由記述を含むので素テキスト、
   // ②③はメンション付きなので textV2（buildMentionMessage 経由）。1回の reply
   // で4通まとめて送る（reply は1リクエスト最大5通、⑤以降の要綱は別途 push）。
-  const linkedMessages: LineMessage[] = [
+  //
+  // r1 blocker: ③のメンション対象だけを差し替えられるビルダーにしてある —
+  // reply がメンション起因で失敗したとき、push フォールバックは③をメンション
+  // 無しへ降格した別 payload で送る（同じ payload の再送は同じ 400 で全滅する）。
+  const buildLinkedMessages = (mention: MentionTarget): LineMessage[] => [
     // ①: 大会名は自由記述なのでメンションを持たせず buildTextMessage で送る。
     buildTextMessage(`${groupName}大会案内用LINEグループです！\n以下確認をお願いします。`),
     // ②: entry_deadline が NULL（未定）のときは %s を持たない別テンプレートへ
@@ -643,7 +766,7 @@ async function handleInviteCode(
     // ③: 人数の文言（〇名／〇名（内他会〇名）)は formatEntrantCountParts が
     // 数値だけを返す（自由記述を textV2 本文へ混ぜられないため）。
     buildMentionMessage({
-      mention: adminMention,
+      mention,
       label: '@管理者',
       template:
         '景虎上の申込人数は' +
@@ -654,13 +777,74 @@ async function handleInviteCode(
     // ④: 固定文。
     buildTextMessage('以下大会要項になります、適宜ご確認ください'),
   ]
+  const linkedMessages = buildLinkedMessages(adminMention)
 
-  if (event.replyToken) {
-    await replyClient.reply({
-      replyToken: event.replyToken,
-      messages: linkedMessages,
-      channelAccessToken,
+  // r1 blocker: 在籍プローブは数秒かかり得るので、その間に管理者の連携解除
+  // (revoke) や再割当が走っていないか送信直前に再検証する（要綱 push 側の
+  // sendGuidelinesOnLink 内の再検証と対称のガード）。変化していたら案内は
+  // 送らない — 解除済みの旧グループへ「紐付けました」と誤送信しない。
+  // 要綱 push は自前の再検証で同様に skip されるため、ここでは案内だけ止める。
+  //
+  // r3 blocker: reply の待機（既定実装で最大 30 秒）中にも revoke は走り得る
+  // ので、この再検証は reply 前とフォールバック push 前の**両方の送信点**で行う。
+  const bindingStillLinked = async (): Promise<boolean> => {
+    const recheck = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.id, candidate.id),
+      columns: { status: true, lineGroupId: true, lineChannelId: true },
     })
+    const ok =
+      recheck?.status === 'linked' &&
+      recheck.lineGroupId === linkedGroupId &&
+      recheck.lineChannelId === channelId
+    if (!ok) {
+      log('linked_announce_skipped', {
+        channelId,
+        broadcastId: candidate.id,
+        currentStatus: recheck?.status ?? null,
+      })
+    }
+    return ok
+  }
+
+  // bug #542: 案内送信の失敗で要綱 push まで巻き添えにしない。reply が失敗
+  // したらログへ残し、4通を push で1回だけ再送する（replyToken の失効や
+  // LINE 側の一過性エラー対策）。push も失敗したらログのみ — DB は linked
+  // 済みで正しい状態なので巻き戻さず、後続の配信機能はそのまま生かす。
+  if (event.replyToken && (await bindingStillLinked())) {
+    try {
+      await replyClient.reply({
+        replyToken: event.replyToken,
+        messages: linkedMessages,
+        channelAccessToken,
+      })
+    } catch (err) {
+      log('linked_reply_failed', {
+        channelId,
+        broadcastId: candidate.id,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      // r3 blocker: reply 待機中に revoke / 再割当されたまま旧グループへ
+      // フォールバックしないよう、push 直前にも同じ再検証を通す。
+      if (await bindingStillLinked()) {
+        try {
+          // r1 blocker: reply の失敗理由が「未在籍者へのメンション」でも同じ
+          // payload で再失敗しないよう、③はメンション無しの素テキストへ降格して
+          // 送る（ping より到達を優先する）。
+          await pushClient.push({
+            to: linkedGroupId,
+            messages: buildLinkedMessages(toMentionTarget([])),
+            channelAccessToken,
+          })
+          log('linked_push_fallback_sent', { channelId, broadcastId: candidate.id })
+        } catch (pushErr) {
+          log('linked_push_fallback_failed', {
+            channelId,
+            broadcastId: candidate.id,
+            message: pushErr instanceof Error ? pushErr.message : String(pushErr),
+          })
+        }
+      }
+    }
   }
 
   // broadcast-guidelines-on-link: 紐付け成立後に、管理者が選んだ「要綱」添付を
@@ -671,7 +855,6 @@ async function handleInviteCode(
   // 再送しても、CAS が再 link を弾く (STALE_BROADCAST) ので二重送信にはならない。
   // push は webhook 応答と独立に完走するため、fire-and-forget に「最適化」せず
   // あえて await してエラーログを残す。
-  const linkedGroupId = storedGroupId ?? sourceGroupId!
   await sendGuidelinesOnLink(
     db,
     {
