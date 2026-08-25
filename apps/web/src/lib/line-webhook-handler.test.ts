@@ -1635,6 +1635,32 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
     expect(logged.map((l) => l.event)).toContain('linked_announce_skipped')
   })
 
+  it('r3 blocker: reply 待機中に紐付けが解除されたらフォールバック push を送らない', async () => {
+    await seedLinkableBroadcast()
+
+    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
+    // reply の待機中（最大30秒）に revoke が走った状況を、reply 内の副作用で再現する。
+    const revokingReply: LineReplyClient = {
+      async reply() {
+        await db
+          .update(eventLineBroadcasts)
+          .set({ status: 'revoked' })
+          .where(eq(eventLineBroadcasts.lineChannelId, channelId))
+        throw new Error('LINE reply failed: 500 transient')
+      },
+    }
+    const push = makePushClient()
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), revokingReply, {
+      pushClient: push.client,
+      logger: (event, ctx) => logged.push({ event, ctx }),
+    })
+
+    // push 直前の再検証が revoke を検出し、旧グループへのフォールバックは送られない。
+    expect(push.captured).toHaveLength(0)
+    expect(logged.map((l) => l.event)).toContain('linked_reply_failed')
+    expect(logged.map((l) => l.event)).toContain('linked_announce_skipped')
+  })
+
   it('AC-6: logger 未指定の既定では失敗イベントが console へ JSON 出力される', async () => {
     await seedLinkableBroadcast()
 

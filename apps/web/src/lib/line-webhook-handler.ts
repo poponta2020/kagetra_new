@@ -784,26 +784,33 @@ async function handleInviteCode(
   // sendGuidelinesOnLink 内の再検証と対称のガード）。変化していたら案内は
   // 送らない — 解除済みの旧グループへ「紐付けました」と誤送信しない。
   // 要綱 push は自前の再検証で同様に skip されるため、ここでは案内だけ止める。
-  const recheck = await db.query.eventLineBroadcasts.findFirst({
-    where: eq(eventLineBroadcasts.id, candidate.id),
-    columns: { status: true, lineGroupId: true, lineChannelId: true },
-  })
-  const bindingStillLinked =
-    recheck?.status === 'linked' &&
-    recheck.lineGroupId === linkedGroupId &&
-    recheck.lineChannelId === channelId
+  //
+  // r3 blocker: reply の待機（既定実装で最大 30 秒）中にも revoke は走り得る
+  // ので、この再検証は reply 前とフォールバック push 前の**両方の送信点**で行う。
+  const bindingStillLinked = async (): Promise<boolean> => {
+    const recheck = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.id, candidate.id),
+      columns: { status: true, lineGroupId: true, lineChannelId: true },
+    })
+    const ok =
+      recheck?.status === 'linked' &&
+      recheck.lineGroupId === linkedGroupId &&
+      recheck.lineChannelId === channelId
+    if (!ok) {
+      log('linked_announce_skipped', {
+        channelId,
+        broadcastId: candidate.id,
+        currentStatus: recheck?.status ?? null,
+      })
+    }
+    return ok
+  }
 
   // bug #542: 案内送信の失敗で要綱 push まで巻き添えにしない。reply が失敗
   // したらログへ残し、4通を push で1回だけ再送する（replyToken の失効や
   // LINE 側の一過性エラー対策）。push も失敗したらログのみ — DB は linked
   // 済みで正しい状態なので巻き戻さず、後続の配信機能はそのまま生かす。
-  if (!bindingStillLinked) {
-    log('linked_announce_skipped', {
-      channelId,
-      broadcastId: candidate.id,
-      currentStatus: recheck?.status ?? null,
-    })
-  } else if (event.replyToken) {
+  if (event.replyToken && (await bindingStillLinked())) {
     try {
       await replyClient.reply({
         replyToken: event.replyToken,
@@ -816,22 +823,26 @@ async function handleInviteCode(
         broadcastId: candidate.id,
         message: err instanceof Error ? err.message : String(err),
       })
-      try {
-        // r1 blocker: reply の失敗理由が「未在籍者へのメンション」でも同じ
-        // payload で再失敗しないよう、③はメンション無しの素テキストへ降格して
-        // 送る（ping より到達を優先する）。
-        await pushClient.push({
-          to: linkedGroupId,
-          messages: buildLinkedMessages(toMentionTarget([])),
-          channelAccessToken,
-        })
-        log('linked_push_fallback_sent', { channelId, broadcastId: candidate.id })
-      } catch (pushErr) {
-        log('linked_push_fallback_failed', {
-          channelId,
-          broadcastId: candidate.id,
-          message: pushErr instanceof Error ? pushErr.message : String(pushErr),
-        })
+      // r3 blocker: reply 待機中に revoke / 再割当されたまま旧グループへ
+      // フォールバックしないよう、push 直前にも同じ再検証を通す。
+      if (await bindingStillLinked()) {
+        try {
+          // r1 blocker: reply の失敗理由が「未在籍者へのメンション」でも同じ
+          // payload で再失敗しないよう、③はメンション無しの素テキストへ降格して
+          // 送る（ping より到達を優先する）。
+          await pushClient.push({
+            to: linkedGroupId,
+            messages: buildLinkedMessages(toMentionTarget([])),
+            channelAccessToken,
+          })
+          log('linked_push_fallback_sent', { channelId, broadcastId: candidate.id })
+        } catch (pushErr) {
+          log('linked_push_fallback_failed', {
+            channelId,
+            broadcastId: candidate.id,
+            message: pushErr instanceof Error ? pushErr.message : String(pushErr),
+          })
+        }
       }
     }
   }
