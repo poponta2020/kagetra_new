@@ -342,3 +342,6 @@
 - [tournament-results AI改修 実装記録](impl_tournament_results_ai_revamp.md) — T1/T2/T4完了。main直タスクはWaveから外す運用・finalMessage()でusage取得・fact FKはSET NULL
 - [auto-review PR #541](auto-review-round-pr541.md) — R3 verdict=pass（R1 blockers7→全対応）。cumulative 512k で token-budget 停止
 - [tournament-results AI改修 出荷](project_ship-tournament-results-ai-revamp.md) — shipped: PR #541。★残DoD=AC-21実機確認＋worker側ANTHROPIC_API_KEY配線確認
+- [auto-review PR #543](auto-review-round-pr543.md) — R4 verdict=pass
+- [fix PR #543](impl_fix-pr543.md) — review 指摘の修正
+- [LINE紐付け成立案内の未在籍メンション400全滅バグ修正](project_ship-fix-line-linked-announcement.md) — shipped: PR #543
