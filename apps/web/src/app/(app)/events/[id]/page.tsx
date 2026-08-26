@@ -9,7 +9,7 @@ import {
   users,
 } from '@kagetra/shared/schema'
 import type { Grade } from '@kagetra/shared/types'
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { asc, desc, eq, isNull } from 'drizzle-orm'
 import { memberEntryFeeJpy, type EntryFeeSource } from '@/lib/entry-fee'
 import { auth } from '@/auth'
 import { Btn } from '@/components/ui'
@@ -28,6 +28,7 @@ import {
   isIndividualOnlyGroup,
   loadConfirmedRosterState,
 } from '@/lib/events/confirmed-roster'
+import { eligibleUsersWhere } from '@/lib/events/eligible-users'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
@@ -183,9 +184,7 @@ export default async function EventDetailPage({
   // のに必要（AC-26）。isInvited=false の旧データ行も同時に除外される。
   const eligibleUsers = await db.query.users.findMany({
     columns: { id: true, name: true },
-    where: event.eligibleGrades?.length
-      ? and(eq(users.isInvited, true), inArray(users.grade, event.eligibleGrades))
-      : eq(users.isInvited, true),
+    where: eligibleUsersWhere(event.eligibleGrades),
   })
 
   const eligibleUserIdSet = new Set(eligibleUsers.map((u) => u.id))
