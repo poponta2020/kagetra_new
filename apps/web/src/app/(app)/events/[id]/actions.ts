@@ -42,6 +42,7 @@ import {
 import { resolveTreasurerMention } from '@/lib/line-mention-targets'
 import type { LineMessage } from '@/lib/line-mention'
 import { isIndividualOnlyGroup } from '@/lib/events/confirmed-roster'
+import { eligibleUsersWhere } from '@/lib/events/eligible-users'
 
 /**
  * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
@@ -705,6 +706,99 @@ export async function submitAttendance(eventId: number, formData: FormData) {
     })
 
   revalidatePath(`/events/${eventId}`)
+}
+
+// ---------------------------------------------------------------------------
+// admin-attendance-edit: 管理者による参加者の代理追加・削除
+//
+// 本人回答（`submitAttendance`）とデータ上まったく同じ行を作る／消すだけで、
+// LINE push・lifecycle 通知の claim は一切行わない（要件 §5 Non-goals）。
+// 会内締切・開催日・`not_applying` に縛られないのは、管理者が締切に縛られない
+// 既存方針（`submitAttendance` の `isAdminUser` バイパス）と同じ。
+// ---------------------------------------------------------------------------
+
+/**
+ * 参加者の増減で表示が変わるパス群。参加者数・苗字列・タイムラインが載る画面を
+ * まとめて捨てる（要件 §6）。出欠は**日（イベント）ごと**の値なので、
+ * `revalidateGroupEventPaths` のようにグループ内の全日を捨てることはしない。
+ */
+function revalidateAfterAttendanceChange(eventId: number, entryGroupId: number): void {
+  revalidatePath(`/events/${eventId}`)
+  revalidatePath(`/events/${eventId}/edit`)
+  revalidatePath('/events')
+  revalidatePath('/events-archive')
+  revalidatePath('/admin/entries')
+  revalidatePath(`/admin/entries/${entryGroupId}`)
+  revalidatePath('/dashboard')
+}
+
+/**
+ * 管理者が任意の対象ユーザーを参加者に加える。
+ *
+ * ★候補判定は `eligibleUsersWhere` を**そのまま SQL の WHERE に載せて引き直す**
+ * （TS 側で級を突き合わせ直さない）。ヒットしなければ対象外・級未設定・
+ * `isInvited=false`・存在しない ID のいずれかなので、まとめて fail-closed で
+ * 弾く（AC-2）。
+ *
+ * ★`onConflictDoUpdate` の `set` に **`comment` を含めない**。「不参加」回答済みの
+ * 会員を追加したとき、本人が書いたコメントを消さないため（AC-3。
+ * `submitAttendance` の条件付き更新と同じ規約）。
+ */
+export async function adminAddAttendee(eventId: number, userId: string): Promise<void> {
+  await requireAdminSession()
+
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { id: true, entryGroupId: true, eligibleGrades: true },
+  })
+  if (!event) throw new Error('Event not found')
+
+  const target = await db.query.users.findFirst({
+    columns: { id: true },
+    where: and(eq(users.id, userId), eligibleUsersWhere(event.eligibleGrades)),
+  })
+  if (!target) throw new Error('この大会の対象会員ではありません')
+
+  await db
+    .insert(eventAttendances)
+    .values({ eventId, userId, attend: true, comment: null })
+    .onConflictDoUpdate({
+      target: [eventAttendances.eventId, eventAttendances.userId],
+      set: { attend: true, updatedAt: new Date() },
+    })
+
+  revalidateAfterAttendanceChange(eventId, event.entryGroupId)
+}
+
+/**
+ * 管理者が参加者を外す。行ごと削除して「**未回答**」に戻す（「不参加」の記録では
+ * ない。要件 §7）。
+ *
+ * ★ここでは候補条件（`eligibleUsersWhere`）を検証**しない**。対象級外・
+ * `isInvited=false` の stale な `attend=true` 行こそ編集画面に出して消せるように
+ * するのがこの画面の役目で（AC-8）、検証を掛けるとそれらが二度と消せなくなる。
+ * `attend=true` の行だけを対象にするので、「不参加」回答の行は消えない。
+ */
+export async function adminRemoveAttendee(eventId: number, userId: string): Promise<void> {
+  await requireAdminSession()
+
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { id: true, entryGroupId: true },
+  })
+  if (!event) throw new Error('Event not found')
+
+  await db
+    .delete(eventAttendances)
+    .where(
+      and(
+        eq(eventAttendances.eventId, eventId),
+        eq(eventAttendances.userId, userId),
+        eq(eventAttendances.attend, true),
+      ),
+    )
+
+  revalidateAfterAttendanceChange(eventId, event.entryGroupId)
 }
 
 // ---------------------------------------------------------------------------

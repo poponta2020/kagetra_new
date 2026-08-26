@@ -60,3 +60,4 @@
 - `events-no-entrants` — ボトムナビ「イベント」→「大会」改称と、参加者0名のまま会内締切を過ぎて /events から消えた大会の専用ページ新設（主要領域: apps/web/src/app/(app)/events-no-entrants/・events/・events-archive/・components/layout/bottom-nav.tsx） [shipped: PR #512]
 - `confirmed-roster-signal` — 確定名簿ありの判定を「確定名簿メール」と「手動フラグ」へ拡張し、添付のない確定連絡でもフェーズが進むようにする改修（主要領域: 申込管理ボード / 申込フロー帯 / 名簿セクション） [shipped: PR #513]
 - `line-bot-message-revamp` — 大会別LINE Botのメッセージ全面改訂（会計フラグ・@All/@会計メンション基盤・名簿確定後の振込連絡を新設し、紐付け案内とライフサイクル通知8種の文面を差し替え）（主要領域: packages/shared schema + apps/web lib/line-mention・webhook・admin/entries・admin/members） [shipped: PR #530]
+- `admin-attendance-edit` — 大会編集画面 /events/[id]/edit に「参加者」セクションを新設し、管理者・副管理者が任意ロール（ゲスト含む）の対象ユーザーを参加者として追加・削除（削除＝行削除で「未回答」に戻す）（主要領域: apps/web lib/events/eligible-users・attendance-edit + events/[id]/actions.ts + components/events/attendance-edit-section）

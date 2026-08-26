@@ -15,6 +15,9 @@ import {
 } from '@/lib/entry-groups'
 import { EventForm } from '@/components/events/event-form'
 import { EntryGroupFieldset } from '@/components/events/entry-group-fieldset'
+import { AttendanceEditSection } from '@/components/events/attendance-edit-section'
+import { loadAttendanceEditData } from '@/lib/events/attendance-edit'
+import { adminAddAttendee, adminRemoveAttendee } from '../actions'
 
 export default async function EditEventPage({
   params,
@@ -48,9 +51,11 @@ export default async function EditEventPage({
 
   // entry-groups: 「申込グループ」欄の pre-fill データ。entry-group-page (AC-21)
   // で締切系伝播ダイアログは撤去したが、グループの付け替え自体は日ページに残る。
-  const [groupSiblings, mergeCandidates] = await Promise.all([
+  // admin-attendance-edit: 「参加者」セクション（EventForm の外・即時反映）のデータ。
+  const [groupSiblings, mergeCandidates, attendanceEdit] = await Promise.all([
     listGroupSiblings(db, eventId),
     listMergeCandidateGroups(db, eventId, todayInJst()),
+    loadAttendanceEditData(eventId, event.eligibleGrades),
   ])
 
   async function updateEvent(formData: FormData) {
@@ -156,6 +161,13 @@ export default async function EditEventPage({
         entryGroupSection={
           <EntryGroupFieldset siblings={groupSiblings} mergeCandidates={mergeCandidates} />
         }
+      />
+      <AttendanceEditSection
+        eventId={event.id}
+        attendees={attendanceEdit.attendees}
+        candidates={attendanceEdit.candidates}
+        addAction={adminAddAttendee}
+        removeAction={adminRemoveAttendee}
       />
     </div>
   )
