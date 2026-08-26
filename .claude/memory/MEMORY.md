@@ -348,3 +348,8 @@
 - [LINE紐付け成立案内の未在籍メンション400全滅バグ修正](project_ship-fix-line-linked-announcement.md) — shipped: PR #543
 - [auto-review PR #544](auto-review-round-pr544.md) — R1 verdict=pass
 - [fix(web): ボトムナビの並び順を ホーム/大会/申込管理/統計/メール/設定 に変更](project_ship-bottom-nav-tab-order.md) — shipped: PR #544
+- [admin-attendance-edit 要件定義](project_admin_attendance_edit_def.md) — 親Issue #545・削除=行削除で未回答へ・候補=対象級内の全ロール
+- [admin-attendance-edit タスク1](impl_admin-attendance-edit-task1.md) — 参加者の代理追加・削除 Server Action と候補条件の共通化
+- [admin-attendance-edit タスク2・3](impl_admin-attendance-edit-task2-3.md) — 編集画面の参加者セクション UI と仕様書反映
+- [auto-review PR #549](auto-review-round-pr549.md) — R1 verdict=pass（1ラウンド収束・指摘ゼロ）
+- [大会編集画面で管理者が参加者を追加・削除](project_ship-admin-attendance-edit.md) — shipped: PR #549（★残DoD=AC-10 本番実機確認）
