@@ -40,6 +40,14 @@ const TABS: readonly Tab[] = [
     matches: ['/events'],
     guestVisible: true,
   },
+  // entry-management: 大会申込進捗ボード。当初は管理者専用だったが閲覧を全員に
+  // 開放した（ボード自体が表示専用）。申込の日常動線として「大会」の直後に置く。
+  {
+    id: 'entries',
+    label: '申込管理',
+    href: '/admin/entries',
+    matches: ['/admin/entries'],
+  },
   // senseki-stats (PR-2): 戦績 → 統計 に改称。href は /players 据え置き
   // （着地点＝選手検索）だが、配下の 4 セクション（選手検索/大会結果/ランキング/
   // 大会統計）は /players・/tournaments の 2 基底に分かれるため両方を active 判定。
@@ -48,15 +56,6 @@ const TABS: readonly Tab[] = [
     label: '統計',
     href: '/players',
     matches: ['/players', '/tournaments'],
-  },
-  // entry-management: 大会申込進捗ボード。当初は管理者専用だったが閲覧を全員に
-  // 開放した（ボード自体が表示専用）。共通 3 タブ（ホーム/大会/統計）の
-  // 直後・管理者専用ブロック（メール）の前に置く。
-  {
-    id: 'entries',
-    label: '申込管理',
-    href: '/admin/entries',
-    matches: ['/admin/entries'],
   },
   // mail-tournament-import (PR1): apps/mail-worker が取り込んだ受信メール。
   // 未処理バッジを持つ日常動線なのでナビに残す。
@@ -113,7 +112,7 @@ export interface BottomNavProps {
  * Sticky mobile bottom tab bar. Tabs are 52px tall; the `<nav>` itself
  * reserves `52px + env(safe-area-inset-bottom)` so the bg-surface fill
  * extends into the iOS home-indicator area without compressing the tap
- * targets. Tabs: ホーム / 大会 / 統計 / 申込管理 / メール / 設定 を全員に
+ * targets. Tabs: ホーム / 大会 / 申込管理 / 統計 / メール / 設定 を全員に
  * （member-mail-search で「メール」を開放し、一般会員も管理者も 6 タブ）。
  * 「メール」だけ遷移先が role で分かれる（管理者 `/admin/mail-inbox` /
  * 一般会員 `/mail`）。
