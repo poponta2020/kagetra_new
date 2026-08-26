@@ -109,9 +109,11 @@
 
 `submitAttendance` サーバーアクションはこれらのガードをサーバー側でも再検証し（管理者はバイパス）、`event_attendances`（`eventId, userId` の UNIQUE）へ `onConflictDoUpdate` で upsert する。出欠のトグル（参加する/参加をキャンセル）ボタンは `attend` のみを送信する。`comment` は `formData` に当該キーがあるときだけ更新されるため、トグル操作で既存コメントは消えない。**出欠コメントの入力 UI は `/events/[id]` から廃止した**（`event_attendances.comment` のデータと `submitAttendance` の comment 更新経路は残っているが、この画面から呼ぶフォームは無い）。
 
+**管理者による代理登録**（admin-attendance-edit）: 管理者・副管理者は `/events/[id]/edit` の「参加者」セクションから、任意の対象ユーザーを参加者として追加・削除できる（本人から口頭・LINE で参加意思を聞いたときの代理登録、および誤登録の取り消し）。**追加**は `attend=true` の upsert で、「不参加」回答済みの行は `attend` が反転し**既存 `comment` は保持される**（`set` に `comment` を含めない）。**削除は行そのものの削除＝「未回答」に戻す**——「不参加」として記録するのではない（本人回答と区別の付かない偽の回答データを作らないため）。行削除に伴い `comment` も消える。削除は `attend=true` の行だけを対象にするので、「不参加」回答の行は消えない。管理者が作った行は本人が自分で回答した行とデータ上区別されず、参加者欄・人数集計・ホームの希望パス・申込書・振込総額・ゲスト出し分けはすべて既存ロジックがそのまま適用される。**本人への LINE 通知は送らず、操作者の監査記録も残さない**（管理者が本人と合意のうえ操作する前提）。
+
 ### 対象者・対象級の絞り込み
 
-`eligibleGrades`（`Grade[] | null`）が設定されている大会は、その級の会員のみが「対象」になる。分母となる `eligibleUsers` は `users.isInvited=true` かつ（`eligibleGrades` があれば）`grade IN eligibleGrades` で絞り込む。招待未確定・退会等で `isInvited=false` になった旧データ行は分母・参加者一覧のどちらからも除外される。
+`eligibleGrades`（`Grade[] | null`）が設定されている大会は、その級の会員のみが「対象」になる。分母となる `eligibleUsers` は `users.isInvited=true` かつ（`eligibleGrades` があれば）`grade IN eligibleGrades` で絞り込む。招待未確定・退会等で `isInvited=false` になった旧データ行は分母・参加者一覧のどちらからも除外される。 この where 条件の正典は `apps/web/src/lib/events/eligible-users.ts` の `eligibleUsersWhere` で、詳細ページの分母・管理者の代理追加の検証・編集画面の追加候補の3箇所が同じ1本を通る（級未設定の会員が対象級ありの大会から落ちるのは `IN` が NULL に対して偽になるという SQL の意味論によるので、TypeScript 側で判定を書き直さない）。
 
 ### 定員
 
@@ -191,6 +193,8 @@ DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixe
 `extractEventFormData` はそれらを `null` として読むため、除外しないとグループページで設定した締切・
 振込先が日ページの保存のたびに `null` で上書きされて消える。作成経路（`/events/new`・メール承認
 `ApprovalForm`）は従来どおり全項目を出す（グループがまだ確定していないため）。
+
+**admin-attendance-edit: 「参加者」セクション**（`AttendanceEditSection`）。`EventForm` の**外**（下）に置く独立セクションで、追加・削除は**フォームの「保存」とは無関係に即時確定する**（他の項目を触らずに参加者だけ直せるようにするため）。一覧は `attend=true` の**全行**で、対象級外・`isInvited=false` の stale 行も落とさず「対象外」の印を添えて出す（編集画面に見えるのに詳細ページの参加者欄に出ない理由を管理者へ示す。消せるようにしておく必要もある）。追加候補は「出欠の対象ユーザー − 参加済み」で、氏名のクライアント側絞り込みが付く。行の表現は詳細ページの参加者欄と同じ最小形（氏名＋級添字＋ゲスト印）。反映は Server Action の `revalidatePath` に委ね、コンポーネントは参加者一覧のローカル state を持たない。データは `apps/web/src/lib/events/attendance-edit.ts` の `loadAttendanceEditData` が返し、**列は id / name / grade / role だけ**に絞る（この結果は RSC payload としてブラウザへ直列化されるため）。
 
 ### `/admin/entries` 申込管理ボード
 
@@ -325,6 +329,16 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 ### `submitAttendance(eventId, formData)` — `events/[id]/actions.ts`
 
 ログイン必須。管理者以外は `isInvited` / 会内締切 / 対象級を再検証してからエラーを投げる（クライアント側の `canRespond` 判定をサーバーでも信頼しない）。`attend` は常に更新、`comment` は `formData` に `comment` キーが存在するときのみ更新する（トグル送信では省略されるため既存コメントを保持）。`event_attendances(eventId, userId)` の UNIQUE を使った upsert。
+
+### `adminAddAttendee(eventId, userId)` / `adminRemoveAttendee(eventId, userId)` — `events/[id]/actions.ts`
+
+管理者・副管理者専用（`requireAdminSession()`）。`/events/[id]/edit` の「参加者」セクションから呼ぶ代理登録・取り消し。
+
+`adminAddAttendee` は対象ユーザーを**候補条件つきの WHERE で引き直して** fail-closed に検証する（ヒットしなければ対象級外・級未設定・`isInvited=false`・存在しない ID のいずれかなので拒否）。TypeScript 側で級を突き合わせ直さないのは、級未設定の落ち方が SQL の `IN` vs NULL の意味論に依存しており、書き直すと必ずずれるため。通過したら `attend=true` を upsert し、`set` に `comment` を含めないことで既存コメントを保持する。
+
+`adminRemoveAttendee` は候補条件を**検証しない**（対象級外の stale な `attend=true` 行を消せるようにするのがこの画面の役目で、検証を掛けると永久に消せなくなる）。`event_id` ∧ `user_id` ∧ `attend=true` の行を DELETE する。
+
+両方とも会内締切・開催日・`not_applying` に縛られず（管理者は締切に縛られない既存方針と一貫）、LINE push も lifecycle 通知の claim も**一切行わない**。再検証するパスは `/events/[id]`・`/events/[id]/edit`・`/events`・`/events-archive`・`/admin/entries`・`/admin/entries/[entryGroupId]`・`/dashboard`（出欠は日ごとの値なのでグループ内の他日は捨てない）。
 
 ### `createEvent(formData)` / `updateEvent(formData)` — `events/new/page.tsx` / `events/[id]/edit/page.tsx` 内の inline server action
 

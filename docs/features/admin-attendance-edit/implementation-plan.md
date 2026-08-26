@@ -50,7 +50,7 @@ status: completed
 - **対応Issue:** #547
 
 ### タスク3: 仕様書の更新
-- [ ] 完了
+- [x] 完了
 - **目的:** docs レジストリの正典を実装と同期する
 - **対応AC:** AC-9（ドキュメント整合。gate-dod の D2）
 - **主な変更領域:** `docs/spec/events-attendance.md`（「出欠登録ルール」に管理者による代理追加・削除、「`/events/[id]/edit` 編集」に参加者セクションを追記。既存記述の in-place 更新・changelog 追記禁止の規律に従う）
