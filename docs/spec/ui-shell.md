@@ -48,9 +48,9 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 | id | ラベル | href | active 判定 matches | 表示条件 |
 |---|---|---|---|---|
 | `home` | ホーム | `/dashboard` | `/dashboard` | 全員 |
-| `events` | イベント | `/events` | `/events` | 全員 |
-| `players` | 統計 | `/players` | `/players`, `/tournaments` | 全員 |
+| `events` | 大会 | `/events` | `/events` | 全員 |
 | `entries` | 申込管理 | `/admin/entries` | `/admin/entries` | 全員 |
+| `players` | 統計 | `/players` | `/players`, `/tournaments` | 全員 |
 | `mail-inbox` | メール | 管理者 `/admin/mail-inbox` ／ 一般会員 `/mail` | `/admin/mail-inbox`, `/mail` | 全員 |
 | `settings` | 設定 | `/settings` | `/settings`, `/admin/members`, `/admin/line-channels` | 全員 |
 

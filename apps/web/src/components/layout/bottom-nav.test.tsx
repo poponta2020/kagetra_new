@@ -17,14 +17,14 @@ describe('BottomNav', () => {
   // AC-27 / AC-27b（member-mail-search）: 「メール」を一般会員へ開放したので
   // 一般会員も 6 タブちょうど、かつこの並び順（設定タブは常に最後尾）。
   // 他タブの表示・並びは開放前から変わっていない＝この配列がその回帰ガード。
-  it('isAdmin=false のとき ホーム/大会/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
+  it('isAdmin=false のとき ホーム/大会/申込管理/統計/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin={false} />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
       'ホーム',
       '大会',
-      '統計',
       '申込管理',
+      '統計',
       'メール',
       '設定',
     ])
@@ -63,16 +63,16 @@ describe('BottomNav', () => {
     },
   )
 
-  // AC-5 / AC-6: 管理者は ホーム/大会/統計/申込管理/メール/設定 の
+  // AC-5 / AC-6: 管理者は ホーム/大会/申込管理/統計/メール/設定 の
   // 6 タブちょうど（会員・Bot の独立タブは無い）、かつこの並び順。
-  it('isAdmin=true のとき ホーム/大会/統計/申込管理/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
+  it('isAdmin=true のとき ホーム/大会/申込管理/統計/メール/設定 の 6 タブが、この順序ちょうどで表示される', () => {
     render(<BottomNav isAdmin />)
     const links = screen.getAllByRole('link')
     expect(links.map((link) => link.textContent?.trim())).toEqual([
       'ホーム',
       '大会',
-      '統計',
       '申込管理',
+      '統計',
       'メール',
       '設定',
     ])
@@ -240,13 +240,13 @@ describe('BottomNav', () => {
     expect(nav.className).not.toMatch(/(?<!\+)min-h-\[52px\]/)
   })
 
-  it('各タブの href が正しい（ホーム/大会/統計/申込管理/メール/設定）', () => {
+  it('各タブの href が正しい（ホーム/大会/申込管理/統計/メール/設定）', () => {
     render(<BottomNav isAdmin />)
     const expected: ReadonlyArray<[string, string]> = [
       ['ホーム', '/dashboard'],
       ['大会', '/events'],
-      ['統計', '/players'],
       ['申込管理', '/admin/entries'],
+      ['統計', '/players'],
       ['メール', '/admin/mail-inbox'],
       ['設定', '/settings'],
     ]
