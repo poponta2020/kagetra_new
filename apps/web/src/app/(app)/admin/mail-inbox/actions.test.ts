@@ -152,8 +152,8 @@ vi.mock('@kagetra/mail-worker/classify/llm/anthropic', () => ({
 }))
 vi.mock('@kagetra/mail-worker/config', () => ({
   loadLlmConfig: () => ({ anthropicApiKey: 'mock-anthropic-key' }),
-  // mail-ai-extract-refinements: 添付選択の上限検証が読む。既定と同じ 8000KB を
-  // 返し、テストは 9MB の PDF を作って超過側を踏む。
+  // Server Action はもうこれを読まない（1件ごとのサイズで拒否しなくなった）が、
+  // config モジュールごと差し替えているので export は残しておく。
   loadCostGuardConfig: () => ({ MAIL_WORKER_PDF_SIZE_LIMIT_KB: 8000 }),
 }))
 
@@ -864,17 +864,25 @@ describe('admin/mail-inbox actions', () => {
       expect(after[0]!.selectedAttachmentIds).toBeNull()
     })
 
-    it('AC-32: サイズ上限を超える添付 ID を拒否し、AI を呼ばない', async () => {
+    // AC-32（改訂）: 1件ごとの目安サイズでは拒否しない。再抽出でも同じ
+    // （ダイアログで確認して選び直した大きい PDF が、ここで弾かれてはいけない）。
+    it('AC-32: 目安サイズを超える添付 ID でも AI に渡す', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
-      const mail = await createMailMessage({ subject: 'reextract oversize' })
+      const mail = await createMailMessage({ subject: 'reextract large' })
       const draft = await createTournamentDraft({ messageId: mail.id })
       const huge = await insertReextractPdf(mail.id, '巨大要綱.pdf', 9_000_000)
 
-      await expect(reextractDraft(draft.id, [huge])).rejects.toThrow(
-        /サイズ上限を超える添付/,
-      )
-      expect(classifyMailMock).not.toHaveBeenCalled()
+      await reextractDraft(draft.id, [huge])
+
+      expect(classifyMailMock).toHaveBeenCalledTimes(1)
+      const args = classifyMailMock.mock.calls[0] as unknown as [
+        unknown,
+        number,
+        unknown,
+        { selectedAttachmentIds?: number[] | null },
+      ]
+      expect(args[3].selectedAttachmentIds).toEqual([huge])
     })
 
     it('draft が無いと draft not found を投げる', async () => {
@@ -2818,29 +2826,34 @@ describe('admin/mail-inbox actions', () => {
       expect(jobs).toHaveLength(0)
     })
 
-    it('AC-32: サイズ上限を超える添付 ID を拒否する', async () => {
+    // AC-32（改訂）: 1件ごとの目安サイズ（MAIL_WORKER_PDF_SIZE_LIMIT_KB）は
+    // 拒否の根拠にしない。ダイアログが確認を取ったうえで送るので、サーバー側で
+    // 弾くと「OK を押しても送れない」ことになる。
+    it('AC-32: 目安サイズを超える添付 ID でも受け付ける', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      // 既定上限 8000KB を超える PDF。UI ではチェック不可だが直叩きは防げない。
+      // 目安 8000KB を超える PDF。合計予算（約 23MB）には収まる。
       const huge = await insertPdf(mail.id, '巨大要綱.pdf', 9_000_000)
 
       const result = await triggerExtractDraft(mail.id, [huge])
-      expect(result.ok).toBe(false)
-      if (result.ok) return
-      expect(result.error).toMatch(/サイズ上限を超える添付/)
+      expect(result.ok).toBe(true)
 
       const jobs = await testDb.select().from(mailWorkerJobs)
-      expect(jobs).toHaveLength(0)
+      expect(jobs).toHaveLength(1)
+      const drafts = await testDb
+        .select()
+        .from(tournamentDrafts)
+        .where(eq(tournamentDrafts.messageId, mail.id))
+      expect(drafts[0]!.selectedAttachmentIds).toEqual([huge])
     })
 
-    it('AC-32/要件§6: 1件ごとの上限内でも合計が上限超過なら拒否する', async () => {
+    it('AC-32/要件§6: 1件ずつは受け付けるサイズでも合計が上限超過なら拒否する', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
-      // 3 件で合計 22.5MB > 20MB。
-      const big = 7.5 * 1024 * 1024
+      // 各 8.5MB は単体なら通る。3 件で合計 25.5MB > 23.25MiB。
+      const big = 8.5 * 1024 * 1024
       const a = await insertPdf(mail.id, 'a.pdf', big)
       const b = await insertPdf(mail.id, 'b.pdf', big)
       const c = await insertPdf(mail.id, 'c.pdf', big)
@@ -2864,7 +2877,7 @@ describe('admin/mail-inbox actions', () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
       const mail = await createMailMessage({ triageStatus: 'unprocessed' })
-      const big = 7.5 * 1024 * 1024
+      const big = 8.5 * 1024 * 1024
       const a = await insertPdf(mail.id, 'a.pdf', big)
       await insertPdf(mail.id, 'b.pdf', big)
       await insertPdf(mail.id, 'c.pdf', big)

@@ -474,7 +474,7 @@ describe('classifier', () => {
       })
     })
 
-    describe('PDF cost guard', () => {
+    describe('PDF サイズ予算', () => {
       // Lives in its own describe so the env stub doesn't bleed into other
       // tests in this file. Each `it` may set its own threshold; afterEach
       // restores process.env and clears the cached config so the next test
@@ -484,35 +484,44 @@ describe('classifier', () => {
         resetConfigForTests()
       })
 
-      it('returns oversize_skipped when any PDF exceeds MAIL_WORKER_PDF_SIZE_LIMIT_KB and never calls the LLM', async () => {
+      // `MAIL_WORKER_PDF_SIZE_LIMIT_KB` はかつてここで `oversize_skipped` を
+      // 返していたが、値の根拠はコストの目安であって「送れるサイズ」ではない。
+      // 管理者が中身を見て選んだ PDF を送信不能にしていたのを、選択ダイアログ
+      // 側の注意書き＋確認ステップへ移した。classifier はもうこの env を見ない。
+      it('1件ごとのサイズでは止めない: 目安を大きく超える PDF でもそのまま AI へ渡す', async () => {
         vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
         resetConfigForTests()
 
-        let calls = 0
-        const llm: LLMExtractor = {
-          modelId: 'should-not-be-called',
-          async extract(_input: LLMExtractionInput): Promise<LLMExtractionResult> {
-            calls += 1
-            throw new Error('LLM should not be invoked under the cost guard')
-          },
-        }
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
         const id = await insertTestMail({
           messageId: '<oversize-pdf@example.com>',
           subject: TOURNAMENT_SUBJECT,
         })
-        // 600 KB > 500 KB threshold.
-        await insertTestPdf({ mailMessageId: id, sizeBytes: 600 * 1024 })
+        // 目安 500KB の 20 倍。合計予算（23.25MiB）には遠く届かないので通る。
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 10 * 1024 * 1024 })
 
         const outcome = await classifyMail(getDb(), id, llm)
 
-        expect(outcome.kind).toBe('oversize_skipped')
-        if (outcome.kind === 'oversize_skipped') {
-          expect(outcome.filename).toBe('案内.pdf')
-          expect(outcome.sizeBytes).toBe(600 * 1024)
-          expect(outcome.limitBytes).toBe(500 * 1024)
-        }
-        // The most important assertion: AI was never called.
-        expect(calls).toBe(0)
+        expect(outcome.kind).toBe('tournament')
+      })
+
+      it('force=true でも 1件ごとのサイズは判定材料にならない', async () => {
+        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
+        resetConfigForTests()
+
+        const fixtures = await buildFixtureMap()
+        const llm = new FixtureLLMExtractor(fixtures)
+        const id = await insertTestMail({
+          messageId: '<force-flag-oversize@example.com>',
+          subject: TOURNAMENT_SUBJECT,
+          classification: 'noise',
+        })
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 10 * 1024 * 1024 })
+
+        const outcome = await classifyMail(getDb(), id, llm, { force: true })
+
+        expect(outcome.kind).toBe('tournament')
       })
 
       // 要件 §6: 1件ごとの上限を全て満たしていても、合計は Anthropic の
@@ -553,9 +562,7 @@ describe('classifier', () => {
       })
 
       it('合計サイズが上限を超えたら AI を呼ばずスキップする', async () => {
-        // 1件ごとの上限は 8000KB のまま。7.5MB を 3 件で合計 22.5MB > 20MB。
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
-        resetConfigForTests()
+        // 8.5MB を 3 件で合計 25.5MB > 23.25MiB。
         let calls = 0
         const llm: LLMExtractor = {
           modelId: 'should-not-be-called',
@@ -568,13 +575,12 @@ describe('classifier', () => {
           messageId: '<total-oversize@example.com>',
           subject: TOURNAMENT_SUBJECT,
         })
-        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
-        const bigMb = 7.5 * 1024 * 1024
+        // 1件ずつなら「大きめ」の注意が出るだけで送れるサイズ。合計だけが原因。
+        const bigMb = 8.5 * 1024 * 1024
         await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: bigMb })
         await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: bigMb })
         await insertTestPdf({ mailMessageId: id, filename: 'c.pdf', sizeBytes: bigMb })
 
-        // 各 8MB ≤ 8000KB 上限なので、1件ごとのガードは通り抜ける。
         const outcome = await classifyMail(getDb(), id, llm)
 
         expect(outcome.kind).toBe('oversize_skipped')
@@ -588,15 +594,13 @@ describe('classifier', () => {
       })
 
       it('合計が上限内なら通常どおり分類する', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
-        resetConfigForTests()
         const fixtures = await buildFixtureMap()
         const llm = new FixtureLLMExtractor(fixtures)
         const id = await insertTestMail({
           messageId: '<total-within@example.com>',
           subject: TOURNAMENT_SUBJECT,
         })
-        // 3MB × 3 = 9MB < 20MB。実運用の要綱 PDF はこの範囲に収まる。
+        // 3MB × 3 = 9MB < 23.25MiB。実運用の要綱 PDF はこの範囲に収まる。
         const threeMb = 3 * 1024 * 1024
         await insertTestPdf({ mailMessageId: id, filename: 'a.pdf', sizeBytes: threeMb })
         await insertTestPdf({ mailMessageId: id, filename: 'b.pdf', sizeBytes: threeMb })
@@ -608,16 +612,14 @@ describe('classifier', () => {
       })
 
       it('選択で合計上限内に絞れば通る（合計ガードも選択後の集合に掛かる）', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '8000')
-        resetConfigForTests()
         const fixtures = await buildFixtureMap()
         const llm = new FixtureLLMExtractor(fixtures)
         const id = await insertTestMail({
           messageId: '<total-narrowed@example.com>',
           subject: TOURNAMENT_SUBJECT,
         })
-        // 各 7.5MB < 8000KB(=7.81MB) なので1件ごとのガードは通り抜ける。
-        const bigMb = 7.5 * 1024 * 1024
+        // 3 件そろうと 25.5MB で合計超過。1 件に絞れば通る。
+        const bigMb = 8.5 * 1024 * 1024
         const keep = await insertTestPdf({
           mailMessageId: id,
           filename: 'keep.pdf',
@@ -631,167 +633,6 @@ describe('classifier', () => {
         })
 
         expect(outcome.kind).toBe('tournament')
-      })
-
-      it('classifies normally when all PDFs are within the limit', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
-        resetConfigForTests()
-        const fixtures = await buildFixtureMap()
-        const llm = new FixtureLLMExtractor(fixtures)
-
-        const id = await insertTestMail({
-          messageId: '<under-limit-pdf@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-        })
-        // 100 KB < 500 KB threshold.
-        await insertTestPdf({ mailMessageId: id, sizeBytes: 100 * 1024 })
-
-        const outcome = await classifyMail(getDb(), id, llm)
-
-        expect(outcome.kind).toBe('tournament')
-      })
-
-      it('treats MAIL_WORKER_PDF_SIZE_LIMIT_KB=0 as guard disabled', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '0')
-        resetConfigForTests()
-        const fixtures = await buildFixtureMap()
-        const llm = new FixtureLLMExtractor(fixtures)
-
-        const id = await insertTestMail({
-          messageId: '<guard-disabled-pdf@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-        })
-        // Even a hugely oversized attachment must flow through to the LLM
-        // when the operator has explicitly disabled the guard via env=0.
-        await insertTestPdf({ mailMessageId: id, sizeBytes: 10 * 1024 * 1024 })
-
-        const outcome = await classifyMail(getDb(), id, llm)
-
-        expect(outcome.kind).toBe('tournament')
-      })
-
-      it('skips at the FIRST oversized PDF and reports its filename', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
-        resetConfigForTests()
-
-        const llm: LLMExtractor = {
-          modelId: 'unused',
-          async extract(): Promise<LLMExtractionResult> {
-            throw new Error('LLM should not be invoked')
-          },
-        }
-        const id = await insertTestMail({
-          messageId: '<multi-pdf-oversize@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-        })
-        // first attachment under the limit, second oversized; the guard
-        // reports the oversized one (not just "any oversized exists").
-        await insertTestPdf({
-          mailMessageId: id,
-          filename: 'small.pdf',
-          sizeBytes: 100 * 1024,
-        })
-        await insertTestPdf({
-          mailMessageId: id,
-          filename: 'large.pdf',
-          sizeBytes: 600 * 1024,
-        })
-
-        const outcome = await classifyMail(getDb(), id, llm)
-
-        expect(outcome.kind).toBe('oversize_skipped')
-        if (outcome.kind === 'oversize_skipped') {
-          expect(outcome.filename).toBe('large.pdf')
-          expect(outcome.sizeBytes).toBe(600 * 1024)
-        }
-      })
-
-      it('still runs the guard even when force=true (operator must raise the env var, not the force flag)', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
-        resetConfigForTests()
-
-        let calls = 0
-        const llm: LLMExtractor = {
-          modelId: 'unused',
-          async extract(): Promise<LLMExtractionResult> {
-            calls += 1
-            throw new Error('LLM should not be invoked')
-          },
-        }
-        const id = await insertTestMail({
-          messageId: '<force-flag-oversize@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-          classification: 'noise',
-        })
-        await insertTestPdf({ mailMessageId: id, sizeBytes: 600 * 1024 })
-
-        // force=true bypasses the pre-filter noise short-circuit, but cost
-        // guard is a separate, orthogonal concern — the only way to disable
-        // it is via env. Same `oversize_skipped` outcome.
-        const outcome = await classifyMail(getDb(), id, llm, { force: true })
-
-        expect(outcome.kind).toBe('oversize_skipped')
-        expect(calls).toBe(0)
-      })
-
-      it('AC-36: does not become oversize_skipped when the oversized PDF is excluded by selection', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
-        resetConfigForTests()
-        const fixtures = await buildFixtureMap()
-        const llm = new FixtureLLMExtractor(fixtures)
-
-        const id = await insertTestMail({
-          messageId: '<selection-excludes-oversize@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-        })
-        const smallId = await insertTestPdf({
-          mailMessageId: id,
-          filename: 'small.pdf',
-          sizeBytes: 100 * 1024,
-        })
-        // Not selected below — would trip the guard if the guard still ran
-        // against the full attachment set instead of the selected subset.
-        await insertTestPdf({
-          mailMessageId: id,
-          filename: 'large.pdf',
-          sizeBytes: 600 * 1024,
-        })
-
-        const outcome = await classifyMail(getDb(), id, llm, {
-          selectedAttachmentIds: [smallId],
-        })
-
-        expect(outcome.kind).toBe('tournament')
-      })
-
-      it('AC-36: still returns oversize_skipped when the oversized PDF is explicitly selected', async () => {
-        vi.stubEnv('MAIL_WORKER_PDF_SIZE_LIMIT_KB', '500')
-        resetConfigForTests()
-
-        let calls = 0
-        const llm: LLMExtractor = {
-          modelId: 'unused',
-          async extract(): Promise<LLMExtractionResult> {
-            calls += 1
-            throw new Error('LLM should not be invoked')
-          },
-        }
-        const id = await insertTestMail({
-          messageId: '<selection-includes-oversize@example.com>',
-          subject: TOURNAMENT_SUBJECT,
-        })
-        const largeId = await insertTestPdf({
-          mailMessageId: id,
-          filename: 'large.pdf',
-          sizeBytes: 600 * 1024,
-        })
-
-        const outcome = await classifyMail(getDb(), id, llm, {
-          selectedAttachmentIds: [largeId],
-        })
-
-        expect(outcome.kind).toBe('oversize_skipped')
-        expect(calls).toBe(0)
       })
     })
 

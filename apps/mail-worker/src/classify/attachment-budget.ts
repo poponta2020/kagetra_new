@@ -1,9 +1,10 @@
 /**
  * 選択した PDF 添付の**合計**サイズ予算（要件 §6）。
  *
- * 1件ごとの `MAIL_WORKER_PDF_SIZE_LIMIT_KB` とは別物。個々が上限内でも、複数
- * 選べば合計は Anthropic Messages API のリクエスト上限 **32MB** を超え得る。
- * 超えたリクエストは 413 `request_too_large` で確実に失敗するため、送る前に弾く。
+ * 1件ごとの `MAIL_WORKER_PDF_SIZE_LIMIT_KB` とは別物 —— あちらはコストの目安で
+ * しかなく、超えても**警告を出して続行できる**。こちらは Anthropic Messages API
+ * のリクエスト上限 **32MB** から導かれる物理的な壁で、超えたリクエストは 413
+ * `request_too_large` で確実に失敗する。だからここだけは警告ではなく拒否する。
  *
  * **依存ゼロの leaf モジュールにしてある。** 同じ判定を Server Action・選択
  * ダイアログ（client component）・classifier の3箇所が共有するが、`config.ts`
@@ -46,12 +47,18 @@ export function exceededRequestBudgetBytes(
  * 内訳（実測ベース）: system プロンプト 約20KB、tool schema（`record_extraction`
  * の JSON Schema）約5KB、メール本文 数KB、JSON の構造・エスケープ 数KB。
  * これに加えて**テキスト抽出済み添付**（DOCX/DOC の抽出テキスト）が本文と同じ
- * text ブロックに載る —— これは桁が読みにくいので、6MiB という実測の数百倍の
- * 枠を取って丸ごと吸収する。
+ * text ブロックに載る。
+ *
+ * 枠は 6MiB → 1MiB へ縮めてある（実測 30KB 前後に対してなお 30 倍以上）。事前
+ * チェックはあくまで**見積り**であり、見積りを厚くした分だけ「実際は 32MiB に
+ * 収まるのに送れない PDF」が増える —— それが「大きい PDF を AI に読ませたい」を
+ * 阻んでいた。仮定が崩れる入力（巨大な抽出テキストを持つメール）は
+ * {@link exceededRequestBudgetBytes} が**実測で**確実に止めるので、ここを薄く
+ * しても 413 が漏れることはない。厚い予約枠は最終防衛線の代わりにはならない。
  */
-const NON_ATTACHMENT_RESERVE_BYTES = 6 * 1024 * 1024
+const NON_ATTACHMENT_RESERVE_BYTES = 1024 * 1024
 
-/** base64 化後の PDF に使える上限（= 32MiB − 予約枠 = 26MiB）。 */
+/** base64 化後の PDF に使える上限（= 32MiB − 予約枠 = 31MiB）。 */
 const ENCODED_PDF_BUDGET_BYTES =
   ANTHROPIC_REQUEST_LIMIT_BYTES - NON_ATTACHMENT_RESERVE_BYTES
 
@@ -65,7 +72,7 @@ export function base64EncodedBytes(rawBytes: number): number {
  * 値で、判定そのものは base64 化後のサイズで行う（{@link
  * exceededAttachmentTotalBytes}）。
  *
- * 26MiB の base64 枠を生バイトへ戻して約 19.5MiB。実運用の要綱 PDF は 0.5〜3MB
+ * 31MiB の base64 枠を生バイトへ戻して約 23.25MiB。実運用の要綱 PDF は 0.5〜3MB
  * （実測。docs/features/mail-ai-extract-refinements/token-baseline.md）なので、
  * 通常の選択がこの上限に触ることはない。
  *
@@ -86,8 +93,7 @@ export const ATTACHMENT_TOTAL_LIMIT_BYTES = Math.floor(
  *
  * PDF だけを数えるのは、リクエスト本体を占めるのが base64 の document ブロック
  * だから。テキスト抽出済み添付・本文・プロンプトは
- * {@link NON_ATTACHMENT_RESERVE_BYTES} の予約枠でまとめて確保している。1件ごとの
- * ガードが `application/pdf` だけを見ているのとも揃う。
+ * {@link NON_ATTACHMENT_RESERVE_BYTES} の予約枠でまとめて確保している。
  */
 export function exceededAttachmentTotalBytes(
   attachments: readonly { contentType: string; sizeBytes: number }[],
