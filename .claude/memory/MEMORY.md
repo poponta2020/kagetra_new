@@ -356,3 +356,5 @@
 - [auto-review PR #549](auto-review-round-pr549.md) — R1 verdict=pass（1ラウンド収束・指摘ゼロ）
 - [大会編集画面で管理者が参加者を追加・削除](project_ship-admin-attendance-edit.md) — shipped: PR #549（★残DoD=AC-10 本番実機確認）
 - [配色を藤色基調へ刷新し立体感を導入](project_ship-lilac-palette.md) — shipped: PR #550（★残DoD=実機で影・テクスチャ濃度の確認）
+- [auto-review PR #551](auto-review-round-pr551.md) — R1 verdict=pass
+- [AI 抽出の PDF サイズ上限を「拒否」から「警告＋確認」へ](project_ship-pdf-size-warn-instead-of-block.md) — shipped: PR #551
