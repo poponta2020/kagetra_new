@@ -355,3 +355,4 @@
 - [admin-attendance-edit タスク2・3](impl_admin-attendance-edit-task2-3.md) — 編集画面の参加者セクション UI と仕様書反映
 - [auto-review PR #549](auto-review-round-pr549.md) — R1 verdict=pass（1ラウンド収束・指摘ゼロ）
 - [大会編集画面で管理者が参加者を追加・削除](project_ship-admin-attendance-edit.md) — shipped: PR #549（★残DoD=AC-10 本番実機確認）
+- [配色を藤色基調へ刷新し立体感を導入](project_ship-lilac-palette.md) — shipped: PR #550（★残DoD=実機で影・テクスチャ濃度の確認）
