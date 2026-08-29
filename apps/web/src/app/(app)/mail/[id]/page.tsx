@@ -101,7 +101,7 @@ export default async function MailDetailPage({
         ‹ 受信メール
       </Link>
 
-      <Card className="shadow-sm">
+      <Card>
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-ink-meta">
