@@ -37,9 +37,9 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  // globals.css の --kg-bg (canvas 和紙) と同値。<meta> に出力されるため
+  // globals.css の --kg-bg (canvas 藤鼠) と同値。<meta> に出力されるため
   // CSS 変数は使えず、リテラルで持つしかない。canvas を変えたらここも直す。
-  themeColor: '#f4efe3',
+  themeColor: '#e8e6f2',
   // Suppress pinch-to-zoom in browser tabs so the app feels native, matching
   // the sister app match-tracker (which uses maximum-scale=1.0). width and
   // initialScale are inherited from Next.js' default viewport. userScalable is

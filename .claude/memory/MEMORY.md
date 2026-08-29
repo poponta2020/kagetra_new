@@ -5,6 +5,8 @@
 
 ## Project
 
+- [ライラック配色+立体感 実装完了(2026-08-29)](project_lilac_palette_direction.md) — 正典=docs/features/lilac-palette/design-spec.md。**ライラック=西洋lilac(326°)でなく和の藤色(295°)として読む**。藤(brand=success)+朱(据置)+琥珀(warn新設)、3段2層の影+背景微細ノイズ。★「地味」の原因は測定可能=14トークンが色相80-92°の1系統+カード↔背景ΔL0.024+Cardに影ゼロ。★影のalphaは据え置き不可・`--color-warn`新設は`bg-warn`等をlive化(裸参照0件を確認済)・hex照合は無効
+
 - [2026年 未取込結果の本番backfill(2026-08-25)](impl_a2026_result_backfill.md) — 協会HP掲載済み16大会をt1601-1616へ投入(参加者4933/対戦10326/opp_null増分0)。★parseResultExcelの落とし穴4種を実データで確認=相手セルの不戦/タブ名と中身の不一致/級カラム誤認/同名className跨シートmerge。残=団体戦3件+名人位戦(速報テキストのみ)
 - [他かるた会への配布可能性調査(2026-07-26)](project_third_party_distribution_assessment.md) — 正典=docs/audits/third-party-club-deployment-assessment.md。公開は履歴なしスナップショット新規リポ一択(docs/data-quality実名+.claude/memory本番情報がtracked)。LICENSE無し・CI deployがfork時に当方本番へSSH試行・db:migrate経路CI未検証。★統計・戦績+結果取込はフラグ+物理削除で切り離し決定(当落線は残す)・境界監査済=docs/audits/senseki-boundary-audit.md・実装未着手
 - [Tournament lottery trends PR #304](impl_tournament_lottery_trends-pr304.md) — Delivery notes, review fixes, and production-operation safety boundaries

@@ -1,13 +1,15 @@
 /* ============================================================
    Kagetra Design System — Colors & Type
-   Direction: 和紙 × 藍墨 (washi × sumi-indigo)
-   Washi-paper surfaces · 藍 (indigo) brand · 朱 (vermillion) accent.
+   Direction: 藤 × 墨 (fuji-violet × sumi)
+   Fuji-nezu surfaces · 藤 (wisteria violet) brand · 朱 (vermillion) accent
+   · 山吹 (amber) warning.
    Display headings in Noto Serif JP; body in Noto Sans JP.
 
-   Note: the upstream kagetra_new repo currently ships with a
-   LINE-green brand (`--color-brand: #00b900`) as a placeholder.
-   This file is the design-system's proposed direction for the
-   new mobile product and will replace that token when adopted.
+   Note: this file mirrors apps/web/src/app/globals.css, which is the
+   canonical source. Keep the two in sync — globals.css references this
+   file by name in its header, so a stale copy here is silent rot.
+   全トークンは OKLCH で導出し、コントラストを実測済み（AA 未達 0 件）。
+   経緯は docs/features/lilac-palette/design-spec.md。
    ============================================================ */
 
 /* ---------- Webfonts ---------- */
@@ -15,19 +17,22 @@
 
 :root {
   /* =============================================
-     Brand — 藍墨 (sumi-indigo)
+     Brand — 藤 (fuji-violet)
+     旧・藍 (#2B4E8C) の OKLCH L と C を保ち色相だけ 261° → 293° へ回した
      ============================================= */
-  --kg-brand:        #2B4E8C;
-  --kg-brand-hover:  #213C6D;
-  --kg-brand-bg:     #E6EDF7;  /* indigo-tinted washi */
-  --kg-brand-fg:     #1E3A6B;  /* readable ink on brand-bg */
+  --kg-brand:        #534286;
+  --kg-brand-hover:  #402F6E;
+  --kg-brand-bg:     #E0D7FD;  /* indigo-tinted washi */
+  --kg-brand-fg:     #3E3067;  /* readable ink on brand-bg */
 
   /* =============================================
      Accent — 朱 (vermillion / shu-iro)
-     Used for: 不参加, 締切警告, 必須マーク, エラー.
+     Used for: 不参加, 必須マーク, エラー.
+     ※ 締切警告はここではなく warn (山吹) が担う。かつて両者は同じ hex
+        だったが分離した。
      ============================================= */
   --kg-accent:       #B33C2D;
-  --kg-accent-bg:    #F7E6E2;
+  --kg-accent-bg:    #F4D5CF;
   --kg-accent-fg:    #8F2D20;
 
   /* =============================================
@@ -37,51 +42,56 @@
   --kg-line-green-hv:  #05a648;
 
   /* =============================================
-     Surfaces — 和紙 (washi)
-     Warm off-white canvas; cards sit one shade lighter.
+     Surfaces — 藤鼠 (fuji-nezu)
+     Cool off-white canvas; cards sit one shade lighter.
+     canvas → surface の明度差は ΔL 0.045（旧配色は 0.024 でカードが
+     背景から浮かなかった）。
      ============================================= */
-  --kg-bg:           #F4EFE3;  /* page canvas (washi) */
-  --kg-surface:      #FBF7ED;  /* card fill (lighter washi) */
-  --kg-surface-alt:  #F0EADC;  /* nested/recessed surface */
+  --kg-bg:           #E8E6F2;  /* page canvas (washi) */
+  --kg-surface:      #F7F5FE;  /* card fill (lighter washi) */
+  --kg-surface-alt:  #DEDCEA;  /* nested/recessed surface */
 
   /* =============================================
-     Borders — 生成系 (kinari / unbleached)
+     Borders
      ============================================= */
-  --kg-border:         #D8CDB3;
-  --kg-border-soft:    #E6DDC4;
-  --kg-border-strong:  #B8AA8A;
+  --kg-border:         #C7C3D4;
+  --kg-border-soft:    #D7D4E3;
+  --kg-border-strong:  #A4A0B5;
 
   /* =============================================
      Text — 墨 (sumi)
-     Warm near-black on washi; three mute levels.
+     藤みを帯びた near-black; three mute levels.
+     fg-3 (meta) は surface / canvas / surface-alt の 3 面すべてで
+     WCAG AA を満たす（5.75 / 5.04 / 4.59）。
      ============================================= */
-  --kg-fg:         #1E1B13;  /* primary ink */
-  --kg-fg-2:       #3A342A;  /* secondary text */
-  --kg-fg-3:       #7A6E5A;  /* meta / labels */
-  --kg-fg-muted:   #A99C82;  /* placeholders / disabled */
-  --kg-fg-on-brand: #FBF7ED; /* text on brand fill */
+  --kg-fg:         #1C1A21;  /* primary ink */
+  --kg-fg-2:       #35333D;  /* secondary text */
+  --kg-fg-3:       #625F6E;  /* meta / labels */
+  --kg-fg-muted:   #9995A7;  /* placeholders / disabled */
+  --kg-fg-on-brand: #F7F5FE; /* text on brand fill */
 
   /* =============================================
-     Semantic — 朱と藍で意味を作る
-     参加 = 藍 (success),  不参加・締切 = 朱 (danger/warn)
-     級・補足 = 砂 (info),   下書き等 = 砂 (neutral)
+     Semantic — 藤・朱・山吹で意味を作る
+     参加 = 藤 (success),   不参加 = 朱 (danger)
+     締切・注意 = 山吹 (warn),  級・補足 = 藤鼠 (info / neutral)
      ============================================= */
-  --kg-success:     #2B4E8C;
-  --kg-success-bg:  #E6EDF7;
-  --kg-success-fg:  #1E3A6B;
+  --kg-success:     #534286;
+  --kg-success-bg:  #E0D7FD;
+  --kg-success-fg:  #3E3067;
 
   --kg-danger:      #B33C2D;
-  --kg-danger-bg:   #F7E6E2;
+  --kg-danger-bg:   #F4D5CF;
   --kg-danger-fg:   #8F2D20;
 
-  --kg-info-bg:     #EAE4D1;
-  --kg-info-fg:     #5B4F33;
+  --kg-info-bg:     #DFDCEA;
+  --kg-info-fg:     #4F4B5F;
 
-  --kg-warn-bg:     #F7E6E2;
-  --kg-warn-fg:     #8F2D20;
+  --kg-warn:        #B17915;
+  --kg-warn-bg:     #F5DDB8;
+  --kg-warn-fg:     #785214;
 
-  --kg-neutral-bg:  #EBE3CE;
-  --kg-neutral-fg:  #5B4F33;
+  --kg-neutral-bg:  #DCDAE2;
+  --kg-neutral-fg:  #4F4B5F;
 
   /* =============================================
      Banners (use the semantic pairs above)
@@ -94,10 +104,10 @@
   /* =============================================
      Canonical status-pill pairs
      Keep the Japanese labels anchored to colour:
-       公開 / 公認 / 参加   → success (藍)
+       公開 / 公認 / 参加   → success (藤)
        中止 / 不参加 / error → danger  (朱)
-       下書き / 非公認 / その他 → neutral (砂)
-       練習 / 級          → info    (砂・深め)
+       下書き / 非公認 / その他 → neutral (藤鼠)
+       練習 / 級          → info    (藤鼠・深め)
        会議 / 懇親会 / 終了   → neutral variants
      ============================================= */
   --kg-pill-success-bg: var(--kg-success-bg); --kg-pill-success-fg: var(--kg-success-fg);
@@ -142,7 +152,7 @@
   --kg-space-8:  2rem;
 
   /* =============================================
-     Radii — restrained; washi UI reads calmer with small radii
+     Radii — restrained; the UI reads calmer with small radii
      ============================================= */
   --kg-radius-xs:   3px;
   --kg-radius-sm:   5px;
@@ -152,12 +162,16 @@
   --kg-radius-full: 9999px; /* pills, grade chips */
 
   /* =============================================
-     Shadows — 暖色系 (warm-tinted) to match washi
+     Shadows — 藤みの影 (violet-tinted)
+     3 段の高度。段1 = Card、段2 = ボトムナビ（上向き）、段3 = シート。
+     2 層で書くのは意図的で、接地の鋭い影と環境光の柔らかい影を重ねて
+     初めて「紙」に見える（1 層だと「にじみ」になる）。
+     alpha は旧配色より引き上げてある — canvas が暗くなった分、影が地を
+     暗くできる余地が減るため。
      ============================================= */
-  --kg-shadow-sm:  0 1px 2px rgba(60,45,20,0.06);
-  --kg-shadow-md:  0 4px 12px rgba(60,45,20,0.10);
-  --kg-shadow-lg:  0 10px 24px rgba(60,45,20,0.14);
-  --kg-shadow-fab: 0 6px 16px rgba(60,45,20,0.18);
+  --kg-shadow-sm:  0 1px 2px rgba(45,38,70,0.10), 0 3px 8px rgba(45,38,70,0.07);
+  --kg-shadow-nav: 0 -1px 3px rgba(45,38,70,0.06), 0 -4px 14px rgba(45,38,70,0.08);
+  --kg-shadow-lg:  0 8px 28px rgba(45,38,70,0.20), 0 2px 6px rgba(45,38,70,0.10);
 
   /* =============================================
      Motion
@@ -252,7 +266,7 @@ body.kg {
 .kg-card--detail  { padding: var(--kg-space-6); }
 .kg-card--sheet   { padding: var(--kg-space-8); box-shadow: var(--kg-shadow-lg); }
 .kg-card--hover   { transition: var(--kg-transition-shadow); }
-.kg-card--hover:hover { box-shadow: var(--kg-shadow-md); }
+.kg-card--hover:hover { box-shadow: var(--kg-shadow-lg); }
 
 /* Buttons */
 .kg-btn {

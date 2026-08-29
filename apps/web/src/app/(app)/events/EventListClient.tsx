@@ -106,8 +106,8 @@ export function EventListClient({
             )}
           >
             {/* つまみは意図的に純白のまま。OFF 時のトラックが bg-neutral-bg
-                (#ebe3ce) なので、bg-surface (#fbf7ed) だとコントラストが
-                足りずつまみの位置が読み取れない。 */}
+                (#dcdae2) なので、bg-surface (#f7f5fe) だとコントラストが
+                足りずつまみの位置が読み取れない（白 1.38:1 に対し 1.28:1）。 */}
             <span
               className={cn(
                 'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
