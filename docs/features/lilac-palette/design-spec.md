@@ -181,17 +181,22 @@ grep -rnE '(bg|text|border|ring|fill|stroke)-warn([^-a-zA-Z0-9]|$)' --include=*.
 
 ### 3.3 4 段の高度
 
-段 2 は**1 つの段に上下 2 方向のバリアントを持つ**（別の段ではない）。トークン名は下記で確定させる — 決めずに実装へ渡すと即興で命名される。
-
 | 段 | 対象 | トークン | 影 |
 |---|---|---|---|
 | 0 | canvas（ページ背景） | — | — |
 | 1 | **Card・警告ボックス** | `--shadow-sm` | `0 1px 2px rgba(45,38,70,.10), 0 3px 8px rgba(45,38,70,.07)` |
-| 2 | sticky ヘッダ（下向き） | `--shadow-md` | `0 1px 3px rgba(45,38,70,.07), 0 4px 14px rgba(45,38,70,.09)` |
-| 2 | ボトムナビ（上向き） | `--shadow-md-up` | `0 -1px 3px rgba(45,38,70,.06), 0 -4px 14px rgba(45,38,70,.08)` |
+| 2 | ボトムナビ（上向き） | `--shadow-nav` | `0 -1px 3px rgba(45,38,70,.06), 0 -4px 14px rgba(45,38,70,.08)` |
 | 3 | ボトムシート・モーダル | `--shadow-lg` | `0 8px 28px rgba(45,38,70,.20), 0 2px 6px rgba(45,38,70,.10)` |
 
-`--shadow-md-up` は新規トークン。Tailwind v4 の `@theme` では `--shadow-*` が `shadow-md-up` ユーティリティを生成する。
+`--shadow-nav` は新規トークン。Tailwind v4 の `@theme` では `--shadow-*` が `shadow-nav` ユーティリティを生成する。
+
+### 段 2 の「下向き」を作らない理由（実装時に判明した実態を反映）
+
+当初は sticky ヘッダ用に段 2 の下向き（`--shadow-md`）を置く想定だったが、**シェルに sticky ヘッダは存在しない**。`MobileShell` の子は `<main>` と `<nav>` の 2 つだけで、上端の AppBar は nav-settings-hub で廃止済み。
+
+一方 `sticky top-0` を持つ要素は**ページ側に 10 箇所実在する**（`/mail` の検索バー、`EventListClient` の月見出し、`EventDetailHeader` / `GroupDetailHeader`、統計のセクションタブ、ランキングのタブ、`SensekiTimeline`、添付ビューアのヘッダ）。これらは z-index の事情がそれぞれ異なり、一律に影を当てるのは PR #529（`relative` だけではスタッキングコンテキストを作らない）級のリスクがある。
+
+したがって **`--shadow-md` は削除する**（現行は定義済み・使用 0 回）。未使用トークンを再定義して残すのは `text-ink-1` と同じ silent rot の再生産にあたる。sticky 要素の立体化は**別タスク**とし、本件の Non-goals に含める。
 
 `Card` の枠線は `border` → `border-soft` に落とす。全強度の枠線と影を併用すると「枠付きの箱に汚れが付いた」ように見えるため。
 
@@ -200,7 +205,8 @@ grep -rnE '(bg|text|border|ring|fill|stroke)-warn([^-a-zA-Z0-9]|$)' --include=*.
 | 項目 | 現状 | 対応 |
 |---|---|---|
 | `--kg-shadow-*` ミラー 4 本 | 使用 **0 回** | 削除 |
-| `shadow-md` / `shadow-fab` | 定義済み・使用 **0 回** | 段 2 へ結線、`shadow-fab` は用途がなければ削除 |
+| `shadow-md` | 定義済み・使用 **0 回** | **削除**（§3.3 のとおり適用先が実在しない） |
+| `shadow-fab` | 定義済み・使用 **0 回**（FAB が存在しない） | **削除** |
 | `shadow-sm` 14 箇所 | 管理画面のカードが個別に付与 | `Card` へ集約すると不要になる |
 | `shadow-lg` 8 箇所 | シート・モーダル・認証カード | 段 3 として再定義（**見た目が変わる**） |
 
@@ -292,5 +298,6 @@ background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/s
 - タイポグラフィ・角丸・余白の変更
 - `Card` の `rounded-[10px]` ハードコード（`--radius-lg: 8px` がありながら使っていない）の是正 — 既存の問題であり本件のスコープ外
 - `accent` と `danger` の hex 共有の解消 — 意図的に維持
+- **ページ側の `sticky top-0` 要素 10 箇所への段 2 影の付与** — z-index の事情が箇所ごとに異なり、一律適用は PR #529 級のリスク（§3.3 参照）。別タスクとする
 - チャートへの系列色の追加
 - 個別画面のレイアウト変更

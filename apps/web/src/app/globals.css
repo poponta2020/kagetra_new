@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
 /* ============================================================
-   Kagetra Design System — 和紙 × 藍墨 (washi × sumi-indigo)
+   Kagetra Design System — 藤 × 墨 (fuji-violet × sumi)
    Source: docs/design/design.md · docs/design/colors_and_type.css
+
+   アプリ名「ライラック」に合わせた配色。ただし西洋の lilac
+   (OKLCH 色相 326° = 赤紫) ではなく、和の藤色 290° / 菫色 297° /
+   紫苑 295° として読む。軸は色相 295°。百人一首という題材に対して
+   古典的なトーンを当てるという設計方針は、和紙 × 藍墨から変わって
+   いない — 色相を茶系から藤系へ移しただけである。
+
+   全トークンは OKLCH で導出し、全ペアのコントラストを実測済み
+   (WCAG AA 未達 0 件)。詳細は docs/features/lilac-palette/design-spec.md。
    ============================================================ */
 
 /* ---------- Webfonts ----------
@@ -15,55 +24,78 @@
 
 /* ---------- Tailwind v4 @theme (maps tokens to utility classes) ---------- */
 @theme {
-  /* Brand 藍 / Accent 朱 / LINE green (auth only) */
-  --color-brand: #2b4e8c;
-  --color-brand-hover: #213c6d;
-  --color-brand-bg: #e6edf7;
-  --color-brand-fg: #1e3a6b;
+  /* Brand 藤 / Accent 朱 / LINE green (auth only)
+     brand は旧・藍 (#2b4e8c) の OKLCH L と C をそのまま保ち、色相だけ
+     261° → 293° へ回して作った。明度と彩度が同じなのでコントラスト比が
+     ほぼ完全に維持される。 */
+  --color-brand: #534286;
+  --color-brand-hover: #402f6e;
+  --color-brand-bg: #e0d7fd;
+  --color-brand-fg: #3e3067;
 
   --color-accent: #b33c2d;
-  --color-accent-bg: #f7e6e2;
+  --color-accent-bg: #f4d5cf;
   --color-accent-fg: #8f2d20;
 
   --color-line: #06c755;
   --color-line-hover: #05a648;
 
-  /* Surfaces 和紙 */
-  --color-canvas: #f4efe3;
-  --color-surface: #fbf7ed;
-  --color-surface-alt: #f0eadc;
+  /* Surfaces 藤鼠 (fuji-nezu)
+     surface → canvas → surface-alt の明度差を意図的に広げてある。
+     旧配色は ΔL 0.024 / 0.015 でカードが背景から浮かず、これが
+     「のっぺりしている」の機械的な原因だった。 */
+  --color-canvas: #e8e6f2; /* L 0.930 */
+  --color-surface: #f7f5fe; /* L 0.975 — canvas との ΔL 0.045 */
+  --color-surface-alt: #dedcea; /* L 0.900 — canvas との ΔL 0.030 */
 
-  /* Borders 生成 */
-  --color-border-soft: #e6ddc4;
-  --color-border: #d8cdb3;
-  --color-border-strong: #b8aa8a;
+  /* Borders */
+  --color-border-soft: #d7d4e3;
+  --color-border: #c7c3d4;
+  --color-border-strong: #a4a0b5;
 
-  /* Ink 墨
-     コントラスト上の制約（本文サイズ = WCAG AA 4.5:1 基準）:
-       ink-meta on surface     4.67:1  OK
-       ink-meta on surface-alt 4.16:1  NG → surface-alt の上では neutral-fg (6.71:1) を使う
-       ink-meta on canvas      4.35:1  NG → 同上
-       ink-muted は本文には使わない（surface 上で 2.53:1）。退会行など
-       「読めなくてよい」装飾的に落とす用途に限る。 */
-  --color-ink: #1e1b13;
-  --color-ink-2: #3a342a;
-  --color-ink-meta: #7a6e5a;
-  --color-ink-muted: #a99c82;
-  --color-ink-on-brand: #fbf7ed;
+  /* Ink 墨（藤みを帯びた墨）
+     コントラスト実測（本文サイズ = WCAG AA 4.5:1 基準）:
+       ink-meta on surface     5.75:1  OK
+       ink-meta on canvas      5.04:1  OK
+       ink-meta on surface-alt 4.59:1  OK
+     旧配色では canvas / surface-alt の上で AA 未達（4.35 / 4.16）だった
+     ため「surface-alt の上では neutral-fg を使う」という制約があったが、
+     ink-meta の明度を下げて 3 面すべてで AA を満たしたので**その制約は
+     解消している**（既存の使い分けを変える必要はない。緩む方向のみ）。
 
-  /* Semantic pairs */
-  --color-success: #2b4e8c;
-  --color-success-bg: #e6edf7;
-  --color-success-fg: #1e3a6b;
+     ink-muted は本文には使わない（surface 上で 2.70:1）。退会行など
+     「読めなくてよい」装飾的に落とす用途に限る。 */
+  --color-ink: #1c1a21;
+  --color-ink-2: #35333d;
+  --color-ink-meta: #625f6e;
+  --color-ink-muted: #9995a7;
+  --color-ink-on-brand: #f7f5fe;
+
+  /* Semantic pairs
+     success は brand と同値のまま（参加 = 藤色）。danger は accent と
+     同値のまま。**warn は danger から分離した**（琥珀）— 旧配色では
+     warn-bg/fg が danger-bg/fg と完全に同じ hex で、「締切まで3日」も
+     「送信エラー」も同じ赤で出ていた。これは情報設計の誤りだった。
+
+     警告色の琥珀は色相 75〜78°。これは今回捨てた和紙ベージュ (88°) と
+     ほぼ同じ系統で、和紙の記憶が差し色として残る。 */
+  --color-success: #534286;
+  --color-success-bg: #e0d7fd;
+  --color-success-fg: #3e3067;
   --color-danger: #b33c2d;
-  --color-danger-bg: #f7e6e2;
+  --color-danger-bg: #f4d5cf;
   --color-danger-fg: #8f2d20;
-  --color-info-bg: #eae4d1;
-  --color-info-fg: #5b4f33;
-  --color-warn-bg: #f7e6e2;
-  --color-warn-fg: #8f2d20;
-  --color-neutral-bg: #ebe3ce;
-  --color-neutral-fg: #5b4f33;
+  --color-info-bg: #dfdcea;
+  --color-info-fg: #4f4b5f;
+  --color-warn: #b17915;
+  --color-warn-bg: #f5ddb8;
+  --color-warn-fg: #785214;
+  /* neutral-bg は彩度を 0.011 と無彩色寄りに落としてある。brand-bg
+     (彩度 0.052) と色相が 2° しか違わないため、彩度で弁別させている。
+     brand-bg は「ブランドの淡色面」と「参加ピルの地」を兼ねているので、
+     この 2 つは必ず対で調整すること（片方だけ動かすと両方壊れる）。 */
+  --color-neutral-bg: #dcdae2;
+  --color-neutral-fg: #4f4b5f;
 
   /* Fonts (next/font variables injected by layout.tsx) */
   --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system,
@@ -79,11 +111,30 @@
   --radius-lg: 8px;
   --radius-xl: 12px;
 
-  /* Shadows 暖色系 (warm-tinted to match washi) */
-  --shadow-sm: 0 1px 2px rgba(60, 45, 20, 0.06);
-  --shadow-md: 0 4px 12px rgba(60, 45, 20, 0.1);
-  --shadow-lg: 0 10px 24px rgba(60, 45, 20, 0.14);
-  --shadow-fab: 0 6px 16px rgba(60, 45, 20, 0.18);
+  /* Shadows 藤みの影 (violet-tinted)
+     3 段の高度 (elevation) を表す。段の割り当て:
+       段 0  canvas（ページ背景）        — 影なし
+       段 1  Card・警告ボックス          — --shadow-sm
+       段 2  ボトムナビ（上向き）        — --shadow-nav
+       段 3  ボトムシート・モーダル      — --shadow-lg
+
+     2 層で書いているのは意図的。接地を示す小さく鋭い影と、環境光を示す
+     広く柔らかい影を重ねて初めて「紙」に見える。1 層だと「にじみ」に
+     見える（旧 --shadow-sm は 1 層 × alpha .06 で事実上見えていなかった）。
+
+     alpha は旧配色から**引き上げてある**。canvas が L 0.953 → 0.930 と
+     暗くなったぶん、影が地を暗くできる余地が減るため、同じ alpha を
+     持ち越すと以前より見えなくなる。
+
+     段 2 の「下向き」は作っていない。シェルに sticky ヘッダが無いため
+     （AppBar は nav-settings-hub で廃止済み）。ページ側の `sticky top-0`
+     要素 10 箇所は z-index の事情がそれぞれ異なるので、一律に影を当てず
+     別タスクとした。旧 --shadow-md / --shadow-fab は使用 0 回だったので
+     削除している（未使用トークンを残すと text-ink-1 と同じ rot になる）。 */
+  --shadow-sm: 0 1px 2px rgba(45, 38, 70, 0.1), 0 3px 8px rgba(45, 38, 70, 0.07);
+  --shadow-nav: 0 -1px 3px rgba(45, 38, 70, 0.06),
+    0 -4px 14px rgba(45, 38, 70, 0.08);
+  --shadow-lg: 0 8px 28px rgba(45, 38, 70, 0.2), 0 2px 6px rgba(45, 38, 70, 0.1);
 }
 
 /* ---------- Design-system CSS variables (kg-* namespace) ----------
@@ -93,57 +144,68 @@
      - Pill colour pairs consumed by shared primitives
 */
 :root {
-  /* Brand 藍 (sumi-indigo) */
-  --kg-brand: #2b4e8c;
-  --kg-brand-hover: #213c6d;
-  --kg-brand-bg: #e6edf7;
-  --kg-brand-fg: #1e3a6b;
+  /* Brand 藤 (fuji-violet) */
+  --kg-brand: #534286;
+  --kg-brand-hover: #402f6e;
+  --kg-brand-bg: #e0d7fd;
+  --kg-brand-fg: #3e3067;
 
   /* Accent 朱 (vermillion / shu-iro) */
   --kg-accent: #b33c2d;
-  --kg-accent-bg: #f7e6e2;
+  --kg-accent-bg: #f4d5cf;
   --kg-accent-fg: #8f2d20;
 
   /* LINE auth (the only place LINE green is used) */
   --kg-line-green: #06c755;
   --kg-line-green-hv: #05a648;
 
-  /* Surfaces 和紙 (washi) */
-  --kg-bg: #f4efe3;
-  --kg-surface: #fbf7ed;
-  --kg-surface-alt: #f0eadc;
+  /* Surfaces 藤鼠 (fuji-nezu) */
+  --kg-bg: #e8e6f2;
+  --kg-surface: #f7f5fe;
+  --kg-surface-alt: #dedcea;
 
-  /* Borders 生成系 (kinari / unbleached) */
-  --kg-border: #d8cdb3;
-  --kg-border-soft: #e6ddc4;
-  --kg-border-strong: #b8aa8a;
+  /* Borders */
+  --kg-border: #c7c3d4;
+  --kg-border-soft: #d7d4e3;
+  --kg-border-strong: #a4a0b5;
 
   /* Ink 墨 (sumi) */
-  --kg-fg: #1e1b13;
-  --kg-fg-2: #3a342a;
-  --kg-fg-3: #7a6e5a;
-  --kg-fg-muted: #a99c82;
-  --kg-fg-on-brand: #fbf7ed;
+  --kg-fg: #1c1a21;
+  --kg-fg-2: #35333d;
+  --kg-fg-3: #625f6e;
+  --kg-fg-muted: #9995a7;
+  --kg-fg-on-brand: #f7f5fe;
 
-  /* Semantic — 参加=藍, 不参加=朱, 補足=砂 */
-  --kg-success: #2b4e8c;
-  --kg-success-bg: #e6edf7;
-  --kg-success-fg: #1e3a6b;
+  /* Semantic — 参加=藤, 不参加=朱, 注意=琥珀, 補足=藤鼠 */
+  --kg-success: #534286;
+  --kg-success-bg: #e0d7fd;
+  --kg-success-fg: #3e3067;
   --kg-danger: #b33c2d;
-  --kg-danger-bg: #f7e6e2;
+  --kg-danger-bg: #f4d5cf;
   --kg-danger-fg: #8f2d20;
-  --kg-info-bg: #eae4d1;
-  --kg-info-fg: #5b4f33;
-  --kg-warn-bg: #f7e6e2;
-  --kg-warn-fg: #8f2d20;
-  --kg-neutral-bg: #ebe3ce;
-  --kg-neutral-fg: #5b4f33;
+  --kg-info-bg: #dfdcea;
+  --kg-info-fg: #4f4b5f;
+  --kg-warn: #b17915;
+  --kg-warn-bg: #f5ddb8;
+  --kg-warn-fg: #785214;
+  --kg-neutral-bg: #dcdae2;
+  --kg-neutral-fg: #4f4b5f;
 
   /* Attendance bar — 不参加セグメント。danger 系より淡い専用の朱で、
-     細い積み上げバーの中でも 参加(藍) と潰れずに読み分けられる。
+     細い積み上げバーの中でも 参加(藤) と潰れずに読み分けられる
+     （藤 #534286 との比 4.82:1・色相差 274°）。
      Tailwind ユーティリティは不要（inline style から var() で参照）。
      消費元: components/ui/attendance-counts.tsx (variant="bar") */
   --kg-nonattend: #f3b4b4;
+
+  /* 背景テクスチャ — 和紙の粒子感を色ではなくテクスチャで継承する。
+     SVG の feTurbulence を data URI で埋め込み、タイル繰り返しで敷く。
+     `stitchTiles='stitch'` はタイル境界の継ぎ目を消すために必須。
+
+     消費元は body と .mobile-shell-h の 2 箇所（下記 Baseline 参照）。
+     実際に canvas を塗っているのは MobileShell のルート div なので、
+     見えているのはほぼ .mobile-shell-h 側である。 */
+  --kg-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
 
   /* Status pill pairs */
   --kg-pill-success-bg: var(--kg-success-bg);
@@ -188,11 +250,11 @@
   --kg-radius-xl: 12px;
   --kg-radius-full: 9999px;
 
-  /* Shadows 暖色系 */
-  --kg-shadow-sm: 0 1px 2px rgba(60, 45, 20, 0.06);
-  --kg-shadow-md: 0 4px 12px rgba(60, 45, 20, 0.1);
-  --kg-shadow-lg: 0 10px 24px rgba(60, 45, 20, 0.14);
-  --kg-shadow-fab: 0 6px 16px rgba(60, 45, 20, 0.18);
+  /* Shadows は --kg-* ミラーを持たない。
+     このミラーは inline style から var() で参照する用だが、影を inline
+     style で当てる箇所は存在せず、旧 --kg-shadow-* 4 本は使用 0 回の
+     まま放置されていた。影は @theme 側の --shadow-* から Tailwind の
+     shadow-* ユーティリティ経由でのみ使う。 */
 }
 
 /* ---------- Baseline ---------- */
@@ -208,8 +270,13 @@ body {
   overscroll-behavior: none;
 }
 
+/* body にもテクスチャを置くのは、オーバースクロールが抑制される端の領域や
+   シェルを使わないページ（認証・self-identify）で地が露出するため。
+   `background` の一括指定だと background-image が上書きされるので、
+   background-color と background-image を分けて書いている。 */
 body {
-  background: var(--kg-bg);
+  background-color: var(--kg-bg);
+  background-image: var(--kg-texture);
   color: var(--kg-fg);
   font-family: var(--kg-font-sans);
   font-size: var(--kg-text-base);
@@ -242,6 +309,14 @@ body {
   height: 100vh;
   height: 100dvh;
   height: 100svh;
+
+  /* 背景テクスチャ。canvas の背景色は Tailwind の `bg-canvas`
+     （MobileShell のルート div）が塗るので、ここでは image だけを足す
+     （別プロパティなので競合しない）。
+
+     テクスチャがこの要素に付き、スクロールするのは内側の <main> なので、
+     テクスチャは固定されコンテンツだけが上を流れる。紙が動かない挙動。 */
+  background-image: var(--kg-texture);
 }
 
 /* Bottom-sheet / modal overlay height. Same svh-last cascade as
