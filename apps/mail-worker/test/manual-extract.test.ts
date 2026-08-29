@@ -151,17 +151,17 @@ describe('runManualExtract (mail-inbox-mailer task2)', () => {
   // 強制終端ロジック (ai_failed へ倒す) を追加したので、その動作を verify する。
   //
   // 3.0.0 で AI の noise 判定は無くなったため、到達可能な残り 2 経路のうち
-  // oversize_skipped で検証する（requirements §6: このガードは Server Action
-  // 直叩き・多重タブ向けの防御として意図的に残す）。
+  // oversize_skipped で検証する（requirements §6: Anthropic の 32MB 予算を
+  // 超える選択は送っても 413 で必ず失敗するので、送る前に弾く）。
   it('AI が oversize_skipped の場合、事前作成 ai_processing draft を ai_failed に強制終端する', async () => {
     const mailId = await seedMailMessage({})
-    // 既定上限 8000KB を超える PDF を 1 件ぶら下げる。コストガードは sizeBytes
-    // だけを見るので bytea の中身は 1 バイトで足りる。
+    // 合計サイズ予算（生バイトで約 23MB）を 1 件で超える PDF をぶら下げる。
+    // ガードは sizeBytes だけを見るので bytea の中身は 1 バイトで足りる。
     await testDb.insert(mailAttachments).values({
       mailMessageId: mailId,
       filename: '巨大要綱.pdf',
       contentType: 'application/pdf',
-      sizeBytes: 9_000_000,
+      sizeBytes: 25_000_000,
       data: Buffer.from([0x25]),
       extractedText: null,
       extractionStatus: 'pending',

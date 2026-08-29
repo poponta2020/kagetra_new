@@ -1,7 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { mailMessages, tournamentDrafts } from '@kagetra/shared/schema'
 import type { Db } from '../db.js'
-import { loadCostGuardConfig } from '../config.js'
 import {
   ANTHROPIC_REQUEST_LIMIT_BYTES,
   ATTACHMENT_TOTAL_LIMIT_BYTES,
@@ -76,12 +75,17 @@ export type ClassifyOutcome =
   /** Pre-filter (PR1) already classified the mail as noise; skip the LLM. */
   | { kind: 'skipped_noise' }
   /**
-   * Cost guard tripped: at least one PDF attachment exceeded
-   * `MAIL_WORKER_PDF_SIZE_LIMIT_KB` and the AI call was suppressed before
-   * sending. `filename` / `sizeBytes` describe the first offending attachment
-   * so the pipeline log and admin UI can name it; `limitBytes` echoes the
-   * configured threshold so a stale dev DB row can be audited even after the
-   * env var was raised.
+   * Request-size guard tripped: the selected PDFs (or the assembled request as
+   * a whole) would exceed Anthropic's 32MB per-request limit, so the AI call
+   * was suppressed before sending — a request over that limit fails with 413
+   * `request_too_large` every time. `filename` / `sizeBytes` describe what
+   * blew the budget so the pipeline log and admin UI can name it;
+   * `limitBytes` echoes the applicable ceiling.
+   *
+   * The per-file `MAIL_WORKER_PDF_SIZE_LIMIT_KB` guard used to produce this
+   * outcome too. It no longer does: that threshold is a cost hint, not a
+   * physical limit, so the picker dialog now warns and lets the admin proceed
+   * instead of refusing the file.
    */
   | {
       kind: 'oversize_skipped'
@@ -186,36 +190,20 @@ export async function classifyMail(
           opts.selectedAttachmentIds!.includes(att.id),
         )
 
-  // PDF cost guard. Runs after the pre-filter short-circuit (pre-filter noise
-  // never reaches the AI call regardless of size) but before building the
-  // Anthropic input, and against `attachmentsInScope` rather than every
-  // attachment on the mail — a selection UI blocks checking an oversized PDF
-  // in the first place, so a legitimate selection that stays within the
-  // limit must not be skipped just because an unselected sibling attachment
-  // is oversized (AC-36). We check `sizeBytes` from `mail_attachments` rather
-  // than re-measuring `att.data`, because the bytea round-trip can hand us a
-  // postgres hex-escape string (see `bytesFromBytea` doc) whose `.length`
-  // would over-report by ~2x. `sizeBytes` is populated upstream from the
-  // original parsed buffer length and is the canonical source of truth.
+  // 1件ごとの PDF サイズでは**もう止めない**。`MAIL_WORKER_PDF_SIZE_LIMIT_KB` は
+  // かつてここで `oversize_skipped` を返していたが、値の根拠はコストの目安だけで
+  // あり、物理的に送れないサイズではなかった。管理者が中身を見たうえで「これを
+  // AI に読ませたい」と選んだ PDF を、コストの目安を理由に**送信不能**にするのは
+  // 過剰だった（大きめの要綱 PDF が読めない、という実害が出た）。
   //
-  // Limit of 0 disables the guard — used by tests that exercise downstream
-  // behaviour without crafting an oversized attachment.
-  const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
-  if (limitKb > 0) {
-    const limitBytes = limitKb * 1024
-    for (const att of attachmentsInScope) {
-      if (att.contentType === 'application/pdf' && att.sizeBytes > limitBytes) {
-        return {
-          kind: 'oversize_skipped',
-          filename: att.filename,
-          sizeBytes: att.sizeBytes,
-          limitBytes,
-        }
-      }
-    }
-  }
-
-  // 合計サイズガード（要件 §6）。1件ごとの上限を通っても、複数選べば合計は
+  // 現在この env は「選択ダイアログが注意書きと確認ステップを出すしきい値」であり、
+  // 管理者が確認して続行すればそのまま AI に渡る。抽出は cron 自動ではなく管理者の
+  // 明示操作なので、暴走的な課金にはならない。
+  //
+  // 送信を止める判定として残るのは、下の**合計ガード**（Anthropic の 32MB という
+  // 物理上限に由来し、超えれば 413 で必ず失敗する）だけ。
+  //
+  // 合計サイズガード（要件 §6）。1件ごとのサイズが小さくても、複数選べば合計は
   // Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
   // 超えたリクエストは 413 で確実に失敗するので、送る前に弾く。
   //

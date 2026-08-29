@@ -29,11 +29,11 @@ const wordAttachment: AIExtractAttachment = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   sizeBytes: 50 * 1024, // 50KB
 }
-const oversizePdfAttachment: AIExtractAttachment = {
+const largePdfAttachment: AIExtractAttachment = {
   id: 3,
   filename: '巨大要綱.pdf',
   contentType: 'application/pdf',
-  sizeBytes: 9000 * 1024, // 9000KB > 8000KB 上限
+  sizeBytes: 9000 * 1024, // 9000KB > 8000KB（注意の目安）
 }
 
 function openDialog(props: Partial<React.ComponentProps<typeof AIExtractConfirmDialog>> = {}) {
@@ -67,27 +67,77 @@ describe('AIExtractConfirmDialog — 添付選択', () => {
     expect(screen.getByText('Word ・ 50KB')).toBeTruthy()
   })
 
-  // AC-27: サイズ上限超過の添付はチェック不可＋理由表示。
-  it('サイズ上限超過の添付はチェックできず、理由を表示する', () => {
+  // AC-27（改訂）: 目安サイズを超える添付も**選べる**。止めるのではなく、
+  // 注意書きを出して実行前に確認を取る。
+  it('サイズが大きめの添付もチェックでき、注意書きを表示する', () => {
     openDialog({
-      attachments: [pdfAttachment, oversizePdfAttachment],
+      attachments: [pdfAttachment, largePdfAttachment],
       pdfSizeLimitKb: 8000,
     })
 
     const okCheckbox = screen.getByRole('checkbox', {
       name: pdfAttachment.filename,
     }) as HTMLInputElement
-    const oversizeCheckbox = screen.getByRole('checkbox', {
-      name: oversizePdfAttachment.filename,
+    const largeCheckbox = screen.getByRole('checkbox', {
+      name: largePdfAttachment.filename,
     }) as HTMLInputElement
 
     expect(okCheckbox.disabled).toBe(false)
-    expect(oversizeCheckbox.disabled).toBe(true)
-    expect(screen.getByText('サイズ上限超過のため送信できません')).toBeTruthy()
+    expect(largeCheckbox.disabled).toBe(false)
+    expect(
+      screen.getByText('サイズが大きめです（送信できますが、確認が入ります）'),
+    ).toBeTruthy()
 
-    // 上限超過チェックボックスをクリックしても選択できない（disabled のまま）。
-    fireEvent.click(oversizeCheckbox)
-    expect(oversizeCheckbox.checked).toBe(false)
+    // 目安を超えていても選択できる。
+    fireEvent.click(largeCheckbox)
+    expect(largeCheckbox.checked).toBe(true)
+  })
+
+  // 大きめの PDF を含む選択は、実行前に確認を 1 段挟んでから送信する。
+  it('サイズが大きめの添付を選んで実行すると確認を挟み、「はい」で送信する', async () => {
+    openDialog({
+      attachments: [pdfAttachment, largePdfAttachment],
+      pdfSizeLimitKb: 8000,
+    })
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: largePdfAttachment.filename }),
+    )
+    fireEvent.click(screen.getByText('実行'))
+
+    expect(screen.getByText('サイズの大きい添付があります')).toBeTruthy()
+    // 確認に出るのは大きい添付の名前だけ。
+    expect(screen.getByText(largePdfAttachment.filename)).toBeTruthy()
+    expect(triggerExtractDraftMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('はい'))
+
+    await waitFor(() => {
+      expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [
+        largePdfAttachment.id,
+      ])
+    })
+  })
+
+  it('サイズ確認で「いいえ」を押すと添付選択画面に戻る', () => {
+    openDialog({
+      attachments: [pdfAttachment, largePdfAttachment],
+      pdfSizeLimitKb: 8000,
+    })
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: largePdfAttachment.filename }),
+    )
+    fireEvent.click(screen.getByText('実行'))
+    expect(screen.getByText('サイズの大きい添付があります')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('いいえ'))
+
+    expect(screen.queryByText('サイズの大きい添付があります')).toBeNull()
+    expect(
+      screen.getByRole('checkbox', { name: largePdfAttachment.filename }),
+    ).toBeTruthy()
+    expect(triggerExtractDraftMock).not.toHaveBeenCalled()
   })
 
   // AC-28: 添付が 1 つ以上あるのに全て未チェックのまま実行しようとすると確認が
@@ -188,8 +238,8 @@ describe('AIExtractConfirmDialog — 添付選択', () => {
 
 /**
  * Codex R1 blocker の回帰。
- * - 復元した選択が現在の上限を超えていると、チェックを外せず実行もできない詰みになる
- * - 1件ごとの上限を全て満たしていても、合計は Anthropic の 32MB を超え得る（要件 §6）
+ * - 復元した選択が、サイズを理由に黙って外れてしまわないこと
+ * - 1件ずつは小さくても、合計は Anthropic の 32MB を超え得る（要件 §6）
  */
 describe('AIExtractConfirmDialog — 復元の正規化と合計サイズ', () => {
   beforeEach(() => {
@@ -197,28 +247,34 @@ describe('AIExtractConfirmDialog — 復元の正規化と合計サイズ', () =
     triggerExtractDraftMock.mockResolvedValue({ ok: true, draftId: 1, jobId: 1 })
   })
 
-  it('上限を下げた後に復元しても詰まない（超過分は選択から落として警告する）', () => {
+  it('サイズが大きめの添付でも、前回の選択はそのまま復元される', () => {
     openDialog({
-      attachments: [pdfAttachment, oversizePdfAttachment],
+      attachments: [pdfAttachment, largePdfAttachment],
       pdfSizeLimitKb: 8000,
-      // 前回はもっと上限が高く、巨大要綱も選べていた。
-      initialSelectedAttachmentIds: [pdfAttachment.id, oversizePdfAttachment.id],
+      // 前回、管理者が確認したうえで巨大要綱も選んでいた。
+      initialSelectedAttachmentIds: [pdfAttachment.id, largePdfAttachment.id],
     })
 
     const okBox = screen.getByRole('checkbox', {
       name: pdfAttachment.filename,
     }) as HTMLInputElement
-    const overBox = screen.getByRole('checkbox', {
-      name: oversizePdfAttachment.filename,
+    const largeBox = screen.getByRole('checkbox', {
+      name: largePdfAttachment.filename,
     }) as HTMLInputElement
 
     expect(okBox.checked).toBe(true)
-    // 超過分は選択から外れているので、実行がサーバーに拒否され続ける詰みにならない。
-    expect(overBox.checked).toBe(false)
-    expect(screen.getByText(/選択から外しました/)).toBeTruthy()
+    // サイズを理由に黙って外さない（外したければ自分でチェックを外せる）。
+    expect(largeBox.checked).toBe(true)
+    expect(screen.queryByText(/選択から外しました/)).toBeNull()
 
+    // 大きい添付を含むので確認が 1 段入り、そのうえで両方が渡る。
     fireEvent.click(screen.getByText('実行'))
-    expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [pdfAttachment.id])
+    expect(triggerExtractDraftMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('はい'))
+    expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [
+      pdfAttachment.id,
+      largePdfAttachment.id,
+    ])
   })
 
   it('削除された添付 id が復元に混ざっていても落とす', () => {
@@ -235,30 +291,31 @@ describe('AIExtractConfirmDialog — 復元の正規化と合計サイズ', () =
     expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [pdfAttachment.id])
   })
 
-  it('要件§6: 各々は上限内でも合計超過なら実行できない', () => {
-    // 各 7.5MB < 8000KB(=7.81MB)。3 件で合計 22.5MB > 20MB。
-    const big = 7.5 * 1024 * 1024
+  it('要件§6: 1件ずつは送れても合計超過なら実行できない', () => {
+    // 各 8.5MB は単体なら「大きめ」の確認だけで送れる。3 件で 25.5MB となり
+    // 合計予算（23.25MiB）を超えるので、こちらは確認では通せない。
+    const big = 8.5 * 1024 * 1024
     const a: AIExtractAttachment = { id: 11, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: big }
     const b: AIExtractAttachment = { id: 12, filename: 'b.pdf', contentType: 'application/pdf', sizeBytes: big }
     const c: AIExtractAttachment = { id: 13, filename: 'c.pdf', contentType: 'application/pdf', sizeBytes: big }
     openDialog({ attachments: [a, b, c], pdfSizeLimitKb: 8000 })
 
-    // 1件ごとの上限は満たすのでチェックできる。
     for (const att of [a, b, c]) {
       fireEvent.click(screen.getByRole('checkbox', { name: att.filename }))
     }
 
-    expect(screen.getByText(/合計が上限/)).toBeTruthy()
+    expect(screen.getByText(/AI が一度に受け取れる上限/)).toBeTruthy()
     const exec = screen.getByText('実行').closest('button') as HTMLButtonElement
     expect(exec.disabled).toBe(true)
 
     fireEvent.click(screen.getByText('実行'))
     expect(triggerExtractDraftMock).not.toHaveBeenCalled()
 
-    // 1 件外せば実行できるようになる。
+    // 1 件外せば合計は収まる。あとは「大きめ」の確認を通せば送れる。
     fireEvent.click(screen.getByRole('checkbox', { name: c.filename }))
-    expect(screen.queryByText(/合計が上限/)).toBeNull()
+    expect(screen.queryByText(/AI が一度に受け取れる上限/)).toBeNull()
     fireEvent.click(screen.getByText('実行'))
+    fireEvent.click(screen.getByText('はい'))
     expect(triggerExtractDraftMock).toHaveBeenCalledWith(10, [a.id, b.id])
   })
 })

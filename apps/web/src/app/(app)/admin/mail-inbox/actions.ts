@@ -74,7 +74,7 @@ import {
   persistOutcome,
 } from '@kagetra/mail-worker/classify/classifier'
 import { AnthropicExtractor } from '@kagetra/mail-worker/classify/llm/anthropic'
-import { loadCostGuardConfig, loadLlmConfig } from '@kagetra/mail-worker/config'
+import { loadLlmConfig } from '@kagetra/mail-worker/config'
 import {
   ATTACHMENT_TOTAL_LIMIT_BYTES,
   exceededAttachmentTotalBytes,
@@ -978,15 +978,20 @@ export async function rejectDraft(draftId: number, formData: FormData) {
  * 「AI に渡す添付」の選択をサーバー側で検証し、正規化した id 配列を返す
  * （mail-ai-extract-refinements §3.2.4 / AC-32）。
  *
- * UI（AIExtractConfirmDialog）は上限超過の添付をチェック不可にするが、**UI を
- * 経由しない直叩き・多重タブ・古いページからの送信は防げない**ので、ここが正。
- * 拒否する2種類:
+ * UI（AIExtractConfirmDialog）でも同じ判定を出すが、**UI を経由しない直叩き・
+ * 多重タブ・古いページからの送信は防げない**ので、ここが正。拒否する2種類:
  *
  *   1. **当該メールに属さない添付 id** — 他メールの添付を AI に読ませられるのは
  *      情報漏洩なので、必ず `mail_message_id` で絞ったクエリで存在確認する
  *      （要件 §6 セキュリティ・権限）。id の集合演算だけで済ませない
- *   2. **サイズ上限超過の PDF** — classifier 側の `oversize_skipped` ガードに
- *      落ちると抽出そのものが行われないため、選択の時点で理由付きで弾く
+ *   2. **合計サイズが Anthropic の 32MB 予算を超える選択** — 送っても 413 で
+ *      確実に失敗し、classifier 側でも `oversize_skipped` になるため、選択の
+ *      時点で理由付きで弾く
+ *
+ * **1件ごとの PDF サイズ（`MAIL_WORKER_PDF_SIZE_LIMIT_KB`）ではもう拒否しない。**
+ * あれはコストの目安であって送信可能性の限界ではなく、管理者が中身を見て選んだ
+ * PDF を送信不能にする理由にはならない。ダイアログが注意書きと確認ステップを
+ * 出し、管理者が続行を選べばそのまま AI へ渡る。
  *
  * 呼び出し側の tx（FOR UPDATE 中）から呼ぶこと。多重起動ガードを弱めないため。
  * `undefined` は「選択 UI を通っていない呼び出し」＝未指定として扱い、`null` を
@@ -1020,20 +1025,7 @@ async function validateAttachmentSelection(
     throw new Error('選択された添付が見つかりません。画面を再読み込みしてください')
   }
 
-  const limitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
-  if (limitKb > 0) {
-    const limitBytes = limitKb * 1024
-    const oversize = rows.find(
-      (r) => r.contentType === 'application/pdf' && r.sizeBytes > limitBytes,
-    )
-    if (oversize) {
-      throw new Error(
-        `サイズ上限を超える添付は AI に渡せません: ${oversize.filename}`,
-      )
-    }
-  }
-
-  // 3. **合計サイズ**（要件 §6）— 1件ごとの上限を通っても、複数選べば合計は
+  // 2. **合計サイズ**（要件 §6）— 1件ずつが小さくても、複数選べば合計は
   //    Anthropic のリクエスト上限 32MB を超え得る（base64 で約 4/3 に膨らむ）。
   //    超えたリクエストは 413 で確実に失敗するので、選択の時点で弾く。
   const totalOver = exceededAttachmentTotalBytes(rows)

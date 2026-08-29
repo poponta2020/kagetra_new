@@ -26,9 +26,10 @@ import { loadLlmConfig } from './config.js'
  *   - `status IN ('ai_done', 'ai_failed', 'archived', 'ai_processing',
  *     'oversize_skipped')` — terminal AI states (done/failed/archived) plus
  *     `ai_processing` to unstick rows whose worker crashed mid-call, plus
- *     `oversize_skipped` so an operator who just raised
- *     `MAIL_WORKER_PDF_SIZE_LIMIT_KB` can sweep up the previously-skipped
- *     mails. The regular pipeline's duplicate path also retries
+ *     `oversize_skipped` so an operator can sweep up mails skipped over the
+ *     32MB request budget once a narrower attachment selection is in place
+ *     (the per-file `MAIL_WORKER_PDF_SIZE_LIMIT_KB` no longer skips anything —
+ *     it only drives the picker's warning). The regular pipeline's duplicate path also retries
  *     `ai_processing` next run, so this is a belt-and-braces escape hatch
  *     for mails that won't be re-fetched (e.g. already deleted from IMAP).
  *     `'pending'` and `'fetched'` rows are owned by the regular pipeline
@@ -188,8 +189,8 @@ an admin are preserved.
       oversize_skipped.
       Default: all five. Combine with --since for narrow re-runs
       (e.g. --status=ai_processing to retry crashed worker rows, or
-      --status=oversize_skipped after raising MAIL_WORKER_PDF_SIZE_LIMIT_KB
-      to sweep up previously-skipped large-PDF mails).
+      --status=oversize_skipped to sweep up mails that blew the 32MB
+      request budget, once fewer attachments are selected).
       Note: --status only filters the AI-touched leg of the selection;
       --include-prefilter-noise still adds (fetched + noise) rows
       independently.

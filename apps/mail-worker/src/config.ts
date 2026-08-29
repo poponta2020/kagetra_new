@@ -77,30 +77,36 @@ const LlmConfigSchema = z.object({
 })
 
 /**
- * Cost guard for the AI classify phase. A 919KB PDF in dev (mail id=125, May
- * 2026) cost USD 0.12 against a pre-deployment estimate of ~USD 0.02 — Sonnet
- * 4.6 charges native PDF document blocks as a fixed token-per-page envelope on
- * top of the base prompt, so attachment size is the strongest pre-call
- * predictor of spend. The guard short-circuits to `oversize_skipped` before
- * the Anthropic call when any PDF exceeds the limit; the operator raises the
- * env var and reextracts when intentionally accepting the cost.
+ * Cost hint for AI PDF ingestion. A 919KB PDF in dev (mail id=125, May 2026)
+ * cost USD 0.12 against a pre-deployment estimate of ~USD 0.02 — Sonnet 4.6
+ * charges native PDF document blocks as a fixed token-per-page envelope on top
+ * of the base prompt, so attachment size is the strongest pre-call predictor
+ * of spend.
  *
  * Default raised 800 → 8000 KB (mail-ai-extract-refinements AC-35). The 800 KB
  * figure came from an era when cron auto-classified every incoming mail, so a
  * single fat PDF was pure waste. Extraction is manual now — an administrator
- * has already decided this mail matters and picks which attachments to send —
- * and real 要綱 PDFs routinely exceed 800 KB, which made the guard reject the
- * very documents it was meant to let through. 8000 KB clears those while still
- * bounding a runaway attachment, and the selection dialog blocks over-limit
- * files before they ever reach the classifier.
+ * has already decided this mail matters and picks which attachments to send.
  *
- * Set to 0 to disable the guard (used by tests that need to assert downstream
+ * **Two different roles, deliberately kept on one env var:**
+ *
+ *   - Mail AI extraction (`classify/classifier.ts` + the picker dialog) — a
+ *     *warning* threshold. Exceeding it shows a caution note on the row and an
+ *     extra confirmation step; the admin can say yes and the PDF goes to the
+ *     AI unchanged. Nothing is refused on size grounds here, because the size
+ *     that actually matters is the 32MB request budget in
+ *     `classify/attachment-budget.ts`, which is enforced separately.
+ *   - Result import (`result-import/run.ts`) — still a hard *block*. That path
+ *     runs unattended, so there is no human present to acknowledge a warning.
+ *
+ * Set to 0 to suppress the warning entirely (and, on the result-import path,
+ * to disable the block — used by tests that need to assert downstream
  * behaviour without crafting an oversized fixture).
  *
  * `z.preprocess` is required because `z.coerce.number()` accepts `''` as 0
  * (review r1 should-fix on PR #31). An operator who writes
- * `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` in .env would otherwise silently disable
- * the guard. We normalise empty strings to undefined so the default kicks in
+ * `MAIL_WORKER_PDF_SIZE_LIMIT_KB=` in .env would otherwise silently turn both
+ * roles off. We normalise empty strings to undefined so the default kicks in
  * instead, matching the "env var unset" semantics.
  */
 const CostGuardConfigSchema = z.object({

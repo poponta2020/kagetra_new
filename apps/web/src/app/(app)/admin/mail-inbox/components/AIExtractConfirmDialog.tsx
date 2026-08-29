@@ -49,8 +49,20 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-/** PDF に対してのみ上限判定する（サーバー側ガードが application/pdf だけを見るため）。 */
-function isOversizePdf(
+/**
+ * 「サイズが大きめの PDF」判定。**送信可否ではなく、注意を促すかどうか**を決める。
+ *
+ * かつてこれは `MAIL_WORKER_PDF_SIZE_LIMIT_KB` を超えた添付を**選択不能**にする
+ * ための判定だった。しきい値の根拠は AI 利用コストの目安でしかなく、物理的に
+ * 送れないサイズではないのに、管理者が中身を見て選んだ PDF を送信不能にして
+ * いた。いまは行の注意書きと実行前の確認ステップを出すだけで、続行すれば
+ * そのまま AI に渡る。送信を止めるのは Anthropic の 32MB 予算だけ
+ * （`exceededAttachmentTotalBytes`）。
+ *
+ * PDF に対してのみ判定するのは、リクエスト本体を占めるのが base64 の document
+ * ブロックだから（サーバー側の合計判定が `application/pdf` だけを見るのとも揃う）。
+ */
+function isLargePdf(
   attachment: AIExtractAttachment,
   pdfSizeLimitKb: number,
 ): boolean {
@@ -62,22 +74,18 @@ function isOversizePdf(
 /**
  * 復元する選択を「いま実際に選べるもの」へ正規化する。
  *
- * 前回の選択を保存したあとに `MAIL_WORKER_PDF_SIZE_LIMIT_KB` が引き下げられる
- * と、保存済みの id が現在の上限を超えた状態で復元される。チェックボックスは
- * disabled なので**外すこともできず**、実行するたびサーバーに拒否される詰みに
- * なる（AC-31 の「そのうえで選び直せる」が満たせない）。復元の時点で落とす。
- * 添付そのものが消えている id も同じ理由で落とす。
+ * 落とすのは**添付そのものが消えている id** だけ。サイズが大きいという理由では
+ * 落とさない —— 大きい PDF も選べるようになった以上、外すことも実行することも
+ * できる（AC-31 の「そのうえで選び直せる」は満たされる）。ここでサイズを見て
+ * 落とすと、管理者が前回わざわざ確認して選んだ大きい PDF が、開くたび黙って
+ * 外れることになる。
  */
 function restorableSelection(
   initial: number[] | undefined,
   attachments: AIExtractAttachment[],
-  pdfSizeLimitKb: number,
 ): { ids: number[]; droppedCount: number } {
   if (!initial || initial.length === 0) return { ids: [], droppedCount: 0 }
-  const ids = initial.filter((id) => {
-    const a = attachments.find((x) => x.id === id)
-    return a != null && !isOversizePdf(a, pdfSizeLimitKb)
-  })
+  const ids = initial.filter((id) => attachments.some((x) => x.id === id))
   return { ids, droppedCount: initial.length - ids.length }
 }
 
@@ -104,18 +112,12 @@ export function AIExtractConfirmDialog({
   // 添付が 1 件以上あるときだけ 'select' で始まり、実行時に未選択なら
   // 'confirmBodyOnly' へ進む。添付 0 件は最初から 'confirmBodyOnly'
   // （現行の「AI で抽出します」確認 1 回だけ）。
-  const [phase, setPhase] = useState<'select' | 'confirmBodyOnly'>(
-    attachments.length > 0 ? 'select' : 'confirmBodyOnly',
-  )
+  const [phase, setPhase] = useState<
+    'select' | 'confirmBodyOnly' | 'confirmLarge'
+  >(attachments.length > 0 ? 'select' : 'confirmBodyOnly')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(
     () =>
-      new Set(
-        restorableSelection(
-          initialSelectedAttachmentIds,
-          attachments,
-          pdfSizeLimitKb,
-        ).ids,
-      ),
+      new Set(restorableSelection(initialSelectedAttachmentIds, attachments).ids),
   )
   const [droppedFromRestore, setDroppedFromRestore] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -141,11 +143,7 @@ export function AIExtractConfirmDialog({
     if (open) {
       setError(null)
       setPhase(attachments.length > 0 ? 'select' : 'confirmBodyOnly')
-      const restored = restorableSelection(
-        initialSelectedAttachmentIds,
-        attachments,
-        pdfSizeLimitKb,
-      )
+      const restored = restorableSelection(initialSelectedAttachmentIds, attachments)
       setSelectedIds(new Set(restored.ids))
       setDroppedFromRestore(restored.droppedCount)
     }
@@ -153,11 +151,6 @@ export function AIExtractConfirmDialog({
   }, [open])
 
   const toggleAttachment = (id: number) => {
-    // `disabled` だけに頼らない。上限超過の添付は状態にも入れない
-    // （実ブラウザでは disabled 入力の onChange は発火しないが、それは
-    // 「押せない」ことの保証であって「選ばれない」ことの保証ではない）。
-    const target = attachments.find((a) => a.id === id)
-    if (target && isOversizePdf(target, pdfSizeLimitKb)) return
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -166,16 +159,26 @@ export function AIExtractConfirmDialog({
     })
   }
 
-  // 合計サイズ（要件 §6）。個々が上限内でも複数選べば Anthropic の 32MB を
-  // 超え得る。サーバー側でも拒否するが、実行前に理由が分かるようにする。
+  // 合計サイズ（要件 §6）。1件ずつが小さくても複数選べば Anthropic の 32MB を
+  // 超え得る。ここだけは超えると 413 で必ず失敗するので、確認では通せない。
+  // サーバー側でも拒否するが、実行前に理由が分かるようにする。
   const selectedAttachments = attachments.filter((a) => selectedIds.has(a.id))
   const totalOverBytes = exceededAttachmentTotalBytes(selectedAttachments)
+  // 選択の中に「大きめの PDF」があるか。あれば実行前に確認を 1 段挟む。
+  const selectedLargePdfs = selectedAttachments.filter((a) =>
+    isLargePdf(a, pdfSizeLimitKb),
+  )
 
   const onExecuteFromList = () => {
     if (totalOverBytes !== null) return
     if (selectedIds.size === 0) {
       // 添付が 1 件以上あるのに全て未チェック（AC-28）: 確認を 1 段挟む。
       setPhase('confirmBodyOnly')
+      return
+    }
+    if (selectedLargePdfs.length > 0) {
+      // 大きめの PDF を含む選択: 時間・コスト・失敗の可能性を伝えて確認を取る。
+      setPhase('confirmLarge')
       return
     }
     runAction(Array.from(selectedIds))
@@ -218,20 +221,20 @@ export function AIExtractConfirmDialog({
 
                 <div className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
                   {attachments.map((a) => {
-                    const oversize = isOversizePdf(a, pdfSizeLimitKb)
+                    const large = isLargePdf(a, pdfSizeLimitKb)
                     const checked = selectedIds.has(a.id)
                     return (
                       <label
                         key={a.id}
-                        className={`flex items-start gap-2 rounded border p-2 text-sm ${
-                          oversize ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                        } ${checked ? 'border-brand bg-brand-bg' : 'border-border-soft bg-surface'}`}
+                        className={`flex cursor-pointer items-start gap-2 rounded border p-2 text-sm ${
+                          checked ? 'border-brand bg-brand-bg' : 'border-border-soft bg-surface'
+                        }`}
                       >
                         <input
                           type="checkbox"
                           aria-label={a.filename}
                           checked={checked}
-                          disabled={oversize || pending}
+                          disabled={pending}
                           onChange={() => toggleAttachment(a.id)}
                           className="mt-1"
                         />
@@ -241,9 +244,9 @@ export function AIExtractConfirmDialog({
                             {attachmentKindLabel(a.contentType, a.filename)} ・{' '}
                             {formatSize(a.sizeBytes)}
                           </span>
-                          {oversize && (
-                            <span className="text-xs text-danger" role="alert">
-                              サイズ上限超過のため送信できません
+                          {large && (
+                            <span className="text-xs text-warn-fg" role="status">
+                              サイズが大きめです（送信できますが、確認が入ります）
                             </span>
                           )}
                         </div>
@@ -254,17 +257,17 @@ export function AIExtractConfirmDialog({
 
                 {droppedFromRestore > 0 && (
                   <p className="mt-2 text-xs text-warn-fg" role="status">
-                    前回選択した添付のうち {droppedFromRestore} 件は、現在のサイズ上限を
-                    超えている（または削除された）ため選択から外しました。
+                    前回選択した添付のうち {droppedFromRestore} 件は、削除されている
+                    ため選択から外しました。
                   </p>
                 )}
 
                 {totalOverBytes !== null && (
                   <p className="mt-2 text-xs text-danger" role="alert">
-                    選択した添付の合計が上限（
+                    選択した添付の合計が、AI が一度に受け取れる上限（
                     {Math.floor(ATTACHMENT_TOTAL_LIMIT_BYTES / 1024 / 1024)}MB）を超えています
                     （合計 {(totalOverBytes / 1024 / 1024).toFixed(1)}MB）。
-                    添付を減らしてください。
+                    ここは AI 側の仕様なので、添付を減らしてください。
                   </p>
                 )}
 
@@ -285,6 +288,54 @@ export function AIExtractConfirmDialog({
                     disabled={pending || totalOverBytes !== null}
                   >
                     {pending ? '送信中…' : '実行'}
+                  </Btn>
+                </div>
+              </>
+            ) : phase === 'confirmLarge' ? (
+              <>
+                <h2
+                  id="ai-extract-confirm-title"
+                  className="font-display text-base font-bold text-ink"
+                >
+                  サイズの大きい添付があります
+                </h2>
+                <p className="mt-2 text-sm text-ink-2">
+                  次の添付は目安のサイズ（{formatSize(pdfSizeLimitKb * 1024)}）を超えています。
+                  AI には送れますが、処理に時間がかかり、AI 利用料も多くかかります。
+                  ページ数が非常に多い PDF では失敗することもあります。
+                  このまま実行しますか？
+                </p>
+                <ul className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+                  {selectedLargePdfs.map((a) => (
+                    <li key={a.id} className="text-sm text-ink">
+                      {a.filename}
+                      <span className="ml-1 text-xs text-ink-meta">
+                        （{formatSize(a.sizeBytes)}）
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {error && (
+                  <p className="mt-2 text-xs text-danger" role="alert">
+                    {error}
+                  </p>
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <Btn
+                    kind="ghost"
+                    size="sm"
+                    onClick={() => setPhase('select')}
+                    disabled={pending}
+                  >
+                    いいえ
+                  </Btn>
+                  <Btn
+                    kind="primary"
+                    size="sm"
+                    onClick={() => runAction(Array.from(selectedIds))}
+                    disabled={pending}
+                  >
+                    {pending ? '送信中…' : 'はい'}
                   </Btn>
                 </div>
               </>

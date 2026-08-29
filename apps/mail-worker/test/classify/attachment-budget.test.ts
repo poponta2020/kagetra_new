@@ -26,12 +26,12 @@ describe('attachment-budget', () => {
     expect(base64EncodedBytes(4)).toBe(8)
   })
 
-  it('上限は 32MiB から予約枠 6MiB を引いた base64 枠（26MiB）を生バイトへ戻した値', () => {
-    // 26MiB の base64 枠 → 生バイトは 3/4 の約 19.5MiB。
-    expect(ATTACHMENT_TOTAL_LIMIT_BYTES).toBe(Math.floor((26 * MiB * 3) / 4))
+  it('上限は 32MiB から予約枠 1MiB を引いた base64 枠（31MiB）を生バイトへ戻した値', () => {
+    // 31MiB の base64 枠 → 生バイトは 3/4 の約 23.25MiB。
+    expect(ATTACHMENT_TOTAL_LIMIT_BYTES).toBe(Math.floor((31 * MiB * 3) / 4))
     // 実際に送られるサイズが 32MiB を超えないことが本質。
     const encoded = base64EncodedBytes(ATTACHMENT_TOTAL_LIMIT_BYTES)
-    expect(encoded + 6 * MiB).toBeLessThanOrEqual(32 * MiB)
+    expect(encoded + MiB).toBeLessThanOrEqual(32 * MiB)
   })
 
   it('合計が上限以内なら null', () => {
@@ -49,16 +49,17 @@ describe('attachment-budget', () => {
     expect(exceededAttachmentTotalBytes([pdf(over)])).toBe(over)
   })
 
-  it('1件ごとの上限（8000KB）を全て満たしていても合計超過なら弾く', () => {
-    // 各 7.5MiB < 8000KB(=7.81MiB)。3 件で 22.5MiB > 19.5MiB。
-    const big = 7.5 * MiB
+  it('1件ずつは注意の目安（8000KB）程度でも、積み上げれば合計超過で弾く', () => {
+    // 各 8.5MiB。単体では「大きめ」の注意が出るだけで送れるが、3 件で
+    // 25.5MiB となり 23.25MiB の合計予算を超える。
+    const big = 8.5 * MiB
     expect(exceededAttachmentTotalBytes([pdf(big), pdf(big), pdf(big)])).toBe(3 * big)
   })
 
   it('生バイトではなく base64 化後で判定する（4/3 の差を取りこぼさない）', () => {
-    // 生 20MiB は「32MiB 以内」に見えるが、base64 で約 27.96MB になり、
-    // 予約枠 6MiB を足すと 32MiB を超える。
-    expect(exceededAttachmentTotalBytes([pdf(20 * MiB)])).toBe(20 * MiB)
+    // 生 24MiB は「32MiB 以内」に見えるが、base64 で 32MiB になり、
+    // 予約枠 1MiB を足すと 32MiB を超える。
+    expect(exceededAttachmentTotalBytes([pdf(24 * MiB)])).toBe(24 * MiB)
   })
 
   it('PDF 以外は合計に数えない（予約枠でまとめて確保している）', () => {
@@ -86,8 +87,8 @@ describe('exceededRequestBudgetBytes', () => {
     // PDF 上限ぎりぎり（事前チェックは通る）。
     const pdfRaw = ATTACHMENT_TOTAL_LIMIT_BYTES
     expect(exceededAttachmentTotalBytes([pdf(pdfRaw)])).toBeNull()
-    // その base64 に、予約枠 6MiB を超える本文・抽出テキストが乗るケース。
-    const assembled = base64EncodedBytes(pdfRaw) + 7 * MiB
+    // その base64 に、予約枠 1MiB を超える本文・抽出テキストが乗るケース。
+    const assembled = base64EncodedBytes(pdfRaw) + 2 * MiB
     expect(exceededRequestBudgetBytes(assembled)).not.toBeNull()
   })
 })
