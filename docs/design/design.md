@@ -9,14 +9,14 @@
 ## 0. 目次
 
 1. プロダクト概要
-2. 設計方針 (和紙 × 藍墨)
+2. 設計方針 (藤 × 墨)
 3. 情報設計とナビゲーション
 4. 画面仕様 (全 8 画面)
 5. コンポーネント設計
 6. デザイントークン (抜粋)
 7. コピー・文言ルール
 8. 決定事項 / 未決事項
-9. 実装移行ガイド (upstream `kagetra_new` へのパッチ方針)
+9. 実装状況
 10. 今後の展開 (Phase 2+)
 11. ファイル索引
 
@@ -36,35 +36,51 @@
 
 ---
 
-## 2. 設計方針 — 和紙 × 藍墨
+## 2. 設計方針 — 藤 × 墨
 
-> upstream `kagetra_new` は初期段階で `--color-brand: #00b900` (LINE グリーン) が暫定で入っているだけ。
-> 本システムはそれを **「和紙 × 藍墨」** に置き換える方向を提案する。
+> 当初は **「和紙 × 藍墨」**（暖色ベージュ + 藍）で構築した。アプリ名が「ライラック」になるのに合わせ、
+> 2026-08 に **「藤 × 墨」** へ移行した。経緯と全トークンの導出は
+> `docs/features/lilac-palette/design-spec.md` を参照。
 
 ### なぜこの方向か
 
-- **競技かるた** は 100 人一首という文学的・古典的な題材。SaaS 的なプラスチックな UI より、和紙と墨を思わせるトーンが文脈に合う。
-- 青一色の企業風より、**藍 (深い青)** + **朱 (差し色)** の二色で「肯定 / 否定」を即座に読ませるのが、出欠管理というドメインにも合致する。
+- **競技かるた** は 100 人一首という文学的・古典的な題材。SaaS 的なプラスチックな UI より、和の古典を思わせるトーンが文脈に合う。**この論は和紙 × 藍墨のときから変わっていない** — 色相を茶系から藤系へ移しただけである。
+- 「ライラック」は**西洋の lilac (OKLCH 色相 326° = 赤紫) ではなく、和の藤色 290° / 菫色 297° / 紫苑 295° として読む**。西洋 lilac の色相は化粧品的・児童向けに寄り、この題材には合わない。軸は **295°**。
+- **藤 (肯定)** + **朱 (否定)** + **山吹 (注意)** の三色で状態を即座に読ませる。かつて「肯定 = 藍 / 否定 = 朱」の二色だったが、`warn` と `danger` が同じ hex で「締切間近」と「エラー」が区別できていなかったため山吹を分離した。
 - グリーンは LINE 認証ボタンだけで使えばよく、プロダクト全体のブランドカラーにする必要がない。
+
+### 旧配色をやめた理由（測定値）
+
+「地味・のっぺりしている」は主観ではなく測定できる状態だった:
+
+- 面と文字を作る **14 トークンの色相がすべて 80–92°** の 1 系統に集中していた
+- カード ↔ 背景の明度差 **ΔL 0.024**、背景 ↔ 沈み面 **0.015**、ピル地 ↔ 背景 **0.009** — いずれもほぼ知覚できない
+- `Card` プリミティブに**影が無く**、全カードがページと同一平面にいた
+- `ink-meta` が canvas / surface-alt 上で **WCAG AA 未達**（4.35 / 4.16）
 
 ### 視覚原則
 
 | 原則 | 実装 |
 |---|---|
-| **Warm washi surfaces** | 背景は `#F4EFE3`、カードは `#FBF7ED`。純白 `#FFF` は使わない |
-| **Two-tone semantic palette** | 肯定 = 藍、否定 = 朱、それ以外は砂ニュートラル。紫の会議ピル・橙の懇親会ピルは作らない |
+| **Fuji-nezu surfaces** | 背景は `#E8E6F2`、カードは `#F7F5FE`。純白 `#FFF` は使わない（例外 6 箇所は globals.css のコメントに理由を明記）。**面どうしの明度差を保つこと** — surface ↔ canvas は ΔL 0.045 が下限 |
+| **Role-bound semantic palette** | 肯定 = 藤、否定 = 朱、注意 = 山吹、それ以外は藤鼠ニュートラル。**色は役割に紐づけて増やす。カテゴリごとの色は作らない**（会議ピル・懇親会ピルのようにカテゴリ単位で色を割り当てない）。役割が空席のときだけ色を足してよい |
 | **Serif for identity, sans for interaction** | 18px 以上の見出し・ワードマーク・大きな数字は Noto Serif JP。それ以外は Noto Sans JP |
-| **Warm-tinted shadows** | `rgba(60,45,20, ...)`。純黒影は和紙の上で「汚れ」に見える |
+| **Violet-tinted shadows** | `rgba(45,38,70, ...)`。純黒影は「汚れ」に見える。**影は 2 層で書く**（接地の鋭い影 + 環境光の柔らかい影）。1 層は「にじみ」に見える |
+| **Explicit elevation** | 高度は 3 段。段1 = Card・警告ボックス、段2 = ボトムナビ（上向き）、段3 = シート・モーダル。段を持たない浮き方をさせない |
 | **Restrained radii** | ボタン/入力 6px、カード 8px、シート 12px。これ以上丸めない |
-| **No decoration** | グラデ・写真・アバター画像・絵文字・ダークモード、いずれも使わない |
+| **No decoration** | グラデーション・写真・アバター画像・絵文字・ダークモード、いずれも使わない。**例外は背景の微細テクスチャのみ**（和紙の粒子感を色ではなくテクスチャで継承する意図。`--kg-texture`。装飾を増やす根拠には使わない） |
 
 ### 基調カラー
 
-- **藍 (brand)** `#2B4E8C` — ワードマーク / 主要 CTA / アクティブタブ / フォーカス / 肯定ピル
-- **朱 (accent)** `#B33C2D` — 不参加 / 締切警告 / 必須マーク / エラー / 破壊的操作
+- **藤 (brand)** `#534286` — ワードマーク / 主要 CTA / アクティブタブ / フォーカス / 肯定ピル
+- **朱 (accent)** `#B33C2D` — 不参加 / 必須マーク / エラー / 破壊的操作（**据え置き**。くすんだ藤 × テラコッタは大人びた組み合わせで、ここを触ると安っぽくなる）
+- **山吹 (warn)** `#B17915` — 締切警告 / 注意。色相 75–78° は旧・和紙ベージュ (88°) とほぼ同じ系統で、和紙の記憶が差し色として残る
 - **LINE green** `#06c755` — LINE 認証ボタン **だけ**
-- **和紙 (canvas)** `#F4EFE3` / **surface** `#FBF7ED` / **recessed** `#F0EADC`
-- **墨 (ink)** `#1E1B13` (primary) / `#3A342A` (secondary) / `#7A6E5A` (meta)
+- **藤鼠 (canvas)** `#E8E6F2` / **surface** `#F7F5FE` / **recessed** `#DEDCEA`
+- **墨 (ink)** `#1C1A21` (primary) / `#35333D` (secondary) / `#625F6E` (meta)
+
+`success` は `brand` と同値（参加 = 藤）、`danger` は `accent` と同値。この 2 つの同値関係は意図的に維持している。
+`brand-bg` は「ブランドの淡色面」と「参加ピルの地」を兼ねており、`neutral-bg` の彩度を落としてあるのはこれと弁別するため — **片方だけ動かすと両方壊れる**。
 
 ### タイポグラフィ (早見)
 
@@ -254,7 +270,7 @@
 | コンポーネント | 役割 |
 |---|---|
 | `MobileFrame` | 375×812 iOS 風外枠 + sticky ボトムタブ |
-| `Card` | `#FBF7ED` 背景 + `1px #E6DDC4` 枠 + 暖色シャドウ |
+| `Card` | `#F7F5FE` 背景 + `1px #D7D4E3` 枠 + 段1の 2 層シャドウ |
 | `Btn` | `primary` / `secondary` / `danger` / `line` |
 | `Pill` | 小ラベル。`tone = success \| danger \| info \| neutral` |
 | `StatusPill` | イベント状態 (`公開 / 中止 / 終了 / 下書き / 公認 / 非公認`) を tone にマップ |
@@ -271,33 +287,37 @@
 
 ## 6. デザイントークン (抜粋)
 
-詳細は `colors_and_type.css` (全量), UI kit 内 `palette.css` (画面プレビュー用) を参照。
+**実装の正典は `apps/web/src/app/globals.css`**（`@theme --color-*` と `:root --kg-*` の 2 系統）。
+全量は `colors_and_type.css`、画面プレビュー用は UI kit 内 `palette.css` を参照。
+以下は概念の抜粋であり、変数名は実装と一部異なる（実装側の面・文字は `--kg-bg` / `--kg-fg` 系）。
 
 ```css
 /* 色 */
---kg-brand:        #2B4E8C;  /* 藍 */
---kg-brand-hover:  #213C6D;
+--kg-brand:        #534286;  /* 藤 */
+--kg-brand-hover:  #402F6E;
 --kg-accent:       #B33C2D;  /* 朱 */
+--kg-warn:         #B17915;  /* 山吹 */
 --kg-line-green:   #06C755;
 
---kg-canvas:       #F4EFE3;
---kg-surface:      #FBF7ED;
---kg-surface-alt:  #F0EADC;
+--kg-canvas:       #E8E6F2;
+--kg-surface:      #F7F5FE;
+--kg-surface-alt:  #DEDCEA;
 
---kg-border-soft:  #E6DDC4;
---kg-border:       #D8CDB3;
---kg-border-strong:#B8AA8A;
+--kg-border-soft:  #D7D4E3;
+--kg-border:       #C7C3D4;
+--kg-border-strong:#A4A0B5;
 
---kg-ink:          #1E1B13;
---kg-ink-2:        #3A342A;
---kg-ink-meta:     #7A6E5A;
---kg-ink-mute:     #A99C82;
+--kg-ink:          #1C1A21;
+--kg-ink-2:        #35333D;
+--kg-ink-meta:     #625F6E;
+--kg-ink-mute:     #9995A7;
 
 /* semantic pair */
---kg-success-bg:   #E6EDF7;  --kg-success-fg: #1E3A6B;   /* 藍 */
---kg-danger-bg:    #F7E6E2;  --kg-danger-fg:  #8F2D20;   /* 朱 */
---kg-info-bg:      #EAE4D1;  --kg-info-fg:    #5B4F33;   /* 砂 */
---kg-neutral-bg:   #EBE3CE;  --kg-neutral-fg: #5B4F33;   /* 砂 */
+--kg-success-bg:   #E0D7FD;  --kg-success-fg: #3E3067;   /* 藤 */
+--kg-danger-bg:    #F4D5CF;  --kg-danger-fg:  #8F2D20;   /* 朱 */
+--kg-warn-bg:      #F5DDB8;  --kg-warn-fg:    #785214;   /* 山吹 */
+--kg-info-bg:      #DFDCEA;  --kg-info-fg:    #4F4B5F;   /* 藤鼠 */
+--kg-neutral-bg:   #DCDAE2;  --kg-neutral-fg: #4F4B5F;   /* 藤鼠 */
 
 /* 形 */
 --kg-radius-sm: 3px;  --kg-radius-md: 6px;
@@ -337,7 +357,7 @@
 
 ### 決定済み
 
-- [x] 基調 : 和紙 × 藍墨 (Style B)。LINE グリーンは認証ボタン限定。
+- [x] 基調 : 藤 × 墨。LINE グリーンは認証ボタン限定。（2026-08 に 和紙 × 藍墨 から移行。旧: Style B）
 - [x] ダッシュボードは縦タイムライン、参加者は苗字チップ全員・級の若い順。
 - [x] イベント詳細は出欠バーなし、3タイル集計 + 参加者リスト。
 - [x] RSVP はメイン CTA `参加する` 1 個 + トグル。詳細な回答はシート。
@@ -358,58 +378,24 @@
 
 ---
 
-## 9. 実装移行ガイド — upstream `kagetra_new` へのパッチ方針
+## 9. 実装状況
 
-現在 `apps/web/src/app/globals.css` に以下の 1 行だけが暫定で入っている :
+**移行は完了している。** 本設計書が書かれた時点では upstream の `globals.css` に
+`--color-brand: #00b900`（LINE グリーン）が暫定で入っているだけだったが、
+現在は本設計書の配色が実装されている。
 
-```css
---color-brand: #00b900;
-```
+- **配色・タイポ・影・角丸の正典**: `apps/web/src/app/globals.css`
+  - `@theme { --color-* }` — Tailwind v4 のテーマ。`bg-surface` 等のユーティリティを生成する
+  - `:root { --kg-* }` — 同値のミラー。inline `style` から `var()` で参照する用
+  - **Tailwind v4 なので `tailwind.config.js` は存在しない**（CSS が設定ファイルを兼ねる）。
+    かつてここに書かれていた「`theme.extend.colors` にマップする」手順は無効
+- **フォント**: `next/font/google` 経由（`app/layout.tsx`）。`globals.css` での
+  `@import url(...)` は使わない — Tailwind v4 の `@import "tailwindcss"` が展開されて
+  後続の `@import` を無効化するため
+- **ピル**: `Pill` / `StatusPill` / `GradePill` として `components/ui/` に実装済み
+- **LINE ボタン**: `#06c755` を据え置き。純白の文字もここだけは正（和紙白は off-brand）
 
-これを本システムに合わせて差し替えるときの最小パッチ :
-
-```css
-/* apps/web/src/app/globals.css */
-@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@500;700&display=swap");
-
-:root {
-  /* brand */
-  --color-brand:        #2B4E8C;
-  --color-brand-hover:  #213C6D;
-  --color-accent:       #B33C2D;
-  --color-line:         #06C755;
-
-  /* surfaces & ink */
-  --color-canvas:       #F4EFE3;
-  --color-surface:      #FBF7ED;
-  --color-surface-alt:  #F0EADC;
-  --color-border:       #D8CDB3;
-  --color-border-soft:  #E6DDC4;
-  --color-ink:          #1E1B13;
-  --color-ink-meta:     #7A6E5A;
-
-  /* type */
-  --font-sans:    "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Noto Serif JP", "Yu Mincho", serif;
-}
-
-body {
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
-```
-
-続いて :
-
-1. **Tailwind 設定** : `theme.extend.colors` / `fontFamily` に上記変数をマップ。
-2. **LINE ボタン** (`apps/web/src/app/auth/signin/page.tsx`) : `bg-[#06c755]` を据え置き、font-weight 600。
-3. **主要 CTA** : `bg-[var(--color-brand)] text-[var(--color-surface)] hover:bg-[var(--color-brand-hover)]`。
-4. **カード** : `bg-[var(--color-surface)] border border-[var(--color-border-soft)] shadow-[0_1px_2px_rgba(60,45,20,0.06)]`。
-5. **ピル** : `Pill` / `StatusPill` / `GradePill` を新規に shadcn 風コンポーネントとして切り出す。
-
-デザイン側の受け入れテストは `ui_kits/kagetra-mobile/index.html` を参照画面として行う。
+トークン値をこのファイルへ再掲しないこと（§6 の抜粋を除く）。値が 2 箇所に散ると腐る。
 
 ---
 
@@ -418,7 +404,7 @@ body {
 | 機能 | 方針の種 |
 |---|---|
 | 大会結果 / 統計 | 表中心。グラフを出すなら単色 (藍) の棒のみ。円グラフは使わない |
-| AI 要項取り込み (PDF/Word → イベント作成) | upload ゾーンは 12px 破線 `#D8CDB3`。抽出結果は「下書き」として作成フォームにプリフィル |
+| AI 要項取り込み (PDF/Word → イベント作成) | upload ゾーンは 12px 破線 `#C7C3D4`。抽出結果は「下書き」として作成フォームにプリフィル |
 | 旅費見積 | テーブル + 合計行。通貨は `¥` プレフィクス、3桁区切り |
 | アルバム | グリッド 3 列 / 4px gap。サムネイルだけ初めて「写真」が出る画面になる。キャプションは Serif 14/500 |
 | BBS / wiki | 本文の body は **Serif 16/400, leading 1.9** にすることで「読み物」感を出す。これが唯一 Sans から離れる場所 |
@@ -463,4 +449,4 @@ body {
 
 ---
 
-**最終更新** : Style B (和紙 × 藍墨) 確定時点。
+**最終更新** : 藤 × 墨 へ移行（2026-08。lilac-palette）。
