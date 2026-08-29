@@ -14,7 +14,7 @@
 
 ## タスク一覧
 
-- [ ] 完了 **タスク1: `globals.css` の全面刷新**
+- [x] 完了 **タスク1: `globals.css` の全面刷新**
   - `@theme --color-*` と `:root --kg-*` の 2 系統を同時更新（design-spec §2 の全トークン）
   - `--color-warn` を新設（**実装直前に裸の `warn` 参照 0 件を再確認する** — design-spec §2.5）
   - 影を 2 層化・色相を藤みへ・`--shadow-md-up` 新設・`--kg-shadow-*` 4 本を削除（design-spec §3）
@@ -23,41 +23,45 @@
   - 依存: なし
   - 対応 AC: design-spec §2 全体・§3.2〜3.4・§4
 
-- [ ] 完了 **タスク2: `Card` プリミティブの立体化**
+- [x] 完了 **タスク2: `Card` プリミティブの立体化**
   - 段 1 の影を付与・枠線を `border` → `border-soft` へ
   - **doc コメント「washi-ivory bg, kinari border」を書き換える**（変更後は嘘になる）
   - 依存: タスク1
   - 対応 AC: design-spec §3.1・§3.3
 
-- [ ] 完了 **タスク3: シェルの段 2 影**
-  - `bottom-nav.tsx` に段 2（上向き）の影
-  - `mobile-shell.tsx` の sticky ヘッダに段 2（下向き）の影、背景テクスチャの配置
+- [x] 完了 **タスク3: シェルの段 2 影**
+  - `bottom-nav.tsx` に段 2（上向き）の影 + `isolate`
+  - **実態**: シェルに sticky ヘッダは存在せず（AppBar は廃止済み）、段 2 の
+    下向きは適用先が無いため `--shadow-md` ごと削除した。背景テクスチャは
+    `globals.css` の `.mobile-shell-h` に置いたため `mobile-shell.tsx` は無変更
   - **z-index の積み重ね順を確認**（PR #529 で `relative` だけではスタッキングコンテキストを作らない件を踏んでいる）
   - 依存: タスク1
   - 対応 AC: design-spec §3.3・§4
 
-- [ ] 完了 **タスク4: `shadow-sm` 14 箇所の整理**
-  - `Card` への集約で冗長化した分を削除する。`Card` を使っていない独立要素は残す
+- [x] 完了 **タスク4: `shadow-sm` 14 箇所の整理**
+  - **実態**: 冗長だったのは 1 箇所のみ（`mail/[id]/page.tsx`）。残り 13 箇所は
+    `Card` を使わず素の `<section>` / `<form>` / `<a>` に手書きしている独立要素
+    なので残した（影の値はトークン参照なので自動的に新しい 2 層影になる）
   - 依存: タスク2
   - 対応 AC: design-spec §3.4
 
-- [ ] 完了 **タスク5: ハードコード hex の置換**
+- [x] 完了 **タスク5: ハードコード hex の置換**
   - `EventListClient.tsx` / `layout.tsx` の hex をトークン参照へ。テストの `#123456` は対象外
   - 依存: タスク1
   - 対応 AC: design-spec §6
 
-- [ ] 完了 **タスク6: `docs/design/colors_and_type.css` の更新**
+- [x] 完了 **タスク6: `docs/design/colors_and_type.css` の更新**
   - `globals.css` が `Source:` として参照する第 2 コピー。放置すると腐る
   - 依存: タスク1
   - 対応 AC: design-spec §6
 
-- [ ] 完了 **タスク7: `docs/design/design.md` の改訂**
+- [x] 完了 **タスク7: `docs/design/design.md` の改訂**
   - 視覚原則 2 箇所（「紫の会議ピル…」の明確化 ／「No decoration」へのテクスチャ例外）
   - 「基調カラー」節ほかカラー記述全般の更新
   - 依存: タスク1
   - 対応 AC: design-spec §5
 
-- [ ] 完了 **タスク8: memory の更新**
+- [x] 完了 **タスク8: memory の更新**
   - `.claude/memory/project_kagetra_color_tokens.md` の「参加/成功 = 藍」「success は緑でなく藍」が偽になるため更新
   - 依存: タスク1
   - 対応 AC: design-spec §6
