@@ -142,8 +142,13 @@ export function BottomNav({
   const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin).filter(
     (tab) => !isGuest || tab.guestVisible,
   )
+  // `shadow-nav` は高度の段 2（上向き）。コンテンツがナビの下へ潜って
+  // 見えるようにするためで、枠線だけだと同一平面に見える。`isolate` は
+  // ナビ自身のスタッキングコンテキストを作り、内側の要素（プレビュー
+  // バッジ等）の z-index がページ側へ抜けないよう封じ込める（PR #529 で
+  // `relative` だけではコンテキストが作られない件を踏んでいる）。
   return (
-    <nav className="min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border">
+    <nav className="isolate min-h-[calc(52px_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex-shrink-0 flex items-stretch bg-surface border-t border-border-soft shadow-nav">
       {visibleTabs.map((tab) => {
         const active = tab.matches.some((prefix) =>
           matchesPath(pathname, prefix),
