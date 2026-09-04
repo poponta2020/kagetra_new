@@ -361,3 +361,5 @@
 - [auto-review PR #552](auto-review-round-pr552.md) — R1 verdict=pass
 - [申込グループページの前進2ボタンを「今できる操作」のときだけ表示する](project_ship-hide-inapplicable-progress-buttons.md) — shipped: PR #552
 - [payment-receipt-broadcast 要件定義(2026-09-04)](project_payment_receipt_broadcast_def.md) — 親Issue #554・子#555-564。★依頼は「申込済み」だったが対象は「支払済にする」・HEIC非対応が実測で判明
+- [auto-review PR #553](auto-review-round-pr553.md) — R4 verdict=cutoff(user-wontfix)
+- [オープンチャットの配信をメール本文・添付と同じタイミングに揃える](project_ship-openchat-broadcast-with-mail.md) — shipped: PR #553
