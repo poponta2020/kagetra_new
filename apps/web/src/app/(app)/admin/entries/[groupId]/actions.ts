@@ -2,7 +2,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, inArray } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -18,18 +18,17 @@ import {
   type PaymentDeadlineKind,
 } from '@/lib/events/payment-deadline'
 import type { Grade } from '@kagetra/shared/types'
-import {
-  propagateFieldsToGroup,
-  resolveEntryGroupId,
-  type PropagatableFields,
-} from '@/lib/entry-groups'
+import { propagateFieldsToGroup, type PropagatableFields } from '@/lib/entry-groups'
 import {
   loadLinkedBindingForGroup,
   pushMessagesToEntryGroup,
   sendClaimedNotificationBulk,
 } from '@/lib/event-lifecycle-notify'
 import type { LineOutgoingMessage } from '@/lib/line-mention'
-import { applyPaymentsPaid } from '@/lib/events/apply-payments-paid'
+import {
+  applyPaymentsPaidInTx,
+  type PaymentsPaidFlipResult,
+} from '@/lib/events/apply-payments-paid'
 import { resolvePaymentReportAmount } from '@/lib/events/payment-report-amount'
 import { buildPaymentReportMessage } from '@/lib/payment-report-message'
 import {
@@ -293,15 +292,25 @@ export async function sendPaymentNotice(
  */
 const MAX_PAYMENT_RECEIPTS = 3
 /**
- * base64 1枚あたりの受け入れ上限。クライアントは長辺 2048px・q0.85 まで縮小して
- * から送るので実測 1MB 前後に収まる。`serverActions.bodySizeLimit`（8mb）の内側で
- * 3枚ぶんが通る値にしつつ、明らかに過大な入力は decode 前に弾く。
+ * base64 1枚あたりの受け入れ上限。クライアントは長辺 2048px から段階的に寸法と
+ * quality を下げてこの内側へ収めてから送る（`PaymentReportSheet.downscaleToJpeg`）。
+ * `serverActions.bodySizeLimit`（8mb）の内側で3枚ぶんが通る値。
+ *
+ * ★**超過は「報告全体を拒否」ではなく「その1枚だけ除外」にする。** 全体を弾くと、
+ * 明細を高精細で撮っただけで支払報告そのものが `入力が不正です` で通らなくなる
+ * （PDF・HEIC・サイズ超過の扱いを揃える・要件 §3.2.2-7）。
  */
 const MAX_RECEIPT_BASE64_CHARS = 2 * 1024 * 1024
+/**
+ * リクエスト全体としての受け入れ上限（1枚あたり）。`bodySizeLimit` を超える入力は
+ * そもそも Server Action へ届かないので、ここは「明らかに過大な値を decode 前に
+ * 弾く」ためだけの粗いガード。個別の除外判定は上の `MAX_RECEIPT_BASE64_CHARS`。
+ */
+const HARD_RECEIPT_BASE64_CHARS = 8 * 1024 * 1024
 
 const receiptInputSchema = z.object({
   filename: z.string().min(1).max(255),
-  base64: z.string().min(1).max(MAX_RECEIPT_BASE64_CHARS),
+  base64: z.string().min(1).max(HARD_RECEIPT_BASE64_CHARS),
 })
 
 const reportPaymentSchema = z.object({
@@ -396,19 +405,7 @@ export async function reportPayment(
     }
   }
 
-  // ⓪ **どのグループの日かを最初に突き合わせる**（fail-closed）。画像の正規化も
-  //    支払済化も始める前にここで弾く —— 後段で弾くと、別グループの日が支払済に
-  //    なったうえ `payment_paid` の once-ever スロットまで消費されてしまう。
   const ids = Array.from(new Set(parsed.data.eventIds)).sort((a, b) => a - b)
-  let resolvedGroupId: number
-  try {
-    resolvedGroupId = await resolveEntryGroupId(db, ids[0]!)
-  } catch {
-    return { error: '対象の日が見つかりません' }
-  }
-  if (resolvedGroupId !== groupId) {
-    return { error: 'このグループの日ではありません' }
-  }
 
   // ① 金額は状態を変える前に確定させる（AC-12）。
   const amount = await resolvePaymentReportAmount(db, groupId)
@@ -417,6 +414,12 @@ export async function reportPayment(
   const normalized: { filename: string; image: NormalizedReceiptImage; token: string }[] = []
   const excluded: string[] = []
   for (const receipt of parsed.data.receipts) {
+    if (receipt.base64.length > MAX_RECEIPT_BASE64_CHARS) {
+      excluded.push(
+        `${receipt.filename}: 画像が大きすぎて送信できません（縮小しても上限を超えます）。`,
+      )
+      continue
+    }
     const buffer = Buffer.from(receipt.base64, 'base64')
     if (buffer.byteLength === 0) {
       excluded.push(`${receipt.filename}: 画像データを読み取れませんでした。`)
@@ -441,12 +444,6 @@ export async function reportPayment(
   // 紐付けなので、ここでの判定と実際の送信先がズレない（AC-15）。
   const binding = await loadLinkedBindingForGroup(db, groupId)
 
-  // ③ 支払済へ倒して claim する。`expectedEntryGroupId` は⓪と同じ突き合わせを
-  //    **flip と同じ関数の中**でもう一度行う二重の歯止め（⓪の後に付け替えられた
-  //    場合も別グループを書き換えない）。
-  const outcome = await applyPaymentsPaid(db, ids, { expectedEntryGroupId: groupId })
-  if (!outcome) return { error: 'このグループの日ではありません' }
-
   const messageText = buildPaymentReportMessage({
     amountJpy: amount.amountJpy,
     source: amount.source,
@@ -454,14 +451,51 @@ export async function reportPayment(
     receiptCount: normalized.length,
   })
 
-  // ④ 記録を送信前に保存する（画像 URL がトークンに依存するため）。
+  // ③④ **支払済化・claim・記録の保存を1つのトランザクションにまとめる。**
+  //     ここを分けると、支払済化と once-ever の消費だけがコミットされて記録の
+  //     INSERT が落ちたときに、「支払済なのに履歴も証憑も再送導線も無い」手作業
+  //     でしか戻せない状態が残る。LINE 送信だけをコミット後の best-effort にする。
   const placeholderStatus = binding ? 'failed' : 'skipped_unlinked'
-  const reportId = await db.transaction(async (tx) => {
+  // 中断（検証 NG・変更0件）と成功を1つの戻り値で表すため、コールバックの戻り型を
+  // 明示する（`as const` の推論任せだと union がプロパティ単位に潰れる）。
+  type SaveResult =
+    | { error: string }
+    | { reportId: number; flip: PaymentsPaidFlipResult }
+  const saved: SaveResult = await db.transaction(async (tx): Promise<SaveResult> => {
+    // **全 id をロックしたうえで所属グループを突き合わせる**（fail-closed）。
+    // 先頭 id だけを見ると、後続に別グループの id が混ざった呼び出しで
+    // 「自グループ側だけが支払済になり、記録の event_ids には他グループの id が
+    // 残る」部分適用になる。1件でも他グループなら**1件も変更せずに**弾く。
+    const locked = await tx
+      .select({ id: events.id, entryGroupId: events.entryGroupId })
+      .from(events)
+      .where(inArray(events.id, ids))
+      .orderBy(asc(events.id))
+      .for('update')
+    if (locked.length !== ids.length) {
+      return { error: '対象の日が見つかりません' }
+    }
+    if (locked.some((row) => row.entryGroupId !== groupId)) {
+      return { error: 'このグループの日ではありません' }
+    }
+
+    const flip = await applyPaymentsPaidInTx(tx, ids, groupId)
+    // ★**実際に支払済へ変わった日が0件なら、保存も送信もしない。**
+    //   claim ではなく flip を見るのが要点 —— 既に支払済の日へ再実行しただけの
+    //   呼び出し（二度押し・古い画面・Action 直叩き）でも、証憑があるだけで
+    //   `sendPaymentReport` は送ってしまうため、ここで止める。未払へ戻してから
+    //   再報告するケース（AC-13）は flip が起きるので影響を受けない。
+    if (flip.flippedIds.length === 0) {
+      return {
+        error: '支払済にできる日がありません（すでに支払済か、事前払いではありません）',
+      }
+    }
+
     const [report] = await tx
       .insert(entryGroupPaymentReports)
       .values({
         entryGroupId: groupId,
-        eventIds: outcome.ids,
+        eventIds: ids,
         amountJpy: amount.amountJpy,
         amountSource: amount.source,
         unknownGradeCount: amount.unknownGradeCount,
@@ -488,8 +522,10 @@ export async function reportPayment(
         })),
       )
     }
-    return report.id
+    return { reportId: report.id, flip }
   })
+  if ('error' in saved) return { error: saved.error }
+  const reportId = saved.reportId
 
   // ⑤ 送信。
   const result = await sendPaymentReport({
@@ -498,7 +534,10 @@ export async function reportPayment(
     tokens: normalized.map((n) => n.token),
     baseUrl,
     hasBinding: binding != null,
-    claim: { notificationIds: outcome.notificationIds, eventId: outcome.claimed[0]?.id ?? null },
+    claim: {
+      notificationIds: saved.flip.notificationIds,
+      eventId: saved.flip.claimed[0]?.id ?? null,
+    },
   })
 
   await db
@@ -511,7 +550,7 @@ export async function reportPayment(
     })
     .where(eq(entryGroupPaymentReports.id, reportId))
 
-  revalidateAfterPaymentReport(groupId, outcome.ids)
+  revalidateAfterPaymentReport(groupId, ids)
   return {
     ok: true,
     reportId,

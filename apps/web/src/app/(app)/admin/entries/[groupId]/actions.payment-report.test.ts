@@ -432,4 +432,90 @@ describe('reportPayment', () => {
     expect(await testDb.select().from(eventLifecycleNotifications)).toHaveLength(0)
     expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(0)
   })
+
+  it('先頭が自グループでも、後続に別グループの日が混ざれば1件も変更しない（部分適用の禁止）', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-11' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, days } = await seedGroup(1)
+    const other = await seedGroup(1)
+    await linkLineGroup(group.id)
+
+    // 先頭 id が自グループになるよう、自グループの日が先に作られている状態で混ぜる。
+    const mixed = [days[0]!.id, other.days[0]!.id].sort((a, b) => a - b)
+    const fetchSpy = spyOnPush()
+    try {
+      const result = await reportPayment(group.id, mixed, [])
+      expect(result).toEqual({ error: 'このグループの日ではありません' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    const rows = await testDb.select().from(events)
+    expect(rows.every((r) => r.paymentStatus === 'unpaid')).toBe(true)
+    expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(0)
+    expect(await testDb.select().from(eventLifecycleNotifications)).toHaveLength(0)
+  })
+
+  it('実際に支払済へ変わった日が0件なら保存も送信もしない（二重送信の防止）', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-12' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, days } = await seedGroup(1)
+    await linkLineGroup(group.id)
+
+    const firstSpy = spyOnPush()
+    try {
+      await reportPayment(group.id, [days[0]!.id], [
+        { filename: 'meisai.png', base64: await pngBase64() },
+      ])
+    } finally {
+      firstSpy.mockRestore()
+    }
+    expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(1)
+
+    // 同じ日にもう一度実行（二度押し・古い画面・Action 直叩き相当）。
+    const secondSpy = spyOnPush()
+    try {
+      const result = await reportPayment(group.id, [days[0]!.id], [
+        { filename: 'meisai.png', base64: await pngBase64() },
+      ])
+      expect(result).toEqual({
+        error: '支払済にできる日がありません（すでに支払済か、事前払いではありません）',
+      })
+      expect(secondSpy).not.toHaveBeenCalled()
+    } finally {
+      secondSpy.mockRestore()
+    }
+
+    // 記録も証憑も増えない。
+    expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(1)
+    expect(await testDb.select().from(entryGroupPaymentReceipts)).toHaveLength(1)
+  })
+
+  it('サーバー上限を超える base64 はその1枚だけ除外され、報告自体は通る（§3.2.2-7）', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-13' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, days } = await seedGroup(1)
+    await linkLineGroup(group.id)
+
+    const oversized = 'A'.repeat(2 * 1024 * 1024 + 1)
+    const fetchSpy = spyOnPush()
+    try {
+      const result = await reportPayment(group.id, [days[0]!.id], [
+        { filename: 'huge.jpg', base64: oversized },
+        { filename: 'ok.png', base64: await pngBase64() },
+      ])
+      expect(result).toMatchObject({ ok: true, status: 'sent' })
+      const excluded = (result as { excluded: string[] }).excluded
+      expect(excluded).toHaveLength(1)
+      expect(excluded[0]).toContain('huge.jpg')
+
+      // 残った1枚は通常どおり送られる（報告全体が弾かれない）。
+      const batches = pushBatches(fetchSpy)
+      expect(batches[0]!.map((m) => m.type)).toEqual(['text', 'image'])
+    } finally {
+      fetchSpy.mockRestore()
+    }
+    expect(await testDb.select().from(entryGroupPaymentReceipts)).toHaveLength(1)
+  })
 })

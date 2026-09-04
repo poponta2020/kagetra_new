@@ -31,14 +31,27 @@ export interface PaymentPaidFlipRow {
   eventDate: string
 }
 
-export interface ApplyPaymentsPaidOutcome {
-  entryGroupId: number
-  /** 重複除去・昇順に正規化した対象 id（revalidate の対象）。 */
-  ids: number[]
+export interface PaymentsPaidFlipResult {
+  /**
+   * 実際に `unpaid → paid` へ倒せた日の id（`cancelled` の日も含む —— 状態変更は
+   * 記録するが通知だけしない、が既存の規律）。
+   *
+   * ★**`claimed` と混同しないこと。** `claimed` は「通知を送ってよい日」で、
+   * once-ever を既に消費済みの日は空になる。「この操作で本当に何かが変わったか」を
+   * 判断できるのは `flippedIds` だけで、これを見ないと**既に支払済の日へ再実行した
+   * だけの呼び出しでも証憑を送ってしまう**（二重送信）。
+   */
+  flippedIds: number[]
   /** flip できて、かつ cancelled でなく、once-ever の claim も取れた日。 */
   claimed: PaymentPaidFlipRow[]
   /** `claimed` に対応する `event_lifecycle_notifications.id`。 */
   notificationIds: number[]
+}
+
+export interface ApplyPaymentsPaidOutcome extends PaymentsPaidFlipResult {
+  entryGroupId: number
+  /** 重複除去・昇順に正規化した対象 id（revalidate の対象）。 */
+  ids: number[]
 }
 
 /** 入力 id を重複除去して昇順にそろえる（デッドロック回避のロック順を固定するため）。 */
@@ -69,42 +82,62 @@ export async function applyPaymentsPaid(
     return null
   }
 
-  const result = await dbc.transaction(async (tx: Transaction) => {
-    const claimed: PaymentPaidFlipRow[] = []
-    const notificationIds: number[] = []
-    for (const id of ids) {
-      const flipped = await tx
-        .update(events)
-        .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
-        .where(
-          and(
-            eq(events.id, id),
-            eq(events.paymentType, 'advance'),
-            eq(events.paymentStatus, 'unpaid'),
-            eq(events.entryGroupId, entryGroupId),
-          ),
-        )
-        .returning({
-          id: events.id,
-          title: events.title,
-          eventDate: events.eventDate,
-          status: events.status,
-        })
-      const row = flipped[0]
-      if (!row) continue
-      // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録
-      // する。ここで再ガードして claim 対象から除外する（AC-11 の集約版）。
-      if (row.status === 'cancelled') continue
-      const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
-      if (claim.id != null) {
-        claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate })
-        notificationIds.push(claim.id)
-      }
-    }
-    return { claimed, notificationIds }
-  })
+  const result = await dbc.transaction((tx: Transaction) => applyPaymentsPaidInTx(tx, ids, entryGroupId))
 
-  return { entryGroupId, ids, claimed: result.claimed, notificationIds: result.notificationIds }
+  return { entryGroupId, ids, ...result }
+}
+
+/**
+ * flip と claim の本体（**呼び出し側のトランザクションの中で動く**）。
+ *
+ * 証憑つきの支払報告は「支払済化 → claim → 記録・証憑の保存」を1つの原子操作に
+ * しなければならない —— 支払済化だけコミットされて記録の INSERT が落ちると、
+ * 「支払済になっていて once-ever も使い切ったのに、履歴も証憑も再送導線も無い」
+ * という手作業でしか戻せない状態が残る。そのため本体を tx 受け取りで切り出し、
+ * `reportPayment` は自分のトランザクションの中でこれを呼ぶ。
+ *
+ * `ids` は**正規化済み（重複除去・昇順）である前提**。所属グループの検証と
+ * 行ロックは呼び出し側の責務。
+ */
+export async function applyPaymentsPaidInTx(
+  tx: Transaction,
+  ids: readonly number[],
+  entryGroupId: number,
+): Promise<PaymentsPaidFlipResult> {
+  const flippedIds: number[] = []
+  const claimed: PaymentPaidFlipRow[] = []
+  const notificationIds: number[] = []
+  for (const id of ids) {
+    const flipped = await tx
+      .update(events)
+      .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(events.id, id),
+          eq(events.paymentType, 'advance'),
+          eq(events.paymentStatus, 'unpaid'),
+          eq(events.entryGroupId, entryGroupId),
+        ),
+      )
+      .returning({
+        id: events.id,
+        title: events.title,
+        eventDate: events.eventDate,
+        status: events.status,
+      })
+    const row = flipped[0]
+    if (!row) continue
+    flippedIds.push(row.id)
+    // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録
+    // する。ここで再ガードして claim 対象から除外する（AC-11 の集約版）。
+    if (row.status === 'cancelled') continue
+    const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
+    if (claim.id != null) {
+      claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate })
+      notificationIds.push(claim.id)
+    }
+  }
+  return { flippedIds, claimed, notificationIds }
 }
 
 /**

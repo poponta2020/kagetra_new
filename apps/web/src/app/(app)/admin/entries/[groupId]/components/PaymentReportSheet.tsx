@@ -19,9 +19,20 @@ import type { PaymentReceiptInput, ReportPaymentResult } from '../actions'
 
 /** 1回の支払報告に添えられる証憑の上限（サーバー側でも同じ値で再検証する）。 */
 const MAX_RECEIPTS = 3
-/** クライアント側で縮小する長辺（明細の文字が読める範囲で最小に寄せる）。 */
-const CLIENT_MAX_DIMENSION = 2048
-const CLIENT_JPEG_QUALITY = 0.85
+/**
+ * クライアント側で縮小する長辺の候補（明細の文字が読める範囲で大きい順に試す）と
+ * quality の候補。**寸法だけ決めて容量を見ないと、高精細な明細写真では base64 が
+ * サーバーの受け入れ上限を超え、報告そのものが弾かれる。** 大きい順に試して最初に
+ * 上限へ収まったものを採用する。
+ */
+const CLIENT_DIMENSION_STEPS = [2048, 1600, 1200] as const
+const CLIENT_QUALITY_STEPS = [0.85, 0.7, 0.55, 0.4] as const
+/**
+ * 送信する base64 の目標上限。サーバー側の1枚あたり上限（2MB 相当）より小さく
+ * 取って余裕を持たせる。ここに収まらなかった1枚はサーバーが理由つきで除外する
+ * （PDF・HEIC と同じ扱い）。
+ */
+const CLIENT_MAX_BASE64_CHARS = 1_800_000
 
 const UNSUPPORTED_MESSAGE =
   'この画像は読み込めませんでした。HEIC は非対応です。カメラロールから選び直すか、JPEG / PNG を選んでください。'
@@ -61,17 +72,30 @@ async function downscaleToJpeg(file: File): Promise<{ base64: string; dataUrl: s
       img.onerror = () => reject(new Error(UNSUPPORTED_MESSAGE))
       img.src = objectUrl
     })
-    const scale = Math.min(1, CLIENT_MAX_DIMENSION / Math.max(image.width, image.height))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(image.width * scale))
-    canvas.height = Math.max(1, Math.round(image.height * scale))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error(UNSUPPORTED_MESSAGE)
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-    const dataUrl = canvas.toDataURL('image/jpeg', CLIENT_JPEG_QUALITY)
-    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
-    if (!base64) throw new Error(UNSUPPORTED_MESSAGE)
-    return { base64, dataUrl }
+
+    let smallest: { base64: string; dataUrl: string } | null = null
+    for (const maxDimension of CLIENT_DIMENSION_STEPS) {
+      const scale = Math.min(1, maxDimension / Math.max(image.width, image.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(image.width * scale))
+      canvas.height = Math.max(1, Math.round(image.height * scale))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error(UNSUPPORTED_MESSAGE)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+      for (const quality of CLIENT_QUALITY_STEPS) {
+        const dataUrl = canvas.toDataURL('image/jpeg', quality)
+        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+        if (!base64) throw new Error(UNSUPPORTED_MESSAGE)
+        const candidate = { base64, dataUrl }
+        smallest = candidate
+        if (base64.length <= CLIENT_MAX_BASE64_CHARS) return candidate
+      }
+    }
+    // すべての段でも収まらなかった場合は最も小さい結果を送る。サーバーが
+    // 「その1枚だけ除外」して理由を返すので、報告そのものは通る。
+    if (!smallest) throw new Error(UNSUPPORTED_MESSAGE)
+    return smallest
   } finally {
     URL.revokeObjectURL(objectUrl)
   }
