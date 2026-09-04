@@ -259,9 +259,9 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 **日程表**（`GroupDayTable`）はグループ内の全イベントを開催日昇順（同着は id 昇順）で並べ、`cancelled` の日も行として残す。各行は 開催日 → 大会名（通称ベース `displayName`）→ 対象級 → 自分の回答印 → **進行フェーズ1語** → 参加希望者数 → シェブロン で、行タップで `/events/[id]` へ遷移する。**フェーズ1語の語彙は申込管理ボードの区画名と同一**（`要申込 / 抽選待ち / 要振込 / 完了 / 申込なし / 締切前 / 中止`。この画面だけの造語を作らない）で、判定はボードの `classify` をそのまま日ごとに回し、短縮ラベルは `AREAS` の `label` から機械的に導出する（`admin/entries/day-phase.ts`）。`no_applicants` に畳まれる2ケース（申し込まない／未申込かつ希望者0名かつ締切超過）はどちらも「申込なし」で、理由は同じ行の参加希望者数が示す。参加希望者数は `attend=true` の素通しで**ゲストは数えない**（`/events` 一覧・ボードと同じセマンティクス）。**日程表の内容は管理者と一般会員で同一で、差は選択チェックボックスの有無だけ**。中止の日は色を足さず `opacity` で落とし、チェックボックスを押せなくする。フェーズ語も表示用の値もサーバーで確定させて client へ渡す（`classify` を client バンドルへ持ち込まないため）。
 
-**一括操作**は日程表の直下。「日を選んでまとめて適用する」1つの形に統一され、既定は選択可能な日すべてにチェック。前進3種（申込済にする・支払済にする・支払タイプ変更）はボタンとセレクト、後退3種（未申込に戻す・申し込まない・未払に戻す）は「戻す操作」の `<details>` に畳んで誤操作を1段遠ざける。**前進2ボタンは今できる操作のときだけ描画する**（無効状態で残さない）: 「申込済にする」は選択に未申込の日があるとき、「支払済にする」は選択に**申込済**かつ事前払いかつ未払の日があるとき。2つとも出ないときはボタン行ごと畳む。押し間違えの取り消しは「戻す操作」に集約されているので前進側に受け皿を置かない。支払タイプのセレクトは常に置き、選択0日のときだけ無効化する。通知の集約規則は変えていない（下記「進行管理フロー」）。
+**一括操作**は日程表の直下。「日を選んでまとめて適用する」1つの形に統一され、既定は選択可能な日すべてにチェック。前進3種（申込済にする・**支払報告**・支払タイプ変更）はボタンとセレクト、後退3種（未申込に戻す・申し込まない・未払に戻す）は「戻す操作」の `<details>` に畳んで誤操作を1段遠ざける。**前進2ボタンは今できる操作のときだけ描画する**（無効状態で残さない）: 「申込済にする」は選択に未申込の日があるとき、「支払報告」は選択に**申込済**かつ事前払いかつ未払の日があるとき。「支払報告」（旧「支払済にする」。2026-09-04 改称）だけは押下で確認ダイアログではなく**支払報告シート**（ボトムシート）を開く —— 振込明細の写真を最大3枚まで選び、実際に送る本文と枚数をプレビューしてから実行する。証憑は任意で、0枚のまま実行すれば現行の「支払済にする」と完全に同一の挙動になる（スキップ用の別ボタンは作らない）。写真は選択直後に client 側の canvas で長辺 2048px・JPEG q0.85 へ再エンコードしてから送り、HEIC はここでデコードに失敗して日本語のエラーになる（[spec/notifications.md](notifications.md) の payment-report）。2つとも出ないときはボタン行ごと畳む。押し間違えの取り消しは「戻す操作」に集約されているので前進側に受け皿を置かない。支払タイプのセレクトは常に置き、選択0日のときだけ無効化する。通知の集約規則は変えていない（下記「進行管理フロー」）。
 
-**進行管理**（管理者のみ）は**表示専用**で、申込状態・申込書・支払状態（振込総額・級別内訳・振込先・支払締切）を集約ラベル（例「2日とも申込済」「1／3日 支払済」）で示す。**日ごとのトグルを置かない**——状態の切り替えは必ず日程表で日を選んでから行い、「どこで申込済にするのか」を1箇所に定める。申込書ウィザード（`/admin/entry-form/[groupId]`）への導線は個人戦のみ（団体戦では名簿セクションともども出さない）。
+**進行管理**（管理者のみ）は**表示専用**で、申込状態・申込書・支払状態（振込総額・級別内訳・振込先・支払締切）を集約ラベル（例「2日とも申込済」「1／3日 支払済」）で示す。支払状態の中には**支払報告の履歴**（1行=1回。日時・実行者・想定額・枚数・状態＋証憑サムネ＋「再送」）を新しい順で並べる —— **未払に戻しても履歴は消えない**ので、支払状態の現在値とは独立に送った回数ぶんだけ積み上がる。サムネは bytea をページ payload に載せず公開プレビュー route から引く。表示専用の原則の唯一の例外がこの「再送」で、状態を進める操作ではなく「同じものをもう一度届ける」操作だから記録の隣に置いている。**日ごとのトグルを置かない**——状態の切り替えは必ず日程表で日を選んでから行い、「どこで申込済にするのか」を1箇所に定める。申込書ウィザード（`/admin/entry-form/[groupId]`）への導線は個人戦のみ（団体戦では名簿セクションともども出さない）。
 
 **共通項目**（管理者のみ）は7項目のインライン編集で、保存はグループ全日（`cancelled` 含む）へ同一トランザクション。値は全日一致ならその値、食い違えば**最も早い日付**（日付以外の項目は代表イベントの値）を主に出し、朱で「（日により異なる）」を添える（`aggregateGroupCommonFields`）。食い違ったまま運用することは許容されている（締切リマインドは締切日ごとに別通で飛ぶ）が、大半は伝播し忘れの事故なので気づける形にした。アクションは「編集して揃える」1本。
 
@@ -353,6 +353,16 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 ### `setEntriesApplied(eventIds, applied)` / `setEntriesNotApplying(eventIds)` / `setPaymentsPaid(eventIds, paid)` / `setPaymentTypes(eventIds, type)` — `events/[id]/actions.ts`
 
 `setEntryApplied` / `setEntryNotApplying` / `setPaymentPaid` / `setPaymentType` はそれぞれこの複数形版への薄いラッパー（`bulk([eventId], ...)`）で、単一 `eventId` を渡した場合の状態遷移・claim・文面は従来と完全に同一。`eventIds` は重複除去して id 昇順にソートし、先頭 id から解決した `entry_group_id` を全 UPDATE の WHERE に併記する fail-closed（グループ外の id はクライアントの申告を信用せず無条件に対象から外れる）。`setEntriesApplied(ids, true)` / `setPaymentsPaid(ids, true)` は各 id をガード付き UPDATE → flip できた行のうち `cancelled` はここで再ガードして claim 対象から除外 → 種別ごとに独立 claim → **claim できた集合だけ**で参加者向け・会計向けそれぞれ1通に集約 push する（`sendClaimedNotificationBulk`、[spec/notifications.md](notifications.md)）。逆方向（`applied=false` / `paid=false`）と `setPaymentTypes` / `setEntriesNotApplying` は通知を送らない。`revalidatePath` は共通ヘルパー `revalidateAfterLifecycleChange` でグループ内の各 `/events/[id]`・`/admin/entries/[groupId]`・`/admin/entries` を再検証する（一括操作の入口がグループページになったため）。
+
+### `reportPayment(groupId, eventIds, receipts)` / `resendPaymentReport(reportId)` — `admin/entries/[groupId]/actions.ts`
+
+admin / vice_admin のみ（`requireAdminSession()`）。グループページの「支払報告」ボタンの実体で、`setPaymentsPaid(ids, true)` の**代わり**に呼ばれる（「未払に戻す」は従来どおり `setPaymentsPaid(ids, false)`）。
+
+`reportPayment` は「証憑の検証・保存 → 支払済化 → LINE 送信 → 記録の作成」を1操作にまとめる。順序に意味がある: ①**金額を先に確定する**（`resolvePaymentReportAmount`。`paid` へ倒してから集計すると、支払済を除外する集計へ差し替わった瞬間に金額が黙って減る）→ ②画像をサーバー側で再正規化（`lib/payment-receipt/image.ts`。枚数・形式・サイズはクライアントの申告を信用せず再検証し、収まらない1枚だけ除外して理由を返す）→ ③`applyPaymentsPaid` で flip と once-ever claim → ④記録（`entry_group_payment_reports` ＋ 証憑）を**送信前に**保存（画像 URL が保存したトークンから組まれるため）→ ⑤送信。
+
+状態遷移の中核は `lib/events/apply-payments-paid.ts` の `applyPaymentsPaid` / `revertPaymentsPaid` に置いてあり、`setPaymentsPaid` と `reportPayment` の両方がこれを呼ぶ。★**`'use server'` ファイルの外に置く** —— `events/[id]/actions.ts` から export すると、それ自体が認可ガードを持たない公開エンドポイントになるため。`requireAdminSession()` と `revalidatePath` は各 Server Action 側に残す（日ページとグループページで再検証すべきパスが違う）。
+
+`resendPaymentReport` は**その回の送信を丸ごと送り直す**。文面は保存済みの `message_text`、画像は保存済みのトークンをそのまま使うので、現在の集計値や規定単価が変わっていても過去の報告の文面は揺れない。再送は claim を消費せずグループの紐付けへ直接 push し、証憑0枚の報告でも必ず送る（[features/payment-receipt-broadcast/requirements.md](../features/payment-receipt-broadcast/requirements.md)）。
 
 ### `setConfirmedRosterOverride(entryGroupId, value)` — `events/[id]/actions.ts`
 

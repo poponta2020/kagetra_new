@@ -206,6 +206,54 @@
 
 **制約**: UNIQUE `entry_group_payment_notices_group_unique` on (entry_group_id)
 
+## entry_group_payment_reports（TS: `entryGroupPaymentReports`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-payment-reports.ts`
+
+支払報告（証憑つきの支払済化）の履歴。**1行 = 1回の支払報告**で、`entry_group_payment_notices`（1グループ1行の upsert）と違い**追記専用**。未払に戻して再度報告した回も別の行として残る。★`message_text` に**送信した本文をそのまま保存する** — 再送はこの文字列をそのまま送り直すので、あとから参加費の集計値や規定単価が変わっても過去の報告の文面は揺れない（金額だけ保存して都度組み直す方式を採らない理由）。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| event_ids | jsonb | NOT NULL | — | この報告で `paid` へ倒そうとした日（events.id の配列）のスナップショット。★`int[]` ではなく jsonb（raw SQL の `int[]` バインドの罠を持ち込まない） |
+| amount_jpy | integer | NULL | — | 文面に載せた想定金額。算出できなかったとき（`amount_source='none'`）は NULL |
+| amount_source | payment_report_amount_source (enum) | NOT NULL | — | payment_notice=送信済み振込連絡の総額／tally=その場の参加費集計／none=算出不能 |
+| unknown_grade_count | integer | NOT NULL | 0 | 級未設定で総額に算入できなかった延べ人数。`amount_source='payment_notice'` のときは常に 0（確定値なので注記しない） |
+| message_text | text | NOT NULL | — | 送信した本文の正本。再送はこれをそのまま送る |
+| receipt_count | integer | NOT NULL | 0 | 添えた証憑の枚数（`entry_group_payment_receipts` の行数と一致） |
+| status | payment_report_status (enum) | NOT NULL | — | sent／failed（push 失敗。状態変更は巻き戻さない）／skipped_unlinked（LINE 未連携で送らなかった） |
+| error_message | text | NULL | — | |
+| last_sent_at | timestamptz | NULL | — | 最後に送信できた日時。NULL = 一度も送れていない。再送成功でここを進める |
+| created_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| created_at | timestamptz | NOT NULL | `now()` | |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: INDEX `entry_group_payment_reports_group_idx` on (entry_group_id)。UNIQUE は持たない（追記専用ログ）
+
+## entry_group_payment_receipts（TS: `entryGroupPaymentReceipts`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-payment-receipts.ts`
+
+支払報告に添えた振込明細の写真。**1行 = 1枚**で、**正規化後の JPEG だけを保存する** — 受け取った原本（PNG・巨大な JPEG）はサーバー側で EXIF 回転を反映 → 長辺 4096px 以内へ縮小 → JPEG 化した結果に置き換わる（LINE の画像メッセージが JPEG しか受け付けないため、原本を持っても送信には使えない）。★`image-cache.ts`（プロセス内 Map・TTL 24h）は使わない。証憑は記録として永続保存する対象。★`token` は LINE の画像フェッチャが Cookie 無しで取りに来る公開 URL の鍵で、`attachment_share_tokens` は `mail_attachment_id NOT NULL UNIQUE` の FK なので流用できずこの表が自前で持つ。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| report_id | integer | NOT NULL | — | FK→entry_group_payment_reports.id ON DELETE CASCADE |
+| sort_order | integer | NOT NULL | 0 | 1報告内の並び順（0始まり）。送信順・サムネ順をこれで固定 |
+| filename | text | NOT NULL | — | アップロード時のファイル名（表示用。拡張子は正規化前のものが残りうる） |
+| content_type | text | NOT NULL | — | 正規化後なので実質 `image/jpeg` 固定 |
+| data | bytea | NOT NULL | — | 送信・保存する JPEG 本体（10MB 以内・4096x4096 以内） |
+| byte_size | integer | NOT NULL | — | |
+| width | integer | NOT NULL | — | |
+| height | integer | NOT NULL | — | |
+| preview_data | bytea | NOT NULL | — | LINE の `previewImageUrl` と履歴サムネ用（長辺 1024px・1MB 以内の JPEG） |
+| token | text | NOT NULL | — | UNIQUE。公開取得 URL の鍵（`randomBytes(24).toString('base64url')`） |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約**: UNIQUE `entry_group_payment_receipts_token_unique` on (token)／INDEX `entry_group_payment_receipts_report_idx` on (report_id)
+
 ## entry_group_open_chat_broadcasts（TS: `entryGroupOpenChatBroadcasts`）
 
 定義ファイル: `packages/shared/src/schema/entry-group-open-chat-broadcasts.ts`

@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #555
 
 ### タスク2: 証憑画像の正規化ユーティリティ
-- [ ] 完了
+- [x] 完了
 - **目的:** 受け取った画像を LINE が受け付ける JPEG（本体・プレビュー）へ確実に正規化し、対応外形式を拒否する
 - **対応AC:** AC-5, AC-6, AC-7
 - **主な変更領域:** `apps/web/src/lib/payment-receipt/image.ts`（新規）・同 `image.test.ts`
@@ -68,7 +68,7 @@ status: completed
 - **対応Issue:** #556
 
 ### タスク3: 想定金額の決定と文言の組み立て
-- [ ] 完了
+- [x] 完了
 - **目的:** 「景虎上の想定金額」を要件 §3.2.3 の優先順で決め、LINE 本文を組み立てる
 - **対応AC:** AC-8, AC-9, AC-10, AC-11, AC-2
 - **主な変更領域:** `apps/web/src/lib/events/payment-report-amount.ts`（新規）・`apps/web/src/lib/payment-report-message.ts`（新規）・各 `.test.ts`
@@ -78,7 +78,7 @@ status: completed
 - **対応Issue:** #557
 
 ### タスク4: 証憑画像の公開取得 route
-- [ ] 完了
+- [x] 完了
 - **目的:** LINE の画像フェッチャと管理画面のサムネが、推測不能トークンで証憑を取得できるようにする
 - **対応AC:** AC-6, AC-20
 - **主な変更領域:** `apps/web/src/app/api/line-broadcast/payment-receipts/[token]/route.ts`（新規）・`.../[token]/preview/route.ts`（新規）・`route.test.ts`。**`middleware.ts` は編集しない**（`config.matcher` の否定先読みに既にある `api/line-broadcast` を継承する）
@@ -88,7 +88,7 @@ status: completed
 - **対応Issue:** #558
 
 ### タスク5: `setPaymentsPaid` の内部抽出（`applyPaymentsPaid`）
-- [ ] 完了
+- [x] 完了
 - **目的:** 支払済化＋通知の本体を、証憑つき送信から再利用できる形に切り出す。**既存の外部契約は一切変えない**
 - **対応AC:** AC-2, AC-14, AC-23, AC-24
 - **主な変更領域:** `apps/web/src/lib/events/apply-payments-paid.ts`（新規）・`apps/web/src/app/(app)/events/[id]/actions.ts`・`apps/web/src/lib/line-mention.ts`
@@ -100,7 +100,7 @@ status: completed
 - **対応Issue:** #559
 
 ### タスク6: Server Action `reportPayment`（証憑つき支払報告）
-- [ ] 完了
+- [x] 完了
 - **目的:** 証憑の検証・保存・状態変更・LINE 送信・記録の作成を1つの操作としてまとめる
 - **対応AC:** AC-3, AC-4, AC-5, AC-12, AC-13, AC-15, AC-16, AC-17, AC-21
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/actions.ts`・同 `actions.payment-report.test.ts`（新規）・**`apps/web/next.config.ts`**（`serverActions.bodySizeLimit` を `4mb` → `8mb`。★全 Server Action に効く**グローバルな変更**なので差分レビューで見えるようにここに明記する）
@@ -112,7 +112,7 @@ status: completed
 - **対応Issue:** #560
 
 ### タスク7: 再送 Server Action `resendPaymentReport`
-- [ ] 完了
+- [x] 完了
 - **目的:** 送信に失敗した（またはもう一度届けたい）支払報告を、同じ内容で送り直す
 - **対応AC:** AC-16, AC-18, AC-21
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/actions.ts`・同テスト
@@ -122,7 +122,7 @@ status: completed
 - **対応Issue:** #561
 
 ### タスク8: 支払報告シートとボタン改称
-- [ ] 完了
+- [x] 完了
 - **目的:** 「支払済にする」を「支払報告」へ改称し、押下で写真選択＋プレビュー＋実行のシートを開く
 - **対応AC:** AC-1, AC-4, AC-22, AC-23
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/components/PaymentReportSheet.tsx`（新規）・`GroupDayTable.tsx`・`page.tsx`（action の差し替え）・各 `.test.tsx`
@@ -132,7 +132,7 @@ status: completed
 - **対応Issue:** #562
 
 ### タスク9: 支払報告の履歴表示と再送導線
-- [ ] 完了
+- [x] 完了
 - **目的:** 誰がいつ何を送ったかをグループページで見返し、そこから再送できるようにする
 - **対応AC:** AC-17, AC-18, AC-19
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/components/GroupProgressSection.tsx`・`page.tsx`（履歴の取得）・`.test.tsx`
@@ -142,7 +142,7 @@ status: completed
 - **対応Issue:** #563
 
 ### タスク10: ドキュメント更新
-- [ ] 完了
+- [x] 完了
 - **目的:** docs レジストリの正典を実装と同じコミット群で揃える（DoD の D2 ゲート）
 - **対応AC:** AC-24
 - **主な変更領域:** `docs/spec/`（申込・支払ドメインの該当ファイル）・`docs/design/db.md`（新規2テーブル）・`docs/features/INDEX.md`（主要領域の確定）

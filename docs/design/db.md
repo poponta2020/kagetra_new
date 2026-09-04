@@ -53,6 +53,8 @@
 | roster_type | rosterTypeEnum | applicant, confirmed |
 | roster_entry_status | rosterEntryStatusEnum | applied, confirmed, carried_up, carry_up_declined, cancelled |
 | entry_form_draft_status | entryFormDraftStatusEnum | pending, appending, created, imap_failed |
+| payment_report_status | paymentReportStatusEnum | sent, failed, skipped_unlinked |
+| payment_report_amount_source | paymentReportAmountSourceEnum | payment_notice, tally, none |
 
 ## ドメイン別テーブル一覧
 
@@ -85,6 +87,8 @@
 | entry_group_open_chats | entryGroupOpenChats | 大会当日用LINEオープンチャットの招待URL（申込グループ帰属） | schema/entry-group-open-chats.ts |
 | entry_group_open_chat_broadcasts | entryGroupOpenChatBroadcasts | オープンチャット配信の追記専用ログ（UNIQUEを持たない） | schema/entry-group-open-chat-broadcasts.ts |
 | entry_group_payment_notices | entryGroupPaymentNotices | 名簿確定後の振込連絡（級別人数の保存＋送信記録。申込グループ1行） | schema/entry-group-payment-notices.ts |
+| entry_group_payment_reports | entryGroupPaymentReports | 支払報告の履歴（1行=1回。送信本文のスナップショットを持つ追記専用ログ） | schema/entry-group-payment-reports.ts |
+| entry_group_payment_receipts | entryGroupPaymentReceipts | 支払報告に添えた証憑画像（1行=1枚。正規化後 JPEG と公開トークン） | schema/entry-group-payment-receipts.ts |
 | entry_form_drafts | entryFormDrafts | 申込書下書きの作成履歴（生成xlsxコピー含む） | schema/entry-form-drafts.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）
