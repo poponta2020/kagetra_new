@@ -12,6 +12,7 @@ import {
   type AttachmentPreviewMeta,
 } from '@/lib/attachment-preview'
 import { pickAttachmentIcon } from '../../components/AttachmentList'
+import { OpenSaveButton } from '@/components/attachment/OpenSaveButton'
 
 /**
  * /admin/mail-inbox/attachments/[id] — 添付ファイルのアプリ内ビューア。
@@ -25,11 +26,16 @@ import { pickAttachmentIcon } from '../../components/AttachmentList'
  * スタートで誤動作するため使わない (codex pr146 r1 should_fix)。
  *
  * 表示方式は contentType + 拡張子で振り分け:
- *   - PDF / Office → libreoffice + pdftoppm でページ JPEG 化して <img> 縦積み
- *     (iframe は iOS Safari が PDF を 1 ページ目しか描画しない既知制限で不採用)
+ *   - PDF / Word / PowerPoint → libreoffice + pdftoppm でページ JPEG 化して
+ *     <img> 縦積み (iframe は iOS Safari が PDF を 1 ページ目しか描画しない
+ *     既知制限で不採用)
+ *   - 表計算 (xls/xlsx/xlsm) → ページ画像を作らず「開く・保存」カードのみ
  *   - ラスタ画像   → バイナリルートをそのまま <img> 表示
  *   - text/csv     → bytea を UTF-8 で <pre> 表示
- *   - その他 (zip 等) → プレビュー不可カード + ダウンロードリンク
+ *   - その他 (zip 等) → 表示不可カード + 「開く・保存」
+ *
+ * どの種別でも、ヘッダに OS へファイルを渡す「開く・保存」を常設する
+ * (共有シート → ダウンロードのラダー。詳細は OpenSaveButton)。
  *
  * Server Component。ページ画像の生成 (初回数秒) は loading.tsx がスピナーで
  * 覆い、生成済みなら image-cache ヒットで即表示。
@@ -111,27 +117,25 @@ export default async function AttachmentViewerPage({
     textBody = full.data.toString('utf8')
   }
 
-  const downloadLink = (
-    <a
-      href={binaryUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-sm text-brand-fg underline"
-    >
-      元ファイルをダウンロード
-    </a>
+  const openSaveButton = (variant: 'header' | 'block') => (
+    <OpenSaveButton href={binaryUrl} filename={row.filename} variant={variant} />
   )
 
-  const fallbackCard = (message: string) => (
+  /**
+   * プレビューを出さない種別の共通カード。かつてここにあった但し書き
+   * 「iPhone のアプリ内からは元ファイルを開けないことがあります。必要な場合は
+   * PC からダウンロードしてください。」は削除した — 共有シート経由で端末へ
+   * 渡せるようになった今、残すと事実と食い違う案内になる。
+   */
+  const noticeCard = (title: string, description: string) => (
     <Card>
-      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-ink-2">
+      <div className="flex flex-col items-center gap-2 py-6 text-center">
         <span className="text-2xl">{icon}</span>
-        <span>{message}</span>
-        <span className="text-xs text-ink-meta">
-          iPhone のアプリ内からは元ファイルを開けないことがあります。必要な場合は
-          PC からダウンロードしてください。
+        <span className="text-base font-bold text-ink">{title}</span>
+        <span className="max-w-[292px] text-xs leading-normal text-ink-meta">
+          {description}
         </span>
-        {downloadLink}
+        <div className="w-full max-w-[260px] pt-1">{openSaveButton('block')}</div>
       </div>
     </Card>
   )
@@ -187,11 +191,23 @@ export default async function AttachmentViewerPage({
         )}
       </div>
     )
+  } else if (kind === 'spreadsheet') {
+    // 「できない」ではなく「しない」。Excel は表計算アプリで開くのが正しい。
+    body = noticeCard(
+      'Excel ファイルです',
+      'アプリの中では表示しません。Excel などの表計算アプリで開くか、端末に保存してください。',
+    )
   } else if (kind === 'document') {
     // 変換失敗、または変換は成功したが 0 ページ (空 PDF 等)。
-    body = fallbackCard('このファイルのプレビューを生成できませんでした。')
+    body = noticeCard(
+      'このファイルのプレビューを生成できませんでした',
+      '端末に保存するか、対応するアプリで開いてください。',
+    )
   } else {
-    body = fallbackCard('このファイル形式はアプリ内でプレビューできません。')
+    body = noticeCard(
+      'アプリ内では表示できない形式です',
+      '端末に保存するか、対応するアプリで開いてください。',
+    )
   }
 
   return (
@@ -211,14 +227,7 @@ export default async function AttachmentViewerPage({
           <span className="mr-1">{icon}</span>
           {row.filename}
         </span>
-        <a
-          href={binaryUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 px-2 text-xs text-brand-fg underline"
-        >
-          元ファイル
-        </a>
+        {openSaveButton('header')}
       </div>
       {body}
     </div>

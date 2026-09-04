@@ -1,0 +1,92 @@
+<!-- @dsCard group="添付ビューア（開く・保存）" name="ボタンの4状態と名簿ビューア" subtitle="idle／準備中／もう一度タップ／失敗 と /roster-files での置き場所" viewport="800x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_aod.css">
+<title>開く・保存 — 状態と名簿ビューア</title>
+</head>
+<body>
+<div class="rack">
+
+  <!-- ============ ④ ボタンの4状態 ============ -->
+  <div class="frame">
+    <div class="flabel">④ 「開く・保存」の4状態</div>
+    <div class="phone tall">
+      <div class="main">
+        <div class="states">
+
+          <div class="strow">
+            <span class="stlabel">通常</span>
+            <div class="stbody">
+              <button class="sc-btn" style="max-width:none">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+                開く・保存
+              </button>
+              <span class="stnote">押すとファイルを取り込み、端末の共有シートを開く。</span>
+            </div>
+          </div>
+
+          <div class="strow">
+            <span class="stlabel">準備中</span>
+            <div class="stbody">
+              <button class="sc-btn busy" style="max-width:none" disabled>準備中…</button>
+              <span class="stnote">取り込み中は押せない（二重タップ防止）。大きい添付でも数秒。</span>
+            </div>
+          </div>
+
+          <div class="strow">
+            <span class="stlabel">もう一度<br>タップ</span>
+            <div class="stbody">
+              <button class="sc-btn retry" style="max-width:none">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+                もう一度タップして開く
+              </button>
+              <span class="stnote">iPhone で「取り込みに時間がかかって共有シートを出せなかった」とき用。<strong>ファイルは取り込み済みなので、次のタップは待ち時間ゼロ</strong>で共有シートが出る。</span>
+            </div>
+          </div>
+
+          <div class="strow">
+            <span class="stlabel">失敗</span>
+            <div class="stbody">
+              <button class="sc-btn" style="max-width:none">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+                開く・保存
+              </button>
+              <span class="stnote err">ファイルを取り込めませんでした。通信状況を確認して、もう一度お試しください。</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <div class="fsub">共有シートをユーザーが閉じただけのとき（キャンセル）は<strong>何も出さない</strong>。エラー扱いにすると「閉じただけなのに失敗と言われる」ことになる。PC では共有シートが無いのでそのままダウンロードが始まり、状態は「通常 → 準備中 → 通常」だけを通る。</div>
+  </div>
+
+  <!-- ============ ⑤ 名簿ビューア ============ -->
+  <div class="frame">
+    <div class="flabel">⑤ 名簿ファイルビューア（/roster-files）</div>
+    <div class="phone">
+      <div class="main">
+        <div class="rpage">
+          <div class="rhead">
+            <span class="rlabel">申込名簿（原本ファイル）</span>
+            <h1 class="rtitle">第46回全国競技かるた札幌大会申込名簿.xlsx</h1>
+            <span class="rmeta">2026年8月20日 発表</span>
+          </div>
+          <button class="rbtn">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+            開く・保存
+          </button>
+          <div class="sheetcard" style="margin:0">
+            <span class="sc-icon">📊</span>
+            <span class="sc-title">Excel ファイルです</span>
+            <span class="sc-desc">アプリの中では表示しません。上のボタンから Excel などの表計算アプリで開くか、端末に保存してください。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">この画面だけ sticky ヘッダ（✕・ファイル名）を持たず、タイトルブロックが上にある。ボタンはタイトル直下＝<strong>スクロールせずに必ず見える位置</strong>に置く。名簿は実データ上ほぼ Excel なので、この画面は事実上いつもこの姿になる。</div>
+  </div>
+
+</div>
+</body></html>

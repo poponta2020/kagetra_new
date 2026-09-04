@@ -15,6 +15,7 @@ import {
   loadAdoptedRosterFile,
   parseCanonicalRosterFileId,
 } from '@/lib/roster-file-access'
+import { OpenSaveButton } from '@/components/attachment/OpenSaveButton'
 
 /**
  * /roster-files/[id] — roster-file-adoption タスク3: 会員向け名簿ファイル
@@ -34,12 +35,19 @@ import {
  *
  * 表示方式は既存の管理者向けビューア (/admin/mail-inbox/attachments/[id])
  * と同じ振り分け（contentType + 拡張子）:
- *   - PDF / Office → libreoffice + pdftoppm でページ JPEG 化して <img> 縦積み
+ *   - PDF / Word / PowerPoint → libreoffice + pdftoppm でページ JPEG 化して
+ *     <img> 縦積み
+ *   - 表計算 (xls/xlsx/xlsm) → ページ画像を作らず案内カードのみ。名簿は実
+ *     データ上ほぼ Excel なので、この画面は事実上いつもこの姿になる
  *   - ラスタ画像   → バイナリ route をそのまま <img> 表示
  *   - text/csv     → bytea を UTF-8 で <pre> 表示
  *   - その他 (zip 等、detectPreviewKind が 'none') → ページ画像を出さず
- *     ダウンロード導線だけのカード（AC-8 の「閲覧できる」はこの場合
- *     「ビューアページが200でダウンロード導線が出る」ことを指す）
+ *     案内カードだけ（AC-8 の「閲覧できる」はこの場合「ビューアページが 200
+ *     で開く・保存の導線が出る」ことを指す）
+ *
+ * この画面は他2つのビューアと違い sticky ヘッダ（✕・ファイル名）を持たない
+ * ため、OS へファイルを渡す「開く・保存」はタイトルブロックの直下に置く
+ * （スクロールせずに必ず見える位置）。
  */
 export const dynamic = 'force-dynamic'
 
@@ -98,26 +106,21 @@ export default async function RosterFileViewerPage({
     textBody = full.data.toString('utf8')
   }
 
-  const downloadLink = (
-    <a
-      href={binaryUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-sm text-brand-fg underline"
-    >
-      元ファイルをダウンロード
-    </a>
-  )
-
-  const fallbackCard = (message: string) => (
+  /**
+   * プレビューを出さない種別の案内カード。ボタンはカード内ではなくタイトル
+   * 直下にあるので、文言は「上のボタンから」と受ける。かつてここにあった
+   * 但し書き「iPhone のアプリ内からは元ファイルを開けないことがあります。
+   * 必要な場合は PC からダウンロードしてください。」は削除した — 共有シート
+   * 経由で端末へ渡せるようになった今、残すと事実と食い違う案内になる。
+   */
+  const noticeCard = (icon: string, title: string, description: string) => (
     <Card>
-      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-ink-2">
-        <span>{message}</span>
-        <span className="text-xs text-ink-meta">
-          iPhone のアプリ内からは元ファイルを開けないことがあります。必要な場合は
-          PC からダウンロードしてください。
+      <div className="flex flex-col items-center gap-2 py-6 text-center">
+        <span className="text-2xl">{icon}</span>
+        <span className="text-base font-bold text-ink">{title}</span>
+        <span className="max-w-[292px] text-xs leading-normal text-ink-meta">
+          {description}
         </span>
-        {downloadLink}
       </div>
     </Card>
   )
@@ -170,11 +173,26 @@ export default async function RosterFileViewerPage({
         )}
       </div>
     )
+  } else if (kind === 'spreadsheet') {
+    // 「できない」ではなく「しない」。Excel は表計算アプリで開くのが正しい。
+    body = noticeCard(
+      '📊',
+      'Excel ファイルです',
+      'アプリの中では表示しません。上のボタンから Excel などの表計算アプリで開くか、端末に保存してください。',
+    )
   } else if (kind === 'document') {
     // 変換失敗、または変換は成功したが 0 ページ (空 PDF 等)。
-    body = fallbackCard('このファイルのプレビューを生成できませんでした。')
+    body = noticeCard(
+      '📎',
+      'このファイルのプレビューを生成できませんでした',
+      '上のボタンから端末に保存するか、対応するアプリで開いてください。',
+    )
   } else {
-    body = fallbackCard('このファイル形式はアプリ内でプレビューできません。')
+    body = noticeCard(
+      '📎',
+      'アプリ内では表示できない形式です',
+      '上のボタンから端末に保存するか、対応するアプリで開いてください。',
+    )
   }
 
   return (
@@ -191,8 +209,12 @@ export default async function RosterFileViewerPage({
             発表 {formatFlowDate(adopted.publishedAt)}
           </p>
         )}
-        {downloadLink}
       </div>
+      <OpenSaveButton
+        href={binaryUrl}
+        filename={attachment.filename}
+        variant="block"
+      />
       {body}
     </div>
   )

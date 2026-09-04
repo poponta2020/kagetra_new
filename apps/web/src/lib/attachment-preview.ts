@@ -23,12 +23,21 @@ import { getCachedImage, setCachedImage } from '@/lib/image-cache'
  *
  * Pipeline per attachment:
  *   - PDF           → renderPdfToJpegs directly
- *   - Office (.doc/.docx/.xls/.xlsx/.ppt/.pptx)
+ *   - Office (.doc/.docx/.ppt/.pptx)
  *                   → libreoffice --convert-to pdf (module auto-detect; NOT
- *                     --writer, which would mis-render Calc/Impress inputs)
+ *                     --writer, which would mis-render Impress inputs)
  *                   → renderPdfToJpegs
  *   - raster images / text are NOT handled here — the viewer page serves
  *     those via <img> on the binary route / inline <pre> respectively.
+ *   - SPREADSHEETS (.xls/.xlsx/.xlsm) are deliberately NOT handled here
+ *     either. Page images of a spreadsheet are unusable — columns get
+ *     clipped and rows break across arbitrary page boundaries — and Excel is
+ *     the single most common attachment we receive, so converting every one
+ *     of them cost libreoffice time for output nobody could read. They are
+ *     classified as `spreadsheet` and the viewer hands the file to the OS
+ *     (share sheet / download) instead. Their MIME types and extensions are
+ *     removed from the conversion maps below, so `conversionExtension`
+ *     rejects them structurally even if a caller asks.
  *
  * Results land in the shared in-memory image-cache (globalThis-pinned, LRU
  * capped) under `attpv:` keys, so repeat opens are instant until process
@@ -43,17 +52,32 @@ import { getCachedImage, setCachedImage } from '@/lib/image-cache'
  * ever reach a browser are pdftoppm's JPEG output — inert by construction.
  */
 
-export type AttachmentPreviewKind = 'document' | 'image' | 'text' | 'none'
+export type AttachmentPreviewKind =
+  | 'document'
+  | 'spreadsheet'
+  | 'image'
+  | 'text'
+  | 'none'
 
 const PDF_CONTENT_TYPES = new Set(['application/pdf', 'application/x-pdf'])
 
 const OFFICE_CONTENT_TYPES = new Set([
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+])
+
+/**
+ * Spreadsheets. Kept OUT of OFFICE_CONTENT_TYPES on purpose — see the
+ * pipeline note in the file docstring. `normalizeContentType` lowercases its
+ * input, so the macro-enabled type is spelled `macroenabled` here (IANA
+ * writes it `macroEnabled`); matching the cased spelling would never fire.
+ */
+const SPREADSHEET_CONTENT_TYPES = new Set([
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
 ])
 
 /**
@@ -74,15 +98,15 @@ const IMAGE_CONTENT_TYPES = new Set([
 const TEXT_CONTENT_TYPES = new Set(['text/plain', 'text/csv'])
 
 /** Extensions accepted as conversion input when the MIME is unhelpful. */
-const DOCUMENT_EXTENSIONS = new Set([
-  'pdf',
-  'doc',
-  'docx',
-  'xls',
-  'xlsx',
-  'ppt',
-  'pptx',
-])
+const DOCUMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx'])
+
+/**
+ * Spreadsheet extensions, consulted when the declared MIME is unhelpful
+ * (real sender MUAs ship Office files as octet-stream). Deliberately absent
+ * from DOCUMENT_EXTENSIONS — leaving them in both would send Excel back down
+ * the conversion path whenever the MIME was blank.
+ */
+const SPREADSHEET_EXTENSIONS = new Set(['xls', 'xlsx', 'xlsm'])
 
 const TEXT_EXTENSIONS = new Set(['txt', 'csv'])
 
@@ -91,8 +115,6 @@ const OFFICE_EXTENSION_BY_TYPE: Record<string, string> = {
   'application/msword': 'doc',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
     'docx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.ms-powerpoint': 'ppt',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation':
     'pptx',
@@ -124,11 +146,17 @@ export function detectPreviewKind(
 ): AttachmentPreviewKind {
   const ct = normalizeContentType(contentType)
   if (IMAGE_CONTENT_TYPES.has(ct)) return 'image'
+  // Spreadsheets are checked before documents in both passes. The two sets
+  // are disjoint today, but keeping this order means a type that ever lands
+  // in both resolves to the non-converting branch rather than firing
+  // libreoffice.
+  if (SPREADSHEET_CONTENT_TYPES.has(ct)) return 'spreadsheet'
   if (PDF_CONTENT_TYPES.has(ct) || OFFICE_CONTENT_TYPES.has(ct)) {
     return 'document'
   }
   if (TEXT_CONTENT_TYPES.has(ct)) return 'text'
   const ext = fileExtension(filename)
+  if (SPREADSHEET_EXTENSIONS.has(ext)) return 'spreadsheet'
   if (DOCUMENT_EXTENSIONS.has(ext)) return 'document'
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
   return 'none'
