@@ -37,6 +37,13 @@ async function loadReason(
   return result.reason
 }
 
+/** 露出条件を満たさない前提で、添えて返る共通項目を取り出す。 */
+async function loadUnavailable(groupId: number, options?: { requireSettled?: boolean }) {
+  const result = await loadPaymentNoticeContext(groupId, options)
+  if (result.ok) throw new Error('expected unavailable but got a context')
+  return result
+}
+
 /**
  * 振込連絡の露出条件（line-bot-message-revamp §3.3.1）と初期値。
  * 露出条件は申込管理ボードの `payment_due` 区画と同じ（settled ∧ 事前払い ∧ 未振込）。
@@ -391,5 +398,36 @@ describe('loadPaymentNoticeContext', () => {
     expect(ctx.lastSentAt).toBeNull()
     expect(ctx.lastAttemptedAt).toEqual(new Date('2026-07-21T02:00:00Z'))
     expect(ctx.lastError).toBe('LINE 送信に失敗しました: 500')
+  })
+  it('送信不可でも共通項目は添えて返す（§3.3.5.3 の保存経路が使う）', async () => {
+    // 支払済み＝送信対象外だが、メール処理画面は支払締切・振込先だけ保存できる
+    // 必要がある。ここで共通項目まで落とすと入力欄に前の値を出せない。
+    const { group } = await seedDueGroup({
+      paymentStatus: 'paid',
+      paymentDeadline: '2026-07-25',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '〇〇銀行 普通 1234567',
+    })
+    const result = await loadUnavailable(group.id)
+    expect(result.reason).toBe('paid')
+    expect(result.commonFields).toEqual({
+      paymentDeadline: '2026-07-25',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '〇〇銀行 普通 1234567',
+    })
+  })
+
+  it('対象日が1つも無いときは非中止の全日から共通項目を採る', async () => {
+    // 未申込＝dueDays が空。母集団が空のままだと共通項目が全部 null になる。
+    const { group } = await seedDueGroup({
+      entryStatus: 'not_applied',
+      paymentDeadline: '2026-07-25',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '△△銀行 普通 7654321',
+    })
+    const result = await loadUnavailable(group.id)
+    expect(result.reason).toBe('not_applied')
+    expect(result.commonFields.paymentInfo).toBe('△△銀行 普通 7654321')
+    expect(result.commonFields.paymentDeadline).toBe('2026-07-25')
   })
 })

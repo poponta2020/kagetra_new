@@ -356,6 +356,11 @@ export default async function MailDetailPage({
                   ? `（${formatJst(paymentNoticeStatus.lastAttemptedAt)}）`
                   : ''}
                 : {paymentNoticeStatus.lastError}
+                {paymentNoticeStatus.lastSentAt && (
+                  <span className="ml-1 text-ink-meta">
+                    （最終成功 {formatJst(paymentNoticeStatus.lastSentAt)}）
+                  </span>
+                )}
                 <Link
                   href={`/admin/entries/${paymentNoticeStatus.entryGroupId}`}
                   className="ml-1 text-brand-fg underline"

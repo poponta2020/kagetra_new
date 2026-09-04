@@ -164,7 +164,7 @@ describe('MailProcessForm — 会計へ振込連絡', () => {
     expect((screen.getByLabelText('B級の人数') as HTMLInputElement).value).toBe('0')
   })
 
-  it('送信できないときは理由を出し、入力欄は出さない（AC-34 / AC-35）', async () => {
+  it('送信できないときは理由を出し、人数欄は出さない（AC-34 / AC-35）', async () => {
     draftMock.mockResolvedValue(
       draft({
         canSend: false,
@@ -180,6 +180,35 @@ describe('MailProcessForm — 会計へ振込連絡', () => {
     expect(screen.queryByLabelText('A級の人数')).toBeNull()
     // セクション自体は残す（黙って消さない）。
     expect(screen.getByText('会計へ振込連絡')).toBeTruthy()
+  })
+
+  it('送信できなくても振込期限・振込先は編集でき、保存として渡る（§3.3.5.3）', async () => {
+    // ★保存は送信可否と切り離す（Codex R1 blocker）。ここで入力欄を消すと、
+    // 確定名簿メールを処理する時点に振込先を入れる場所が無くなる。
+    draftMock.mockResolvedValue(
+      draft({
+        canSend: false,
+        unavailableReason: 'no_line_binding',
+        unavailableMessage: 'LINE グループが紐付いていません',
+        rows: [],
+        paymentInfo: null,
+      }),
+    )
+    renderForm()
+    selectKind('確定名簿')
+    selectGroup()
+    const info = await screen.findByPlaceholderText(/〇〇銀行/)
+    fireEvent.change(info, { target: { value: '△△銀行 普通 7654321' } })
+
+    const run = screen.getByRole('button', { name: '実行する' }) as HTMLButtonElement
+    // 送らないので振込先が空でも実行はできる（今回は入力済み）。
+    expect(run.disabled).toBe(false)
+    fireEvent.click(run)
+    await waitFor(() => expect(processMailMock).toHaveBeenCalled())
+    expect(processMailMock.mock.calls[0]![1].paymentNotice).toMatchObject({
+      send: false,
+      paymentInfo: '△△銀行 普通 7654321',
+    })
   })
 
   it('チェック ON で振込先が空だと実行できない（AC-38）', async () => {
@@ -235,7 +264,7 @@ describe('MailProcessForm — 会計へ振込連絡', () => {
     expect(processMailMock.mock.calls[0]![1].paymentNotice).toBeNull()
   })
 
-  it('送信できない状態でも paymentNotice を渡さない（サーバーの fail-closed と揃える）', async () => {
+  it('送信できない状態では send: false で渡す（push はさせず保存だけ）', async () => {
     draftMock.mockResolvedValue(
       draft({ canSend: false, unavailableReason: 'paid', unavailableMessage: '支払済みです', rows: [] }),
     )
@@ -245,7 +274,7 @@ describe('MailProcessForm — 会計へ振込連絡', () => {
     await screen.findByText(/振込連絡は送れません/)
     fireEvent.click(screen.getByRole('button', { name: '実行する' }))
     await waitFor(() => expect(processMailMock).toHaveBeenCalled())
-    expect(processMailMock.mock.calls[0]![1].paymentNotice).toBeNull()
+    expect(processMailMock.mock.calls[0]![1].paymentNotice).toMatchObject({ send: false })
   })
 
   it('入力した人数・支払締切・振込先がそのまま渡る', async () => {

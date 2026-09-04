@@ -300,11 +300,12 @@ export function MailProcessForm({
   const rosterNeedsFile =
     isRoster && adoptableAttachments.length > 0 && selectedFiles.size === 0
 
-  // 振込連絡を実際に渡すか。**送信できない状態では渡さない** — サーバー側も同じ条件で
-  // fail-closed に弾くので、渡すと実行そのものが失敗する。
-  const paymentNoticeReady =
-    showPaymentNotice && paymentNoticeDraft != null && paymentNoticeDraft.canSend
-  const paymentNoticeSendOn = paymentNoticeReady && paymentNoticeSend
+  // 振込連絡の入力を渡すか。**セクションが描かれていれば送信可否によらず渡す**
+  // （§3.3.5.3: 共通項目の保存は送信のゲートと切り離す。ゲートが掛かるのは push だけ）。
+  // 渡さないのは「セクション自体が出ていない」ときだけ（AC-42b）。
+  const paymentNoticeReady = showPaymentNotice && paymentNoticeDraft != null
+  const paymentNoticeSendOn =
+    paymentNoticeReady && (paymentNoticeDraft?.canSend ?? false) && paymentNoticeSend
   // 送るときだけの必須条件（§3.3.5.3 / AC-38）。チェックが OFF なら空でも実行できる。
   const paymentNoticeIncomplete =
     paymentNoticeSendOn &&
@@ -402,7 +403,8 @@ export function MailProcessForm({
         // 渡し、入力した支払締切・振込先だけを保存させる（AC-42）。
         paymentNotice: paymentNoticeReady
           ? {
-              send: paymentNoticeSend,
+              // 送信できない状態では常に false（共通項目だけ保存させる）。
+              send: paymentNoticeSendOn,
               counts: paymentNoticeCounts,
               paymentDeadline: paymentDeadline || null,
               paymentDeadlineKind,

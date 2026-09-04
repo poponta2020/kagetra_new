@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  entryGroupPaymentNotices,
   entryGroups,
   eventLineBroadcasts,
   events,
@@ -103,9 +104,14 @@ vi.mock('@kagetra/mail-worker/config', () => ({
   loadLlmConfig: () => ({ anthropicApiKey: 'mock-anthropic-key' }),
   loadCostGuardConfig: () => ({ MAIL_WORKER_PDF_SIZE_LIMIT_KB: 8000 }),
 }))
-vi.mock('@/lib/events/payment-notice-send', () => ({
-  sendPaymentNoticeCore: sendPaymentNoticeCoreMock,
-}))
+// 送信本体だけスパイに差し替える。`recordPaymentNoticeFailure`（試行記録の書き込み）は
+// **実物を使う** — この経路の検証対象そのものなので、mock すると DB への記録を確認できない。
+vi.mock('@/lib/events/payment-notice-send', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/events/payment-notice-send')>(
+    '@/lib/events/payment-notice-send',
+  )
+  return { ...actual, sendPaymentNoticeCore: sendPaymentNoticeCoreMock }
+})
 
 const { processMail, undoTriage } = await import('./actions')
 
@@ -338,7 +344,7 @@ describe('processMail: 会計への振込連絡', () => {
     })
   })
 
-  it('送信できない状態のグループでは受け付けない（fail-closed）', async () => {
+  it('送信できない状態で send: true なら受け付けない（fail-closed）', async () => {
     await asAdmin()
     const { groupId } = await seedGroup()
     // 全日を支払済みにする＝振込は不要（§3.3.5.2）。
@@ -351,6 +357,57 @@ describe('processMail: 会計への振込連絡', () => {
     const result = await processMail(mail.id, await baseInput(groupId, { paymentNotice: NOTICE }))
     expect(result.ok).toBe(false)
     expect((result as { error: string }).error).toContain('支払済みです')
+  })
+
+  it('送信できない状態でも send: false なら共通項目は保存する（§3.3.5.3）', async () => {
+    // ★ゲートが掛かるのは push だけ（Codex R1 blocker）。保存まで止めると、
+    // LINE 未紐付け・未申込のグループで振込先を入れる場所が無くなる。
+    await asAdmin()
+    const { groupId } = await seedGroup()
+    await testDb
+      .update(events)
+      .set({ paymentStatus: 'paid' })
+      .where(eq(events.entryGroupId, groupId))
+    const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+    runAfterImmediately()
+
+    const result = await processMail(
+      mail.id,
+      await baseInput(groupId, { paymentNotice: { ...NOTICE, send: false } }),
+    )
+    expect(result.ok).toBe(true)
+    expect(sendPaymentNoticeCoreMock).not.toHaveBeenCalled()
+    const rows = await eventRows(groupId)
+    expect(rows.every((r) => r.paymentInfo === '〇〇銀行 普通 1234567')).toBe(true)
+  })
+
+  it('送信時の再検証で対象外になったら試行記録を残す（Codex R1 blocker）', async () => {
+    // 先行する LINE 配信が 400 で紐付けを revoke した場合など。黙って return すると
+    // processMail は {ok:true} を返し画面もメール一覧へ戻るので、どこにも痕跡が残らない。
+    await asAdmin()
+    const { groupId } = await seedGroup()
+    const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+    // after() を溜めておき、コミット後・push 前に紐付けを落とす。
+    let queued: (() => void | Promise<void>) | null = null
+    afterMock.mockImplementation((cb: () => void | Promise<void>) => {
+      queued = cb
+    })
+    const result = await processMail(mail.id, await baseInput(groupId, { paymentNotice: NOTICE }))
+    expect(result.ok).toBe(true)
+
+    await testDb
+      .update(eventLineBroadcasts)
+      .set({ status: 'revoked' })
+      .where(eq(eventLineBroadcasts.entryGroupId, groupId))
+    await (queued as unknown as () => Promise<void>)()
+
+    expect(sendPaymentNoticeCoreMock).not.toHaveBeenCalled()
+    const row = await testDb.query.entryGroupPaymentNotices.findFirst({
+      where: eq(entryGroupPaymentNotices.entryGroupId, groupId),
+    })
+    expect(row?.lastSentAt).toBeNull()
+    expect(row?.lastAttemptedAt).not.toBeNull()
+    expect(row?.lastError).toContain('LINE グループが紐付いていません')
   })
 
   it('LINE 配信も ON のとき、振込連絡は配信の後に呼ばれる（AC-44）', async () => {

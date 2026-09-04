@@ -209,4 +209,23 @@ describe('PaymentNoticeSection', () => {
     expect(screen.queryByText(/送信に失敗しました/)).toBeNull()
     expect(screen.getByText(/送信済/)).toBeTruthy()
   })
+  it('成功後の再送が失敗したら「送信済」ではなく「送信失敗」を出す（Codex R1 blocker）', async () => {
+    // last_error は成功でクリアされるが、last_sent_at は過去の成功のまま残る。
+    // ヘッダーが「送信済」のままだと直近の再送結果を誤認して再送を見送りかねない。
+    const { container } = render(
+      <PaymentNoticeSection
+        {...baseProps({
+          lastSentAt: new Date('2026-07-20T01:00:00Z'),
+          lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+          lastError: 'LINE 送信に失敗しました: 500',
+        })}
+      />,
+    )
+    openAllDetails(container)
+    // ヘッダー（aux）は失敗を出し、「送信済」ラベルは出さない。
+    expect(container.textContent).toContain('送信失敗')
+    expect(container.textContent).not.toContain('送信済 ')
+    // 過去の成功は「最終成功」として別に残す。
+    expect(container.textContent).toContain('最終成功')
+  })
 })

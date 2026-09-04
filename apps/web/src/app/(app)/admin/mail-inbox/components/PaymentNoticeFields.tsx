@@ -83,13 +83,73 @@ export function PaymentNoticeFields({
     [editedRows, paymentDeadline, paymentInfo],
   )
 
-  // 送信できない状態では入力欄ごと出さない（保存もサーバー側で受け付けないため、
-  // 入力させると「入れたのに何も起きない」になる）。理由だけを出す（§3.3.5.2）。
+  // 支払締切・振込先の入力ブロック。**送信可否によらず出す**（§3.3.5.3: 保存は
+  // 送信のゲートと切り離す）。送れない状態でここを消すと、確定名簿メールを処理する
+  // 時点で振込先を入れる場所が無くなり、この機能が無くそうとしている「グループページ
+  // へ移動して入れ直す」状態に戻る（Codex R1 blocker）。
+  const commonFields = (
+    <>
+      <label className="mt-2.5 block text-[10px] text-ink-meta" htmlFor="pn-deadline">
+        振込期限
+      </label>
+      <div className="mt-1 flex gap-1.5">
+        <input
+          id="pn-deadline"
+          type="date"
+          value={paymentDeadline}
+          disabled={disabled}
+          onChange={(e) => onPaymentDeadlineChange(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-border-soft bg-surface px-2.5 py-2 text-sm text-ink"
+        />
+        <select
+          value={paymentDeadlineKind}
+          disabled={disabled || paymentDeadline !== ''}
+          onChange={(e) => onPaymentDeadlineKindChange(e.target.value as PaymentDeadlineKind)}
+          aria-label="振込期限の状態"
+          className="flex-none rounded-md border border-border-soft bg-surface px-2 py-2 text-sm text-ink"
+        >
+          {PAYMENT_DEADLINE_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {PAYMENT_DEADLINE_KIND_LABELS[k]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="mt-1 text-[10px] text-ink-meta">
+        空でも送れます（1通目の日付行が消えるだけです）。
+      </p>
+
+      <label className="mt-2.5 block text-[10px] text-ink-meta" htmlFor="pn-info">
+        振込先
+      </label>
+      <textarea
+        id="pn-info"
+        value={paymentInfo}
+        rows={3}
+        disabled={disabled}
+        onChange={(e) => onPaymentInfoChange(e.target.value)}
+        placeholder="例: 〇〇銀行 △△支店 普通 1234567 カルタ タロウ"
+        className="mt-1 w-full resize-none rounded-md border border-border-soft bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-muted"
+      />
+      <p className="mt-1 text-[10px] leading-relaxed text-ink-meta">
+        入力した振込期限・振込先は、この大会の全ての開催日に保存されます。
+      </p>
+    </>
+  )
+
+  // 送信できない状態では、理由を出したうえで**共通項目だけ**編集させる（§3.3.5.2 /
+  // §3.3.5.3）。人数・プレビュー・送信チェックは意味を持たないので出さない。
   if (!draft.canSend) {
     return (
-      <div className="mt-1.5 rounded-md border border-border bg-neutral-bg px-2.5 py-2 text-xs leading-relaxed text-neutral-fg">
-        振込連絡は送れません: {draft.unavailableMessage}
-      </div>
+      <>
+        <div className="mt-1.5 rounded-md border border-border bg-neutral-bg px-2.5 py-2 text-xs leading-relaxed text-neutral-fg">
+          振込連絡は送れません: {draft.unavailableMessage}
+          <span className="mt-1 block text-[10px]">
+            振込期限・振込先だけは保存できます（あとで申込グループページから送れます）。
+          </span>
+        </div>
+        {commonFields}
+      </>
     )
   }
 
@@ -149,51 +209,7 @@ export function PaymentNoticeFields({
             を初期値にしています。抽選のある大会では落選者が混ざるので、送る前に確認してください。
           </p>
 
-          <label className="mt-2.5 block text-[10px] text-ink-meta" htmlFor="pn-deadline">
-            振込期限
-          </label>
-          <div className="mt-1 flex gap-1.5">
-            <input
-              id="pn-deadline"
-              type="date"
-              value={paymentDeadline}
-              disabled={disabled}
-              onChange={(e) => onPaymentDeadlineChange(e.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-border-soft bg-surface px-2.5 py-2 text-sm text-ink"
-            />
-            <select
-              value={paymentDeadlineKind}
-              disabled={disabled || paymentDeadline !== ''}
-              onChange={(e) => onPaymentDeadlineKindChange(e.target.value as PaymentDeadlineKind)}
-              aria-label="振込期限の状態"
-              className="flex-none rounded-md border border-border-soft bg-surface px-2 py-2 text-sm text-ink"
-            >
-              {PAYMENT_DEADLINE_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {PAYMENT_DEADLINE_KIND_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="mt-1 text-[10px] text-ink-meta">
-            空でも送れます（1通目の日付行が消えるだけです）。
-          </p>
-
-          <label className="mt-2.5 block text-[10px] text-ink-meta" htmlFor="pn-info">
-            振込先
-          </label>
-          <textarea
-            id="pn-info"
-            value={paymentInfo}
-            rows={3}
-            disabled={disabled}
-            onChange={(e) => onPaymentInfoChange(e.target.value)}
-            placeholder="例: 〇〇銀行 △△支店 普通 1234567 カルタ タロウ"
-            className="mt-1 w-full resize-none rounded-md border border-border-soft bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-muted"
-          />
-          <p className="mt-1 text-[10px] leading-relaxed text-ink-meta">
-            入力した振込期限・振込先は、この大会の全ての開催日に保存されます。
-          </p>
+          {commonFields}
           {paymentInfo.trim() === '' && (
             <p className="mt-1 text-[10px] text-danger" role="alert">
               振込先を入力してください（2通目が送られず連絡として成立しません）。

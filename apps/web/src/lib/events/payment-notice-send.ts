@@ -62,6 +62,39 @@ export type SendPaymentNoticeCoreResult =
   /** push が失敗した。`error` はそのまま `last_error` に記録した文字列。 */
   | { outcome: 'failed'; error: string }
 
+/**
+ * 送信を**試みたが送れなかった**ことを記録する（§3.3.5.6）。
+ *
+ * `sendPaymentNoticeCore` へ辿り着く前に落ちた場合に使う — 具体的には、
+ * `processMail` の `after()` が push 直前の再検証で「送れない状態」を検出したとき。
+ * ★ここを記録せずに黙って return すると、`processMail` は既に `{ok: true}` を返し
+ * 画面もメール一覧へ戻っているため、**管理者はどの画面でも脱落に気づけない**
+ * （Codex R1 blocker）。取り消し（世代トークン不一致）は正常な中止なので呼ばない。
+ *
+ * 既存行があれば人数・総額には触れず、試行日時と理由だけを上書きする
+ * （過去の送信記録を壊さない）。行が無ければ作る — `last_sent_at` は NULL のままな
+ * ので「送信済」にはならず、`grade_counts` が全級0なら初期値は集計から引かれる。
+ */
+export async function recordPaymentNoticeFailure(
+  dbc: Database,
+  input: { entryGroupId: number; counts: Partial<Record<Grade, number>>; error: string },
+): Promise<void> {
+  const now = new Date()
+  await dbc
+    .insert(entryGroupPaymentNotices)
+    .values({
+      entryGroupId: input.entryGroupId,
+      gradeCounts: input.counts,
+      totalJpy: 0,
+      lastAttemptedAt: now,
+      lastError: input.error,
+    })
+    .onConflictDoUpdate({
+      target: entryGroupPaymentNotices.entryGroupId,
+      set: { lastAttemptedAt: now, lastError: input.error, updatedAt: now },
+    })
+}
+
 export async function sendPaymentNoticeCore(
   dbc: Database,
   input: SendPaymentNoticeCoreInput,

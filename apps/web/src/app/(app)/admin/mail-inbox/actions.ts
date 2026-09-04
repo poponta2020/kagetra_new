@@ -71,7 +71,10 @@ import {
   type PaymentDeadlineKind,
 } from '@/lib/events/payment-deadline'
 import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
-import { sendPaymentNoticeCore } from '@/lib/events/payment-notice-send'
+import {
+  recordPaymentNoticeFailure,
+  sendPaymentNoticeCore,
+} from '@/lib/events/payment-notice-send'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
@@ -1737,12 +1740,20 @@ export async function processMail(
       const count = parsedCounts.data[grade]
       if (count != null) counts[grade] = count
     }
+    // ★可否判定のゲートは **`send: true` のときだけ**（§3.3.5.3）。共通項目
+    // （支払締切・振込先）の保存は送信可否と切り離す — セクションが描かれている
+    // 限り保存できないと、LINE 未紐付け・未申込のグループで確定名簿メールを処理する
+    // 時点に振込先を入れる場所が無くなる（Codex R1 blocker）。
     // ★`settled` は見ない。この実行そのものがシグナル3を成立させるので、処理前に
     // 見ると必ず false になる（§3.3.5.1 / §7-6）。
-    const loaded = await loadPaymentNoticeContext(input.entryGroupId, { requireSettled: false })
-    const availability = loaded.ok ? loaded.context.availability : loaded
-    if (!availability.ok) {
-      return { ok: false, error: `振込連絡を送れない状態です: ${availability.message}` }
+    if (input.paymentNotice.send) {
+      const loaded = await loadPaymentNoticeContext(input.entryGroupId, {
+        requireSettled: false,
+      })
+      const availability = loaded.ok ? loaded.context.availability : loaded
+      if (!availability.ok) {
+        return { ok: false, error: `振込連絡を送れない状態です: ${availability.message}` }
+      }
     }
     // 支払締切は日付と状態を必ずセットで正規化する（events の CHECK を満たすため）。
     const deadline = normalizePaymentDeadline({
@@ -2148,9 +2159,23 @@ export async function processMail(
               requireSettled: false,
             })
             if (!loaded.ok || !loaded.context.availability.ok) {
+              // ★黙って return しない（Codex R1 blocker）。`processMail` は既に
+              // `{ok:true}` を返しメール一覧へ戻っているので、記録を残さないと
+              // 「送るつもりだったのに送られなかった」ことに誰も気づけない。
+              // 典型は先行する LINE 配信が紐付けを revoke したケース。
+              const reason = loaded.ok ? loaded.context.availability : loaded
+              const message = reason.ok ? '不明な理由' : reason.message
               console.warn('[processMail] payment notice not applicable at send time', {
                 mailId,
                 entryGroupId,
+                reason: message,
+              })
+              await recordPaymentNoticeFailure(db, {
+                entryGroupId,
+                counts: noticeCounts,
+                error: `送信時に対象外になりました: ${message}`,
+              }).catch((err) => {
+                console.error('[processMail] recordPaymentNoticeFailure failed', err)
               })
               return
             }

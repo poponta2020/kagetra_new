@@ -75,17 +75,18 @@ export async function loadPaymentNoticeDraft(entryGroupId: number): Promise<Paym
 
   const loaded = await loadPaymentNoticeContext(entryGroupId, { requireSettled: false })
   if (!loaded.ok) {
-    // 対象日が無い・LINE 未紐付け。人数も共通項目も出しようが無いので空で返し、
-    // 画面は理由だけを出す。
+    // 対象日が無い・LINE 未紐付け。人数は出しようが無いが、**共通項目は返す**
+    // （§3.3.5.3: 保存は送信可否と切り離す。画面は理由を出したうえで支払締切・
+    // 振込先だけ編集させる）。
     return {
       canSend: false,
       unavailableReason: loaded.reason,
       unavailableMessage: loaded.message,
       rows: [],
       hasSavedCounts: false,
-      paymentDeadline: null,
-      paymentDeadlineKind: 'unspecified',
-      paymentInfo: null,
+      paymentDeadline: loaded.commonFields.paymentDeadline,
+      paymentDeadlineKind: loaded.commonFields.paymentDeadlineKind,
+      paymentInfo: loaded.commonFields.paymentInfo,
       lastSentAt: null,
       lastAttemptedAt: null,
       lastError: null,

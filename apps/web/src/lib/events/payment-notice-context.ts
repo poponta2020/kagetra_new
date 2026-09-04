@@ -44,7 +44,23 @@ import {
  * そのまま使うと支払済み分まで振込依頼に載り**二重請求**になる。
  */
 
-export interface PaymentNoticeContext {
+/**
+ * グループ共通の振込条件（§3.3.5.3 でメール処理画面が編集・保存する2項目）。
+ *
+ * ★**送信できない状態でも返す。** セクションが描かれている限り支払締切・振込先は
+ * 保存できる、というのが要件の契約（ゲートが掛かるのは push だけ）なので、
+ * 「送れないから初期値も返さない」にすると入力欄に前の値が出せない。
+ */
+export interface PaymentNoticeCommonFields {
+  /** 振込期限（グループ共通。日により違えば最も早い日を採る）。 */
+  paymentDeadline: string | null
+  /** 振込期限の状態。`paymentDeadline` と CHECK で双条件に縛られている。 */
+  paymentDeadlineKind: PaymentDeadlineKind
+  /** 支払情報（グループ共通。空なら2通目を送らない）。 */
+  paymentInfo: string | null
+}
+
+export interface PaymentNoticeContext extends PaymentNoticeCommonFields {
   /**
    * 級ごとの人数（初期値）と単価。保存済みがあればその人数、無ければ参加費集計から。
    *
@@ -58,12 +74,6 @@ export interface PaymentNoticeContext {
   hasSavedCounts: boolean
   /** 級 -> 単価。人数から金額を組み直すのに使う（単価は保存しない）。 */
   unitPriceByGrade: Partial<Record<Grade, number>>
-  /** 振込期限（グループ共通。日により違えば最も早い日を採る）。 */
-  paymentDeadline: string | null
-  /** 振込期限の状態。`paymentDeadline` と CHECK で双条件に縛られている。 */
-  paymentDeadlineKind: PaymentDeadlineKind
-  /** 支払情報（グループ共通。空なら2通目を送らない）。 */
-  paymentInfo: string | null
   lastSentAt: Date | null
   /** 最後に送信を試みた日時（成否を問わない）。§3.3.5.6 の失敗表示に使う。 */
   lastAttemptedAt: Date | null
@@ -82,7 +92,17 @@ export interface PaymentNoticeContext {
 
 export type PaymentNoticeContextResult =
   | { ok: true; context: PaymentNoticeContext }
-  | { ok: false; reason: PaymentNoticeUnavailableReason; message: string }
+  | {
+      ok: false
+      reason: PaymentNoticeUnavailableReason
+      message: string
+      /**
+       * 送れない状態でも共通項目は返す（§3.3.5.3）。メール処理画面はこれを初期値に
+       * 支払締切・振込先を編集・保存できる。グループページは `ok` しか見ないので
+       * 従来どおりセクションごと出ない（AC-48 の回帰）。
+       */
+      commonFields: PaymentNoticeCommonFields
+    }
 
 export interface LoadPaymentNoticeContextOptions {
   /**
@@ -159,9 +179,21 @@ export async function loadPaymentNoticeContext(
     hasLineBinding,
     hasPricedGrade: Object.keys(unitPriceByGrade).length > 0,
   })
-  // `no_priced_grade` 以外の不可はローダーごと弾く（= セクションを出さない）。
+  // 共通項目（支払締切・振込先）の代表値。**対象日が無くても返す**（§3.3.5.3）ので、
+  // 母集団は「未振込の日があればそこ、無ければ非中止の全日」とする。どちらも
+  // 開催日昇順に固定してあるので、同じ状態からは必ず同じ値が選ばれる。
+  const commonFields = representativeCommonFields(dueDays.length > 0 ? dueDays : dayRows)
+
+  // `no_priced_grade` 以外の不可はローダーごと弾く（= グループページはセクションを
+  // 出さない）。ただし**共通項目は添えて返す** — メール処理画面は送れない状態でも
+  // 支払締切・振込先を編集・保存できる必要がある（Codex R1 blocker）。
   if (!availability.ok && availability.reason !== 'no_priced_grade') {
-    return { ok: false, reason: availability.reason, message: availability.message }
+    return {
+      ok: false,
+      reason: availability.reason,
+      message: availability.message,
+      commonFields,
+    }
   }
 
   const [tally, savedRows] = await Promise.all([
@@ -196,20 +228,13 @@ export async function loadPaymentNoticeContext(
     return [{ grade, count, unitJpy }]
   })
 
-  const paymentDeadline = earliest(dueDays.map((d) => d.paymentDeadline))
-
   return {
     ok: true,
     context: {
       rows,
       hasSavedCounts,
       unitPriceByGrade,
-      paymentDeadline,
-      paymentDeadlineKind: representativeDeadlineKind(
-        paymentDeadline,
-        dueDays.map((d) => d.paymentDeadlineKind),
-      ),
-      paymentInfo: firstNonEmpty(dueDays.map((d) => d.paymentInfo)),
+      ...commonFields,
       lastSentAt: saved?.lastSentAt ?? null,
       lastAttemptedAt: saved?.lastAttemptedAt ?? null,
       lastError: saved?.lastError ?? null,
@@ -246,6 +271,28 @@ export async function loadPaymentNoticeStatusByEvent(eventId: number): Promise<{
     .where(eq(events.id, eventId))
     .limit(1)
   return rows[0] ?? null
+}
+
+/**
+ * 共通項目（支払締切・振込先）の代表値を、渡された日の集合から決定的に選ぶ。
+ * 呼び出し側のクエリが開催日昇順に固定してあるので、同じ状態からは必ず同じ値になる。
+ */
+function representativeCommonFields(
+  days: readonly {
+    paymentDeadline: string | null
+    paymentDeadlineKind: PaymentDeadlineKind
+    paymentInfo: string | null
+  }[],
+): PaymentNoticeCommonFields {
+  const paymentDeadline = earliest(days.map((d) => d.paymentDeadline))
+  return {
+    paymentDeadline,
+    paymentDeadlineKind: representativeDeadlineKind(
+      paymentDeadline,
+      days.map((d) => d.paymentDeadlineKind),
+    ),
+    paymentInfo: firstNonEmpty(days.map((d) => d.paymentInfo)),
+  }
 }
 
 /** 日により違う日付は**最も早い日**を採る（共通項目セクションの表示規則と同じ）。 */

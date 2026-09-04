@@ -167,6 +167,22 @@ describe('loadPaymentNoticeDraft', () => {
     expect(draft.unavailableMessage).toBe('まだ申込済みになっていません')
   })
 
+  it('送信不可でも共通項目の初期値は返す（§3.3.5.3: 保存は送信可否と切り離す）', async () => {
+    await asAdmin('pnd-admin-6b')
+    const { group } = await seedPreSettledGroup({
+      entryStatus: 'not_applied',
+      paymentDeadline: '2026-07-25',
+      paymentDeadlineKind: 'fixed',
+      paymentInfo: '〇〇銀行 普通 1234567',
+    })
+    const draft = await loadPaymentNoticeDraft(group.id)
+    expect(draft.canSend).toBe(false)
+    // 送れなくても振込先・支払締切は編集・保存できる必要がある。
+    expect(draft.paymentDeadline).toBe('2026-07-25')
+    expect(draft.paymentDeadlineKind).toBe('fixed')
+    expect(draft.paymentInfo).toBe('〇〇銀行 普通 1234567')
+  })
+
   it('現地払い・支払済も §3.3.5.2 の優先順位で理由が出る（AC-34）', async () => {
     await asAdmin('pnd-admin-7')
     const onsite = await seedPreSettledGroup({ paymentType: 'onsite' })

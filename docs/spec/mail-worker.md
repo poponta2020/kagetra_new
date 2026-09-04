@@ -165,7 +165,7 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 `.xls`/`.xlsx` 添付がある場合、**種別 = 未選択のときだけ**画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
-「会計へ振込連絡」は種別 = 確定名簿 ∧ グループ選択済みのときだけ現れ、級ごとの人数（単価は表示のみ）・振込期限・振込先・文面プレビュー・送信チェックを持つ。★**`settled`（確定名簿あり）を露出条件に入れない** — この画面での処理そのものが確定名簿シグナルを成立させるので、処理前に見ると必ず false になる。送信できない状態（未申込・現地払い・支払済・LINE未紐付け・単価を解決できる級なし）でもセクションは残し、理由を1行で出して送信だけを止める。振込期限・振込先はグループ内の全日（中止の日を含む）へ保存され、**保存は送信チェックの ON/OFF と切り離す**（チェックを外しても保存はする）。仕様の正典は [spec/notifications.md](notifications.md)「payment-notice」。
+「会計へ振込連絡」は種別 = 確定名簿 ∧ グループ選択済みのときだけ現れ、級ごとの人数（単価は表示のみ）・振込期限・振込先・文面プレビュー・送信チェックを持つ。★**`settled`（確定名簿あり）を露出条件に入れない** — この画面での処理そのものが確定名簿シグナルを成立させるので、処理前に見ると必ず false になる。送信できない状態（未申込・現地払い・支払済・LINE未紐付け・単価を解決できる級なし）でもセクションは残し、理由を1行で出して送信だけを止める。振込期限・振込先はグループ内の全日（中止の日を含む）へ保存され、**保存は送信可否と切り離す**（送信チェックを外しても、そもそも送れない状態でも保存はする。ゲートが掛かるのは push だけ）。仕様の正典は [spec/notifications.md](notifications.md)「payment-notice」。
 
 名簿ファイルの採用（解析せず原本のまま名簿として登録する経路）は、統合処理フォームの「採用する名簿ファイル」欄が入口。**「取込単位（グループ統一／級別）」のラジオは無く、「級を 1 つも選ばない = グループ統一名簿」**に畳んである。1 回の実行で選んだ全添付が `processMail` の 1 トランザクションで採用され、1 件でも失敗したら全体が失敗する（部分採用を残さない）。既に採用済みの添付は選択肢に出さず、採用状態（種別ピル・級ピル・対象大会）と「採用を解除」（`releaseRosterFile`）を出す。`tournament_roster_import_drafts`（決定論パース・AI 抽出）とは完全に独立で、ドラフトの状態を読まず変えない。仕様の正典は [spec/tournaments-results.md](tournaments-results.md)「名簿ファイルの採用」。
 
@@ -268,7 +268,7 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 - `dismissMail(mailId)` — 「対応不要」triage（未完了 draft があれば拒否）
 - `undoTriage(mailId)` — 処理済み → 未処理へ戻す。**種別・大会紐付け・そのメール由来の名簿採用をまとめて取り消す**（LINE 配信済みメッセージ自体は取り消せない）
 - `triggerExtractDraft(mailId)` — 「AI で大会を読み取る」。`tournament_drafts` upsert + `mail_kind='tournament_notice'` 保存 + `manual_extract` ジョブ enqueue
-- `processMail(mailId, input)` — 統合処理フォームの実行。種別保存・申込グループへの紐付け・名簿の一括採用・`triage_status='processed'` を 1 トランザクションで行い、コミット後に `after()` で LINE 配信を起動する。オープンチャット配信（`includeOpenChat`）も同じ `after()` の中で本文配信の直後に走るが、**try は分ける**（片方の失敗がもう片方の push を止めない）。会計への振込連絡（`input.paymentNotice`）も同じ `after()` に相乗りし、**配信の後**に走る。★`paymentNotice` を渡さないことが「支払締切・振込先を保存しない」を意味する（`send: false` は「保存はするが push しない」）。受け付ける条件（種別＝確定名簿 ∧ グループ指定あり ∧ 送信可）はサーバー側で再判定する（fail-closed）。仕様の正典は [spec/notifications.md](notifications.md)「payment-notice」
+- `processMail(mailId, input)` — 統合処理フォームの実行。種別保存・申込グループへの紐付け・名簿の一括採用・`triage_status='processed'` を 1 トランザクションで行い、コミット後に `after()` で LINE 配信を起動する。オープンチャット配信（`includeOpenChat`）も同じ `after()` の中で本文配信の直後に走るが、**try は分ける**（片方の失敗がもう片方の push を止めない）。会計への振込連絡（`input.paymentNotice`）も同じ `after()` に相乗りし、**配信の後**に走る。★`paymentNotice` を渡さないことが「支払締切・振込先を保存しない」を意味する（`send: false` は「保存はするが push しない」）。受け付ける条件は種別＝確定名簿 ∧ グループ指定ありの2つで、**送信可否の再判定は `send: true` のときだけ**適用する（fail-closed だが保存は止めない）。仕様の正典は [spec/notifications.md](notifications.md)「payment-notice」
 - `loadPaymentNoticeDraft(entryGroupId)` — 「会計へ振込連絡を送る」セクションの初期値取得。`lib/events/payment-notice-context.ts` を `requireSettled: false` で呼ぶだけの薄い入口で、**独自のローダーを持たない**（母集団を「未振込の日だけ」に絞る規律をあちら1箇所に閉じる）
 - `adoptRosterFile(...)` / `releaseRosterFile(...)` — 名簿ファイルの単体採用／解除。採用の実処理は `adoptRosterFileTx` に切り出してあり、`processMail` が同じ tx に載せて複数添付を一括採用する
 - `triggerMailFetch(formData)` — 手動 IMAP 取得ジョブの enqueue（24h/3d/7d/custom プリセット）
