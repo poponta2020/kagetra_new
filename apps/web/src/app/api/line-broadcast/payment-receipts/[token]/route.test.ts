@@ -1,3 +1,4 @@
+import type { NextRequest } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,8 +63,12 @@ async function insertReceipt(overrides: {
   return receipt
 }
 
-function makeRequest(): Request {
-  return new Request('http://localhost:3000/api/line-broadcast/payment-receipts/x')
+// route の GET は NextRequest を受け取るが、この route は req を一切参照しない
+// （トークンは params から来る）ので素の Request で足りる。型だけ合わせる。
+function makeRequest(): NextRequest {
+  return new Request(
+    'http://localhost:3000/api/line-broadcast/payment-receipts/x',
+  ) as unknown as NextRequest
 }
 
 const mkParams = (token: string) => ({ params: Promise.resolve({ token }) })

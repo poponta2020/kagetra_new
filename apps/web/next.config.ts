@@ -19,7 +19,10 @@ const nextConfig: NextConfig = {
   experimental: {
     // entry-form-autofill: 申込書 xlsx を base64 で Server Action へ渡すため、
     // 既定の 1MB では実サイズ 750KB 程度で 413 になる。UI 側は 2MB で弾く。
-    serverActions: { bodySizeLimit: '4mb' },
+    // payment-receipt-broadcast: 支払報告の証憑（振込明細の写真）を最大3枚まとめて
+    // base64 で渡す。明細は文字が読めることが要件なので縮小しすぎられず、4mb では
+    // 3枚が入りきらない。★これは**全 Server Action に効くグローバル設定**。
+    serverActions: { bodySizeLimit: '8mb' },
   },
   // monorepo の root を明示。Next.js 15 は auto-detect するが、CI/prod 差異リスク回避のため明示 (Phase B Phase 0 Discovery 結果)。
   outputFileTracingRoot: path.join(__dirname, '../../'),

@@ -8,7 +8,13 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { formatEventDate } from '@/lib/event-date'
-import { buildMentionMessage, buildTextMessage, type LineMessage, type MentionTarget } from '@/lib/line-mention'
+import {
+  buildMentionMessage,
+  buildTextMessage,
+  type LineMessage,
+  type LineOutgoingMessage,
+  type MentionTarget,
+} from '@/lib/line-mention'
 
 /**
  * event-lifecycle-notify: lifecycle LINE notifications (申込/支払い完了 +
@@ -307,7 +313,7 @@ interface SinglePushResult {
 async function pushMessages(
   channelAccessToken: string,
   to: string,
-  messages: readonly LineMessage[],
+  messages: readonly LineOutgoingMessage[],
   logger: Logger,
 ): Promise<SinglePushResult> {
   if (process.env.LINE_NOTIFY_DRY_RUN === '1') {
@@ -449,7 +455,7 @@ export interface PushTextResult {
 export async function pushMessagesToEventGroup(
   dbc: Database,
   eventId: number,
-  messages: readonly LineMessage[],
+  messages: readonly LineOutgoingMessage[],
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
   const binding = await loadLinkedBinding(dbc, eventId)
@@ -477,7 +483,7 @@ export async function pushTextToEventGroup(
 export async function pushMessagesToEntryGroup(
   dbc: Database,
   entryGroupId: number,
-  messages: readonly LineMessage[],
+  messages: readonly LineOutgoingMessage[],
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
   const binding = await loadLinkedBindingForGroup(dbc, entryGroupId)
@@ -489,7 +495,7 @@ async function pushToBinding(
   dbc: Database,
   binding: LinkedEventBinding | null,
   eventId: number | null,
-  messages: readonly LineMessage[],
+  messages: readonly LineOutgoingMessage[],
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
   const logger = opts.logger ?? NOOP_LOGGER
@@ -571,7 +577,9 @@ export async function finalizeLifecycleNotification(
 }
 
 /** 文字列で渡された文面を `type:'text'` 1通に正規化する（既存呼び出しの互換）。 */
-function toMessages(message: string | readonly LineMessage[]): readonly LineMessage[] {
+function toMessages(
+  message: string | readonly LineOutgoingMessage[],
+): readonly LineOutgoingMessage[] {
   return typeof message === 'string' ? [buildTextMessage(message)] : message
 }
 
@@ -582,7 +590,7 @@ function toMessages(message: string | readonly LineMessage[]): readonly LineMess
  */
 export async function sendClaimedNotification(
   dbc: Database,
-  args: { notificationId: number; eventId: number; message: string | readonly LineMessage[] },
+  args: { notificationId: number; eventId: number; message: string | readonly LineOutgoingMessage[] },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
   const result = await pushMessagesToEventGroup(dbc, args.eventId, toMessages(args.message), opts)
@@ -606,7 +614,7 @@ export async function sendClaimedNotificationBulk(
   args: {
     notificationIds: readonly number[]
     eventId: number
-    message: string | readonly LineMessage[]
+    message: string | readonly LineOutgoingMessage[]
   },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
@@ -633,7 +641,7 @@ export async function sendReminderNotification(
   args: {
     eventId: number
     type: LifecycleNotificationType
-    message: string | readonly LineMessage[]
+    message: string | readonly LineOutgoingMessage[]
   },
   opts: { logger?: Logger } = {},
 ): Promise<PushTextResult> {
