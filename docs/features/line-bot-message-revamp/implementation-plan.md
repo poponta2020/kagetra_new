@@ -1,166 +1,206 @@
 ---
-status: completed
+status: in_progress
 ---
-
 # 大会別LINE Bot メッセージ改訂 実装手順書
 
-この計画が**今回の変更の全タスクを持つ**。文面の正典は既存3機能の requirements.md に置いたが、
-実装タスクは相互に依存するのでここへ集約する（`/implement line-bot-message-revamp` で回す）。
+親Issue: #567
 
-## 前提となる調査結果
+> **2026-09-04 改訂**: メール処理画面への振込連絡導線追加（requirements §3.3.5 / §4.1 AC-31〜51）の
+> タスクで上書きした。初版（会計フラグ・メンション基盤・振込連絡の新設。PR #530 で出荷済み）の
+> タスクは git 履歴が保持する。
 
-- push / reply の実装は6モジュールに分散し、重依存を避けるため**意図的に共通化されていない**
-  （`line-broadcast.ts` / `line-broadcast-guidelines.ts` / `event-lifecycle-notify.ts` /
-  `event-grade-broadcast.ts` / `entry-overdue-alert.ts` / `line-webhook-handler.ts`）。
-  メンション基盤も同じ流儀で **pure モジュール**として作り、既存を統合しない
-- `'vice_admin'` の権限判定は 43ファイル・58箇所にインライン展開されている →
-  ロールを増やさず `users.is_treasurer` の boolean で解く（requirements §7-1）
-- `formatEventDate`（`M/D(曜)`）は [event-date.ts](../../../apps/web/src/lib/event-date.ts) に既存。新規に作らない
-- `GradeHeadcount { grade, count, unitJpy }` は [entry-fee.ts](../../../apps/web/src/lib/entry-fee.ts) に既存。
-  振込連絡の明細はこれをそのまま使う
-- 「確定名簿あり」は [confirmed-roster.ts](../../../apps/web/src/lib/events/confirmed-roster.ts) が正典（4材料の OR・出荷済み）
+## 前提となる調査結果（実装前に読む）
+
+- **`processMail` の構造**（`apps/web/src/app/(app)/admin/mail-inbox/actions.ts:1634`）:
+  1 トランザクションで「mail を FOR UPDATE → 代表イベント決定 → 添付採用（全件 or 全ロールバック）
+  → `mail_kind` / `linked_event_id` / `triage_status='processed'` / `triaged_at` を UPDATE」。
+  コミット後に revalidate、最後に `after()` で LINE 配信。`after()` 内は
+  `isCurrentGeneration()`（`triaged_at` を **text のまま**比較する世代トークン）を
+  **push のたびに引き直す**。振込連絡もこの規律に従う。
+- **`loadPaymentNoticeContext`**（`apps/web/src/lib/events/payment-notice-context.ts`）:
+  `settled` が false なら `null` を返す。母集団は `dueDays`（申込済 ∧ 事前払い ∧ 未振込）だけ。
+  この「グループ全日を合算しない」規律を壊さないこと（二重請求になる）。
+- **共通項目の伝播**: `propagateFieldsToGroup(tx, { groupId, targetEventIds, changed })`
+  （`apps/web/src/lib/entry-groups.ts:447`）。`PropagatableFields` は Partial なので
+  3 項目だけ渡せる。`saveGroupCommonFields` は **cancelled も含む全イベント**を対象にしている。
+- **支払締切の CHECK**: `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixed')`。
+  書き込みは必ず `normalizePaymentDeadline`（`apps/web/src/lib/events/payment-deadline.ts:47`）経由。
+- **クライアントから Server Action で文脈を引く既存パターン**:
+  `MailProcessForm` の `loadOpenChatBroadcastSummary` 呼び出し（`useEffect` で `groupId` 変化時に取得・
+  取得前は**同期的に**前の値を捨てる・読み込み中とエラー時は「実行する」を押させない）。
+  振込連絡のドラフト取得もこの形を踏襲する。
+- **ロック順の確認（済）**: `adoptRosterFileTx` は `events` を**素の SELECT** でしか読まない
+  （`apps/web/src/app/(app)/admin/mail-inbox/actions.ts:3328`）。`processMail` の tx が取る行ロックは
+  `mail_messages` → `tournament_drafts` の順で、`events` は取っていない。したがって
+  `propagateFieldsToGroup` → `lockEventRowsAscending`（**id 昇順**）を足しても、同じ順で
+  `events` を取る `saveGroupCommonFields` と巡回待ちにならない。★この順序を崩さないこと
+  （過去に `deadlock detected` (40P01) を踏んでいる）
+- **client バンドル汚染の罠**: `use client` から辿るファイルに `server-only` /
+  `@kagetra/shared/schema` / `drizzle-orm` の import（型 import 含む）を入れない。
+  lint / vitest / check-types のどれでも検知できず `next build` で初めて壊れる。
 
 ## 実装タスク
 
-### タスク1: メンション基盤（textV2 ビルダー）
-- [x] 完了
-- **対応Issue:** #520
-- **目的:** `@All` と個人メンションを含む LINE メッセージを組み立てる純関数を用意する
-- **対応AC:** AC-7, AC-8
-- **主な変更領域:** `apps/web/src/lib/line-mention.ts`（新規）＋ 同 `.test.ts`
-- **依存タスク:** なし
-- **必要なテスト:** `mentionee.type='all'` の substitution 生成／個人 userId 複数の生成／
-  プレースホルダ名が本文と一致すること／メンション0件のとき素の `type:'text'` を返すこと
-- **完了条件:** ユニットテスト green・型チェック通過
-- **メモ:** `node:` import と `@kagetra/shared` を持ち込まない（pure 制約）。
-  **自由記述を受け取る API にしない** — 引数は「行の配列」ではなく、メンション種別と
-  数値由来の文字列だけを受け取る形にして、中括弧混入を型で防ぐ
-
-### タスク2: 会計フラグ（`users.is_treasurer`）
-- [x] 完了
-- **対応Issue:** #521
-- **目的:** 「誰が会計か」をデータで持ち、会員編集から設定できるようにする
-- **対応AC:** AC-1, AC-2, AC-3
-- **主な変更領域:** `packages/shared/src/schema/auth.ts`・`packages/shared/drizzle/`（migration 新規）・
-  `apps/web/src/app/(app)/admin/members/[id]/edit/`（actions + page）・`apps/web/src/app/(app)/admin/members/page.tsx`
-- **依存タスク:** なし
-- **必要なテスト:** 既定値 false／トグル更新／`admin`・`vice_admin` 以外は拒否
-- **完了条件:** テスト green・migration が `db:migrate` で流れる
-- **メモ:** **認可判断にこの列を使わない**（requirements §6）。migration 番号は着手時に最新を再確認する
-
-### タスク3: メンション対象の解決
-- [x] 完了
-- **対応Issue:** #522
-- **目的:** `@会計` / `@管理者` が誰を指すかを1箇所で決める
-- **対応AC:** AC-4, AC-5, AC-6
-- **主な変更領域:** `apps/web/src/lib/line-mention-targets.ts`（新規・DB クエリ）＋ 同 `.test.ts`
-- **依存タスク:** タスク1, タスク2
-- **必要なテスト:** id 昇順で全員返す／`line_user_id` NULL を除外／`deactivated_at` 非 NULL を除外／
-  0件のとき空配列（呼び出し側が素テキストへ倒せること）
-- **完了条件:** DB 統合テスト green
-- **メモ:** タスク1（pure）と分けるのは、こちらが `@/lib/db` に依存するため
-
-### タスク4: A-1 廃止・A-3 を①〜④へ分割
-- [x] 完了
-- **対応Issue:** #523
-- **目的:** 紐付け直後の案内を、確認事項が伝わる4通へ置き換える
-- **対応AC:** AC-22, AC-23, AC-24, AC-25（文面の正典は event-line-broadcast §3.1.3）
-- **主な変更領域:** `apps/web/src/lib/line-webhook-handler.ts`（**`LineReplyClient` の契約変更を含む** — 後述）＋ 同 `.test.ts`、
-  申込人数集計のヘルパー（`apps/web/src/lib/entry-headcount.ts` 新規想定）
-- **依存タスク:** タスク1, タスク3
-- **必要なテスト:** `join` で reply を呼ばず状態だけ書くこと／コード一致で4通を1リクエストに積むこと／
-  ③の人数がゲストを含み「内他会」を併記すること／ゲスト0名で括弧が消えること／
-  `entry_deadline` NULL で②が「未定」になること
-- **完了条件:** テスト green
-- **メモ:**
-  - ③の母集団は**実人数（グループ全体で重複排除）・ゲスト込み**。参加費集計（延べ・ゲスト除外）とは
-    別物なので、`entry-fee-tally.ts` を流用しない
-  - ★**`LineReplyClient` の契約を変える必要がある。** 現行は
-    `reply({ replyToken, text, channelAccessToken })` で**テキスト1本＝1通しか送れない**
-    （[line-webhook-handler.ts:70](../../../apps/web/src/lib/line-webhook-handler.ts) の interface と
-    同 182 の `defaultLineReplyClient` が `messages: [{ type:'text', text }]` を組んでいる）。
-    ①〜④は**4通の配列**で、しかも②③は `textV2` + `substitution` なので、
-    引数を「メッセージオブジェクトの配列」へ広げる。既存の呼び出し3箇所
-    （招待コード無効の2箇所・級別グループ紐付け）も新シグネチャに合わせる
-  - 実装クラスは同ファイル内に閉じており、`app/api/webhook/line/route.ts` は
-    `handleLineWebhook` を呼ぶだけなので**ルート側の変更は不要**
-  - **既存の join 応答テストは削除・置換になる**
-
-### タスク5: E-1 / E-3 / F-1〜F-6 の文面差し替えと複数日ラベル撤去
-- [x] 完了
-- **対応Issue:** #524
-- **目的:** ライフサイクル通知8種の文面を新仕様へ置き換え、不要になった日別ラベル生成を削る
-- **対応AC:** AC-26, AC-27, AC-30 ＋ **回帰 AC-28**（文面の正典は event-lifecycle-notify §3.2.1）
-- **主な変更領域:** `apps/web/src/lib/event-lifecycle-notify.ts`・
-  `apps/web/scripts/send-lifecycle-reminders.ts`・
-  `apps/web/src/app/(app)/events/[id]/actions.ts`（`days` を渡す箇所）＋ 各 `.test.ts`
-- **依存タスク:** なし（タスク1・3に依存しない。この8種にメンションは無い）
-- **必要なテスト:**
-  - 8種それぞれの文面（`formatEventDate` の曜日つき・`⚠️` が絵文字であること）
-  - `lottery_date` NULL で「抽選日は未定です」が出ること
-  - **回帰: 締切が同一の3日グループで F-1 が1通だけ送られること**（束ね処理の維持）
-  - 金額（`totalJpy` / `unitPricesLabel` / `breakdownLabel` / 級未設定注記）が
-    どの文面にも現れないこと
-- **完了条件:** テスト green
-- **メモ:** `days` / `formatDaysLabel` / `sortDays` / `buildBucketMessage` の複数日分岐は
-  **呼び出し元が消えるので撤去する**。ただし **(entryGroupId, type, dateIso) の束ね自体は残す**。
-  現行文面をバイト単位で固定している既存テストが複数あり、**設計通り落ちるので期待値を更新する**
-  （放置すると「原因不明の赤」に見える）
-
-### タスク6: E-2 を @会計 の予告文へ差し替え
+### タスク1: 失敗記録の列を追加（migration）
 - [ ] 完了
-- **対応Issue:** #525
-- **目的:** 申込完了2通目から振込情報を外し、メンション付きの予告文にする
-- **対応AC:** AC-29（文面の正典は entry-notify-lottery-treasurer §3.2.3）
-- **主な変更領域:** `apps/web/src/lib/event-lifecycle-notify.ts`（`entry_applied_treasurer` 分岐）・
-  `apps/web/src/app/(app)/events/[id]/actions.ts`（`buildTreasurerAppliedMessage`）＋ 各 `.test.ts`
-- **依存タスク:** タスク1, タスク3, タスク5
-- **必要なテスト:** `payment_deadline` / `payment_method` / `payment_info` を参照しないこと／
-  会計0人で素テキストになること／複数日でも文面が単一日と同じであること
-- **メモ:** `LifecycleMessageContext` の `paymentDeadlineIso` / `paymentMethod` / `paymentInfo` /
-  `days` は、この種別では未使用になる。他種別で使われていなければ型ごと削る
+- **目的:** 非同期送信の失敗を画面に出せるよう、`entry_group_payment_notices` に試行記録を持たせる
+- **対応AC:** AC-45（の前提）
+- **主な変更領域:**
+  - `packages/shared/src/schema/entry-group-payment-notices.ts` — `lastAttemptedAt`
+    (`timestamptz`, nullable) と `lastError` (`text`, nullable) を追加。既存行に影響しない非破壊 ALTER
+  - `packages/shared/drizzle/0063_*.sql`（`pnpm db:generate`。番号は 0062 の次）
+  - `packages/shared/__tests__/` にスキーマの存在確認テスト（既存 `schema-lifecycle.test.ts` の流儀）
+- **依存タスク:** なし
+- **必要なテスト:** 列が存在し既定 NULL であること。既存行への影響がないこと
+- **完了条件:** `pnpm test`（packages/shared）green・`pnpm check-types` 通過
+- **対応Issue:** #568
 
-### タスク7: 振込連絡の保存領域と文面ビルダー
-- [x] 完了
-- **対応Issue:** #526
-- **目的:** 編集後の級別人数を保存し、2通の文面を組み立てる
-- **対応AC:** AC-12, AC-14, AC-15, AC-16, AC-17, AC-18
-- **主な変更領域:** `packages/shared/src/schema/`（`entry_group_payment_notices` 新規テーブル＋migration）・
-  `apps/web/src/lib/payment-notice.ts`（新規）＋ 同 `.test.ts`
-- **依存タスク:** タスク1, タスク2
-- **必要なテスト:** 初期値が `tallyEntryFeesForGroup` と一致すること／級ごと1行・A→E順・人数0の級を出さない／
-  空行の位置／`payment_deadline` NULL で日付行が消える／`payment_info` 空で2通目を作らない／
-  全級0で組み立てを拒否する／保存した人数で再構築すると同じ文面になる
-- **完了条件:** テスト green・migration が流れる
-- **メモ:** テーブルは `entry_group_id` UNIQUE の1行 upsert（履歴は持たない）。
-  列は級別人数（jsonb）・総額・最終送信日時・送信者。**単価は保存しない**
-  （`resolveEntryFee` から都度導出する。協会規定額が変わったら次回から新しい額になるのが正しい）
+### タスク2: 露出判定と「送信できない理由」を共有ロジックへ
+- [ ] 完了
+- **目的:** メール画面（`settled` 判定前）とグループページ（`settled` 判定後）が、同じ母集団・同じ規律で
+  露出条件と初期値を組めるようにする。別ローダーを書かせない
+- **対応AC:** AC-31, AC-33, AC-34, AC-35, AC-36, AC-48（回帰）
+- **主な変更領域:**
+  - **新規** `apps/web/src/lib/events/payment-notice-availability.ts` — DB 非依存の pure 関数。
+    非中止の日の配列・LINE 紐付けの有無・単価解決済み級の有無から、送信可否と理由
+    （`not_applied` / `onsite` / `paid` / `no_line_binding` / `no_priced_grade`）を返す。
+    要件 §3.3.5.2 の**優先順位どおり**に判定する。★client から import されるので
+    `server-only` / schema / drizzle を入れない
+  - `apps/web/src/lib/events/payment-notice-context.ts` — `settled` チェックを外せる入口を追加
+    （例: `loadPaymentNoticeContext(groupId, { requireSettled: false })`）。戻り値を
+    「不可なら理由つき」の形へ広げ、`lastAttemptedAt` / `lastError` と共通項目の初期値
+    （`paymentDeadline` / `paymentDeadlineKind` / `paymentInfo`）を含める。
+    **`dueDays` だけを母集団にする既存規律は変更しない**
+  - 既存呼び出し元（グループページ `page.tsx` / `sendPaymentNotice`）を新しい戻り値へ追従。
+    **挙動は不変**（`settled` 必須のまま）
+  - 各 `*.test.ts`
+- **依存タスク:** タスク1（`lastError` 等を返すため）
+- **必要なテスト:** 理由判定の純関数を境界ごとに（未申込のみ／全部現地払い／全部支払済／紐付けなし／
+  単価解決不可、および混在時に優先順位どおりの理由が出ること）。`requireSettled: false` で
+  settled 前でも context が返ること。**回帰**: グループページ経路の露出条件が変わらないこと
+- **完了条件:** web の該当テスト green・`pnpm check-types` 通過
+- **対応Issue:** #569
 
-### タスク8: 振込連絡の画面と送信
-- [x] 完了
-- **対応Issue:** #527
-- **目的:** 名簿確定フェーズのグループに導線を出し、プレビュー→送信までつなぐ
-- **対応AC:** AC-9, AC-10, AC-11, AC-13, AC-19
-- **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/`（page + actions + components）
-- **依存タスク:** タスク3, タスク7
-- **必要なテスト:** 出現条件（settled ∧ advance ∧ unpaid）の真理値表／手動トグル経由でも出ること／
-  現地払い・支払済で出ないこと／単価入力欄が存在しないこと／push 失敗で送信済みにならないこと
-- **完了条件:** テスト green
-- **メモ:** UI は同ページの既存セクション（`CommonFieldsSection` / `GroupProgressSection` /
-  `LineBroadcastSection`）の作りに揃える。**新しいデザイン言語を持ち込まない**ので design-spec は作らない
+### タスク3: 送信処理を共通化し、失敗を記録する
+- [ ] 完了
+- **目的:** 2 導線が同じ送信処理（人数保存 → push → 成否で `last_sent_at` / 失敗記録）を使う。
+  失敗の可視化をグループページ経路にも足す
+- **対応AC:** AC-45, AC-45b, AC-47, AC-48（回帰）, AC-19（既存回帰）
+- **主な変更領域:**
+  - **新規** `apps/web/src/lib/events/payment-notice-send.ts` — `sendPaymentNoticeCore(dbc, input)`。
+    人数の upsert → `resolveTreasurerMention` → `buildPaymentNoticeMessages` →
+    `pushMessagesToEntryGroup` → 成功なら `last_sent_at` / `last_sent_by` を進め**`last_error` を
+    NULL へ戻す**（AC-45b。残すと「送信済」と「失敗」が同時に出る）、失敗なら
+    `last_attempted_at` / `last_error` だけを書く。`server-only`
+  - `apps/web/src/app/(app)/admin/entries/[groupId]/actions.ts` — `sendPaymentNotice` を
+    このコアへ載せ替える（**外から見た挙動は不変**）
+  - 各 `*.test.ts`
+- **依存タスク:** タスク2
+- **必要なテスト:** push 失敗時に `last_sent_at` が進まず `last_error` が入ること。成功時に
+  `last_error` がクリアされること。人数が push の前に保存されること。**回帰**: 既存の
+  `sendPaymentNotice` のテストがそのまま green
+- **完了条件:** web の該当テスト green
+- **対応Issue:** #570
+
+### タスク4: メール画面用のドラフト取得 Server Action
+- [ ] 完了
+- **目的:** クライアントが対象グループを選んだ時点で、送信可否・人数の初期値・共通項目の初期値・
+  送信済み情報を1回で引けるようにする
+- **対応AC:** AC-31, AC-32, AC-33, AC-34, AC-35, AC-36, AC-41
+- **主な変更領域:**
+  - **新規** `apps/web/src/app/(app)/admin/mail-inbox/payment-notice-actions.ts` —
+    `loadPaymentNoticeDraft(groupId)`。`requireAdminSession` → タスク2 の
+    `requireSettled: false` 経路 → 送信可否 / 理由 / 級ごとの人数と単価 /
+    支払締切・kind・振込先 / `lastSentAt` / `lastAttemptedAt` / `lastError` を返す DTO
+  - `*.test.ts`
+- **依存タスク:** タスク2, タスク3
+- **必要なテスト:** 認可（一般会員は拒否）・不可時に理由が返ること・DTO に単価が含まれ人数0の級も
+  行として返ること
+- **完了条件:** web の該当テスト green
+- **対応Issue:** #571
+
+### タスク5: `processMail` の入力拡張と送信
+- [ ] 完了
+- **目的:** メール処理の実行に振込連絡を相乗りさせる。共通項目はコミット前に保存し、push は
+  コミット後・配信の**後**に世代トークン検証つきで走らせる
+- **対応AC:** AC-38, AC-39, AC-40, AC-42, AC-42b, AC-43, AC-44, AC-45, AC-46, AC-49（回帰）, AC-50（回帰）
+- **主な変更領域:**
+  - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` — `ProcessMailInput` に
+    `paymentNotice?: { send: boolean, counts, paymentDeadline, paymentDeadlineKind, paymentInfo } | null`
+    を追加。★**保存と送信を分ける**（要件 §3.3.5.3）:
+    - `null` / 未指定（＝セクションが出ていない）→ 何も保存せず何も送らない
+    - `send: false` → 支払締切・振込先だけ保存し、push はしない
+    - `send: true` → 保存したうえで push する
+
+    サーバー側で fail-closed に再判定する: 種別 = `confirmed_roster` ∧ `entryGroupId` あり ∧
+    タスク2 の可否判定が ok（`paymentNotice` を受け付ける条件）。さらに `send: true` のときだけ
+    振込先が非空 ∧ 人数が全級0でないことを要求する。**tx 内**で `propagateFieldsToGroup` により
+    支払締切（`normalizePaymentDeadline` 経由）と振込先をグループ内の全イベントへ保存
+    （`lockEventRowsAscending` の昇順ロック順を崩さない）。**コミット後の `after()`** で、
+    既存の `broadcastMailToEvent` →（オープンチャット）→ **振込連絡**の順に、
+    `isCurrentGeneration()` を push 直前に引き直してから `sendPaymentNoticeCore` を呼ぶ。
+    try/catch は既存 2 系統と**独立**させる
+  - `apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts` ほか
+- **依存タスク:** タスク3, タスク4
+- **必要なテスト:** `send: true` で振込先が空／人数全級0／種別が確定名簿でない／可否判定が不可 の
+  とき送らないこと。`send: false` でも共通項目が保存されること（AC-42）。`paymentNotice` 未指定なら
+  共通項目も保存されないこと（AC-42b）。共通項目が全日へ保存され CHECK を満たすこと。
+  採用失敗で全体がロールバックされ、そのとき振込連絡も送られないこと。取り消し後は世代トークン
+  不一致で送られないこと。**呼び出し順**: 振込連絡の push が `broadcastMailToEvent` の解決後に
+  呼ばれること（モックの呼び出し順で表明・AC-44）。**回帰**: 既存の `processMail` テスト
+  （採用の原子性・配信・オープンチャット）がそのまま green
+- **完了条件:** web の該当テスト green
+- **対応Issue:** #572
+
+### タスク6: メール処理画面の UI
+- [ ] 完了
+- **目的:** 「会計へ振込連絡を送る」セクションを統合処理フォームに組み込む
+- **対応AC:** AC-31, AC-32, AC-34, AC-35, AC-37, AC-38, AC-41, AC-42, AC-42b
+- **主な変更領域:**
+  - **新規** `apps/web/src/app/(app)/admin/mail-inbox/components/PaymentNoticeFields.tsx` —
+    級ごとの人数入力（単価は表示のみ）・支払締切（日付＋状態セレクト）・振込先（textarea）・
+    文面プレビュー。プレビューは pure な `@/lib/payment-notice` だけを import する
+  - `apps/web/src/app/(app)/admin/mail-inbox/components/MailProcessForm.tsx` —
+    種別 = 確定名簿 ∧ グループ選択済みでセクションを描く。`loadPaymentNoticeDraft` を
+    `groupId` 変化時に取得（`loadOpenChatBroadcastSummary` と同じ規律: 前の値を同期的に捨てる・
+    読み込み中とエラー時は「実行する」を押させない）。チェックの既定は
+    **未送信 = ON / 送信済 = OFF**。OFF のときは中身を畳むが、`paymentNotice` は
+    `send: false` として**送る**（支払締切・振込先を保存させるため。要件 §3.3.5.3）。
+    セクション自体が出ていないときだけ `paymentNotice` を渡さない
+  - `MailProcessForm.test.tsx` / `PaymentNoticeFields.test.tsx`
+- **依存タスク:** タスク4, タスク5
+- **必要なテスト:** 種別を切り替えたときのセクションの出入り・既定値の ON/OFF・不可時の理由表示と
+  実行ボタンの状態・**チェック ON で**振込先が空のときに実行できないこと（OFF なら実行できる）・
+  単価入力欄が存在しないこと・OFF で実行すると `send: false` が渡ること・
+  種別が確定名簿でないときは `paymentNotice` 自体が渡らないこと
+- **完了条件:** web の該当テスト green・`pnpm lint` 通過
+- **対応Issue:** #573
+
+### タスク7: 失敗の表示（2画面）
+- [ ] 完了
+- **目的:** 非同期送信の失敗に気づけるようにする
+- **対応AC:** AC-45, AC-45b
+- **主な変更領域:**
+  - `apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx` — 「処理済み」カードに、
+    そのメールの `linked_event_id` から辿った申込グループの振込連絡の状態
+    （送信済 / 送信に失敗しました＋試行日時）を出す
+  - `apps/web/src/app/(app)/admin/entries/[groupId]/components/PaymentNoticeSection.tsx` —
+    `lastAttemptedAt` / `lastError` があるときに失敗を表示（`lastSentAt` の表示は維持）
+  - 各テスト
+- **依存タスク:** タスク6（`PaymentNoticeSection` / メール画面を触るタスクとの順序制約）
+- **必要なテスト:** 失敗記録があるときに両画面へ出ること・成功後は消えること（AC-45b）
+- **完了条件:** web の該当テスト green
+- **対応Issue:** #574
 
 ## 実装順序（Wave = 並行実装できるタスクの組）
 
-- **Wave 1**: タスク1 #520（メンション基盤）, タスク2 #521（会計フラグ）, タスク5 #524（ライフサイクル文面）
-  — 互いに変更領域が重ならない。タスク5 は `event-lifecycle-notify.ts` と reminders スクリプト、
-  タスク1 は新規ファイル、タスク2 はスキーマと members 画面
-- **Wave 2**: タスク3 #522（メンション対象解決）, タスク7 #526（振込連絡の保存・ビルダー）
-  — ともに Wave 1 に依存し、互いに独立
-- **Wave 3**: タスク4 #523（webhook ①〜④）, タスク6 #525（E-2）, タスク8 #527（振込連絡の画面）
-  — タスク6 は `event-lifecycle-notify.ts` を触るのでタスク5 の後に置く
+- Wave 1: タスク1 #568（スキーマ）
+- Wave 2: タスク2 #569（判定ロジック）
+- Wave 3: タスク3 #570（送信コア）
+- Wave 4: タスク4 #571（ドラフト取得 Server Action）, タスク5 #572（`processMail` 拡張）
+  — 触るファイルが `payment-notice-actions.ts`（新規）と `actions.ts` で重ならない
+- Wave 5: タスク6 #573（UI）
+- Wave 6: タスク7 #574（失敗表示）
 
-> migration が2本（タスク2・タスク7）出る。**同じ Wave に置かない**ことで番号衝突を避けている。
-
-## 親 Issue
-
-#519 https://github.com/poponta2020/kagetra_new/issues/519
+依存が一本道なのは、下から順に「スキーマ → 判定 → 送信 → 入口 → 画面」と積み上がる構造のため。
+Wave 4 だけが並行できる。
