@@ -70,6 +70,8 @@ export interface MailProcessAttachment {
 /** 保存済みオープンチャットの件数と配信状況（`loadOpenChatBroadcastSummary` の要約）。 */
 interface OpenChatSummaryState {
   savedCount: number
+  /** うち、前回配信より後に保存された（まだ届いていない）行数。 */
+  unsentCount: number
   broadcastCount: number
   /** 直近の配信試行が sent でなかった（failed / skipped）。 */
   lastFailed: boolean
@@ -153,16 +155,25 @@ export function MailProcessForm({
     loadOpenChatBroadcastSummary(groupId)
       .then((summary) => {
         if (cancelled) return
+        // 前回配信より後に保存された行（`isNew`）＝**まだ一度も届いていない行**。
+        const unsentCount = summary.rows.filter((r) => r.isNew).length
         setOpenChatSummary({
           savedCount: summary.rows.length,
+          unsentCount,
           broadcastCount: summary.broadcastCount,
           lastFailed:
             summary.lastAttempt != null && summary.lastAttempt.status !== 'sent',
         })
-        // ★AC-35（再配信確認）の代替。既に1回でも配信済みなら既定 OFF にして、
+        // ★AC-35（再配信確認）の代替。既に配信済みのグループでは既定 OFF にして、
         // 「実行する」のついでに全件が再送されるのを防ぐ（毎回全件送る仕様なので、
         // 意図しない再送は同じ Flex がもう一度届くことを意味する）。
-        setIncludeOpenChat(summary.rows.length > 0 && summary.broadcastCount === 0)
+        // ★ただし**前回配信より後に増えた行があるなら既定 ON**。級別・部門別の URL は
+        // 別のメールで後から届くのが普通で、そこで OFF のままだと「たった今保存した
+        // リンクが黙って送られない」——止めたかったのは同じ内容の再送であって、
+        // 新しく増えた内容の抑止ではない。
+        setIncludeOpenChat(
+          summary.rows.length > 0 && (summary.broadcastCount === 0 || unsentCount > 0),
+        )
       })
       .catch(() => {
         if (cancelled) return
@@ -611,9 +622,11 @@ export function MailProcessForm({
                           <span className="min-w-0 flex-1 text-sm text-ink">
                             オープンチャットの招待リンクも送る（{openChatSavedCount}件）
                             <span className="block text-[10px] font-normal text-ink-meta">
-                              {openChatSummary && openChatSummary.broadcastCount > 0
-                                ? `配信済み ${openChatSummary.broadcastCount} 回。入れると保存済み全 ${openChatSavedCount} 件をもう一度送ります`
-                                : '未配信。保存済みの全件を Flex 1通で送ります'}
+                              {openChatSummary == null || openChatSummary.broadcastCount === 0
+                                ? '未配信。保存済みの全件を Flex 1通で送ります'
+                                : openChatSummary.unsentCount > 0
+                                  ? `配信済み ${openChatSummary.broadcastCount} 回。前回以降に ${openChatSummary.unsentCount} 件増えたので、全 ${openChatSavedCount} 件をまとめて送ります`
+                                  : `配信済み ${openChatSummary.broadcastCount} 回。入れると保存済み全 ${openChatSavedCount} 件をもう一度送ります`}
                             </span>
                             {openChatSummary?.lastFailed && (
                               <span className="block text-[10px] font-normal text-danger">

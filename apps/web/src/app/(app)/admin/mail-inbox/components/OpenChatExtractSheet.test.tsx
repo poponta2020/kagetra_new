@@ -558,6 +558,25 @@ describe('MailProcessForm — オープンチャットをメール配信に相�
     })
   })
 
+  it('★配信済みでも、前回配信より後に増えた行があれば既定 ON（新しいリンクを黙って落とさない）', async () => {
+    // 級別・部門別の URL が別メールで後から届く実運用のケース。
+    summaryMock.mockResolvedValue(
+      summary({
+        broadcastCount: 1,
+        lastSentAt: new Date('2026-01-01T00:00:00Z'),
+        rows: [savedRow, { id: 2, url: 'https://line.me/ti/g2/SAVED00002', label: 'D級', isNew: true }],
+      }),
+    )
+    renderForm()
+    await selectGroupAndEnableBroadcast()
+
+    const checkbox = await waitFor(() =>
+      screen.getByRole('checkbox', { name: /オープンチャットの招待リンクも送る（2件）/ }),
+    )
+    expect((checkbox as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(/前回以降に 1 件増えたので/)).toBeTruthy()
+  })
+
   it('前回の配信が失敗していたら、その旨をチェックボックスの脇に出す', async () => {
     summaryMock.mockResolvedValue(
       summary({
