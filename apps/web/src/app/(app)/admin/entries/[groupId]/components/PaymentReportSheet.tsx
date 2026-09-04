@@ -89,6 +89,9 @@ export function PaymentReportSheet({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string[]>([])
   const [isPending, startTransition] = useTransition()
+  // 画像の縮小変換（非同期）が終わるまで true。この間は receipts が実態と
+  // ずれる（選んだのに反映前）ので、実行・追加・削除を止めて誤送信を防ぐ。
+  const [isProcessing, setIsProcessing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const preview = receipts.length > 0 ? messageWithReceipts : messageWithoutReceipts
@@ -97,28 +100,42 @@ export function PaymentReportSheet({
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
     setError(null)
-    const room = MAX_RECEIPTS - receipts.length
-    const picked = Array.from(files).slice(0, room)
-    if (files.length > room) {
-      setError(`証憑は${MAX_RECEIPTS}枚までです`)
-    }
-    const added: SelectedReceipt[] = []
-    for (const file of picked) {
-      try {
-        const { base64, dataUrl } = await downscaleToJpeg(file)
-        added.push({ id: crypto.randomUUID(), filename: file.name, base64, dataUrl })
-      } catch {
-        setError(UNSUPPORTED_MESSAGE)
+    setIsProcessing(true)
+    try {
+      const room = MAX_RECEIPTS - receipts.length
+      const picked = Array.from(files).slice(0, room)
+      if (files.length > room) {
+        setError(`証憑は${MAX_RECEIPTS}枚までです`)
       }
+      const added: SelectedReceipt[] = []
+      for (const file of picked) {
+        try {
+          const { base64, dataUrl } = await downscaleToJpeg(file)
+          added.push({ id: crypto.randomUUID(), filename: file.name, base64, dataUrl })
+        } catch {
+          setError(UNSUPPORTED_MESSAGE)
+        }
+      }
+      if (added.length > 0) {
+        // 変換完了時点の最新 receipts を見て残り枠を再計算する（連続してファイル
+        // 選択された場合でも合計が MAX_RECEIPTS を超えないようにするため）。
+        setReceipts((prev) => {
+          const remaining = MAX_RECEIPTS - prev.length
+          return remaining > 0 ? [...prev, ...added.slice(0, remaining)] : prev
+        })
+      }
+    } finally {
+      setIsProcessing(false)
     }
-    if (added.length > 0) setReceipts((prev) => [...prev, ...added])
   }
 
   function remove(id: string) {
+    if (isProcessing) return
     setReceipts((prev) => prev.filter((r) => r.id !== id))
   }
 
   function submit() {
+    if (isProcessing) return
     setError(null)
     setNotice([])
     // 通知を伴う操作の確認文言は `GroupDayTable` の既存文言をそのまま使う。
@@ -199,7 +216,8 @@ export function PaymentReportSheet({
                   <button
                     type="button"
                     aria-label={`${receipt.filename} を外す`}
-                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[11px] text-surface"
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[11px] text-surface disabled:opacity-50"
+                    disabled={isProcessing}
                     onClick={() => remove(receipt.id)}
                   >
                     ×
@@ -209,7 +227,8 @@ export function PaymentReportSheet({
               {canAdd && (
                 <button
                   type="button"
-                  className="flex h-20 w-20 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-border-strong text-[11px] text-ink-meta"
+                  className="flex h-20 w-20 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-border-strong text-[11px] text-ink-meta disabled:opacity-50"
+                  disabled={isProcessing}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <span aria-hidden className="text-base leading-none">
@@ -219,6 +238,9 @@ export function PaymentReportSheet({
                 </button>
               )}
             </div>
+            {isProcessing && (
+              <p className="text-xs text-ink-meta">画像を準備しています…</p>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -275,7 +297,7 @@ export function PaymentReportSheet({
             type="button"
             size="sm"
             className="h-[34px] flex-1 rounded-md"
-            disabled={isPending}
+            disabled={isPending || isProcessing}
             onClick={submit}
           >
             支払報告

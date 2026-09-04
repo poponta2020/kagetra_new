@@ -523,6 +523,7 @@ export default async function EntryGroupPage({
           receiptCount: entryGroupPaymentReports.receiptCount,
           status: entryGroupPaymentReports.status,
           lastSentAt: entryGroupPaymentReports.lastSentAt,
+          eventIds: entryGroupPaymentReports.eventIds,
         })
         .from(entryGroupPaymentReports)
         .leftJoin(users, eq(users.id, entryGroupPaymentReports.createdBy))
@@ -545,10 +546,22 @@ export default async function EntryGroupPage({
           )
           .orderBy(asc(entryGroupPaymentReceipts.sortOrder), asc(entryGroupPaymentReceipts.id))
       : []
-  const paymentReports = paymentReportRows.map((row) => ({
-    ...row,
-    receiptTokens: receiptTokenRows.filter((t) => t.reportId === row.id).map((t) => t.token),
-  }))
+  // AC-17: 履歴に「対象日」を出す。report.event_ids はスナップショットなので、
+  // グループから既に外れた日（現在の eventRows に無い id）は落とす（要件節）。
+  // 並び順は eventRows（開催日昇順）側を基準にする — jsonb 配列自体の格納順に
+  // 依存すると、ヘッダー subline（eventDatesLabel・こちらも eventRows 順）と
+  // 逆順で出るおそれがあるため。
+  const paymentReports = paymentReportRows.map(({ eventIds, ...row }) => {
+    const targetIds = new Set(eventIds)
+    return {
+      ...row,
+      receiptTokens: receiptTokenRows.filter((t) => t.reportId === row.id).map((t) => t.token),
+      eventDatesLabel: eventRows
+        .filter((e) => targetIds.has(e.id))
+        .map((e) => formatFlowDate(e.eventDate))
+        .join('・'),
+    }
+  })
   const entryFormLatestDraft =
     isAdmin && !isTeamGroup
       ? ((

@@ -99,8 +99,21 @@ describe('/admin/entries/[groupId] — 支払報告の履歴', () => {
   it('想定額・枚数・状態・実行者が並ぶ（AC-17）', async () => {
     const admin = await createAdmin({ name: 'prh-admin-1' })
     await setAuthSession({ id: admin.id, role: 'admin' })
-    const { group } = await seedGroupWithPaidDay()
-    await seedReport(group.id, { createdBy: admin.id }, ['tok-history-000000001'])
+    const { group, day } = await seedGroupWithPaidDay()
+    // 2日目を追加し、eventIds を日付降順で保存しても表示は開催日昇順になる
+    // ことまで確認する（jsonb の格納順に引きずられないことの回帰防止）。
+    const day2 = await createEvent({
+      entryGroupId: group.id,
+      eventDate: '2030-09-07',
+      entryStatus: 'applied',
+      paymentType: 'advance',
+      paymentStatus: 'paid',
+    })
+    await seedReport(
+      group.id,
+      { createdBy: admin.id, eventIds: [day2.id, day.id] },
+      ['tok-history-000000001'],
+    )
 
     render(await renderPage(group.id))
 
@@ -109,6 +122,8 @@ describe('/admin/entries/[groupId] — 支払報告の履歴', () => {
     expect(screen.getByText('証憑 1枚')).toBeTruthy()
     expect(screen.getByText('送信済')).toBeTruthy()
     expect(screen.getByText('prh-admin-1')).toBeTruthy()
+    // AC-17: 対象日（eventIds → 現在の日程から日付ラベルを組み立てる。開催日昇順）。
+    expect(screen.getByText('対象日 9/6・9/7')).toBeTruthy()
     expect(screen.getByRole('button', { name: '再送' })).toBeTruthy()
     // サムネはプレビュー route から引く（bytea をページ payload に載せない）。
     const thumb = document.querySelector('img[alt="振込明細"]') as HTMLImageElement

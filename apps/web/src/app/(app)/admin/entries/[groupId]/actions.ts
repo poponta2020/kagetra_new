@@ -286,8 +286,12 @@ export async function sendPaymentNotice(
 // payment-receipt-broadcast: 支払報告（証憑つき）
 // ---------------------------------------------------------------------------
 
-/** 1回の支払報告に添えられる証憑の上限（要件 §3.2.2-5）。 */
-export const MAX_PAYMENT_RECEIPTS = 3
+/**
+ * 1回の支払報告に添えられる証憑の上限（要件 §3.2.2-5）。
+ * `'use server'` ファイルは async 関数以外を export できないため非 export にする
+ * （このファイル内でしか参照しない。PaymentReportSheet.tsx は自前の定数を持つ）。
+ */
+const MAX_PAYMENT_RECEIPTS = 3
 /**
  * base64 1枚あたりの受け入れ上限。クライアントは長辺 2048px・q0.85 まで縮小して
  * から送るので実測 1MB 前後に収まる。`serverActions.bodySizeLimit`（8mb）の内側で

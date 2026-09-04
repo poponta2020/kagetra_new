@@ -146,6 +146,21 @@ describe('PaymentReportSheet', () => {
     expect(screen.getByText(/LINE グループが紐付いていないため、送信は行われません/)).toBeTruthy()
   })
 
+  it('変換中は実行ボタンが無効（証憑0枚のまま確定させない）', async () => {
+    stubImage(true)
+    renderSheet()
+    pickFiles(1)
+
+    // 変換（onload の queueMicrotask）を待たずに確認する — 変換中は
+    // receipts が空のままなので、ここで押せてしまうと証憑0枚で確定してしまう。
+    expect(screen.getByRole('button', { name: '支払報告' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('画像を準備しています…')).toBeTruthy()
+
+    // 変換完了後は解除される（恒久的に無効化しているだけではないことの確認）。
+    await waitFor(() => expect(document.querySelectorAll('img')).toHaveLength(1))
+    expect(screen.getByRole('button', { name: '支払報告' }).hasAttribute('disabled')).toBe(false)
+  })
+
   it('実行すると選んだ証憑が Server Action へ渡る', async () => {
     stubImage(true)
     const { onSubmit, onClose } = renderSheet()

@@ -25,6 +25,11 @@ export interface PaymentReportHistoryRow {
   lastSentAt: Date | string | null
   /** 証憑の公開トークン（`sort_order` 順）。サムネ URL の組み立てに使う。 */
   receiptTokens: string[]
+  /**
+   * この報告が対象にした日の表示用ラベル（server で組み立て済み。「・」区切り）。
+   * グループから既に外れた日は落としてある。全部落ちて空なら日付行は出さない（AC-17）。
+   */
+  eventDatesLabel: string
 }
 
 export interface PaymentReportHistoryProps {
@@ -98,6 +103,9 @@ export function PaymentReportHistory({ rows, resendAction }: PaymentReportHistor
                 </span>
                 <span className={`flex-none text-xs ${status.tone}`}>{status.text}</span>
               </div>
+              {row.eventDatesLabel && (
+                <p className="text-xs text-ink-meta">対象日 {row.eventDatesLabel}</p>
+              )}
               <div className="flex items-baseline gap-2 text-xs text-ink-meta">
                 <span className="tabular-nums">
                   {row.amountJpy != null ? `${row.amountJpy.toLocaleString('ja-JP')}円` : '金額なし'}
