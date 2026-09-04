@@ -116,6 +116,13 @@ export function MailProcessForm({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [openChatSheetOpen, setOpenChatSheetOpen] = useState(false)
   const [openChatSummary, setOpenChatSummary] = useState<OpenChatSummaryState | null>(null)
+  /**
+   * サマリーを引いている最中かどうか。★読み込み中は「実行する」を押させない
+   * （Codex R1 blocker）。大会を切り替えた直後に押せてしまうと、前の大会の件数で
+   * 組んだ `includeOpenChat` が新しい大会へ渡り、配信済みの全件が確認なしで再送
+   * される（逆に、送るべき招待リンクが送られないこともある）。
+   */
+  const [openChatLoading, setOpenChatLoading] = useState(false)
   /** シートを閉じた直後にサマリーを引き直すためのキー（保存件数がすぐ反映される）。 */
   const [openChatReloadKey, setOpenChatReloadKey] = useState(0)
   const [includeOpenChat, setIncludeOpenChat] = useState(false)
@@ -146,11 +153,15 @@ export function MailProcessForm({
   // openchat-broadcast 2026-09-04 改修: 保存済みオープンチャットの件数・配信状況を引く。
   // 大会を選び直したときと、抽出シートを閉じた直後（保存で件数が変わる）に取り直す。
   useEffect(() => {
+    // ★前の大会の値を**同期的に**捨てる。await の後で捨てると、その間に
+    // 「実行する」を押されたとき前の大会の件数で判断してしまう。
+    setOpenChatSummary(null)
+    setIncludeOpenChat(false)
     if (groupId == null) {
-      setOpenChatSummary(null)
-      setIncludeOpenChat(false)
+      setOpenChatLoading(false)
       return
     }
+    setOpenChatLoading(true)
     let cancelled = false
     loadOpenChatBroadcastSummary(groupId)
       .then((summary) => {
@@ -180,6 +191,9 @@ export function MailProcessForm({
         // 引けなかったときは「送らない」に倒す（数が分からないまま送らせない）。
         setOpenChatSummary(null)
         setIncludeOpenChat(false)
+      })
+      .finally(() => {
+        if (!cancelled) setOpenChatLoading(false)
       })
     return () => {
       cancelled = true
@@ -211,7 +225,12 @@ export function MailProcessForm({
     isRoster && adoptableAttachments.length > 0 && selectedFiles.size === 0
 
   const canSubmit =
-    !isNotice && groupId != null && !emptyBroadcast && !rosterNeedsFile && !pending
+    !isNotice &&
+    groupId != null &&
+    !emptyBroadcast &&
+    !rosterNeedsFile &&
+    !openChatLoading &&
+    !pending
 
   const toggleFile = (attachmentId: number) => {
     setSelectedFiles((prev) => {
@@ -691,7 +710,7 @@ export function MailProcessForm({
                 disabled={!canSubmit}
                 onClick={onSubmit}
               >
-                {pending ? '処理中…' : '実行する'}
+                {pending ? '処理中…' : openChatLoading ? '読み込み中…' : '実行する'}
               </Btn>
             </>
           )}

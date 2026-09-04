@@ -506,6 +506,26 @@ describe('MailProcessForm — オープンチャットをメール配信に相�
     fireEvent.click(screen.getByRole('checkbox', { name: /LINE で配信する/ }))
   }
 
+  it('★Codex R1: サマリーの読み込みが終わるまで「実行する」を押せない', async () => {
+    // 大会を切り替えた直後に押せてしまうと、前の大会の件数で組んだ
+    // includeOpenChat が新しい大会へ渡り、配信済みの全件が再送され得る。
+    summaryMock.mockImplementation(() => new Promise(() => {}))
+    renderForm()
+
+    fireEvent.click(screen.getByText('大会を選ぶ'))
+    fireEvent.click(screen.getByRole('radio'))
+    fireEvent.click(screen.getByText('決定'))
+
+    await waitFor(() => {
+      expect(summaryMock).toHaveBeenCalledWith(100)
+    })
+    const submit = screen.getByRole('button', { name: '読み込み中…' })
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(submit)
+    expect(processMailMock).not.toHaveBeenCalled()
+  })
+
   it('保存済みが1件も無ければチェックボックスは出ない', async () => {
     summaryMock.mockResolvedValue(summary())
     renderForm()

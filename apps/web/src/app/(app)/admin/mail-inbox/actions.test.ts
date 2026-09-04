@@ -3627,6 +3627,44 @@ describe('admin/mail-inbox actions', () => {
         expect((await getMail(mail.id))?.triageStatus).toBe('processed')
       })
 
+      it('★Codex R1: 本文配信の**待機中**に取り消されたらオープンチャットも送らない', async () => {
+        // 本文の画像化・添付処理は数十秒かかることがある。その間に取り消しが
+        // 完了すると、コールバック冒頭の1度きりの世代チェックはすり抜ける。
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        // 本文配信の「最中」に未処理へ戻す。
+        broadcastMailToEventMock.mockImplementationOnce(async () => {
+          await undoTriage(mail.id)
+          return {
+            status: 'skipped' as const,
+            reason: 'mocked',
+            sentTextCount: 0,
+            sentImageCount: 0,
+            fallbackLinkCount: 0,
+          }
+        })
+
+        await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+        // LINE は送信後に取り消せない。本文の後に続けて送ってはいけない。
+        expect(runOpenChatBroadcastMock).not.toHaveBeenCalled()
+      })
+
       it('取り消し済みならオープンチャットも送らない（世代トークンの中にある）', async () => {
         const admin = await createAdmin()
         await setAuthSession({ id: admin.id, role: 'admin' })

@@ -1926,21 +1926,29 @@ export async function processMail(
         // ★比較は **text 同士**で行う（Codex r3 blocker）。Date に落とすと
         // PostgreSQL のマイクロ秒がミリ秒へ丸められ、同一ミリ秒に収まった別世代を
         // 取り違える。
-        const current = await db
-          .select({
-            triageStatus: mailMessages.triageStatus,
-            linkedEventId: mailMessages.linkedEventId,
-            triagedAtText: sql<string>`${mailMessages.triagedAt}::text`,
-          })
-          .from(mailMessages)
-          .where(eq(mailMessages.id, mailId))
-          .limit(1)
-        if (
-          generation == null ||
-          current[0]?.triageStatus !== 'processed' ||
-          current[0]?.linkedEventId !== eventId ||
-          current[0]?.triagedAtText !== generation
-        ) {
+        //
+        // ★この判定は**push のたびに引き直す**（Codex R1 blocker）。本文の
+        // 画像化・添付処理は数十秒かかることがあり、その待機中に取り消しが完了
+        // していると、1度きりの事前チェックではオープンチャットだけが取り消し後に
+        // 届いてしまう。
+        const isCurrentGeneration = async (): Promise<boolean> => {
+          const current = await db
+            .select({
+              triageStatus: mailMessages.triageStatus,
+              linkedEventId: mailMessages.linkedEventId,
+              triagedAtText: sql<string>`${mailMessages.triagedAt}::text`,
+            })
+            .from(mailMessages)
+            .where(eq(mailMessages.id, mailId))
+            .limit(1)
+          return (
+            generation != null &&
+            current[0]?.triageStatus === 'processed' &&
+            current[0]?.linkedEventId === eventId &&
+            current[0]?.triagedAtText === generation
+          )
+        }
+        if (!(await isCurrentGeneration())) {
           console.warn(
             '[processMail] skipped broadcast: mail was undone or re-processed before delivery',
             { mailId, eventId },
@@ -1973,6 +1981,14 @@ export async function processMail(
         // 返す相手がいないため、画面へは `loadOpenChatBroadcastSummary` の
         // `lastAttempt` 経由で出す。
         if (input.includeOpenChat && entryGroupId != null) {
+          // 本文配信の待機中に取り消されていないかを、push の直前にもう一度見る。
+          if (!(await isCurrentGeneration())) {
+            console.warn(
+              '[processMail] skipped open chat broadcast: mail was undone during mail delivery',
+              { mailId, entryGroupId },
+            )
+            return
+          }
           try {
             const outcome = await runOpenChatBroadcast({
               entryGroupId,
