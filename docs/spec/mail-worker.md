@@ -197,10 +197,15 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 表示方式は `attachment-preview.ts` の `detectPreviewKind()`（宣言 MIME 優先、`octet-stream` 等の曖昧な型はファイル拡張子で判定。`image` 種別だけは拡張子フォールバック無し）で振り分け:
 
-- `document`（PDF / Office 文書）→ PDF はそのまま、Office は `libreoffice --convert-to pdf`（`forceWriter: false`。Calc/Impress を Writer 扱いにしない）→ `pdftoppm` で JPEG ページ化し `<img>` を縦積み。iOS Safari が iframe 内 PDF を 1 ページ目しか描画しない既知の制限を回避するため
+- `document`（PDF / Word / PowerPoint）→ PDF はそのまま、Office は `libreoffice --convert-to pdf`（`forceWriter: false`。Impress を Writer 扱いにしない）→ `pdftoppm` で JPEG ページ化し `<img>` を縦積み。iOS Safari が iframe 内 PDF を 1 ページ目しか描画しない既知の制限を回避するため
+- `spreadsheet`（`.xls` / `.xlsx` / `.xlsm`）→ **ページ画像を作らない。**「Excel ファイルです」の案内カードと「開く・保存」だけを出す。表計算のページ画像は列が切れ行が任意の位置で分割されて読めず、Excel は受信添付の最多種別（実データで PDF の 1.5 倍）なので、変換コストだけが残っていた。MIME 集合・拡張子集合・`OFFICE_EXTENSION_BY_TYPE` のいずれからも除いてあるため、`conversionExtension()` が構造的に変換を拒否する
 - `image`（jpeg/png/gif/webp/heic/heif）→ バイナリルートをそのまま `<img>` src に
 - `text`（text/plain, text/csv）→ bytea を UTF-8 で `<pre>` 表示（100,000 文字上限）
-- その他（zip 等）→ プレビュー不可カード + ダウンロードリンク
+- その他（zip 等）→ 表示不可カード + 「開く・保存」
+
+**ページ画像 route は `detectPreviewKind() !== 'document'` を 404 で弾く**ため、`spreadsheet` の追加はビューアと3本のプレビュー route に同時に効く。
+
+種別によらず、ビューアには OS へファイルを渡す「開く・保存」（`components/attachment/OpenSaveButton.tsx`）を常設する。押すとバイナリ route を `fetch` して `File` を組み立て、`navigator.canShare({ files })` が通れば共有シート（iOS なら「Excel にコピー」「ファイルに保存」）、通らなければ blob URL + `<a download>` に倒す。**サーバー route には触れていない** —— `fetch` は `Content-Disposition` を無視するので、下記 allowlist と disposition をそのまま維持できる。iOS ホーム画面 PWA では `attachment` は白画面で死に `inline` は戻れない WebView 遷移になるため、共有シートが端末へファイルを渡す唯一の道である。共有シートのキャンセル（`AbortError`）は無反応、ユーザー操作の期限切れ（`NotAllowedError`）は取得済みバイトを保持したまま再タップを促す。
 
 レンダリング結果は `image-cache.ts` の `globalThis` ピン留めインメモリキャッシュ（Next.js の chunk 分割で Server Component 側と Route Handler 側が別モジュールインスタンスになる問題を回避するための pin。容量上限 200 MB / 500 エントリ、超過分は挿入順で LRU 近似 evict、TTL 24h）に格納される。`RENDER_PAGE_LIMIT`（30 ページ）超過時は `truncated: true` を返し UI が「続きは元ファイルを参照」と案内する。並行する `<img>` フェッチが同一添付の変換を多重起動しないよう、`attachment-preview.ts` は `globalThis` ピン留めの in-flight registry で変換を1本化する。
 
@@ -216,7 +221,7 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 - `/mail` — 一覧＋検索。sticky 検索バー＋「添付ありのみ」トグル、受信日降順固定、初回20件＋Server Action での追加読込
 - `/mail/[id]` — 詳細。セクション順は ヘッダ → 添付ファイル → 本文 → 処理の記録（会員の主目的が添付を開くことなので、長文本文に押し出されない位置に置く）
-- `/mail/attachments/[id]` — 添付ビューア。振り分け・キャッシュ・`?from=` の戻り先方式は管理者ビューアと同一（許可プレフィックスだけ `/mail`）
+- `/mail/attachments/[id]` — 添付ビューア。振り分け・キャッシュ・「開く・保存」・`?from=` の戻り先方式は管理者ビューアと同一（許可プレフィックスだけ `/mail`）
 
 **公開範囲は受信箱の全メール**（未処理・`classification='noise'`・取込失敗を含む）。`noise` は AI の「新規の大会案内ではない」判定であってスパム判定ではなく、実体は抽選結果・名簿共有・結果報告などの有用な連絡なので除外基準に使えない。他会の申込名簿など第三者の個人情報を含む添付も開放する（招待制で外部から到達できず、同じ添付が既に LINE グループへ配信済みであることによるリスク受容）。
 
