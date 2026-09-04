@@ -42,6 +42,8 @@ const JPEG_QUALITY_STEPS = [85, 75, 65, 50, 35, 20] as const
 const UNSUPPORTED_FORMAT_REASON =
   '対応していない画像形式です。JPEG または PNG を選んでください（HEIC は非対応です）。'
 const SIZE_EXCEEDED_REASON = '画像が大きすぎて送信できません（縮小しても 10MB を超えます）。'
+const CORRUPTED_IMAGE_REASON =
+  '画像が壊れているか、途中で切れています。撮り直すか別の写真を選んでください。'
 
 /** 正規化に成功した1枚。 */
 export interface NormalizedReceiptImage {
@@ -108,43 +110,55 @@ export async function normalizeReceiptImage(
     return { ok: false, reason: UNSUPPORTED_FORMAT_REASON }
   }
 
-  // EXIF の向きを反映しつつ長辺 4096px 以内へ縮小（拡大はしない）
-  const resized = sharp(input)
-    .rotate()
-    .resize({
-      width: MAX_DIMENSION,
-      height: MAX_DIMENSION,
+  // metadata() はヘッダーだけ読めれば通ってしまう。画素データが途中で切れた
+  // JPEG（アップロード中断・末尾欠損）は、ここより先のデコード・エンコード
+  // （.rotate() 〜 プレビュー生成）で初めて sharp が例外を投げる。この関数は
+  // throw しない契約なので、形式判定より後の変換エラーも丸ごと拾って
+  // { ok: false, reason } へ変換する（SIZE_EXCEEDED_REASON の分岐は例外ではなく
+  // 通常の return なので、この try の中にあっても catch には飲み込まれない）。
+  try {
+    // EXIF の向きを反映しつつ長辺 4096px 以内へ縮小（拡大はしない）
+    const resized = sharp(input)
+      .rotate()
+      .resize({
+        width: MAX_DIMENSION,
+        height: MAX_DIMENSION,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+
+    const main = await encodeJpegWithinLimit(resized, maxBytes)
+    if (!main.withinLimit) {
+      // 縮小・quality 低下を尽くしても収まらない1枚はこの枚だけ除外する
+      return { ok: false, reason: SIZE_EXCEEDED_REASON }
+    }
+
+    const mainMetadata = await sharp(main.buffer).metadata()
+
+    // プレビューは正規化済みの本体からさらに縮小する（ベストエフォート。長辺240px
+    // まで縮めれば確実に1MB以内に収まるため、収まらなくても送信自体は失敗させない）
+    const previewPipeline = sharp(main.buffer).resize({
+      width: PREVIEW_MAX_DIMENSION,
+      height: PREVIEW_MAX_DIMENSION,
       fit: 'inside',
       withoutEnlargement: true,
     })
+    const preview = await encodeJpegWithinLimit(previewPipeline, PREVIEW_MAX_BYTES)
 
-  const main = await encodeJpegWithinLimit(resized, maxBytes)
-  if (!main.withinLimit) {
-    // 縮小・quality 低下を尽くしても収まらない1枚はこの枚だけ除外する
-    return { ok: false, reason: SIZE_EXCEEDED_REASON }
-  }
-
-  const mainMetadata = await sharp(main.buffer).metadata()
-
-  // プレビューは正規化済みの本体からさらに縮小する（ベストエフォート。長辺240px
-  // まで縮めれば確実に1MB以内に収まるため、収まらなくても送信自体は失敗させない）
-  const previewPipeline = sharp(main.buffer).resize({
-    width: PREVIEW_MAX_DIMENSION,
-    height: PREVIEW_MAX_DIMENSION,
-    fit: 'inside',
-    withoutEnlargement: true,
-  })
-  const preview = await encodeJpegWithinLimit(previewPipeline, PREVIEW_MAX_BYTES)
-
-  return {
-    ok: true,
-    image: {
-      data: main.buffer,
-      byteSize: main.buffer.byteLength,
-      width: mainMetadata.width ?? 0,
-      height: mainMetadata.height ?? 0,
-      previewData: preview.buffer,
-      contentType: 'image/jpeg',
-    },
+    return {
+      ok: true,
+      image: {
+        data: main.buffer,
+        byteSize: main.buffer.byteLength,
+        width: mainMetadata.width ?? 0,
+        height: mainMetadata.height ?? 0,
+        previewData: preview.buffer,
+        contentType: 'image/jpeg',
+      },
+    }
+  } catch {
+    // 画素データが途中で切れているなど、metadata() 通過後にデコード・エンコードで
+    // 失敗した1枚はこの枚だけ除外する（throw を呼び出し側の画像ループへ伝播させない）。
+    return { ok: false, reason: CORRUPTED_IMAGE_REASON }
   }
 }

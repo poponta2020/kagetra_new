@@ -314,7 +314,11 @@ const receiptInputSchema = z.object({
 })
 
 const reportPaymentSchema = z.object({
-  eventIds: z.array(z.number().int().positive()).min(1).max(50),
+  // ★件数の上限は設けない（`.min(1)` のみ維持。0件は意味を持たない）。
+  //   グループの日数に DB 制約は無く、`GroupDayTable` は既定で中止でない全日を
+  //   選択するため、根拠のある固定上限を置くと実在するグループが弾かれる
+  //   （旧 `setPaymentsPaid` に上限は無かった）。
+  eventIds: z.array(z.number().int().positive()).min(1),
   receipts: z.array(receiptInputSchema).max(MAX_PAYMENT_RECEIPTS),
 })
 

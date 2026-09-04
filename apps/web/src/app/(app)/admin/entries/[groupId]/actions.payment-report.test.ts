@@ -66,6 +66,21 @@ async function pngBase64(width = 40, height = 30): Promise<string> {
   return buffer.toString('base64')
 }
 
+/**
+ * 2030-05-01 を起点に dayIndex 日進めた `YYYY-MM-DD` を組み立てる。テンプレート
+ * リテラル直書き（`2030-05-0${i + 1}`）は2桁日（10日目以降）に対応できず
+ * `2030-05-010` のような不正な日付になるため、日付演算で組み立てる
+ * （51日ぶんの回帰テストのために必要）。
+ */
+function buildEventDate(dayIndex: number): string {
+  const date = new Date(Date.UTC(2030, 4, 1))
+  date.setUTCDate(date.getUTCDate() + dayIndex)
+  const yyyy = date.getUTCFullYear()
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(date.getUTCDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 async function seedGroup(dayCount = 1) {
   const group = await createEntryGroup()
   const days = []
@@ -79,7 +94,7 @@ async function seedGroup(dayCount = 1) {
         entryStatus: 'applied',
         paymentType: 'advance',
         paymentStatus: 'unpaid',
-        eventDate: `2030-05-0${i + 1}`,
+        eventDate: buildEventDate(i),
       }),
     )
   }
@@ -517,5 +532,53 @@ describe('reportPayment', () => {
       fetchSpy.mockRestore()
     }
     expect(await testDb.select().from(entryGroupPaymentReceipts)).toHaveLength(1)
+  })
+
+  it('51日を超えるグループでも支払報告が通る（eventIds の根拠のない50件上限を撤廃した回帰・§3.2.2）', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-14' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const group = await createEntryGroup()
+    const dayCount = 51
+    const days = []
+    for (let i = 0; i < dayCount; i++) {
+      days.push(
+        await createEvent({
+          entryGroupId: group.id,
+          official: true,
+          kind: 'individual',
+          eligibleGrades: null,
+          entryStatus: 'applied',
+          paymentType: 'advance',
+          paymentStatus: 'unpaid',
+          eventDate: buildEventDate(i),
+        }),
+      )
+    }
+    // 出欠は最小限（1件）にする — ここで検証したいのは eventIds の件数上限であって
+    // 金額算出ではないので、51日ぶん作ると遅くなる出欠シードは省く。
+    const a1 = await createUser({ name: `rp-a1-${crypto.randomUUID()}`, grade: 'A' })
+    await createEventAttendance({ eventId: days[0]!.id, userId: a1.id })
+    await linkLineGroup(group.id)
+
+    const fetchSpy = spyOnPush()
+    try {
+      const result = await reportPayment(
+        group.id,
+        days.map((d) => d.id),
+        [],
+      )
+      expect(result).toMatchObject({ ok: true, status: 'sent' })
+      expect(fetchSpy).toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    const rows = await testDb
+      .select({ status: events.paymentStatus })
+      .from(events)
+      .where(eq(events.entryGroupId, group.id))
+    expect(rows).toHaveLength(dayCount)
+    expect(rows.every((r) => r.status === 'paid')).toBe(true)
   })
 })

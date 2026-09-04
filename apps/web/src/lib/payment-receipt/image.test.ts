@@ -119,6 +119,25 @@ describe('normalizeReceiptImage', () => {
     })
   })
 
+  it('metadata() は通るが画素データが途中で切れた JPEG は throw せず除外される', async () => {
+    const jpeg = await sharp({
+      create: { width: 400, height: 300, channels: 3, background: { r: 80, g: 40, b: 160 } },
+    })
+      .jpeg()
+      .toBuffer()
+    // ヘッダー・寸法は読めるが、末尾を切り落として画素データを欠損させる
+    // （アップロード中断・末尾が数バイト欠けた写真を模す）。
+    const truncated = jpeg.subarray(0, jpeg.length - 200)
+
+    const result = await normalizeReceiptImage(truncated)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.reason).toBe(
+      '画像が壊れているか、途中で切れています。撮り直すか別の写真を選んでください。',
+    )
+  })
+
   it('EXIF の向き(orientation 6)を反映して回転・縦横入れ替えする', async () => {
     // 横長(800x400)の画像に orientation 6（時計回り90度回転が必要）を付与する。
     // .rotate() が EXIF を反映すると、正規化後は縦長(400x800)になる。
