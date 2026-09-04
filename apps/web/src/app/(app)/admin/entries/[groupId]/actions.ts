@@ -7,7 +7,6 @@ import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import {
-  entryGroupPaymentNotices,
   entryGroupPaymentReceipts,
   entryGroupPaymentReports,
   events,
@@ -35,13 +34,8 @@ import {
   normalizeReceiptImage,
   type NormalizedReceiptImage,
 } from '@/lib/payment-receipt/image'
-import { resolveTreasurerMention } from '@/lib/line-mention-targets'
-import {
-  buildPaymentNoticeMessages,
-  rowsFromSavedCounts,
-  savedCountsFromRows,
-} from '@/lib/payment-notice'
 import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
+import { sendPaymentNoticeCore } from '@/lib/events/payment-notice-send'
 
 /**
  * entry-group-page タスク2: `events/[id]/actions.ts` の同名ヘルパーは export
@@ -202,9 +196,9 @@ export interface SendPaymentNoticeResult {
  * 流れ:
  *   1. 級ごとの人数を受け取り（管理者が直した値）、単価は `resolveEntryFee` から
  *      **都度導出**する（単価は保存しないし、上書きもさせない・AC-13）
- *   2. 文面を組み立てる（`buildPaymentNoticeMessages`）。全級0名なら送らない（AC-18）
- *   3. 人数を upsert してから push し、**push が成功したときだけ** `last_sent_at` を
- *      進める（失敗時は送信済みにしない＝再送できる状態のまま残す・AC-19）
+ *   2. 保存 → push → 成否の記録は `sendPaymentNoticeCore` に委ねる（メール処理画面
+ *      からの送信と**同じ処理・同じ記録行**を使う・§3.3.5.5）。全級0名なら送らない
+ *      （AC-18）、push が成功したときだけ `last_sent_at` を進める（AC-19）
  *
  * 露出条件（settled ∧ 事前払い ∧ 未振込）は page.tsx が判定するが、Server Action は
  * client から直接叩けるのでここでも再判定する（fail-closed）。
@@ -236,53 +230,24 @@ export async function sendPaymentNotice(
   }
   const context = loaded.context
 
-  const rows = rowsFromSavedCounts(pickGradeCounts(parsedCounts.data), context.unitPriceByGrade)
-  const mention = await resolveTreasurerMention(db)
-  const notice = buildPaymentNoticeMessages({
-    mention,
-    rows,
+  // 保存 → push → 成否の記録は2導線で共有する（`payment-notice-send.ts`）。
+  // メール処理画面から送っても同じ行が更新され、両画面の「送信済」が一致する。
+  const result = await sendPaymentNoticeCore(db, {
+    entryGroupId: groupId,
+    counts: pickGradeCounts(parsedCounts.data),
+    unitPriceByGrade: context.unitPriceByGrade,
     paymentDeadlineIso: context.paymentDeadline,
     paymentInfo: context.paymentInfo,
+    sentByUserId: session.user.id,
   })
-  if (!notice) {
+  if (result.outcome === 'empty') {
     return { error: '人数が全級0名です。1名以上にしてください' }
   }
-
-  // 人数は push の前に保存する。送信が失敗しても、管理者が直した人数は残す
-  // （やり直しのたびに数え直させない）。`last_sent_at` だけを成否で分ける。
-  await db
-    .insert(entryGroupPaymentNotices)
-    .values({
-      entryGroupId: groupId,
-      gradeCounts: savedCountsFromRows(notice.rows),
-      totalJpy: notice.totalJpy,
-    })
-    .onConflictDoUpdate({
-      target: entryGroupPaymentNotices.entryGroupId,
-      set: {
-        gradeCounts: savedCountsFromRows(notice.rows),
-        totalJpy: notice.totalJpy,
-        updatedAt: new Date(),
-      },
-    })
-
-  const result = await pushMessagesToEntryGroup(db, groupId, notice.messages)
-  if (result.outcome !== 'sent') {
-    revalidatePath(`/admin/entries/${groupId}`)
-    return {
-      error:
-        result.outcome === 'skipped'
-          ? 'LINE グループが紐付いていません'
-          : `LINE 送信に失敗しました: ${result.reason ?? '不明なエラー'}`,
-    }
-  }
-
-  await db
-    .update(entryGroupPaymentNotices)
-    .set({ lastSentAt: new Date(), lastSentBy: session.user.id, updatedAt: new Date() })
-    .where(eq(entryGroupPaymentNotices.entryGroupId, groupId))
-
   revalidatePath(`/admin/entries/${groupId}`)
+  if (result.outcome !== 'sent') {
+    // 'aborted' はこの経路では起こらない（`abortBeforePush` を渡していない）。
+    return { error: result.outcome === 'failed' ? result.error : '送信を中止しました' }
+  }
   return { ok: true }
 }
 
