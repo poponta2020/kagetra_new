@@ -25,6 +25,31 @@ export interface LineTextMessage {
   text: string
 }
 
+/**
+ * payment-receipt-broadcast: 画像メッセージ（支払報告の証憑）。
+ *
+ * `originalContentUrl` / `previewImageUrl` は **https 絶対 URL の JPEG** でなければ
+ * LINE 側が取得に失敗する（本体 10MB・4096x4096 以内、プレビュー 1MB 以内）。URL の
+ * 組み立てと画像の正規化は呼び出し側の責務。
+ *
+ * ★**`LineMessage` union には加えない。** `LineMessage` は「本文テキストを持つ通知」の
+ * 型で、既存の呼び出し側（webhook ハンドラ・振込連絡・そのテスト群）は `.text` を
+ * 直接読む。ここへ画像を混ぜると、画像を一切扱わないそれらのコードが全部
+ * ナローイングを強いられる。画像を混ぜて送れるのは**送信トランスポートだけ**なので、
+ * 広げるのは `LineOutgoingMessage`（＝push が受け取る型）に限定する。
+ *
+ * ★`lib/line-broadcast.ts` にも同名のローカル `LineMessage` interface があるが**別物**。
+ * あちらは要綱配信パイプライン専用（flex も持つ）。
+ */
+export interface LineImageMessage {
+  type: 'image'
+  originalContentUrl: string
+  previewImageUrl: string
+}
+
+/** push / reply トランスポートが受け取れるメッセージ（テキスト系 + 画像）。 */
+export type LineOutgoingMessage = LineMessage | LineImageMessage
+
 export interface LineTextV2Message {
   type: 'textV2'
   text: string

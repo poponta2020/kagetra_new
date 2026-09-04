@@ -41,6 +41,9 @@ export * from './entry-group-open-chats'
 export * from './entry-group-open-chat-broadcasts'
 // line-bot-message-revamp: 名簿確定後の振込連絡（級別人数の保存 + 送信記録）
 export * from './entry-group-payment-notices'
+// payment-receipt-broadcast: 支払報告の履歴（1回=1行）+ 証憑画像（1枚=1行）
+export * from './entry-group-payment-reports'
+export * from './entry-group-payment-receipts'
 // tournament-results
 export * from './players'
 export * from './tournaments'

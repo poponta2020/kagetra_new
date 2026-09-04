@@ -124,7 +124,7 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
 - ★**メンションを含むメッセージに自由記述を混ぜない。** `textV2` は本文中の中括弧をプレースホルダ構文として解釈するため、大会名・支払情報などのユーザー入力が中括弧を含むと本文が壊れる。差し込める値を `number` と `{ dateIso }`（`M/D(曜)` へ整形）だけに型で限定し、`template` / `label` に中括弧が無いことを実行時にも検証する。自由記述は `buildTextMessage` でメンションを持たない別メッセージとして送る。
 - **対象の解決**: `lib/line-mention-targets.ts`。共通条件は `line_user_id IS NOT NULL AND deactivated_at IS NULL` で、並び順は `users.id` 昇順（メンションの並びを決定的にするため）。`@会計` は `users.is_treasurer = true`、`@管理者` は `role IN ('admin','vice_admin')`。**0人なら素テキストの `@会計` / `@管理者` を出すだけ**でメッセージ自体は送る。`line_user_id` が無い担当者は黙って外れる。
 - **会計フラグ**: `users.is_treasurer`（boolean）。**`@会計` で誰をメンションするかの識別専用で、認可判断には一切使わない**。会計の権限は副管理者と同一なので、会計担当には `role='vice_admin'` を併せて付与して運用する（`user_role` enum を増やさない理由は、`role !== 'admin' && role !== 'vice_admin'` の判定が多数のファイルにインライン展開されているため）。設定 UI は会員編集（`spec/auth-admin.md`）。
-- **transport**: reply（`LineReplyClient.reply`）と push（`pushMessagesToEventGroup` / `pushMessagesToEntryGroup`）はいずれも `LineMessage[]` を受け取る。`pushMessagesToEntryGroup` は申込グループ単位で `event_line_broadcasts` を直接引く（振込連絡がグループ単位のキーを持つため、代表イベントを経由しない）。
+- **transport**: reply（`LineReplyClient.reply`）と push（`pushMessagesToEventGroup` / `pushMessagesToEntryGroup`）はいずれも `LineOutgoingMessage[]` を受け取る（`LineMessage`＝text / textV2 に `LineImageMessage` を足した union。★**`LineMessage` 自体は広げない** —— 画像を混ぜると、`.text` を直接読む既存の呼び出し側とそのテスト群が一斉にナローイングを強いられるため、広げるのは送信トランスポートが受ける型だけにする）。`pushMessagesToEntryGroup` は申込グループ単位で `event_line_broadcasts` を直接引く（振込連絡がグループ単位のキーを持つため、代表イベントを経由しない）。
 
 ### event-lifecycle-notify: 定型LINE通知
 
@@ -145,7 +145,7 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
 | `onsite_payment_day` | `大会当日です！参加費を忘れないようにしてください。` |
 
 - **申込完了**: `setEntryApplied(eventId, true)`（`events/[id]/actions.ts`）が `entryStatus` を `not_applied → applied` に一度だけ遷移させ、同一トランザクション内で `entry_applied`（参加者向け）と `entry_applied_treasurer`（会計向け）の2スロットを `claimLifecycleNotification` で確保する（once-everなので再トグルや同時実行では二重取得されない）。コミット後、それぞれ独立した try/catch でpushする（best-effort、push失敗でも状態変更は巻き戻さない）。大会が `cancelled` の場合はいずれも送らない。会計向けは `payment_deadline` / `payment_method` / `payment_info` を**参照しない**（申込完了の時点では抽選前で当選者が決まっておらず、振り込むべき金額が確定しないため、予告文だけを送る）。支払いタイプでも出し分けない。
-- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。
+- **支払完了**: `setPaymentPaid(eventId, true)` が `paymentType='advance'` かつ `paymentStatus='unpaid'` のときだけ `paid` に遷移させ、`payment_paid` を一度だけclaimしてpushする。**申込グループページからの経路は `reportPayment` に置き換わっており**、証憑を添えられる（下記 payment-report）。
 - **複数日（entry-groups の一括操作）**: `setEntryApplied` / `setPaymentPaid` / `setPaymentType` は複数 `eventId` を取る `setEntriesApplied` / `setPaymentsPaid` / `setPaymentTypes` への薄いラッパー。同グループの複数日を選んで一括トグルすると、id昇順ソート→各日ガード付きUPDATE（`cancelled` はここで再ガードしてclaim対象から除外）→**flipできた日のうちclaimできた集合だけ**で参加者向け・会計向けそれぞれ1通に集約してpushする（`sendClaimedNotificationBulk`）。大会名を名乗らなくなったため**日別ラベルは無く、束ねた文面は単一日と同一**になる（束ね処理そのものは維持する — 3日グループで3通に増やしてはならない）。
 - **リマインド（日次バッチ）**: `apps/web/scripts/send-lifecycle-reminders.ts` が毎日（本番はsystemdタイマー、JST 00:00）実行し、以下の条件に合致する `linked` かつ非 `cancelled` の大会を対象に、`sendReminderNotification`（claim + push + finalize を1呼び出しに統合）で送る。
   - 申込締切: `entryStatus='not_applied'` かつ `entryDeadline` が「今日+リード日数」（事前）/「今日」（当日）
@@ -157,6 +157,30 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
   - **送信は (申込グループ, 通知種別, 締切日) 単位で1通に集約する。** 候補をこのキーでバケット化し、バケット内の全メンバーを**1回の INSERT（複数行 VALUES）+ `onConflictDoNothing` + `RETURNING`** で claim して1通 push する。once-ever の単位は `(event_id, type)` のまま維持されるので、cron を再実行すると「まだ claim できていない残りの日」だけが追加で1通送られる。
   - **紐付け判定の INNER JOIN は維持する**（`event_line_broadcasts.entry_group_id = events.entry_group_id` かつ `status='linked'`）。未紐付けグループは候補にもバケットにも現れず claim もしない — claim してしまうと「送っていないのに送信済み」になり永久に届かなくなる。
 - push失敗時のリカバリ（401→チャネル`disabled`+紐付け`revoked`、403/404→紐付けのみ`revoked`）はevent-line-broadcastと同じパターンを個別実装している（`event-lifecycle-notify.ts` は `line-broadcast.ts` を意図的にimportしない自己完結モジュール）。★**400（メッセージ内容の不備）では紐付けを解除しない** — `textV2` の導入でペイロード起因の400が起こりうるようになり、宛先と無関係な不備で正常な紐付けを壊すとその大会の通知が以後すべて止まるため。400・429・5xx は送信失敗として記録するだけ。
+
+### payment-report: 支払報告（証憑つきの支払完了通知）
+
+会計が参加費を振り込んだあと、**振込明細の写真を証憑として景虎に登録し、同じ操作で大会 LINE グループへ「振込完了＋景虎上の想定金額＋明細の写真」を流す**（`/admin/entries/[groupId]` の一括操作「支払報告」。2026-09-04 新設。[features/payment-receipt-broadcast/requirements.md](../features/payment-receipt-broadcast/requirements.md)）。
+
+- **証憑は任意・最大3枚・JPEG / PNG のみ**。PDF と HEIC は受け付けない（sharp のプリビルドバイナリが HEVC 方式の HEIC をデコードできないため。iOS はカメラロールから選んだ写真を既定で JPEG に変換して渡すので実運用の支障は小さい）。**画像の内容は一切チェックしない**（OCR も金額照合もしない）—— 一致確認は LINE グループ上で人がやる。
+- **想定金額**の決定順（`lib/events/payment-report-amount.ts`）: ①そのグループの**振込連絡が送信済み**（`entry_group_payment_notices.last_sent_at` が非 NULL）ならそのとき保存した `total_jpy`（＝「振り込んでくださいと伝えた額」と必ず一致する）→ ②無ければその場の `tallyEntryFeesForGroup` の総額 → ③いずれも算出できなければ**金額行と確認依頼文をまるごと省く**。★級未設定の注記（`※級未設定 N名は未算入`）が付くのは②のときだけ（①は管理者が人数を確認して送った確定値なので注記しない）。**金額は `paid` へ倒す前に確定させる**。
+- **文面**（`lib/payment-report-message.ts`）。証憑0枚のときは `buildLifecycleMessage('payment_paid', …)` をそのまま返す＝現行の完了通知と**完全に同一**。証憑1枚以上かつ金額ありのときだけ追記する:
+
+  ```
+  参加費の振り込みが完了しました。
+
+  景虎上の想定金額は 12,500円 です。
+  ※級未設定 2名は未算入
+  添付の明細と金額が一致しているかご確認ください。
+  ```
+
+- **送信**は1回の push で テキスト1通 ＋ 画像1〜3通。★**証憑が1枚以上あるときは `payment_paid` の once-ever 判定に関わらず必ず送る** —— once-ever は「同じ完了通知を2度流さない」ための仕組みであって、証憑の配達を止めるためのものではない（未払へ戻して再報告したときに証憑が届かないのは事故）。証憑0枚のときは現行どおり claim できた集合だけに送る。LINE 未連携のグループでは送信をスキップし、状態変更と証憑の保存だけ行う（記録は `skipped_unlinked`）。紐付けはあるが送るものが無かったとき（証憑0枚 ∧ claim できる日が無い＝AC-14 の経路）は `skipped_no_change` で、**`skipped_unlinked` に畳まない**（畳むと画面にも記録にも「LINE 未連携」という嘘が残る）。送信失敗は状態変更を巻き戻さない。
+- **画像の正規化**（`lib/payment-receipt/image.ts`。サーバー側でクライアントの申告を信用せず再検証する）: format が jpeg / png 以外なら拒否 → `.rotate()` で EXIF 向きを反映 → 長辺 4096px 以内へ縮小 → quality を段階的に下げて 10MB 以内に収める（収まらない1枚だけ除外して理由を返す）→ 長辺 **240px**・1MB 以内のプレビューを別途生成（LINE の `previewImageUrl` 公式仕様。既存の要綱配信パイプラインが大判プレビューで配信ごと partial / failed に倒れた実績があるため同じ規律に揃える）。
+- **公開取得 URL**: `GET /api/line-broadcast/payment-receipts/[token]`（本体）と `.../[token]/preview`（プレビュー）。**認証なし** —— LINE の画像フェッチャは Cookie を送らないため。★route を `api/line-broadcast/` 配下に置いているのは、`middleware.ts` の `config.matcher` の否定先読みに既にある `api/line-broadcast` を継承するため（matcher を編集せずに済む。除外し損ねると全画像がログイン画面へリダイレクトされ、メッセージだけが黙って壊れる）。守りは推測不能トークン（`randomBytes(24).toString('base64url')`）＋形式ガード `/^[A-Za-z0-9_-]{16,64}$/`。`image-cache.ts` は使わない（証憑は永続保存の記録なので DB から直接引く）。
+- **宛先はグループから引く**。代表イベントの id を渡す経路（`sendClaimedNotificationBulk`）は送信側が `events.entry_group_id` を**その時点で**引き直すため、保存から送信までの間にその日が別グループへ付け替えられると証憑が別の大会のグループへ流れる。`pushMessagesToEntryGroup` でグループへ送り、claim 済みの once-ever ログはその push の結果で `finalizeLifecycleNotification` する（送信可否の判定と宛先の解決根拠を1つにする）。
+- **`cancelled` の日しか動かなかった報告は送らない**（要件 §3.2.2 #2）。証憑があっても迂回させない —— 中止になった大会のグループへ「振り込みが完了しました」と明細が流れるのは事故。判定は flip 結果の `notifiableIds`（flip できた日のうち `cancelled` でないもの）で行う。
+- **記録と再送**: 1回の支払報告＝`entry_group_payment_reports` の1行（追記専用）＋証憑ぶんの `entry_group_payment_receipts`。履歴はグループページの進行管理「支払状態」行に新しい順で並び、各行から**再送**できる。再送は保存済みの `message_text` と同じトークンをそのまま送り直すので、現在の集計値が変わっていても文面が揺れない。**「未払に戻す」を実行しても証憑と履歴は消さない**（再度支払報告すれば新しい記録が1件増える）。
+- **送信は `status='sending'` を条件付き UPDATE で掴んだ実行だけが行う**（初回送信・再送で共有）。排他が無いと、履歴を同時に開いた2人の再送で同じ文面と証憑が2回届く。初回送信中のプレースホルダも `failed` ではなく `sending`（`failed` だと履歴に「送信失敗」と出て、それを見た別の管理者が再送を押して初回送信と競合する）。`sending` のまま5分放置された行は再び掴めるので永久ロックにはならない。
 
 ### payment-notice: 名簿確定後の振込連絡
 
@@ -268,6 +292,7 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 - **`/(app)/admin/line-channels/[id]`**: 個別Botの詳細。現在の紐付け先、紐付け履歴（直近20件）、操作ボタン（強制解放/無効化/有効化/手動紐付けモーダル `ManualLinkModal`）。手動紐付けは、Webhookが `join`/コード発言を受け取れなかった場合の運用フォールバックで、対象イベント・LINEグループIDを直接入力してその場で `linked` にする。
 
 - **`/(app)/admin/entries/[groupId]`**: 申込グループページ内の「振込連絡」セクション（管理者/副管理者のみ・名簿確定フェーズかつLINE紐付けありのときだけ描画）。級ごとの人数入力とプレビュー、送信/再送ボタン、最終送信日時を持つ。**単価の入力欄は無い**。画面全体の構成は `spec/events-attendance.md`。
+- **`/(app)/admin/entries/[groupId]`（支払報告）**: 一括操作の「支払報告」ボタン → ボトムシート（写真最大3枚・送信内容プレビュー・実行）。送信の記録と再送は進行管理「支払状態」行の履歴から行う（管理者/副管理者のみ）。画面全体の構成は `spec/events-attendance.md`。
 
 大会単体の配信状況（配信履歴・招待コード発行UI・現在の紐付け状態）は `/events/[id]` の「LINE 配信」開閉トグル（`LineBroadcastSection` / `BroadcastHistoryTable`）として表示される。**管理者以外には何も描画しない** — 会員向けの「この大会は LINE グループに自動配信されています」という案内は event-detail-redesign で廃止した。級別グループ配信（`GradeBroadcastSection`）も独立セクションをやめ、この LINE 配信トグルの中の1項目へ移した（`role === 'admin'` 限定は維持し、`vice_admin` には props ごと渡さない）。これらは大会本体の画面構成に属するため詳細は `spec/events-attendance.md` を参照。
 
@@ -292,7 +317,7 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 ### イベントライフサイクル通知
 
 1. 管理者が申込状態を「申込済」にトグル → `setEntryApplied` が状態遷移とonce-ever claimを同一トランザクションで行い、コミット後に参加者向け＋会計向けの2通をLINEグループへpush。
-2. 事前払いの支払いを「支払済」にトグル → `setPaymentPaid` が同様に一度だけ完了通知をpush。
+2. 事前払いの支払いを「支払済」にトグル → `setPaymentPaid` が同様に一度だけ完了通知をpush。申込グループページからは「支払報告」（`reportPayment`）で、振込明細の写真を添えて同じ完了通知を流せる（上記 payment-report）。
 3. 締切が近づく/当日になると、日次バッチ（`send-lifecycle-reminders.ts`）が対象イベントを走査してリマインドをpush。
 
 ### 名簿確定後の振込連絡

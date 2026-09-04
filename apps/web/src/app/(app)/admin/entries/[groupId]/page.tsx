@@ -3,6 +3,8 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne } from 'drizz
 import {
   entryFormDrafts,
   entryGroupOpenChats,
+  entryGroupPaymentReceipts,
+  entryGroupPaymentReports,
   eventAttendances,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
@@ -29,6 +31,8 @@ import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 import { formatUnknownGradeNote } from '@/lib/event-lifecycle-notify'
 import { loadConfirmedRosterState } from '@/lib/events/confirmed-roster'
 import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
+import { resolvePaymentReportAmount } from '@/lib/events/payment-report-amount'
+import { buildPaymentReportMessage } from '@/lib/payment-report-message'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
 import { aggregateGroupCommonFields } from '@/lib/events/group-common-fields'
 import { aggregateGroupFlowInput } from '@/lib/events/group-entry-flow'
@@ -62,7 +66,12 @@ import {
 } from '@/app/(app)/events/[id]/actions'
 import { displayName, type EntryBoardItem } from '../entry-board-utils'
 import { dayPhase } from '../day-phase'
-import { saveGroupCommonFields, sendPaymentNotice } from './actions'
+import {
+  reportPayment,
+  resendPaymentReport,
+  saveGroupCommonFields,
+  sendPaymentNotice,
+} from './actions'
 import { GroupDayTable, type GroupDayRow } from './components/GroupDayTable'
 import { GroupProgressSection, type GroupSummary } from './components/GroupProgressSection'
 import { CommonFieldsSection } from './components/CommonFieldsSection'
@@ -487,6 +496,72 @@ export default async function EntryGroupPage({
   // line-bot-message-revamp §3.3.1: 名簿確定フェーズ（settled ∧ 事前払い ∧ 未振込）の
   // グループにだけ振込連絡を出す。判定と初期値の組み立ては1箇所（AC-9/10/11）。
   const paymentNotice = isAdmin ? await loadPaymentNoticeContext(groupIdNum) : null
+  // payment-receipt-broadcast: 支払報告シートのプレビューは**実際に送る本文**を出す
+  // （AC-22）。文面の組み立ては server 側にしか置けない（`buildPaymentReportMessage`
+  // → `buildLifecycleMessage` は DB 依存モジュールに同居する）ので、証憑あり・なしの
+  // 2通りをここで作って client へ降ろす。
+  const paymentReportAmount = isAdmin ? await resolvePaymentReportAmount(db, groupIdNum) : null
+  const paymentReportMessages = paymentReportAmount
+    ? {
+        withoutReceipts: buildPaymentReportMessage({ ...paymentReportAmount, receiptCount: 0 }),
+        withReceipts: buildPaymentReportMessage({ ...paymentReportAmount, receiptCount: 1 }),
+      }
+    : { withoutReceipts: '', withReceipts: '' }
+  // Server Action を groupId で束ねて client へ渡す（client は groupId を知らない）。
+  // 認可は action 側の `requireAdminSession` が担う。
+  const reportPaymentWithGroup = reportPayment.bind(null, groupIdNum)
+  // payment-receipt-broadcast タスク9: 支払報告の履歴（新しい順）。証憑は
+  // `sort_order` 順のトークンだけ降ろし、画像は公開 route から引かせる（bytea を
+  // ページの payload に載せない）。
+  const paymentReportRows = isAdmin
+    ? await db
+        .select({
+          id: entryGroupPaymentReports.id,
+          createdAt: entryGroupPaymentReports.createdAt,
+          createdByName: users.name,
+          amountJpy: entryGroupPaymentReports.amountJpy,
+          receiptCount: entryGroupPaymentReports.receiptCount,
+          status: entryGroupPaymentReports.status,
+          lastSentAt: entryGroupPaymentReports.lastSentAt,
+          eventIds: entryGroupPaymentReports.eventIds,
+        })
+        .from(entryGroupPaymentReports)
+        .leftJoin(users, eq(users.id, entryGroupPaymentReports.createdBy))
+        .where(eq(entryGroupPaymentReports.entryGroupId, groupIdNum))
+        .orderBy(desc(entryGroupPaymentReports.createdAt), desc(entryGroupPaymentReports.id))
+    : []
+  const receiptTokenRows =
+    paymentReportRows.length > 0
+      ? await db
+          .select({
+            reportId: entryGroupPaymentReceipts.reportId,
+            token: entryGroupPaymentReceipts.token,
+          })
+          .from(entryGroupPaymentReceipts)
+          .where(
+            inArray(
+              entryGroupPaymentReceipts.reportId,
+              paymentReportRows.map((r) => r.id),
+            ),
+          )
+          .orderBy(asc(entryGroupPaymentReceipts.sortOrder), asc(entryGroupPaymentReceipts.id))
+      : []
+  // AC-17: 履歴に「対象日」を出す。report.event_ids はスナップショットなので、
+  // グループから既に外れた日（現在の eventRows に無い id）は落とす（要件節）。
+  // 並び順は eventRows（開催日昇順）側を基準にする — jsonb 配列自体の格納順に
+  // 依存すると、ヘッダー subline（eventDatesLabel・こちらも eventRows 順）と
+  // 逆順で出るおそれがあるため。
+  const paymentReports = paymentReportRows.map(({ eventIds, ...row }) => {
+    const targetIds = new Set(eventIds)
+    return {
+      ...row,
+      receiptTokens: receiptTokenRows.filter((t) => t.reportId === row.id).map((t) => t.token),
+      eventDatesLabel: eventRows
+        .filter((e) => targetIds.has(e.id))
+        .map((e) => formatFlowDate(e.eventDate))
+        .join('・'),
+    }
+  })
   const entryFormLatestDraft =
     isAdmin && !isTeamGroup
       ? ((
@@ -558,6 +633,9 @@ export default async function EntryGroupPage({
           setEntriesAppliedAction={setEntriesApplied}
           setEntriesNotApplyingAction={setEntriesNotApplying}
           setPaymentsPaidAction={setPaymentsPaid}
+          reportPaymentAction={reportPaymentWithGroup}
+          paymentMessageWithoutReceipts={paymentReportMessages.withoutReceipts}
+          paymentMessageWithReceipts={paymentReportMessages.withReceipts}
           setPaymentTypesAction={setPaymentTypes}
         />
         {!isAdmin && (
@@ -584,6 +662,8 @@ export default async function EntryGroupPage({
           // 申込書ウィザードは個人戦のみ（団体戦は Non-goal）。AC-22 / AC-35。
           entryFormGroupId={isTeamGroup ? undefined : groupIdNum}
           entryFormLatestDraft={entryFormLatestDraft}
+          paymentReports={paymentReports}
+          resendPaymentReportAction={resendPaymentReport}
         />
       )}
 

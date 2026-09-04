@@ -16,19 +16,19 @@ status: completed
 | `entry_group_payment_reports` | **支払報告1回＝1行**。対象日・想定額とその出典・送信本文のスナップショット・送信状態を持つ。`entry_group_id` FK は `ON DELETE CASCADE`（`entry_group_payment_notices` と同じ規律） |
 | `entry_group_payment_receipts` | **証憑画像1枚＝1行**。正規化後の JPEG 本体（`bytea`）とプレビュー（`bytea`）、公開取得用の推測不能トークン。`report_id` FK は `ON DELETE CASCADE` |
 
-`entry_group_payment_reports` の主な列: `entry_group_id` / `event_ids`(jsonb・対象日のスナップショット) / `amount_jpy`(nullable) / `amount_source`(`payment_notice` \| `tally` \| `none`) / `unknown_grade_count` / `message_text`(送信本文の正本＝再送の再現性 AC-18) / `receipt_count` / `status`(`sent` \| `failed` \| `skipped_unlinked`) / `error_message` / `last_sent_at` / `created_by`(users FK・`ON DELETE SET NULL`) / `created_at` / `updated_at`。
+`entry_group_payment_reports` の主な列: `entry_group_id` / `event_ids`(jsonb・対象日のスナップショット) / `amount_jpy`(nullable) / `amount_source`(`payment_notice` \| `tally` \| `none`) / `unknown_grade_count` / `message_text`(送信本文の正本＝再送の再現性 AC-18) / `receipt_count` / `status`(`sent` \| `failed` \| `skipped_unlinked` \| `skipped_no_change`) / `error_message` / `last_sent_at` / `created_by`(users FK・`ON DELETE SET NULL`) / `created_at` / `updated_at`。
 
 `entry_group_payment_receipts` の主な列: `report_id` / `sort_order` / `filename` / `content_type`(常に `image/jpeg`) / `data`(bytea) / `byte_size` / `width` / `height` / `preview_data`(bytea) / `token`(text UNIQUE) / `created_at`。
 
 - `bytea` は `mail-attachments.ts` の `customType` をそのまま踏襲する
-- `status` は既存 `entry_form_drafts.status` と同じ流儀（pgEnum を新設せず text + `$type<...>()`）
+- `status` / `amount_source` は **pgEnum を新設**する（`enums.ts` に `payment_report_status` / `payment_report_amount_source`）。★実装時に確認したところ、計画が前例として挙げた `entry_form_drafts.status` は実際には pgEnum であり、`text + $type<...>()` の前例はスキーマ全体で `auth.ts` の `AdapterAccountType` だけだった。最も近い前例（`entry_group_open_chat_broadcasts.status`）に倣って pgEnum にする
 - `event_ids` は `int[]` ではなく **jsonb**（`entry_group_payment_notices.grade_counts` の前例に倣う。raw SQL での `int[]` バインドの罠を避ける）
 
 ### 画像の扱い
 
 - **クライアント側で縮小してから送る**: 選択直後に canvas で長辺 2048px・JPEG q0.85 へ再エンコードし、base64 で Server Action へ渡す（既存 `entry-form` の `fileToBase64` と同じ経路）。`serverActions.bodySizeLimit` は現行 `4mb`。3枚でも base64 込みで収まる見込みだが、**`8mb` へ引き上げる**（明細は文字が読めることが要件なので縮小しすぎない）
 - **サーバー側で必ず再検証・再正規化**（クライアントを信用しない）: `sharp` で metadata を読み `format ∈ {jpeg, png}` 以外は拒否（PDF・HEIC はここで落ちる）→ `.rotate()`（EXIF 向き）→ 長辺 4096px 以内へ縮小 → JPEG 化 → 10MB を超えるうちは quality を段階的に下げる。それでも収まらない1枚は**その枚だけ除外**して理由を返す
-- プレビューは長辺 1024px・1MB 以内の JPEG を別途生成（LINE の `previewImageUrl` 制約と、履歴のサムネ表示に使う）
+- プレビューは長辺 **240px**・1MB 以内の JPEG を別途生成（★実装時に訂正: 計画の 1024px は LINE の `previewImageUrl` 公式仕様 240x240 に反する。`lib/line-broadcast.ts` に「大判プレビューで配信ごと partial / failed に倒れた」実績のコメントがあり、同じ規律に揃えた。履歴サムネは 56px 表示なので 240 で足りる）
 - **HEIC はデコード不可**（sharp 0.34 / libvips 8.17.3 の `heif` 入力は `.avif` のみ・実測確認済み）。クライアント側の canvas デコードも失敗するため、その場で日本語のエラーを出す
 
 ### 送信
@@ -48,17 +48,17 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマ2テーブルと migration 0062
-- [ ] 完了
+- [x] 完了
 - **目的:** 支払報告の記録と証憑画像の永続保存先を用意する
 - **対応AC:** AC-17, AC-19, AC-20
 - **主な変更領域:** `packages/shared/src/schema/entry-group-payment-reports.ts`（新規）・`entry-group-payment-receipts.ts`（新規）・`schema/index.ts`・`schema/relations.ts`・`packages/shared/drizzle/0062_*.sql`
 - **依存タスク:** なし（**共有ホットスポット。他タスクに先行して単独で行う**）
-- **必要なテスト:** スキーマの型テストは書かない。CASCADE 挙動（report 削除で receipt が消える／グループ削除で両方消える）を DB テストで1本
+- **必要なテスト:** スキーマの型テストは書かない。CASCADE 挙動（report 削除で receipt が消える／グループ削除で両方消える）を DB テストで1本。★**置き場所は `apps/web/src/lib/payment-receipt/schema-cascade.test.ts`**（`packages/shared` の vitest は `environment: 'node'` の純関数スモーク専用で DB 基盤が無い。前例＝`apps/web/src/lib/result-import/schema-cascade.test.ts`）
 - **完了条件:** `pnpm db:generate` で 0062 が生成され、`pnpm --filter=@kagetra/shared test` と型チェックが通る
 - **対応Issue:** #555
 
 ### タスク2: 証憑画像の正規化ユーティリティ
-- [ ] 完了
+- [x] 完了
 - **目的:** 受け取った画像を LINE が受け付ける JPEG（本体・プレビュー）へ確実に正規化し、対応外形式を拒否する
 - **対応AC:** AC-5, AC-6, AC-7
 - **主な変更領域:** `apps/web/src/lib/payment-receipt/image.ts`（新規）・同 `image.test.ts`
@@ -68,7 +68,7 @@ status: completed
 - **対応Issue:** #556
 
 ### タスク3: 想定金額の決定と文言の組み立て
-- [ ] 完了
+- [x] 完了
 - **目的:** 「景虎上の想定金額」を要件 §3.2.3 の優先順で決め、LINE 本文を組み立てる
 - **対応AC:** AC-8, AC-9, AC-10, AC-11, AC-2
 - **主な変更領域:** `apps/web/src/lib/events/payment-report-amount.ts`（新規）・`apps/web/src/lib/payment-report-message.ts`（新規）・各 `.test.ts`
@@ -78,7 +78,7 @@ status: completed
 - **対応Issue:** #557
 
 ### タスク4: 証憑画像の公開取得 route
-- [ ] 完了
+- [x] 完了
 - **目的:** LINE の画像フェッチャと管理画面のサムネが、推測不能トークンで証憑を取得できるようにする
 - **対応AC:** AC-6, AC-20
 - **主な変更領域:** `apps/web/src/app/api/line-broadcast/payment-receipts/[token]/route.ts`（新規）・`.../[token]/preview/route.ts`（新規）・`route.test.ts`。**`middleware.ts` は編集しない**（`config.matcher` の否定先読みに既にある `api/line-broadcast` を継承する）
@@ -88,17 +88,19 @@ status: completed
 - **対応Issue:** #558
 
 ### タスク5: `setPaymentsPaid` の内部抽出（`applyPaymentsPaid`）
-- [ ] 完了
+- [x] 完了
 - **目的:** 支払済化＋通知の本体を、証憑つき送信から再利用できる形に切り出す。**既存の外部契約は一切変えない**
 - **対応AC:** AC-2, AC-14, AC-23, AC-24
-- **主な変更領域:** `apps/web/src/app/(app)/events/[id]/actions.ts`
+- **主な変更領域:** `apps/web/src/lib/events/apply-payments-paid.ts`（新規）・`apps/web/src/app/(app)/events/[id]/actions.ts`・`apps/web/src/lib/line-mention.ts`
 - **依存タスク:** なし（タスク6 の前に完了していること）
+- ★**抽出先は `'use server'` ファイルの外**: `events/[id]/actions.ts` は `'use server'` なので、そこから `applyPaymentsPaid` を export するとそれ自体が**認可ガードの無い公開 Server Action エンドポイント**になる（`project_hono_api_unauthenticated_hole` と同じ穴）。素のモジュール `lib/events/apply-payments-paid.ts` に置き、`requireAdminSession()` と `revalidateAfterLifecycleChange` は各 action ラッパー側に残す（日ページとグループページで revalidate するパスが違うため）
+- ★**`LineMessage` に image 型を追加する**: `lib/line-mention.ts` の `LineMessage` は `LineTextMessage | LineTextV2Message` だけで、これが `sendClaimedNotificationBulk` / `pushMessagesToEntryGroup` の受け取る型。`[text, image...]` を渡すタスク6 の設計は現状の型では通らない。共有型なのでここ（main 直）で入れる（`line-broadcast.ts:90` のローカル `LineMessage` とは**別物**・混同しないこと）
 - **必要なテスト:** 新規テストは書かない。**既存の `lifecycle-actions.test.ts` / `actions.bulk-lifecycle.test.ts` を1行も書き換えずに green** であることが完了条件（これが回帰の証明）
 - **完了条件:** 既存テスト green・`setPaymentsPaid` / `setPaymentPaid` のシグネチャ不変。★**挙動差分ゼロの純粋な抽出であること**（タスク6 と合わせて1つのレビュー単位になるため、既存テストの無改修 green だけが「抽出が綺麗だったか」と「抽出に意味的変更が混ざったか」を区別する材料になる）
 - **対応Issue:** #559
 
 ### タスク6: Server Action `reportPayment`（証憑つき支払報告）
-- [ ] 完了
+- [x] 完了
 - **目的:** 証憑の検証・保存・状態変更・LINE 送信・記録の作成を1つの操作としてまとめる
 - **対応AC:** AC-3, AC-4, AC-5, AC-12, AC-13, AC-15, AC-16, AC-17, AC-21
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/actions.ts`・同 `actions.payment-report.test.ts`（新規）・**`apps/web/next.config.ts`**（`serverActions.bodySizeLimit` を `4mb` → `8mb`。★全 Server Action に効く**グローバルな変更**なので差分レビューで見えるようにここに明記する）
@@ -110,7 +112,7 @@ status: completed
 - **対応Issue:** #560
 
 ### タスク7: 再送 Server Action `resendPaymentReport`
-- [ ] 完了
+- [x] 完了
 - **目的:** 送信に失敗した（またはもう一度届けたい）支払報告を、同じ内容で送り直す
 - **対応AC:** AC-16, AC-18, AC-21
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/actions.ts`・同テスト
@@ -120,7 +122,7 @@ status: completed
 - **対応Issue:** #561
 
 ### タスク8: 支払報告シートとボタン改称
-- [ ] 完了
+- [x] 完了
 - **目的:** 「支払済にする」を「支払報告」へ改称し、押下で写真選択＋プレビュー＋実行のシートを開く
 - **対応AC:** AC-1, AC-4, AC-22, AC-23
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/components/PaymentReportSheet.tsx`（新規）・`GroupDayTable.tsx`・`page.tsx`（action の差し替え）・各 `.test.tsx`
@@ -130,7 +132,7 @@ status: completed
 - **対応Issue:** #562
 
 ### タスク9: 支払報告の履歴表示と再送導線
-- [ ] 完了
+- [x] 完了
 - **目的:** 誰がいつ何を送ったかをグループページで見返し、そこから再送できるようにする
 - **対応AC:** AC-17, AC-18, AC-19
 - **主な変更領域:** `apps/web/src/app/(app)/admin/entries/[groupId]/components/GroupProgressSection.tsx`・`page.tsx`（履歴の取得）・`.test.tsx`
@@ -140,7 +142,7 @@ status: completed
 - **対応Issue:** #563
 
 ### タスク10: ドキュメント更新
-- [ ] 完了
+- [x] 完了
 - **目的:** docs レジストリの正典を実装と同じコミット群で揃える（DoD の D2 ゲート）
 - **対応AC:** AC-24
 - **主な変更領域:** `docs/spec/`（申込・支払ドメインの該当ファイル）・`docs/design/db.md`（新規2テーブル）・`docs/features/INDEX.md`（主要領域の確定）
@@ -152,7 +154,7 @@ status: completed
 ## 実装順序（Wave = 並行実装できるタスクの組）
 
 - **Wave 1**: タスク1（`packages/shared` の共有ホットスポット。単独で先行）
-- **Wave 2**: タスク2, タスク3, タスク4, タスク5（互いに依存なし・変更ファイルが完全に分かれている）
+- **Wave 2**: タスク2, タスク3, タスク4（互いに依存なし・変更ファイルが完全に分かれている）。★**タスク5 は Wave から外して main 直**にした — 完了条件が「既存テストを1行も変えずに green」であり、`worker_verify: none` のワーカーはテストを実行できないので委譲すると唯一の証拠が取れない。加えて共有型 `LineMessage` を触る
   - タスク4 はタスク1 の schema に依存するので Wave 1 の後。タスク2/3/5 は Wave 1 と無関係だが、migration 番号の衝突回避のため Wave 1 の後に揃える
 - **Wave 3**: タスク6（複数レイヤー跨ぎ・main が担当）
 - **Wave 4**: タスク7（タスク6 と同一ファイル）

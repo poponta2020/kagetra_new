@@ -3,6 +3,8 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Btn } from '@/components/ui'
+import { PaymentReportSheet } from './PaymentReportSheet'
+import type { PaymentReceiptInput, ReportPaymentResult } from '../actions'
 import { formatEventDate } from '@/lib/event-date'
 import { cn } from '@/lib/utils'
 import type { DayPhaseTone } from '../../day-phase'
@@ -67,7 +69,20 @@ export interface GroupDayTableProps {
   isLineLinked: boolean
   setEntriesAppliedAction: (eventIds: number[], applied: boolean) => Promise<void>
   setEntriesNotApplyingAction: (eventIds: number[]) => Promise<void>
+  /** 「未払に戻す」専用（前進側は `reportPaymentAction`）。 */
   setPaymentsPaidAction: (eventIds: number[], paid: boolean) => Promise<void>
+  /**
+   * payment-receipt-broadcast: 「支払報告」（証憑つき支払済化）。証憑0枚なら
+   * `setPaymentsPaid(ids, true)` と完全に同一の挙動になる。
+   */
+  reportPaymentAction: (
+    eventIds: number[],
+    receipts: PaymentReceiptInput[],
+  ) => Promise<ReportPaymentResult>
+  /** 証憑0枚のときに送られる本文（サーバーで組んだ実物・プレビュー用）。 */
+  paymentMessageWithoutReceipts: string
+  /** 証憑1枚以上のときに送られる本文（サーバーで組んだ実物・プレビュー用）。 */
+  paymentMessageWithReceipts: string
   setPaymentTypesAction: (
     eventIds: number[],
     type: 'advance' | 'onsite' | null,
@@ -81,6 +96,9 @@ export function GroupDayTable({
   setEntriesAppliedAction,
   setEntriesNotApplyingAction,
   setPaymentsPaidAction,
+  reportPaymentAction,
+  paymentMessageWithoutReceipts,
+  paymentMessageWithReceipts,
   setPaymentTypesAction,
 }: GroupDayTableProps) {
   const selectableIds = rows.filter((r) => !r.cancelled).map((r) => r.id)
@@ -90,6 +108,8 @@ export function GroupDayTable({
   )
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // 支払報告は確認ダイアログではなくシートを開く（写真選択とプレビューが要るため）。
+  const [reportSheetOpen, setReportSheetOpen] = useState(false)
 
   const selectedRows = rows.filter((r) => !r.cancelled && selected.has(r.id))
   const selectedIds = selectedRows.map((r) => r.id)
@@ -286,9 +306,9 @@ export function GroupDayTable({
                   size="sm"
                   className="h-[30px] rounded-md"
                   disabled={isPending}
-                  onClick={() => run(() => setPaymentsPaidAction(selectedIds, true), true)}
+                  onClick={() => setReportSheetOpen(true)}
                 >
-                  支払済にする
+                  支払報告
                 </Btn>
               )}
             </div>
@@ -366,6 +386,17 @@ export function GroupDayTable({
 
           {error ? <p className="pt-2 text-xs text-danger-fg">{error}</p> : null}
         </div>
+      )}
+
+      {reportSheetOpen && (
+        <PaymentReportSheet
+          dayCount={selectedIds.length}
+          messageWithoutReceipts={paymentMessageWithoutReceipts}
+          messageWithReceipts={paymentMessageWithReceipts}
+          isLineLinked={isLineLinked}
+          onClose={() => setReportSheetOpen(false)}
+          onSubmit={(receipts) => reportPaymentAction(selectedIds, receipts)}
+        />
       )}
     </>
   )

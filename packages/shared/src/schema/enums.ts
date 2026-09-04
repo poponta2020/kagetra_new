@@ -325,3 +325,33 @@ export const openChatBroadcastStatusEnum = pgEnum('open_chat_broadcast_status', 
   'failed',
   'skipped',
 ])
+
+// payment-receipt-broadcast: 支払報告 1 回の送信結果。
+// sent=LINE へ送れた / failed=push 失敗（状態変更は巻き戻さない・要件 §3.2.4-16）/
+// skipped_unlinked=グループに linked な LINE 連携が無く送らなかった（§3.2.4-15）/
+// skipped_no_change=紐付けはあるが送るものが無かった（証憑0枚 ∧ once-ever を
+// claim できる日が1つも無い＝未払に戻して再報告したケース。AC-14 で「送らない」のが
+// 正しい経路）。
+// ★`skipped_unlinked` に畳まない。畳むと画面に「LINE 未連携のため送信していない」と
+// 出て**事実と違う**うえ、記録にも恒久的に嘘が残る。
+// sending=送信権を取った実行が進行中（初回送信・再送で共有する排他フラグ）。
+// ★これが無いと、履歴を同時に開いた2人が同じ報告を再送して**同じ文面と証憑が2回
+// 届く**。加えて初回送信中の行が「送信失敗」と表示され、それを見た別の管理者が
+// 再送を押して初回送信と競合する（誤った再送の誘発）。
+export const paymentReportStatusEnum = pgEnum('payment_report_status', [
+  'sending',
+  'sent',
+  'failed',
+  'skipped_unlinked',
+  'skipped_no_change',
+])
+
+// payment-receipt-broadcast: 文面に載せた「景虎上の想定金額」の出典（要件 §3.2.3-9）。
+// payment_notice=送信済み振込連絡の総額 / tally=その場の参加費集計 /
+// none=いずれも算出できず金額行を省いた。
+// ★級未設定の注記（`※級未設定 N名は未算入`）が付くのは tally のときだけ（AC-11）。
+export const paymentReportAmountSourceEnum = pgEnum('payment_report_amount_source', [
+  'payment_notice',
+  'tally',
+  'none',
+])
