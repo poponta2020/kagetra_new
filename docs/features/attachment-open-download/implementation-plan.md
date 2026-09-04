@@ -16,7 +16,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: `attachment-preview` に表示種別 `spreadsheet` を追加する
-- [ ] 完了
+- [x] 完了
 - **目的:** `.xlsx` / `.xls` / `.xlsm` を `document`（ページ画像化）から切り離し、LibreOffice 変換の対象から外す。
 - **対応AC:** AC-1, AC-3
 - **主な変更領域:** `apps/web/src/lib/attachment-preview.ts` / `apps/web/src/lib/attachment-preview.test.ts`
@@ -38,7 +38,7 @@ status: completed
 - **対応Issue:** #576
 
 ### タスク2: 「開く・保存」ボタン（クライアントコンポーネント）を新設する
-- [ ] 完了
+- [x] 完了
 - **目的:** バイナリを取り込み、OS の共有シート（無ければダウンロード）へ渡す唯一の UI 部品を作る。
 - **対応AC:** AC-4, AC-5, AC-6, AC-7, AC-8
 - **主な変更領域:** `apps/web/src/components/attachment/OpenSaveButton.tsx`（新規）/ `OpenSaveButton.test.tsx`（新規）
@@ -62,7 +62,7 @@ status: completed
 - **対応Issue:** #577
 
 ### タスク3a: 会員のメール添付ビューアへ組み込む
-- [ ] 完了
+- [x] 完了
 - **目的:** `/mail/attachments/[id]` を新しい導線とカードに差し替える。
 - **対応AC:** AC-2, AC-9, AC-9b, AC-10, AC-11, AC-13
 - **主な変更領域:** `apps/web/src/app/(app)/mail/attachments/[id]/page.tsx` / `page.test.tsx`（既存）
@@ -76,7 +76,7 @@ status: completed
 - **対応Issue:** #578
 
 ### タスク3b: 管理者のメール添付ビューアへ組み込む
-- [ ] 完了
+- [x] 完了
 - **目的:** `/admin/mail-inbox/attachments/[id]` に同じ変更を入れる。
 - **対応AC:** AC-2, AC-9, AC-9b, AC-10, AC-11, AC-13
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/attachments/[id]/page.tsx` / `page.test.tsx`（**新規作成**）
@@ -87,7 +87,7 @@ status: completed
 - **対応Issue:** #579
 
 ### タスク3c: 名簿ファイルビューアへ組み込む
-- [ ] 完了
+- [x] 完了
 - **目的:** `/roster-files/[id]` に同じ変更を入れる。この画面だけボタン位置が異なる。
 - **対応AC:** AC-2, AC-9, AC-9b, AC-10, AC-11, AC-14
 - **主な変更領域:** `apps/web/src/app/(app)/roster-files/[id]/page.tsx` / `page.test.tsx`（**新規作成**）
