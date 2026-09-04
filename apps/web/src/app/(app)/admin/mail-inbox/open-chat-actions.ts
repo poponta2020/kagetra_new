@@ -1,6 +1,6 @@
 'use server'
 
-import { and, asc, count, desc, eq } from 'drizzle-orm'
+import { asc, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import {
@@ -200,26 +200,14 @@ export async function extractOpenChatCandidatesFromMail(args: {
 export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
   await requireAdminSession()
 
-  const sentOnly = and(
-    eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId),
-    eq(entryGroupOpenChatBroadcasts.status, 'sent'),
-  )
-
-  const [countRow] = await db
-    .select({ value: count() })
-    .from(entryGroupOpenChatBroadcasts)
-    .where(sentOnly)
-  const broadcastCount = countRow?.value ?? 0
-
-  const [last] = await db
-    .select({ sentAt: entryGroupOpenChatBroadcasts.sentAt })
-    .from(entryGroupOpenChatBroadcasts)
-    .where(sentOnly)
-    .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt))
-    .limit(1)
-
-  const [lastAttemptRow] = await db
+  // ★配信履歴は**1クエリで全件読み**、件数・前回成功時刻・直近試行をそこから算出する
+  // （Codex R3 blocker）。集計と直近1件を別クエリで引くと、その間に別リクエストの
+  // 配信履歴 INSERT が挟まったとき「broadcastCount=0 なのに lastSentAt は配信済み」
+  // という矛盾したサマリーを返し、UI が初回扱いで確認なしの全件再送に進んでしまう。
+  // 1グループあたりの履歴は配信回数ぶん（実運用で数件）なので全件読みで足りる。
+  const attempts = await db
     .select({
+      id: entryGroupOpenChatBroadcasts.id,
       status: entryGroupOpenChatBroadcasts.status,
       errorMessage: entryGroupOpenChatBroadcasts.errorMessage,
       sentAt: entryGroupOpenChatBroadcasts.sentAt,
@@ -227,13 +215,16 @@ export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
     .from(entryGroupOpenChatBroadcasts)
     .where(eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId))
     .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt), desc(entryGroupOpenChatBroadcasts.id))
-    .limit(1)
+
+  const sentAttempts = attempts.filter((a) => a.status === 'sent')
+  const broadcastCount = sentAttempts.length
+  const lastAttemptRow = attempts[0] ?? null
 
   const rows = await listOpenChatsForGroup(entryGroupId)
 
   // 「前回配信以降に増えた行」= created_at > 直近の sent_at（AC-53 の「（今回追加）」印）。
   // 初回配信では全行が「新規」だが、印を付けるのは2回目以降だけなので isNew は false。
-  const lastSentAt = last?.sentAt ?? null
+  const lastSentAt = sentAttempts[0]?.sentAt ?? null
   return {
     broadcastCount,
     lastSentAt,

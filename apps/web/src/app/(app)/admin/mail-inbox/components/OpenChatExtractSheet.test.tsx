@@ -526,6 +526,28 @@ describe('MailProcessForm — オープンチャットをメール配信に相�
     expect(processMailMock).not.toHaveBeenCalled()
   })
 
+  it('★Codex R3: サマリーの取得に失敗したら実行させない（黙って配信漏れにしない）', async () => {
+    // 「引けなかったら送らない」に倒すだけだと、保存済みリンクがあるのに
+    // includeOpenChat: false でメールだけ処理済みになり、フォームが消えたあと
+    // 配信漏れに気づけない。
+    summaryMock.mockRejectedValue(new Error('boom'))
+    renderForm()
+
+    fireEvent.click(screen.getByText('大会を選ぶ'))
+    fireEvent.click(screen.getByRole('radio'))
+    fireEvent.click(screen.getByText('決定'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/オープンチャットの登録状況を読み込めませんでした/)).toBeTruthy()
+    })
+    const submit = screen.getByRole('button', { name: '実行する' })
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: '再読み込み' })).toBeTruthy()
+
+    fireEvent.click(submit)
+    expect(processMailMock).not.toHaveBeenCalled()
+  })
+
   it('保存済みが1件も無ければチェックボックスは出ない', async () => {
     summaryMock.mockResolvedValue(summary())
     renderForm()

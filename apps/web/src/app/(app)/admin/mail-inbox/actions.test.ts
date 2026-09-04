@@ -59,10 +59,13 @@ const {
   // openchat-broadcast 2026-09-04 改修: processMail の after() から呼ばれる
   // オープンチャット配信。実 push・履歴 INSERT は open-chat-actions.test.ts の担当で、
   // ここでは**配線（呼ばれる / 呼ばれない）**だけを検証する。
-  runOpenChatBroadcastMock: vi.fn(async () => ({
-    status: 'sent' as const,
-    sentCount: 1,
-  })),
+  runOpenChatBroadcastMock: vi.fn(
+    async (_args: {
+      entryGroupId: number
+      sentByUserId: string
+      abortBeforePush?: () => Promise<boolean>
+    }) => ({ status: 'sent' as const, sentCount: 1 }),
+  ),
   classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
   persistOutcomeMock: vi.fn(async () => ({})),
   // event-grade-group-broadcast: 承認から級別グループ配信が起動する配線を
@@ -3551,10 +3554,44 @@ describe('admin/mail-inbox actions', () => {
         expect(result.ok).toBe(true)
         expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
         // 送信者は呼び出し元の申告ではなく認証セッションから決まる。
-        expect(runOpenChatBroadcastMock).toHaveBeenCalledWith({
+        expect(runOpenChatBroadcastMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entryGroupId: group.id,
+            sentByUserId: admin.id,
+            abortBeforePush: expect.any(Function),
+          }),
+        )
+      })
+
+      it('★Codex R3: 配信ヘルパーへ渡す中止判定が、取り消し後に true を返す', async () => {
+        // ヘルパー内部でも行取得・紐付け再検証で複数回 await するため、
+        // push の直前に呼ばれるこの判定が最後の関門になる。
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        await processMail(mail.id, {
+          mailKind: null,
           entryGroupId: group.id,
-          sentByUserId: admin.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
         })
+        await flushAfter()
+
+        const abortBeforePush = runOpenChatBroadcastMock.mock.calls[0]?.[0].abortBeforePush
+        expect(abortBeforePush).toBeTypeOf('function')
+        // 送る直前の時点ではまだ処理済み。
+        await expect(abortBeforePush!()).resolves.toBe(false)
+
+        await undoTriage(mail.id)
+        // 取り消し後は中止する。
+        await expect(abortBeforePush!()).resolves.toBe(true)
       })
 
       it('includeOpenChat 未指定なら送らない（既存の挙動を変えない）', async () => {

@@ -116,6 +116,32 @@ describe('OpenChatBroadcastControl', () => {
     })
   })
 
+  it('★Codex R3: 配信成功後にサマリー再取得が失敗しても、次は再配信確認を挟む', async () => {
+    // 再取得が失敗して broadcastCount が 0 のまま残ると、もう一度押したときに
+    // 確認を迂回して保存済み全件が二重に届く。
+    summaryMock
+      .mockResolvedValueOnce(summary({ rows: [rowC] }))
+      .mockRejectedValueOnce(new Error('boom'))
+    render(<OpenChatBroadcastControl entryGroupId={10} lineLinked />)
+
+    const button = await waitFor(() =>
+      screen.getByRole('button', { name: /オープンチャットを配信（1件）/ }),
+    )
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(screen.getByText('1件を配信しました')).toBeTruthy()
+    })
+    expect(broadcastMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /オープンチャットを配信（1件）/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('もう一度配信しますか')).toBeTruthy()
+    })
+    expect(broadcastMock).toHaveBeenCalledTimes(1)
+  })
+
   it('LINE 未紐付けならボタンを押せず、理由を出す', async () => {
     summaryMock.mockResolvedValue(summary({ rows: [rowC] }))
     render(<OpenChatBroadcastControl entryGroupId={10} lineLinked={false} />)

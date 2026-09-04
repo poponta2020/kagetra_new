@@ -69,7 +69,13 @@ export function OpenChatBroadcastControl({
     const outcome = await broadcastOpenChats(entryGroupId)
     if (outcome.status === 'sent') {
       setMessage({ tone: 'ok', text: `${outcome.sentCount}件を配信しました` })
-      // 配信回数・「（今回追加）」印を引き直す。
+      // ★まずローカルで配信回数を進める（Codex R3 blocker）。この後のサマリー
+      // 再取得が失敗しても「未配信」に留まると、もう一度押したときに再配信確認を
+      // 迂回して保存済み全件が二重に届く。
+      setSummary((prev) =>
+        prev ? { ...prev, broadcastCount: prev.broadcastCount + 1, lastFailed: false } : prev,
+      )
+      // 「（今回追加）」印と正確な回数を引き直す（失敗しても上の暫定値で安全側）。
       const next = await loadOpenChatBroadcastSummary(entryGroupId).catch(() => null)
       if (next) {
         setSummary({
@@ -87,7 +93,9 @@ export function OpenChatBroadcastControl({
           ? 'LINE グループが未紐付けのため配信できません。再紐付けしてから配信してください'
           : outcome.status === 'failed'
             ? `配信に失敗しました（${outcome.error}）`
-            : '紐付けが変わったため配信を中止しました',
+            : outcome.status === 'binding_changed'
+              ? '紐付けが変わったため配信を中止しました'
+              : '配信を中止しました',
     })
   }
 

@@ -123,6 +123,13 @@ export function MailProcessForm({
    * される（逆に、送るべき招待リンクが送られないこともある）。
    */
   const [openChatLoading, setOpenChatLoading] = useState(false)
+  /**
+   * サマリーの取得に失敗した状態。★失敗したまま実行させない（Codex R3 blocker）。
+   * 「引けなかったら送らない」に倒すだけだと、保存済みリンクがあるのに
+   * `includeOpenChat: false` でメールだけが処理済みになり、統合処理フォームが
+   * 消えたあと配信漏れに気づけない。
+   */
+  const [openChatLoadError, setOpenChatLoadError] = useState(false)
   /** シートを閉じた直後にサマリーを引き直すためのキー（保存件数がすぐ反映される）。 */
   const [openChatReloadKey, setOpenChatReloadKey] = useState(0)
   const [includeOpenChat, setIncludeOpenChat] = useState(false)
@@ -157,6 +164,7 @@ export function MailProcessForm({
     // 「実行する」を押されたとき前の大会の件数で判断してしまう。
     setOpenChatSummary(null)
     setIncludeOpenChat(false)
+    setOpenChatLoadError(false)
     if (groupId == null) {
       setOpenChatLoading(false)
       return
@@ -188,9 +196,10 @@ export function MailProcessForm({
       })
       .catch(() => {
         if (cancelled) return
-        // 引けなかったときは「送らない」に倒す（数が分からないまま送らせない）。
+        // 引けなかったときは「送らない」に倒したうえで、実行そのものを止める。
         setOpenChatSummary(null)
         setIncludeOpenChat(false)
+        setOpenChatLoadError(true)
       })
       .finally(() => {
         if (!cancelled) setOpenChatLoading(false)
@@ -230,6 +239,7 @@ export function MailProcessForm({
     !emptyBroadcast &&
     !rosterNeedsFile &&
     !openChatLoading &&
+    !openChatLoadError &&
     !pending
 
   const toggleFile = (attachmentId: number) => {
@@ -688,6 +698,24 @@ export function MailProcessForm({
                     </div>
                   )}
                 </>
+              )}
+
+              {openChatLoadError && (
+                <div
+                  className="mt-2 rounded-md border border-border bg-neutral-bg px-2.5 py-2 text-xs leading-relaxed text-neutral-fg"
+                  role="alert"
+                >
+                  オープンチャットの登録状況を読み込めませんでした。
+                  このままだと招待リンクを送るかどうか判断できないため、実行できません。
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => setOpenChatReloadKey((k) => k + 1)}
+                    className="ml-1 text-brand-fg underline disabled:opacity-50"
+                  >
+                    再読み込み
+                  </button>
+                </div>
               )}
 
               {rosterNeedsFile && (

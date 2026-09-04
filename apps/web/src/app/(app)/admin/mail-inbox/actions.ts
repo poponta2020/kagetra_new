@@ -1981,7 +1981,7 @@ export async function processMail(
         // 返す相手がいないため、画面へは `loadOpenChatBroadcastSummary` の
         // `lastAttempt` 経由で出す。
         if (input.includeOpenChat && entryGroupId != null) {
-          // 本文配信の待機中に取り消されていないかを、push の直前にもう一度見る。
+          // 本文配信の待機中に取り消されていないかを、まずここで見る。
           if (!(await isCurrentGeneration())) {
             console.warn(
               '[processMail] skipped open chat broadcast: mail was undone during mail delivery',
@@ -1993,6 +1993,10 @@ export async function processMail(
             const outcome = await runOpenChatBroadcast({
               entryGroupId,
               sentByUserId: session.user.id,
+              // ★配信ヘルパー自身も行取得・紐付け再検証で複数回 await する。
+              // その間の取り消しも拾えるよう、判定を push の直前まで持ち越す
+              // （Codex R3 blocker）。
+              abortBeforePush: async () => !(await isCurrentGeneration()),
             })
             if (outcome.status !== 'sent') {
               console.warn('[processMail] open chat broadcast not sent', {

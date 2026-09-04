@@ -53,6 +53,8 @@ export type OpenChatBroadcastOutcome =
   | { status: 'failed'; error: string }
   /** 配信直前に紐付けが変わっていたので中止した（AC-39）。 */
   | { status: 'binding_changed' }
+  /** 呼び出し元の前提（メールの処理世代など）が push 直前に崩れたので中止した。 */
+  | { status: 'stale' }
 
 /**
  * 保存済み全件を Flex 1通で配信する（AC-30〜AC-34）。
@@ -67,6 +69,15 @@ export async function runOpenChatBroadcast(args: {
   displayName?: string
   /** 認証セッション由来の値だけを渡すこと（呼び出し元の申告を入れない）。 */
   sentByUserId: string
+  /**
+   * **push の直前**に呼ばれる中止判定。true を返したら送らない（Codex R3 blocker）。
+   *
+   * ★呼び出し元が事前にチェックしても意味が薄い — この関数は行の取得・大会名の導出・
+   * 紐付けの取得と再検証で複数回 await するため、その間に前提が崩れ得る。LINE は
+   * 送信後に取り消せないので、判定は**送る直前**まで持ち越す必要がある。
+   * `processMail` はここに「メールが未処理へ戻されていないか」の再確認を渡す。
+   */
+  abortBeforePush?: () => Promise<boolean>
 }): Promise<OpenChatBroadcastOutcome> {
   const sentByUserId = args.sentByUserId
 
@@ -123,6 +134,18 @@ export async function runOpenChatBroadcast(args: {
       sentByUserId,
     })
     return { status: 'binding_changed' }
+  }
+
+  // ★最後の関門。ここまでの await の間に呼び出し元の前提が崩れていたら送らない。
+  if (args.abortBeforePush && (await args.abortBeforePush())) {
+    await db.insert(entryGroupOpenChatBroadcasts).values({
+      entryGroupId: args.entryGroupId,
+      sentCount: 0,
+      status: 'skipped',
+      errorMessage: 'aborted_before_push',
+      sentByUserId,
+    })
+    return { status: 'stale' }
   }
 
   const pushResult = await pushMessages(
