@@ -63,8 +63,15 @@ import {
   createEntryGroup,
   deleteGroupIfEmpty,
   listGroupSiblings,
+  propagateFieldsToGroup,
   selectRepresentativeEvent,
 } from '@/lib/entry-groups'
+import {
+  normalizePaymentDeadline,
+  type PaymentDeadlineKind,
+} from '@/lib/events/payment-deadline'
+import { loadPaymentNoticeContext } from '@/lib/events/payment-notice-context'
+import { sendPaymentNoticeCore } from '@/lib/events/payment-notice-send'
 import { LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import {
   linkableEventCutoffStr,
@@ -1607,6 +1614,33 @@ export interface ProcessMailRosterFileInput {
   grades: Grade[] | null
 }
 
+/**
+ * 「会計へ振込連絡を送る」セクションの入力（line-bot-message-revamp §3.3.5）。
+ *
+ * ★**保存と送信を分ける**（§3.3.5.3）。このフィールド自体が
+ * 「セクションが画面に出ていたか」を表す:
+ *
+ * - 未指定 / `null` … セクションが出ていない（種別が確定名簿でない・グループ未選択・
+ *   送信不可）。支払締切も振込先も**保存しない**（AC-42b）
+ * - `send: false` … チェックを外した。支払締切・振込先だけ保存し、push はしない（AC-42）
+ * - `send: true` … 保存したうえで push する
+ */
+export interface ProcessMailPaymentNoticeInput {
+  send: boolean
+  /** 級 -> 人数（管理者が直した値）。単価は送らせない（導出値・AC-37）。 */
+  counts: Record<string, number>
+  /** 支払締切 `YYYY-MM-DD`。空なら締切なし（1通目の日付行が消える・AC-39）。 */
+  paymentDeadline: string | null
+  /** 支払締切の状態。`normalizePaymentDeadline` が日付と整合させる。 */
+  paymentDeadlineKind: string | null
+  /** 振込先（複数行テキスト）。`send: true` のときは必須（AC-38）。 */
+  paymentInfo: string | null
+}
+
+/** 級として妥当なキーだけを残し、範囲外の人数を弾く（未知のキーは黙って捨てる）。 */
+const PROCESS_MAIL_GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E']
+const processMailCountsSchema = z.record(z.string(), z.number().int().min(0).max(9999))
+
 export interface ProcessMailInput {
   /** `null` = 未選択（＝その他。組合せ表・会場案内・領収書など）。 */
   mailKind: 'applicant_roster' | 'confirmed_roster' | null
@@ -1629,6 +1663,11 @@ export interface ProcessMailInput {
   includeOpenChat?: boolean
   /** 配信の冒頭メッセージ（任意）。 */
   leadText?: string | null
+  /**
+   * 会計への振込連絡（§3.3.5）。**セクションが出ていないときは渡さない**
+   * （渡さないことが「保存もしない」を意味する・AC-42b）。
+   */
+  paymentNotice?: ProcessMailPaymentNoticeInput | null
 }
 
 export async function processMail(
@@ -1673,6 +1712,60 @@ export async function processMail(
   const normalizedLeadText = input.leadText?.trim() || null
   if (normalizedLeadText && normalizedLeadText.length > LEAD_TEXT_MAX_LENGTH) {
     return { ok: false, error: '冒頭メッセージは200文字以内で入力してください' }
+  }
+
+  // 振込連絡（§3.3.5）。Server Action は client から直接叩けるので、画面が出して
+  // いない状況で保存・送信されないよう**サーバー側で再判定する**（fail-closed・§6）。
+  // 判定と理由の正典は `payment-notice-availability.ts`（画面と同じ関数）。
+  let paymentNotice: {
+    send: boolean
+    counts: Partial<Record<Grade, number>>
+    paymentDeadline: string | null
+    paymentDeadlineKind: PaymentDeadlineKind
+    paymentInfo: string | null
+  } | null = null
+  if (input.paymentNotice != null) {
+    if (input.mailKind !== 'confirmed_roster' || input.entryGroupId == null) {
+      return { ok: false, error: '振込連絡は確定名簿の処理でのみ指定できます' }
+    }
+    const parsedCounts = processMailCountsSchema.safeParse(input.paymentNotice.counts)
+    if (!parsedCounts.success) {
+      return { ok: false, error: '人数の入力が不正です' }
+    }
+    const counts: Partial<Record<Grade, number>> = {}
+    for (const grade of PROCESS_MAIL_GRADES) {
+      const count = parsedCounts.data[grade]
+      if (count != null) counts[grade] = count
+    }
+    // ★`settled` は見ない。この実行そのものがシグナル3を成立させるので、処理前に
+    // 見ると必ず false になる（§3.3.5.1 / §7-6）。
+    const loaded = await loadPaymentNoticeContext(input.entryGroupId, { requireSettled: false })
+    const availability = loaded.ok ? loaded.context.availability : loaded
+    if (!availability.ok) {
+      return { ok: false, error: `振込連絡を送れない状態です: ${availability.message}` }
+    }
+    // 支払締切は日付と状態を必ずセットで正規化する（events の CHECK を満たすため）。
+    const deadline = normalizePaymentDeadline({
+      paymentDeadline: input.paymentNotice.paymentDeadline?.trim() || null,
+      paymentDeadlineKind: input.paymentNotice.paymentDeadlineKind,
+    })
+    const paymentInfo = input.paymentNotice.paymentInfo?.trim() || null
+    // ★送信するときだけの必須条件（§3.3.5.3）。チェックを外していれば空でも実行できる。
+    if (input.paymentNotice.send) {
+      if (!paymentInfo) {
+        return { ok: false, error: '振込先を入力してください（振込連絡を送る場合）' }
+      }
+      if (!PROCESS_MAIL_GRADES.some((grade) => (counts[grade] ?? 0) > 0)) {
+        return { ok: false, error: '人数が全級0名です。1名以上にしてください' }
+      }
+    }
+    paymentNotice = {
+      send: input.paymentNotice.send,
+      counts,
+      paymentDeadline: deadline.paymentDeadline,
+      paymentDeadlineKind: deadline.paymentDeadlineKind,
+      paymentInfo,
+    }
   }
 
   // 添付ごとの採用引数を **tx の外で** 正規化する（DB に触らない検証を先に
@@ -1842,6 +1935,23 @@ export async function processMail(
             )
           }
         }
+
+        // 振込連絡の共通項目（支払締切・振込先）はグループ内の**全イベント**へ保存する
+        // （§3.3.5.3 / AC-40）。★渡すのは `qualifying`（cutoff・cancelled・個人戦で
+        // 絞った代表イベント候補）ではなく `groupEvents` — 絞った方を渡すと**中止の日へ
+        // 伝播せず**、既存の共通項目一括保存（`saveGroupCommonFields`）と対象が食い違う。
+        // ★送信の ON/OFF によらず保存する（ゲートが掛かるのは push だけ）。
+        if (paymentNotice) {
+          await propagateFieldsToGroup(tx, {
+            groupId: input.entryGroupId,
+            targetEventIds: groupEvents.map((e) => e.id),
+            changed: {
+              paymentDeadline: paymentNotice.paymentDeadline,
+              paymentDeadlineKind: paymentNotice.paymentDeadlineKind,
+              paymentInfo: paymentNotice.paymentInfo,
+            },
+          })
+        }
       }
 
       // 名簿採用（AC-10: 1 回の実行で選択した全添付。AC-11: 1 件でも失敗したら
@@ -1909,9 +2019,14 @@ export async function processMail(
   // 配信は実行のレスポンス後に非同期で走る。配信失敗は実行の失敗にしない
   // （要件 §3.2.5）。
   const { linkedEventId, processedAt: generation } = committed
-  if (input.broadcast && linkedEventId != null) {
+  // ★`after()` の登録条件を配信だけに縛らない。振込連絡は LINE 配信 OFF でも送る
+  // （会計への連絡は会員向け配信とは別の判断）。世代トークンの `linkedEventId`
+  // 比較はそのまま使えるので、代表イベントが決まっているかだけを併せて見る。
+  const sendPaymentNotice = paymentNotice?.send === true
+  if (linkedEventId != null && (input.broadcast || sendPaymentNotice)) {
     const eventId = linkedEventId
     const entryGroupId = input.entryGroupId
+    const noticeCounts = paymentNotice?.counts ?? {}
     after(async () => {
       try {
         // ★配信は実行の**応答後**に走るので、その間に「未処理に戻す」が完了して
@@ -1950,7 +2065,7 @@ export async function processMail(
         }
         if (!(await isCurrentGeneration())) {
           console.warn(
-            '[processMail] skipped broadcast: mail was undone or re-processed before delivery',
+            '[processMail] skipped after-hooks: mail was undone or re-processed before delivery',
             { mailId, eventId },
           )
           return
@@ -1959,18 +2074,20 @@ export async function processMail(
         // もう片方の push を止めてはならない（どちらも独立した配信で、
         // 監査行も別テーブル）。世代トークンの検証は共通なので、取り消し済みの
         // メールならどちらも送られない。
-        try {
-          await broadcastMailToEvent(db, {
-            eventId,
-            mailMessageId: mailId,
-            // 「訂正版」フラグは tournament_drafts.is_correction の話。統合フォーム
-            // 経由の補足メールは常に通常配信扱い（旧 linkMailToEvent と同じ）。
-            isCorrection: false,
-            leadText: normalizedLeadText,
-            includeBody: input.includeBody,
-          })
-        } catch (err) {
-          console.error('[processMail] broadcastMailToEvent failed', err)
+        if (input.broadcast) {
+          try {
+            await broadcastMailToEvent(db, {
+              eventId,
+              mailMessageId: mailId,
+              // 「訂正版」フラグは tournament_drafts.is_correction の話。統合フォーム
+              // 経由の補足メールは常に通常配信扱い（旧 linkMailToEvent と同じ）。
+              isCorrection: false,
+              leadText: normalizedLeadText,
+              includeBody: input.includeBody,
+            })
+          } catch (err) {
+            console.error('[processMail] broadcastMailToEvent failed', err)
+          }
         }
 
         // openchat-broadcast 2026-09-04 改修: 保存済みオープンチャットの Flex を
@@ -2007,6 +2124,55 @@ export async function processMail(
             }
           } catch (err) {
             console.error('[processMail] runOpenChatBroadcast failed', err)
+          }
+        }
+
+        // line-bot-message-revamp §3.3.5.6: 会計への振込連絡は**配信の後**に送る
+        // （会員が当落を見た後に会計へ振込依頼が届く順序にする・AC-44）。
+        // ★try は既存2系統と**独立**させる。片方の失敗がもう片方を止めてはならない。
+        // ★失敗は戻り値で返せない（応答後に走り、実行後はメール一覧へ戻るため）ので、
+        // `entry_group_payment_notices` の試行記録に残して2画面へ出す（AC-45）。
+        if (sendPaymentNotice && entryGroupId != null) {
+          // 本文配信の待機中（画像化で数十秒かかりうる）に取り消されていないか。
+          if (!(await isCurrentGeneration())) {
+            console.warn(
+              '[processMail] skipped payment notice: mail was undone during mail delivery',
+              { mailId, entryGroupId },
+            )
+            return
+          }
+          try {
+            // 単価と共通項目は**コミット後の DB から**引き直す（この tx で保存した
+            // 支払締切・振込先がそのまま反映される）。人数だけが管理者の入力。
+            const loaded = await loadPaymentNoticeContext(entryGroupId, {
+              requireSettled: false,
+            })
+            if (!loaded.ok || !loaded.context.availability.ok) {
+              console.warn('[processMail] payment notice not applicable at send time', {
+                mailId,
+                entryGroupId,
+              })
+              return
+            }
+            const outcome = await sendPaymentNoticeCore(db, {
+              entryGroupId,
+              counts: noticeCounts,
+              unitPriceByGrade: loaded.context.unitPriceByGrade,
+              paymentDeadlineIso: loaded.context.paymentDeadline,
+              paymentInfo: loaded.context.paymentInfo,
+              sentByUserId: session.user.id,
+              // ★判定を push の直前まで持ち越す（既存2系統と同じ規律・AC-46）。
+              abortBeforePush: async () => !(await isCurrentGeneration()),
+            })
+            if (outcome.outcome !== 'sent') {
+              console.warn('[processMail] payment notice not sent', {
+                mailId,
+                entryGroupId,
+                outcome: outcome.outcome,
+              })
+            }
+          } catch (err) {
+            console.error('[processMail] sendPaymentNoticeCore failed', err)
           }
         }
       } catch (err) {
