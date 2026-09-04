@@ -85,7 +85,7 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
     await renderViewer(1)
 
     expect(
-      screen.getByText('このファイル形式はアプリ内でプレビューできません。'),
+      screen.getByText('アプリ内では表示できない形式です'),
     ).toBeTruthy()
   })
 
@@ -198,7 +198,7 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
       ).toBeNull()
     })
 
-    it('その他 (zip 等): プレビュー不可カード + ダウンロードリンク', async () => {
+    it('その他 (zip 等): 表示不可カード +「開く・保存」', async () => {
       await setAuthSession({ id: 'u1', role: 'member' })
       mockFindFirst.mockResolvedValue(
         makeRow({ contentType: 'application/zip', filename: '組合せ表.zip' }),
@@ -207,12 +207,61 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
       await renderViewer(1)
 
       expect(
-        screen.getByText('このファイル形式はアプリ内でプレビューできません。'),
+        screen.getByText('アプリ内では表示できない形式です'),
       ).toBeTruthy()
-      const link = screen.getByText('元ファイルをダウンロード')
-      expect(link.closest('a')!.getAttribute('href')).toBe(
-        '/api/mail/attachments/1',
+      // ヘッダとカードの2箇所に出る（ヘッダ = 長い画面でも常に届く役、
+      // カード = この画面で何をすればいいかを言う役）
+      expect(screen.getAllByRole('button', { name: /開く・保存/ })).toHaveLength(
+        2,
       )
+    })
+
+    it('spreadsheet (xlsx): ページ画像を1枚も出さず Excel 案内カードを出す', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockFindFirst.mockResolvedValue(
+        makeRow({
+          contentType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          filename: '第46回札幌大会申込名簿.xlsx',
+        }),
+      )
+
+      const { container } = await renderViewer(1)
+
+      expect(screen.getByText('Excel ファイルです')).toBeTruthy()
+      expect(container.querySelectorAll('img')).toHaveLength(0)
+      // 変換経路にも入らない
+      expect(mockRenderAttachmentPreview).not.toHaveBeenCalled()
+      expect(mockGetCachedPreviewMeta).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('AC-9 / AC-9b: 導線と削除された但し書き', () => {
+    it('旧「元ファイル」リンクは残っていない', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockFindFirst.mockResolvedValue(
+        makeRow({ contentType: 'application/zip' }),
+      )
+
+      const { container } = await renderViewer(1)
+
+      expect(screen.queryByText('元ファイル')).toBeNull()
+      expect(screen.queryByText('元ファイルをダウンロード')).toBeNull()
+      expect(
+        container.querySelector('a[href="/api/mail/attachments/1"]'),
+      ).toBeNull()
+    })
+
+    it('「PC からダウンロードしてください」の但し書きが出ない', async () => {
+      await setAuthSession({ id: 'u1', role: 'member' })
+      mockFindFirst.mockResolvedValue(
+        makeRow({ contentType: 'application/zip' }),
+      )
+
+      const { container } = await renderViewer(1)
+
+      expect(container.textContent).not.toContain('PC からダウンロード')
+      expect(container.textContent).not.toContain('iPhone のアプリ内からは')
     })
   })
 
@@ -224,9 +273,11 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
     await renderViewer(1)
 
     expect(
-      screen.getByText('このファイルのプレビューを生成できませんでした。'),
+      screen.getByText('このファイルのプレビューを生成できませんでした'),
     ).toBeTruthy()
-    expect(screen.getByText('元ファイルをダウンロード')).toBeTruthy()
+    expect(
+      screen.getAllByRole('button', { name: /開く・保存/ }).length,
+    ).toBeGreaterThan(0)
   })
 
   it('docMeta.pageCount === 0 でも同じカードに倒れる', async () => {
@@ -240,7 +291,7 @@ describe('mail/attachments/[id] 会員向け添付ビューア', () => {
     await renderViewer(1)
 
     expect(
-      screen.getByText('このファイルのプレビューを生成できませんでした。'),
+      screen.getByText('このファイルのプレビューを生成できませんでした'),
     ).toBeTruthy()
   })
 
