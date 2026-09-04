@@ -64,9 +64,23 @@ describe('detectPreviewKind', () => {
     ['application/x-pdf', 'a.pdf', 'document'],
     ['application/msword', '案内.doc', 'document'],
     [
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '進行.pptx',
+      'document',
+    ],
+    [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       '名簿.xlsx',
-      'document',
+      'spreadsheet',
+    ],
+    // .xls must resolve through SPREADSHEET_CONTENT_TYPES, not the office
+    // set. This case fails if the new set is added without removing the old
+    // entries — the half-done edit that would otherwise look correct.
+    ['application/vnd.ms-excel', '名簿.xls', 'spreadsheet'],
+    [
+      'application/vnd.ms-excel.sheet.macroenabled.12',
+      '集計.xlsm',
+      'spreadsheet',
     ],
     ['image/jpeg', '写真.jpg', 'image'],
     ['image/heic', 'IMG_0001.HEIC', 'image'],
@@ -85,6 +99,12 @@ describe('detectPreviewKind', () => {
     )
     expect(detectPreviewKind('', '要項.PDF')).toBe('document')
     expect(detectPreviewKind(null, 'memo.txt')).toBe('text')
+    expect(detectPreviewKind('application/octet-stream', '名簿.xlsx')).toBe(
+      'spreadsheet',
+    )
+    expect(detectPreviewKind('application/octet-stream', '集計.XLSM')).toBe(
+      'spreadsheet',
+    )
   })
 
   it('does NOT extension-fallback for images (binary route would serve them attachment+nosniff)', () => {
@@ -152,12 +172,26 @@ describe('renderAttachmentPreview', () => {
       id: 4,
       filename: 'attachment',
       contentType:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       data: Buffer.from('PK fake'),
     }
     await renderAttachmentPreview(src)
     const [inputPath] = mockRunLibreoffice.mock.calls[0]!
-    expect(String(inputPath)).toMatch(/input\.xlsx$/)
+    expect(String(inputPath)).toMatch(/input\.pptx$/)
+  })
+
+  it('refuses to convert spreadsheets (they are served to the OS instead)', async () => {
+    const src = {
+      id: 6,
+      filename: '第46回札幌大会申込名簿.xlsx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      data: Buffer.from('PK fake'),
+    }
+    await expect(renderAttachmentPreview(src)).rejects.toThrow(
+      /not a convertible document/,
+    )
+    expect(mockRunLibreoffice).not.toHaveBeenCalled()
   })
 
   it('throws for sources that are not convertible documents', async () => {
