@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: completed
 ---
 # 大会別LINE Bot メッセージ改訂 実装手順書
 
@@ -177,7 +177,7 @@ status: in_progress
 - **対応Issue:** #573
 
 ### タスク7: 失敗の表示（2画面）
-- [ ] 完了
+- [x] 完了
 - **目的:** 非同期送信の失敗に気づけるようにする
 - **対応AC:** AC-45, AC-45b
 - **主な変更領域:**

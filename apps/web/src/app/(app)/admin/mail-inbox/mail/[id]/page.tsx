@@ -24,6 +24,7 @@ import {
   type ResultAttachment,
 } from '../../components/ResultParseButton'
 import { isResultImportAttachment } from '@/lib/result-import/attachment'
+import { loadPaymentNoticeStatusByEvent } from '@/lib/events/payment-notice-context'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer 「メーラー詳細」画面。
@@ -169,6 +170,14 @@ export default async function MailDetailPage({
     sizeBytes: a.sizeBytes,
   }))
   const pdfSizeLimitKb = loadCostGuardConfig().MAIL_WORKER_PDF_SIZE_LIMIT_KB
+
+  // line-bot-message-revamp §3.3.5.6: 会計への振込連絡は応答後の `after()` で走るので、
+  // 失敗を実行画面へ返せない（実行に成功するとメール一覧へ戻ってしまう）。処理済みの
+  // メールへ戻ってきたときに気づけるよう、このメールが紐付いたグループの送信状況を出す。
+  const paymentNoticeStatus =
+    mail.triageStatus === 'processed' && mail.linkedEventId != null
+      ? await loadPaymentNoticeStatusByEvent(mail.linkedEventId)
+      : null
 
   // 統合フォームを出すときだけ候補を引く（処理済み・draft 進行中は使わない）。
   const showProcessForm = !mail.draft && mail.triageStatus === 'unprocessed'
@@ -337,6 +346,29 @@ export default async function MailDetailPage({
               </strong>
               。
             </p>
+            {/* 振込連絡の送信状況（§3.3.5.6）。失敗は `last_error` の有無で判断する
+                （`last_attempted_at` は成功時にも進む）。成功でクリアされるので
+                「送信済」と「送信に失敗しました」は同時に出ない（AC-45b）。 */}
+            {paymentNoticeStatus?.lastError ? (
+              <p role="alert" className="text-xs text-danger">
+                会計への振込連絡の送信に失敗しました
+                {paymentNoticeStatus.lastAttemptedAt
+                  ? `（${formatJst(paymentNoticeStatus.lastAttemptedAt)}）`
+                  : ''}
+                : {paymentNoticeStatus.lastError}
+                <Link
+                  href={`/admin/entries/${paymentNoticeStatus.entryGroupId}`}
+                  className="ml-1 text-brand-fg underline"
+                >
+                  申込グループページ
+                </Link>
+                から再送できます。
+              </p>
+            ) : paymentNoticeStatus?.lastSentAt ? (
+              <p className="text-xs text-ink-meta">
+                会計への振込連絡を送信済み（{formatJst(paymentNoticeStatus.lastSentAt)}）
+              </p>
+            ) : null}
             <UndoTriageButton mailId={mail.id} />
           </div>
         </Card>

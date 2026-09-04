@@ -219,6 +219,35 @@ export async function loadPaymentNoticeContext(
   }
 }
 
+/**
+ * 振込連絡の**送信状況だけ**を、代表イベント id から引く（§3.3.5.6 の失敗表示）。
+ *
+ * メール詳細の「処理済み」カードは `mail_messages.linked_event_id` しか持たないので、
+ * そこからグループを辿る。露出条件は見ない — 送った**後**に支払済みへ倒したグループでも
+ * 「送信に失敗しました」を出し続ける必要があるため（失敗に気づける場所が2つしかない）。
+ *
+ * 記録が無ければ `null`（＝まだ一度も送っていない・このグループは対象外）。
+ */
+export async function loadPaymentNoticeStatusByEvent(eventId: number): Promise<{
+  entryGroupId: number
+  lastSentAt: Date | null
+  lastAttemptedAt: Date | null
+  lastError: string | null
+} | null> {
+  const rows = await db
+    .select({
+      entryGroupId: entryGroupPaymentNotices.entryGroupId,
+      lastSentAt: entryGroupPaymentNotices.lastSentAt,
+      lastAttemptedAt: entryGroupPaymentNotices.lastAttemptedAt,
+      lastError: entryGroupPaymentNotices.lastError,
+    })
+    .from(entryGroupPaymentNotices)
+    .innerJoin(events, eq(events.entryGroupId, entryGroupPaymentNotices.entryGroupId))
+    .where(eq(events.id, eventId))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 /** 日により違う日付は**最も早い日**を採る（共通項目セクションの表示規則と同じ）。 */
 function earliest(dates: readonly (string | null)[]): string | null {
   const present = dates.filter((d): d is string => d != null)

@@ -44,6 +44,14 @@ export interface PaymentNoticeSectionProps {
   paymentInfo: string | null
   /** 最後に送信できた日時。NULL ならまだ送っていない。 */
   lastSentAt: Date | null
+  /**
+   * 最後に送信を**試みた**日時と、失敗の理由（§3.3.5.6）。メール処理画面からの
+   * 送信は応答後の `after()` で走るため失敗を戻り値で返せず、ここへ出すのが
+   * 気づける2箇所のうちの1つ（もう1つはメール詳細の「処理済み」カード）。
+   * 送信に成功すると `lastError` は NULL に戻る（AC-45b）。
+   */
+  lastAttemptedAt: Date | null
+  lastError: string | null
   sendAction: (
     groupId: number,
     counts: Record<string, number>,
@@ -65,6 +73,8 @@ export function PaymentNoticeSection({
   paymentDeadline,
   paymentInfo,
   lastSentAt,
+  lastAttemptedAt,
+  lastError,
   sendAction,
 }: PaymentNoticeSectionProps) {
   const [counts, setCounts] = useState<Record<string, number>>(() =>
@@ -116,6 +126,15 @@ export function PaymentNoticeSection({
       aux={lastSentAt ? `送信済 ${formatDateTimeShort(lastSentAt)}` : '未送信'}
       auxTone={lastSentAt ? 'meta' : 'warn'}
     >
+      {/* 失敗は `lastError` の有無で出す（`lastAttemptedAt` は成功時にも進む）。
+          成功でクリアされるので「送信済」と同時には出ない（AC-45b）。 */}
+      {lastError && (
+        <p role="alert" className="mb-3 text-[13px] text-danger">
+          送信に失敗しました
+          {lastAttemptedAt ? `（${formatDateTimeShort(lastAttemptedAt)}）` : ''}: {lastError}
+        </p>
+      )}
+
       <p className="text-[13px] text-ink-2">
         確定名簿が出たグループの会計へ、振込金額を LINE で連絡します。人数は
         {hasSavedCounts ? '前回送信時の値' : '出欠回答の集計'}

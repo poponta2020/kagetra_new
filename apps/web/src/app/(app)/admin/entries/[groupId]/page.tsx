@@ -713,6 +713,8 @@ export default async function EntryGroupPage({
           paymentDeadline={paymentNotice.paymentDeadline}
           paymentInfo={paymentNotice.paymentInfo}
           lastSentAt={paymentNotice.lastSentAt}
+          lastAttemptedAt={paymentNotice.lastAttemptedAt}
+          lastError={paymentNotice.lastError}
           sendAction={sendPaymentNotice}
         />
       )}
