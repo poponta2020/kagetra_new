@@ -2,7 +2,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -516,6 +516,11 @@ interface SendPaymentReportArgs {
   hasBinding: boolean
   /** claim できた once-ever スロット（証憑0枚の経路でだけ意味を持つ）。 */
   claim: { notificationIds: readonly number[]; eventId: number | null }
+  /**
+   * 証憑も claim も無くても送る（再送用）。初回送信では false のままにして、
+   * 現行の once-ever 規律（claim できなかった日には送らない・AC-14）を維持する。
+   */
+  alwaysSend?: boolean
 }
 
 /**
@@ -542,7 +547,7 @@ async function sendPaymentReport(
   const canClaim = args.claim.notificationIds.length > 0 && claimEventId != null
 
   // 証憑0枚 かつ claim できる日が無い = 現行どおり何も送らない（AC-14）。
-  if (!hasReceipts && !canClaim) return { status: 'skipped_unlinked' }
+  if (!hasReceipts && !canClaim && !args.alwaysSend) return { status: 'skipped_unlinked' }
 
   try {
     const result = canClaim
@@ -559,4 +564,81 @@ async function sendPaymentReport(
     // best-effort: 送信の失敗で状態変更を巻き戻さない（§3.2.4-16）。
     return { status: 'failed', error: e instanceof Error ? e.message : '不明なエラー' }
   }
+}
+
+export interface ResendPaymentReportSuccess {
+  ok: true
+  status: 'sent' | 'failed' | 'skipped_unlinked'
+  sendError?: string
+}
+
+export type ResendPaymentReportResult = ResendPaymentReportSuccess | { error: string }
+
+/**
+ * payment-receipt-broadcast タスク7: 支払報告の再送（admin/vice_admin のみ）。
+ *
+ * **その回の送信を丸ごと送り直す**（要件 §3.2.5-18 / AC-18）。文面は保存済みの
+ * `message_text` をそのまま使い、画像も保存済みのトークンをそのまま使う——
+ * つまり**現在の集計値や規定単価が変わっていても、過去の報告の文面は揺れない**。
+ * 金額を保存して都度組み直す方式にすると、再送するたびに「伝えた額」が変わって
+ * 確認の基準が崩れる。
+ *
+ * once-ever の claim はしない。再送は「もう一度届ける」操作であって、新しい
+ * 完了通知ではないため、グループの紐付けへ直接 push する。
+ */
+export async function resendPaymentReport(
+  reportId: number,
+): Promise<ResendPaymentReportResult> {
+  await requireAdminSession()
+
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return { error: '入力が不正です' }
+  }
+
+  const [report] = await db
+    .select({
+      id: entryGroupPaymentReports.id,
+      entryGroupId: entryGroupPaymentReports.entryGroupId,
+      messageText: entryGroupPaymentReports.messageText,
+      eventIds: entryGroupPaymentReports.eventIds,
+    })
+    .from(entryGroupPaymentReports)
+    .where(eq(entryGroupPaymentReports.id, reportId))
+    .limit(1)
+  if (!report) return { error: '支払報告が見つかりません' }
+
+  const receipts = await db
+    .select({ token: entryGroupPaymentReceipts.token })
+    .from(entryGroupPaymentReceipts)
+    .where(eq(entryGroupPaymentReceipts.reportId, report.id))
+    .orderBy(asc(entryGroupPaymentReceipts.sortOrder))
+
+  const binding = await loadLinkedBindingForGroup(db, report.entryGroupId)
+  const baseUrl = receipts.length > 0 ? resolveBaseUrl() : null
+
+  const result = await sendPaymentReport({
+    entryGroupId: report.entryGroupId,
+    messageText: report.messageText,
+    tokens: receipts.map((r) => r.token),
+    baseUrl,
+    hasBinding: binding != null,
+    // 再送は claim を消費しない（グループの紐付けへ直接送る）。
+    claim: { notificationIds: [], eventId: null },
+    // 証憑0枚の報告でも再送では必ず送る（「もう一度届ける」が操作の目的なので、
+    // 初回送信の once-ever ガードをここへ持ち込まない）。
+    alwaysSend: true,
+  })
+
+  await db
+    .update(entryGroupPaymentReports)
+    .set({
+      status: result.status,
+      errorMessage: result.error ?? null,
+      ...(result.status === 'sent' ? { lastSentAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(entryGroupPaymentReports.id, report.id))
+
+  revalidateAfterPaymentReport(report.entryGroupId, report.eventIds)
+  return { ok: true, status: result.status, ...(result.error ? { sendError: result.error } : {}) }
 }
