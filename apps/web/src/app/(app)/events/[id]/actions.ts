@@ -43,6 +43,10 @@ import { resolveTreasurerMention } from '@/lib/line-mention-targets'
 import type { LineMessage } from '@/lib/line-mention'
 import { isIndividualOnlyGroup } from '@/lib/events/confirmed-roster'
 import { eligibleUsersWhere } from '@/lib/events/eligible-users'
+import {
+  applyPaymentsPaid,
+  revertPaymentsPaid,
+} from '@/lib/events/apply-payments-paid'
 
 /**
  * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
@@ -1132,14 +1136,6 @@ export async function setPaymentType(
   await setPaymentTypes([eventId], type)
 }
 
-/** entry-groups タスク4: `setPaymentsPaid` の tx 内で使う1件分の flip 結果。 */
-interface PaymentPaidFlipRow {
-  id: number
-  title: string
-  /** `YYYY-MM-DD`。複数日メッセージの日別ラベルに使う。 */
-  eventDate: string
-}
-
 /**
  * 支払完了メッセージを組み立てる。line-bot-message-revamp タスク5で `payment_paid`
  * は大会名・金額を一切出さなくなったため、件数に関わらず同一の固定文面になる。
@@ -1165,62 +1161,15 @@ export async function setPaymentsPaid(
 ): Promise<void> {
   await requireAdminSession()
 
-  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
-  if (ids.length === 0) return
-  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
-
   if (!paid) {
-    await db.transaction(async (tx) => {
-      await lockEventRowsAscending(tx, ids, entryGroupId)
-      await tx
-        .update(events)
-        .set({ paymentStatus: 'unpaid', paymentPaidAt: null, updatedAt: sql`now()` })
-        .where(
-          and(
-            inArray(events.id, ids),
-            eq(events.paymentType, 'advance'),
-            eq(events.entryGroupId, entryGroupId),
-          ),
-        )
-    })
-    revalidateAfterLifecycleChange(ids, entryGroupId)
+    const reverted = await revertPaymentsPaid(db, eventIds)
+    if (!reverted) return
+    revalidateAfterLifecycleChange(reverted.ids, reverted.entryGroupId)
     return
   }
 
-  const result = await db.transaction(async (tx) => {
-    const claimed: PaymentPaidFlipRow[] = []
-    const notificationIds: number[] = []
-    for (const id of ids) {
-      const flipped = await tx
-        .update(events)
-        .set({ paymentStatus: 'paid', paymentPaidAt: sql`now()`, updatedAt: sql`now()` })
-        .where(
-          and(
-            eq(events.id, id),
-            eq(events.paymentType, 'advance'),
-            eq(events.paymentStatus, 'unpaid'),
-            eq(events.entryGroupId, entryGroupId),
-          ),
-        )
-        .returning({
-          id: events.id,
-          title: events.title,
-          eventDate: events.eventDate,
-          status: events.status,
-        })
-      const row = flipped[0]
-      if (!row) continue
-      // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録
-      // する。ここで再ガードして claim 対象から除外する（AC-11 の集約版）。
-      if (row.status === 'cancelled') continue
-      const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
-      if (claim.id != null) {
-        claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate })
-        notificationIds.push(claim.id)
-      }
-    }
-    return { claimed, notificationIds }
-  })
+  const result = await applyPaymentsPaid(db, eventIds)
+  if (!result) return
 
   if (result.notificationIds.length > 0) {
     // line-bot-message-revamp タスク5 (AC-26): payment_paid は金額を一切出さなく
@@ -1237,7 +1186,7 @@ export async function setPaymentsPaid(
       // best-effort
     }
   }
-  revalidateAfterLifecycleChange(ids, entryGroupId)
+  revalidateAfterLifecycleChange(result.ids, result.entryGroupId)
 }
 
 /**

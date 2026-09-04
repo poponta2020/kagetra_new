@@ -18,11 +18,29 @@ import { formatEventDate } from '@/lib/event-date'
 
 /** LINE の送信メッセージ（このリポジトリで使う2形式のユニオン）。
  *  push / reply の両トランスポートがこの型を受け取る契約になる。 */
-export type LineMessage = LineTextMessage | LineTextV2Message
+export type LineMessage = LineTextMessage | LineTextV2Message | LineImageMessage
 
 export interface LineTextMessage {
   type: 'text'
   text: string
+}
+
+/**
+ * payment-receipt-broadcast: 画像メッセージ（支払報告の証憑）。
+ *
+ * `originalContentUrl` / `previewImageUrl` は **https 絶対 URL の JPEG** でなければ
+ * LINE 側が取得に失敗する（本体 10MB・4096x4096 以内、プレビュー 1MB 以内）。URL の
+ * 組み立てと画像の正規化は呼び出し側の責務で、この型は push / reply の両トランスポートが
+ * テキストと同じ配列に混ぜて渡せるようにするためだけに union へ加えている。
+ *
+ * ★`lib/line-broadcast.ts` にも同名のローカル `LineMessage` interface があるが**別物**。
+ * あちらは要綱配信パイプライン専用（flex も持つ）で、こちらはライフサイクル通知・
+ * 振込連絡・支払報告が使う共通契約。
+ */
+export interface LineImageMessage {
+  type: 'image'
+  originalContentUrl: string
+  previewImageUrl: string
 }
 
 export interface LineTextV2Message {
