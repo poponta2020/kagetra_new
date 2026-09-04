@@ -363,3 +363,6 @@
 - [payment-receipt-broadcast 要件定義(2026-09-04)](project_payment_receipt_broadcast_def.md) — 親Issue #554・子#555-564。★依頼は「申込済み」だったが対象は「支払済にする」・HEIC非対応が実測で判明
 - [auto-review PR #553](auto-review-round-pr553.md) — R4 verdict=cutoff(user-wontfix)
 - [オープンチャットの配信をメール本文・添付と同じタイミングに揃える](project_ship-openchat-broadcast-with-mail.md) — shipped: PR #553
+- [payment-receipt-broadcast 実装（全10タスク）](impl_payment-receipt-broadcast.md) — 支払報告に証憑アップロード＋LINE配信。'use server' からの抽出禁止・LineMessage union を広げない・AC-12 は順序を直接 assert
+- [auto-review PR #566](auto-review-round-pr566.md) — 4R で pass。★'use server' の値 export はビルドを落とす／delta pass でも final で blockers 5件
+- [支払報告に証憑（振込明細の写真）のアップロードと LINE 配信を追加](project_ship-payment-receipt-broadcast.md) — shipped: PR #566
