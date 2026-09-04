@@ -147,12 +147,23 @@ export function GroupDayTable({
     })
   }
 
-  // ボタンの活性は「選択した日のうち1日でも状態が動くか」で決める（no-op の
-  // Server Action を撃たないため）。判定条件は各アクションのガード付き UPDATE
-  // （`WHERE 旧状態`）と対になっている。
-  const canApply = selectedRows.some((r) => r.entryStatus === 'not_applied')
-  const canPay = selectedRows.some(
-    (r) => r.paymentType === 'advance' && r.paymentStatus === 'unpaid',
+  // 前進2ボタンは「選択した日のうち1日でも状態が動くか」で**表示そのもの**を決める
+  // （no-op の Server Action を撃たないため、かつ今できない操作を並べないため）。
+  // 押せないボタンを無効状態で残さないのは、押し間違えの取り消し導線が「戻す操作」に
+  // 揃っていて、前進側に後退の受け皿を用意する必要がないから。
+  //
+  // 「申込済にする」の条件は `setEntriesApplied` のガード付き UPDATE
+  // （`WHERE 旧状態`）と対になっている。一方「支払済にする」は**サーバーのガードより
+  // 厳しい UI 側だけの規則**で、申込がまだの日しか無い選択では出さない（支払は申込の
+  // 後にしか起きないため）。`setPaymentsPaid` 側に entry_status のガードは無いので、
+  // 申込済の日と未申込の日が混ざった選択ではボタンが出て両方が支払済になる —— これは
+  // 変更前の活性条件と同じ挙動で、意図的に据え置いている。
+  const showApply = selectedRows.some((r) => r.entryStatus === 'not_applied')
+  const showPay = selectedRows.some(
+    (r) =>
+      r.entryStatus === 'applied' &&
+      r.paymentType === 'advance' &&
+      r.paymentStatus === 'unpaid',
   )
   const canUnapply = selectedRows.some((r) => r.entryStatus !== 'not_applied')
   const canNotApplying = selectedRows.some((r) => r.entryStatus !== 'not_applying')
@@ -252,26 +263,36 @@ export function GroupDayTable({
             </span>
           </div>
 
-          <div className="mt-[9px] flex flex-wrap items-center gap-2">
-            <Btn
-              type="button"
-              size="sm"
-              className="h-[30px] rounded-md"
-              disabled={!hasSelection || !canApply || isPending}
-              onClick={() => run(() => setEntriesAppliedAction(selectedIds, true), true)}
-            >
-              申込済にする
-            </Btn>
-            <Btn
-              type="button"
-              size="sm"
-              className="h-[30px] rounded-md"
-              disabled={!hasSelection || !canPay || isPending}
-              onClick={() => run(() => setPaymentsPaidAction(selectedIds, true), true)}
-            >
-              支払済にする
-            </Btn>
-          </div>
+          {/* 2つとも出ないときは行ごと畳む（空の隙間を残さない）。選択0日でも
+              上の選択カウンタと下の「戻す操作」が場所を保つので迷子にならない。 */}
+          {(showApply || showPay) && (
+            <div className="mt-[9px] flex flex-wrap items-center gap-2">
+              {showApply && (
+                <Btn
+                  type="button"
+                  size="sm"
+                  className="h-[30px] rounded-md"
+                  disabled={isPending}
+                  onClick={() =>
+                    run(() => setEntriesAppliedAction(selectedIds, true), true)
+                  }
+                >
+                  申込済にする
+                </Btn>
+              )}
+              {showPay && (
+                <Btn
+                  type="button"
+                  size="sm"
+                  className="h-[30px] rounded-md"
+                  disabled={isPending}
+                  onClick={() => run(() => setPaymentsPaidAction(selectedIds, true), true)}
+                >
+                  支払済にする
+                </Btn>
+              )}
+            </div>
+          )}
 
           <div className="mt-[9px] flex items-baseline gap-[9px] text-xs text-ink-meta">
             <span>支払タイプ</span>
