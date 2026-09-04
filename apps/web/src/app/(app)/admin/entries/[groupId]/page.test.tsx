@@ -350,9 +350,9 @@ describe('/admin/entries/[groupId] — 非管理者への遮断 (AC-2/AC-3/AC-9)
     const { container } = render(await renderPage(group.id))
 
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
-    // seedRichGroup は申込済・事前払い・未払なので、管理者なら「支払済にする」が
+    // seedRichGroup は申込済・事前払い・未払なので、管理者なら「支払報告」が
     // 出る状態。一般会員にはそれも「戻す操作」も出ない。
-    expect(screen.queryByText('支払済にする')).toBeNull()
+    expect(screen.queryByText('支払報告')).toBeNull()
     expect(screen.queryByText('申込済にする')).toBeNull()
     expect(screen.queryByText('戻す操作')).toBeNull()
     // 日程表の列そのものは管理者と同じ。「杉並A」「A」はパンくず・見出しにも
@@ -378,14 +378,16 @@ describe('/admin/entries/[groupId] — 非管理者への遮断 (AC-2/AC-3/AC-9)
     render(await renderPage(group.id))
     expect(screen.getByText('進行管理')).toBeTruthy()
     expect(screen.getByText('共通項目')).toBeTruthy()
-    // 申込済・事前払い・未払の日なので、前進側は「支払済にする」だけが出る。
-    expect(screen.getByText('支払済にする')).toBeTruthy()
+    // 申込済・事前払い・未払の日なので、前進側は「支払報告」だけが出る。
+    expect(screen.getByText('支払報告')).toBeTruthy()
+    // payment-receipt-broadcast AC-1: 旧ラベル「支払済にする」は DOM に残さない。
+    expect(screen.queryByText('支払済にする')).toBeNull()
     expect(screen.getByText('戻す操作')).toBeTruthy()
   })
 })
 
 describe('/admin/entries/[groupId] — 前進ボタンは今できる操作だけ出す', () => {
-  it('申込がまだの日は「申込済にする」だけ出し「支払済にする」は出さない', async () => {
+  it('申込がまだの日は「申込済にする」だけ出し「支払報告」は出さない', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     const group = await createEntryGroup()
@@ -398,10 +400,10 @@ describe('/admin/entries/[groupId] — 前進ボタンは今できる操作だ�
     })
     render(await renderPage(group.id))
     expect(screen.getByText('申込済にする')).toBeTruthy()
-    expect(screen.queryByText('支払済にする')).toBeNull()
+    expect(screen.queryByText('支払報告')).toBeNull()
   })
 
-  it('申込済の日は「支払済にする」だけ出し「申込済にする」は出さない', async () => {
+  it('申込済の日は「支払報告」だけ出し「申込済にする」は出さない', async () => {
     const admin = await createAdmin()
     await setAuthSession({ id: admin.id, role: 'admin' })
     const group = await createEntryGroup()
@@ -413,7 +415,7 @@ describe('/admin/entries/[groupId] — 前進ボタンは今できる操作だ�
       paymentStatus: 'unpaid',
     })
     render(await renderPage(group.id))
-    expect(screen.getByText('支払済にする')).toBeTruthy()
+    expect(screen.getByText('支払報告')).toBeTruthy()
     expect(screen.queryByText('申込済にする')).toBeNull()
   })
 
@@ -430,7 +432,7 @@ describe('/admin/entries/[groupId] — 前進ボタンは今できる操作だ�
     })
     render(await renderPage(group.id))
     expect(screen.queryByText('申込済にする')).toBeNull()
-    expect(screen.queryByText('支払済にする')).toBeNull()
+    expect(screen.queryByText('支払報告')).toBeNull()
     expect(screen.getByText('戻す操作')).toBeTruthy()
   })
 })
