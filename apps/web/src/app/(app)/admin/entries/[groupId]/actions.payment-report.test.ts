@@ -581,4 +581,56 @@ describe('reportPayment', () => {
     expect(rows).toHaveLength(dayCount)
     expect(rows.every((r) => r.status === 'paid')).toBe(true)
   })
+
+  it('中止の日しか動かなかった報告は、証憑があっても送らない（§3.2.2 #2）', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-14' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, days } = await seedGroup(1)
+    await linkLineGroup(group.id)
+    // 日を選んだあとに別の管理者が中止した状況を再現する。
+    await testDb.update(events).set({ status: 'cancelled' }).where(eq(events.id, days[0]!.id))
+
+    const fetchSpy = spyOnPush()
+    try {
+      const result = await reportPayment(group.id, [days[0]!.id], [
+        { filename: 'meisai.png', base64: await pngBase64() },
+      ])
+      // 状態変更と記録は行うが、LINE へは送らない。
+      expect(result).toMatchObject({ ok: true, status: 'skipped_no_change' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    const [row] = await testDb.select().from(events).where(eq(events.id, days[0]!.id))
+    expect(row!.paymentStatus).toBe('paid')
+    expect(await testDb.select().from(entryGroupPaymentReceipts)).toHaveLength(1)
+  })
+
+  it('送信先は代表イベントの現在所属ではなく、保存済みのグループから引く', async () => {
+    const admin = await createAdmin({ name: 'rp-admin-15' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, days } = await seedGroup(1)
+    await linkLineGroup(group.id)
+
+    const fetchSpy = spyOnPush()
+    try {
+      await reportPayment(group.id, [days[0]!.id], [
+        { filename: 'meisai.png', base64: await pngBase64() },
+      ])
+      // 宛先はグループに紐付いた LINE グループ。
+      const bodies = fetchSpy.mock.calls.map((c) => {
+        const init = c[1] as RequestInit | undefined
+        return typeof init?.body === 'string' ? (JSON.parse(init.body) as { to?: string }) : {}
+      })
+      expect(bodies.some((b) => b.to === `G-${group.id}`)).toBe(true)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    // claim 済みの once-ever ログは push の結果で finalize される。
+    const logs = await testDb.select().from(eventLifecycleNotifications)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]!.status).toBe('sent')
+  })
 })

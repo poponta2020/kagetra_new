@@ -1,5 +1,5 @@
 CREATE TYPE "public"."payment_report_amount_source" AS ENUM('payment_notice', 'tally', 'none');--> statement-breakpoint
-CREATE TYPE "public"."payment_report_status" AS ENUM('sent', 'failed', 'skipped_unlinked', 'skipped_no_change');--> statement-breakpoint
+CREATE TYPE "public"."payment_report_status" AS ENUM('sending', 'sent', 'failed', 'skipped_unlinked', 'skipped_no_change');--> statement-breakpoint
 CREATE TABLE "entry_group_payment_reports" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "entry_group_payment_reports_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"entry_group_id" integer NOT NULL,

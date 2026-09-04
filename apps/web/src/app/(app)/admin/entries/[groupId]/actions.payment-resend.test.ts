@@ -307,4 +307,63 @@ describe('resendPaymentReport', () => {
     await setAuthSession({ id: admin.id, role: 'admin' })
     expect(await resendPaymentReport(999999)).toEqual({ error: '支払報告が見つかりません' })
   })
+
+  it('送信中の報告は再送できない（重複配信の防止）', async () => {
+    const admin = await createAdmin({ name: 'rs-admin-8' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, day } = await seedLinkedGroup()
+
+    const firstSpy = spyOnPush()
+    try {
+      await reportPayment(group.id, [day.id], [])
+    } finally {
+      firstSpy.mockRestore()
+    }
+    const [report] = await testDb.select().from(entryGroupPaymentReports)
+
+    // 別の実行が送信権を握っている状態を再現する。
+    await testDb
+      .update(entryGroupPaymentReports)
+      .set({ status: 'sending', updatedAt: new Date() })
+      .where(eq(entryGroupPaymentReports.id, report!.id))
+
+    const resendSpy = spyOnPush()
+    try {
+      const result = await resendPaymentReport(report!.id)
+      expect(result).toEqual({
+        error: 'この支払報告は送信中です。しばらく待ってからもう一度お試しください',
+      })
+      expect(resendSpy).not.toHaveBeenCalled()
+    } finally {
+      resendSpy.mockRestore()
+    }
+  })
+
+  it('送信中のまま放置された行は一定時間後に再び再送できる（永久ロックにしない）', async () => {
+    const admin = await createAdmin({ name: 'rs-admin-9' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group, day } = await seedLinkedGroup()
+
+    const firstSpy = spyOnPush()
+    try {
+      await reportPayment(group.id, [day.id], [])
+    } finally {
+      firstSpy.mockRestore()
+    }
+    const [report] = await testDb.select().from(entryGroupPaymentReports)
+
+    // 6分前に sending のまま落ちた実行を再現する（閾値は5分）。
+    await testDb
+      .update(entryGroupPaymentReports)
+      .set({ status: 'sending', updatedAt: new Date(Date.now() - 6 * 60 * 1000) })
+      .where(eq(entryGroupPaymentReports.id, report!.id))
+
+    const resendSpy = spyOnPush()
+    try {
+      const result = await resendPaymentReport(report!.id)
+      expect(result).toMatchObject({ ok: true, status: 'sent' })
+    } finally {
+      resendSpy.mockRestore()
+    }
+  })
 })

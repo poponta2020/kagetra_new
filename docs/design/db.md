@@ -53,7 +53,7 @@
 | roster_type | rosterTypeEnum | applicant, confirmed |
 | roster_entry_status | rosterEntryStatusEnum | applied, confirmed, carried_up, carry_up_declined, cancelled |
 | entry_form_draft_status | entryFormDraftStatusEnum | pending, appending, created, imap_failed |
-| payment_report_status | paymentReportStatusEnum | sent, failed, skipped_unlinked, skipped_no_change |
+| payment_report_status | paymentReportStatusEnum | sending, sent, failed, skipped_unlinked, skipped_no_change |
 | payment_report_amount_source | paymentReportAmountSourceEnum | payment_notice, tally, none |
 
 ## ドメイン別テーブル一覧

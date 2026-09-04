@@ -42,6 +42,16 @@ export interface PaymentsPaidFlipResult {
    * だけの呼び出しでも証憑を送ってしまう**（二重送信）。
    */
   flippedIds: number[]
+  /**
+   * flip できた日のうち **`cancelled` でない**もの。
+   *
+   * ★通知してよい日の母集団はこちら。`flippedIds` を送信可否に使うと、選択後に
+   * 中止された日（＝中止日だけの報告）でも証憑があれば push してしまい、
+   * 「`cancelled` 大会には通知しない」既存ガード（要件 §3.2.2 #2）を迂回する。
+   * once-ever を消費済みで `claimed` が空でも、通知してよい日であることは変わらない
+   * ので `claimed` とは別に持つ。
+   */
+  notifiableIds: number[]
   /** flip できて、かつ cancelled でなく、once-ever の claim も取れた日。 */
   claimed: PaymentPaidFlipRow[]
   /** `claimed` に対応する `event_lifecycle_notifications.id`。 */
@@ -105,6 +115,7 @@ export async function applyPaymentsPaidInTx(
   entryGroupId: number,
 ): Promise<PaymentsPaidFlipResult> {
   const flippedIds: number[] = []
+  const notifiableIds: number[] = []
   const claimed: PaymentPaidFlipRow[] = []
   const notificationIds: number[] = []
   for (const id of ids) {
@@ -131,13 +142,14 @@ export async function applyPaymentsPaidInTx(
     // cancelled 大会には通知しない（要件 §3.2.2 #2）。状態変更そのものは記録
     // する。ここで再ガードして claim 対象から除外する（AC-11 の集約版）。
     if (row.status === 'cancelled') continue
+    notifiableIds.push(row.id)
     const claim = await claimLifecycleNotification(tx, row.id, 'payment_paid')
     if (claim.id != null) {
       claimed.push({ id: row.id, title: row.title, eventDate: row.eventDate })
       notificationIds.push(claim.id)
     }
   }
-  return { flippedIds, claimed, notificationIds }
+  return { flippedIds, notifiableIds, claimed, notificationIds }
 }
 
 /**

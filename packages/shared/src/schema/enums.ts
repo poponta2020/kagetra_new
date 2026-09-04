@@ -334,7 +334,12 @@ export const openChatBroadcastStatusEnum = pgEnum('open_chat_broadcast_status', 
 // 正しい経路）。
 // ★`skipped_unlinked` に畳まない。畳むと画面に「LINE 未連携のため送信していない」と
 // 出て**事実と違う**うえ、記録にも恒久的に嘘が残る。
+// sending=送信権を取った実行が進行中（初回送信・再送で共有する排他フラグ）。
+// ★これが無いと、履歴を同時に開いた2人が同じ報告を再送して**同じ文面と証憑が2回
+// 届く**。加えて初回送信中の行が「送信失敗」と表示され、それを見た別の管理者が
+// 再送を押して初回送信と競合する（誤った再送の誘発）。
 export const paymentReportStatusEnum = pgEnum('payment_report_status', [
+  'sending',
   'sent',
   'failed',
   'skipped_unlinked',

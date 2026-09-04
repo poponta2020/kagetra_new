@@ -2,7 +2,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, lt, ne, or } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
@@ -20,9 +20,9 @@ import {
 import type { Grade } from '@kagetra/shared/types'
 import { propagateFieldsToGroup, type PropagatableFields } from '@/lib/entry-groups'
 import {
+  finalizeLifecycleNotification,
   loadLinkedBindingForGroup,
   pushMessagesToEntryGroup,
-  sendClaimedNotificationBulk,
 } from '@/lib/event-lifecycle-notify'
 import type { LineOutgoingMessage } from '@/lib/line-mention'
 import {
@@ -459,7 +459,10 @@ export async function reportPayment(
   //     ここを分けると、支払済化と once-ever の消費だけがコミットされて記録の
   //     INSERT が落ちたときに、「支払済なのに履歴も証憑も再送導線も無い」手作業
   //     でしか戻せない状態が残る。LINE 送信だけをコミット後の best-effort にする。
-  const placeholderStatus = binding ? 'failed' : 'skipped_unlinked'
+  // ★送信を試みる場合のプレースホルダは `sending`。`failed` で入れていたため、
+  //   初回送信中の行が履歴に「送信失敗」と表示され、それを見た別の管理者が再送を
+  //   押して初回送信と競合できてしまっていた。
+  const placeholderStatus = binding ? 'sending' : 'skipped_unlinked'
   // 中断（検証 NG・変更0件）と成功を1つの戻り値で表すため、コールバックの戻り型を
   // 明示する（`as const` の推論任せだと union がプロパティ単位に潰れる）。
   type SaveResult =
@@ -538,10 +541,8 @@ export async function reportPayment(
     tokens: normalized.map((n) => n.token),
     baseUrl,
     hasBinding: binding != null,
-    claim: {
-      notificationIds: saved.flip.notificationIds,
-      eventId: saved.flip.claimed[0]?.id ?? null,
-    },
+    notifiableCount: saved.flip.notifiableIds.length,
+    notificationIds: saved.flip.notificationIds,
   })
 
   await db
@@ -577,8 +578,10 @@ interface SendPaymentReportArgs {
   tokens: readonly string[]
   baseUrl: string | null
   hasBinding: boolean
-  /** claim できた once-ever スロット（証憑0枚の経路でだけ意味を持つ）。 */
-  claim: { notificationIds: readonly number[]; eventId: number | null }
+  /** flip できた日のうち `cancelled` でないものの件数（0 なら通知しない）。 */
+  notifiableCount: number
+  /** claim できた once-ever スロット（送信結果で finalize する）。 */
+  notificationIds: readonly number[]
   /**
    * 証憑も claim も無くても送る（再送用）。初回送信では false のままにして、
    * 現行の once-ever 規律（claim できなかった日には送らない・AC-14）を維持する。
@@ -606,21 +609,37 @@ async function sendPaymentReport(
   }
 
   const hasReceipts = args.tokens.length > 0
-  const claimEventId = args.claim.eventId
-  const canClaim = args.claim.notificationIds.length > 0 && claimEventId != null
+  const canClaim = args.notificationIds.length > 0
 
-  // 証憑0枚 かつ claim できる日が無い = 現行どおり何も送らない（AC-14）。
-  // ★`skipped_unlinked` ではない —— 紐付けはあるので「LINE 未連携」と記録すると嘘になる。
-  if (!hasReceipts && !canClaim && !args.alwaysSend) return { status: 'skipped_no_change' }
+  if (!args.alwaysSend) {
+    // `cancelled` の日しか動かなかった報告は送らない（要件 §3.2.2 #2）。証憑が
+    // あっても迂回させない —— 中止になった大会のグループへ「振り込みが完了しました」
+    // と明細が流れるのは事故。
+    if (args.notifiableCount === 0) return { status: 'skipped_no_change' }
+    // 証憑0枚 かつ claim できる日が無い = 現行どおり何も送らない（AC-14）。
+    // ★`skipped_unlinked` ではない —— 紐付けはあるので「LINE 未連携」と記録すると嘘になる。
+    if (!hasReceipts && !canClaim) return { status: 'skipped_no_change' }
+  }
 
   try {
-    const result = canClaim
-      ? await sendClaimedNotificationBulk(db, {
-          notificationIds: args.claim.notificationIds,
-          eventId: claimEventId,
-          message: messages,
-        })
-      : await pushMessagesToEntryGroup(db, args.entryGroupId, messages)
+    // ★**宛先は必ず「保存済みの申込グループ」から引く。** 代表イベントの id を渡す
+    //   経路（`sendClaimedNotificationBulk`）は、送信側が `events.entry_group_id` を
+    //   **その時点で**引き直すため、保存から送信までの間にその日が別グループへ
+    //   付け替えられると、証憑が別の大会の LINE グループへ流れる。送信可否の判定
+    //   （`loadLinkedBindingForGroup`）と宛先の解決根拠をグループに一本化する。
+    const result = await pushMessagesToEntryGroup(db, args.entryGroupId, messages)
+    // claim 済みの once-ever ログは、この push の結果でまとめて finalize する
+    // （`sendClaimedNotificationBulk` が内部でやっていたことを、宛先解決だけ
+    //   差し替えて再現している）。
+    await Promise.all(
+      args.notificationIds.map((id) =>
+        finalizeLifecycleNotification(db, id, {
+          status: result.outcome,
+          lineGroupId: result.lineGroupId ?? null,
+          errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
+        }),
+      ),
+    )
     if (result.outcome === 'sent') return { status: 'sent' }
     if (result.outcome === 'skipped') return { status: 'skipped_unlinked' }
     return { status: 'failed', error: result.reason ?? '不明なエラー' }
@@ -649,7 +668,14 @@ export type ResendPaymentReportResult = ResendPaymentReportSuccess | { error: st
  *
  * once-ever の claim はしない。再送は「もう一度届ける」操作であって、新しい
  * 完了通知ではないため、グループの紐付けへ直接 push する。
+ *
+ * ★**送信権を条件付き UPDATE で1つだけ取る。** 履歴を同時に開いた2人が同じ報告を
+ * 再送すると、排他が無ければ同じ文面と証憑が2回届く。`status='sending'` を掴めた
+ * 実行だけが送る。プロセスが落ちて `sending` が残り続けても、
+ * `SENDING_STALE_MS` を過ぎた行は再び掴めるので永久ロックにはならない。
  */
+/** `sending` のまま放置された行を再び掴めるようになるまでの時間。 */
+const SENDING_STALE_MS = 5 * 60 * 1000
 export async function resendPaymentReport(
   reportId: number,
 ): Promise<ResendPaymentReportResult> {
@@ -659,17 +685,38 @@ export async function resendPaymentReport(
     return { error: '入力が不正です' }
   }
 
+  // 取得と送信権の取得を1文で行う（select → update の間に別の再送が割り込む窓を
+  // 作らない）。既に `sending` の行は掴めず、そのとき初めてエラーを返す。
+  const staleBefore = new Date(Date.now() - SENDING_STALE_MS)
   const [report] = await db
-    .select({
+    .update(entryGroupPaymentReports)
+    .set({ status: 'sending', updatedAt: new Date() })
+    .where(
+      and(
+        eq(entryGroupPaymentReports.id, reportId),
+        or(
+          ne(entryGroupPaymentReports.status, 'sending'),
+          lt(entryGroupPaymentReports.updatedAt, staleBefore),
+        ),
+      ),
+    )
+    .returning({
       id: entryGroupPaymentReports.id,
       entryGroupId: entryGroupPaymentReports.entryGroupId,
       messageText: entryGroupPaymentReports.messageText,
       eventIds: entryGroupPaymentReports.eventIds,
     })
-    .from(entryGroupPaymentReports)
-    .where(eq(entryGroupPaymentReports.id, reportId))
-    .limit(1)
-  if (!report) return { error: '支払報告が見つかりません' }
+  if (!report) {
+    // 行が無いのか、他の実行が送信中なのかを区別して案内する。
+    const [exists] = await db
+      .select({ id: entryGroupPaymentReports.id })
+      .from(entryGroupPaymentReports)
+      .where(eq(entryGroupPaymentReports.id, reportId))
+      .limit(1)
+    return exists
+      ? { error: 'この支払報告は送信中です。しばらく待ってからもう一度お試しください' }
+      : { error: '支払報告が見つかりません' }
+  }
 
   const receipts = await db
     .select({ token: entryGroupPaymentReceipts.token })
@@ -687,7 +734,8 @@ export async function resendPaymentReport(
     baseUrl,
     hasBinding: binding != null,
     // 再送は claim を消費しない（グループの紐付けへ直接送る）。
-    claim: { notificationIds: [], eventId: null },
+    notifiableCount: 0,
+    notificationIds: [],
     // 証憑0枚の報告でも再送では必ず送る（「もう一度届ける」が操作の目的なので、
     // 初回送信の once-ever ガードをここへ持ち込まない）。
     alwaysSend: true,

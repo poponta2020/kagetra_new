@@ -21,7 +21,7 @@ export interface PaymentReportHistoryRow {
   createdByName: string | null
   amountJpy: number | null
   receiptCount: number
-  status: 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'
+  status: 'sending' | 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'
   lastSentAt: Date | string | null
   /** 証憑の公開トークン（`sort_order` 順）。サムネ URL の組み立てに使う。 */
   receiptTokens: string[]
@@ -38,6 +38,9 @@ export interface PaymentReportHistoryProps {
 }
 
 const STATUS_LABEL: Record<PaymentReportHistoryRow['status'], { text: string; tone: string }> = {
+  // 送信権を取った実行が進行中。★これを `failed` と表示していたため、初回送信中の
+  // 行を見た別の管理者が再送を押して初回送信と競合できていた。
+  sending: { text: '送信中', tone: 'text-ink-meta' },
   sent: { text: '送信済', tone: 'text-brand-fg' },
   failed: { text: '送信失敗', tone: 'text-danger-fg' },
   skipped_unlinked: { text: 'LINE未連携', tone: 'text-warn-fg' },
@@ -114,7 +117,7 @@ export function PaymentReportHistory({ rows, resendAction }: PaymentReportHistor
                 <button
                   type="button"
                   className="ml-auto text-xs text-brand-fg underline disabled:no-underline disabled:opacity-50"
-                  disabled={isPending}
+                  disabled={isPending || row.status === 'sending'}
                   onClick={() => resend(row.id)}
                 >
                   再送
