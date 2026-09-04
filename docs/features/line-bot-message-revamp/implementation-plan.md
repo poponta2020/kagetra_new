@@ -42,7 +42,7 @@ status: in_progress
 ## 実装タスク
 
 ### タスク1: 失敗記録の列を追加（migration）
-- [ ] 完了
+- [x] 完了
 - **目的:** 非同期送信の失敗を画面に出せるよう、`entry_group_payment_notices` に試行記録を持たせる
 - **対応AC:** AC-45（の前提）
 - **主な変更領域:**
