@@ -11,10 +11,9 @@ import {
   type OpenChatGrade,
 } from '@/lib/open-chat/label'
 import {
-  broadcastOpenChats,
   extractOpenChatCandidatesFromMail,
   loadOpenChatBroadcastSummary,
-  saveAndBroadcastOpenChats,
+  saveOpenChats,
   type OpenChatSaveInput,
 } from '../open-chat-actions'
 
@@ -26,7 +25,11 @@ import {
  * `extractOpenChatCandidatesFromMail` を呼び、本文・添付・QR から集めた候補を
  * 一覧表示する（決定的抽出。AI は使わない — requirements §1 / §3.2.2）。
  * 候補は**自動確定しない**。級・開催日・ラベル・パスワードは人が確認・修正してから
- * 「保存して配信」で保存 + LINE 配信する。
+ * 「保存する」で保存する。
+ *
+ * ★2026-09-04 改修: **このシートは保存だけを行い、LINE へは送らない。** 配信は
+ * メール詳細の「LINE 配信」に相乗りし、メール本文・添付と同じタイミングで送る
+ * （抽出直後と実行時の2回に分かれて届いていたのを1回にまとめる）。
  *
  * ★design-spec で確定済みの逸脱禁止事項:
  * - 候補行は既定で折りたたみ。展開して初めて編集欄が出る
@@ -36,7 +39,6 @@ import {
  * - CTA はシート下端に固定フッター
  * - 候補ゼロのときは手入力行が最初から1つ展開された状態で出る（AC-20）
  * - 最終ラベルが重複する行があると CTA を無効化する（AC-47。判定はクライアント側で即時）
- * - 2回目以降の配信は再配信確認を挟む（AC-35, AC-36, AC-53）
  */
 
 type OpenChatSource = 'body' | 'attachment_text' | 'qr' | 'manual'
@@ -65,15 +67,9 @@ interface OpenChatRow {
   expanded: boolean
 }
 
-interface RebroadcastConfirmState {
-  broadcastCount: number
-  totalCount: number
-  items: { label: string; isNew: boolean }[]
-}
-
 /**
  * 既にこのグループへ保存済みの行。**シートからは編集しない**（編集導線は持たない）。
- * 抽出候補から同一 URL を除くためと、配信専用モードの件数表示に使う。
+ * 抽出候補から同一 URL を除くためと、保存済み件数の表示に使う。
  */
 interface SavedOpenChatRow {
   id: number
@@ -127,7 +123,6 @@ export function OpenChatExtractSheet({
   entryGroupId,
   entryGroupDisplayName,
   groupEventDates,
-  lineLinked,
 }: {
   open: boolean
   onClose: () => void
@@ -136,13 +131,11 @@ export function OpenChatExtractSheet({
   entryGroupDisplayName: string
   /** グループ内の開催日（YYYY-MM-DD）。開催日セレクトの選択肢になる。 */
   groupEventDates: string[]
-  lineLinked: boolean
 }) {
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState<OpenChatRow[]>([])
   const [extractedCount, setExtractedCount] = useState(0)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [confirm, setConfirm] = useState<RebroadcastConfirmState | null>(null)
   /** このグループに既に保存済みの行（配信対象。シートからは編集しない）。 */
   const [savedRows, setSavedRows] = useState<SavedOpenChatRow[]>([])
   const [broadcastCount, setBroadcastCount] = useState(0)
@@ -157,11 +150,8 @@ export function OpenChatExtractSheet({
     if (!open) return
     // ★読み込み開始時に**前回の状態を全て捨てる**。同じコンポーネントが再利用される
     // ため、大会Aを開いた後にBへ切り替えると、Bの読み込みが失敗した場合にAの
-    // 保存済みラベル・配信回数がBのシートに残る。重複判定に混入するだけでなく、
-    // 手入力行を消すと古い savedRows で broadcastOnly が成立し、**Aの内容を見ながら
-    // Bへ全件配信**できてしまう。
+    // 保存済みラベル・配信回数がBのシートに残り、ラベルの重複判定に混入する。
     setSaveError(null)
-    setConfirm(null)
     setRows([])
     setSavedRows([])
     setBroadcastCount(0)
@@ -173,9 +163,8 @@ export function OpenChatExtractSheet({
 
     // ★保存済み一覧を先に引き、**既に保存済みの URL は候補から除く**。
     // 除かないと同じ URL を再 INSERT して `UNIQUE(entry_group_id, url)` 違反になり、
-    // 保存でエラーになって配信処理まで到達しない（＝再配信・push 失敗後の再試行が
-    // シートから一度も行えない）。除いた結果 新規行がゼロなら、CTA は
-    // 「配信する（M件）」に変わり保存を経由せず配信だけを行う。
+    // 保存自体がエラーになる。除いた結果 新規行がゼロなら保存するものが無いので
+    // CTA は無効のままにする（配信はこのシートの責務ではない）。
     Promise.all([
       loadOpenChatBroadcastSummary(entryGroupId),
       extractOpenChatCandidatesFromMail({ mailMessageId, entryGroupId }),
@@ -192,8 +181,8 @@ export function OpenChatExtractSheet({
 
         if (fresh.length === 0) {
           // AC-20: 候補ゼロでも手入力行を最初から1つ展開した状態で出す。
-          // ただし保存済みが既にあるなら配信専用モードなので手入力行は出さない
-          // （「＋ 手入力で追加」から明示的に追加できる）。
+          // ただし保存済みが既にあるなら「追加するものが無い」状態なので手入力行は
+          // 出さない（「＋ 手入力で追加」から明示的に追加できる）。
           setRows(summary.rows.length > 0 ? [] : [createManualRow(true)])
           return
         }
@@ -257,30 +246,17 @@ export function OpenChatExtractSheet({
   )
   const hasInvalidUrl = rows.some((r) => !isValidHttpsUrl(r.url))
   const hasDuplicates = duplicateIds.size > 0
-  /**
-   * 新規行がゼロで保存済みだけがある状態＝**配信専用モード**。保存 Action を
-   * 通さず配信だけを行う（通すと保存済み URL の再 INSERT で UNIQUE 違反になる）。
-   * 押した結果と字面を一致させるため CTA 文言もここで切り替える。
-   */
-  const broadcastOnly = rows.length === 0 && savedRows.length > 0 && lineLinked
-  const ctaDisabled =
-    (rows.length === 0 && !broadcastOnly) || hasInvalidUrl || hasDuplicates || loading || pending
+  const ctaDisabled = rows.length === 0 || hasInvalidUrl || hasDuplicates || loading || pending
 
-  const ctaLabel = broadcastOnly
-    ? `配信する（${savedRows.length}件）`
-    : lineLinked
-      ? `保存して配信（${rows.length}件）`
-      : `保存する（${rows.length}件）`
+  const ctaLabel = `保存する（${rows.length}件）`
 
   const footNote = hasInvalidUrl
     ? 'URL を入力すると押せます'
     : hasDuplicates
       ? `ラベルが重複している ${duplicateIds.size} 件を直すと押せます`
-      : !lineLinked
-        ? '配信は行いません'
-        : broadcastOnly
-          ? `保存済みの ${savedRows.length} 件を ${entryGroupDisplayName} の LINE グループへ改めて送ります`
-          : `${entryGroupDisplayName} の LINE グループへ Flex 1通で送ります`
+      : rows.length === 0
+        ? '追加するオープンチャットがありません'
+        : 'ここでは保存だけ行います。LINE へはメール本文・添付と一緒に送ります'
 
   function updateRow(id: number, patch: Partial<OpenChatRow>) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -313,13 +289,10 @@ export function OpenChatExtractSheet({
     }
   }
 
-  async function performSave(broadcast: boolean) {
+  async function performSave() {
     setSaveError(null)
-    // 再配信確認から呼ばれた場合、結果が判明するまで確認ダイアログを閉じておく
-    // （閉じないと保存失敗時に確認ダイアログの裏でエラーが見えなくなる）。
-    setConfirm(null)
     setServerDuplicateRowIds(new Set())
-    const result = await saveAndBroadcastOpenChats(buildSaveInput(), { broadcast })
+    const result = await saveOpenChats(buildSaveInput())
     if (!result.ok) {
       setSaveError(result.error)
       // AC-47: サーバーが返した重複行の index を行 ID へ対応付けて、該当行だけを
@@ -338,108 +311,16 @@ export function OpenChatExtractSheet({
       return
     }
 
-    // ★保存が通った時点で、これらの行は**保存済み**になった。`rows` に残したまま
-    // にすると、配信失敗後に CTA を押し直したとき同じ URL を再 INSERT して
-    // UNIQUE 違反になり、画面から配信の再試行が一切できなくなる。
-    // サマリーを取り直して保存済みへ移し、`rows` を空にする＝配信専用モードへ遷移。
-    try {
-      const summary = await loadOpenChatBroadcastSummary(entryGroupId)
-      setSavedRows(summary.rows.map((r) => ({ id: r.id, url: r.url, label: r.label })))
-      setBroadcastCount(summary.broadcastCount)
-    } catch {
-      // サマリー再取得に失敗しても保存自体は成功している。行だけは必ず空にする
-      // （残すと上記の UNIQUE 違反ループに入るため）。
-    }
+    // 保存だけが済んだ状態。配信は呼び出し元の「LINE 配信」に相乗りするので、
+    // ここでは閉じて呼び出し元へ制御を返す（onClose 側で保存済み件数を引き直す）。
     setRows([])
     setExtractedCount(0)
-
-    // design-spec「保存と配信は別々に扱う」: 配信が失敗・中止していても保存は
-    // 成功している。黙って閉じると「送られた」と誤解させるため、結果を伝える。
-    //
-    // ★`not_linked` を成功扱いにしてよいのは、**最初から保存だけを選んだとき**
-    // （broadcast=false）に限る。配信を要求したのに not_linked が返るのは
-    // 「送るつもりだったのに届いていない」状態で、これを黙って閉じると管理者は
-    // 配信済みと誤解する。実際に起こる: 直前の push が 4xx で失敗すると復旧処理が
-    // binding を revoke するが、シートの `lineLinked` prop は true のままなので、
-    // 画面は「配信する」を出し続ける。
-    if (result.broadcast.status === 'sent') {
-      onClose()
-      return
-    }
-    if (result.broadcast.status === 'not_linked') {
-      if (!broadcast) {
-        onClose()
-        return
-      }
-      setSaveError(
-        `${result.savedCount}件を保存しました。LINE グループが未紐付けのため配信していません。再紐付けしてから配信してください`,
-      )
-      return
-    }
-    setSaveError(
-      result.broadcast.status === 'failed'
-        ? `${result.savedCount}件を保存しました。配信は失敗しました（${result.broadcast.error}）。「配信する」で再試行できます`
-        : `${result.savedCount}件を保存しました。紐付けが変わったため配信を中止しました`,
-    )
-  }
-
-  /** 配信専用モードの実行（保存 Action を通さない）。 */
-  async function performBroadcastOnly() {
-    setSaveError(null)
-    setConfirm(null)
-    const outcome = await broadcastOpenChats(entryGroupId)
-    if (outcome.status === 'sent') {
-      onClose()
-      return
-    }
-    // ★配信専用モードでの `not_linked` は常に「送るつもりだったのに届いていない」。
-    // 閉じずに理由を出す（保存はもともと済んでいるので失うものは無い）。
-    setSaveError(
-      outcome.status === 'not_linked'
-        ? 'LINE グループが未紐付けのため配信できません。再紐付けしてから配信してください'
-        : outcome.status === 'failed'
-          ? `配信に失敗しました（${outcome.error}）`
-          : '紐付けが変わったため配信を中止しました',
-    )
+    onClose()
   }
 
   function onCtaClick() {
     if (ctaDisabled) return
-    startTransition(async () => {
-      if (!lineLinked) {
-        await performSave(false)
-        return
-      }
-      // AC-35: 2回目以降の配信は確認を挟む。broadcastCount は保存前の既存記録なので、
-      // ここで保存はまだ行わない（キャンセルで保存も配信も起きない = AC-36）。
-      const summary = await loadOpenChatBroadcastSummary(entryGroupId)
-      if (summary.broadcastCount === 0) {
-        await (broadcastOnly ? performBroadcastOnly() : performSave(true))
-        return
-      }
-      setConfirm({
-        broadcastCount: summary.broadcastCount,
-        totalCount: summary.rows.length + rows.length,
-        items: [
-          ...summary.rows.map((r) => ({ label: r.label, isNew: r.isNew })),
-          ...rows.map((r) => ({
-            label: resolveOpenChatLabel({
-              grades: r.grades,
-              eventDate: r.eventDate,
-              freeLabel: r.label,
-            }).label,
-            // このセッションでこれから保存される行は、すべて「今回追加」扱い。
-            isNew: true,
-          })),
-        ],
-      })
-    })
-  }
-
-  function onConfirmSend() {
-    startTransition(async () => {
-      await (broadcastOnly ? performBroadcastOnly() : performSave(true))
-    })
+    startTransition(performSave)
   }
 
   return createPortal(
@@ -448,181 +329,135 @@ export function OpenChatExtractSheet({
       aria-modal="true"
       aria-labelledby="open-chat-sheet-title"
       className="modal-overlay-h fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
-      // ★処理中は背景クリックで閉じさせない。保存 / push の実行中に閉じると
-      // Server Action は走り続ける一方、失敗・binding_changed の結果は
-      // アンマウント済みのシートへ setSaveError するだけになり管理者へ届かない
-      // （「保存は成功・配信は失敗」を必ず伝える設計契約が壊れる）。
+      // ★処理中は背景クリックで閉じさせない。保存の実行中に閉じても Server Action
+      // は走り続ける一方、失敗の結果はアンマウント済みのシートへ setSaveError する
+      // だけになり管理者へ届かない。
       // 既存の AIExtractConfirmDialog も同じ方式で閉じる操作を抑止している。
-      onClick={confirm || pending ? undefined : onClose}
+      onClick={pending ? undefined : onClose}
     >
-      {confirm ? (
-        <div
-          className="w-full rounded-lg bg-surface p-4 shadow-lg sm:max-w-md"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h2 className="font-display text-base font-bold text-ink">もう一度配信しますか</h2>
-          <p className="mt-2 text-sm leading-relaxed text-ink-2">
-            この大会には<b>すでに {confirm.broadcastCount} 回</b>配信しています。
-            <br />
-            保存済みの<b>全 {confirm.totalCount} 件</b>を改めて送ります。
-          </p>
-          <div className="mt-2 flex flex-col gap-0.5">
-            {confirm.items.map((item, i) => (
-              <span key={i} className="text-xs text-ink-meta">
-                ・{item.label}
-                {item.isNew && '（今回追加）'}
-              </span>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Btn
-              kind="ghost"
-              size="md"
-              className="w-24 flex-none"
-              disabled={pending}
-              onClick={() => setConfirm(null)}
-            >
-              やめる
-            </Btn>
-            <Btn kind="primary" size="md" block disabled={pending} onClick={onConfirmSend}>
-              {confirm.totalCount}件を配信
-            </Btn>
-          </div>
+      <div
+        className="flex max-h-[88vh] w-full flex-col rounded-t-lg bg-surface p-4 shadow-lg sm:max-w-md sm:rounded-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-baseline gap-2">
+          <span
+            id="open-chat-sheet-title"
+            className="min-w-0 flex-1 font-display text-base font-bold text-ink"
+          >
+            オープンチャット
+          </span>
+          <button
+            type="button"
+            className="flex-none text-sm text-ink-meta disabled:opacity-50"
+            disabled={pending}
+            onClick={onClose}
+          >
+            閉じる
+          </button>
         </div>
-      ) : (
-        <div
-          className="flex max-h-[88vh] w-full flex-col rounded-t-lg bg-surface p-4 shadow-lg sm:max-w-md sm:rounded-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-baseline gap-2">
-            <span
-              id="open-chat-sheet-title"
-              className="min-w-0 flex-1 font-display text-base font-bold text-ink"
-            >
-              オープンチャット
+
+        <div className="mt-2 flex items-baseline gap-1.5 border-l-2 border-brand pl-2">
+          <span className="text-sm font-bold text-brand-fg">{entryGroupDisplayName}</span>
+          {groupEventDates.length > 0 && (
+            <span className="text-[10px] text-ink-meta">
+              {groupEventDates.map((d) => formatEventDate(d)).join('・')}
             </span>
-            <button
-              type="button"
-              className="flex-none text-sm text-ink-meta disabled:opacity-50"
-              disabled={pending}
-              onClick={onClose}
-            >
-              閉じる
-            </button>
-          </div>
-
-          <div className="mt-2 flex items-baseline gap-1.5 border-l-2 border-brand pl-2">
-            <span className="text-sm font-bold text-brand-fg">{entryGroupDisplayName}</span>
-            {groupEventDates.length > 0 && (
-              <span className="text-[10px] text-ink-meta">
-                {groupEventDates.map((d) => formatEventDate(d)).join('・')}
-              </span>
-            )}
-          </div>
-
-          {loading ? (
-            <p className="mt-3 text-xs text-ink-meta">抽出中…</p>
-          ) : extractedCount > 0 ? (
-            <p className="mt-2.5 text-[10px] text-ink-meta">{extractedCount} 件見つかりました</p>
-          ) : savedRows.length > 0 ? (
-            // 配信専用モード: 新しい候補は無いが保存済みがある。「見つかりませんでした」
-            // を出すと運営が保存済みの存在を見失うので、こちらを優先して出す。
-            <p className="mt-2.5 text-[10px] text-ink-meta">
-              新しい候補はありません（保存済み {savedRows.length} 件を配信できます）
-            </p>
-          ) : (
-            <div className="mt-3 rounded-md border border-border-soft bg-surface-alt p-4 text-center">
-              <div className="text-sm font-bold text-ink-2">URL が見つかりませんでした</div>
-              <div className="mt-1.5 text-[10px] leading-relaxed text-ink-meta">
-                本文・添付テキスト・QR コードのいずれにも招待 URL がありませんでした。
-                <br />
-                「大会用 LINE アカウント内でご案内」のように、メールの外にしか URL が
-                無い場合があります。
-              </div>
-            </div>
           )}
-
-          {!loading && qrUnread.length > 0 && (
-            // requirements §3.2.3: デコードできなくても機能は失敗しないが、
-            // **黙ってもいけない**。QR にしか URL が無い大会（実測で招待メールの30%）で
-            // 「見つかりませんでした」だけを出すと、管理者は取りこぼしに気づけない。
-            // 警告色は使わない（エラーではなく確度の情報。design-spec の方針）。
-            <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
-              <div className="text-[10px] font-bold text-ink-2">
-                QR コードを読み取れませんでした
-              </div>
-              <div className="mt-1 text-[10px] leading-relaxed text-ink-meta">
-                {qrUnread.join('・')}
-                <br />
-                添付を開いて QR を確認し、URL は手入力で追加してください。
-              </div>
-            </div>
-          )}
-
-          {!loading && savedRows.length > 0 && (
-            // 保存済み行は**表示のみ**（編集はしない）。配信すると何が送られるかを
-            // 押す前に見せる。broadcastCount は「配信済み回数」で、0 なら未配信。
-            <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
-              <div className="text-[10px] font-bold text-ink-2">
-                保存済み {savedRows.length} 件
-                {broadcastCount > 0 ? `（配信済み ${broadcastCount} 回）` : '（未配信）'}
-              </div>
-              <ul className="mt-1 flex flex-col gap-0.5">
-                {savedRows.map((r) => (
-                  <li key={r.id} className="truncate text-[10px] text-ink-meta">
-                    {r.label}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
-            {rows.map((row) => (
-              <OpenChatRowItem
-                key={row.id}
-                row={row}
-                duplicate={duplicateIds.has(row.id)}
-                groupEventDates={groupEventDates}
-                disabled={pending}
-                onToggle={() => toggleExpanded(row.id)}
-                onChange={(patch) => updateRow(row.id, patch)}
-                onRemove={() => removeRow(row.id)}
-              />
-            ))}
-            <button
-              type="button"
-              disabled={pending}
-              onClick={addManualRow}
-              className="mt-1 w-full rounded-md border border-dashed border-border-strong bg-transparent py-2 text-sm text-ink-2 disabled:opacity-50"
-            >
-              ＋ 手入力で追加
-            </button>
-          </div>
-
-          {!lineLinked && (
-            <div className="mt-2.5 rounded-md border border-border bg-neutral-bg px-2.5 py-2 text-xs leading-relaxed text-neutral-fg">
-              この大会はまだ LINE グループに紐付いていません。
-              <b>保存だけ行い、配信はしません。</b>
-              <br />
-              紐付けたあとに、この画面からもう一度配信できます。
-            </div>
-          )}
-
-          {saveError && (
-            <p className="mt-2 text-xs text-danger" role="alert">
-              {saveError}
-            </p>
-          )}
-
-          <div className="mt-2.5 flex-none border-t border-border-soft pt-2.5">
-            <Btn kind="primary" size="lg" block disabled={ctaDisabled} onClick={onCtaClick}>
-              {pending ? '処理中…' : ctaLabel}
-            </Btn>
-            <p className="mt-1.5 text-center text-[10px] text-ink-meta">{footNote}</p>
-          </div>
         </div>
-      )}
+
+        {loading ? (
+          <p className="mt-3 text-xs text-ink-meta">抽出中…</p>
+        ) : extractedCount > 0 ? (
+          <p className="mt-2.5 text-[10px] text-ink-meta">{extractedCount} 件見つかりました</p>
+        ) : savedRows.length > 0 ? (
+          // 新しい候補は無いが保存済みがある。「見つかりませんでした」を出すと
+          // 運営が保存済みの存在を見失うので、こちらを優先して出す。
+          <p className="mt-2.5 text-[10px] text-ink-meta">
+            新しい候補はありません（保存済み {savedRows.length} 件を配信できます）
+          </p>
+        ) : (
+          <div className="mt-3 rounded-md border border-border-soft bg-surface-alt p-4 text-center">
+            <div className="text-sm font-bold text-ink-2">URL が見つかりませんでした</div>
+            <div className="mt-1.5 text-[10px] leading-relaxed text-ink-meta">
+              本文・添付テキスト・QR コードのいずれにも招待 URL がありませんでした。
+              <br />
+              「大会用 LINE アカウント内でご案内」のように、メールの外にしか URL が
+              無い場合があります。
+            </div>
+          </div>
+        )}
+
+        {!loading && qrUnread.length > 0 && (
+          // requirements §3.2.3: デコードできなくても機能は失敗しないが、
+          // **黙ってもいけない**。QR にしか URL が無い大会（実測で招待メールの30%）で
+          // 「見つかりませんでした」だけを出すと、管理者は取りこぼしに気づけない。
+          // 警告色は使わない（エラーではなく確度の情報。design-spec の方針）。
+          <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
+            <div className="text-[10px] font-bold text-ink-2">
+              QR コードを読み取れませんでした
+            </div>
+            <div className="mt-1 text-[10px] leading-relaxed text-ink-meta">
+              {qrUnread.join('・')}
+              <br />
+              添付を開いて QR を確認し、URL は手入力で追加してください。
+            </div>
+          </div>
+        )}
+
+        {!loading && savedRows.length > 0 && (
+          // 保存済み行は**表示のみ**（編集はしない）。配信で何が送られるかを
+          // 追加する前に見せる。broadcastCount は「配信済み回数」で、0 なら未配信。
+          <div className="mt-2.5 rounded-md border border-border-soft bg-surface-alt px-2.5 py-2">
+            <div className="text-[10px] font-bold text-ink-2">
+              保存済み {savedRows.length} 件
+              {broadcastCount > 0 ? `（配信済み ${broadcastCount} 回）` : '（未配信）'}
+            </div>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {savedRows.map((r) => (
+                <li key={r.id} className="truncate text-[10px] text-ink-meta">
+                  {r.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+          {rows.map((row) => (
+            <OpenChatRowItem
+              key={row.id}
+              row={row}
+              duplicate={duplicateIds.has(row.id)}
+              groupEventDates={groupEventDates}
+              disabled={pending}
+              onToggle={() => toggleExpanded(row.id)}
+              onChange={(patch) => updateRow(row.id, patch)}
+              onRemove={() => removeRow(row.id)}
+            />
+          ))}
+          <button
+            type="button"
+            disabled={pending}
+            onClick={addManualRow}
+            className="mt-1 w-full rounded-md border border-dashed border-border-strong bg-transparent py-2 text-sm text-ink-2 disabled:opacity-50"
+          >
+            ＋ 手入力で追加
+          </button>
+        </div>
+
+        {saveError && (
+          <p className="mt-2 text-xs text-danger" role="alert">
+            {saveError}
+          </p>
+        )}
+
+        <div className="mt-2.5 flex-none border-t border-border-soft pt-2.5">
+          <Btn kind="primary" size="lg" block disabled={ctaDisabled} onClick={onCtaClick}>
+            {pending ? '処理中…' : ctaLabel}
+          </Btn>
+          <p className="mt-1.5 text-center text-[10px] text-ink-meta">{footNote}</p>
+        </div>
+      </div>
     </div>,
     document.body,
   )

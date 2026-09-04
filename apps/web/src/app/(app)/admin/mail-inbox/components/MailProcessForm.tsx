@@ -1,11 +1,12 @@
 'use client'
 
-import { useMemo, useState, useTransition, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Btn, Card, Pill } from '@/components/ui'
 import { BROADCAST_LEAD_PRESETS, LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-lead-presets'
 import { dismissMail, processMail, releaseRosterFile } from '../actions'
+import { loadOpenChatBroadcastSummary } from '../open-chat-actions'
 import {
   formatGroupDayRange,
   formatGroupEntryStatus,
@@ -66,6 +67,14 @@ export interface MailProcessAttachment {
   adoption: MailProcessAdoption | null
 }
 
+/** 保存済みオープンチャットの件数と配信状況（`loadOpenChatBroadcastSummary` の要約）。 */
+interface OpenChatSummaryState {
+  savedCount: number
+  broadcastCount: number
+  /** 直近の配信試行が sent でなかった（failed / skipped）。 */
+  lastFailed: boolean
+}
+
 /** 1024 進数の概算表示（モックの「42 KB」「1.2 MB」に合わせる）。 */
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -104,6 +113,10 @@ export function MailProcessForm({
   const [groupId, setGroupId] = useState<number | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [openChatSheetOpen, setOpenChatSheetOpen] = useState(false)
+  const [openChatSummary, setOpenChatSummary] = useState<OpenChatSummaryState | null>(null)
+  /** シートを閉じた直後にサマリーを引き直すためのキー（保存件数がすぐ反映される）。 */
+  const [openChatReloadKey, setOpenChatReloadKey] = useState(0)
+  const [includeOpenChat, setIncludeOpenChat] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<Map<number, RosterAdoptGrade[]>>(
     new Map(),
   )
@@ -127,6 +140,41 @@ export function MailProcessForm({
     () => (selectedGroup ? selectableGradesForGroup(selectedGroup) : []),
     [selectedGroup],
   )
+
+  // openchat-broadcast 2026-09-04 改修: 保存済みオープンチャットの件数・配信状況を引く。
+  // 大会を選び直したときと、抽出シートを閉じた直後（保存で件数が変わる）に取り直す。
+  useEffect(() => {
+    if (groupId == null) {
+      setOpenChatSummary(null)
+      setIncludeOpenChat(false)
+      return
+    }
+    let cancelled = false
+    loadOpenChatBroadcastSummary(groupId)
+      .then((summary) => {
+        if (cancelled) return
+        setOpenChatSummary({
+          savedCount: summary.rows.length,
+          broadcastCount: summary.broadcastCount,
+          lastFailed:
+            summary.lastAttempt != null && summary.lastAttempt.status !== 'sent',
+        })
+        // ★AC-35（再配信確認）の代替。既に1回でも配信済みなら既定 OFF にして、
+        // 「実行する」のついでに全件が再送されるのを防ぐ（毎回全件送る仕様なので、
+        // 意図しない再送は同じ Flex がもう一度届くことを意味する）。
+        setIncludeOpenChat(summary.rows.length > 0 && summary.broadcastCount === 0)
+      })
+      .catch(() => {
+        if (cancelled) return
+        // 引けなかったときは「送らない」に倒す（数が分からないまま送らせない）。
+        setOpenChatSummary(null)
+        setIncludeOpenChat(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId, openChatReloadKey])
+
   // 採用済みの添付は選択肢に出さず、採用状態の行として出す（AC-13）。
   const adoptableAttachments = attachments.filter((a) => a.adoption == null)
   const adoptedAttachments = attachments.filter((a) => a.adoption != null)
@@ -134,11 +182,18 @@ export function MailProcessForm({
   const lineLinked = selectedGroup?.lineLinked ?? false
   const canBroadcast = selectedGroup != null && lineLinked
   const broadcastOn = broadcast && canBroadcast
+  const openChatSavedCount = openChatSummary?.savedCount ?? 0
+  /** 実際にオープンチャット Flex を送るか。保存済みゼロなら送りようがない。 */
+  const openChatOn = broadcastOn && includeOpenChat && openChatSavedCount > 0
 
-  // 本文を送らず、冒頭メッセージも添付も無いと LINE に何も届かない。
+  // 本文を送らず、冒頭メッセージも添付もオープンチャットも無いと LINE に何も届かない。
   // サーバーまで運ばずここで止める（サーバー側も空配信を skipped で弾く）。
   const emptyBroadcast =
-    broadcastOn && !includeBody && attachments.length === 0 && leadText.trim() === ''
+    broadcastOn &&
+    !includeBody &&
+    attachments.length === 0 &&
+    leadText.trim() === '' &&
+    !openChatOn
   // 名簿種別で採用できる添付があるのに 1 つも選んでいない状態は、
   // 「採用したつもりで何も採用されていない」実行になるので止める。
   const rosterNeedsFile =
@@ -219,6 +274,7 @@ export function MailProcessForm({
         publishedAt: publishedAt || null,
         broadcast: broadcastOn,
         includeBody,
+        includeOpenChat: openChatOn,
         leadText: leadText.trim() || null,
       })
       if (!result.ok) {
@@ -473,8 +529,9 @@ export function MailProcessForm({
                 オープンチャットを抽出
               </Btn>
               <p className="mt-1 text-[10px] leading-relaxed text-ink-meta">
-                本文・添付・QR コードから招待 URL を探します。見つかった候補を確認してから
-                配信します。
+                本文・添付・QR コードから招待 URL を探します。見つかった候補を確認して
+                保存すると、下の「LINE 配信」でメール本文・添付と一緒に送れます。
+                {openChatSavedCount > 0 && `（保存済み ${openChatSavedCount} 件）`}
               </p>
 
               {selectedGroup && (
@@ -538,6 +595,34 @@ export function MailProcessForm({
                           </span>
                         </span>
                       </label>
+                      {openChatSavedCount > 0 && (
+                        // openchat-broadcast 2026-09-04 改修: オープンチャットの Flex は
+                        // ここで本文・添付と同じ配信に相乗りする（抽出直後には送らない）。
+                        // ★既に配信済みなら既定 OFF（配信は毎回全件送るため、意図しない
+                        //   チェックは同じ Flex の再送になる）。
+                        <label className="mt-2 flex cursor-pointer items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={includeOpenChat}
+                            disabled={pending}
+                            onChange={(e) => setIncludeOpenChat(e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0 flex-1 text-sm text-ink">
+                            オープンチャットの招待リンクも送る（{openChatSavedCount}件）
+                            <span className="block text-[10px] font-normal text-ink-meta">
+                              {openChatSummary && openChatSummary.broadcastCount > 0
+                                ? `配信済み ${openChatSummary.broadcastCount} 回。入れると保存済み全 ${openChatSavedCount} 件をもう一度送ります`
+                                : '未配信。保存済みの全件を Flex 1通で送ります'}
+                            </span>
+                            {openChatSummary?.lastFailed && (
+                              <span className="block text-[10px] font-normal text-danger">
+                                前回の配信は届いていません（失敗または中止）
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      )}
                       <div className="mt-1.5">
                         <div className="flex flex-wrap gap-1">
                           {BROADCAST_LEAD_PRESETS.map((preset) => (
@@ -634,13 +719,15 @@ export function MailProcessForm({
           open={openChatSheetOpen}
           onClose={() => {
             setOpenChatSheetOpen(false)
+            // 保存済み件数はクライアントの Server Action 呼び出しで持っているので、
+            // router.refresh() では更新されない。キーを進めて引き直す。
+            setOpenChatReloadKey((k) => k + 1)
             router.refresh()
           }}
           mailMessageId={mailId}
           entryGroupId={selectedGroup.groupId}
           entryGroupDisplayName={selectedGroup.displayName}
           groupEventDates={[...new Set(selectedGroup.days.map((d) => d.eventDate))].sort()}
-          lineLinked={selectedGroup.lineLinked}
         />
       )}
     </>

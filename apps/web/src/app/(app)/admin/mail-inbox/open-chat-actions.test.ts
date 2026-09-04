@@ -15,7 +15,12 @@ import {
 import { db } from '@/lib/db'
 
 /**
- * openchat-broadcast タスク8: Server Action のテスト。
+ * openchat-broadcast タスク8 + 2026-09-04 改修: Server Action のテスト。
+ *
+ * ★保存（`saveOpenChats`）と配信（`broadcastOpenChats`）は**別の Action**。
+ * 保存は LINE へ送らない — 通常の配信はメール本文・添付と同じタイミングで
+ * `processMail` が起こし、`broadcastOpenChats` は申込グループページからの
+ * やり直し専用。
  *
  * ★このファイルの中心は **AC-40 / AC-41** — オープンチャット配信が
  * `event_broadcast_messages` に行を作らないこと、および同一メールから2回配信しても
@@ -60,7 +65,7 @@ const {
   broadcastOpenChats,
   extractOpenChatCandidatesFromMail,
   loadOpenChatBroadcastSummary,
-  saveAndBroadcastOpenChats,
+  saveOpenChats,
 } = await import('./open-chat-actions')
 // 読み取りクエリは `'use server'` の外（server-only モジュール）へ移した
 // ——`'use server'` から export すると認可ガードの無い公開エンドポイントになるため。
@@ -165,7 +170,7 @@ async function seedMail() {
   return mail.id
 }
 
-function row(overrides: Partial<Parameters<typeof saveAndBroadcastOpenChats>[0]['rows'][0]> = {}) {
+function row(overrides: Partial<Parameters<typeof saveOpenChats>[0]['rows'][0]> = {}) {
   return {
     url: 'https://line.me/ti/g2/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
     grades: null,
@@ -182,7 +187,7 @@ describe('認可（AC-44）', () => {
     mockAuth.mockResolvedValue(null)
     const groupId = await seedGroup()
     await expect(
-      saveAndBroadcastOpenChats({ entryGroupId: groupId, mailMessageId: null, rows: [row()] }),
+      saveOpenChats({ entryGroupId: groupId, mailMessageId: null, rows: [row()] }),
     ).rejects.toThrow('Unauthorized')
   })
 
@@ -190,7 +195,7 @@ describe('認可（AC-44）', () => {
     mockAuth.mockResolvedValue({ user: { id: 'u1', role: 'member' } })
     const groupId = await seedGroup()
     await expect(
-      saveAndBroadcastOpenChats({ entryGroupId: groupId, mailMessageId: null, rows: [row()] }),
+      saveOpenChats({ entryGroupId: groupId, mailMessageId: null, rows: [row()] }),
     ).rejects.toThrow('Forbidden')
   })
 
@@ -198,7 +203,7 @@ describe('認可（AC-44）', () => {
     await db.insert(users).values({ id: 'vice-1', name: '副管理者', role: 'vice_admin' })
     mockAuth.mockResolvedValue({ user: { id: 'vice-1', role: 'vice_admin' } })
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
@@ -218,7 +223,7 @@ describe('バリデーション', () => {
 
   it('AC-28: URL 空欄では保存できない', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: '' })],
@@ -229,7 +234,7 @@ describe('バリデーション', () => {
 
   it('AC-26: https 以外のスキームは保存できない', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'http://line.me/ti/g2/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789' })],
@@ -240,7 +245,7 @@ describe('バリデーション', () => {
 
   it('AC-27: グループ外の開催日は保存できない', async () => {
     const groupId = await seedGroup(['2026-06-20', '2026-06-21'])
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ eventDate: '2026-07-05' })],
@@ -251,7 +256,7 @@ describe('バリデーション', () => {
 
   it('グループ内の開催日は保存できる', async () => {
     const groupId = await seedGroup(['2026-06-20', '2026-06-21'])
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ eventDate: '2026-06-20' })],
@@ -261,7 +266,7 @@ describe('バリデーション', () => {
 
   it('AC-25: 同一 URL を2行に入れると保存されない', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ grades: ['C'] }), row({ grades: ['D'] })],
@@ -272,12 +277,12 @@ describe('バリデーション', () => {
 
   it('AC-25: 既存行と同じ URL を後から保存しても弾かれる（DB の UNIQUE が正）', async () => {
     const groupId = await seedGroup()
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
-    const second = await saveAndBroadcastOpenChats({
+    const second = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ grades: ['C'] })],
@@ -288,7 +293,7 @@ describe('バリデーション', () => {
 
   it('AC-47/48: 最終ラベルが重複する行があると保存できず、重複行が返る', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [
@@ -303,7 +308,7 @@ describe('バリデーション', () => {
 
   it('AC-49: 自由ラベルで重複を解消すると保存できる', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [
@@ -319,28 +324,44 @@ describe('バリデーション', () => {
 describe('保存と配信', () => {
   beforeEach(seedAdminUser)
 
-  it('AC-37: LINE 未紐付けでは保存のみ行い配信しない', async () => {
+  it('★保存 Action は LINE へ送らない（紐付けがあっても履歴が増えない）', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    await seedBinding(groupId)
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
-    expect(result.ok && result.broadcast.status).toBe('not_linked')
+    expect(result.ok).toBe(true)
+    await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
+    // 保存だけ。配信はメール実行側（processMail）に相乗りする。
+    expect(mockPushMessages).not.toHaveBeenCalled()
+    await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(0)
+  })
+
+  it('AC-37: LINE 未紐付けでは配信しない（保存は残る）', async () => {
+    const groupId = await seedGroup()
+    await saveOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [row()],
+    })
+    await expect(broadcastOpenChats(groupId)).resolves.toEqual({ status: 'not_linked' })
     await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
     // 配信していないので履歴も残らない（N 回配信済みのカウントを汚さない）。
     await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(0)
   })
 
-  it('紐付けがあれば保存して配信し、履歴が1件残る', async () => {
+  it('紐付けがあれば配信でき、履歴が1件残る', async () => {
     const groupId = await seedGroup()
     await seedBinding(groupId)
-    const result = await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
-    expect(result.ok && result.broadcast.status).toBe('sent')
+    const outcome = await broadcastOpenChats(groupId)
+    expect(outcome.status).toBe('sent')
     const history = await db.select().from(entryGroupOpenChatBroadcasts)
     expect(history).toHaveLength(1)
     expect(history[0]?.sentCount).toBe(1)
@@ -352,11 +373,12 @@ describe('保存と配信', () => {
     await seedBinding(groupId)
     const mailId = await seedMail()
 
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: mailId,
       rows: [row()],
     })
+    await broadcastOpenChats(groupId)
 
     // ★これが requirements §6 の契約。既存のメール配信の冪等性を汚さない。
     await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
@@ -367,12 +389,13 @@ describe('保存と配信', () => {
     await seedBinding(groupId)
     const mailId = await seedMail()
 
-    const first = await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: mailId,
       rows: [row()],
     })
-    expect(first.ok && first.broadcast.status).toBe('sent')
+    const first = await broadcastOpenChats(groupId)
+    expect(first.status).toBe('sent')
 
     // 2回目は「毎回全件を送る」再配信。event_broadcast_messages を使っていたら
     // UNIQUE(event_line_broadcast_id, mail_message_id) で落ちるケース。
@@ -394,15 +417,16 @@ describe('保存と配信', () => {
       httpStatus: 400,
     })
 
-    const result = await saveAndBroadcastOpenChats({
+    const saved = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: mailId,
       rows: [row()],
     })
+    const outcome = await broadcastOpenChats(groupId)
 
-    // 保存は成功・配信は失敗として分けて返る（保存をロールバックしない）。
-    expect(result.ok).toBe(true)
-    expect(result.ok && result.broadcast.status).toBe('failed')
+    // 保存は成功・配信は失敗として分けて扱う（保存をロールバックしない）。
+    expect(saved.ok).toBe(true)
+    expect(outcome.status).toBe('failed')
     await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
 
     const history = await db.select().from(entryGroupOpenChatBroadcasts)
@@ -443,13 +467,14 @@ describe('保存と配信', () => {
       httpStatus: 401,
     })
 
-    const result = await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
+    const outcome = await broadcastOpenChats(groupId)
 
-    expect(result.ok && result.broadcast.status).toBe('failed')
+    expect(outcome.status).toBe('failed')
     await expect(listOpenChatsForGroup(groupId)).resolves.toHaveLength(1)
     await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(1)
     await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
@@ -458,12 +483,11 @@ describe('保存と配信', () => {
   it('AC-39: 配信直前に紐付けが解除されていたら配信を中止する', async () => {
     const groupId = await seedGroup()
     await seedBinding(groupId)
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
-    await db.delete(entryGroupOpenChatBroadcasts)
 
     // 紐付けを解除してから再配信する。
     await db.update(eventLineBroadcasts).set({ status: 'revoked' })
@@ -481,13 +505,14 @@ describe('保存と配信', () => {
     // binding は読めるが、push 直前の再検証で「変わっている」と判定される状況。
     mockAssertBinding.mockResolvedValue({ changed: true, current: null })
 
-    const result = await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
+    const outcome = await broadcastOpenChats(groupId)
 
-    expect(result.ok && result.broadcast.status).toBe('binding_changed')
+    expect(outcome.status).toBe('binding_changed')
     // 失効した groupId / token へ送っていない。
     expect(mockPushMessages).not.toHaveBeenCalled()
     // 保存は残る。
@@ -503,7 +528,7 @@ describe('保存と配信', () => {
 
   it('AC-29/AC-52: 保存はグループに紐付き、表示順は sort_order 昇順で安定する', async () => {
     const groupId = await seedGroup()
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [
@@ -512,7 +537,7 @@ describe('保存と配信', () => {
       ],
     })
     // 追記しても既存の並びが崩れない。
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC', grades: ['D'] })],
@@ -529,14 +554,14 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
   it('既存行と最終ラベルが重複する新規行は保存できない（入力行どうしだけを見ない）', async () => {
     const groupId = await seedGroup()
     // 先に C級 を保存しておく。
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', grades: ['C'] })],
     })
 
     // 別 URL だが最終ラベルは同じ「C級」。放置すると同名ボタンが2つ並ぶ Flex になる。
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['C'] })],
@@ -549,12 +574,12 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
 
   it('既存行とラベルが衝突しなければ追記できる', async () => {
     const groupId = await seedGroup()
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', grades: ['C'] })],
     })
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['D'] })],
@@ -571,11 +596,12 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
       error: new Error('LINE API 400'),
       httpStatus: 400,
     })
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ grades: ['C'] })],
     })
+    await broadcastOpenChats(groupId)
 
     // 履歴には failed が1件あるが、1度も届いていないので 0 回でなければならない。
     await expect(db.select().from(entryGroupOpenChatBroadcasts)).resolves.toHaveLength(1)
@@ -591,7 +617,7 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
     // ※`https:///path` は WHATWG URL ではホスト `path` として解釈できてしまうので
     //   ここには含めない（構文検証としては通って正しい）。
     for (const url of ['https://', 'https://[', 'https:// line.me/ti/g2/x', 'httpsline.me']) {
-      const result = await saveAndBroadcastOpenChats({
+      const result = await saveOpenChats({
         entryGroupId: groupId,
         mailMessageId: null,
         rows: [row({ url })],
@@ -632,12 +658,11 @@ describe('レビュー指摘の回帰（PR #469 R1）', () => {
   it('配信 Action は entryGroupId だけを受け、送信者はセッションから決まる', async () => {
     const groupId = await seedGroup()
     await seedBinding(groupId)
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row()],
     })
-    await db.delete(entryGroupOpenChatBroadcasts)
 
     await expect(broadcastOpenChats(groupId)).resolves.toEqual({ status: 'sent', sentCount: 1 })
     const [history] = await db.select().from(entryGroupOpenChatBroadcasts)
@@ -652,7 +677,7 @@ describe('レビュー指摘の回帰（PR #469 R1 第2回）', () => {
   it('長すぎる URL は保存できない（btree 上限超えと Flex ペイロード超過を未然に防ぐ）', async () => {
     const groupId = await seedGroup()
     const longUrl = 'https://line.me/ti/g2/' + 'x'.repeat(600)
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: longUrl })],
@@ -663,7 +688,7 @@ describe('レビュー指摘の回帰（PR #469 R1 第2回）', () => {
 
   it('長すぎるパスワードは保存できない', async () => {
     const groupId = await seedGroup()
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ password: 'p'.repeat(200) })],
@@ -677,7 +702,7 @@ describe('レビュー指摘の回帰（PR #469 R1 第2回）', () => {
     const rows = Array.from({ length: 31 }, (_, i) =>
       row({ url: `https://line.me/ti/g2/token${String(i).padStart(27, '0')}`, label: `部門${i}` }),
     )
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows,
@@ -704,7 +729,7 @@ describe('Flex ペイロード上限（PR #469 R2）', () => {
       source: 'manual' as const,
     }))
 
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows,
@@ -725,7 +750,7 @@ describe('Flex ペイロード上限（PR #469 R2）', () => {
       password: 'code1234',
       source: 'body' as const,
     }))
-    const result = await saveAndBroadcastOpenChats({
+    const result = await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows,
@@ -740,7 +765,7 @@ describe('再配信サマリー（AC-35, AC-53）', () => {
 
   it('初回は配信回数0で、（今回追加）印は付かない', async () => {
     const groupId = await seedGroup()
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ grades: ['C'] })],
@@ -754,24 +779,22 @@ describe('再配信サマリー（AC-35, AC-53）', () => {
   it('2回目は配信済み回数と、前回以降に増えた行への（今回追加）印が返る', async () => {
     const groupId = await seedGroup()
     await seedBinding(groupId)
-    await saveAndBroadcastOpenChats({
+    await saveOpenChats({
       entryGroupId: groupId,
       mailMessageId: null,
       rows: [row({ url: 'https://line.me/ti/g2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', grades: ['C'] })],
     })
+    await broadcastOpenChats(groupId)
 
     // 配信後に増えた行。created_at > 直近の sent_at になる。
     await new Promise((resolve) => setTimeout(resolve, 10))
-    await saveAndBroadcastOpenChats(
-      {
-        entryGroupId: groupId,
-        mailMessageId: null,
-        rows: [
-          row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['D'] }),
-        ],
-      },
-      { broadcast: false },
-    )
+    await saveOpenChats({
+      entryGroupId: groupId,
+      mailMessageId: null,
+      rows: [
+        row({ url: 'https://line.me/ti/g2/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', grades: ['D'] }),
+      ],
+    })
 
     const summary = await loadOpenChatBroadcastSummary(groupId)
     expect(summary.broadcastCount).toBe(1)

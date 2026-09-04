@@ -56,6 +56,7 @@ import {
   extractEventUnitsFormData,
 } from '@/lib/form-schemas'
 import { broadcastMailToEvent, loadActiveBinding } from '@/lib/line-broadcast'
+import { runOpenChatBroadcast } from '@/lib/open-chat/broadcast'
 import { broadcastEventsToGradeGroups } from '@/lib/event-grade-broadcast'
 import {
   clusterEventsByEntryGroup,
@@ -1619,6 +1620,13 @@ export interface ProcessMailInput {
   broadcast: boolean
   /** 配信するとき、メール本文を添付するか。 */
   includeBody: boolean
+  /**
+   * 配信するとき、保存済みオープンチャットの Flex も同じタイミングで送るか
+   * （openchat-broadcast 2026-09-04 改修）。抽出シートは保存だけを行い、配信は
+   * この経路に相乗りする。**毎回全件を送る**ので、既に配信済みのグループへ
+   * true を渡すと同じ Flex がもう一度届く（UI 側で既定 OFF にしている）。
+   */
+  includeOpenChat?: boolean
   /** 配信の冒頭メッセージ（任意）。 */
   leadText?: string | null
 }
@@ -1903,6 +1911,7 @@ export async function processMail(
   const { linkedEventId, processedAt: generation } = committed
   if (input.broadcast && linkedEventId != null) {
     const eventId = linkedEventId
+    const entryGroupId = input.entryGroupId
     after(async () => {
       try {
         // ★配信は実行の**応答後**に走るので、その間に「未処理に戻す」が完了して
@@ -1938,17 +1947,50 @@ export async function processMail(
           )
           return
         }
-        await broadcastMailToEvent(db, {
-          eventId,
-          mailMessageId: mailId,
-          // 「訂正版」フラグは tournament_drafts.is_correction の話。統合フォーム
-          // 経由の補足メールは常に通常配信扱い（旧 linkMailToEvent と同じ）。
-          isCorrection: false,
-          leadText: normalizedLeadText,
-          includeBody: input.includeBody,
-        })
+        // ★メール本体とオープンチャットは **try を分ける**。片方の失敗が
+        // もう片方の push を止めてはならない（どちらも独立した配信で、
+        // 監査行も別テーブル）。世代トークンの検証は共通なので、取り消し済みの
+        // メールならどちらも送られない。
+        try {
+          await broadcastMailToEvent(db, {
+            eventId,
+            mailMessageId: mailId,
+            // 「訂正版」フラグは tournament_drafts.is_correction の話。統合フォーム
+            // 経由の補足メールは常に通常配信扱い（旧 linkMailToEvent と同じ）。
+            isCorrection: false,
+            leadText: normalizedLeadText,
+            includeBody: input.includeBody,
+          })
+        } catch (err) {
+          console.error('[processMail] broadcastMailToEvent failed', err)
+        }
+
+        // openchat-broadcast 2026-09-04 改修: 保存済みオープンチャットの Flex を
+        // **本文・添付の直後に**送る。`pushMessages` は元々 5 件ずつに分割して
+        // push するので、続けて 1 通投げればトーク上は同じ配信として並ぶ。
+        // ★`event_broadcast_messages` には書かない（requirements §6 の契約）。
+        // 記録は `entry_group_open_chat_broadcasts` に入り、失敗しても呼び出し元へ
+        // 返す相手がいないため、画面へは `loadOpenChatBroadcastSummary` の
+        // `lastAttempt` 経由で出す。
+        if (input.includeOpenChat && entryGroupId != null) {
+          try {
+            const outcome = await runOpenChatBroadcast({
+              entryGroupId,
+              sentByUserId: session.user.id,
+            })
+            if (outcome.status !== 'sent') {
+              console.warn('[processMail] open chat broadcast not sent', {
+                mailId,
+                entryGroupId,
+                status: outcome.status,
+              })
+            }
+          } catch (err) {
+            console.error('[processMail] runOpenChatBroadcast failed', err)
+          }
+        }
       } catch (err) {
-        console.error('[processMail] broadcastMailToEvent failed', err)
+        console.error('[processMail] broadcast trigger failed', err)
       }
     })
   }

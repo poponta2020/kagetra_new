@@ -1,7 +1,8 @@
 import 'server-only'
 import { asc, eq } from 'drizzle-orm'
-import { entryGroupOpenChats } from '@kagetra/shared/schema'
+import { entryGroupOpenChats, events } from '@kagetra/shared/schema'
 import { db } from '@/lib/db'
+import { deriveEntryGroupName } from '@/lib/entry-groups'
 
 /**
  * オープンチャットの読み取りクエリ（openchat-broadcast）。
@@ -37,3 +38,22 @@ export async function listOpenChatsForGroup(entryGroupId: number) {
 }
 
 export type OpenChatRow = Awaited<ReturnType<typeof listOpenChatsForGroup>>[number]
+
+/**
+ * グループ内の開催日（YYYY-MM-DD 昇順）・導出表示名・イベント ID を引く。
+ *
+ * 保存経路（`open-chat-actions.ts`）と配信経路（`broadcast.ts`）の両方が使う。
+ * `'use server'` ファイルに置くと公開エンドポイントになるため、ここに置く
+ * （このモジュール冒頭の注意書きを参照）。
+ */
+export async function loadOpenChatGroupContext(entryGroupId: number) {
+  const rows = await db
+    .select({ id: events.id, title: events.title, eventDate: events.eventDate })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+    .orderBy(asc(events.eventDate), asc(events.id))
+
+  const eventDates = [...new Set(rows.map((r) => r.eventDate))]
+  const displayName = deriveEntryGroupName(rows.map((r) => r.title)) ?? rows[0]?.title ?? '大会'
+  return { eventDates, displayName, eventIds: rows.map((r) => r.id) }
+}

@@ -6,39 +6,35 @@ import { z } from 'zod'
 import {
   entryGroupOpenChatBroadcasts,
   entryGroupOpenChats,
-  events,
   mailAttachments,
   mailMessages,
 } from '@kagetra/shared/schema'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db-errors'
-import { deriveEntryGroupName } from '@/lib/entry-groups'
 import {
-  applyPushFailureRecovery,
-  assertBindingUnchangedByEntryGroup,
-  loadActiveBindingByEntryGroup,
-  pushMessages,
-} from '@/lib/line-broadcast'
+  isFlexPayloadWithinLimit,
+  runOpenChatBroadcast,
+  type OpenChatBroadcastOutcome,
+} from '@/lib/open-chat/broadcast'
 import { collectOpenChatCandidates } from '@/lib/open-chat/collect'
-import { buildOpenChatFlexMessage } from '@/lib/open-chat/flex'
 import {
   findDuplicateOpenChatLabelIds,
   resolveOpenChatLabel,
   type OpenChatGrade,
 } from '@/lib/open-chat/label'
-import { listOpenChatsForGroup } from '@/lib/open-chat/queries'
+import { listOpenChatsForGroup, loadOpenChatGroupContext } from '@/lib/open-chat/queries'
 
 /**
- * 大会オープンチャットの抽出・保存・配信（openchat-broadcast）。
+ * 大会オープンチャットの抽出・保存（openchat-broadcast）。
  *
  * 抽出のトリガーは**人間**（管理者がメールを大会に紐付ける既存操作の延長）。
  * 自動検知にしない理由は feasibility.md（本番286件の実測）を参照。
  *
- * ★配信の記録は `entry_group_open_chat_broadcasts` に持ち、
- * **`event_broadcast_messages` には一切書かない**（requirements §6 の契約）。
- * 同テーブルの UNIQUE(event_line_broadcast_id, mail_message_id) は「1メール=1配信」を
- * DB レベルで強制するため、「再配信は毎回全件を送る」と原理的に両立しない。
+ * ★2026-09-04 改修: **抽出シートは保存だけを行い、その場では配信しない。**
+ * 配信はメール詳細の統合処理フォーム（`processMail`）の「LINE 配信」に相乗りし、
+ * メール本文・添付と同じタイミングで送る。配信の実処理は `lib/open-chat/broadcast.ts`
+ * に置き、この経路とグループページの再配信ボタンで共有する。
  */
 
 /**
@@ -87,28 +83,6 @@ const URL_MAX_LENGTH = 500
 const PASSWORD_MAX_LENGTH = 100
 const ROWS_PER_GROUP_MAX = 30
 
-/**
- * Flex メッセージ JSON のバイト長上限（LINE の上限 30KB に対する余裕込みの値）。
- *
- * ★固定の文字数・行数だけでは足りない。上限いっぱいの多バイト URL（1文字3バイト）を
- * 上限いっぱいの行数ぶん保存すると、個々の制限を全て通過したうえで合計が 30KB を
- * 超え得る。そうなると LINE が 400 を返し、`applyPushFailureRecovery` が
- * 「401 以外の 4xx ＝ groupId 不正」と見なして**正常な紐付けを revoke** し、
- * オープンチャットだけでなく以降のメール配信まで止まる。
- * そこで**実際に組み立てた Flex のバイト長**を保存前と配信前の両方で検証する。
- */
-const FLEX_PAYLOAD_MAX_BYTES = 25_000
-
-/** 保存済み/保存予定の行から Flex を組み立て、バイト長が上限内かを判定する。 */
-function isFlexPayloadWithinLimit(
-  rows: readonly { url: string; label: string; password: string | null }[],
-  displayName: string,
-): boolean {
-  if (rows.length === 0) return true
-  const message = buildOpenChatFlexMessage([...rows], displayName)
-  return Buffer.byteLength(JSON.stringify(message), 'utf8') <= FLEX_PAYLOAD_MAX_BYTES
-}
-
 const gradeSchema = z.enum(['A', 'B', 'C', 'D', 'E'])
 
 /** 保存する1行の入力。UI（抽出候補シート）から受け取る形。 */
@@ -155,30 +129,8 @@ const saveInputSchema = z.object({
 export type OpenChatSaveInput = z.infer<typeof saveInputSchema>
 
 export type OpenChatActionResult =
-  | { ok: true; savedCount: number; broadcast: OpenChatBroadcastOutcome }
+  | { ok: true; savedCount: number }
   | { ok: false; error: string; duplicateLabelIndexes?: number[] }
-
-export type OpenChatBroadcastOutcome =
-  /** LINE 紐付けが無いので保存だけした（AC-37）。 */
-  | { status: 'not_linked' }
-  | { status: 'sent'; sentCount: number }
-  | { status: 'failed'; error: string }
-  /** 配信直前に紐付けが変わっていたので中止した（AC-39）。 */
-  | { status: 'binding_changed' }
-
-/** グループ内の開催日（YYYY-MM-DD 昇順）と導出表示名を引く。 */
-async function loadGroupContext(entryGroupId: number) {
-  const rows = await db
-    .select({ id: events.id, title: events.title, eventDate: events.eventDate })
-    .from(events)
-    .where(eq(events.entryGroupId, entryGroupId))
-    .orderBy(asc(events.eventDate), asc(events.id))
-
-  const eventDates = [...new Set(rows.map((r) => r.eventDate))]
-  const displayName =
-    deriveEntryGroupName(rows.map((r) => r.title)) ?? rows[0]?.title ?? '大会'
-  return { eventDates, displayName, eventIds: rows.map((r) => r.id) }
-}
 
 /**
  * メール本文＋添付から候補を集める（AC-6, AC-11〜AC-14, AC-20）。
@@ -212,7 +164,7 @@ export async function extractOpenChatCandidatesFromMail(args: {
     .where(eq(mailAttachments.mailMessageId, args.mailMessageId))
     .orderBy(asc(mailAttachments.id))
 
-  const { eventDates } = await loadGroupContext(args.entryGroupId)
+  const { eventDates } = await loadOpenChatGroupContext(args.entryGroupId)
 
   // ★text と html の**両方**を抽出対象にする。`bodyText ?? bodyHtml` だと、
   // plain part に案内文だけがあり招待 URL は HTML の <a href> にしか無い
@@ -230,15 +182,20 @@ export async function extractOpenChatCandidatesFromMail(args: {
 }
 
 /**
- * 再配信の確認ダイアログ用のサマリー（AC-35, AC-53）＋シートの初期状態。
+ * 配信状況のサマリー（AC-35, AC-53）＋シート・配信チェックの初期状態。
  *
  * ★配信済み回数・前回配信時刻は **`status = 'sent'` の行だけ**から算出する。
  * 失敗（failed）や紐付け変更による中止（skipped）は「配信した」ではないので、
  * 数に入れると1度も届いていないのに「すでに1回配信しています」と出るうえ、
  * 未配達の行から「（今回追加）」の印まで消えてしまう。
  *
+ * ★`lastAttempt` は **status を問わない直近の1件**。配信がメール実行側
+ * （`processMail` の `after()`）へ移ったため、失敗しても呼び出し元へ結果を返せる
+ * 相手がいない。ここで拾って画面に出さないと「保存は成功・配信は失敗として記録して
+ * 再試行できる」という設計契約が、記録はされるが**どこにも出ない**状態になる。
+ *
  * 返す行に `url` を含めるのは、シートが**保存済み URL を抽出候補から除く**ために
- * 必要なため（同じ URL を再 INSERT すると UNIQUE 違反で配信まで到達しない）。
+ * 必要なため（同じ URL を再 INSERT すると UNIQUE 違反で保存できない）。
  */
 export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
   await requireAdminSession()
@@ -261,6 +218,17 @@ export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
     .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt))
     .limit(1)
 
+  const [lastAttemptRow] = await db
+    .select({
+      status: entryGroupOpenChatBroadcasts.status,
+      errorMessage: entryGroupOpenChatBroadcasts.errorMessage,
+      sentAt: entryGroupOpenChatBroadcasts.sentAt,
+    })
+    .from(entryGroupOpenChatBroadcasts)
+    .where(eq(entryGroupOpenChatBroadcasts.entryGroupId, entryGroupId))
+    .orderBy(desc(entryGroupOpenChatBroadcasts.sentAt), desc(entryGroupOpenChatBroadcasts.id))
+    .limit(1)
+
   const rows = await listOpenChatsForGroup(entryGroupId)
 
   // 「前回配信以降に増えた行」= created_at > 直近の sent_at（AC-53 の「（今回追加）」印）。
@@ -269,6 +237,13 @@ export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
   return {
     broadcastCount,
     lastSentAt,
+    lastAttempt: lastAttemptRow
+      ? {
+          status: lastAttemptRow.status,
+          errorMessage: lastAttemptRow.errorMessage,
+          at: lastAttemptRow.sentAt,
+        }
+      : null,
     rows: rows.map((r) => ({
       id: r.id,
       url: r.url,
@@ -283,16 +258,16 @@ export async function loadOpenChatBroadcastSummary(entryGroupId: number) {
 }
 
 /**
- * 候補を保存し、LINE グループへ Flex を1通配信する（AC-25〜AC-29, AC-35〜AC-41）。
+ * 候補を保存する（AC-25〜AC-29）。**配信はしない。**
  *
- * ★保存と配信は**別々に扱う**。配信の失敗（LINE API エラー等）は保存を
- * ロールバックしない（AC-38。design-spec「抽出のやり直しという徒労をさせない」）。
+ * ★配信を伴わないので、保存の失敗＝この操作の失敗。以前はここで push まで行い
+ * 「保存は成功・配信は失敗」を戻り値で伝えていたが、配信はメール実行側
+ * （`processMail`）へ移した（2026-09-04 改修）。
  */
-export async function saveAndBroadcastOpenChats(
+export async function saveOpenChats(
   rawInput: OpenChatSaveInput,
-  options: { broadcast: boolean } = { broadcast: true },
 ): Promise<OpenChatActionResult> {
-  const session = await requireAdminSession()
+  await requireAdminSession()
 
   const parsed = saveInputSchema.safeParse(rawInput)
   if (!parsed.success) {
@@ -304,7 +279,7 @@ export async function saveAndBroadcastOpenChats(
     return { ok: false, error: '保存するオープンチャットがありません' }
   }
 
-  const { eventDates, displayName, eventIds } = await loadGroupContext(input.entryGroupId)
+  const { eventDates, displayName, eventIds } = await loadOpenChatGroupContext(input.entryGroupId)
   if (eventDates.length === 0) {
     return { ok: false, error: '対象の大会が見つかりません' }
   }
@@ -429,139 +404,27 @@ export async function saveAndBroadcastOpenChats(
     throw err
   }
 
-  const savedCount = input.rows.length
   revalidateOpenChatPaths(eventIds)
-
-  if (!options.broadcast) {
-    return { ok: true, savedCount, broadcast: { status: 'not_linked' } }
-  }
-
-  const broadcast = await runOpenChatBroadcast({
-    entryGroupId: input.entryGroupId,
-    displayName,
-    sentByUserId: session.user.id,
-  })
-  return { ok: true, savedCount, broadcast }
+  return { ok: true, savedCount: input.rows.length }
 }
 
 /**
  * 保存済み全件を Flex 1通で配信する公開 Server Action（AC-30〜AC-34）。
  *
  * ★引数は **`entryGroupId` だけ**。送信者は認証セッションから、大会名は DB から
- * 必ず導出する。以前は `sentByUserId` / `displayName` を引数で受けていたが、
- * 公開 Action は**呼び出し元の申告を信頼できない** — 監査行の送信者を別人に
- * 偽装できたうえ、存在しないユーザー ID を渡すと LINE への push が成功した**後**に
- * 履歴 INSERT だけが外部キー違反で落ち、配信が未記録になった。
+ * 必ず導出する。公開 Action は**呼び出し元の申告を信頼できない** — 監査行の
+ * 送信者を別人に偽装できたうえ、存在しないユーザー ID を渡すと LINE への push が
+ * 成功した**後**に履歴 INSERT だけが外部キー違反で落ち、配信が未記録になった。
+ *
+ * 通常運用の配信はメール詳細の統合処理フォーム（`processMail`）が起こす。この
+ * Action は**申込グループページの再送ボタン専用**（`processMail` の配信が失敗した
+ * とき、メール詳細の処理フォームは既に消えていて再試行できないため）。
  */
 export async function broadcastOpenChats(
   entryGroupId: number,
 ): Promise<OpenChatBroadcastOutcome> {
   const session = await requireAdminSession()
   return runOpenChatBroadcast({ entryGroupId, sentByUserId: session.user.id })
-}
-
-/**
- * 配信の実処理。**非 export の内部ヘルパー**（`'use server'` ファイルで export すると
- * それ自体が公開エンドポイントになり、引数を絞った意味が無くなる）。
- *
- * **毎回全件を送る**（差分配信は「前に何が送られたか」を受け手が覚えている前提に
- * なるため）。再配信でも `event_broadcast_messages` を触らないので、同一メールから
- * 2回配信しても DB 制約違反にならない（AC-40, AC-41）。
- */
-async function runOpenChatBroadcast(args: {
-  entryGroupId: number
-  /** 保存経路から呼ぶときの再取得の節約用。未指定なら DB から導出する。 */
-  displayName?: string
-  /** 認証セッション由来の値だけを渡すこと（呼び出し元の申告を入れない）。 */
-  sentByUserId: string
-}): Promise<OpenChatBroadcastOutcome> {
-  const sentByUserId = args.sentByUserId
-
-  const rows = await listOpenChatsForGroup(args.entryGroupId)
-  if (rows.length === 0) return { status: 'failed', error: '配信するオープンチャットがありません' }
-
-  const displayName =
-    args.displayName ?? (await loadGroupContext(args.entryGroupId)).displayName
-
-  const binding = await loadActiveBindingByEntryGroup(db, args.entryGroupId)
-  // AC-37: LINE 未紐付けでは配信しない（保存は既に済んでいる）。履歴も残さない
-  // ——「配信した」記録が無いのが正しく、N 回配信済みのカウントを汚さない。
-  if (!binding) return { status: 'not_linked' }
-
-  const flexRows = rows.map((r) => ({
-    url: r.url,
-    label: resolveOpenChatLabel({
-      grades: r.grades as OpenChatGrade[] | null,
-      eventDate: r.eventDate,
-      freeLabel: r.label,
-    }).label,
-    password: r.password,
-  }))
-
-  // ★push する直前にもペイロード長を検証する。ここが**実際の防波堤** — 保存時の
-  // 検証をすり抜けた行（別経路で入った古いデータ等）でも、過大な Flex を LINE へ
-  // 投げない。投げると 400 が返り、`applyPushFailureRecovery` が正常な紐付けを
-  // revoke してしまい、以降のメール配信まで止まる。
-  if (!isFlexPayloadWithinLimit(flexRows, displayName)) {
-    await db.insert(entryGroupOpenChatBroadcasts).values({
-      entryGroupId: args.entryGroupId,
-      sentCount: 0,
-      status: 'failed',
-      errorMessage: 'flex_payload_too_large',
-      sentByUserId,
-    })
-    return {
-      status: 'failed',
-      error: '登録内容が多すぎて LINE で送れません。件数を減らすか URL を短くしてください',
-    }
-  }
-
-  const message = buildOpenChatFlexMessage(flexRows, displayName)
-
-  // AC-39: push 直前に紐付けを再検証する。判定だけを行い、記録はここで書く
-  // （ヘルパーは event_broadcast_messages に触れない契約）。
-  const { changed } = await assertBindingUnchangedByEntryGroup(db, args.entryGroupId, binding)
-  if (changed) {
-    await db.insert(entryGroupOpenChatBroadcasts).values({
-      entryGroupId: args.entryGroupId,
-      sentCount: 0,
-      status: 'skipped',
-      errorMessage: 'binding_changed',
-      sentByUserId,
-    })
-    return { status: 'binding_changed' }
-  }
-
-  const pushResult = await pushMessages(
-    binding.channel.channelAccessToken,
-    binding.lineGroupId,
-    [message],
-  )
-
-  if (pushResult.error) {
-    await applyPushFailureRecovery({
-      db,
-      binding,
-      httpStatus: pushResult.httpStatus,
-      logContext: { entryGroupId: args.entryGroupId, feature: 'openchat-broadcast' },
-    })
-    await db.insert(entryGroupOpenChatBroadcasts).values({
-      entryGroupId: args.entryGroupId,
-      sentCount: 0,
-      status: 'failed',
-      errorMessage: pushResult.error.message,
-      sentByUserId,
-    })
-    return { status: 'failed', error: pushResult.error.message }
-  }
-
-  await db.insert(entryGroupOpenChatBroadcasts).values({
-    entryGroupId: args.entryGroupId,
-    sentCount: rows.length,
-    status: 'sent',
-    sentByUserId,
-  })
-  return { status: 'sent', sentCount: rows.length }
 }
 
 /** グループ内の全大会詳細ページを再検証する（保存済み欄が即座に出るように）。 */
