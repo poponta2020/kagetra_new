@@ -265,7 +265,7 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 
 **共通項目**（管理者のみ）は7項目のインライン編集で、保存はグループ全日（`cancelled` 含む）へ同一トランザクション。値は全日一致ならその値、食い違えば**最も早い日付**（日付以外の項目は代表イベントの値）を主に出し、朱で「（日により異なる）」を添える（`aggregateGroupCommonFields`）。食い違ったまま運用することは許容されている（締切リマインドは締切日ごとに別通で飛ぶ）が、大半は伝播し忘れの事故なので気づける形にした。アクションは「編集して揃える」1本。
 
-**LINE配信・名簿・オープンチャット・関連メール**はいずれもグループ帰属。関連メールはグループ**全日分の UNION**（`collectRelatedMailIdsForGroup`。重複は `mail_messages.id` で dedup・受信日降順）。級別グループ配信だけは event 単位の状態なので**日ごとに1行**出す（代表イベントだけに畳むと複数日グループで他の日へ配信する手段が失われる。1日だけのグループの描画は日ページ時代と同一）。
+**LINE配信・名簿・オープンチャット・関連メール**はいずれもグループ帰属。オープンチャット欄の直下には管理者・副管理者だけに「オープンチャットを配信」（`OpenChatBroadcastControl`。保存済み0件なら描画しない）が出て、通常の配信（メール詳細の「LINE 配信」に相乗り）が失敗したときのやり直し導線になる（[spec/notifications.md](notifications.md)）。関連メールはグループ**全日分の UNION**（`collectRelatedMailIdsForGroup`。重複は `mail_messages.id` で dedup・受信日降順）。級別グループ配信だけは event 単位の状態なので**日ごとに1行**出す（代表イベントだけに畳むと複数日グループで他の日へ配信する手段が失われる。1日だけのグループの描画は日ページ時代と同一）。
 
 朱（`--kg-accent` 系）を使うのは **期限超過・要対応フェーズ（要申込／要振込）・共通項目の食い違い**の3つだけ。視覚の正は [features/entry-group-page/design-spec.md](../features/entry-group-page/design-spec.md)（locked・案C）と同ディレクトリの `design-mock/`。
 

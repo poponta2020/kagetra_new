@@ -41,6 +41,7 @@ import type { BroadcastHistoryRow } from '@/components/events/BroadcastHistoryTa
 import type { GradeBroadcastRow } from '@/components/events/GradeBroadcastSection'
 import { EventRelatedMails } from '@/components/events/EventRelatedMails'
 import { OpenChatSection } from '@/app/(app)/events/[id]/components/OpenChatSection'
+import { OpenChatBroadcastControl } from './components/OpenChatBroadcastControl'
 import {
   RosterSection,
   type RosterAdminControls,
@@ -642,6 +643,13 @@ export default async function EntryGroupPage({
       />
 
       <OpenChatSection rows={openChatRows} />
+
+      {/* オープンチャットの再配信（管理者・副管理者のみ）。通常の配信はメール詳細の
+          「LINE 配信」が本文・添付と一緒に起こすが、それが失敗したときのやり直しは
+          ここにしか無い（統合処理フォームは未処理のメールにしか出ない）。 */}
+      {isAdmin && openChatRows.length > 0 && (
+        <OpenChatBroadcastControl entryGroupId={groupIdNum} lineLinked={isLineLinked} />
+      )}
 
       {/* 関連メールはグループ全日分の UNION（AC-25）。リンク先が管理者専用の
           /admin/mail-inbox/mail/[id] なので一般会員には出さない。 */}

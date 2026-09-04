@@ -40,6 +40,7 @@ const {
   classifyMailMock,
   persistOutcomeMock,
   broadcastEventsToGradeGroupsMock,
+  runOpenChatBroadcastMock,
   entryGroupCreateHook,
 } = vi.hoisted(() => ({
   // dedup テストで即時実行に差し替えるため切り替え可能（既定 no-op）。
@@ -54,6 +55,16 @@ const {
   loadActiveBindingMock: vi.fn(
     async (_db: unknown, _eventId: number) =>
       null as { lineGroupId: string; entryGroupId: number } | null,
+  ),
+  // openchat-broadcast 2026-09-04 改修: processMail の after() から呼ばれる
+  // オープンチャット配信。実 push・履歴 INSERT は open-chat-actions.test.ts の担当で、
+  // ここでは**配線（呼ばれる / 呼ばれない）**だけを検証する。
+  runOpenChatBroadcastMock: vi.fn(
+    async (_args: {
+      entryGroupId: number
+      sentByUserId: string
+      abortBeforePush?: () => Promise<boolean>
+    }) => ({ status: 'sent' as const, sentCount: 1 }),
   ),
   classifyMailMock: vi.fn(async () => ({ kind: 'noise' as const, result: {} })),
   persistOutcomeMock: vi.fn(async () => ({})),
@@ -126,6 +137,10 @@ vi.mock('next/server', async () => {
 vi.mock('@/lib/line-broadcast', () => ({
   broadcastMailToEvent: broadcastMailToEventMock,
   loadActiveBinding: loadActiveBindingMock,
+}))
+
+vi.mock('@/lib/open-chat/broadcast', () => ({
+  runOpenChatBroadcast: runOpenChatBroadcastMock,
 }))
 
 // event-grade-group-broadcast: 承認 → 級別グループ配信の配線だけを検証する。
@@ -311,6 +326,8 @@ describe('admin/mail-inbox actions', () => {
     // 既定は no-op (after は実行しない)。dedup テストだけ即時実行に切り替える。
     afterMock.mockReset()
     afterMock.mockImplementation(() => {})
+    runOpenChatBroadcastMock.mockClear()
+    runOpenChatBroadcastMock.mockResolvedValue({ status: 'sent', sentCount: 1 })
     broadcastEventsToGradeGroupsMock.mockClear()
     broadcastEventsToGradeGroupsMock.mockResolvedValue({
       sentGrades: [],
@@ -3492,6 +3509,228 @@ describe('admin/mail-inbox actions', () => {
       expect(deferred).not.toBeNull()
       await deferred!()
       expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+    })
+
+    /**
+     * openchat-broadcast 2026-09-04 改修: 抽出シートは保存だけを行い、配信は
+     * ここ（メール本文・添付と同じ実行）に相乗りする。
+     */
+    describe('オープンチャットの相乗り配信', () => {
+      /**
+       * after() のコールバックを捕まえ、**await できる形**で返す。
+       * 即時実行（`void cb()`）にすると非同期の配信が終わる前にアサーションが
+       * 走ってしまうので、既存の dedup テストと同じ捕捉方式にする。
+       */
+      function captureAfter() {
+        const box: { cb: (() => void | Promise<void>) | null } = { cb: null }
+        afterMock.mockImplementationOnce((cb) => {
+          box.cb = cb
+        })
+        return async () => {
+          expect(box.cb).not.toBeNull()
+          await box.cb!()
+        }
+      }
+
+      it('includeOpenChat: true なら本文・添付の配信に続けてオープンチャットも送る', async () => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        const result = await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        expect(result.ok).toBe(true)
+        expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+        // 送信者は呼び出し元の申告ではなく認証セッションから決まる。
+        expect(runOpenChatBroadcastMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entryGroupId: group.id,
+            sentByUserId: admin.id,
+            abortBeforePush: expect.any(Function),
+          }),
+        )
+      })
+
+      it('★Codex R3: 配信ヘルパーへ渡す中止判定が、取り消し後に true を返す', async () => {
+        // ヘルパー内部でも行取得・紐付け再検証で複数回 await するため、
+        // push の直前に呼ばれるこの判定が最後の関門になる。
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        const abortBeforePush = runOpenChatBroadcastMock.mock.calls[0]?.[0].abortBeforePush
+        expect(abortBeforePush).toBeTypeOf('function')
+        // 送る直前の時点ではまだ処理済み。
+        await expect(abortBeforePush!()).resolves.toBe(false)
+
+        await undoTriage(mail.id)
+        // 取り消し後は中止する。
+        await expect(abortBeforePush!()).resolves.toBe(true)
+      })
+
+      it('includeOpenChat 未指定なら送らない（既存の挙動を変えない）', async () => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+        })
+        await flushAfter()
+
+        expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+        expect(runOpenChatBroadcastMock).not.toHaveBeenCalled()
+      })
+
+      it('★本文配信が例外で落ちてもオープンチャットは送る（try を分けている）', async () => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        broadcastMailToEventMock.mockRejectedValueOnce(new Error('boom'))
+        const flushAfter = captureAfter()
+
+        const result = await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        expect(result.ok).toBe(true)
+        expect(runOpenChatBroadcastMock).toHaveBeenCalledTimes(1)
+      })
+
+      it('★オープンチャット配信が例外で落ちても実行は成功のまま', async () => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        runOpenChatBroadcastMock.mockRejectedValueOnce(new Error('boom'))
+        const flushAfter = captureAfter()
+
+        const result = await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        expect(result.ok).toBe(true)
+        expect((await getMail(mail.id))?.triageStatus).toBe('processed')
+      })
+
+      it('★Codex R1: 本文配信の**待機中**に取り消されたらオープンチャットも送らない', async () => {
+        // 本文の画像化・添付処理は数十秒かかることがある。その間に取り消しが
+        // 完了すると、コールバック冒頭の1度きりの世代チェックはすり抜ける。
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        const flushAfter = captureAfter()
+
+        // 本文配信の「最中」に未処理へ戻す。
+        broadcastMailToEventMock.mockImplementationOnce(async () => {
+          await undoTriage(mail.id)
+          return {
+            status: 'skipped' as const,
+            reason: 'mocked',
+            sentTextCount: 0,
+            sentImageCount: 0,
+            fallbackLinkCount: 0,
+          }
+        })
+
+        await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await flushAfter()
+
+        expect(broadcastMailToEventMock).toHaveBeenCalledTimes(1)
+        // LINE は送信後に取り消せない。本文の後に続けて送ってはいけない。
+        expect(runOpenChatBroadcastMock).not.toHaveBeenCalled()
+      })
+
+      it('取り消し済みならオープンチャットも送らない（世代トークンの中にある）', async () => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const group = (await testDb.insert(entryGroups).values({}).returning())[0]!
+        await createEvent({ entryGroupId: group.id })
+        await linkLineGroup(group.id)
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+        let deferred: (() => void | Promise<void>) | null = null
+        afterMock.mockImplementationOnce((cb) => {
+          deferred = cb
+        })
+
+        await processMail(mail.id, {
+          mailKind: null,
+          entryGroupId: group.id,
+          rosterFiles: [],
+          broadcast: true,
+          includeBody: true,
+          includeOpenChat: true,
+        })
+        await undoTriage(mail.id)
+
+        expect(deferred).not.toBeNull()
+        await deferred!()
+
+        expect(broadcastMailToEventMock).not.toHaveBeenCalled()
+        expect(runOpenChatBroadcastMock).not.toHaveBeenCalled()
+      })
     })
 
     it('未認証 / member は実行できない', async () => {
