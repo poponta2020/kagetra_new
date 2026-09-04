@@ -7,7 +7,7 @@
  *   3. 長辺 4096px 以内へ縮小（拡大はしない）
  *   4. JPEG 化。10MB を超えるうちは quality を段階的に下げる。
  *      それでも収まらない1枚はその枚だけ除外して理由を返す
- *   5. 長辺 1024px・1MB 以内のプレビュー JPEG を別途生成
+ *   5. 長辺 240px・1MB 以内のプレビュー JPEG を別途生成（LINE previewImageUrl 仕様）
  *
  * apps/web/src/lib/line-broadcast.ts の本文画像正規化（4096px 上限・10MB 上限・
  * quality 段階調整・プレビュー別生成）と同じ規律に揃えている。ただしコピーして
@@ -26,8 +26,13 @@ type SharpInstance = import('sharp').Sharp
 export const LINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 /** LINE image message の長辺上限（公式仕様）。 */
 const MAX_DIMENSION = 4096
-/** プレビュー画像の長辺上限（LINE previewImageUrl 制約 + 履歴サムネ用）。 */
-const PREVIEW_MAX_DIMENSION = 1024
+/**
+ * プレビュー画像の長辺上限。LINE の `previewImageUrl` は **JPEG・1MB 以内・240x240**
+ * が公式仕様で、既存の要綱配信パイプライン（`lib/line-broadcast.ts`）も同じ理由で
+ * 240 に縮めている —— 大判のプレビューは LINE 側の取得に失敗し、**配信全体が
+ * partial / failed に倒れる**実績がある。履歴のサムネは 56px 表示なので 240 で足りる。
+ */
+const PREVIEW_MAX_DIMENSION = 240
 /** プレビュー画像の容量上限。 */
 const PREVIEW_MAX_BYTES = 1 * 1024 * 1024
 
@@ -44,7 +49,7 @@ export interface NormalizedReceiptImage {
   byteSize: number
   width: number
   height: number
-  previewData: Buffer // 長辺1024px・1MB以内の JPEG
+  previewData: Buffer // 長辺240px・1MB以内の JPEG
   contentType: 'image/jpeg'
 }
 
@@ -121,8 +126,8 @@ export async function normalizeReceiptImage(
 
   const mainMetadata = await sharp(main.buffer).metadata()
 
-  // プレビューは正規化済みの本体からさらに縮小する（ベストエフォート。長辺1024px
-  // まで縮めればほぼ確実に1MB以内に収まるため、収まらなくても送信自体は失敗させない）
+  // プレビューは正規化済みの本体からさらに縮小する（ベストエフォート。長辺240px
+  // まで縮めれば確実に1MB以内に収まるため、収まらなくても送信自体は失敗させない）
   const previewPipeline = sharp(main.buffer).resize({
     width: PREVIEW_MAX_DIMENSION,
     height: PREVIEW_MAX_DIMENSION,

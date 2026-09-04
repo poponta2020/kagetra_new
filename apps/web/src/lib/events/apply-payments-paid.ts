@@ -56,10 +56,18 @@ function normalizeIds(eventIds: readonly number[]): number[] {
 export async function applyPaymentsPaid(
   dbc: Database,
   eventIds: readonly number[],
+  opts: { expectedEntryGroupId?: number } = {},
 ): Promise<ApplyPaymentsPaidOutcome | null> {
   const ids = normalizeIds(eventIds)
   if (ids.length === 0) return null
   const entryGroupId = await resolveEntryGroupId(dbc, ids[0]!)
+  // ★呼び出し側が「このグループの日のはず」と申告しているときは、**flip の前に**
+  //   突き合わせる。後ろで弾くと別グループの日が支払済になるだけでなく、その日の
+  //   `payment_paid` once-ever スロットまで claim で消費され、finalize されないまま
+  //   残る —— そのグループの完了通知が二度と送れなくなる（UNIQUE(event_id, type)）。
+  if (opts.expectedEntryGroupId != null && opts.expectedEntryGroupId !== entryGroupId) {
+    return null
+  }
 
   const result = await dbc.transaction(async (tx: Transaction) => {
     const claimed: PaymentPaidFlipRow[] = []

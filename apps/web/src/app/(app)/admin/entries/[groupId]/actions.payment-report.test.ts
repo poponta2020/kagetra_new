@@ -312,7 +312,9 @@ describe('reportPayment', () => {
     const fetchSpy = spyOnPush()
     try {
       const result = await reportPayment(group.id, [days[0]!.id], [])
-      expect(result).toMatchObject({ ok: true, status: 'skipped_unlinked' })
+      // ★`skipped_unlinked` ではない —— 紐付けはあるので「LINE 未連携」と
+      //   記録すると画面にも DB にも嘘が残る。
+      expect(result).toMatchObject({ ok: true, status: 'skipped_no_change' })
       expect(fetchSpy).not.toHaveBeenCalled()
     } finally {
       fetchSpy.mockRestore()
@@ -403,13 +405,31 @@ describe('reportPayment', () => {
     expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(0)
   })
 
-  it('別グループの日を混ぜた呼び出しは拒否される（fail-closed）', async () => {
+  it('別グループの日を混ぜた呼び出しは、その日を1つも動かさずに拒否する（fail-closed）', async () => {
     const admin = await createAdmin({ name: 'rp-admin-10' })
     await setAuthSession({ id: admin.id, role: 'admin' })
     const { group } = await seedGroup(1)
     const other = await seedGroup(1)
+    await linkLineGroup(other.group.id)
 
-    const result = await reportPayment(group.id, [other.days[0]!.id], [])
-    expect(result).toEqual({ error: 'このグループの日ではありません' })
+    const fetchSpy = spyOnPush()
+    try {
+      const result = await reportPayment(group.id, [other.days[0]!.id], [])
+      expect(result).toEqual({ error: 'このグループの日ではありません' })
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    // ★弾くのは flip の**前**でなければならない。後ろで弾くと別グループの日が
+    //   支払済になるだけでなく、payment_paid の once-ever スロットが claim で
+    //   消費されて finalize されず、そのグループの完了通知が二度と送れなくなる。
+    const [otherDay] = await testDb
+      .select()
+      .from(events)
+      .where(eq(events.id, other.days[0]!.id))
+    expect(otherDay!.paymentStatus).toBe('unpaid')
+    expect(await testDb.select().from(eventLifecycleNotifications)).toHaveLength(0)
+    expect(await testDb.select().from(entryGroupPaymentReports)).toHaveLength(0)
   })
 })

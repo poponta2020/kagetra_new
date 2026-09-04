@@ -16,7 +16,7 @@ status: completed
 | `entry_group_payment_reports` | **支払報告1回＝1行**。対象日・想定額とその出典・送信本文のスナップショット・送信状態を持つ。`entry_group_id` FK は `ON DELETE CASCADE`（`entry_group_payment_notices` と同じ規律） |
 | `entry_group_payment_receipts` | **証憑画像1枚＝1行**。正規化後の JPEG 本体（`bytea`）とプレビュー（`bytea`）、公開取得用の推測不能トークン。`report_id` FK は `ON DELETE CASCADE` |
 
-`entry_group_payment_reports` の主な列: `entry_group_id` / `event_ids`(jsonb・対象日のスナップショット) / `amount_jpy`(nullable) / `amount_source`(`payment_notice` \| `tally` \| `none`) / `unknown_grade_count` / `message_text`(送信本文の正本＝再送の再現性 AC-18) / `receipt_count` / `status`(`sent` \| `failed` \| `skipped_unlinked`) / `error_message` / `last_sent_at` / `created_by`(users FK・`ON DELETE SET NULL`) / `created_at` / `updated_at`。
+`entry_group_payment_reports` の主な列: `entry_group_id` / `event_ids`(jsonb・対象日のスナップショット) / `amount_jpy`(nullable) / `amount_source`(`payment_notice` \| `tally` \| `none`) / `unknown_grade_count` / `message_text`(送信本文の正本＝再送の再現性 AC-18) / `receipt_count` / `status`(`sent` \| `failed` \| `skipped_unlinked` \| `skipped_no_change`) / `error_message` / `last_sent_at` / `created_by`(users FK・`ON DELETE SET NULL`) / `created_at` / `updated_at`。
 
 `entry_group_payment_receipts` の主な列: `report_id` / `sort_order` / `filename` / `content_type`(常に `image/jpeg`) / `data`(bytea) / `byte_size` / `width` / `height` / `preview_data`(bytea) / `token`(text UNIQUE) / `created_at`。
 
@@ -28,7 +28,7 @@ status: completed
 
 - **クライアント側で縮小してから送る**: 選択直後に canvas で長辺 2048px・JPEG q0.85 へ再エンコードし、base64 で Server Action へ渡す（既存 `entry-form` の `fileToBase64` と同じ経路）。`serverActions.bodySizeLimit` は現行 `4mb`。3枚でも base64 込みで収まる見込みだが、**`8mb` へ引き上げる**（明細は文字が読めることが要件なので縮小しすぎない）
 - **サーバー側で必ず再検証・再正規化**（クライアントを信用しない）: `sharp` で metadata を読み `format ∈ {jpeg, png}` 以外は拒否（PDF・HEIC はここで落ちる）→ `.rotate()`（EXIF 向き）→ 長辺 4096px 以内へ縮小 → JPEG 化 → 10MB を超えるうちは quality を段階的に下げる。それでも収まらない1枚は**その枚だけ除外**して理由を返す
-- プレビューは長辺 1024px・1MB 以内の JPEG を別途生成（LINE の `previewImageUrl` 制約と、履歴のサムネ表示に使う）
+- プレビューは長辺 **240px**・1MB 以内の JPEG を別途生成（★実装時に訂正: 計画の 1024px は LINE の `previewImageUrl` 公式仕様 240x240 に反する。`lib/line-broadcast.ts` に「大判プレビューで配信ごと partial / failed に倒れた」実績のコメントがあり、同じ規律に揃えた。履歴サムネは 56px 表示なので 240 で足りる）
 - **HEIC はデコード不可**（sharp 0.34 / libvips 8.17.3 の `heif` 入力は `.avif` のみ・実測確認済み）。クライアント側の canvas デコードも失敗するため、その場で日本語のエラーを出す
 
 ### 送信

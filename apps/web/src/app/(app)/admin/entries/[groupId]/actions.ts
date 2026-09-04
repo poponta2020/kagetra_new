@@ -18,7 +18,11 @@ import {
   type PaymentDeadlineKind,
 } from '@/lib/events/payment-deadline'
 import type { Grade } from '@kagetra/shared/types'
-import { propagateFieldsToGroup, type PropagatableFields } from '@/lib/entry-groups'
+import {
+  propagateFieldsToGroup,
+  resolveEntryGroupId,
+  type PropagatableFields,
+} from '@/lib/entry-groups'
 import {
   loadLinkedBindingForGroup,
   pushMessagesToEntryGroup,
@@ -311,7 +315,7 @@ export interface PaymentReceiptInput {
 export interface ReportPaymentSuccess {
   ok: true
   reportId: number
-  status: 'sent' | 'failed' | 'skipped_unlinked'
+  status: 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'
   /** サイズ超過・対応外形式で送信から外した枚の理由（要件 §3.2.2-7）。 */
   excluded: string[]
   /** LINE 送信に失敗したときの理由（状態変更は巻き戻さない・§3.2.4-16）。 */
@@ -388,6 +392,20 @@ export async function reportPayment(
     }
   }
 
+  // ⓪ **どのグループの日かを最初に突き合わせる**（fail-closed）。画像の正規化も
+  //    支払済化も始める前にここで弾く —— 後段で弾くと、別グループの日が支払済に
+  //    なったうえ `payment_paid` の once-ever スロットまで消費されてしまう。
+  const ids = Array.from(new Set(parsed.data.eventIds)).sort((a, b) => a - b)
+  let resolvedGroupId: number
+  try {
+    resolvedGroupId = await resolveEntryGroupId(db, ids[0]!)
+  } catch {
+    return { error: '対象の日が見つかりません' }
+  }
+  if (resolvedGroupId !== groupId) {
+    return { error: 'このグループの日ではありません' }
+  }
+
   // ① 金額は状態を変える前に確定させる（AC-12）。
   const amount = await resolvePaymentReportAmount(db, groupId)
 
@@ -419,13 +437,11 @@ export async function reportPayment(
   // 紐付けなので、ここでの判定と実際の送信先がズレない（AC-15）。
   const binding = await loadLinkedBindingForGroup(db, groupId)
 
-  // ③ 支払済へ倒して claim する。
-  const outcome = await applyPaymentsPaid(db, parsed.data.eventIds)
-  if (!outcome) return { error: '対象の日が選択されていません' }
-  if (outcome.entryGroupId !== groupId) {
-    // クライアントの申告を信用しない（別グループの日を混ぜた呼び出しの fail-closed）。
-    return { error: 'このグループの日ではありません' }
-  }
+  // ③ 支払済へ倒して claim する。`expectedEntryGroupId` は⓪と同じ突き合わせを
+  //    **flip と同じ関数の中**でもう一度行う二重の歯止め（⓪の後に付け替えられた
+  //    場合も別グループを書き換えない）。
+  const outcome = await applyPaymentsPaid(db, ids, { expectedEntryGroupId: groupId })
+  if (!outcome) return { error: 'このグループの日ではありません' }
 
   const messageText = buildPaymentReportMessage({
     amountJpy: amount.amountJpy,
@@ -534,7 +550,7 @@ interface SendPaymentReportArgs {
  */
 async function sendPaymentReport(
   args: SendPaymentReportArgs,
-): Promise<{ status: 'sent' | 'failed' | 'skipped_unlinked'; error?: string }> {
+): Promise<{ status: 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'; error?: string }> {
   if (!args.hasBinding) return { status: 'skipped_unlinked' }
 
   const messages: LineOutgoingMessage[] = [{ type: 'text', text: args.messageText }]
@@ -547,7 +563,8 @@ async function sendPaymentReport(
   const canClaim = args.claim.notificationIds.length > 0 && claimEventId != null
 
   // 証憑0枚 かつ claim できる日が無い = 現行どおり何も送らない（AC-14）。
-  if (!hasReceipts && !canClaim && !args.alwaysSend) return { status: 'skipped_unlinked' }
+  // ★`skipped_unlinked` ではない —— 紐付けはあるので「LINE 未連携」と記録すると嘘になる。
+  if (!hasReceipts && !canClaim && !args.alwaysSend) return { status: 'skipped_no_change' }
 
   try {
     const result = canClaim
@@ -568,7 +585,7 @@ async function sendPaymentReport(
 
 export interface ResendPaymentReportSuccess {
   ok: true
-  status: 'sent' | 'failed' | 'skipped_unlinked'
+  status: 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'
   sendError?: string
 }
 

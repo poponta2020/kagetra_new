@@ -141,4 +141,19 @@ describe('normalizeReceiptImage', () => {
     expect(result.image.width).toBe(400)
     expect(result.image.height).toBe(800)
   })
+
+  it('プレビューは長辺 240px 以内（LINE previewImageUrl 仕様・既存配信パイプラインと同じ規律）', async () => {
+    const input = await sharp({
+      create: { width: 1600, height: 900, channels: 3, background: { r: 20, g: 120, b: 200 } },
+    })
+      .png()
+      .toBuffer()
+
+    const result = await normalizeReceiptImage(input)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const preview = await sharp(result.image.previewData).metadata()
+    expect(Math.max(preview.width ?? 0, preview.height ?? 0)).toBeLessThanOrEqual(240)
+    expect(result.image.previewData.byteLength).toBeLessThanOrEqual(1024 * 1024)
+  })
 })

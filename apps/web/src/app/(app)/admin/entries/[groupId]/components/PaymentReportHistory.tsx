@@ -21,7 +21,7 @@ export interface PaymentReportHistoryRow {
   createdByName: string | null
   amountJpy: number | null
   receiptCount: number
-  status: 'sent' | 'failed' | 'skipped_unlinked'
+  status: 'sent' | 'failed' | 'skipped_unlinked' | 'skipped_no_change'
   lastSentAt: Date | string | null
   /** 証憑の公開トークン（`sort_order` 順）。サムネ URL の組み立てに使う。 */
   receiptTokens: string[]
@@ -36,6 +36,8 @@ const STATUS_LABEL: Record<PaymentReportHistoryRow['status'], { text: string; to
   sent: { text: '送信済', tone: 'text-brand-fg' },
   failed: { text: '送信失敗', tone: 'text-danger-fg' },
   skipped_unlinked: { text: 'LINE未連携', tone: 'text-warn-fg' },
+  // 紐付けはあるが送るものが無かった（証憑0枚 ∧ 完了通知は送信済み）。
+  skipped_no_change: { text: '通知なし', tone: 'text-ink-meta' },
 }
 
 export function PaymentReportHistory({ rows, resendAction }: PaymentReportHistoryProps) {
@@ -65,6 +67,10 @@ export function PaymentReportHistory({ rows, resendAction }: PaymentReportHistor
         }
         if (result.status === 'skipped_unlinked') {
           setError('LINE グループが紐付いていないため送信していません')
+          return
+        }
+        if (result.status === 'skipped_no_change') {
+          setError('送信するものがありませんでした')
           return
         }
         setResentId(reportId)

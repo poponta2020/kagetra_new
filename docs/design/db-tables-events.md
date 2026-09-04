@@ -222,7 +222,7 @@
 | unknown_grade_count | integer | NOT NULL | 0 | 級未設定で総額に算入できなかった延べ人数。`amount_source='payment_notice'` のときは常に 0（確定値なので注記しない） |
 | message_text | text | NOT NULL | — | 送信した本文の正本。再送はこれをそのまま送る |
 | receipt_count | integer | NOT NULL | 0 | 添えた証憑の枚数（`entry_group_payment_receipts` の行数と一致） |
-| status | payment_report_status (enum) | NOT NULL | — | sent／failed（push 失敗。状態変更は巻き戻さない）／skipped_unlinked（LINE 未連携で送らなかった） |
+| status | payment_report_status (enum) | NOT NULL | — | sent／failed（push 失敗。状態変更は巻き戻さない）／skipped_unlinked（LINE 未連携で送らなかった）／skipped_no_change（紐付けはあるが送るものが無かった＝証憑0枚 ∧ once-ever を claim できる日が無い）。★後者2つを畳まないのは、畳むと画面にも記録にも「LINE 未連携」という嘘が恒久的に残るため |
 | error_message | text | NULL | — | |
 | last_sent_at | timestamptz | NULL | — | 最後に送信できた日時。NULL = 一度も送れていない。再送成功でここを進める |
 | created_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
@@ -248,7 +248,7 @@
 | byte_size | integer | NOT NULL | — | |
 | width | integer | NOT NULL | — | |
 | height | integer | NOT NULL | — | |
-| preview_data | bytea | NOT NULL | — | LINE の `previewImageUrl` と履歴サムネ用（長辺 1024px・1MB 以内の JPEG） |
+| preview_data | bytea | NOT NULL | — | LINE の `previewImageUrl` と履歴サムネ用（長辺 240px・1MB 以内の JPEG。LINE 公式仕様。既存の要綱配信パイプラインが大判プレビューで配信ごと partial / failed に倒れた実績があるので同じ規律に揃える） |
 | token | text | NOT NULL | — | UNIQUE。公開取得 URL の鍵（`randomBytes(24).toString('base64url')`） |
 | created_at | timestamptz | NOT NULL | `now()` | |
 

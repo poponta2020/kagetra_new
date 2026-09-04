@@ -328,11 +328,17 @@ export const openChatBroadcastStatusEnum = pgEnum('open_chat_broadcast_status', 
 
 // payment-receipt-broadcast: 支払報告 1 回の送信結果。
 // sent=LINE へ送れた / failed=push 失敗（状態変更は巻き戻さない・要件 §3.2.4-16）/
-// skipped_unlinked=グループに linked な LINE 連携が無く送らなかった（§3.2.4-15）。
+// skipped_unlinked=グループに linked な LINE 連携が無く送らなかった（§3.2.4-15）/
+// skipped_no_change=紐付けはあるが送るものが無かった（証憑0枚 ∧ once-ever を
+// claim できる日が1つも無い＝未払に戻して再報告したケース。AC-14 で「送らない」のが
+// 正しい経路）。
+// ★`skipped_unlinked` に畳まない。畳むと画面に「LINE 未連携のため送信していない」と
+// 出て**事実と違う**うえ、記録にも恒久的に嘘が残る。
 export const paymentReportStatusEnum = pgEnum('payment_report_status', [
   'sent',
   'failed',
   'skipped_unlinked',
+  'skipped_no_change',
 ])
 
 // payment-receipt-broadcast: 文面に載せた「景虎上の想定金額」の出典（要件 §3.2.3-9）。

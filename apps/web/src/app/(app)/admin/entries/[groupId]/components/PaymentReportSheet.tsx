@@ -139,6 +139,10 @@ export function PaymentReportSheet({
         if (result.status === 'skipped_unlinked') {
           messages.push('LINE グループが紐付いていないため送信していません（記録は残りました）。')
         }
+        if (result.status === 'skipped_no_change') {
+          // 紐付けはあるが送るものが無かった（証憑0枚 ∧ 完了通知は送信済み）。
+          messages.push('この日の完了通知は送信済みのため、今回は通知を送っていません。')
+        }
         if (result.status === 'failed') {
           messages.push(
             `LINE 送信に失敗しました: ${result.sendError ?? '不明なエラー'}（履歴から再送できます）`,

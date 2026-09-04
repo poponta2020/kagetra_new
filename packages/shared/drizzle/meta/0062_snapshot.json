@@ -1,5 +1,5 @@
 {
-  "id": "ac2b46c3-914d-4408-9742-5051f9c53ce9",
+  "id": "c4648602-80d0-48b9-9a50-c1b6dd094e80",
   "prevId": "5478e610-0a39-4eb3-96f8-d870351b33b0",
   "version": "7",
   "dialect": "postgresql",
@@ -6774,7 +6774,8 @@
       "values": [
         "sent",
         "failed",
-        "skipped_unlinked"
+        "skipped_unlinked",
+        "skipped_no_change"
       ]
     },
     "public.registration_invite_kind": {
