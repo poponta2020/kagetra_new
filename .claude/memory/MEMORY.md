@@ -358,3 +358,5 @@
 - [配色を藤色基調へ刷新し立体感を導入](project_ship-lilac-palette.md) — shipped: PR #550（★残DoD=実機で影・テクスチャ濃度の確認）
 - [auto-review PR #551](auto-review-round-pr551.md) — R1 verdict=pass
 - [AI 抽出の PDF サイズ上限を「拒否」から「警告＋確認」へ](project_ship-pdf-size-warn-instead-of-block.md) — shipped: PR #551
+- [auto-review PR #552](auto-review-round-pr552.md) — R1 verdict=pass
+- [申込グループページの前進2ボタンを「今できる操作」のときだけ表示する](project_ship-hide-inapplicable-progress-buttons.md) — shipped: PR #552
