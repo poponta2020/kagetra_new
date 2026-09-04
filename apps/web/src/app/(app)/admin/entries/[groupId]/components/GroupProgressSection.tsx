@@ -9,6 +9,11 @@ import {
   type FlatTableRow,
 } from '@/components/events/detail'
 import type { PaymentDeadlineKind } from '@/lib/events/payment-deadline'
+import {
+  PaymentReportHistory,
+  type PaymentReportHistoryRow,
+} from './PaymentReportHistory'
+import type { ResendPaymentReportResult } from '../actions'
 
 /**
  * 申込グループページの「進行管理」（管理者のみ・**表示専用**）。
@@ -58,6 +63,14 @@ export interface GroupProgressSectionProps {
   internalDeadline: string | null
   paymentDeadline: string | null
   paymentDeadlineKind: PaymentDeadlineKind
+  /**
+   * payment-receipt-broadcast: 支払報告の履歴（新しい順）。空配列なら何も描かない。
+   * ★**操作コントロールを置かない**という原則の唯一の例外が履歴行の「再送」で、
+   * これは状態を進める操作ではなく「同じものをもう一度届ける」操作なので、
+   * 記録の隣に置くのが正しい（日程表で日を選び直す意味が無い）。
+   */
+  paymentReports?: readonly PaymentReportHistoryRow[]
+  resendPaymentReportAction?: (reportId: number) => Promise<ResendPaymentReportResult>
   paymentMethod: string | null
   paymentInfo: string | null
   /** 振込総額と内訳（`tallyEntryFeesForGroup`）。 */
@@ -101,6 +114,8 @@ export function GroupProgressSection({
   unknownGradeNote,
   entryFormGroupId,
   entryFormLatestDraft = null,
+  paymentReports = [],
+  resendPaymentReportAction,
 }: GroupProgressSectionProps) {
   const entryRows: FlatTableRow[] = []
   if (entryMethod != null) entryRows.push({ label: '申込方法', value: entryMethod })
@@ -215,6 +230,12 @@ export function GroupProgressSection({
         valueTone={paymentSummary.tone}
       >
         <FlatTable rows={paymentRows} />
+        {resendPaymentReportAction && (
+          <PaymentReportHistory
+            rows={paymentReports}
+            resendAction={resendPaymentReportAction}
+          />
+        )}
       </DisclosureRow>
     </DisclosureSection>
   )

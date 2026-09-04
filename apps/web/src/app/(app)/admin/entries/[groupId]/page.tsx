@@ -3,6 +3,8 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne } from 'drizz
 import {
   entryFormDrafts,
   entryGroupOpenChats,
+  entryGroupPaymentReceipts,
+  entryGroupPaymentReports,
   eventAttendances,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
@@ -63,7 +65,12 @@ import {
 } from '@/app/(app)/events/[id]/actions'
 import { displayName, type EntryBoardItem } from '../entry-board-utils'
 import { dayPhase } from '../day-phase'
-import { reportPayment, saveGroupCommonFields, sendPaymentNotice } from './actions'
+import {
+  reportPayment,
+  resendPaymentReport,
+  saveGroupCommonFields,
+  sendPaymentNotice,
+} from './actions'
 import { GroupDayTable, type GroupDayRow } from './components/GroupDayTable'
 import { GroupProgressSection, type GroupSummary } from './components/GroupProgressSection'
 import { CommonFieldsSection } from './components/CommonFieldsSection'
@@ -502,6 +509,45 @@ export default async function EntryGroupPage({
   // Server Action を groupId で束ねて client へ渡す（client は groupId を知らない）。
   // 認可は action 側の `requireAdminSession` が担う。
   const reportPaymentWithGroup = reportPayment.bind(null, groupIdNum)
+  // payment-receipt-broadcast タスク9: 支払報告の履歴（新しい順）。証憑は
+  // `sort_order` 順のトークンだけ降ろし、画像は公開 route から引かせる（bytea を
+  // ページの payload に載せない）。
+  const paymentReportRows = isAdmin
+    ? await db
+        .select({
+          id: entryGroupPaymentReports.id,
+          createdAt: entryGroupPaymentReports.createdAt,
+          createdByName: users.name,
+          amountJpy: entryGroupPaymentReports.amountJpy,
+          receiptCount: entryGroupPaymentReports.receiptCount,
+          status: entryGroupPaymentReports.status,
+          lastSentAt: entryGroupPaymentReports.lastSentAt,
+        })
+        .from(entryGroupPaymentReports)
+        .leftJoin(users, eq(users.id, entryGroupPaymentReports.createdBy))
+        .where(eq(entryGroupPaymentReports.entryGroupId, groupIdNum))
+        .orderBy(desc(entryGroupPaymentReports.createdAt), desc(entryGroupPaymentReports.id))
+    : []
+  const receiptTokenRows =
+    paymentReportRows.length > 0
+      ? await db
+          .select({
+            reportId: entryGroupPaymentReceipts.reportId,
+            token: entryGroupPaymentReceipts.token,
+          })
+          .from(entryGroupPaymentReceipts)
+          .where(
+            inArray(
+              entryGroupPaymentReceipts.reportId,
+              paymentReportRows.map((r) => r.id),
+            ),
+          )
+          .orderBy(asc(entryGroupPaymentReceipts.sortOrder), asc(entryGroupPaymentReceipts.id))
+      : []
+  const paymentReports = paymentReportRows.map((row) => ({
+    ...row,
+    receiptTokens: receiptTokenRows.filter((t) => t.reportId === row.id).map((t) => t.token),
+  }))
   const entryFormLatestDraft =
     isAdmin && !isTeamGroup
       ? ((
@@ -602,6 +648,8 @@ export default async function EntryGroupPage({
           // 申込書ウィザードは個人戦のみ（団体戦は Non-goal）。AC-22 / AC-35。
           entryFormGroupId={isTeamGroup ? undefined : groupIdNum}
           entryFormLatestDraft={entryFormLatestDraft}
+          paymentReports={paymentReports}
+          resendPaymentReportAction={resendPaymentReport}
         />
       )}
 
