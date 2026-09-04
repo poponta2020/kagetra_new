@@ -21,7 +21,7 @@ status: completed
 `entry_group_payment_receipts` の主な列: `report_id` / `sort_order` / `filename` / `content_type`(常に `image/jpeg`) / `data`(bytea) / `byte_size` / `width` / `height` / `preview_data`(bytea) / `token`(text UNIQUE) / `created_at`。
 
 - `bytea` は `mail-attachments.ts` の `customType` をそのまま踏襲する
-- `status` は既存 `entry_form_drafts.status` と同じ流儀（pgEnum を新設せず text + `$type<...>()`）
+- `status` / `amount_source` は **pgEnum を新設**する（`enums.ts` に `payment_report_status` / `payment_report_amount_source`）。★実装時に確認したところ、計画が前例として挙げた `entry_form_drafts.status` は実際には pgEnum であり、`text + $type<...>()` の前例はスキーマ全体で `auth.ts` の `AdapterAccountType` だけだった。最も近い前例（`entry_group_open_chat_broadcasts.status`）に倣って pgEnum にする
 - `event_ids` は `int[]` ではなく **jsonb**（`entry_group_payment_notices.grade_counts` の前例に倣う。raw SQL での `int[]` バインドの罠を避ける）
 
 ### 画像の扱い
@@ -48,12 +48,12 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマ2テーブルと migration 0062
-- [ ] 完了
+- [x] 完了
 - **目的:** 支払報告の記録と証憑画像の永続保存先を用意する
 - **対応AC:** AC-17, AC-19, AC-20
 - **主な変更領域:** `packages/shared/src/schema/entry-group-payment-reports.ts`（新規）・`entry-group-payment-receipts.ts`（新規）・`schema/index.ts`・`schema/relations.ts`・`packages/shared/drizzle/0062_*.sql`
 - **依存タスク:** なし（**共有ホットスポット。他タスクに先行して単独で行う**）
-- **必要なテスト:** スキーマの型テストは書かない。CASCADE 挙動（report 削除で receipt が消える／グループ削除で両方消える）を DB テストで1本
+- **必要なテスト:** スキーマの型テストは書かない。CASCADE 挙動（report 削除で receipt が消える／グループ削除で両方消える）を DB テストで1本。★**置き場所は `apps/web/src/lib/payment-receipt/schema-cascade.test.ts`**（`packages/shared` の vitest は `environment: 'node'` の純関数スモーク専用で DB 基盤が無い。前例＝`apps/web/src/lib/result-import/schema-cascade.test.ts`）
 - **完了条件:** `pnpm db:generate` で 0062 が生成され、`pnpm --filter=@kagetra/shared test` と型チェックが通る
 - **対応Issue:** #555
 
@@ -91,8 +91,10 @@ status: completed
 - [ ] 完了
 - **目的:** 支払済化＋通知の本体を、証憑つき送信から再利用できる形に切り出す。**既存の外部契約は一切変えない**
 - **対応AC:** AC-2, AC-14, AC-23, AC-24
-- **主な変更領域:** `apps/web/src/app/(app)/events/[id]/actions.ts`
+- **主な変更領域:** `apps/web/src/lib/events/apply-payments-paid.ts`（新規）・`apps/web/src/app/(app)/events/[id]/actions.ts`・`apps/web/src/lib/line-mention.ts`
 - **依存タスク:** なし（タスク6 の前に完了していること）
+- ★**抽出先は `'use server'` ファイルの外**: `events/[id]/actions.ts` は `'use server'` なので、そこから `applyPaymentsPaid` を export するとそれ自体が**認可ガードの無い公開 Server Action エンドポイント**になる（`project_hono_api_unauthenticated_hole` と同じ穴）。素のモジュール `lib/events/apply-payments-paid.ts` に置き、`requireAdminSession()` と `revalidateAfterLifecycleChange` は各 action ラッパー側に残す（日ページとグループページで revalidate するパスが違うため）
+- ★**`LineMessage` に image 型を追加する**: `lib/line-mention.ts` の `LineMessage` は `LineTextMessage | LineTextV2Message` だけで、これが `sendClaimedNotificationBulk` / `pushMessagesToEntryGroup` の受け取る型。`[text, image...]` を渡すタスク6 の設計は現状の型では通らない。共有型なのでここ（main 直）で入れる（`line-broadcast.ts:90` のローカル `LineMessage` とは**別物**・混同しないこと）
 - **必要なテスト:** 新規テストは書かない。**既存の `lifecycle-actions.test.ts` / `actions.bulk-lifecycle.test.ts` を1行も書き換えずに green** であることが完了条件（これが回帰の証明）
 - **完了条件:** 既存テスト green・`setPaymentsPaid` / `setPaymentPaid` のシグネチャ不変。★**挙動差分ゼロの純粋な抽出であること**（タスク6 と合わせて1つのレビュー単位になるため、既存テストの無改修 green だけが「抽出が綺麗だったか」と「抽出に意味的変更が混ざったか」を区別する材料になる）
 - **対応Issue:** #559
@@ -152,7 +154,7 @@ status: completed
 ## 実装順序（Wave = 並行実装できるタスクの組）
 
 - **Wave 1**: タスク1（`packages/shared` の共有ホットスポット。単独で先行）
-- **Wave 2**: タスク2, タスク3, タスク4, タスク5（互いに依存なし・変更ファイルが完全に分かれている）
+- **Wave 2**: タスク2, タスク3, タスク4（互いに依存なし・変更ファイルが完全に分かれている）。★**タスク5 は Wave から外して main 直**にした — 完了条件が「既存テストを1行も変えずに green」であり、`worker_verify: none` のワーカーはテストを実行できないので委譲すると唯一の証拠が取れない。加えて共有型 `LineMessage` を触る
   - タスク4 はタスク1 の schema に依存するので Wave 1 の後。タスク2/3/5 は Wave 1 と無関係だが、migration 番号の衝突回避のため Wave 1 の後に揃える
 - **Wave 3**: タスク6（複数レイヤー跨ぎ・main が担当）
 - **Wave 4**: タスク7（タスク6 と同一ファイル）

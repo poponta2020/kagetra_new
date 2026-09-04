@@ -325,3 +325,22 @@ export const openChatBroadcastStatusEnum = pgEnum('open_chat_broadcast_status', 
   'failed',
   'skipped',
 ])
+
+// payment-receipt-broadcast: 支払報告 1 回の送信結果。
+// sent=LINE へ送れた / failed=push 失敗（状態変更は巻き戻さない・要件 §3.2.4-16）/
+// skipped_unlinked=グループに linked な LINE 連携が無く送らなかった（§3.2.4-15）。
+export const paymentReportStatusEnum = pgEnum('payment_report_status', [
+  'sent',
+  'failed',
+  'skipped_unlinked',
+])
+
+// payment-receipt-broadcast: 文面に載せた「景虎上の想定金額」の出典（要件 §3.2.3-9）。
+// payment_notice=送信済み振込連絡の総額 / tally=その場の参加費集計 /
+// none=いずれも算出できず金額行を省いた。
+// ★級未設定の注記（`※級未設定 N名は未算入`）が付くのは tally のときだけ（AC-11）。
+export const paymentReportAmountSourceEnum = pgEnum('payment_report_amount_source', [
+  'payment_notice',
+  'tally',
+  'none',
+])

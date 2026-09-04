@@ -3,6 +3,8 @@ import { users } from './auth'
 import { entryGroups } from './entry-groups'
 import { entryGroupOpenChats } from './entry-group-open-chats'
 import { entryGroupOpenChatBroadcasts } from './entry-group-open-chat-broadcasts'
+import { entryGroupPaymentReports } from './entry-group-payment-reports'
+import { entryGroupPaymentReceipts } from './entry-group-payment-receipts'
 import { events } from './events'
 import { eventAttendances } from './event-attendances'
 import { scheduleItems } from './schedule-items'
@@ -76,7 +78,34 @@ export const entryGroupsRelations = relations(entryGroups, ({ many, one }) => ({
   openChats: many(entryGroupOpenChats),
   // openchat-broadcast: 配信履歴（追記専用。回数 = count(*)）。
   openChatBroadcasts: many(entryGroupOpenChatBroadcasts),
+  // payment-receipt-broadcast: 支払報告の履歴（追記専用。1行 = 1回の報告）。
+  paymentReports: many(entryGroupPaymentReports),
 }))
+
+export const entryGroupPaymentReportsRelations = relations(
+  entryGroupPaymentReports,
+  ({ one, many }) => ({
+    entryGroup: one(entryGroups, {
+      fields: [entryGroupPaymentReports.entryGroupId],
+      references: [entryGroups.id],
+    }),
+    createdByUser: one(users, {
+      fields: [entryGroupPaymentReports.createdBy],
+      references: [users.id],
+    }),
+    receipts: many(entryGroupPaymentReceipts),
+  }),
+)
+
+export const entryGroupPaymentReceiptsRelations = relations(
+  entryGroupPaymentReceipts,
+  ({ one }) => ({
+    report: one(entryGroupPaymentReports, {
+      fields: [entryGroupPaymentReceipts.reportId],
+      references: [entryGroupPaymentReports.id],
+    }),
+  }),
+)
 
 export const entryGroupOpenChatsRelations = relations(entryGroupOpenChats, ({ one }) => ({
   entryGroup: one(entryGroups, {
