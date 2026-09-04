@@ -17,6 +17,10 @@
  * 不可（要件 §3.2.2-6）。metadata() が読めた場合も format が 'heif' になり
  * jpeg/png 判定で弾かれる。metadata() 自体が読めない壊れたバイト列（PDF 等）は
  * catch して対応外形式と同じ扱いにする（throw しない）。
+ *
+ * metadata() はヘッダーだけ読めれば通ってしまうため、その後のデコード・
+ * エンコード（.rotate() 〜 プレビュー生成）も別途 catch し、画素データが
+ * 途中で切れた JPEG 等はこの1枚だけを除外する（throw しない）。
  */
 
 /** sharp の Sharp インスタンス型（重い native module の実 import は使用直前まで遅延する）。 */
