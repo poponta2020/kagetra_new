@@ -204,7 +204,12 @@ export function OpenSaveButton({
   return (
     <div
       className={cn(
-        variant === 'block' ? 'flex w-full flex-col items-center gap-1' : '',
+        // header: sticky ヘッダの flex 子になる。shrink-0 が無いと長い
+        // ファイル名に押されてボタンが潰れる (design-spec 忠実度チェック
+        // リスト「375px でファイル名が長くてもボタンが押し出されない」)。
+        variant === 'block'
+          ? 'flex w-full flex-col items-center gap-1'
+          : 'shrink-0',
         className,
       )}
     >
