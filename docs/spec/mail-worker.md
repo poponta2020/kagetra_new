@@ -150,7 +150,7 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 #### 統合処理フォーム（`MailProcessForm`）
 
-「種別 → 対象の大会 → 実行」の 1 フォームに畳んだ処理導線。上から **種別**（未選択 / 大会案内 / 申込名簿 / 確定名簿 のセグメント）→ **対象の大会**（申込グループ単位。`GroupPickerSheet`）→ **採用する名簿ファイル**（名簿種別のみ）→ **発表日**（名簿種別のみ）→ **LINE 配信** → **実行する**。選んだ種別に応じて必要な欄だけが DOM に生える。
+「種別 → 対象の大会 → 実行」の 1 フォームに畳んだ処理導線。上から **種別**（未選択 / 大会案内 / 申込名簿 / 確定名簿 のセグメント）→ **対象の大会**（申込グループ単位。`GroupPickerSheet`）→ **採用する名簿ファイル**（名簿種別のみ）→ **発表日**（名簿種別のみ）→ **オープンチャット**（抽出シート `OpenChatExtractSheet` の起点。保存のみで配信しない。[spec/notifications.md](notifications.md)）→ **LINE 配信** → **実行する**。選んだ種別に応じて必要な欄だけが DOM に生える。
 
 - 種別 = 大会案内 → 対象・名簿・配信の欄は出さず AI 抽出だけ（承認が新規の申込グループを作る経路で、その時点では LINE グループが存在しないため配信を選ばせない）
 - 種別 = 未選択 → 「その他」（組合せ表・会場案内・要項の訂正版・領収書）。大会紐付けと LINE 配信だけを行う
@@ -161,7 +161,7 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 保存時は選んだグループの「cutoff 以降 ∧ 非 cancelled」の日から代表イベントを解決して `mail_messages.linked_event_id` に入れる（グループは `events.entry_group_id` から一意に引けるので二重管理しない）。紐付け時は任意の「冒頭メッセージ」（200 文字以内）を LINE 配信に付加できる。
 
-LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 紐付けが無いときは選択できず**理由と大会詳細へのリンクを出す（従来は黙ってスキップしていた）。「メール本文を添付する」（既定 ON）を外すと本文画像も本文テキストも送らず、冒頭メッセージと添付リンクだけを配信する。この可否は `event_broadcast_messages.include_body` に保存され、再送時も同じメッセージ構成が再現される。
+LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 紐付けが無いときは選択できず**理由と大会詳細へのリンクを出す（従来は黙ってスキップしていた）。「メール本文を添付する」（既定 ON）を外すと本文画像も本文テキストも送らず、冒頭メッセージと添付リンクだけを配信する。この可否は `event_broadcast_messages.include_body` に保存され、再送時も同じメッセージ構成が再現される。保存済みオープンチャットがあるグループでは「オープンチャットの招待リンクも送る（N件）」も並び、入れると本文・添付の push の直後に Flex 1通が続く。既定は **未配信なら ON／配信済みなら OFF／配信済みでも前回配信より後に増えた行があれば ON**（級別・部門別の URL は別のメールで後から届くのが普通で、そこで OFF のままだと「たった今保存したリンクが黙って送られない」——抑止したいのは同じ内容の再送だけ）。**本文・添付・冒頭メッセージが全て空でもオープンチャットを載せるなら配信は成立する**（本文側は空配信として skip され、Flex だけが届く。このとき `event_broadcast_messages` には `empty_message_set` の failed 行が残るので、配信履歴の表示上は「失敗」に見える——push は一切していないので紐付けの revoke には至らない）。
 
 `.xls`/`.xlsx` 添付がある場合、**種別 = 未選択のときだけ**画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
@@ -266,7 +266,7 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 - `dismissMail(mailId)` — 「対応不要」triage（未完了 draft があれば拒否）
 - `undoTriage(mailId)` — 処理済み → 未処理へ戻す。**種別・大会紐付け・そのメール由来の名簿採用をまとめて取り消す**（LINE 配信済みメッセージ自体は取り消せない）
 - `triggerExtractDraft(mailId)` — 「AI で大会を読み取る」。`tournament_drafts` upsert + `mail_kind='tournament_notice'` 保存 + `manual_extract` ジョブ enqueue
-- `processMail(mailId, input)` — 統合処理フォームの実行。種別保存・申込グループへの紐付け・名簿の一括採用・`triage_status='processed'` を 1 トランザクションで行い、コミット後に `after()` で LINE 配信を起動する
+- `processMail(mailId, input)` — 統合処理フォームの実行。種別保存・申込グループへの紐付け・名簿の一括採用・`triage_status='processed'` を 1 トランザクションで行い、コミット後に `after()` で LINE 配信を起動する。オープンチャット配信（`includeOpenChat`）も同じ `after()` の中で本文配信の直後に走るが、**try は分ける**（片方の失敗がもう片方の push を止めない）
 - `adoptRosterFile(...)` / `releaseRosterFile(...)` — 名簿ファイルの単体採用／解除。採用の実処理は `adoptRosterFileTx` に切り出してあり、`processMail` が同じ tx に載せて複数添付を一括採用する
 - `triggerMailFetch(formData)` — 手動 IMAP 取得ジョブの enqueue（24h/3d/7d/custom プリセット）
 - `triggerResultParse(mailId, attachmentId)` / `approveResultDraft(...)` / `rejectResultDraft(...)` — 結果 Excel 取込系。ロジックの正典は [spec/tournaments-results.md](tournaments-results.md)（本ファイルはトリガ導線のみ記述）
