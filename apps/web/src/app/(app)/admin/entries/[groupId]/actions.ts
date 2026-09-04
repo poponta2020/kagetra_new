@@ -223,13 +223,18 @@ export async function sendPaymentNotice(
     return { error: '人数の入力が不正です' }
   }
 
-  const context = await loadPaymentNoticeContext(groupId)
-  if (!context) {
-    return { error: '振込連絡の対象ではありません（名簿確定・事前払い・未振込のグループのみ）' }
+  // ★不可の理由は `payment-notice-availability.ts` が持つ文言をそのまま返す
+  // （画面側と文言を二重定義しない）。LINE 未紐付けもここで弾かれる。
+  const loaded = await loadPaymentNoticeContext(groupId)
+  if (!loaded.ok) {
+    return {
+      error:
+        loaded.reason === 'no_line_binding'
+          ? loaded.message
+          : '振込連絡の対象ではありません（名簿確定・事前払い・未振込のグループのみ）',
+    }
   }
-  if (!context.hasLineBinding) {
-    return { error: 'LINE グループが紐付いていません' }
-  }
+  const context = loaded.context
 
   const rows = rowsFromSavedCounts(pickGradeCounts(parsedCounts.data), context.unitPriceByGrade)
   const mention = await resolveTreasurerMention(db)

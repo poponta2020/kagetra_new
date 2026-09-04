@@ -495,7 +495,10 @@ export default async function EntryGroupPage({
   const feeTally = isAdmin ? await tallyEntryFeesForGroup(db, groupIdNum) : null
   // line-bot-message-revamp §3.3.1: 名簿確定フェーズ（settled ∧ 事前払い ∧ 未振込）の
   // グループにだけ振込連絡を出す。判定と初期値の組み立ては1箇所（AC-9/10/11）。
-  const paymentNotice = isAdmin ? await loadPaymentNoticeContext(groupIdNum) : null
+  // 不可（未確定・現地払い・支払済・LINE 未紐付け）なら理由つきで返るが、この画面は
+  // 従来どおり**セクションごと出さない**（理由を出すのはメール処理画面だけ・§3.3.5.2）。
+  const paymentNoticeResult = isAdmin ? await loadPaymentNoticeContext(groupIdNum) : null
+  const paymentNotice = paymentNoticeResult?.ok ? paymentNoticeResult.context : null
   // payment-receipt-broadcast: 支払報告シートのプレビューは**実際に送る本文**を出す
   // （AC-22）。文面の組み立ては server 側にしか置けない（`buildPaymentReportMessage`
   // → `buildLifecycleMessage` は DB 依存モジュールに同居する）ので、証憑あり・なしの
@@ -699,8 +702,10 @@ export default async function EntryGroupPage({
         />
       )}
 
-      {/* 振込連絡は名簿確定フェーズ＋LINE 紐付けありのときだけ出す（§3.3.1 / §3.3.4）。 */}
-      {isAdmin && paymentNotice && paymentNotice.hasLineBinding && (
+      {/* 振込連絡は名簿確定フェーズ＋LINE 紐付けありのときだけ出す（§3.3.1 / §3.3.4）。
+          LINE 未紐付けは `loadPaymentNoticeContext` が不可として返すので、ここでの
+          追加判定は要らない（判定を2箇所に散らさない）。 */}
+      {isAdmin && paymentNotice && (
         <PaymentNoticeSection
           groupId={groupIdNum}
           rows={paymentNotice.rows}
