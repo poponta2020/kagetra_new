@@ -20,6 +20,10 @@ import { cn } from '@/lib/utils'
  *   1. バイナリを fetch して `File` を組み立てる
  *   2. `navigator.canShare({ files })` が通れば `navigator.share` (共有シート)
  *   3. 通らなければ blob URL + `<a download>` (PC ブラウザはこちら)
+ *   4. `<a download>` も無い / 途中で失敗した環境では、バイナリ route への
+ *      素のリンクを出す (requirements.md §4.4 の最終フォールバック)。3
+ *      ビューアから従来の「元ファイル」リンクを撤去しているので、これが
+ *      無いと原本へ到達する経路がゼロになる
  *
  * サーバー route には一切触れていない点が重要。`fetch` は
  * `Content-Disposition` を無視するため、3ルートの fail-closed な MIME
@@ -71,13 +75,23 @@ export function pickShareMimeType(filename: string, fallback: string): string {
   )
 }
 
-type OpenSaveState = 'idle' | 'preparing' | 'retry' | 'error'
+/**
+ * `<a download>` が効くか。iOS の一部 WebView など、`download` 属性を無視して
+ * 通常遷移してしまう環境ではダウンロードが成立しない。共有シートも無い場合は
+ * blob 経路を試さず、最初から素のリンクを見せる。
+ */
+function supportsAnchorDownload(): boolean {
+  return typeof document !== 'undefined' && 'download' in document.createElement('a')
+}
+
+type OpenSaveState = 'idle' | 'preparing' | 'retry' | 'error' | 'unsupported'
 
 const LABEL: Record<OpenSaveState, string> = {
   idle: '開く・保存',
   preparing: '準備中…',
   retry: 'もう一度タップして開く',
   error: '開く・保存',
+  unsupported: '開く・保存',
 }
 
 /** 状態ごとの見え方は design-spec §5。準備中だけアイコンを出さない。 */
@@ -86,6 +100,7 @@ const STATE_CLASS: Record<OpenSaveState, string> = {
   preparing: 'bg-neutral-bg text-ink-meta hover:bg-neutral-bg',
   retry: 'bg-warn-bg text-warn-fg hover:bg-warn-bg',
   error: '',
+  unsupported: '',
 }
 
 export interface OpenSaveButtonProps {
@@ -144,6 +159,13 @@ export function OpenSaveButton({
         await nav.share({ files: [file] })
         return
       }
+      // 共有シートも download 属性も無い環境。blob 経路は「成功したように
+      // 見えて何も起きない」ので試さず、素のリンクへ倒す。
+      if (!supportsAnchorDownload()) {
+        throw Object.assign(new Error('no share, no download'), {
+          name: 'UnsupportedError',
+        })
+      }
       // 共有シートが無い環境 (PC ブラウザ等) は素直にダウンロードさせる。
       // same-origin なので `download` 属性が効き、route 側の
       // `Content-Disposition: inline` より優先される。
@@ -197,6 +219,12 @@ export function OpenSaveButton({
         setState('retry')
         return
       }
+      // 共有もダウンロードも成立しない環境。エラーとして責めるのではなく、
+      // 素のリンクという最後の道を案内する。
+      if (name === 'UnsupportedError') {
+        setState('unsupported')
+        return
+      }
       setState('error')
     }
   }, [handOff, href, filename, state])
@@ -228,6 +256,25 @@ export function OpenSaveButton({
         <p className="text-xs leading-normal text-danger-fg">
           ファイルを取り込めませんでした。通信状況を確認して、もう一度お試しください。
         </p>
+      )}
+      {state === 'unsupported' && (
+        <p className="text-xs leading-normal text-ink-meta">
+          この端末では共有・保存を実行できませんでした。
+        </p>
+      )}
+      {/* 最終フォールバック (requirements §4.4)。共有も <a download> も
+          効かない環境で原本へ到達する唯一の経路になるので、失敗が判明した
+          時点で必ず出す。3ビューアから「元ファイル」リンクを撤去している
+          ぶん、ここが無いと行き止まりになる。 */}
+      {(state === 'error' || state === 'unsupported') && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-brand-fg underline"
+        >
+          元ファイルを直接開く
+        </a>
       )}
     </div>
   )

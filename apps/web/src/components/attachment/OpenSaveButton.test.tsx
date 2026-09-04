@@ -177,6 +177,63 @@ describe('OpenSaveButton', () => {
     expect(screen.getByRole('button').textContent).toContain('開く・保存')
   })
 
+  it('共有も <a download> も使えない環境では素のリンクを最終フォールバックに出す', async () => {
+    removeShare()
+    // download 属性を持たない <a> を返す環境を模す
+    const realCreate = document.createElement.bind(document)
+    const spy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation((tag: string, ...rest: unknown[]) => {
+        const el = realCreate(tag as 'a', ...(rest as []))
+        if (tag === 'a') Reflect.deleteProperty(el, 'download')
+        return el
+      })
+    // `'download' in a` を false にするため prototype 側も落とす
+    const proto = HTMLAnchorElement.prototype as unknown as Record<string, unknown>
+    const hadDownload = Object.getOwnPropertyDescriptor(proto, 'download')
+    Reflect.deleteProperty(proto, 'download')
+
+    try {
+      renderButton()
+      fireEvent.click(screen.getByRole('button'))
+
+      const link = await screen.findByText('元ファイルを直接開く')
+      expect(link.getAttribute('href')).toBe('/api/mail/attachments/12')
+      // blob 経路は「成功したように見えて何も起きない」ので試さない
+      expect(createObjectURL).not.toHaveBeenCalled()
+      expect(screen.queryByText(ERROR_TEXT)).toBeNull()
+    } finally {
+      if (hadDownload) Object.defineProperty(proto, 'download', hadDownload)
+      spy.mockRestore()
+    }
+  })
+
+  it('取り込みに失敗したときも素のリンクを出す（原本への行き止まりを作らない）', async () => {
+    stubShare(true)
+    fetchMock.mockRejectedValueOnce(new Error('offline'))
+    renderButton()
+
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(await screen.findByText(ERROR_TEXT)).toBeTruthy()
+    expect(
+      screen.getByText('元ファイルを直接開く').getAttribute('href'),
+    ).toBe('/api/mail/attachments/12')
+  })
+
+  it('createObjectURL が例外を投げてもエラー文言＋素のリンクに倒す', async () => {
+    removeShare()
+    createObjectURL.mockImplementationOnce(() => {
+      throw new Error('createObjectURL unavailable')
+    })
+    renderButton()
+
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(await screen.findByText(ERROR_TEXT)).toBeTruthy()
+    expect(screen.getByText('元ファイルを直接開く')).toBeTruthy()
+  })
+
   it('取り込みに失敗したらエラー文言を出し、例外を投げない', async () => {
     stubShare(true)
     fetchMock.mockResolvedValueOnce({

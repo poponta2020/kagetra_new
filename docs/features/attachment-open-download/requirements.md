@@ -95,6 +95,7 @@ design_required: true
 | AC-8 | バイナリ取得が失敗したとき、ページを落とさずボタン近傍にエラー文言が出る | auto-test |
 | AC-9 | 「開く・保存」ボタンが PDF・画像・テキスト・zip を含む全種別のビューアに表示され、従来の「元ファイル」リンクが3画面のどこにも残っていない | auto-test |
 | AC-9b | 但し書き「iPhone のアプリ内からは元ファイルを開けないことがあります。…」が3画面のどこにも表示されない | auto-test |
+| AC-9c | 共有も `<a download>` も使えない環境・取り込みに失敗した環境のいずれでも、バイナリ route への素のリンクが表示される（原本への行き止まりを作らない） | auto-test |
 | AC-10 | PDF / Word / PowerPoint のページ画像プレビューが従来どおり表示される（回帰） | auto-test |
 | AC-11 | `text/plain` / `text/csv` のテキスト表示、ラスタ画像の `<img>` 表示が従来どおり（回帰） | auto-test |
 | AC-12 | バイナリ route 3経路のレスポンスヘッダ（Content-Type / Content-Disposition / nosniff / no-store）が変更前と同一で、`attachment-route-parity.test.ts` が green（回帰） | auto-test |
