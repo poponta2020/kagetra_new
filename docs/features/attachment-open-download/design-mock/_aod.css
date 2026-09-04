@@ -1,0 +1,192 @@
+/* attachment-open-download — モック固有スタイル。
+   色・サイズ・フォントは docs/design/colors_and_type.css の --kg-* からしか取らない。
+   このアプリはダークモードを持たない（実コードに prefers-color-scheme / dark: の
+   使用箇所がゼロ）ため、ライト一系統のみ。
+
+   ★唯一の例外＝ --aod-paper-*：
+   ページ画像プレビューに並ぶのは「サーバーが libreoffice + pdftoppm で生成した
+   ページ JPEG」で、中身は送信者が作った文書そのもの。--kg-* は一切届かない
+   （実装でも <img> を貼るだけ）。モックでその「別世界」を描くためのダミー値だけを
+   ここに隔離する。実装ではこの CSS 自体が存在しない。
+   （member-mail-search/_mms.css の同じ判断を踏襲） */
+
+:root {
+  --aod-paper-bg:   #FFFFFF;
+  --aod-paper-line: #DAD6E3;
+  --aod-paper-head: #B4AFC2;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--kg-font-sans);
+  background: var(--kg-surface-alt);
+  color: var(--kg-fg);
+  padding: 24px 12px 40px;
+}
+
+.rack {
+  display: flex; flex-wrap: wrap; gap: 26px 30px;
+  align-items: flex-start; justify-content: center;
+}
+
+.frame { display: flex; flex-direction: column; gap: 8px; width: 375px; }
+
+.flabel {
+  font-size: var(--kg-text-sm); font-weight: var(--kg-w-bold);
+  color: var(--kg-fg-2); letter-spacing: .02em;
+}
+.fsub {
+  font-size: var(--kg-text-xs); line-height: var(--kg-leading-normal);
+  color: var(--kg-fg-3); width: 375px;
+}
+.fsub code {
+  font-family: var(--kg-font-mono); font-size: .95em;
+  background: var(--kg-neutral-bg); padding: 0 3px; border-radius: var(--kg-radius-xs);
+}
+
+.phone {
+  width: 375px; height: 560px;
+  display: flex; flex-direction: column;
+  background: var(--kg-bg);
+  border: 1px solid var(--kg-border);
+  border-radius: 14px; overflow: hidden;
+  font-size: var(--kg-text-base);
+}
+.phone.tall { height: 620px; }
+.phone.short { height: 400px; }
+
+.main { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ============================================================
+   ビューアの sticky ヘッダ（実コード: 会員 = text-xs / 34px、
+   管理者 = text-sm / 40px。ここは会員側の寸法で描いている）
+   ============================================================ */
+.vbar {
+  display: flex; align-items: center; gap: var(--kg-space-1);
+  padding: 6px var(--kg-space-2);
+  background: var(--kg-surface);
+  border-bottom: 1px solid var(--kg-border);
+  flex-shrink: 0;
+}
+.vx {
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; color: var(--kg-fg-2); font-size: var(--kg-text-md);
+}
+.vn {
+  flex: 1; min-width: 0;
+  font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold);
+  color: var(--kg-fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- ヘッダの「開く・保存」ボタン（Btn kind=primary size=sm 相当 h-8） --- */
+.vbtn {
+  flex-shrink: 0;
+  height: 32px; padding: 0 var(--kg-space-3);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: var(--kg-radius-lg);
+  background: var(--kg-brand); color: var(--kg-fg-on-brand);
+  font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold);
+  border: none;
+}
+.vbtn.busy { background: var(--kg-neutral-bg); color: var(--kg-fg-3); }
+.vbtn.retry { background: var(--kg-warn-bg); color: var(--kg-warn-fg); }
+
+/* 共有アイコン（iOS 標準の share と同じ語彙: 上向き矢印＋箱） */
+.ico { width: 16px; height: 16px; display: block; }
+
+/* ============================================================
+   本文
+   ============================================================ */
+.vbody { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* --- 表計算カード（新設 kind = spreadsheet） --- */
+.sheetcard {
+  margin: var(--kg-space-4);
+  padding: var(--kg-space-6) var(--kg-space-5) var(--kg-space-5);
+  display: flex; flex-direction: column; align-items: center; gap: var(--kg-space-2);
+  text-align: center;
+  background: var(--kg-surface);
+  border: 1px solid var(--kg-border-soft);
+  border-radius: var(--kg-radius-lg);
+  box-shadow: var(--kg-shadow-sm);
+}
+.sc-icon { font-size: 30px; line-height: 1; }
+.sc-title {
+  font-size: var(--kg-text-md); font-weight: var(--kg-w-bold); color: var(--kg-fg);
+}
+.sc-desc {
+  font-size: var(--kg-text-xs); line-height: var(--kg-leading-normal);
+  color: var(--kg-fg-3); max-width: 292px;
+}
+.sc-btn {
+  margin-top: var(--kg-space-2);
+  height: 40px; width: 100%; max-width: 260px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: var(--kg-radius-lg);
+  background: var(--kg-brand); color: var(--kg-fg-on-brand);
+  font-size: var(--kg-text-sm); font-weight: var(--kg-w-semibold);
+  border: none;
+}
+.sc-btn.busy { background: var(--kg-neutral-bg); color: var(--kg-fg-3); }
+.sc-btn.retry { background: var(--kg-warn-bg); color: var(--kg-warn-fg); }
+.sc-err {
+  margin-top: var(--kg-space-1);
+  font-size: var(--kg-text-xs); line-height: var(--kg-leading-normal);
+  color: var(--kg-danger-fg); max-width: 292px;
+}
+.sc-hint {
+  font-size: var(--kg-text-xxs); line-height: var(--kg-leading-normal);
+  color: var(--kg-fg-muted); max-width: 292px;
+}
+
+/* --- ページ画像プレビュー（PDF/Word/PowerPoint は維持） --- */
+.vpages { display: flex; flex-direction: column; gap: var(--kg-space-2); padding: var(--kg-space-2); }
+.vpage {
+  background: var(--aod-paper-bg);
+  border: 1px solid var(--kg-border-soft);
+  border-radius: var(--kg-radius-md);
+  aspect-ratio: 1/1.414;
+  padding: 22px 20px; display: flex; flex-direction: column; gap: 7px;
+}
+.vl { height: 6px; border-radius: 2px; background: var(--aod-paper-line); }
+.vl.t { height: 11px; width: 62%; margin: 0 auto 10px; background: var(--aod-paper-head); }
+.vl.m { width: 82%; }
+.vl.s { width: 46%; }
+
+/* --- 状態一覧（ボタンだけを並べる） --- */
+.states { display: flex; flex-direction: column; gap: var(--kg-space-4); padding: var(--kg-space-4); }
+.strow {
+  display: flex; align-items: center; gap: var(--kg-space-3);
+  background: var(--kg-surface); border: 1px solid var(--kg-border-soft);
+  border-radius: var(--kg-radius-lg); padding: var(--kg-space-3);
+}
+.stlabel {
+  width: 92px; flex-shrink: 0;
+  font-size: var(--kg-text-xxs); font-weight: var(--kg-w-bold); color: var(--kg-fg-3);
+  line-height: var(--kg-leading-normal);
+}
+.stbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.stnote { font-size: var(--kg-text-xxs); line-height: var(--kg-leading-normal); color: var(--kg-fg-3); }
+.stnote.err { color: var(--kg-danger-fg); }
+
+/* --- 名簿ビューア（sticky ヘッダを持たないカード型画面） --- */
+.rpage { padding: var(--kg-space-4); display: flex; flex-direction: column; gap: var(--kg-space-4); }
+.rlabel { font-size: var(--kg-text-xs); font-weight: var(--kg-w-semibold); color: var(--kg-brand); }
+.rtitle {
+  font-family: var(--kg-font-display);
+  font-size: var(--kg-text-lg); font-weight: var(--kg-w-bold); color: var(--kg-fg);
+  line-height: var(--kg-leading-tight); word-break: break-word;
+}
+.rmeta { font-size: var(--kg-text-xs); color: var(--kg-fg-3); }
+.rhead { display: flex; flex-direction: column; gap: 3px; }
+.rbtn {
+  height: 40px; width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: var(--kg-radius-lg);
+  background: var(--kg-brand); color: var(--kg-fg-on-brand);
+  font-size: var(--kg-text-sm); font-weight: var(--kg-w-semibold);
+  border: none;
+}

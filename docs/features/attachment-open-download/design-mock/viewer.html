@@ -1,0 +1,105 @@
+<!-- @dsCard group="添付ビューア（開く・保存）" name="Excel／PDF／zip の見え方" subtitle="表計算カード（新設）・PDFプレビュー維持・zip カード" viewport="1180x900" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_aod.css">
+<title>添付ビューア — 開く・保存</title>
+</head>
+<body>
+<div class="rack">
+
+  <!-- ============ ① Excel（表計算） ============ -->
+  <div class="frame">
+    <div class="flabel">① Excel（表計算）— ページ画像をやめる</div>
+    <div class="phone short">
+      <div class="main">
+        <div class="vbar">
+          <span class="vx">✕</span>
+          <span class="vn">📊 第46回全国競技かるた札幌大会申込名簿.xlsx</span>
+          <button class="vbtn">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+            開く・保存
+          </button>
+        </div>
+        <div class="vbody">
+          <div class="sheetcard">
+            <span class="sc-icon">📊</span>
+            <span class="sc-title">Excel ファイルです</span>
+            <span class="sc-desc">アプリの中では表示しません。Excel などの表計算アプリで開くか、端末に保存してください。</span>
+            <button class="sc-btn">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+              開く・保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">ページ画像は作らない（LibreOffice 変換も走らない）。ヘッダとカードで導線が2つあるが、ヘッダは sticky なので長い画面でも常に届く役、カードは「何をすればいいか」を言う役。</div>
+  </div>
+
+  <!-- ============ ② PDF・Word・PowerPoint ============ -->
+  <div class="frame">
+    <div class="flabel">② PDF・Word・PowerPoint — プレビューは従来どおり維持</div>
+    <div class="phone">
+      <div class="main">
+        <div class="vbar">
+          <span class="vx">✕</span>
+          <span class="vn">📄 第46回九段大会要項.pdf</span>
+          <button class="vbtn">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+            開く・保存
+          </button>
+        </div>
+        <div class="vbody">
+          <div class="vpages">
+            <div class="vpage">
+              <div class="vl t"></div>
+              <div class="vl"></div><div class="vl m"></div><div class="vl"></div>
+              <div class="vl s"></div>
+              <div class="vl"></div><div class="vl"></div><div class="vl m"></div>
+              <div class="vl s"></div>
+              <div class="vl"></div><div class="vl m"></div><div class="vl"></div>
+            </div>
+            <div class="vpage">
+              <div class="vl t"></div>
+              <div class="vl"></div><div class="vl"></div><div class="vl m"></div>
+              <div class="vl s"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">PDF・Word・PowerPoint・画像・テキストは<strong>今までどおり</strong>アプリ内で読める。変わるのはヘッダ右が「元ファイル」の下線リンクからボタンになる点だけ。</div>
+  </div>
+
+  <!-- ============ ③ zip・変換失敗 ============ -->
+  <div class="frame">
+    <div class="flabel">③ zip・変換失敗 — 文言を差し替え</div>
+    <div class="phone short">
+      <div class="main">
+        <div class="vbar">
+          <span class="vx">✕</span>
+          <span class="vn">📦 組合せ表一式.zip</span>
+          <button class="vbtn">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+            開く・保存
+          </button>
+        </div>
+        <div class="vbody">
+          <div class="sheetcard">
+            <span class="sc-icon">📦</span>
+            <span class="sc-title">アプリ内では表示できない形式です</span>
+            <span class="sc-desc">端末に保存するか、対応するアプリで開いてください。</span>
+            <button class="sc-btn">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>
+              開く・保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="fsub">現行の但し書き「iPhone のアプリ内からは元ファイルを開けないことがあります。必要な場合は PC からダウンロードしてください。」は<strong>削除する</strong>。この機能がまさにその制約を解消するため、残すと嘘になる。</div>
+  </div>
+
+</div>
+</body></html>
