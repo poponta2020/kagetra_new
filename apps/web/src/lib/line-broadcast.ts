@@ -123,8 +123,9 @@ interface PushMessagesResult {
    * HTTP status from the first failed batch, when the failure came from
    * the LINE API itself. NULL when the failure was a transport-level
    * error (DNS / TLS / network), or when all batches succeeded.
-   * Caller uses this to drive recovery: 401 → disable token, other 4xx
-   * (groupId 不正 / Bot kick 済み) → revoke binding.
+   * Caller uses this to drive recovery: 401 → disable token, 403 / 404
+   * (Bot kick 済み / 宛先消失) → revoke binding. **400 does not revoke** —
+   * a payload-level rejection must not break a valid binding (requirements §6).
    */
   httpStatus: number | null
 }
@@ -551,9 +552,11 @@ export async function assertBindingUnchangedByEntryGroup(
  * - 401（access token 期限切れ / 無効）→ channel を disabled にし、binding も
  *   revoke する。binding を残すと次の承認メールでも同じ disabled channel へ
  *   push し続け失敗ループになる（r-final-2 should_fix）
- * - 401 以外の 4xx（429 を除く。groupId 不正 / Bot kick 済み等）→ binding のみ
- *   revoke して channel をプールへ戻す
- * - それ以外（成功・5xx・429・transport error）→ 何もしない
+ * - 403 / 404（Bot 追放・宛先消失）→ binding のみ revoke して channel をプールへ戻す
+ * - **400（メッセージ内容の不備）では何もしない**（requirements §6 の契約）。
+ *   `textV2` の導入でペイロード起因の 400 が起こりうるようになっており、宛先と
+ *   無関係な不備で正常な紐付けを壊すと、その大会の通知が以後すべて止まる
+ * - それ以外（成功・5xx・429・その他の 4xx・transport error）→ 何もしない
  *
  * ★いずれも「**送信開始時に保持していた binding（lineChannelId + lineGroupId）が
  * 今も active な場合に限る**」（r-final-7 / r-final-16 blocker）。送信中に管理者が
@@ -626,12 +629,13 @@ export async function applyPushFailureRecovery(args: {
     return
   }
 
-  if (
-    httpStatus != null &&
-    httpStatus >= 400 &&
-    httpStatus < 500 &&
-    httpStatus !== 429 // rate limit はリトライ可能なので残す
-  ) {
+  // ★解除対象は **403 / 404 だけ**（Bot 追放・宛先消失）。401 は上で扱う。
+  // 400（メッセージ内容の不備）で紐付けを解除してはならない —— `textV2` の導入で
+  // ペイロード起因の 400 が起こりうるようになっており、宛先と無関係な不備で正常な
+  // 紐付けを壊すと、その大会の通知が以後すべて止まる（requirements §6 の契約。
+  // event-lifecycle-notify.ts は既にこの形で、こちらだけ「429 以外の全 4xx」の
+  // まま取り残されていた）。429 も従来どおりリトライ可能として残す。
+  if (httpStatus === 403 || httpStatus === 404) {
     await db.transaction(async (tx) => {
       const revoked = await tx
         .update(eventLineBroadcasts)
@@ -676,7 +680,7 @@ export async function applyPushFailureRecovery(args: {
           ),
         )
     })
-    logger.warn('LINE binding revoked due to 4xx (groupId invalid / Bot kicked)', {
+    logger.warn('LINE binding revoked due to 403/404 (destination gone / Bot kicked)', {
       ...logContext,
       channelId: binding.lineChannelId,
       httpStatus,

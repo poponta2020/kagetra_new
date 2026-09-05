@@ -236,4 +236,57 @@ describe('sendPaymentNotice', () => {
     await expect(sendPaymentNotice(group.id, { A: 2 })).rejects.toThrow()
     expect(await noticeRow(group.id)).toBeUndefined()
   })
+  it('push 失敗を試行記録に残す（AC-45）', async () => {
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const admin = await createAdmin({ name: 'pna-admin-7' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group } = await seedDueGroup()
+    await linkLineGroup(group.id)
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('boom', { status: 500 }))
+    try {
+      await sendPaymentNotice(group.id, { A: 2 })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+
+    const row = await noticeRow(group.id)
+    expect(row?.lastSentAt).toBeNull()
+    expect(row?.lastAttemptedAt).not.toBeNull()
+    expect(row?.lastError).toContain('LINE 送信に失敗しました')
+  })
+
+  it('再送に成功すると失敗記録が消える（AC-45b）', async () => {
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const admin = await createAdmin({ name: 'pna-admin-8' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const { group } = await seedDueGroup()
+    await linkLineGroup(group.id)
+
+    const failing = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('boom', { status: 500 }))
+    try {
+      await sendPaymentNotice(group.id, { A: 2 })
+    } finally {
+      failing.mockRestore()
+    }
+    expect((await noticeRow(group.id))?.lastError).toBeTruthy()
+
+    const ok = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      expect(await sendPaymentNotice(group.id, { A: 2 })).toEqual({ ok: true })
+    } finally {
+      ok.mockRestore()
+    }
+
+    const row = await noticeRow(group.id)
+    // 「送信済」と「送信に失敗しました」が同時に出る状態を作らない。
+    expect(row?.lastSentAt).not.toBeNull()
+    expect(row?.lastError).toBeNull()
+  })
 })
