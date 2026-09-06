@@ -37,7 +37,9 @@ const OUT = path.join(repoRoot, 'apps/web/src/lib/travel-report/docx/template.b6
  * （黙って素通りすると PII を含んだテンプレを commit してしまう）。
  */
 const PII_RUNS = [
-  '法専門職コース　2', // 団体代表者 所属（学部・コース・学年）
+  '法', // 団体代表者 所属（学部名の1文字目。run が分かれている）
+  '学部　', // 団体代表者 所属（学部名の続き）
+  '法専門職コース　2', // 団体代表者 所属（コース・学年）
   '田中佑樹', // 団体代表者 氏名
   '080-3838-4133', // 団体代表者 連絡先
   '　　　　　　　北海道大学大学院工学研究院　応用科学部門　　　　　　　　　　　　　　　　　　　　　　　', // 顧問教員 所属部局等
@@ -45,9 +47,25 @@ const PII_RUNS = [
   '　　　　　　　　百合野　大雅　　　　　　　　　　　　　　　　　　　　　　', // 顧問教員 氏名
 ]
 
+/**
+ * 置換は**署名欄のセル（表1の最終行）の中だけ**で行う。`法` のような1文字の run を
+ * 文書全体で置換すると、無関係の見出し（「方法」等）まで壊しうるため。
+ */
+function signatureCell(xml) {
+  const tbls = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
+  if (tbls.length !== 2) throw new Error(`表が2枚でない: ${tbls.length}`)
+  const t0 = tbls[0]
+  const trs = t0.match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) ?? []
+  if (trs.length !== 12) throw new Error(`表1の行数が12でない: ${trs.length}`)
+  const last = trs[trs.length - 1]
+  const start = xml.indexOf(last)
+  return { start, end: start + last.length, xml: last }
+}
+
 /** 置換後に**どのエントリにも**残っていてはいけない文字列（最終検査）。 */
 const FORBIDDEN = [
   '田中佑樹',
+  '法学部　法専門職コース',
   '080-3838-4133',
   '百合野',
   '大雅',
@@ -80,11 +98,14 @@ async function main() {
   if (!zip.file('word/document.xml')) throw new Error('word/document.xml が無い: ' + SRC)
 
   let doc = await zip.file('word/document.xml').async('string')
+  const cell = signatureCell(doc)
+  let cellXml = cell.xml
   for (const text of PII_RUNS) {
-    const { xml, hits } = blankRunText(doc, text)
+    const { xml, hits } = blankRunText(cellXml, text)
     if (hits === 0) throw new Error(`原本の版が違う（run が見つからない）: ${JSON.stringify(text)}`)
-    doc = xml
+    cellXml = xml
   }
+  doc = doc.slice(0, cell.start) + cellXml + doc.slice(cell.end)
   zip.file('word/document.xml', doc)
 
   // docProps の作成者・最終更新者を空にする。
