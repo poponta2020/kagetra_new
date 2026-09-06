@@ -87,10 +87,11 @@ describe('getEffectiveSelectionStatuses / loadSelectionStatusRows', () => {
   async function seedConfirmedRoster(
     entryGroupId: number,
     entries: { userId: string; status: RosterOutcomeInput['status']; outcome: RosterOutcomeInput['selectionOutcome'] }[],
+    version = 1,
   ) {
     const [roster] = await testDb
       .insert(tournamentEntryRosters)
-      .values({ entryGroupId, rosterType: 'confirmed', version: 1 })
+      .values({ entryGroupId, rosterType: 'confirmed', version })
       .returning()
     if (!roster) throw new Error('failed to create roster')
     await testDb.insert(tournamentEntryRosterEntries).values(
@@ -145,6 +146,34 @@ describe('getEffectiveSelectionStatuses / loadSelectionStatusRows', () => {
 
     const map = await getEffectiveSelectionStatuses(groupId)
     expect(map.get(user.id)).toBe('confirmed')
+  })
+
+  it('有効な確定名簿（superseded_at IS NULL）が複数版あっても version 最大の版だけを使う（Codex R1 #1）', async () => {
+    const { id: groupId } = await createEntryGroup()
+    const onlyInOldVersion = await createUser({ grade: 'A' })
+    const inBothVersions = await createUser({ grade: 'B' })
+    // 旧版（version=1）: 本来は再取込時に superseded_at が入るはずだが、事故で
+    // NULL のまま残ったケースを再現する。
+    await seedConfirmedRoster(
+      groupId,
+      [
+        { userId: onlyInOldVersion.id, status: 'confirmed', outcome: 'accepted' },
+        { userId: inBothVersions.id, status: 'applied', outcome: 'waitlisted' },
+      ],
+      1,
+    )
+    // 新版（version=2）: こちらが実質最新。
+    await seedConfirmedRoster(
+      groupId,
+      [{ userId: inBothVersions.id, status: 'confirmed', outcome: 'accepted' }],
+      2,
+    )
+
+    const map = await getEffectiveSelectionStatuses(groupId)
+    // 旧版にしか居ないユーザーは Map に現れない（最新版だけを見るため）。
+    expect(map.has(onlyInOldVersion.id)).toBe(false)
+    // 両版に居るユーザーは新版（confirmed/accepted）の結果になる。
+    expect(map.get(inBothVersions.id)).toBe('confirmed')
   })
 
   it('loadSelectionStatusRows: 出欠「参加」の会員・ゲストを対象に含み、退会済みは除く（AC-8）', async () => {

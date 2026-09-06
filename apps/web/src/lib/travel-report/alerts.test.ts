@@ -72,6 +72,35 @@ describe('loadTravelRouteAlerts', () => {
     expect(alerts).toEqual([])
   })
 
+  it('進行中の複数日単位で本人の出場日が前日だけでも、単位の最終日を過ぎていなければ出る（Codex R1 #5）', async () => {
+    const { id: entryGroupId } = await createEntryGroup()
+    const yesterday = await createEvent({
+      entryGroupId,
+      eventDate: '2029-12-31',
+      title: '十和田大会 A級',
+    })
+    const todayEvent = await createEvent({
+      entryGroupId,
+      eventDate: TODAY,
+      title: '十和田大会 A級',
+    })
+    const target = await createUser({ isCircleMember: true, grade: 'A' })
+    // 本人は単位の初日（昨日）だけ出場する。今日は出場しない。
+    await createEventAttendance({ eventId: yesterday.id, userId: target.id, attend: true })
+    await testDb
+      .insert(entryGroupTravelSettings)
+      .values({ entryGroupId, routeInputStartedAt: new Date() })
+
+    const alerts = await loadTravelRouteAlerts(target.id, TODAY)
+
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toMatchObject({
+      unitKey: yesterday.eventDate,
+      entryGroupId,
+      unitDates: [yesterday.eventDate, todayEvent.eventDate],
+    })
+  })
+
   it('「不要」なら出ない', async () => {
     const { id: entryGroupId } = await createEntryGroup()
     const event = await createEvent({ entryGroupId, eventDate: TODAY })

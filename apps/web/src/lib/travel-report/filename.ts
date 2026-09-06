@@ -34,19 +34,24 @@ export function sanitizeFilenamePart(value: string): string {
 /**
  * 日付の並びを `2026.6.13,14` の形にする。空配列なら空文字。
  * 月が変わるところでは `2026.6.30,7.1` のように月から書く。
+ * ★年が変わるところは月だけでは表せないので `2027.1.1` のように年から書く
+ * （前月しか追跡していないと年またぎで年が落ちる。Codex R1 #11）。
  */
 export function formatDateRun(dates: readonly string[]): string {
   const sorted = [...new Set(dates)].sort()
   if (sorted.length === 0) return ''
   const parts: string[] = []
+  let prevYear: string | null = null
   let prevMonth: string | null = null
   for (const [i, date] of sorted.entries()) {
-    const year = Number(date.slice(0, 4))
+    const year = String(Number(date.slice(0, 4)))
     const month = String(Number(date.slice(5, 7)))
     const day = String(Number(date.slice(8, 10)))
     if (i === 0) parts.push(`${year}.${month}.${day}`)
+    else if (year !== prevYear) parts.push(`${year}.${month}.${day}`)
     else if (month === prevMonth) parts.push(day)
     else parts.push(`${month}.${day}`)
+    prevYear = year
     prevMonth = month
   }
   return parts.join(',')

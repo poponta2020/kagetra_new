@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import {
   entryGroupTravelSettings,
   eventAttendances,
@@ -28,7 +28,7 @@ import {
 } from './render'
 import { loadGroupTravelContext } from './targets'
 import { getEffectiveSelectionStatuses } from './selection-status'
-import { loadTravelRoutesForUnit } from './routes-store'
+import { loadTravelRoutesForUnit, type SavedTravelRoute } from './routes-store'
 import { buildTravelUnits, findUnitContainingDate } from './units'
 import { LEG_DATE_SLACK_DAYS } from './routes'
 
@@ -88,7 +88,7 @@ interface GroupContext {
   entryGroupId: number
   /** 開催日 → その日の events 行。 */
   eventsByDate: Map<string, GroupEventRow[]>
-  /** 出場者（サークル所属 ∧ 出欠「参加」∧ 有効な確定状況が確定）: userId → 出場日。 */
+  /** 出場者（サークル所属 ∧ 出欠「参加」∧ 有効な確定状況が確定 ∧ 退会済みでない）: userId → 出場日。 */
   attendanceByUser: Map<string, string[]>
   members: Map<string, TravelReportMember>
   contacts: Map<string, ContactCandidate>
@@ -167,6 +167,7 @@ async function loadGroupContext(entryGroupId: number): Promise<GroupContext> {
               inArray(eventAttendances.eventId, eventIds),
               eq(eventAttendances.attend, true),
               eq(users.isCircleMember, true),
+              isNull(users.deactivatedAt),
             ),
           )
           .orderBy(asc(users.id), asc(events.eventDate))
@@ -223,6 +224,7 @@ async function loadGroupContext(entryGroupId: number): Promise<GroupContext> {
       birthDate: users.birthDate,
     })
     .from(users)
+    .where(isNull(users.deactivatedAt))
     .orderBy(asc(users.id))
 
   let circleLeader: ContactCandidate | null = null
@@ -404,15 +406,31 @@ async function loadRoutesFor(
       evs.map((e) => ({ id: e.id, eventDate: date, status: 'published' as const })),
     ),
   )
-  const unitKeys = new Set<string>()
-  for (const date of dates) {
-    const unit = findUnitContainingDate(units, date)
-    if (unit) unitKeys.add(unit.startDate)
+  const unitKeys = [
+    ...new Set(
+      dates.flatMap((date) => {
+        const unit = findUnitContainingDate(units, date)
+        return unit ? [unit.startDate] : []
+      }),
+    ),
+  ].sort()
+
+  // ★複数単位を1ファイルへ統合すると、同じ会員が2単位に経路を持つことがある
+  // （Codex R1 #6）。userId だけでキー化すると片方が上書きされるので、単位ごとの
+  // 保存行を全部保持してから legs を連結する。`unitKeys` は昇順なので `rowsByUser`
+  // の先頭要素は必ず最初の単位のもの（`departureKind` はそれを採る）。
+  const savedByUnit = await Promise.all(
+    unitKeys.map(async (key) => ({ key, rows: await loadTravelRoutesForUnit(ctx.entryGroupId, key) })),
+  )
+  const rowsByUser = new Map<string, SavedTravelRoute[]>()
+  for (const { rows } of savedByUnit) {
+    for (const row of rows) {
+      const list = rowsByUser.get(row.userId) ?? []
+      list.push(row)
+      rowsByUser.set(row.userId, list)
+    }
   }
-  const saved = (
-    await Promise.all([...unitKeys].map((key) => loadTravelRoutesForUnit(ctx.entryGroupId, key)))
-  ).flat()
-  const byUser = new Map(saved.map((r) => [r.userId, r]))
+
   const dateSet = new Set(dates)
   // ★このファイルの日の前後 ±14 日（`LEG_DATE_SLACK_DAYS`）の移動行だけを採る。
   // 統合・分割で日をまたいだとき、別ファイルの行程が混ざらないようにするため。
@@ -421,16 +439,18 @@ async function loadRoutesFor(
   const upperBound = shiftIso(sorted.at(-1) ?? '', LEG_DATE_SLACK_DAYS)
 
   return participantIds.map((userId) => {
-    const row = byUser.get(userId)
+    const rows = rowsByUser.get(userId) ?? []
     const attendanceDates = (ctx.attendanceByUser.get(userId) ?? []).filter((d) => dateSet.has(d))
     return {
       userId,
-      departureKind: row?.departureKind ?? 'sapporo',
+      departureKind: rows[0]?.departureKind ?? 'sapporo',
       // ★このファイルの日の範囲外の移動行は落とす（統合・分割で日をまたいだとき、
-      // 別ファイルの行程が混ざらないようにする）。
-      legs: (row?.legs ?? []).filter((leg) => leg.date >= lowerBound && leg.date <= upperBound),
+      // 別ファイルの行程が混ざらないようにする）。全単位分の legs を連結してから絞る。
+      legs: rows
+        .flatMap((r) => r.legs)
+        .filter((leg) => leg.date >= lowerBound && leg.date <= upperBound),
       attendanceDates,
-      entered: row !== undefined,
+      entered: rows.length > 0,
     }
   })
 }

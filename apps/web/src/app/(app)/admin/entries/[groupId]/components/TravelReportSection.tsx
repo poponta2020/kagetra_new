@@ -49,6 +49,10 @@ export interface TravelReportHistoryView {
   /** 「9/6 15:02」。 */
   createdAtLabel: string
   createdByName: string | null
+  /** 通知失敗の理由（`travel_report_batches.notify_error`）。同じ batch のファイルは同じ値。 */
+  notifyError: string | null
+  /** 通知成功日時（「9/6 15:02」形式）。失敗表示を優先するので、成功表示には現状使わない。 */
+  notifiedAt: string | null
 }
 
 export interface TravelDestinationView {
@@ -320,21 +324,27 @@ export function TravelReportSection({
                   {history.map((h) => (
                     <div
                       key={h.id}
-                      className="flex items-baseline gap-2 border-t border-border-soft py-2 text-sm first:border-t-0"
+                      className="flex flex-col gap-1 border-t border-border-soft py-2 text-sm first:border-t-0"
                     >
-                      <span className="min-w-0 flex-1 truncate text-ink">
-                        <a
-                          href={`/api/admin/travel-reports/${h.id}`}
-                          download
-                          className="text-brand underline underline-offset-2"
-                        >
-                          {h.filename}
-                        </a>
-                      </span>
-                      <span className="flex-none text-xs tabular-nums text-ink-meta">
-                        {h.createdAtLabel}
-                        {h.createdByName ? ` ${h.createdByName}` : ''}
-                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="min-w-0 flex-1 truncate text-ink">
+                          <a
+                            href={`/api/admin/travel-reports/${h.id}`}
+                            download
+                            className="text-brand underline underline-offset-2"
+                          >
+                            {h.filename}
+                          </a>
+                        </span>
+                        <span className="flex-none text-xs tabular-nums text-ink-meta">
+                          {h.createdAtLabel}
+                          {h.createdByName ? ` ${h.createdByName}` : ''}
+                        </span>
+                      </div>
+                      {/* 通知失敗は成功表示より優先して出す（R13。同じ batch の全ファイルに付く）。 */}
+                      {h.notifyError && (
+                        <p className="text-xs text-accent-fg">通知に失敗しました: {h.notifyError}</p>
+                      )}
                     </div>
                   ))}
                 </div>

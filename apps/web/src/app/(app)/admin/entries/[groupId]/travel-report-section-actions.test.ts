@@ -166,6 +166,39 @@ describe('経路入力の開始と開催地の AI 推定（AC-11・AC-19）', ()
     await setAuthSession({ id: member.id, role: 'member' })
     await expect(startTravelRouteInput(group.id)).rejects.toThrow('Forbidden')
   })
+
+  it('「不要」に設定した後は開始できない（AC-10・Codex R1 #8）', async () => {
+    const group = await setupGroup()
+    await setTravelReportRequired(group.id, false)
+    await expect(startTravelRouteInput(group.id)).rejects.toThrow('不要')
+    expect(estimateDestination).not.toHaveBeenCalled()
+  })
+
+  it('既に claim 済み（他経路の自動推定）なら開始時は推定しない', async () => {
+    const group = await setupGroup()
+    await testDb
+      .insert(entryGroupTravelSettings)
+      .values({ entryGroupId: group.id, destinationAttemptedAt: new Date() })
+
+    await startTravelRouteInput(group.id)
+
+    expect(estimateDestination).not.toHaveBeenCalled()
+  })
+
+  it('推定中に並行して手入力が保存されても上書きしない（Codex R1 #4）', async () => {
+    const group = await setupGroup()
+    estimateDestination.mockImplementation(async () => {
+      // 推定の最中に別の提出権限者が手入力（manual）を保存したと仮定する。
+      await updateTravelDestination(group.id, { prefecture: null, city: null, label: '八戸' })
+      return { prefecture: '青森県', city: '青森市', label: '青森' }
+    })
+
+    await startTravelRouteInput(group.id)
+
+    const row = await settingsOf(group.id)
+    expect(row?.destinationLabel).toBe('八戸')
+    expect(row?.destinationSource).toBe('manual')
+  })
 })
 
 describe('開催地の手修正（AC-19・AC-21）', () => {

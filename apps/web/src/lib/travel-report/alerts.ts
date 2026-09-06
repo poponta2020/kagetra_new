@@ -15,10 +15,17 @@ import { isRouteInputOpen, loadGroupTravelContext, loadTravelUnitStatuses } from
  * - 単位の最終日（`unit.endDate`）を**過ぎていない**（`endDate >= today`）
  * - グループが「必要」かつ経路入力が**開いている**（`isRouteInputOpen`）
  *
- * ★全グループを総なめしない。まず「今日以降に開催日があり、その人が出欠
- * 『参加』のイベント」で候補グループを絞ってから、そのグループだけ遠征単位・
- * 対象者判定を組み立てる（`loadGroupTravelContext` / `loadTravelUnitStatuses` は
- * グループ単位で DB を往復するため、母集団を広げると N+1 になる）。
+ * ★全グループを総なめしない。まず「本人が出欠『参加』のイベントを持つグループ」で
+ * 候補グループを絞り、さらに「そのグループに今日以降の非 cancelled 開催日が
+ * 存在する」ことを別条件（EXISTS 相当）で確認する（`loadGroupTravelContext` /
+ * `loadTravelUnitStatuses` はグループ単位で DB を往復するため、母集団を広げると
+ * N+1 になる）。
+ *
+ * ★本人の出場日そのものを `>= today` で絞ってはいけない（Codex R1 #5）。進行中の
+ * 複数日単位（例: 昨日〜今日）で本人が単位内の**前日だけ**出場するケースがあると、
+ * 本人の出場イベントの日付は today より前になり候補から漏れる。単位の最終日
+ * （today）を過ぎていなければ AC-17 上はまだアラートが出るべきなので、候補の
+ * 絞り込みはグループ単位（本人の出場日ではなく）で行う。
  *
  * サークル非所属・キャンセル待ち・不参加の判定は `loadTravelUnitStatuses`
  * （`targets.ts`）が対象者から除外するので、ここでは`targets` に居るかどうかだけを見る。
@@ -40,9 +47,10 @@ export async function loadTravelRouteAlerts(
   userId: string,
   today: string,
 ): Promise<TravelRouteAlert[]> {
-  // Step 1: 候補グループの絞り込み。今日以降に開催日があり、この人が出欠「参加」の
-  // イベントが属するグループだけを見る（cancelled は候補から除く）。
-  const candidateRows = await db
+  // Step 1a: 本人が出欠「参加」の非 cancelled イベントを持つグループを候補にする。
+  // ★本人の出場日そのものを `>= today` で絞らない（単位内の前日だけ出場するケースを
+  // 落とさないため。Codex R1 #5）。
+  const attendedRows = await db
     .select({ entryGroupId: events.entryGroupId })
     .from(eventAttendances)
     .innerJoin(events, eq(events.id, eventAttendances.eventId))
@@ -50,11 +58,25 @@ export async function loadTravelRouteAlerts(
       and(
         eq(eventAttendances.userId, userId),
         eq(eventAttendances.attend, true),
+        ne(events.status, 'cancelled'),
+      ),
+    )
+  const attendedGroupIds = [...new Set(attendedRows.map((r) => r.entryGroupId))]
+  if (attendedGroupIds.length === 0) return []
+
+  // Step 1b: そのうち、グループ自体に今日以降の非 cancelled 開催日が存在するもの
+  // だけを候補に残す（EXISTS 相当。単位の最終日が today 以降ならまだアラート対象）。
+  const futureRows = await db
+    .select({ entryGroupId: events.entryGroupId })
+    .from(events)
+    .where(
+      and(
+        inArray(events.entryGroupId, attendedGroupIds),
         gte(events.eventDate, today),
         ne(events.status, 'cancelled'),
       ),
     )
-  const entryGroupIds = [...new Set(candidateRows.map((r) => r.entryGroupId))]
+  const entryGroupIds = [...new Set(futureRows.map((r) => r.entryGroupId))]
   if (entryGroupIds.length === 0) return []
 
   const alerts: TravelRouteAlert[] = []

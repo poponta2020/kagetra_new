@@ -1,6 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { travelReportBatches, travelReportDocuments } from '@kagetra/shared/schema'
+import {
+  entryGroupTravelSettings,
+  travelReportBatches,
+  travelReportDocuments,
+} from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   createAdmin,
@@ -183,5 +187,80 @@ describe('createTravelReportsAction', () => {
       file([DATES[1]!]),
     ])
     expect(result).toMatchObject({ ok: true, fileCount: 2 })
+  })
+
+  it('グループの開催日に無い日付を送ると拒否される（Codex R1 #7: 未知の日）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const result = await createTravelReportsAction(group.id, [file(['2026-11-09'])])
+    expect(result).toMatchObject({ ok: false })
+    expect(result.error).toContain('開催日')
+    expect(await testDb.select().from(travelReportBatches)).toHaveLength(0)
+  })
+
+  it('cancelled の日を含めると拒否される（Codex R1 #7）', async () => {
+    const { group } = await seedGroup()
+    await createEvent({ entryGroupId: group.id, eventDate: '2026-11-20', status: 'cancelled' })
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const result = await createTravelReportsAction(group.id, [
+      file([...DATES, '2026-11-20']),
+    ])
+    expect(result).toMatchObject({ ok: false })
+    expect(await testDb.select().from(travelReportBatches)).toHaveLength(0)
+  })
+
+  it('一部の開催日が欠けていると拒否される（Codex R1 #7）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const result = await createTravelReportsAction(group.id, [file([DATES[0]!])])
+    expect(result).toMatchObject({ ok: false })
+    expect(await testDb.select().from(travelReportBatches)).toHaveLength(0)
+  })
+
+  it('実在しない日付（2026-02-31 等）は形式が合っていても拒否される（Codex R1 #3）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const result = await createTravelReportsAction(group.id, [file(['2026-02-31'])])
+    expect(result).toMatchObject({ ok: false })
+  })
+
+  it('「不要」に設定したグループでは作成できない（AC-10・Codex R1 #8）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    await testDb
+      .insert(entryGroupTravelSettings)
+      .values({ entryGroupId: group.id, required: false })
+
+    const result = await createTravelReportsAction(group.id, [file()])
+    expect(result).toMatchObject({ ok: false })
+    expect(result.error).toContain('不要')
+    expect(await testDb.select().from(travelReportBatches)).toHaveLength(0)
+  })
+
+  it('通知関数が例外を投げても作成は成功として扱われ、notify_error に理由が残る（Codex R1 #9）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    sendTravelReportCreatedNotice.mockRejectedValue(new Error('LINE API がタイムアウトしました'))
+
+    const result = await createTravelReportsAction(group.id, [file()])
+    expect(result.ok).toBe(true)
+    expect(result.notifyError).toContain('タイムアウト')
+
+    const [batch] = await testDb
+      .select()
+      .from(travelReportBatches)
+      .where(eq(travelReportBatches.entryGroupId, group.id))
+    expect(batch?.notifyError).toContain('タイムアウト')
+    const docs = await testDb
+      .select()
+      .from(travelReportDocuments)
+      .where(eq(travelReportDocuments.batchId, batch!.id))
+    expect(docs).toHaveLength(1)
   })
 })

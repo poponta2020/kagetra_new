@@ -2,7 +2,6 @@ import 'server-only'
 import { after } from 'next/server'
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import {
-  entryGroupTravelSettings,
   events,
   travelReportBatches,
   travelReportDocuments,
@@ -12,7 +11,7 @@ import type { Grade } from '@kagetra/shared'
 import { db } from '@/lib/db'
 import { formatEventDate, formatDateTimeShort } from '@/lib/event-date'
 import { surname } from '@/lib/surname'
-import { estimateDestination } from './destination-ai'
+import { claimAndEstimateDestination } from './destination-estimate'
 import { isRouteInputOpen, loadGroupTravelContext, loadTravelUnitStatuses } from './targets'
 import type {
   TravelDestinationView,
@@ -138,7 +137,7 @@ async function loadMemberGrades(userIds: readonly string[]): Promise<Map<string,
   return new Map(rows.map((u) => [u.id, u.grade]))
 }
 
-/** 作成履歴（新しい順）。 */
+/** 作成履歴（新しい順）。通知の失敗・成功（`notify_error` / `notified_at`）も含む（R13・Codex R1 #10）。 */
 async function loadHistory(entryGroupId: number): Promise<TravelReportHistoryView[]> {
   const rows = await db
     .select({
@@ -146,6 +145,8 @@ async function loadHistory(entryGroupId: number): Promise<TravelReportHistoryVie
       filename: travelReportDocuments.filename,
       createdAt: travelReportBatches.createdAt,
       createdByName: users.name,
+      notifyError: travelReportBatches.notifyError,
+      notifiedAt: travelReportBatches.notifiedAt,
     })
     .from(travelReportDocuments)
     .innerJoin(travelReportBatches, eq(travelReportBatches.id, travelReportDocuments.batchId))
@@ -157,79 +158,24 @@ async function loadHistory(entryGroupId: number): Promise<TravelReportHistoryVie
     filename: r.filename,
     createdAtLabel: formatDateTimeShort(r.createdAt),
     createdByName: r.createdByName ? surname(r.createdByName) : null,
+    notifyError: r.notifyError,
+    notifiedAt: r.notifiedAt ? formatDateTimeShort(r.notifiedAt) : null,
   }))
 }
 
 /**
  * 開催地の AI 推定を `after()`（レスポンス送出後）で1回だけ走らせる。
  *
- * ★claim は `UPDATE … WHERE destination_attempted_at IS NULL` の**条件付き更新**。
- * 同じページを同時に開いた2人のうち1人だけが推定へ進む。書き込みは
- * `destination_source IS NULL` のときだけ（並行する手入力を潰さない）。
+ * claim・推定・書き戻しの実体は `destination-estimate.ts`（`startTravelRouteInput`
+ * と共有・Codex R1 #4）。
  */
 function scheduleDestinationEstimate(entryGroupId: number): void {
   // ★`after()` はリクエストスコープの外（ページを直接レンダーする単体テスト等）で
   // 呼ぶと throw する。開催地の推定は**あくまで補助**で、失敗しても空欄のまま機能が
   // 続くのが仕様（R7）。ここで例外を外へ出すとページ全体が落ちるので握りつぶす。
   try {
-    scheduleAfter(entryGroupId)
+    after(() => claimAndEstimateDestination(entryGroupId))
   } catch (err) {
     console.warn('[travel-report/section-view] 開催地の推定をスケジュールできませんでした', err)
   }
-}
-
-function scheduleAfter(entryGroupId: number): void {
-  after(async () => {
-    const claimed = await db
-      .update(entryGroupTravelSettings)
-      .set({ destinationAttemptedAt: new Date() })
-      .where(
-        and(
-          eq(entryGroupTravelSettings.entryGroupId, entryGroupId),
-          isNull(entryGroupTravelSettings.destinationAttemptedAt),
-        ),
-      )
-      .returning({ entryGroupId: entryGroupTravelSettings.entryGroupId })
-
-    // 設定行がまだ無いグループは、ここで既定値の行を作って claim する。
-    if (claimed.length === 0) {
-      const inserted = await db
-        .insert(entryGroupTravelSettings)
-        .values({ entryGroupId, destinationAttemptedAt: new Date() })
-        .onConflictDoNothing()
-        .returning({ entryGroupId: entryGroupTravelSettings.entryGroupId })
-      if (inserted.length === 0) return // 他のリクエストが先に claim した
-    }
-
-    const [event] = await db
-      .select({ title: events.title, formalName: events.formalName, location: events.location })
-      .from(events)
-      .where(eq(events.entryGroupId, entryGroupId))
-      .orderBy(asc(events.eventDate), asc(events.id))
-      .limit(1)
-    if (!event) return
-
-    const estimated = await estimateDestination({
-      location: event.location,
-      title: event.formalName ?? event.title,
-    })
-    if (!estimated) return
-
-    await db
-      .update(entryGroupTravelSettings)
-      .set({
-        destinationPrefecture: estimated.prefecture,
-        destinationCity: estimated.city,
-        destinationLabel: estimated.label,
-        destinationSource: 'ai',
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(entryGroupTravelSettings.entryGroupId, entryGroupId),
-          // 手入力が先に入っていたら上書きしない。
-          isNull(entryGroupTravelSettings.destinationSource),
-        ),
-      )
-  })
 }

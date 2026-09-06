@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import type { TravelSelectionStatus } from '@kagetra/shared'
 import {
   entryGroupSelectionStatuses,
@@ -75,30 +75,22 @@ export function deriveEffectiveSelection(
  * 区別できなくなる。
  *
  * 対象の確定名簿は、そのグループの `roster_type='confirmed'` かつ
- * `superseded_at IS NULL` の版（高々1件。ユニーク制約は
- * (entry_group_id, roster_type, version)）。同一ユーザーが複数行に載る事故が
- * あった場合は `id` 昇順で最初の行を採用する。
+ * `superseded_at IS NULL` の版。ユニーク制約は (entry_group_id, roster_type, version)
+ * であって `superseded_at IS NULL` の一意性までは保証しないため、**先に有効な
+ * confirmed 名簿を version 降順で1件だけ選び、その roster ID の行だけ**を引く
+ * （複数版が同時に「有効」のまま残る事故があっても、最新版とだけ突き合わせる）。
  */
 export async function getEffectiveSelectionStatuses(
   entryGroupId: number,
 ): Promise<Map<string, TravelSelectionStatus>> {
-  const [manualRows, rosterRows] = await Promise.all([
+  const [manualRows, activeRoster] = await Promise.all([
     db
       .select({ userId: entryGroupSelectionStatuses.userId, status: entryGroupSelectionStatuses.status })
       .from(entryGroupSelectionStatuses)
       .where(eq(entryGroupSelectionStatuses.entryGroupId, entryGroupId)),
     db
-      .select({
-        id: tournamentEntryRosterEntries.id,
-        userId: tournamentEntryRosterEntries.userId,
-        status: tournamentEntryRosterEntries.status,
-        selectionOutcome: tournamentEntryRosterEntries.selectionOutcome,
-      })
-      .from(tournamentEntryRosterEntries)
-      .innerJoin(
-        tournamentEntryRosters,
-        eq(tournamentEntryRosters.id, tournamentEntryRosterEntries.rosterId),
-      )
+      .select({ id: tournamentEntryRosters.id })
+      .from(tournamentEntryRosters)
       .where(
         and(
           eq(tournamentEntryRosters.entryGroupId, entryGroupId),
@@ -106,8 +98,22 @@ export async function getEffectiveSelectionStatuses(
           isNull(tournamentEntryRosters.supersededAt),
         ),
       )
-      .orderBy(asc(tournamentEntryRosterEntries.id)),
+      .orderBy(desc(tournamentEntryRosters.version))
+      .limit(1),
   ])
+
+  const rosterRows = activeRoster[0]
+    ? await db
+        .select({
+          id: tournamentEntryRosterEntries.id,
+          userId: tournamentEntryRosterEntries.userId,
+          status: tournamentEntryRosterEntries.status,
+          selectionOutcome: tournamentEntryRosterEntries.selectionOutcome,
+        })
+        .from(tournamentEntryRosterEntries)
+        .where(eq(tournamentEntryRosterEntries.rosterId, activeRoster[0].id))
+        .orderBy(asc(tournamentEntryRosterEntries.id))
+    : []
 
   const rosterByUserId = new Map<string, RosterOutcomeInput>()
   for (const row of rosterRows) {

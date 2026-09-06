@@ -6,7 +6,7 @@ import {
   type TravelLeg,
   type TravelWayKind,
 } from '@kagetra/shared'
-import { addDays, diffDays } from './units'
+import { addDays, diffDays, isValidCalendarDate } from './units'
 
 /**
  * travel-report: 経路（行き／帰りの3択＋移動行の並び）の**純関数**（requirements R6）。
@@ -139,7 +139,10 @@ export function buildAttendanceRows(
 const wayKind = z.enum(['sapporo', 'hometown', 'other'])
 
 const legSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付の形式が不正です'),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, '日付の形式が不正です')
+    .refine(isValidCalendarDate, '実在する日付を入力してください'),
   from: z.string().trim().min(1, '出発地を入力してください').max(PLACE_MAX_LENGTH, `出発地は${PLACE_MAX_LENGTH}文字以内で入力してください`),
   to: z.string().trim().min(1, '到着地を入力してください').max(PLACE_MAX_LENGTH, `到着地は${PLACE_MAX_LENGTH}文字以内で入力してください`),
 })
@@ -173,6 +176,11 @@ export function validateLegDates(
   unit: { startDate: string; endDate: string },
 ): string | null {
   for (const leg of legs) {
+    // ★スキーマ側（`legSchema`）で実在日を検証済みだが、このヘルパー単体で呼ばれる
+    // 場合もあるため二重の網として NaN（不正日付）を範囲外扱いで弾く（Codex R1 #3）。
+    if (!isValidCalendarDate(leg.date)) {
+      return '実在する日付を入力してください'
+    }
     if (diffDays(unit.startDate, leg.date) < -LEG_DATE_SLACK_DAYS) {
       return `開催日の${LEG_DATE_SLACK_DAYS}日前より古い日付は入力できません`
     }

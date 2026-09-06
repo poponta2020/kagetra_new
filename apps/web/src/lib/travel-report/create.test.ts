@@ -135,6 +135,33 @@ describe('S6 の既定値（R9・AC-20）', () => {
     expect(files[0]!.memberCount).toBe(2)
     expect(files[0]!.pendingNames).toEqual(['小樽花'])
   })
+
+  it('退会済み会員は対象者・名簿・連絡者候補のいずれにも入らない（Codex R1 #2）', async () => {
+    const { group, eventIds } = await seedGroup()
+    await seedMember(eventIds, UNIT1, { familyName: '北海', givenName: '太郎' })
+    // サークル長・提出権限者フラグ持ちだが退会済み。
+    await seedMember(eventIds, UNIT1, {
+      familyName: '小樽',
+      givenName: '花',
+      isCircleLeader: true,
+      isTravelReportSubmitter: true,
+      deactivatedAt: new Date(),
+    })
+    const { files } = await loadTravelReportDefaults(group.id)
+    // 名簿・出場者数に退会済みは含まれない。
+    expect(files[0]!.memberCount).toBe(1)
+    expect(files[0]!.pendingNames).toEqual(['北海太郎'])
+    // 退会済みのサークル長は団体代表者候補から外れる（欄が空になる）ことを
+    // createTravelReports の出力で確認する。
+    const creator = await createUser({ role: 'admin' })
+    const result = await createTravelReports(group.id, [files[0]!], creator.id)
+    const [doc] = await testDb
+      .select()
+      .from(travelReportDocuments)
+      .where(eq(travelReportDocuments.id, result.documents[0]!.id))
+    const view = await readTravelReportDocx(doc!.docx)
+    expect(view.signatureParagraphs.join('\n')).not.toContain('小樽花')
+  })
 })
 
 describe('遠征届の生成と保存（AC-22〜27）', () => {
@@ -304,5 +331,40 @@ describe('遠征届の生成と保存（AC-22〜27）', () => {
       .from(travelReportDocuments)
       .where(eq(travelReportDocuments.id, result.documents[0]!.id))
     expect(doc!.eventIds).toHaveLength(4)
+  })
+
+  it('複数単位を1ファイルへ統合すると、同じ会員の両単位の移動行が備考と期間の両方に出る（Codex R1 #6）', async () => {
+    const { group, eventIds } = await seedGroup()
+    const creator = await createUser({ role: 'admin' })
+    const member = await seedMember(eventIds, [...UNIT1, ...UNIT2], {
+      familyName: '北海',
+      givenName: '太郎',
+    })
+    await saveRoute(group.id, UNIT1[0]!, member.id, [
+      { date: '2026-11-06', from: '札幌', to: '帯広' },
+    ])
+    await saveRoute(group.id, UNIT2[0]!, member.id, [
+      { date: '2026-11-16', from: '帯広', to: '旭川' },
+    ])
+
+    const { files } = await loadTravelReportDefaults(group.id)
+    // 2単位（非連続）を1ファイルへ統合。
+    const merged = { ...files[0]!, dates: [...UNIT1, ...UNIT2] }
+    const result = await createTravelReports(group.id, [merged], creator.id)
+    const [doc] = await testDb
+      .select()
+      .from(travelReportDocuments)
+      .where(eq(travelReportDocuments.id, result.documents[0]!.id))
+    const view = await readTravelReportDocx(doc!.docx)
+
+    // 備考に両単位の移動行が両方出る（片方が上書きされて欠落しない）。
+    const remarks = view.headerCells[10]![1]!
+    expect(remarks).toContain('11/6 [北海]札幌→帯広')
+    expect(remarks).toContain('11/16 [北海]帯広→旭川')
+    // 期間も両単位の移動行を通して 11/6〜11/16（11日間）になる。
+    const period = view.headerCells[8]![1]!
+    expect(period).toContain('11月　　6日')
+    expect(period).toContain('11月　　16日')
+    expect(period).toContain('11日間')
   })
 })

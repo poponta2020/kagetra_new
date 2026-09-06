@@ -47,6 +47,20 @@ function utcMsToDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10)
 }
 
+/**
+ * `YYYY-MM-DD` が実在する暦日かどうか（形式チェックも兼ねる）。
+ *
+ * `Date.parse('2026-02-31T00:00:00Z')` は NaN にならず 3/3 へロールオーバーする
+ * （`2027-02-29` も 3/1 へ）ため、`dateToUtcMs` の形式チェックだけでは実在しない
+ * 日付（うるう年でない年の 2/29 等）を通してしまう。UTC ミリ秒へ変換して文字列へ
+ * 戻し、入力と一致するかまで確認する（Codex R1 #3）。
+ */
+export function isValidCalendarDate(date: string): boolean {
+  const ms = dateToUtcMs(date)
+  if (Number.isNaN(ms)) return false
+  return utcMsToDate(ms) === date
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** `YYYY-MM-DD` に日数を足す（負数で戻る）。 */

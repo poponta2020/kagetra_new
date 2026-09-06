@@ -7,6 +7,7 @@ import {
   findUnitContainingDate,
   findUnitContainingEvent,
   inclusiveDayCount,
+  isValidCalendarDate,
 } from './units'
 
 const ev = (id: number, eventDate: string, status: 'published' | 'cancelled' | 'done' = 'published') => ({
@@ -31,6 +32,15 @@ describe('日付ユーティリティ', () => {
     expect(inclusiveDayCount('2026-06-13', '2026-06-13')).toBe(1)
     expect(inclusiveDayCount('2026-06-13', '2026-06-14')).toBe(2)
     expect(inclusiveDayCount('2026-11-06', '2026-11-09')).toBe(4)
+  })
+
+  it('isValidCalendarDate: 実在しない日付・不正な形式を弾く（Codex R1 #3）', () => {
+    expect(isValidCalendarDate('2026-06-13')).toBe(true)
+    expect(isValidCalendarDate('2028-02-29')).toBe(true) // うるう年
+    expect(isValidCalendarDate('2027-02-29')).toBe(false) // うるう年でない
+    expect(isValidCalendarDate('2026-02-31')).toBe(false) // ロールオーバーする不正日
+    expect(isValidCalendarDate('2026-13-01')).toBe(false) // 不正な月
+    expect(isValidCalendarDate('2026/06/13')).toBe(false) // 形式違反
   })
 })
 

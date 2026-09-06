@@ -1,20 +1,20 @@
 'use server'
 
 import { z } from 'zod'
-import { asc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import {
   entryGroups,
   entryGroupSelectionStatuses,
   entryGroupTravelSettings,
-  events,
 } from '@kagetra/shared/schema'
 import type { TravelSelectionStatus } from '@kagetra/shared'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { loadSelectionStatusRows } from '@/lib/travel-report/selection-status'
 import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
-import { estimateDestination } from '@/lib/travel-report/destination-ai'
+import { claimAndEstimateDestination } from '@/lib/travel-report/destination-estimate'
+import { requireTravelReportRequired } from '@/lib/travel-report/targets'
 
 /**
  * 遠征届（travel-report）まわりの Server Action をまとめるファイル。
@@ -198,48 +198,29 @@ export async function setTravelReportRequired(
  *
  * 開始時に開催地が未設定なら AI 推定を**同期で**1回行う（このボタンは押した人が
  * 結果を見る操作なので、`after()` に逃がさない）。推定に失敗しても開始は成功する。
+ *
+ * ★開催地の claim・推定・書き戻しは `destination-estimate.ts` の共通実装を使う
+ * （S5 の自動推定=`after()` 内 と実装を揃える。Codex R1 #4）。並行する
+ * `updateTravelDestination`（手入力）の保存を上書きしない。
+ *
+ * ★「不要」設定のグループでは開始できない（AC-10・Codex R1 #8）。
  */
 export async function startTravelRouteInput(entryGroupId: number): Promise<void> {
   const session = await requireSubmitterSession()
   await requireExistingGroup(entryGroupId)
+  await requireTravelReportRequired(entryGroupId)
 
   const settings = await db.query.entryGroupTravelSettings.findFirst({
     where: eq(entryGroupTravelSettings.entryGroupId, entryGroupId),
   })
-  const patch: Partial<typeof entryGroupTravelSettings.$inferInsert> = {
-    routeInputStartedAt: settings?.routeInputStartedAt ?? new Date(),
-  }
+  await upsertTravelSettings(
+    entryGroupId,
+    { routeInputStartedAt: settings?.routeInputStartedAt ?? new Date() },
+    session.user.id!,
+  )
 
-  // 開催地が未設定で、まだ推定を試していないなら1回だけ推定する。
-  const needsEstimate =
-    settings?.destinationSource == null && settings?.destinationAttemptedAt == null
-  if (needsEstimate) {
-    patch.destinationAttemptedAt = new Date()
-    const [event] = await db
-      .select({
-        title: events.title,
-        formalName: events.formalName,
-        location: events.location,
-      })
-      .from(events)
-      .where(eq(events.entryGroupId, entryGroupId))
-      .orderBy(asc(events.eventDate), asc(events.id))
-      .limit(1)
-    if (event) {
-      const estimated = await estimateDestination({
-        location: event.location,
-        title: event.formalName ?? event.title,
-      })
-      if (estimated) {
-        patch.destinationPrefecture = estimated.prefecture
-        patch.destinationCity = estimated.city
-        patch.destinationLabel = estimated.label
-        patch.destinationSource = 'ai'
-      }
-    }
-  }
+  await claimAndEstimateDestination(entryGroupId, session.user.id!)
 
-  await upsertTravelSettings(entryGroupId, patch, session.user.id!)
   revalidateGroup(entryGroupId)
 }
 

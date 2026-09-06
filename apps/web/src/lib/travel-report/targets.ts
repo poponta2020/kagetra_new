@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import {
   entryGroupTravelSettings,
   eventAttendances,
@@ -15,7 +15,7 @@ import { buildTravelUnits, type TravelUnit } from './units'
  * travel-report: 遠征単位ごとの**対象者**と入力状況（requirements R4・R5・AC-12）。
  *
  * 対象者 ＝ サークル所属 ON ∧ その単位のいずれかの日に出欠「参加」 ∧
- * 有効な確定状況が「確定」。会員・ゲストの両方を含む。
+ * 有効な確定状況が「確定」∧ 退会済みでない。会員・ゲストの両方を含む。
  *
  * 「有効な確定状況」の導出は `selection-status.ts` の1箇所に閉じる（このモジュールは
  * その結果を使うだけ）。
@@ -94,6 +94,18 @@ export function isRouteInputOpen(
 }
 
 /**
+ * グループが「不要」（`required=false`）なら例外を投げる（requirements AC-10・
+ * Codex R1 #8）。遠征届の作成・経路入力の開始は、どちらも「不要」に切り替えた
+ * 後は実行できない共通ガード。
+ */
+export async function requireTravelReportRequired(entryGroupId: number): Promise<void> {
+  const ctx = await loadGroupTravelContext(entryGroupId)
+  if (!ctx.required) {
+    throw new Error('この大会は遠征届が「不要」に設定されています')
+  }
+}
+
+/**
  * グループの全遠征単位について、対象者と入力済み／未入力を返す。
  *
  * ★DB 往復を単位ごとに増やさないため、グループ単位でまとめて引いてから
@@ -124,6 +136,7 @@ export async function loadTravelUnitStatuses(
           inArray(eventAttendances.eventId, eventIds),
           eq(eventAttendances.attend, true),
           eq(users.isCircleMember, true),
+          isNull(users.deactivatedAt),
         ),
       )
       .orderBy(asc(users.id), asc(events.eventDate)),

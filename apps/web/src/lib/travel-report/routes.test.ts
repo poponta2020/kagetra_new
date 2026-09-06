@@ -167,6 +167,33 @@ describe('入力検証（Server Action 境界）', () => {
     expect(validateLegDates([{ date: '2026-06-29', from: 'a', to: 'b' }], unit)).toContain('14日後')
   })
 
+  it('実在しない日付は形式が合っていても拒否する（Codex R1 #3）', () => {
+    expect(
+      travelRouteInputSchema.safeParse({ ...ok, legs: [{ date: '2026-02-31', from: 'a', to: 'b' }] })
+        .success,
+    ).toBe(false)
+    expect(
+      travelRouteInputSchema.safeParse({ ...ok, legs: [{ date: '2026-13-01', from: 'a', to: 'b' }] })
+        .success,
+    ).toBe(false)
+    // うるう年の 2/29 は通る。
+    expect(
+      travelRouteInputSchema.safeParse({ ...ok, legs: [{ date: '2028-02-29', from: 'a', to: 'b' }] })
+        .success,
+    ).toBe(true)
+    // うるう年でない年の 2/29 は弾く。
+    expect(
+      travelRouteInputSchema.safeParse({ ...ok, legs: [{ date: '2027-02-29', from: 'a', to: 'b' }] })
+        .success,
+    ).toBe(false)
+  })
+
+  it('validateLegDates も実在しない日付を範囲外として弾く（二重の網。Codex R1 #3）', () => {
+    const unit = { startDate: '2026-06-13', endDate: '2026-06-14' }
+    expect(validateLegDates([{ date: '2026-02-31', from: 'a', to: 'b' }], unit)).not.toBeNull()
+    expect(validateLegDates([{ date: '2027-02-29', from: 'a', to: 'b' }], unit)).not.toBeNull()
+  })
+
   it('正規化で その他 以外の地名を捨て、日付順に整える', () => {
     const parsed = travelRouteInputSchema.parse({
       departureKind: 'sapporo',
