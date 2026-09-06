@@ -53,7 +53,16 @@ import {
 } from '@/app/(app)/events/[id]/components/RosterSection'
 import { SelectionStatusRows } from './components/SelectionStatusRows'
 import { loadSelectionStatusRows } from '@/lib/travel-report/selection-status'
-import { resetSelectionStatuses, saveSelectionStatuses } from './travel-report-actions'
+import {
+  resetSelectionStatuses,
+  saveSelectionStatuses,
+  setTravelReportRequired,
+  startTravelRouteInput,
+  updateTravelDestination,
+} from './travel-report-actions'
+import { TravelReportSection } from './components/TravelReportSection'
+import { loadTravelReportSectionData } from '@/lib/travel-report/section-view'
+import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
@@ -287,6 +296,17 @@ export default async function EntryGroupPage({
         resetAction={resetSelectionStatuses}
       />
     ) : undefined
+
+  // travel-report タスク6 (AC-10・AC-19・AC-21): S5 遠征届セクション。
+  // **閲覧は全ロール**（単位ごとの n/m だけ）、**操作は提出権限者**（admin ∪ vice_admin ∪
+  // member+副連絡責任者フラグ）。顔ぶれ・履歴・bind 済み Action は提出権限者のときだけ
+  // 組み立てて渡す（非提出権限者の RSC payload に載せない。requirements §6）。
+  const canOperateTravelReport = await isTravelReportSubmitter(session)
+  const travelReport = await loadTravelReportSectionData(
+    groupIdNum,
+    hasConfirmedRoster,
+    canOperateTravelReport,
+  )
 
   // ④ 申込フロー帯（集約入力を作って既存 `buildEntryFlow` へ渡す。§3.2.4）。
   //    対象日（非 cancelled）が0件なら null が返り、帯を丸ごと描かない（AC-14）。
@@ -752,6 +772,25 @@ export default async function EntryGroupPage({
         currentUserId={session.user.id}
         adminControls={rosterAdminControls}
         selectionStatusSlot={selectionStatusSlot}
+      />
+
+      <TravelReportSection
+        entryGroupId={groupIdNum}
+        required={travelReport.required}
+        submitterNames={travelReport.submitterNames}
+        destination={travelReport.destination}
+        routeInputOpen={travelReport.routeInputOpen}
+        units={travelReport.units}
+        history={travelReport.history}
+        actions={
+          canOperateTravelReport
+            ? {
+                setRequired: setTravelReportRequired,
+                startRouteInput: startTravelRouteInput,
+                updateDestination: updateTravelDestination,
+              }
+            : undefined
+        }
       />
 
       <OpenChatSection rows={openChatRows} />
