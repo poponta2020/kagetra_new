@@ -119,6 +119,24 @@
 
 `capacityA`〜`capacityE`（級別定員）は `/events/[id]` 詳細の「級別定員」セクションに表示する。同セクションは旧「対象級」行を吸収しており、3分岐する: 定員が1つ以上あれば級＋定員数（＋合計）／定員が全て未設定なら `eligibleGrades` の級だけを数字なしで並べる／`eligibleGrades` も定員も無ければセクションごと非表示。`capacity`（総定員）は編集フォームにのみ保持し、詳細では表示しない。確認できた範囲では出欠登録時に定員超過を拒否する処理は無い（表示専用の参考情報）。
 
+### 遠征届（travel-report）
+
+北大かるた会サークルの所属者が大会に出るとき大学へ出す「遠征届」（Word）を、会員が入れた遠征経路とプロフィール属性から自動作成する（2026-09 新設。[features/travel-report/requirements.md](../features/travel-report/requirements.md)）。
+
+**遠征単位** ＝ 申込グループ内の**非 cancelled** な開催日を日付順に並べ、連続する日をまとめたブロック（第1土日と第2土日なら2単位）。経路入力・入力状況・「全員そろった」通知・作成時のファイル分割の既定は、すべてこの単位。**単位テーブルは持たず都度導出し、ブロック初日（`unit_start_date`）をキーにする**（`lib/travel-report/units.ts`）。開催日が増減してブロックが割れたら古いキーの行は読まれなくなるだけで、再キー付けはしない — 新しいブロックは未入力・未通知として扱われ、そろえば改めて通知が飛ぶのが望ましい挙動だから。
+
+**対象者**（単位ごと） ＝ `users.is_circle_member` ∧ その単位のいずれかの日に出欠「参加」 ∧ **有効な確定状況が「確定」**。会員・ゲストの両方を含む（`lib/travel-report/targets.ts`）。**入力済み** ＝ その単位についてその人の経路が1回以上保存されている（移動0行でも入力済み）。
+
+**確定状況**（`entry_group_selection_statuses`）は申込グループ × 人で 確定／キャンセル待ち／不参加 を持つ。**有効な確定状況**の導出順は 手入力 → 取り込み済み確定名簿の結果（`selection_outcome='waitlisted'`→キャンセル待ち／`rejected` または `status ∈ {cancelled, carry_up_declined}`→不参加／`status ∈ {confirmed, carried_up}`→確定）→ **確定**。★テーブルには**手入力だけを保存する** — 導出結果を書き込むと次の名簿再取込（繰上げ反映）が手入力に隠れて効かなくなるため。「取込名簿の結果に戻す」は手入力行の DELETE。導出の正典は `lib/travel-report/selection-status.ts` の1箇所で、**ホーム・外部 API・参加費集計・振込連絡へは配線しない**（今回は遠征届の対象者判定にだけ使う）。「確定名簿あり」判定も変えない。
+
+**経路入力が開いている** ＝ グループが「必要」（既定 true）かつ（「確定名簿あり」判定が成立 または 提出権限者が「経路入力を開始」を押した）。開く前は S7 にボタンを出さず保存も拒否する。
+
+**経路**（`travel_routes`）は 行き（`札幌から`／`帰省先から出場`／`その他`＋地名）＋ 帰り（`札幌へ戻る`／`そのまま帰省`／`その他`＋地名）＋ 移動行の並び（`[{date,from,to}]`）。**大会出場の行は保存せず出欠から導出する**（出欠が変わっても経路が stale にならない）。既定の行程は**本人の出場日基準**（最初の出場日の前日に「札幌→開催地」、最後の出場日の翌日に「開催地→札幌」）で、単位の初日・最終日ではない。行き／帰りの選択を変えると**既定行だけを差し替え**、本人が足した行は残る（`lib/travel-report/routes.ts` の純関数）。
+
+**開催地**（経路表記名。例「八戸」）はグループ単位。経路入力が開くときに未設定なら会場名と大会名から Claude Haiku で1回だけ推定して「AI推定」バッジ付きで保存する。推定は `destination_attempted_at` の claim で1回に抑え、**forced tool use にしない**（会場から所在地が判断できないときに県名を捏造させず「わからない」を表現させるため）。失敗しても空欄で保存して機能は止まらず、提出権限者がいつでも手修正できる（修正後は `manual` になり AI で上書きしない）。
+
+**docx の生成**は同梱テンプレ（原本 .dotx の団体代表者・顧問教員・電話・作成者名を空欄にしたクリーン版。base64 の TS モジュールとして同梱し `public/` には置かない）を**文字列レベルで**書き換えて .docx 化する（`lib/travel-report/docx/`）。見出し・罫線・フォントを変えないため DOM で組み直さず、書き込み前に構造（表2枚・ヘッダ12行・名簿41行・データ行5セル）を検査して不一致なら throw する。名簿は学年の高い順→同学年はかな順（かな無しは末尾）で、41人以上はテンプレのデータ行をクローンして足す（別紙は作らない）。備考は日付順に1日1段落で、同一内容の人を `[姓、姓]内容` にまとめ、**同姓が複数いる人だけフルネーム**、同一日内は 開催地へ向かう移動 → 大会出場 → 開催地から離れる移動 → その他の移動 の順。生成物は `travel_report_documents.docx`（bytea）へ保存し、認可つき route からだけ配る（全員の電話番号が入るため公開 URL は作らない）。
+
 ### ホーム画面（ダッシュボード）
 
 `/dashboard` は「会の出場予定」——この先どの大会に誰が出るのかを一覧する画面。縦順は **未回答アラート → 今日の大会カード → 出場タイムライン**で、該当が無いブロックは枠ごと消える。`/events` が「申込の締切管理」なのに対し、ホームは「会の顔ぶれ」で、同じ母集団を別のレンズで見る（あいさつ・権限カードは廃止）。ログイン必須（`session.user.id` が無ければ `/403`）。
@@ -128,6 +146,8 @@
 **出場者リストの確度**は 2 系統ある。`tournament_entry_rosters` に `rosterType='confirmed'` ∧ `supersededAt IS NULL` の版がある**申込グループ**は「確定」で、その `tournament_entry_roster_entries` のうち `status IN ('confirmed','carried_up')` ∧ `selectionOutcome NOT IN ('waitlisted','rejected')` ∧ `userId IS NOT NULL` が出場者になる。確定名簿が無いグループは「希望」で、`event_attendances.attend = true` ∧ 対象者（上記「対象者・対象級の絞り込み」と同じ `isInvited` ＋ 級の条件）へフォールバックする。**対象級による絞り込みは希望パスにのみ掛ける** —— 名簿はその大会の出場者の唯一の権威であり、現在の `users.grade` で絞ると昇級者が名簿から消えるため。名簿は event ではなく `entryGroupId` に属するので、同じグループの各日は同じ出場者リストを共有する。
 
 **出場者チップの級**は、確定パスが `tournament_entry_roster_entries.grade`（＝その大会で出る級。null のときだけ `users.grade`）、希望パスが `users.grade`。級はシーズン途中で上がるため、`users.grade` で統一すると対象級外の級がチップに出る。
+
+**遠征経路の未入力アラート**（travel-report S9）は未回答アラートの**下**に、既存の未回答アラート行と同じ高さ・角丸・配色（朱＝「自分が手を動かす必要がある」）でタグ「遠征経路」・右端「未入力」固定の行として並ぶ。出る条件は 遠征届が「必要」∧ 経路入力が開いている ∧ 自分がその単位の対象者 ∧ 未入力 ∧ **単位の最終日を過ぎていない**（`lib/travel-report/alerts.ts`）。0件なら何も出ない。ゲストはホームに入れないので S7 だけが導線になる。
 
 **未回答アラート**は、自分の級が対象（`eligibleGrades` が空/null なら全員が対象）で、基準締切 `COALESCE(internalDeadline, entryDeadline)` が今日から 7 日以内（締切当日を含み、超過は出さない）、かつ自分の `event_attendances` 行が**無い**大会を基準締切の早い順に並べる。`attend` の値は問わない（「不参加」と回答済みなら出さない）。母集団は上記そのもので、出場者 0 名の大会も対象にする。締切超過分の督促は管理者への LINE 通知（[notifications.md](notifications.md) の entry-overdue-alert）が担う。
 
@@ -172,6 +192,14 @@ DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixe
 **参加費の解決**（`lib/entry-fee.ts` の `resolveEntryFee`。画面・LINE 通知の全経路がここを通る）: `official=true` かつ `kind='individual'` なら **`events.fee_jpy` を一切見ず**、級から公認大会の規定額（`OFFICIAL_ENTRY_FEE_JPY`）を常に導出する。それ以外（非公認・団体戦）は `events.fee_jpy` をそのまま単価にする。`fee_jpy ?? 導出` ではない — 公認大会の参加料は協会規定で大会ごとの裁量が無く、スカラー1列では同日に複数級が開催される大会の級別金額を表現できない（実際に本番データが誤っている）。対象級は `events.eligible_grades`（NULL / 空配列なら全級）で、同一単価の級はまとめて `A・B級 2,500円 / C級 2,000円` の形に整形する。申込グループページの「支払状態」には単価に加えて**振込総額**と内訳（級ごとの人数×単価）を出す。振込総額は申込グループを1つにまとめた額で、**中止した日**と**事前払い以外の日**（現地払い＝当日各自が払う／NULL＝支払い通知なし）は除く（`setPaymentType` は1日単位で変更できるため同一グループ内で支払方法が混在しうる）。総額の母集団は参加者一覧（`attend=true` ∩ `is_invited` ∩ 対象級）と同一で、級未設定の会員は 0 円で足さず未算入として注記する（`lib/entry-fee-tally.ts`）。団体戦・非公認では人数×単価が成立しないため総額を出さない。
 
 **オープンチャット欄**（`OpenChatSection`。openchat-broadcast）は、大会当日用の LINE オープンチャット招待 URL を**ログイン済みの全会員**へ出す表示専用のセクション。追加・編集・削除の導線は置かない（編集はメール詳細の抽出フローからのみ）。帰属は**申込グループ**（`entry_group_open_chats.entry_group_id`）なので**開催日で絞らない** — 6/21 の詳細でも 6/20 対象の行が見える。対象日はラベルに出るので取り違えは起きず、「別の日のオプチャが見つからない」事故を防ぐ方を優先した。行は `ORDER BY sort_order, id` で取り、**取得順のまま描画する**（LINE を見逃した会員が配信済み Flex と同じ順序で辿れるようにするため。DTO は `sortOrder` を持たず、コンポーネント側で再ソートできない形にしてある）。ラベルは Flex と同一の `resolveOpenChatLabel`（`lib/open-chat/label.ts`）で解決するので必ず一致する。**保存済みが0件のときは見出しごと出さない** —「未設定」と出すと会員に「運営が忘れている」と読ませるが、実際は主催者がまだ配っていないだけのことが多い。
+
+**遠征届セクション**（travel-report S7。`TravelReportCta`）は `GroupBackLink` の**直下**（参加者より上）に出る。対象者で未入力なら朱（`accent` 枠＋`accent-bg` 地＋タグ「未入力」）の「遠征経路を入力する」、入力済みなら藤（`border`＋`surface` 地＋タグ「入力済み」）の「確認・修正」。提出権限者にはさらに原本（.dotx）ダウンロードとグループページへの導線が出る。**出すものが無い**（対象外の一般会員・未開始・不要）ならセクションごと描かない。提出権限者向けの値は `isTravelReportSubmitter` が true のときだけ組み立て、RSC payload にも載せない。`events/[id]/page.tsx` にはヘルパーコンポーネントを増やさない制約（`page-padding.test.ts`）があるため、CTA は `components/events/detail/` に置いて page 側は1箇所置くだけにしてある。
+
+### `/events/[id]/travel-route` 遠征経路の入力（travel-report S8）
+
+その日が属する遠征単位について、本人（または提出権限者による代理入力）の行程を入力する。**ゲストも入れる唯一の3セグメント目**で、`guest-access` の許可リストに `/events/:id/travel-route` を完全一致で足してある（`/events/:id/edit` は拒否のまま）。`?user=<userId>` は代理入力用で、自分以外を指定できるのは提出権限者だけ。経路入力が開いていない・対象者でない・権限が無い場合はいずれも 404 相当へ倒す（ページで通したことを前提にせず Server Action 側でも同じ判定をやり直す）。
+
+画面は上から sticky ヘッダー（大会名・単位の日付・対象者名）→ プロフィール1行（学部等名 学年 ・ 電話。**欠けている項目があるときだけ**表を開いた状態で始め、保存でプロフィールへ書き戻す）→ 行き／帰りの3択（`その他` は直下に地名入力）→ 日ごとのタイムライン（日付列＋移動行の下線入力2つ＋「→」＋「×」、出場チップは編集不可）→ sticky 保存ボタン。代理入力では見出しの対象者名に朱の「（代理入力）」注記が付く。
 
 ### `/events/[id]/edit` 編集
 
@@ -268,6 +296,22 @@ eslint / vitest / check-types では検知できず `next build` でしか出な
 **LINE配信・名簿・オープンチャット・関連メール**はいずれもグループ帰属。オープンチャット欄の直下には管理者・副管理者だけに「オープンチャットを配信」（`OpenChatBroadcastControl`。保存済み0件なら描画しない）が出て、通常の配信（メール詳細の「LINE 配信」に相乗り）が失敗したときのやり直し導線になる（[spec/notifications.md](notifications.md)）。関連メールはグループ**全日分の UNION**（`collectRelatedMailIdsForGroup`。重複は `mail_messages.id` で dedup・受信日降順）。級別グループ配信だけは event 単位の状態なので**日ごとに1行**出す（代表イベントだけに畳むと複数日グループで他の日へ配信する手段が失われる。1日だけのグループの描画は日ページ時代と同一）。
 
 朱（`--kg-accent` 系）を使うのは **期限超過・要対応フェーズ（要申込／要振込）・共通項目の食い違い**の3つだけ。視覚の正は [features/entry-group-page/design-spec.md](../features/entry-group-page/design-spec.md)（locked・案C）と同ディレクトリの `design-mock/`。
+
+**遠征届セクション**（travel-report S5）は名簿とオープンチャットの間。**閲覧は全ロール**だが、一般会員に出るのは遠征単位ごとの見出し行（日付・級・`n/m`／「そろった」）**だけ**で、顔ぶれ・作成・履歴・トグルは出さない（電話番号入りの作成物へ近づけないため、bind 済み Server Action ともども RSC payload に載せない）。提出権限者には上から 必要トグル → 開催地行（AI推定バッジ＋修正）→ 単位ごとの進捗と顔ぶれ（**未入力＝朱の名前がそのまま代理入力への導線**。別ボタンは置かない）→ 「遠征届を作成」→ 作成履歴 → 原本（.dotx）行。「不要」の間はトグルだけになり、履歴があれば件数だけ残す。未開始のときは 必要トグル・開催地・「経路入力を開始」だけを出す。
+
+**確定状況**は名簿セクション**内**の開閉行（`RosterSection` の `selectionStatusSlot`）。1人1行＋3択セグメント（確定＝brand／キャンセル待ち＝warn／不参加＝neutral-fg）で、右寄せに「取込名簿の結果に戻す」と「確定状況を保存」。保存できるのは**管理者・副管理者のみ**（副連絡責任者は不可）。団体戦グループでは名簿セクションごと出ないため確定状況も出ず、有効な確定状況は導出に委ねる。
+
+### `/admin/entries/[groupId]/travel-report/new` 遠征届の作成（travel-report S6）
+
+**提出権限者のみ**（他ロールは 404）。上から ① ファイル分割（既定＝遠征単位。日行の「ファイルNへ」「別ファイルにする」とカード間の統合バーの2操作だけで、ドラッグはしない）→ ② ファイルごとの届の内容 → ③ sticky な「N ファイルを作成する」。編集できるのは **目的・場所・遠征先連絡者・留守連絡先・届の日付・承認日 の6行だけ**で、名簿・備考は生成のみ（直すなら Word）。共通（団体名・団体代表者・顧問教員・並び順）は読み取り専用で出所を添える。
+
+既定値: 目的＝`{正式名称（無ければ大会名）}({そのファイルの日の対象級を A〜E 順に連結}級)への参加`／場所＝そのファイルの日の会場（重複を除いて「・」連結）／遠征先連絡者＝出場者のうち サークル長 → 管理者 → 副管理者 → 副連絡責任者 → 会計 の順で最初の1人（誰もいなければ生年月日が最も早い人。同日なら全員）／留守連絡先＝サークル長（サークル長が出場者に含まれるなら、出場しない副連絡責任者の userId 順の先頭）／届の日付＝作成日（JST）／承認日＝空欄。**未入力者がいても作成できる**（朱で警告し、名簿には載って備考には出場行だけが出る）。
+
+作成すると batch 1 行 ＋ documents N 行が**追記専用の履歴**として保存され、LINE グループへ `@副連絡責任者` つきで知らせる。**通知が失敗しても documents は保存済みのまま**で、理由が `travel_report_batches.notify_error` に残る。
+
+### `/settings/travel-report` 遠征届設定（travel-report S4）
+
+顧問教員の 所属部局等・職・氏名 の3項目を `app_settings`（`travel_report.` 接頭辞）へ保存する。編集できるのは**提出権限者**（副連絡責任者・管理者・副管理者）で、設定ハブの導線もフラグ付きの一般会員に出る。★初期値は**空**にしてある（原本の顧問教員名をコードへ埋め込むと「原本の個人情報を git 履歴に残さない」方針に反するため）。未設定でも遠征届の作成は成功し、該当欄が空欄になる。
 
 ### `/admin/entry-form/[groupId]` 申込書作成プレビュー
 
@@ -379,6 +423,26 @@ admin / vice_admin のみ。申込グループページの「共通項目」か�
 ### `extractOpenChatCandidatesFromMail(args)` / `saveAndBroadcastOpenChats(input, options)` / `broadcastOpenChats(args)` / `loadOpenChatBroadcastSummary(groupId)` — `admin/mail-inbox/open-chat-actions.ts`
 
 いずれも admin / vice_admin のみ（openchat-broadcast。詳細は [spec/notifications.md](notifications.md)）。`extractOpenChatCandidatesFromMail` はメール本文＋添付テキスト＋QR から候補を集めるだけで保存しない。`saveAndBroadcastOpenChats` は URL 空・非 https・グループ外の開催日・URL 重複・最終ラベル重複を弾いてから保存し、LINE 紐付けがあれば Flex を1通配信する（未紐付けなら保存のみ）。**保存と配信は別々に扱い、配信の失敗は保存をロールバックしない**。`broadcastOpenChats` は保存済み全件を毎回送る再配信で、`loadOpenChatBroadcastSummary` が確認ダイアログ用に配信済み回数・全件のラベル・前回配信以降に増えた行の印を返す。
+
+### `saveSelectionStatuses(entryGroupId, updates)` / `resetSelectionStatuses(entryGroupId)` — `admin/entries/[groupId]/travel-report-actions.ts`
+
+確定状況の一括保存と「取込名簿の結果に戻す」（＝手入力行の DELETE）。**admin / vice_admin のみ**。送られた `userId` はその場で再計算した対象者集合（当該グループのいずれかの日に出欠「参加」の会員・ゲスト）に含まれるものだけを受け付け、1件でも外れていれば何も保存せず拒否する（fail-closed）。
+
+### `setTravelReportRequired(entryGroupId, required)` / `startTravelRouteInput(entryGroupId)` / `updateTravelDestination(entryGroupId, input)` — `admin/entries/[groupId]/travel-report-actions.ts`
+
+遠征届の必要/不要トグル・経路入力の開始・開催地の手修正。**提出権限者**（admin ∪ vice_admin ∪ member+`is_travel_report_submitter`）が実行できる（確定状況とは境界が違う）。「不要」にしても入力済みの経路・作成物は消さない。「開始」では開催地が未設定なら AI 推定を同期で1回行う（押した人が結果を見る操作なので `after()` へ逃がさない）。手修正すると `destination_source='manual'` になり以後 AI で上書きしない。
+
+### `saveTravelRouteAction(...)` — `events/[id]/travel-route/actions.ts`
+
+遠征経路の保存。本人または提出権限者（代理入力）のみ。`entry_groups` 行を `SELECT … FOR UPDATE` でロックし、「**保存前の未入力の対象者集合 == {保存者}**」を遷移とみなして `travel_unit_notices.last_attempted_at` を claim し、**コミット後に** LINE へ push する（tx 内では送らない）。`last_error` が残っていて保存後に全員入力済みなら、遷移でなくても再送する（自己回復。再送ボタンは置かない）。S8 で埋めたプロフィール項目は同じ tx で**対象者**へ書き戻す。
+
+### `createTravelReportsAction(entryGroupId, files)` — `admin/entries/[groupId]/travel-report/new/actions.ts`
+
+遠征届の作成。**提出権限者のみ**。同じ日が複数のファイルに入っていたら拒否する（統合・分割の操作ミスで同じ人が2枚に載るのを防ぐ）。作成物を保存してから通知し、通知の成否を `travel_report_batches` に記録する（失敗しても作成物は残す）。
+
+### `saveTravelReportSettingsAction(values)` — `settings/travel-report/actions.ts`
+
+顧問教員3項目の保存。**提出権限者のみ**。
 
 ### `saveEntryFormSettingsAction(values)` — `settings/entry-form/actions.ts`
 

@@ -325,6 +325,7 @@ export function TravelReportSection({
                       <span className="min-w-0 flex-1 truncate text-ink">
                         <a
                           href={`/api/admin/travel-reports/${h.id}`}
+                          download
                           className="text-brand underline underline-offset-2"
                         >
                           {h.filename}
@@ -342,8 +343,12 @@ export function TravelReportSection({
               {canOperate && (
                 <div className="flex items-center justify-between gap-2 pt-[10px] text-xs text-ink-meta">
                   <span>大学に出す様式（原本）</span>
+                  {/* ★これはページではなくファイルを返す route handler なので `<a download>`
+                      が正しい（`<Link>` はクライアント遷移を試みてダウンロードにならない）。
+                      `download` を落とすと `no-html-link-for-pages` が誤検知する。 */}
                   <a
                     href="/api/admin/travel-reports/template"
+                    download
                     className="inline-flex items-center gap-[6px] text-xs text-brand underline underline-offset-2"
                   >
                     遠征届原本.dotx

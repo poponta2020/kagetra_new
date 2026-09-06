@@ -168,6 +168,17 @@ async function loadHistory(entryGroupId: number): Promise<TravelReportHistoryVie
  * `destination_source IS NULL` のときだけ（並行する手入力を潰さない）。
  */
 function scheduleDestinationEstimate(entryGroupId: number): void {
+  // ★`after()` はリクエストスコープの外（ページを直接レンダーする単体テスト等）で
+  // 呼ぶと throw する。開催地の推定は**あくまで補助**で、失敗しても空欄のまま機能が
+  // 続くのが仕様（R7）。ここで例外を外へ出すとページ全体が落ちるので握りつぶす。
+  try {
+    scheduleAfter(entryGroupId)
+  } catch (err) {
+    console.warn('[travel-report/section-view] 開催地の推定をスケジュールできませんでした', err)
+  }
+}
+
+function scheduleAfter(entryGroupId: number): void {
   after(async () => {
     const claimed = await db
       .update(entryGroupTravelSettings)

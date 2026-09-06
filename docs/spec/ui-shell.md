@@ -66,6 +66,7 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 - アカウント: `LINE アカウント切替`（`/settings/line-link` へのリンク）— 全ユーザーに表示。中身は [spec/auth-admin.md](auth-admin.md) 参照
 - 管理（`isAdmin` のみ）: `会員`（`/admin/members`）、`メール通知`（`/settings/notifications`。中身は [spec/notifications.md](notifications.md) 参照）、`Bot`（`/admin/line-channels`）
+- 遠征届（travel-report）: `遠征届`（`/settings/travel-report`。顧問教員3項目）。**管理者だけでなく提出権限者（`is_travel_report_submitter` の付いた一般会員）にも出す** — 提出係は一般会員のことが多く、管理セクションの中に置くと本人が辿り着けない。判定は `lib/travel-report/authz.ts`（[spec/auth-admin.md](auth-admin.md)）
 - 表示ロール: `setRolePreviewAction` を叩く `<form>` 内に、選べるロールぶんの submit ボタンを並べたセクション。現在の実効ロールのボタンに `aria-current="true"` が付く。フォームは `<input type="hidden" name="returnTo" value="/settings">` を持ち、切替後もこのページに留まる（以前はシートを開いた画面へ戻す設計だったが、シートが全画面から開ける前提が無くなったため）。ロールの意味・許可条件・認可規律は [spec/auth-admin.md](auth-admin.md) 参照
 
 `rolePreview` は `(app)/settings/page.tsx` がサーバー側で `session.user` と `process.env.ROLE_PREVIEW_USER_IDS` から都度算出する（`(app)/layout.tsx` 側でも別途算出し、`BottomNav` の設定タブバッジ用に `previewRoleLabel` として渡す — 2 箇所での算出はどちらも `buildRolePreviewSelection` を通すため不整合は生じない）。プレビュー中は設定タブの上に `previewRoleLabel` のバッジが表示される（ボトムナビ節を参照）。

@@ -89,7 +89,7 @@ design_source: claude-design
 - **完了条件:** テスト green・`git grep` で原本の電話番号・氏名がリポジトリに無い
 - **対応Issue:** #587
 ### タスク5: 遠征単位・対象者・経路入力（S8）・S7 導線・S9 導線・全員そろった通知
-- [ ] 完了
+- [x] 完了
 - **目的:** 対象者が経路を入力でき、未入力が目立ち、そろったら LINE で知らせる
 - **対応AC:** AC-10（導線側）・11〜18・30
 - **主な変更領域:** 新規 `apps/web/src/lib/travel-report/units.ts`・`targets.ts`・`routes.ts`・`alerts.ts`・`notify.ts`、`apps/web/src/lib/line-mention-targets.ts`（`resolveSubmitterMention`）、新規 `apps/web/src/app/(app)/events/[id]/travel-route/`（page・actions・RouteForm）、新規 `apps/web/src/components/events/detail/TravelReportCta.tsx`＋`events/[id]/page.tsx` の1箇所、`apps/web/src/app/(app)/dashboard/`（home-timeline-types・page・HomeTimeline）、`docs/spec/events-attendance.md`・`notifications.md`
@@ -98,7 +98,7 @@ design_source: claude-design
 - **完了条件:** テスト green・design-spec §8 の S8/S7/S9 項目
 - **対応Issue:** #588
 ### タスク6: S5 遠征届セクション（必要/不要・開催地 AI 推定・入力開始・入力状況・履歴）
-- [ ] 完了
+- [x] 完了
 - **目的:** 提出権限者がグループページから運用できる
 - **対応AC:** AC-10（トグル）・19・21（トグル・開催地）
 - **主な変更領域:** 新規 `apps/web/src/lib/travel-report/destination-ai.ts`、`apps/web/src/app/(app)/admin/entries/[groupId]/`（新規 `components/TravelReportSection.tsx`・`travel-report-actions.ts` に setRequired／startRouteInput／updateDestination・page.tsx）、`docs/spec/events-attendance.md`
@@ -107,7 +107,7 @@ design_source: claude-design
 - **完了条件:** テスト green・design-spec §8 の S5 項目
 - **対応Issue:** #589
 ### タスク7: docx 生成（純関数＋テンプレ記入）・作成画面（S6）・作成 Action・DL route・作成通知
-- [ ] 完了
+- [x] 完了
 - **目的:** 遠征届を作成・保存・ダウンロードでき、LINE で知らせる
 - **対応AC:** AC-20〜28
 - **主な変更領域:** 新規 `apps/web/src/lib/travel-report/render.ts`・`contacts.ts`・`filename.ts`・`docx/fill.ts`・`docx/read.ts`（テスト用の読み戻し）、新規 `apps/web/src/app/(app)/admin/entries/[groupId]/travel-report/new/`（page・actions・CreateForm）、新規 `apps/web/src/app/api/admin/travel-reports/[id]/route.ts`、`TravelReportSection.tsx`（履歴・作成導線の配線）、`docs/spec/events-attendance.md`・`notifications.md`
@@ -116,7 +116,7 @@ design_source: claude-design
 - **完了条件:** テスト green・design-spec §8 の S6 項目・`git grep` で原本の個人情報なし
 - **対応Issue:** #590
 ### タスク8: 仕様書更新・INDEX・忠実度チェック・最終回帰
-- [ ] 完了
+- [x] 完了
 - **目的:** docs レジストリの正典を更新し、design-spec の忠実度チェックリストを全項目確認する
 - **対応AC:** AC-31・32・（AC-33 は出荷後の manual）
 - **主な変更領域:** `docs/spec/events-attendance.md`（S5〜S9・Server Actions 節）・`auth-admin.md`・`notifications.md`・`ui-shell.md`・`docs/design/db*.md`・`docs/features/INDEX.md`（主要領域）・`docs/SPECIFICATION.md`（必要なら）
