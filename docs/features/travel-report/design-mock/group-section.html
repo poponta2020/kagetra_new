@@ -1,0 +1,196 @@
+<!-- @dsCard group="遠征届（travel-report）" name="S5 申込グループページ：遠征届セクション ＋ 確定状況" subtitle="入力開始済み（2単位・未入力あり・履歴）／名簿セクションの確定状況3択／未開始（AI推定）と不要の断片" viewport="1240x1040" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_tr.css">
+<title>申込グループページ — 遠征届セクション・確定状況（S5）</title>
+</head><body>
+
+<!-- ============================================================
+     S5 /admin/entries/[groupId] に足す2つ:
+       ① 名簿セクション内「確定状況」（管理者・副管理者）— 参加者ごとに 確定／キャンセル待ち／不参加
+       ② 新設「遠征届」セクション（閲覧は全ロール・操作は提出権限者）
+            必要/不要 → 開催地（AI推定バッジ） → 入力状況（遠征単位ごと） → 作成 → 履歴
+     セクション順: … → LINE配信 → 振込連絡 → 名簿(＋確定状況) → 【遠征届】 → オープンチャット → 関連メール
+     題材: 帯広新人戦（架空・2週末=遠征単位2つ）。名前は架空。
+     ============================================================ -->
+
+<!-- ─────────── 遠征届セクション（入力開始済み） ─────────── -->
+<div class="col">
+  <div class="collabel">遠征届セクション ── 入力開始済み・2単位・未入力あり</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>帯広新人戦</span></div>
+        <h1 class="title">帯広新人戦</h1>
+        <div class="subline">11/7・11/8・11/14・11/15 ／ 申込締切 10/20 ／ 抽選 10/25</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">10/13</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">10/20</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">抽選</span><span class="t">10/25</span></div>
+          <div class="fs now"><span class="d"></span><span class="l">支払</span><span class="t">11/1</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">11/7</span></div>
+        </div>
+      </div>
+
+      <details class="mg outer" style="padding-top:22px"><summary><h2>名簿</h2><span class="mgaux">確定 10/25 ／ 確定状況 入力済み</span></summary></details>
+
+      <div class="sec">
+        <div class="sech"><h2>遠征届</h2><span class="aux">副連絡責任者: 旭川</span></div>
+
+        <div class="sw" style="border-top:0;padding-top:4px">
+          <div><div class="swl">この大会は遠征届が必要</div><div class="swh">不要にすると入力導線と通知が止まります</div></div>
+          <span class="knob on"></span>
+        </div>
+        <div class="place">
+          <span class="k">開催地</span>
+          <span class="v">帯広 <span class="pref">北海道 帯広市</span> <span class="bdg ai">AI推定</span></span>
+          <a class="lnk" href="#">修正</a>
+        </div>
+
+        <div class="unit">
+          <div class="unith"><span class="ud">11/7(土)・11/8(日)</span><span class="ug">A B C</span><span class="uc ok">4/4 そろった</span></div>
+          <div class="who">
+            <span class="p">北海<span class="g">A</span></span><span class="p">藤野<span class="g">A</span></span><span class="p">釧路<span class="g">B</span></span><span class="p">石狩<span class="g">C</span></span>
+          </div>
+        </div>
+        <div class="unit">
+          <div class="unith"><span class="ud">11/14(土)・11/15(日)</span><span class="ug">D E</span><span class="uc">1/3</span></div>
+          <div class="who">
+            <span class="p">石狩<span class="g">C</span></span>
+            <span class="p ng"><a href="#">小樽<span class="g">D</span></a></span>
+            <span class="p ng"><a href="#">帯広<span class="g">E</span></a></span>
+          </div>
+          <p class="help" style="padding-top:6px">朱の名前を押すと代理入力できます。全員そろうと LINE で @副連絡責任者 に知らせます。</p>
+        </div>
+
+        <div class="ctrl">
+          <span class="btn b-sm b-primary">遠征届を作成</span>
+          <span class="stat">未入力の人がいても作れます（名簿には載り、行程は空）</span>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="lbl" style="padding-bottom:4px">作成履歴</div>
+          <div class="hist"><span class="fn"><a href="#">2026.11.7,8 帯広新人戦 遠征届.docx</a></span><span class="meta">9/6 15:02 旭川</span></div>
+          <div class="hist"><span class="fn"><a href="#">2026.11.7,8 帯広新人戦 遠征届.docx</a></span><span class="meta">9/5 21:40 北海</span></div>
+        </div>
+        <div class="dlrow"><span>大学に出す様式（原本）</span><a class="dl" href="#">遠征届原本.dotx</a></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>オープンチャット</h2></div>
+        <p class="subnote">まだ登録がありません。</p>
+      </div>
+
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab active">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">遠征単位（連続開催日）ごとに「そろった／n/m」と顔ぶれ。未入力は朱の名前＝そのまま代理入力への導線。履歴は最新が上。ファイル名は記入例の流儀。原本（.dotx）の行は提出権限者だけに出る（R3）。</div>
+</div>
+
+<!-- ─────────── 名簿セクション: 確定状況 ─────────── -->
+<div class="col">
+  <div class="collabel">名簿セクション ── 確定状況（管理者・副管理者）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><span>帯広新人戦</span></div>
+        <h1 class="title">帯広新人戦</h1>
+        <div class="subline">11/7・11/8・11/14・11/15 ／ 申込締切 10/20 ／ 抽選 10/25</div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>名簿</h2><span class="aux">確定 10/25</span></div>
+        <details class="rost"><summary><span class="rt">確定名簿</span><span class="cnt">48名</span><span class="pub">10/25 発表</span></summary></details>
+
+        <details class="mg" open>
+          <summary><span class="k">確定状況</span><span class="v">確定 6 ・ キャンセル待ち 1 ・ 不参加 1</span><span class="mgaux">取込名簿から初期化</span></summary>
+          <div class="mgbody">
+            <p class="help" style="padding-bottom:6px">出欠「参加」の人ごとに設定します。遠征届の対象は「確定」の人だけです。キャンセル待ちが繰り上がったら「確定」に変えてください。</p>
+            <div class="prow"><span class="pn">北海 太郎<span class="g">A</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">藤野 美咲<span class="g">A</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">釧路 颯<span class="g">B</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">石狩 蓮<span class="g">C</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">石狩 陽向<span class="g">C</span></span><span class="seg"><span>確定</span><span class="on wait">ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">小樽 結衣<span class="g">D</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">帯広 花<span class="g">E</span></span><span class="seg"><span class="on">確定</span><span>ｷｬﾝｾﾙ待ち</span><span>不参加</span></span></div>
+            <div class="prow"><span class="pn">函館 大地<span class="g">B</span><span class="gu">ゲスト</span></span><span class="seg"><span>確定</span><span>ｷｬﾝｾﾙ待ち</span><span class="on out">不参加</span></span></div>
+            <div class="mgacts"><span class="lnk">取込名簿の結果に戻す</span><span class="btn b-sm b-primary">確定状況を保存</span></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>遠征届</h2><span class="aux">副連絡責任者: 旭川</span></div>
+        <p class="subnote">（上のモックと同じ）</p>
+      </div>
+
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab active">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">名簿セクションの中の開閉行「確定状況」。1人1行・3択のセグメント。キャンセル待ちは琥珀（warn）、不参加は藤鼠（neutral）で塗る。既定値は「取込名簿→確定」の導出。</div>
+</div>
+
+<!-- ─────────── 断片: 未開始／不要 ─────────── -->
+<div class="col">
+  <div class="collabel">遠征届セクションの断片 ── 未開始（確定前）／不要</div>
+  <div class="vcard">
+    <div class="vlabel">未開始（確定名簿なし・手動開始もまだ）</div>
+    <div class="sec">
+      <div class="sech"><h2>遠征届</h2><span class="aux">副連絡責任者: 旭川</span></div>
+      <div class="sw" style="border-top:0;padding-top:4px">
+        <div><div class="swl">この大会は遠征届が必要</div></div>
+        <span class="knob on"></span>
+      </div>
+      <div class="place">
+        <span class="k">開催地</span>
+        <span class="v"><span class="in ph" style="width:120px">未設定</span></span>
+        <a class="lnk" href="#">入力</a>
+      </div>
+      <div class="ctrl">
+        <span class="btn b-sm b-outline">経路入力を開始</span>
+        <span class="stat">確定名簿が出ると自動で始まります。先に始めるならこのボタン。</span>
+      </div>
+      <p class="help" style="padding-top:8px">開始時に開催地が未設定なら、会場名から AI が推定して入れます（あとで直せます）。</p>
+    </div>
+    <div class="vnote">まだ対象者も入力状況も出さない。開始前に見えるのは「必要/不要」「開催地」「開始ボタン」だけ。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">不要に切り替えた状態</div>
+    <div class="sec">
+      <div class="sech"><h2>遠征届</h2><span class="aux">この大会は不要</span></div>
+      <div class="sw" style="border-top:0;padding-top:4px">
+        <div><div class="swl">この大会は遠征届が必要</div><div class="swh">戻すと入力済みの経路もそのまま復活します</div></div>
+        <span class="knob"></span>
+      </div>
+    </div>
+    <div class="vnote">不要の間はトグルだけ。入力状況・作成ボタン・履歴は畳んで見せない（履歴が既にある場合は「履歴 n 件」のリンクだけ残す）。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">一般会員が見たとき（操作なし）</div>
+    <div class="sec">
+      <div class="sech"><h2>遠征届</h2><span class="aux">副連絡責任者: 旭川</span></div>
+      <div class="unit">
+        <div class="unith"><span class="ud">11/7(土)・11/8(日)</span><span class="ug">A B C</span><span class="uc ok">4/4 そろった</span></div>
+      </div>
+      <div class="unit">
+        <div class="unith"><span class="ud">11/14(土)・11/15(日)</span><span class="ug">D E</span><span class="uc">1/3</span></div>
+      </div>
+    </div>
+    <div class="vnote">会員には単位ごとの「そろった／n/m」だけ。名前・作成・履歴・トグルは出さない（電話番号入りの作成物へ近づけない）。</div>
+  </div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>確定状況の置き場所</b>: 名簿セクションの中の開閉行にした（名簿と同じ場所で「誰が確定か」を決める）。独立セクションにする案もある。</li>
+    <li><b>未入力者の代理入力導線</b>: 朱の名前をそのままリンクにした。別に「代理入力」ボタンを置くより1タップ少ない。</li>
+    <li><b>一般会員に見せる範囲</b>: 単位ごとの進捗だけ。名前は出さない。</li>
+  </ul>
+</div>
+
+</body></html>
