@@ -371,6 +371,7 @@
 - [attachment-open-download 実装](impl_attachment_open_download.md) — 全5タスク完了・PR前・72 tests green
 - [auto-review PR #581](auto-review-round-pr581.md) — R1 blocker→修正, R2/R3 収束(WONTFIX 1件), CI はタイムアウトで中断
 - [メール処理画面からの振込連絡 実装(2026-09-04)](impl_line-bot-message-revamp-mail-payment-notice.md) — 確定名簿メールの処理と同時に会計へ振込連絡。露出判定の共有化・after() 相乗り・失敗記録
-- [auto-review PR #582](auto-review-round-pr582.md) — R1 blockers3→修正→R2 delta pass
+- [auto-review PR #582](auto-review-round-pr582.md) — R4 verdict=pass（R1で3件・R3 finalで4件のblocker。final の価値が出た回）
 - [fix PR #582](impl_fix-pr582.md) — review 指摘の修正（400 revoke の取り残し発見）
 - [添付ファイルの「開く・保存」導線と Excel プレビュー廃止](project_ship-attachment-open-download.md) — shipped: PR #581
+- [メール処理画面から会計へ振込連絡](project_ship-mail-screen-payment-notice.md) — shipped: PR #582（final で blocker 4件＝final の価値が出た回）

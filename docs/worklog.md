@@ -3041,3 +3041,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-04 /auto-review-loop PR #581: 3R(i+d+f), verdict=pass(R2 delta), effort=m, tokens=231926/500000, result=codex-error（R3 final がクォータ枯渇で未実行）
 - 2026-09-04 /auto-review-loop PR #582: 0R(i中断), verdict=-, effort=high, tokens=0/500000, result=codex-error（Codex 利用上限。17:28 リセット待ち）
 - 2026-09-04 出荷: PR #581「添付ファイルに「開く・保存」導線を追加し、Excel のページ画像プレビューを廃止」— 添付ビューア3画面（会員メール/管理者メール/名簿）に共有シート経由の「開く・保存」を追加、Excel(.xls/.xlsx/.xlsm)は spreadsheet 種別としてページ画像プレビューを廃止。サーバー route は無変更。親#575・子#576-580 クローズ。
+- 2026-09-06 /auto-review-loop PR #582: 4R(i+d+f+fd), verdict=pass, effort=h→h, tokens=1013870/500000, result=pass
+- 2026-09-06 出荷: PR #582「メール処理画面から会計へ振込連絡を送れるようにする」— 確定名簿メールの処理と同時に会計へ振込依頼を送る導線を統合処理フォームへ追加。migration 0063（失敗記録）・露出判定の共有化・送信コアの集約・after() 相乗り（配信→振込連絡の順）・失敗表示2画面。親#567・子#568-574 クローズ。★Codex final（全差分）で blocker 4件を検出（delta の pass 後）。残DoD=本番実機確認（AC-21/AC-51）。
