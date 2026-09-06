@@ -51,6 +51,9 @@ import {
   type RosterAdminControls,
   type RosterFileView,
 } from '@/app/(app)/events/[id]/components/RosterSection'
+import { SelectionStatusRows } from './components/SelectionStatusRows'
+import { loadSelectionStatusRows } from '@/lib/travel-report/selection-status'
+import { resetSelectionStatuses, saveSelectionStatuses } from './travel-report-actions'
 import {
   generateInviteCodeForEvent,
   manualBroadcast,
@@ -263,6 +266,27 @@ export default async function EntryGroupPage({
         ),
       }
     : undefined
+
+  // travel-report タスク3 (AC-8): 確定状況の行と Server Action も**管理者・副管理者の
+  // ときだけ**組み立てる（保存できるのはこの2ロールだけ。requirements R12 の権限表。
+  // 副連絡責任者は確定状況を保存できない）。非管理者には行も bind 済み Action も
+  // RSC payload に載せない（`rosterAdminControls` と同じ規律）。
+  //
+  // ★スロットは `RosterSection` の中へ渡す（design-spec §3/§8「名簿セクション内の
+  //   開閉行」）。団体戦グループでは `RosterSection` 自体が null を返すので確定状況も
+  //   出ない——その場合の有効な確定状況は導出（取込名簿→確定）に委ねる。
+  //   requirements R4「団体戦グループも同じ扱い（追加の特別対応はしない）」に沿う。
+  const selectionStatusRows =
+    isAdmin && !isTeamGroup ? await loadSelectionStatusRows(groupIdNum) : []
+  const selectionStatusSlot =
+    isAdmin && !isTeamGroup && selectionStatusRows.length > 0 ? (
+      <SelectionStatusRows
+        entryGroupId={groupIdNum}
+        rows={selectionStatusRows}
+        saveAction={saveSelectionStatuses}
+        resetAction={resetSelectionStatuses}
+      />
+    ) : undefined
 
   // ④ 申込フロー帯（集約入力を作って既存 `buildEntryFlow` へ渡す。§3.2.4）。
   //    対象日（非 cancelled）が0件なら null が返り、帯を丸ごと描かない（AC-14）。
@@ -727,6 +751,7 @@ export default async function EntryGroupPage({
         rosterFiles={rosterFiles}
         currentUserId={session.user.id}
         adminControls={rosterAdminControls}
+        selectionStatusSlot={selectionStatusSlot}
       />
 
       <OpenChatSection rows={openChatRows} />
