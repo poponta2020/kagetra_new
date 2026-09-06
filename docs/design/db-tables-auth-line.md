@@ -40,8 +40,14 @@ Auth.js v5 標準カラム + kagetra拡張プロフィール/権限。
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 | notification_line_user_id | text | NULL | — | `line_channels.assigned_user_id` が正のペアリング先。逆ポインタは持たない（意図的） |
+| is_circle_member | boolean | NOT NULL | false | 北大かるた会サークルへの所属（travel-report）。ON のとき faculty_kind / faculty / school_year / phone / birth_date が必須（不変条件は Server Action 側で強制）。遠征届の対象者判定の第1条件 |
+| faculty_kind | faculty_kind (enum) | NULL | — | 学部／大学院の区分。faculty の候補と school_year の選択肢を切り替える |
+| faculty | text | NULL | — | 学部等名。候補つきの自由入力で候補外も保存できる。候補は `@kagetra/shared` の共有定数 |
+| school_year | text | NULL | — | 学年（例「2年」「修士1年」）。届にそのまま出力するため enum にしない。名簿の並びは共有定数 `SCHOOL_YEAR_ORDER` |
+| is_travel_report_submitter | boolean | NOT NULL | false | 副連絡責任者。**`is_treasurer` と違い認可に使う**（遠征届の操作権限そのもの。正典は `lib/travel-report/authz.ts`）。`@副連絡責任者` メンションの解決先も兼ねる。ゲストに付いても権限にはならない |
+| is_circle_leader | boolean | NOT NULL | false | サークル長。**同時に1人だけ**（partial unique index）。届の「団体代表者」と「留守連絡先の既定」に使う |
 
-**制約・インデックス**: PK(id) / UNIQUE(name) / UNIQUE(email) / UNIQUE(line_user_id) / CHECK `users_dan_range`（`dan BETWEEN 0 AND 9 OR dan IS NULL`）
+**制約・インデックス**: PK(id) / UNIQUE(name) / UNIQUE(email) / UNIQUE(line_user_id) / CHECK `users_dan_range`（`dan BETWEEN 0 AND 9 OR dan IS NULL`） / UNIQUE INDEX `users_circle_leader_unique` on (is_circle_leader) WHERE is_circle_leader（サークル長を同時に1人へ制限する DB バックストップ）
 
 ## accounts（TS: `accounts`）
 

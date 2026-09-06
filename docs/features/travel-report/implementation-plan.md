@@ -53,7 +53,7 @@ design_source: claude-design
 ## 実装タスク
 
 ### タスク1: スキーマ・migration・共有定数・型（共有ホットスポット）
-- [ ] 完了
+- [x] 完了
 - **目的:** 以後の全タスクが依存する DB 列・テーブル・enum・定数を一度に入れる
 - **対応AC:** AC-1〜9・12〜14・19・27（データ基盤）
 - **主な変更領域:** `packages/shared/src/schema/`（auth.ts・enums.ts・新規 travel-*.ts 5ファイル・entry-group-selection-statuses.ts・relations.ts・index.ts）、`packages/shared/drizzle/0064_*.sql`（`pnpm db:generate`）、`packages/shared/src/constants/travel-report.ts`、`packages/shared/src/types`、`docs/design/db-tables-auth-line.md`・`db-tables-events.md`・`db.md`（enum 一覧）
