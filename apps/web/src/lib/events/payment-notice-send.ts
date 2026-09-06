@@ -113,24 +113,40 @@ export async function sendPaymentNoticeCore(
 
   // 人数は push の前に保存する。送信が失敗しても、管理者が直した人数は残す
   // （やり直しのたびに数え直させない・§3.3.5.6）。`last_sent_at` だけを成否で分ける。
+  //
+  // ★**`total_jpy` は push 前に上書きしない**（Codex R3 blocker）。この列は
+  // 「会計へ伝えた金額」の監査用スナップショットで、`payment-report-amount.ts` が
+  // `last_sent_at` が非 NULL のときの想定金額として採用する。再送で人数を直して
+  // push が失敗すると、`last_sent_at` は古い成功のまま `total_jpy` だけ新しい額に
+  // なり、**会計へ届いていない金額**が会員向けの支払報告に載ってしまう。
+  // 新規行のときだけ初期値として入れ、既存行は成功時の UPDATE で進める。
   const gradeCounts = savedCountsFromRows(notice.rows)
   await dbc
     .insert(entryGroupPaymentNotices)
     .values({
       entryGroupId: input.entryGroupId,
       gradeCounts,
+      // NOT NULL なので新規行には入れる。ただし `last_sent_at` は NULL のままなので
+      // 「伝えた金額」として読まれることはない。
       totalJpy: notice.totalJpy,
     })
     .onConflictDoUpdate({
       target: entryGroupPaymentNotices.entryGroupId,
-      set: { gradeCounts, totalJpy: notice.totalJpy, updatedAt: new Date() },
+      set: { gradeCounts, updatedAt: new Date() },
     })
 
   if (input.abortBeforePush && (await input.abortBeforePush())) {
     return { outcome: 'aborted' }
   }
 
-  const result = await pushMessagesToEntryGroup(dbc, input.entryGroupId, notice.messages)
+  // ★中止判定は `pushMessagesToEntryGroup` の**内側**まで持ち越す（Codex R3 blocker）。
+  // あちらは LINE API を叩く前に紐付けを DB から引く（await が1回挟まる）ので、
+  // ここで一度見ただけだとその待機中の取り消しを拾えない。オープンチャット配信が
+  // 同じ理由で `abortBeforePush` を配信ヘルパーの奥まで渡しているのと同じ規律。
+  const result = await pushMessagesToEntryGroup(dbc, input.entryGroupId, notice.messages, {
+    abortBeforePush: input.abortBeforePush,
+  })
+  if (result.outcome === 'aborted') return { outcome: 'aborted' }
   if (result.outcome !== 'sent') {
     const error =
       result.outcome === 'skipped'
@@ -150,6 +166,8 @@ export async function sendPaymentNoticeCore(
       lastSentAt: now,
       lastSentBy: input.sentByUserId,
       lastAttemptedAt: now,
+      // 「会計へ伝えた金額」はここで初めて進む（上の upsert では触らない）。
+      totalJpy: notice.totalJpy,
       // ★成功したら失敗記録を消す（AC-45b）。
       lastError: null,
       updatedAt: now,

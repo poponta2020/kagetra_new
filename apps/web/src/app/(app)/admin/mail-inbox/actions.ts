@@ -2108,7 +2108,11 @@ export async function processMail(
         // 記録は `entry_group_open_chat_broadcasts` に入り、失敗しても呼び出し元へ
         // 返す相手がいないため、画面へは `loadOpenChatBroadcastSummary` の
         // `lastAttempt` 経由で出す。
-        if (input.includeOpenChat && entryGroupId != null) {
+        // ★`input.broadcast` を**必ず併せて見る**（Codex R3 blocker）。`after()` の登録条件を
+        // 振込連絡にも広げたことで、`broadcast: false` ∧ `includeOpenChat: true` ∧
+        // 振込連絡 ON の直叩きがこのブロックへ到達しうるようになった。オープンチャットは
+        // 会員向け配信の一部なので、配信 OFF で送ってはならない（fail-closed）。
+        if (input.broadcast && input.includeOpenChat && entryGroupId != null) {
           // 本文配信の待機中に取り消されていないかを、まずここで見る。
           if (!(await isCurrentGeneration())) {
             console.warn(

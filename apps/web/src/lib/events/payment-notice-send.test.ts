@@ -141,4 +141,79 @@ describe('sendPaymentNoticeCore', () => {
     })
     expect((await noticeRow(group.id))?.lastError).toBe('LINE グループが紐付いていません')
   })
+  // ★Codex R3 blocker: total_jpy は「会計へ伝えた金額」の監査スナップショットで、
+  // payment-report-amount.ts が last_sent_at 非 NULL のときの想定金額に採用する。
+  // 再送失敗でここが書き換わると、届いていない金額が会員向け通知へ載る。
+  it('再送に失敗しても、成功済みの total_jpy を書き換えない', async () => {
+    const { admin, group } = await seed()
+    const ok = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      await sendPaymentNoticeCore(testDb, input(group.id, admin.id, { A: 2 }))
+    } finally {
+      ok.mockRestore()
+    }
+    const sent = await noticeRow(group.id)
+    expect(sent?.totalJpy).toBe(5000)
+    expect(sent?.lastSentAt).not.toBeNull()
+
+    // 人数を 3 名へ直して再送 → push 失敗。
+    const failing = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('boom', { status: 500 }))
+    try {
+      const result = await sendPaymentNoticeCore(testDb, input(group.id, admin.id, { A: 3 }))
+      expect(result.outcome).toBe('failed')
+    } finally {
+      failing.mockRestore()
+    }
+
+    const after = await noticeRow(group.id)
+    // 人数（再入力用）は新しい値で残るが、伝えた金額は 5000 円のまま。
+    expect(after?.gradeCounts).toEqual({ A: 3 })
+    expect(after?.totalJpy).toBe(5000)
+    expect(after?.lastError).toBeTruthy()
+  })
+
+  it('成功したときだけ total_jpy が進む', async () => {
+    const { admin, group } = await seed()
+    const ok = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      await sendPaymentNoticeCore(testDb, input(group.id, admin.id, { A: 2 }))
+      await sendPaymentNoticeCore(testDb, input(group.id, admin.id, { A: 3 }))
+    } finally {
+      ok.mockRestore()
+    }
+    expect((await noticeRow(group.id))?.totalJpy).toBe(7500)
+  })
+
+  // ★Codex R3 blocker: pushMessagesToEntryGroup は LINE API を叩く前に紐付けを DB から
+  // 引く。事前の1回だけでは、その待機中の取り消しを拾えない。
+  it('紐付け取得の待機中に中止が確定したら push しない', async () => {
+    const { admin, group } = await seed()
+    let calls = 0
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const result = await sendPaymentNoticeCore(testDb, {
+        ...input(group.id, admin.id, { A: 2 }),
+        // 1回目（コア冒頭）は続行、2回目（push 直前・紐付け取得の後）で中止。
+        abortBeforePush: async () => {
+          calls += 1
+          return calls >= 2
+        },
+      })
+      expect(result).toEqual({ outcome: 'aborted' })
+      expect(calls).toBe(2)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+    // 中止は失敗ではないので失敗記録を書かない。
+    const row = await noticeRow(group.id)
+    expect(row?.lastError).toBeNull()
+    expect(row?.lastSentAt).toBeNull()
+  })
 })

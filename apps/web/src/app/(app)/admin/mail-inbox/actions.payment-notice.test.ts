@@ -26,7 +26,13 @@ import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
  * 露出判定は `payment-notice-actions.test.ts` が持つ。
  */
 
-const { afterMock, broadcastMailToEventMock, sendPaymentNoticeCoreMock, callOrder } = vi.hoisted(
+const {
+  afterMock,
+  broadcastMailToEventMock,
+  runOpenChatBroadcastMock,
+  sendPaymentNoticeCoreMock,
+  callOrder,
+} = vi.hoisted(
   () => {
     const callOrder: string[] = []
     return {
@@ -44,6 +50,7 @@ const { afterMock, broadcastMailToEventMock, sendPaymentNoticeCoreMock, callOrde
           fallbackLinkCount: 0,
         }
       }),
+      runOpenChatBroadcastMock: vi.fn(async () => ({ status: 'sent' as const, sentCount: 0 })),
       sendPaymentNoticeCoreMock: vi.fn(
         async (
           _db: unknown,
@@ -72,7 +79,7 @@ vi.mock('@/lib/line-broadcast', () => ({
   loadActiveBinding: vi.fn(async () => null),
 }))
 vi.mock('@/lib/open-chat/broadcast', () => ({
-  runOpenChatBroadcast: vi.fn(async () => ({ status: 'sent' as const, sentCount: 0 })),
+  runOpenChatBroadcast: runOpenChatBroadcastMock,
 }))
 // ★このモジュールは `resolveTargetGrades`（参加費の級解決が使う純関数）も
 // export しているので、丸ごと差し替えず配信関数だけを上書きする。
@@ -205,6 +212,7 @@ describe('processMail: 会計への振込連絡', () => {
     afterMock.mockImplementation((_cb: () => void | Promise<void>) => {})
     broadcastMailToEventMock.mockClear()
     sendPaymentNoticeCoreMock.mockClear()
+    runOpenChatBroadcastMock.mockClear()
   })
   afterAll(async () => {
     await closeTestDb()
@@ -493,5 +501,26 @@ describe('processMail: 会計への振込連絡', () => {
     const result = await processMail(mail.id, await baseInput(groupId, { paymentNotice: NOTICE }))
     expect(result.ok).toBe(true)
     await vi.waitFor(() => expect(callOrder).toEqual(['paymentNotice']))
+  })
+  // ★Codex R3 blocker: after() の登録条件を振込連絡へ広げたことで、配信 OFF なのに
+  // オープンチャットだけが送られる直叩き経路ができていた。
+  it('配信 OFF なら includeOpenChat: true でもオープンチャットを送らない', async () => {
+    await asAdmin()
+    const { groupId } = await seedGroup()
+    const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+    runAfterImmediately()
+
+    // Server Action は client から直接叩けるので、UI が作らない組み合わせも通る。
+    const result = await processMail(
+      mail.id,
+      await baseInput(groupId, {
+        broadcast: false,
+        includeOpenChat: true,
+        paymentNotice: NOTICE,
+      }),
+    )
+    expect(result.ok).toBe(true)
+    await vi.waitFor(() => expect(callOrder).toEqual(['paymentNotice']))
+    expect(runOpenChatBroadcastMock).not.toHaveBeenCalled()
   })
 })

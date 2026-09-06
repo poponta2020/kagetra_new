@@ -22,6 +22,7 @@ import {
   finalizeLifecycleNotification,
   loadLinkedBindingForGroup,
   pushMessagesToEntryGroup,
+  toNotificationStatus,
 } from '@/lib/event-lifecycle-notify'
 import type { LineOutgoingMessage } from '@/lib/line-mention'
 import {
@@ -604,7 +605,7 @@ async function sendPaymentReport(
     await Promise.all(
       args.notificationIds.map((id) =>
         finalizeLifecycleNotification(db, id, {
-          status: result.outcome,
+          status: toNotificationStatus(result.outcome),
           lineGroupId: result.lineGroupId ?? null,
           errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
         }),

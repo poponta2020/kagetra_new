@@ -71,12 +71,20 @@ const baseGroup: ProcessCandidateGroup = {
   lineLinked: true,
 }
 
-function renderForm() {
+/** 切替テスト用の2つ目の候補グループ。 */
+const otherGroup: ProcessCandidateGroup = {
+  ...baseGroup,
+  groupId: 200,
+  displayName: '札幌大会AB級',
+  representativeEventId: 2,
+}
+
+function renderForm(groups: ProcessCandidateGroup[] = [baseGroup]) {
   render(
     <MailProcessForm
       mailId={1}
       attachments={[]}
-      candidateGroups={[baseGroup]}
+      candidateGroups={groups}
       cutoffStr="2026-01-01"
       receivedDateStr="2026-01-01"
       aiExtractAttachments={[]}
@@ -331,5 +339,40 @@ describe('MailProcessForm — 会計へ振込連絡', () => {
     expect(
       (screen.getByRole('button', { name: '実行する' }) as HTMLButtonElement).disabled,
     ).toBe(true)
+  })
+  // ★Codex R3 blocker: グループを選び直したレンダーと、前のドラフトを捨てる useEffect
+  // の間に「実行する」を押せると、新しい大会の id へ前の大会の口座情報が保存される。
+  it('グループを切り替えた直後は、前のグループのドラフトで実行できない', async () => {
+    // 1つ目のグループのドラフトだけを解決させ、2つ目は保留したままにする。
+    let resolveSecond: ((d: PaymentNoticeDraft) => void) | null = null
+    draftMock.mockImplementation(async (id: number) => {
+      if (id === 100) return draft({ paymentInfo: 'A会の口座 1111111' })
+      return new Promise<PaymentNoticeDraft>((resolve) => {
+        resolveSecond = resolve
+      })
+    })
+
+    renderForm([baseGroup, otherGroup])
+    selectKind('確定名簿')
+    fireEvent.click(screen.getByText('大会を選ぶ'))
+    fireEvent.click(screen.getAllByRole('radio')[0]!)
+    fireEvent.click(screen.getByText('決定'))
+    await screen.findByLabelText('A級の人数')
+
+    // 2つ目へ切り替える（ドラフトは未解決のまま）。選択済みのときは「変更」で開く。
+    fireEvent.click(screen.getByText('変更'))
+    fireEvent.click(screen.getAllByRole('radio')[1]!)
+    fireEvent.click(screen.getByText('決定'))
+
+    // 前のグループの入力欄は消え、実行もできない。
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('button', { name: /実行する|読み込み中/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true)
+    })
+    expect(screen.queryByDisplayValue('A会の口座 1111111')).toBeNull()
+    expect(processMailMock).not.toHaveBeenCalled()
+    expect(resolveSecond).not.toBeNull()
   })
 })

@@ -150,7 +150,16 @@ export function MailProcessForm({
   // line-bot-message-revamp §3.3.5: 会計への振込連絡。種別＝確定名簿 ∧ グループ選択済み
   // のときだけ出す。取得の規律はオープンチャットのサマリーと同じ（前の値を**同期的に**
   // 捨てる・読み込み中とエラー時は「実行する」を押させない）。
-  const [paymentNoticeDraft, setPaymentNoticeDraft] = useState<PaymentNoticeDraft | null>(null)
+  /**
+   * ★ドラフトは**取得元の groupId と一体で**持つ（Codex R3 blocker）。state を別々に
+   * 持つと、グループを選び直したレンダーと、前のドラフトを捨てる `useEffect` の実行の
+   * 間に「実行する」を押せてしまい、新しいグループの id に**前のグループの**人数・
+   * 振込先を載せて保存・送信してしまう（別大会の口座情報が残る）。
+   */
+  const [paymentNoticeDraft, setPaymentNoticeDraft] = useState<{
+    groupId: number
+    draft: PaymentNoticeDraft
+  } | null>(null)
   const [paymentNoticeLoading, setPaymentNoticeLoading] = useState(false)
   const [paymentNoticeLoadError, setPaymentNoticeLoadError] = useState(false)
   const [paymentNoticeSend, setPaymentNoticeSend] = useState(false)
@@ -250,7 +259,7 @@ export function MailProcessForm({
     loadPaymentNoticeDraft(groupId)
       .then((draft) => {
         if (cancelled) return
-        setPaymentNoticeDraft(draft)
+        setPaymentNoticeDraft({ groupId, draft })
         setPaymentNoticeCounts(
           Object.fromEntries(draft.rows.map((r) => [r.grade, r.count])),
         )
@@ -303,14 +312,18 @@ export function MailProcessForm({
   // 振込連絡の入力を渡すか。**セクションが描かれていれば送信可否によらず渡す**
   // （§3.3.5.3: 共通項目の保存は送信のゲートと切り離す。ゲートが掛かるのは push だけ）。
   // 渡さないのは「セクション自体が出ていない」ときだけ（AC-42b）。
-  const paymentNoticeReady = showPaymentNotice && paymentNoticeDraft != null
+  // ★`groupId` の一致を必ず見る。レンダーとエフェクトの間に前のグループのドラフトが
+  // 残っている瞬間があり、そこで実行されると別大会へ誤った口座情報が保存される。
+  const currentPaymentNoticeDraft =
+    showPaymentNotice && paymentNoticeDraft?.groupId === groupId ? paymentNoticeDraft.draft : null
+  const paymentNoticeReady = currentPaymentNoticeDraft != null
   const paymentNoticeSendOn =
-    paymentNoticeReady && (paymentNoticeDraft?.canSend ?? false) && paymentNoticeSend
+    paymentNoticeReady && currentPaymentNoticeDraft.canSend && paymentNoticeSend
   // 送るときだけの必須条件（§3.3.5.3 / AC-38）。チェックが OFF なら空でも実行できる。
   const paymentNoticeIncomplete =
     paymentNoticeSendOn &&
     (paymentInfo.trim() === '' ||
-      !(paymentNoticeDraft?.rows ?? []).some((r) => (paymentNoticeCounts[r.grade] ?? 0) > 0))
+      !currentPaymentNoticeDraft.rows.some((r) => (paymentNoticeCounts[r.grade] ?? 0) > 0))
 
   const canSubmit =
     !isNotice &&
@@ -322,6 +335,9 @@ export function MailProcessForm({
     !paymentNoticeLoading &&
     !paymentNoticeLoadError &&
     !paymentNoticeIncomplete &&
+    // セクションを出す条件を満たしているのにドラフトがまだ現在のグループのものでない
+    // 間は実行させない（上と同じ瞬間の穴を、ボタン側でも閉じる）。
+    !(showPaymentNotice && !paymentNoticeReady) &&
     !pending
 
   const toggleFile = (attachmentId: number) => {
@@ -813,9 +829,9 @@ export function MailProcessForm({
                       できないため、実行できません。ページを再読み込みしてください。
                     </div>
                   )}
-                  {paymentNoticeDraft && (
+                  {currentPaymentNoticeDraft && (
                     <PaymentNoticeFields
-                      draft={paymentNoticeDraft}
+                      draft={currentPaymentNoticeDraft}
                       send={paymentNoticeSend}
                       onSendChange={setPaymentNoticeSend}
                       counts={paymentNoticeCounts}
