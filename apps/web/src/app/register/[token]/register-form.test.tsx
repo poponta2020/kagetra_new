@@ -205,6 +205,131 @@ describe('RegisterForm', () => {
   })
 })
 
+// travel-report design-spec §8「S1 のサークル所属ブロックは級の直後・全日協の前」。
+describe('RegisterForm サークル所属ブロック（会員用）', () => {
+  beforeEach(() => {
+    registerMock.mockReset()
+    registerMock.mockResolvedValue({})
+  })
+
+  it('既定 OFF: 所属・学部等名・学年は表示されない', () => {
+    render(<RegisterForm token="t" />)
+    expect(
+      screen.getByText('北海道大学のサークル「北大かるた会」に所属している'),
+    ).toBeTruthy()
+    expect(screen.queryByRole('radiogroup', { name: '所属' })).toBeNull()
+    expect(screen.queryByLabelText('学部等名')).toBeNull()
+    expect(screen.queryByLabelText('学年')).toBeNull()
+  })
+
+  it('ON にすると 所属セグメント・学部等名・学年 が開く', () => {
+    render(<RegisterForm token="t" />)
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '北海道大学のサークル「北大かるた会」に所属している',
+      }),
+    )
+    expect(screen.getByRole('radiogroup', { name: '所属' })).toBeTruthy()
+    expect(screen.getByLabelText('学部等名')).toBeTruthy()
+    expect(screen.getByLabelText('学年')).toBeTruthy()
+  })
+
+  it('D級（全日協ブロック無し）でも ON にすると電話・生年月日欄が1つだけ開く', () => {
+    render(<RegisterForm token="t" />)
+    selectGrade('D')
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '北海道大学のサークル「北大かるた会」に所属している',
+      }),
+    )
+    expect(screen.getAllByLabelText('電話番号')).toHaveLength(1)
+    expect(screen.getAllByLabelText('生年月日')).toHaveLength(1)
+  })
+
+  it('B級＋全日協ON＋サークル所属ONでも電話・生年月日欄は1つだけ（共通表記が付く）', () => {
+    render(<RegisterForm token="t" />)
+    selectGrade('B')
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '北海道大学のサークル「北大かるた会」に所属している',
+      }),
+    )
+    expect(screen.getAllByLabelText(/電話番号/)).toHaveLength(1)
+    expect(screen.getAllByLabelText(/生年月日/)).toHaveLength(1)
+    expect(screen.getByText('電話番号（サークル所属・全日協 共通）')).toBeTruthy()
+  })
+
+  it('送信FormDataにサークル所属・学部区分・学部等名・学年・電話・生年月日が渡る（D級）', async () => {
+    const { container } = render(<RegisterForm token="t" />)
+    fillNames()
+    selectGrade('D')
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '北海道大学のサークル「北大かるた会」に所属している',
+      }),
+    )
+    fireEvent.click(screen.getByRole('radio', { name: '大学院' }))
+    fireEvent.change(screen.getByLabelText('学部等名'), { target: { value: '情報科学院' } })
+    fireEvent.change(screen.getByLabelText('学年'), { target: { value: '修士1年' } })
+    fireEvent.change(screen.getByLabelText('電話番号'), { target: { value: '090-0000-0000' } })
+    fireEvent.change(screen.getByLabelText('生年月日'), { target: { value: '2003-01-01' } })
+    submit(container)
+
+    await waitFor(() => expect(registerMock).toHaveBeenCalled())
+    const fd = lastFormData()
+    expect(fd.get('isCircleMember')).toBe('on')
+    expect(fd.get('facultyKind')).toBe('graduate')
+    expect(fd.get('faculty')).toBe('情報科学院')
+    expect(fd.get('schoolYear')).toBe('修士1年')
+    expect(fd.get('phone')).toBe('090-0000-0000')
+    expect(fd.get('birthDate')).toBe('2003-01-01')
+  })
+})
+
+describe('RegisterForm サークル所属ブロック（ゲスト用）', () => {
+  beforeEach(() => {
+    registerMock.mockReset()
+    registerMock.mockResolvedValue({})
+  })
+
+  it('既定 OFF: 姓・名・学部等名・学年・電話・生年月日は表示されない', () => {
+    render(<RegisterForm token="t" kind="guest" />)
+    expect(screen.queryByLabelText('姓（漢字）')).toBeNull()
+    expect(screen.queryByLabelText('学部等名')).toBeNull()
+    expect(screen.queryByLabelText('電話番号')).toBeNull()
+  })
+
+  it('ON にすると 姓・名・所属・学部等名・学年・電話・生年月日 が開き、FormData に渡る', async () => {
+    const { container } = render(<RegisterForm token="t" kind="guest" />)
+    fireEvent.change(screen.getByLabelText('表示名'), { target: { value: '函館 大地' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'B級' }))
+    fireEvent.change(screen.getByLabelText('所属会'), { target: { value: '帯広かるた会' } })
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: '北海道大学のサークル「北大かるた会」に所属している',
+      }),
+    )
+    fireEvent.change(screen.getByLabelText('姓（漢字）'), { target: { value: '函館' } })
+    fireEvent.change(screen.getByLabelText('名（漢字）'), { target: { value: '大地' } })
+    fireEvent.change(screen.getByLabelText('学部等名'), { target: { value: '経済学部' } })
+    fireEvent.change(screen.getByLabelText('学年'), { target: { value: '2年' } })
+    fireEvent.change(screen.getByLabelText('電話番号'), { target: { value: '080-0000-0010' } })
+    fireEvent.change(screen.getByLabelText('生年月日'), { target: { value: '2005-08-08' } })
+    submit(container)
+
+    await waitFor(() => expect(registerMock).toHaveBeenCalled())
+    const fd = lastFormData()
+    expect(fd.get('isCircleMember')).toBe('on')
+    expect(fd.get('familyName')).toBe('函館')
+    expect(fd.get('givenName')).toBe('大地')
+    expect(fd.get('facultyKind')).toBe('undergraduate')
+    expect(fd.get('faculty')).toBe('経済学部')
+    expect(fd.get('schoolYear')).toBe('2年')
+    expect(fd.get('phone')).toBe('080-0000-0010')
+    expect(fd.get('birthDate')).toBe('2005-08-08')
+  })
+})
+
 describe('RegisterForm (kind=guest)', () => {
   beforeEach(() => {
     registerMock.mockReset()

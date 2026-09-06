@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
-import { isUniqueViolation } from '@/lib/db-errors'
+import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 import {
   accounts,
   entryGroupPaymentNotices,
@@ -21,6 +21,8 @@ import {
   tournamentDrafts,
   users,
 } from '@kagetra/shared/schema'
+import { isSchoolYearForKind, isValidSchoolYear } from '@kagetra/shared'
+import type { FacultyKind } from '@kagetra/shared/types'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
@@ -118,6 +120,14 @@ const updateProfileSchema = z.object({
   ),
   address1: z.string().trim().max(100, '住所は100文字以内で入力してください').nullable(),
   address2: z.string().trim().max(100, '建物名・部屋番号は100文字以内で入力してください').nullable(),
+  // travel-report R1: サークル所属と学部属性。管理者編集は既存の全日協 PII と
+  // 同じ流儀（項目の有無で必須を強制せず、値が来たときだけ形式検証する）。
+  // サークル所属 ON 時の必須強制はサーバー側で行う登録フロー（S1）の役割で、
+  // ここは「後から直せる」管理画面の性質上あえて緩くしてある。
+  isCircleMember: z.boolean(),
+  facultyKind: z.enum(['undergraduate', 'graduate']).nullable(),
+  faculty: z.string().trim().max(50, '学部等名は50文字以内で入力してください').nullable(),
+  schoolYear: z.string().trim().nullable(),
 })
 
 export type UpdateProfileState = {
@@ -158,11 +168,38 @@ export async function updateMemberProfile(
     postalCode: formEntryOrNull(formData.get('postalCode')),
     address1: formEntryOrNull(formData.get('address1')),
     address2: formEntryOrNull(formData.get('address2')),
+    isCircleMember: formData.get('isCircleMember') === 'on',
+    facultyKind: formEntryOrNull(formData.get('facultyKind')),
+    faculty: formEntryOrNull(formData.get('faculty')),
+    schoolYear: formEntryOrNull(formData.get('schoolYear')),
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? '入力が不正です' }
   }
   const data = parsed.data
+
+  // travel-report R1（サーバー不変条件）: サークル所属 OFF のときは学部属性を
+  // 「任意・既存値は保持する（消さない）」— OFF で送信された学部属性は
+  // フォームが畳んで送っていないだけの空値であり、意図した削除ではないため
+  // 触らない。ON のときだけ書き込み対象に含める。
+  const circleFieldsToWrite: {
+    facultyKind?: (typeof data)['facultyKind']
+    faculty?: (typeof data)['faculty']
+    schoolYear?: (typeof data)['schoolYear']
+  } = {}
+  if (data.isCircleMember) {
+    // travel-report R1/AC-4: 学年は選択のみ。区分が分かっていればそれと整合
+    // する値だけを受け付け、区分が未入力なら全区分の候補から検証する。
+    if (data.schoolYear !== null) {
+      const ok = data.facultyKind
+        ? isSchoolYearForKind(data.schoolYear, data.facultyKind as FacultyKind)
+        : isValidSchoolYear(data.schoolYear)
+      if (!ok) return { error: '学年が不正です' }
+    }
+    circleFieldsToWrite.facultyKind = data.facultyKind
+    circleFieldsToWrite.faculty = data.faculty
+    circleFieldsToWrite.schoolYear = data.schoolYear
+  }
 
   await db
     .update(users)
@@ -181,6 +218,8 @@ export async function updateMemberProfile(
       postalCode: data.postalCode,
       address1: data.address1,
       address2: data.address2,
+      isCircleMember: data.isCircleMember,
+      ...circleFieldsToWrite,
       updatedAt: new Date(),
     })
     .where(eq(users.id, data.userId))
@@ -714,6 +753,92 @@ export async function updateMemberTreasurer(
     .returning({ id: users.id })
   if (updated.length === 0) {
     return { error: '対象の会員が見つかりません' }
+  }
+
+  revalidatePath('/admin/members')
+  revalidatePath(`/admin/members/${userId}/edit`)
+  return { success: true }
+}
+
+// ---------------------------------------------------------------------------
+// travel-report: 副連絡責任者・サークル長（users.is_travel_report_submitter /
+// users.is_circle_leader）
+// ---------------------------------------------------------------------------
+
+const updateTravelFlagsSchema = z.object({
+  userId: z.string().min(1),
+  isTravelReportSubmitter: z.boolean(),
+  isCircleLeader: z.boolean(),
+})
+
+export type UpdateTravelFlagsState = {
+  error?: string
+  success?: boolean
+}
+
+/**
+ * 副連絡責任者・サークル長フラグの切り替え（requirements R2）。会計フラグと
+ * 同じ「会員編集で admin / vice_admin が付け外しする」流儀の1フォームだが、
+ * 中身の扱いは会計と対照的:
+ *
+ * - `isTravelReportSubmitter`（副連絡責任者）: `is_treasurer` と違い**認可に
+ *   使う**（遠征届の操作権限そのもの・requirements §7）。判定の正典は
+ *   `lib/travel-report/authz.ts`（別タスクが実装）で、そこが role='guest' を
+ *   弾くため付与しても権限にはならないが、意味のないフラグを保存させない
+ *   ためここでも拒否する（UI 側も role='guest' の対象にはチェックボックスを
+ *   出さない — member-travel-flags-section.tsx）。
+ * - `isCircleLeader`（サークル長）は**同時に1人だけ**（partial unique index
+ *   `users_circle_leader_unique` が DB バックストップ）。2 フラグを**1回の
+ *   UPDATE**で更新することで、サークル長の重複が拒否されたときに
+ *   副連絡責任者だけが先に変更済みになる事態を防ぐ（AC-5: 「エラーになり、
+ *   変更されない」）。
+ */
+export async function updateMemberTravelFlags(
+  _prev: UpdateTravelFlagsState,
+  formData: FormData,
+): Promise<UpdateTravelFlagsState> {
+  await assertAdminSession()
+
+  const parsed = updateTravelFlagsSchema.safeParse({
+    userId: formData.get('userId'),
+    isTravelReportSubmitter: formData.get('isTravelReportSubmitter') === 'on',
+    isCircleLeader: formData.get('isCircleLeader') === 'on',
+  })
+  if (!parsed.success) {
+    return { error: '入力が不正です' }
+  }
+  const { userId, isTravelReportSubmitter, isCircleLeader } = parsed.data
+
+  const target = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { role: true },
+  })
+  if (!target) {
+    return { error: '対象の会員が見つかりません' }
+  }
+  if (isTravelReportSubmitter && target.role === 'guest') {
+    return { error: 'ゲストには副連絡責任者を付与できません' }
+  }
+
+  try {
+    const updated = await db
+      .update(users)
+      .set({ isTravelReportSubmitter, isCircleLeader, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning({ id: users.id })
+    if (updated.length === 0) {
+      return { error: '対象の会員が見つかりません' }
+    }
+  } catch (err) {
+    if (
+      isUniqueViolation(err) &&
+      (uniqueViolationConstraint(err) ?? '').includes('users_circle_leader_unique')
+    ) {
+      return {
+        error: 'サークル長は既に他の会員に設定されています。先に外してから設定してください',
+      }
+    }
+    throw err
   }
 
   revalidatePath('/admin/members')

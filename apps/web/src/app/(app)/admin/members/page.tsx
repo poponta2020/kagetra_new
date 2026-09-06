@@ -58,6 +58,8 @@ export default async function MembersPage() {
         name: true,
         role: true,
         isTreasurer: true,
+        isTravelReportSubmitter: true,
+        isCircleLeader: true,
         grade: true,
         isInvited: true,
         createdAt: true,
@@ -74,6 +76,13 @@ export default async function MembersPage() {
   return (
     <div className="space-y-4 p-4">
       <h2 className="text-xl font-bold">会員管理</h2>
+      {/* travel-report S3: サークル所属・学部属性の一括編集（AC-6）。 */}
+      <Link
+        href="/admin/members/circle"
+        className="inline-block text-sm text-brand hover:underline"
+      >
+        サークル所属の一括編集
+      </Link>
       <NewMemberForm />
       <RegistrationInviteSection activeInvites={activeInvites} />
       <div className="overflow-x-auto rounded-lg bg-surface shadow-sm">
@@ -113,6 +122,17 @@ export default async function MembersPage() {
                     {member.isTreasurer && (
                       <span className="ml-2 inline-block rounded bg-surface-alt px-1.5 py-0.5 text-[10px] font-medium text-ink-2">
                         会計
+                      </span>
+                    )}
+                    {/* travel-report R2/AC-7: 副連絡責任者・サークル長のバッジ。 */}
+                    {member.isTravelReportSubmitter && (
+                      <span className="ml-2 inline-block rounded bg-surface-alt px-1.5 py-0.5 text-[10px] font-medium text-ink-2">
+                        副連絡責任者
+                      </span>
+                    )}
+                    {member.isCircleLeader && (
+                      <span className="ml-2 inline-block rounded bg-surface-alt px-1.5 py-0.5 text-[10px] font-medium text-ink-2">
+                        サークル長
                       </span>
                     )}
                   </td>
