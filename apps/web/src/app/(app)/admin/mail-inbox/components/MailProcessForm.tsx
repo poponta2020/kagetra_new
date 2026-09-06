@@ -8,6 +8,11 @@ import { BROADCAST_LEAD_PRESETS, LEAD_TEXT_MAX_LENGTH } from '@/lib/broadcast-le
 import { dismissMail, processMail, releaseRosterFile } from '../actions'
 import { loadOpenChatBroadcastSummary } from '../open-chat-actions'
 import {
+  loadPaymentNoticeDraft,
+  type PaymentNoticeDraft,
+} from '../payment-notice-actions'
+import type { PaymentDeadlineKind } from '@/lib/events/payment-deadline'
+import {
   formatGroupDayRange,
   formatGroupEntryStatus,
   listProcessCandidates,
@@ -23,6 +28,7 @@ import {
 import { AIExtractConfirmDialog, type AIExtractAttachment } from './AIExtractConfirmDialog'
 import { GroupPickerSheet } from './GroupPickerSheet'
 import { OpenChatExtractSheet } from './OpenChatExtractSheet'
+import { PaymentNoticeFields } from './PaymentNoticeFields'
 
 /**
  * mail-inbox-mailer 2026-08-02 改修: メール詳細の**統合処理フォーム**
@@ -141,6 +147,27 @@ export function MailProcessForm({
   const [includeBody, setIncludeBody] = useState(true)
   const [leadText, setLeadText] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // line-bot-message-revamp §3.3.5: 会計への振込連絡。種別＝確定名簿 ∧ グループ選択済み
+  // のときだけ出す。取得の規律はオープンチャットのサマリーと同じ（前の値を**同期的に**
+  // 捨てる・読み込み中とエラー時は「実行する」を押させない）。
+  /**
+   * ★ドラフトは**取得元の groupId と一体で**持つ（Codex R3 blocker）。state を別々に
+   * 持つと、グループを選び直したレンダーと、前のドラフトを捨てる `useEffect` の実行の
+   * 間に「実行する」を押せてしまい、新しいグループの id に**前のグループの**人数・
+   * 振込先を載せて保存・送信してしまう（別大会の口座情報が残る）。
+   */
+  const [paymentNoticeDraft, setPaymentNoticeDraft] = useState<{
+    groupId: number
+    draft: PaymentNoticeDraft
+  } | null>(null)
+  const [paymentNoticeLoading, setPaymentNoticeLoading] = useState(false)
+  const [paymentNoticeLoadError, setPaymentNoticeLoadError] = useState(false)
+  const [paymentNoticeSend, setPaymentNoticeSend] = useState(false)
+  const [paymentNoticeCounts, setPaymentNoticeCounts] = useState<Record<string, number>>({})
+  const [paymentDeadline, setPaymentDeadline] = useState('')
+  const [paymentDeadlineKind, setPaymentDeadlineKind] =
+    useState<PaymentDeadlineKind>('unspecified')
+  const [paymentInfo, setPaymentInfo] = useState('')
   const [pending, startTransition] = useTransition()
   const router = useRouter()
 
@@ -209,6 +236,55 @@ export function MailProcessForm({
     }
   }, [groupId, openChatReloadKey])
 
+  // line-bot-message-revamp §3.3.5.1: 種別＝確定名簿 ∧ グループ選択済みのときだけ
+  // 振込連絡のドラフトを引く。★`settled` は条件に入れない（この実行そのものが
+  // 確定名簿シグナルを成立させるので、処理前に見ると必ず false になる）。
+  const showPaymentNotice = kind === 'confirmed_roster' && groupId != null
+  useEffect(() => {
+    // ★前のグループの値を**同期的に**捨てる（await の後だと、その間に
+    // 「実行する」を押されたとき前のグループの人数・振込先で送ってしまう）。
+    setPaymentNoticeDraft(null)
+    setPaymentNoticeSend(false)
+    setPaymentNoticeCounts({})
+    setPaymentDeadline('')
+    setPaymentDeadlineKind('unspecified')
+    setPaymentInfo('')
+    setPaymentNoticeLoadError(false)
+    if (!showPaymentNotice || groupId == null) {
+      setPaymentNoticeLoading(false)
+      return
+    }
+    setPaymentNoticeLoading(true)
+    let cancelled = false
+    loadPaymentNoticeDraft(groupId)
+      .then((draft) => {
+        if (cancelled) return
+        setPaymentNoticeDraft({ groupId, draft })
+        setPaymentNoticeCounts(
+          Object.fromEntries(draft.rows.map((r) => [r.grade, r.count])),
+        )
+        setPaymentDeadline(draft.paymentDeadline ?? '')
+        setPaymentDeadlineKind(draft.paymentDeadlineKind)
+        setPaymentInfo(draft.paymentInfo ?? '')
+        // 既定は**未送信 = ON / 送信済 = OFF**（AC-41）。訂正名簿・級別分割で確定名簿
+        // メールが複数通届くのは日常なので、送信済みへ既定 ON のままだと意図しない再送
+        // が起きる。
+        setPaymentNoticeSend(draft.canSend && draft.lastSentAt == null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setPaymentNoticeDraft(null)
+        setPaymentNoticeSend(false)
+        setPaymentNoticeLoadError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setPaymentNoticeLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showPaymentNotice, groupId])
+
   // 採用済みの添付は選択肢に出さず、採用状態の行として出す（AC-13）。
   const adoptableAttachments = attachments.filter((a) => a.adoption == null)
   const adoptedAttachments = attachments.filter((a) => a.adoption != null)
@@ -233,6 +309,22 @@ export function MailProcessForm({
   const rosterNeedsFile =
     isRoster && adoptableAttachments.length > 0 && selectedFiles.size === 0
 
+  // 振込連絡の入力を渡すか。**セクションが描かれていれば送信可否によらず渡す**
+  // （§3.3.5.3: 共通項目の保存は送信のゲートと切り離す。ゲートが掛かるのは push だけ）。
+  // 渡さないのは「セクション自体が出ていない」ときだけ（AC-42b）。
+  // ★`groupId` の一致を必ず見る。レンダーとエフェクトの間に前のグループのドラフトが
+  // 残っている瞬間があり、そこで実行されると別大会へ誤った口座情報が保存される。
+  const currentPaymentNoticeDraft =
+    showPaymentNotice && paymentNoticeDraft?.groupId === groupId ? paymentNoticeDraft.draft : null
+  const paymentNoticeReady = currentPaymentNoticeDraft != null
+  const paymentNoticeSendOn =
+    paymentNoticeReady && currentPaymentNoticeDraft.canSend && paymentNoticeSend
+  // 送るときだけの必須条件（§3.3.5.3 / AC-38）。チェックが OFF なら空でも実行できる。
+  const paymentNoticeIncomplete =
+    paymentNoticeSendOn &&
+    (paymentInfo.trim() === '' ||
+      !currentPaymentNoticeDraft.rows.some((r) => (paymentNoticeCounts[r.grade] ?? 0) > 0))
+
   const canSubmit =
     !isNotice &&
     groupId != null &&
@@ -240,6 +332,12 @@ export function MailProcessForm({
     !rosterNeedsFile &&
     !openChatLoading &&
     !openChatLoadError &&
+    !paymentNoticeLoading &&
+    !paymentNoticeLoadError &&
+    !paymentNoticeIncomplete &&
+    // セクションを出す条件を満たしているのにドラフトがまだ現在のグループのものでない
+    // 間は実行させない（上と同じ瞬間の穴を、ボタン側でも閉じる）。
+    !(showPaymentNotice && !paymentNoticeReady) &&
     !pending
 
   const toggleFile = (attachmentId: number) => {
@@ -316,6 +414,19 @@ export function MailProcessForm({
         includeBody,
         includeOpenChat: openChatOn,
         leadText: leadText.trim() || null,
+        // ★セクションが出ていないときは**渡さない**（渡さないことが「支払締切・振込先を
+        // 保存しない」を意味する・AC-42b）。チェックが OFF のときは `send: false` として
+        // 渡し、入力した支払締切・振込先だけを保存させる（AC-42）。
+        paymentNotice: paymentNoticeReady
+          ? {
+              // 送信できない状態では常に false（共通項目だけ保存させる）。
+              send: paymentNoticeSendOn,
+              counts: paymentNoticeCounts,
+              paymentDeadline: paymentDeadline || null,
+              paymentDeadlineKind,
+              paymentInfo: paymentInfo.trim() || null,
+            }
+          : null,
       })
       if (!result.ok) {
         setError(result.error)
@@ -696,6 +807,43 @@ export function MailProcessForm({
                         </p>
                       )}
                     </div>
+                  )}
+                </>
+              )}
+
+              {/* line-bot-message-revamp §3.3.5: 会計への振込連絡。会員向けの LINE 配信の
+                  **後**に置く（送る順序と画面の並びを揃える）。送信できない状態でも
+                  セクションごと消さず、理由を出す（§3.3.5.2）。 */}
+              {showPaymentNotice && (
+                <>
+                  <SectionHeading label="会計へ振込連絡" className="mt-3.5" />
+                  {paymentNoticeLoading && (
+                    <p className="mt-1.5 text-[10px] text-ink-meta">読み込み中…</p>
+                  )}
+                  {paymentNoticeLoadError && (
+                    <div
+                      className="mt-1.5 rounded-md border border-border bg-neutral-bg px-2.5 py-2 text-xs leading-relaxed text-neutral-fg"
+                      role="alert"
+                    >
+                      振込連絡の情報を読み込めませんでした。このままだと送るかどうか判断
+                      できないため、実行できません。ページを再読み込みしてください。
+                    </div>
+                  )}
+                  {currentPaymentNoticeDraft && (
+                    <PaymentNoticeFields
+                      draft={currentPaymentNoticeDraft}
+                      send={paymentNoticeSend}
+                      onSendChange={setPaymentNoticeSend}
+                      counts={paymentNoticeCounts}
+                      onCountsChange={setPaymentNoticeCounts}
+                      paymentDeadline={paymentDeadline}
+                      onPaymentDeadlineChange={setPaymentDeadline}
+                      paymentDeadlineKind={paymentDeadlineKind}
+                      onPaymentDeadlineKindChange={setPaymentDeadlineKind}
+                      paymentInfo={paymentInfo}
+                      onPaymentInfoChange={setPaymentInfo}
+                      disabled={pending}
+                    />
                   )}
                 </>
               )}

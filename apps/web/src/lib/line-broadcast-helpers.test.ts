@@ -210,11 +210,11 @@ describe('applyPushFailureRecovery', () => {
     expect(channelRow!.assignedEntryGroupId).toBeNull()
   })
 
-  it('401 以外の 4xx では binding を revoke し channel をプールへ戻す', async () => {
+  it('403 / 404（Bot 追放・宛先消失）では binding を revoke し channel をプールへ戻す', async () => {
     const { entryGroupId, channel } = await seedLinkedBinding()
     const binding = (await loadActiveBindingByEntryGroup(db, entryGroupId))!
 
-    await applyPushFailureRecovery({ db, binding, httpStatus: 400 })
+    await applyPushFailureRecovery({ db, binding, httpStatus: 404 })
 
     const [broadcastRow] = await db
       .select()
@@ -230,6 +230,29 @@ describe('applyPushFailureRecovery', () => {
     // disabled ではなく available（再紐付けに使える）。
     expect(channelRow!.status).toBe('available')
     expect(channelRow!.assignedEntryGroupId).toBeNull()
+  })
+
+  it('400（メッセージ内容の不備）では紐付けを解除しない（requirements §6）', async () => {
+    // ★textV2 の導入でペイロード起因の 400 が起こりうる。宛先と無関係な不備で
+    // 正常な紐付けを壊すと、その大会の通知が以後すべて止まる。
+    const { entryGroupId, channel } = await seedLinkedBinding()
+    const binding = (await loadActiveBindingByEntryGroup(db, entryGroupId))!
+
+    await applyPushFailureRecovery({ db, binding, httpStatus: 400 })
+
+    const [broadcastRow] = await db
+      .select()
+      .from(eventLineBroadcasts)
+      .where(eq(eventLineBroadcasts.id, binding.id))
+    expect(broadcastRow!.status).toBe('linked')
+    expect(broadcastRow!.revokeReason).toBeNull()
+
+    const [channelRow] = await db
+      .select()
+      .from(lineChannels)
+      .where(eq(lineChannels.id, channel.id))
+    expect(channelRow!.status).toBe('active')
+    expect(channelRow!.assignedEntryGroupId).toBe(entryGroupId)
   })
 
   it('429（rate limit）ではリトライ可能なので何も変えない', async () => {

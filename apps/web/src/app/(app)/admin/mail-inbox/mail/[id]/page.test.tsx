@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import {
+  entryGroupPaymentNotices,
   mailAttachments,
   tournamentEntryRosterFiles,
   tournamentRosterImportDrafts,
@@ -113,6 +114,55 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
     expect(screen.getByText('未処理に戻す')).toBeTruthy()
     expect(screen.queryByText('保留')).toBeNull()
     expect(screen.queryByText('対応不要')).toBeNull()
+  })
+
+  // line-bot-message-revamp §3.3.5.6: 応答後の after() で送るので失敗を戻り値で
+  // 返せない。処理済みのメールへ戻ってきたときに気づける場所がここ（AC-45）。
+  it('振込連絡の送信に失敗していたら処理済みカードに出す（AC-45）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const event = await createEvent({})
+    const mail = await createMailMessage({
+      triageStatus: 'processed',
+      linkedEventId: event.id,
+    })
+    await testDb.insert(entryGroupPaymentNotices).values({
+      entryGroupId: event.entryGroupId,
+      gradeCounts: { A: 2 },
+      totalJpy: 5000,
+      lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+      lastError: 'LINE 送信に失敗しました: 500',
+    })
+
+    await renderDetail(mail.id)
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      '会計への振込連絡の送信に失敗しました',
+    )
+    expect(screen.getByText('申込グループページ')).toBeTruthy()
+  })
+
+  it('送信に成功していれば失敗表示は出ない（AC-45b）', async () => {
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const event = await createEvent({})
+    const mail = await createMailMessage({
+      triageStatus: 'processed',
+      linkedEventId: event.id,
+    })
+    await testDb.insert(entryGroupPaymentNotices).values({
+      entryGroupId: event.entryGroupId,
+      gradeCounts: { A: 2 },
+      totalJpy: 5000,
+      lastSentAt: new Date('2026-07-21T02:00:00Z'),
+      lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+      lastError: null,
+    })
+
+    await renderDetail(mail.id)
+
+    expect(screen.queryByText(/振込連絡の送信に失敗しました/)).toBeNull()
+    expect(screen.getByText(/会計への振込連絡を送信済み/)).toBeTruthy()
   })
 
   it('mail-inbox-mailer: 未処理＋draft なしは統合処理フォームを表示', async () => {

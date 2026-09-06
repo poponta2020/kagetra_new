@@ -438,18 +438,19 @@ describe('保存と配信', () => {
     // 復旧処理を将来いじったときに一番踏みやすいのがここ。
     await expect(db.select().from(eventBroadcastMessages)).resolves.toHaveLength(0)
 
-    // 4xx なので binding は revoke され channel はプールへ戻る（既存の復旧規約）。
+    // ★400（メッセージ内容の不備）では binding を revoke しない（requirements §6）。
+    // 宛先と無関係な不備で紐付けを壊すと、その大会の通知が以後すべて止まる。
+    // 解除するのは 401（トークン失効）と 403 / 404（Bot 追放・宛先消失）だけ。
     const [broadcastRow] = await db.select().from(eventLineBroadcasts)
-    expect(broadcastRow?.status).toBe('revoked')
+    expect(broadcastRow?.status).toBe('linked')
     const [channelRow] = await db
       .select()
       .from(lineChannels)
       .where(eq(lineChannels.id, channel.id))
-    expect(channelRow?.status).toBe('available')
+    expect(channelRow?.status).toBe('active')
 
-    // 保存済みデータが残っているので再試行できる（紐付け直後に再配信可能）。
+    // 保存済みデータが残っているので再試行できる（紐付けはそのままなので即再配信可能）。
     await db.delete(entryGroupOpenChatBroadcasts)
-    await db.update(eventLineBroadcasts).set({ status: 'linked' })
     mockPushMessages.mockImplementation(realPushMessages)
     await expect(broadcastOpenChats(groupId)).resolves.toEqual({
       status: 'sent',

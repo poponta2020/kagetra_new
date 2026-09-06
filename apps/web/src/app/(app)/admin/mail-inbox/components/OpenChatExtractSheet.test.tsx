@@ -40,6 +40,11 @@ vi.mock('../actions', () => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }))
+// line-bot-message-revamp §3.3.5: MailProcessForm が振込連絡のドラフトを引くように
+// なったので、Server Action をここでも mock する（このファイルの対象外の副作用）。
+vi.mock('../payment-notice-actions', () => ({
+  loadPaymentNoticeDraft: vi.fn(),
+}))
 
 const extractMock = vi.mocked(extractOpenChatCandidatesFromMail)
 const summaryMock = vi.mocked(loadOpenChatBroadcastSummary)

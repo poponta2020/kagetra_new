@@ -442,6 +442,13 @@
       "when": 1788500580012,
       "tag": "0062_bitter_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1788507740037,
+      "tag": "0063_cool_frightful_four",
+      "breakpoints": true
     }
   ]
 }

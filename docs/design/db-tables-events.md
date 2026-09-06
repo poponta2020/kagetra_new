@@ -201,6 +201,8 @@
 | total_jpy | integer | NOT NULL | — | 送信時点の総額（Σ 人数×単価）のスナップショット。文面の再構築には使わない |
 | last_sent_at | timestamptz | NULL | — | 最後に送信できた日時。**push 失敗では更新しない**（送信済みにせず再送できる状態のまま残す） |
 | last_sent_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| last_attempted_at | timestamptz | NULL | — | 最後に送信を**試みた**日時（成否を問わない）。メール処理画面からの送信は応答後の `after()` で走り失敗を戻り値で返せないための記録 |
+| last_error | text | NULL | — | 直近の送信失敗の理由。**成功したら NULL へ戻す**（「送信済」と「送信に失敗しました」を同時に出さない） |
 | created_at | timestamptz | NOT NULL | `now()` | |
 | updated_at | timestamptz | NOT NULL | `now()` | |
 

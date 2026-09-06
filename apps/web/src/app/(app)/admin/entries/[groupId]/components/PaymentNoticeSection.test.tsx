@@ -25,6 +25,8 @@ const baseProps = (
   paymentDeadline: '2026-07-25',
   paymentInfo: '〇〇銀行 普通 1234567',
   lastSentAt: null,
+  lastAttemptedAt: null,
+  lastError: null,
   sendAction: vi.fn().mockResolvedValue({ ok: true }),
   ...over,
 })
@@ -175,5 +177,55 @@ describe('PaymentNoticeSection', () => {
     fireEvent.click(screen.getByRole('button', { name: '振込連絡を送る' }))
     await vi.waitFor(() => expect(sendAction).toHaveBeenCalledTimes(1))
     expect(sendAction).toHaveBeenCalledWith(42, { A: 3, B: 5 })
+  })
+  it('送信に失敗していたら試行日時つきで出す（AC-45）', () => {
+    const { container } = render(
+      <PaymentNoticeSection
+        {...baseProps({
+          lastSentAt: null,
+          lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+          lastError: 'LINE 送信に失敗しました: 500',
+        })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.getByRole('alert').textContent).toContain('送信に失敗しました')
+    expect(screen.getByRole('alert').textContent).toContain('LINE 送信に失敗しました: 500')
+  })
+
+  it('送信に成功していれば失敗表示は出ない（AC-45b）', () => {
+    // `last_error` は成功時に NULL へ戻る。試行日時は成功時にも進むので、
+    // 表示の判断は `last_error` の有無で行う。
+    const { container } = render(
+      <PaymentNoticeSection
+        {...baseProps({
+          lastSentAt: new Date('2026-07-21T02:00:00Z'),
+          lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+          lastError: null,
+        })}
+      />,
+    )
+    openAllDetails(container)
+    expect(screen.queryByText(/送信に失敗しました/)).toBeNull()
+    expect(screen.getByText(/送信済/)).toBeTruthy()
+  })
+  it('成功後の再送が失敗したら「送信済」ではなく「送信失敗」を出す（Codex R1 blocker）', async () => {
+    // last_error は成功でクリアされるが、last_sent_at は過去の成功のまま残る。
+    // ヘッダーが「送信済」のままだと直近の再送結果を誤認して再送を見送りかねない。
+    const { container } = render(
+      <PaymentNoticeSection
+        {...baseProps({
+          lastSentAt: new Date('2026-07-20T01:00:00Z'),
+          lastAttemptedAt: new Date('2026-07-21T02:00:00Z'),
+          lastError: 'LINE 送信に失敗しました: 500',
+        })}
+      />,
+    )
+    openAllDetails(container)
+    // ヘッダー（aux）は失敗を出し、「送信済」ラベルは出さない。
+    expect(container.textContent).toContain('送信失敗')
+    expect(container.textContent).not.toContain('送信済 ')
+    // 過去の成功は「最終成功」として別に残す。
+    expect(container.textContent).toContain('最終成功')
   })
 })

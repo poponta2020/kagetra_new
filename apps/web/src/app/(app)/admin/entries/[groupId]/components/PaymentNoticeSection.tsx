@@ -44,6 +44,16 @@ export interface PaymentNoticeSectionProps {
   paymentInfo: string | null
   /** 最後に送信できた日時。NULL ならまだ送っていない。 */
   lastSentAt: Date | null
+  /**
+   * 最後に送信を**試みた**日時と、失敗の理由（§3.3.5.6）。メール処理画面からの
+   * 送信は応答後の `after()` で走るため失敗を戻り値で返せず、ここへ出すのが
+   * 気づける2箇所のうちの1つ（もう1つはメール詳細の「処理済み」カード）。
+   * 送信に成功すると `lastError` は NULL に戻る（AC-45b）が、**成功後の再送が
+   * 失敗すると `lastSentAt` は過去の成功のまま残る** — 表示は `lastError` を
+   * 優先し、過去の成功は「最終成功」として別に出す。
+   */
+  lastAttemptedAt: Date | null
+  lastError: string | null
   sendAction: (
     groupId: number,
     counts: Record<string, number>,
@@ -65,6 +75,8 @@ export function PaymentNoticeSection({
   paymentDeadline,
   paymentInfo,
   lastSentAt,
+  lastAttemptedAt,
+  lastError,
   sendAction,
 }: PaymentNoticeSectionProps) {
   const [counts, setCounts] = useState<Record<string, number>>(() =>
@@ -113,9 +125,32 @@ export function PaymentNoticeSection({
   return (
     <DisclosureSection
       title="振込連絡"
-      aux={lastSentAt ? `送信済 ${formatDateTimeShort(lastSentAt)}` : '未送信'}
-      auxTone={lastSentAt ? 'meta' : 'warn'}
+      aux={
+        lastError
+          ? `送信失敗${lastAttemptedAt ? ` ${formatDateTimeShort(lastAttemptedAt)}` : ''}`
+          : lastSentAt
+            ? `送信済 ${formatDateTimeShort(lastSentAt)}`
+            : '未送信'
+      }
+      auxTone={lastError || !lastSentAt ? 'warn' : 'meta'}
     >
+      {/* ★失敗を**優先**して表示する（Codex R1 blocker）。`lastError` は成功時に
+          NULL へ戻るので「失敗 → 成功」では消えるが、「成功 → 再送失敗」では
+          `lastSentAt` が過去の成功のまま残る。ヘッダーを「送信済」にしたままだと
+          直近の再送結果を誤認して再送を見送りかねないので、失敗中はヘッダーも
+          「送信失敗」にし、過去の成功は「最終成功」と明示して別に出す。 */}
+      {lastError && (
+        <p role="alert" className="mb-3 text-[13px] text-danger">
+          送信に失敗しました
+          {lastAttemptedAt ? `（${formatDateTimeShort(lastAttemptedAt)}）` : ''}: {lastError}
+          {lastSentAt && (
+            <span className="mt-0.5 block text-ink-meta">
+              最終成功 {formatDateTimeShort(lastSentAt)}
+            </span>
+          )}
+        </p>
+      )}
+
       <p className="text-[13px] text-ink-2">
         確定名簿が出たグループの会計へ、振込金額を LINE で連絡します。人数は
         {hasSavedCounts ? '前回送信時の値' : '出欠回答の集計'}

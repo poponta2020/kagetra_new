@@ -441,7 +441,11 @@ async function applyPushFailureRecovery(
 }
 
 export interface PushTextResult {
-  outcome: 'sent' | 'failed' | 'skipped'
+  /**
+   * `aborted` = `opts.abortBeforePush` が push の直前で中止を指示した（送っていない・
+   * 失敗でもない）。呼び出し側は失敗記録を書かずに黙って戻ること。
+   */
+  outcome: 'sent' | 'failed' | 'skipped' | 'aborted'
   reason?: string
   httpStatus?: number | null
   lineGroupId?: string | null
@@ -484,7 +488,7 @@ export async function pushMessagesToEntryGroup(
   dbc: Database,
   entryGroupId: number,
   messages: readonly LineOutgoingMessage[],
-  opts: { logger?: Logger } = {},
+  opts: { logger?: Logger; abortBeforePush?: () => Promise<boolean> } = {},
 ): Promise<PushTextResult> {
   const binding = await loadLinkedBindingForGroup(dbc, entryGroupId)
   return pushToBinding(dbc, binding, null, messages, opts)
@@ -496,11 +500,19 @@ async function pushToBinding(
   binding: LinkedEventBinding | null,
   eventId: number | null,
   messages: readonly LineOutgoingMessage[],
-  opts: { logger?: Logger } = {},
+  opts: { logger?: Logger; abortBeforePush?: () => Promise<boolean> } = {},
 ): Promise<PushTextResult> {
   const logger = opts.logger ?? NOOP_LOGGER
   if (!binding) {
     return { outcome: 'skipped', reason: 'no_linked_binding', lineGroupId: null }
+  }
+
+  // ★呼び出し側が中止判定を渡してきたら、**LINE API を叩く直前**にもう一度引く。
+  // 上の紐付け取得で await が挟まるため、呼び出し側が事前に見ただけではその待機中の
+  // 取り消しを拾えない（LINE は送信後に取り消せない）。判定を持たない呼び出し元
+  // （ライフサイクル通知8種など）は従来どおり素通りする。
+  if (opts.abortBeforePush && (await opts.abortBeforePush())) {
+    return { outcome: 'aborted', reason: 'aborted_before_push', lineGroupId: binding.lineGroupId }
   }
 
   const res = await pushMessages(binding.channelAccessToken, binding.lineGroupId, messages, logger)
@@ -584,6 +596,18 @@ function toMessages(
 }
 
 /**
+ * push の結果を `event_lifecycle_notifications.status` の3値へ写す。
+ *
+ * `aborted`（push 直前の中止判定で送らなかった）は監査上「送っていない」なので
+ * `skipped` と同じ扱いにする — 失敗ではないので `failed` にはしない。
+ */
+export function toNotificationStatus(
+  outcome: PushTextResult['outcome'],
+): 'sent' | 'failed' | 'skipped' {
+  return outcome === 'aborted' ? 'skipped' : outcome
+}
+
+/**
  * Given an already-claimed log row, push the text to the event's group and
  * finalize the row's status. Shared by the completion path (after the
  * state-change tx commits) and the reminder batch.
@@ -595,7 +619,7 @@ export async function sendClaimedNotification(
 ): Promise<PushTextResult> {
   const result = await pushMessagesToEventGroup(dbc, args.eventId, toMessages(args.message), opts)
   await finalizeLifecycleNotification(dbc, args.notificationId, {
-    status: result.outcome,
+    status: toNotificationStatus(result.outcome),
     lineGroupId: result.lineGroupId ?? null,
     errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
   })
@@ -622,7 +646,7 @@ export async function sendClaimedNotificationBulk(
   await Promise.all(
     args.notificationIds.map((id) =>
       finalizeLifecycleNotification(dbc, id, {
-        status: result.outcome,
+        status: toNotificationStatus(result.outcome),
         lineGroupId: result.lineGroupId ?? null,
         errorMessage: result.outcome === 'failed' ? (result.reason ?? null) : null,
       }),

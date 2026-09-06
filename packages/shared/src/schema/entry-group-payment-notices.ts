@@ -36,6 +36,13 @@ export const entryGroupPaymentNotices = pgTable(
     lastSentAt: timestamp('last_sent_at', { mode: 'date', withTimezone: true }),
     // 最後に送信した管理者。会員削除時に記録ごと消さないよう SET NULL。
     lastSentBy: text('last_sent_by').references(() => users.id, { onDelete: 'set null' }),
+    // 最後に送信を**試みた**日時（成否を問わない）。メール処理画面からの送信は
+    // `after()` の中で応答後に走るため、失敗を戻り値で返す相手がいない（§3.3.5.6）。
+    // 画面へ「送信に失敗しました（M/D HH:mm）」を出すための試行記録。
+    lastAttemptedAt: timestamp('last_attempted_at', { mode: 'date', withTimezone: true }),
+    // 直近の送信失敗の理由。★**成功したら NULL へ戻す**（AC-45b）。残したままだと
+    // 「送信済」と「送信に失敗しました」が同じ画面に同時に出る。
+    lastError: text('last_error'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   },
