@@ -100,6 +100,23 @@ export interface HomeUnansweredAlert {
   daysLeft: number
 }
 
+/**
+ * S9 (AC-17): 「遠征経路が未入力」の導線 1 行分。組み立ては
+ * `@/lib/travel-report/alerts` の `loadTravelRouteAlerts` が担う（母集団・絞り込み
+ * の規約はそちらの doc コメントが正典）。表示側はこの形だけを見る。
+ */
+export interface HomeTravelRouteAlert {
+  /** 遠征単位のキー（React key）。 */
+  unitKey: string
+  entryGroupId: number
+  /** 大会名。 */
+  tournamentName: string
+  /** 単位に含まれる開催日（`YYYY-MM-DD`・昇順）。行の表示ラベルに整形する。 */
+  unitDates: string[]
+  /** リンク先 `/events/{routeEventId}/travel-route` の eventId。 */
+  routeEventId: number
+}
+
 export interface HomeTimelineData {
   /** JST の今日（`todayInJst()`）。クライアントで `Date.now()` を呼ばないため。 */
   todayStr: string
@@ -111,4 +128,9 @@ export interface HomeTimelineData {
   upcoming: HomeTimelineEvent[]
   /** 未回答アラート。基準締切の早い順。 */
   alerts: HomeUnansweredAlert[]
+  /**
+   * 遠征経路の未入力アラート（S9）。既存の未回答アラートの下に並べる。
+   * ゲストはホームに入れないため（AC-9）ここにゲストが混ざることは無い。
+   */
+  travelRouteAlerts: HomeTravelRouteAlert[]
 }

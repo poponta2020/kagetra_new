@@ -62,7 +62,7 @@ design_source: claude-design
 - **完了条件:** `pnpm db:generate` で 0064 が1本生成・`pnpm check-types` 通過・テスト DB push 成功
 - **対応Issue:** #584
 ### タスク2: 会員属性とフラグ（S1 登録・S2 会員編集・S3 一覧バッジ＋一括編集）
-- [ ] 完了
+- [x] 完了
 - **目的:** サークル所属・学部区分・学部等名・学年・（ゲストの姓名）・副連絡責任者・サークル長を登録／編集できるようにする
 - **対応AC:** AC-1〜7・31
 - **主な変更領域:** `apps/web/src/app/register/[token]/`（actions.ts の parseRegistration／parseGuestRegistration・register-form.tsx）、`apps/web/src/app/(app)/admin/members/[id]/edit/`（actions.ts・edit-member-form.tsx・新規 member-travel-flags-section.tsx・page.tsx）、`apps/web/src/app/(app)/admin/members/page.tsx`（バッジ）、新規 `apps/web/src/app/(app)/admin/members/circle/`（一括編集 page・actions・client 表）、新規 `apps/web/src/components/members/FacultyCombobox.tsx`、`docs/spec/auth-admin.md`
@@ -71,7 +71,7 @@ design_source: claude-design
 - **完了条件:** 上記テスト green・lint/typecheck 通過・design-spec §10 の S1/S2/S3 指示どおり
 - **対応Issue:** #585
 ### タスク3: 確定状況（S5 名簿セクション内）と有効値の導出
-- [ ] 完了
+- [x] 完了
 - **目的:** 管理者が確定／キャンセル待ち／不参加を保存でき、遠征届の対象者判定が「有効な確定状況」を使えるようにする
 - **対応AC:** AC-8・9（対象者側は タスク5）
 - **主な変更領域:** 新規 `apps/web/src/lib/travel-report/selection-status.ts`（導出・読み書き）、`apps/web/src/app/(app)/admin/entries/[groupId]/`（新規 `components/SelectionStatusRows.tsx`・`travel-report-actions.ts` の `saveSelectionStatuses`・page.tsx の名簿セクション）、`docs/spec/events-attendance.md`
@@ -80,7 +80,7 @@ design_source: claude-design
 - **完了条件:** テスト green・非管理者に Action/UI が渡らない
 - **対応Issue:** #586
 ### タスク4: 認可ヘルパー・遠征届設定（S4）・テンプレ同梱・原本 DL・ゲスト許可パス
-- [ ] 完了
+- [x] 完了
 - **目的:** 提出権限者判定と、顧問教員設定、クリーン版テンプレの同梱と配信を先に用意する
 - **対応AC:** AC-21（設定・原本部分）・AC-29・AC-30
 - **主な変更領域:** 新規 `apps/web/src/lib/travel-report/authz.ts`・`settings.ts`、`apps/web/src/app/(app)/settings/travel-report/`（page・actions・form）、`settings/page.tsx`（リンク。提出権限者にも出す）、`apps/web/src/lib/guest-access.ts`、新規 `scripts/travel-report/build-template.mjs`・`apps/web/src/lib/travel-report/docx/template.b64.ts`、新規 `apps/web/src/app/api/admin/travel-reports/template/route.ts`、`apps/web/package.json`（jszip 追加）、`docs/spec/ui-shell.md`・`auth-admin.md`（ゲスト許可）

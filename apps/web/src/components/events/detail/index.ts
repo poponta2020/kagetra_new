@@ -35,3 +35,10 @@ export type {
 
 export { GroupBackLink } from './GroupBackLink'
 export type { GroupBackLinkProps } from './GroupBackLink'
+
+export { TravelReportCta } from './TravelReportCta'
+export type {
+  TravelReportCtaData,
+  TravelReportCtaSubmitterState,
+  TravelReportCtaTargetState,
+} from './TravelReportCta'
