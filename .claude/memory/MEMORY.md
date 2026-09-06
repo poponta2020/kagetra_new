@@ -366,3 +366,11 @@
 - [payment-receipt-broadcast 実装（全10タスク）](impl_payment-receipt-broadcast.md) — 支払報告に証憑アップロード＋LINE配信。'use server' からの抽出禁止・LineMessage union を広げない・AC-12 は順序を直接 assert
 - [auto-review PR #566](auto-review-round-pr566.md) — 4R で pass。★'use server' の値 export はビルドを落とす／delta pass でも final で blockers 5件
 - [支払報告に証憑（振込明細の写真）のアップロードと LINE 配信を追加](project_ship-payment-receipt-broadcast.md) — shipped: PR #566
+- [メール処理画面からの振込連絡 要件定義(2026-09-04)](project_mail_screen_payment_notice_def.md) — 親Issue #567
+- [attachment-open-download 要件定義](project_attachment_open_download_def.md) — 親Issue #575・Excel プレビュー廃止＋共有シート導線
+- [attachment-open-download 実装](impl_attachment_open_download.md) — 全5タスク完了・PR前・72 tests green
+- [auto-review PR #581](auto-review-round-pr581.md) — R1 blocker→修正, R2/R3 収束(WONTFIX 1件), CI はタイムアウトで中断
+- [メール処理画面からの振込連絡 実装(2026-09-04)](impl_line-bot-message-revamp-mail-payment-notice.md) — 確定名簿メールの処理と同時に会計へ振込連絡。露出判定の共有化・after() 相乗り・失敗記録
+- [auto-review PR #582](auto-review-round-pr582.md) — R1 blockers3→修正→R2 delta pass
+- [fix PR #582](impl_fix-pr582.md) — review 指摘の修正（400 revoke の取り残し発見）
+- [添付ファイルの「開く・保存」導線と Excel プレビュー廃止](project_ship-attachment-open-download.md) — shipped: PR #581
