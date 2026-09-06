@@ -9,17 +9,24 @@
 //
 // ★原本そのものは絶対に commit しない（requirements R11・§7・AC-29）。
 //   このスクリプトも原本を読むだけで、リポジトリへは書き戻さない。
-// ★`public/` に置かないのは認可を掛けられないため。TS モジュールなら
-//   route handler の中でしか読めず、バンドルにも確実に含まれる。
+// ★**このスクリプト自身にも原本の個人情報を書かない。** 消す対象を「氏名の文字列」で
+//   指定すると、その氏名がリポジトリに残ってしまい §7 の目的（原本の個人情報を git 履歴に
+//   残さない）を自分で破ることになる。そこで**段落番号と「残す run の数」**で位置指定し、
+//   様式のラベル（個人情報ではない）が期待どおりの場所にあることだけを検査する。
+// ★`public/` に置かないのは認可を掛けられないため。TS モジュールなら route handler の
+//   中でしか読めず、バンドルにも確実に含まれる。
 //
-// 置換は**run 単位のテキスト差し替え**で行い、段落・下線・セル構造には触れない
-// （長さを合わせた全角スペースで埋めるので下線の幅も変わらない）。
+// 置換は run 単位で行い、段落・下線・セル構造には触れない（長さを合わせた全角スペースで
+// 埋めるので下線の幅も変わらない）。
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..')
+const repoRoot = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+  '../..',
+)
 // jszip は apps/web の依存。ここから解決して root へ devDependency を増やさない。
 const require = createRequire(pathToFileURL(path.join(repoRoot, 'apps/web/package.json')))
 const JSZip = require('jszip')
@@ -32,79 +39,95 @@ if (!SRC) {
 const OUT = path.join(repoRoot, 'apps/web/src/lib/travel-report/docx/template.b64.ts')
 
 /**
- * 原本の個人情報を含む run のテキスト。**完全一致**で探し、同じ文字数の全角スペースへ
- * 置き換える。1つでも見つからなければ原本の版が変わったということなので中断する
- * （黙って素通りすると PII を含んだテンプレを commit してしまう）。
+ * 署名欄（表1の最終行の最後のセル）で空欄にする段落。
+ * `keep` は先頭から残す run の数（＝様式のラベル部分）で、それ以降の run をすべて
+ * 同じ幅の全角スペースへ置き換える。`label` は残す run に必ず含まれる様式の文字列で、
+ * 原本が改版されて段落がずれたときに気づくための検査に使う（個人情報ではない）。
  */
-const PII_RUNS = [
-  '法', // 団体代表者 所属（学部名の1文字目。run が分かれている）
-  '学部　', // 団体代表者 所属（学部名の続き）
-  '法専門職コース　2', // 団体代表者 所属（コース・学年）
-  '田中佑樹', // 団体代表者 氏名
-  '080-3838-4133', // 団体代表者 連絡先
-  '　　　　　　　北海道大学大学院工学研究院　応用科学部門　　　　　　　　　　　　　　　　　　　　　　　', // 顧問教員 所属部局等
-  '　　　　　　　　　助教　　　　　　　　　　　　　　　　　　　　　', // 顧問教員 職
-  '　　　　　　　　百合野　大雅　　　　　　　　　　　　　　　　　　　　　　', // 顧問教員 氏名
-]
-
-/**
- * 置換は**署名欄のセル（表1の最終行）の中だけ**で行う。`法` のような1文字の run を
- * 文書全体で置換すると、無関係の見出し（「方法」等）まで壊しうるため。
- */
-function signatureCell(xml) {
-  const tbls = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
-  if (tbls.length !== 2) throw new Error(`表が2枚でない: ${tbls.length}`)
-  const t0 = tbls[0]
-  const trs = t0.match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) ?? []
-  if (trs.length !== 12) throw new Error(`表1の行数が12でない: ${trs.length}`)
-  const last = trs[trs.length - 1]
-  const start = xml.indexOf(last)
-  return { start, end: start + last.length, xml: last }
-}
-
-/** 置換後に**どのエントリにも**残っていてはいけない文字列（最終検査）。 */
-const FORBIDDEN = [
-  '田中佑樹',
-  '法学部　法専門職コース',
-  '080-3838-4133',
-  '百合野',
-  '大雅',
-  '応用科学部門',
-  '助教',
-  '深井',
-  'daifu',
+const BLANK_TARGETS = [
+  { paragraph: 5, keep: 1, label: '団体代表者' }, // 所属（学部・コース・学年）
+  { paragraph: 7, keep: 1, label: '氏名' }, // 団体代表者 氏名
+  { paragraph: 9, keep: 3, label: 'TEL' }, // 団体代表者 連絡先
+  { paragraph: 11, keep: 2, label: '顧問教員' }, // 顧問教員 所属部局等
+  { paragraph: 13, keep: 1, label: '職' }, // 顧問教員 職
+  { paragraph: 15, keep: 1, label: '氏' }, // 顧問教員 氏名
 ]
 
 const pad = (n) => '　'.repeat(n)
 
-function blankRunText(xml, text) {
-  // <w:t> / <w:t xml:space="preserve"> のどちらでも拾う。
-  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`(<w:t(?: [^>]*)?>)${escaped}(</w:t>)`, 'g')
-  let hits = 0
-  const next = xml.replace(re, (_m, open, close) => {
-    hits += 1
-    // 前後の空白を落とされないよう xml:space="preserve" を必ず付ける。
-    const openTag = open.includes('xml:space') ? open : '<w:t xml:space="preserve">'
-    return `${openTag}${pad(text.length)}${close}`
-  })
-  return { xml: next, hits }
+function tables(xml) {
+  return xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
+}
+function rows(xml) {
+  return xml.match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) ?? []
+}
+function cells(xml) {
+  return xml.match(/<w:tc>[\s\S]*?<\/w:tc>/g) ?? []
+}
+function paragraphs(xml) {
+  return xml.match(/<w:p\b[\s\S]*?<\/w:p>/g) ?? []
+}
+function runTexts(xml) {
+  return [...xml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1] ?? '')
+}
+
+/** 段落内の `keep` 番目以降の run を、同じ幅の全角スペースへ置き換える。 */
+function blankRunsFrom(paragraphXml, keep) {
+  let i = 0
+  return paragraphXml.replace(
+    /(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g,
+    (whole, open, text, close) => {
+      const index = i++
+      if (index < keep) return whole
+      // 前後の空白を落とされないよう xml:space="preserve" を必ず付ける。
+      const openTag = open.includes('xml:space') ? open : '<w:t xml:space="preserve">'
+      return `${openTag}${pad(text.length)}${close}`
+    },
+  )
+}
+
+/** 署名欄セル（表1の最終行の最後のセル）を切り出す。 */
+function signatureCell(xml) {
+  const tbls = tables(xml)
+  if (tbls.length !== 2) throw new Error(`表が2枚でない: ${tbls.length}`)
+  const trs = rows(tbls[0])
+  if (trs.length !== 12) throw new Error(`表1の行数が12でない: ${trs.length}`)
+  const lastRow = trs[trs.length - 1]
+  const cs = cells(lastRow)
+  const cell = cs[cs.length - 1]
+  if (!cell) throw new Error('署名欄のセルが無い')
+  const cellStart = xml.indexOf(cell)
+  return { start: cellStart, end: cellStart + cell.length, xml: cell }
 }
 
 async function main() {
   const zip = await JSZip.loadAsync(readFileSync(SRC))
-  const entryNames = Object.keys(zip.files)
-  if (entryNames.length === 0) throw new Error('zip が空: ' + SRC)
   if (!zip.file('word/document.xml')) throw new Error('word/document.xml が無い: ' + SRC)
 
   let doc = await zip.file('word/document.xml').async('string')
   const cell = signatureCell(doc)
+  const ps = paragraphs(cell.xml)
   let cellXml = cell.xml
-  for (const text of PII_RUNS) {
-    const { xml, hits } = blankRunText(cellXml, text)
-    if (hits === 0) throw new Error(`原本の版が違う（run が見つからない）: ${JSON.stringify(text)}`)
-    cellXml = xml
+
+  // 段落は後ろから置き換える（前を書き換えるとオフセットがずれるため）。
+  for (const target of [...BLANK_TARGETS].sort((a, b) => b.paragraph - a.paragraph)) {
+    const p = ps[target.paragraph]
+    if (!p) throw new Error(`原本の版が違う: 署名欄に p${target.paragraph} が無い`)
+    const texts = runTexts(p)
+    const kept = texts.slice(0, target.keep).join('')
+    if (!kept.includes(target.label)) {
+      throw new Error(
+        `原本の版が違う: p${target.paragraph} の先頭 ${target.keep} run に「${target.label}」が無い`,
+      )
+    }
+    if (texts.length <= target.keep) {
+      throw new Error(`原本の版が違う: p${target.paragraph} に空欄にする run が無い`)
+    }
+    const start = cellXml.indexOf(p)
+    if (start === -1) throw new Error(`p${target.paragraph} が見つからない`)
+    cellXml = cellXml.slice(0, start) + blankRunsFrom(p, target.keep) + cellXml.slice(start + p.length)
   }
+
   doc = doc.slice(0, cell.start) + cellXml + doc.slice(cell.end)
   zip.file('word/document.xml', doc)
 
@@ -112,22 +135,30 @@ async function main() {
   let core = await zip.file('docProps/core.xml').async('string')
   core = core
     .replace(/<dc:creator>[\s\S]*?<\/dc:creator>/, '<dc:creator></dc:creator>')
-    .replace(/<cp:lastModifiedBy>[\s\S]*?<\/cp:lastModifiedBy>/, '<cp:lastModifiedBy></cp:lastModifiedBy>')
+    .replace(
+      /<cp:lastModifiedBy>[\s\S]*?<\/cp:lastModifiedBy>/,
+      '<cp:lastModifiedBy></cp:lastModifiedBy>',
+    )
   zip.file('docProps/core.xml', core)
 
   const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
 
-  // ---- 検査: 生成物のどのエントリにも個人情報が残っていないこと ----
+  // ---- 検査: 生成物の署名欄に値が残っていないこと ----
   const check = await JSZip.loadAsync(buf)
-  const checked = []
-  for (const name of Object.keys(check.files)) {
-    if (check.files[name].dir) continue
-    const s = await check.file(name).async('string')
-    const hit = FORBIDDEN.filter((p) => s.includes(p))
-    if (hit.length > 0) throw new Error(`個人情報が残っている: ${name} ${JSON.stringify(hit)}`)
-    checked.push(name)
+  const checkedDoc = await check.file('word/document.xml').async('string')
+  const checkedCell = signatureCell(checkedDoc)
+  const checkedPs = paragraphs(checkedCell.xml)
+  for (const target of BLANK_TARGETS) {
+    const rest = runTexts(checkedPs[target.paragraph]).slice(target.keep).join('')
+    if (rest.trim().length > 0 || /[０-９0-9]/.test(rest)) {
+      throw new Error(`p${target.paragraph} の空欄化に失敗している`)
+    }
   }
-  if (checked.length < 10) throw new Error(`エントリ数が少なすぎる（読めていない可能性）: ${checked.length}`)
+  const checkedCore = await check.file('docProps/core.xml').async('string')
+  if (!checkedCore.includes('<dc:creator></dc:creator>')) throw new Error('作成者が空でない')
+
+  const entryCount = Object.keys(check.files).filter((n) => !check.files[n].dir).length
+  if (entryCount < 10) throw new Error(`エントリ数が少なすぎる（読めていない可能性）: ${entryCount}`)
 
   mkdirSync(path.dirname(OUT), { recursive: true })
   const b64 = buf.toString('base64')
@@ -141,8 +172,7 @@ async function main() {
 //   1. 提出権限者への「原本ダウンロード」（そのまま .dotx として配る）
 //   2. 遠征届の生成（\`docx/fill.ts\` が [Content_Types].xml を document へ差し替えて .docx 化）
 //
-// PII が混入していないことは \`__tests__/travel-report-template-privacy.test.ts\` が
-// 生成物の全エントリを走査して検査する。
+// 空欄化できていることは \`__tests__/template-privacy.test.ts\` が検査する。
 `
   writeFileSync(
     OUT,
@@ -150,7 +180,7 @@ async function main() {
     'utf8',
   )
   console.log(`ok: ${OUT}`)
-  console.log(`  entries=${checked.length} bytes=${buf.length} base64=${b64.length}`)
+  console.log(`  entries=${entryCount} bytes=${buf.length} base64=${b64.length}`)
 }
 
 main().catch((e) => {
