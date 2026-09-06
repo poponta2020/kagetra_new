@@ -45,11 +45,15 @@ export function pickDestinationContacts(
   for (const matches of ROLE_PRIORITY) {
     const hit = participants.filter(matches).sort(byUserId)
     // 同じ役職に複数いても連絡者は1人（先に見つかった順＝userId 順の先頭）。
-    if (hit.length > 0) return [hit[0]]
+    const first = hit[0]
+    if (first) return [first]
   }
 
   const withBirth = participants.filter((c) => c.birthDate !== null)
-  if (withBirth.length === 0) return [[...participants].sort(byUserId)[0]]
+  if (withBirth.length === 0) {
+    const fallback = [...participants].sort(byUserId)[0]
+    return fallback ? [fallback] : []
+  }
   const earliest = withBirth.reduce((min, c) => ((c.birthDate ?? '') < (min.birthDate ?? '') ? c : min))
   // 同じ生年月日が並んだら全員出す（R9）。
   return withBirth.filter((c) => c.birthDate === earliest.birthDate).sort(byUserId)

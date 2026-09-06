@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import { describe, it, expect } from 'vitest'
 import { fillTravelReportDocx, TravelReportTemplateDriftError, type TravelReportDocData } from './fill'
-import { readTravelReportDocx } from './read'
+import { readTravelReportDocx, type TravelReportDocView } from './read'
 import { travelReportTemplateBuffer } from './template.b64'
 
 const base: TravelReportDocData = {
@@ -23,25 +23,32 @@ const base: TravelReportDocData = {
   ],
 }
 
+/** 表1の (行, セル) を安全に引く（`noUncheckedIndexedAccess` 対策）。 */
+const cell = (view: TravelReportDocView, row: number, col: number) =>
+  view.headerCells[row]?.[col] ?? ''
+/** 名簿の (行, セル)。 */
+const rosterCell = (view: TravelReportDocView, row: number, col: number) =>
+  view.rosterRows[row]?.[col] ?? ''
+
 const fill = (over: Partial<TravelReportDocData> = {}) =>
   fillTravelReportDocx(travelReportTemplateBuffer(), { ...base, ...over })
 
 describe('遠征届 docx の生成（AC-22）', () => {
   it('目的・場所・連絡先・期間・人数・備考が指定の欄に入る', async () => {
     const view = await readTravelReportDocx(await fill())
-    expect(view.headerCells[3][1]).toBe(base.purpose)
-    expect(view.headerCells[4][1]).toBe(base.place)
+    expect(cell(view, 3, 1)).toBe(base.purpose)
+    expect(cell(view, 4, 1)).toBe(base.place)
     // 遠征先連絡者は氏名と TEL を並べる。
-    expect(view.headerCells[5][2]).toBe('北海太郎\n090-0000-0001')
-    expect(view.headerCells[6][2]).toBe('旭川さくら')
-    expect(view.headerCells[7][2]).toBe('090-0000-0002')
-    expect(view.headerCells[9][1]).toContain('3人')
-    expect(view.headerCells[10][1]).toBe(base.remarks.join('\n'))
+    expect(cell(view, 5, 2)).toBe('北海太郎\n090-0000-0001')
+    expect(cell(view, 6, 2)).toBe('旭川さくら')
+    expect(cell(view, 7, 2)).toBe('090-0000-0002')
+    expect(cell(view, 9, 1)).toContain('3人')
+    expect(cell(view, 10, 1)).toBe(base.remarks.join('\n'))
   })
 
   it('期間は令和表記で自至と日数が入る（AC-24）', async () => {
     const view = await readTravelReportDocx(await fill())
-    const period = view.headerCells[8][1].split('\n')
+    const period = cell(view, 8, 1).split('\n')
     // 2026 → 令和8年。
     expect(period[0]).toBe('自　　令和　　　　8年　　6月　　12日')
     expect(period[1]).toContain('（　　　　　4日間）')
@@ -50,8 +57,8 @@ describe('遠征届 docx の生成（AC-22）', () => {
 
   it('期間が無ければテンプレの空欄のまま（作成は成功する。R13）', async () => {
     const view = await readTravelReportDocx(await fill({ period: null }))
-    expect(view.headerCells[8][1]).toContain('令和')
-    expect(view.headerCells[8][1]).not.toContain('8年')
+    expect(cell(view, 8, 1)).toContain('令和')
+    expect(cell(view, 8, 1)).not.toContain('8年')
   })
 
   it('名簿に氏名・学部等名・学年・電話が並ぶ（役職は空欄）', async () => {
@@ -72,8 +79,8 @@ describe('遠征届 docx の生成（AC-22）', () => {
     }))
     const view = await readTravelReportDocx(await fill({ roster, memberCount: 45 }))
     expect(view.rosterRows).toHaveLength(45)
-    expect(view.rosterRows[44][1]).toBe('会員45')
-    expect(view.rosterRows[40][1]).toBe('会員41')
+    expect(rosterCell(view, 44, 1)).toBe('会員45')
+    expect(rosterCell(view, 40, 1)).toBe('会員41')
   })
 
   it('団体代表者3欄・顧問教員3欄・届の日付が署名欄に入る（AC-26）', async () => {
@@ -102,8 +109,8 @@ describe('遠征届 docx の生成（AC-22）', () => {
     const joined = view.signatureParagraphs.join('\n')
     expect(joined).toContain('北海道大学かるた会')
     expect(joined).not.toContain('法学部')
-    expect(view.headerCells[6][2]).toBe('')
-    expect(view.headerCells[7][2]).toBe('')
+    expect(cell(view, 6, 2)).toBe('')
+    expect(cell(view, 7, 2)).toBe('')
   })
 
   it('承認日を入れると「（M月D日メールにて承認済）」になる', async () => {
@@ -125,19 +132,19 @@ describe('遠征届 docx の生成（AC-22）', () => {
         ],
       }),
     )
-    expect(view.headerCells[5][2]).toBe('北海太郎\n090-0000-0001\n藤野美咲')
+    expect(cell(view, 5, 2)).toBe('北海太郎\n090-0000-0001\n藤野美咲')
   })
 
   it('XML 特殊文字を含む値でも壊れない', async () => {
     const view = await readTravelReportDocx(await fill({ place: 'A&B <会場>' }))
-    expect(view.headerCells[4][1]).toBe('A&B <会場>')
+    expect(cell(view, 4, 1)).toBe('A&B <会場>')
   })
 
   it('テンプレを毎回読み直すので、続けて作っても互いに影響しない', async () => {
     const a = await readTravelReportDocx(await fill({ purpose: '1回目' }))
     const b = await readTravelReportDocx(await fill({ purpose: '2回目' }))
-    expect(a.headerCells[3][1]).toBe('1回目')
-    expect(b.headerCells[3][1]).toBe('2回目')
+    expect(cell(a, 3, 1)).toBe('1回目')
+    expect(cell(b, 3, 1)).toBe('2回目')
   })
 })
 
@@ -147,7 +154,7 @@ describe('テンプレの構造 drift ガード', () => {
     const xml = await zip.file('word/document.xml')!.async('string')
     // 表2（名簿）を丸ごと落とす。
     const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
-    zip.file('word/document.xml', xml.replace(tables[1], ''))
+    zip.file('word/document.xml', xml.replace(tables[1]!, ''))
     const broken = await zip.generateAsync({ type: 'nodebuffer' })
     await expect(fillTravelReportDocx(broken, base)).rejects.toBeInstanceOf(
       TravelReportTemplateDriftError,
@@ -158,9 +165,9 @@ describe('テンプレの構造 drift ガード', () => {
     const zip = await JSZip.loadAsync(travelReportTemplateBuffer())
     const xml = await zip.file('word/document.xml')!.async('string')
     const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
-    const trs = tables[0].match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) ?? []
+    const trs = tables[0]!.match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) ?? []
     // 行を1つ増やす。
-    zip.file('word/document.xml', xml.replace(tables[0], tables[0].replace(trs[1], trs[1] + trs[1])))
+    zip.file('word/document.xml', xml.replace(tables[0]!, tables[0]!.replace(trs[1]!, trs[1]! + trs[1]!)))
     const broken = await zip.generateAsync({ type: 'nodebuffer' })
     await expect(fillTravelReportDocx(broken, base)).rejects.toThrow('表1の行数が12でない')
   })

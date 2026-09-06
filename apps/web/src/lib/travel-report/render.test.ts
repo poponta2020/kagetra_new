@@ -143,7 +143,7 @@ describe('備考の集約（R10・AC-23）', () => {
       attendanceDates: [],
     }))
     // 名簿順は 4年(北海) → 3年(藤野) → 2年(室蘭)。
-    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0].text).toBe(
+    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0]!.text).toBe(
       '11/6 [北海、藤野、室蘭]札幌→八戸',
     )
   })
@@ -161,7 +161,7 @@ describe('備考の集約（R10・AC-23）', () => {
         attendanceDates: ['2026-11-07'],
       },
     ]
-    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0].text).toBe(
+    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0]!.text).toBe(
       '11/7 [北海]札幌→八戸 [北海]大会出場 [北海]八戸→青森 [北海]青森→弘前',
     )
   })
@@ -179,7 +179,7 @@ describe('備考の集約（R10・AC-23）', () => {
       legs: [{ date: '2026-11-06', from: '札幌', to: '八戸' }],
       attendanceDates: [],
     }))
-    expect(buildRemarks({ members: dupMembers, routes, destinationLabel: '八戸' })[0].text).toBe(
+    expect(buildRemarks({ members: dupMembers, routes, destinationLabel: '八戸' })[0]!.text).toBe(
       '11/6 [北海太郎、北海花子、藤野]札幌→八戸',
     )
   })
@@ -189,7 +189,7 @@ describe('備考の集約（R10・AC-23）', () => {
       { userId: 'u1', departureKind: 'sapporo', legs: [], attendanceDates: ['2026-11-07'] },
       { userId: 'u2', departureKind: 'hometown', legs: [], attendanceDates: ['2026-11-07'] },
     ]
-    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0].text).toBe(
+    expect(buildRemarks({ members, routes, destinationLabel: '八戸' })[0]!.text).toBe(
       '11/7 [北海]大会出場 [藤野]大会出場（帰省先から出場）',
     )
   })
@@ -211,7 +211,7 @@ describe('備考の集約（R10・AC-23）', () => {
       },
     ]
     // 大会出場（order 1）が移動（order 3）より先に来る。
-    expect(buildRemarks({ members, routes, destinationLabel: null })[0].text).toBe(
+    expect(buildRemarks({ members, routes, destinationLabel: null })[0]!.text).toBe(
       '11/6 [北海]大会出場 [北海]札幌→八戸',
     )
   })

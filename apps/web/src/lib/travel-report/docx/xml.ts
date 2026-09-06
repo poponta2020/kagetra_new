@@ -48,7 +48,7 @@ export function paragraphs(xml: string): XmlBlock[] {
 
 /** 段落の中の `<w:t>` のテキストを出現順に返す。 */
 export function runTexts(paragraphXml: string): string[] {
-  return [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1])
+  return [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1] ?? '')
 }
 
 /** 要素内のテキストを連結する。 */

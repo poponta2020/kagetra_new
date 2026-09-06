@@ -64,14 +64,14 @@ describe('遠征単位の導出（R4）', () => {
       ev(3, '2026-06-15'),
     ])
     expect(units.map((u) => u.startDate)).toEqual(['2026-06-13', '2026-06-15'])
-    expect(units[0].dates).toEqual(['2026-06-13'])
-    expect(units[1].dates).toEqual(['2026-06-15'])
+    expect(units[0]!.dates).toEqual(['2026-06-13'])
+    expect(units[1]!.dates).toEqual(['2026-06-15'])
   })
 
   it('done は開催済みなので単位に含める', () => {
     const units = buildTravelUnits([ev(1, '2026-06-13', 'done'), ev(2, '2026-06-14', 'done')])
     expect(units).toHaveLength(1)
-    expect(units[0].dates).toHaveLength(2)
+    expect(units[0]!.dates).toHaveLength(2)
   })
 
   it('同じ日に複数の級（複数 events）があっても 1 日として扱う', () => {
@@ -81,15 +81,15 @@ describe('遠征単位の導出（R4）', () => {
       ev(12, '2026-06-14'),
     ])
     expect(units).toHaveLength(1)
-    expect(units[0].dates).toEqual(['2026-06-13', '2026-06-14'])
-    expect(units[0].eventIds).toEqual([10, 11, 12])
+    expect(units[0]!.dates).toEqual(['2026-06-13', '2026-06-14'])
+    expect(units[0]!.eventIds).toEqual([10, 11, 12])
   })
 
   it('入力順が乱れていても日付昇順・id 昇順で整う', () => {
     const units = buildTravelUnits([ev(5, '2026-06-14'), ev(3, '2026-06-13'), ev(2, '2026-06-13')])
     expect(units).toHaveLength(1)
-    expect(units[0].dates).toEqual(['2026-06-13', '2026-06-14'])
-    expect(units[0].eventIds).toEqual([2, 3, 5])
+    expect(units[0]!.dates).toEqual(['2026-06-13', '2026-06-14'])
+    expect(units[0]!.eventIds).toEqual([2, 3, 5])
   })
 
   it('月・年をまたぐ連続日も1単位になる', () => {
@@ -106,8 +106,8 @@ describe('遠征単位の導出（R4）', () => {
   it('キーはブロック初日で、開催日が増えて前へ伸びるとキーが変わる（孤児化は想定内）', () => {
     const before = buildTravelUnits([ev(1, '2026-06-13'), ev(2, '2026-06-14')])
     const after = buildTravelUnits([ev(3, '2026-06-12'), ev(1, '2026-06-13'), ev(2, '2026-06-14')])
-    expect(before[0].startDate).toBe('2026-06-13')
-    expect(after[0].startDate).toBe('2026-06-12')
+    expect(before[0]!.startDate).toBe('2026-06-13')
+    expect(after[0]!.startDate).toBe('2026-06-12')
     // 旧キーの経路・通知記録は読まれなくなるだけ（再キー付けしない）。
     expect(findTravelUnit(after, '2026-06-13')).toBeNull()
   })

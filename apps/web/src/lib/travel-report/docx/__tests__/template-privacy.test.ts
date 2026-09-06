@@ -29,7 +29,7 @@ async function entries(): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   for (const name of Object.keys(zip.files)) {
     const file = zip.files[name]
-    if (file.dir) continue
+    if (!file || file.dir) continue
     out.set(name, await file.async('string'))
   }
   return out
@@ -62,9 +62,9 @@ describe('同梱テンプレに原本の個人情報が残っていない', () =
     const doc = (await entries()).get('word/document.xml') ?? ''
     const tables = doc.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) ?? []
     expect(tables).toHaveLength(2)
-    expect(tables[0].match(/<w:tr[ >]/g) ?? []).toHaveLength(12)
+    expect(tables[0]!.match(/<w:tr[ >]/g) ?? []).toHaveLength(12)
     // 名簿は見出し1行 + 40人分。41人以上は fill.ts が行をクローンして足す。
-    expect(tables[1].match(/<w:tr[ >]/g) ?? []).toHaveLength(41)
+    expect(tables[1]!.match(/<w:tr[ >]/g) ?? []).toHaveLength(41)
     // 個人情報ではない固定文言は消さない（消すと様式が変わる）。
     expect(doc).toContain('北海道大学かるた会')
     expect(doc).toContain('副　学　長　　殿')

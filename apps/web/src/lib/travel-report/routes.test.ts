@@ -94,7 +94,7 @@ describe('選択を変えると既定行だけが差し替わる（R6）', () =>
     const prev = buildDefaultLegs(base)
     // 往路の出発地を「小樽」に直した状態。
     const edited: TravelLeg = { date: '2026-06-13', from: '小樽', to: '青森' }
-    const legs = [edited, prev[1]]
+    const legs = [edited, prev[1]!]
     const next = buildDefaultLegs({ ...base, departureKind: 'hometown' })
     const result = applyWayChange(legs, prev, next)
     expect(result).toContainEqual(edited)
@@ -124,8 +124,8 @@ describe('大会出場の行（保存せず導出）', () => {
   })
 
   it('帰省先から出場 のときだけ表記が変わる（その他では変えない）', () => {
-    expect(buildAttendanceRows(['2026-06-13'], 'hometown')[0].label).toBe('大会出場（帰省先から出場）')
-    expect(buildAttendanceRows(['2026-06-13'], 'other')[0].label).toBe('大会出場')
+    expect(buildAttendanceRows(['2026-06-13'], 'hometown')[0]!.label).toBe('大会出場（帰省先から出場）')
+    expect(buildAttendanceRows(['2026-06-13'], 'other')[0]!.label).toBe('大会出場')
   })
 })
 

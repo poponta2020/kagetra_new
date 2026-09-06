@@ -120,7 +120,7 @@ function eraYear(isoDate: string): string {
 /** 表1 r8（期間）の3段落。 */
 function periodLines(period: TravelReportDocData['period'], template: readonly string[]): string[] {
   if (!period) return [...template]
-  const middle = template[1].replace(/（[\s\S]*?日間）/, `（　　　　　${period.days}日間）`)
+  const middle = (template[1] ?? '').replace(/（[\s\S]*?日間）/, `（　　　　　${period.days}日間）`)
   return [
     `自　　令和　　　　${eraYear(period.from)}${eraSuffix(period.from)}`,
     middle,
@@ -142,6 +142,12 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new TravelReportTemplateDriftError(message)
 }
 
+/** 添字アクセスの結果が無ければ drift として止める（`noUncheckedIndexedAccess` 対策）。 */
+function must<T>(value: T | undefined, message: string): T {
+  if (value === undefined) throw new TravelReportTemplateDriftError(message)
+  return value
+}
+
 /**
  * テンプレへ値を書き込んだ .docx のバイト列を返す。
  * テンプレ自体は変更しない（毎回 zip を読み直す）。
@@ -158,31 +164,35 @@ export async function fillTravelReportDocx(
   // ---- drift ガード（構造の検査） -----------------------------------------
   const tbls = tables(xml)
   assert(tbls.length === 2, `表が2枚でない（${tbls.length}枚）`)
-  const headerRows = rows(tbls[0].xml)
+  const headerTable = must(tbls[0], '表1が無い')
+  const rosterTable = must(tbls[1], '表2が無い')
+  const headerRows = rows(headerTable.xml)
   assert(headerRows.length === HEADER_ROWS, `表1の行数が${HEADER_ROWS}でない（${headerRows.length}）`)
-  const rosterRows = rows(tbls[1].xml)
+  const rosterRows = rows(rosterTable.xml)
   assert(rosterRows.length === ROSTER_ROWS, `表2の行数が${ROSTER_ROWS}でない（${rosterRows.length}）`)
+  const headerRow = (i: number) => must(headerRows[i], `表1 r${i} が無い`)
   // 見出しラベルが期待どおりの行に居るか（行が入れ替わっていないか）。
-  const labelOf = (rowIndex: number) => textOf(cells(headerRows[rowIndex].xml)[0]?.xml ?? '')
+  const labelOf = (rowIndex: number) => textOf(cells(headerRow(rowIndex).xml)[0]?.xml ?? '')
   assert(labelOf(HEADER_ROW.purpose).includes('目'), '表1 r3 が「目的」でない')
   assert(labelOf(HEADER_ROW.place).includes('場'), '表1 r4 が「場所」でない')
   assert(labelOf(HEADER_ROW.destinationContact).includes('連絡先'), '表1 r5 が「連絡先」でない')
   assert(labelOf(HEADER_ROW.period).includes('期'), '表1 r8 が「期間」でない')
   assert(labelOf(HEADER_ROW.memberCount).includes('人'), '表1 r9 が「人数」でない')
   assert(labelOf(HEADER_ROW.remarks).includes('備'), '表1 r10 が「備考」でない')
-  const rosterDataCells = cells(rosterRows[1].xml)
+  const rosterTemplateRow = must(rosterRows[1], '名簿にデータ行が無い')
+  const rosterDataCells = cells(rosterTemplateRow.xml)
   assert(
     rosterDataCells.length === ROSTER_CELLS,
     `名簿のデータ行のセル数が${ROSTER_CELLS}でない（${rosterDataCells.length}）`,
   )
 
   // ---- 表1: セル単位の書き換え ---------------------------------------------
-  const periodCell = cells(headerRows[HEADER_ROW.period].xml)[1]
+  const periodCell = cells(headerRow(HEADER_ROW.period).xml)[1]
   assert(periodCell !== undefined, '表1 r8 に値セルが無い')
   const periodTemplate = paragraphs(periodCell.xml).map((p) => textOf(p.xml))
   assert(periodTemplate.length === 3, `表1 r8 の段落数が3でない（${periodTemplate.length}）`)
 
-  const memberCountCell = cells(headerRows[HEADER_ROW.memberCount].xml)[1]
+  const memberCountCell = cells(headerRow(HEADER_ROW.memberCount).xml)[1]
   assert(memberCountCell !== undefined, '表1 r9 に値セルが無い')
   const memberCountParagraphs = paragraphs(memberCountCell.xml).length
   assert(memberCountParagraphs === 3, `表1 r9 の段落数が3でない（${memberCountParagraphs}）`)
@@ -203,10 +213,10 @@ export async function fillTravelReportDocx(
     { row: HEADER_ROW.remarks, cell: 1, lines: [...data.remarks] },
   ]
 
-  let headerXml = tbls[0].xml
+  let headerXml = headerTable.xml
   const rowEdits = new Map<number, { start: number; end: number; xml: string }>()
   for (const edit of cellEdits) {
-    const rowBlock = headerRows[edit.row]
+    const rowBlock = headerRow(edit.row)
     const current = rowEdits.get(edit.row)?.xml ?? rowBlock.xml
     const cs = cells(current)
     const target = cs[edit.cell]
@@ -217,7 +227,7 @@ export async function fillTravelReportDocx(
   }
 
   // ---- 表1 r11: 署名欄は run 単位で差し替える（下線・レイアウトを保つ） --------
-  const signatureRow = headerRows[HEADER_ROW.signature]
+  const signatureRow = headerRow(HEADER_ROW.signature)
   const signatureCells = cells(signatureRow.xml)
   const signatureCell = signatureCells[signatureCells.length - 1]
   assert(signatureCell !== undefined, '表1 r11 に署名欄セルが無い')
@@ -248,11 +258,16 @@ export async function fillTravelReportDocx(
   writeSpannedValue(setRuns, sigParagraphs, SIGNATURE_PARAGRAPH.advisorName, 1, 1, data.advisor.name, 8)
   if (data.approvalDate) {
     const d = toEraDate(data.approvalDate)
-    const runs = paragraphRuns(sigParagraphs[SIGNATURE_PARAGRAPH.approval].xml)
+    const approvalParagraph = must(
+      sigParagraphs[SIGNATURE_PARAGRAPH.approval],
+      '署名欄に承認日の段落が無い',
+    )
+    const runs = paragraphRuns(approvalParagraph.xml)
     const idx = runs.findIndex((t) => t.includes('メールにて承認済'))
-    if (idx !== -1) {
+    const run = runs[idx]
+    if (idx !== -1 && run !== undefined) {
       setRuns(SIGNATURE_PARAGRAPH.approval, {
-        [idx]: runs[idx].replace('（　　月　　日', `（　${d.month}月　${d.day}日`),
+        [idx]: run.replace('（　　月　　日', `（　${d.month}月　${d.day}日`),
       })
     }
   }
@@ -260,7 +275,7 @@ export async function fillTravelReportDocx(
   let signatureCellXml = signatureCell.xml
   const sigEdits = [...paragraphEdits.entries()]
     .map(([paragraphIndex, values]) => {
-      const p = sigParagraphs[paragraphIndex]
+      const p = must(sigParagraphs[paragraphIndex], `署名欄 p${paragraphIndex} が無い`)
       return { start: p.start, end: p.end, xml: replaceRunTexts(p.xml, values) }
     })
   signatureCellXml = spliceAll(signatureCellXml, sigEdits)
@@ -277,7 +292,7 @@ export async function fillTravelReportDocx(
   headerXml = spliceAll(headerXml, [...rowEdits.values()])
 
   // ---- 表2: 名簿 ------------------------------------------------------------
-  const templateDataRow = rosterRows[1].xml
+  const templateDataRow = rosterTemplateRow.xml
   const filledRows: string[] = []
   const rowCount = Math.max(data.roster.length, ROSTER_DATA_ROWS)
   for (let i = 0; i < rowCount; i++) {
@@ -290,21 +305,21 @@ export async function fillTravelReportDocx(
     const cs = cells(base)
     let rowXml = base
     for (let c = cs.length - 1; c >= 0; c--) {
+      const cell = must(cs[c], `名簿 r${i + 1} c${c} が無い`)
       rowXml =
-        rowXml.slice(0, cs[c].start) +
-        rewriteCell(cs[c].xml, [values[c] ?? '']) +
-        rowXml.slice(cs[c].end)
+        rowXml.slice(0, cell.start) + rewriteCell(cell.xml, [values[c] ?? '']) + rowXml.slice(cell.end)
     }
     filledRows.push(rowXml)
   }
+  const rosterLastRow = must(rosterRows[ROSTER_ROWS - 1], '名簿の最終行が無い')
   const rosterXml =
-    tbls[1].xml.slice(0, rosterRows[1].start) +
+    rosterTable.xml.slice(0, rosterTemplateRow.start) +
     filledRows.join('') +
-    tbls[1].xml.slice(rosterRows[ROSTER_ROWS - 1].end)
+    rosterTable.xml.slice(rosterLastRow.end)
 
   xml = spliceAll(xml, [
-    { start: tbls[0].start, end: tbls[0].end, xml: headerXml },
-    { start: tbls[1].start, end: tbls[1].end, xml: rosterXml },
+    { start: headerTable.start, end: headerTable.end, xml: headerXml },
+    { start: rosterTable.start, end: rosterTable.end, xml: rosterXml },
   ])
   zip.file('word/document.xml', xml)
 
@@ -327,7 +342,7 @@ export async function fillTravelReportDocx(
 // ---------------------------------------------------------------------------
 
 function paragraphRuns(paragraphXml: string): string[] {
-  return [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1])
+  return [...paragraphXml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1] ?? '')
 }
 
 /**

@@ -147,8 +147,9 @@ export function computePeriod(routes: readonly TravelReportRoute[]): TravelPerio
   }
   if (dates.length === 0) return null
   const sorted = [...dates].sort()
-  const from = sorted[0]
-  const to = sorted[sorted.length - 1]
+  // 上で length > 0 を確かめているので両端は必ず取れる。
+  const from = sorted[0]!
+  const to = sorted[sorted.length - 1]!
   return { from, to, days: inclusiveDayCount(from, to) }
 }
 

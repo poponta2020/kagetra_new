@@ -46,12 +46,14 @@ export async function readTravelReportDocx(buf: Buffer): Promise<TravelReportDoc
   const tbls = tables(xml)
   if (tbls.length < 2) throw new Error(`表が2枚無い（${tbls.length}）`)
 
-  const headerCells = rows(tbls[0].xml).map((r) => cells(r.xml).map((c) => cellText(c.xml)))
-  const rosterRows = rows(tbls[1].xml)
+  const headerTable = tbls[0]!
+  const rosterTable = tbls[1]!
+  const headerCells = rows(headerTable.xml).map((r) => cells(r.xml).map((c) => cellText(c.xml)))
+  const rosterRows = rows(rosterTable.xml)
     .slice(1)
     .map((r) => cells(r.xml).map((c) => cellText(c.xml)))
 
-  const signatureRow = rows(tbls[0].xml).at(-1)
+  const signatureRow = rows(headerTable.xml).at(-1)
   const signatureCells = signatureRow ? cells(signatureRow.xml) : []
   const signatureCell = signatureCells.at(-1)
   const signatureParagraphs = signatureCell

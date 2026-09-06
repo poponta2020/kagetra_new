@@ -56,13 +56,10 @@ export function deriveEffectiveSelection(
   if (selectionOutcome === 'rejected' || status === 'cancelled' || status === 'carry_up_declined') {
     return 'not_participating'
   }
-  if (
-    (status === 'confirmed' || status === 'carried_up') &&
-    selectionOutcome !== 'waitlisted' &&
-    selectionOutcome !== 'rejected'
-  ) {
-    return 'confirmed'
-  }
+  // ここへ来た時点で selectionOutcome は waitlisted / rejected ではない（上の2分岐で
+   // return 済み）。仕様の条件式にある `outcome ∉ {waitlisted, rejected}` は制御フローで
+   // 保証されているので、重ねて書くと tsc が always-true と判定する。
+  if (status === 'confirmed' || status === 'carried_up') return 'confirmed'
   return 'confirmed'
 }
 
