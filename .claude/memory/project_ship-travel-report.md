@@ -13,7 +13,10 @@ travel-report（遠征届）出荷。**PR #592** https://github.com/poponta2020/
 CI は pending のままマージ（この repo の既定運用。赤なら追修正）。
 
 ## ★残 DoD（出荷後の手作業）
-1. **本番 migration**: `pnpm db:migrate` で 0064 を適用（db:push は対話プロンプトで詰む）
+1. ~~本番 migration~~ **不要（自動）** — ★本番の migration は **CI の deploy ジョブが自動適用**する
+   （`scripts/deploy/auto-deploy.sh` が `CHANGED` に `packages/shared/drizzle/[0-9]*.sql` を見つけたら
+   `apply-migrations.sh` を実行。journal+hash で冪等）。**`pnpm db:migrate`（drizzle-kit migrate）は
+   TTY 必須で本番不適**とスクリプト冒頭に明記されている。手で流さないこと
 2. **AC-33 実機確認**: 実際の大会で作成した docx を Word で開き、原本と同じ体裁・記入例と同じ位置に値が入るか
 3. **顧問教員の初期設定**: /settings/travel-report で 所属部局等・職・氏名 を入力（★要件は「初期値は原本の値」だが、原本の氏名をコードに埋め込むと §7 に反するため**空**にしてある。未設定でも作成は成功し欄が空欄になる）
 4. **サークル長・副連絡責任者フラグの付与**と、既存会員のサークル所属・学部・学年の投入（/admin/members/circle の一括編集）

@@ -393,3 +393,5 @@
 - [line-chat-commands 要件定義](project_line-chat-commands.md) — 親Issue #606・LINEグループのBotメンションで申込/支払ステータスを進める
 - [承認画面の通称⇄系列 相互連動](project_ship-series-nickname-link.md) — shipped: PR #605。★開催紐付けが既定ONになる範囲が広がる・残DoD=本番short_name 2件投入・WONTFIX=壊れた漢数字の位取り
 - [メール本文の LINE 配信を画像から Flex カード＋公開全文ページへ](project_ship-mail-body-link-card.md) — shipped: PR #604
+- [本番migrationはdeployジョブが自動適用](feedback_prod_migration_is_automatic.md) — pnpm db:migrate を手で流さない。CI cancelled だと deploy ごと走らない
+- [line-chat-commands 実装（全4タスク）](impl_line-chat-commands.md) — 要件の語リストがAC-9の自例を通さない・手順書の処理順がAC-3/4/12に反する・返信分岐は実行前スナップショット必須
