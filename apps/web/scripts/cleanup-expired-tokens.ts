@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Daily cleanup of attachment_share_tokens that are past their expiry.
+ * Daily cleanup of share tokens that are past their expiry
+ * (attachment_share_tokens + mail_body_share_tokens).
  *
  * 60-day TTL + 7-day grace: we delete rows whose `expires_at < now() - 7
  * days`. The grace handles the case where someone re-shared a link from
@@ -26,7 +27,7 @@ loadEnv({ path: resolve(here, '..', '.env.local') })
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { lt, sql } from 'drizzle-orm'
-import { attachmentShareTokens } from '@kagetra/shared/schema'
+import { attachmentShareTokens, mailBodyShareTokens } from '@kagetra/shared/schema'
 import * as schema from '@kagetra/shared/schema'
 
 /** Days after expiry before a row is eligible for deletion. */
@@ -48,18 +49,27 @@ export async function cleanupExpiredTokens(
   const cutoff = new Date(now.getTime() - graceDays * 86_400_000)
 
   if (options.dryRun) {
-    const counted = await db
+    const countedAttachments = await db
       .select({ id: attachmentShareTokens.id })
       .from(attachmentShareTokens)
       .where(lt(attachmentShareTokens.expiresAt, cutoff))
-    return { deletedCount: counted.length }
+    const countedMailBodies = await db
+      .select({ id: mailBodyShareTokens.id })
+      .from(mailBodyShareTokens)
+      .where(lt(mailBodyShareTokens.expiresAt, cutoff))
+    return { deletedCount: countedAttachments.length + countedMailBodies.length }
   }
 
-  const deleted = await db
+  const deletedAttachments = await db
     .delete(attachmentShareTokens)
     .where(lt(attachmentShareTokens.expiresAt, cutoff))
     .returning({ id: attachmentShareTokens.id })
-  return { deletedCount: deleted.length }
+  // mail-body-as-image: 本文の公開 URL トークンも同じ TTL + 猶予で掃除する。
+  const deletedMailBodies = await db
+    .delete(mailBodyShareTokens)
+    .where(lt(mailBodyShareTokens.expiresAt, cutoff))
+    .returning({ id: mailBodyShareTokens.id })
+  return { deletedCount: deletedAttachments.length + deletedMailBodies.length }
 }
 
 export async function main(

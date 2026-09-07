@@ -20,6 +20,8 @@ export * from './event-broadcast-guideline-attachments'
 export * from './line-grade-group-bindings'
 export * from './event-grade-broadcasts'
 export * from './attachment-share-tokens'
+// mail-body-as-image (本文リンクカード化): 本文全文の公開 URL トークン
+export * from './mail-body-share-tokens'
 // entry-form-autofill: 会定数 key-value + 申込書下書き作成履歴
 export * from './app-settings'
 export * from './entry-form-drafts'

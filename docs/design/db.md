@@ -98,6 +98,7 @@
 | mail_messages | mailMessages | 受信メール本体（IMAP取込・分類・処理状態） | schema/mail-messages.ts |
 | mail_attachments | mailAttachments | メール添付ファイル（バイナリ+抽出テキスト） | schema/mail-attachments.ts |
 | attachment_share_tokens | attachmentShareTokens | 添付の期限付き公開ダウンロードトークン | schema/attachment-share-tokens.ts |
+| mail_body_share_tokens | mailBodyShareTokens | メール本文全文の期限付き公開URLトークン | schema/mail-body-share-tokens.ts |
 | tournament_drafts | tournamentDrafts | AI抽出した大会案内のレビュードラフト | schema/tournament-drafts.ts |
 | mail_worker_runs | mailWorkerRuns | mail-worker実行1回分のログ | schema/mail-worker.ts |
 | mail_worker_jobs | mailWorkerJobs | mail-worker手動起動ジョブキュー | schema/mail-worker.ts |
