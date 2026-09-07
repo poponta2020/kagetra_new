@@ -2,110 +2,134 @@
 status: completed
 ---
 
-# mail-body-as-image 実装手順書
+# mail-body-as-image 実装手順書（2026-09-07 改修: 本文リンクカード化）
 
-## 前提
-- 要件定義書: `docs/features/mail-body-as-image/requirements.md`
-- ブランチ: `feat/mail-body-as-image`
-- 1 PR で全タスク完了
-- worktree: `C:/tmp/impl-mail-body-as-image`
+親Issue: #594
+
+> 要件は [requirements.md](./requirements.md)。本書は**今回の改修**のタスクで上書きしている
+> （初版＝本文画像化のタスクは完了済みで git 履歴が保持する）。
+
+## 前提メモ（調査済み・実装時に再調査しないでよい事実）
+
+- `middleware.ts` の matcher は否定先読み 1 本。`api/line-broadcast` 等を除外している。
+  **公開ページのパスをここに足さないと LINE から開いた全員がサインイン画面に飛ぶ。**
+- `getOrCreateShareToken`（`attachment-image-render.ts`）が `INSERT ... ON CONFLICT` で
+  「期限内は既存 token 維持／期限切れは再生成」を 1 文で実現している。**この SQL をそのまま踏襲する。**
+- `splitForLine` は `event-grade-broadcast.ts` も使う → **削除しない**（import を外すだけ）。
+- `buildBroadcastBody` は本改修で未使用になるが**削除しない**（Non-goal）。`stripMailFooter` は全文ページが使う。
+- `image-cache.ts` は `attachment-preview.ts`（会員向け添付ビューア）が使う → **残す**。
+  `/api/line-broadcast/images/[token]` は未使用になるが撤去しない（Non-goal）。
+- RSC ページのテストは `/mail/[id]/page.test.tsx` のパターン（`testDb` + ページ関数直呼び + `render`）を踏襲する。
+- 監査列は増やさない。`sent_text_count` に本文カード、`fallback_link_count` に添付カードを計上する。
+
+---
 
 ## 実装タスク
 
-### タスク1: HTML テンプレート + 本文画像化 helper の新規実装
-
-- [x] 完了
-- **概要:** 件名・本文・訂正フラグを HTML に流し込み、libreoffice → pdftoppm パイプラインで JPEG 配列を返す helper を新規作成する。`renderPdfToJpegs` を内部再利用する。
-- **変更対象ファイル:**
-  - `apps/web/src/lib/mail-body-image-render.ts` (新規) — HTML テンプレート、`buildBodyImageHtml()`、`renderBodyImageToJpegs()`
-  - `apps/web/src/lib/mail-body-image-render.test.ts` (新規) — `buildBodyImageHtml` のスナップショット (件名あり/なし/訂正版/footer 除去)
-- **テンプレート要件:**
-  - A4 縦 / margin 25mm × 20mm / Noto Sans CJK JP / 11pt / line-height 1.7
-  - ヘッダー (件名): 14pt bold, border-bottom 1px solid #888, 訂正版は `【訂正】【件名】`
-  - 本文: `<pre>` で改行・空白保持、`white-space: pre-wrap; word-break: break-word`
-  - 件名が空の場合はヘッダーごと省略
-  - 訂正版で件名なしの場合は `<h1>【訂正】</h1>` のみ
+### タスク1: 共有トークン基盤（スキーマ・発行モジュール・cleanup）
+- [ ] 完了
+- **目的:** メール本文を公開 URL で配れるようにするトークンの土台を作る
+- **対応AC:** AC-9, AC-10, AC-11, AC-12
+- **主な変更領域:**
+  - `packages/shared/src/schema/mail-body-share-tokens.ts`（新規。`attachment_share_tokens` と**同形**：
+    `id` / `mail_message_id`（notNull・unique・FK `mail_messages` onDelete cascade）/ `token`（unique）/
+    `expires_at` / `access_count` / `created_at`、index は mail 用と expires_at 用の 2 本）
+  - `packages/shared/src/schema/index.ts`（export 追加）
+  - `packages/shared/drizzle/0064_*.sql`（`drizzle-kit generate` で生成。**手書き ALTER 禁止**）
+  - `apps/web/src/lib/mail-body-share.ts`（新規）＋ `mail-body-share.test.ts`
+    - `MAIL_BODY_SHARE_TTL_DAYS = 60`
+    - `getOrCreateMailBodyShareToken(db, mailMessageId, { ttlDays?, now? })`
+    - `mailBodyShareUrl(token, baseUrl)` → `${baseUrl}/mail-share/${token}`
+    - **DB にしか依存しない軽量モジュール**（sharp / libreoffice を持ち込まない）
+  - `apps/web/scripts/cleanup-expired-tokens.ts` と対応テスト（新テーブルも期限+7日の猶予で削除）
 - **依存タスク:** なし
-- **対応Issue:** #74
+- **必要なテスト:** upsert 3 系統（新規発行 / 期限内は同一 token 再利用 / 期限切れは再生成＋`access_count` リセット）、
+  token が URL-safe base64 32 文字、TTL が 60 日、cleanup が**両テーブル**を猶予 7 日で削除する
+- **完了条件:** vitest green・`pnpm db:migrate` が通る・typecheck 通過
+- **対応Issue:** #595
 
-### タスク2: line-broadcast.ts の本文画像化 + 添付リンク統一
+### タスク2: 本文カードの Flex ビルダー（pure）
+- [ ] 完了
+- **目的:** 件名だけを載せた「✉ メールカード」を LINE Flex JSON として組み立てる
+- **対応AC:** AC-2, AC-3, AC-4, AC-5
+- **主な変更領域:**
+  - `apps/web/src/lib/line-flex-mail-body.ts`（新規）＋ `line-flex-mail-body.test.ts`
+    - `buildMailBodyFlexMessage({ subject, url, isCorrection })`
+    - カード: bubble/kilo → body(horizontal, paddingAll 16px, action uri) →
+      48×48 角丸バッジ（背景 `#534286` ＝ `--kg-brand`・白の `✉`）＋ 件名（sm/bold/wrap/`maxLines: 3`）＋
+      `タップして全文を見る`（xxs・グレー）
+    - 件名が空・NULL → `(件名なし)`。`isCorrection` → 件名の先頭に `【訂正】`
+    - `altText` = `📧 <件名>`（400 UTF-16 単位でコードポイント境界切り詰め）
+  - `apps/web/src/lib/line-flex-attachment.ts`（`truncateToUtf16Units` / `ALT_TEXT_MAX` / 型を export するだけ。
+    **★このファイルを編集するのは本タスクだけ**）
+- **依存タスク:** なし（タスク1 と並行可）
+- **必要なテスト:** カード JSON の構造（バッジ色・`✉`・件名・サブタイトル・body の `uri` アクション）、
+  URL がテキスト要素として現れないこと、件名なし、訂正版、400 字超のサロゲートペア境界切り詰め
+- **完了条件:** vitest green・node builtins を import していない（pure 維持）・typecheck 通過
+- **対応Issue:** #596
 
-- [x] 完了
-- **概要:** `broadcastMailToEvent` 内の本文構築を text → image に切り替え、`renderAttachment` の PDF/Word 画像化分岐を削除して全添付 URL リンク統一にする。画像化失敗時の text fallback パスを追加。
-- **変更対象ファイル:**
-  - `apps/web/src/lib/line-broadcast.ts`:
-    - import 整理: `renderBodyImageToJpegs` を追加。`renderDocxToJpegs` の import 削除
-    - `broadcastMailToEvent`:
-      - 本文 text 構築 (`splitForLine`) を撤去し、まず `renderBodyImageToJpegs` を try で呼ぶ
-      - 成功: 既存 `buildRenderedImageMessages` を本文画像用に再利用 (attachment 引数を持たないバリエーション、または共通化) して image message を作る
-      - 失敗 (catch): `buildBroadcastBody` + `splitForLine` で text message に降格、`logger.warn` で失敗理由を記録
-      - 30 ページ超: image render の `truncated=true` を受け取り、本文 text fallback に切り替え (専用 share token は導入しない)
-      - `roles` 配列に `body_image` を追加 (sent_image_count にカウント)
-    - `renderAttachment`:
-      - PDF / Word 分岐を削除
-      - 全添付を `buildFallbackTextMessage` で URL リンク 1 本に統一
-      - `usedFallback: true` を常に返す
-  - 共通 image messages 構築の関数化: `buildRenderedImageMessages` を本文 + 添付両方で使えるよう、 attachment 引数を optional にするか、本文用に「filename を持たない」軽量版を切り出す
+### タスク3: 配信経路の差し替え（本文画像 → 本文カード）
+- [ ] 完了
+- **目的:** `broadcastMailToEvent` が本文をカード 1 通で送るようにし、画像化経路を撤去する
+- **対応AC:** AC-1, AC-6, AC-7, AC-8, AC-19, AC-20, AC-21, AC-22, AC-23
+- **主な変更領域:**
+  - `apps/web/src/lib/line-broadcast.ts`
+    - `MessageRole` を `'lead_text' | 'body_link' | 'attachment_link'` に変更（`body_image` / `body_text` を廃止）
+    - `includeBody` が true のとき: `getOrCreateMailBodyShareToken` → `mailBodyShareUrl(…, getBaseUrl())` →
+      `buildMailBodyFlexMessage` を 1 通 push。**try/catch でテキストへ倒さない**（例外は既存の外側 catch に伝播 → 監査行 failed）
+    - 撤去: `buildBodyImageMessages`、`attachmentImageUrl`、`sharp` 動的 import、`setCachedImage` の import、
+      `renderBodyImageToJpegs` / `splitForLine` / `buildBroadcastBody` の import と使用
+    - カウンタ: `body_link` → `sent_text_count`（`sent_image_count` は常に 0）
+  - `apps/web/src/lib/line-broadcast.test.ts`（期待値更新。画像 fallback 系テストは削除し、カード系に置換）
+  - `apps/web/src/lib/mail-body-image-render.ts` と `mail-body-image-render.test.ts`（**削除**）
+  - ★ `line-flex-attachment.ts` は**触らない**（タスク2 の領域）。本文カードは `line-flex-mail-body.ts` から import する
+- **依存タスク:** タスク1, タスク2
+- **必要なテスト:** 本文カード 1 通のみ／image message ゼロ、送信順（リード文→本文カード→添付カード）、
+  `includeBody=false` で本文カードを積まない＋`empty_message_set`、`PUBLIC_BASE_URL` 未設定で `status='failed'`
+  かつテキスト送信なし、添付カードの出力が現行と同一、旧監査行（`sent_image_count > 0`）の再送で全件再送に倒れる
+- **完了条件:** vitest green・`git grep renderBodyImageToJpegs` が 0 件・typecheck / lint 通過
+- **対応Issue:** #597
+
+### タスク4: 公開の全文ページ
+- [ ] 完了
+- **目的:** トークン URL を未ログインで開くと、件名・受信日時・本文全文が読めるようにする
+- **対応AC:** AC-13, AC-14, AC-15, AC-16, AC-17, AC-18
+- **主な変更領域:**
+  - `apps/web/src/app/mail-share/[token]/page.tsx`（新規。`(app)` グループの**外**＝ボトムナビ等を持たない）
+    ＋ `page.test.tsx`
+    - `export const dynamic = 'force-dynamic'` ／ `export const metadata = { robots: { index: false, follow: false } }`
+    - token 形式ガード（`/^[A-Za-z0-9_-]{16,64}$/`）→ `expires_at > now()` の行を join で引く → `access_count` 加算
+    - 表示: 件名（受信したまま。`【訂正】`は付けない）／受信日時（`formatMailDetailDateTime`）／
+      本文（`stripMailFooter` 適用・`<pre className="whitespace-pre-wrap …">`。`dangerouslySetInnerHTML` 禁止）
+    - 本文が空 → `(本文なし)`、件名が空 → `(件名なし)`
+    - 無効・期限切れ・形式不正は**同一の案内ページ**（「有効期限が切れました」＋「会員はかげとらのメール画面から検索できます」）
+    - 添付・大会名・イベントリンク・会員向けナビは出さない
+  - `apps/web/src/middleware.ts`（matcher の否定先読みに `mail-share` を追加。既存の除外コメント様式に倣う）
+    ＋ `apps/web/src/middleware.test.ts`（既存の「matcher（未認証前提ルートの除外）」describe に 1 ケース追加）
+  - ★ `line-broadcast.ts` は触らない（タスク3 の領域）
 - **依存タスク:** タスク1
-- **対応Issue:** #75
+- **必要なテスト:** 有効トークンで 200 かつ件名・受信日時・本文が出る、`<script>` を含む本文が
+  テキストとして表示される（実行されない）、期限切れ／存在しない／形式不正が同一の案内ページ、
+  添付ファイル名・大会名が出ない、`metadata.robots` が noindex。
+  **★AC-18 は matcher 正規表現の単体テストで検証する** — `middleware.test.ts` が既にやっているように
+  `config.matcher[0]` を `new RegExp('^' + matcher + '$')` として評価し、
+  `/mail-share/<token>` が **`false`**（＝matcher の対象外）になることを assert する。
+  ページ単体テストは matcher の漏れを検出できない（ページ関数を直接呼ぶだけなので、
+  matcher に `mail-share` を足し忘れても green になり、本番で全員がサインイン画面へ飛ぶ）
+- **完了条件:** vitest green・typecheck / lint 通過
+- **対応Issue:** #598
 
-### タスク3: attachment-image-render.ts の整理
+---
 
-- [x] 完了
-- **概要:** 本文画像化から内部呼び出しする `renderPdfToJpegs` はそのまま残す。添付経路で唯一使われていた `renderDocxToJpegs` は外部から不要になるが、本文画像化が libreoffice → renderPdfToJpegs 経由なので **export は維持** (PDF 化 helper として再利用)。
-- **変更対象ファイル:**
-  - `apps/web/src/lib/attachment-image-render.ts`:
-    - `renderDocxToJpegs` の export 自体は残す (libreoffice 呼び出し helper として `mail-body-image-render` から呼ばれる可能性がある場合)。最終的に未使用なら削除
-    - 既存テスト (もしあれば) で削除対象を判断
-  - libreoffice 呼び出し部分を `mail-body-image-render.ts` から再利用しやすくするため、private helper `runLibreofficeConvertToPdf(inputPath, workDir)` を抽出して export する選択肢を検討
-- **依存タスク:** タスク1, タスク2
-- **対応Issue:** #76
+## 実装順序（Wave = 並行実装できるタスクの組）
 
-### タスク4: テスト更新
+- **Wave 1: タスク1, タスク2** — スキーマ／DB 側と pure な Flex ビルダーで変更領域が完全に分離
+- **Wave 2: タスク3, タスク4** — 配信ロジック（`lib/line-broadcast.ts`）と公開ページ（`app/mail-share/**` ＋ `middleware.ts`）で
+  ファイルが重ならない。どちらもタスク1 の `mail-body-share.ts` に依存し、タスク3 はタスク2 にも依存する
 
-- [x] 完了
-- **概要:** `line-broadcast.test.ts` を本文 image / 添付 link の新挙動に合わせて更新。
-- **変更対象ファイル:**
-  - `apps/web/src/lib/line-broadcast.test.ts`:
-    - 既存「本文 text message」を期待しているケースを「本文 image message」に変更
-    - 添付 PDF / Word が image を返すケースを「fallback link」に変更
-    - 画像化失敗 → text fallback の新規ケースを 1 つ追加 (libreoffice mock を spawn-level で reject)
-    - role 別カウント (`sent_text_count` / `sent_image_count` / `fallback_link_count`) の期待値を更新
-  - `apps/web/src/lib/mail-body-cleaner.test.ts`: 変更なし (fallback パスで継続使用)
-- **依存タスク:** タスク1, タスク2
-- **対応Issue:** #77
+## 出荷前チェック
 
-### タスク5: ローカル検証 + worklog 記入 + PR 作成準備
-
-- [x] 完了
-- **概要:** worktree でユニットテスト・型チェック・lint を通し、worklog.md に進捗を追記、`/prepare-pr` で PR を作る準備をする。
-- **検証コマンド:**
-  - `pnpm --filter @kagetra/web vitest run src/lib/mail-body-image-render.test.ts`
-  - `pnpm --filter @kagetra/web vitest run src/lib/line-broadcast.test.ts`
-  - `pnpm --filter @kagetra/web typecheck`
-  - `pnpm --filter @kagetra/web lint`
-- **依存タスク:** タスク1〜4
-- **対応Issue:** #78
-
-## 実装順序
-
-1. **タスク1** (HTML テンプレート + helper): 依存なし。完全に独立で着手可能
-2. **タスク2** (line-broadcast 改修): タスク1 完了後。`renderBodyImageToJpegs` の signature が固まってから
-3. **タスク3** (attachment-image-render 整理): タスク2 で削除が必要か確定してから (実は変更不要のケースもある)
-4. **タスク4** (テスト更新): タスク2 と並行可能 (テスト ファースト寄りに進めても可)
-5. **タスク5** (検証 + PR): タスク1〜4 完了後
-
-## 完了条件
-
-- 全タスクのチェックボックスが完了
-- ユニットテスト全 green
-- 型チェック・lint pass
-- ローカル (Linux/Windows) で `LINE_NOTIFY_DRY_RUN=1` 配信が正常完了し、画像生成パスが logger に出ること (本番投入前の煙テスト)
-- PR 作成、`/auto-review-loop` で Codex 構造化レビュー passing
-- 本番デプロイ後、実機 (LINE グループ) で本文画像が表示されることを目視確認
-
-## スコープ外 (将来課題)
-
-- 本文専用 share token テーブル `mail_body_share_tokens` の新設 (30 ページ超メールが頻発するなら検討)
-- 画像 fonts/レイアウトの細かいカスタマイズ (主催者ロゴ挿入、配色テーマ等)
-- 既存配信のリトライ UI から本機能の image render を再試行する機能
+- `git grep renderBodyImageToJpegs` / `git grep buildBodyImageMessages` が 0 件
+- `git grep "mail-body-image-render"` が 0 件
+- migration 番号が他ブランチと衝突していない（0064）
+- 本番の `.env.production` に `PUBLIC_BASE_URL` が入っていること（既存前提。未設定だと配信が failed になる）
