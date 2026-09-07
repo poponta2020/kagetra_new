@@ -2,7 +2,11 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { events } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { lockEventRowsAscending, resolveEntryGroupId } from '@/lib/entry-groups'
-import { claimLifecycleNotification } from '@/lib/event-lifecycle-notify'
+import {
+  buildLifecycleMessage,
+  claimLifecycleNotification,
+  sendClaimedNotificationBulk,
+} from '@/lib/event-lifecycle-notify'
 
 /**
  * payment-receipt-broadcast タスク5: 支払済トグルの**中身**（認可・revalidate・通知送信を
@@ -179,4 +183,48 @@ export async function revertPaymentsPaid(
   })
 
   return { entryGroupId, ids }
+}
+
+/**
+ * 支払完了メッセージを組み立てる。line-bot-message-revamp タスク5で `payment_paid`
+ * は大会名・金額を一切出さなくなったため、件数に関わらず同一の固定文面になる。
+ *
+ * grade-entry-fee タスク6 (AC-17/18) で導入した「N=1 のときだけ振込総額を載せる」
+ * 分岐はこの改訂で丸ごと不要になった（呼び出し元の `tallyEntryFeesForGroup` 呼び出し
+ * も削除済み）。
+ *
+ * line-chat-commands タスク2: LINE 発言起点（webhook）でも同じ文面を使うため、
+ * `events/[id]/actions.ts` のモジュール private からここへ移した（挙動不変）。
+ */
+export function buildPaymentPaidMessage(): string {
+  return buildLifecycleMessage('payment_paid', { title: '' })
+}
+
+/**
+ * `applyPaymentsPaid` が claim できたスロットへ支払完了通知を1通 push する
+ * （best-effort。push 失敗で状態は巻き戻さない）。
+ *
+ * ★`applyPaymentsPaid` の中には入れない。証憑つきの支払報告（`reportPayment`）は
+ * 同じ flip・claim を使いつつ**別の文面**を送るため、「倒す」と「この文面で送る」は
+ * 分かれたままでなければならない。ここは**固定文面を送る呼び出し側**（進行管理の
+ * トグルと LINE 発言起点）が共有するための薄いヘルパー。
+ */
+export async function notifyPaymentsPaid(
+  dbc: Database,
+  result: ApplyPaymentsPaidOutcome,
+): Promise<void> {
+  if (result.notificationIds.length === 0) return
+  // line-bot-message-revamp タスク5 (AC-26): payment_paid は金額を一切出さなく
+  // なったため、grade-entry-fee タスク6 (AC-17/18) が行っていたグループ単位の
+  // 振込総額集計（`tallyEntryFeesForGroup`）はここでは不要になった。
+  const message = buildPaymentPaidMessage()
+  try {
+    await sendClaimedNotificationBulk(dbc, {
+      notificationIds: result.notificationIds,
+      eventId: result.claimed[0]!.id,
+      message,
+    })
+  } catch {
+    // best-effort
+  }
 }

@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import {
   createEntryGroup,
   createEvent,
   createUser,
   createAdmin,
   createGuest,
+  createViceAdmin,
   createEventAttendance,
 } from '@/test-utils/seed'
 import type { LineMessage, LineTextV2Message } from '@/lib/line-mention'
@@ -1678,5 +1679,411 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
       errorSpy.mockRestore()
       logSpy.mockRestore()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// line-chat-commands: 大会グループでの Bot メンション発言による申込/支払の進行
+// ---------------------------------------------------------------------------
+
+describe('applyWebhookEvents — チャットコマンド (line-chat-commands)', () => {
+  const GROUP_ID = 'Cchat-group-1'
+  /** `@テストBot` は7文字（@ + テ ス ト B o t）。mentionee の length はこの値。 */
+  const MENTION_LABEL = '@テストBot'
+  const MENTION_LENGTH = MENTION_LABEL.length
+
+  /** ライフサイクル通知の push は fetch を直接叩く（event-lifecycle-notify.ts）。
+   *  実 API を叩かせず、送信回数だけ観測できるようにする。 */
+  function stubFetch() {
+    return vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+  }
+  let fetchSpy: ReturnType<typeof stubFetch>
+
+  beforeEach(async () => {
+    await resetDb()
+    fetchSpy = stubFetch()
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  /** 先頭にメンションを置いた message イベントを作る（本文は生のまま渡る）。 */
+  function chatEvent(
+    body: string,
+    opts: {
+      lineUserId?: string | null
+      groupId?: string | null
+      mention?: unknown
+      replyToken?: string
+    } = {},
+  ) {
+    const text = `${MENTION_LABEL} ${body}`
+    return {
+      type: 'message',
+      replyToken: opts.replyToken ?? 'rt-chat',
+      source: {
+        type: 'group',
+        ...(opts.groupId === null ? {} : { groupId: opts.groupId ?? GROUP_ID }),
+        ...(opts.lineUserId === null ? {} : { userId: opts.lineUserId ?? 'Uspeaker' }),
+      },
+      message: {
+        type: 'text',
+        text,
+        mention:
+          opts.mention === undefined
+            ? { mentionees: [{ index: 0, length: MENTION_LENGTH, type: 'user', isSelf: true }] }
+            : opts.mention,
+      },
+    }
+  }
+
+  type ChatDaySeed = Partial<{
+    eventDate: string
+    status: 'published' | 'cancelled' | 'done'
+    entryStatus: 'not_applied' | 'applied' | 'not_applying'
+    paymentType: 'advance' | 'onsite' | null
+    paymentStatus: 'unpaid' | 'paid'
+  }>
+
+  /**
+   * `linked` 状態の大会グループを1つ用意する。`days` の各要素がそのまま
+   * `events` の1行になる（既定は事前払い・未申込・未払）。
+   */
+  async function seedLinkedGroup(
+    days: ChatDaySeed[] = [{}],
+    channelOverrides: Parameters<typeof insertChannel>[0] = {},
+    broadcastOverrides: Parameters<typeof insertBroadcast>[2] = {},
+  ) {
+    const entryGroupId = (await createEntryGroup()).id
+    const eventIds: number[] = []
+    for (const [i, day] of days.entries()) {
+      const created = await createEvent({
+        entryGroupId,
+        title: 'テスト大会',
+        eventDate: day.eventDate ?? `2026-06-0${i + 1}`,
+        status: day.status ?? 'published',
+        entryStatus: day.entryStatus ?? 'not_applied',
+        paymentType: day.paymentType === undefined ? 'advance' : day.paymentType,
+        paymentStatus: day.paymentStatus ?? 'unpaid',
+      })
+      eventIds.push(created.id)
+    }
+    const channel = await insertChannel({
+      status: 'active',
+      assignedEntryGroupId: entryGroupId,
+      ...channelOverrides,
+    })
+    await insertBroadcast(entryGroupId, channel.id, {
+      status: 'linked',
+      lineGroupId: GROUP_ID,
+      ...broadcastOverrides,
+    })
+    return { entryGroupId, eventIds, channel }
+  }
+
+  async function run(
+    channel: Awaited<ReturnType<typeof insertChannel>>,
+    webhookEvent: ReturnType<typeof chatEvent>,
+  ) {
+    const { client, captured } = makeReplyClient()
+    const payload = {
+      destination: channel.webhookDestinationId ?? 'Udestination',
+      events: [webhookEvent],
+    } as unknown as LineWebhookPayload
+    await applyWebhookEvents(db, channel.id, 'token', payload, client, { logger: () => {} })
+    return captured
+  }
+
+  async function loadDays(eventIds: readonly number[]) {
+    const rows = await db.select().from(events)
+    return eventIds.map((id) => rows.find((r) => r.id === id)!)
+  }
+
+  it('AC-1/AC-2: 管理者のメンション＋申込語で全開催日が applied になり、Bot は返信しない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}, {}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days.map((d) => d.entryStatus)).toEqual(['applied', 'applied'])
+    expect(captured).toHaveLength(0)
+    // 既存のライフサイクル通知（参加者向け・会計向けの2通）が完了報告になる。
+    expect(fetchSpy.mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('AC-3: 副管理者が申込語を送っても entry_status は変わらず、返信もされない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createViceAdmin({ lineUserId: 'Uvice' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uvice' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-4: 一般会員の発言では何も変わらず返信もされない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createUser({ role: 'member', lineUserId: 'Umember' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Umember' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-4: ゲスト・退会者・LINE 未紐付けのいずれでも何も変わらず返信もされない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createGuest({ lineUserId: 'Uguest' })
+    await createAdmin({ lineUserId: 'Ugone', deactivatedAt: new Date() })
+
+    for (const lineUserId of ['Uguest', 'Ugone', 'Uunknown']) {
+      const captured = await run(channel, chatEvent('申し込みました', { lineUserId }))
+      expect(captured, lineUserId).toHaveLength(0)
+    }
+    // source.userId 自体が無い（LINE 未紐付け以前）ケースも fail-closed。
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: null }))
+    expect(captured).toHaveLength(0)
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+  })
+
+  it('AC-5: 副管理者の振込語で advance かつ unpaid の日が paid になる', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}, {}])
+    await createViceAdmin({ lineUserId: 'Uvice' })
+
+    const captured = await run(channel, chatEvent('振り込みました', { lineUserId: 'Uvice' }))
+
+    const days = await loadDays(eventIds)
+    expect(days.map((d) => d.paymentStatus)).toEqual(['paid', 'paid'])
+    // 全日が事前払いなら成功時は返信しない。
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-6: 現地払いが混ざるときは事前払いの日だけ paid になり、対象外の日を返信する', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([
+      { eventDate: '2026-06-01', paymentType: 'advance' },
+      { eventDate: '2026-06-02', paymentType: 'onsite' },
+    ])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('振り込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.paymentStatus).toBe('paid')
+    expect(days[1]!.paymentStatus).toBe('unpaid')
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.text).toContain(formatEventDate('2026-06-01'))
+    expect(captured[0]!.text).toContain(formatEventDate('2026-06-02'))
+    expect(captured[0]!.text).toContain('対象外')
+  })
+
+  it('AC-7: 全開催日がすでに applied なら状態は変わらず「すでに完了」を返信する', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([
+      { entryStatus: 'applied' },
+      { entryStatus: 'applied' },
+    ])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days.every((d) => d.entryStatus === 'applied')).toBe(true)
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.text).toContain('すでに申込済み')
+  })
+
+  it('AC-8: 否定表現を含むときは状態が変わらず、判定できなかった旨を返信する', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('まだ申し込んでません', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.text).toContain('操作は行いませんでした')
+  })
+
+  it('AC-9: 申込語と振込語の両方を含む発言では両方が実行される', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(
+      channel,
+      chatEvent('申し込んで振り込みました', { lineUserId: 'Uadmin' }),
+    )
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('applied')
+    expect(days[0]!.paymentStatus).toBe('paid')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-10: メンションが無ければ語を含んでいても何も起きず返信もされない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(
+      channel,
+      chatEvent('申し込みました', { lineUserId: 'Uadmin', mention: null }),
+    )
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('isSelf が無くても mentionee.userId が destination と一致すれば発火する', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(
+      channel,
+      chatEvent('申し込みました', {
+        lineUserId: 'Uadmin',
+        mention: {
+          mentionees: [
+            {
+              index: 0,
+              length: MENTION_LENGTH,
+              type: 'user',
+              userId: channel.webhookDestinationId,
+            },
+          ],
+        },
+      }),
+    )
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-11: 級別グループ (grade_broadcast) のチャネルでは何も起きない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}], { purpose: 'grade_broadcast' })
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const { client, captured } = makeReplyClient()
+    const payload = {
+      destination: channel.webhookDestinationId ?? 'Udestination',
+      events: [chatEvent('申し込みました', { lineUserId: 'Uadmin' })],
+    } as unknown as LineWebhookPayload
+    await applyWebhookEvents(
+      db,
+      channel.id,
+      'token',
+      payload,
+      client,
+      { logger: () => {} },
+      'grade_broadcast',
+    )
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-12: 紐付けが linked でないグループでは何も起きない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}], {}, { status: 'joined_waiting_code' })
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('AC-12: line_group_id が発言元グループと一致しなければ何も起きない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}], {}, { lineGroupId: 'Cother-group' })
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('cancelled の日は対象から外れ、published の日だけが applied になる', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([
+      { status: 'published' },
+      { status: 'cancelled' },
+    ])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('applied')
+    expect(days[1]!.entryStatus).toBe('not_applied')
+  })
+
+  it('全日が not_applying なら状態は変わらず「対象なし」を返信する（既存ガードを広げない）', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{ entryStatus: 'not_applying' }])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('申し込みました', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applying')
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.text).toContain('申込済みにできる開催日がありません')
+  })
+
+  it('事前払いの日が1日も無ければ「対象なし」を返信する', async () => {
+    const { channel } = await seedLinkedGroup([{ paymentType: 'onsite' }])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('振り込みました', { lineUserId: 'Uadmin' }))
+
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.text).toContain('事前払いの日がありません')
+  })
+
+  it('申込・支払の両方が返信対象になっても reply は1回（複数メッセージ）', async () => {
+    const { channel } = await seedLinkedGroup([{ entryStatus: 'applied', paymentStatus: 'paid' }])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(
+      channel,
+      chatEvent('申し込んで振り込みました', { lineUserId: 'Uadmin' }),
+    )
+
+    expect(captured).toHaveLength(1)
+    expect(captured[0]!.messages).toHaveLength(2)
+    expect(captured[0]!.text).toContain('すでに申込済み')
+    expect(captured[0]!.text).toContain('すでに支払済み')
+  })
+
+  it('副管理者が両方の語を送ると支払だけが実行され、申込については返信しない', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createViceAdmin({ lineUserId: 'Uvice' })
+
+    const captured = await run(
+      channel,
+      chatEvent('申し込んで振り込みました', { lineUserId: 'Uvice' }),
+    )
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(days[0]!.paymentStatus).toBe('paid')
+    expect(captured).toHaveLength(0)
+  })
+
+  it('対象語を含まない発言では何も起きず返信もされない（既存の「無視」を維持）', async () => {
+    const { eventIds, channel } = await seedLinkedGroup([{}])
+    await createAdmin({ lineUserId: 'Uadmin' })
+
+    const captured = await run(channel, chatEvent('おつかれさまです', { lineUserId: 'Uadmin' }))
+
+    const days = await loadDays(eventIds)
+    expect(days[0]!.entryStatus).toBe('not_applied')
+    expect(captured).toHaveLength(0)
   })
 })

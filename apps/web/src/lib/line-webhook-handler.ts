@@ -24,6 +24,17 @@ import {
   type MentionTarget,
 } from '@/lib/line-mention'
 import { loadAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
+import { parseChatCommand, type LineMessageMention } from '@/lib/line-chat-command'
+import { resolveLineChatPermissions } from '@/lib/line-chat-authz'
+import {
+  buildAlreadyDoneReply,
+  buildFailureReply,
+  buildNegatedReply,
+  buildNoTargetReply,
+  buildPartialPaymentReply,
+} from '@/lib/line-chat-command-reply'
+import { applyEntriesApplied } from '@/lib/events/apply-entries-applied'
+import { applyPaymentsPaid, notifyPaymentsPaid } from '@/lib/events/apply-payments-paid'
 
 /**
  * webhook の構造化ログ (`(event, ctx) => void`) を、sendGuidelinesOnLink が期待
@@ -71,7 +82,9 @@ export interface LineWebhookEvent {
   type: string
   replyToken?: string
   source: LineWebhookSource
-  message?: { type: string; text?: string }
+  /** line-chat-commands: `mention` は Bot 自身がメンションされたかの判定に使う
+   *  （要件 §3.2.1 #2）。招待コード経路は従来どおり `text` しか見ない。 */
+  message?: { type: string; text?: string; mention?: LineMessageMention | null }
 }
 
 export interface LineWebhookPayload {
@@ -372,8 +385,21 @@ export async function applyWebhookEvents(
                 membershipClient,
                 pushClient,
               )
+            } else {
+              // line-chat-commands: 招待コード**以外**のテキストだけがここへ来る
+              // （処理順は要件 §6 の契約: 6桁コードの判定が先）。メンション・語・
+              // 権限のどれかを欠く発言は handleChatCommand が黙って捨てる。
+              await handleChatCommand(
+                db,
+                channelId,
+                channelAccessToken,
+                payload.destination,
+                event,
+                replyClient,
+                log,
+              )
             }
-            // Non-code text and non-text messages are intentionally ignored.
+            // Non-text messages are intentionally ignored.
           }
           break
         }
@@ -1036,6 +1062,223 @@ async function handleGradeGroupInviteCode(
     })
   }
 }
+
+/**
+ * line-chat-commands: 大会グループの発言を解釈して申込/支払ステータスを進める
+ * （要件 §3.2）。招待コード**以外**のテキストメッセージだけがここへ来る。
+ *
+ * ★**処理順は要件の「無視」規律で決まっている。** 権限が無い / メンションが無い /
+ * 語を含まない / このグループの紐付けが成立していない発言には**一切返信しない**
+ * （要件 §3.2.5・AC-3 / AC-4 / AC-10 / AC-12）。したがって否定表現の判定
+ * （返信を伴う）は**認可を通した後**に置く。逆順にすると、一般会員の
+ * 「@Bot まだ申し込んでません」や紐付いていないグループの発言にまで
+ * 「判定できなかった」と返してしまう。
+ *
+ * ★**級別グループ（`grade_broadcast`）はここへ到達しない。** `applyWebhookEvents`
+ * が purpose で分岐して別関数へ流すため、対象大会を特定できないチャネルでは
+ * 構造的に発火しない（AC-11）。
+ *
+ * ★**実行前のスナップショットを必ず取る。** `applyEntriesApplied` /
+ * `applyPaymentsPaid` の戻り値だけでは「すでに完了」（AC-7）と「進められる日が
+ * 1日も無い」（全日 `not_applying` / 事前払いゼロ）を区別できない —— どちらも
+ * flip 0件になる。返信は**スナップショット × flip 結果**で決める。
+ */
+async function handleChatCommand(
+  db: typeof appDb,
+  channelId: number,
+  channelAccessToken: string,
+  botUserId: string,
+  event: LineWebhookEvent,
+  replyClient: LineReplyClient,
+  log: (event: string, ctx: Record<string, unknown>) => void,
+): Promise<void> {
+  // ★`text` は trim しない生の本文を渡す。`mention.mentionees[].index` は生の
+  //   本文に対するオフセットなので、先頭を削ると除去範囲がずれる。
+  const rawText = event.message?.text
+  if (!rawText) return
+
+  // ③④ メンションと語（純関数）。どちらを欠いても完全に無視する（AC-10）。
+  const intent = parseChatCommand({
+    text: rawText,
+    mention: event.message?.mention ?? null,
+    botUserId,
+  })
+  if (!intent.mentionsBot) return
+  if (!intent.entry && !intent.payment) return
+
+  // ⑤ このチャネルの紐付けが**このグループで**成立していること（AC-12）。
+  //    `applyWebhookEvents` は channelId しか受け取っていないので、`handleInviteCode`
+  //    と同じように broadcast 行を自分で引き、group-mismatch を同じ規律で弾く。
+  const broadcast = await db.query.eventLineBroadcasts.findFirst({
+    where: and(
+      eq(eventLineBroadcasts.lineChannelId, channelId),
+      eq(eventLineBroadcasts.status, 'linked'),
+    ),
+    columns: { entryGroupId: true, lineGroupId: true },
+  })
+  if (!broadcast) return
+  const sourceGroupId = event.source?.groupId
+  if (!sourceGroupId || broadcast.lineGroupId !== sourceGroupId) return
+
+  // ⑥⑦ 認可（fail-closed）。アクションごとに絞るので、副管理者の
+  //     「申し込んで振り込みました」は支払だけが実行され、申込については
+  //     何も返さない（要件 §3.2.3 × §3.2.5）。
+  const perms = await resolveLineChatPermissions(db, event.source?.userId)
+  const doEntry = intent.entry && perms.entry
+  const doPayment = intent.payment && perms.payment
+  if (!doEntry && !doPayment) return
+
+  const messages: LineMessage[] = []
+
+  // ⑧ 否定表現。ここまで来た＝権限を持つ人の、Bot 宛の、語を含む発言なので、
+  //    判定できなかったことを返す価値がある（AC-8）。
+  if (intent.negated) {
+    messages.push(buildNegatedReply())
+    await sendChatCommandReply(event, replyClient, channelAccessToken, messages, log)
+    return
+  }
+
+  // ⑨ 対象日のスナップショット（`cancelled` を除くグループ内の全開催日。要件 §3.2.2）。
+  const days = await db
+    .select({
+      id: events.id,
+      eventDate: events.eventDate,
+      entryStatus: events.entryStatus,
+      paymentType: events.paymentType,
+      paymentStatus: events.paymentStatus,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.entryGroupId, broadcast.entryGroupId),
+        sql`${events.status} <> 'cancelled'`,
+      ),
+    )
+    .orderBy(asc(events.id))
+
+  log('chat_command_received', {
+    channelId,
+    entryGroupId: broadcast.entryGroupId,
+    userId: perms.userId,
+    doEntry,
+    doPayment,
+    dayCount: days.length,
+  })
+
+  // ⑩⑪ 実行と返信要否。申込・支払は独立に判定し、両方が返信対象になったときは
+  //     1回の reply に2通載せる（replyToken は単発）。
+  if (doEntry) {
+    // ★`not_applying`（今回は申し込まない）の日は候補に入れない。既存ガード
+    //   `WHERE entry_status='not_applied'` と同じ母集団に揃えるためで、この
+    //   WHERE を広げてはならない（終端判断をチャットから覆さない）。
+    const candidates = days.filter((d) => d.entryStatus === 'not_applied')
+    if (candidates.length === 0) {
+      messages.push(
+        days.length > 0 && days.every((d) => d.entryStatus === 'applied')
+          ? buildAlreadyDoneReply('entry')
+          : buildNoTargetReply('entry'),
+      )
+    } else {
+      try {
+        const result = await applyEntriesApplied(
+          db,
+          candidates.map((d) => d.id),
+          { expectedEntryGroupId: broadcast.entryGroupId },
+        )
+        if (!result) {
+          messages.push(buildFailureReply('entry'))
+        } else if (result.flippedIds.length === 0) {
+          // 候補はあったのに1件も倒せなかった＝スナップショット取得後に
+          // 画面や別の発言で進んだ（競合）。事実として「すでに完了」を返す。
+          messages.push(buildAlreadyDoneReply('entry'))
+        }
+        // 進んだ場合は返信しない —— 既存のライフサイクル通知が完了報告になる（AC-2）。
+      } catch (err) {
+        log('chat_command_entry_failed', {
+          channelId,
+          entryGroupId: broadcast.entryGroupId,
+          message: err instanceof Error ? err.message : String(err),
+        })
+        messages.push(buildFailureReply('entry'))
+      }
+    }
+  }
+
+  if (doPayment) {
+    // 支払は既存ロジックと同じく `payment_type='advance'` の日だけが対象（要件 §3.2.6）。
+    const advanceDays = days.filter((d) => d.paymentType === 'advance')
+    const skippedDays = days.filter((d) => d.paymentType !== 'advance')
+    const candidates = advanceDays.filter((d) => d.paymentStatus === 'unpaid')
+    if (advanceDays.length === 0) {
+      messages.push(buildNoTargetReply('payment'))
+    } else if (candidates.length === 0) {
+      messages.push(buildAlreadyDoneReply('payment'))
+    } else {
+      try {
+        const result = await applyPaymentsPaid(
+          db,
+          candidates.map((d) => d.id),
+          { expectedEntryGroupId: broadcast.entryGroupId },
+        )
+        if (!result) {
+          messages.push(buildFailureReply('payment'))
+        } else if (result.flippedIds.length === 0) {
+          messages.push(buildAlreadyDoneReply('payment'))
+        } else {
+          await notifyPaymentsPaid(db, result)
+          if (skippedDays.length > 0) {
+            // 現地払い・未設定が混ざっていた場合だけ、進めた日と対象外の日を返す
+            // （AC-6）。全日が事前払いなら成功時は返信しない。
+            const flipped = new Set(result.flippedIds)
+            messages.push(
+              buildPartialPaymentReply(
+                days.filter((d) => flipped.has(d.id)).map((d) => d.eventDate),
+                skippedDays.map((d) => d.eventDate),
+              ),
+            )
+          }
+        }
+      } catch (err) {
+        log('chat_command_payment_failed', {
+          channelId,
+          entryGroupId: broadcast.entryGroupId,
+          message: err instanceof Error ? err.message : String(err),
+        })
+        messages.push(buildFailureReply('payment'))
+      }
+    }
+  }
+
+  await sendChatCommandReply(event, replyClient, channelAccessToken, messages, log)
+}
+
+/**
+ * チャットコマンドの返信を**1回だけ**送る（replyToken は単発なので、申込と支払の
+ * 両方が返信対象になった場合も1リクエストに複数メッセージを載せる）。
+ * 返すものが無ければ replyToken は未使用のまま捨てる（「念のための no-op reply」は
+ * 足さない）。失敗しても状態変更は巻き戻さない（best-effort）。
+ */
+async function sendChatCommandReply(
+  event: LineWebhookEvent,
+  replyClient: LineReplyClient,
+  channelAccessToken: string,
+  messages: readonly LineMessage[],
+  log: (event: string, ctx: Record<string, unknown>) => void,
+): Promise<void> {
+  if (messages.length === 0 || !event.replyToken) return
+  try {
+    await replyClient.reply({
+      replyToken: event.replyToken,
+      messages,
+      channelAccessToken,
+    })
+  } catch (err) {
+    log('chat_command_reply_failed', {
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
 
 /**
  * Full handler: signature verification + channel lookup + event dispatch.

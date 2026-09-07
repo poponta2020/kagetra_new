@@ -14,7 +14,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: チャットコマンドの解釈（純関数）
-- [ ] 完了
+- [x] 完了
 - **目的:** 発言テキストとメンション情報から「申込」「支払」の意図・否定の有無・Bot 自身がメンションされたかを判定する純関数を用意する
 - **対応AC:** AC-8, AC-9, AC-10
 - **主な変更領域:** `apps/web/src/lib/line-chat-command.ts`（新規）、`apps/web/src/lib/line-chat-command.test.ts`（新規）。DB にも LINE API にも触らない純関数として切る（`entry-fee.ts`（pure）と `entry-fee-tally.ts`（DB）の分離と同じ流儀）
@@ -31,7 +31,7 @@ status: completed
 - **対応Issue:** #607
 
 ### タスク2: 申込 flip の lib 切り出し（挙動不変のリファクタ）
-- [ ] 完了
+- [x] 完了
 - **目的:** `setEntriesApplied` のインライン実装を `lib/events/apply-entries-applied.ts` へ移し、Server Action と webhook の双方から同じコードを呼べるようにする
 - **対応AC:** AC-1 の土台, AC-14
 - **主な変更領域:** `apps/web/src/lib/events/apply-entries-applied.ts`（新規）、`apps/web/src/app/(app)/events/[id]/actions.ts`（移設後の呼び出しへ置換）
@@ -49,7 +49,7 @@ status: completed
 - **対応Issue:** #608
 
 ### タスク3: LINE 発言者の認可解決
-- [ ] 完了
+- [x] 完了
 - **目的:** `source.userId`（LINE userId）から会員とロールを引き、アクションごとの実行可否を fail-closed で判定する
 - **対応AC:** AC-3, AC-4
 - **主な変更領域:** `apps/web/src/lib/line-chat-authz.ts`（新規）、同 `.test.ts`（新規）
@@ -60,13 +60,17 @@ status: completed
 - **対応Issue:** #609
 
 ### タスク4: webhook への配線と返信
-- [ ] 完了
+- [x] 完了
 - **目的:** 大会グループの発言を解釈して実際に状態を進め、必要なときだけ返信する
 - **対応AC:** AC-1, AC-2, AC-5, AC-6, AC-7, AC-11, AC-12, AC-13
 - **主な変更領域:** `apps/web/src/lib/line-webhook-handler.ts`（招待コード分岐の後ろに追加）、`apps/web/src/lib/line-chat-command-reply.ts`（返信文面・新規）、`apps/web/src/lib/line-webhook-handler.test.ts`（統合テスト追加）
 - **依存タスク:** タスク1, タスク2, タスク3
 - **★グループの検証は新規のルックアップが要る:** `applyWebhookEvents` は `channelId` / `purpose` しか受け取っておらず、`event_line_broadcasts` を読んでいない（`handleInviteCode` は自前で引いている）。コマンド経路でも同じように broadcast 行を引き、**`status='linked'` かつ `line_group_id === event.source.groupId`** を必須にする（`handleInviteCode` の group-mismatch ガードと同じ規律）
-- **処理順:** ①6桁招待コード（既存・先）→ ②`purpose='event_broadcast'` でなければ終了 → ③メンション判定 → ④語判定 → ⑤否定なら返信して終了 → ⑥broadcast 行の検証 → ⑦認可 → ⑧対象イベント解決（`entry_group_id` の `cancelled` でない全日）→ ⑨実行 → ⑩返信要否の判定
+- **処理順（★実装時に訂正した。旧順は AC-3/4/12 に反する）:** ①6桁招待コード（既存・先）→ ②`purpose='event_broadcast'` でなければ終了 → ③メンション判定 → ④語判定（意図の集合を作る）→ ⑤broadcast 行の検証（不成立なら**無言で終了**）→ ⑥アクションごとの認可 → ⑦認可されたアクションが0件なら**無言で終了** → ⑧否定表現の判定（あれば返信して終了）→ ⑨対象イベント解決（`entry_group_id` の `cancelled` でない全日の**事前スナップショット**）→ ⑩実行 → ⑪返信要否の判定
+  - **★否定判定を認可の後ろへ移した理由:** 旧順（否定 → broadcast 検証 → 認可）では、一般会員が「@Bot まだ申し込んでません」と送ると「判定できなかった」と返信してしまい、`linked` でないグループでも同様に返信する。要件 §3.2.5 は「権限が無い / メンションが無い / 語を含まない」を**完全に無視（返信しない）**と定めており、AC-3 / AC-4 / AC-12 は「返信もされない」を検証する。認可を先に通すことでこれらが同時に満たされる
+  - **★認可はアクションごとに絞る:** 副管理者が「申し込んで振り込みました」と送ったら、支払だけを実行し、申込については**何も返信しない**（要件 §3.2.3 の権限表と §3.2.5 の「権限が無い＝無視」の合成）
+  - **★実行前スナップショットが必須:** `applyEntriesApplied` / `applyPaymentsPaid` の戻り値だけでは「すでに完了」（AC-7）と「対象が無い」（全日 `not_applying` / 事前払いゼロ）を区別できない（どちらも flip 0件）。⑨で各日の `id / eventDate / status / entryStatus / paymentType / paymentStatus` を控え、**スナップショット × flip 結果**で返信分岐を決める。AC-6 の「対象外の日」ラベルにも `eventDate` が要る
+  - **★Bot の userId は `payload.destination` をそのまま渡す:** `loadChannelByDestination` が `webhook_destination_id` と突合している値そのものなので、チャネルの再ルックアップは不要
 - **★`not_applying` の日は触らない。** 「全開催日が対象」だが、既存ガード `WHERE entry_status='not_applied'` により「今回は申し込まない」と決めた日は自然に除外される。**この WHERE を広げない**。全日が `not_applying` のグループでは「対象なし」の返信になる
 - **必要なテスト:**
   - 管理者＋申込語 → 全日 applied・**返信ゼロ**（AC-1, AC-2）

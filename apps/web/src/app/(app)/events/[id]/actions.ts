@@ -32,21 +32,17 @@ import {
   loadSelectedGuidelineAttachmentIds,
   type GuidelineCandidateMail,
 } from '@/lib/event-related-mails'
-import {
-  buildLifecycleMessage,
-  buildTreasurerNoticeMessage,
-  claimLifecycleNotification,
-  finalizeLifecycleNotification,
-  sendClaimedNotificationBulk,
-} from '@/lib/event-lifecycle-notify'
-import { resolveTreasurerMention } from '@/lib/line-mention-targets'
-import type { LineMessage } from '@/lib/line-mention'
 import { isIndividualOnlyGroup } from '@/lib/events/confirmed-roster'
 import { eligibleUsersWhere } from '@/lib/events/eligible-users'
 import {
   applyPaymentsPaid,
+  notifyPaymentsPaid,
   revertPaymentsPaid,
 } from '@/lib/events/apply-payments-paid'
+import {
+  applyEntriesApplied,
+  revertEntriesApplied,
+} from '@/lib/events/apply-entries-applied'
 
 /**
  * entry-groups タスク3 (AC-4): LINE 紐付けの変更操作はグループ内のどの日から
@@ -814,64 +810,12 @@ export async function adminRemoveAttendee(eventId: number, userId: string): Prom
 // ---------------------------------------------------------------------------
 
 /**
- * entry-groups タスク4: `setEntriesApplied` の tx 内で使う1件分の flip 結果。
- *
- * `title` / `eventDate` / `paymentDeadline` / `paymentMethod` / `paymentInfo` は
- * line-bot-message-revamp タスク6（AC-29）で通知文面が固定文言化したため、以下の
- * message builder からは参照されなくなった（クエリの戻り値としては引き続き保持）。
- */
-interface AppliedFlipRow {
-  id: number
-  title: string
-  eventDate: string
-  lotteryDate: string | null
-  paymentDeadline: string | null
-  paymentMethod: string | null
-  paymentInfo: string | null
-}
-
-/**
- * 参加者向け文面を組み立てる。line-bot-message-revamp タスク5で `entry_applied` は
- * 大会名・複数日ラベルを一切出さなくなったため、件数（rows.length）に関わらず同一の
- * 固定文面になる（`days` を組み立てて渡す必要が無くなった）。
- * 抽選日は全日で値が一致するときだけ追記する（一致しない/一部 null なら「未定」扱い。
- * 1件のときは自明に「全日一致」）。
- */
-function buildParticipantAppliedMessage(rows: readonly AppliedFlipRow[]): string {
-  const lotteryDates = new Set(rows.map((r) => r.lotteryDate ?? ''))
-  const commonLotteryDate = lotteryDates.size === 1 ? rows[0]!.lotteryDate : null
-  return buildLifecycleMessage('entry_applied', { title: '', lotteryDateIso: commonLotteryDate })
-}
-
-/**
- * 会計向け文面を組み立てる（line-bot-message-revamp タスク6・AC-29）。
- *
- * §3.2.3 の予告文へ差し替えたため、件数（rows.length）・大会名・振込情報は一切
- * 参照しない — `@会計` メンション対象を解決して固定文言に載せるだけ。複数日でも
- * 単一日と同一の文面になるため、旧 `days` 組み立ては撤去した。
- */
-async function buildTreasurerAppliedMessage(): Promise<LineMessage> {
-  const mention = await resolveTreasurerMention(db)
-  return buildTreasurerNoticeMessage(mention)
-}
-
-/**
  * entry-groups タスク4 (AC-8/9/11): 申込状態一括トグル（admin/vice_admin のみ）。
  *
- * - `eventIds` は重複除去して **id 昇順にソート**してから処理する（デッドロック
- *   回避。`applyEntryGroupChange` 等の既存パターンと同じ規律）。一括 UPDATE の
- *   経路では配列順だけではロック順が決まらないので、`lockEventRowsAscending` で
- *   先に昇順ロックを取る
- * - 先頭 id（昇順最小）から解決した `entry_group_id` を全 UPDATE の WHERE に
- *   併記する fail-closed（クライアント申告のグループ外 id は無条件に対象から
- *   外れる。`propagateFieldsToGroup` と同じ再検証パターン）
- * - `applied=true`: id 昇順で1件ずつガード付き UPDATE（WHERE 旧状態）→
- *   **flip できた行のうち cancelled はここで再ガードして claim 対象から除外**
- *   （状態変更そのものは記録する。既存の単一版と対称・AC-11 の集約版）→
- *   種別ごとに claim（UNIQUE(event_id,type) で 2 回目以降は claim 失敗）。
- *   commit 後、**claim できた集合だけ**で参加者向け1通・会計向け1通を組んで
- *   push する（AC-9: 後から追加の日だけ claim できた分の通知になる）
- * - `applied=false`: 誤操作の戻し用で通知は送らない
+ * line-chat-commands タスク2: flip・claim・完了通知の本体は
+ * `lib/events/apply-entries-applied.ts` へ移設した（LINE グループの発言から
+ * webhook 経由で同じ遷移を呼ぶため）。**挙動は移設前と同一** —— ここに残るのは
+ * 認可ガードと revalidate だけ。
  */
 export async function setEntriesApplied(
   eventIds: number[],
@@ -879,19 +823,10 @@ export async function setEntriesApplied(
 ): Promise<void> {
   await requireAdminSession()
 
-  const ids = Array.from(new Set(eventIds)).sort((a, b) => a - b)
-  if (ids.length === 0) return
-  const entryGroupId = await resolveEntryGroupId(db, ids[0]!)
-
   if (!applied) {
-    await db.transaction(async (tx) => {
-      await lockEventRowsAscending(tx, ids, entryGroupId)
-      await tx
-        .update(events)
-        .set({ entryStatus: 'not_applied', entryAppliedAt: null, updatedAt: sql`now()` })
-        .where(and(inArray(events.id, ids), eq(events.entryGroupId, entryGroupId)))
-    })
-    revalidateAfterLifecycleChange(ids, entryGroupId)
+    const reverted = await revertEntriesApplied(db, eventIds)
+    if (!reverted) return
+    revalidateAfterLifecycleChange(reverted.ids, reverted.entryGroupId)
     // entry-overdue-alert: entry_status は /events 一覧の表示可否も左右する
     // ようになった（not_applying が除外条件）。この revert 分岐は
     // not_applying → not_applied の復帰も担うため、一覧側のキャッシュも
@@ -900,130 +835,9 @@ export async function setEntriesApplied(
     return
   }
 
-  // entry-notify-lottery-treasurer: 申込完了で 2 通送る（参加者向け＋会計向け）。
-  // 両 claim は同一 tx で UNIQUE が判定するので、再トグルや並行呼び出しでも
-  // それぞれ 1 回限り。コミット後の push は独立 try/catch (best-effort)。
-  const result = await db.transaction(async (tx) => {
-    const flippedNotCancelled: AppliedFlipRow[] = []
-    for (const id of ids) {
-      // 未申込→申込済 の初回遷移だけ通す（ガード）。会計向け文面に必要な
-      // フィールド (lotteryDate / payment*) も同時に取り出す（コミット後の
-      // 文面組立に使う）。
-      const flipped = await tx
-        .update(events)
-        .set({ entryStatus: 'applied', entryAppliedAt: sql`now()`, updatedAt: sql`now()` })
-        .where(
-          and(
-            eq(events.id, id),
-            eq(events.entryStatus, 'not_applied'),
-            eq(events.entryGroupId, entryGroupId),
-          ),
-        )
-        .returning({
-          id: events.id,
-          title: events.title,
-          eventDate: events.eventDate,
-          status: events.status,
-          lotteryDate: events.lotteryDate,
-          paymentDeadline: events.paymentDeadline,
-          paymentMethod: events.paymentMethod,
-          paymentInfo: events.paymentInfo,
-        })
-      const row = flipped[0]
-      if (!row) continue
-      // cancelled 大会には通知しない（要件 §3.2.2 #2、既存 entry_applied と対称）。
-      // 状態変更そのものは記録する（once-ever スロットは消費しない＝後で復帰
-      // しても通知しない方針は既存と一貫）。ここで再ガードして claim 対象から
-      // 除外する — クライアントのダイアログ選択を信用しない fail-closed（AC-11）。
-      if (row.status === 'cancelled') continue
-      flippedNotCancelled.push({
-        id: row.id,
-        title: row.title,
-        eventDate: row.eventDate,
-        lotteryDate: row.lotteryDate,
-        paymentDeadline: row.paymentDeadline,
-        paymentMethod: row.paymentMethod,
-        paymentInfo: row.paymentInfo,
-      })
-    }
-
-    // 種別ごとに独立 claim（UNIQUE(event_id,type) で 2 回目以降は claim 失敗）。
-    // 同一 tx 内で両方走らせるので、片方の claim 結果がもう片方を阻害することはない。
-    const participantClaimed: AppliedFlipRow[] = []
-    const participantNotificationIds: number[] = []
-    const treasurerClaimed: AppliedFlipRow[] = []
-    const treasurerNotificationIds: number[] = []
-    for (const row of flippedNotCancelled) {
-      const participantClaim = await claimLifecycleNotification(tx, row.id, 'entry_applied')
-      if (participantClaim.id != null) {
-        participantClaimed.push(row)
-        participantNotificationIds.push(participantClaim.id)
-      }
-      const treasurerClaim = await claimLifecycleNotification(
-        tx,
-        row.id,
-        'entry_applied_treasurer',
-      )
-      if (treasurerClaim.id != null) {
-        treasurerClaimed.push(row)
-        treasurerNotificationIds.push(treasurerClaim.id)
-      }
-    }
-
-    return {
-      participantClaimed,
-      participantNotificationIds,
-      treasurerClaimed,
-      treasurerNotificationIds,
-    }
-  })
-
-  // 参加者向け（claim できた集合だけで1通。抽選日は全日同値のときだけ追記）。
-  if (result.participantNotificationIds.length > 0) {
-    const message = buildParticipantAppliedMessage(result.participantClaimed)
-    try {
-      await sendClaimedNotificationBulk(db, {
-        notificationIds: result.participantNotificationIds,
-        eventId: result.participantClaimed[0]!.id,
-        message,
-      })
-    } catch {
-      // best-effort: 状態変更はコミット済み。push 失敗で巻き戻さない。
-    }
-  }
-
-  // 会計向け（claim できた集合だけで1通。§3.2.3 の予告文は固定・件数に関わらず同一）。
-  // 参加者向けの push 失敗ともう片方の送信成否は独立（要件 §3.2.5）。
-  if (result.treasurerNotificationIds.length > 0) {
-    // claim（status='skipped' 行の INSERT）は tx で既にコミット済みなので、
-    // ここから先で throw しても状態は巻き戻らない。buildTreasurerAppliedMessage
-    // は resolveTreasurerMention 経由で DB を引くため throw しうる — try の外に
-    // 置くと claim 済み行が 'skipped' のまま finalize されず、UNIQUE により
-    // 再実行でも再 claim できなくなる（通知が恒久的に失われる）。
-    try {
-      const message = await buildTreasurerAppliedMessage()
-      await sendClaimedNotificationBulk(db, {
-        notificationIds: result.treasurerNotificationIds,
-        eventId: result.treasurerClaimed[0]!.id,
-        // 会計向けはメンション付き textV2 の1通（push は配列を受け取る契約）。
-        message: [message],
-      })
-    } catch (err) {
-      // best-effort: 状態変更はコミット済み。push/文面組立の失敗で巻き戻さない。
-      // ただし claim 済み行を 'skipped' のまま放置しないよう、送信失敗と同じ
-      // 扱いで finalize する（finalize 自体も best-effort）。
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      await Promise.all(
-        result.treasurerNotificationIds.map((id) =>
-          finalizeLifecycleNotification(db, id, { status: 'failed', errorMessage }).catch(
-            () => undefined,
-          ),
-        ),
-      )
-    }
-  }
-
-  revalidateAfterLifecycleChange(ids, entryGroupId)
+  const result = await applyEntriesApplied(db, eventIds)
+  if (!result) return
+  revalidateAfterLifecycleChange(result.ids, result.entryGroupId)
 }
 
 /**
@@ -1137,18 +951,6 @@ export async function setPaymentType(
 }
 
 /**
- * 支払完了メッセージを組み立てる。line-bot-message-revamp タスク5で `payment_paid`
- * は大会名・金額を一切出さなくなったため、件数に関わらず同一の固定文面になる。
- *
- * grade-entry-fee タスク6 (AC-17/18) で導入した「N=1 のときだけ振込総額を載せる」
- * 分岐はこの改訂で丸ごと不要になった（呼び出し元の `tallyEntryFeesForGroup` 呼び出し
- * も削除済み）。
- */
-function buildPaymentPaidMessage(): string {
-  return buildLifecycleMessage('payment_paid', { title: '' })
-}
-
-/**
  * entry-groups タスク4 (AC-10): 支払済一括トグル（admin/vice_admin のみ）。
  * `paid=true` の初回遷移時だけ完了通知（claim できた集合だけで1通）を送る。
  * payment_type='advance' のときのみ有効（現地払い/未設定では行を更新しない）。
@@ -1171,21 +973,7 @@ export async function setPaymentsPaid(
   const result = await applyPaymentsPaid(db, eventIds)
   if (!result) return
 
-  if (result.notificationIds.length > 0) {
-    // line-bot-message-revamp タスク5 (AC-26): payment_paid は金額を一切出さなく
-    // なったため、grade-entry-fee タスク6 (AC-17/18) が行っていたグループ単位の
-    // 振込総額集計（`tallyEntryFeesForGroup`）はここでは不要になった。
-    const message = buildPaymentPaidMessage()
-    try {
-      await sendClaimedNotificationBulk(db, {
-        notificationIds: result.notificationIds,
-        eventId: result.claimed[0]!.id,
-        message,
-      })
-    } catch {
-      // best-effort
-    }
-  }
+  await notifyPaymentsPaid(db, result)
   revalidateAfterLifecycleChange(result.ids, result.entryGroupId)
 }
 
