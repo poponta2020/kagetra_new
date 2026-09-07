@@ -28,7 +28,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 系列マスタの通称を検索・名寄せ・作成に通す（lib/edition 層）
-- [ ] 完了
+- [x] 完了
 - **目的:** `short_name` を型・検索・初期候補・新規作成に通し、回次パースを漢数字へ広げる。UI から使える土台を作る
 - **対応AC:** AC-45〜AC-47（サーバー側の候補供給）, AC-54, AC-55/AC-56（保存関数側）, AC-58, AC-60（回帰）
 - **主な変更領域:** `apps/web/src/lib/edition/match.ts` / `apps/web/src/lib/edition/resolve.ts`（＋ `match.test.ts` / `resolve.test.ts`）
@@ -37,6 +37,8 @@ status: completed
   - `EditionSuggestion` に `seriesShortName: string | null` を追加。`buildEditionSuggestion` は `rankSeriesCandidates` の結果が**1件のとき**その系列を採用する（0件・複数件は現行どおり未選択。`matched` は従来どおり「完全一致だったか」を表す）
   - `createConfirmedSeries` が `shortName?: string | null` を受け取り保存する（trim して空なら `null`）
   - `parseEditionNumber` が漢数字を読む（「第三回」→3、「第二十五回」→25）。算用数字・全角数字・空白入りの既存挙動は不変
+  - **実装時に判明**: `parseSeriesName` も同じ「第N回」を数字限定の正規表現で剥がしているため、片方だけ広げると回次は読めても系列名候補に「第三回」が残って完全一致しない。「第N回」のマッチャを1か所（`EDITION_NUMBER_SOURCE`）に切り出して両者で共有した
+  - **実装時に判明**: 採用条件は「候補が1件」への**置き換え**ではなく**追加**（`完全一致が単独 || 候補が1件`）。置き換えると、完全一致が単独で他に部分一致がある案内で現行の自動選択が失われる。requirements.md の AC-47・§3.2.9(a)・変更履歴を訂正済み
 - **依存タスク:** なし
 - **必要なテスト:**
   - `match.test.ts`: `short_name` の完全一致が候補の先頭に来る（「大阪」→「大阪大会」が「初段認定大阪なにはえ会大会」より前）／`short_name` の部分一致でも拾える／`scoreSeries` の戻り値が変わらない
@@ -50,7 +52,7 @@ status: completed
 - **対応Issue:** #600
 
 ### タスク2: 承認フォームの通称⇄系列連動（UI）
-- [ ] 完了
+- [x] 完了
 - **目的:** 通称欄と系列選択を双方向に連動させ、同じ語を二度打つ状態を解消する
 - **対応AC:** AC-45〜AC-53
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx` / `TournamentSeriesSelectSheet.tsx` / `apps/web/src/app/(app)/admin/mail-inbox/[id]/page.tsx`（＋ `ApprovalForm.test.tsx`）
@@ -76,7 +78,7 @@ status: completed
 - **対応Issue:** #601
 
 ### タスク3: 新規系列作成時に通称を `short_name` として保存する（Server Action）
-- [ ] 完了
+- [x] 完了
 - **目的:** 承認フォームから作った系列に通称が入り、次回から候補が出るようにする（マスタの穴を塞ぐ）
 - **対応AC:** AC-55, AC-56, AC-57, AC-61
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（`approveDraftUnits` の系列解決部）＋ `actions.test.ts`
