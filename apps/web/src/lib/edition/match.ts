@@ -5,6 +5,13 @@ export interface SeriesRow {
   name: string
   aliases: string[]
   kind: TournamentKind
+  /**
+   * 会が使う通称（`tournament_series.short_name`）。承認画面の「通称」欄と同じ概念で、
+   * 管理者検索の照合対象と通称欄の初期値に使う。**optional** なのは既存の SeriesRow
+   * リテラル（テストフィクスチャ）を無改変で通すため。DB 由来の行には常に値が入る
+   * （未設定の系列は null）。
+   */
+  shortName?: string | null
 }
 
 export interface SeriesCandidate {
@@ -50,7 +57,10 @@ function scoreSeriesForSearch(query: string, series: SeriesRow): number {
   const normalizedQuery = normalizeForMatch(query)
   if (!normalizedQuery) return 0
 
-  const targets = [series.name, ...(series.aliases ?? [])]
+  // mail-ai-extract-refinements §3.2.10: 照合対象は正準名＋別名＋通称の 3 種。
+  // 自動解決側（scoreSeries）は通称を見ない — 検索は一方向・自動解決は保守的、という
+  // tournament-entry-rosters PR #292 の分離をそのまま保つ。
+  const targets = [series.name, ...(series.aliases ?? []), series.shortName ?? '']
     .map(normalizeForMatch)
     .filter(Boolean)
   let best = 0
@@ -98,7 +108,7 @@ function matchedAliasForQuery(query: string, series: SeriesRow): string | null {
 }
 
 /**
- * 管理者の検索UI用。空検索では同種別の全系列、入力時は正準名/別名の部分一致を返す。
+ * 管理者の検索UI用。空検索では同種別の全系列、入力時は正準名/別名/通称の部分一致を返す。
  * autoResolveEdition の保守的な自動解決とは別契約で、選択確定は呼び出し側がIDで行う。
  */
 export function searchSeriesCandidates(

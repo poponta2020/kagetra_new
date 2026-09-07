@@ -32,6 +32,11 @@ describe('isGuestAllowedPath — 許可されるもの（AC-11 / AC-34）', () =
     expect(isGuestAllowedPath('/settings')).toBe(true)
   })
 
+  it('遠征届の経路入力（S8）は完全一致で許可（travel-report AC-30）', () => {
+    expect(isGuestAllowedPath('/events/12/travel-route')).toBe(true)
+    expect(isGuestAllowedPath('/events/12/travel-route/')).toBe(true)
+  })
+
   it('名簿ファイルビューアはページ・API とも許可（AC-34）', () => {
     expect(isGuestAllowedPath('/roster-files/9')).toBe(true)
     expect(isGuestAllowedPath('/api/roster-files/9')).toBe(true)
@@ -54,6 +59,15 @@ describe('isGuestAllowedPath — 拒否されるもの（AC-9 / AC-10 / AC-33 / 
     expect(isGuestAllowedPath('/settings/notifications')).toBe(false)
     expect(isGuestAllowedPath('/settings/entry-form')).toBe(false)
     expect(isGuestAllowedPath('/settings/line-link')).toBe(false)
+    // travel-report AC-30: 遠征届設定はゲストにフラグが付いても権限にならない
+    // ので `/settings` の完全一致を広げてここを通してはいけない。
+    expect(isGuestAllowedPath('/settings/travel-report')).toBe(false)
+  })
+
+  it('遠征届の経路入力以外の3セグメント目は拒否（travel-report AC-30）', () => {
+    // `/events/:id/edit` は引き続き管理者専用のまま。
+    expect(isGuestAllowedPath('/events/12/edit')).toBe(false)
+    expect(isGuestAllowedPath('/events/12/other')).toBe(false)
   })
 
   it('ホーム・統計戦績・メールは拒否（AC-9 / AC-10）', () => {

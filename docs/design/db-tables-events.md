@@ -356,3 +356,108 @@
 | created_at | timestamptz | NOT NULL | `now()` | |
 
 **インデックス**: `entry_form_drafts_group_created_idx` on (entry_group_id, created_at)（グループの最新行引き当て用）
+
+## entry_group_travel_settings（TS: `entryGroupTravelSettings`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-travel-settings.ts`
+
+遠征届のグループ設定（travel-report）。**行が無ければ既定値**（必要 / 経路入力 未開始 / 開催地 未設定）で、全グループに先回りで行を作らない。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| entry_group_id | integer | NOT NULL | — | PK。FK→entry_groups.id ON DELETE CASCADE |
+| required | boolean | NOT NULL | true | 遠征届が必要か。false の間は S7/S9 の導線・LINE 通知が止まる（入力済みデータは消さない） |
+| route_input_started_at | timestamptz | NULL | — | 「経路入力を開始」を押した日時。NULL でも「確定名簿あり」が成立すれば入力は開く（OR 条件） |
+| destination_prefecture | text | NULL | — | 開催地の都道府県 |
+| destination_city | text | NULL | — | 開催地の市区町村 |
+| destination_label | text | NULL | — | 経路表記に使う短い地名（例「八戸」）。既定行の「札幌→{ここ}」に入る |
+| destination_source | travel_destination_source (enum) | NULL | — | `ai` のときだけ「AI推定」バッジを出す。手修正で `manual` になり以後 AI で上書きしない |
+| destination_attempted_at | timestamptz | NULL | — | AI 推定を**試みた**日時（claim）。「未試行」と「失敗して空欄」を区別し、推定を1回だけに抑える |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+| updated_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+
+## entry_group_selection_statuses（TS: `entryGroupSelectionStatuses`）
+
+定義ファイル: `packages/shared/src/schema/entry-group-selection-statuses.ts`
+
+名簿確定時に管理者が入れる確定状況（travel-report R3）。**手入力だけを保存する** — 有効値（手入力 → 取込済み確定名簿 → 確定）の導出結果を書き込むと次の名簿再取込が手入力に隠れて効かなくなる。「取込名簿の結果に戻す」は行の DELETE。導出の正典は `apps/web/src/lib/travel-report/selection-status.ts`。今回は遠征届の対象者判定にだけ使う。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| entry_group_id | integer | NOT NULL | — | 複合PK。FK→entry_groups.id ON DELETE CASCADE |
+| user_id | text | NOT NULL | — | 複合PK。FK→users.id ON DELETE CASCADE |
+| status | travel_selection_status (enum) | NOT NULL | — | confirmed / waitlisted / not_participating |
+| updated_at | timestamptz | NOT NULL | `now()` | |
+| updated_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+
+## travel_routes（TS: `travelRoutes`）
+
+定義ファイル: `packages/shared/src/schema/travel-routes.ts`
+
+1人 × 1遠征単位の経路。**遠征単位**＝グループ内の非 cancelled な開催日の連続ブロックで、単位テーブルは持たずブロック初日（`unit_start_date`）をキーにする。大会出場行は保存せず出欠から導出する。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| unit_start_date | date (string mode) | NOT NULL | — | 遠征単位のキー＝連続開催日ブロックの初日 |
+| user_id | text | NOT NULL | — | 経路の持ち主（代理入力でも対象者本人）。FK→users.id ON DELETE CASCADE |
+| departure_kind | travel_way_kind (enum) | NOT NULL | — | 行き: sapporo=札幌から / hometown=帰省先から出場 / other |
+| departure_place | text | NULL | — | 行きが `other` のときの地名 |
+| return_kind | travel_way_kind (enum) | NOT NULL | — | 帰り: sapporo=札幌へ戻る / hometown=そのまま帰省 / other |
+| return_place | text | NULL | — | 帰りが `other` のときの地名 |
+| legs | jsonb | NOT NULL | — | 移動行の並び `[{date,from,to}]`（順序保持）。int[] を避けて jsonb。検証は Action 境界の zod |
+| saved_at | timestamptz | NOT NULL | `now()` | |
+| saved_by_user_id | text | NULL | — | 実際に保存操作をした人（代理なら提出権限者）。FK→users.id ON DELETE SET NULL |
+
+**制約**: UNIQUE `travel_routes_unit_user_unique` on (entry_group_id, unit_start_date, user_id)
+
+## travel_unit_notices（TS: `travelUnitNotices`）
+
+定義ファイル: `packages/shared/src/schema/travel-unit-notices.ts`
+
+遠征単位ごとの「全員そろった」LINE 通知の記録。claim → コミット後 push → finalize の既存流儀。`last_error` があり全員入力済みなら遷移でなくても再送する（自己回復）。「最後に通知した対象者集合」は持たない。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| entry_group_id | integer | NOT NULL | — | 複合PK。FK→entry_groups.id ON DELETE CASCADE |
+| unit_start_date | date (string mode) | NOT NULL | — | 複合PK。遠征単位のキー |
+| last_attempted_at | timestamptz | NULL | — | 送信を試みた日時（tx 内で書く claim） |
+| all_entered_notified_at | timestamptz | NULL | — | 最後に送信できた日時 |
+| last_error | text | NULL | — | 直近の失敗理由。成功したら NULL へ戻す |
+| notified_member_count | integer | NULL | — | 通知時点の対象者数（表示・監査用） |
+
+## travel_report_batches（TS: `travelReportBatches`）
+
+定義ファイル: `packages/shared/src/schema/travel-reports.ts`
+
+「遠征届を作成する」1回＝1行の追記専用履歴。1 batch : N documents。作成通知は batch 単位で1通。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| entry_group_id | integer | NOT NULL | — | FK→entry_groups.id ON DELETE CASCADE |
+| created_by | text | NULL | — | FK→users.id ON DELETE SET NULL |
+| created_at | timestamptz | NOT NULL | `now()` | |
+| notified_at | timestamptz | NULL | — | 作成通知を送れた日時。失敗しても documents は保存済みのまま |
+| notify_error | text | NULL | — | 通知失敗の理由（S5 に表示） |
+
+**インデックス**: `travel_report_batches_group_idx` on (entry_group_id)
+
+## travel_report_documents（TS: `travelReportDocuments`）
+
+定義ファイル: `packages/shared/src/schema/travel-reports.ts`
+
+生成した遠征届1ファイル＝1行。全員の電話番号が入るため公開 URL は作らず、認可つき route からだけ配る。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| batch_id | integer | NOT NULL | — | FK→travel_report_batches.id ON DELETE CASCADE |
+| event_ids | jsonb | NOT NULL | — | このファイルに含めた開催日（events.id の配列）。int[] を避けて jsonb |
+| filename | text | NOT NULL | — | |
+| docx | bytea | NOT NULL | — | 生成した .docx 本体 |
+| header | jsonb | NOT NULL | — | 届のヘッダ値のスナップショット（履歴の説明用。再生成には使わない） |
+| member_count | integer | NOT NULL | — | このファイルの名簿人数 |
+
+**インデックス**: `travel_report_documents_batch_idx` on (batch_id)

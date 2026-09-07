@@ -23,7 +23,7 @@
 
 | ドメイン | 責務 | ファイル |
 |---|---|---|
-| イベント・出欠 | 大会申込イベントの一覧・作成/編集・出欠回答・進行管理（申込/支払い）・申込進捗ボード・アーカイブ | [spec/events-attendance.md](spec/events-attendance.md) |
+| イベント・出欠 | 大会申込イベントの一覧・作成/編集・出欠回答・進行管理（申込/支払い）・申込進捗ボード・アーカイブ・**遠征届**（遠征単位/確定状況/経路入力/docx 生成） | [spec/events-attendance.md](spec/events-attendance.md) |
 | 大会・結果取込 | 大会結果（Excel/PDF/HTML）の取込・AI ルーティング・承認・materialize・部分承認/差し替え、大会一覧/詳細、系列（series/edition）解決、参加名簿取込 | [spec/tournaments-results.md](spec/tournaments-results.md) |
 | 選手 | 選手の名寄せ（姓名キー）・display_name・検索一覧・戦績詳細・会員とのセルフ紐付け（self-identify） | [spec/players.md](spec/players.md) |
 | 統計 | 選手ランキング・大会統計（フィルタ正規化・集計・チャート描画） | [spec/stats.md](spec/stats.md) |

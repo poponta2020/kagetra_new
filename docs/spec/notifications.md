@@ -17,7 +17,10 @@
 > - `apps/web/src/lib/invite-code.ts`（6桁招待コードの生成・検証）
 > - `apps/web/src/app/api/webhook/line/route.ts`（LINE Webhookエンドポイント）
 > - `apps/web/src/app/api/line-broadcast/attachments/[token]/route.ts`（添付の署名URLダウンロード）
-> - `apps/web/src/app/api/line-broadcast/images/[token]/route.ts`（本文画像のインメモリ配信）
+> - `apps/web/src/app/api/line-broadcast/images/[token]/route.ts`（旧・本文画像のインメモリ配信。本文カード化により未使用）
+> - `apps/web/src/lib/line-flex-mail-body.ts`（本文カードのFlexビルダー）
+> - `apps/web/src/lib/mail-body-share.ts`（本文全文ページの公開URLトークン）
+> - `apps/web/src/app/mail-share/[token]/page.tsx`（メール全文の公開ページ）
 > - `apps/web/src/app/api/line-link/callback/route.ts`（LINEアカウント切替コールバック）
 > - `apps/web/src/app/settings/line-link/actions.ts` / `page.tsx`（LINEアカウント切替開始）
 > - `apps/web/src/app/(app)/settings/notifications/actions.ts` / `NotificationSettings.tsx` / `page.tsx`（Web Push購読）
@@ -64,9 +67,9 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - `revoked`: Botがグループから追い出された（`leave` イベント、`source.groupId` が現在の紐付け先と一致する場合のみ）、管理者による強制解放（`/admin/line-channels/[id]` の「強制解放」、`releaseChannel`）、または配信失敗時の自動リカバリ（後述）で遷移する。チャネルは `available` に戻り、招待コードはNULL化される。
 - `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, グループ内 MAX(event_date) + 30日)` を過ぎた行を自動解放する。複数日グループは最も遅い開催日を基準にする（相関サブクエリで算出。events への単純JOINは1行が日数分にfan outし誤判定するため使わない）。**イベントが0件になったグループ**（付け替えで空になったが紐付けを残しているグループ）は MAX(event_date) が NULL になるため、`extended_until` が未設定なら即解放対象として Bot をプールへ戻す。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
 
-**メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。1回の承認で複数日グループの複数イベントが同時に作られても、配信呼び出し側（`broadcastApprovedUnits`）は `entry_group_id` で重複排除するため、実際のpushはグループにつき1回だけ発生する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。
+**メール配信**（`broadcastMailToEvent`）は1メール = 1回の配信を原則とし、`event_broadcast_messages` の `UNIQUE(eventLineBroadcastId, mailMessageId)` で冪等性を担保する。1回の承認で複数日グループの複数イベントが同時に作られても、配信呼び出し側（`broadcastApprovedUnits`）は `entry_group_id` で重複排除するため、実際のpushはグループにつき1回だけ発生する。メッセージは「冒頭見出し（任意）→本文→添付」の順で構築され、それぞれ役割別カウンタ（`sentLeadCount`/`sentTextCount`/`sentImageCount`/`fallbackLinkCount`）で送達数を記録する。本文カードは `sentTextCount`、添付カードは `fallbackLinkCount` に計上し、**`sentImageCount` は今後常に0**（列は過去行の履歴として残す）。
 
-- 本文はA4 JPEGへ画像化して送る（画像化ロジック自体は `mail-body-image-render`、詳細は `spec/mail-worker.md`）。画像化が失敗・ページ超過・空・サイズ超過（10MB超）の場合はテキストfallback（`splitForLine` で分割）に切り替える。
+- 本文は「件名だけを載せたFlexカード1通」で送る（`line-flex-mail-body.ts` の `buildMailBodyFlexMessage`。48pxの藤バッジ＋`✉`＋件名（表示は3行で打ち切り。加えて見出し文字列自体を200字で切り詰める——`maxLines`は送信JSONのサイズを減らさず、件名は長さ無制限なのでLINEの30KB上限超過でpushが400になる）＋「タップして全文を見る」。`altText`＝`📧 件名`、400字上限）。カードのタップで**メール全文の公開ページ** `/mail-share/[token]`（署名トークン60日・ログイン不要）が開き、そこで本文をテキストとして読む。URL文字列はトークに露出しない。訂正版は件名の先頭に `【訂正】` が付く（配信単位の情報なので**公開ページ側には出さない** — 同じメールを通常配信→訂正再配信すると、トークンはメール単位のため先の配信のカードから開いたページまで訂正表記になってしまう）。**本文添付OFFのメールではカードも出さない**。トークン発行や `PUBLIC_BASE_URL` 未設定で失敗した場合は**テキストへフォールバックせず**監査行を `failed` にする（黙って別形式に化けさせない）。A4 JPEG画像化（`mail-body-image-render`）とテキストfallback（`splitForLine`）は2026-09の改修で廃止した。
 - 添付は形式を問わず全て「署名URLを開くFlexファイルカード」1通に統一する（`line-flex-attachment.ts` の `buildAttachmentFlexMessage`。種別バッジ＝Excel緑/PDF赤/Word青/その他グレー＋ファイル名＋サイズ、カードタップのuriアクションで署名URLを開き、URL文字列はトークに露出しない。`altText`＝`📎 ファイル名`、400字上限）。かつてのPDF/Word画像化分岐、およびその後の「📎 ファイル名 + 生URL」テキスト形式はいずれも廃止済み。監査roleは従来どおり `attachment_link`。
 - 冒頭見出し（`leadText`）は、進行中の大会に手動でメールを紐付ける操作（mail-inbox 側の統合処理フォーム（`MailProcessForm`）— 詳細は `spec/mail-worker.md`）でのみ付与できる任意テキストで、`broadcast-lead-presets.ts` にプリセット文言（抽選結果・組合せ・オープンチャット案内等、最大200文字）を持つ。AI下書きの自動配信・訂正紐付けでは付与されない。
 - LINE Messaging APIへは5メッセージ/バッチ・バッチ間1.5秒sleepで送信し、429（レート制限）は `Retry-After` に従い最大3回リトライする。1回のpushは30秒でタイムアウトする。
@@ -78,7 +81,7 @@ invite_pending → joined_waiting_code → linked → revoked / released
 **要綱の紐付け完了時送信**（broadcast-guidelines-on-link）は、上記のメール配信とは独立した経路で、紐付け完了（`linked`）の瞬間に「大会案内メールの要綱ファイル」だけをグループへ送る追加機能。紐付け前に承認済みだった案内メール（＝多くの場合、要綱そのもの）は既存の自動配信ではバックフィルされないため、その穴を要綱に限って埋める。
 
 - **選択**: 招待コード発行モーダル（`InviteCodeModal`）で、対象イベント（その日）の全関連メール（3経路union。詳細は `spec/events-attendance.md` の関連メール）の添付をメール別に列挙し、管理者が要綱にあたるファイルを複数選択する。選択は `setGuidelineAttachments`（admin/vice_admin・replace意味論・候補外の添付idは拒否）で `event_broadcast_guideline_attachments`（`event_line_broadcasts` への join、両FK ON DELETE CASCADE）に即時保存する。`event_line_broadcasts` は1申込グループ1行で、招待コード再発行は同一行UPDATEなので選択は再発行をまたいで保持される。関連メール候補自体は対象イベント（その日）単位のままなので、同一グループの別の日から見ると候補一覧が異なりうる点に注意（選択・送信対象はグループ単位で共通）。
-- **送信トリガー**: `event_line_broadcasts` が `linked` に遷移した時（Webhookの招待コード照合成功、および管理者の手動紐付け `manualLinkGroup`）に、選択済み添付があれば送信する。送信は紐付け成立**後**（reply枠は消費済み）に走るpushで、`sendGuidelinesOnLink`（`apps/web/src/lib/line-broadcast-guidelines.ts`）が担う。同モジュールはWebhook（nodejs runtime）から呼ばれるため `line-broadcast.ts`（本文画像化の重依存）を意図的にimportせず、署名URLの `getOrCreateShareToken` だけ再利用した自己完結の最小pushを持つ（5通/バッチ・1.5秒間隔・429リトライ・30秒タイムアウト・`LINE_NOTIFY_DRY_RUN` 尊重）。
+- **送信トリガー**: `event_line_broadcasts` が `linked` に遷移した時（Webhookの招待コード照合成功、および管理者の手動紐付け `manualLinkGroup`）に、選択済み添付があれば送信する。送信は紐付け成立**後**（reply枠は消費済み）に走るpushで、`sendGuidelinesOnLink`（`apps/web/src/lib/line-broadcast-guidelines.ts`）が担う。同モジュールはWebhook（nodejs runtime）から呼ばれるため `line-broadcast.ts`（配信オーケストレーション本体）を意図的にimportせず、署名URLの `getOrCreateShareToken` だけ再利用した自己完結の最小pushを持つ（5通/バッチ・1.5秒間隔・429リトライ・30秒タイムアウト・`LINE_NOTIFY_DRY_RUN` 尊重）。
 - **送信内容**: 選択ファイルごとに「大会要綱」タグ付きFlexファイルカード1通（`buildAttachmentFlexMessage` に `tag: '大会要綱'` を渡す。`altText`＝`📎【大会要綱】ファイル名`、タップで署名URL `/api/line-broadcast/attachments/[token]`（60日）を開く）。既存の添付配信と同じ署名URL方式で、新規の公開エンドポイントは作らない。
 - **best-effort**: 送信の成否は紐付け（`linked`）に影響しない（`sendGuidelinesOnLink` はthrowしない）。全通配信できたときだけ `event_line_broadcasts.guidelines_sent_at` を更新する。監査に `event_broadcast_messages`（メール単位・role別カウンタ）は流用しない（full-mail配信と衝突するため独立）。
 - **再送・再連携**: `linked` 状態で `resendGuidelines`（events画面の「要綱を再送」）を押すと選択済み要綱を同形式で再送できる（best-effortの取りこぼし復旧）。連携解除→再発行→再紐付けでは、選択は保持され `guidelines_sent_at` はリセットされて新グループへ改めて送信される。
@@ -123,6 +126,7 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
 - **組み立て**: `lib/line-mention.ts`（pure。DB・`node:`・`@kagetra/shared` を持ち込まない）。`buildMentionMessage({ mention, label, template, values })` が `{ type:'textV2', text, substitution }` を返す。プレースホルダは `m0` `m1` … の連番で、個人メンションは1人につき1つ。**メンションは1メッセージ20件が上限**（`substitution` 全体の100件とは別の制約。超過分は捨てる — 超えるとメッセージ全体が拒否されるため厳しい側で切る）。
 - ★**メンションを含むメッセージに自由記述を混ぜない。** `textV2` は本文中の中括弧をプレースホルダ構文として解釈するため、大会名・支払情報などのユーザー入力が中括弧を含むと本文が壊れる。差し込める値を `number` と `{ dateIso }`（`M/D(曜)` へ整形）だけに型で限定し、`template` / `label` に中括弧が無いことを実行時にも検証する。自由記述は `buildTextMessage` でメンションを持たない別メッセージとして送る。
 - **対象の解決**: `lib/line-mention-targets.ts`。共通条件は `line_user_id IS NOT NULL AND deactivated_at IS NULL` で、並び順は `users.id` 昇順（メンションの並びを決定的にするため）。`@会計` は `users.is_treasurer = true`、`@管理者` は `role IN ('admin','vice_admin')`。**0人なら素テキストの `@会計` / `@管理者` を出すだけ**でメッセージ自体は送る。`line_user_id` が無い担当者は黙って外れる。
+- **`@副連絡責任者`**（travel-report）: `users.is_travel_report_submitter = true`。解決は他と同じ `line-mention-targets.ts`（`resolveTravelReportSubmitterMention`）で、ロールでは絞らない（フラグが立っている人＝提出係、というのが運用上の意味）。★この列は `is_treasurer` と違い**認可にも使う**（`spec/auth-admin.md`）が、ここで読むのはメンション対象の解決のためだけ。
 - **会計フラグ**: `users.is_treasurer`（boolean）。**`@会計` で誰をメンションするかの識別専用で、認可判断には一切使わない**。会計の権限は副管理者と同一なので、会計担当には `role='vice_admin'` を併せて付与して運用する（`user_role` enum を増やさない理由は、`role !== 'admin' && role !== 'vice_admin'` の判定が多数のファイルにインライン展開されているため）。設定 UI は会員編集（`spec/auth-admin.md`）。
 - **transport**: reply（`LineReplyClient.reply`）と push（`pushMessagesToEventGroup` / `pushMessagesToEntryGroup`）はいずれも `LineOutgoingMessage[]` を受け取る（`LineMessage`＝text / textV2 に `LineImageMessage` を足した union。★**`LineMessage` 自体は広げない** —— 画像を混ぜると、`.text` を直接読む既存の呼び出し側とそのテスト群が一斉にナローイングを強いられるため、広げるのは送信トランスポートが受ける型だけにする）。`pushMessagesToEntryGroup` は申込グループ単位で `event_line_broadcasts` を直接引く（振込連絡がグループ単位のキーを持つため、代表イベントを経由しない）。
 
@@ -224,6 +228,13 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
   - push は採用・triage の**コミット後**の `after()` で走り、LINE 配信も ON のときは**配信 → 振込連絡**の順（会員が当落を見た後に会計へ振込依頼が届く）。世代トークン検証（`isCurrentGeneration`）を既存2系統と共有するので、取り消されたメールからは送られない
   - 応答後に走るため失敗を戻り値で返せない。失敗は `entry_group_payment_notices` の `last_attempted_at` / `last_error` に記録し、**申込グループページの振込連絡セクション**と**メール詳細の「処理済み」カード**の2箇所に「送信に失敗しました」として出す
 
+### travel-report: 遠征経路がそろった通知・遠征届の作成通知
+
+どちらも申込グループに紐付いた大会別 LINE グループへ `@副連絡責任者` つきで送る。**LINE グループが紐付いていないグループでは送らない**（グループページの入力状況が代わりに伝える）。メンションを含むメッセージには数値と日付しか差し込まず、大会名・URL は `buildTextMessage` の別メッセージで送る（メンション基盤の規律どおり）。
+
+- **全員そろった通知**（R8）: 遠征単位の対象者**全員が入力済みになった瞬間に1回だけ**。判定は経路保存の tx 内で `entry_groups` 行を `FOR UPDATE` してから「保存前の未入力の対象者集合 == {保存者}」で行い、`travel_unit_notices.last_attempted_at` を claim してから**コミット後に** push する。成功で `all_entered_notified_at` を進めて `last_error` を NULL へ戻し、失敗で `last_error` を残す。★**自己回復**: `last_error` があり保存後に全員入力済みなら、遷移でなくても再送する（再送ボタンは置かない）。「最後に通知した対象者集合」は持たない — 対象者が増えて未完了に戻り再びそろえば遷移判定が改めて成立するので、この2列だけで「1回だけ・再保存で送らない・対象追加で再送」の3条件を満たせる。未入力者を「不参加」にして結果的にそろった場合は保存イベントが無いので通知されない（保存トリガーのみ。グループページの表示で代替）。
+- **作成通知**（R9）: 「遠征届を作成しました（N ファイル）」＋グループページへの案内。**作成物を保存したあとに送る**ので、通知が失敗しても documents は残り、理由が `travel_report_batches.notify_error` に入る（グループページに表示）。
+
 ### entry-overdue-alert: 管理者向け毎日アラート
 
 会内締切を過ぎても会として主催者へ申し込んでいない大会を、`line_channels` の `status='system'` 行に設定された管理者LINE userId 宛に **1日1回・1通のサマリ**でpushする（`apps/web/src/lib/entry-overdue-alert.ts`）。**entry-groups: 明細は申込グループ単位で1行**に集約し（グループ内の該当日をまとめる）、グループ表示名は `deriveEntryGroupName`（導出できないときは代表イベントのタイトル）を使う。単独グループのときは従来の「1行1大会」と同じ文面になる。event-lifecycle-notify とは3軸すべてが異なるため、意図的に別モジュール・別バッチ・別タイマーにしている。
@@ -304,6 +315,7 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 - **`/(app)/settings/notifications`**: Web Push購読のON/OFFのみ。状態は `loading` / `unsupported`（Push API非対応）/ `no-key`（VAPID未設定）/ `denied`（OS拒否）/ `subscribed` / `unsubscribed` の6状態。
 - **`/(app)/admin/line-channels`**: 30 Botの一覧（`purpose='event_broadcast'` のみ、system_notify行は非表示）。ステータス別フィルタ（空き/招待コード発行中/配信中/無効化）、`active` が全体の25/30以上になると枯渇警告バナーを表示する。各行に紐付け先大会・自動解放までの残日数を表示する。
 - **`/(app)/admin/line-grade-groups`**: 級別グループ紐付けの管理（**admin のみ。vice_admin は不可**）。A〜Eの5行固定で、各行に状態（未紐付け/招待コード発行済み/参加済みコード待ち/紐付け済み）と操作（招待コード発行・解除）を出す。招待コード発行時に `event_broadcast` の空きチャネルを1個確保して `grade_broadcast` へ転換するため、転換後のチャネルは `/admin/line-channels` の一覧（`purpose='event_broadcast'` 固定）から自動的に消える。導線は `/admin/line-channels` からのリンク（ボトムナビは admin 時点で既に6タブのため追加しない）。
+- **`/mail-share/[token]`**: LINE の本文カードから開くメール全文の公開ページ（**認証不要**・`(app)` グループの外なのでボトムナビ等は付かない）。件名・受信日時・本文全文（Google Groupsフッター除去後のプレーンテキスト）だけを出し、添付・大会名・イベントリンク・会員向けナビは出さない。robots meta は `noindex, nofollow`、`force-dynamic` で配信する。期限切れ・存在しない・形式不正のトークンは**すべて同一の案内ページ**（トークンの存在を推測させない）。
 - **`/(app)/admin/line-channels/[id]`**: 個別Botの詳細。現在の紐付け先、紐付け履歴（直近20件）、操作ボタン（強制解放/無効化/有効化/手動紐付けモーダル `ManualLinkModal`）。手動紐付けは、Webhookが `join`/コード発言を受け取れなかった場合の運用フォールバックで、対象イベント・LINEグループIDを直接入力してその場で `linked` にする。
 
 - **`/(app)/admin/entries/[groupId]`**: 申込グループページ内の「振込連絡」セクション（管理者/副管理者のみ・名簿確定フェーズかつLINE紐付けありのときだけ描画）。級ごとの人数入力とプレビュー、送信/再送ボタン、最終送信日時を持つ。**単価の入力欄は無い**。画面全体の構成は `spec/events-attendance.md`。
@@ -365,7 +377,7 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 | `revokeGradeBinding(grade)` | Server Action | **admin のみ** | 級別グループの紐付け解除。チャネルはプールへ戻さない |
 | `resendGradeBroadcast(eventId)` | Server Action | **admin のみ** | 級別グループへの再送。未送信の級にだけ送る（判定は claim に委ねる） |
 | `GET /api/line-broadcast/attachments/[token]` | route handler | 署名トークン（発行時に検証済み・失効付き） | 添付ファイルの署名URLダウンロード |
-| `GET /api/line-broadcast/images/[token]` | route handler | 署名トークン（インメモリキャッシュ） | 本文画像JPEGのLINE向け配信 |
+| `GET /api/line-broadcast/images/[token]` | route handler | 署名トークン（インメモリキャッシュ） | 旧・本文画像JPEGのLINE向け配信。本文カード化により**未使用**（撤去はしていない） |
 | `savePushSubscription(input)` | Server Action | admin/vice_admin | Web Push購読の保存（endpoint UNIQUEでupsert） |
 | `deletePushSubscription(endpoint)` | Server Action | admin/vice_admin | Web Push購読の削除 |
 | `releaseChannel(channelId, expectedEventId?)` | Server Action | admin/vice_admin | Botの強制解放（紐付け`revoked`＋チャネル`available`） |

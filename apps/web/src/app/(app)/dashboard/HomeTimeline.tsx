@@ -12,6 +12,7 @@ import type {
   HomeEntrant,
   HomeTimelineData,
   HomeTimelineEvent,
+  HomeTravelRouteAlert,
   HomeUnansweredAlert,
 } from './home-timeline-types'
 import {
@@ -35,15 +36,22 @@ import {
  * ここにも足さない。`page-padding.test.ts` が機械的に固定している）。
  */
 export function HomeTimeline({ data }: { data: HomeTimelineData }) {
-  const { today, upcoming, alerts, viewerUserId } = data
+  const { today, upcoming, alerts, travelRouteAlerts, viewerUserId } = data
   const isEmpty = today.length === 0 && upcoming.length === 0
 
   return (
     <div className="flex flex-col gap-4">
-      {alerts.length > 0 && (
+      {(alerts.length > 0 || travelRouteAlerts.length > 0) && (
         <div className="flex flex-col gap-2">
           {alerts.map((alert) => (
             <UnansweredAlertRow key={alert.eventId} alert={alert} />
+          ))}
+          {/* travel-report タスク7 (S9・AC-17): 未回答アラートの下に並べる。 */}
+          {travelRouteAlerts.map((alert) => (
+            <TravelRouteAlertRow
+              key={`${alert.entryGroupId}-${alert.unitKey}`}
+              alert={alert}
+            />
           ))}
         </div>
       )}
@@ -97,6 +105,34 @@ function UnansweredAlertRow({ alert }: { alert: HomeUnansweredAlert }) {
       </span>
       <span className="shrink-0 text-[12px] font-semibold text-accent-fg tabular-nums">
         {alertCountdown(alert.daysLeft)}
+      </span>
+      <span aria-hidden className="shrink-0 text-[13px] text-accent-fg">
+        ›
+      </span>
+    </Link>
+  )
+}
+
+/**
+ * travel-report タスク7 (S9・AC-17): 遠征経路の未入力アラート。
+ * `UnansweredAlertRow` と**同じ高さ・角丸・配色**（design-spec §8）で、タグだけ
+ * 「遠征経路」に差し替え、右端は締切が無いので「未入力」固定にする。
+ */
+function TravelRouteAlertRow({ alert }: { alert: HomeTravelRouteAlert }) {
+  const datesLabel = alert.unitDates.map((d) => splitTimelineDate(d).md).join('・')
+  return (
+    <Link
+      href={`/events/${alert.routeEventId}/travel-route`}
+      className="flex items-center gap-2.5 rounded-[10px] border border-accent bg-accent-bg px-3 py-2.5 transition-opacity hover:opacity-90"
+    >
+      <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-ink-on-brand">
+        遠征経路
+      </span>
+      <span className="min-w-0 flex-1 truncate font-display text-[15px] font-bold text-ink">
+        {alert.tournamentName} {datesLabel}
+      </span>
+      <span className="shrink-0 text-[12px] font-semibold text-accent-fg tabular-nums">
+        未入力
       </span>
       <span aria-hidden className="shrink-0 text-[13px] text-accent-fg">
         ›

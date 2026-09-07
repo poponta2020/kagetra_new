@@ -44,7 +44,13 @@ function isIdSegment(segment: string | undefined): boolean {
  *     ただし `/events/new`・`/events/:id/edit` は管理者専用なので拒否
  *   - `/events-archive` — 過去のイベント
  *   - `/settings`  — **完全一致のみ**。`/settings/notifications` などの下位
- *     ページは会員・管理者向けなので拒否する
+ *     ページは会員・管理者向けなので拒否する（`/settings/travel-report` も
+ *     含む。travel-report requirements R12 は提出権限者のみで、ゲストに
+ *     フラグが付いても権限にならないため、ここを広げてはいけない）
+ *   - `/events/:id/travel-route` — travel-report S8（経路入力）。対象者は
+ *     会員・ゲスト両方あり得る（requirements R5）。`/events/:id/edit` は
+ *     引き続き拒否（3セグメント目の完全一致のみを許可）。認可そのもの
+ *     （対象者判定・提出権限者の代理入力）はページ側が持つ（R11）
  *   - `/roster-files/:id` と `/api/roster-files/:id[/preview/:page]`
  *     — 大会詳細の名簿ファイルビューア。R2 でゲストにも見せると決めたもの
  *       （ページだけ／API だけ開けても意味を成さないので両方を許可する）
@@ -78,8 +84,11 @@ export function isGuestAllowedPath(pathname: string): boolean {
       return seg.length === 1
     case 'events':
       if (seg.length === 1) return true
-      // 大会詳細のみ。`new`（作成）と 3 セグメント以上（`.../edit`）は拒否。
-      return seg.length === 2 && seg[1] !== 'new' && isIdSegment(seg[1])
+      // 大会詳細のみ。`new`（作成）は拒否。
+      if (seg.length === 2) return seg[1] !== 'new' && isIdSegment(seg[1])
+      // travel-report S8: `/events/:id/travel-route` だけを完全一致で許可する。
+      // `/events/:id/edit` を含むそれ以外の3セグメント目は引き続き拒否。
+      return seg.length === 3 && isIdSegment(seg[1]) && seg[2] === 'travel-route'
     case 'events-archive':
       return seg.length === 1
     case 'settings':

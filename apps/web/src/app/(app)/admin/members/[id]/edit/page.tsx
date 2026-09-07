@@ -9,6 +9,7 @@ import { EditMemberForm } from './edit-member-form'
 import { DeleteMemberSection } from './delete-member-section'
 import { MemberRoleSection } from './member-role-section'
 import { MemberTreasurerSection } from './member-treasurer-section'
+import { MemberTravelFlagsSection } from './member-travel-flags-section'
 import { toggleMemberDeactivation, unlinkLine } from './actions'
 import { formatLinkedAt, formatLinkMethod } from '../../_line-link-format'
 
@@ -50,6 +51,12 @@ export default async function EditMemberPage({
       postalCode: true,
       address1: true,
       address2: true,
+      isCircleMember: true,
+      facultyKind: true,
+      faculty: true,
+      schoolYear: true,
+      isTravelReportSubmitter: true,
+      isCircleLeader: true,
       deactivatedAt: true,
       isInvited: true,
       lineUserId: true,
@@ -96,6 +103,10 @@ export default async function EditMemberPage({
         postalCode={member.postalCode ?? ''}
         address1={member.address1 ?? ''}
         address2={member.address2 ?? ''}
+        isCircleMember={member.isCircleMember}
+        facultyKind={member.facultyKind ?? null}
+        faculty={member.faculty ?? ''}
+        schoolYear={member.schoolYear ?? ''}
         grades={GRADES}
         genders={GENDERS}
       />
@@ -114,6 +125,15 @@ export default async function EditMemberPage({
       {/* 会計フラグは admin / vice_admin の両方が更新できる（§3.1.2）。
           ロール変更（admin 限定）とは別セクションにしてある。 */}
       <MemberTreasurerSection userId={member.id} isTreasurer={member.isTreasurer} />
+
+      {/* travel-report R2: 副連絡責任者・サークル長。会計と同じ流儀で
+          admin / vice_admin が更新できる。 */}
+      <MemberTravelFlagsSection
+        userId={member.id}
+        role={member.role}
+        isTravelReportSubmitter={member.isTravelReportSubmitter}
+        isCircleLeader={member.isCircleLeader}
+      />
 
       {member.lineUserId && (
         <section className="rounded-lg bg-surface p-4 shadow-sm">

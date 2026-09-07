@@ -9,6 +9,8 @@ import { db } from '@/lib/db'
 import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 import { isRegistrationInviteUsable } from '@/lib/registration-invite'
 import { registrationInvites, users } from '@kagetra/shared/schema'
+import { isSchoolYearForKind } from '@kagetra/shared'
+import type { FacultyKind } from '@kagetra/shared/types'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
@@ -61,6 +63,11 @@ type RegistrationValues = {
   postalCode: string | null
   address1: string | null
   address2: string | null
+  // travel-report R1: サークル所属と学部属性。
+  isCircleMember: boolean
+  facultyKind: FacultyKind | null
+  faculty: string | null
+  schoolYear: string | null
 }
 
 // guest-role: guest registration collects only 3 fields — no structured name,
@@ -70,6 +77,16 @@ type GuestRegistrationValues = {
   name: string
   grade: (typeof GRADES)[number]
   affiliation: string
+  // travel-report R1/AC-2: ゲストもサークル所属 ON なら姓・名（漢字のみ・かな不要）
+  // と学部属性・電話・生年月日が必要になる。
+  isCircleMember: boolean
+  familyName: string | null
+  givenName: string | null
+  facultyKind: FacultyKind | null
+  faculty: string | null
+  schoolYear: string | null
+  phone: string | null
+  birthDate: string | null
 }
 
 function strOf(raw: FormDataEntryValue | null): string {
@@ -112,9 +129,15 @@ function validateBirthDate(s: string): string | null {
  * client chose to show/hide:
  *   - grade ≠ A          → dan = null
  *   - grade ∉ {A,B,C}    → zenNichikyo = false (全日協 is only offered A/B/C)
- *   - zenNichikyo = false → all PII (gender/birth/phone/postal/address) = null
+ *   - zenNichikyo = false かつ isCircleMember = false → gender/birth/phone/postal/address = null
  * PII is all-required when zenNichikyo is on, except address2 (DB-nullable; the
  * front enforces it via the 戸建て checkbox). Messages are field-specific.
+ *
+ * travel-report R1/AC-1/AC-3: サークル所属 ON のとき 学部区分・学部等名・学年・
+ * 電話・生年月日 が必須になる。電話・生年月日は全日協用と**同一の列**を共用する
+ * ため、zenNichikyo と isCircleMember の**どちらか一方でも該当すれば必須**
+ * （どちらも false のときだけ null に強制する）。学部区分・学部等名・学年は
+ * isCircleMember 専用で全日協とは独立。
  */
 function parseRegistration(
   formData: FormData,
@@ -148,18 +171,49 @@ function parseRegistration(
   const gradeAllowsZen = grade === 'A' || grade === 'B' || grade === 'C'
   const zenNichikyo = gradeAllowsZen && isChecked(formData.get('zenNichikyo'))
 
+  // travel-report R1: サークル所属。真偽属性で級には依存しない。
+  const isCircleMember = isChecked(formData.get('isCircleMember'))
+
   let gender: (typeof GENDERS)[number] | null = null
   let birthDate: string | null = null
   let phone: string | null = null
   let postalCode: string | null = null
   let address1: string | null = null
   let address2: string | null = null
+  let facultyKind: FacultyKind | null = null
+  let faculty: string | null = null
+  let schoolYear: string | null = null
+
+  if (isCircleMember) {
+    const fk = strOf(formData.get('facultyKind')).trim()
+    if (fk === 'undergraduate' || fk === 'graduate') {
+      facultyKind = fk
+    } else {
+      return { error: '所属（学部／大学院）を選択してください' }
+    }
+
+    const fac = strOf(formData.get('faculty')).trim()
+    if (fac.length === 0) return { error: '学部等名を入力してください' }
+    if (fac.length > 50) return { error: '学部等名は50文字以内で入力してください' }
+    faculty = fac
+
+    // 学年は選択のみ（候補外は拒否）。区分と整合しない学年（学部に「修士1年」等）も拒否する。
+    const sy = strOf(formData.get('schoolYear')).trim()
+    if (sy.length === 0 || !isSchoolYearForKind(sy, facultyKind)) {
+      return { error: '学年を選択してください' }
+    }
+    schoolYear = sy
+  }
 
   if (zenNichikyo) {
     const g = strOf(formData.get('gender')).trim()
     if (g !== 'male' && g !== 'female') return { error: '性別を選択してください' }
     gender = g
+  }
 
+  // 電話・生年月日は全日協用の列と共用。全日協 ON とサークル所属 ON の
+  // どちらか一方でも該当すれば必須（入力欄は1つ）。
+  if (zenNichikyo || isCircleMember) {
     const bd = strOf(formData.get('birthDate')).trim()
     const bdError = validateBirthDate(bd)
     if (bdError) return { error: bdError }
@@ -174,7 +228,9 @@ function parseRegistration(
       return { error: '電話番号の桁数が不正です（10〜13桁）' }
     }
     phone = ph
+  }
 
+  if (zenNichikyo) {
     // 郵便番号は7桁に正規化（ハイフン/空白除去）して保存。
     const pc = strOf(formData.get('postalCode')).replace(/[\s-]/g, '')
     if (!/^\d{7}$/.test(pc)) return { error: '郵便番号は7桁で入力してください' }
@@ -210,6 +266,10 @@ function parseRegistration(
       postalCode,
       address1,
       address2,
+      isCircleMember,
+      facultyKind,
+      faculty,
+      schoolYear,
     },
   }
 }
@@ -236,7 +296,78 @@ function parseGuestRegistration(
   if (affiliation.length === 0) return { error: '所属会を入力してください' }
   if (affiliation.length > 100) return { error: '所属会は100文字以内で入力してください' }
 
-  return { data: { name, grade, affiliation } }
+  // travel-report R1/AC-2: サークル所属 ON のゲストは 姓・名（漢字。かな不要）＋
+  // 学部区分・学部等名・学年・電話・生年月日 が追加で必須になる。ゲストには
+  // 全日協が無いため、電話・生年月日は isCircleMember だけで必須が決まる。
+  const isCircleMember = isChecked(formData.get('isCircleMember'))
+  let familyName: string | null = null
+  let givenName: string | null = null
+  let facultyKind: FacultyKind | null = null
+  let faculty: string | null = null
+  let schoolYear: string | null = null
+  let phone: string | null = null
+  let birthDate: string | null = null
+
+  if (isCircleMember) {
+    const fn = strOf(formData.get('familyName')).trim()
+    if (fn.length === 0) return { error: '姓（漢字）を入力してください' }
+    if (fn.length > 20) return { error: '姓（漢字）は20文字以内で入力してください' }
+    familyName = fn
+
+    const gn = strOf(formData.get('givenName')).trim()
+    if (gn.length === 0) return { error: '名（漢字）を入力してください' }
+    if (gn.length > 20) return { error: '名（漢字）は20文字以内で入力してください' }
+    givenName = gn
+
+    const fk = strOf(formData.get('facultyKind')).trim()
+    if (fk === 'undergraduate' || fk === 'graduate') {
+      facultyKind = fk
+    } else {
+      return { error: '所属（学部／大学院）を選択してください' }
+    }
+
+    const fac = strOf(formData.get('faculty')).trim()
+    if (fac.length === 0) return { error: '学部等名を入力してください' }
+    if (fac.length > 50) return { error: '学部等名は50文字以内で入力してください' }
+    faculty = fac
+
+    const sy = strOf(formData.get('schoolYear')).trim()
+    if (sy.length === 0 || !isSchoolYearForKind(sy, facultyKind)) {
+      return { error: '学年を選択してください' }
+    }
+    schoolYear = sy
+
+    const bd = strOf(formData.get('birthDate')).trim()
+    const bdError = validateBirthDate(bd)
+    if (bdError) return { error: bdError }
+    birthDate = bd
+
+    const ph = strOf(formData.get('phone')).trim()
+    if (!PHONE_RE.test(ph)) {
+      return { error: '電話番号は数字とハイフンで入力してください' }
+    }
+    const digits = ph.replace(/-/g, '')
+    if (digits.length < 10 || digits.length > 13) {
+      return { error: '電話番号の桁数が不正です（10〜13桁）' }
+    }
+    phone = ph
+  }
+
+  return {
+    data: {
+      name,
+      grade,
+      affiliation,
+      isCircleMember,
+      familyName,
+      givenName,
+      facultyKind,
+      faculty,
+      schoolYear,
+      phone,
+      birthDate,
+    },
+  }
 }
 
 export type RegisterViaInviteState = {
@@ -329,6 +460,16 @@ export async function registerViaInvite(
         lineUserId,
         lineLinkedAt: now,
         lineLinkedMethod: 'invite_link',
+        // travel-report R1: サークル所属 ON のときだけ姓・名（漢字）・学部属性・
+        // 電話・生年月日を書く（かなは聞かない）。
+        isCircleMember: g.isCircleMember,
+        familyName: g.familyName,
+        givenName: g.givenName,
+        facultyKind: g.facultyKind,
+        faculty: g.faculty,
+        schoolYear: g.schoolYear,
+        phone: g.phone,
+        birthDate: g.birthDate,
       })
     } catch (err) {
       if (isRedirectError(err)) throw err
@@ -373,6 +514,11 @@ export async function registerViaInvite(
       lineUserId,
       lineLinkedAt: now,
       lineLinkedMethod: 'invite_link',
+      // travel-report R1: サークル所属と学部属性。
+      isCircleMember: v.isCircleMember,
+      facultyKind: v.facultyKind,
+      faculty: v.faculty,
+      schoolYear: v.schoolYear,
     })
   } catch (err) {
     // redirect() throws a sentinel — let Next.js handle it.

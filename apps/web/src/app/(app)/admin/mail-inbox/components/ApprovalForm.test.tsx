@@ -245,15 +245,19 @@ describe('ApprovalForm — 複数単位フォーム', () => {
   })
 
   it('初期候補の系列種別が登録対象と異なる場合は選択しない', () => {
+    // mail-ai-extract-refinements タスク2: shortNameStem を空にして、通称欄が
+    // 系列由来の kind ゲートの実装スリップを拾えるようにする（seriesShortName を
+    // 非空にしておき、ゲートが漏れて採用されていたら通称欄が非空になってしまう）。
     const payload = buildPayload([buildUnit({ kind: 'team' })])
     const { container } = render(
       <ApprovalForm
         payload={payload}
-        shortNameStem="大阪"
+        shortNameStem={null}
         registeredUnitKeys={[]}
         editionSuggestion={{
           seriesId: 13,
           seriesName: '個人戦大会',
+          seriesShortName: '個人戦',
           editionNumber: 4,
           matched: true,
         }}
@@ -272,6 +276,9 @@ describe('ApprovalForm — 複数単位フォーム', () => {
       (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
         .checked,
     ).toBe(false)
+    expect(
+      (screen.getByLabelText('通称') as HTMLInputElement).value,
+    ).toBe('')
   })
 
   it('登録対象の種別変更で選択済み系列が不適合になったら解除する', () => {
@@ -884,6 +891,385 @@ describe('ApprovalForm — 通称欄（AC-15 / AC-16 / AC-17）', () => {
     fireEvent.change(screen.getByLabelText('通称'), { target: { value: '   ' } })
     const t1 = container.querySelector('input[name="u1__title"]') as HTMLInputElement
     expect(t1.value).toBe('')
+  })
+})
+
+/**
+ * mail-ai-extract-refinements タスク2: 通称⇄系列連動（AC-45〜53）。
+ * 通称欄と系列選択を双方向に連動させ、同じ語を二度打つ状態を解消する。
+ */
+describe('ApprovalForm — 通称⇄系列連動（AC-45〜53）', () => {
+  it('AC-45: 名寄せ候補が1件のとき、系列が選択済みになり通称欄に short_name が入り、由来が表示される', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesId: 21,
+          seriesName: '全国競技かるた杉並大会',
+          seriesShortName: '杉並',
+          editionNumber: 3,
+          matched: false,
+        }}
+        seriesOptions={[
+          { id: 21, name: '全国競技かるた杉並大会', aliases: [], kind: 'individual' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe('杉並')
+    expect(
+      (container.querySelector('input[name="editionSeriesId"]') as HTMLInputElement)
+        .value,
+    ).toBe('21')
+    // 初期選択の緩和で開催紐付けが既定 ON になる範囲が広がることを明示的に固定する。
+    expect(
+      (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+    expect(
+      screen.getByText('「全国競技かるた杉並大会」の通称を入れました'),
+    ).toBeDefined()
+  })
+
+  it('AC-46: 名寄せ候補が1件でも short_name が null のときは系列だけが選択され通称欄は空のまま', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesId: 22,
+          seriesName: '無名大会',
+          seriesShortName: null,
+          editionNumber: 5,
+          matched: false,
+        }}
+        seriesOptions={[{ id: 22, name: '無名大会', aliases: [], kind: 'individual' }]}
+        action={noop}
+      />,
+    )
+
+    expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe('')
+    expect(
+      (container.querySelector('input[name="editionSeriesId"]') as HTMLInputElement)
+        .value,
+    ).toBe('22')
+  })
+
+  it('AC-47: 名寄せ候補が0件・複数件（seriesId が null）のときは通称欄も系列も未確定', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{
+          seriesId: null,
+          seriesName: '曖昧な大会',
+          seriesShortName: null,
+          editionNumber: 5,
+          matched: false,
+        }}
+        seriesOptions={[{ id: 23, name: '別の大会', aliases: [], kind: 'individual' }]}
+        action={noop}
+      />,
+    )
+
+    expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe('')
+    expect(
+      (container.querySelector('input[name="editionSeriesId"]') as HTMLInputElement)
+        .value,
+    ).toBe('')
+  })
+
+  it('AC-49: 通称欄に入力すると絞り込んだ系列候補チップが直下に表示される（空のときは出ない）', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        seriesOptions={[
+          {
+            id: 31,
+            name: '全国競技かるた杉並大会',
+            aliases: [],
+            kind: 'individual',
+            shortName: '杉並',
+          },
+          { id: 32, name: '別の大会', aliases: [], kind: 'individual' },
+        ]}
+        action={noop}
+      />,
+    )
+
+    // 通称欄が空のあいだはチップを出さない。
+    expect(screen.queryByRole('button', { name: /杉並/ })).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '杉並' } })
+    expect(
+      screen.getByRole('button', { name: '杉並（全国競技かるた杉並大会）' }),
+    ).toBeDefined()
+  })
+
+  it('AC-50: 候補チップをタップすると系列が確定し、通称欄の文字列は変化しない', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        seriesOptions={[
+          {
+            id: 31,
+            name: '全国競技かるた杉並大会',
+            aliases: [],
+            kind: 'individual',
+            shortName: '杉並',
+          },
+        ]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '杉並' } })
+    fireEvent.click(
+      screen.getByRole('button', { name: '杉並（全国競技かるた杉並大会）' }),
+    )
+
+    expect(
+      (container.querySelector('input[name="editionSeriesId"]') as HTMLInputElement)
+        .value,
+    ).toBe('31')
+    expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe('杉並')
+    expect(
+      (container.querySelector('input[name="editionLink"]') as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+  })
+
+  it('AC-51: チップ確定後に通称を打ち直しても系列選択は保持され、チップだけ新しい入力に追従する', () => {
+    const payload = buildPayload([buildUnit({ kind: 'individual' })])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        seriesOptions={[
+          {
+            id: 31,
+            name: '全国競技かるた杉並大会',
+            aliases: [],
+            kind: 'individual',
+            shortName: '杉並',
+          },
+          {
+            id: 41,
+            name: '全国競技かるた練馬大会',
+            aliases: [],
+            kind: 'individual',
+            shortName: '練馬',
+          },
+        ]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '杉並' } })
+    fireEvent.click(
+      screen.getByRole('button', { name: '杉並（全国競技かるた杉並大会）' }),
+    )
+    const seriesId = container.querySelector(
+      'input[name="editionSeriesId"]',
+    ) as HTMLInputElement
+    expect(seriesId.value).toBe('31')
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '練馬' } })
+    expect(seriesId.value).toBe('31')
+    expect(
+      screen.getByRole('button', { name: '練馬（全国競技かるた練馬大会）' }),
+    ).toBeDefined()
+    expect(screen.queryByRole('button', { name: /杉並/ })).toBeNull()
+  })
+
+  it('AC-52: 個人戦・団体戦が混在する案内では候補チップが表示されない', () => {
+    const payload = buildPayload([
+      buildUnit({ unit_key: 'u1', kind: 'team', event_date: '2030-12-01' }),
+      buildUnit({ unit_key: 'u2', kind: 'individual', event_date: '2030-12-02' }),
+    ])
+    render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem={null}
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        seriesOptions={[
+          {
+            id: 31,
+            name: '全国競技かるた杉並大会',
+            aliases: [],
+            kind: 'individual',
+            shortName: '杉並',
+          },
+        ]}
+        action={noop}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('通称'), { target: { value: '杉並' } })
+    expect(screen.queryByRole('button', { name: /杉並/ })).toBeNull()
+  })
+
+  describe('AC-53: 系列検索シートで確定したとき通称欄へ short_name を入れる', () => {
+    it('通称欄が空なら short_name が入る', () => {
+      const payload = buildPayload([buildUnit({ kind: 'team' })])
+      render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem={null}
+          registeredUnitKeys={[]}
+          editionSuggestion={{
+            seriesId: null,
+            seriesName: '',
+            editionNumber: 1,
+            matched: false,
+          }}
+          seriesOptions={[
+            {
+              id: 7,
+              name: 'こばえちゃ山形酒田大会',
+              aliases: [],
+              kind: 'team',
+              shortName: '酒田',
+            },
+          ]}
+          action={noop}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+      const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+      fireEvent.click(
+        within(dialog).getByRole('radio', { name: /こばえちゃ山形酒田大会/ }),
+      )
+      fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+      expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe('酒田')
+    })
+
+    it('既に入力があれば変化しない', () => {
+      const payload = buildPayload([buildUnit({ kind: 'team' })])
+      render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="既存入力"
+          registeredUnitKeys={[]}
+          editionSuggestion={{
+            seriesId: null,
+            seriesName: '',
+            editionNumber: 1,
+            matched: false,
+          }}
+          seriesOptions={[
+            {
+              id: 7,
+              name: 'こばえちゃ山形酒田大会',
+              aliases: [],
+              kind: 'team',
+              shortName: '酒田',
+            },
+          ]}
+          action={noop}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+      const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+      fireEvent.click(
+        within(dialog).getByRole('radio', { name: /こばえちゃ山形酒田大会/ }),
+      )
+      fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+      expect((screen.getByLabelText('通称') as HTMLInputElement).value).toBe(
+        '既存入力',
+      )
+    })
+  })
+
+  describe('editionSeriesShortName hidden field', () => {
+    it('新規作成 (createNew) のとき通称の trim 値が入る', () => {
+      const payload = buildPayload([buildUnit({ kind: 'team' })])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="  酒田  "
+          registeredUnitKeys={[]}
+          editionSuggestion={{
+            seriesId: null,
+            seriesName: '新設大会',
+            editionNumber: 1,
+            matched: false,
+          }}
+          seriesOptions={[]}
+          action={noop}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+      const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+      fireEvent.click(
+        within(dialog).getByRole('checkbox', {
+          name: /「新設大会」を新しい系列として作成する/,
+        }),
+      )
+      fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+      const shortName = container.querySelector(
+        'input[name="editionSeriesShortName"]',
+      ) as HTMLInputElement
+      expect(shortName.value).toBe('酒田')
+    })
+
+    it('既存系列を選んだときは空文字になる', () => {
+      const payload = buildPayload([buildUnit({ kind: 'team' })])
+      const { container } = render(
+        <ApprovalForm
+          payload={payload}
+          shortNameStem="酒田"
+          registeredUnitKeys={[]}
+          editionSuggestion={{
+            seriesId: null,
+            seriesName: '',
+            editionNumber: 1,
+            matched: false,
+          }}
+          seriesOptions={[
+            { id: 7, name: 'こばえちゃ山形酒田大会', aliases: [], kind: 'team' },
+          ]}
+          action={noop}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '系列を検索・選択' }))
+      const dialog = screen.getByRole('dialog', { name: '大会系列を検索' })
+      fireEvent.click(
+        within(dialog).getByRole('radio', { name: /こばえちゃ山形酒田大会/ }),
+      )
+      fireEvent.click(within(dialog).getByRole('button', { name: 'この系列を使う' }))
+
+      const shortName = container.querySelector(
+        'input[name="editionSeriesShortName"]',
+      ) as HTMLInputElement
+      expect(shortName.value).toBe('')
+    })
   })
 })
 

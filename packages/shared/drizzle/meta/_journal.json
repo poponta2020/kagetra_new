@@ -449,6 +449,20 @@
       "when": 1788507740037,
       "tag": "0063_cool_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788703191844,
+      "tag": "0064_amazing_purple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788753247184,
+      "tag": "0065_careless_the_stranger",
+      "breakpoints": true
     }
   ]
 }

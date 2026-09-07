@@ -1,0 +1,288 @@
+<!-- @dsCard group="遠征届（travel-report）" name="S8 遠征経路入力（案A・確定方向）" subtitle="初回既定／帰省先から出場＋そのまま帰省／その他（○○から・自由記述）／入力済み・代理入力" viewport="2060x1000" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<!-- ↑ Claude Design プロジェクト内 (features/<slug>/ → ルート) 用。
+     ↓ ローカル (docs/features/<slug>/design-mock/ → docs/design/) 検証用フォールバック。同一内容・片方は404で無害 -->
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_tr.css">
+<title>遠征経路入力 — S8</title>
+</head><body>
+
+<!-- ============================================================
+     S8 /events/[id]/travel-route — 遠征経路の入力（案A 確定）
+     題材はすべて架空（十和田大会 10/10(土) A・B級 ／ 10/11(日) C・D・E級、開催地「十和田」）。
+     会員名は架空（藤野 美咲＝A級・工学部3年、石狩 蓮＝C級・文学部2年）。PII を持ち込まない。
+
+     R2 での変更（ユーザー指示）:
+       - 学部等名・学年・電話はプロフィール（DB）の値を1行で見せるだけ。欠けている人にだけ入力欄を開く。
+       - 「帰省先から出場」1トグル → 「行き」「帰り」の2択ずつ。
+           行き: 札幌から ／ 帰省先から出場（往路の既定行なし・出場チップの文言が変わる）
+           帰り: 札幌へ戻る ／ そのまま帰省（復路の既定行なし。備考には出場の後に何も書かない）
+       - 案B（往路・復路カード）は不採用。
+     R3 での変更（ユーザー指示）:
+       - 行き・帰りに「その他」（地名の自由記述）を追加。既定行はその地名から／へ。出場チップの文言は変えない。
+     ============================================================ -->
+
+<!-- ─────────── 初回（既定の行程が入った状態） ─────────── -->
+<div class="col">
+  <div class="collabel">初回 ── 既定の行程（札幌から／札幌へ戻る）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">大会</a><span>›</span><a href="#">十和田大会 A・B級</a><span>›</span><span>遠征経路</span></div>
+        <h1 class="title">遠征経路</h1>
+        <div class="subline">十和田大会 10/10(土)・10/11(日) ／ 藤野 美咲</div>
+      </div>
+
+      <div class="profline">
+        <span class="pv">工学部 3年</span><span class="sep">・</span><span class="pv">090-0000-0003</span>
+        <a class="lnk" href="#">修正</a>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>行程</h2><span class="aux">出場日は名簿から自動</span></div>
+        <div class="way">
+          <div class="wrow"><span class="wk">行き</span><span class="seg"><span class="on">札幌から</span><span>帰省先から出場</span><span>その他</span></span></div>
+          <div class="wrow"><span class="wk">帰り</span><span class="seg"><span class="on">札幌へ戻る</span><span>そのまま帰省</span><span>その他</span></span></div>
+        </div>
+        <a class="addday top" href="#">＋ 前の日を足す</a>
+        <div class="tl">
+          <div class="tday">
+            <div class="td">10/9 <span class="wd">(金)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">札幌</span><span class="arw">→</span><span class="in">十和田</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td sat game">10/10 <span class="wd">(土)</span></div>
+            <div class="tb">
+              <span class="chip">大会出場 <span class="gr">A級</span></span>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td sun">10/11 <span class="wd">(日)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">十和田</span><span class="arw">→</span><span class="in">札幌</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+        </div>
+        <a class="addday" href="#">＋ 後の日を足す</a>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">この行程で保存</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab active">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">プロフィール行は<b>見るだけ</b>（DB の値）。「修正」で下線入力に開く。行き・帰りの2択で既定行が決まり、典型的な人は「保存」だけ。A級で出場が 10/10 だけなら、既定の復路は<b>翌日 10/11</b>。</div>
+</div>
+
+<!-- ─────────── 帰省先から出場 ＋ そのまま帰省 ─────────── -->
+<div class="col">
+  <div class="collabel">帰省先から出場 ＋ そのまま帰省（C級・10/11 出場）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">大会</a><span>›</span><a href="#">十和田大会 C・D・E級</a><span>›</span><span>遠征経路</span></div>
+        <h1 class="title">遠征経路</h1>
+        <div class="subline">十和田大会 10/10(土)・10/11(日) ／ 石狩 蓮</div>
+      </div>
+
+      <div class="profline">
+        <span class="pv">文学部 2年</span><span class="sep">・</span><span class="pv">090-0000-0004</span>
+        <a class="lnk" href="#">修正</a>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>行程</h2><span class="aux">出場日は名簿から自動</span></div>
+        <div class="way">
+          <div class="wrow"><span class="wk">行き</span><span class="seg"><span>札幌から</span><span class="on">帰省先から出場</span><span>その他</span></span></div>
+          <div class="wrow"><span class="wk">帰り</span><span class="seg"><span>札幌へ戻る</span><span class="on">そのまま帰省</span><span>その他</span></span></div>
+          <p class="help">帰省先へ向かう移動が大会の直前なら、日を足して書いてください（例: 10/8 札幌→八戸）。帰省先に滞在するなら、出場のあとは何も書かなくて大丈夫です。</p>
+        </div>
+        <a class="addday top" href="#">＋ 前の日を足す</a>
+        <div class="tl">
+          <div class="tday">
+            <div class="td sat">10/10 <span class="wd">(土)</span></div>
+            <div class="tb">
+              <span class="tempty">移動なし</span>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td sun game">10/11 <span class="wd">(日)</span></div>
+            <div class="tb">
+              <span class="chip home">大会出場（帰省先から出場） <span class="gr">C級</span></span>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+        </div>
+        <a class="addday" href="#">＋ 後の日を足す</a>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">この行程で保存</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab active">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">行き＝帰省先から出場で往路の既定行が消え、出場チップの文言が変わる。帰り＝そのまま帰省で復路の既定行が消える。前日・翌日の空行は残す（足したい人のため）。</div>
+</div>
+
+<!-- ─────────── その他（○○から・自由記述）＋ 札幌へ戻る ─────────── -->
+<div class="col">
+  <div class="collabel">その他 ── 学会先（東京）から向かい、札幌へ戻る（D級・10/11 出場）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">大会</a><span>›</span><a href="#">十和田大会 C・D・E級</a><span>›</span><span>遠征経路</span></div>
+        <h1 class="title">遠征経路</h1>
+        <div class="subline">十和田大会 10/10(土)・10/11(日) ／ 小樽 結衣</div>
+      </div>
+
+      <div class="profline">
+        <span class="pv">理学部 1年</span><span class="sep">・</span><span class="pv">090-0000-0005</span>
+        <a class="lnk" href="#">修正</a>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>行程</h2><span class="aux">出場日は名簿から自動</span></div>
+        <div class="way">
+          <div class="wrow"><span class="wk">行き</span><span class="seg"><span>札幌から</span><span>帰省先から出場</span><span class="on">その他</span></span></div>
+          <div class="wrow other"><span class="in">東京（学会）</span><span class="help">から向かう地名</span></div>
+          <div class="wrow"><span class="wk">帰り</span><span class="seg"><span class="on">札幌へ戻る</span><span>そのまま帰省</span><span>その他</span></span></div>
+        </div>
+        <a class="addday top" href="#">＋ 前の日を足す</a>
+        <div class="tl">
+          <div class="tday">
+            <div class="td sat">10/10 <span class="wd">(土)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">東京（学会）</span><span class="arw">→</span><span class="in">十和田</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td sun game">10/11 <span class="wd">(日)</span></div>
+            <div class="tb">
+              <span class="chip">大会出場 <span class="gr">D級</span></span>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td">10/12 <span class="wd">(月)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">十和田</span><span class="arw">→</span><span class="in">札幌</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+        </div>
+        <a class="addday" href="#">＋ 後の日を足す</a>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">この行程で保存</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab active">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">「その他」を選ぶと直下に地名の自由記述が開き、既定の往路（前日）はその地名から。帰りの「その他」も同じ形（翌日 開催地→地名）。出場チップの文言は変えない（移動行で表す）。</div>
+</div>
+
+<!-- ─────────── 断片: プロフィール欠落（電話なし） ─────────── -->
+<div class="col">
+  <div class="collabel">断片 ── プロフィール欠落（電話なし）は入力欄が開いた状態で始まる</div>
+  <div class="vcard">
+    <div class="vlabel">「あなたの情報」が欠けているとき（1行表示の代わりに表を開く）</div>
+    <div class="sec">
+      <div class="sech"><h2>あなたの情報</h2><span class="aux warn">不足があります</span></div>
+      <table class="flat prof">
+        <tr><th>学部等名</th><td><span class="in" style="width:100%">理学部</span></td></tr>
+        <tr><th>学年</th><td><span class="sel">1年</span></td></tr>
+        <tr><th>電話</th><td><span class="in err" style="width:100%">&nbsp;</span><div class="errmsg">遠征届の名簿に載せるため、電話番号が必要です</div></td></tr>
+      </table>
+      <p class="help" style="margin-top:8px">ここで入れた内容はプロフィールに保存され、次回からは聞かれません。</p>
+    </div>
+    <div class="vnote">D/E 級で電話が未登録の人向け。保存で <b>プロフィールにも保存</b>され、以後は1行表示になる。</div>
+  </div>
+</div>
+
+<!-- ─────────── 入力済み・代理入力 ─────────── -->
+<div class="col">
+  <div class="collabel">入力済み ── 代理入力（副連絡責任者が石狩さんの経路を開いた）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><a href="#">十和田大会</a><span>›</span><span>遠征経路</span></div>
+        <h1 class="title">遠征経路</h1>
+        <div class="subline">十和田大会 10/10(土)・10/11(日) ／ <span class="vary">石狩 蓮 さんの経路（代理入力）</span></div>
+      </div>
+
+      <div class="profline">
+        <span class="pv">文学部 2年</span><span class="sep">・</span><span class="pv">090-0000-0004</span>
+        <a class="lnk" href="#">修正</a>
+        <span class="bdg ok" style="margin-left:auto">入力済み 9/6 13:20</span>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>行程</h2><span class="aux">出場日は名簿から自動</span></div>
+        <div class="way">
+          <div class="wrow"><span class="wk">行き</span><span class="seg"><span class="on">札幌から</span><span>帰省先から出場</span><span>その他</span></span></div>
+          <div class="wrow"><span class="wk">帰り</span><span class="seg"><span class="on">札幌へ戻る</span><span>そのまま帰省</span><span>その他</span></span></div>
+        </div>
+        <a class="addday top" href="#">＋ 前の日を足す</a>
+        <div class="tl">
+          <div class="tday">
+            <div class="td sat">10/10 <span class="wd">(土)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">札幌</span><span class="arw">→</span><span class="in">十和田</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td sun game">10/11 <span class="wd">(日)</span></div>
+            <div class="tb">
+              <span class="chip">大会出場 <span class="gr">C級</span></span>
+              <div class="mv"><span class="in">十和田</span><span class="arw">→</span><span class="in">苫小牧</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+          <div class="tday">
+            <div class="td">10/12 <span class="wd">(月)</span></div>
+            <div class="tb">
+              <div class="mv"><span class="in">苫小牧</span><span class="arw">→</span><span class="in">札幌</span><span class="x">×</span></div>
+              <a class="addln" href="#">＋ 移動を足す</a>
+            </div>
+          </div>
+        </div>
+        <a class="addday" href="#">＋ 後の日を足す</a>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">修正を保存</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab active">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">出場日の後に移動がある例（十和田→苫小牧→札幌）。同じ日に「出場」と「移動」が並ぶ。代理入力は見出しの名前と朱の注記だけが違い、フォームは本人と同一。</div>
+</div>
+
+<div class="note">
+  <h3>R2 で変えたこと</h3>
+  <ul>
+    <li><b>プロフィールは表示のみ。</b> 学部等名・学年・電話は会員 DB の値をそのまま1行で出す（「修正」で開く）。欠けている人だけ最初から入力欄を開く。</li>
+    <li><b>行き・帰りを別々の2択に。</b> 「帰省先から出場」だけでなく「そのまま帰省」を表現できる。組み合わせは4通りで、既定行の有無と出場チップの文言だけが変わる。</li>
+    <li><b>既定の往路・復路は本人の出場日を基準</b>（前日／翌日）にする。大会の初日・最終日ではない。</li>
+    <li><b>R3: 行き・帰りに「その他」</b>（旅行先・学会先などの地名を自由記述）。既定行はその地名から／へ。</li>
+  </ul>
+</div>
+
+</body></html>

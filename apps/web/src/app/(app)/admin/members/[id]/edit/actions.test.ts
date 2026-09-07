@@ -23,6 +23,7 @@ vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 
 const {
   updateMemberProfile,
+  updateMemberTravelFlags,
   toggleMemberDeactivation,
   unlinkLine,
   updateMemberName,
@@ -348,6 +349,237 @@ describe('Admin member profile edit actions', () => {
         where: eq(users.id, target.id),
       })
       expect(unchanged?.birthDate).toBeNull()
+    })
+
+    // travel-report R1/AC-5: サークル所属・学部区分・学部等名・学年を保存できる。
+    it('サークル所属ON: 学部区分・学部等名・学年を保存できる', async () => {
+      const admin = await createAdmin({ name: 'admin-circle-1' })
+      const target = await createUser({ name: 'circle-target-1' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          isCircleMember: 'on',
+          facultyKind: 'graduate',
+          faculty: '情報科学院',
+          schoolYear: '修士1年',
+        }),
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.success).toBe(true)
+
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.isCircleMember).toBe(true)
+      expect(updated?.facultyKind).toBe('graduate')
+      expect(updated?.faculty).toBe('情報科学院')
+      expect(updated?.schoolYear).toBe('修士1年')
+    })
+
+    it('サークル所属ON: 区分と整合しない学年（学部に「修士1年」）は拒否される', async () => {
+      const admin = await createAdmin({ name: 'admin-circle-2' })
+      const target = await createUser({ name: 'circle-target-2' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          isCircleMember: 'on',
+          facultyKind: 'undergraduate',
+          faculty: '工学部',
+          schoolYear: '修士1年',
+        }),
+      )
+      expect(result.error).toContain('学年')
+    })
+
+    it('サークル所属OFF: 学部属性は任意で既存値が保持される（消えない）', async () => {
+      const admin = await createAdmin({ name: 'admin-circle-3' })
+      const target = await createUser({
+        name: 'circle-target-3',
+        isCircleMember: true,
+        facultyKind: 'undergraduate',
+        faculty: '法学部',
+        schoolYear: '2年',
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      // OFF に切り替えたフォーム送信（学部属性は畳まれて送られない）。
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+        }),
+      )
+      expect(result.success).toBe(true)
+
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.isCircleMember).toBe(false)
+      // 既存の学部属性は消えていない。
+      expect(updated?.facultyKind).toBe('undergraduate')
+      expect(updated?.faculty).toBe('法学部')
+      expect(updated?.schoolYear).toBe('2年')
+    })
+
+    it('候補外の学部等名も自由入力として保存できる（AC-4）', async () => {
+      const admin = await createAdmin({ name: 'admin-circle-4' })
+      const target = await createUser({ name: 'circle-target-4' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: '',
+          gender: '',
+          affiliation: '',
+          dan: '',
+          zenNichikyo: '',
+          isCircleMember: 'on',
+          facultyKind: 'undergraduate',
+          faculty: '候補外学部',
+          schoolYear: '1年',
+        }),
+      )
+      expect(result.success).toBe(true)
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.faculty).toBe('候補外学部')
+    })
+  })
+
+  describe('updateMemberTravelFlags', () => {
+    async function flagsOf(userId: string) {
+      const row = await testDb.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { isTravelReportSubmitter: true, isCircleLeader: true },
+      })
+      return row
+    }
+
+    it('既定値は両方 false', async () => {
+      const target = await createUser({ name: 'flags-default' })
+      expect(await flagsOf(target.id)).toEqual({
+        isTravelReportSubmitter: false,
+        isCircleLeader: false,
+      })
+    })
+
+    it('管理者が副連絡責任者・サークル長を同時に ON にできる', async () => {
+      const admin = await createAdmin({ name: 'flags-admin-1' })
+      const target = await createUser({ name: 'flags-target-1' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberTravelFlags(
+        {},
+        formOf({ userId: target.id, isTravelReportSubmitter: 'on', isCircleLeader: 'on' }),
+      )
+      expect(result).toEqual({ success: true })
+      expect(await flagsOf(target.id)).toEqual({
+        isTravelReportSubmitter: true,
+        isCircleLeader: true,
+      })
+    })
+
+    it('副管理者も更新できる', async () => {
+      const vice = await createViceAdmin({ name: 'flags-vice-1' })
+      const target = await createUser({ name: 'flags-target-2' })
+      await setAuthSession({ id: vice.id, role: 'vice_admin' })
+
+      await updateMemberTravelFlags(
+        {},
+        formOf({ userId: target.id, isTravelReportSubmitter: 'on' }),
+      )
+      expect(await flagsOf(target.id)).toEqual({
+        isTravelReportSubmitter: true,
+        isCircleLeader: false,
+      })
+    })
+
+    it('一般会員は拒否され、フラグは変わらない', async () => {
+      const member = await createUser({ name: 'flags-member-1', role: 'member' })
+      const target = await createUser({ name: 'flags-target-3' })
+      await setAuthSession({ id: member.id, role: 'member' })
+
+      await expect(
+        updateMemberTravelFlags(
+          {},
+          formOf({ userId: target.id, isTravelReportSubmitter: 'on' }),
+        ),
+      ).rejects.toThrow(/Unauthorized/)
+      expect(await flagsOf(target.id)).toEqual({
+        isTravelReportSubmitter: false,
+        isCircleLeader: false,
+      })
+    })
+
+    // requirements R2: サークル長は同時に1人だけ。付与時に既に別の人が持っていれば
+    // エラーで拒否し、（副連絡責任者を含め）変更されない（AC-5）。
+    it('サークル長を既に別人が持つ状態で付与するとエラーになり、変更されない（AC-5）', async () => {
+      const admin = await createAdmin({ name: 'flags-admin-2' })
+      await createUser({ name: 'flags-leader-existing', isCircleLeader: true })
+      const target = await createUser({
+        name: 'flags-target-4',
+        isTravelReportSubmitter: false,
+        isCircleLeader: false,
+      })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberTravelFlags(
+        {},
+        formOf({ userId: target.id, isTravelReportSubmitter: 'on', isCircleLeader: 'on' }),
+      )
+      expect(result.error).toContain('サークル長')
+
+      // 単一 UPDATE のため、サークル長の重複でエラーになった際に
+      // 副連絡責任者だけが先に変更済みになっていない。
+      expect(await flagsOf(target.id)).toEqual({
+        isTravelReportSubmitter: false,
+        isCircleLeader: false,
+      })
+    })
+
+    it('ゲストに副連絡責任者を付与しようとするとエラーになる', async () => {
+      const admin = await createAdmin({ name: 'flags-admin-3' })
+      const guest = await createUser({ name: 'flags-guest-1', role: 'guest' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberTravelFlags(
+        {},
+        formOf({ userId: guest.id, isTravelReportSubmitter: 'on' }),
+      )
+      expect(result.error).toBeDefined()
+      expect(await flagsOf(guest.id)).toEqual({
+        isTravelReportSubmitter: false,
+        isCircleLeader: false,
+      })
+    })
+
+    it('存在しない会員はエラーを返す', async () => {
+      const admin = await createAdmin({ name: 'flags-admin-4' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberTravelFlags(
+        {},
+        formOf({ userId: 'no-such-user', isTravelReportSubmitter: 'on' }),
+      )
+      expect(result.error).toBeTruthy()
     })
   })
 

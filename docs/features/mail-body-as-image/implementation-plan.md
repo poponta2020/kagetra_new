@@ -27,7 +27,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 共有トークン基盤（スキーマ・発行モジュール・cleanup）
-- [ ] 完了
+- [x] 完了
 - **目的:** メール本文を公開 URL で配れるようにするトークンの土台を作る
 - **対応AC:** AC-9, AC-10, AC-11, AC-12
 - **主な変更領域:**
@@ -35,7 +35,8 @@ status: completed
     `id` / `mail_message_id`（notNull・unique・FK `mail_messages` onDelete cascade）/ `token`（unique）/
     `expires_at` / `access_count` / `created_at`、index は mail 用と expires_at 用の 2 本）
   - `packages/shared/src/schema/index.ts`（export 追加）
-  - `packages/shared/drizzle/0064_*.sql`（`drizzle-kit generate` で生成。**手書き ALTER 禁止**）
+  - `packages/shared/drizzle/0065_*.sql`（`drizzle-kit generate` で生成。**手書き ALTER 禁止**。
+    当初 0064 で生成したが、travel-report（PR #592）が先に main へ 0064 を入れたため 0065 へ採番し直した）
   - `apps/web/src/lib/mail-body-share.ts`（新規）＋ `mail-body-share.test.ts`
     - `MAIL_BODY_SHARE_TTL_DAYS = 60`
     - `getOrCreateMailBodyShareToken(db, mailMessageId, { ttlDays?, now? })`
@@ -49,7 +50,7 @@ status: completed
 - **対応Issue:** #595
 
 ### タスク2: 本文カードの Flex ビルダー（pure）
-- [ ] 完了
+- [x] 完了
 - **目的:** 件名だけを載せた「✉ メールカード」を LINE Flex JSON として組み立てる
 - **対応AC:** AC-2, AC-3, AC-4, AC-5
 - **主な変更領域:**
@@ -69,7 +70,7 @@ status: completed
 - **対応Issue:** #596
 
 ### タスク3: 配信経路の差し替え（本文画像 → 本文カード）
-- [ ] 完了
+- [x] 完了
 - **目的:** `broadcastMailToEvent` が本文をカード 1 通で送るようにし、画像化経路を撤去する
 - **対応AC:** AC-1, AC-6, AC-7, AC-8, AC-19, AC-20, AC-21, AC-22, AC-23
 - **主な変更領域:**
@@ -91,7 +92,7 @@ status: completed
 - **対応Issue:** #597
 
 ### タスク4: 公開の全文ページ
-- [ ] 完了
+- [x] 完了
 - **目的:** トークン URL を未ログインで開くと、件名・受信日時・本文全文が読めるようにする
 - **対応AC:** AC-13, AC-14, AC-15, AC-16, AC-17, AC-18
 - **主な変更領域:**
@@ -131,5 +132,5 @@ status: completed
 
 - `git grep renderBodyImageToJpegs` / `git grep buildBodyImageMessages` が 0 件
 - `git grep "mail-body-image-render"` が 0 件
-- migration 番号が他ブランチと衝突していない（0064）
+- migration 番号が他ブランチと衝突していない（**0065**。0064 は travel-report が使用済み）
 - 本番の `.env.production` に `PUBLIC_BASE_URL` が入っていること（既存前提。未設定だと配信が failed になる）

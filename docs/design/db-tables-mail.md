@@ -74,6 +74,23 @@
 
 **制約・インデックス**: UNIQUE(mail_attachment_id) / UNIQUE(token) / INDEX `attachment_share_tokens_attachment_idx` on (mail_attachment_id) / INDEX `attachment_share_tokens_expires_at_idx` on (expires_at)
 
+## mail_body_share_tokens（TS: `mailBodyShareTokens`）
+
+定義ファイル: `packages/shared/src/schema/mail-body-share-tokens.ts`
+
+メール本文全文ページ `/mail-share/[token]` の60日期限公開URL。認証なし（LINEグループの非アカウントゲスト向け）。`attachment_share_tokens` と同形・同条件で、同じ日次cleanupが期限+7日の猶予で削除する。
+
+| カラム名 (DB) | 型 | NULL | デフォルト | 制約・備考 |
+|---|---|---|---|---|
+| id | integer | NOT NULL | identity | PK |
+| mail_message_id | integer | NOT NULL | — | UNIQUE。FK→mail_messages.id ON DELETE CASCADE |
+| token | text | NOT NULL | — | UNIQUE |
+| expires_at | timestamptz | NOT NULL | — | |
+| access_count | integer | NOT NULL | 0 | 参照専用（認可判断には使わない） |
+| created_at | timestamptz | NOT NULL | `now()` | |
+
+**制約・インデックス**: UNIQUE(mail_message_id) / UNIQUE(token) / INDEX `mail_body_share_tokens_mail_idx` on (mail_message_id) / INDEX `mail_body_share_tokens_expires_at_idx` on (expires_at)
+
 ## tournament_drafts（TS: `tournamentDrafts`）
 
 定義ファイル: `packages/shared/src/schema/tournament-drafts.ts`

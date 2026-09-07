@@ -114,6 +114,12 @@ export const config = {
     // されて到達不能になるため除外する。ガードはルート内の
     // verifyExternalApiKey が全部担う。この名前空間には外部連携ルート以外を
     // 作らないこと。
-    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|api/external|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
+    // mail-body-as-image: /mail-share/[token] は LINE の本文カードから開く
+    // メール全文の公開ページ。LINE グループには景虎にログインできない非会員が
+    // いる前提で、推測不能トークン + 60 日期限だけが防御（添付の公開 URL と
+    // 同じモデル）。ここを通すと開いた全員が /auth/signin へ飛ばされ、
+    // 本改修の目的が丸ごと失われる。会員向けの /mail・/mail/[id] は
+    // 除外対象ではない（`mail-share/` にだけ一致する）。
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|api/external|mail-share/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
   ],
 }

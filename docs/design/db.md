@@ -55,6 +55,10 @@
 | entry_form_draft_status | entryFormDraftStatusEnum | pending, appending, created, imap_failed |
 | payment_report_status | paymentReportStatusEnum | sending, sent, failed, skipped_unlinked, skipped_no_change |
 | payment_report_amount_source | paymentReportAmountSourceEnum | payment_notice, tally, none |
+| faculty_kind | facultyKindEnum | undergraduate, graduate（遠征届の学部/大学院区分。学年そのものは enum にせず共有定数で検証する） |
+| travel_destination_source | travelDestinationSourceEnum | ai, manual（開催地の出所。ai のときだけ「AI推定」バッジを出す） |
+| travel_selection_status | travelSelectionStatusEnum | confirmed, waitlisted, not_participating（名簿確定時の手入力。抽選実績の `selection_outcome` とは別軸） |
+| travel_way_kind | travelWayKindEnum | sapporo, hometown, other（行き／帰りの種別。ラベルだけ向きで変わる） |
 
 ## ドメイン別テーブル一覧
 
@@ -90,6 +94,12 @@
 | entry_group_payment_reports | entryGroupPaymentReports | 支払報告の履歴（1行=1回。送信本文のスナップショットを持つ追記専用ログ） | schema/entry-group-payment-reports.ts |
 | entry_group_payment_receipts | entryGroupPaymentReceipts | 支払報告に添えた証憑画像（1行=1枚。正規化後 JPEG と公開トークン） | schema/entry-group-payment-receipts.ts |
 | entry_form_drafts | entryFormDrafts | 申込書下書きの作成履歴（生成xlsxコピー含む） | schema/entry-form-drafts.ts |
+| entry_group_travel_settings | entryGroupTravelSettings | 遠征届のグループ設定（必要/不要・経路入力の開始・開催地。行が無ければ既定値） | schema/entry-group-travel-settings.ts |
+| entry_group_selection_statuses | entryGroupSelectionStatuses | 名簿確定時の確定状況の**手入力のみ**（グループ×人。導出値は書き込まない） | schema/entry-group-selection-statuses.ts |
+| travel_routes | travelRoutes | 1人×1遠征単位の経路（行き/帰りの種別＋移動行 jsonb。出場行は保存せず出欠から導出） | schema/travel-routes.ts |
+| travel_unit_notices | travelUnitNotices | 遠征単位ごとの「全員そろった」通知記録（claim/成功/失敗を別列で持つ） | schema/travel-unit-notices.ts |
+| travel_report_batches | travelReportBatches | 遠征届の作成1回＝1行（追記専用。作成通知の結果を持つ） | schema/travel-reports.ts |
+| travel_report_documents | travelReportDocuments | 生成した遠征届1ファイル＝1行（docx bytea＋ヘッダ値スナップショット） | schema/travel-reports.ts |
 
 ### メール受信・添付・AI大会案内取込（db-tables-mail.md）
 
@@ -98,6 +108,7 @@
 | mail_messages | mailMessages | 受信メール本体（IMAP取込・分類・処理状態） | schema/mail-messages.ts |
 | mail_attachments | mailAttachments | メール添付ファイル（バイナリ+抽出テキスト） | schema/mail-attachments.ts |
 | attachment_share_tokens | attachmentShareTokens | 添付の期限付き公開ダウンロードトークン | schema/attachment-share-tokens.ts |
+| mail_body_share_tokens | mailBodyShareTokens | メール本文全文の期限付き公開URLトークン | schema/mail-body-share-tokens.ts |
 | tournament_drafts | tournamentDrafts | AI抽出した大会案内のレビュードラフト | schema/tournament-drafts.ts |
 | mail_worker_runs | mailWorkerRuns | mail-worker実行1回分のログ | schema/mail-worker.ts |
 | mail_worker_jobs | mailWorkerJobs | mail-worker手動起動ジョブキュー | schema/mail-worker.ts |

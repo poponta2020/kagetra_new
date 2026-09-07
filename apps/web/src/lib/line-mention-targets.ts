@@ -75,7 +75,31 @@ export async function resolveTreasurerMention(dbc: DbOrTx): Promise<MentionTarge
   return toMentionTarget(await loadTreasurerLineUserIds(dbc))
 }
 
+/**
+ * travel-report: `@副連絡責任者` の対象（`is_travel_report_submitter = true`）の
+ * `line_user_id` を id 昇順で返す。該当0人なら空配列（呼び出し側は素テキストで送る）。
+ *
+ * ★`is_treasurer` と違い `is_travel_report_submitter` は**認可にも使う**列だが、
+ * ここで読むのは「誰をメンションするか」の解決のためだけ。認可判定の正典は
+ * `lib/travel-report/authz.ts` の1ヘルパー（requirements §6・§7）。
+ * ロールで絞らないのは、メンションは admin/vice_admin の提出係にも届いてよいため
+ * （フラグが立っている人＝提出係、というのが運用上の意味）。
+ */
+export async function loadTravelReportSubmitterLineUserIds(dbc: DbOrTx): Promise<string[]> {
+  const rows = await dbc
+    .select({ lineUserId: users.lineUserId })
+    .from(users)
+    .where(and(eq(users.isTravelReportSubmitter, true), ...mentionableConditions()))
+    .orderBy(asc(users.id))
+  return rows.flatMap((r) => (r.lineUserId == null ? [] : [r.lineUserId]))
+}
+
 /** `@管理者` のメンション対象を解決する。 */
 export async function resolveAdminMention(dbc: DbOrTx): Promise<MentionTarget> {
   return toMentionTarget(await loadAdminLineUserIds(dbc))
+}
+
+/** `@副連絡責任者` のメンション対象を解決する（travel-report R8・R9）。 */
+export async function resolveTravelReportSubmitterMention(dbc: DbOrTx): Promise<MentionTarget> {
+  return toMentionTarget(await loadTravelReportSubmitterLineUserIds(dbc))
 }
