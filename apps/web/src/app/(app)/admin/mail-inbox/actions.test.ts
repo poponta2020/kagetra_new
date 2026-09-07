@@ -1106,6 +1106,105 @@ describe('admin/mail-inbox actions', () => {
       expect(rows[0]?.editionId).toBe(ed[0]!.id)
     })
 
+    // mail-ai-extract-refinements §3.2.9(d) / AC-55〜AC-57
+    it('新規系列の作成時に通称を short_name として保存する', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+
+      const fd = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20' },
+      ])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '通称付き新設大会')
+      fd.set('editionNumber', '1')
+      fd.set('editionCreateNewSeries', 'on')
+      fd.set('editionSeriesShortName', ' 通称 ')
+
+      await approveDraftUnits(draft.id, fd)
+
+      const series = await testDb
+        .select()
+        .from(tournamentSeries)
+        .where(eq(tournamentSeries.name, '通称付き新設大会'))
+      expect(series[0]?.shortName).toBe('通称')
+    })
+
+    // AC-56: フォームからは通称が空だと大会名も空になり到達しないため、
+    // サーバー契約として FormData を直接組んで検証する。
+    it('通称が空のまま新規系列を作ると short_name は null', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+
+      const fd = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20' },
+      ])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesName', '通称なし新設大会')
+      fd.set('editionNumber', '1')
+      fd.set('editionCreateNewSeries', 'on')
+      fd.set('editionSeriesShortName', '   ')
+
+      await approveDraftUnits(draft.id, fd)
+
+      const series = await testDb
+        .select()
+        .from(tournamentSeries)
+        .where(eq(tournamentSeries.name, '通称なし新設大会'))
+      expect(series[0]?.shortName).toBeNull()
+    })
+
+    // AC-57: 既存系列の short_name は承認の副作用で書き換わらない
+    //（大会一覧・選手戦績の通称表示が承認操作で変わってしまうため）。
+    it('既存系列を選んだ承認では short_name を書き換えない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      const draft = await createTournamentDraft({
+        messageId: mail.id,
+        extractedPayload: newPayload([unit('u1', ['A'], '2031-03-20')]),
+      })
+      const [series] = await testDb
+        .insert(tournamentSeries)
+        .values({ name: '既存通称大会', kind: 'individual', shortName: '既存' })
+        .returning({ id: tournamentSeries.id })
+
+      const fd = buildUnitsFormData([
+        { unitKey: 'u1', grades: ['A'], eventDate: '2031-03-20' },
+      ])
+      fd.set('editionLink', 'on')
+      fd.set('editionSeriesId', String(series!.id))
+      fd.set('editionNumber', '9')
+      // UI は既存系列選択時に空文字を送るが、値が来ても無視されることを固定する。
+      fd.set('editionSeriesShortName', '書き換え')
+
+      await approveDraftUnits(draft.id, fd)
+
+      // 承認自体が系列解決まで到達したことを先に確かめる（早期 throw で
+      // 「触られていないから変化なし」になっていないことの担保）。
+      const rows = await testDb
+        .select()
+        .from(events)
+        .where(eq(events.tournamentDraftId, draft.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.editionId).not.toBeNull()
+
+      const after = await testDb
+        .select()
+        .from(tournamentSeries)
+        .where(eq(tournamentSeries.id, series!.id))
+      expect(after[0]?.shortName).toBe('既存')
+    })
+
     it('editionLink ON + 検索文字列だけ → 検索結果の選択を求める', async () => {
       const admin = await createAdmin()
       await setAuthSession({ id: admin.id, role: 'admin' })
