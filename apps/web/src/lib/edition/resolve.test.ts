@@ -48,6 +48,14 @@ describe('edition resolve — pure helpers', () => {
     it('「第百五十回」を 150 にする', () => {
       expect(parseEditionNumber('第百五十回テスト大会')).toBe(150)
     })
+    // 算用数字は 4 桁まで読むので、漢数字も同じ上限まで読めること（Codex R1 blocker）。
+    it('4桁の漢数字「第二千二百二十二回」を 2222 にする', () => {
+      expect(parseEditionNumber('第二千二百二十二回テスト大会')).toBe(2222)
+      expect(parseEditionNumber('第九千九百九十九回テスト大会')).toBe(9999)
+    })
+    it('4桁を超える漢数字は null（算用数字の \\d{1,4} と同じ上限）', () => {
+      expect(parseEditionNumber('第九千九千九千九回テスト大会')).toBeNull()
+    })
     it('年式表記（九段大会2026-2）は従来どおり null', () => {
       expect(parseEditionNumber('九段大会2026-2')).toBeNull()
     })
@@ -76,6 +84,8 @@ describe('edition resolve — pure helpers', () => {
         '全国競技かるた杉並大会',
       )
       expect(parseSeriesName('第二十五回テスト大会')).toBe('テスト大会')
+      // 4桁の漢数字ラベルも剥がす（値の取得と同じ上限を共有していることの確認）。
+      expect(parseSeriesName('第二千二百二十二回テスト大会')).toBe('テスト大会')
     })
     it('「第N回」以外の漢数字は残す', () => {
       expect(parseSeriesName('三重県大会')).toBe('三重県大会')

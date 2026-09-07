@@ -46,7 +46,8 @@ export type TournamentStatus = 'held' | 'cancelled' | 'unconfirmed'
  * parseSeriesName（ラベルを剥がす）で同じ定義を共有する** — 片方だけ広げると、回次は読めるのに
  * 系列名候補に「第三回」が残って既存系列と完全一致しなくなる。
  */
-const EDITION_NUMBER_SOURCE = '(?:\\d{1,4}|[〇一二三四五六七八九十百千]{1,6})'
+// 漢数字は 7 文字まで（算用数字の 4 桁と同じ上限 9999 を「九千九百九十九」で表すのに 7 文字要る）。
+const EDITION_NUMBER_SOURCE = '(?:\\d{1,4}|[〇一二三四五六七八九十百千]{1,7})'
 const EDITION_NUMBER_RE = new RegExp(`第\\s*(${EDITION_NUMBER_SOURCE})\\s*回`)
 const EDITION_LABEL_RE = new RegExp(`第\\s*${EDITION_NUMBER_SOURCE}\\s*回`, 'g')
 
@@ -93,7 +94,9 @@ export function parseEditionNumber(name: string): number | null {
   if (!m) return null
   const raw = m[1]!
   const n = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : parseKanjiNumber(raw)
-  return n != null && Number.isFinite(n) && n > 0 ? n : null
+  // 上限は算用数字の 4 桁に合わせる（「九千九千九千九」のような破綻した漢数字が
+  // 桁外れの値になって edition を作らないようにする）。
+  return n != null && Number.isFinite(n) && n > 0 && n <= 9999 ? n : null
 }
 
 /**
