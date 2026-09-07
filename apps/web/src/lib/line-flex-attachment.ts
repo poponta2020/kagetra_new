@@ -20,7 +20,14 @@ export interface LineFlexAttachmentMessage {
   contents: Record<string, unknown>
 }
 
-const ALT_TEXT_MAX = 400
+/**
+ * mail-body-as-image (本文リンクカード化): 本文カード (line-flex-mail-body.ts)
+ * も同じ形の Flex メッセージを返すため、添付に限らない別名を用意する。
+ */
+export type LineFlexMessage = LineFlexAttachmentMessage
+
+/** LINE の altText 上限 (UTF-16 単位)。 */
+export const ALT_TEXT_MAX = 400
 
 /**
  * altText を UTF-16 単位で上限まで切り詰める。`slice` を直接使うと、上限位置が
@@ -28,7 +35,7 @@ const ALT_TEXT_MAX = 400
  * 一覧に不正な文字が出る (𠮟・𩸽 等の JIS 第3・第4水準漢字は人名・大会名で
  * 実際に使われる)。コードポイント境界で止めることでこれを防ぐ。
  */
-function truncateToUtf16Units(text: string, limit: number): string {
+export function truncateToUtf16Units(text: string, limit: number): string {
   if (text.length <= limit) return text
   let out = ''
   for (const ch of text) {

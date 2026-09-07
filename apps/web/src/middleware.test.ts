@@ -178,4 +178,18 @@ describe('middleware — matcher（未認証前提ルートの除外。external-
     expect(pattern.test('/dashboard')).toBe(true)
     expect(pattern.test('/api/mail/attachments/7')).toBe(true)
   })
+
+  // mail-body-as-image AC-18: 本文カードのタップ先。ここが matcher に
+  // 掛かると LINE から開いた全員が /auth/signin へ飛ぶ（ページ単体テストでは
+  // 検出できない — ページ関数を直接呼ぶだけなので matcher の漏れに気づかない）。
+  it('/mail-share/[token] は matcher の対象外（未ログインで開ける）', () => {
+    expect(pattern.test('/mail-share/abcDEF123_-xyz')).toBe(false)
+  })
+
+  // 逆方向の回帰: 除外語を `mail` と書き間違えると会員向けメール画面ごと
+  // 未認証化する。/mail・/mail/[id] は matcher に一致し続けること。
+  it('会員向け /mail・/mail/[id] は引き続き matcher の対象（認証必須のまま）', () => {
+    expect(pattern.test('/mail')).toBe(true)
+    expect(pattern.test('/mail/123')).toBe(true)
+  })
 })

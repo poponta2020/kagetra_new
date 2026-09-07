@@ -25,7 +25,7 @@
 > - `apps/web/src/app/api/admin/mail/attachments/[id]/preview/[page]/route.ts`（添付プレビュー JPEG 配信）
 > - `apps/web/src/app/api/admin/mail/unprocessed-count/route.ts`（未処理バッジ件数）
 > - `apps/web/src/app/api/admin/mail-inbox/[id]/draft-status/route.ts`（AI 抽出進行 polling）
-> - `apps/web/src/lib/mail-body-cleaner.ts` / `mail-body-image-render.ts` / `attachment-image-render.ts` / `attachment-preview.ts` / `image-cache.ts` / `text-splitter.ts`
+> - `apps/web/src/lib/mail-body-cleaner.ts` / `mail-body-share.ts` / `attachment-image-render.ts` / `attachment-preview.ts` / `image-cache.ts` / `text-splitter.ts`
 > - `packages/shared/src/schema/mail-messages.ts` / `mail-attachments.ts` / `attachment-share-tokens.ts` / `mail-worker.ts`（`mail_worker_runs` / `mail_worker_jobs`）
 
 ## 機能仕様
@@ -161,7 +161,7 @@ mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notif
 
 保存時は選んだグループの「cutoff 以降 ∧ 非 cancelled」の日から代表イベントを解決して `mail_messages.linked_event_id` に入れる（グループは `events.entry_group_id` から一意に引けるので二重管理しない）。紐付け時は任意の「冒頭メッセージ」（200 文字以内）を LINE 配信に付加できる。
 
-LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 紐付けが無いときは選択できず**理由と大会詳細へのリンクを出す（従来は黙ってスキップしていた）。「メール本文を添付する」（既定 ON）を外すと本文画像も本文テキストも送らず、冒頭メッセージと添付リンクだけを配信する。この可否は `event_broadcast_messages.include_body` に保存され、再送時も同じメッセージ構成が再現される。保存済みオープンチャットがあるグループでは「オープンチャットの招待リンクも送る（N件）」も並び、入れると本文・添付の push の直後に Flex 1通が続く。既定は **未配信なら ON／配信済みなら OFF／配信済みでも前回配信より後に増えた行があれば ON**（級別・部門別の URL は別のメールで後から届くのが普通で、そこで OFF のままだと「たった今保存したリンクが黙って送られない」——抑止したいのは同じ内容の再送だけ）。**本文・添付・冒頭メッセージが全て空でもオープンチャットを載せるなら配信は成立する**（本文側は空配信として skip され、Flex だけが届く。このとき `event_broadcast_messages` には `empty_message_set` の failed 行が残るので、配信履歴の表示上は「失敗」に見える——push は一切していないので紐付けの revoke には至らない）。
+LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 紐付けが無いときは選択できず**理由と大会詳細へのリンクを出す（従来は黙ってスキップしていた）。「メール本文を添付する」（既定 ON）を外すと本文カードを送らず、冒頭メッセージと添付リンクだけを配信する。この可否は `event_broadcast_messages.include_body` に保存され、再送時も同じメッセージ構成が再現される。保存済みオープンチャットがあるグループでは「オープンチャットの招待リンクも送る（N件）」も並び、入れると本文・添付の push の直後に Flex 1通が続く。既定は **未配信なら ON／配信済みなら OFF／配信済みでも前回配信より後に増えた行があれば ON**（級別・部門別の URL は別のメールで後から届くのが普通で、そこで OFF のままだと「たった今保存したリンクが黙って送られない」——抑止したいのは同じ内容の再送だけ）。**本文・添付・冒頭メッセージが全て空でもオープンチャットを載せるなら配信は成立する**（本文側は空配信として skip され、Flex だけが届く。このとき `event_broadcast_messages` には `empty_message_set` の failed 行が残るので、配信履歴の表示上は「失敗」に見える——push は一切していないので紐付けの revoke には至らない）。
 
 `.xls`/`.xlsx` 添付がある場合、**種別 = 未選択のときだけ**画面下部に「試合結果の取込」セクションが独立して表示される（`ResultParseButton` → `triggerResultParse` Server Action → `mail_worker_jobs(kind='result_parse')`）。これは AI 抽出フロー（`tournament_drafts`）とは別系統の `result_drafts` を扱い、パース・承認ロジックの詳細は [spec/tournaments-results.md](tournaments-results.md) の管轄。
 
@@ -256,7 +256,7 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 ### メール本文の LINE 配信向け加工
 
-`apps/web/src/lib/mail-body-cleaner.ts`（`stripMailFooter()` / `buildBroadcastBody()`）は Google Groups 等の自動フッター除去と、件名・訂正フラグを本文先頭に埋め込むテキスト整形を行う。`mail-body-image-render.ts` はメール本文を A4 縦 HTML（`libreoffice --writer` で Web レイアウトのバグを回避）→ PDF → `pdftoppm` で JPEG 化し、LINE 上でスマホスクロールが伸びる問題をスクリーンショット的な 1 枚絵で解消する（要承認済みイベント紐付け後に配信されるため、実際の呼び出し元・配信条件は [spec/notifications.md](notifications.md)）。`text-splitter.ts` の `splitForLine()` は LINE のテキストメッセージ 5000 文字上限に合わせ、段落境界→文境界→ハードカットの順で安全に分割する（サロゲートペアを跨がない）。これら 3 つの lib は本ドメインが提供する加工ユーティリティで、実際の配信トリガー（`broadcastMailToEvent`）は notifications.md 側が呼び出す。
+`apps/web/src/lib/mail-body-cleaner.ts`（`stripMailFooter()` / `buildBroadcastBody()`）は Google Groups 等の自動フッター除去と、件名・訂正フラグを本文先頭に埋め込むテキスト整形を行う。`stripMailFooter()` は LINE 配信の本文カードから開く公開全文ページ（`/mail-share/[token]`）でも使う。本文の公開 URL トークンは `mail-body-share.ts`（`mail_body_share_tokens`・60日 TTL・期限内は再利用）が発行し、カードの組み立ては `line-flex-mail-body.ts` が行う（どちらも DB 以外に依存しない軽量モジュール。実際の呼び出し元・配信条件は [spec/notifications.md](notifications.md)）。**本文の A4 JPEG 画像化（`mail-body-image-render.ts`）は 2026-09 の改修で廃止した**（文字が小さく検索もコピーもできないため、カード＋公開ページへ置き換え）。`text-splitter.ts` の `splitForLine()` は LINE のテキストメッセージ 5000 文字上限に合わせ、段落境界→文境界→ハードカットの順で安全に分割する（サロゲートペアを跨がない）。これらの lib は本ドメインが提供する加工ユーティリティで、実際の配信トリガー（`broadcastMailToEvent`）は notifications.md 側が呼び出す。
 
 ### ジョブキュー・ワーカー運用状態
 

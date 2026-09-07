@@ -10,7 +10,7 @@ import {
 import { eq } from 'drizzle-orm'
 import { createEntryGroup } from '@/test-utils/seed'
 import { broadcastMailToEvent } from './line-broadcast'
-import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
+import { buildMailBodyFlexMessage } from '@/lib/line-flex-mail-body'
 import {
   attachmentShareTokens,
   entryGroups,
@@ -21,6 +21,7 @@ import {
   lineChannels,
   lineGradeGroupBindings,
   mailAttachments,
+  mailBodyShareTokens,
   mailMessages,
   tournamentDrafts,
   tournamentEntryRosterEntries,
@@ -29,16 +30,21 @@ import {
 } from '@kagetra/shared/schema'
 import { db } from './db'
 
-// 本文画像化 (libreoffice spawn) はこのユニットテストの対象外。配信
-// オーケストレーション (本文 image / 添付 link / text fallback の role 別
-// カウント) を環境非依存で検証するため、renderBodyImageToJpegs をモジュール
-// レベルでモックする。実際の libreoffice 描画は mail-body-image-render.test.ts
-// の統合テストが (libreoffice 搭載環境でのみ) カバーする。
-vi.mock('@/lib/mail-body-image-render', () => ({
-  renderBodyImageToJpegs: vi.fn(),
-}))
+// mail-body-as-image: 本文カードの生成は buildMailBodyFlexMessage
+// (line-flex-mail-body.ts) が担う純関数で、環境依存 (libreoffice 等) を
+// 一切持たない。real 実装をそのまま通しつつ呼び出し引数だけを検証したい
+// テスト (件名・訂正フラグの受け渡し) のために、実装を包んだ spy にする
+// (過剰にモックしない = importOriginal で本体を維持する)。
+vi.mock('@/lib/line-flex-mail-body', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/line-flex-mail-body')>()
+  return {
+    ...actual,
+    buildMailBodyFlexMessage: vi.fn(actual.buildMailBodyFlexMessage),
+  }
+})
 
-const renderBodyImageMock = vi.mocked(renderBodyImageToJpegs)
+const buildMailBodyFlexMock = vi.mocked(buildMailBodyFlexMessage)
 
 async function resetDb() {
   await db.delete(eventBroadcastMessages)
@@ -57,6 +63,9 @@ async function resetDb() {
   await db.delete(tournamentEntryRosterEntries)
   await db.delete(tournamentEntryRosters)
   await db.delete(tournamentDrafts)
+  // mail_body_share_tokens は mail_messages を ON DELETE CASCADE で参照するので
+  // 下の mailMessages 削除で自動的に消えるが、明示しておく（他テーブルと同じ様式）。
+  await db.delete(mailBodyShareTokens)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)
   await db.delete(events)
@@ -66,29 +75,14 @@ async function resetDb() {
 
 let originalDryRun: string | undefined
 let originalBaseUrl: string | undefined
-// 本文画像化の成功ケースで使う有効な JPEG。buildBodyImageMessages は sharp で
-// リサイズするので、実バイト列でないと happy path を通らない。
-let jpegFixture: Buffer
 
-beforeAll(async () => {
+beforeAll(() => {
   originalDryRun = process.env.LINE_NOTIFY_DRY_RUN
   process.env.LINE_NOTIFY_DRY_RUN = '1'
   // r-final-15: resolveBaseUrl は PUBLIC_BASE_URL が必須なのでテスト
   // 時にダミーをセット。実際の push は LINE_NOTIFY_DRY_RUN=1 で skip。
   originalBaseUrl = process.env.PUBLIC_BASE_URL
   process.env.PUBLIC_BASE_URL = 'https://test.example.com'
-
-  const { default: sharp } = await import('sharp')
-  jpegFixture = await sharp({
-    create: {
-      width: 120,
-      height: 160,
-      channels: 3,
-      background: { r: 255, g: 255, b: 255 },
-    },
-  })
-    .jpeg()
-    .toBuffer()
 })
 
 afterAll(() => {
@@ -185,12 +179,47 @@ async function addAttachment(
   return inserted[0]!.id
 }
 
+/** fetch をモックして、実際に push された LINE メッセージ列を捕捉するヘルパー。 */
+async function withCapturedPush<T>(
+  run: () => Promise<T>,
+): Promise<{
+  result: T
+  sentMessages: Array<{
+    type: string
+    text?: string
+    altText?: string
+    contents?: unknown
+  }>
+}> {
+  const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
+  delete process.env.LINE_NOTIFY_DRY_RUN
+  const fetchSpy = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(new Response(null, { status: 200 }))
+  try {
+    const result = await run()
+    const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
+      const body = JSON.parse(String(init?.body)) as {
+        messages: Array<{
+          type: string
+          text?: string
+          altText?: string
+          contents?: unknown
+        }>
+      }
+      return body.messages
+    })
+    return { result, sentMessages }
+  } finally {
+    fetchSpy.mockRestore()
+    if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
+  }
+}
+
 describe('broadcastMailToEvent', () => {
   beforeEach(async () => {
     await resetDb()
-    // 既定は本文画像化成功 (1 ページ)。各テストで Once override する。
-    renderBodyImageMock.mockReset()
-    renderBodyImageMock.mockResolvedValue({ pages: [jpegFixture], truncated: false })
+    buildMailBodyFlexMock.mockClear()
   })
 
   it('returns skipped when there is no linked binding', async () => {
@@ -238,19 +267,23 @@ describe('broadcastMailToEvent', () => {
     expect(result.reason).toBe('no_active_binding')
   })
 
-  it('renders the mail body as image messages for an attachment-less mail', async () => {
+  it('AC-1: sends the mail body as a single Flex card (no image messages) for an attachment-less mail', async () => {
     const fx = await buildLinkedFixture()
-    const result = await broadcastMailToEvent(db, {
-      eventId: fx.eventId,
-      mailMessageId: fx.mailMessageId,
-      isCorrection: false,
-    })
+    const { result, sentMessages } = await withCapturedPush(() =>
+      broadcastMailToEvent(db, {
+        eventId: fx.eventId,
+        mailMessageId: fx.mailMessageId,
+        isCorrection: false,
+      }),
+    )
     expect(result.status).toBe('sent')
-    // 本文 1 ページが image として配信され、text / link は 0。
-    expect(result.sentImageCount).toBe(1)
-    expect(result.sentTextCount).toBe(0)
+    // 本文カード 1 通が sentTextCount にカウントされ、image message は 0。
+    expect(result.sentTextCount).toBe(1)
+    expect(result.sentImageCount).toBe(0)
     expect(result.fallbackLinkCount).toBe(0)
-    expect(renderBodyImageMock).toHaveBeenCalledTimes(1)
+    expect(sentMessages).toHaveLength(1)
+    expect(sentMessages.filter((m) => m.type === 'image')).toHaveLength(0)
+    expect(sentMessages[0]?.type).toBe('flex')
 
     const row = await db.query.eventBroadcastMessages.findFirst({
       where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
@@ -260,40 +293,68 @@ describe('broadcastMailToEvent', () => {
     expect(row?.sentAt).not.toBeNull()
   })
 
-  it('falls back to text messages when body image rendering fails', async () => {
+  it('AC-8: PUBLIC_BASE_URL 未設定では監査行が failed になり、push も一切起きない', async () => {
     const fx = await buildLinkedFixture()
-    renderBodyImageMock.mockRejectedValueOnce(new Error('libreoffice crashed'))
+    const prevBaseUrl = process.env.PUBLIC_BASE_URL
+    const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
+    delete process.env.PUBLIC_BASE_URL
+    delete process.env.LINE_NOTIFY_DRY_RUN
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    try {
+      const result = await broadcastMailToEvent(db, {
+        eventId: fx.eventId,
+        mailMessageId: fx.mailMessageId,
+        isCorrection: false,
+      })
+      expect(result.status).toBe('failed')
+      // 本文カードは try/catch で包まない (AC-8) ので、token 発行より前の
+      // baseUrl 検証で throw → push 自体に到達しない。テキストへのフォール
+      // バックも起きない。
+      expect(fetchSpy).not.toHaveBeenCalled()
 
-    const result = await broadcastMailToEvent(db, {
+      const row = await db.query.eventBroadcastMessages.findFirst({
+        where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
+      })
+      expect(row?.status).toBe('failed')
+      expect(row?.errorMessage).toContain('PUBLIC_BASE_URL')
+    } finally {
+      fetchSpy.mockRestore()
+      if (prevBaseUrl != null) process.env.PUBLIC_BASE_URL = prevBaseUrl
+      if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
+    }
+  })
+
+  it('AC-9: re-broadcasting the same mail reuses the same mail_body_share_tokens row (token unchanged)', async () => {
+    const fx = await buildLinkedFixture()
+    await broadcastMailToEvent(db, {
       eventId: fx.eventId,
       mailMessageId: fx.mailMessageId,
       isCorrection: false,
     })
-    expect(result.status).toBe('sent')
-    // 画像化失敗 → buildBroadcastBody + splitForLine の text に降格。
-    expect(result.sentTextCount).toBe(1)
-    expect(result.sentImageCount).toBe(0)
-    expect(result.fallbackLinkCount).toBe(0)
-  })
+    const firstTokens = await db
+      .select()
+      .from(mailBodyShareTokens)
+      .where(eq(mailBodyShareTokens.mailMessageId, fx.mailMessageId))
+    expect(firstTokens).toHaveLength(1)
 
-  it('falls back to text messages when the body exceeds the render page limit', async () => {
-    const fx = await buildLinkedFixture()
-    renderBodyImageMock.mockResolvedValueOnce({
-      pages: [jpegFixture, jpegFixture],
-      truncated: true,
-    })
-
-    const result = await broadcastMailToEvent(db, {
+    // 2 回目: force=true で status='sent' の早期 skip を避けて実再送させる。
+    await broadcastMailToEvent(db, {
       eventId: fx.eventId,
       mailMessageId: fx.mailMessageId,
       isCorrection: false,
+      force: true,
     })
-    expect(result.status).toBe('sent')
-    expect(result.sentTextCount).toBe(1)
-    expect(result.sentImageCount).toBe(0)
+    const secondTokens = await db
+      .select()
+      .from(mailBodyShareTokens)
+      .where(eq(mailBodyShareTokens.mailMessageId, fx.mailMessageId))
+    expect(secondTokens).toHaveLength(1)
+    expect(secondTokens[0]?.token).toBe(firstTokens[0]?.token)
   })
 
-  it('sends every attachment as a fallback link (no image rendering)', async () => {
+  it('AC-22: sends every attachment as a fallback link (no image rendering); body counts as text, attachment as fallback link', async () => {
     const fx = await buildLinkedFixture()
     await addAttachment(fx.mailMessageId, 'shiori.pdf', 'application/pdf')
 
@@ -303,10 +364,11 @@ describe('broadcastMailToEvent', () => {
       isCorrection: false,
     })
     expect(result.status).toBe('sent')
-    // 本文画像 1 + 添付リンク 1。添付は形式問わず image にはならない。
-    expect(result.sentImageCount).toBe(1)
+    // 本文カード 1 (sentTextCount) + 添付リンク 1 (fallbackLinkCount)。
+    // sentImageCount は mail-body-as-image 以降つねに 0。
+    expect(result.sentTextCount).toBe(1)
     expect(result.fallbackLinkCount).toBe(1)
-    expect(result.sentTextCount).toBe(0)
+    expect(result.sentImageCount).toBe(0)
 
     // 添付の署名 URL token が 1 件発行されている。
     const tokens = await db.select().from(attachmentShareTokens)
@@ -386,7 +448,7 @@ describe('broadcastMailToEvent', () => {
     expect(rows).toHaveLength(1)
   })
 
-  it('passes subject + correction flag through to the body image renderer', async () => {
+  it('passes subject + correction flag through to the body card', async () => {
     const fx = await buildLinkedFixture()
     const result = await broadcastMailToEvent(db, {
       eventId: fx.eventId,
@@ -394,13 +456,13 @@ describe('broadcastMailToEvent', () => {
       isCorrection: true,
     })
     expect(result.status).toBe('sent')
-    // 訂正フラグ・件名・本文が renderBodyImageToJpegs に渡る (画像ヘッダーで
-    // 【訂正】【件名】を描画する素材になる)。
-    expect(renderBodyImageMock).toHaveBeenCalledWith(
+    // 訂正フラグ・件名・公開 URL が buildMailBodyFlexMessage に渡る
+    // (カードの見出し・タップ先を組み立てる素材になる)。
+    expect(buildMailBodyFlexMock).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: '〇〇杯 大会案内',
-        rawBody: '大会案内本文 本文 本文。',
         isCorrection: true,
+        url: expect.stringContaining('/mail-share/'),
       }),
     )
 
@@ -422,8 +484,8 @@ describe('broadcastMailToEvent', () => {
     })
     expect(result.status).toBe('sent')
     expect(result.sentLeadCount).toBe(1)
-    // 本文画像 1 ページはそのまま配信される。
-    expect(result.sentImageCount).toBe(1)
+    // 本文カードはそのまま配信される。
+    expect(result.sentTextCount).toBe(1)
 
     const row = await db.query.eventBroadcastMessages.findFirst({
       where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
@@ -442,7 +504,7 @@ describe('broadcastMailToEvent', () => {
     })
     expect(result.status).toBe('sent')
     expect(result.sentLeadCount).toBe(0)
-    expect(result.sentImageCount).toBe(1)
+    expect(result.sentTextCount).toBe(1)
 
     const row = await db.query.eventBroadcastMessages.findFirst({
       where: eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId),
@@ -452,65 +514,48 @@ describe('broadcastMailToEvent', () => {
     expect(row?.sentLeadCount).toBe(0)
   })
 
-  it('prepends leadText and sends in lead → body image → attachment link order', async () => {
+  it('prepends leadText and sends in lead → body card → attachment link order', async () => {
     const fx = await buildLinkedFixture()
     await addAttachment(fx.mailMessageId, 'shiori.pdf', 'application/pdf')
 
-    // 送信順を検証するため DRY_RUN を一時解除し、fetch ペイロードを捕捉する。
-    const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
-    delete process.env.LINE_NOTIFY_DRY_RUN
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 200 }))
-    try {
-      const result = await broadcastMailToEvent(db, {
+    const { result, sentMessages } = await withCapturedPush(() =>
+      broadcastMailToEvent(db, {
         eventId: fx.eventId,
         mailMessageId: fx.mailMessageId,
         isCorrection: false,
         leadText: '抽選結果が出ました！',
-      })
-      expect(result.status).toBe('sent')
-      expect(result.sentLeadCount).toBe(1)
-      expect(result.sentImageCount).toBe(1)
-      expect(result.fallbackLinkCount).toBe(1)
-      expect(result.sentTextCount).toBe(0)
+      }),
+    )
+    expect(result.status).toBe('sent')
+    expect(result.sentLeadCount).toBe(1)
+    expect(result.sentTextCount).toBe(1)
+    expect(result.fallbackLinkCount).toBe(1)
+    expect(result.sentImageCount).toBe(0)
 
-      const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
-        const body = JSON.parse(String(init?.body)) as {
-          messages: Array<{
-            type: string
-            text?: string
-            altText?: string
-            contents?: unknown
-          }>
-        }
-        return body.messages
-      })
-      expect(sentMessages).toHaveLength(3)
-      // 先頭は冒頭テキスト、続いて本文画像、最後に添付カード (flex)。
-      expect(sentMessages[0]).toEqual({ type: 'text', text: '抽選結果が出ました！' })
-      expect(sentMessages[1]?.type).toBe('image')
-      expect(sentMessages[2]?.type).toBe('flex')
-      expect(sentMessages[2]?.altText).toBe('📎 shiori.pdf')
-      // 生 URL はカードのタップアクションに隠れ、テキストとしては露出しない。
-      const flexJson = JSON.stringify(sentMessages[2]?.contents)
-      expect(flexJson).toContain('/api/line-broadcast/attachments/')
-      expect(flexJson).toContain('shiori.pdf')
-    } finally {
-      fetchSpy.mockRestore()
-      if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
-    }
+    expect(sentMessages).toHaveLength(3)
+    // 先頭は冒頭テキスト、続いて本文カード、最後に添付カード (どちらも flex)。
+    expect(sentMessages[0]).toEqual({ type: 'text', text: '抽選結果が出ました！' })
+    expect(sentMessages[1]?.type).toBe('flex')
+    expect(sentMessages[1]?.altText).toBe('📧 〇〇杯 大会案内')
+    const bodyJson = JSON.stringify(sentMessages[1]?.contents)
+    expect(bodyJson).toContain('/mail-share/')
+    expect(sentMessages[2]?.type).toBe('flex')
+    expect(sentMessages[2]?.altText).toBe('📎 shiori.pdf')
+    // 生 URL はカードのタップアクションに隠れ、テキストとしては露出しない。
+    const attachmentJson = JSON.stringify(sentMessages[2]?.contents)
+    expect(attachmentJson).toContain('/api/line-broadcast/attachments/')
+    expect(attachmentJson).toContain('shiori.pdf')
   })
 
-  it('sends only the lead message when body and attachments are empty (no placeholder)', async () => {
+  it('sends lead + body card even when the mail subject/body are empty (card is always sent when includeBody=true)', async () => {
     const fx = await buildLinkedFixture()
-    // 件名・本文を空にし、本文画像も 0 ページ → text fallback も空配列 →
-    // body メッセージ 0 件。添付も無い。
+    // 件名・本文を空にしても、本文カードは「(件名なし)」等の表記で必ず送る
+    // 仕様 (要件 §2.5)。旧: 本文画像 0 ページ → text fallback も空 → 本文
+    // メッセージ 0 件という経路自体がもう存在しない。
     await db
       .update(mailMessages)
       .set({ subject: '', bodyText: '' })
       .where(eq(mailMessages.id, fx.mailMessageId))
-    renderBodyImageMock.mockResolvedValueOnce({ pages: [], truncated: false })
 
     const result = await broadcastMailToEvent(db, {
       eventId: fx.eventId,
@@ -520,9 +565,8 @@ describe('broadcastMailToEvent', () => {
     })
     expect(result.status).toBe('sent')
     expect(result.sentLeadCount).toBe(1)
-    // lead が messages を非空にするので '(本文・添付ともになし)' プレース
-    // ホルダ (body_text) は出ない。本文・画像・添付はいずれも 0。
-    expect(result.sentTextCount).toBe(0)
+    // リード文 + 本文カードの 2 通。添付・画像は 0。
+    expect(result.sentTextCount).toBe(1)
     expect(result.sentImageCount).toBe(0)
     expect(result.fallbackLinkCount).toBe(0)
   })
@@ -531,54 +575,40 @@ describe('broadcastMailToEvent', () => {
   // mail-inbox-mailer 2026-08-02 改修: 本文添付フラグ (AC-16 / AC-17 / AC-30)
   // ───────────────────────────────────────────────────────────────────────
 
-  it('AC-16: includeBody=false では本文画像も本文テキストも送らず、lead と添付リンクだけを送る', async () => {
+  it('AC-16: includeBody=false では本文カードを送らず、lead と添付リンクだけを送る', async () => {
     const fx = await buildLinkedFixture()
     await addAttachment(fx.mailMessageId, 'meibo.xlsx', 'application/vnd.ms-excel')
 
-    const prevDryRun = process.env.LINE_NOTIFY_DRY_RUN
-    delete process.env.LINE_NOTIFY_DRY_RUN
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 200 }))
-    try {
-      const result = await broadcastMailToEvent(db, {
+    const { result, sentMessages } = await withCapturedPush(() =>
+      broadcastMailToEvent(db, {
         eventId: fx.eventId,
         mailMessageId: fx.mailMessageId,
         isCorrection: false,
         leadText: '確定名簿が出ました！',
         includeBody: false,
-      })
-      expect(result.status).toBe('sent')
-      expect(result.sentLeadCount).toBe(1)
-      expect(result.fallbackLinkCount).toBe(1)
-      expect(result.sentImageCount).toBe(0)
-      expect(result.sentTextCount).toBe(0)
+      }),
+    )
+    expect(result.status).toBe('sent')
+    expect(result.sentLeadCount).toBe(1)
+    expect(result.fallbackLinkCount).toBe(1)
+    expect(result.sentImageCount).toBe(0)
+    expect(result.sentTextCount).toBe(0)
 
-      // 本文画像化そのものを起動しない（コストを払わない）。
-      expect(renderBodyImageMock).not.toHaveBeenCalled()
+    // 本文カード発行 (mail_body_share_tokens の token 発行) そのものを
+    // 起動しない（コストを払わない）。
+    const tokens = await db
+      .select()
+      .from(mailBodyShareTokens)
+      .where(eq(mailBodyShareTokens.mailMessageId, fx.mailMessageId))
+    expect(tokens).toHaveLength(0)
 
-      const sentMessages = fetchSpy.mock.calls.flatMap(([, init]) => {
-        const body = JSON.parse(String(init?.body)) as {
-          messages: Array<{
-            type: string
-            text?: string
-            altText?: string
-            contents?: unknown
-          }>
-        }
-        return body.messages
-      })
-      expect(sentMessages).toHaveLength(2)
-      expect(sentMessages[0]).toEqual({ type: 'text', text: '確定名簿が出ました！' })
-      expect(sentMessages[1]?.type).toBe('flex')
-      expect(sentMessages[1]?.altText).toBe('📎 meibo.xlsx')
-      expect(JSON.stringify(sentMessages[1]?.contents)).toContain(
-        '/api/line-broadcast/attachments/',
-      )
-    } finally {
-      fetchSpy.mockRestore()
-      if (prevDryRun != null) process.env.LINE_NOTIFY_DRY_RUN = prevDryRun
-    }
+    expect(sentMessages).toHaveLength(2)
+    expect(sentMessages[0]).toEqual({ type: 'text', text: '確定名簿が出ました！' })
+    expect(sentMessages[1]?.type).toBe('flex')
+    expect(sentMessages[1]?.altText).toBe('📎 meibo.xlsx')
+    expect(JSON.stringify(sentMessages[1]?.contents)).toContain(
+      '/api/line-broadcast/attachments/',
+    )
 
     const audit = await db
       .select({ includeBody: eventBroadcastMessages.includeBody })
@@ -595,7 +625,7 @@ describe('broadcastMailToEvent', () => {
       isCorrection: false,
     })
     expect(result.status).toBe('sent')
-    expect(result.sentImageCount).toBe(1)
+    expect(result.sentTextCount).toBe(1)
 
     const audit = await db
       .select({ includeBody: eventBroadcastMessages.includeBody })
@@ -608,7 +638,7 @@ describe('broadcastMailToEvent', () => {
     const fx = await buildLinkedFixture()
     await addAttachment(fx.mailMessageId, 'kumiawase.pdf', 'application/pdf')
 
-    // 初回に [lead, 本文画像, 添付リンク] の 3 通で組み、lead 1 通だけ届いた
+    // 初回に [lead, 本文カード, 添付リンク] の 3 通で組み、lead 1 通だけ届いた
     // ところで落ちた partial 行を再現する。
     await db.insert(eventBroadcastMessages).values({
       eventLineBroadcastId: fx.broadcastId,
@@ -637,12 +667,12 @@ describe('broadcastMailToEvent', () => {
     })
 
     expect(result.status).toBe('sent')
-    // 初回と同じ列 [lead, 本文画像, 添付リンク] を組み直し、先頭 1 通
+    // 初回と同じ列 [lead, 本文カード, 添付リンク] を組み直し、先頭 1 通
     // （配信済みの lead）を読み飛ばして残り 2 通を送った累計。
     expect(result.sentLeadCount).toBe(1)
-    expect(result.sentImageCount).toBe(1)
+    expect(result.sentTextCount).toBe(1)
     expect(result.fallbackLinkCount).toBe(1)
-    expect(result.sentTextCount).toBe(0)
+    expect(result.sentImageCount).toBe(0)
 
     // 保存値も true のまま（args で上書きしない）。次の再送も同じ列で走る。
     const audit = await db
@@ -650,6 +680,41 @@ describe('broadcastMailToEvent', () => {
       .from(eventBroadcastMessages)
       .where(eq(eventBroadcastMessages.mailMessageId, fx.mailMessageId))
     expect(audit[0]?.includeBody).toBe(true)
+  })
+
+  it('★AC-21: 旧形式で sent_image_count > 0 の partial 監査行を再送すると、prefix-skip をやめて全件再送になる', async () => {
+    const fx = await buildLinkedFixture()
+    await addAttachment(fx.mailMessageId, 'youkou.pdf', 'application/pdf')
+
+    // mail-body-as-image 以前の画像配信形式で、本文画像 1 ページだけ届いて
+    // 添付リンクが未送信のまま落ちた partial 行を再現する。
+    await db.insert(eventBroadcastMessages).values({
+      eventLineBroadcastId: fx.broadcastId,
+      mailMessageId: fx.mailMessageId,
+      status: 'partial',
+      isCorrection: false,
+      includeBody: true,
+      sentLeadCount: 0,
+      sentTextCount: 0,
+      sentImageCount: 1,
+      fallbackLinkCount: 0,
+      errorMessage: 'boom',
+    })
+
+    const { result, sentMessages } = await withCapturedPush(() =>
+      broadcastMailToEvent(db, {
+        eventId: fx.eventId,
+        mailMessageId: fx.mailMessageId,
+        isCorrection: false,
+      }),
+    )
+    expect(result.status).toBe('sent')
+    // prefix-skip されず、本文カード + 添付リンクの 2 通とも送られる
+    // (旧形式の sent_image_count=1 だけを見て「本文は届いた」と誤認しない)。
+    expect(result.sentTextCount).toBe(1)
+    expect(result.fallbackLinkCount).toBe(1)
+    expect(result.sentImageCount).toBe(0)
+    expect(sentMessages).toHaveLength(2)
   })
 
   it('AC-16: 本文 OFF・lead 無し・添付無しは skipped を返し sent にしない（監査行も sending のまま残さない）', async () => {

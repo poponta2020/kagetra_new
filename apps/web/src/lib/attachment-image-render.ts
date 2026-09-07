@@ -176,9 +176,10 @@ export async function renderPdfToJpegs(
  * component from the input itself; the blank-page bug is specific to the
  * HTML "Web" layout, which never occurs on that path.
  *
- * Shared by the mail-body image-render path (mail-body-image-render.ts) so the
+ * Shared by the attachment preview / roster-file / QR-collect paths so the
  * libreoffice invocation — flags, timeout, stdout-drain, stderr surfacing —
- * lives in one place. libreoffice cold-start on the production ARM box has
+ * lives in one place (the mail-body image-render caller was removed when the
+ * body moved to a Flex card + public page). libreoffice cold-start on the production ARM box has
  * been observed up to ~6s; the 120s timeout gives ample headroom for a chunky
  * multi-page document.
  */
