@@ -1,5 +1,9 @@
 import { execSync } from 'node:child_process'
-import { ensureTestDatabase, resolveTestDatabaseUrl } from '@kagetra/shared/test-db'
+import {
+  dropWorkerTestDatabases,
+  ensureTestDatabase,
+  resolveTestDatabaseUrl,
+} from '@kagetra/shared/test-db'
 
 /**
  * Vitest global setup. Pushes the current Drizzle schema to the (per-worktree)
@@ -23,4 +27,20 @@ export default async function setup() {
       env: { ...process.env, DATABASE_URL: dbUrl },
     },
   )
+
+  // ★この DB は以後**テンプレート**として使い、各 vitest worker は
+  // `<name>_w<VITEST_POOL_ID>` を CREATE DATABASE ... TEMPLATE で複製する
+  // （vitest.setup.ts）。前回実行の worker DB が残っていると**古いスキーマのまま
+  // 再利用される**ので、push 直後にすべて落として作り直させる。
+  const dropped = await dropWorkerTestDatabases(dbUrl)
+  if (dropped > 0)
+    console.log('[mail-worker test-setup] Dropped', dropped, 'stale worker database(s)')
+
+  // teardown: 実行が終わったら worker DB を片付ける（postgres-test は tmpfs で、
+  // 複製が居座ると積み上がって `No space left on device` になる）。
+  return async () => {
+    const removed = await dropWorkerTestDatabases(dbUrl)
+    if (removed > 0)
+      console.log('[mail-worker test-setup] Cleaned up', removed, 'worker database(s)')
+  }
 }

@@ -1,14 +1,22 @@
 ---
 name: feedback_vitest_no_file_parallelism
-description: WSL2 Docker test DB のクロックドリフトで時刻境界テストが並行 vitest で flaky。--no-file-parallelism で逐次実行する
+description: vitest は worker ごとのテスト DB で並列実行する。DB 名は VITEST_POOL_ID で作る（VITEST_WORKER_ID だと tmpfs を食い潰す）
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: c06bad42-a4c1-4908-bc80-f4ab3c3c287d
 ---
 
-vitest をローカル検証するときは `pnpm exec vitest run --no-file-parallelism`（逐次実行）で回す。並行実行（既定）だと時刻境界に依存するテストが flaky になる。
+vitest は**並列実行が既定**（`fileParallelism: false` は 2026-09-07 に web・mail-worker とも撤去した）。テスト DB は worker ごとに分かれる（`@kagetra/shared/test-db` の `resolveWorkerTestDatabaseUrl` / `ensureWorkerTestDatabase`）。実測: web 675s→188s、mail-worker 69s→20s。
 
-**Why**: WSL2 の Docker DB コンテナ（test DB `localhost:5434/kagetra_test`）はホストとサブ秒〜1秒超のクロックドリフトがある（`SELECT now()` をホスト時刻と比較すると確認できる）。`gte(createdAt, startedAt)` のような時刻境界をまたぐアサーション（mail-worker の pipeline-runs テスト、子プロセス起動を挟む reextract テスト等）が、並行実行でタイミングがずれると DB now() とプロセス時刻の前後関係が逆転して落ちる。コード側のバグではなく検証環境の罠。
+**Why**: 以前は全テストファイルが1つのテスト DB を共有していたため直列化が必須で、Vitest だけで約11分かかり CI の timeout を押し上げていた。いまは worktree 単位の DB を**テンプレート**にして `CREATE DATABASE … TEMPLATE` で `<name>_w<VITEST_POOL_ID>` を複製する。同じプール枠に流れるファイルは直列なので truncate/insert の決定性は保たれる。
 
-**How to apply**: ローカルで vitest を流すときは常に `--no-file-parallelism` を付ける（CI は別ホストで安定するので付いていなくても通る）。落ちたテストが時刻・タイムスタンプ比較系なら、コードを疑う前にまず逐次実行で再現するか確認する。dev DB(5433) は古いスキーマのことがあるので、検証は test DB(5434) を最新 migration 適用済みで使う。関連: [[feedback_windows_worktree_path]]
+**旧・逐次実行の理由（`--no-file-parallelism`）はもう無い**: WSL2 Docker DB のクロックドリフトで時刻境界テストが flaky になる問題は、Issue #275 / PR #276 で時刻範囲クエリを ID 直接収集に置換して**根治済み**（[[impl_mail_worker_clock_drift_draft_subjects]]）。`pipeline-runs.test.ts` に「worker の時計を 5 秒進めても通る」回帰テストがある。並列で 6 回連続 green を実測して確認した。
+
+**How to apply**:
+- **DB 名には `VITEST_POOL_ID` を使う。`VITEST_WORKER_ID` は使わない。** 前者はプールの枠番号（1..maxWorkers）、後者は worker インスタンスの通し番号で、既定の `isolate: true` ではテストファイルごとに増える。取り違えると DB がファイル数だけ作られ、`postgres-test`（tmpfs 3.2G）を使い切って `could not write block N: No space left on device` で大量に落ちる（実測: web 288 ファイルで DB 202 個・72 ファイル失敗）。回帰テスト= `packages/shared/__tests__/test-db.test.ts`
+- **落ちたら flaky を疑う前に「重量級テストのタイムアウト」を疑う。** 並列化で CPU/IO を取り合うため、単独なら数秒で終わるテストが既定 5 秒を超えることがある（実例: `classify/classifier.test.ts` の 36MiB 本文を Postgres 往復するケース。単独 1.4 秒 → 並列で timeout。`{ timeout: 30_000 }` を個別に付けて解決）。**並列化をやめる理由にはしない**
+- globalSetup が実行前後に worker DB を drop する（前回のスキーマ残りの再利用防止＋tmpfs の掃除）。前提は「1 worktree = 1 vitest プロセス」（`## parallel` in .claude/project-profile.md）
+- `pnpm test` は `turbo run test --concurrency=1` で web / mail-worker / shared を直列に回すので、プロジェクト間で DB がぶつかることはない
+
+関連: [[feedback_shared_test_db_worktree_push_race]] / [[feedback_windows_localhost_econnreset_docker_pg]] / [[feedback_drizzle_kit_push_prompt]]

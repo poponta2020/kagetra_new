@@ -21,6 +21,17 @@ import { Client } from 'pg'
  * Limitation: two vitest processes in the SAME worktree still share a DB.
  * That case is covered by policy (`## parallel` in .claude/project-profile.md:
  * Wave workers do not run tests), not by this module.
+ *
+ * ## worker ごとの分離（fileParallelism を有効にするため）
+ *
+ * 上の worktree 単位の DB は**テンプレート**として使い、vitest の worker は
+ * `<name>_w<VITEST_POOL_ID>` を `CREATE DATABASE … TEMPLATE` で複製して使う。
+ * これで全テストファイルが1つの DB を奪い合わなくなり、`fileParallelism: false`
+ * を外せる（web は 288 ファイル中 106 しか DB を使わないのに、全部が直列化されて
+ * Vitest だけで11分かかっていた）。
+ *
+ * worker ごとに `drizzle-kit push` を走らせない理由: push は1回10〜20秒かかるので
+ * worker 数だけ積むと並列化の利得を食い潰す。テンプレート複製は数百ミリ秒で済む。
  */
 
 // 127.0.0.1 固定: Windows では localhost が IPv6 (::1) に解決され、Docker の
@@ -114,6 +125,137 @@ export async function ensureTestDatabase(dbUrl: string): Promise<void> {
   } catch (err) {
     // 42P04 duplicate_database: 並行プロセスが同時に作成した場合は成功扱い
     if ((err as { code?: string }).code !== '42P04') throw err
+  } finally {
+    await client.end()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// worker ごとの DB（テンプレート複製）
+// ---------------------------------------------------------------------------
+
+/** `_w<数字>` の suffix を落として「テンプレート DB の URL」に戻す（冪等化のため）。 */
+function stripWorkerSuffix(dbUrl: string): string {
+  const url = new URL(dbUrl)
+  url.pathname = '/' + decodeURIComponent(url.pathname.replace(/^\//, '')).replace(/_w\d+$/, '')
+  return url.toString()
+}
+
+/** URL から DB 名を取り出す。 */
+export function databaseNameOf(dbUrl: string): string {
+  return decodeURIComponent(new URL(dbUrl).pathname.replace(/^\//, ''))
+}
+
+/** DB 名を差し替えた URL を返す。 */
+function withDatabaseName(dbUrl: string, name: string): string {
+  const url = new URL(dbUrl)
+  url.pathname = '/' + name
+  return url.toString()
+}
+
+/**
+ * この vitest worker が使う DB の URL。
+ *
+ * **`VITEST_POOL_ID` を使う（`VITEST_WORKER_ID` ではない）。** 両者は別物で、
+ * ここを取り違えるとテスト DB が worker 数ではなく**テストファイル数**だけ作られる:
+ *
+ * - `VITEST_POOL_ID` … プールの**枠**番号（1..maxWorkers）。同じ枠に流れる
+ *   テストファイルは常に直列なので、DB を共有しても truncate/insert は決定的
+ * - `VITEST_WORKER_ID` … worker インスタンスごとの**通し番号**。既定の
+ *   `isolate: true` ではテストファイルごとに worker を作り直すため単調増加する
+ *
+ * 実測（2026-09-07・web 288 ファイル）: `VITEST_WORKER_ID` で複製したところ DB が
+ * 202 個まで増え、10MB のテンプレート複製で tmpfs 3.2G を使い切って
+ * `could not write block N: No space left on device` で 72 ファイルが落ちた。
+ * `VITEST_POOL_ID` なら上限は maxWorkers（このマシンで 11）＝約 110MB に収まる。
+ *
+ * **冪等** —— 既に `_w<N>` が付いた URL を渡しても二重に付かない
+ * （`vitest.setup.ts` が `TEST_DATABASE_URL` を上書きするため、同じプロセスで
+ * 再解決されうる）。
+ */
+export function resolveWorkerTestDatabaseUrl(baseUrl = resolveTestDatabaseUrl()): string {
+  const template = stripWorkerSuffix(baseUrl)
+  const poolId = process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID ?? '1'
+  const suffix = String(poolId).replace(/[^0-9]/g, '') || '1'
+  return withDatabaseName(template, `${databaseNameOf(template)}_w${suffix}`)
+}
+
+/** 管理接続（`postgres` メンテナンス DB）を開く。 */
+async function adminClient(dbUrl: string): Promise<Client> {
+  const adminUrl = new URL(dbUrl)
+  adminUrl.pathname = '/postgres'
+  const client = new Client({ connectionString: adminUrl.toString() })
+  await client.connect()
+  return client
+}
+
+const quote = (ident: string) => `"${ident.replace(/"/g, '""')}"`
+
+/**
+ * worker の DB をテンプレートから複製する（既にあれば何もしない）。
+ *
+ * 並行する worker が同じテンプレートから同時に複製すると Postgres が
+ * `55006 object_in_use`（テンプレートに他の接続がある）を返すことがあるので、
+ * 短いバックオフで数回リトライする。`42P04 duplicate_database` は他の worker が
+ * 先に作っただけなので成功扱い。
+ */
+export async function ensureWorkerTestDatabase(
+  workerUrl: string,
+  templateUrl = stripWorkerSuffix(workerUrl),
+): Promise<void> {
+  const probe = new Client({ connectionString: workerUrl })
+  try {
+    await probe.connect()
+    return
+  } catch (err) {
+    if ((err as { code?: string }).code !== '3D000') throw err
+  } finally {
+    await probe.end().catch(() => {})
+  }
+
+  const target = databaseNameOf(workerUrl)
+  const template = databaseNameOf(templateUrl)
+  const client = await adminClient(workerUrl)
+  try {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await client.query(`CREATE DATABASE ${quote(target)} TEMPLATE ${quote(template)}`)
+        return
+      } catch (err) {
+        const code = (err as { code?: string }).code
+        if (code === '42P04') return // 他の worker が先に作った
+        if (code === '55006' && attempt < 10) {
+          await new Promise((r) => setTimeout(r, 150 * attempt))
+          continue
+        }
+        throw err
+      }
+    }
+  } finally {
+    await client.end()
+  }
+}
+
+/**
+ * テンプレートから複製した worker DB を全部落とす。
+ *
+ * **globalSetup がスキーマを push した直後に呼ぶ。** 前回実行の worker DB が
+ * 残っていると古いスキーマのまま再利用されてしまうため、毎回作り直させる。
+ */
+export async function dropWorkerTestDatabases(baseUrl = resolveTestDatabaseUrl()): Promise<number> {
+  const template = stripWorkerSuffix(baseUrl)
+  const prefix = `${databaseNameOf(template)}_w`
+  const client = await adminClient(template)
+  try {
+    const { rows } = await client.query<{ datname: string }>(
+      'SELECT datname FROM pg_database WHERE datname LIKE $1',
+      [`${prefix.replace(/([%_])/g, String.raw`\$1`)}%`],
+    )
+    for (const row of rows) {
+      // FORCE は PG13+。残った接続ごと落とす（テスト用 DB なので安全）。
+      await client.query(`DROP DATABASE IF EXISTS ${quote(row.datname)} WITH (FORCE)`)
+    }
+    return rows.length
   } finally {
     await client.end()
   }

@@ -10,10 +10,11 @@ jobs:
   ci:
     name: Lint / Typecheck / Test
     runs-on: ubuntu-latest
-    # deploy をブロックしないので待ち時間は問題にならない。実測 15 分ぎりぎり
-    # （Vitest だけで約11分。`fileParallelism: false` で全テストファイルを直列実行
-    # しているため）で timeout に当たり続けていたので余裕を持たせる。
-    # 高速化するならテスト DB を worker ごとに分けて並列化する（別 PR）。
+    # deploy をブロックしないので待ち時間は問題にならない。以前は Vitest だけで
+    # 約11分（`fileParallelism: false` で全テストファイルを直列実行）かかり
+    # timeout 15 分に当たり続けていた。2026-09-07 に worker ごとのテスト DB
+    # （@kagetra/shared/test-db）を入れて並列化し、ローカル実測で web 675s→188s・
+    # mail-worker 69s→20s。Playwright を含めても余裕を持たせて 30 分のままにする。
     timeout-minutes: 30
 
     services:

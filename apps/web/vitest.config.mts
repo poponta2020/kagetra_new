@@ -23,9 +23,11 @@ export default defineProject({
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     passWithNoTests: true,
     globalSetup: ['./vitest.global-setup.ts'],
-    // Test files share one test DB (truncate/insert per test). Running them in
-    // parallel causes cross-file interleaving on the same tables. Serialize to
-    // keep the DB deterministic.
-    fileParallelism: false,
+    // ★`fileParallelism: false` は外した（2026-09-07）。以前は全テストファイルが
+    // 1つのテスト DB を共有していたため直列化が必須で、Vitest だけで11分かかり
+    // CI の timeout を押し上げていた。いまは vitest.setup.ts が worker ごとに
+    // `<worktree DB>_w<id>` を用意する（@kagetra/shared/test-db）ので、ファイル間で
+    // 同じテーブルを取り合うことはない。**同じ worker 内のファイルは従来どおり
+    // 直列**なので、truncate/insert の決定性はそのまま保たれる。
   },
 })
