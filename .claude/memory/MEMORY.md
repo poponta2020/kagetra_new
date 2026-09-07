@@ -395,3 +395,5 @@
 - [メール本文の LINE 配信を画像から Flex カード＋公開全文ページへ](project_ship-mail-body-link-card.md) — shipped: PR #604
 - [本番migrationはdeployジョブが自動適用](feedback_prod_migration_is_automatic.md) — pnpm db:migrate を手で流さない。CI cancelled だと deploy ごと走らない
 - [line-chat-commands 実装（全4タスク）](impl_line-chat-commands.md) — 要件の語リストがAC-9の自例を通さない・手順書の処理順がAC-3/4/12に反する・返信分岐は実行前スナップショット必須
+- [auto-review PR #611](auto-review-round-pr611.md) — R1 verdict=needs_changes→cutoff(user-wontfix)。唯一の blocker=紐付け検証とflipが別tx（once-ever枠の恒久消費は画面経路にも既存）
+- [LINE グループの Bot メンションで申込・支払ステータスを進める](project_ship-line-chat-commands.md) — shipped: PR #611
