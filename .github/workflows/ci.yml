@@ -10,7 +10,11 @@ jobs:
   ci:
     name: Lint / Typecheck / Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # deploy をブロックしないので待ち時間は問題にならない。実測 15 分ぎりぎり
+    # （Vitest だけで約11分。`fileParallelism: false` で全テストファイルを直列実行
+    # しているため）で timeout に当たり続けていたので余裕を持たせる。
+    # 高速化するならテスト DB を worker ごとに分けて並列化する（別 PR）。
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -83,7 +87,16 @@ jobs:
 
   deploy:
     name: Deploy to production
-    needs: [ci]
+    # ★`needs: [ci]` を意図的に持たない（2026-09-07）。ci と並列に走らせて、push から
+    # 約3分で本番へ反映する。以前は ci の完走を待っていたため、テストが育って ci が
+    # timeout-minutes に当たるたびに deploy まで skipped になり、本番が数時間止まった。
+    #
+    # CI をゲートにしなくてよい理由: 「デプロイで本番が落ちる」型の事故は
+    # `scripts/deploy/auto-deploy.sh` が防いでいる —— build 失敗・migration 失敗の
+    # いずれも **restart 前に中断**し、旧コード・旧スキーマのまま動き続ける
+    # （型エラーも next build が落ちるので同じ経路で止まる）。ci が上乗せするのは
+    # 「ビルドは通るが挙動が壊れている」の検出だけで、それは**事後の通知**として使う。
+    # ＝ ci が赤でもコードは本番へ出る。赤を見て直すか放置するかは人が決める。
     # main への push のみ。PR (pull_request) や他ブランチでは走らない。
     # fork PR には secrets が渡らないので deploy 鍵は露出しない。
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
