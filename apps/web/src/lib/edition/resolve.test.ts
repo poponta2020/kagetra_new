@@ -4,6 +4,7 @@ import { tournamentSeries, tournamentSeriesEditions } from '@kagetra/shared/sche
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
   autoResolveEdition,
+  buildEditionSuggestion,
   createConfirmedSeries,
   findOrCreateEdition,
   findOrCreateSeries,
@@ -34,6 +35,22 @@ describe('edition resolve — pure helpers', () => {
     it('回次がなければ null', () => {
       expect(parseEditionNumber('全日本かるた選手権大会')).toBeNull()
     })
+    // mail-ai-extract-refinements §3.2.11 / AC-58: 漢数字の回次。
+    it('漢数字「第三回」を 3 にする', () => {
+      expect(parseEditionNumber('第三回全国競技かるた杉並大会')).toBe(3)
+    })
+    it('位取りのある「第二十五回」を 25 にする', () => {
+      expect(parseEditionNumber('第二十五回テスト大会')).toBe(25)
+    })
+    it('「第十回」を 10 にする', () => {
+      expect(parseEditionNumber('第十回テスト大会')).toBe(10)
+    })
+    it('「第百五十回」を 150 にする', () => {
+      expect(parseEditionNumber('第百五十回テスト大会')).toBe(150)
+    })
+    it('年式表記（九段大会2026-2）は従来どおり null', () => {
+      expect(parseEditionNumber('九段大会2026-2')).toBeNull()
+    })
   })
 
   describe('parseSeriesName', () => {
@@ -51,6 +68,18 @@ describe('edition resolve — pure helpers', () => {
     })
     it('級がなければ第N回だけ落とす', () => {
       expect(parseSeriesName('第65回全日本かるた選手権大会')).toBe('全日本かるた選手権大会')
+    })
+    // AC-58: 回次の値だけでなく**ラベルの除去**も漢数字に対応する。片方だけだと
+    // 系列名候補に「第三回」が残り、既存系列と完全一致しなくなる。
+    it('漢数字の第N回も落とす', () => {
+      expect(parseSeriesName('第三回全国競技かるた杉並大会A級')).toBe(
+        '全国競技かるた杉並大会',
+      )
+      expect(parseSeriesName('第二十五回テスト大会')).toBe('テスト大会')
+    })
+    it('「第N回」以外の漢数字は残す', () => {
+      expect(parseSeriesName('三重県大会')).toBe('三重県大会')
+      expect(parseSeriesName('第1回九段大会')).toBe('九段大会')
     })
   })
 
@@ -94,6 +123,95 @@ describe('edition resolve — pure helpers', () => {
         seriesNameGuess: 'こばえちゃ山形酒田大会',
       })
     })
+    it('漢数字でも回次と系列名候補が揃う', () => {
+      expect(parseAnnouncementName('第三回全国競技かるた杉並大会A級')).toEqual({
+        editionNumber: 3,
+        seriesNameGuess: '全国競技かるた杉並大会',
+      })
+    })
+  })
+
+  /**
+   * mail-ai-extract-refinements §3.2.9(a) / AC-45〜AC-47:
+   * 初期選択の条件を「正規化完全一致が単独」→「名寄せ候補が 1 件だけ」へ緩和する。
+   * tournament-entry-rosters §3.1・AC-1/AC-2 の上書き。
+   */
+  describe('buildEditionSuggestion', () => {
+    const sugimani: SeriesRow = {
+      id: 1,
+      name: '全国競技かるた杉並大会',
+      aliases: [],
+      kind: 'individual',
+      shortName: '杉並',
+    }
+    const kudan: SeriesRow = {
+      id: 2,
+      name: '九段',
+      aliases: [],
+      kind: 'individual',
+      shortName: null,
+    }
+    const suginamiCity: SeriesRow = {
+      id: 3,
+      name: '杉並市民大会',
+      aliases: [],
+      kind: 'individual',
+      shortName: '杉並市民',
+    }
+
+    it('部分一致でも候補が 1 件なら系列と通称を採用する', () => {
+      const suggestion = buildEditionSuggestion('第3回杉並大会A級', [sugimani])
+      expect(suggestion.seriesId).toBe(1)
+      expect(suggestion.seriesShortName).toBe('杉並')
+      // pre-fill する系列名は採用した系列の正準名（検索し直しても自分自身に当たる）。
+      expect(suggestion.seriesName).toBe('全国競技かるた杉並大会')
+      expect(suggestion.editionNumber).toBe(3)
+      // matched は従来どおり「完全一致だったか」— 採用の条件ではない。
+      expect(suggestion.matched).toBe(false)
+    })
+
+    it('候補 1 件でも通称が null なら通称は入れない', () => {
+      const suggestion = buildEditionSuggestion('第1回九段A級', [kudan])
+      expect(suggestion.seriesId).toBe(2)
+      expect(suggestion.seriesShortName).toBeNull()
+      expect(suggestion.matched).toBe(true)
+    })
+
+    it('候補 0 件なら未選択で通称も空', () => {
+      const suggestion = buildEditionSuggestion('第1回鳳玉杯A級', [sugimani])
+      expect(suggestion.seriesId).toBeNull()
+      expect(suggestion.seriesShortName).toBeNull()
+      expect(suggestion.seriesName).toBe('鳳玉杯')
+    })
+
+    it('部分一致が複数なら未選択で通称も空', () => {
+      const suggestion = buildEditionSuggestion('第3回杉並A級', [
+        sugimani,
+        suginamiCity,
+      ])
+      expect(suggestion.seriesId).toBeNull()
+      expect(suggestion.seriesShortName).toBeNull()
+      expect(suggestion.seriesName).toBe('杉並')
+    })
+
+    it('完全一致が単独なら部分一致が他にあっても採用する（既存挙動の維持）', () => {
+      const suggestion = buildEditionSuggestion('第3回杉並市民大会A級', [
+        suginamiCity,
+        { ...sugimani, name: '杉並市民大会選抜', shortName: '杉並選抜' },
+      ])
+      expect(suggestion.seriesId).toBe(3)
+      expect(suggestion.seriesShortName).toBe('杉並市民')
+      expect(suggestion.matched).toBe(true)
+    })
+
+    it('漢数字の案内でも系列を採用できる', () => {
+      const suggestion = buildEditionSuggestion('第三回全国競技かるた杉並大会A級', [
+        sugimani,
+      ])
+      expect(suggestion.seriesId).toBe(1)
+      expect(suggestion.editionNumber).toBe(3)
+      expect(suggestion.matched).toBe(true)
+    })
   })
 })
 
@@ -105,10 +223,14 @@ describe('edition resolve — DB', () => {
     await closeTestDb()
   })
 
-  async function seedSeries(name: string, aliases: string[] = []) {
+  async function seedSeries(
+    name: string,
+    aliases: string[] = [],
+    shortName: string | null = null,
+  ) {
     const [s] = await testDb
       .insert(tournamentSeries)
-      .values({ name, aliases, kind: 'individual' })
+      .values({ name, aliases, kind: 'individual', shortName })
       .returning({ id: tournamentSeries.id })
     return s!.id
   }
@@ -239,6 +361,15 @@ describe('edition resolve — DB', () => {
       expect(data.suggestion.seriesId).toBe(seriesId)
       expect(data.suggestion.editionNumber).toBe(2)
     })
+
+    it('系列一覧と初期候補に通称を載せる', async () => {
+      const seriesId = await seedSeries('テスト大会', [], 'てすと')
+      const data = await loadEditionSelectionData(testDb, '第2回テスト大会')
+      expect(
+        data.seriesOptions.find((series) => series.id === seriesId)?.shortName,
+      ).toBe('てすと')
+      expect(data.suggestion.seriesShortName).toBe('てすと')
+    })
   })
 
   describe('approval-specific series selection', () => {
@@ -247,6 +378,13 @@ describe('edition resolve — DB', () => {
       await expect(
         getSeriesForEditionLink(testDb, { seriesId, kind: 'individual' }),
       ).resolves.toMatchObject({ id: seriesId, name: '既存大会' })
+    })
+
+    it('既存系列 ID の検証結果に通称を含める', async () => {
+      const seriesId = await seedSeries('通称付き大会', [], 'つうしょう')
+      await expect(
+        getSeriesForEditionLink(testDb, { seriesId, kind: 'individual' }),
+      ).resolves.toMatchObject({ id: seriesId, shortName: 'つうしょう' })
     })
 
     it('存在しない系列 ID は拒否する', async () => {
@@ -278,6 +416,36 @@ describe('edition resolve — DB', () => {
         kind: 'team',
       })
       expect(created).toMatchObject({ name: '新しい大会', kind: 'team' })
+    })
+
+    // §3.2.9(d) / AC-55, AC-56: 承認画面の通称を short_name として育てる。
+    it('新規系列に通称を保存する', async () => {
+      const created = await createConfirmedSeries(testDb, {
+        name: '新設通称大会',
+        kind: 'individual',
+        shortName: ' 新設 ',
+      })
+      expect(created.shortName).toBe('新設')
+      const row = await testDb
+        .select()
+        .from(tournamentSeries)
+        .where(eq(tournamentSeries.id, created.id))
+        .limit(1)
+      expect(row[0]?.shortName).toBe('新設')
+    })
+
+    it('通称が空白のみ・未指定なら short_name は null', async () => {
+      const blank = await createConfirmedSeries(testDb, {
+        name: '空白通称大会',
+        kind: 'individual',
+        shortName: '   ',
+      })
+      expect(blank.shortName).toBeNull()
+      const omitted = await createConfirmedSeries(testDb, {
+        name: '通称なし大会',
+        kind: 'individual',
+      })
+      expect(omitted.shortName).toBeNull()
     })
   })
 

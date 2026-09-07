@@ -40,13 +40,60 @@ type DbLike = NodePgDatabase<typeof schema>
 export type TournamentStatus = 'held' | 'cancelled' | 'unconfirmed'
 
 /**
+ * 「第N回」の N にあたる部分。NFKC 後の算用数字と漢数字の両方を受ける。
+ * 漢数字は mail-ai-extract-refinements §3.2.11 で追加（実例:「第三回全国競技かるた杉並大会」が
+ * 回次不明となり系列に紐付けられなかった）。**parseEditionNumber（値を取る）と
+ * parseSeriesName（ラベルを剥がす）で同じ定義を共有する** — 片方だけ広げると、回次は読めるのに
+ * 系列名候補に「第三回」が残って既存系列と完全一致しなくなる。
+ */
+const EDITION_NUMBER_SOURCE = '(?:\\d{1,4}|[〇一二三四五六七八九十百千]{1,6})'
+const EDITION_NUMBER_RE = new RegExp(`第\\s*(${EDITION_NUMBER_SOURCE})\\s*回`)
+const EDITION_LABEL_RE = new RegExp(`第\\s*${EDITION_NUMBER_SOURCE}\\s*回`, 'g')
+
+const KANJI_DIGITS: Record<string, number> = {
+  〇: 0,
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+}
+const KANJI_UNITS: Record<string, number> = { 十: 10, 百: 100, 千: 1000 }
+
+/** 「二十五」→ 25。位取り（十/百/千）付きの一般的な表記だけを読む。読めなければ null。 */
+function parseKanjiNumber(value: string): number | null {
+  let total = 0
+  let current = 0
+  let seen = false
+  for (const ch of value) {
+    const digit = KANJI_DIGITS[ch]
+    if (digit != null) {
+      current = current * 10 + digit
+      seen = true
+      continue
+    }
+    const unit = KANJI_UNITS[ch]
+    if (unit == null) return null
+    total += (current === 0 ? 1 : current) * unit
+    current = 0
+    seen = true
+  }
+  return seen ? total + current : null
+}
+
+/**
  * 大会名から回次（第N回）を抜き出す。全角数字は NFKC で半角化してから拾う。無ければ null。
  */
 export function parseEditionNumber(name: string): number | null {
-  const m = name.normalize('NFKC').match(/第\s*(\d{1,4})\s*回/)
+  const m = name.normalize('NFKC').match(EDITION_NUMBER_RE)
   if (!m) return null
-  const n = Number.parseInt(m[1]!, 10)
-  return Number.isFinite(n) && n > 0 ? n : null
+  const raw = m[1]!
+  const n = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : parseKanjiNumber(raw)
+  return n != null && Number.isFinite(n) && n > 0 ? n : null
 }
 
 /**
@@ -55,8 +102,8 @@ export function parseEditionNumber(name: string): number | null {
  */
 export function parseSeriesName(name: string): string {
   let s = name.normalize('NFKC').trim()
-  // 「第N回」（前後の空白込み）を除去。
-  s = s.replace(/第\s*\d{1,4}\s*回/g, '')
+  // 「第N回」（前後の空白込み）を除去。算用数字・漢数字の両方。
+  s = s.replace(EDITION_LABEL_RE, '')
   // 末尾の級サフィックスを除去。例: "A級" "A・B級" "A,B級" "A〜C級" "（A級）" "B級の部"。
   // 1 文字級（A〜E）が区切り/範囲記号で連なり「級」で締める塊を末尾から剥がす。
   s = s.replace(
@@ -89,6 +136,9 @@ export async function loadAllSeries(tx: DbLike): Promise<SeriesRow[]> {
       name: tournamentSeries.name,
       aliases: tournamentSeries.aliases,
       kind: tournamentSeries.kind,
+      // 承認画面の通称欄・系列検索が使う（mail-ai-extract-refinements §3.2.9〜3.2.10）。
+      // 既存契約どおり「全系列を 1 回の読み取りで渡す」ままで、1 列増えるだけ。
+      shortName: tournamentSeries.shortName,
     })
     .from(tournamentSeries)
   return rows.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
@@ -220,6 +270,7 @@ export async function getSeriesForEditionLink(
       name: tournamentSeries.name,
       aliases: tournamentSeries.aliases,
       kind: tournamentSeries.kind,
+      shortName: tournamentSeries.shortName,
     })
     .from(tournamentSeries)
     .where(eq(tournamentSeries.id, input.seriesId))
@@ -236,6 +287,12 @@ export async function getSeriesForEditionLink(
 export interface CreateConfirmedSeriesInput {
   name: string
   kind: TournamentKind
+  /**
+   * 承認画面の通称欄の値を `short_name` として保存する（§3.2.9(d)）。空・未指定なら null。
+   * **既存系列の `short_name` を書き換える経路は作らない** — 大会一覧・選手戦績の通称表示が
+   * 承認操作の副作用で変わってしまうため。
+   */
+  shortName?: string | null
 }
 
 /**
@@ -261,15 +318,21 @@ export async function createConfirmedSeries(
     )
   }
 
+  const shortNameTrimmed = input.shortName?.trim() ?? ''
   const inserted = await tx
     .insert(tournamentSeries)
-    .values({ name, kind: input.kind })
+    .values({
+      name,
+      kind: input.kind,
+      shortName: shortNameTrimmed !== '' ? shortNameTrimmed : null,
+    })
     .onConflictDoNothing()
     .returning({
       id: tournamentSeries.id,
       name: tournamentSeries.name,
       aliases: tournamentSeries.aliases,
       kind: tournamentSeries.kind,
+      shortName: tournamentSeries.shortName,
     })
   if (inserted[0]) return inserted[0]
 
@@ -345,12 +408,14 @@ function assertSeriesKindMatches(
 }
 
 export interface EditionSuggestion {
-  /** 一意な完全一致がある場合の既存系列 ID。曖昧または未一致なら null。 */
+  /** 採用した既存系列 ID（候補が 1 件に絞れたとき）。曖昧または未一致なら null。 */
   seriesId: number | null
-  /** UI に pre-fill する系列名。既存に完全一致すればその正準名、無ければ解析した候補名。 */
+  /** UI に pre-fill する系列名。系列を採用すればその正準名、無ければ解析した候補名。 */
   seriesName: string
+  /** 採用した系列の通称（`short_name`）。承認画面の通称欄の初期値。未採用・未設定なら null。 */
+  seriesShortName: string | null
   editionNumber: number | null
-  /** 既存 series に完全一致したか（UI の文言出し分け用）。 */
+  /** 既存 series に完全一致したか（UI の文言出し分け用）。採用の条件ではない。 */
   matched: boolean
 }
 
@@ -359,7 +424,15 @@ export interface EditionSelectionData {
   seriesOptions: SeriesRow[]
 }
 
-/** DB から既に取得した同じスナップショットを使って承認画面の初期候補を作る。 */
+/**
+ * DB から既に取得した同じスナップショットを使って承認画面の初期候補を作る。
+ *
+ * mail-ai-extract-refinements §3.2.9(a): 採用条件を「正規化完全一致が単独」から
+ * **「名寄せ候補が 1 件だけ」**へ緩和した（部分一致でも候補が 1 件に絞れているなら採用する）。
+ * 本番31ドラフトの実測では完全一致はごく少数で、旧条件では自動化がほぼ効かなかった。
+ * これは tournament-entry-rosters §3.1・AC-1/AC-2 を上書きする。曖昧なもの（候補 0 件・複数件）は
+ * 確定しない原則は変わらない。`matched` は従来どおり「完全一致だったか」を表す。
+ */
 export function buildEditionSuggestion(
   rawName: string,
   allSeries: SeriesRow[],
@@ -368,9 +441,12 @@ export function buildEditionSuggestion(
   const ranked = rankSeriesCandidates(seriesNameGuess, allSeries)
   const exact = ranked.filter((candidate) => candidate.score >= EXACT_MATCH_SCORE)
   const uniqueExact = exact.length === 1 ? exact[0]! : null
+  // 完全一致が単独ならそれを採る（従来どおり）。無ければ候補が 1 件のときだけ採る。
+  const adopted = uniqueExact?.series ?? (ranked.length === 1 ? ranked[0]!.series : null)
   return {
-    seriesId: uniqueExact?.series.id ?? null,
-    seriesName: uniqueExact ? uniqueExact.series.name : seriesNameGuess,
+    seriesId: adopted?.id ?? null,
+    seriesName: adopted ? adopted.name : seriesNameGuess,
+    seriesShortName: adopted?.shortName ?? null,
     editionNumber,
     matched: uniqueExact != null,
   }
