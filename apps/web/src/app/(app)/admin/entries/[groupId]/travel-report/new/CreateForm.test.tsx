@@ -301,3 +301,56 @@ describe('final レビューの指摘（再計算中の作成・連絡先の dir
     )
   })
 })
+
+describe('再計算の応答順が逆転しても作成が禁止されたままにならない（Codex final-delta）', () => {
+  it('★新しい分割の応答が先に成功し、あとから古い分割の応答が返っても作成できる', async () => {
+    // 1回目（古い分割）は遅れて解決し、2回目（新しい分割）が先に解決する。
+    const first: { resolve?: (v: unknown) => void } = {}
+    const createAction = vi.fn().mockResolvedValue({ ok: true, fileCount: 1 })
+    const reloadAction = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            first.resolve = resolve
+          }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        files: [file({ dates: ['2026-11-07', '2026-11-08', '2026-11-14'], purpose: '最新の分割' })],
+      })
+
+    render(
+      <CreateForm
+        entryGroupId={42}
+        defaults={[
+          file({ dates: ['2026-11-07'] }),
+          file({ dates: ['2026-11-08'] }),
+          file({ dates: ['2026-11-14'] }),
+        ]}
+        createAction={createAction}
+        reloadAction={reloadAction}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalledTimes(2))
+
+    // 遅れて古い分割の応答が「成功」で返る。
+    first.resolve?.({
+      ok: true,
+      files: [file({ dates: ['2026-11-07', '2026-11-08'], purpose: '古い分割' })],
+    })
+
+    // 作成ボタンが押せる状態に戻り、実際に作成できる（settledSplit が巻き戻らない）。
+    await waitFor(() => {
+      const button = screen.getByText('1 ファイルを作成する').closest('button')!
+      expect(button.hasAttribute('disabled')).toBe(false)
+    })
+    fireEvent.click(screen.getByText('1 ファイルを作成する'))
+    await waitFor(() => expect(createAction).toHaveBeenCalled())
+    const payload = createAction.mock.calls[0]![1] as { purpose: string }[]
+    expect(payload[0]!.purpose).toBe('最新の分割')
+  })
+})
