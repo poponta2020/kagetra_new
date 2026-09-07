@@ -16,7 +16,7 @@
 - `event-list-refinements` — イベント一覧の締切ソート・残日数3段階表示・申込可能フィルタ（主要領域: apps/web）
 - `invite-link-registration` — 招待リンクによる会員セルフ登録→LINEログイン完結（主要領域: apps/web, packages/shared）
 - `invite-register-redesign` — 招待URL会員登録のリデザインとプロフィール項目拡張（主要領域: apps/web, packages/shared）
-- `mail-body-as-image` — 承認メールの LINE 配信形式。**2026-09 改修で A4 JPEG 画像 → ✉ Flex カード 1 通＋公開の全文ページ（署名トークン 60 日・ログイン不要）へ全面変更**（主要領域: packages/shared schema/mail-body-share-tokens + apps/web lib/line-broadcast・lib/mail-body-share・lib/line-flex-mail-body・app/mail-share・middleware）
+- `mail-body-as-image` — 承認メールの LINE 配信形式。**2026-09 改修で A4 JPEG 画像 → ✉ Flex カード 1 通＋公開の全文ページ（署名トークン 60 日・ログイン不要）へ全面変更**（主要領域: packages/shared schema/mail-body-share-tokens + apps/web lib/line-broadcast・lib/mail-body-share・lib/line-flex-mail-body・app/mail-share・middleware） [shipped: PR #604]
 - `mail-inbox-mailer` — 受信箱のメーラーモデル化（出荷済み）＋2026-08-02 改修: メール詳細の処理導線を「種別→対象の大会→実行」の統合フォームへ集約（LINE配信可否・本文添付可否・名簿の複数一括採用）（主要領域: packages/shared schema + apps/web admin/mail-inbox・lib/line-broadcast） [shipped: PR #447]
 - `mail-tournament-import` — 大会案内メールのIMAP取込→Claude API振り分け→管理者承認（主要領域: apps/mail-worker, apps/web）
 - `mail-triage-badge` — メール振り分けの承認待ち件数をPWA/アプリ内バッジ表示（主要領域: apps/web）

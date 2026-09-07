@@ -392,3 +392,4 @@
 - [auto-review PR #604](auto-review-round-pr604.md) — R3(final) verdict=pass。R1 blocker 1件修正・1件WONTFIX・nit1件は再レビューせず打ち切り
 - [line-chat-commands 要件定義](project_line-chat-commands.md) — 親Issue #606・LINEグループのBotメンションで申込/支払ステータスを進める
 - [承認画面の通称⇄系列 相互連動](project_ship-series-nickname-link.md) — shipped: PR #605。★開催紐付けが既定ONになる範囲が広がる・残DoD=本番short_name 2件投入・WONTFIX=壊れた漢数字の位取り
+- [メール本文の LINE 配信を画像から Flex カード＋公開全文ページへ](project_ship-mail-body-link-card.md) — shipped: PR #604

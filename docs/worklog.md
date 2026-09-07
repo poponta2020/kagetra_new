@@ -3047,3 +3047,4 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-07 /auto-review-loop PR #605: 3R(i+d+f), verdict=cutoff, effort=m→h→m, tokens=322205/500000, result=cutoff(user-wontfix 1件)
 - 2026-09-07 /auto-review-loop PR #604: 3R(i+d1+f1), verdict=pass, effort=h→h→m, tokens=574501/500000, result=cutoff（R1 blocker 2件→1件修正・1件WONTFIX、final の nit 1件は修正のみで再レビューなし）
 - 2026-09-07 PR #605 出荷: 承認画面の通称⇄系列 相互連動（名寄せ候補1件で通称+系列を自動投入・通称入力→系列候補チップ・系列選択→通称補完・検索の照合対象に short_name 追加・新規系列作成時に short_name 保存・回次の漢数字対応）。Issue #599/#600/#601/#602 クローズ。残DoD=本番の short_name null 2系列に通称投入（AC-63）
+- 2026-09-07 /ship PR #604 (mail-body-as-image 本文リンクカード化): merged。子 #595-598・親 #594 クローズ。migration 0065（0064 は travel-report と衝突し採番し直し）。残 DoD=本番実機(AC-25)・Cache-Control/未ログイン200 の実挙動未確認・PUBLIC_BASE_URL 確認
