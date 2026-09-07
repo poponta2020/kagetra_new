@@ -60,7 +60,7 @@ status: completed
 - **対応Issue:** #609
 
 ### タスク4: webhook への配線と返信
-- [ ] 完了
+- [x] 完了
 - **目的:** 大会グループの発言を解釈して実際に状態を進め、必要なときだけ返信する
 - **対応AC:** AC-1, AC-2, AC-5, AC-6, AC-7, AC-11, AC-12, AC-13
 - **主な変更領域:** `apps/web/src/lib/line-webhook-handler.ts`（招待コード分岐の後ろに追加）、`apps/web/src/lib/line-chat-command-reply.ts`（返信文面・新規）、`apps/web/src/lib/line-webhook-handler.test.ts`（統合テスト追加）
