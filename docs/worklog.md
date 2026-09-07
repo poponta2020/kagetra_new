@@ -3044,3 +3044,6 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-06 /auto-review-loop PR #582: 4R(i+d+f+fd), verdict=pass, effort=h→h, tokens=1013870/500000, result=pass
 - 2026-09-06 出荷: PR #582「メール処理画面から会計へ振込連絡を送れるようにする」— 確定名簿メールの処理と同時に会計へ振込依頼を送る導線を統合処理フォームへ追加。migration 0063（失敗記録）・露出判定の共有化・送信コアの集約・after() 相乗り（配信→振込連絡の順）・失敗表示2画面。親#567・子#568-574 クローズ。★Codex final（全差分）で blocker 4件を検出（delta の pass 後）。残DoD=本番実機確認（AC-21/AC-51）。
 - 2026-09-07 /auto-review-loop PR #592: 7R(i+d3+f+fd), verdict=cutoff, effort=h→m, tokens=1430128/1500000, result=cutoff
+- 2026-09-07 /auto-review-loop PR #605: 3R(i+d+f), verdict=cutoff, effort=m→h→m, tokens=322205/500000, result=cutoff(user-wontfix 1件)
+- 2026-09-07 /auto-review-loop PR #604: 3R(i+d1+f1), verdict=pass, effort=h→h→m, tokens=574501/500000, result=cutoff（R1 blocker 2件→1件修正・1件WONTFIX、final の nit 1件は修正のみで再レビューなし）
+- 2026-09-07 PR #605 出荷: 承認画面の通称⇄系列 相互連動（名寄せ候補1件で通称+系列を自動投入・通称入力→系列候補チップ・系列選択→通称補完・検索の照合対象に short_name 追加・新規系列作成時に short_name 保存・回次の漢数字対応）。Issue #599/#600/#601/#602 クローズ。残DoD=本番の short_name null 2系列に通称投入（AC-63）
