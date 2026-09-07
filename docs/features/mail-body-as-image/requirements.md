@@ -205,7 +205,7 @@ LINE グループのトーク
 | AC-15 | 期限切れ・存在しない・形式不正のトークンは、いずれも同一の案内ページ（「有効期限が切れました」＋会員向け導線）を返す | auto-test |
 | AC-16 | 全文ページは robots meta に `noindex, nofollow` を出力し、動的レンダリングで `Cache-Control` に `no-store` を含めて返る | auto-test |
 | AC-17 | 全文ページに添付ファイル・大会名・イベント詳細リンク・会員向けナビゲーションが表示されない | auto-test |
-| AC-18 | 全文ページは未ログインでもログイン画面へリダイレクトされない（middleware の除外が効いている） | auto-test |
+| AC-18 | 全文ページのパスが middleware の `config.matcher` 正規表現に**一致しない**（＝認証リダイレクトの対象外）。ページ単体テストではなく matcher そのものを検証する | auto-test |
 | AC-19 | 添付カード（`buildAttachmentFlexMessage`）の出力は現行と同一である | auto-test |
 | AC-20 | リード文・CAS による二重送信防止・15 分 stale reclaim・partial 再送の挙動は現行と同一である | auto-test |
 | AC-21 | 旧形式で部分配信された監査行（`sent_image_count > 0`）の再送では、役割別カウント減少を検知して全件再送に倒れる | auto-test |

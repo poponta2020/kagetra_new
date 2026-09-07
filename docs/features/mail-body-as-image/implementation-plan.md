@@ -105,12 +105,17 @@ status: completed
     - 無効・期限切れ・形式不正は**同一の案内ページ**（「有効期限が切れました」＋「会員はかげとらのメール画面から検索できます」）
     - 添付・大会名・イベントリンク・会員向けナビは出さない
   - `apps/web/src/middleware.ts`（matcher の否定先読みに `mail-share` を追加。既存の除外コメント様式に倣う）
-    ＋ middleware のテストがあれば更新
+    ＋ `apps/web/src/middleware.test.ts`（既存の「matcher（未認証前提ルートの除外）」describe に 1 ケース追加）
   - ★ `line-broadcast.ts` は触らない（タスク3 の領域）
 - **依存タスク:** タスク1
 - **必要なテスト:** 有効トークンで 200 かつ件名・受信日時・本文が出る、`<script>` を含む本文が
   テキストとして表示される（実行されない）、期限切れ／存在しない／形式不正が同一の案内ページ、
-  添付ファイル名・大会名が出ない、`metadata.robots` が noindex、未ログインでリダイレクトされない
+  添付ファイル名・大会名が出ない、`metadata.robots` が noindex。
+  **★AC-18 は matcher 正規表現の単体テストで検証する** — `middleware.test.ts` が既にやっているように
+  `config.matcher[0]` を `new RegExp('^' + matcher + '$')` として評価し、
+  `/mail-share/<token>` が **`false`**（＝matcher の対象外）になることを assert する。
+  ページ単体テストは matcher の漏れを検出できない（ページ関数を直接呼ぶだけなので、
+  matcher に `mail-share` を足し忘れても green になり、本番で全員がサインイン画面へ飛ぶ）
 - **完了条件:** vitest green・typecheck / lint 通過
 - **対応Issue:** #598
 
