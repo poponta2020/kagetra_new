@@ -5,7 +5,7 @@
 
 ## Project
 
-- [LINEでBotメンション→申込ステータス更新の実現可能性(2026-09-07)](project_line_bot_entry_status_feasibility.md) — 技術的に可能・要件定義未実施。成立するのは大会グループのみ(級グループは大会特定不可)。★誤爆が取り消せない(once-everスロット消費＋LINE通知2通)・認可はwebhookに無いので作り直し・対象開催日の規則を要決定
+- [LINEでBotメンション→ステータス更新の調査経緯(2026-09-07)](project_line_bot_entry_status_feasibility.md) — **要件定義完了=親#606**(正典=docs/features/line-chat-commands/ と project_line-chat-commands.md)。★遠征届はスコープ外に確定・級グループは大会特定不可で対象外・誤爆が取り消せない(once-everスロット消費＋LINE通知2通)
 - [ライラック配色+立体感 実装完了(2026-08-29)](project_lilac_palette_direction.md) — 正典=docs/features/lilac-palette/design-spec.md。**ライラック=西洋lilac(326°)でなく和の藤色(295°)として読む**。藤(brand=success)+朱(据置)+琥珀(warn新設)、3段2層の影+背景微細ノイズ。★「地味」の原因は測定可能=14トークンが色相80-92°の1系統+カード↔背景ΔL0.024+Cardに影ゼロ。★影のalphaは据え置き不可・`--color-warn`新設は`bg-warn`等をlive化(裸参照0件を確認済)・hex照合は無効
 
 - [2026年 未取込結果の本番backfill(2026-08-25)](impl_a2026_result_backfill.md) — 協会HP掲載済み16大会をt1601-1616へ投入(参加者4933/対戦10326/opp_null増分0)。★parseResultExcelの落とし穴4種を実データで確認=相手セルの不戦/タブ名と中身の不一致/級カラム誤認/同名className跨シートmerge。残=団体戦3件+名人位戦(速報テキストのみ)
@@ -385,3 +385,10 @@
 - [承認画面の通称⇄系列連動 要件定義(2026-09-07)](project_series_nickname_link_def.md) — 親Issue #599。★通称の実体=tournament_series.short_name・AI不採用は実測根拠・初期選択条件をentry-rosters AC-1/2から緩和
 - [mail-body-as-image 改修 タスク1・2（トークン基盤＋Flexカード）](impl_mail-body-link-card-wave1.md) — 公開URLトークン基盤と✉カードビルダーをmain直実装。worktreeのdocs/featuresが古い罠
 - [travel-report（遠征届）出荷](project_ship-travel-report.md) — shipped: PR #592
+- [mail-body-as-image 改修 タスク3・4（配信差し替え＋公開ページ）](impl_mail-body-link-card-wave2.md) — Wave2は2ワーカー並行・middlewareだけmain。AC-21は0固定比較・AC-18はmatcher逆方向回帰が肝
+- [通称⇄系列連動 タスク1・3](impl_series-nickname-link-task1-3.md) — lib/edition の short_name 配線と Server Action。★parseSeriesName も漢数字必須・初期選択の緩和は置き換えでなく追加・editionLink が既定 ON になる副作用
+- [auto-review PR #605](auto-review-round-pr605.md) — R1 verdict=needs_changes（4桁漢数字の回次 blocker を修正）
+- [fix PR #604](impl_fix-pr604.md) — R1 blocker（件名長でFlexが30KB超）修正・トークン期限の再送はWONTFIX
+- [auto-review PR #604](auto-review-round-pr604.md) — R3(final) verdict=pass。R1 blocker 1件修正・1件WONTFIX・nit1件は再レビューせず打ち切り
+- [line-chat-commands 要件定義](project_line-chat-commands.md) — 親Issue #606・LINEグループのBotメンションで申込/支払ステータスを進める
+- [承認画面の通称⇄系列 相互連動](project_ship-series-nickname-link.md) — shipped: PR #605。★開催紐付けが既定ONになる範囲が広がる・残DoD=本番short_name 2件投入・WONTFIX=壊れた漢数字の位取り

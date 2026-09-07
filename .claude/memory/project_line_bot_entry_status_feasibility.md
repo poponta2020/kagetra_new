@@ -5,10 +5,12 @@ metadata:
   node_type: memory
   type: project
   originSessionId: aa595c75-d4fb-45b8-b084-a367861633a1
-  modified: 2026-09-07T03:29:45.711Z
+  modified: 2026-09-07T04:19:49.620Z
 ---
 
-2026-09-07 の調査。「大会グループの Bot をメンションして『申し込みました』と送ったら、Bot が `events.entry_status` を `applied` にできるか」。**結論＝技術的に可能。ただし要件定義は未実施で、実装 GO は出ていない。**
+2026-09-07 の調査。「大会グループの Bot をメンションして『申し込みました』と送ったら、Bot が `events.entry_status` を `applied` にできるか」。**結論＝技術的に可能。同日そのまま要件定義まで完了した（機能名 `line-chat-commands`・親 Issue #606・正典は `docs/features/line-chat-commands/`）。以降はそちらが正で、このメモは調査の経緯として残す。**
+
+**★遠征届の作成は候補に挙がったがスコープ外になった** — 「メンションして呼び出してまでやることないかも」というユーザー判断。このメモの下の記述から遠征届を復活させないこと。確定したアクションは**申込済み・支払済みの2つだけ**。
 
 payload の実測結果は [[reference_line_webhook_mention_payload]]（isSelf・発言者特定・メンションなしでも届く、すべて実測で確認済み）。
 
