@@ -50,8 +50,9 @@ function resolveBaseUrl(override?: string): string {
 export interface BroadcastMailOptions {
   /**
    * Override the public origin used in attachment / body-card URLs (Excel
-   * fallback links, mail-share ページの URL)。Defaults to `PUBLIC_BASE_URL`
-   * env, then `https://new.hokudaicarta.com`.
+   * fallback links, mail-share ページの URL)。Falls back to the
+   * `PUBLIC_BASE_URL` env; when neither is configured (or the value is not
+   * https), `resolveBaseUrl` throws — there is no hard-coded default origin.
    */
   baseUrl?: string
   /**
