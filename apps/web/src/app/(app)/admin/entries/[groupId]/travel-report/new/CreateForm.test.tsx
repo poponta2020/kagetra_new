@@ -239,3 +239,65 @@ describe('分割操作の競合と統合時の dirty（Codex R2）', () => {
     })
   })
 })
+
+describe('final レビューの指摘（再計算中の作成・連絡先の dirty 分離）', () => {
+  it('★再計算が終わるまで作成ボタンを押せない', async () => {
+    const first: { resolve?: (v: unknown) => void } = {}
+    const createAction = vi.fn()
+    const reloadAction = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          first.resolve = resolve
+        }),
+    )
+    render(
+      <CreateForm
+        entryGroupId={42}
+        defaults={[file({ dates: ['2026-11-07'] }), file({ dates: ['2026-11-08'] })]}
+        createAction={createAction}
+        reloadAction={reloadAction}
+      />,
+    )
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(screen.getByText('再計算しています…')).not.toBeNull())
+
+    const button = screen.getByText('再計算しています…').closest('button')!
+    expect(button.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(button)
+    expect(createAction).not.toHaveBeenCalled()
+
+    first.resolve?.({
+      ok: true,
+      files: [file({ dates: ['2026-11-07', '2026-11-08'] })],
+    })
+    await waitFor(() => expect(screen.getByText('1 ファイルを作成する')).not.toBeNull())
+  })
+
+  it('★遠征先連絡者だけ直しても、留守連絡先は再計算結果で更新される', async () => {
+    const a = file({ dates: ['2026-11-07'] })
+    const b = file({ dates: ['2026-11-08'] })
+    const merged = file({
+      dates: ['2026-11-07', '2026-11-08'],
+      destinationContacts: [{ name: 'サーバーの遠征先', phone: '090-1111-1111' }],
+      homeContact: { name: 'サーバーの留守', phone: '090-2222-2222' },
+    })
+    const { reloadAction } = setup([a, b], [merged])
+
+    const dest = screen.getByLabelText('ファイル1の遠征先連絡者の氏名') as HTMLInputElement
+    fireEvent.change(dest, { target: { value: '手で直した遠征先' } })
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalled())
+
+    await waitFor(() => {
+      // 直した側は据え置き。
+      expect(
+        (screen.getByLabelText('ファイル1の遠征先連絡者の氏名') as HTMLInputElement).value,
+      ).toBe('手で直した遠征先')
+    })
+    // 直していない留守連絡先は再計算結果で置き換わる。
+    expect((screen.getByLabelText('ファイル1の留守連絡先の氏名') as HTMLInputElement).value).toBe(
+      'サーバーの留守',
+    )
+  })
+})

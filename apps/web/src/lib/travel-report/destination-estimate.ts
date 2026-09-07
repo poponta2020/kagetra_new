@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, ne } from 'drizzle-orm'
 import { entryGroupTravelSettings, events } from '@kagetra/shared/schema'
 import { db } from '@/lib/db'
 import { estimateDestination } from './destination-ai'
@@ -41,12 +41,16 @@ export async function claimAndEstimateDestination(
     if (inserted.length === 0) return // 他のリクエストが先に claim した
   }
 
+  // ★推定元は**非 cancelled** の最初の開催日に限る（Codex final）。先頭日が中止で
+  // あとに有効な日が残っているグループで、中止になった会場から開催地を推定して
+  // しまうと、claim 済みとして保存され以後の既定経路と遠征届に誤った地名が載る。
   const [event] = await db
     .select({ title: events.title, formalName: events.formalName, location: events.location })
     .from(events)
-    .where(eq(events.entryGroupId, entryGroupId))
+    .where(and(eq(events.entryGroupId, entryGroupId), ne(events.status, 'cancelled')))
     .orderBy(asc(events.eventDate), asc(events.id))
     .limit(1)
+  // 有効な開催日が1つも無ければ推定しない（claim は済んでいるので再試行もしない）。
   if (!event) return
 
   const estimated = await estimateDestination({

@@ -1,6 +1,6 @@
 import 'server-only'
 import { after } from 'next/server'
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import {
   events,
   travelReportBatches,
@@ -114,10 +114,12 @@ export async function loadTravelReportSectionData(
 
 /** 開催日 → その日の対象級。 */
 async function loadGradesByDate(entryGroupId: number): Promise<Map<string, Grade[]>> {
+  // ★遠征単位は非 cancelled の日だけで作るのに級だけ全イベントから集めると、
+  // 同じ日に有効イベントと中止イベントが並ぶグループで実際の対象級と食い違う（Codex final）。
   const rows = await db
     .select({ eventDate: events.eventDate, eligibleGrades: events.eligibleGrades })
     .from(events)
-    .where(eq(events.entryGroupId, entryGroupId))
+    .where(and(eq(events.entryGroupId, entryGroupId), ne(events.status, 'cancelled')))
   const out = new Map<string, Grade[]>()
   for (const row of rows) {
     const list = out.get(row.eventDate) ?? []

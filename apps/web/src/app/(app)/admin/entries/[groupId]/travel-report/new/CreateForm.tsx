@@ -36,7 +36,12 @@ interface EditableFile {
    * ユーザーが手で直した項目。分割を変えて既定値を取り直すとき、ここに入っている
    * 項目だけは上書きしない（Codex R1 #9 の「明示編集は dirty state として保持」）。
    */
-  dirty: Partial<Record<'purpose' | 'place' | 'reportDate' | 'approvalDate' | 'contacts', true>>
+  dirty: Partial<
+    Record<
+      'purpose' | 'place' | 'reportDate' | 'approvalDate' | 'destinationContacts' | 'homeContact',
+      true
+    >
+  >
 }
 
 export interface CreateFormProps {
@@ -89,6 +94,11 @@ export function CreateForm({
   const [recalculating, startRecalculating] = useTransition()
   // 最後に要求した分割。古い再計算の応答を捨てるための照合キー（Codex R2 #1）。
   const latestSplit = useRef<string>(splitSignature(defaults.map(toEditable)))
+  // 再計算が成功している分割。★これが現在の分割と一致しないと作成させない（Codex final）
+  // ——一致しないまま作れると、新しい日付構成に古い目的・場所を組み合わせた届ができる。
+  const [settledSplit, setSettledSplit] = useState<string>(() =>
+    splitSignature(defaults.map(toEditable)),
+  )
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -128,6 +138,7 @@ export function CreateForm({
         setError(result.error)
         return
       }
+      setSettledSplit(signature)
       setFiles((prev) => {
         if (splitSignature(prev) !== signature) return prev
         return prev.map((file, i) => {
@@ -142,10 +153,10 @@ export function CreateForm({
             place: file.dirty.place ? file.place : fresh.place,
             reportDate: file.dirty.reportDate ? file.reportDate : fresh.reportDate,
             approvalDate: file.dirty.approvalDate ? file.approvalDate : fresh.approvalDate,
-            destinationContacts: file.dirty.contacts
+            destinationContacts: file.dirty.destinationContacts
               ? file.destinationContacts
               : fresh.destinationContacts,
-            homeContact: file.dirty.contacts ? file.homeContact : fresh.homeContact,
+            homeContact: file.dirty.homeContact ? file.homeContact : fresh.homeContact,
           }
         })
       })
@@ -182,11 +193,11 @@ export function CreateForm({
       reportDate: pick('reportDate', a.reportDate, b.reportDate) as string,
       approvalDate: pick('approvalDate', a.approvalDate, b.approvalDate) as string | null,
       destinationContacts: pick(
-        'contacts',
+        'destinationContacts',
         a.destinationContacts,
         b.destinationContacts,
       ) as EditableFile['destinationContacts'],
-      homeContact: pick('contacts', a.homeContact, b.homeContact) as EditableFile['homeContact'],
+      homeContact: pick('homeContact', a.homeContact, b.homeContact) as EditableFile['homeContact'],
       // ★スプレッドの優先順ではなく**論理和**で統合する。現状 `dirty` には `true` しか
       // 入らないのでスプレッドでも b の true は残るが、それは「false を書かない」という
       // 離れた場所の約束に依存している。ここで明示的に OR にして、将来 false を入れても
@@ -196,7 +207,10 @@ export function CreateForm({
         ...(a.dirty.place || b.dirty.place ? { place: true as const } : {}),
         ...(a.dirty.reportDate || b.dirty.reportDate ? { reportDate: true as const } : {}),
         ...(a.dirty.approvalDate || b.dirty.approvalDate ? { approvalDate: true as const } : {}),
-        ...(a.dirty.contacts || b.dirty.contacts ? { contacts: true as const } : {}),
+        ...(a.dirty.destinationContacts || b.dirty.destinationContacts
+          ? { destinationContacts: true as const }
+          : {}),
+        ...(a.dirty.homeContact || b.dirty.homeContact ? { homeContact: true as const } : {}),
       },
     }
     applySplit([...files.slice(0, index), merged, ...files.slice(index + 2)])
@@ -216,6 +230,11 @@ export function CreateForm({
   function submit() {
     setError(null)
     setNotice(null)
+    // 再計算が終わっていない／失敗したままの分割では作らせない（Codex final）。
+    if (recalculating || splitSignature(files) !== settledSplit) {
+      setError('ファイル分割の再計算が終わるまでお待ちください')
+      return
+    }
     startTransition(async () => {
       const payload: TravelReportFileInput[] = files.map((f) => ({
         dates: f.dates,
@@ -367,7 +386,9 @@ export function CreateForm({
               <ContactFields
                 label={`ファイル${index + 1}の遠征先連絡者`}
                 contact={{ name: '', phone: null }}
-                onChange={(next) => update(index, { destinationContacts: [next] }, 'contacts')}
+                onChange={(next) =>
+                  update(index, { destinationContacts: [next] }, 'destinationContacts')
+                }
               />
             ) : (
               file.destinationContacts.map((contact, ci) => (
@@ -383,14 +404,14 @@ export function CreateForm({
                           i === ci ? next : c,
                         ),
                       },
-                      'contacts',
+                      'destinationContacts',
                     )
                   }
                 />
               ))
             )}
             <div className="text-xs text-ink-meta">
-              {file.dirty.contacts ? '手入力' : '役職順で自動選択'}
+              {file.dirty.destinationContacts ? '手入力' : '役職順で自動選択'}
             </div>
           </Row>
           <Row label="留守連絡先">
@@ -401,13 +422,13 @@ export function CreateForm({
                 update(
                   index,
                   { homeContact: next.name === '' && next.phone === null ? null : next },
-                  'contacts',
+                  'homeContact',
                 )
               }
             />
             <div className="text-xs text-ink-meta">
               {file.homeContact
-                ? file.dirty.contacts
+                ? file.dirty.homeContact
                   ? '手入力'
                   : 'サークル長（出場するときは出場しない副連絡責任者）'
                 : 'サークル長が未設定、または全員が遠征しています（空欄のまま作成できます）'}
@@ -470,10 +491,14 @@ export function CreateForm({
         <Btn
           block
           size="lg"
-          disabled={pending || files.length === 0 || totalDays === 0}
+          disabled={pending || recalculating || files.length === 0 || totalDays === 0}
           onClick={submit}
         >
-          {pending ? '作成しています…' : `${files.length} ファイルを作成する`}
+          {pending
+            ? '作成しています…'
+            : recalculating
+              ? '再計算しています…'
+              : `${files.length} ファイルを作成する`}
         </Btn>
       </div>
     </div>
