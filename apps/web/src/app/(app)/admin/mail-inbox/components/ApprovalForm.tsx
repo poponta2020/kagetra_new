@@ -20,7 +20,11 @@ import { addDays } from '@/lib/jst-date'
 // この `'use client'` ファイルから引くと schema がクライアントバンドルへ載る
 // （eslint / vitest / check-types では検知できず `next build` で初めて壊れる種類の事故）。
 import { clusterEventsByEntryGroup } from '@/lib/entry-group-cluster'
-import type { SeriesRow, TournamentKind } from '@/lib/edition/match'
+import {
+  searchSeriesCandidates,
+  type SeriesRow,
+  type TournamentKind,
+} from '@/lib/edition/match'
 import type { AttachmentChip } from './AttachmentList'
 import {
   TournamentSeriesSelectSheet,
@@ -71,6 +75,13 @@ export interface ApprovalFormProps {
   editionSuggestion: {
     seriesId?: number | null
     seriesName: string
+    /**
+     * mail-ai-extract-refinements タスク2: 採用した系列の通称（`tournament_series.
+     * short_name`）。通称欄の自動投入元（AC-45〜48）。**optional** なのは
+     * `ApprovalForm.test.tsx` の既存 `editionSuggestion` リテラル（20箇所超）を
+     * 無改変で通すため。生成側（`buildEditionSuggestion`）は常に値を入れる。
+     */
+    seriesShortName?: string | null
     editionNumber: number | null
     matched: boolean
   }
@@ -230,13 +241,55 @@ export function ApprovalForm({
       ? ((payload as { extracted?: LegacyExtracted }).extracted?.title ?? null)
       : null
 
-  // mail-ai-extract-refinements §3.2.3: 通称は AI ではなく**人が入力する**。
-  // 「大阪」「札幌」程度の地名だけを1回打てば、各単位の大会名が
+  // mail-ai-extract-refinements タスク2: 通称⇄系列連動のため、系列種別（kind）に
+  // まつわる計算を通称の初期値決定より前に置く（AC-45〜47 は「kind 適合チェックを
+  // 通った初期候補のときだけ通称も自動投入する」ため、initialSeriesId が先に要る）。
+  const unitKinds = new Set(
+    units
+      .filter(
+        (unit) =>
+          registeredMap.has(unit.unit_key) ||
+          (registered[unit.unit_key] ?? true),
+      )
+      .map((unit) => unit.kind ?? ('individual' as const)),
+  )
+  const hasMixedKinds = unitKinds.size > 1
+  const editionKind = [...unitKinds][0] ?? 'individual'
+  const compatibleSeriesOptions = hasMixedKinds
+    ? []
+    : seriesOptions.filter((series) => series.kind === editionKind)
+  const initialSeriesId = compatibleSeriesOptions.some(
+    (series) => series.id === editionSuggestion.seriesId,
+  )
+    ? (editionSuggestion.seriesId ?? null)
+    : null
+
+  // mail-ai-extract-refinements §3.2.3 / AC-15〜17・45〜48: 通称は AI ではなく
+  // **人が入力する**。「大阪」「札幌」程度の地名だけを1回打てば、各単位の大会名が
   // `composeTitle(通称, eligible_grades)` で合成される（AC-15）。合成ロジック
   // 自体は変えていない —— stem の供給元が AI から人間に変わっただけ。
-  // 初期値は `shortNameStem` prop（2.x の既存ドラフトを開いたときだけ値が入る。
-  // 3.0.0 のドラフトでは常に null）。
-  const [nickname, setNickname] = useState(shortNameStem ?? '')
+  //
+  // 初期値の優先順位（AC-45〜47）:
+  //   1. `shortNameStem` prop（2.x の既存ドラフトを開いたときだけ値が入る）
+  //   2. kind 適合チェックを通った初期候補（`initialSeriesId`）があれば、その系列の
+  //      通称（`editionSuggestion.seriesShortName`）。系列は名寄せ候補が1件のときしか
+  //      採用されない（`buildEditionSuggestion`）ので、ここが埋まるのは「候補1件」の
+  //      ケースだけ（AC-47: 候補0件/複数件では `initialSeriesId` が null のままなので
+  //      通称も空）。
+  //   3. どちらも無ければ空。
+  const initialNickname =
+    shortNameStem && shortNameStem.trim() !== ''
+      ? shortNameStem
+      : initialSeriesId != null
+        ? (editionSuggestion.seriesShortName ?? '')
+        : ''
+  // AC-48: 系列の通称を自動投入したときだけ由来（系列名）を出す。人が打ち直したら
+  // 消える（下の JSX 側で「現在値が自動投入した値と一致するあいだだけ表示」を判定）。
+  const autoFilledNicknameFromSeries =
+    (!shortNameStem || shortNameStem.trim() === '') && initialSeriesId != null
+      ? (editionSuggestion.seriesShortName ?? null)
+      : null
+  const [nickname, setNickname] = useState(initialNickname)
   // 単位ごとの個別上書き（AC-16）。未設定＝合成結果をそのまま使う。通称を打ち
   // 直すと、上書きしていない単位だけが追随する。
   const [titleOverrides, setTitleOverrides] = useState<Record<string, string>>({})
@@ -259,25 +312,6 @@ export function ApprovalForm({
   const registeredCount = units.filter((u) =>
     registeredMap.has(u.unit_key),
   ).length
-  const unitKinds = new Set(
-    units
-      .filter(
-        (unit) =>
-          registeredMap.has(unit.unit_key) ||
-          (registered[unit.unit_key] ?? true),
-      )
-      .map((unit) => unit.kind ?? ('individual' as const)),
-  )
-  const hasMixedKinds = unitKinds.size > 1
-  const editionKind = [...unitKinds][0] ?? 'individual'
-  const compatibleSeriesOptions = hasMixedKinds
-    ? []
-    : seriesOptions.filter((series) => series.kind === editionKind)
-  const initialSeriesId = compatibleSeriesOptions.some(
-    (series) => series.id === editionSuggestion.seriesId,
-  )
-    ? (editionSuggestion.seriesId ?? null)
-    : null
   const [editionLink, setEditionLink] = useState(
     initialSeriesId != null && editionSuggestion.editionNumber != null,
   )
@@ -293,6 +327,14 @@ export function ApprovalForm({
   const selectedSeries = compatibleSeriesOptions.find(
     (series) => series.id === seriesSelection.seriesId,
   )
+
+  // AC-49〜52: 通称欄からの候補チップ。通称が空・混在 kind のときは出さない
+  // （searchSeriesCandidates は空クエリで同種別の全系列を返す仕様のため、空ガードが
+  // 必須 — 忘れると入力前から全系列が並んでしまう）。
+  const nicknameSeriesCandidates =
+    trimmedNickname !== '' && !hasMixedKinds
+      ? searchSeriesCandidates(trimmedNickname, seriesOptions, editionKind).slice(0, 3)
+      : []
 
   useEffect(() => {
     const hasConfirmedSelection =
@@ -332,7 +374,8 @@ export function ApprovalForm({
       </div>
 
       <form action={action} className="flex flex-col gap-4">
-        {/* mail-ai-extract-refinements §3.2.3 / AC-15〜17: 通称の人力入力。 */}
+        {/* mail-ai-extract-refinements §3.2.3 / AC-15〜17・45〜52: 通称の人力入力＋
+            系列との双方向連動。 */}
         <Card>
           <div className="flex flex-col gap-1">
             <label
@@ -349,6 +392,46 @@ export function ApprovalForm({
               placeholder="例: 大阪"
               className="rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30"
             />
+            {/* AC-48: 系列の通称を自動投入したときだけ由来を出す。打ち直したら消える。 */}
+            {autoFilledNicknameFromSeries != null &&
+              nickname === autoFilledNicknameFromSeries && (
+                <p className="text-xs text-ink-meta">
+                  「{editionSuggestion.seriesName}」の通称を入れました
+                </p>
+              )}
+            {/* AC-49〜52: 通称からの系列候補チップ。タップしても通称欄は変化しない
+                （AC-50）— 系列選択のみを更新する。 */}
+            {nicknameSeriesCandidates.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {nicknameSeriesCandidates.map(({ series }) => (
+                  <button
+                    key={series.id}
+                    type="button"
+                    // 既に選ばれている系列のチップは押しても状態が変わらないので、
+                    // 押せそうに見えたまま無反応にならないよう選択状態を出す。
+                    aria-pressed={seriesSelection.seriesId === series.id}
+                    onClick={() => {
+                      setSeriesSelection({
+                        query: series.name,
+                        seriesId: series.id,
+                        createNew: false,
+                      })
+                      setSeriesSelectionKind(editionKind)
+                      setEditionLink(true)
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      seriesSelection.seriesId === series.id
+                        ? 'border-brand bg-brand-bg font-semibold text-ink'
+                        : 'border-border-soft bg-surface-alt text-ink-2 hover:bg-brand-bg'
+                    }`}
+                  >
+                    {series.shortName
+                      ? `${series.shortName}（${series.name}）`
+                      : series.name}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-ink-meta">
               地名だけを入れてください。各イベントの大会名が「大阪B」「大阪C」のように
               自動で合成されます（個別に書き換えることもできます）。
@@ -375,6 +458,13 @@ export function ApprovalForm({
               type="hidden"
               name="editionSeriesName"
               value={seriesSelection.createNew ? seriesSelection.query : ''}
+            />
+            {/* 新規作成時だけ通称を運ぶ。既存系列選択時は short_name を書き換えない
+                （createConfirmedSeries 側の契約: §3.2.9(d)）。 */}
+            <input
+              type="hidden"
+              name="editionSeriesShortName"
+              value={seriesSelection.createNew ? nickname.trim() : ''}
             />
             {seriesSelection.createNew && (
               <input type="hidden" name="editionCreateNewSeries" value="on" />
@@ -470,6 +560,20 @@ export function ApprovalForm({
             setSeriesSelection(selection)
             setSeriesSelectionKind(hasConfirmedSelection ? editionKind : null)
             setEditionLink(hasConfirmedSelection)
+            // AC-53: 既存系列が確定し通称が空なら short_name を入れる。新規作成
+            // (createNew) のときは入れない。既に入力があれば触らない。
+            if (
+              selection.seriesId != null &&
+              !selection.createNew &&
+              trimmedNickname === ''
+            ) {
+              const confirmed = compatibleSeriesOptions.find(
+                (series) => series.id === selection.seriesId,
+              )
+              if (confirmed?.shortName) {
+                setNickname(confirmed.shortName)
+              }
+            }
             setSeriesSheetOpen(false)
           }}
         />

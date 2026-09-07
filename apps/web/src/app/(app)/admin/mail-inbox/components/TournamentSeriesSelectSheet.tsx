@@ -146,6 +146,11 @@ export function TournamentSeriesSelectSheet({
                     <span className="block break-words font-medium text-ink">
                       {series.name}
                     </span>
+                    {series.shortName && (
+                      <span className="mt-0.5 block break-words text-xs text-ink-meta">
+                        通称: {series.shortName}
+                      </span>
+                    )}
                     {matchedAlias && (
                       <span className="mt-0.5 block break-words text-xs text-ink-meta">
                         一致した別名: {matchedAlias}
