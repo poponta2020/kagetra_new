@@ -80,6 +80,46 @@ describe('buildMailBodyFlexMessage', () => {
     expect(msg.altText.startsWith('📧 あ')).toBe(true)
   })
 
+  it('★r1 blocker: 極端に長い件名でもカード見出しは 200 字に切り詰め、bubble は 30KB 未満', () => {
+    // 件名は外部メール由来で長さ無制限（mail_messages.subject は text）。
+    // そのまま bubble に載せると LINE の 30KB 上限を超え、push が 400 で失敗して
+    // 本文カードも添付カードも 1 通も届かなくなる。
+    const msg = buildMailBodyFlexMessage({
+      subject: '長い件名'.repeat(25_000), // 10 万文字
+      url,
+      isCorrection: false,
+    })
+
+    const contents = msg.contents as {
+      body: { contents: { contents?: { text?: string }[] }[] }
+    }
+    const cardTitle = contents.body.contents[1]!.contents![0]!.text!
+    expect(cardTitle.length).toBe(200)
+    expect(Buffer.byteLength(JSON.stringify(msg.contents), 'utf8')).toBeLessThan(
+      30 * 1024,
+    )
+    // altText 側は LINE 仕様どおり 400 まで載る（見出しの切り詰めに引きずられない）。
+    expect(msg.altText.length).toBe(400)
+  })
+
+  it('★r1 blocker: 見出しの切り詰めもサロゲートペアを分断しない', () => {
+    const msg = buildMailBodyFlexMessage({
+      subject: '𠮟'.repeat(300),
+      url,
+      isCorrection: false,
+    })
+    const contents = msg.contents as {
+      body: { contents: { contents?: { text?: string }[] }[] }
+    }
+    const cardTitle = contents.body.contents[1]!.contents![0]!.text!
+    expect(cardTitle.length).toBe(200)
+    const lone = [...cardTitle].filter((ch) => {
+      const cp = ch.codePointAt(0)!
+      return ch.length === 1 && cp >= 0xd800 && cp <= 0xdfff
+    })
+    expect(lone).toHaveLength(0)
+  })
+
   it('AC-2: 切り詰め位置がサロゲートペアに当たっても分断しない', () => {
     // '📧 ' が 3 UTF-16 単位。以降を 2 単位の 𠮟 で埋めると 400 単位目が
     // ペアの前半に当たる。素の slice だと単独サロゲートが末尾に残る。

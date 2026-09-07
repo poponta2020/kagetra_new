@@ -25,6 +25,21 @@ const CORRECTION_PREFIX = '【訂正】'
 /** バッジ背景 = ブランド色 藤（globals.css の `--kg-brand`）。Flex JSON はリテラルしか持てない。 */
 const BADGE_COLOR = '#534286'
 
+/**
+ * カード見出しに載せる件名の上限 (UTF-16 単位)。
+ *
+ * codex r1 blocker: `mail_messages.subject` は長さ無制限の text で、IMAP 取込側も
+ * 切り詰めていない。極端に長い件名をそのまま bubble へ入れると Flex メッセージが
+ * LINE の 30KB 上限を超え、push が 400 で失敗して**本文カードも添付カードも
+ * 1 通も届かなくなる**（監査行は failed）。`maxLines: 3` は表示行数を絞るだけで
+ * 送信 JSON のサイズは減らさないので、ここで実際に切り詰める。
+ *
+ * 200 は「3 行表示に必要な文字数（全角なら十分に超える）」より大きく、
+ * 30KB に対しては桁違いに小さい安全側の値。全文は altText（400 まで）と
+ * 公開の全文ページに残るので情報は失われない。
+ */
+const CARD_TITLE_MAX = 200
+
 export interface BuildMailBodyFlexArgs {
   /** メール件名 (`mail_messages.subject`)。空・NULL なら `(件名なし)`。 */
   subject: string | null | undefined
@@ -43,7 +58,10 @@ export function buildMailBodyFlexMessage(
 ): LineFlexMessage {
   const subject = args.subject?.trim() || NO_SUBJECT_LABEL
   const title = args.isCorrection ? `${CORRECTION_PREFIX}${subject}` : subject
+  // altText は LINE 仕様の 400 まで載せられるので、カード見出しの切り詰めとは
+  // 独立に組む（見出しを先に削ると通知の情報量まで落ちる）。
   const altText = truncateToUtf16Units(`📧 ${title}`, ALT_TEXT_MAX)
+  const cardTitle = truncateToUtf16Units(title, CARD_TITLE_MAX)
 
   return {
     type: 'flex',
@@ -87,7 +105,7 @@ export function buildMailBodyFlexMessage(
             contents: [
               {
                 type: 'text',
-                text: title,
+                text: cardTitle,
                 size: 'sm',
                 color: '#111111',
                 weight: 'bold',
