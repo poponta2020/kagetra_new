@@ -23,11 +23,22 @@ export default defineProject({
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     passWithNoTests: true,
     globalSetup: ['./vitest.global-setup.ts'],
-    // ★`fileParallelism: false` は外した（2026-09-07）。以前は全テストファイルが
-    // 1つのテスト DB を共有していたため直列化が必須で、Vitest だけで11分かかり
-    // CI の timeout を押し上げていた。いまは vitest.setup.ts が worker ごとに
-    // `<worktree DB>_w<id>` を用意する（@kagetra/shared/test-db）ので、ファイル間で
-    // 同じテーブルを取り合うことはない。**同じ worker 内のファイルは従来どおり
-    // 直列**なので、truncate/insert の決定性はそのまま保たれる。
+    // ★ローカルは並列・**CI は直列**（2026-09-07 に両方を実測して決めた）。
+    //
+    // 以前は全テストファイルが1つのテスト DB を共有していたため常に直列化が必要
+    // だった。いまは vitest.setup.ts が worker ごとに `<worktree DB>_w<VITEST_POOL_ID>`
+    // を用意する（@kagetra/shared/test-db）ので、ファイル間でテーブルを取り合わない。
+    // 開発機（12コア）では 675s→188s。
+    //
+    // ただし **CI（GitHub ubuntu-latest = 4 vCPU）では並列化すると逆に遅くなる**:
+    // worker 3つ + 同じ4コアに載る Postgres が競合し、集計テスト時間が 600s→2278s
+    // に膨らんで実時間も 12分→14.5分に悪化。さらに `beforeEach(truncateAll)` が
+    // 10 秒の hookTimeout を超えて落ちた（run 34094874364）。コア数が足りない環境
+    // では直列の方が速い。CI を速くしたいなら worker を増やすのではなく
+    // `--shard` でジョブを分割する（＝ランナーを増やす）のが筋。
+    //
+    // **同じ worker 内のファイルは直列**なので、どちらの経路でも truncate/insert
+    // の決定性は保たれる。
+    fileParallelism: !process.env.CI,
   },
 })

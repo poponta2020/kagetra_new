@@ -138,7 +138,7 @@
 - [本番migrationはdb:migrate](feedback_drizzle_kit_push_prompt.md) — pushはinteractive promptで詰む
 - [drizzle raw SQLのint[]はANY(ARRAY[...])](feedback_drizzle_sql_int_array_binding.md) — 要素展開かinArray。空配列early-return
 - [公開添付routeはblocklist+attachment固定](feedback_attachment_mime_blocklist.md)
-- [vitestはworkerごとのテストDBで並列実行(2026-09-07)](feedback_vitest_no_file_parallelism.md) — `fileParallelism: false` 撤去でweb 675s→188s。★DB名は`VITEST_POOL_ID`（`VITEST_WORKER_ID`だとファイル数だけDBが増えtmpfs枯渇）・落ちたらまず重量級テストのtimeoutを疑う
+- [vitestはローカル並列・CI直列(2026-09-07)](feedback_vitest_no_file_parallelism.md) — `fileParallelism: !process.env.CI`。ローカル12コアはweb 675s→188s。★4vCPUのCIでは並列化すると逆に遅い(12→14.5分)＋hookTimeout超過・DB名は`VITEST_POOL_ID`(`VITEST_WORKER_ID`だとファイル数だけDBが増えtmpfs枯渇)
 - [並行worktreeのtest DB衝突は自動隔離で解決済み](feedback_shared_test_db_worktree_push_race.md) — worktreeごとにDB自動導出・手動createdb不要
 - [module-level stateはglobalThis pin必須](feedback_nextjs_module_state_globalthis_pin.md) — chunk splittingで別instance化
 - [git textconvが.doc入りdiffを非UTF-8化](feedback_git_textconv_doc_no_utf8_diff.md) — --no-textconvで生成
