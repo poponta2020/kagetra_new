@@ -1,0 +1,138 @@
+<!-- @dsCard group="遠征届（travel-report）" name="S1 招待登録フォーム：サークル所属ブロック" subtitle="会員用（級のあと・全日協と電話/生年月日を共用）／候補つき学部等名入力／ゲスト用（姓・名の追加）" viewport="1240x1000" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_tr.css">
+<title>招待登録 — サークル所属ブロック（S1）</title>
+</head><body>
+
+<!-- ============================================================
+     S1 /register/[token] — 既存フォーム（氏名×かな・級・段位・全日協・PII）に
+     「北大かるた会サークルに所属」ブロックを足す。
+       置き場所: 級ブロックの直後・全日協ブロックの前。
+       ON で: 学部/大学院 の区分 → 学部等名（候補つき自由入力） → 学年（選択）。
+       電話・生年月日は全日協ブロックと同じ欄を共用（どちらかの条件で表示・1回だけ）。
+       ゲスト用: 表示名・級・所属会 のあとにサークル所属。ON で 姓・名（漢字）も足す。
+     フォーム部品は既存 register-form.tsx の UnderlineInput / SegmentGroup / BoxlessCheckbox の型に合わせる。
+     ============================================================ -->
+
+<!-- ─────────── 会員用（サークル所属 ON） ─────────── -->
+<div class="col">
+  <div class="collabel">会員用 ── 級の直後に「サークル所属」。ON で区分→学部等名→学年</div>
+  <div class="phone auto">
+    <div class="main"><div class="page" style="padding-bottom:20px">
+      <div class="frm">
+        <div class="lbl" style="padding-top:14px">（上略: 姓・名／せい・めい／級 A B C D E）</div>
+
+        <div class="grp">
+          <div class="cb"><span class="bx on"></span>北海道大学のサークル「北大かるた会」に所属している</div>
+          <p class="help">大会の遠征届（大学へ提出）に必要な情報を登録します。学年は毎年4月に見直してください。</p>
+
+          <div class="f">
+            <span class="lbl">所属<span class="req">*</span></span>
+            <div class="segbar"><span class="on">学部</span><span>大学院</span></div>
+          </div>
+
+          <div class="f">
+            <span class="lbl">学部等名<span class="req">*</span></span>
+            <span class="in" style="width:100%">工</span>
+            <div class="sug">
+              <div class="hl"><b>工</b>学部</div>
+              <div>総合教育部</div>
+              <div>文学部</div>
+              <div>教育学部</div>
+            </div>
+            <p class="help">候補から選ぶか、そのまま入力できます。</p>
+          </div>
+
+          <div class="f">
+            <span class="lbl">学年<span class="req">*</span></span>
+            <span class="sel">3年</span>
+          </div>
+        </div>
+
+        <div class="grp">
+          <div class="cb"><span class="bx on"></span>全日本かるた協会に登録済み</div>
+          <p class="help">郵送先などの登録情報。<b>電話番号と生年月日はサークル所属と共通</b>です。</p>
+          <div class="f"><span class="lbl">性別<span class="req">*</span></span><div class="segbar"><span>男</span><span class="on">女</span></div></div>
+          <div class="f"><span class="lbl">生年月日<span class="req">*</span> <span class="help" style="display:inline">（サークル所属・全日協 共通）</span></span><span class="in" style="width:100%">2003-11-30</span></div>
+          <div class="f"><span class="lbl">電話番号<span class="req">*</span> <span class="help" style="display:inline">（サークル所属・全日協 共通）</span></span><span class="in" style="width:100%">090-0000-0003</span></div>
+          <div class="f"><span class="lbl">郵便番号<span class="req">*</span></span><span class="in" style="width:60%">060-0808</span></div>
+          <div class="lbl">（以下略: 住所1・住所2）</div>
+        </div>
+
+        <span class="btn b-lg b-primary b-block" style="margin-top:6px">登録する</span>
+      </div>
+    </div></div>
+  </div>
+  <div class="colnote">サークル所属を ON にすると 3 項目が開く。電話・生年月日は全日協ブロックにある既存欄を<b>共用</b>し「共通」と添える（2 回聞かない）。</div>
+</div>
+
+<!-- ─────────── 会員用（サークル所属 ON・全日協 OFF＝D/E級） ─────────── -->
+<div class="col">
+  <div class="collabel">会員用 ── D/E 級（全日協ブロックが出ない）でも電話・生年月日が要る</div>
+  <div class="phone auto">
+    <div class="main"><div class="page" style="padding-bottom:20px">
+      <div class="frm">
+        <div class="lbl" style="padding-top:14px">（上略: 姓・名／せい・めい／級 D）</div>
+
+        <div class="grp">
+          <div class="cb"><span class="bx on"></span>北海道大学のサークル「北大かるた会」に所属している</div>
+          <p class="help">大会の遠征届（大学へ提出）に必要な情報を登録します。学年は毎年4月に見直してください。</p>
+          <div class="f"><span class="lbl">所属<span class="req">*</span></span><div class="segbar"><span>学部</span><span class="on">大学院</span></div></div>
+          <div class="f"><span class="lbl">学部等名<span class="req">*</span></span><span class="in" style="width:100%">情報科学院</span></div>
+          <div class="f"><span class="lbl">学年<span class="req">*</span></span><span class="sel">修士1年</span></div>
+          <div class="f"><span class="lbl">電話番号<span class="req">*</span></span><span class="in err" style="width:100%">&nbsp;</span><div class="errmsg">サークル所属の方は電話番号が必要です</div></div>
+          <div class="f"><span class="lbl">生年月日<span class="req">*</span></span><span class="in" style="width:100%">2002-05-14</span></div>
+        </div>
+
+        <div class="lbl">（全日協ブロックは D/E 級では表示されない — 既存仕様）</div>
+        <span class="btn b-lg b-primary b-block" style="margin-top:6px">登録する</span>
+      </div>
+    </div></div>
+  </div>
+  <div class="colnote">全日協ブロックが出ない級では、電話・生年月日を<b>サークル所属ブロックの中</b>に出す。両方出る条件のときは全日協側だけに出す（同じ欄）。</div>
+</div>
+
+<!-- ─────────── ゲスト用 ─────────── -->
+<div class="col">
+  <div class="collabel">ゲスト用 ── 表示名・級・所属会のあと。ON で 姓・名 も足す</div>
+  <div class="phone auto">
+    <div class="main"><div class="page" style="padding-bottom:20px">
+      <div class="frm">
+        <div class="f"><span class="lbl">表示名<span class="req">*</span></span><span class="in" style="width:100%">函館 大地</span><p class="help">姓と名の間にスペース</p></div>
+        <div class="f"><span class="lbl">級<span class="req">*</span></span><div class="segbar"><span>A</span><span class="on">B</span><span>C</span><span>D</span><span>E</span></div></div>
+        <div class="f"><span class="lbl">所属会<span class="req">*</span></span><span class="in" style="width:100%">帯広かるた会</span></div>
+
+        <div class="grp">
+          <div class="cb"><span class="bx on"></span>北海道大学のサークル「北大かるた会」に所属している</div>
+          <p class="help">大会の遠征届（大学へ提出）に載せるため、本名と連絡先も登録します。</p>
+          <div class="f" style="flex-direction:row;gap:12px">
+            <div style="flex:1"><span class="lbl">姓<span class="req">*</span></span><br><span class="in" style="width:100%">函館</span></div>
+            <div style="flex:1"><span class="lbl">名<span class="req">*</span></span><br><span class="in" style="width:100%">大地</span></div>
+          </div>
+          <div class="f"><span class="lbl">所属<span class="req">*</span></span><div class="segbar"><span class="on">学部</span><span>大学院</span></div></div>
+          <div class="f"><span class="lbl">学部等名<span class="req">*</span></span><span class="in" style="width:100%">経済学部</span></div>
+          <div class="f"><span class="lbl">学年<span class="req">*</span></span><span class="sel">2年</span></div>
+          <div class="f"><span class="lbl">電話番号<span class="req">*</span></span><span class="in" style="width:100%">080-0000-0010</span></div>
+          <div class="f"><span class="lbl">生年月日<span class="req">*</span></span><span class="in" style="width:100%">2005-08-08</span></div>
+        </div>
+
+        <span class="btn b-lg b-primary b-block" style="margin-top:6px">登録する</span>
+      </div>
+    </div></div>
+  </div>
+  <div class="colnote">ゲストは本名を持たないため、サークル所属 ON のときだけ 姓・名（漢字）を追加で聞く。かなは聞かない。</div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>チェックの文言</b>: 「北海道大学のサークル『北大かるた会』に所属している」。会名は将来の配布版で差し替えやすいよう文言を1箇所に持つ。</li>
+    <li><b>学部等名の候補 UI</b>: 入力に合わせて絞る候補リスト（datalist 相当）。候補外もそのまま保存できる。</li>
+    <li><b>共用欄の見せ方</b>: 全日協が出るときはそちらに「共通」と添えて1回だけ。出ないときはサークル所属ブロック内に出す。</li>
+  </ul>
+</div>
+
+</body></html>

@@ -35,7 +35,8 @@ status: completed
     `id` / `mail_message_id`（notNull・unique・FK `mail_messages` onDelete cascade）/ `token`（unique）/
     `expires_at` / `access_count` / `created_at`、index は mail 用と expires_at 用の 2 本）
   - `packages/shared/src/schema/index.ts`（export 追加）
-  - `packages/shared/drizzle/0064_*.sql`（`drizzle-kit generate` で生成。**手書き ALTER 禁止**）
+  - `packages/shared/drizzle/0065_*.sql`（`drizzle-kit generate` で生成。**手書き ALTER 禁止**。
+    当初 0064 で生成したが、travel-report（PR #592）が先に main へ 0064 を入れたため 0065 へ採番し直した）
   - `apps/web/src/lib/mail-body-share.ts`（新規）＋ `mail-body-share.test.ts`
     - `MAIL_BODY_SHARE_TTL_DAYS = 60`
     - `getOrCreateMailBodyShareToken(db, mailMessageId, { ttlDays?, now? })`
@@ -131,5 +132,5 @@ status: completed
 
 - `git grep renderBodyImageToJpegs` / `git grep buildBodyImageMessages` が 0 件
 - `git grep "mail-body-image-render"` が 0 件
-- migration 番号が他ブランチと衝突していない（0064）
+- migration 番号が他ブランチと衝突していない（**0065**。0064 は travel-report が使用済み）
 - 本番の `.env.production` に `PUBLIC_BASE_URL` が入っていること（既存前提。未設定だと配信が failed になる）

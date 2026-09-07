@@ -1,0 +1,155 @@
+<!-- @dsCard group="遠征届（travel-report）" name="S6 遠征届 作成画面" subtitle="ファイル分割（既定=連続開催日）→ ファイルごとの届の内容 → 作成。統合・分割の操作と未入力者の警告" viewport="1240x1100" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_tr.css">
+<title>遠征届 作成 — S6</title>
+</head><body>
+
+<!-- ============================================================
+     S6 /admin/entries/[groupId]/travel-report/new — 遠征届の作成
+     題材: 帯広新人戦（架空・2週末）。既定のファイル分割 = 遠征単位（連続開催日）= 2ファイル。
+     画面は上から: ① ファイル分割（日をどのファイルに入れるか） → ② ファイルごとの届の内容（既定値を編集）
+     → ③ 作成ボタン（sticky）。作成後は S5 の履歴へ戻り、LINE 通知が飛ぶ。
+     ============================================================ -->
+
+<!-- ─────────── 作成画面（上半分: ファイル分割） ─────────── -->
+<div class="col">
+  <div class="collabel">S6 作成画面 ── ① ファイル分割（既定 = 連続開催日ごと）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><a href="#">帯広新人戦</a><span>›</span><span>遠征届を作成</span></div>
+        <h1 class="title">遠征届を作成</h1>
+        <div class="subline">帯広新人戦 ／ 11/7・11/8・11/14・11/15</div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>ファイル分割 <span class="cntnum">2</span><span class="cntunit">ファイル</span></h2><span class="aux">連続する開催日で1ファイル</span></div>
+
+        <div class="file">
+          <div class="fileh"><span class="fno">ファイル1</span><span class="fdays">11/7(土)・11/8(日)</span><span class="fcnt">4名</span></div>
+          <div class="dayrow"><span class="dd">11/7(土)</span><span class="dn">A・B級</span><a class="lnk to" href="#">ファイル2へ</a></div>
+          <div class="dayrow"><span class="dd">11/8(日)</span><span class="dn">C級</span><a class="lnk to" href="#">ファイル2へ</a></div>
+          <div class="fsum"><span>期間 <b>11/6〜11/9</b></span><span>名簿 <b>4名</b></span><span>備考 <b>7行</b></span></div>
+        </div>
+
+        <div class="mergebar"><a class="lnk" href="#">⇅ ファイル1と2を統合する</a></div>
+
+        <div class="file">
+          <div class="fileh"><span class="fno">ファイル2</span><span class="fdays">11/14(土)・11/15(日)</span><span class="fcnt">3名</span></div>
+          <div class="dayrow"><span class="dd">11/14(土)</span><span class="dn">D級</span><a class="lnk to" href="#">ファイル1へ</a></div>
+          <div class="dayrow"><span class="dd">11/15(日)</span><span class="dn">E級</span><a class="lnk to" href="#">ファイル1へ</a></div>
+          <div class="fsum"><span>期間 <b>11/13〜11/16</b></span><span>名簿 <b>3名</b></span><span>備考 <b>4行</b></span></div>
+          <div class="filewarn">未入力 2名（<a href="#">小樽</a>・<a href="#">帯広</a>）— 名簿には載り、行程は出場行だけになります</div>
+        </div>
+        <a class="addday" href="#">＋ 日を分けて別ファイルにする</a>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>届の内容 ── ファイル1</h2><span class="aux">11/7・11/8</span></div>
+        <div class="kv"><span class="k">目的</span><span class="v"><span class="in" style="width:100%">第20回 帯広かるた新人戦(ABC級)への参加</span></span></div>
+        <div class="kv"><span class="k">場所</span><span class="v"><span class="in" style="width:100%">帯広市総合体育館</span></span></div>
+        <div class="kv"><span class="k">遠征先連絡者</span><span class="v"><span class="sel">北海 太郎（サークル長）</span><div class="help">090-0000-0001 ／ 役職順で自動選択</div></span></div>
+        <div class="kv"><span class="k">留守連絡先</span><span class="v"><span class="sel">旭川 さくら（副連絡責任者）</span><div class="help">090-0000-0002 ／ サークル長が遠征するため代替</div></span></div>
+        <div class="kv"><span class="k">届の日付</span><span class="v"><span class="in" style="width:120px">2026-09-06</span><span class="help" style="margin-left:8px">令和8年9月6日</span></span></div>
+        <div class="kv"><span class="k">承認日</span><span class="v"><span class="in ph" style="width:120px">未入力（空欄）</span><span class="help" style="margin-left:8px">顧問のメール承認日</span></span></div>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">2ファイルを作成する</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab active">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">ファイル＝カード。各日の行に「ファイルNへ」で日を移せる。カード間の「統合」で1ファイルにできる。カード下段に期間・人数・備考行数の見込みと未入力者の警告。</div>
+</div>
+
+<!-- ─────────── 作成画面（下半分: ファイル2の内容と共通項目） ─────────── -->
+<div class="col">
+  <div class="collabel">S6 作成画面 ── ② ファイル2の内容・共通項目（スクロール後）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">申込管理</a><span>›</span><a href="#">帯広新人戦</a><span>›</span><span>遠征届を作成</span></div>
+        <h1 class="title">遠征届を作成</h1>
+        <div class="subline">帯広新人戦 ／ 11/7・11/8・11/14・11/15</div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>届の内容 ── ファイル2</h2><span class="aux">11/14・11/15</span></div>
+        <div class="kv"><span class="k">目的</span><span class="v"><span class="in" style="width:100%">第20回 帯広かるた新人戦(DE級)への参加</span></span></div>
+        <div class="kv"><span class="k">場所</span><span class="v"><span class="in" style="width:100%">帯広市総合体育館</span></span></div>
+        <div class="kv"><span class="k">遠征先連絡者</span><span class="v"><span class="sel">石狩 蓮</span><div class="help">090-0000-0004 ／ 役職持ちがいないため最年長</div></span></div>
+        <div class="kv"><span class="k">留守連絡先</span><span class="v"><span class="sel">北海 太郎（サークル長）</span><div class="help">090-0000-0001</div></span></div>
+        <div class="kv"><span class="k">届の日付</span><span class="v"><span class="in" style="width:120px">2026-09-06</span></span></div>
+        <div class="kv"><span class="k">承認日</span><span class="v"><span class="in ph" style="width:120px">未入力（空欄）</span></span></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>共通</h2><a class="lnk" href="#">遠征届設定を開く</a></div>
+        <table class="flat">
+          <tr><th>団体名</th><td>北海道大学かるた会</td></tr>
+          <tr><th>団体代表者</th><td>北海 太郎（法学部 2年）<span class="help">サークル長のプロフィールから</span></td></tr>
+          <tr><th>顧問教員</th><td>○○研究院 ○○部門 ／ 助教 ／ 顧問 太郎<span class="help">遠征届設定から</span></td></tr>
+          <tr><th>名簿の並び</th><td>学年の高い順 → かな順</td></tr>
+        </table>
+        <div class="filewarn" style="margin-top:10px">サークル長が未設定だと団体代表者は空欄で出力されます。</div>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-primary b-block">2ファイルを作成する</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab active">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">「共通」は読み取りのみ（値の出所を添える）。直したいときは設定ページか会員編集へ。作成ボタンは常に画面下に固定。</div>
+</div>
+
+<!-- ─────────── 断片: 1単位のときと統合後 ─────────── -->
+<div class="col">
+  <div class="collabel">断片 ── 1単位の大会（十和田）／統合して1ファイルにした帯広</div>
+  <div class="vcard">
+    <div class="vlabel">1単位（既定 = 1ファイル）</div>
+    <div class="sec">
+      <div class="sech"><h2>ファイル分割 <span class="cntnum">1</span><span class="cntunit">ファイル</span></h2></div>
+      <div class="file">
+        <div class="fileh"><span class="fno">ファイル1</span><span class="fdays">10/10(土)・10/11(日)</span><span class="fcnt">10名</span></div>
+        <div class="dayrow"><span class="dd">10/10(土)</span><span class="dn">A・B級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="dayrow"><span class="dd">10/11(日)</span><span class="dn">C・D・E級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="fsum"><span>期間 <b>10/9〜10/12</b></span><span>名簿 <b>10名</b></span><span>備考 <b>9行</b></span></div>
+      </div>
+    </div>
+    <div class="vnote">大半の大会はこれ。分けたい日があれば「別ファイルにする」。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">統合後（帯広の2週末を1ファイルに）</div>
+    <div class="sec">
+      <div class="sech"><h2>ファイル分割 <span class="cntnum">1</span><span class="cntunit">ファイル</span></h2></div>
+      <div class="file">
+        <div class="fileh"><span class="fno">ファイル1</span><span class="fdays">11/7〜11/15</span><span class="fcnt">7名</span></div>
+        <div class="dayrow"><span class="dd">11/7(土)</span><span class="dn">A・B級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="dayrow"><span class="dd">11/8(日)</span><span class="dn">C級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="dayrow"><span class="dd">11/14(土)</span><span class="dn">D級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="dayrow"><span class="dd">11/15(日)</span><span class="dn">E級</span><a class="lnk to" href="#">別ファイルにする</a></div>
+        <div class="fsum"><span>期間 <b>11/6〜11/16</b></span><span>名簿 <b>7名</b></span><span>備考 <b>11行</b></span></div>
+        <div class="filewarn">期間が 11 日間になります（週をまたぐ）。意図どおりか確認してください。</div>
+      </div>
+    </div>
+    <div class="vnote">統合は可能だが、期間が長くなるので警告を出す。既定に戻す導線（「連続開催日で分け直す」）も置く。</div>
+  </div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>分割操作の形</b>: 「日をファイルNへ移す」「隣接ファイルと統合」の2操作だけ。ドラッグはしない。</li>
+    <li><b>届の内容の編集範囲</b>: 目的・場所・連絡者2つ・日付2つ。名簿と備考は編集しない（生成のみ。直したければ Word で）。</li>
+    <li><b>作成ボタンの文言</b>: 「N ファイルを作成する」。作成後は S5 の履歴へ戻り、LINE 通知の結果を上部に出す。</li>
+  </ul>
+</div>
+
+</body></html>

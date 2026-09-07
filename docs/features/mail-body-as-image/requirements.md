@@ -150,7 +150,7 @@ LINE グループのトーク
 
 - **新テーブル 1 本**: `mail_body_share_tokens`（`mail_message_id` UNIQUE / `token` UNIQUE /
   `expires_at` / `access_count` / `created_at`）。`attachment_share_tokens` と同形。
-  マイグレーション 1 本（次番号は 0064）。
+  マイグレーション 1 本（**0065**。当初想定の 0064 は travel-report が先に取得した）。
 - **既存データの移行は不要**。過去に画像で配信済みのメッセージを作り直すことはしない（§5）。
 - **日次 cleanup**（`scripts/cleanup-expired-tokens.ts`）に新テーブルを追加する
   （期限 +7 日の猶予で削除、という既存の方針をそのまま適用）。

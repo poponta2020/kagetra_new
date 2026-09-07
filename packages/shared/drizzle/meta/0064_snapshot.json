@@ -1,5 +1,5 @@
 {
-  "id": "18e4accf-60c7-4f52-8fc2-5b84298cc0b1",
+  "id": "be669f71-7439-4da5-95f4-f1cbd574affc",
   "prevId": "d1819c43-a74e-469d-b28a-57d81de6c7ea",
   "version": "7",
   "dialect": "postgresql",
@@ -343,9 +343,66 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "is_circle_member": {
+          "name": "is_circle_member",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "faculty_kind": {
+          "name": "faculty_kind",
+          "type": "faculty_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "faculty": {
+          "name": "faculty",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "school_year": {
+          "name": "school_year",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_travel_report_submitter": {
+          "name": "is_travel_report_submitter",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_circle_leader": {
+          "name": "is_circle_leader",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "users_circle_leader_unique": {
+          "name": "users_circle_leader_unique",
+          "columns": [
+            {
+              "expression": "is_circle_leader",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"users\".\"is_circle_leader\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
@@ -2973,128 +3030,6 @@
         },
         "attachment_share_tokens_token_unique": {
           "name": "attachment_share_tokens_token_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "token"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.mail_body_share_tokens": {
-      "name": "mail_body_share_tokens",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "identity": {
-            "type": "always",
-            "name": "mail_body_share_tokens_id_seq",
-            "schema": "public",
-            "increment": "1",
-            "startWith": "1",
-            "minValue": "1",
-            "maxValue": "2147483647",
-            "cache": "1",
-            "cycle": false
-          }
-        },
-        "mail_message_id": {
-          "name": "mail_message_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "access_count": {
-          "name": "access_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "mail_body_share_tokens_mail_idx": {
-          "name": "mail_body_share_tokens_mail_idx",
-          "columns": [
-            {
-              "expression": "mail_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "mail_body_share_tokens_expires_at_idx": {
-          "name": "mail_body_share_tokens_expires_at_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "mail_body_share_tokens_mail_message_id_mail_messages_id_fk": {
-          "name": "mail_body_share_tokens_mail_message_id_mail_messages_id_fk",
-          "tableFrom": "mail_body_share_tokens",
-          "tableTo": "mail_messages",
-          "columnsFrom": [
-            "mail_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "mail_body_share_tokens_mail_message_id_unique": {
-          "name": "mail_body_share_tokens_mail_message_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "mail_message_id"
-          ]
-        },
-        "mail_body_share_tokens_token_unique": {
-          "name": "mail_body_share_tokens_token_unique",
           "nullsNotDistinct": false,
           "columns": [
             "token"
@@ -6576,6 +6511,616 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.entry_group_travel_settings": {
+      "name": "entry_group_travel_settings",
+      "schema": "",
+      "columns": {
+        "entry_group_id": {
+          "name": "entry_group_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "required": {
+          "name": "required",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "route_input_started_at": {
+          "name": "route_input_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_prefecture": {
+          "name": "destination_prefecture",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_city": {
+          "name": "destination_city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_label": {
+          "name": "destination_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_source": {
+          "name": "destination_source",
+          "type": "travel_destination_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_attempted_at": {
+          "name": "destination_attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "entry_group_travel_settings_entry_group_id_entry_groups_id_fk": {
+          "name": "entry_group_travel_settings_entry_group_id_entry_groups_id_fk",
+          "tableFrom": "entry_group_travel_settings",
+          "tableTo": "entry_groups",
+          "columnsFrom": [
+            "entry_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "entry_group_travel_settings_updated_by_users_id_fk": {
+          "name": "entry_group_travel_settings_updated_by_users_id_fk",
+          "tableFrom": "entry_group_travel_settings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.entry_group_selection_statuses": {
+      "name": "entry_group_selection_statuses",
+      "schema": "",
+      "columns": {
+        "entry_group_id": {
+          "name": "entry_group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "travel_selection_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "entry_group_selection_statuses_entry_group_id_entry_groups_id_fk": {
+          "name": "entry_group_selection_statuses_entry_group_id_entry_groups_id_fk",
+          "tableFrom": "entry_group_selection_statuses",
+          "tableTo": "entry_groups",
+          "columnsFrom": [
+            "entry_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "entry_group_selection_statuses_user_id_users_id_fk": {
+          "name": "entry_group_selection_statuses_user_id_users_id_fk",
+          "tableFrom": "entry_group_selection_statuses",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "entry_group_selection_statuses_updated_by_users_id_fk": {
+          "name": "entry_group_selection_statuses_updated_by_users_id_fk",
+          "tableFrom": "entry_group_selection_statuses",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "entry_group_selection_statuses_entry_group_id_user_id_pk": {
+          "name": "entry_group_selection_statuses_entry_group_id_user_id_pk",
+          "columns": [
+            "entry_group_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.travel_routes": {
+      "name": "travel_routes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "travel_routes_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "entry_group_id": {
+          "name": "entry_group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_start_date": {
+          "name": "unit_start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "departure_kind": {
+          "name": "departure_kind",
+          "type": "travel_way_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "departure_place": {
+          "name": "departure_place",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "return_kind": {
+          "name": "return_kind",
+          "type": "travel_way_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "return_place": {
+          "name": "return_place",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legs": {
+          "name": "legs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "saved_at": {
+          "name": "saved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "saved_by_user_id": {
+          "name": "saved_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "travel_routes_entry_group_id_entry_groups_id_fk": {
+          "name": "travel_routes_entry_group_id_entry_groups_id_fk",
+          "tableFrom": "travel_routes",
+          "tableTo": "entry_groups",
+          "columnsFrom": [
+            "entry_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "travel_routes_user_id_users_id_fk": {
+          "name": "travel_routes_user_id_users_id_fk",
+          "tableFrom": "travel_routes",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "travel_routes_saved_by_user_id_users_id_fk": {
+          "name": "travel_routes_saved_by_user_id_users_id_fk",
+          "tableFrom": "travel_routes",
+          "tableTo": "users",
+          "columnsFrom": [
+            "saved_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "travel_routes_unit_user_unique": {
+          "name": "travel_routes_unit_user_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "entry_group_id",
+            "unit_start_date",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.travel_unit_notices": {
+      "name": "travel_unit_notices",
+      "schema": "",
+      "columns": {
+        "entry_group_id": {
+          "name": "entry_group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_start_date": {
+          "name": "unit_start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_attempted_at": {
+          "name": "last_attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "all_entered_notified_at": {
+          "name": "all_entered_notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notified_member_count": {
+          "name": "notified_member_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "travel_unit_notices_entry_group_id_entry_groups_id_fk": {
+          "name": "travel_unit_notices_entry_group_id_entry_groups_id_fk",
+          "tableFrom": "travel_unit_notices",
+          "tableTo": "entry_groups",
+          "columnsFrom": [
+            "entry_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "travel_unit_notices_entry_group_id_unit_start_date_pk": {
+          "name": "travel_unit_notices_entry_group_id_unit_start_date_pk",
+          "columns": [
+            "entry_group_id",
+            "unit_start_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.travel_report_batches": {
+      "name": "travel_report_batches",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "travel_report_batches_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "entry_group_id": {
+          "name": "entry_group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "notified_at": {
+          "name": "notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notify_error": {
+          "name": "notify_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "travel_report_batches_group_idx": {
+          "name": "travel_report_batches_group_idx",
+          "columns": [
+            {
+              "expression": "entry_group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "travel_report_batches_entry_group_id_entry_groups_id_fk": {
+          "name": "travel_report_batches_entry_group_id_entry_groups_id_fk",
+          "tableFrom": "travel_report_batches",
+          "tableTo": "entry_groups",
+          "columnsFrom": [
+            "entry_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "travel_report_batches_created_by_users_id_fk": {
+          "name": "travel_report_batches_created_by_users_id_fk",
+          "tableFrom": "travel_report_batches",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.travel_report_documents": {
+      "name": "travel_report_documents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "travel_report_documents_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_ids": {
+          "name": "event_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "filename": {
+          "name": "filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "docx": {
+          "name": "docx",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "header": {
+          "name": "header",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_count": {
+          "name": "member_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "travel_report_documents_batch_idx": {
+          "name": "travel_report_documents_batch_idx",
+          "columns": [
+            {
+              "expression": "batch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "travel_report_documents_batch_id_travel_report_batches_id_fk": {
+          "name": "travel_report_documents_batch_id_travel_report_batches_id_fk",
+          "tableFrom": "travel_report_documents",
+          "tableTo": "travel_report_batches",
+          "columnsFrom": [
+            "batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -6706,6 +7251,14 @@
         "published",
         "cancelled",
         "done"
+      ]
+    },
+    "public.faculty_kind": {
+      "name": "faculty_kind",
+      "schema": "public",
+      "values": [
+        "undergraduate",
+        "graduate"
       ]
     },
     "public.gender": {
@@ -7017,6 +7570,32 @@
         "held",
         "cancelled",
         "unconfirmed"
+      ]
+    },
+    "public.travel_destination_source": {
+      "name": "travel_destination_source",
+      "schema": "public",
+      "values": [
+        "ai",
+        "manual"
+      ]
+    },
+    "public.travel_selection_status": {
+      "name": "travel_selection_status",
+      "schema": "public",
+      "values": [
+        "confirmed",
+        "waitlisted",
+        "not_participating"
+      ]
+    },
+    "public.travel_way_kind": {
+      "name": "travel_way_kind",
+      "schema": "public",
+      "values": [
+        "sapporo",
+        "hometown",
+        "other"
       ]
     },
     "public.user_role": {

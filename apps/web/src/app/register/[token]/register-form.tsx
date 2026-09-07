@@ -1,6 +1,9 @@
 'use client'
 
 import { useActionState, useId, useState } from 'react'
+import { schoolYearOptions } from '@kagetra/shared'
+import type { FacultyKind } from '@kagetra/shared/types'
+import { FacultyCombobox } from '@/components/members/FacultyCombobox'
 import { registerViaInvite, type RegisterViaInviteState } from './actions'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
@@ -14,6 +17,9 @@ const DAN_OPTIONS = [
 const initialState: RegisterViaInviteState = {}
 
 const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
+
+const UNDERLINE_INPUT_CLASS =
+  'w-full border-0 border-b border-border bg-transparent px-0 py-1.5 text-sm text-ink outline-none focus:border-brand'
 
 /**
  * Invite-link registration form (A-flat). `kind` (from the invite row, decided
@@ -44,6 +50,16 @@ export function RegisterForm({
   const [guestName, setGuestName] = useState('')
   const [guestGrade, setGuestGrade] = useState('')
   const [guestAffiliation, setGuestAffiliation] = useState('')
+  // travel-report R1/AC-2: ゲストのサークル所属ブロック。ON で 姓・名（漢字）＋
+  // 学部属性＋電話・生年月日が必須になる（ゲストにはかな・全日協が無い）。
+  const [guestIsCircleMember, setGuestIsCircleMember] = useState(false)
+  const [guestFamilyName, setGuestFamilyName] = useState('')
+  const [guestGivenName, setGuestGivenName] = useState('')
+  const [guestFacultyKind, setGuestFacultyKind] = useState<FacultyKind>('undergraduate')
+  const [guestFaculty, setGuestFaculty] = useState('')
+  const [guestSchoolYear, setGuestSchoolYear] = useState('')
+  const [guestPhone, setGuestPhone] = useState('')
+  const [guestBirthDate, setGuestBirthDate] = useState('')
   const [familyName, setFamilyName] = useState('')
   const [givenName, setGivenName] = useState('')
   const [familyKana, setFamilyKana] = useState('')
@@ -54,6 +70,12 @@ export function RegisterForm({
   const [gender, setGender] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [phone, setPhone] = useState('')
+  // travel-report R1/AC-1: 会員用のサークル所属ブロック。電話・生年月日は
+  // 上の birthDate/phone を全日協ブロックと共用する（入力欄は1つ）。
+  const [isCircleMember, setIsCircleMember] = useState(false)
+  const [facultyKind, setFacultyKind] = useState<FacultyKind>('undergraduate')
+  const [faculty, setFaculty] = useState('')
+  const [schoolYear, setSchoolYear] = useState('')
   const [postalCode, setPostalCode] = useState('')
   const [address1, setAddress1] = useState('')
   const [address2, setAddress2] = useState('')
@@ -109,6 +131,112 @@ export function RegisterForm({
           </Field>
         </section>
 
+        <section className="space-y-3 border-t border-border pt-5">
+          <BoxlessCheckbox
+            name="isCircleMember"
+            checked={guestIsCircleMember}
+            onChange={setGuestIsCircleMember}
+            label="北海道大学のサークル「北大かるた会」に所属している"
+          />
+          <p className="text-xs text-ink-meta">
+            大会の遠征届（大学へ提出）に載せるため、本名と連絡先も登録します。
+          </p>
+
+          {guestIsCircleMember && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-5">
+                <Field label="姓（漢字）" htmlFor="guest-family-name">
+                  <UnderlineInput
+                    id="guest-family-name"
+                    name="familyName"
+                    required
+                    maxLength={20}
+                    value={guestFamilyName}
+                    onChange={setGuestFamilyName}
+                    autoComplete="family-name"
+                  />
+                </Field>
+                <Field label="名（漢字）" htmlFor="guest-given-name">
+                  <UnderlineInput
+                    id="guest-given-name"
+                    name="givenName"
+                    required
+                    maxLength={20}
+                    value={guestGivenName}
+                    onChange={setGuestGivenName}
+                    autoComplete="given-name"
+                  />
+                </Field>
+              </div>
+
+              <Field label="所属" htmlFor="guest-faculty-kind-group" asGroup>
+                <SegmentGroup
+                  name="facultyKind"
+                  ariaLabel="所属"
+                  value={guestFacultyKind}
+                  onChange={(v) => {
+                    setGuestFacultyKind(v as FacultyKind)
+                    setGuestFaculty('')
+                    setGuestSchoolYear('')
+                  }}
+                  options={[
+                    { value: 'undergraduate', label: '学部', ariaLabel: '学部' },
+                    { value: 'graduate', label: '大学院', ariaLabel: '大学院' },
+                  ]}
+                />
+              </Field>
+
+              <Field label="学部等名" htmlFor="guest-faculty">
+                <FacultyCombobox
+                  id="guest-faculty"
+                  name="faculty"
+                  kind={guestFacultyKind}
+                  value={guestFaculty}
+                  onChange={setGuestFaculty}
+                  required
+                  className={UNDERLINE_INPUT_CLASS}
+                />
+                <p className="text-xs text-ink-meta">候補から選ぶか、そのまま入力できます。</p>
+              </Field>
+
+              <Field label="学年" htmlFor="guest-school-year">
+                <UnderlineSelect
+                  id="guest-school-year"
+                  name="schoolYear"
+                  required
+                  value={guestSchoolYear}
+                  onChange={setGuestSchoolYear}
+                  options={schoolYearOptions(guestFacultyKind)}
+                />
+              </Field>
+
+              <Field label="電話番号" htmlFor="guest-phone">
+                <UnderlineInput
+                  id="guest-phone"
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  required
+                  value={guestPhone}
+                  onChange={setGuestPhone}
+                  autoComplete="tel"
+                />
+              </Field>
+
+              <Field label="生年月日" htmlFor="guest-birth-date">
+                <UnderlineInput
+                  id="guest-birth-date"
+                  name="birthDate"
+                  type="date"
+                  required
+                  value={guestBirthDate}
+                  onChange={setGuestBirthDate}
+                />
+              </Field>
+            </div>
+          )}
+        </section>
+
         {state.error && (
           <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
             {state.error}
@@ -140,13 +268,39 @@ export function RegisterForm({
     // 経路では changeGrade が zenNichikyo を ON に戻すため、PII 状態を残すと
     // 旧入力が再表示時に復活してそのまま送信され得る。表示と値を同時に戻す。
     setGender('')
-    setBirthDate('')
-    setPhone('')
+    // travel-report: 電話・生年月日はサークル所属とも共用の欄。サークル所属
+    // ON のときは級を変えても消さない（欄が消えずに残り続けるため）。
+    if (!isCircleMember) {
+      setBirthDate('')
+      setPhone('')
+    }
     setPostalCode('')
     setAddress1('')
     setAddress2('')
     setDetachedHouse(false)
     setZipStatus({ kind: 'idle' })
+  }
+
+  // travel-report R1: サークル所属 ON/OFF の切替。OFF で学部属性を初期化する
+  // （電話・生年月日は全日協と共用のため、全日協 ON ならそのまま残す）。
+  function toggleCircleMember(checked: boolean) {
+    setIsCircleMember(checked)
+    if (checked) {
+      setFacultyKind('undergraduate')
+    } else {
+      setFaculty('')
+      setSchoolYear('')
+      if (!zenNichikyo) {
+        setBirthDate('')
+        setPhone('')
+      }
+    }
+  }
+
+  function changeFacultyKind(next: FacultyKind) {
+    setFacultyKind(next)
+    setFaculty('')
+    setSchoolYear('')
   }
 
   async function searchZip() {
@@ -202,6 +356,89 @@ export function RegisterForm({
         <p className="text-xs text-ink-meta">後から会員ページでいつでも変更できます。</p>
       </section>
 
+      <section className="space-y-3 border-t border-border pt-5">
+        <BoxlessCheckbox
+          name="isCircleMember"
+          checked={isCircleMember}
+          onChange={toggleCircleMember}
+          label="北海道大学のサークル「北大かるた会」に所属している"
+        />
+        <p className="text-xs text-ink-meta">
+          大会の遠征届（大学へ提出）に必要な情報を登録します。学年は毎年4月に見直してください。
+        </p>
+
+        {isCircleMember && (
+          <div className="space-y-5">
+            <Field label="所属" htmlFor="faculty-kind-group" asGroup>
+              <SegmentGroup
+                name="facultyKind"
+                ariaLabel="所属"
+                value={facultyKind}
+                onChange={(v) => changeFacultyKind(v as FacultyKind)}
+                options={[
+                  { value: 'undergraduate', label: '学部', ariaLabel: '学部' },
+                  { value: 'graduate', label: '大学院', ariaLabel: '大学院' },
+                ]}
+              />
+            </Field>
+
+            <Field label="学部等名" htmlFor="faculty">
+              <FacultyCombobox
+                id="faculty"
+                name="faculty"
+                kind={facultyKind}
+                value={faculty}
+                onChange={setFaculty}
+                required
+                className={UNDERLINE_INPUT_CLASS}
+              />
+              <p className="text-xs text-ink-meta">候補から選ぶか、そのまま入力できます。</p>
+            </Field>
+
+            <Field label="学年" htmlFor="school-year">
+              <UnderlineSelect
+                id="school-year"
+                name="schoolYear"
+                required
+                value={schoolYear}
+                onChange={setSchoolYear}
+                options={schoolYearOptions(facultyKind)}
+              />
+            </Field>
+
+            {/* 全日協 PII ブロックが出ないとき（D/E級、または全日協 OFF）だけ、
+                電話・生年月日をここに出す。両方出る条件のときは全日協側だけに
+                出し、二重の同名 input を送信しないようにする。 */}
+            {!showPii && (
+              <>
+                <Field label="電話番号" htmlFor="circle-phone">
+                  <UnderlineInput
+                    id="circle-phone"
+                    name="phone"
+                    type="tel"
+                    inputMode="tel"
+                    required
+                    value={phone}
+                    onChange={setPhone}
+                    autoComplete="tel"
+                  />
+                </Field>
+                <Field label="生年月日" htmlFor="circle-birth-date">
+                  <UnderlineInput
+                    id="circle-birth-date"
+                    name="birthDate"
+                    type="date"
+                    required
+                    value={birthDate}
+                    onChange={setBirthDate}
+                  />
+                </Field>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
       {showZen && (
         <section>
           <BoxlessCheckbox
@@ -244,11 +481,17 @@ export function RegisterForm({
             />
           </Field>
 
-          <Field label="生年月日" htmlFor="bd">
+          <Field
+            label={isCircleMember ? '生年月日（サークル所属・全日協 共通）' : '生年月日'}
+            htmlFor="bd"
+          >
             <UnderlineInput id="bd" name="birthDate" type="date" required value={birthDate} onChange={setBirthDate} />
           </Field>
 
-          <Field label="電話番号" htmlFor="ph">
+          <Field
+            label={isCircleMember ? '電話番号（サークル所属・全日協 共通）' : '電話番号'}
+            htmlFor="ph"
+          >
             <UnderlineInput id="ph" name="phone" type="tel" inputMode="tel" required value={phone} onChange={setPhone} autoComplete="tel" />
           </Field>
 
@@ -339,6 +582,43 @@ function Field({
       </label>
       {children}
     </div>
+  )
+}
+
+/** 学年（選択のみ・自由入力不可）用のセレクト。requirements R1 の候補以外は選ばせない。 */
+function UnderlineSelect({
+  id,
+  name,
+  value,
+  onChange,
+  options,
+  required,
+}: {
+  id: string
+  name: string
+  value: string
+  onChange: (v: string) => void
+  options: readonly string[]
+  required?: boolean
+}) {
+  return (
+    <select
+      id={id}
+      name={name}
+      value={value}
+      required={required}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full border-0 border-b border-border bg-transparent px-0 py-1.5 text-sm text-ink outline-none focus:border-brand"
+    >
+      <option value="" disabled>
+        選択してください
+      </option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
   )
 }
 

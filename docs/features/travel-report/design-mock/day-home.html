@@ -1,0 +1,173 @@
+<!-- @dsCard group="遠征届（travel-report）" name="S7 日ページの導線 ＋ S9 ホームの未入力導線" subtitle="日ページ（未入力・強調）／入力済み・提出権限者（原本DL）の断片／ホーム（未回答アラートとの共存）" viewport="1240x980" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_tr.css">
+<title>日ページ導線・ホーム導線 — S7 / S9</title>
+</head><body>
+
+<!-- ============================================================
+     S7 /events/[id]（会員向け日ページ）— 「遠征届」セクションを新設。
+       - 対象者で未入力: 朱の CTA（未回答アラートと同じ「自分が手を動かす必要がある」表現）
+       - 入力済み: 藤の落ち着いた行（確認・修正）
+       - 対象外・未開始・不要: 一般会員にはセクションごと出さない
+       - 原本ダウンロード（.dotx）は提出権限者（管理者・副管理者・副連絡責任者）だけ（R3 で変更）
+     置き場所: グループ導線の直下（参加者より上）。理由: 未入力の人が最初に目にする位置。
+     既存の見出し・フロー帯・参加者欄は event-detail-redesign の型をそのまま再現している。
+
+     S9 /dashboard — 未回答アラートの直下に「遠征経路 未入力」行。既存 UnansweredAlertRow と同型。
+     ============================================================ -->
+
+<!-- ─────────── S7 日ページ（対象者・未入力） ─────────── -->
+<div class="col">
+  <div class="collabel">S7 日ページ ── 対象者・未入力（朱の CTA）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">大会</a><span>›</span><span>十和田大会 A・B級</span></div>
+        <h1 class="title">十和田大会 A・B級 <span class="tdate">10/10(土)</span></h1>
+        <div class="subline">十和田市民文化センター</div>
+        <div class="flow">
+          <div class="fs done"><span class="d"></span><span class="l">会内締切</span><span class="t">9/13</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">大会申込</span><span class="t">9/20</span></div>
+          <div class="fs done"><span class="d"></span><span class="l">抽選</span><span class="t">9/28</span></div>
+          <div class="fs now warn"><span class="d"></span><span class="l">支払</span><span class="t">10/3</span></div>
+          <div class="fs goal"><span class="d"></span><span class="l">開催</span><span class="t">10/10</span></div>
+        </div>
+      </div>
+
+      <div class="grouplink"><a href="#">‹ 申込グループ</a><span class="gname">十和田大会（2日）</span></div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>遠征届</h2><span class="aux">確定名簿あり</span></div>
+        <a class="route-cta" href="#">
+          <span class="tag">未入力</span>
+          <span class="t">遠征経路を入力する<span class="s">10/10(土)・10/11(日) の行程と連絡先</span></span>
+          <span class="chev">›</span>
+        </a>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>参加者 <span class="cntnum">6</span><span class="cntunit">名</span></h2></div>
+        <div class="partrow"><p class="who">北海<i>A</i>・藤野<i>A</i>・室蘭<i>A</i>・旭川<i>B</i>・釧路<i>B</i>・函館<i>B</i> <span class="gu">ゲスト</span></p></div>
+        <p class="subnote">あなたの参加費 2,500円</p>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>級別定員</h2><span class="aux">計 64名</span></div>
+        <div class="caprow"><span class="ci"><span class="g">A</span><span class="n">32</span><span class="u">名</span></span><span class="ci"><span class="g">B</span><span class="n">32</span><span class="u">名</span></span></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>名簿</h2><span class="aux">確定 9/28</span></div>
+        <details class="rost"><summary><span class="rt">確定名簿</span><span class="cnt">64名</span><span class="pub">9/28 発表</span></summary></details>
+      </div>
+
+      <div class="sticky">
+        <span class="btn b-lg b-outline b-block">参加をキャンセル</span>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab active">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">「遠征届」セクションはグループ導線の直下。未入力の人には<b>朱の CTA</b>（ホームの未回答アラートと同じ意味の色）。一般会員には CTA 以外を出さない（対象外ならセクションごと出ない）。</div>
+</div>
+
+<!-- ─────────── S7 断片: 入力済み／提出権限者 ─────────── -->
+<div class="col">
+  <div class="collabel">S7 断片 ── 入力済み／提出権限者（原本ダウンロード）</div>
+  <div class="vcard">
+    <div class="vlabel">入力済み（確認・修正）── 一般会員</div>
+    <div class="sec">
+      <div class="sech"><h2>遠征届</h2><span class="aux">確定名簿あり</span></div>
+      <a class="route-cta done" href="#">
+        <span class="tag">入力済み</span>
+        <span class="t">遠征経路を確認・修正する<span class="s">9/6 保存 ／ 10/9 札幌→十和田 … 10/11 十和田→札幌</span></span>
+        <span class="chev">›</span>
+      </a>
+    </div>
+    <div class="vnote">入力済みは藤の落ち着いた行。サブ行に保存日時と行程の要約を1行で出す（長ければ省略記号）。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">提出権限者（管理者・副管理者・副連絡責任者）が見たとき</div>
+    <div class="sec">
+      <div class="sech"><h2>遠征届</h2><span class="aux">確定名簿あり ／ 8/10 そろった</span></div>
+      <a class="route-cta done" href="#">
+        <span class="tag">入力済み</span>
+        <span class="t">遠征経路を確認・修正する<span class="s">9/6 保存 ／ 10/9 札幌→十和田 … 10/11 十和田→札幌</span></span>
+        <span class="chev">›</span>
+      </a>
+      <div class="dlrow">
+        <span>大学に出す様式（原本）</span>
+        <a class="dl" href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>遠征届原本.dotx</a>
+      </div>
+      <div class="dlrow" style="padding-top:6px"><span>作成・入力状況</span><a class="lnk" href="#">申込グループページの遠征届へ ›</a></div>
+    </div>
+    <div class="vnote">提出権限者だけに原本の行と、グループページの遠征届セクションへの導線を足す。自分が対象者でなければ CTA は出ず、この2行だけになる。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">対象外・未開始・不要 ── 一般会員</div>
+    <div class="sec">
+      <p class="subnote">（「遠征届」セクションは表示されない）</p>
+    </div>
+    <div class="vnote">出す理由が無いので、セクションごと出さない。「なぜ出ないか」を並べない。</div>
+  </div>
+</div>
+
+<!-- ─────────── S9 ホーム ─────────── -->
+<div class="col">
+  <div class="collabel">S9 ホーム ── 未回答アラートの下に「遠征経路 未入力」</div>
+  <div class="phone">
+    <div class="main"><div class="page" style="padding-top:14px">
+
+      <a class="alert" href="#">
+        <span class="tag">未回答</span>
+        <span class="nm">札幌秋季大会</span>
+        <span class="cd">あと3日</span>
+        <span class="chev">›</span>
+      </a>
+      <a class="alert" href="#">
+        <span class="tag">遠征経路</span>
+        <span class="nm">十和田大会 10/10・11</span>
+        <span class="cd">未入力</span>
+        <span class="chev">›</span>
+      </a>
+      <a class="alert" href="#">
+        <span class="tag">遠征経路</span>
+        <span class="nm">帯広新人戦 11/7・8</span>
+        <span class="cd">未入力</span>
+        <span class="chev">›</span>
+      </a>
+
+      <div class="seclabel"><span>出場予定</span><a href="#">大会申込へ</a></div>
+      <div class="card">
+        <div style="display:flex;align-items:baseline;gap:10px"><span style="font-family:var(--kg-font-display);font-size:18px;font-weight:var(--kg-w-bold)">10/10</span><span style="font-size:var(--kg-text-xs);color:var(--kg-fg-3)">土</span><span style="font-family:var(--kg-font-display);font-size:15px;font-weight:var(--kg-w-bold)">十和田大会 A・B級</span></div>
+        <p class="who" style="margin-top:6px"><span class="p">北海<span class="g">A</span></span><span class="p">藤野<span class="g">A</span></span><span class="p">室蘭<span class="g">A</span></span><span class="p">旭川<span class="g">B</span></span><span class="p">釧路<span class="g">B</span></span><span class="p">函館<span class="g">B</span><span class="gu">ゲスト</span></span></p>
+      </div>
+      <div class="card" style="margin-top:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><span style="font-family:var(--kg-font-display);font-size:18px;font-weight:var(--kg-w-bold)">10/11</span><span style="font-size:var(--kg-text-xs);color:var(--kg-accent-fg)">日</span><span style="font-family:var(--kg-font-display);font-size:15px;font-weight:var(--kg-w-bold)">十和田大会 C・D・E級</span></div>
+        <p class="who" style="margin-top:6px"><span class="p">石狩<span class="g">C</span></span><span class="p">石狩<span class="g">C</span></span><span class="p">小樽<span class="g">D</span></span><span class="p">帯広<span class="g">E</span></span></p>
+      </div>
+      <div class="card" style="margin-top:8px">
+        <div style="display:flex;align-items:baseline;gap:10px"><span style="font-family:var(--kg-font-display);font-size:18px;font-weight:var(--kg-w-bold)">10/25</span><span style="font-size:var(--kg-text-xs);color:var(--kg-accent-fg)">日</span><span style="font-family:var(--kg-font-display);font-size:15px;font-weight:var(--kg-w-bold)">札幌秋季大会</span></div>
+        <p class="who" style="margin-top:6px"><span class="p">藤野<span class="g">A</span></span><span class="p">石狩<span class="g">C</span></span></p>
+      </div>
+
+    </div></div>
+    <div class="bottomnav"><span class="tab active">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">既存の未回答アラートと同じ行型。タグで「未回答」「遠征経路」を区別し、右端は「あと3日」の代わりに「未入力」。遠征単位ごとに1行（帯広は2週末なら2行）。</div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>S7 のセクション位置</b>: グループ導線の直下（参加者より上）に置いた。参加者欄の下でもよいが、未入力の人が見落とす。</li>
+    <li><b>R3: 原本ダウンロードは提出権限者のみ</b>。一般会員の画面からは行ごと消し、対象外ならセクションも出さない。</li>
+    <li><b>S9 の行</b>: 未回答アラートと同じ朱の行にした（「自分が手を動かす必要がある」の意味で統一）。タグの語「遠征経路」で区別。</li>
+    <li><b>右端の語</b>: 締切がないので「未入力」固定。開催が近い（例: 3日前以内）ときだけ「あと3日」に切り替える案もある。</li>
+  </ul>
+</div>
+
+</body></html>

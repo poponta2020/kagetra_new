@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
+    "jszip": "^3.10.1",
     "@auth/drizzle-adapter": "^1.11.2",
     "@kagetra/api": "workspace:^",
     "@kagetra/mail-worker": "workspace:*",
