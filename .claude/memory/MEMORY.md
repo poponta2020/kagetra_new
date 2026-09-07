@@ -5,6 +5,7 @@
 
 ## Project
 
+- [LINEでBotメンション→申込ステータス更新の実現可能性(2026-09-07)](project_line_bot_entry_status_feasibility.md) — 技術的に可能・要件定義未実施。成立するのは大会グループのみ(級グループは大会特定不可)。★誤爆が取り消せない(once-everスロット消費＋LINE通知2通)・認可はwebhookに無いので作り直し・対象開催日の規則を要決定
 - [ライラック配色+立体感 実装完了(2026-08-29)](project_lilac_palette_direction.md) — 正典=docs/features/lilac-palette/design-spec.md。**ライラック=西洋lilac(326°)でなく和の藤色(295°)として読む**。藤(brand=success)+朱(据置)+琥珀(warn新設)、3段2層の影+背景微細ノイズ。★「地味」の原因は測定可能=14トークンが色相80-92°の1系統+カード↔背景ΔL0.024+Cardに影ゼロ。★影のalphaは据え置き不可・`--color-warn`新設は`bg-warn`等をlive化(裸参照0件を確認済)・hex照合は無効
 
 - [2026年 未取込結果の本番backfill(2026-08-25)](impl_a2026_result_backfill.md) — 協会HP掲載済み16大会をt1601-1616へ投入(参加者4933/対戦10326/opp_null増分0)。★parseResultExcelの落とし穴4種を実データで確認=相手セルの不戦/タブ名と中身の不一致/級カラム誤認/同名className跨シートmerge。残=団体戦3件+名人位戦(速報テキストのみ)
@@ -96,6 +97,7 @@
 - [PR#6フォントウェイト方針](project_pr6_font_fix_r2.md) — Noto JPは実使用ウェイトのみ
 
 ## Reference
+- [LINE webhook のメンション payload 実測(2026-09-07)](reference_line_webhook_mention_payload.md) — isSelf:true が来る・mentionee userId == line_channels.webhook_destination_id・source.userId は users.line_user_id と突合可・メンション無しでも届く。★handleJoin はグループ条件が無いので招待待ちBotで実験すると本番紐付けが向け替わる
 - [in-app pane でアプリ画面表示(/show-app)](reference_inapp_pane_app_view.md) — in-appブラウザは307追従不可でERR_TOO_MANY_REDIRECTS。/を踏ませず/sw.js経由でcookie注入→200ページ直行。dev:session(既存user・INSERT無)
 - [本番DBへSSHトンネル接続(:5435)](reference_prod_db_tunnel_connect.md) — ローカルdev webを本番postgresへ。id_ed25519_oracle鍵・5435トンネル・.env.local切替(127.0.0.1)。read-write/session限り
 - [tool出力捏造の環境現象](reference_tool_output_fabrication.md) — Write/Bash成功表示でも実体無しがある。重要操作後は独立系統でverify
@@ -375,3 +377,11 @@
 - [fix PR #582](impl_fix-pr582.md) — review 指摘の修正（400 revoke の取り残し発見）
 - [添付ファイルの「開く・保存」導線と Excel プレビュー廃止](project_ship-attachment-open-download.md) — shipped: PR #581
 - [メール処理画面から会計へ振込連絡](project_ship-mail-screen-payment-notice.md) — shipped: PR #582（final で blocker 4件＝final の価値が出た回）
+- [travel-report（遠征届）要件定義](project_travel_report_def.md) — 親Issue #583・子#584-591・design locked・Claude Design未push
+- [travel-report タスク1（スキーマ・migration 0064）](impl_travel-report-task1.md) — 0064＋共有定数。AC-4の大学院21は数え違いで実際22件・原本dotxはmainにuntrackedのみ
+- [travel-report 実装完了（タスク1-8）](impl_travel-report-complete.md) — after()はリクエストスコープ外でthrow・PII scrub対象を文字列で書くとリポジトリに残る・jest-dom未導入
+- [auto-review PR #592](auto-review-round-pr592.md) — 7R・blocker19件修正・誤検知3件（lockfile除外が原因の誤検知に注意）・累計1.43Mトークン
+- [mail-body-as-image 改修（本文リンクカード化）要件定義(2026-09-07)](project_mail_body_link_card_def.md) — 親Issue #594・LINE本文を画像→✉Flexカード＋公開全文ページへ
+- [承認画面の通称⇄系列連動 要件定義(2026-09-07)](project_series_nickname_link_def.md) — 親Issue #599。★通称の実体=tournament_series.short_name・AI不採用は実測根拠・初期選択条件をentry-rosters AC-1/2から緩和
+- [mail-body-as-image 改修 タスク1・2（トークン基盤＋Flexカード）](impl_mail-body-link-card-wave1.md) — 公開URLトークン基盤と✉カードビルダーをmain直実装。worktreeのdocs/featuresが古い罠
+- [travel-report（遠征届）出荷](project_ship-travel-report.md) — shipped: PR #592
