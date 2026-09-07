@@ -57,7 +57,7 @@
 
 判定の正典は `apps/web/src/lib/guest-access.ts` の純関数 `isGuestAllowedPath(pathname)` / `isGuestRole(role)`。DB・next-auth・`process.env` を import しないので、Edge の middleware と Node のページ / route handler の**両方から同じ関数を呼ぶ**。
 
-許可されるのは `/`・`/403`・`/events`・`/events/:id`・`/events-archive`・`/settings`（完全一致のみ）・`/roster-files/:id`・`/api/roster-files/:id[/preview/:page]`・`/api/auth/**` **だけ**で、他はすべて拒否。`/events/new`・`/events/:id/edit`・`/settings/*` の下位ページは明示的に拒否側に落ちる。名簿ファイルはページと API の両方を許可する（片方だけ開けてもビューアが成立しないため）。
+許可されるのは `/`・`/403`・`/events`・`/events/:id`・**`/events/:id/travel-route`**・`/events-archive`・`/settings`（完全一致のみ）・`/roster-files/:id`・`/api/roster-files/:id[/preview/:page]`・`/api/auth/**` **だけ**で、他はすべて拒否。`/events/new`・`/events/:id/edit`・`/settings/*` の下位ページは明示的に拒否側に落ちる。`/events/:id/travel-route`（遠征経路の入力）は3セグメント目の**完全一致**だけを許可しているので `/events/:id/edit` は従来どおり拒否される。ゲストが対象者になりうる唯一の入力画面なので開けてあるが、対象者判定・提出権限者の代理入力の可否はページと Server Action が持つ（`/settings` を下位まで広げないのは、`/settings/travel-report` が提出権限者専用でゲストには権限が生じないため）。名簿ファイルはページと API の両方を許可する（片方だけ開けてもビューアが成立しないため）。
 
 **二段構えである理由**: middleware が読む JWT の `role` は、Node 側の jwt callback が DB から再同期して cookie を再発行するまで stale になりうる（会員 → ゲストへ降格した直後など）。したがって middleware は早期ゲート（UX）と位置づけ、実防御は Node 側にも置く:
 
@@ -114,12 +114,16 @@
 
 ### 会員管理（`/admin/members`）
 
-一覧ページ（`admin/members/page.tsx`）は全会員（`users` 全行）を表示し、名前・ロール（会計担当には「会計」の印を併記）・級（インライン編集フォーム）・招待状態（`isInvited`）・登録日・LINE 紐付け日時/方法（`_line-link-format.ts` の `formatLinkedAt` / `formatLinkMethod`）・編集リンクを列挙する。退会済み（`deactivatedAt` あり）の行はグレーアウト＋「退会」バッジで視覚的に区別する。
+一覧ページ（`admin/members/page.tsx`）は全会員（`users` 全行）を表示し、名前・ロール（会計担当には「会計」の印を、副連絡責任者・サークル長にはそれぞれのバッジを併記）・級（インライン編集フォーム）・招待状態（`isInvited`）・登録日・LINE 紐付け日時/方法（`_line-link-format.ts` の `formatLinkedAt` / `formatLinkMethod`）・編集リンクを列挙する。退会済み（`deactivatedAt` あり）の行はグレーアウト＋「退会」バッジで視覚的に区別する。
 
 編集ページ（`[id]/edit/page.tsx`）でできること:
 
 - **プロフィール更新**（`updateMemberProfile`）: 級・性別・所属・段位・全日協フラグ・姓名/ふりがな・生年月日・電話・郵便番号・住所を編集する。`name`（合成表示名・UNIQUE 制約キー）自体はここでは再合成しない。
 - **ロール変更**（`updateMemberRole`、`MemberRoleSection`、**`admin` 限定**）: `admin` / `vice_admin` / `member` の3択を選んで保存する（確認ダイアログあり）。拒否条件は「RBAC（3層ロール）」節を参照。UI 側では自分自身の行はフォームごと出さず理由文のみを表示し、未紐付け・退会済みの行は昇格の選択肢を無効化する（現在のロールは選択可能なまま残して降格の導線を保つ）。この無効化は誤操作を減らすための案内で、認可そのものは Server Action 側が同じ条件で判定する。
+- **サークル所属と学部属性**（`updateMemberProfile`、travel-report）: `is_circle_member` のチェックと 学部区分（学部／大学院）・学部等名（区分で候補が切り替わる自由入力）・学年（選択のみ）、ゲストは姓・名。★管理者編集では既存の全日協 PII と同じく**形式検証のみ**で、「サークル所属 ON なら必須」を強制するのは自己登録フロー（`/register/[token]`）だけ。欠けた属性は遠征経路の入力画面（S8）の「あなたの情報」で本人が埋め、プロフィールへ書き戻される。電話・生年月日は全日協と**同じ列**（`users.phone` / `birth_date`）を共用し、どちらの条件でも入力欄は1つ。
+- **副連絡責任者フラグ**（`updateMemberTravelFlags`、admin/vice_admin、travel-report）: `users.is_travel_report_submitter` のトグル。★**会計フラグとは逆にこの列は認可に使う** — 「@副連絡責任者」のメンション対象であると同時に、遠征届の操作権限（必要/不要・経路入力の開始・代理入力・作成・ダウンロード・開催地修正・遠征届設定）そのもの。提出係は一般会員のことが多く、副管理者ロールを渡すと他の管理操作まで開くためフラグで認可する。判定の正典は `lib/travel-report/authz.ts` の1ヘルパー（**提出権限者 ＝ admin ∪ vice_admin ∪（`role='member'` ∧ フラグ ∧ 未退会）**）で、ページ・Server Action・route handler の三箇所すべてがこれを通る。**ゲストにフラグが付いても権限にはならない**（会員編集でもゲストにはこのチェックを出さない）。フラグは session に載せず都度 DB から引く（退会・剥奪を次のリクエストから効かせるため。同一 RSC ツリー内は React `cache()` で1回に束ねる）。
+- **サークル長フラグ**（`updateMemberTravelFlags`、travel-report）: `users.is_circle_leader`。**同時に1人だけ**で、既に別の人が持つ状態で付与するとエラーになり変更されない（`users_circle_leader_unique` の partial unique index を DB バックストップにし、Action 側で日本語エラーへ変換する）。遠征届の「団体代表者」と「留守連絡先の既定」に使う。
+- **一括編集**（`/admin/members/circle`、admin/vice_admin、travel-report）: 複数人のサークル所属・学部区分・学部等名・学年を1回の保存で更新する。既存会員へまとめて属性を入れるための画面。
 - **会計フラグ**（`updateMemberTreasurer`、`MemberTreasurerSection`、admin/vice_admin）: `users.is_treasurer` のトグル。★**この列は権限ではない** — 大会グループへの振込連絡で `@会計` のメンション対象を決めるためだけに使い、認可判断には一切使わない（[spec/notifications.md](notifications.md)）。会計担当に操作権限が要る場合は、別途ロールを副管理者にする。ロール変更が `admin` 限定なのに対しこちらは会員編集の既存ガード（admin/vice_admin）のままなので、`MemberRoleSection` とは別セクションに分けてある。退会済み・LINE 未紐付けの会員にも立てられる（メンション対象の解決側が絞るので、フラグの付け外しを制限すると「復帰したら会計に戻す」運用が壊れる）。
 - **名前の変更**（`updateMemberName`）: LINE 未紐付けかつ `role = 'member'` の行に限定した「誤登録の取り消し」用の操作。対象条件は UPDATE の WHERE 句自体に埋め込まれており、`/self-identify` での紐付けと同時に起きる競合を単一 SQL 文で安全に弾く。
 - **退会切替**（`toggleMemberDeactivation`）: `deactivatedAt` を now() / null でトグルする。退会中はログイン不可（「認証方式」節を参照）。

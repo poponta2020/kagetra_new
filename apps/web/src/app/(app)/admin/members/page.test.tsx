@@ -25,12 +25,16 @@ async function renderPage() {
   return render(ui)
 }
 
+// ★`afterAll` はトップレベルに1つだけ。describe の中に置くと最初の describe が
+// 終わった時点でプールが閉じ、後続の describe の `truncateAll` が
+// "Cannot use a pool after calling end on the pool" で落ちる。
+afterAll(async () => {
+  await closeTestDb()
+})
+
 describe('MembersPage のロール列', () => {
   beforeEach(async () => {
     await truncateAll()
-  })
-  afterAll(async () => {
-    await closeTestDb()
   })
 
   it('ロールが日本語ラベルで表示され、生の enum が出ない（AC-20）', async () => {
@@ -72,5 +76,55 @@ describe('MembersPage のロール列', () => {
     for (const cell of roleCells) {
       expect(cell).not.toMatch(/guest/)
     }
+  })
+})
+
+// travel-report R2/AC-7: 会員一覧に副連絡責任者・サークル長のバッジが出る。
+describe('MembersPage の副連絡責任者・サークル長バッジ', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+
+  it('副連絡責任者・サークル長のバッジが表示される', async () => {
+    const admin = await createAdmin({ name: 'badge-admin' })
+    await createUser({ name: 'badge-submitter', isTravelReportSubmitter: true })
+    await createUser({ name: 'badge-leader', isCircleLeader: true })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await renderPage()
+
+    const roleCells = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelectorAll('td')[1]?.textContent ?? '')
+
+    expect(roleCells.some((c) => c.includes('副連絡責任者'))).toBe(true)
+    expect(roleCells.some((c) => c.includes('サークル長'))).toBe(true)
+  })
+
+  it('フラグが無い会員にはバッジが出ない', async () => {
+    const admin = await createAdmin({ name: 'badge-admin-2' })
+    await createUser({ name: 'badge-none' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await renderPage()
+
+    const roleCells = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelectorAll('td')[1]?.textContent ?? '')
+
+    expect(roleCells.some((c) => c.includes('副連絡責任者'))).toBe(false)
+    expect(roleCells.some((c) => c.includes('サークル長'))).toBe(false)
+  })
+
+  it('「サークル所属の一括編集」への導線がテーブル外にある', async () => {
+    const admin = await createAdmin({ name: 'badge-admin-3' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await renderPage()
+
+    const link = screen.getByRole('link', { name: 'サークル所属の一括編集' })
+    expect(link.getAttribute('href')).toBe('/admin/members/circle')
   })
 })

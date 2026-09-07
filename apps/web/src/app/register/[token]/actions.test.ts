@@ -368,6 +368,184 @@ describe('registerViaInvite', () => {
     expect(await testDb.query.users.findFirst({ where: eq(users.name, 'バインド 済') })).toBeUndefined()
   })
 
+  // travel-report R1/AC-1/AC-3/AC-4: サークル所属 ON の必須項目・電話/生年月日の共用。
+  it('サークル所属ON（D級・全日協無し）: 学部区分・学部等名・学年・電話・生年月日が保存される', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-1', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-1' })
+
+    await expect(
+      registerViaInvite(
+        token,
+        {},
+        nameForm({
+          grade: 'D',
+          isCircleMember: 'on',
+          facultyKind: 'graduate',
+          faculty: '情報科学院',
+          schoolYear: '修士1年',
+          phone: '090-0000-0001',
+          birthDate: '2003-01-01',
+        }),
+      ),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '山田 太郎') })
+    expect(created?.isCircleMember).toBe(true)
+    expect(created?.facultyKind).toBe('graduate')
+    expect(created?.faculty).toBe('情報科学院')
+    expect(created?.schoolYear).toBe('修士1年')
+    expect(created?.phone).toBe('090-0000-0001')
+    expect(created?.birthDate).toBe('2003-01-01')
+    // D級なので全日協は false のまま。
+    expect(created?.zenNichikyo).toBe(false)
+  })
+
+  it('サークル所属ON: 学部区分が欠けるとエラーで作成されない', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-2', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-2' })
+
+    const result = await registerViaInvite(
+      token,
+      {},
+      nameForm({ grade: 'D', isCircleMember: 'on', faculty: '工学部', schoolYear: '3年' }),
+    )
+    expect(result.error).toContain('所属')
+    expect(
+      await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Unew-circle-2') }),
+    ).toBeUndefined()
+  })
+
+  it('サークル所属ON: 学部等名が空だとエラー', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-3', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-3' })
+
+    const result = await registerViaInvite(
+      token,
+      {},
+      nameForm({
+        grade: 'D',
+        isCircleMember: 'on',
+        facultyKind: 'undergraduate',
+        schoolYear: '3年',
+        phone: '090-0000-0001',
+        birthDate: '2003-01-01',
+      }),
+    )
+    expect(result.error).toContain('学部等名')
+  })
+
+  it('サークル所属ON: 区分と整合しない学年（学部に「修士1年」）は拒否される', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-4', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-4' })
+
+    const result = await registerViaInvite(
+      token,
+      {},
+      nameForm({
+        grade: 'D',
+        isCircleMember: 'on',
+        facultyKind: 'undergraduate',
+        faculty: '工学部',
+        schoolYear: '修士1年',
+        phone: '090-0000-0001',
+        birthDate: '2003-01-01',
+      }),
+    )
+    expect(result.error).toContain('学年')
+  })
+
+  it('サークル所属ON: 候補外の学部等名も自由入力として保存できる（AC-4）', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-5', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-5' })
+
+    await expect(
+      registerViaInvite(
+        token,
+        {},
+        nameForm({
+          grade: 'D',
+          isCircleMember: 'on',
+          facultyKind: 'undergraduate',
+          faculty: '候補外学部',
+          schoolYear: '1年',
+          phone: '090-0000-0001',
+          birthDate: '2003-01-01',
+        }),
+      ),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '山田 太郎') })
+    expect(created?.faculty).toBe('候補外学部')
+  })
+
+  it('サークル所属ON: 電話番号が欠けるとエラー（全日協が無い級でも必須）', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-6', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-6' })
+
+    const result = await registerViaInvite(
+      token,
+      {},
+      nameForm({
+        grade: 'D',
+        isCircleMember: 'on',
+        facultyKind: 'undergraduate',
+        faculty: '工学部',
+        schoolYear: '3年',
+        birthDate: '2003-01-01',
+      }),
+    )
+    expect(result.error).toContain('電話番号')
+  })
+
+  it('サークル所属OFF: 学部属性は任意で null のまま作成できる', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-7', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-7' })
+
+    await expect(
+      registerViaInvite(token, {}, nameForm({ grade: 'D' })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '山田 太郎') })
+    expect(created?.isCircleMember).toBe(false)
+    expect(created?.facultyKind).toBeNull()
+    expect(created?.faculty).toBeNull()
+    expect(created?.schoolYear).toBeNull()
+  })
+
+  it('AC-3: 全日協ONの電話・生年月日とサークル所属ONの電話・生年月日は同じ列に保存される', async () => {
+    const issuer = await createUser({ name: 'issuer-circle-8', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-circle-8' })
+
+    await expect(
+      registerViaInvite(
+        token,
+        {},
+        zenForm({
+          grade: 'B',
+          isCircleMember: 'on',
+          facultyKind: 'undergraduate',
+          faculty: '法学部',
+          schoolYear: '2年',
+        }),
+      ),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '山田 太郎') })
+    expect(created?.zenNichikyo).toBe(true)
+    expect(created?.isCircleMember).toBe(true)
+    // zenForm の phone/birthDate がそのまま同じ列に入る（入力欄は1つ）。
+    expect(created?.phone).toBe('090-1234-5678')
+    expect(created?.birthDate).toBe('1990-04-01')
+  })
+
   it('LINEセッションが無い場合は /register/<token> へ戻す', async () => {
     const issuer = await createUser({ name: 'issuer-10', role: 'admin' })
     const token = await seedInvite(issuer.id)
@@ -517,5 +695,84 @@ describe('registerViaInvite (guest invite)', () => {
     const result = await registerViaInvite(expiredToken, {}, guestForm())
     expect(result.error).toBeDefined()
     expect(await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-8') })).toBeUndefined()
+  })
+
+  // travel-report R1/AC-2: ゲストもサークル所属 ON なら姓・名（漢字）＋学部属性＋
+  // 電話・生年月日が必須になり、保存後に分割氏名を持つ。
+  it('AC-2: ゲスト＋サークル所属ON: 姓・名・学部属性・電話・生年月日が保存される（分割氏名を持つ）', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-9', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-9' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-9' })
+
+    await expect(
+      registerViaInvite(
+        token,
+        {},
+        guestForm({
+          name: '函館 大地',
+          isCircleMember: 'on',
+          familyName: '函館',
+          givenName: '大地',
+          facultyKind: 'undergraduate',
+          faculty: '経済学部',
+          schoolYear: '2年',
+          phone: '080-0000-0010',
+          birthDate: '2005-08-08',
+        }),
+      ),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '函館 大地') })
+    expect(created?.role).toBe('guest')
+    expect(created?.isCircleMember).toBe(true)
+    expect(created?.familyName).toBe('函館')
+    expect(created?.givenName).toBe('大地')
+    // ゲストにかなは聞かない。
+    expect(created?.familyKana).toBeNull()
+    expect(created?.givenKana).toBeNull()
+    expect(created?.facultyKind).toBe('undergraduate')
+    expect(created?.faculty).toBe('経済学部')
+    expect(created?.schoolYear).toBe('2年')
+    expect(created?.phone).toBe('080-0000-0010')
+    expect(created?.birthDate).toBe('2005-08-08')
+  })
+
+  it('ゲスト＋サークル所属ON: 姓が欠けるとエラーで作成されない', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-10', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-10' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-10' })
+
+    const result = await registerViaInvite(
+      token,
+      {},
+      guestForm({
+        isCircleMember: 'on',
+        givenName: '大地',
+        facultyKind: 'undergraduate',
+        faculty: '経済学部',
+        schoolYear: '2年',
+        phone: '080-0000-0010',
+        birthDate: '2005-08-08',
+      }),
+    )
+    expect(result.error).toContain('姓')
+    expect(
+      await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Uguest-10') }),
+    ).toBeUndefined()
+  })
+
+  it('ゲスト＋サークル所属OFF: 学部属性は null のまま作成できる', async () => {
+    const issuer = await createUser({ name: 'guest-issuer-11', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-token-11' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uguest-11' })
+
+    await expect(
+      registerViaInvite(token, {}, guestForm({ name: '通常 ゲスト' })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const created = await testDb.query.users.findFirst({ where: eq(users.name, '通常 ゲスト') })
+    expect(created?.isCircleMember).toBe(false)
+    expect(created?.familyName).toBeNull()
+    expect(created?.facultyKind).toBeNull()
   })
 })

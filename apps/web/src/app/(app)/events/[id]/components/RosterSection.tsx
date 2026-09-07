@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { formatFlowDate } from '@/lib/event-date'
@@ -425,6 +425,7 @@ export function RosterSection({
   rosterFiles = [],
   currentUserId,
   adminControls,
+  selectionStatusSlot,
 }: {
   kind: 'individual' | 'team'
   rosters: RosterView[]
@@ -439,6 +440,14 @@ export function RosterSection({
    * 渡す**（非管理者は `undefined`）。詳細は {@link RosterAdminControls}。
    */
   adminControls?: RosterAdminControls
+  /**
+   * travel-report タスク3: 「確定状況」の開閉行を**このセクションの中**へ差し込む
+   * スロット（design-spec §3/§8「S5 の確定状況は名簿セクション内の開閉行」）。
+   * 兄弟要素として並べると名簿を閉じている間も独立して見えてしまうため、
+   * `adminControls` と同じく **渡してよい相手のときだけ渡す**（申込グループページの
+   * 管理者・副管理者のみ。日ページからは渡さない）。
+   */
+  selectionStatusSlot?: ReactNode
 }) {
   // 名簿は個人戦のみ（AC-30）。団体戦では出さない。
   if (kind !== 'individual') return null
@@ -476,6 +485,7 @@ export function RosterSection({
         emptyText="まだ取り込まれていません。メール取り込みで登録されると、申込者名簿と同じ形式で確定した出場者が並びます。"
       />
       {adminControls && <ConfirmedRosterOverrideRow controls={adminControls} />}
+      {selectionStatusSlot}
     </DisclosureSection>
   )
 }

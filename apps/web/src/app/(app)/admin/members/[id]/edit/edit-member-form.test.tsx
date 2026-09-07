@@ -22,7 +22,15 @@ const { EditMemberForm } = await import('./edit-member-form')
 const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS: readonly Gender[] = ['male', 'female'] as const
 
-function renderForm(nameEditable: boolean) {
+function renderForm(
+  nameEditable: boolean,
+  circleOverrides: {
+    isCircleMember?: boolean
+    facultyKind?: 'undergraduate' | 'graduate' | null
+    faculty?: string
+    schoolYear?: string
+  } = {},
+) {
   return render(
     <EditMemberForm
       userId="user-1"
@@ -42,6 +50,10 @@ function renderForm(nameEditable: boolean) {
       postalCode=""
       address1=""
       address2=""
+      isCircleMember={circleOverrides.isCircleMember ?? false}
+      facultyKind={circleOverrides.facultyKind ?? null}
+      faculty={circleOverrides.faculty ?? ''}
+      schoolYear={circleOverrides.schoolYear ?? ''}
       grades={GRADES}
       genders={GENDERS}
     />,
@@ -176,5 +188,62 @@ describe('EditMemberForm — 構造化氏名＋全日協PII 列の表示/編集'
     expect(fd?.get('postalCode')).toBe('001-0010')
     expect(fd?.get('address1')).toBe('札幌市北区北十条西1-1')
     expect(fd?.get('address2')).toBe('101号室')
+  })
+})
+
+// travel-report design-spec §10「S2 会員編集＝既存プロフィール表の行追加」。
+describe('EditMemberForm — サークル所属ブロック', () => {
+  beforeEach(() => {
+    updateMemberProfileMock.mockReset()
+    updateMemberNameMock.mockReset()
+  })
+
+  it('OFF: 所属・学部等名・学年は表示されない', () => {
+    renderForm(false)
+    expect(screen.getByLabelText('北大かるた会サークルに所属している')).toBeTruthy()
+    expect(screen.queryByLabelText('所属')).toBeNull()
+    expect(screen.queryByLabelText('学部等名')).toBeNull()
+    expect(screen.queryByLabelText('学年')).toBeNull()
+  })
+
+  it('既存値が ON のとき、所属・学部等名・学年が初期値付きで表示される', () => {
+    renderForm(false, {
+      isCircleMember: true,
+      facultyKind: 'graduate',
+      faculty: '情報科学院',
+      schoolYear: '修士1年',
+    })
+    expect((screen.getByLabelText('所属') as HTMLSelectElement).value).toBe('graduate')
+    expect((screen.getByLabelText('学部等名') as HTMLInputElement).value).toBe('情報科学院')
+    expect((screen.getByLabelText('学年') as HTMLSelectElement).value).toBe('修士1年')
+  })
+
+  it('ON にすると 所属・学部等名・学年 が開く', () => {
+    renderForm(false)
+    fireEvent.click(screen.getByLabelText('北大かるた会サークルに所属している'))
+    expect(screen.getByLabelText('所属')).toBeTruthy()
+    expect(screen.getByLabelText('学部等名')).toBeTruthy()
+    expect(screen.getByLabelText('学年')).toBeTruthy()
+  })
+
+  it('保存でサークル所属・学部区分・学部等名・学年が FormData に渡る', async () => {
+    updateMemberProfileMock.mockResolvedValue({ success: true })
+    const { container } = renderForm(false)
+
+    fireEvent.click(screen.getByLabelText('北大かるた会サークルに所属している'))
+    fireEvent.change(screen.getByLabelText('所属'), { target: { value: 'graduate' } })
+    fireEvent.change(screen.getByLabelText('学部等名'), { target: { value: '情報科学院' } })
+    fireEvent.change(screen.getByLabelText('学年'), { target: { value: '修士1年' } })
+
+    const profileForm = container.querySelector('form')
+    if (!profileForm) throw new Error('profile form not found')
+    fireEvent.submit(profileForm)
+
+    await waitFor(() => expect(updateMemberProfileMock).toHaveBeenCalledTimes(1))
+    const fd = updateMemberProfileMock.mock.calls[0]?.[1]
+    expect(fd?.get('isCircleMember')).toBe('on')
+    expect(fd?.get('facultyKind')).toBe('graduate')
+    expect(fd?.get('faculty')).toBe('情報科学院')
+    expect(fd?.get('schoolYear')).toBe('修士1年')
   })
 })

@@ -355,3 +355,35 @@ export const paymentReportAmountSourceEnum = pgEnum('payment_report_amount_sourc
   'tally',
   'none',
 ])
+
+// travel-report: 学部／大学院の区分（requirements R1）。学部等名（`users.faculty`）の
+// 候補リストをこの区分で切り替える。学年の選択肢も区分ごとに変わる（学部=1〜6年 /
+// 大学院=修士1〜2年・博士1〜4年・専門職1〜3年）。
+// ★学年そのものは enum にしない — 届にはこの文字列をそのまま出力する仕様で、
+// 年度ごとの微調整（新設の課程など）を migration 無しで足せるようにするため。
+// 値の検証は `@kagetra/shared` の共有定数（constants/travel-report.ts）で行う。
+export const facultyKindEnum = pgEnum('faculty_kind', ['undergraduate', 'graduate'])
+
+// travel-report: 開催地（経路表記用の地名）の出所。ai=Claude の推定値 /
+// manual=提出権限者の手入力。★`ai` のときだけ S5 に「AI推定」バッジを出し、
+// 手修正されたら `manual` になって推定をやり直さない（R7）。
+export const travelDestinationSourceEnum = pgEnum('travel_destination_source', ['ai', 'manual'])
+
+// travel-report: 名簿確定時に管理者が入れる「確定状況」（R3）。
+// ★名前を `travel_` 接頭辞にしているのは、抽選実績側の `selection_outcome`
+// （accepted/waitlisted/rejected）や `lottery_selection_status` と**別軸**だから。
+// あちらは取り込んだ名簿の事実、こちらは会の運用としての手入力で、遠征届の
+// 対象者判定にだけ使う。有効値の導出（手入力→取込名簿→確定）は
+// `apps/web/src/lib/travel-report/selection-status.ts` が正典。
+export const travelSelectionStatusEnum = pgEnum('travel_selection_status', [
+  'confirmed',
+  'waitlisted',
+  'not_participating',
+])
+
+// travel-report: 行き／帰りの種別（R6）。
+// 行き: sapporo=札幌から / hometown=帰省先から出場 / other=その他（地名を自由記述）
+// 帰り: sapporo=札幌へ戻る / hometown=そのまま帰省 / other=その他（地名を自由記述）
+// ★行きと帰りで同じ enum を共有する。値の意味は「札幌／帰省先／その他」という
+// 3 軸で共通で、表示ラベルだけが向きによって変わる（constants/travel-report.ts）。
+export const travelWayKindEnum = pgEnum('travel_way_kind', ['sapporo', 'hometown', 'other'])

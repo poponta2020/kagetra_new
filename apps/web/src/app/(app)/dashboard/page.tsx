@@ -8,6 +8,7 @@ import { isGuestRole } from '@/lib/guest-access'
 import { diffDays, todayInJst } from '@/lib/jst-date'
 import { surname } from '@/lib/surname'
 import { getUpcomingEntrants, type UpcomingEntrant } from '@/lib/upcoming-entrants'
+import { loadTravelRouteAlerts } from '@/lib/travel-report/alerts'
 // 表示名（通称 + 対象級）の導出は `/admin/entries` の純関数が唯一の実装なので
 // 再実装しない（design-spec §6「大会表示名」）。引数は `NameSource`（title /
 // shortName / eligibleGrades だけの構造型）なので、getUpcomingEntrants が返す
@@ -107,12 +108,25 @@ export default async function DashboardPage() {
 
   const upcomingEvents = await getUpcomingEntrants({ since: todayStr })
 
+  // travel-report タスク7 (S9・AC-17): 遠征経路の未入力アラート。母集団が
+  // `/admin/entries` 系（getUpcomingEntrants）と異なる（対象は「サークル所属 ∧
+  // 確定」の会員・ゲストの出欠から独立に決まる）ため、upcomingEvents の空判定より
+  // 前に計算する（出場タイムラインが空でも遠征アラートは出ることがある）。
+  const travelRouteAlerts = await loadTravelRouteAlerts(viewerUserId, todayStr)
+
   // 母集団が空なら出場予定もアラートも空。以降のクエリを投げる意味がない。
   if (upcomingEvents.length === 0) {
     return (
       <div className="p-4">
         <HomeTimeline
-          data={{ todayStr, viewerUserId, today: [], upcoming: [], alerts: [] }}
+          data={{
+            todayStr,
+            viewerUserId,
+            today: [],
+            upcoming: [],
+            alerts: [],
+            travelRouteAlerts,
+          }}
         />
       </div>
     )
@@ -207,6 +221,7 @@ export default async function DashboardPage() {
     today,
     upcoming,
     alerts,
+    travelRouteAlerts,
   }
 
   // ページ余白 16px はこの根要素が持つ（nav-settings-hub AC-16b。共通シェルの

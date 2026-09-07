@@ -18,6 +18,10 @@ import {
   GroupBackLink,
   LinkActionLink,
   SectionRule,
+  TravelReportCta,
+  type TravelReportCtaData,
+  type TravelReportCtaSubmitterState,
+  type TravelReportCtaTargetState,
 } from '@/components/events/detail'
 import {
   deriveEntryGroupName,
@@ -30,10 +34,13 @@ import {
 } from '@/lib/events/confirmed-roster'
 import { eligibleUsersWhere } from '@/lib/events/eligible-users'
 import { buildEntryFlow } from '@/lib/events/entry-flow'
-import { formatFlowDate } from '@/lib/event-date'
+import { formatEventDate, formatFlowDate } from '@/lib/event-date'
 import { todayInJst } from '@/lib/jst-date'
 import { isGuestRole } from '@/lib/guest-access'
 import { roleViewLabel } from '@/lib/role-preview'
+import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
+import { isRouteInputOpen, loadGroupTravelContext, loadTravelUnitStatuses } from '@/lib/travel-report/targets'
+import { findUnitContainingEvent } from '@/lib/travel-report/units'
 import { setConfirmedRosterOverride, submitAttendance } from './actions'
 import { OpenChatSection } from './components/OpenChatSection'
 import {
@@ -314,6 +321,46 @@ export default async function EventDetailPage({
       }
     : undefined
 
+  // travel-report タスク7 (S7・AC-16): 「遠征届」セクション。`TravelReportCta` は
+  // 表示専用なので、ここで組み立てた値を渡すだけにする。未ログインは対象者にも
+  // 提出権限者にもなり得ないので、DB 往復自体を省く。
+  //
+  // ★提出権限者向けの値は `isTravelReportSubmitter` が true のときだけ組み立てる
+  // （AC-16・design-spec §8「RSC payload にも載らない」）。
+  let travelReportData: TravelReportCtaData | null = null
+  if (session?.user.id) {
+    const travelCtx = await loadGroupTravelContext(event.entryGroupId)
+    const travelRouteOpen = isRouteInputOpen(travelCtx, hasConfirmedRoster)
+    const travelUnit = findUnitContainingEvent(travelCtx.units, event.id)
+
+    let travelCta: TravelReportCtaTargetState | null = null
+    if (travelUnit && travelRouteOpen) {
+      const [unitStatus] = await loadTravelUnitStatuses(event.entryGroupId, [travelUnit])
+      const target = unitStatus?.targets.find((t) => t.userId === session.user.id)
+      const routeEventId = travelUnit.eventIds[0]
+      if (target && routeEventId != null) {
+        travelCta = {
+          entered: target.entered,
+          routeHref: `/events/${routeEventId}/travel-route`,
+          unitDatesLabel: travelUnit.dates.map(formatEventDate).join('・'),
+        }
+      }
+    }
+
+    const travelSubmitter: TravelReportCtaSubmitterState | null = (await isTravelReportSubmitter(
+      session,
+    ))
+      ? {
+          templateHref: '/api/admin/travel-reports/template',
+          groupHref: `/admin/entries/${event.entryGroupId}`,
+        }
+      : null
+
+    if (travelCta || travelSubmitter) {
+      travelReportData = { cta: travelCta, submitter: travelSubmitter }
+    }
+  }
+
   return (
     <div className="flex min-h-full flex-col p-4">
       <EventDetailHeader
@@ -329,6 +376,10 @@ export default async function EventDetailPage({
           表示・シングルトングループでも常に出す。sticky ヘッダーの外に置く
           （design-spec の明示指定。ヘッダーのラッパー内では分割しない）。 */}
       <GroupBackLink entryGroupId={event.entryGroupId} groupName={groupName} />
+
+      {/* travel-report タスク7 (S7・AC-16): グループ導線の直下（参加者より上）。
+          出すものが無ければ `TravelReportCta` 自身が null を返す。 */}
+      <TravelReportCta data={travelReportData} />
 
       {/* openchat-broadcast タスク10 (AC-42/AC-43/AC-51): 保存済みオープンチャット
           欄。全会員に表示・表示のみ。0件のときは null を返しセクションごと出ない。 */}

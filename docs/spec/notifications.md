@@ -123,6 +123,7 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
 - **組み立て**: `lib/line-mention.ts`（pure。DB・`node:`・`@kagetra/shared` を持ち込まない）。`buildMentionMessage({ mention, label, template, values })` が `{ type:'textV2', text, substitution }` を返す。プレースホルダは `m0` `m1` … の連番で、個人メンションは1人につき1つ。**メンションは1メッセージ20件が上限**（`substitution` 全体の100件とは別の制約。超過分は捨てる — 超えるとメッセージ全体が拒否されるため厳しい側で切る）。
 - ★**メンションを含むメッセージに自由記述を混ぜない。** `textV2` は本文中の中括弧をプレースホルダ構文として解釈するため、大会名・支払情報などのユーザー入力が中括弧を含むと本文が壊れる。差し込める値を `number` と `{ dateIso }`（`M/D(曜)` へ整形）だけに型で限定し、`template` / `label` に中括弧が無いことを実行時にも検証する。自由記述は `buildTextMessage` でメンションを持たない別メッセージとして送る。
 - **対象の解決**: `lib/line-mention-targets.ts`。共通条件は `line_user_id IS NOT NULL AND deactivated_at IS NULL` で、並び順は `users.id` 昇順（メンションの並びを決定的にするため）。`@会計` は `users.is_treasurer = true`、`@管理者` は `role IN ('admin','vice_admin')`。**0人なら素テキストの `@会計` / `@管理者` を出すだけ**でメッセージ自体は送る。`line_user_id` が無い担当者は黙って外れる。
+- **`@副連絡責任者`**（travel-report）: `users.is_travel_report_submitter = true`。解決は他と同じ `line-mention-targets.ts`（`resolveTravelReportSubmitterMention`）で、ロールでは絞らない（フラグが立っている人＝提出係、というのが運用上の意味）。★この列は `is_treasurer` と違い**認可にも使う**（`spec/auth-admin.md`）が、ここで読むのはメンション対象の解決のためだけ。
 - **会計フラグ**: `users.is_treasurer`（boolean）。**`@会計` で誰をメンションするかの識別専用で、認可判断には一切使わない**。会計の権限は副管理者と同一なので、会計担当には `role='vice_admin'` を併せて付与して運用する（`user_role` enum を増やさない理由は、`role !== 'admin' && role !== 'vice_admin'` の判定が多数のファイルにインライン展開されているため）。設定 UI は会員編集（`spec/auth-admin.md`）。
 - **transport**: reply（`LineReplyClient.reply`）と push（`pushMessagesToEventGroup` / `pushMessagesToEntryGroup`）はいずれも `LineOutgoingMessage[]` を受け取る（`LineMessage`＝text / textV2 に `LineImageMessage` を足した union。★**`LineMessage` 自体は広げない** —— 画像を混ぜると、`.text` を直接読む既存の呼び出し側とそのテスト群が一斉にナローイングを強いられるため、広げるのは送信トランスポートが受ける型だけにする）。`pushMessagesToEntryGroup` は申込グループ単位で `event_line_broadcasts` を直接引く（振込連絡がグループ単位のキーを持つため、代表イベントを経由しない）。
 
@@ -223,6 +224,13 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
   - 送信チェックの既定は**未送信＝ON / 送信済＝OFF**（訂正名簿・級別分割で確定名簿メールが複数通届くのは日常なので、意図したときだけ再送する）
   - push は採用・triage の**コミット後**の `after()` で走り、LINE 配信も ON のときは**配信 → 振込連絡**の順（会員が当落を見た後に会計へ振込依頼が届く）。世代トークン検証（`isCurrentGeneration`）を既存2系統と共有するので、取り消されたメールからは送られない
   - 応答後に走るため失敗を戻り値で返せない。失敗は `entry_group_payment_notices` の `last_attempted_at` / `last_error` に記録し、**申込グループページの振込連絡セクション**と**メール詳細の「処理済み」カード**の2箇所に「送信に失敗しました」として出す
+
+### travel-report: 遠征経路がそろった通知・遠征届の作成通知
+
+どちらも申込グループに紐付いた大会別 LINE グループへ `@副連絡責任者` つきで送る。**LINE グループが紐付いていないグループでは送らない**（グループページの入力状況が代わりに伝える）。メンションを含むメッセージには数値と日付しか差し込まず、大会名・URL は `buildTextMessage` の別メッセージで送る（メンション基盤の規律どおり）。
+
+- **全員そろった通知**（R8）: 遠征単位の対象者**全員が入力済みになった瞬間に1回だけ**。判定は経路保存の tx 内で `entry_groups` 行を `FOR UPDATE` してから「保存前の未入力の対象者集合 == {保存者}」で行い、`travel_unit_notices.last_attempted_at` を claim してから**コミット後に** push する。成功で `all_entered_notified_at` を進めて `last_error` を NULL へ戻し、失敗で `last_error` を残す。★**自己回復**: `last_error` があり保存後に全員入力済みなら、遷移でなくても再送する（再送ボタンは置かない）。「最後に通知した対象者集合」は持たない — 対象者が増えて未完了に戻り再びそろえば遷移判定が改めて成立するので、この2列だけで「1回だけ・再保存で送らない・対象追加で再送」の3条件を満たせる。未入力者を「不参加」にして結果的にそろった場合は保存イベントが無いので通知されない（保存トリガーのみ。グループページの表示で代替）。
+- **作成通知**（R9）: 「遠征届を作成しました（N ファイル）」＋グループページへの案内。**作成物を保存したあとに送る**ので、通知が失敗しても documents は残り、理由が `travel_report_batches.notify_error` に入る（グループページに表示）。
 
 ### entry-overdue-alert: 管理者向け毎日アラート
 

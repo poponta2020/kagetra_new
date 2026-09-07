@@ -1,7 +1,9 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import type { Grade, Gender } from '@kagetra/shared/types'
+import type { Grade, Gender, FacultyKind } from '@kagetra/shared/types'
+import { schoolYearOptions } from '@kagetra/shared'
+import { FacultyCombobox } from '@/components/members/FacultyCombobox'
 import {
   updateMemberName,
   updateMemberProfile,
@@ -11,6 +13,8 @@ import {
 
 const initialState: UpdateProfileState = {}
 const nameInitialState: UpdateNameState = {}
+
+const RECT_INPUT_CLASS = 'mt-1 w-full rounded-md border border-border px-3 py-2 text-sm'
 
 const GENDER_LABEL: Record<Gender, string> = {
   male: '男',
@@ -98,6 +102,10 @@ export function EditMemberForm({
   postalCode,
   address1,
   address2,
+  isCircleMember,
+  facultyKind,
+  faculty,
+  schoolYear,
   grades,
   genders,
 }: {
@@ -121,6 +129,11 @@ export function EditMemberForm({
   postalCode: string
   address1: string
   address2: string
+  // travel-report R1: サークル所属と学部属性。
+  isCircleMember: boolean
+  facultyKind: FacultyKind | null
+  faculty: string
+  schoolYear: string
   grades: readonly Grade[]
   genders: readonly Gender[]
 }) {
@@ -128,6 +141,12 @@ export function EditMemberForm({
     updateMemberProfile,
     initialState,
   )
+  const [circleChecked, setCircleChecked] = useState(isCircleMember)
+  const [circleFacultyKind, setCircleFacultyKind] = useState<FacultyKind>(
+    facultyKind ?? 'undergraduate',
+  )
+  const [circleFaculty, setCircleFaculty] = useState(faculty)
+  const [circleSchoolYear, setCircleSchoolYear] = useState(schoolYear)
 
   return (
     <>
@@ -301,6 +320,81 @@ export function EditMemberForm({
             全日協会員
           </label>
         </div>
+
+        <fieldset className="space-y-3 border-t border-border-soft pt-4">
+          <legend className="text-sm font-medium text-ink-2">
+            サークル所属（遠征届に使用）
+          </legend>
+          <div className="flex items-center gap-2">
+            <input
+              id="isCircleMember"
+              name="isCircleMember"
+              type="checkbox"
+              checked={circleChecked}
+              onChange={(e) => setCircleChecked(e.target.checked)}
+              className="h-4 w-4"
+            />
+            <label htmlFor="isCircleMember" className="text-sm text-ink-2">
+              北大かるた会サークルに所属している
+            </label>
+          </div>
+
+          {circleChecked && (
+            <>
+              <div>
+                <label htmlFor="facultyKind" className="block text-xs text-ink-2">
+                  所属
+                </label>
+                <select
+                  id="facultyKind"
+                  name="facultyKind"
+                  value={circleFacultyKind}
+                  onChange={(e) => {
+                    setCircleFacultyKind(e.target.value as FacultyKind)
+                    setCircleFaculty('')
+                    setCircleSchoolYear('')
+                  }}
+                  className={RECT_INPUT_CLASS}
+                >
+                  <option value="undergraduate">学部</option>
+                  <option value="graduate">大学院</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="faculty" className="block text-xs text-ink-2">
+                  学部等名
+                </label>
+                <FacultyCombobox
+                  id="faculty"
+                  name="faculty"
+                  kind={circleFacultyKind}
+                  value={circleFaculty}
+                  onChange={setCircleFaculty}
+                  className={RECT_INPUT_CLASS}
+                />
+              </div>
+              <div>
+                <label htmlFor="schoolYear" className="block text-xs text-ink-2">
+                  学年
+                </label>
+                <select
+                  id="schoolYear"
+                  name="schoolYear"
+                  value={circleSchoolYear}
+                  onChange={(e) => setCircleSchoolYear(e.target.value)}
+                  className={RECT_INPUT_CLASS}
+                >
+                  <option value="">未設定</option>
+                  {schoolYearOptions(circleFacultyKind).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+        </fieldset>
 
         <fieldset className="space-y-3 border-t border-border-soft pt-4">
           <legend className="text-sm font-medium text-ink-2">

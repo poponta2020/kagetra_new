@@ -6,6 +6,7 @@ import type {
   HomeEntrant,
   HomeTimelineData,
   HomeTimelineEvent,
+  HomeTravelRouteAlert,
 } from './home-timeline-types'
 
 /**
@@ -48,6 +49,21 @@ function data(overrides: Partial<HomeTimelineData> = {}): HomeTimelineData {
     today: [],
     upcoming: [],
     alerts: [],
+    travelRouteAlerts: [],
+    ...overrides,
+  }
+}
+
+function travelAlert(
+  unitKey: string,
+  overrides: Partial<HomeTravelRouteAlert> = {},
+): HomeTravelRouteAlert {
+  return {
+    unitKey,
+    entryGroupId: 1,
+    tournamentName: '十和田大会',
+    unitDates: [unitKey],
+    routeEventId: 100,
     ...overrides,
   }
 }
@@ -109,6 +125,63 @@ describe('HomeTimeline', () => {
       expect(screen.getAllByText('未回答')).toHaveLength(2)
       expect(screen.getByText('あと3日')).toBeTruthy()
       expect(screen.getByText('本日締切')).toBeTruthy()
+    })
+  })
+
+  describe('遠征経路の未入力アラート（S9・AC-17）', () => {
+    it('0 件なら行を描かない', () => {
+      render(<HomeTimeline data={data({ upcoming: [event(1)] })} />)
+      expect(screen.queryByText('遠征経路')).toBeNull()
+    })
+
+    it('件数ぶんの行を描き、右端は「未入力」固定', () => {
+      render(
+        <HomeTimeline
+          data={data({
+            travelRouteAlerts: [
+              travelAlert('2026-10-10', {
+                tournamentName: '十和田大会',
+                unitDates: ['2026-10-10', '2026-10-11'],
+                routeEventId: 55,
+              }),
+              travelAlert('2026-11-07', {
+                entryGroupId: 2,
+                tournamentName: '帯広新人戦',
+                unitDates: ['2026-11-07', '2026-11-08'],
+                routeEventId: 56,
+              }),
+            ],
+          })}
+        />,
+      )
+
+      const rows = screen.getAllByText('遠征経路')
+      expect(rows).toHaveLength(2)
+      expect(screen.getAllByText('未入力')).toHaveLength(2)
+
+      const link = screen
+        .getByText('十和田大会 10/10・10/11')
+        .closest('a')
+      expect(link?.getAttribute('href')).toBe('/events/55/travel-route')
+    })
+
+    it('未回答アラートの下に並ぶ', () => {
+      render(
+        <HomeTimeline
+          data={data({
+            alerts: [
+              { eventId: 9, displayName: '石狩CD', baseDeadline: '2026-07-31', daysLeft: 3 },
+            ],
+            travelRouteAlerts: [travelAlert('2026-10-10')],
+          })}
+        />,
+      )
+
+      const container = screen.getByText('未回答').closest('a')?.parentElement
+      const labels = Array.from(container?.querySelectorAll('a') ?? []).map(
+        (a) => a.querySelector('span')?.textContent,
+      )
+      expect(labels).toEqual(['未回答', '遠征経路'])
     })
   })
 

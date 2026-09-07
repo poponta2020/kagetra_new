@@ -300,7 +300,7 @@ describe('GET /api/external/tournament-entrants', () => {
     expect(entries[0]!.confidence).toBe('confirmed')
   })
 
-  it('AC-9: PII（メール・電話・生年月日・住所）がレスポンスに一切含まれない', async () => {
+  it('AC-9/AC-31: PII（メール・電話・生年月日・住所・学部・学年・サークル所属）がレスポンスに一切含まれない', async () => {
     const event = await createEvent({ eventDate: futureDate })
     const member = await createUser({
       name: '個情 太郎',
@@ -311,6 +311,11 @@ describe('GET /api/external/tournament-entrants', () => {
       postalCode: '060-0042',
       address1: '札幌市中央区大通西1丁目',
       address2: 'テストビル 101',
+      // travel-report で追加された5列（AC-31 回帰）。
+      isCircleMember: true,
+      facultyKind: 'undergraduate',
+      faculty: '個情学部',
+      schoolYear: '3年',
     })
     await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
 
@@ -323,6 +328,13 @@ describe('GET /api/external/tournament-entrants', () => {
     expect(text).not.toContain('060-0042')
     expect(text).not.toContain('札幌市中央区')
     expect(text).not.toContain('テストビル')
+    // AC-31: 学部等名（distinctive な値）・学年・サークル所属が漏れていない。
+    // grade（A〜E の現在の級）は契約上正当に含まれるため、学年（"3年"）とは
+    // 混同しない値で検証する。
+    expect(text).not.toContain('個情学部')
+    expect(text).not.toContain('isCircleMember')
+    expect(text).not.toContain('facultyKind')
+    expect(text).not.toContain('schoolYear')
 
     // 許可キー以外を持たないことの構造的な検証。
     expect(Object.keys(body.persons[0]!).sort()).toEqual(

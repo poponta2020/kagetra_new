@@ -8,6 +8,7 @@ import { Pill, SectionLabel } from '@/components/ui'
 import { buildRolePreviewSelection, roleViewLabel } from '@/lib/role-preview'
 import type { RolePreviewSelection } from '@/lib/role-preview'
 import { isGuestRole } from '@/lib/guest-access'
+import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
 import { setRolePreviewAction } from '../role-preview-actions'
 
 interface SettingsLink {
@@ -121,6 +122,14 @@ export default async function SettingsPage() {
     )
   }
 
+  // travel-report タスク4: 遠征届設定への導線は提出権限者（副連絡責任者・
+  // 管理者・副管理者）に出す。管理者は下の「管理」セクションへ、フラグ付き
+  // 一般会員（副連絡責任者）は専用の「遠征届」セクションへ分けて出す
+  // （「管理」ラベルは一般会員には不自然なため。requirements R2・R12）。
+  // `isTravelReportSubmitter` は admin/vice_admin を即 true で返すため、
+  // 管理者に対しては DB 問い合わせが発生しない。
+  const travelReportAccess = await isTravelReportSubmitter(session)
+
   const accountLinks: SettingsLink[] = [
     {
       href: '/settings/line-link',
@@ -153,8 +162,26 @@ export default async function SettingsPage() {
           label: 'Bot',
           description: 'LINE Bot プールとグループの紐付け',
         },
+        {
+          href: '/settings/travel-report',
+          label: '遠征届設定',
+          description: '遠征届の顧問教員欄に使う会の情報',
+        },
       ]
     : []
+
+  // フラグ付き一般会員（管理者ロールではない副連絡責任者）向けの専用セクション。
+  // 管理者は上の adminLinks に既に含まれているのでここには足さない。
+  const travelReportLinks: SettingsLink[] =
+    !isAdmin && travelReportAccess
+      ? [
+          {
+            href: '/settings/travel-report',
+            label: '遠征届設定',
+            description: '遠征届の顧問教員欄に使う会の情報',
+          },
+        ]
+      : []
 
   return (
     <div className="flex flex-col gap-5 p-4">
@@ -174,6 +201,13 @@ export default async function SettingsPage() {
         <section>
           <SectionLabel>管理</SectionLabel>
           <SettingsLinkList items={adminLinks} />
+        </section>
+      ) : null}
+
+      {travelReportLinks.length > 0 ? (
+        <section>
+          <SectionLabel>遠征届</SectionLabel>
+          <SettingsLinkList items={travelReportLinks} />
         </section>
       ) : null}
 
