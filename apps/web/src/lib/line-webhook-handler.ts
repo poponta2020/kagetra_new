@@ -71,9 +71,7 @@ export interface LineWebhookEvent {
   type: string
   replyToken?: string
   source: LineWebhookSource
-  // mention は実測用（`logUnhandledGroupText` 参照）。構造が未確定なので
-  // 意図的に unknown のままにしてある — 実測後に型を起こす。
-  message?: { type: string; text?: string; mention?: unknown }
+  message?: { type: string; text?: string }
 }
 
 export interface LineWebhookPayload {
@@ -315,39 +313,6 @@ export const defaultLinePushClient: LinePushClient = {
 const INVITE_CODE_PATTERN = /^\d{6}$/
 
 /**
- * 【調査用の一時ログ・2026-09-07】「Bot をメンションして特定の文言を送ったら
- * 申込ステータスを更新する」を実装できるかの実現可能性調査。招待コード以外の
- * グループ発言について、**メンション情報と発言者 ID の実体**を記録する。
- *
- * LINE の webhook payload に `message.mention` がどう入るのか（mentionee に
- * `isSelf` が付くのか、Bot 自身を指すのが `userId` 一致なのか）はドキュメント
- * ではなく実測で確定させる。`source.userId` も併せて記録し、`users.line_user_id`
- * と突合できるか（＝発言者を会員として特定できるか）を後から確認する。
- *
- * 発言本文は記録しない（長さだけ）。実運用グループの雑談が journalctl に
- * 残らないようにするため。
- *
- * ★実測が済んだら**このログごと削除する**。恒久機能ではない。
- */
-function logUnhandledGroupText(
-  log: (event: string, ctx: Record<string, unknown>) => void,
-  channelId: number,
-  event: LineWebhookEvent,
-  text: string,
-): void {
-  log('probe_unhandled_group_text', {
-    channelId,
-    eventType: event.type,
-    sourceType: event.source?.type,
-    sourceUserId: event.source?.userId ?? null,
-    sourceGroupId: event.source?.groupId ?? null,
-    messageType: event.message?.type,
-    textLength: text.length,
-    mention: JSON.stringify(event.message?.mention ?? null),
-  })
-}
-
-/**
  * Apply the side effects encoded in a verified webhook payload. Returns a
  * 200 even when individual events have nothing to do — LINE retries on
  * non-200, so swallowing errors here is intentional. Per-event failures
@@ -407,10 +372,6 @@ export async function applyWebhookEvents(
                 membershipClient,
                 pushClient,
               )
-            } else {
-              // 【調査用・削除予定】招待コード以外のグループ発言は従来どおり
-              // 無視するが、メンション payload の実測のためログだけ残す。
-              logUnhandledGroupText(log, channelId, event, text)
             }
             // Non-code text and non-text messages are intentionally ignored.
           }
@@ -474,10 +435,6 @@ async function applyGradeGroupWebhookEvents(
                 text,
                 replyClient,
               )
-            } else {
-              // 【調査用・削除予定】大会用と同じ実測ログ。級グループ側の Bot で
-              // テストした場合も payload が取れるようにしておく。
-              logUnhandledGroupText(log, channelId, event, text)
             }
           }
           break
