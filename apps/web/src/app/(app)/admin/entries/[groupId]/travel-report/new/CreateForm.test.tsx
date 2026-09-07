@@ -170,7 +170,9 @@ describe('遠征先連絡者・留守連絡先を修正できる（Codex R1 #10 
 describe('分割操作の競合と統合時の dirty（Codex R2）', () => {
   it('★続けて分割操作をしたとき、古い再計算の応答は捨てられる', async () => {
     // 1回目の reload は遅れて解決し、2回目の分割が確定したあとに返る。
-    let resolveFirst: ((v: unknown) => void) | null = null
+    // ホルダー経由にする（`let x: F | null = null` だと、クロージャ内の代入を
+    // 制御フロー解析が追えず後段の呼び出しが型エラーになる）。
+    const first: { resolve?: (v: unknown) => void } = {}
     const a = file({ dates: ['2026-11-07'], purpose: 'A' })
     const b = file({ dates: ['2026-11-08'], purpose: 'B' })
     const c = file({ dates: ['2026-11-14'], purpose: 'C' })
@@ -181,7 +183,7 @@ describe('分割操作の競合と統合時の dirty（Codex R2）', () => {
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
-            resolveFirst = resolve
+            first.resolve = resolve
           }),
       )
       // 2回目（さらに3も統合）— すぐ解決
@@ -207,7 +209,7 @@ describe('分割操作の競合と統合時の dirty（Codex R2）', () => {
     })
 
     // 遅れて返った1回目の応答は捨てられ、最新の値のまま。
-    resolveFirst?.({
+    first.resolve?.({
       ok: true,
       files: [file({ dates: ['2026-11-07', '2026-11-08'], purpose: '古い分割の既定値' })],
     })

@@ -187,7 +187,17 @@ export function CreateForm({
         b.destinationContacts,
       ) as EditableFile['destinationContacts'],
       homeContact: pick('contacts', a.homeContact, b.homeContact) as EditableFile['homeContact'],
-      dirty: { ...b.dirty, ...a.dirty },
+      // ★スプレッドの優先順ではなく**論理和**で統合する。現状 `dirty` には `true` しか
+      // 入らないのでスプレッドでも b の true は残るが、それは「false を書かない」という
+      // 離れた場所の約束に依存している。ここで明示的に OR にして、将来 false を入れても
+      // 手入力が再計算で消えないようにする（Codex R3）。
+      dirty: {
+        ...(a.dirty.purpose || b.dirty.purpose ? { purpose: true as const } : {}),
+        ...(a.dirty.place || b.dirty.place ? { place: true as const } : {}),
+        ...(a.dirty.reportDate || b.dirty.reportDate ? { reportDate: true as const } : {}),
+        ...(a.dirty.approvalDate || b.dirty.approvalDate ? { approvalDate: true as const } : {}),
+        ...(a.dirty.contacts || b.dirty.contacts ? { contacts: true as const } : {}),
+      },
     }
     applySplit([...files.slice(0, index), merged, ...files.slice(index + 2)])
   }
