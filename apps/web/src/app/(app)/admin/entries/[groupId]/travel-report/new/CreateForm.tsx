@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { cn } from '@/lib/utils'
 import { Btn } from '@/components/ui'
 import { formatEventDate } from '@/lib/event-date'
@@ -67,6 +67,11 @@ function eraLabel(iso: string): string {
   return `令和${year}年${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日`
 }
 
+/** 分割の同一性を表す文字列（再計算の応答が今の分割のものか照合するのに使う）。 */
+function splitSignature(files: readonly EditableFile[]): string {
+  return files.map((f) => f.dates.join(',')).join('|')
+}
+
 /** ファイルを最小日で並べ直す（分割操作のあと日付順が崩れないように）。 */
 function byFirstDate(a: EditableFile, b: EditableFile): number {
   return (a.dates[0] ?? '').localeCompare(b.dates[0] ?? '')
@@ -82,6 +87,8 @@ export function CreateForm({
   const [files, setFiles] = useState<EditableFile[]>(() => defaults.map(toEditable))
   const [pending, startTransition] = useTransition()
   const [recalculating, startRecalculating] = useTransition()
+  // 最後に要求した分割。古い再計算の応答を捨てるための照合キー（Codex R2 #1）。
+  const latestSplit = useRef<string>(splitSignature(defaults.map(toEditable)))
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -104,6 +111,8 @@ export function CreateForm({
    */
   function applySplit(next: EditableFile[]) {
     const ordered = next.filter((f) => f.dates.length > 0).sort(byFirstDate)
+    const signature = splitSignature(ordered)
+    latestSplit.current = signature
     setFiles(ordered)
     setError(null)
     startRecalculating(async () => {
@@ -111,12 +120,17 @@ export function CreateForm({
         entryGroupId,
         ordered.map((f) => f.dates),
       )
+      // ★続けて分割操作をすると、先に始めた再計算があとで返ることがある。
+      // 古い分割の既定値を新しい分割へ当てると、日付だけ最新・目的や場所は古い、という
+      // 食い違った状態で作成できてしまう（Codex R2 #1）。応答時に分割が変わっていたら捨てる。
+      if (latestSplit.current !== signature) return
       if (!result.ok) {
         setError(result.error)
         return
       }
-      setFiles((prev) =>
-        prev.map((file, i) => {
+      setFiles((prev) => {
+        if (splitSignature(prev) !== signature) return prev
+        return prev.map((file, i) => {
           const fresh = result.files[i]
           if (!fresh) return file
           return {
@@ -133,8 +147,8 @@ export function CreateForm({
               : fresh.destinationContacts,
             homeContact: file.dirty.contacts ? file.homeContact : fresh.homeContact,
           }
-        }),
-      )
+        })
+      })
     })
   }
 
@@ -154,10 +168,25 @@ export function CreateForm({
     const a = files[index]
     const b = files[index + 1]
     if (!a || !b) return
+    // ★片方だけ手で直していたら**その値**を採る（Codex R2 #2）。
+    // `{...a}` だけだと、b で直した目的・場所・連絡者・日付が失われたうえ
+    // dirty だけ引き継がれ、再計算でも置き換わらない状態になる。
+    // 両方 dirty で値が違うときは先頭ファイル（a）を採る（決定的にする）。
+    const pick = <K extends keyof EditableFile['dirty']>(key: K, av: unknown, bv: unknown) =>
+      a.dirty[key] || !b.dirty[key] ? av : bv
     const merged: EditableFile = {
       ...a,
       dates: [...a.dates, ...b.dates].sort(),
-      // 統合先の dirty は引き継ぐ（片方だけ手で直していたら維持する）。
+      purpose: pick('purpose', a.purpose, b.purpose) as string,
+      place: pick('place', a.place, b.place) as string,
+      reportDate: pick('reportDate', a.reportDate, b.reportDate) as string,
+      approvalDate: pick('approvalDate', a.approvalDate, b.approvalDate) as string | null,
+      destinationContacts: pick(
+        'contacts',
+        a.destinationContacts,
+        b.destinationContacts,
+      ) as EditableFile['destinationContacts'],
+      homeContact: pick('contacts', a.homeContact, b.homeContact) as EditableFile['homeContact'],
       dirty: { ...b.dirty, ...a.dirty },
     }
     applySplit([...files.slice(0, index), merged, ...files.slice(index + 2)])

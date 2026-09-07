@@ -166,3 +166,74 @@ describe('遠征先連絡者・留守連絡先を修正できる（Codex R1 #10 
     })
   })
 })
+
+describe('分割操作の競合と統合時の dirty（Codex R2）', () => {
+  it('★続けて分割操作をしたとき、古い再計算の応答は捨てられる', async () => {
+    // 1回目の reload は遅れて解決し、2回目の分割が確定したあとに返る。
+    let resolveFirst: ((v: unknown) => void) | null = null
+    const a = file({ dates: ['2026-11-07'], purpose: 'A' })
+    const b = file({ dates: ['2026-11-08'], purpose: 'B' })
+    const c = file({ dates: ['2026-11-14'], purpose: 'C' })
+    const createAction = vi.fn().mockResolvedValue({ ok: true, fileCount: 1 })
+    const reloadAction = vi
+      .fn()
+      // 1回目（ファイル1と2の統合）— あとで解決させる
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      // 2回目（さらに3も統合）— すぐ解決
+      .mockResolvedValueOnce({
+        ok: true,
+        files: [file({ dates: ['2026-11-07', '2026-11-08', '2026-11-14'], purpose: '最新の分割' })],
+      })
+
+    render(
+      <CreateForm
+        entryGroupId={42}
+        defaults={[a, b, c]}
+        createAction={createAction}
+        reloadAction={reloadAction}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalledTimes(2))
+    await waitFor(() => {
+      expect((screen.getByLabelText('ファイル1の目的') as HTMLInputElement).value).toBe('最新の分割')
+    })
+
+    // 遅れて返った1回目の応答は捨てられ、最新の値のまま。
+    resolveFirst?.({
+      ok: true,
+      files: [file({ dates: ['2026-11-07', '2026-11-08'], purpose: '古い分割の既定値' })],
+    })
+    await waitFor(() => {
+      expect((screen.getByLabelText('ファイル1の目的') as HTMLInputElement).value).toBe('最新の分割')
+    })
+  })
+
+  it('★2番目のファイルだけ手で直した値は統合後も残る', async () => {
+    const a = file({ dates: ['2026-11-07'], purpose: 'ファイル1の既定値' })
+    const b = file({ dates: ['2026-11-08'], purpose: 'ファイル2の既定値' })
+    const { reloadAction } = setup(
+      [a, b],
+      [file({ dates: ['2026-11-07', '2026-11-08'], purpose: 'サーバーの既定値' })],
+    )
+
+    // ファイル2だけを手で直す（ファイル1は未編集）。
+    const purpose2 = screen.getByLabelText('ファイル2の目的') as HTMLInputElement
+    fireEvent.change(purpose2, { target: { value: 'ファイル2で直した目的' } })
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalled())
+    await waitFor(() => {
+      expect((screen.getByLabelText('ファイル1の目的') as HTMLInputElement).value).toBe(
+        'ファイル2で直した目的',
+      )
+    })
+  })
+})
