@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   eventBroadcastMessages,
@@ -10,10 +9,11 @@ import {
 } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 import { getOrCreateShareToken } from '@/lib/attachment-image-render'
-import { renderBodyImageToJpegs } from '@/lib/mail-body-image-render'
-import { setCachedImage } from '@/lib/image-cache'
-import { splitForLine } from '@/lib/text-splitter'
-import { buildBroadcastBody } from '@/lib/mail-body-cleaner'
+import {
+  getOrCreateMailBodyShareToken,
+  mailBodyShareUrl,
+} from '@/lib/mail-body-share'
+import { buildMailBodyFlexMessage } from '@/lib/line-flex-mail-body'
 import { buildAttachmentFlexMessage } from '@/lib/line-flex-attachment'
 
 /**
@@ -47,14 +47,10 @@ function resolveBaseUrl(override?: string): string {
   return candidate.replace(/\/$/, '')
 }
 
-// LINE Image-message MIME constraints: jpeg only for the original/preview
-// URLs. We render everything to jpeg so the content-type is consistent.
-const RENDERED_IMAGE_CONTENT_TYPE = 'image/jpeg'
-
 export interface BroadcastMailOptions {
   /**
-   * Override the public origin used in attachment / image URLs (Excel
-   * fallback links, rendered-image URLs). Defaults to `PUBLIC_BASE_URL`
+   * Override the public origin used in attachment / body-card URLs (Excel
+   * fallback links, mail-share ページの URL)。Defaults to `PUBLIC_BASE_URL`
    * env, then `https://new.hokudaicarta.com`.
    */
   baseUrl?: string
@@ -245,113 +241,6 @@ export async function pushMessages(
 
 function attachmentDownloadUrl(token: string, baseUrl: string): string {
   return `${baseUrl}/api/line-broadcast/attachments/${token}`
-}
-
-function attachmentImageUrl(token: string, baseUrl: string): string {
-  return `${baseUrl}/api/line-broadcast/images/${token}`
-}
-
-/**
- * LINE image message size limits (公式仕様):
- *   - originalContentUrl: JPEG, max 10 MB, max 4096x4096
- *   - previewImageUrl:    JPEG, max 1 MB,  max 240x240
- *
- * r-final-15 should_fix: 150 DPI で生成した本文画像をそのまま preview
- * にも使うと、要項画像が大判のとき 1 MB を超えて LINE 側で preview 取得
- * が失敗し、配信全体が partial / failed になる。preview は sharp で
- * 240x240 上限に縮小して別 token で配信し、original は 10 MB 超過時のみ
- * fallback link に倒す。
- */
-const LINE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
-const LINE_IMAGE_MAX_DIMENSION = 4096
-const LINE_IMAGE_JPEG_QUALITY = 85
-const LINE_PREVIEW_MAX_DIMENSION = 240
-const LINE_PREVIEW_JPEG_QUALITY = 70
-
-/**
- * 本文画像 (renderBodyImageToJpegs の JPEG ページ群) を LINE image message に
- * 変換する。各ページを sharp で 4096px 上限に正規化し、preview を別 token で
- * 配信する。本文画像は専用 share token を持たない (添付と違いダウンロード経路が
- * 無い) ため、10 MB 超のページが出たら `oversize: true` を返し、呼び出し側で
- * text fallback に倒す (要件 §3.5)。
- *
- * NOTE: 添付は全て URL リンク化された (要件 §3.4) ので、image message を作るのは
- * 本文だけになった。旧 buildRenderedImageMessages から attachment / db / 署名 URL
- * fallback への依存を落とした軽量版。
- */
-async function buildBodyImageMessages(
-  pages: Buffer[],
-  baseUrl: string,
-  logger: NonNullable<BroadcastMailOptions['logger']>,
-): Promise<{ messages: LineMessage[]; oversize: boolean }> {
-  const messages: LineMessage[] = []
-  // Defer the sharp import to actual use — sharp is heavy (~30 MB native
-  // module) and the text-fallback path never touches it.
-  const { default: sharp } = await import('sharp')
-
-  for (const buffer of pages) {
-    // LINE image は 4096x4096 上限もある。A4 150 DPI の本文は収まるが、
-    // 念のため original を 4096px 上限に正規化してから byteLength を判定する。
-    // リサイズ失敗時は元 buffer に fallback (logger 警告付き)。
-    let normalizedOriginal: Buffer = buffer
-    try {
-      normalizedOriginal = await sharp(buffer)
-        .resize({
-          width: LINE_IMAGE_MAX_DIMENSION,
-          height: LINE_IMAGE_MAX_DIMENSION,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .jpeg({ quality: LINE_IMAGE_JPEG_QUALITY })
-        .toBuffer()
-    } catch (err) {
-      logger.warn('body image original resize failed; using raw buffer', {
-        message: err instanceof Error ? err.message : String(err),
-      })
-      normalizedOriginal = buffer
-    }
-
-    // 正規化後でも 10 MB を超えるページが出たら、本文画像化を諦めて text
-    // fallback に倒す (本文には署名 URL ダウンロード経路が無いため)。
-    if (normalizedOriginal.byteLength > LINE_IMAGE_MAX_BYTES) {
-      logger.warn('body image page exceeds LINE 10 MB limit; falling back to text', {
-        byteLength: normalizedOriginal.byteLength,
-      })
-      return { messages: [], oversize: true }
-    }
-
-    let previewBuffer: Buffer
-    try {
-      previewBuffer = await sharp(normalizedOriginal)
-        .resize({
-          width: LINE_PREVIEW_MAX_DIMENSION,
-          height: LINE_PREVIEW_MAX_DIMENSION,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .jpeg({ quality: LINE_PREVIEW_JPEG_QUALITY })
-        .toBuffer()
-    } catch (err) {
-      // Preview 生成失敗時は original をそのまま preview にも使う
-      // (LINE 側で 1 MB を超えると失敗する可能性は残るが、画像表示
-      // 機能自体は維持できる)。
-      logger.warn('body image preview resize failed; reusing original buffer', {
-        message: err instanceof Error ? err.message : String(err),
-      })
-      previewBuffer = normalizedOriginal
-    }
-
-    const originalToken = randomBytes(16).toString('base64url')
-    const previewToken = randomBytes(16).toString('base64url')
-    setCachedImage(originalToken, normalizedOriginal, RENDERED_IMAGE_CONTENT_TYPE)
-    setCachedImage(previewToken, previewBuffer, RENDERED_IMAGE_CONTENT_TYPE)
-    messages.push({
-      type: 'image',
-      originalContentUrl: attachmentImageUrl(originalToken, baseUrl),
-      previewImageUrl: attachmentImageUrl(previewToken, baseUrl),
-    })
-  }
-  return { messages, oversize: false }
 }
 
 interface AttachmentRow {
@@ -697,9 +586,9 @@ export async function applyPushFailureRecovery(args: {
  * Side effects:
  *   - Inserts / upserts an event_broadcast_messages row with status
  *     transitioning pending → sending → sent | partial | failed.
- *   - For every PDF/DOCX page successfully rendered: stashes the bytes in
- *     the in-memory image cache so LINE's fetcher can pull them via
- *     /api/line-broadcast/images/[token].
+ *   - When the body is included: issues (or reuses) a mail_body_share_tokens
+ *     row valid for 60 days, and sends a single Flex card whose tap opens
+ *     the public full-text page (/mail-share/[token]).
  *   - For attachments served via signed URL: issues (or reuses) an
  *     attachment_share_tokens row valid for 60 days.
  *
@@ -729,7 +618,7 @@ export async function broadcastMailToEvent(
     force?: boolean
     /**
      * メール本文を配信列に載せるか (mail-inbox-mailer 2026-08-02 改修)。
-     * 既定 true = 従来挙動 (本文を A4 画像化 → 失敗時テキスト fallback)。
+     * 既定 true = 従来挙動 (本文カード 1 通 = mail-share ページへのリンク)。
      * false なら冒頭見出しと添付リンクだけを送る。
      *
      * ★この値は `lead_text` / `is_correction` と同じく「メッセージ列を決める
@@ -812,8 +701,11 @@ export async function broadcastMailToEvent(
   // sentImageCount / fallbackLinkCount) は role 別の排他カウンタで、
   // 同じ LineMessage が 2 カラムに入ることはない (role アサインを参照)。
   // 従って合計はそのまま「配信済みメッセージ件数」と等しい。
-  //   - sentTextCount: 本文 text fallback の chunk (role='body_text')
-  //   - sentImageCount: 本文画像のページ (role='body_image')
+  //   - sentTextCount: 本文カード 1 通 (role='body_link')
+  //   - sentImageCount: mail-body-as-image 改修で本文は画像を送らなくなった
+  //     ので常に 0。旧形式で配信された行 (この列が既に > 0) を再送するとき、
+  //     下の layoutShrunk 判定 (AC-21) が「今回の計画には image 相当が無い」
+  //     と検出して全件再送に倒すための比較対象としてのみ残す。
   //   - fallbackLinkCount: 添付の URL リンク (role='attachment_link')
   const existingAudit = await db
     .select({
@@ -982,20 +874,14 @@ export async function broadcastMailToEvent(
   const broadcastMessageId = inserted[0].id
 
   try {
-    // mail-body-as-image: 本文は text ではなく画像で配信する (要件 §3.1)。
-    // renderBodyImageToJpegs が件名・本文・訂正フラグを A4 縦 JPEG に描画する。
-    // 以下のいずれかで text fallback (splitForLine) に倒す:
-    //   - 画像化が throw (libreoffice クラッシュ / フォント欠落等, §3.5)
-    //   - 30 ページ超 (truncated=true, §3.5)
-    //   - ページ 0 枚 (異常な空 PDF)
-    //   - 10 MB 超のページ (oversize, 本文には DL 経路が無いため)
-    //   - baseUrl 未設定 (画像 URL を組めない → getBaseUrl が throw)
-    // text fallback でも buildBroadcastBody が footer 除去 + 件名/訂正 prefix
-    // を行うので、可読性は劣るが連絡内容は届く。
+    // mail-body-as-image (2026-09 改修): 本文は画像化せず、公開ページ
+    // (/mail-share/[token]) へのリンクを 1 枚のカードにして送る (要件 §2)。
+    // 画像化のあらゆる失敗系統 (libreoffice クラッシュ・30 ページ超・
+    // 10 MB 超・0 ページ) がまるごと無くなり、text fallback も廃止した。
     //
     // roles は実際の送信順 metadata。partial 再送時に deliveredCount 分だけ
     // role 別カウントを正しく残すために message と並走させる (rr1 review)。
-    type MessageRole = 'lead_text' | 'body_image' | 'body_text' | 'attachment_link'
+    type MessageRole = 'lead_text' | 'body_link' | 'attachment_link'
     const messages: LineMessage[] = []
     const roles: MessageRole[] = []
 
@@ -1006,117 +892,79 @@ export async function broadcastMailToEvent(
       roles.push('lead_text')
     }
 
-    // mail-inbox-mailer: 本文添付 OFF なら本文画像も本文テキストも積まない
-    // (要件 §3.2.5)。画像化 (libreoffice / pdftoppm) 自体を起動しないので、
-    // 本文が定型の事務連絡でしかない名簿メールでは処理コストもかからない。
-    // ON のときの挙動 (画像化 → 失敗時テキスト fallback) は従来と完全に不変。
+    // mail-inbox-mailer: 本文添付 OFF なら本文カードを積まない (要件 §3.2.5)。
+    // ON のときは 1 通だけ積む。effectiveIncludeBody が true な限り
+    // messages は必ず非空になる (下の空列チェックが到達不能な分岐を
+    // 持たなくなった理由)。
+    //
+    // ★try/catch で包まない (AC-8)。本文はもう画像化しないのでレンダリング
+    // 失敗による text fallback が存在しない — token 発行 (DB) や baseUrl
+    // 解決が失敗したら、そのまま外側の catch に伝播させて監査行を
+    // status='failed' にする。
     if (effectiveIncludeBody) {
-      let bodyImageMessages: LineMessage[] = []
-      try {
-        const rendered = await renderBodyImageToJpegs({
+      const { token } = await getOrCreateMailBodyShareToken(db, args.mailMessageId)
+      const url = mailBodyShareUrl(token, getBaseUrl())
+      messages.push(
+        buildMailBodyFlexMessage({
           subject: mail.subject,
-          rawBody: mail.bodyText,
+          url,
           isCorrection: args.isCorrection,
-        })
-        if (rendered.truncated) {
-          logger.warn('mail body exceeds render page limit; falling back to text', {
-            eventId: args.eventId,
-            mailMessageId: args.mailMessageId,
-          })
-        } else if (rendered.pages.length === 0) {
-          logger.warn('mail body rendered to 0 pages; falling back to text', {
-            eventId: args.eventId,
-            mailMessageId: args.mailMessageId,
-          })
-        } else {
-          // 本文画像は image URL が必要 → ここで baseUrl を検証する (未設定なら
-          // throw → 下の catch で text fallback に倒れる)。
-          const built = await buildBodyImageMessages(
-            rendered.pages,
-            getBaseUrl(),
-            logger,
-          )
-          if (!built.oversize) bodyImageMessages = built.messages
-        }
-      } catch (err) {
-        logger.warn('mail body image render failed; falling back to text', {
-          eventId: args.eventId,
-          mailMessageId: args.mailMessageId,
-          message: err instanceof Error ? err.message : String(err),
-        })
-      }
-
-      if (bodyImageMessages.length > 0) {
-        for (const m of bodyImageMessages) {
-          messages.push(m)
-          roles.push('body_image')
-        }
-      } else {
-        const bodyText = buildBroadcastBody({
-          rawBody: mail.bodyText,
-          subject: mail.subject,
-          isCorrection: args.isCorrection,
-        })
-        for (const chunk of splitForLine(bodyText)) {
-          messages.push({ type: 'text', text: chunk })
-          roles.push('body_text')
-        }
-      }
+        }),
+      )
+      roles.push('body_link')
     }
 
     // 添付は全形式 (PDF / Word / Excel / その他) を署名 URL リンクに統一する
     // (要件 §3.4)。
     for (const attachment of attachments) {
-      // r-final-16 blocker: baseUrl は添付/画像で必要。lazy resolver が初回
-      // 呼出で検証する (PUBLIC_BASE_URL 未設定ならここで例外 → 下の catch が
-      // failed audit に倒す)。
+      // r-final-16 blocker: baseUrl は添付/本文カードで必要。lazy resolver が
+      // 初回呼出で検証する (PUBLIC_BASE_URL 未設定ならここで例外 → 下の catch
+      // が failed audit に倒す)。
       const message = await renderAttachment(db, attachment, getBaseUrl())
       messages.push(message)
       roles.push('attachment_link')
     }
 
+    // mail-inbox-mailer: 本文添付 OFF で冒頭メッセージも添付も無いと列が空に
+    // なる。従来のプレースホルダ「(本文・添付ともになし)」を送ると、管理者が
+    // 「本文は流したくない」と決めたメールについて中身ゼロの通知だけが LINE に
+    // 流れる。この経路は送らずに skipped で返す (要件 §3.2.5)。
+    //
+    // effectiveIncludeBody が true なら本文カードが必ず 1 通積まれるため、
+    // messages が空になるのは includeBody=false のときだけ (旧: 本文も
+    // 添付も空だった場合のプレースホルダ送信は到達不能になったため削除)。
+    //
+    // ★上の CAS upsert で既に status='sending' になっているので、ここで
+    // terminal 状態へ落としてから返す (binding_changed の先例と同じ)。
+    // 落とさないと 15 分の stale reclaim まで行がロックされたままになる。
     if (messages.length === 0) {
-      // mail-inbox-mailer: 本文添付 OFF で冒頭メッセージも添付も無いと列が空に
-      // なる。従来のプレースホルダ「(本文・添付ともになし)」を送ると、管理者が
-      // 「本文は流したくない」と決めたメールについて中身ゼロの通知だけが LINE に
-      // 流れる。この経路は送らずに skipped で返す (要件 §3.2.5)。
-      //
-      // ★上の CAS upsert で既に status='sending' になっているので、ここで
-      // terminal 状態へ落としてから返す (binding_changed の先例と同じ)。
-      // 落とさないと 15 分の stale reclaim まで行がロックされたままになる。
-      if (!effectiveIncludeBody) {
-        await db
-          .update(eventBroadcastMessages)
-          .set({
-            // enum に 'skipped' は無い。binding_changed の先例と同じく
-            // failed + errorMessage で「送らなかった理由」を残す。
-            status: 'failed',
-            sentLeadCount: 0,
-            sentTextCount: 0,
-            sentImageCount: 0,
-            fallbackLinkCount: 0,
-            sentAt: null,
-            errorMessage: 'empty_message_set',
-            updatedAt: sql`now()`,
-          })
-          .where(eq(eventBroadcastMessages.id, broadcastMessageId))
-        logger.warn('body excluded and nothing else to send; skipping push', {
-          eventId: args.eventId,
-          mailMessageId: args.mailMessageId,
-        })
-        return {
-          status: 'skipped',
-          reason: 'empty_message_set',
+      await db
+        .update(eventBroadcastMessages)
+        .set({
+          // enum に 'skipped' は無い。binding_changed の先例と同じく
+          // failed + errorMessage で「送らなかった理由」を残す。
+          status: 'failed',
           sentLeadCount: 0,
           sentTextCount: 0,
           sentImageCount: 0,
           fallbackLinkCount: 0,
-        }
+          sentAt: null,
+          errorMessage: 'empty_message_set',
+          updatedAt: sql`now()`,
+        })
+        .where(eq(eventBroadcastMessages.id, broadcastMessageId))
+      logger.warn('body excluded and nothing else to send; skipping push', {
+        eventId: args.eventId,
+        mailMessageId: args.mailMessageId,
+      })
+      return {
+        status: 'skipped',
+        reason: 'empty_message_set',
+        sentLeadCount: 0,
+        sentTextCount: 0,
+        sentImageCount: 0,
+        fallbackLinkCount: 0,
       }
-      // 本文添付 ON で本文も添付も空だった従来ケースは挙動不変 —
-      // プレースホルダを 1 通送って監査行を terminal にする。
-      messages.push({ type: 'text', text: '(本文・添付ともになし)' })
-      roles.push('body_text')
     }
 
     // rr2 review should_fix: partial 再送のとき、既配信 prefix をスキップ。
@@ -1131,10 +979,18 @@ export async function broadcastMailToEvent(
     let effectivePreviouslyDelivered = previouslyDelivered
     if (previouslyDelivered > 0 && existingAudit[0]) {
       const currentLeadCount = roles.filter((r) => r === 'lead_text').length
-      const currentTextCount = roles.filter((r) => r === 'body_text').length
-      const currentImageCount = roles.filter(
-        (r) => r === 'body_image',
-      ).length
+      // 本文カード (role='body_link') は sentTextCount 列にカウントされる
+      // (下の deliveredText 集計を参照)。
+      const currentTextCount = roles.filter((r) => r === 'body_link').length
+      // ★AC-21: mail-body-as-image 以降、本文はもう image では送らないので
+      // 「今回の計画」に image ロールは存在しない。ここを 0 固定のまま残す
+      // ことで、旧形式で部分配信された監査行 (sent_image_count > 0) を
+      // 再送すると必ず `existingAudit[0].sentImageCount > currentImageCount`
+      // が真になり、prefix-skip を諦めて全件再送に倒れる (要件のとおり)。
+      // `roles.filter((r) => r === 'body_image')` に書き換えると常に空
+      // (image ロール自体が無い) になり判定の意図が伝わらなくなるため、
+      // リテラル 0 のまま維持する — 掃除のついでに消さないこと。
+      const currentImageCount = 0
       const currentLinkCount = roles.filter(
         (r) => r === 'attachment_link',
       ).length
@@ -1230,21 +1086,21 @@ export async function broadcastMailToEvent(
             'sent'
 
     // 実際の送信順 (`roles`) に沿って累計 deliveredCount 件を数える。
-    // image / fallback link が交互に並んでも正しいカウント (rr1 review)。
+    // fallback link と交互に並んでも正しいカウント (rr1 review)。
     let deliveredLead = 0
     let deliveredText = 0
-    let deliveredImage = 0
+    // mail-body-as-image: 本文はもう image では送らない。sentImageCount 列
+    // 自体は AC-21 の layoutShrunk 判定 (旧形式の部分配信検出) のために
+    // 残っているので、常に 0 の値を明示的に保存する。
+    const deliveredImage = 0
     let deliveredFallback = 0
     for (let i = 0; i < totalDelivered && i < roles.length; i++) {
       switch (roles[i]) {
         case 'lead_text':
           deliveredLead++
           break
-        case 'body_text':
+        case 'body_link':
           deliveredText++
-          break
-        case 'body_image':
-          deliveredImage++
           break
         case 'attachment_link':
           deliveredFallback++
