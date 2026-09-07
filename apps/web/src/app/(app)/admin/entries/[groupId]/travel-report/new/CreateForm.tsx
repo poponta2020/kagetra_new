@@ -32,8 +32,11 @@ interface EditableFile {
   remarkLineCount: number
   period: { from: string; to: string; days: number } | null
   pendingNames: string[]
-  /** 既定の分割から変わったか（見込み値が当てにならない印）。 */
-  splitChanged: boolean
+  /**
+   * ユーザーが手で直した項目。分割を変えて既定値を取り直すとき、ここに入っている
+   * 項目だけは上書きしない（Codex R1 #9 の「明示編集は dirty state として保持」）。
+   */
+  dirty: Partial<Record<'purpose' | 'place' | 'reportDate' | 'approvalDate' | 'contacts', true>>
 }
 
 export interface CreateFormProps {
@@ -43,10 +46,18 @@ export interface CreateFormProps {
     entryGroupId: number,
     files: TravelReportFileInput[],
   ) => Promise<CreateTravelReportsResultView>
+  /**
+   * 分割を変えたときに**サーバー側の同じロジック**から既定値を取り直す
+   * （Codex R1 #9。目的・場所は docx に入るので、古い分割の値を送ってはいけない）。
+   */
+  reloadAction: (
+    entryGroupId: number,
+    split: string[][],
+  ) => Promise<{ ok: true; files: TravelReportFileDefaults[] } | { ok: false; error: string }>
 }
 
 function toEditable(d: TravelReportFileDefaults): EditableFile {
-  return { ...d, dates: [...d.dates], splitChanged: false }
+  return { ...d, dates: [...d.dates], dirty: {} }
 }
 
 /** 令和表記（画面の補助表示用。docx 側は render.ts が持つ）。 */
@@ -56,63 +67,111 @@ function eraLabel(iso: string): string {
   return `令和${year}年${Number(iso.slice(5, 7))}月${Number(iso.slice(8, 10))}日`
 }
 
-export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormProps) {
+/** ファイルを最小日で並べ直す（分割操作のあと日付順が崩れないように）。 */
+function byFirstDate(a: EditableFile, b: EditableFile): number {
+  return (a.dates[0] ?? '').localeCompare(b.dates[0] ?? '')
+}
+
+export function CreateForm({
+  entryGroupId,
+  defaults,
+  createAction,
+  reloadAction,
+}: CreateFormProps) {
   const router = useRouter()
   const [files, setFiles] = useState<EditableFile[]>(() => defaults.map(toEditable))
   const [pending, startTransition] = useTransition()
+  const [recalculating, startRecalculating] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const totalDays = useMemo(() => files.reduce((n, f) => n + f.dates.length, 0), [files])
 
-  function update(index: number, patch: Partial<EditableFile>) {
-    setFiles((prev) => prev.map((f, i) => (i === index ? { ...f, ...patch } : f)))
+  function update(index: number, patch: Partial<EditableFile>, dirtyKey?: keyof EditableFile['dirty']) {
+    setFiles((prev) =>
+      prev.map((f, i) =>
+        i === index
+          ? { ...f, ...patch, dirty: dirtyKey ? { ...f.dirty, [dirtyKey]: true } : f.dirty }
+          : f,
+      ),
+    )
+  }
+
+  /**
+   * 分割を変えたら**サーバー側の同じ既定値ロジック**から取り直す（Codex R1 #9）。
+   * 目的（級の連結）・場所は docx に入るので、古い分割の値のままにできない。
+   * ユーザーが手で直した項目（`dirty`）だけは上書きしない。
+   */
+  function applySplit(next: EditableFile[]) {
+    const ordered = next.filter((f) => f.dates.length > 0).sort(byFirstDate)
+    setFiles(ordered)
+    setError(null)
+    startRecalculating(async () => {
+      const result = await reloadAction(
+        entryGroupId,
+        ordered.map((f) => f.dates),
+      )
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setFiles((prev) =>
+        prev.map((file, i) => {
+          const fresh = result.files[i]
+          if (!fresh) return file
+          return {
+            ...fresh,
+            dates: file.dates,
+            dirty: file.dirty,
+            // 手で直した項目だけ据え置く。
+            purpose: file.dirty.purpose ? file.purpose : fresh.purpose,
+            place: file.dirty.place ? file.place : fresh.place,
+            reportDate: file.dirty.reportDate ? file.reportDate : fresh.reportDate,
+            approvalDate: file.dirty.approvalDate ? file.approvalDate : fresh.approvalDate,
+            destinationContacts: file.dirty.contacts
+              ? file.destinationContacts
+              : fresh.destinationContacts,
+            homeContact: file.dirty.contacts ? file.homeContact : fresh.homeContact,
+          }
+        }),
+      )
+    })
   }
 
   /** 日を別ファイルへ移す。移動元が空になったらファイルごと消す。 */
   function moveDay(fromIndex: number, date: string, toIndex: number) {
-    setFiles((prev) => {
-      const next = prev.map((f) => ({ ...f, dates: [...f.dates] }))
-      const from = next[fromIndex]
-      const to = next[toIndex]
-      if (!from || !to) return prev
-      from.dates = from.dates.filter((d) => d !== date)
-      to.dates = [...to.dates, date].sort()
-      from.splitChanged = true
-      to.splitChanged = true
-      return next.filter((f) => f.dates.length > 0)
-    })
+    const next = files.map((f) => ({ ...f, dates: [...f.dates] }))
+    const from = next[fromIndex]
+    const to = next[toIndex]
+    if (!from || !to) return
+    from.dates = from.dates.filter((d) => d !== date)
+    to.dates = [...to.dates, date].sort()
+    applySplit(next)
   }
 
   /** 隣接する2ファイルを1つにする。 */
   function merge(index: number) {
-    setFiles((prev) => {
-      const a = prev[index]
-      const b = prev[index + 1]
-      if (!a || !b) return prev
-      const merged: EditableFile = {
-        ...a,
-        dates: [...a.dates, ...b.dates].sort(),
-        pendingNames: [...new Set([...a.pendingNames, ...b.pendingNames])],
-        splitChanged: true,
-      }
-      return [...prev.slice(0, index), merged, ...prev.slice(index + 2)]
-    })
+    const a = files[index]
+    const b = files[index + 1]
+    if (!a || !b) return
+    const merged: EditableFile = {
+      ...a,
+      dates: [...a.dates, ...b.dates].sort(),
+      // 統合先の dirty は引き継ぐ（片方だけ手で直していたら維持する）。
+      dirty: { ...b.dirty, ...a.dirty },
+    }
+    applySplit([...files.slice(0, index), merged, ...files.slice(index + 2)])
   }
 
   /** 1日だけを切り出して新しいファイルにする。 */
   function splitOff(index: number, date: string) {
-    setFiles((prev) => {
-      const src = prev[index]
-      if (!src || src.dates.length < 2) return prev
-      const rest: EditableFile = {
-        ...src,
-        dates: src.dates.filter((d) => d !== date),
-        splitChanged: true,
-      }
-      const created: EditableFile = { ...src, dates: [date], pendingNames: [], splitChanged: true }
-      return [...prev.slice(0, index), rest, created, ...prev.slice(index + 1)]
-    })
+    const src = files[index]
+    if (!src || src.dates.length < 2) return
+    const rest: EditableFile = { ...src, dates: src.dates.filter((d) => d !== date) }
+    // 切り出した側は既定値を取り直すので dirty を持ち込まない
+    // （元ファイル向けに直した目的・場所を別の日へ引きずらない）。
+    const created: EditableFile = { ...src, dates: [date], dirty: {} }
+    applySplit([...files.slice(0, index), rest, created, ...files.slice(index + 1)])
   }
 
   function submit() {
@@ -221,7 +280,7 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
                 <span>
                   備考 <b className="font-semibold text-ink">{file.remarkLineCount}行</b>
                 </span>
-                {file.splitChanged && <span>（分割を変えたので作成時に再計算されます）</span>}
+                {recalculating && <span>（再計算中…）</span>}
               </div>
 
               {file.pendingNames.length > 0 && (
@@ -250,7 +309,7 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
             <input
               aria-label={`ファイル${index + 1}の目的`}
               value={file.purpose}
-              onChange={(e) => update(index, { purpose: e.target.value })}
+              onChange={(e) => update(index, { purpose: e.target.value }, 'purpose')}
               maxLength={200}
               className="w-full border-b border-border-strong bg-transparent text-sm text-ink outline-none"
             />
@@ -259,26 +318,60 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
             <input
               aria-label={`ファイル${index + 1}の場所`}
               value={file.place}
-              onChange={(e) => update(index, { place: e.target.value })}
+              onChange={(e) => update(index, { place: e.target.value }, 'place')}
               maxLength={200}
               className="w-full border-b border-border-strong bg-transparent text-sm text-ink outline-none"
             />
           </Row>
           <Row label="遠征先連絡者">
-            <span className="text-sm text-ink">
-              {file.destinationContacts.length > 0
-                ? file.destinationContacts.map((c) => c.name).join('・')
-                : '（該当者なし）'}
-            </span>
+            {file.destinationContacts.length === 0 ? (
+              <ContactFields
+                label={`ファイル${index + 1}の遠征先連絡者`}
+                contact={{ name: '', phone: null }}
+                onChange={(next) => update(index, { destinationContacts: [next] }, 'contacts')}
+              />
+            ) : (
+              file.destinationContacts.map((contact, ci) => (
+                <ContactFields
+                  key={ci}
+                  label={`ファイル${index + 1}の遠征先連絡者${file.destinationContacts.length > 1 ? ci + 1 : ''}`}
+                  contact={contact}
+                  onChange={(next) =>
+                    update(
+                      index,
+                      {
+                        destinationContacts: file.destinationContacts.map((c, i) =>
+                          i === ci ? next : c,
+                        ),
+                      },
+                      'contacts',
+                    )
+                  }
+                />
+              ))
+            )}
             <div className="text-xs text-ink-meta">
-              {file.destinationContacts.map((c) => c.phone).filter(Boolean).join(' ／ ')}
-              {file.destinationContacts.length > 0 && ' ／ 役職順で自動選択'}
+              {file.dirty.contacts ? '手入力' : '役職順で自動選択'}
             </div>
           </Row>
           <Row label="留守連絡先">
-            <span className="text-sm text-ink">{file.homeContact?.name ?? '（空欄）'}</span>
+            <ContactFields
+              label={`ファイル${index + 1}の留守連絡先`}
+              contact={file.homeContact ?? { name: '', phone: null }}
+              onChange={(next) =>
+                update(
+                  index,
+                  { homeContact: next.name === '' && next.phone === null ? null : next },
+                  'contacts',
+                )
+              }
+            />
             <div className="text-xs text-ink-meta">
-              {file.homeContact?.phone ?? 'サークル長が未設定、または全員が遠征しています'}
+              {file.homeContact
+                ? file.dirty.contacts
+                  ? '手入力'
+                  : 'サークル長（出場するときは出場しない副連絡責任者）'
+                : 'サークル長が未設定、または全員が遠征しています（空欄のまま作成できます）'}
             </div>
           </Row>
           <Row label="届の日付">
@@ -287,7 +380,7 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
                 type="date"
                 aria-label={`ファイル${index + 1}の届の日付`}
                 value={file.reportDate}
-                onChange={(e) => update(index, { reportDate: e.target.value })}
+                onChange={(e) => update(index, { reportDate: e.target.value }, 'reportDate')}
                 className="border-b border-border-strong bg-transparent text-sm text-ink outline-none"
               />
               <span className="text-xs text-ink-meta">{eraLabel(file.reportDate)}</span>
@@ -299,7 +392,7 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
                 type="date"
                 aria-label={`ファイル${index + 1}の承認日`}
                 value={file.approvalDate ?? ''}
-                onChange={(e) => update(index, { approvalDate: e.target.value || null })}
+                onChange={(e) => update(index, { approvalDate: e.target.value || null }, 'approvalDate')}
                 className="border-b border-border-strong bg-transparent text-sm text-ink outline-none"
               />
               <span className="text-xs text-ink-meta">
@@ -345,6 +438,43 @@ export function CreateForm({ entryGroupId, defaults, createAction }: CreateFormP
         </Btn>
       </div>
     </div>
+  )
+}
+
+/**
+ * 連絡者1人ぶんの編集欄（氏名・電話）。R9 は 遠征先連絡者・留守連絡先 を S6 で
+ * 修正できると定めている（design-spec §8 の「6行」にも含まれる）ので、既定値の
+ * 表示だけにしない（Codex R1 #10）。
+ */
+function ContactFields({
+  label,
+  contact,
+  onChange,
+}: {
+  label: string
+  contact: { name: string; phone: string | null }
+  onChange: (next: { name: string; phone: string | null }) => void
+}) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-2">
+      <input
+        aria-label={`${label}の氏名`}
+        value={contact.name}
+        onChange={(e) => onChange({ ...contact, name: e.target.value })}
+        maxLength={60}
+        placeholder="氏名"
+        className="min-w-0 flex-1 basis-[45%] border-b border-border-strong bg-transparent text-sm text-ink outline-none"
+      />
+      <input
+        aria-label={`${label}の電話番号`}
+        value={contact.phone ?? ''}
+        onChange={(e) => onChange({ ...contact, phone: e.target.value || null })}
+        maxLength={40}
+        inputMode="tel"
+        placeholder="電話番号"
+        className="min-w-0 flex-1 basis-[40%] border-b border-border-strong bg-transparent text-sm text-ink outline-none"
+      />
+    </span>
   )
 }
 

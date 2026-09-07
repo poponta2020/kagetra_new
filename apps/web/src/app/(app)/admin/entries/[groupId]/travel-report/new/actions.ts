@@ -7,7 +7,13 @@ import { events, travelReportBatches } from '@kagetra/shared/schema'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
 import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
-import { createTravelReports, type TravelReportFileInput } from '@/lib/travel-report/create'
+import {
+  createTravelReports,
+  loadActiveEventDates,
+  loadTravelReportDefaultsForSplit,
+  type TravelReportFileDefaults,
+  type TravelReportFileInput,
+} from '@/lib/travel-report/create'
 import { sendTravelReportCreatedNotice } from '@/lib/travel-report/notify'
 import { requireTravelReportRequired } from '@/lib/travel-report/targets'
 import { isValidCalendarDate } from '@/lib/travel-report/units'
@@ -156,4 +162,48 @@ export async function createTravelReportsAction(
     fileCount: result.documents.length,
     notifyError,
   }
+}
+
+/**
+ * S6 でファイル分割を変えたときに、**サーバー側の同じ既定値ロジック**から
+ * 目的・場所・連絡者・期間・人数・備考行数・未入力者を取り直す（Codex R1 #9）。
+ *
+ * ★画面側で分割だけ変えて古い既定値を送ると、2単位を統合したファイルが
+ * 「(AB級)への参加」のまま D/E 級の日を含む届になる。目的と場所は docx に入るので、
+ * 表示と生成結果が一致しなくなる。分割操作のたびにここを呼び直す。
+ *
+ * ユーザーが手で直した項目を維持するのは**画面側の責務**（この関数は常に既定値を返す）。
+ */
+export async function reloadTravelReportDefaultsAction(
+  entryGroupId: number,
+  split: string[][],
+): Promise<{ ok: true; files: TravelReportFileDefaults[] } | { ok: false; error: string }> {
+  const session = await auth()
+  if (!session?.user?.id) return { ok: false, error: 'ログインが必要です' }
+  if (!(await isTravelReportSubmitter(session))) {
+    return { ok: false, error: 'この操作を行う権限がありません' }
+  }
+
+  const parsed = z
+    .array(z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate)).min(1))
+    .min(1)
+    .max(12)
+    .safeParse(split)
+  if (!parsed.success) return { ok: false, error: 'ファイル分割の指定が不正です' }
+
+  // 作成 Action と同じ検証（現在の非 cancelled 開催日の重複なしの完全な分割）。
+  const seen = new Set<string>()
+  for (const dates of parsed.data) {
+    for (const date of dates) {
+      if (seen.has(date)) return { ok: false, error: '同じ日が複数のファイルに入っています' }
+      seen.add(date)
+    }
+  }
+  const currentDates = new Set(await loadActiveEventDates(entryGroupId))
+  if (seen.size !== currentDates.size || ![...seen].every((d) => currentDates.has(d))) {
+    return { ok: false, error: '選択した日付が現在の開催日と一致しません' }
+  }
+
+  const { files } = await loadTravelReportDefaultsForSplit(entryGroupId, parsed.data)
+  return { ok: true, files }
 }

@@ -8,7 +8,7 @@ import { isTravelReportSubmitter } from '@/lib/travel-report/authz'
 import { loadTravelReportDefaults } from '@/lib/travel-report/create'
 import { formatEventDate } from '@/lib/event-date'
 import { CreateForm } from './CreateForm'
-import { createTravelReportsAction } from './actions'
+import { createTravelReportsAction, reloadTravelReportDefaultsAction } from './actions'
 
 /**
  * S6 遠征届 作成画面（`/admin/entries/[groupId]/travel-report/new`）。
@@ -65,6 +65,7 @@ export default async function Page({ params }: { params: Promise<{ groupId: stri
         entryGroupId={entryGroupId}
         defaults={files}
         createAction={createTravelReportsAction}
+        reloadAction={reloadTravelReportDefaultsAction}
       />
     </div>
   )

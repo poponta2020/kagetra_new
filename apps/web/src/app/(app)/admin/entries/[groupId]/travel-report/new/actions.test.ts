@@ -29,7 +29,9 @@ vi.mock('@/lib/travel-report/notify', () => ({
   sendTravelReportCreatedNotice: (...args: unknown[]) => sendTravelReportCreatedNotice(...args),
 }))
 
-const { createTravelReportsAction } = await import('./actions')
+const { createTravelReportsAction, reloadTravelReportDefaultsAction } = await import(
+  './actions',
+)
 
 afterAll(async () => {
   await closeTestDb()
@@ -262,5 +264,66 @@ describe('createTravelReportsAction', () => {
       .from(travelReportDocuments)
       .where(eq(travelReportDocuments.batchId, batch!.id))
     expect(docs).toHaveLength(1)
+  })
+})
+
+describe('reloadTravelReportDefaultsAction（分割変更時の再計算・Codex R1 #9）', () => {
+  beforeEach(async () => {
+    await truncateAll()
+    sendTravelReportCreatedNotice.mockReset()
+  })
+
+  it('新しい分割に対する既定値を返す（統合すると目的の級が両方入る）', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    const result = await reloadTravelReportDefaultsAction(group.id, [DATES])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.files).toHaveLength(1)
+    expect(result.files[0]!.dates).toEqual(DATES)
+    expect(result.files[0]!.purpose).toContain('(A級)への参加')
+  })
+
+  it('日ごとに分けるとファイルが2つになる', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    const result = await reloadTravelReportDefaultsAction(group.id, [[DATES[0]!], [DATES[1]!]])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.files).toHaveLength(2)
+  })
+
+  it('提出権限者でなければ拒否される', async () => {
+    const { group } = await seedGroup()
+    const member = await createUser()
+    await setAuthSession({ id: member.id, role: 'member' })
+    expect(await reloadTravelReportDefaultsAction(group.id, [DATES])).toMatchObject({ ok: false })
+    await setAuthSession(null)
+    expect(await reloadTravelReportDefaultsAction(group.id, [DATES])).toMatchObject({ ok: false })
+  })
+
+  it('現在の開催日と一致しない分割・重複・実在しない日付は拒否される', async () => {
+    const { group } = await seedGroup()
+    const admin = await createAdmin()
+    await setAuthSession({ id: admin.id, role: 'admin' })
+    // 一部欠落
+    expect(await reloadTravelReportDefaultsAction(group.id, [[DATES[0]!]])).toMatchObject({
+      ok: false,
+    })
+    // 未知の日
+    expect(
+      await reloadTravelReportDefaultsAction(group.id, [[...DATES, '2026-11-09']]),
+    ).toMatchObject({ ok: false })
+    // 重複
+    expect(
+      await reloadTravelReportDefaultsAction(group.id, [[DATES[0]!], [DATES[0]!, DATES[1]!]]),
+    ).toMatchObject({ ok: false })
+    // 実在しない日付
+    expect(await reloadTravelReportDefaultsAction(group.id, [['2026-02-31']])).toMatchObject({
+      ok: false,
+    })
   })
 })

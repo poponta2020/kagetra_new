@@ -347,6 +347,39 @@ export async function loadTravelReportDefaults(
   return { files, tournamentName: tournamentNameOf(ctx, groupCtx.units[0]?.dates ?? []) }
 }
 
+/**
+ * **任意のファイル分割**に対する既定値を組み立てる（S6 で日を移動・分割・統合したあと）。
+ *
+ * ★分割を変えると 目的（級の連結）・場所・連絡者・期間・人数・備考行数・未入力者 の
+ * すべてが変わる。画面が古い分割の値を送ると、統合したファイルに「(AB級)への参加」の
+ * ままで D/E 級の日が含まれる届ができてしまう（Codex R1 #9）。
+ * 画面はこの関数を分割変更のたびに呼び直し、**ユーザーが手で直した項目だけ**を維持する。
+ *
+ * 送られた分割は「現在の非 cancelled 開催日の重複なしの完全な分割」でなければならない
+ * （作成 Action と同じ検証。ここで弾いておけば画面が不正な分割を保持し続けない）。
+ */
+export async function loadTravelReportDefaultsForSplit(
+  entryGroupId: number,
+  split: readonly (readonly string[])[],
+  now: Date = new Date(),
+): Promise<{ files: TravelReportFileDefaults[] }> {
+  const ctx = await loadGroupContext(entryGroupId)
+  const reportDate = todayInJst(now)
+  const files = await Promise.all(
+    split.map((dates) => buildFileDefaults(ctx, [...dates].sort(), reportDate)),
+  )
+  return { files }
+}
+
+/** 現在の非 cancelled 開催日（作成 Action の検証と画面の再計算で共有する）。 */
+export async function loadActiveEventDates(entryGroupId: number): Promise<string[]> {
+  const rows = await db
+    .select({ eventDate: events.eventDate, status: events.status })
+    .from(events)
+    .where(eq(events.entryGroupId, entryGroupId))
+  return [...new Set(rows.filter((r) => r.status !== 'cancelled').map((r) => r.eventDate))].sort()
+}
+
 async function buildFileDefaults(
   ctx: GroupContext,
   dates: readonly string[],

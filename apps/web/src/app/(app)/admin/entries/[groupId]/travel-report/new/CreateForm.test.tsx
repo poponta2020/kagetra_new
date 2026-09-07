@@ -1,0 +1,168 @@
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { TravelReportFileDefaults } from '@/lib/travel-report/create'
+import { CreateForm } from './CreateForm'
+
+/**
+ * S6 のフォーム。Codex R1 の指摘2件を固定する:
+ * - #9: 分割を変えたらサーバー側の既定値を取り直す（手で直した項目だけ据え置く）
+ * - #10: 遠征先連絡者・留守連絡先を画面で修正できる（R9 の「修正できる6項目」）
+ */
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
+const file = (over: Partial<TravelReportFileDefaults> = {}): TravelReportFileDefaults => ({
+  dates: ['2026-11-07', '2026-11-08'],
+  purpose: '帯広新人戦(AB級)への参加',
+  place: '帯広市総合体育館',
+  destinationContacts: [{ name: '北海太郎', phone: '090-0000-0001' }],
+  homeContact: { name: '旭川さくら', phone: '090-0000-0002' },
+  reportDate: '2026-09-06',
+  approvalDate: null,
+  memberCount: 2,
+  remarkLineCount: 3,
+  period: { from: '2026-11-06', to: '2026-11-09', days: 4 },
+  pendingNames: [],
+  ...over,
+})
+
+function setup(defaults: TravelReportFileDefaults[], reloaded?: TravelReportFileDefaults[]) {
+  const createAction = vi.fn().mockResolvedValue({ ok: true, fileCount: defaults.length })
+  const reloadAction = vi
+    .fn()
+    .mockResolvedValue({ ok: true, files: reloaded ?? defaults })
+  const view = render(
+    <CreateForm
+      entryGroupId={42}
+      defaults={defaults}
+      createAction={createAction}
+      reloadAction={reloadAction}
+    />,
+  )
+  return { createAction, reloadAction, view }
+}
+
+describe('ファイル分割を変えたら既定値を取り直す（Codex R1 #9）', () => {
+  it('統合すると reloadAction が新しい分割で呼ばれ、目的と場所が置き換わる', async () => {
+    const a = file({ dates: ['2026-11-07', '2026-11-08'], purpose: '帯広新人戦(AB級)への参加' })
+    const b = file({ dates: ['2026-11-14'], purpose: '帯広新人戦(D級)への参加', place: '別会場' })
+    const merged = file({
+      dates: ['2026-11-07', '2026-11-08', '2026-11-14'],
+      purpose: '帯広新人戦(ABD級)への参加',
+      place: '帯広市総合体育館・別会場',
+      memberCount: 5,
+    })
+    const { reloadAction } = setup([a, b], [merged])
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+
+    await waitFor(() => expect(reloadAction).toHaveBeenCalled())
+    // 新しい分割（1ファイル・3日）で呼ばれる。
+    expect(reloadAction).toHaveBeenCalledWith(42, [['2026-11-07', '2026-11-08', '2026-11-14']])
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('ファイル1の目的') as HTMLInputElement).value,
+      ).toBe('帯広新人戦(ABD級)への参加')
+    })
+    expect((screen.getByLabelText('ファイル1の場所') as HTMLInputElement).value).toBe(
+      '帯広市総合体育館・別会場',
+    )
+  })
+
+  it('★手で直した目的は取り直しても据え置かれる（dirty 保持）', async () => {
+    const a = file({ dates: ['2026-11-07'] })
+    const b = file({ dates: ['2026-11-08'] })
+    const merged = file({ dates: ['2026-11-07', '2026-11-08'], purpose: 'サーバーの既定値' })
+    const { reloadAction } = setup([a, b], [merged])
+
+    const purpose = screen.getByLabelText('ファイル1の目的') as HTMLInputElement
+    fireEvent.change(purpose, { target: { value: '手で直した目的' } })
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalled())
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('ファイル1の目的') as HTMLInputElement).value).toBe(
+        '手で直した目的',
+      )
+    })
+    // 手を付けていない場所は取り直した値になる。
+    expect((screen.getByLabelText('ファイル1の場所') as HTMLInputElement).value).toBe(
+      '帯広市総合体育館',
+    )
+  })
+
+  it('reloadAction が拒否したらエラーを表示する', async () => {
+    const createAction = vi.fn()
+    const reloadAction = vi
+      .fn()
+      .mockResolvedValue({ ok: false, error: '選択した日付が現在の開催日と一致しません' })
+    render(
+      <CreateForm
+        entryGroupId={42}
+        defaults={[file({ dates: ['2026-11-07'] }), file({ dates: ['2026-11-08'] })]}
+        createAction={createAction}
+        reloadAction={reloadAction}
+      />,
+    )
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('現在の開催日と一致しません')
+    })
+  })
+})
+
+describe('遠征先連絡者・留守連絡先を修正できる（Codex R1 #10 / R9）', () => {
+  it('氏名と電話の入力欄があり、編集値が作成 Action へ渡る', async () => {
+    const { createAction } = setup([file()])
+
+    const name = screen.getByLabelText('ファイル1の遠征先連絡者の氏名') as HTMLInputElement
+    expect(name.value).toBe('北海太郎')
+    fireEvent.change(name, { target: { value: '室蘭凛' } })
+
+    const phone = screen.getByLabelText('ファイル1の留守連絡先の電話番号') as HTMLInputElement
+    expect(phone.value).toBe('090-0000-0002')
+    fireEvent.change(phone, { target: { value: '090-9999-9999' } })
+
+    fireEvent.click(screen.getByText('1 ファイルを作成する'))
+    await waitFor(() => expect(createAction).toHaveBeenCalled())
+    const payload = createAction.mock.calls[0]![1] as {
+      destinationContacts: { name: string }[]
+      homeContact: { phone: string } | null
+    }[]
+    expect(payload[0]!.destinationContacts[0]!.name).toBe('室蘭凛')
+    expect(payload[0]!.homeContact!.phone).toBe('090-9999-9999')
+  })
+
+  it('留守連絡先が未設定でも入力欄が出て、空のままなら null で送られる', async () => {
+    const { createAction } = setup([file({ homeContact: null })])
+    const name = screen.getByLabelText('ファイル1の留守連絡先の氏名') as HTMLInputElement
+    expect(name.value).toBe('')
+
+    fireEvent.click(screen.getByText('1 ファイルを作成する'))
+    await waitFor(() => expect(createAction).toHaveBeenCalled())
+    const payload = createAction.mock.calls[0]![1] as { homeContact: unknown }[]
+    expect(payload[0]!.homeContact).toBeNull()
+  })
+
+  it('連絡者を手で直すと、分割を変えても据え置かれる', async () => {
+    const a = file({ dates: ['2026-11-07'] })
+    const b = file({ dates: ['2026-11-08'] })
+    const merged = file({
+      dates: ['2026-11-07', '2026-11-08'],
+      destinationContacts: [{ name: 'サーバーの既定値', phone: '090-0000-0003' }],
+    })
+    const { reloadAction } = setup([a, b], [merged])
+
+    const name = screen.getByLabelText('ファイル1の遠征先連絡者の氏名') as HTMLInputElement
+    fireEvent.change(name, { target: { value: '手で直した連絡者' } })
+
+    fireEvent.click(screen.getByText('⇅ ファイル1と2を統合する'))
+    await waitFor(() => expect(reloadAction).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('ファイル1の遠征先連絡者の氏名') as HTMLInputElement).value,
+      ).toBe('手で直した連絡者')
+    })
+  })
+})
