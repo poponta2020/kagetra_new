@@ -690,41 +690,6 @@ describe('applyWebhookEvents — invite code path', () => {
     await applyWebhookEvents(db, channelId, 'token', payload, reply.client)
     expect(reply.captured).toHaveLength(0)
   })
-
-  it('【調査用・削除予定】招待コード以外のグループ発言はメンション payload をログに残す', async () => {
-    const payload: LineWebhookPayload = {
-      destination: '@dummy',
-      events: [
-        {
-          type: 'message',
-          source: { type: 'group', groupId: 'C123', userId: 'Uspeaker0000000000000000000000000' },
-          replyToken: 'r-6',
-          message: {
-            type: 'text',
-            text: '@kagetra-event-bot-1 申し込みました',
-            mention: { mentionees: [{ index: 0, length: 21, type: 'user', isSelf: true }] },
-          },
-        },
-      ],
-    }
-    const logged: Array<{ event: string; ctx: Record<string, unknown> }> = []
-    const reply = makeReplyClient()
-    await applyWebhookEvents(db, channelId, 'token', payload, reply.client, {
-      logger: (event, ctx) => logged.push({ event, ctx }),
-    })
-
-    // 副作用は無いまま（返信もしない）、実測に必要な素材だけが記録される。
-    expect(reply.captured).toHaveLength(0)
-    const probe = logged.find((l) => l.event === 'probe_unhandled_group_text')
-    expect(probe?.ctx.sourceUserId).toBe('Uspeaker0000000000000000000000000')
-    expect(probe?.ctx.sourceGroupId).toBe('C123')
-    expect(probe?.ctx.textLength).toBe('@kagetra-event-bot-1 申し込みました'.length)
-    // 本文そのものは記録しない（実運用グループの雑談を journalctl に残さない）。
-    expect(JSON.stringify(probe?.ctx)).not.toContain('申し込みました')
-    expect(JSON.parse(probe?.ctx.mention as string)).toEqual({
-      mentionees: [{ index: 0, length: 21, type: 'user', isSelf: true }],
-    })
-  })
 })
 
 describe('applyWebhookEvents — leave path', () => {
