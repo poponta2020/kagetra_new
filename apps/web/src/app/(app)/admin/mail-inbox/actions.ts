@@ -398,6 +398,15 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
   const editionSeriesNameRaw = formData.get('editionSeriesName')
   const editionSeriesName =
     typeof editionSeriesNameRaw === 'string' ? editionSeriesNameRaw.trim() : ''
+  // mail-ai-extract-refinements §3.2.9(d): 承認フォームの「通称」を新規系列の
+  // short_name として保存し、系列マスタを育てる。フォームは新規作成のときだけ値を
+  // 送る（既存系列を選んだときは空文字）が、サーバー側でも既存系列の経路
+  // （getSeriesForEditionLink）では一切使わない＝既存の short_name は書き換わらない。
+  const editionSeriesShortNameRaw = formData.get('editionSeriesShortName')
+  const editionSeriesShortName =
+    typeof editionSeriesShortNameRaw === 'string'
+      ? editionSeriesShortNameRaw.trim()
+      : ''
   const editionNumberRaw = formData.get('editionNumber')
   const editionNumber =
     editionLink && typeof editionNumberRaw === 'string' && editionNumberRaw !== ''
@@ -567,6 +576,7 @@ export async function approveDraftUnits(draftId: number, formData: FormData) {
           : await createConfirmedSeries(tx, {
               name: editionSeriesName,
               kind: editionKind,
+              shortName: editionSeriesShortName !== '' ? editionSeriesShortName : null,
             })
       const { editionId } = await findOrCreateEdition(tx, {
         seriesId: selectedSeries.id,

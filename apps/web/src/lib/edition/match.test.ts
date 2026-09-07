@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   normalizeForMatch,
+  rankSeriesCandidates,
+  scoreSeries,
   searchSeriesCandidates,
   type SeriesRow,
 } from './match'
@@ -19,6 +21,28 @@ const series: SeriesRow[] = [
     kind: 'individual',
   },
   { id: 3, name: '全国団体戦', aliases: [], kind: 'team' },
+]
+
+/**
+ * mail-ai-extract-refinements §3.2.10: 検索の照合対象に通称（short_name）を足す。
+ * 「椿」だけは正準名にも別名にも現れないので、検索と自動解決の分離をそのまま検証できる。
+ */
+const shortNameSeries: SeriesRow[] = [
+  {
+    id: 11,
+    name: '大阪大会',
+    aliases: [],
+    kind: 'individual',
+    shortName: '大阪',
+  },
+  {
+    id: 12,
+    name: '初段認定大阪なにはえ会大会',
+    aliases: [],
+    kind: 'individual',
+    shortName: 'なにはえ',
+  },
+  { id: 14, name: 'つばき大会', aliases: [], kind: 'individual', shortName: '椿' },
 ]
 
 describe('edition match — client-safe series search', () => {
@@ -64,6 +88,36 @@ describe('edition match — client-safe series search', () => {
         'individual',
       ),
     ).toEqual([])
+  })
+
+  it('通称の完全一致を候補の先頭に置く', () => {
+    const result = searchSeriesCandidates('大阪', shortNameSeries, 'individual')
+    expect(result[0]).toMatchObject({ series: { id: 11 }, score: 100 })
+    // 正準名に「大阪」を含むだけの系列は後ろ（部分一致）。
+    expect(result.map((candidate) => candidate.series.id)).toEqual([11, 12])
+  })
+
+  it('通称の部分一致でも候補に含める', () => {
+    const result = searchSeriesCandidates('なには', shortNameSeries, 'individual')
+    expect(result.map((candidate) => candidate.series.id)).toEqual([12])
+    expect(result[0]?.score).toBe(50)
+  })
+
+  it('正準名にも別名にも無い通称で引ける', () => {
+    const result = searchSeriesCandidates('椿', shortNameSeries, 'individual')
+    expect(result.map((candidate) => candidate.series.id)).toEqual([14])
+    expect(result[0]?.score).toBe(100)
+  })
+
+  it('通称は根拠表示（一致した別名）には出さない', () => {
+    const result = searchSeriesCandidates('椿', shortNameSeries, 'individual')
+    expect(result[0]?.matchedAlias).toBeNull()
+  })
+
+  it('自動解決（scoreSeries / rankSeriesCandidates）は通称を見ない', () => {
+    // AC-60: 検索は一方向・自動解決は保守的、という PR #292 の分離を保つ。
+    expect(scoreSeries('椿', shortNameSeries[2]!)).toBe(0)
+    expect(rankSeriesCandidates('椿', shortNameSeries)).toEqual([])
   })
 
   it('異なる大会種別の系列は候補に含めない', () => {

@@ -185,11 +185,15 @@ LINE 配信は任意で、**選んだグループに `status='linked'` の LINE 
 
 タイトルはフォーム上部の**「通称」欄**（人力入力）を種に `composeTitle(通称, eligible_grades)` で合成する。単位ごとに個別上書きでき、上書きした単位は通称の変更に追随しない。通称が未入力のあいだ合成結果は**空**にする（`composeTitle(null, ['B'])` は級だけの「B」を返してしまい、無意味な値のまま登録される事故になるため）。承認時のマッピングで新しいのは `capacity_total` → `events.capacity`（級別は `capacity_a`〜`e` のまま併存）と、`payment_deadline_kind` の日本語3値 → `events.payment_deadline_kind` の英語 enum（[spec/events-attendance.md](events-attendance.md)）。参加費は AI が埋めなくなったが手入力欄は残る。管理者はチェックした単位だけを選んで登録できる（部分承認）。既に materialize 済みの単位は読み取り専用表示。全単位が materialize されて初めて draft を `approved` + mail を `processed`/`archived` に倒す（部分承認中は `pending_review` のまま受信箱に残る）。「残りは作らず完了」（`completeDraft`）は 1 件以上 materialize 済みのときだけ表示され、未登録の残り単位を作らずに draft を閉じる。
 
-承認処理には任意で「開催（edition）への紐付け」チェックがある。承認可能な詳細画面は `tournament_series` を1回読み込み、AI抽出名が正準名または別名に正規化完全一致する系列が1件だけなら、その系列IDと回次を初期選択する。未一致・複数一致ではAI由来の名前を検索語にだけ入れ、系列は未選択にする。
+承認処理には任意で「開催（edition）への紐付け」チェックがある。承認可能な詳細画面は `tournament_series` を1回読み込み（`short_name` 込み）、AI抽出名から作った系列名候補を名寄せして、**正規化完全一致が単独** または **名寄せ候補が1件だけ**のとき、その系列IDと回次を初期選択し、あわせてその系列の `short_name` を**通称欄の初期値**として入れる（どの系列から入れたかを通称欄の近くに表示する）。`short_name` が null の系列なら系列だけを選択し通称欄は空にする。それ以外（候補0件／完全一致なしで候補複数）ではAI由来の名前を検索語にだけ入れ、系列は未選択・通称欄は空にする。部分一致1件でも初期選択するのは tournament-entry-rosters の「完全一致1件のときだけ」を緩和して上書きしたもので、実運用の案内では完全一致がごく少数だったため。初期選択が起きた回次付きの案内では紐付けチェックが既定 ON になる。
 
-「系列を検索・選択」はモバイル対応のボトムシートで、承認対象と同じ `kind`（個人戦/団体戦）の系列を正準名・別名から正規化部分一致検索する。候補は正準名を主表示し、別名に一致した場合は一致した別名も表示する。検索文字列と選択済み系列を別状態として扱い、既存系列は hidden `editionSeriesId` だけで確定する。0件時だけ検索語を新規系列として作る明示確認を提示し、確認後に限り `editionSeriesName` と `editionCreateNewSeries=on` を送る。
+回次のパース（`parseEditionNumber` / `parseSeriesName`）は算用数字・全角数字に加えて漢数字（「第三回」「第二十五回」）を読む。値の取得とラベルの除去は同じ「第N回」定義を共有する（片方だけ広げると回次は読めるのに系列名候補に「第三回」が残って完全一致しなくなる）。回次を持たない年式表記（「九段大会2026-2」）は従来どおり紐付け対象外。
 
-`approveDraftUnits` は draft 行をロックしたトランザクション内で、既存系列IDの存在・`kind` を再検証して `findOrCreateEdition`（`apps/web/src/lib/edition/resolve.ts`）を呼ぶ。検索文字列だけ、既存IDと新規作成の同時指定、改ざんID、種別不一致、正でない回次は拒否する。明示的新規作成名が既存系列の正準名・別名に完全一致する場合も、検索結果から既存系列を選び直すよう拒否する。同一 draft から作る全イベントの `kind` が混在すると拒否し、部分承認では先行・後続どちらで開催を選んでも全イベントを同一 edition へ収束させる（詳細は [spec/tournaments-results.md](tournaments-results.md)）。
+「系列を検索・選択」はモバイル対応のボトムシートで、承認対象と同じ `kind`（個人戦/団体戦）の系列を**正準名・別名・通称（`short_name`）の3種**から正規化部分一致検索する。自動解決側（`scoreSeries` / `rankSeriesCandidates`）は通称を見ない —— 検索は一方向・自動解決は保守的、という分離を保つ。候補は正準名を主表示し、通称と、別名に一致した場合は一致した別名も添える。検索文字列と選択済み系列を別状態として扱い、既存系列は hidden `editionSeriesId` だけで確定する。0件時だけ検索語を新規系列として作る明示確認を提示し、確認後に限り `editionSeriesName` と `editionCreateNewSeries=on` を送る。シートで既存系列を確定したとき、通称欄が空ならその系列の `short_name` を入れる（入力済みなら触らない）。
+
+通称欄に文字を入れると、その語で検索した系列候補チップが通称欄の直下に出る（上位3件。個人戦/団体戦が混在する案内では出さない）。チップをタップすると系列が確定するが**通称欄の文字列は書き換えない**（会の表記「椿杯」と DB の `short_name`「椿」のようなずれが実在するため）。通称を打ち直しても確定済みの系列選択は外れず、チップだけが新しい入力に追従する。
+
+`approveDraftUnits` は draft 行をロックしたトランザクション内で、既存系列IDの存在・`kind` を再検証して `findOrCreateEdition`（`apps/web/src/lib/edition/resolve.ts`）を呼ぶ。検索文字列だけ、既存IDと新規作成の同時指定、改ざんID、種別不一致、正でない回次は拒否する。明示的新規作成名が既存系列の正準名・別名に完全一致する場合も、検索結果から既存系列を選び直すよう拒否する。新規系列を作る経路（`createConfirmedSeries`）だけは hidden `editionSeriesShortName`（通称欄の trim 値。空なら null）を `tournament_series.short_name` として保存し、系列マスタを育てる。既存系列を選んだ経路では `short_name` を書き換えない（大会一覧・選手戦績の通称表示が承認操作の副作用で変わるのを避けるため）。同一 draft から作る全イベントの `kind` が混在すると拒否し、部分承認では先行・後続どちらで開催を選んでも全イベントを同一 edition へ収束させる（詳細は [spec/tournaments-results.md](tournaments-results.md)）。
 
 承認/却下/紐付け操作はすべて `tournament_drafts` 行を `FOR UPDATE` でロックしてから状態遷移する（並行操作の直列化）。1 件でもイベントを materialize 済みの draft は却下・単純紐付け（`linkDraftToEvent`）ができない（作成済みイベントが孤児化する矛盾を防ぐ）。承認・紐付け成功後は `after()` フックでレスポンスをブロックせずに LINE 自動配信（`broadcastMailToEvent`）を起動する（配信自体は [spec/notifications.md](notifications.md)）。
 

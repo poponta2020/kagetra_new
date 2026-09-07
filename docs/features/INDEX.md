@@ -16,7 +16,7 @@
 - `event-list-refinements` — イベント一覧の締切ソート・残日数3段階表示・申込可能フィルタ（主要領域: apps/web）
 - `invite-link-registration` — 招待リンクによる会員セルフ登録→LINEログイン完結（主要領域: apps/web, packages/shared）
 - `invite-register-redesign` — 招待URL会員登録のリデザインとプロフィール項目拡張（主要領域: apps/web, packages/shared）
-- `mail-body-as-image` — メール本文のLINE配信形式。2026-09 改修でA4 JPEG画像化→**Flexカード1通＋公開の全文ページ `/mail-share/[token]`**（署名トークン60日・ログイン不要）へ変更（主要領域: apps/web, packages/shared）
+- `mail-body-as-image` — 承認メールの LINE 配信形式。**2026-09 改修で A4 JPEG 画像 → ✉ Flex カード 1 通＋公開の全文ページ（署名トークン 60 日・ログイン不要）へ全面変更**（主要領域: packages/shared schema/mail-body-share-tokens + apps/web lib/line-broadcast・lib/mail-body-share・lib/line-flex-mail-body・app/mail-share・middleware）
 - `mail-inbox-mailer` — 受信箱のメーラーモデル化（出荷済み）＋2026-08-02 改修: メール詳細の処理導線を「種別→対象の大会→実行」の統合フォームへ集約（LINE配信可否・本文添付可否・名簿の複数一括採用）（主要領域: packages/shared schema + apps/web admin/mail-inbox・lib/line-broadcast） [shipped: PR #447]
 - `mail-tournament-import` — 大会案内メールのIMAP取込→Claude API振り分け→管理者承認（主要領域: apps/mail-worker, apps/web）
 - `mail-triage-badge` — メール振り分けの承認待ち件数をPWA/アプリ内バッジ表示（主要領域: apps/web）
@@ -50,7 +50,7 @@
 - `home-tournament-timeline` — ホーム(/dashboard)を「会の出場予定」へ全面置換。未回答アラート＋大会当日カード＋出場タイムライン（確定名簿→出欠のフォールバック・出場者チップ一列・自分ハイライト）（主要領域: apps/web dashboard） [shipped: PR #400]
 - `event-list-month-grouping` — /events 開催日順ビューを月ごとにセクション化（月見出し=ゼロ埋め2桁+英字月名+藍太罫）。日付を左ブロック化・申込可否を色帯+太字の二重符号化・ページ見出し行をフッター行へ（主要領域: apps/web events UI・純UI/design-spec が要件成果物） [shipped: PR #401]
 - `roster-file-adoption` — 名簿をパースせず原本ファイルのまま採用できる導線（メール添付→entry_group×種別）。会員向けビューア新設・申込管理ボードの hasConfirmedRoster をファイル採用へ拡張（主要領域: packages/shared schema + apps/web admin/mail-inbox・events・roster-files） [shipped: PR #409] [shipped: PR #439]
-- `mail-ai-extract-refinements` — メール大会案内取込のAI再設計（改修）。分類ロジック撤去＋抽出項目整理(通称/参加費/訂正版判定を廃止・振込締切の状態化・支払/申込方法の日本語enum化・全体定員追加)・Sonnet 5移行(thinking:disabled明示)・添付選択UI新設・PDFサイズ上限800→8000KB・本文常時送信の回帰固定（主要領域: apps/mail-worker classify + apps/web admin/mail-inbox）[shipped: PR #431][shipped: PR #551]
+- `mail-ai-extract-refinements` — メール大会案内取込のAI再設計（改修）。分類ロジック撤去＋抽出項目整理(通称/参加費/訂正版判定を廃止・振込締切の状態化・支払/申込方法の日本語enum化・全体定員追加)・Sonnet 5移行(thinking:disabled明示)・添付選択UI新設・PDFサイズ上限800→8000KB・本文常時送信の回帰固定（主要領域: apps/mail-worker classify + apps/web admin/mail-inbox）[shipped: PR #431][shipped: PR #551] / 2026-09-07 改修定義: 承認画面の通称⇄系列の相互連動（名寄せ候補1件で通称+系列を自動投入・通称入力が系列候補チップ・系列選択が通称を埋める・検索の照合対象に short_name 追加・新規系列作成時に short_name 保存・回次の漢数字対応。親#599/子#600-602）
 - `member-role-management` — 管理者による会員ロールの付与・剥奪（主要領域: apps/web admin/members） [shipped: PR #455]
 - `openchat-broadcast` — 大会当日用 LINE オープンチャットの招待 URL をメール本文・添付テキスト・QR から決定的に抽出し（AI なし）、管理者確認のうえ大会別 Bot グループへ Flex 1通で配信。級・開催日・自由ラベルの3属性＋パスワード対応（主要領域: packages/shared schema + apps/web lib/open-chat・admin/mail-inbox・events） [shipped: PR #469]
 - `member-mail-search` — 一般会員向けの受信メール検索・閲覧（読み取り専用）。件名/差出人/本文/添付名/添付抽出テキストの横断検索＋添付のアプリ内プレビュー・DL、および「対応不要／大会案内として処理／○○大会へ紐付け＋LINE配信／試合結果として取り込み」の処理履歴を既存カラムから導出表示。マイグレーション不要・管理者フロー無改修（主要領域: apps/web /mail・api/mail/attachments + lib/mail-history） [shipped: PR #479]
@@ -65,3 +65,4 @@
 - `lilac-palette` — アプリ名「ライラック」に合わせた配色の全面刷新（和紙 × 藍墨 → 藤 × 墨。西洋 lilac 326° ではなく和の藤色 295° を軸に OKLCH で導出）と立体感の付与（Card・ボトムナビ・シートの高度 3 段を 2 層の影で定義し、背景に微細テクスチャ）。warn を danger から分離して琥珀を新設（主要領域: apps/web globals.css + components/ui/card・layout/bottom-nav + docs/design） [shipped: PR #550]
 - `payment-receipt-broadcast` — 支払報告（旧「支払済にする」）に支払明細の証憑アップロードを追加し、大会別 LINE グループへ「振込完了＋景虎上の想定金額＋明細画像」を送る（主要領域: packages/shared schema（entry_group_payment_reports / _receipts・migration 0062）+ apps/web admin/entries/[groupId]（actions・PaymentReportSheet・PaymentReportHistory）・lib/payment-receipt・lib/events/apply-payments-paid・api/line-broadcast/payment-receipts） [shipped: PR #566]
 - `attachment-open-download` — 添付ビューア3画面（会員メール・管理者メール・名簿）に共有シート経由の「開く・保存」導線を追加し、Excel（xlsx/xls/xlsm）はページ画像プレビューを廃止して Excel アプリで開く前提に切り替える（主要領域: apps/web lib/attachment-preview + components/attachment/OpenSaveButton + mail/attachments・admin/mail-inbox/attachments・roster-files の各 page） [shipped: PR #581]
+- `travel-report` — 北大かるた会サークル所属者の遠征経路入力と、大学提出用「遠征届」Word ファイルの自動作成・副連絡責任者への LINE 通知。会員属性（サークル所属・学部・学年）とフラグ（副連絡責任者・サークル長）、名簿確定時の確定状況入力を含む（主要領域: packages/shared schema/constants + apps/web lib/travel-report・events/[id]/travel-route・admin/entries/[groupId]・admin/members・register・settings/travel-report・dashboard・api/admin/travel-reports）

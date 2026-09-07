@@ -185,7 +185,13 @@ export default async function MailDraftDetailPage({
   const editionSelection = showApproval
     ? await loadEditionSelectionData(db, firstFormalName ?? '')
     : {
-        suggestion: { seriesId: null, seriesName: '', editionNumber: null, matched: false },
+        suggestion: {
+          seriesId: null,
+          seriesName: '',
+          seriesShortName: null,
+          editionNumber: null,
+          matched: false,
+        },
         seriesOptions: [],
       }
 
