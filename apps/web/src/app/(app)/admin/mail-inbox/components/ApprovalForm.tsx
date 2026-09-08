@@ -236,20 +236,22 @@ export function ApprovalForm({
     ),
   )
 
-  // Codex レビュー（PR #618）/ AC-73: 全ての級が外れた単位を「このイベントを登録する」
-  // だけ ON に戻し、級を1つも選ばずに送信すると、`extractEventUnitsFormData` は
-  // 空配列を返し `approveDraftUnits` は eligible_grades を null で保存する。null は
-  // 既存仕様（AI が級を読めなかった単位）で「全級対象」の意味なので、地域制限で
-  // 全級を外したはずの大会が A〜E 全級対象として登録・配信されてしまう。
-  // クライアント側で止める — Server Action の契約は変えない（AC-77）。AI が級を
-  // 読めなかった単位（eligible_grades null＝allRemoved にならない）は従来どおり通す。
+  // Codex レビュー（PR #618）/ AC-73: 地域制限で級を外した単位を、級を1つも選ばずに
+  // 送信すると、`extractEventUnitsFormData` は空配列を返し `approveDraftUnits` は
+  // eligible_grades を null で保存する。null は既存仕様（AI が級を読めなかった単位）
+  // で「全級対象」の意味なので、地域制限で外したはずの級まで A〜E 全級対象として
+  // 登録・配信されてしまう。全ての級が外れた単位（登録を ON に戻しただけ）でも、
+  // 一部の級だけ外れた単位（残りの級を手動で外した）でも同じ経路なので、
+  // `removedGrades` が 1 つでもある単位を対象にクライアント側で止める — Server
+  // Action の契約は変えない（AC-77）。AI が級を読めなかった単位（eligible_grades
+  // null＝外す級が無い）は従来どおり通す。
   const [gradeMissing, setGradeMissing] = useState<Record<string, boolean>>({})
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     const fd = new FormData(e.currentTarget)
     const missing: Record<string, boolean> = {}
     for (const u of editableUnits) {
       if (!(registered[u.unit_key] ?? true)) continue
-      if (!planRegionalEligibility(u).allRemoved) continue
+      if (planRegionalEligibility(u).removedGrades.length === 0) continue
       if (!GRADE_KEYS.some((g) => fd.has(`${u.unit_key}__grade_${g}`))) {
         missing[u.unit_key] = true
       }
@@ -807,7 +809,7 @@ export function ApprovalForm({
                 <RegionalEligibilityNotice plan={plan} />
                 {gradeMissing[unit.unit_key] && (
                   <p role="alert" className="text-xs text-danger">
-                    対象級を1つ以上選んでください（全ての級が外れたままでは登録できません）
+                    対象級を1つ以上選んでください（級が未選択のままでは登録できません）
                   </p>
                 )}
                 {/* unit_key marker for extractEventUnitsFormData — kept OUTSIDE
