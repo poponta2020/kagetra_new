@@ -92,7 +92,7 @@ status: completed
 - **対応Issue:** #616
 
 ### タスク5: 仕様書の更新（docs）
-- [ ] 完了
+- [x] 完了
 - **目的:** 正典 `docs/spec/mail-worker.md` を変更後の挙動に合わせる（gate-dod D2）
 - **対応AC:** —（DoD の docs ゲート）
 - **主な変更領域:** `docs/spec/mail-worker.md`（「AI 抽出」節の `ExtractionPayloadSchema` 段落に `regional_eligibility`・4値・根拠の照合・`PROMPT_VERSION` 3.1.0 を追記。「ドラフト承認詳細」節に承認フォームの初期値と警告の規則を追記）/ `docs/features/INDEX.md`（`mail-ai-extract-refinements` の行に 2026-09-08 改修の一文を追記）
