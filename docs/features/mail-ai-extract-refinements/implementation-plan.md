@@ -50,7 +50,7 @@ status: completed
 - **対応Issue:** #613
 
 ### タスク2: 根拠の一文の機械照合（ワーカー）
-- [ ] 完了
+- [x] 完了
 - **目的:** AI が返した根拠が、実際に渡した資料に含まれるかを照合し、結果をドラフトへ保存する
 - **対応AC:** AC-68, AC-69
 - **主な変更領域:** `apps/mail-worker/src/classify/evidence.ts`（新規）/ `apps/mail-worker/src/classify/classifier.ts`
@@ -64,7 +64,7 @@ status: completed
 - **対応Issue:** #614
 
 ### タスク3: 承認フォームの初期値と警告（Web）
-- [ ] 完了
+- [x] 完了
 - **目的:** 照合済みの「北海道は対象外」の級を対象級の初期値から外し、外したこと・確認が要ることを根拠付きで見せる
 - **対応AC:** AC-69（承認可能のまま）, AC-70, AC-71, AC-72, AC-73, AC-74, AC-75, AC-77
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/regional-eligibility-utils.ts`（新規）/ `apps/web/src/app/(app)/admin/mail-inbox/components/RegionalEligibilityNotice.tsx`（新規）/ `apps/web/src/app/(app)/admin/mail-inbox/components/ApprovalForm.tsx`（＋ `ApprovalForm.test.tsx`）
@@ -81,7 +81,7 @@ status: completed
 - **対応Issue:** #615
 
 ### タスク4: AI 抽出結果ビューに判定・根拠・照合状態を表示（Web）
-- [ ] 完了
+- [x] 完了
 - **目的:** フォームに出ない「制限なし」も含め、AI の判定と根拠を読み取り専用で確認できるようにする
 - **対応AC:** AC-76
 - **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/components/ExtractedPayloadView.tsx`（＋新規 `ExtractedPayloadView.test.tsx`）
