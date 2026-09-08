@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  REGIONAL_ELIGIBILITY_GRADES,
+  REGIONAL_VERDICTS,
+  VERDICT_NEEDS_REVIEW,
+} from './regional.js'
 
 /**
  * Zod schema for the structured payload the LLM extractor returns for a mail
@@ -62,6 +67,31 @@ const EntryMethodSchema = z
   .nullable()
 
 /**
+ * D・E 級の地域制限判定（mail-ai-extract-refinements §3.2.12）。その単位の
+ * `eligible_grades` に含まれる D・E だけを対象に **1 級 1 要素**。D・E を含まない
+ * 単位は空配列。
+ *
+ *   - `verdict` は `classify/regional.ts` の 4 値（制限なし／北海道は対象／
+ *     北海道は対象外／要確認）。
+ *   - `evidence_quote` は判定の根拠にした箇所を **資料から一字一句そのまま**
+ *     抜き出したもの。ワーカーが本文＋選択添付の抽出テキストと機械照合するので、
+ *     要約・整形されると照合に失敗して「未照合」に倒れる（それが設計）。
+ *     「要確認」だけは根拠が無い（記載が見当たらない）ときに null を許す。
+ *   - `evidence_verified` は **ワーカー専用**の照合結果。AI には見せない
+ *     （`llm/anthropic.ts` が Anthropic へ渡す input_schema からこの項目だけを
+ *     削る）。Zod では同じスキーマに optional で持ち、型を二重化しない。AI が
+ *     もし出力しても `annotateRegionalEvidence` が全要素を上書きする。
+ */
+export const RegionalEligibilitySchema = z.object({
+  grade: z.enum(REGIONAL_ELIGIBILITY_GRADES),
+  verdict: z.enum(REGIONAL_VERDICTS),
+  evidence_quote: z.string().nullable(),
+  evidence_verified: z.boolean().optional(),
+})
+
+export type RegionalEligibility = z.infer<typeof RegionalEligibilitySchema>
+
+/**
  * One event date = one event unit. Announcements that run different grades on
  * different dates are split into separate units; multiple grades on the SAME
  * date stay in one unit (their grades are joined in `eligible_grades`).
@@ -109,6 +139,12 @@ export const EventUnitSchema = z.object({
   capacity_d: z.number().int().nullable(),
   capacity_e: z.number().int().nullable(),
   official: z.boolean().nullable(),
+  /**
+   * D・E 級の地域制限判定（§3.2.12）。**必須・空配列可**。forced tool use で
+   * 必ず埋まるので optional にしない（省略を許すと「判定を忘れた」と「D・E が
+   * 無い」が区別できなくなる）。3.0.x 以前のドラフトは Web 層が防御的に読む。
+   */
+  regional_eligibility: z.array(RegionalEligibilitySchema),
 })
 
 export type EventUnit = z.infer<typeof EventUnitSchema>
@@ -161,6 +197,11 @@ export const ExtractionPayloadSchema = z
   //   3. `payment_deadline_kind: "日付あり"` with no `payment_deadline` is
   //      self-contradictory and would map to an `events` row that violates the
   //      DB CHECK on approval. Fail here instead of at INSERT time.
+  //   4. `regional_eligibility[].grade` must be unique within a unit (one
+  //      verdict per grade — a duplicate would make the approval form's
+  //      "remove this grade" decision ambiguous), and every verdict other than
+  //      「要確認」 must carry a non-blank `evidence_quote` (the worker's
+  //      evidence check and the reviewer's warning both need the quote).
   .superRefine((val, ctx) => {
     if (val.events.length < 1) {
       ctx.addIssue({
@@ -189,6 +230,29 @@ export const ExtractionPayloadSchema = z
           path: ['events', i, 'payment_deadline'],
         })
       }
+
+      const seenGrades = new Set<string>()
+      unit.regional_eligibility.forEach((re, j) => {
+        if (seenGrades.has(re.grade)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `duplicate regional_eligibility grade "${re.grade}" in events[${i}] (one entry per grade)`,
+            path: ['events', i, 'regional_eligibility', j, 'grade'],
+          })
+        }
+        seenGrades.add(re.grade)
+
+        if (
+          re.verdict !== VERDICT_NEEDS_REVIEW &&
+          (re.evidence_quote === null || re.evidence_quote.trim() === '')
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `regional_eligibility verdict "${re.verdict}" requires a non-empty evidence_quote (only "${VERDICT_NEEDS_REVIEW}" may omit it)`,
+            path: ['events', i, 'regional_eligibility', j, 'evidence_quote'],
+          })
+        }
+      })
     })
   })
 

@@ -191,6 +191,7 @@ function buildAnthropicSuccessResponse() {
               capacity_d: null,
               capacity_e: null,
               official: null,
+              regional_eligibility: [],
             },
           ],
         },

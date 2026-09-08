@@ -30,7 +30,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 抽出契約の拡張（定数・スキーマ・プロンプト・fixture・tool schema）
-- [ ] 完了
+- [x] 完了
 - **目的:** AI が `regional_eligibility` を返し、ワーカー専用項目が AI に見えない状態を作る。以降の全タスクの土台
 - **対応AC:** AC-64, AC-65, AC-66, AC-67, AC-78
 - **主な変更領域:** `apps/mail-worker/src/classify/regional.ts`（新規）/ `apps/mail-worker/src/classify/schema.ts` / `apps/mail-worker/src/classify/prompt.ts` / `apps/mail-worker/src/classify/llm/anthropic.ts` / `apps/mail-worker/src/classify/llm/fixture.ts` / `apps/mail-worker/test/fixtures/llm/*.expected.json` / `apps/mail-worker/package.json`（exports）

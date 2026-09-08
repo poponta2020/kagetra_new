@@ -132,6 +132,12 @@ export class AnthropicExtractor implements LLMExtractor {
     // `$schema` keyword is metadata — Anthropic ignores it but warns if
     // present, so strip it preemptively.
     delete inputSchemaJson.$schema
+    // `evidence_verified` is the worker's own evidence-check result
+    // (mail-ai-extract-refinements §3.2.12(c)). The model must never see it
+    // as something it could fill in, so it leaves the tool schema here —
+    // and only here. The Zod schema keeps it (optional) so the persisted
+    // payload has one type, not two.
+    stripWorkerOnlyProperties(inputSchemaJson)
 
     const response = await this.client.messages.create({
       model: ANTHROPIC_MODEL_ID,
@@ -217,6 +223,58 @@ export class AnthropicExtractor implements LLMExtractor {
       model: ANTHROPIC_MODEL_ID,
       promptVersion: input.promptVersion,
     }
+  }
+}
+
+/**
+ * Remove the worker-only `regional_eligibility[].evidence_verified` property
+ * from the generated tool input_schema (and from its `required` list, should
+ * a future Zod change make it non-optional). Mutates in place.
+ *
+ * Throws when the expected path is missing: a silent no-op here would mean
+ * the model quietly starts being asked for a field it has no business
+ * filling, and nothing downstream would notice (the classifier overwrites
+ * the value anyway). Failing loudly turns a schema refactor that moves the
+ * property into a test failure instead of a prompt-quality regression.
+ */
+export function stripWorkerOnlyProperties(
+  inputSchemaJson: Record<string, unknown>,
+): void {
+  const path = [
+    'properties',
+    'events',
+    'items',
+    'properties',
+    'regional_eligibility',
+    'items',
+  ]
+  let node: unknown = inputSchemaJson
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null || !(key in node)) {
+      throw new Error(
+        `stripWorkerOnlyProperties: expected input_schema path ${path.join('.')} (stopped at "${key}")`,
+      )
+    }
+    node = (node as Record<string, unknown>)[key]
+  }
+  const itemSchema = node as {
+    properties?: Record<string, unknown>
+    required?: string[]
+  }
+  if (
+    typeof itemSchema.properties !== 'object' ||
+    itemSchema.properties === null ||
+    !('evidence_verified' in itemSchema.properties)
+  ) {
+    throw new Error(
+      'stripWorkerOnlyProperties: regional_eligibility.items.properties.evidence_verified not found',
+    )
+  }
+  delete itemSchema.properties.evidence_verified
+  if (Array.isArray(itemSchema.required)) {
+    itemSchema.required = itemSchema.required.filter(
+      (name) => name !== 'evidence_verified',
+    )
   }
 }
 

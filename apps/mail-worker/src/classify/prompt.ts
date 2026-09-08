@@ -1,4 +1,12 @@
 import type { LLMExtractionInput } from './llm/types.js'
+import {
+  HOME_REGION,
+  REGIONAL_ELIGIBILITY_GRADES,
+  VERDICT_HOME_ELIGIBLE,
+  VERDICT_HOME_INELIGIBLE,
+  VERDICT_NEEDS_REVIEW,
+  VERDICT_UNRESTRICTED,
+} from './regional.js'
 
 /**
  * Bumped on every prompt change. Stored verbatim on each `tournament_drafts`
@@ -39,8 +47,17 @@ import type { LLMExtractionInput } from './llm/types.js'
  * direction). Also added `source_mismatch`, a narrow "what I was handed is
  * clearly the wrong kind of document" flag — deliberately NOT a revival of
  * classification under another name.
+ *
+ * 3.1.0 (mail-ai-extract-refinements, Issue #612): additive. Each unit gains
+ * `regional_eligibility[]` — a per-grade (D・E only) four-way verdict on
+ * whether players from the home region (`classify/regional.ts`) may enter,
+ * plus a verbatim `evidence_quote` the worker mechanically checks against
+ * the material it actually sent. New guidance section, Example 3 extended
+ * with an unrestricted D grade, Example 4 added (D and E restricted
+ * differently, with a lottery-priority clause that must NOT be read as a
+ * restriction).
  */
-export const PROMPT_VERSION = '3.0.0'
+export const PROMPT_VERSION = '3.1.0'
 
 /**
  * The system prompt is intentionally long, but not to satisfy any cache
@@ -55,6 +72,9 @@ export const PROMPT_VERSION = '3.0.0'
  * etc.).
  */
 export function buildSystemPrompt(): string {
+  // "D 級・E 級" — derived from the single constant so widening the target
+  // grades (C 級 has real-world restrictions too) is a one-line change.
+  const targetGrades = REGIONAL_ELIGIBILITY_GRADES.map((g) => `${g} 級`).join('・')
   return `あなたは日本の競技かるた会向け管理ツール kagetra の AI アシスタントです。
 渡されるメール本文と添付ファイル(PDF / 抽出済みテキスト)は、管理者が既に
 「これは大会案内メールだ」と判断した上で AI 抽出に回したものです。あなたの
@@ -148,6 +168,47 @@ export function buildSystemPrompt(): string {
 - **official**: 「公式戦」(全日本かるた協会公認・連盟主催の段位戦)なら true。
   「練習会」「親睦会」「招待大会」は false。判別不能 / 言及無しは null。
 
+# ${targetGrades}の地域制限(regional_eligibility)
+
+各単位の **regional_eligibility** に、その単位の eligible_grades に含まれる
+**${targetGrades}だけ**について、地域制限の有無と${HOME_REGION}の選手の出場可否を
+1 級 1 要素で入れる。A〜C 級は判定しない(C 級に地域制限がある案内でも書かない)。
+${targetGrades}を含まない単位、eligible_grades が null の単位では空配列 [] にする。
+
+  - 「${HOME_REGION}の選手」とは、${HOME_REGION}に在住・在勤・在学する、または
+    ${HOME_REGION}の会に所属する選手を指す。
+  - **grade**: "D" または "E"。同じ級を 2 回入れない。
+  - **verdict**: 次の 4 値のいずれかを必ず選ぶ。
+      - "${VERDICT_UNRESTRICTED}": 出場資格に地域の条件が無い。
+        例:「E級(無段) 百首の決まり字がわかり、競技ルールを理解し、自力で試合が
+        できる選手」/「参加者の地域制限は設けませんが」
+      - "${VERDICT_HOME_ELIGIBLE}": 地域の条件があり、${HOME_REGION}が含まれる。
+        例:「道内に在住，通学，通勤する無段者」
+      - "${VERDICT_HOME_INELIGIBLE}": 地域の条件があり、${HOME_REGION}が含まれない。
+        例:「近畿支部(二府四県)のかるた会に所属、または在住在学在勤の方」/
+        「北陸支部内及び隣接県(新潟県、長野県、岐阜県)に在住・在勤・在学者に限る」
+      - "${VERDICT_NEEDS_REVIEW}": 条件付き・緩和条項あり・地域を特定できない・資格の
+        記載が見当たらない。例:「申込数が上限数に対して大幅に少なかった場合は…
+        埼玉県在住、在勤又は在学である者の参加を認めます」のような原則不可＋緩和条項。
+  - **抽選の優先枠(主催者枠・地元枠)は地域制限ではない**。「地域制限は設けないが
+    抽選時は県内在住者を優先する」は "${VERDICT_UNRESTRICTED}"。
+  - 海外選手の特例(「海外選手はこの限りではない」等)は判定に影響させない。
+  - 所属会を条件にする書き方(「○○県かるた協会加盟の会に所属」「○○県協傘下登録会
+    所属」)は、${HOME_REGION}の会がそれを満たさないので "${VERDICT_HOME_INELIGIBLE}"。
+  - 支部の地理(どの都道府県がどの支部に属するか)はあなたの知識で判断する。
+    北海道は北海道支部であり、東北・関東・北陸・東海・近畿・中国・四国・九州の
+    いずれにも属さない。
+  - D 級と E 級で条件が異なる案内は級ごとに別々に判定する。
+  - 資格の記載が見当たらないときは "${VERDICT_UNRESTRICTED}" と推測せず
+    "${VERDICT_NEEDS_REVIEW}" にする(${targetGrades}の案内は地域制限がある方が多数派で、
+    無言の "${VERDICT_UNRESTRICTED}" は見落としと区別できない)。
+  - **evidence_quote**: 判定の根拠にした箇所を、資料(本文または添付)から
+    **一字一句そのまま**抜き出す。要約・言い換え・整形(全角半角の変換、空白や
+    改行の除去、句読点の補正、「…」による省略)をしない。長さは一文、必要なら
+    連続する数文まで。"${VERDICT_UNRESTRICTED}" "${VERDICT_HOME_ELIGIBLE}"
+    "${VERDICT_HOME_INELIGIBLE}" では必須(null・空文字は不可)。"${VERDICT_NEEDS_REVIEW}"
+    だけは根拠が無い(記載が見当たらない)ときに null を許す。
+
 # 全体項目(reason / source_mismatch / extras)
 
 - **reason**: レビュー画面で人間が最初に読む抽出メモ。「級別の定員が読み取れなかった」
@@ -179,6 +240,10 @@ export function buildSystemPrompt(): string {
     そのまま返す。→ 定義された日本語 enum の値、または「その他」に丸める。
   - 「申込期間 6/17〜7/11」を期間表記だからと entry_deadline を null にする。
     → 開催日と違い、申込期間の終了日 7/11 は確定した締切。終了日を入れる。
+  - 「地域制限は設けないが抽選は県内在住者を優先」の優先枠を地域制限と誤認して
+    "${VERDICT_HOME_INELIGIBLE}" にする。→ 優先枠は制限ではない。"${VERDICT_UNRESTRICTED}"。
+  - evidence_quote を「近畿在住者のみ」のように要約・整形して書く。→ 資料の該当箇所を
+    一字一句そのまま抜き出す(整形すると原文との照合に失敗し、人の確認に回る)。
 
 # Few-shot examples
 
@@ -222,7 +287,8 @@ export function buildSystemPrompt(): string {
       "capacity_c": null,
       "capacity_d": null,
       "capacity_e": null,
-      "official": true
+      "official": true,
+      "regional_eligibility": []
     }
   ]
 }
@@ -265,7 +331,8 @@ C級: 2026年1月12日(月) 定員48名
       "capacity_c": null,
       "capacity_d": null,
       "capacity_e": null,
-      "official": true
+      "official": true,
+      "regional_eligibility": []
     },
     {
       "unit_key": "u2",
@@ -287,7 +354,8 @@ C級: 2026年1月12日(月) 定員48名
       "capacity_c": 48,
       "capacity_d": null,
       "capacity_e": null,
-      "official": true
+      "official": true,
+      "regional_eligibility": []
     }
   ]
 }
@@ -300,6 +368,7 @@ C級: 2026年1月12日(月) 定員48名
 第8回札幌かるた大会を開催します。
 日時: 2026年3月8日(日) A級・B級・C級・D級
 会場: 札幌市体育館
+参加資格: 全級とも地域の制限はありません
 定員: 200名(抽選)
 振込先は抽選結果通知時に別途ご連絡します。
 申込締切: 2026年2月15日
@@ -308,7 +377,7 @@ C級: 2026年1月12日(月) 定員48名
 
 [正解の record_extraction 引数]
 {
-  "reason": "抽選制で全体定員200名の明示あり、級別定員の記載は無い。振込先は抽選後に別途連絡する旨が本文に明記されているため payment_deadline_kind は後日連絡",
+  "reason": "抽選制で全体定員200名の明示あり、級別定員の記載は無い。振込先は抽選後に別途連絡する旨が本文に明記されているため payment_deadline_kind は後日連絡。D級は地域の制限が無い旨の明記あり(A〜C級は判定対象外)",
   "source_mismatch": null,
   "events": [
     {
@@ -331,7 +400,72 @@ C級: 2026年1月12日(月) 定員48名
       "capacity_c": null,
       "capacity_d": null,
       "capacity_e": null,
-      "official": true
+      "official": true,
+      "regional_eligibility": [
+        {
+          "grade": "D",
+          "verdict": "${VERDICT_UNRESTRICTED}",
+          "evidence_quote": "参加資格: 全級とも地域の制限はありません"
+        }
+      ]
+    }
+  ]
+}
+
+## Example 4 — ${targetGrades}で地域制限が異なる(級ごとに別々に判定)・優先枠は制限ではない
+
+[email]
+件名: 第20回讃岐かるた大会(D・E級)のご案内
+本文:
+第20回讃岐かるた大会を下記の通り開催します。
+日時: 2026年7月19日(日) D級・E級
+会場: 丸亀市民体育館
+参加資格:
+D級 初段の方で、中国・四国地方に在住・通学・勤務している者
+E級 無段の方で、四国地方、岡山県に在住・通学・勤務している者
+定員: D級32名 E級32名(申込多数の場合は抽選。抽選は香川県内在住者を優先します)
+申込締切: 2026年6月30日
+申込: Excel申込書をメールで送付
+主催: 香川県かるた協会
+
+[正解の record_extraction 引数]
+{
+  "reason": "D級・E級が同日開催なので 1 単位。級別定員の明示あり、全体定員の記載は無く、振込締切の言及も無い。参加資格は D級が中国・四国地方、E級が四国地方＋岡山県に限られ、どちらも${HOME_REGION}を含まない。抽選の県内優先は地域制限ではないので判定に使わない",
+  "source_mismatch": null,
+  "events": [
+    {
+      "unit_key": "u1",
+      "event_date": "2026-07-19",
+      "eligible_grades": ["D", "E"],
+      "formal_name": "第20回讃岐かるた大会(D・E級)",
+      "venue": "丸亀市民体育館",
+      "payment_deadline": null,
+      "payment_deadline_kind": "記載なし",
+      "payment_info_text": null,
+      "payment_method": null,
+      "entry_method": "Excel申込書",
+      "organizer_text": "香川県かるた協会",
+      "entry_deadline": "2026-06-30",
+      "kind": "individual",
+      "capacity_total": null,
+      "capacity_a": null,
+      "capacity_b": null,
+      "capacity_c": null,
+      "capacity_d": 32,
+      "capacity_e": 32,
+      "official": true,
+      "regional_eligibility": [
+        {
+          "grade": "D",
+          "verdict": "${VERDICT_HOME_INELIGIBLE}",
+          "evidence_quote": "D級 初段の方で、中国・四国地方に在住・通学・勤務している者"
+        },
+        {
+          "grade": "E",
+          "verdict": "${VERDICT_HOME_INELIGIBLE}",
+          "evidence_quote": "E級 無段の方で、四国地方、岡山県に在住・通学・勤務している者"
+        }
+      ]
     }
   ]
 }
@@ -346,6 +480,10 @@ C級: 2026年1月12日(月) 定員48名
   - capacity_total と capacity_a〜e は互いに独立に抽出する。逆算・均等割り・合算を
     しない。
   - source_mismatch は「渡された資料が明らかに別種の文書」のときだけ true にする。
+  - regional_eligibility は各単位の ${targetGrades}だけを 4 値("${VERDICT_UNRESTRICTED}" /
+    "${VERDICT_HOME_ELIGIBLE}" / "${VERDICT_HOME_INELIGIBLE}" / "${VERDICT_NEEDS_REVIEW}")で
+    判定し、根拠(evidence_quote)は資料から一字一句そのまま抜き出す。優先枠は制限
+    ではない。${targetGrades}を含まない単位は []。
 `
 }
 
