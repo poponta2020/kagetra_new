@@ -25,7 +25,9 @@ import {
   type SeriesRow,
   type TournamentKind,
 } from '@/lib/edition/match'
+import { planRegionalEligibility } from '../regional-eligibility-utils'
 import type { AttachmentChip } from './AttachmentList'
+import { RegionalEligibilityNotice } from './RegionalEligibilityNotice'
 import {
   TournamentSeriesSelectSheet,
   type TournamentSeriesSelection,
@@ -53,11 +55,21 @@ const INTERNAL_DEADLINE_LEAD_DAYS = 6
  * - `fee_jpy` は 3.0.0 で抽出項目から外した（級から決定的に導出できるため）が、
  *   2.x のドラフトは値を持っている。参加費欄は手入力として残るので、既存値が
  *   あれば初期値として拾う。
+ *
+ * mail-ai-extract-refinements §3.2.12 / AC-70〜75: `regional_eligibility` は
+ * `EventUnit` では必須だが、正規化ユニットでは **optional** にする — 旧形式
+ * ドラフトを 1 単位へ合成する `normalizeUnits` の legacy 分岐はこのフィールドを
+ * 持たない値を作る（判定を持たないドラフトとして `planRegionalEligibility` に
+ * そのまま渡す）。
  */
-export type NormalizedUnit = Omit<EventUnit, 'payment_method' | 'entry_method'> & {
+export type NormalizedUnit = Omit<
+  EventUnit,
+  'payment_method' | 'entry_method' | 'regional_eligibility'
+> & {
   payment_method: string | null
   entry_method: string | null
   fee_jpy?: number | null
+  regional_eligibility?: EventUnit['regional_eligibility']
 }
 
 export interface ApprovalFormProps {
@@ -208,8 +220,18 @@ export function ApprovalForm({
 
   // register state for the not-yet-materialized units only (registered units
   // render read-only and don't participate in the submit).
+  //
+  // mail-ai-extract-refinements §3.2.12 / AC-73: D・E のみの単位で両方が照合済み
+  // 対象外（=対象級が全て外れる）なら既定 OFF にする。「この日の全ての級が
+  // 北海道の選手は出場できないため、登録対象から外しました」の案内と対にする —
+  // 管理者はチェックを戻せば通常どおり登録できる。
   const [registered, setRegistered] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(editableUnits.map((u) => [u.unit_key, true])),
+    Object.fromEntries(
+      editableUnits.map((u) => [
+        u.unit_key,
+        !planRegionalEligibility(u).allRemoved,
+      ]),
+    ),
   )
 
   // entry-groups タスク7: 自動グループ提案の初期値。承認フォームのユニットは同一 draft
@@ -301,9 +323,18 @@ export function ApprovalForm({
    * 入ったまま登録される事故になるため。旧形式ペイロードだけは AI のフルタイトルを
    * フォールバックに使う。
    */
+  // mail-ai-extract-refinements §3.2.12 / AC-70: 照合済みの「北海道は対象外」で
+  // 外れた級は `composeTitle` の入力にも反映する（兵庫 A〜E → 「兵庫ABC」）。
+  // 登録済み（materialize 済み）の単位には何もしない（AC-75）— 読み取り専用
+  // サマリーの表示名まで級を落とすと、実際に登録した大会名と食い違って見える。
   const composedTitleOf = (unit: NormalizedUnit): string =>
     trimmedNickname !== ''
-      ? composeTitle(trimmedNickname, unit.eligible_grades)
+      ? composeTitle(
+          trimmedNickname,
+          registeredMap.has(unit.unit_key)
+            ? unit.eligible_grades
+            : planRegionalEligibility(unit).effectiveGrades,
+        )
       : (legacyTitle ?? '')
   const titleOf = (unit: NormalizedUnit): string =>
     titleOverrides[unit.unit_key] ?? composedTitleOf(unit)
@@ -721,6 +752,9 @@ export function ApprovalForm({
 
           const prefix = `${unit.unit_key}__`
           const isChecked = registered[unit.unit_key] ?? true
+          // mail-ai-extract-refinements §3.2.12 / AC-70〜75: 単位ごとに 1 回だけ
+          // 計算し、対象級の初期値・大会名合成・警告表示の全てで同じ結果を使う。
+          const plan = planRegionalEligibility(unit)
           return (
             <Card key={unit.unit_key}>
               <div className="flex flex-col gap-3">
@@ -744,6 +778,9 @@ export function ApprovalForm({
                     </span>
                   )}
                 </label>
+                {/* mail-ai-extract-refinements §3.2.12 / AC-71〜75: fieldset の
+                    外に置く — 未チェック（登録しない）でも読める。 */}
+                <RegionalEligibilityNotice plan={plan} />
                 {/* unit_key marker for extractEventUnitsFormData — kept OUTSIDE
                     the disabled fieldset so it is always submitted (the server
                     counts it for materialize tracking; register gating happens
@@ -791,7 +828,9 @@ export function ApprovalForm({
                       internalDeadline: unit.entry_deadline
                         ? addDays(unit.entry_deadline, -INTERNAL_DEADLINE_LEAD_DAYS)
                         : null,
-                      eligibleGrades: unit.eligible_grades ?? null,
+                      // mail-ai-extract-refinements §3.2.12 / AC-70: 照合済みの
+                      // 「北海道は対象外」で外れた級はチェック済みにしない。
+                      eligibleGrades: plan.effectiveGrades ?? null,
                       kind: unit.kind ?? 'individual',
                       // mail-ai-extract-refinements: 全体定員（capacity_total）を
                       // events.capacity へ。級別は capacity_a〜e のまま併存する
