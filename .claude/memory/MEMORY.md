@@ -398,3 +398,10 @@
 - [auto-review PR #611](auto-review-round-pr611.md) — R1 verdict=needs_changes→cutoff(user-wontfix)。唯一の blocker=紐付け検証とflipが別tx（once-ever枠の恒久消費は画面経路にも既存）
 - [LINE グループの Bot メンションで申込・支払ステータスを進める](project_ship-line-chat-commands.md) — shipped: PR #611
 - [mail-ai-extract-refinements 改修: D・E 級の地域制限判定 要件定義](project_mail_ai_regional_eligibility_def.md) — 親Issue #612
+- [会員33名の本番一括投入(2026-09-08)](project_member_bulk_load_2026-09.md) — docs/会員登録用/ の xlsx 6ファイル→本番 users 8→33行(DELETE1/UPDATE7/INSERT26・1tx)。★popon=土居悠太で既存行を改名更新(UNIQUEは別文字列なので重複を黙って作る罠)・「上書きするか」でなく「衝突が実在するか」を先に測ったら衝突ゼロ→既存はNULL穴埋めのみ・段位申請の3行ブロックはrow+2が住所1の続きのことがある・ROLLBACK空撃ち→本実行
+- [mail-ai-extract-refinements 地域制限判定 タスク1](impl_mail-ai-regional-eligibility-task1.md) — 抽出契約の拡張（regional.ts・schema・prompt 3.1.0・tool schema strip・fixture）。commit 663771c
+- [mail-ai-extract-refinements 地域制限判定 Wave 2（タスク2〜4）](impl_mail-ai-regional-eligibility-wave2.md) — 照合 evidence.ts／承認フォーム plan＋Notice／ExtractedPayloadView 小表。3並行・重複ゼロ・main 追修正2点
+- [mail-ai-extract-refinements 地域制限判定 タスク5（docs）](impl_mail-ai-regional-eligibility-task5.md) — spec/mail-worker.md の AI 抽出節・承認詳細節を更新。INDEX は既存行で充足。全5タスク完了
+- [auto-review PR #618](auto-review-round-pr618.md) — 4R(i+d+f+fd) verdict=pass・累計563k・WONTFIX なし。★ガード拡張は同型経路まで一度に
+- [fix PR #618](impl_fix-pr618.md) — R1 blockers 3件＋R3 final の混合級ガード拡張を修正
+- [D・E 級の地域制限と北海道の出場可否を AI に判定させる（mail-ai-extract-refinements 3.1.0）](project_ship-mail-ai-regional-eligibility.md) — shipped: PR #618。★残 DoD=AC-80 実要綱5件の目視・375px 確認
