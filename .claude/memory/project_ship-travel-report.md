@@ -18,7 +18,11 @@ CI は pending のままマージ（この repo の既定運用。赤なら追�
    `apply-migrations.sh` を実行。journal+hash で冪等）。**`pnpm db:migrate`（drizzle-kit migrate）は
    TTY 必須で本番不適**とスクリプト冒頭に明記されている。手で流さないこと
 2. **AC-33 実機確認**: 実際の大会で作成した docx を Word で開き、原本と同じ体裁・記入例と同じ位置に値が入るか
-3. **顧問教員の初期設定**: /settings/travel-report で 所属部局等・職・氏名 を入力（★要件は「初期値は原本の値」だが、原本の氏名をコードに埋め込むと §7 に反するため**空**にしてある。未設定でも作成は成功し欄が空欄になる）
+3. ~~顧問教員の初期設定~~ **完了（2026-09-08）** — 画面ではなく本番 `app_settings` へ直接 upsert した
+   （`travel_report.advisor_department` / `_title` / `_name` の3行・`updated_by` は NULL・読み戻し確認済み）。
+   ★**POST では入れられない** — Server Action は `Next-Action` ヘッダ＋ビルド済み action ID ＋ LINE OAuth Cookie が要る。
+   値は `docs/遠征届資料/遠征届原本2025.dotx` と 2026-06 記入例で一致（ユーザー確認済み）。**値そのものはここに書かない**（§7）。
+   取り消すときは同3キーを DELETE するだけ（画面の「空で保存」と同じ結果）
 4. **サークル長・副連絡責任者フラグの付与**と、既存会員のサークル所属・学部・学年の投入（/admin/members/circle の一括編集）
 5. **未確認（コード照合では判定不能）**: 375px で横スクロールが無いこと、描画上の高さ・角丸・ピル形状
 
