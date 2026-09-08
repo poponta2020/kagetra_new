@@ -260,7 +260,7 @@ describe('ExtractionPayloadSchema (3.0.0 shape)', () => {
 
   // ── AC-64 / AC-65: D・E 級の地域制限判定（3.1.0・mail-ai-extract-refinements §3.2.12）──
   describe('regional_eligibility (3.1.0)', () => {
-    const deUnit = { ...baseUnit, eligible_grades: ['A', 'B', 'C', 'D', 'E'] }
+    type Grade = 'A' | 'B' | 'C' | 'D' | 'E'
     const ineligibleD = {
       grade: 'D',
       verdict: '北海道は対象外',
@@ -274,15 +274,18 @@ describe('ExtractionPayloadSchema (3.0.0 shape)', () => {
         'E級 初段を目指す方。 地域制限有 兵庫県内の会所属、及び兵庫県内在住・在勤・在学の方',
     }
 
-    function parseWith(regional: unknown[]) {
+    // `grades` defaults to a D-only unit so single-entry payloads stay valid
+    // under invariant 5 (the D・E set of eligible_grades must equal the set
+    // of judged grades).
+    function parseWith(regional: unknown[], grades: Grade[] | null = ['A', 'D']) {
       return ExtractionPayloadSchema.safeParse({
         reason: 'regional',
-        events: [{ ...deUnit, regional_eligibility: regional }],
+        events: [{ ...baseUnit, eligible_grades: grades, regional_eligibility: regional }],
       })
     }
 
     it('AC-64: accepts one entry per D/E grade with a 4-value verdict and a quote', () => {
-      const result = parseWith([ineligibleD, ineligibleE])
+      const result = parseWith([ineligibleD, ineligibleE], ['A', 'B', 'C', 'D', 'E'])
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.data.events[0]?.regional_eligibility).toHaveLength(2)
@@ -300,7 +303,7 @@ describe('ExtractionPayloadSchema (3.0.0 shape)', () => {
     })
 
     it('AC-64: rejects a grade outside D/E', () => {
-      const result = parseWith([{ ...ineligibleD, grade: 'C' }])
+      const result = parseWith([{ ...ineligibleD, grade: 'C' }], ['C', 'D'])
       expect(result.success).toBe(false)
     })
 
@@ -332,10 +335,10 @@ describe('ExtractionPayloadSchema (3.0.0 shape)', () => {
         }
       }
       expect(
-        parseWith([{ grade: 'E', verdict: '要確認', evidence_quote: null }]).success,
+        parseWith([{ grade: 'E', verdict: '要確認', evidence_quote: null }], ['E']).success,
       ).toBe(true)
       expect(
-        parseWith([{ grade: 'E', verdict: '要確認', evidence_quote: '条件付き' }]).success,
+        parseWith([{ grade: 'E', verdict: '要確認', evidence_quote: '条件付き' }], ['E']).success,
       ).toBe(true)
     })
 
@@ -352,13 +355,49 @@ describe('ExtractionPayloadSchema (3.0.0 shape)', () => {
       }
     })
 
-    it('requires regional_eligibility on every unit (empty array allowed)', () => {
+    it('requires regional_eligibility on every unit (empty array allowed when the unit has no D・E)', () => {
       const missing: Record<string, unknown> = { ...baseUnit }
       delete missing.regional_eligibility
       expect(
         ExtractionPayloadSchema.safeParse({ reason: 'missing', events: [missing] }).success,
       ).toBe(false)
-      expect(parseWith([]).success).toBe(true)
+      expect(parseWith([], ['A', 'B', 'C']).success).toBe(true)
+      expect(parseWith([], null).success).toBe(true)
+    })
+
+    // ── invariant 5 (Codex review PR #618): judged grades == D・E of eligible_grades ──
+    it('rejects a unit whose D/E grade has no regional_eligibility entry (AI omission)', () => {
+      for (const [grades, regional, missingGrade] of [
+        [['A', 'D'], [], 'D'],
+        [['D', 'E'], [ineligibleD], 'E'],
+        [['A', 'B', 'C', 'D', 'E'], [ineligibleE], 'D'],
+      ] as const) {
+        const result = parseWith([...regional], [...grades])
+        expect(result.success, `grades=${grades.join('')}`).toBe(false)
+        if (!result.success) {
+          expect(
+            result.error.issues.some((i) =>
+              new RegExp(`missing regional_eligibility entry for grade "${missingGrade}"`).test(
+                i.message,
+              ),
+            ),
+          ).toBe(true)
+        }
+      }
+    })
+
+    it('rejects a regional_eligibility entry for a grade the unit does not hold', () => {
+      for (const grades of [['A', 'B'], ['D'], null] as (Grade[] | null)[]) {
+        const holdsD = grades !== null && grades.includes('D')
+        // A D-only unit gets a stray E entry; the others get a stray D entry.
+        const result = parseWith(holdsD ? [ineligibleD, ineligibleE] : [ineligibleD], grades)
+        expect(result.success, `grades=${grades === null ? 'null' : grades.join('')}`).toBe(false)
+        if (!result.success) {
+          expect(
+            result.error.issues.some((i) => /is not in events\[0\]\.eligible_grades/.test(i.message)),
+          ).toBe(true)
+        }
+      }
     })
   })
 })

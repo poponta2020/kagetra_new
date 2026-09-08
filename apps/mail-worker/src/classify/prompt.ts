@@ -174,6 +174,8 @@ export function buildSystemPrompt(): string {
 **${targetGrades}だけ**について、地域制限の有無と${HOME_REGION}の選手の出場可否を
 1 級 1 要素で入れる。A〜C 級は判定しない(C 級に地域制限がある案内でも書かない)。
 ${targetGrades}を含まない単位、eligible_grades が null の単位では空配列 [] にする。
+eligible_grades に含まれる ${targetGrades}と regional_eligibility の級は**過不足なく一致**させる
+(含まれる級の判定を省略しない。含まれない級の判定を入れない)。
 
   - 「${HOME_REGION}の選手」とは、${HOME_REGION}に在住・在勤・在学する、または
     ${HOME_REGION}の会に所属する選手を指す。

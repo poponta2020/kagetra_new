@@ -202,6 +202,13 @@ export const ExtractionPayloadSchema = z
   //      "remove this grade" decision ambiguous), and every verdict other than
   //      「要確認」 must carry a non-blank `evidence_quote` (the worker's
   //      evidence check and the reviewer's warning both need the quote).
+  //   5. The set of `regional_eligibility[].grade` must equal the D・E subset
+  //      of `eligible_grades` (empty when `eligible_grades` is null). A
+  //      missing verdict is the dangerous case: the approval form would show
+  //      no warning and keep the grade checked, so an AI omission would turn
+  //      straight into a human omission (Codex review, PR #618). Rejecting it
+  //      here takes the same retry → `ai_failed` path as every other contract
+  //      violation instead of silently producing a clean-looking draft.
   .superRefine((val, ctx) => {
     if (val.events.length < 1) {
       ctx.addIssue({
@@ -231,8 +238,20 @@ export const ExtractionPayloadSchema = z
         })
       }
 
+      const expectedGrades = new Set<string>(
+        (unit.eligible_grades ?? []).filter((g) =>
+          (REGIONAL_ELIGIBILITY_GRADES as readonly string[]).includes(g),
+        ),
+      )
       const seenGrades = new Set<string>()
       unit.regional_eligibility.forEach((re, j) => {
+        if (!expectedGrades.has(re.grade)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `regional_eligibility grade "${re.grade}" is not in events[${i}].eligible_grades (judge only the D・E grades the unit actually holds)`,
+            path: ['events', i, 'regional_eligibility', j, 'grade'],
+          })
+        }
         if (seenGrades.has(re.grade)) {
           ctx.addIssue({
             code: 'custom',
@@ -253,6 +272,16 @@ export const ExtractionPayloadSchema = z
           })
         }
       })
+
+      for (const grade of expectedGrades) {
+        if (!seenGrades.has(grade)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `missing regional_eligibility entry for grade "${grade}" in events[${i}] (every D・E grade in eligible_grades needs a verdict)`,
+            path: ['events', i, 'regional_eligibility'],
+          })
+        }
+      }
     })
   })
 
