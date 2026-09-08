@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -25,7 +25,9 @@ import {
   type SeriesRow,
   type TournamentKind,
 } from '@/lib/edition/match'
+import { planRegionalEligibility } from '../regional-eligibility-utils'
 import type { AttachmentChip } from './AttachmentList'
+import { RegionalEligibilityNotice } from './RegionalEligibilityNotice'
 import {
   TournamentSeriesSelectSheet,
   type TournamentSeriesSelection,
@@ -53,11 +55,21 @@ const INTERNAL_DEADLINE_LEAD_DAYS = 6
  * - `fee_jpy` は 3.0.0 で抽出項目から外した（級から決定的に導出できるため）が、
  *   2.x のドラフトは値を持っている。参加費欄は手入力として残るので、既存値が
  *   あれば初期値として拾う。
+ *
+ * mail-ai-extract-refinements §3.2.12 / AC-70〜75: `regional_eligibility` は
+ * `EventUnit` では必須だが、正規化ユニットでは **optional** にする — 旧形式
+ * ドラフトを 1 単位へ合成する `normalizeUnits` の legacy 分岐はこのフィールドを
+ * 持たない値を作る（判定を持たないドラフトとして `planRegionalEligibility` に
+ * そのまま渡す）。
  */
-export type NormalizedUnit = Omit<EventUnit, 'payment_method' | 'entry_method'> & {
+export type NormalizedUnit = Omit<
+  EventUnit,
+  'payment_method' | 'entry_method' | 'regional_eligibility'
+> & {
   payment_method: string | null
   entry_method: string | null
   fee_jpy?: number | null
+  regional_eligibility?: EventUnit['regional_eligibility']
 }
 
 export interface ApprovalFormProps {
@@ -187,6 +199,8 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
  * deselected unit is ignored end-to-end.
  */
 const EDITION_LABEL = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
+/** EventForm の級チェックボックス名（`${unit_key}__grade_${g}`）の g。 */
+const GRADE_KEYS = ['A', 'B', 'C', 'D', 'E'] as const
 const EDITION_FIELD =
   'mt-1 block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30'
 
@@ -208,9 +222,43 @@ export function ApprovalForm({
 
   // register state for the not-yet-materialized units only (registered units
   // render read-only and don't participate in the submit).
+  //
+  // mail-ai-extract-refinements §3.2.12 / AC-73: D・E のみの単位で両方が照合済み
+  // 対象外（=対象級が全て外れる）なら既定 OFF にする。「この日の全ての級が
+  // 北海道の選手は出場できないため、登録対象から外しました」の案内と対にする —
+  // 管理者はチェックを戻せば通常どおり登録できる。
   const [registered, setRegistered] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(editableUnits.map((u) => [u.unit_key, true])),
+    Object.fromEntries(
+      editableUnits.map((u) => [
+        u.unit_key,
+        !planRegionalEligibility(u).allRemoved,
+      ]),
+    ),
   )
+
+  // Codex レビュー（PR #618）/ AC-73: 地域制限で級を外した単位を、級を1つも選ばずに
+  // 送信すると、`extractEventUnitsFormData` は空配列を返し `approveDraftUnits` は
+  // eligible_grades を null で保存する。null は既存仕様（AI が級を読めなかった単位）
+  // で「全級対象」の意味なので、地域制限で外したはずの級まで A〜E 全級対象として
+  // 登録・配信されてしまう。全ての級が外れた単位（登録を ON に戻しただけ）でも、
+  // 一部の級だけ外れた単位（残りの級を手動で外した）でも同じ経路なので、
+  // `removedGrades` が 1 つでもある単位を対象にクライアント側で止める — Server
+  // Action の契約は変えない（AC-77）。AI が級を読めなかった単位（eligible_grades
+  // null＝外す級が無い）は従来どおり通す。
+  const [gradeMissing, setGradeMissing] = useState<Record<string, boolean>>({})
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const fd = new FormData(e.currentTarget)
+    const missing: Record<string, boolean> = {}
+    for (const u of editableUnits) {
+      if (!(registered[u.unit_key] ?? true)) continue
+      if (planRegionalEligibility(u).removedGrades.length === 0) continue
+      if (!GRADE_KEYS.some((g) => fd.has(`${u.unit_key}__grade_${g}`))) {
+        missing[u.unit_key] = true
+      }
+    }
+    setGradeMissing(missing)
+    if (Object.keys(missing).length > 0) e.preventDefault()
+  }
 
   // entry-groups タスク7: 自動グループ提案の初期値。承認フォームのユニットは同一 draft
   // なので、clusterEventsByEntryGroup の効果は実質「申込締切が同じユニットをまとめる」
@@ -301,9 +349,18 @@ export function ApprovalForm({
    * 入ったまま登録される事故になるため。旧形式ペイロードだけは AI のフルタイトルを
    * フォールバックに使う。
    */
+  // mail-ai-extract-refinements §3.2.12 / AC-70: 照合済みの「北海道は対象外」で
+  // 外れた級は `composeTitle` の入力にも反映する（兵庫 A〜E → 「兵庫ABC」）。
+  // 登録済み（materialize 済み）の単位には何もしない（AC-75）— 読み取り専用
+  // サマリーの表示名まで級を落とすと、実際に登録した大会名と食い違って見える。
   const composedTitleOf = (unit: NormalizedUnit): string =>
     trimmedNickname !== ''
-      ? composeTitle(trimmedNickname, unit.eligible_grades)
+      ? composeTitle(
+          trimmedNickname,
+          registeredMap.has(unit.unit_key)
+            ? unit.eligible_grades
+            : planRegionalEligibility(unit).effectiveGrades,
+        )
       : (legacyTitle ?? '')
   const titleOf = (unit: NormalizedUnit): string =>
     titleOverrides[unit.unit_key] ?? composedTitleOf(unit)
@@ -373,7 +430,7 @@ export function ApprovalForm({
         {registeredCount > 0 && `（うち登録済み ${registeredCount} 件）`}
       </div>
 
-      <form action={action} className="flex flex-col gap-4">
+      <form action={action} onSubmit={handleSubmit} className="flex flex-col gap-4">
         {/* mail-ai-extract-refinements §3.2.3 / AC-15〜17・45〜52: 通称の人力入力＋
             系列との双方向連動。 */}
         <Card>
@@ -721,6 +778,9 @@ export function ApprovalForm({
 
           const prefix = `${unit.unit_key}__`
           const isChecked = registered[unit.unit_key] ?? true
+          // mail-ai-extract-refinements §3.2.12 / AC-70〜75: 単位ごとに 1 回だけ
+          // 計算し、対象級の初期値・大会名合成・警告表示の全てで同じ結果を使う。
+          const plan = planRegionalEligibility(unit)
           return (
             <Card key={unit.unit_key}>
               <div className="flex flex-col gap-3">
@@ -744,6 +804,14 @@ export function ApprovalForm({
                     </span>
                   )}
                 </label>
+                {/* mail-ai-extract-refinements §3.2.12 / AC-71〜75: fieldset の
+                    外に置く — 未チェック（登録しない）でも読める。 */}
+                <RegionalEligibilityNotice plan={plan} />
+                {gradeMissing[unit.unit_key] && (
+                  <p role="alert" className="text-xs text-danger">
+                    対象級を1つ以上選んでください（級が未選択のままでは登録できません）
+                  </p>
+                )}
                 {/* unit_key marker for extractEventUnitsFormData — kept OUTSIDE
                     the disabled fieldset so it is always submitted (the server
                     counts it for materialize tracking; register gating happens
@@ -791,7 +859,9 @@ export function ApprovalForm({
                       internalDeadline: unit.entry_deadline
                         ? addDays(unit.entry_deadline, -INTERNAL_DEADLINE_LEAD_DAYS)
                         : null,
-                      eligibleGrades: unit.eligible_grades ?? null,
+                      // mail-ai-extract-refinements §3.2.12 / AC-70: 照合済みの
+                      // 「北海道は対象外」で外れた級はチェック済みにしない。
+                      eligibleGrades: plan.effectiveGrades ?? null,
                       kind: unit.kind ?? 'individual',
                       // mail-ai-extract-refinements: 全体定員（capacity_total）を
                       // events.capacity へ。級別は capacity_a〜e のまま併存する

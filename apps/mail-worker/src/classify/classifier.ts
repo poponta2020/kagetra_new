@@ -8,6 +8,7 @@ import {
   exceededRequestBudgetBytes,
 } from './attachment-budget.js'
 import { extractAttachment } from '../extract/orchestrator.js'
+import { annotateRegionalEvidence, buildEvidenceCorpus } from './evidence.js'
 import { upsertDraft } from '../persist/draft.js'
 import { updateStatus } from '../persist/mail-message.js'
 import {
@@ -221,6 +222,12 @@ export async function classifyMail(
   }
 
   const attachmentsForLlm: LLMExtractionInput['attachments'] = []
+  // AC-68: the mechanical evidence-quote check (below, after `llm.extract`)
+  // must corpus-match against exactly what the AI actually received — no
+  // more, no less. The body is always sent regardless of attachment
+  // selection, so it seeds the list; each branch below pushes onto it in
+  // lockstep with the corresponding `attachmentsForLlm.push`.
+  const evidenceTexts: string[] = [mail.bodyText ?? mail.bodyHtml ?? '']
   for (const att of attachmentsInScope) {
     if (att.contentType === 'application/pdf' && att.extractionStatus !== 'failed') {
       // Pass PDFs as native document blocks. Anthropic gets richer layout
@@ -232,6 +239,13 @@ export async function classifyMail(
         base64: bytesFromBytea(att.data).toString('base64'),
         id: att.id,
       })
+      // Evidence verification, unlike the AI request, can only use
+      // `extractedText` — pdfjs's text dump — because that's the only text
+      // representation of a PDF we hold ourselves. An image-only PDF has no
+      // `extractedText`, so a quote sourced from one is mechanically
+      // unverifiable and correctly falls back to `evidence_verified: false`
+      // (requirements §3.2.12(c): "抽出テキストを持たない添付…は必然的に未照合").
+      evidenceTexts.push(att.extractedText ?? '')
     } else if (att.extractedText) {
       // DOCX/DOC (or future text-extracted formats) — forward the extracted text.
       attachmentsForLlm.push({
@@ -240,6 +254,7 @@ export async function classifyMail(
         text: att.extractedText,
         id: att.id,
       })
+      evidenceTexts.push(att.extractedText)
     } else if (
       att.extractionStatus === 'unsupported' ||
       att.extractionStatus === 'pending'
@@ -264,6 +279,7 @@ export async function classifyMail(
           text: fallback.text,
           id: att.id,
         })
+        evidenceTexts.push(fallback.text)
       }
     }
     // `failed` extractions: skipped — a corrupt file has no usable text and
@@ -359,12 +375,22 @@ export async function classifyMail(
     }
   }
 
+  // AC-68/AC-69: mechanically verify every regional_eligibility[].evidence_quote
+  // against exactly the material we sent (`evidenceTexts`, assembled in
+  // lockstep with `attachmentsForLlm` above), and stamp the result onto
+  // `evidence_verified` before persisting. `result.raw` is left untouched —
+  // it must stay the AI's literal response, not the annotated one.
+  const annotated: LLMExtractionResult = {
+    ...lastResult,
+    parsed: annotateRegionalEvidence(lastResult.parsed, buildEvidenceCorpus(evidenceTexts)),
+  }
+
   // 3.0.0: the AI no longer votes on whether the mail is an announcement — the
   // administrator already decided that by pressing 「会で流す (AI 抽出)」. Every
   // successful extraction is therefore a tournament outcome. `ClassifyOutcome`
   // keeps its `noise` variant (see the type doc) because `persistOutcome` is a
   // shared write path and the pre-filter's own noise concept is untouched.
-  return { kind: 'tournament', result: lastResult }
+  return { kind: 'tournament', result: annotated }
 }
 
 /**

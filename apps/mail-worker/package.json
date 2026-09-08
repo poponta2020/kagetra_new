@@ -12,6 +12,7 @@
     "./classify/classifier": "./src/classify/classifier.ts",
     "./classify/llm/anthropic": "./src/classify/llm/anthropic.ts",
     "./classify/llm/types": "./src/classify/llm/types.ts",
+    "./classify/regional": "./src/classify/regional.ts",
     "./classify/schema": "./src/classify/schema.ts",
     "./classify/title": "./src/classify/title.ts",
     "./result-import/schema": "./src/result-import/schema.ts",

@@ -25,6 +25,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 import {
   AnthropicExtractor,
   LLMNoToolUseError,
+  stripWorkerOnlyProperties,
 } from '../../src/classify/llm/anthropic.js'
 import type { LLMExtractionInput } from '../../src/classify/llm/types.js'
 
@@ -53,6 +54,7 @@ const VALID_PAYLOAD = {
       capacity_d: null,
       capacity_e: null,
       official: null,
+      regional_eligibility: [],
     },
   ],
 }
@@ -176,6 +178,58 @@ describe('AnthropicExtractor', () => {
     expect(schema.required).toEqual(expect.arrayContaining(['reason', 'events']))
     // `$schema` is metadata Anthropic warns on; we strip it before sending.
     expect(schema.$schema).toBeUndefined()
+  })
+
+  it('AC-64: input_schema requires regional_eligibility on each unit but never exposes evidence_verified', async () => {
+    // `evidence_verified` is the worker's own evidence-check result
+    // (§3.2.12(c)); the model must not be asked for it. The Zod schema keeps
+    // the field (optional) so the persisted payload has one type — only the
+    // tool schema handed to Anthropic drops it.
+    messagesCreate.mockResolvedValue(buildSuccessResponse())
+    const llm = new AnthropicExtractor({ apiKey: 'test' })
+    await llm.extract(buildInput())
+
+    const args = messagesCreate.mock.calls[0]![0] as {
+      tools: Array<{
+        input_schema: {
+          properties: {
+            events: {
+              items: {
+                required?: string[]
+                properties: {
+                  regional_eligibility: {
+                    items: { properties: Record<string, unknown>; required?: string[] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }>
+    }
+    const schema = args.tools[0]!.input_schema
+    expect(JSON.stringify(schema)).not.toContain('evidence_verified')
+    const unitSchema = schema.properties.events.items
+    expect(unitSchema.required).toEqual(expect.arrayContaining(['regional_eligibility']))
+    const itemProps = unitSchema.properties.regional_eligibility.items.properties
+    expect(Object.keys(itemProps).sort()).toEqual(['evidence_quote', 'grade', 'verdict'])
+  })
+
+  it('stripWorkerOnlyProperties throws instead of silently no-op-ing when the path moved', () => {
+    // A refactor that relocates `regional_eligibility` must surface here
+    // rather than quietly re-exposing `evidence_verified` to the model.
+    expect(() =>
+      stripWorkerOnlyProperties({ properties: { events: { items: { properties: {} } } } }),
+    ).toThrow(/stripWorkerOnlyProperties/)
+    expect(() =>
+      stripWorkerOnlyProperties({
+        properties: {
+          events: {
+            items: { properties: { regional_eligibility: { items: { properties: {} } } } },
+          },
+        },
+      }),
+    ).toThrow(/evidence_verified not found/)
   })
 
   it('places PDF document blocks before the text block in user content', async () => {

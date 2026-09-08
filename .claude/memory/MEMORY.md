@@ -397,3 +397,4 @@
 - [line-chat-commands 実装（全4タスク）](impl_line-chat-commands.md) — 要件の語リストがAC-9の自例を通さない・手順書の処理順がAC-3/4/12に反する・返信分岐は実行前スナップショット必須
 - [auto-review PR #611](auto-review-round-pr611.md) — R1 verdict=needs_changes→cutoff(user-wontfix)。唯一の blocker=紐付け検証とflipが別tx（once-ever枠の恒久消費は画面経路にも既存）
 - [LINE グループの Bot メンションで申込・支払ステータスを進める](project_ship-line-chat-commands.md) — shipped: PR #611
+- [mail-ai-extract-refinements 改修: D・E 級の地域制限判定 要件定義](project_mail_ai_regional_eligibility_def.md) — 親Issue #612

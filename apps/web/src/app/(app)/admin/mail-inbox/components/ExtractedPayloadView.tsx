@@ -1,5 +1,10 @@
 import type { ExtractionPayload } from '@kagetra/mail-worker/classify/schema'
+import { REGIONAL_ELIGIBILITY_GRADES } from '@kagetra/mail-worker/classify/regional'
 import { Card } from '@/components/ui'
+
+// mail-ai-extract-refinements §3.2.12(e) / AC-76: 地域制限の小表見出し。
+// `REGIONAL_ELIGIBILITY_GRADES` から組むことで、対象級を広げたときに追随する。
+const REGIONAL_ELIGIBILITY_HEADING = `地域制限（${REGIONAL_ELIGIBILITY_GRADES.join('・')} 級）`
 
 export interface ExtractedPayloadViewProps {
   payload: ExtractionPayload | null
@@ -32,6 +37,9 @@ const EXTRACTED_LABELS: Record<string, string> = {
   capacity_d: 'D 級定員',
   capacity_e: 'E 級定員',
   official: '公認大会',
+  // mail-ai-extract-refinements §3.2.12(e) / AC-76: ループからは除外するが、
+  // ラベル表と実データのキーを揃えておく。
+  regional_eligibility: REGIONAL_ELIGIBILITY_HEADING,
   // legacy-only field (old single `extracted` payload):
   title: 'タイトル',
 }
@@ -49,6 +57,66 @@ function formatValue(v: unknown): string {
   if (typeof v === 'boolean') return v ? 'はい' : 'いいえ'
   if (Array.isArray(v)) return v.length === 0 ? '—' : v.join(', ')
   return String(v)
+}
+
+// mail-ai-extract-refinements §3.2.12(e) / AC-76: 保存済み payload には Zod を
+// 再実行しない方針のため、3.0.x 以前のドラフトは `regional_eligibility` を
+// 持たない。実データから防御的に読み、`String()` で `[object Object]` を
+// 出さないよう各フィールドを個別に拾う。
+function renderRegionalEligibility(unit: Record<string, unknown>) {
+  const regional = unit.regional_eligibility
+  if (!Array.isArray(regional) || regional.length === 0) return null
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="border-t border-border-soft">
+          <th className="py-1.5 pr-3 text-left font-medium text-ink-meta">
+            級
+          </th>
+          <th className="py-1.5 pr-3 text-left font-medium text-ink-meta">
+            判定
+          </th>
+          <th className="py-1.5 pr-3 text-left font-medium text-ink-meta">
+            根拠の一文
+          </th>
+          <th className="py-1.5 text-left font-medium text-ink-meta">
+            照合
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {regional.map((entry, i) => {
+          const item = entry as {
+            grade?: unknown
+            verdict?: unknown
+            evidence_quote?: unknown
+            evidence_verified?: unknown
+          }
+          const grade = typeof item.grade === 'string' ? item.grade : '—'
+          const verdict = typeof item.verdict === 'string' ? item.verdict : '—'
+          const evidenceQuote =
+            typeof item.evidence_quote === 'string' ? item.evidence_quote : '—'
+          const verified =
+            item.evidence_verified === true
+              ? '照合済み'
+              : item.evidence_verified === false
+                ? '未照合'
+                : '—'
+          return (
+            <tr key={i} className="border-t border-border-soft">
+              <td className="py-1.5 pr-3 align-top text-ink">{grade}級</td>
+              <td className="py-1.5 pr-3 align-top text-ink">{verdict}</td>
+              <td className="py-1.5 pr-3 align-top text-ink break-words whitespace-pre-wrap">
+                {evidenceQuote}
+              </td>
+              <td className="py-1.5 align-top text-ink">{verified}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
 }
 
 /**
@@ -115,31 +183,46 @@ export function ExtractedPayloadView({
             </div>
           )}
 
-          {units.map((unit, idx) => (
-            <div key={(unit.unit_key as string) ?? idx} className="space-y-1">
-              {units.length > 1 && (
-                <div className="text-xs font-semibold text-ink-meta">
-                  イベント {idx + 1}
-                </div>
-              )}
-              <table className="w-full text-xs">
-                <tbody>
-                  {Object.entries(unit)
-                    .filter(([key]) => key !== 'unit_key')
-                    .map(([key, value]) => (
-                      <tr key={key} className="border-t border-border-soft">
-                        <th className="w-1/3 py-1.5 pr-3 text-left font-medium text-ink-meta align-top">
-                          {EXTRACTED_LABELS[key] ?? key}
-                        </th>
-                        <td className="py-1.5 text-ink align-top break-words">
-                          {formatValue(value)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+          {units.map((unit, idx) => {
+            // mail-ai-extract-refinements §3.2.12(e) / AC-76: 汎用ループから外した
+            // `regional_eligibility` を、単位の表の直後に専用の小表で描く。
+            const regionalTable = renderRegionalEligibility(unit)
+            return (
+              <div key={(unit.unit_key as string) ?? idx} className="space-y-1">
+                {units.length > 1 && (
+                  <div className="text-xs font-semibold text-ink-meta">
+                    イベント {idx + 1}
+                  </div>
+                )}
+                <table className="w-full text-xs">
+                  <tbody>
+                    {Object.entries(unit)
+                      .filter(
+                        ([key]) => key !== 'unit_key' && key !== 'regional_eligibility',
+                      )
+                      .map(([key, value]) => (
+                        <tr key={key} className="border-t border-border-soft">
+                          <th className="w-1/3 py-1.5 pr-3 text-left font-medium text-ink-meta align-top">
+                            {EXTRACTED_LABELS[key] ?? key}
+                          </th>
+                          <td className="py-1.5 text-ink align-top break-words">
+                            {formatValue(value)}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+                {regionalTable && (
+                  <div>
+                    <div className="mb-1.5 text-xs font-semibold text-ink-meta">
+                      {REGIONAL_ELIGIBILITY_HEADING}
+                    </div>
+                    {regionalTable}
+                  </div>
+                )}
+              </div>
+            )
+          })}
 
           {extras && Object.values(extras).some((v) => v != null) && (
             <div className="border-t border-border-soft pt-3">

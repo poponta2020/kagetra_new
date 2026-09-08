@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   EventUnit,
   ExtractionPayload,
+  RegionalEligibility,
 } from '@kagetra/mail-worker/classify/schema'
 import { ApprovalForm } from './ApprovalForm'
 
@@ -34,6 +35,7 @@ function buildUnit(overrides: Partial<EventUnit> = {}): EventUnit {
     capacity_d: null,
     capacity_e: null,
     official: true,
+    regional_eligibility: [],
     ...overrides,
   }
 }
@@ -1326,5 +1328,355 @@ describe('ApprovalForm — 新項目のマッピング', () => {
     ) as HTMLInputElement
     expect(capacity.value).toBe('100')
     expect(capA.value).toBe('32')
+  })
+})
+
+/**
+ * mail-ai-extract-refinements §3.2.12(d) / AC-70〜75・77: D・E 級の地域制限判定を
+ * 承認フォームの初期値・警告表示へ反映する。
+ */
+describe('ApprovalForm — D・E級の地域制限判定（AC-70〜75・77）', () => {
+  const D_QUOTE =
+    'D級 初段の方 地域制限有 近畿支部及び隣接県（鳥取、岡山、徳島）の会所属、及び支部内在住・在勤・在学の方'
+  const E_QUOTE =
+    'E級 初段を目指す方。 地域制限有 兵庫県内の会所属、及び兵庫県内在住・在勤・在学の方'
+
+  function re(overrides: Partial<RegionalEligibility>): RegionalEligibility {
+    return { grade: 'D', verdict: '要確認', evidence_quote: null, ...overrides }
+  }
+
+  it('AC-70: 照合済み対象外の D・E を対象級の初期値から外し、大会名の合成にも反映する', () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['A', 'B', 'C', 'D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+          re({ grade: 'E', verdict: '北海道は対象外', evidence_quote: E_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    const title = container.querySelector('input[name="u1__title"]') as HTMLInputElement
+    expect(title.value).toBe('兵庫ABC')
+
+    const gradeChecked = (g: string) =>
+      (container.querySelector(`input[name="u1__grade_${g}"]`) as HTMLInputElement).checked
+    expect(gradeChecked('A')).toBe(true)
+    expect(gradeChecked('B')).toBe(true)
+    expect(gradeChecked('C')).toBe(true)
+    expect(gradeChecked('D')).toBe(false)
+    expect(gradeChecked('E')).toBe(false)
+  })
+
+  it('AC-71: 警告に外した級と両級の根拠の一文が出る', () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['A', 'B', 'C', 'D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+          re({ grade: 'E', verdict: '北海道は対象外', evidence_quote: E_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    expect(
+      screen.getByText('D級・E級を対象級から外しました（北海道の選手は出場できないため）'),
+    ).toBeDefined()
+    expect(screen.getByText(D_QUOTE)).toBeDefined()
+    expect(screen.getByText(E_QUOTE)).toBeDefined()
+    expect(screen.getByText('戻すには下の対象級を再チェックしてください')).toBeDefined()
+  })
+
+  it('AC-72: 未照合の対象外は外さず警告のみ、要確認も外さず注意のみ（quote null はフォールバック文言）', () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: false }),
+          re({ grade: 'E', verdict: '要確認', evidence_quote: null }),
+        ],
+      }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    const gradeE = container.querySelector('input[name="u1__grade_E"]') as HTMLInputElement
+    expect(gradeD.checked).toBe(true)
+    expect(gradeE.checked).toBe(true)
+
+    expect(
+      screen.getByText(
+        'D級は北海道は対象外と判定されましたが、根拠の一文を原文と照合できませんでした。確認してください',
+      ),
+    ).toBeDefined()
+    expect(screen.getByText(D_QUOTE)).toBeDefined()
+
+    expect(screen.getByText('E級の出場資格を確認してください')).toBeDefined()
+    expect(screen.getByText('資格の記載が見当たりません')).toBeDefined()
+  })
+
+  it('AC-73: D・E のみの単位で両方照合済み対象外なら登録を既定 OFF にし、ON に戻すと送信できる', async () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+          re({ grade: 'E', verdict: '北海道は対象外', evidence_quote: E_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    const actionSpy = vi.fn()
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={actionSpy}
+      />,
+    )
+
+    const register = container.querySelector('input[name="u1__register"]') as HTMLInputElement
+    expect(register.checked).toBe(false)
+    expect(
+      screen.getByText(
+        'この日の全ての級が北海道の選手は出場できないため、登録対象から外しました。他に登録する日が無ければ却下してください',
+      ),
+    ).toBeDefined()
+
+    const fieldset = container.querySelector('fieldset') as HTMLFieldSetElement
+    expect(fieldset.disabled).toBe(true)
+
+    fireEvent.click(register)
+    expect(fieldset.disabled).toBe(false)
+
+    const form = container.querySelector('form') as HTMLFormElement
+    const fd = new FormData(form)
+    expect(fd.get('u1__register')).toBe('on')
+
+    // Codex レビュー（PR #618）: 級を1つも選ばずに送信すると eligible_grades が
+    // null（=全級扱い）で保存されてしまうので、クライアント側で送信を止める。
+    // React 19 のフォーム action は submit を常に preventDefault するので、
+    // 「止まったか」は defaultPrevented ではなく action の呼び出し有無で見る。
+    fireEvent.submit(form)
+    expect(screen.getByText(/対象級を1つ以上選んでください/)).toBeDefined()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(actionSpy).not.toHaveBeenCalled()
+
+    // 級を1つ選び直せば通常どおり送信できる（AC-73「ON に戻せば登録できる」）。
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    fireEvent.click(gradeD)
+    expect(gradeD.checked).toBe(true)
+    fireEvent.submit(form)
+    await waitFor(() => expect(actionSpy).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/対象級を1つ以上選んでください/)).toBeNull()
+  })
+
+  it('AC-73: 一部の級だけ自動除外された単位でも、残りの級を外して送信すると止まる', async () => {
+    // Codex レビュー（PR #618 final）: A・D のうち D が照合済み対象外 → 初期値は A だけ。
+    // 管理者が A のチェックも外して送信すると eligible_grades が null（=全級）になり、
+    // 自動除外した D まで対象に戻ってしまう。allRemoved でなくても止める。
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['A', 'D'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    const actionSpy = vi.fn()
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={actionSpy}
+      />,
+    )
+    const form = container.querySelector('form') as HTMLFormElement
+    const gradeA = container.querySelector('input[name="u1__grade_A"]') as HTMLInputElement
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    expect(gradeA.checked).toBe(true)
+    expect(gradeD.checked).toBe(false)
+
+    fireEvent.click(gradeA)
+    expect(gradeA.checked).toBe(false)
+    fireEvent.submit(form)
+    expect(screen.getByText(/対象級を1つ以上選んでください/)).toBeDefined()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(actionSpy).not.toHaveBeenCalled()
+
+    fireEvent.click(gradeA)
+    fireEvent.submit(form)
+    await waitFor(() => expect(actionSpy).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/対象級を1つ以上選んでください/)).toBeNull()
+  })
+
+  it('AC-73: AI が級を読めなかった単位（eligible_grades null）は級未選択でも送信を止めない', async () => {
+    // null=全級は既存仕様。地域制限で全級を外した単位だけがガードの対象。
+    const payload = buildPayload([
+      buildUnit({ eligible_grades: null, regional_eligibility: [] }),
+    ])
+    const actionSpy = vi.fn()
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={actionSpy}
+      />,
+    )
+    const form = container.querySelector('form') as HTMLFormElement
+    fireEvent.submit(form)
+    await waitFor(() => expect(actionSpy).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/対象級を1つ以上選んでください/)).toBeNull()
+  })
+
+  it('AC-74: 北海道は対象は外さず補足のみ、制限なしは表示に出ない', () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '制限なし', evidence_quote: '参加者の地域制限は設けません' }),
+          re({
+            grade: 'E',
+            verdict: '北海道は対象',
+            evidence_quote: '北海道在住の方も対象です',
+            evidence_verified: true,
+          }),
+        ],
+      }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    const gradeE = container.querySelector('input[name="u1__grade_E"]') as HTMLInputElement
+    expect(gradeD.checked).toBe(true)
+    expect(gradeE.checked).toBe(true)
+
+    expect(screen.getByText('E級は地域制限ありですが北海道は対象です')).toBeDefined()
+    expect(screen.getByText('北海道在住の方も対象です')).toBeDefined()
+    // D は「制限なし」なので通知が一切出ない。checkbox のラベル文言「D級」自体は
+    // grade チェックボックスにも存在するため、通知固有の言い回しでだけ確認する。
+    expect(screen.queryByText(/D級(は|の|・|を対象級)/)).toBeNull()
+    expect(screen.queryByText('参加者の地域制限は設けません')).toBeNull()
+  })
+
+  it('AC-75: regional_eligibility を持たない旧ドラフトでは何も外れず表示も出ない', () => {
+    const legacyUnit = buildUnit({ eligible_grades: ['D', 'E'] }) as Record<string, unknown>
+    delete legacyUnit.regional_eligibility
+    const payload = buildPayload([legacyUnit as unknown as EventUnit])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    const gradeE = container.querySelector('input[name="u1__grade_E"]') as HTMLInputElement
+    expect(gradeD.checked).toBe(true)
+    expect(gradeE.checked).toBe(true)
+    // grade チェックボックスのラベル文言「D級」「E級」自体は EventForm が常に
+    // 描画するので、通知固有の言い回しでだけ「何も出ていない」ことを確認する。
+    expect(screen.queryByText(/D級(は|の|・|を対象級)/)).toBeNull()
+    expect(screen.queryByText(/E級(は|の|・|を対象級)/)).toBeNull()
+    expect(screen.queryByText(D_QUOTE)).toBeNull()
+    expect(screen.queryByText(E_QUOTE)).toBeNull()
+  })
+
+  it('AC-75: 登録済み単位には地域制限の表示を出さない', () => {
+    const payload = buildPayload([
+      buildUnit({
+        unit_key: 'u1',
+        eligible_grades: ['D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+          re({ grade: 'E', verdict: '北海道は対象外', evidence_quote: E_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[{ unitKey: 'u1', eventId: 1 }]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    expect(screen.queryByText(/D級/)).toBeNull()
+    expect(screen.queryByText(/E級/)).toBeNull()
+  })
+
+  it('AC-77: 外れた級を再チェックすると送信データに乗る（大会名は再合成しない）', () => {
+    const payload = buildPayload([
+      buildUnit({
+        eligible_grades: ['A', 'B', 'C', 'D', 'E'],
+        regional_eligibility: [
+          re({ grade: 'D', verdict: '北海道は対象外', evidence_quote: D_QUOTE, evidence_verified: true }),
+          re({ grade: 'E', verdict: '北海道は対象外', evidence_quote: E_QUOTE, evidence_verified: true }),
+        ],
+      }),
+    ])
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={noop}
+      />,
+    )
+
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    expect(gradeD.checked).toBe(false)
+    fireEvent.click(gradeD)
+    expect(gradeD.checked).toBe(true)
+
+    const form = container.querySelector('form') as HTMLFormElement
+    const fd = new FormData(form)
+    expect(fd.get('u1__grade_D')).toBe('on')
+    expect(fd.get('u1__title')).toBe('兵庫ABC')
   })
 })

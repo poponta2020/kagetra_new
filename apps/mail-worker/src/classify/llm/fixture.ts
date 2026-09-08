@@ -53,6 +53,7 @@ const FIXTURE_DEFAULT_PAYLOAD: ExtractionPayload = {
       capacity_d: null,
       capacity_e: null,
       official: null,
+      regional_eligibility: [],
     },
   ],
 }

@@ -31,6 +31,7 @@ import {
   type ClassifyOutcome,
 } from '../../src/classify/classifier.js'
 import { type ExtractionPayload } from '../../src/classify/schema.js'
+import { VERDICT_HOME_INELIGIBLE } from '../../src/classify/regional.js'
 import {
   FixtureFileSchema,
   FixtureLLMExtractor,
@@ -191,6 +192,7 @@ function buildAnthropicSuccessResponse() {
               capacity_d: null,
               capacity_e: null,
               official: null,
+              regional_eligibility: [],
             },
           ],
         },
@@ -759,6 +761,200 @@ describe('classifier', () => {
         const textBlocks = content.filter((b) => b.type === 'text')
         expect(textBlocks).toHaveLength(1)
         expect(textBlocks[0]!.text).toContain('AC-20 ケース4の本文マーカー')
+      })
+    })
+
+    describe('regional evidence annotation (AC-68/AC-69)', () => {
+      // One D・E 級地域制限の判定 + evidence_quote を持つ最小ペイロード。
+      // `evidenceQuote` はテストごとに本文/添付側へ埋め込む一文と揃える。
+      function buildRegionalPayload(evidenceQuote: string | null): ExtractionPayload {
+        return {
+          reason: 'regional evidence test fixture',
+          source_mismatch: null,
+          events: [
+            {
+              unit_key: 'u1',
+              event_date: null,
+              eligible_grades: ['D', 'E'],
+              formal_name: null,
+              venue: null,
+              payment_deadline: null,
+              payment_deadline_kind: '記載なし',
+              payment_info_text: null,
+              payment_method: null,
+              entry_method: null,
+              organizer_text: null,
+              entry_deadline: null,
+              kind: null,
+              capacity_total: null,
+              capacity_a: null,
+              capacity_b: null,
+              capacity_c: null,
+              capacity_d: null,
+              capacity_e: null,
+              official: null,
+              regional_eligibility: [
+                {
+                  grade: 'D',
+                  verdict: VERDICT_HOME_INELIGIBLE,
+                  evidence_quote: evidenceQuote,
+                },
+              ],
+            },
+          ],
+        }
+      }
+
+      it('verifies the quote when it is a substring of the email body (AC-68)', async () => {
+        const subject = '地域制限根拠照合テスト・本文一致'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-body-match@example.com>',
+          subject,
+          bodyText: `本大会は${evidenceQuote}ご了承ください。`,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        if (outcome.kind === 'tournament') {
+          expect(
+            outcome.result.parsed.events[0]!.regional_eligibility[0]!.evidence_verified,
+          ).toBe(true)
+        }
+      })
+
+      it('does not verify the quote when the body does not contain it (AC-68)', async () => {
+        const subject = '地域制限根拠照合テスト・本文不一致'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-no-match@example.com>',
+          subject,
+          bodyText: 'この本文には根拠となる一文は含まれていません。',
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        if (outcome.kind === 'tournament') {
+          expect(
+            outcome.result.parsed.events[0]!.regional_eligibility[0]!.evidence_verified,
+          ).toBe(false)
+        }
+      })
+
+      it('does not verify the quote when it only appears in an image-only PDF (no extractedText) (AC-69)', async () => {
+        const subject = '地域制限根拠照合テスト・画像PDFのみ'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-image-pdf@example.com>',
+          subject,
+          bodyText: '詳細は添付の要綱PDFをご覧ください。',
+        })
+        // insertTestPdf always leaves extractedText: null — this simulates an
+        // image-only PDF with no text layer. The quote is (by construction)
+        // never present in the evidence corpus even though the PDF is sent
+        // to the AI as a native document block.
+        await insertTestPdf({ mailMessageId: id, sizeBytes: 100 * 1024 })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        if (outcome.kind === 'tournament') {
+          expect(
+            outcome.result.parsed.events[0]!.regional_eligibility[0]!.evidence_verified,
+          ).toBe(false)
+        }
+      })
+
+      it('verifies the quote when it appears in a text (DOCX-shaped) attachment (AC-68)', async () => {
+        const subject = '地域制限根拠照合テスト・テキスト添付一致'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-text-attachment@example.com>',
+          subject,
+          bodyText: '詳細は添付の名簿をご覧ください。',
+        })
+        await insertTestTextAttachment({
+          mailMessageId: id,
+          extractedText: `注意事項：${evidenceQuote}`,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+
+        expect(outcome.kind).toBe('tournament')
+        if (outcome.kind === 'tournament') {
+          expect(
+            outcome.result.parsed.events[0]!.regional_eligibility[0]!.evidence_verified,
+          ).toBe(true)
+        }
+      })
+
+      it('excludes an unselected attachment from the evidence corpus even though it contains the quote', async () => {
+        const subject = '地域制限根拠照合テスト・未選択添付は照合対象外'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-unselected@example.com>',
+          subject,
+          bodyText: '詳細は添付の名簿をご覧ください。',
+        })
+        await insertTestTextAttachment({
+          mailMessageId: id,
+          extractedText: `注意事項：${evidenceQuote}`,
+        })
+
+        // Explicit "body only" selection — the text attachment above holds
+        // the matching sentence but must not be forwarded to the LLM, so it
+        // must also be excluded from the evidence corpus.
+        const outcome = await classifyMail(getDb(), id, llm, {
+          selectedAttachmentIds: [],
+        })
+
+        expect(outcome.kind).toBe('tournament')
+        if (outcome.kind === 'tournament') {
+          expect(
+            outcome.result.parsed.events[0]!.regional_eligibility[0]!.evidence_verified,
+          ).toBe(false)
+        }
+      })
+
+      it('persists evidence_verified onto tournament_drafts.extracted_payload via persistOutcome', async () => {
+        const subject = '地域制限根拠照合テスト・永続化確認'
+        const evidenceQuote = '北海道在住者は対象外です。'
+        const llm = new FixtureLLMExtractor(
+          new Map([[subject, buildRegionalPayload(evidenceQuote)]]),
+        )
+        const id = await insertTestMail({
+          messageId: '<regional-evidence-persist@example.com>',
+          subject,
+          bodyText: `本大会は${evidenceQuote}`,
+        })
+
+        const outcome = await classifyMail(getDb(), id, llm)
+        await persistOutcome(getDb(), id, outcome)
+
+        const drafts = await testDb
+          .select()
+          .from(tournamentDrafts)
+          .where(eq(tournamentDrafts.messageId, id))
+        expect(drafts).toHaveLength(1)
+        const persisted = drafts[0]!.extractedPayload as ExtractionPayload
+        expect(persisted.events[0]!.regional_eligibility[0]!.evidence_verified).toBe(true)
       })
     })
   })

@@ -23,7 +23,8 @@
         "capacity_c": null,
         "capacity_d": null,
         "capacity_e": null,
-        "official": true
+        "official": true,
+        "regional_eligibility": []
       }
     ]
   }
