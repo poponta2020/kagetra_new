@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -1441,7 +1441,7 @@ describe('ApprovalForm — D・E級の地域制限判定（AC-70〜75・77）', 
     expect(screen.getByText('資格の記載が見当たりません')).toBeDefined()
   })
 
-  it('AC-73: D・E のみの単位で両方照合済み対象外なら登録を既定 OFF にし、ON に戻すと送信できる', () => {
+  it('AC-73: D・E のみの単位で両方照合済み対象外なら登録を既定 OFF にし、ON に戻すと送信できる', async () => {
     const payload = buildPayload([
       buildUnit({
         eligible_grades: ['D', 'E'],
@@ -1451,13 +1451,14 @@ describe('ApprovalForm — D・E級の地域制限判定（AC-70〜75・77）', 
         ],
       }),
     ])
+    const actionSpy = vi.fn()
     const { container } = render(
       <ApprovalForm
         payload={payload}
         shortNameStem="兵庫"
         registeredUnitKeys={[]}
         editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
-        action={noop}
+        action={actionSpy}
       />,
     )
 
@@ -1478,6 +1479,44 @@ describe('ApprovalForm — D・E級の地域制限判定（AC-70〜75・77）', 
     const form = container.querySelector('form') as HTMLFormElement
     const fd = new FormData(form)
     expect(fd.get('u1__register')).toBe('on')
+
+    // Codex レビュー（PR #618）: 級を1つも選ばずに送信すると eligible_grades が
+    // null（=全級扱い）で保存されてしまうので、クライアント側で送信を止める。
+    // React 19 のフォーム action は submit を常に preventDefault するので、
+    // 「止まったか」は defaultPrevented ではなく action の呼び出し有無で見る。
+    fireEvent.submit(form)
+    expect(screen.getByText(/対象級を1つ以上選んでください/)).toBeDefined()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(actionSpy).not.toHaveBeenCalled()
+
+    // 級を1つ選び直せば通常どおり送信できる（AC-73「ON に戻せば登録できる」）。
+    const gradeD = container.querySelector('input[name="u1__grade_D"]') as HTMLInputElement
+    fireEvent.click(gradeD)
+    expect(gradeD.checked).toBe(true)
+    fireEvent.submit(form)
+    await waitFor(() => expect(actionSpy).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/対象級を1つ以上選んでください/)).toBeNull()
+  })
+
+  it('AC-73: AI が級を読めなかった単位（eligible_grades null）は級未選択でも送信を止めない', async () => {
+    // null=全級は既存仕様。地域制限で全級を外した単位だけがガードの対象。
+    const payload = buildPayload([
+      buildUnit({ eligible_grades: null, regional_eligibility: [] }),
+    ])
+    const actionSpy = vi.fn()
+    const { container } = render(
+      <ApprovalForm
+        payload={payload}
+        shortNameStem="兵庫"
+        registeredUnitKeys={[]}
+        editionSuggestion={{ seriesName: '', editionNumber: null, matched: false }}
+        action={actionSpy}
+      />,
+    )
+    const form = container.querySelector('form') as HTMLFormElement
+    fireEvent.submit(form)
+    await waitFor(() => expect(actionSpy).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/対象級を1つ以上選んでください/)).toBeNull()
   })
 
   it('AC-74: 北海道は対象は外さず補足のみ、制限なしは表示に出ない', () => {

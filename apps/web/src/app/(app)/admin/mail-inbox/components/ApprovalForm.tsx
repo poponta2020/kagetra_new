@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type {
   EventUnit,
   ExtractionPayload,
@@ -199,6 +199,8 @@ export function normalizeUnits(payload: ExtractionPayload | null): NormalizedUni
  * deselected unit is ignored end-to-end.
  */
 const EDITION_LABEL = 'block text-xs font-semibold text-ink-meta tracking-[0.02em]'
+/** EventForm の級チェックボックス名（`${unit_key}__grade_${g}`）の g。 */
+const GRADE_KEYS = ['A', 'B', 'C', 'D', 'E'] as const
 const EDITION_FIELD =
   'mt-1 block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30'
 
@@ -233,6 +235,28 @@ export function ApprovalForm({
       ]),
     ),
   )
+
+  // Codex レビュー（PR #618）/ AC-73: 全ての級が外れた単位を「このイベントを登録する」
+  // だけ ON に戻し、級を1つも選ばずに送信すると、`extractEventUnitsFormData` は
+  // 空配列を返し `approveDraftUnits` は eligible_grades を null で保存する。null は
+  // 既存仕様（AI が級を読めなかった単位）で「全級対象」の意味なので、地域制限で
+  // 全級を外したはずの大会が A〜E 全級対象として登録・配信されてしまう。
+  // クライアント側で止める — Server Action の契約は変えない（AC-77）。AI が級を
+  // 読めなかった単位（eligible_grades null＝allRemoved にならない）は従来どおり通す。
+  const [gradeMissing, setGradeMissing] = useState<Record<string, boolean>>({})
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const fd = new FormData(e.currentTarget)
+    const missing: Record<string, boolean> = {}
+    for (const u of editableUnits) {
+      if (!(registered[u.unit_key] ?? true)) continue
+      if (!planRegionalEligibility(u).allRemoved) continue
+      if (!GRADE_KEYS.some((g) => fd.has(`${u.unit_key}__grade_${g}`))) {
+        missing[u.unit_key] = true
+      }
+    }
+    setGradeMissing(missing)
+    if (Object.keys(missing).length > 0) e.preventDefault()
+  }
 
   // entry-groups タスク7: 自動グループ提案の初期値。承認フォームのユニットは同一 draft
   // なので、clusterEventsByEntryGroup の効果は実質「申込締切が同じユニットをまとめる」
@@ -404,7 +428,7 @@ export function ApprovalForm({
         {registeredCount > 0 && `（うち登録済み ${registeredCount} 件）`}
       </div>
 
-      <form action={action} className="flex flex-col gap-4">
+      <form action={action} onSubmit={handleSubmit} className="flex flex-col gap-4">
         {/* mail-ai-extract-refinements §3.2.3 / AC-15〜17・45〜52: 通称の人力入力＋
             系列との双方向連動。 */}
         <Card>
@@ -781,6 +805,11 @@ export function ApprovalForm({
                 {/* mail-ai-extract-refinements §3.2.12 / AC-71〜75: fieldset の
                     外に置く — 未チェック（登録しない）でも読める。 */}
                 <RegionalEligibilityNotice plan={plan} />
+                {gradeMissing[unit.unit_key] && (
+                  <p role="alert" className="text-xs text-danger">
+                    対象級を1つ以上選んでください（全ての級が外れたままでは登録できません）
+                  </p>
+                )}
                 {/* unit_key marker for extractEventUnitsFormData — kept OUTSIDE
                     the disabled fieldset so it is always submitted (the server
                     counts it for materialize tracking; register gating happens
