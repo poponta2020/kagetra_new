@@ -76,13 +76,15 @@ describe('normalizeEvidenceText', () => {
 })
 
 describe('buildEvidenceCorpus', () => {
-  it('normalizes and concatenates every text', () => {
-    expect(buildEvidenceCorpus(['202 6　年', 'です'])).toBe('2026年です')
+  it('normalizes each text and keeps them as separate entries', () => {
+    expect(buildEvidenceCorpus(['202 6　年', 'です'])).toEqual(['2026年', 'です'])
   })
 
-  it('returns an empty string for an empty list or a list of empty strings', () => {
-    expect(buildEvidenceCorpus([])).toBe('')
-    expect(buildEvidenceCorpus([''])).toBe('')
+  it('drops empty (or whitespace-only-after-normalisation) sources', () => {
+    expect(buildEvidenceCorpus([])).toEqual([])
+    expect(buildEvidenceCorpus([''])).toEqual([])
+    expect(buildEvidenceCorpus(['　\n'])).toEqual([])
+    expect(buildEvidenceCorpus(['本文', '', '　'])).toEqual(['本文'])
   })
 })
 
@@ -117,6 +119,63 @@ describe('annotateRegionalEvidence (AC-68)', () => {
     const annotated = annotateRegionalEvidence(payload, corpus)
 
     expect(annotated.events[0]!.regional_eligibility[0]!.evidence_verified).toBe(false)
+  })
+
+  it('does not verify a quote straddling the boundary between the body and an attachment (Codex PR #618 blocker)', () => {
+    // 本文の末尾が「…北海道」、添付の先頭が「は対象外…」であっても、連結すれば
+    // できてしまう「北海道は対象外」という文字列はどの資料にも実在しない。
+    const corpus = buildEvidenceCorpus([
+      '本大会は東日本の選手を歓迎します。開催地は北海道',
+      'は対象外の地域に含まれません。ぜひご参加ください。',
+    ])
+    const payload = buildPayload([
+      buildUnit({
+        regional_eligibility: [
+          buildRegionalEligibility({ evidence_quote: '北海道は対象外' }),
+        ],
+      }),
+    ])
+
+    const annotated = annotateRegionalEvidence(payload, corpus)
+
+    expect(annotated.events[0]!.regional_eligibility[0]!.evidence_verified).toBe(false)
+  })
+
+  it('does not verify a quote straddling the boundary between two attachments', () => {
+    const corpus = buildEvidenceCorpus([
+      '本文には関係ありません。',
+      '要綱の第一条は北海道',
+      'は対象外です、という第二添付の記載です。',
+    ])
+    const payload = buildPayload([
+      buildUnit({
+        regional_eligibility: [
+          buildRegionalEligibility({ evidence_quote: '北海道は対象外です' }),
+        ],
+      }),
+    ])
+
+    const annotated = annotateRegionalEvidence(payload, corpus)
+
+    expect(annotated.events[0]!.regional_eligibility[0]!.evidence_verified).toBe(false)
+  })
+
+  it('verifies when the same quote sits wholly within a single source (contrast case)', () => {
+    const corpus = buildEvidenceCorpus([
+      '本大会は東日本の選手を歓迎します。開催地は北海道です。',
+      '北海道は対象外の地域に含まれません。ぜひご参加ください。',
+    ])
+    const payload = buildPayload([
+      buildUnit({
+        regional_eligibility: [
+          buildRegionalEligibility({ evidence_quote: '北海道は対象外' }),
+        ],
+      }),
+    ])
+
+    const annotated = annotateRegionalEvidence(payload, corpus)
+
+    expect(annotated.events[0]!.regional_eligibility[0]!.evidence_verified).toBe(true)
   })
 
   it('does not verify against an empty corpus (AC-68 ケース3)', () => {

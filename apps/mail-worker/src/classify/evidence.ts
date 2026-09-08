@@ -12,6 +12,14 @@ import type { ExtractionPayload } from './schema.js'
  * verdict itself; a failed match only flips `evidence_verified` to `false` so
  * the approval form can warn the reviewer, same as an "AI が根拠を示せなかった"
  * case.
+ *
+ * The corpus is kept as one string PER SOURCE (not one string concatenating
+ * every source) and a quote must be found entirely within a single source.
+ * Concatenating first would let a quote straddle the boundary between two
+ * unrelated documents (e.g. the body ending in「…北海道」and the next
+ * attachment starting with「は対象外…」) and mechanically "verify" a sentence
+ * that appears in none of the actual material — defeating the whole point of
+ * requiring the AI to copy real text out of a real source.
  */
 
 /**
@@ -29,27 +37,37 @@ export function normalizeEvidenceText(s: string): string {
 }
 
 /**
- * Build the single normalised string an `evidence_quote` is checked against.
- * `texts` must be exactly what was actually handed to the LLM for this
- * classify call (email body + the extracted text of every attachment that
- * was selected and actually forwarded) — an unselected or `failed`-extraction
- * attachment must not be included, or a quote sourced from material the AI
- * never saw would be mechanically "verified".
- *
- * Returned as one concatenated string rather than an array: the requirement
- * is only "is the quote a substring of what we sent", and a false positive
- * from a quote straddling the boundary between two source texts is an
- * acceptable trade-off for the simplicity (requirements §3.2.12(c) asks for
- * substring matching only, no boundary awareness).
+ * A normalised representation of the material handed to the LLM, kept as one
+ * entry per source (email body, then one per forwarded attachment) rather
+ * than a single concatenated string. Per-source separation is required for
+ * `annotateRegionalEvidence` to check that a quote actually came from ONE
+ * source verbatim, not from stitching together the tail of one document and
+ * the head of the next.
  */
-export function buildEvidenceCorpus(texts: string[]): string {
-  return texts.map((text) => normalizeEvidenceText(text)).join('')
+export type EvidenceCorpus = readonly string[]
+
+/**
+ * Build the per-source normalised corpus an `evidence_quote` is checked
+ * against. `texts` must be exactly what was actually handed to the LLM for
+ * this classify call (email body + the extracted text of every attachment
+ * that was selected and actually forwarded) — an unselected or
+ * `failed`-extraction attachment must not be included, or a quote sourced
+ * from material the AI never saw would be mechanically "verified".
+ *
+ * Empty sources are dropped: an empty string can never contain a
+ * (non-empty-after-normalisation) quote, so keeping it around only adds a
+ * no-op entry.
+ */
+export function buildEvidenceCorpus(texts: string[]): EvidenceCorpus {
+  return texts.map((text) => normalizeEvidenceText(text)).filter((text) => text !== '')
 }
 
 /**
  * Return a new `ExtractionPayload` with every `regional_eligibility[]`
  * element's `evidence_verified` set from a mechanical substring check against
- * `corpus`. Does not mutate `payload` (the caller — `classifyMail` — still
+ * `corpus` — `true` only when the (normalised) quote is a substring of at
+ * least one individual entry of `corpus`, never by combining text across
+ * entries. Does not mutate `payload` (the caller — `classifyMail` — still
  * holds the pre-annotation result for `result.raw`, which must stay the AI's
  * literal response).
  *
@@ -65,7 +83,7 @@ export function buildEvidenceCorpus(texts: string[]): string {
  */
 export function annotateRegionalEvidence(
   payload: ExtractionPayload,
-  corpus: string,
+  corpus: EvidenceCorpus,
 ): ExtractionPayload {
   return {
     ...payload,
@@ -74,7 +92,8 @@ export function annotateRegionalEvidence(
       regional_eligibility: unit.regional_eligibility.map((entry) => {
         const normalizedQuote =
           entry.evidence_quote === null ? '' : normalizeEvidenceText(entry.evidence_quote)
-        const evidence_verified = normalizedQuote !== '' && corpus.includes(normalizedQuote)
+        const evidence_verified =
+          normalizedQuote !== '' && corpus.some((source) => source.includes(normalizedQuote))
         return { ...entry, evidence_verified }
       }),
     })),
