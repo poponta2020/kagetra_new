@@ -55,6 +55,10 @@ kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetr
 kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-lifecycle-reminders.timer /etc/systemd/system/kagetra-lifecycle-reminders.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.service /etc/systemd/system/kagetra-entry-overdue-alert.service
 kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-entry-overdue-alert.timer /etc/systemd/system/kagetra-entry-overdue-alert.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-renewal-reminders.service /etc/systemd/system/kagetra-renewal-reminders.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-renewal-reminders.timer /etc/systemd/system/kagetra-renewal-reminders.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-renewal-school-year.service /etc/systemd/system/kagetra-renewal-school-year.service
+kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/web/systemd/kagetra-renewal-school-year.timer /etc/systemd/system/kagetra-renewal-school-year.timer
 
 # --- apps/mail-worker ---
 kagetra ALL=(root) NOPASSWD: /usr/bin/install -m 644 -o root -g root /opt/kagetra/apps/mail-worker/systemd/kagetra-mail-worker.service /etc/systemd/system/kagetra-mail-worker.service
@@ -78,6 +82,8 @@ kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-backup.time
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-broadcast-cleanup.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-lifecycle-reminders.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-entry-overdue-alert.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-renewal-reminders.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now kagetra-renewal-school-year.timer
 
 # --- restart (service: deploy 時のコード反映用) ---
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-web.service
@@ -90,6 +96,8 @@ kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-backup.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-broadcast-cleanup.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-lifecycle-reminders.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-entry-overdue-alert.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-renewal-reminders.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl restart kagetra-renewal-school-year.timer
 
 # --- is-active (deploy 後の healthcheck 用) ---
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-web.service

@@ -131,13 +131,14 @@ status: completed
 - **対応Issue:** #626
 
 ### タスク8: 日次バッチ（リマインド作成・reconcile・学年反映）・表示名解決・systemd
-- [ ] 完了
+- [x] 完了
 - **目的:** `scripts/renewal-daily.ts --reminders | --apply-school-year`、`lib/membership-renewal/reminders.ts`（未回答者集計→表示名解決→分割→タスク作成）、`lib/line-group-membership.ts` に表示名取得を追加、systemd unit 2 組、`docs/deploy/annual-registration-renewal.md`
 - **対応AC:** AC-12（バッチ）・AC-15・AC-16・AC-16b・AC-16c
 - **主な変更領域:** `apps/web/scripts/renewal-daily.ts`・`apps/web/src/lib/membership-renewal/reminders.ts`・`apps/web/src/lib/membership-renewal/apply-school-year.ts`・`apps/web/src/lib/line-group-membership.ts`・`apps/web/systemd/kagetra-renewal-{reminders,school-year}.{service,timer}`・`docs/deploy/annual-registration-renewal.md`
 - **依存タスク:** タスク5（未回答者・対象者の照会）・タスク3（グループ ID）・タスク4（タスク store）
 - **必要なテスト:** `now` 注入で 対象日／非対象日／未回答 0／同日再実行／マージン超過／表示名 API 失敗→全員テキスト／分割件数／reconcile の 2 規則／学年反映の CAS と `applied_at`
 - **完了条件:** テスト green・`--dry-run` で候補が出る
+- **結果:** task-implementer へ委譲（deploy ドキュメントは中断のため main が作成）。★**`infra/sudoers/kagetra-deploy` への新 unit 4 本の登録が必須**（unit 名は固定列挙で、未登録のまま unit を含む PR をマージすると auto-deploy が `install` の段階で sudo に蹴られて fail する）。main が install 4 行・enable 2 行・restart 2 行を追記した。sudoers の**本番反映はマージ前に手作業**が要る（`docs/deploy/annual-registration-renewal.md` §0）
 - **対応Issue:** #627
 
 ### タスク9: S2 管理ボード `/admin/members/renewal`

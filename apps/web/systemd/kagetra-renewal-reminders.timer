@@ -1,0 +1,22 @@
+[Unit]
+Description=Run kagetra annual-registration-renewal reminders once daily at 19:30 JST
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/annual-registration-renewal.md
+Requires=kagetra-renewal-reminders.service
+
+[Timer]
+# 19:30 JST — 20:00 JST 送信タスクをこの 30 分前に作る（implementation-plan
+# 「技術設計（確定）」の定期実行）。systemd は OnCalendar をホストのローカル
+# 時刻で評価するため、デプロイ手順書がホストのタイムゾーンを Asia/Tokyo に
+# 固定する。
+OnCalendar=*-*-* 19:30:00
+AccuracySec=5min
+
+# Catch up after host downtime — a late run is better than a missed one.
+# バッチ自身がマージン超過（20:00-5分を過ぎている）を検知して作らずログに
+# 倒すので、catch-up 起動で誤って過去分を送りつけることはない（R13）。
+Persistent=true
+
+Unit=kagetra-renewal-reminders.service
+
+[Install]
+WantedBy=timers.target
