@@ -59,4 +59,10 @@ export * from './entry-group-selection-statuses'
 export * from './travel-routes'
 export * from './travel-unit-notices'
 export * from './travel-reports'
+// annual-registration-renewal: 年度確認（campaign / 対象者+回答）・会 LINE
+// グループ設定・OAM チャット予約送信タスク
+export * from './club-line-groups'
+export * from './membership-renewals'
+export * from './membership-renewal-members'
+export * from './line-chat-tasks'
 export * from './relations'

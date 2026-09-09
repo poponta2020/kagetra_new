@@ -33,6 +33,10 @@ import { tournamentConfirmedRosterPublications } from './tournament-confirmed-ro
 import { tournamentEditionGradeLotteryFacts } from './tournament-edition-grade-lottery-facts'
 import { tournamentRosterImportDrafts } from './tournament-roster-import-drafts'
 import { tournamentEntryRosterFiles } from './tournament-entry-roster-files'
+import { clubLineGroups } from './club-line-groups'
+import { membershipRenewals } from './membership-renewals'
+import { membershipRenewalMembers } from './membership-renewal-members'
+import { lineChatTasks } from './line-chat-tasks'
 
 // tournament-entry-rosters (PR-1a baseline): series 1:N editions、edition は
 // events / tournaments を束ねるハブ（どちらも N:1）。
@@ -567,3 +571,59 @@ export const tournamentRosterImportDraftsRelations = relations(
     }),
   }),
 )
+
+// annual-registration-renewal: 年度確認は対象者行と送信タスクを持ち、対象者行は
+// 会員を指す。会 LINE グループ設定は転換した Bot チャネルへ 1:1。
+export const membershipRenewalsRelations = relations(membershipRenewals, ({ one, many }) => ({
+  members: many(membershipRenewalMembers),
+  chatTasks: many(lineChatTasks),
+  startedByUser: one(users, {
+    fields: [membershipRenewals.startedBy],
+    references: [users.id],
+    relationName: 'membershipRenewalStartedBy',
+  }),
+  completedByUser: one(users, {
+    fields: [membershipRenewals.completedBy],
+    references: [users.id],
+    relationName: 'membershipRenewalCompletedBy',
+  }),
+}))
+
+export const membershipRenewalMembersRelations = relations(
+  membershipRenewalMembers,
+  ({ one }) => ({
+    renewal: one(membershipRenewals, {
+      fields: [membershipRenewalMembers.renewalId],
+      references: [membershipRenewals.id],
+    }),
+    user: one(users, {
+      fields: [membershipRenewalMembers.userId],
+      references: [users.id],
+      relationName: 'membershipRenewalMemberUser',
+    }),
+    answeredByUser: one(users, {
+      fields: [membershipRenewalMembers.answeredByUserId],
+      references: [users.id],
+      relationName: 'membershipRenewalAnsweredBy',
+    }),
+  }),
+)
+
+export const lineChatTasksRelations = relations(lineChatTasks, ({ one }) => ({
+  renewal: one(membershipRenewals, {
+    fields: [lineChatTasks.renewalId],
+    references: [membershipRenewals.id],
+  }),
+}))
+
+export const clubLineGroupsRelations = relations(clubLineGroups, ({ one }) => ({
+  channel: one(lineChannels, {
+    fields: [clubLineGroups.lineChannelId],
+    references: [lineChannels.id],
+  }),
+  updatedByUser: one(users, {
+    fields: [clubLineGroups.updatedBy],
+    references: [users.id],
+    relationName: 'clubLineGroupUpdatedBy',
+  }),
+}))

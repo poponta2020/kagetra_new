@@ -113,10 +113,17 @@ export const mailWorkerJobKindEnum = pgEnum('mail_worker_job_kind', [
 // event-grade-group-broadcast: `grade_broadcast` は級別グループ (A〜E) 常設配信用に
 // 既存プールから転換したチャネル。1 チャネル = 1 purpose なので、webhook の振り分けは
 // 解決したチャネルの purpose を見るだけで排他になる。
+// annual-registration-renewal: `club_chat` は会 LINE グループ（登録会員全員）へ
+// OAM のチャット予約送信を行うために、プールから 1 体だけ転換したチャネル。
+// ★`system_notify` を流用しない（`loadSystemChannel` が purpose で 1 行を引く）。
+// 転換の CAS は purpose と併せて status も `assigned` へ動かす —— 大会側の
+// `reserveAvailableChannel` が status='available' で候補を取るため、purpose だけ
+// 変えても同じ Bot を大会に取られる。
 export const lineChannelPurposeEnum = pgEnum('line_channel_purpose', [
   'system_notify',
   'event_broadcast',
   'grade_broadcast',
+  'club_chat',
 ])
 export const eventLineBroadcastStatusEnum = pgEnum('event_line_broadcast_status', [
   'invite_pending',
@@ -387,3 +394,49 @@ export const travelSelectionStatusEnum = pgEnum('travel_selection_status', [
 // ★行きと帰りで同じ enum を共有する。値の意味は「札幌／帰省先／その他」という
 // 3 軸で共通で、表示ラベルだけが向きによって変わる（constants/travel-report.ts）。
 export const travelWayKindEnum = pgEnum('travel_way_kind', ['sapporo', 'hometown', 'other'])
+
+// ── annual-registration-renewal（年度確認）──────────────────────────────
+// 公認資格・読手。NULL＝なし（3 値目を enum に持たせない＝「なし」を表す行が
+// 2 通りになるのを避ける）。準公認審判員は boolean 列。
+export const readerCertificationEnum = pgEnum('reader_certification', ['B', 'A'])
+
+// 年度確認の状態。open=回答受付中（同時に1つだけ）/ completed=登録完了
+// （取り消せない。以後 S1 は閲覧のみ）。「中止」は無い（requirements R9）。
+export const membershipRenewalStatusEnum = pgEnum('membership_renewal_status', [
+  'open',
+  'completed',
+])
+
+// 全日協セクションの回答。未回答は enum 値ではなく列の NULL で表す。
+export const renewalAnswerEnum = pgEnum('renewal_answer', ['register', 'not_register'])
+
+// 学年セクションの回答種別。advance=進級／進学 / custom=学年を自分で選ぶ
+// （留年・転学部）/ leave=卒業・サークルを離れる。
+// ★反映する学年は種別から再計算せず `next_school_year` に**絶対値**で持つ。
+// 3 月の回答を 4/1 に反映するまでの間に基準値（`users.school_year`）が
+// 動いても、本人が答えた学年がそのまま入る。
+export const renewalSchoolYearKindEnum = pgEnum('renewal_school_year_kind', [
+  'advance',
+  'custom',
+  'leave',
+])
+
+// 会 LINE グループへの送信タスク（OAM チャット予約送信）。
+// announcement=開始時の案内（1 件）/ reminder=未回答者リマインド（対象日ごと）。
+export const lineChatTaskKindEnum = pgEnum('line_chat_task_kind', ['announcement', 'reminder'])
+
+// 送信タスクの状態。**値は match-tracker `line-chat-worker` の契約に合わせた
+// 大文字**（要件 §6。ワーカーがそのまま報告してくる文字列を保存する）。
+// 遷移: PENDING → RESERVING → RESERVED | FAILED | MANUAL_REVIEW_REQUIRED |
+// DRY_RUN_SUCCEEDED、CANCEL_PENDING → CANCELLED。
+// FAILED からの再試行は同じ行を PENDING へ戻す（送信予定が未来のときのみ）。
+export const lineChatTaskStatusEnum = pgEnum('line_chat_task_status', [
+  'PENDING',
+  'RESERVING',
+  'RESERVED',
+  'FAILED',
+  'MANUAL_REVIEW_REQUIRED',
+  'DRY_RUN_SUCCEEDED',
+  'CANCEL_PENDING',
+  'CANCELLED',
+])

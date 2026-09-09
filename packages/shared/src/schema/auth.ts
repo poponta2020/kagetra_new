@@ -17,6 +17,7 @@ import {
   genderEnum,
   lineLinkMethodEnum,
   facultyKindEnum,
+  readerCertificationEnum,
 } from './enums'
 
 export const users = pgTable(
@@ -94,6 +95,13 @@ export const users = pgTable(
     // サークル長。**同時に1人だけ**（下の partial unique index が DB バックストップ）。
     // 遠征届の「団体代表者」と「留守連絡先の既定」に使う（R2・R9）。
     isCircleLeader: boolean('is_circle_leader').notNull().default(false),
+    // ── annual-registration-renewal（年度確認）──────────────────────────
+    // 全日協の公認資格。名簿（確認用）の「公認資格」欄に出る値で、全日協の
+    // 申請で決まるため**管理者だけが編集**する（S5。本人は S1 で読むだけ）。
+    // 読手は なし（NULL）／B 級公認／A 級公認 の 3 値。
+    readerCertification: readerCertificationEnum('reader_certification'),
+    // 準公認審判員の有無。読手と独立（両方持つ人がいる）。
+    isAssociateReferee: boolean('is_associate_referee').notNull().default(false),
   },
   (table) => [
     // dan is 段位 (kyu/dan rank). Valid range is 0–9; enforce at the DB layer

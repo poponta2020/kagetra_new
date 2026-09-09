@@ -463,6 +463,13 @@
       "when": 1788753247184,
       "tag": "0065_careless_the_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788933984368,
+      "tag": "0066_minor_black_bolt",
+      "breakpoints": true
     }
   ]
 }

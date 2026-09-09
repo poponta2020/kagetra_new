@@ -54,20 +54,21 @@ status: completed
 ## 実装タスク
 
 ### タスク1: スキーマ・migration 0066・共有型
-- [ ] 完了
-- **目的:** 上記データモデルを Drizzle で定義し migration を生成。`RenewalSnapshot` 型＋zod・`ROSTER_FIELDS`・`SIX_YEAR_FACULTIES`・enum 型を `packages/shared` に置く
+- [x] 完了
+- **目的:** 上記データモデルを Drizzle で定義し migration を生成。`RenewalSnapshot` 型・`ROSTER_FIELDS`・`SIX_YEAR_FACULTIES`・enum 型を `packages/shared` に置く（**zod は置かない** —— `packages/shared` は zod に依存しない。検証は `travel_routes.legs` と同じく Server Action 境界＝タスク2 の `snapshot.ts`）
 - **対応AC:** AC-1〜3・AC-21・AC-24・AC-27 の土台
 - **主な変更領域:** `packages/shared/src/schema/{enums,auth,line-channels?,membership-renewals,membership-renewal-members,line-chat-tasks,club-line-groups,index,relations}.ts`・`packages/shared/src/constants/membership-renewal.ts`・`packages/shared/src/types`・`packages/shared/drizzle/0066_*.sql`・`docs/design/db.md`＋`db-tables-auth-line.md`
 - **依存タスク:** なし（main が担当。migration 生成を含む）
-- **必要なテスト:** snapshot zod の parse/reject・部分 UNIQUE が CANCELLED 行の再作成を許すこと（DB）
+- **必要なテスト:** スキーマ定義とマイグレーション SQL の照合（`packages/shared` は zod に依存しないので **snapshot の zod は タスク2 へ移した**。部分 UNIQUE が CANCELLED 行の再作成を許すことの **DB 実挙動は タスク4** のタスク store テストで見る —— `packages/shared` の vitest は DB を持たない）
 - **完了条件:** `pnpm db:generate` の差分が設計どおり・`pnpm check-types` 通過・`packages/shared` テスト green
+- **結果:** migration `0066_minor_black_bolt.sql` を生成。`club_chat` はファイル内で `ADD VALUE` の 1 行にしか現れない（PG は同一 tx で新しい enum 値を使えない）。`packages/shared` テスト 102 件 green・`check-types` 通過
 - **対応Issue:** #620
 
 ### タスク2: 純ロジック（membership-kind / snapshot / diff / school-year / schedule / messages / dan-kanji / authz）
 - [ ] 完了
 - **目的:** DB 非依存の判定・導出・文面を純関数で固める（S1・S2・バッチ・API が共用）
 - **対応AC:** AC-4・AC-7（差分）・AC-11・AC-12（判定部）・AC-15（対象日）・AC-16/16b（文面・分割）・AC-17（再計算）
-- **主な変更領域:** `apps/web/src/lib/membership-renewal/{membership-kind,snapshot,diff,school-year,schedule,messages,dan-kanji,authz}.ts`＋各 `.test.ts`
+- **主な変更領域:** `apps/web/src/lib/membership-renewal/{membership-kind,snapshot,diff,school-year,schedule,messages,dan-kanji,authz}.ts`＋各 `.test.ts`（`snapshot.ts` に `RenewalSnapshot` の zod parse/reject を含む）
 - **依存タスク:** タスク1
 - **必要なテスト:** 3/31・4/1 の境界／NULL／郵便番号正規化／最終学年 4 種＋6 年制／`resolveSchoolYearApply` の 4/1 前後／対象日集合（締切前日と 3 日おきの重なり・締切超過）／分割と衝突回避／テンプレに中括弧・URL・締切が入る
 - **完了条件:** テスト green・lint 通過
