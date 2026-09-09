@@ -1,0 +1,217 @@
+<!-- @dsCard group="年度確認（annual-registration-renewal）" name="S2 年度確認 管理" subtitle="未開始（開始フォーム）／進行中ボード（集計・タブ・名簿の写し・差分・代理回答）／登録完了ダイアログ／完了後" viewport="2080x1180" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_arr.css">
+<title>年度確認 管理 — S2 /admin/members/renewal</title>
+</head><body>
+
+<!-- ============================================================
+     S2 /admin/members/renewal — 管理者・副管理者。
+       未開始: 開始フォーム（年度・締切・一言）＋前提チェック（LINE 設定・対象者数）
+       進行中: 集計（確認済み N/M・学年 n/m）→ 絞り込みタブ → 正会員／准会員ごとの会員行
+               行を開くと名簿の写し（差分は 前→後）。未回答行は「代理回答」。
+               下に 締切変更・登録完了。
+       完了後: 結果の閲覧（読み取り専用）
+     名前・住所は架空。
+     ============================================================ -->
+
+<!-- ─────────── 未開始 ─────────── -->
+<div class="col">
+  <div class="collabel">未開始 ── 開始フォーム＋前提チェック</div>
+  <div class="phone auto">
+    <div class="main"><div class="page">
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">設定</a><span>›</span><a href="#">会員</a><span>›</span><span>年度確認</span></div>
+        <h1 class="title" style="font-size:24px">年度確認</h1>
+        <div class="subline">前回: 2025年度 ・ 完了 2025/5/12 <a class="lnk" href="#" style="margin-left:6px">結果を見る</a></div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>開始する</h2></div>
+        <div class="frm" style="padding-top:4px">
+          <div class="f"><span class="lbl">対象年度<span class="req">*</span></span><span class="sel">2026年度</span><p class="help">3月に開始するので翌年度が既定です。</p></div>
+          <div class="f"><span class="lbl">回答締切<span class="req">*</span></span><span class="in" style="width:60%">2026-03-25</span><p class="help">開始日の3日後から3日おき・締切前日・当日の 20:00 にリマインドします。</p></div>
+          <div class="f"><span class="lbl">案内に添える一言</span><span class="ta ph">例: 住所が変わった人は郵便番号も直してください</span></div>
+        </div>
+        <div class="preview">【全日協 登録確認】
+2026年度の全日本かるた協会への登録確認をお願いします。3/25(水) までに回答してください。
+https://new.hokudaicarta.com/renewal</div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>前提</h2></div>
+        <div class="pre"><span class="pk">会 LINE グループ</span><span class="pv">令和8年度北海道大学かるた会<span class="sub">Bot: かげとら-12 ・ ルーム登録済み</span></span><span class="bdg ok">OK</span></div>
+        <div class="pre"><span class="pk">対象者</span><span class="pv">全日協 31名 ・ サークル 52名<span class="sub">開始時点の「全日協登録 ON」「サークル所属」で確定します</span></span></div>
+        <div class="pre"><span class="pk">名簿と合わない人</span><span class="pv"><a class="lnk" href="#">会員一覧で全日協フラグを確認</a><span class="sub">開始後は対象者を増減できません</span></span></div>
+      </div>
+
+      <div class="sticky"><span class="btn b-lg b-primary b-block">開始して案内を送る</span></div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab active">設定</span></div>
+  </div>
+  <div class="colnote">入力は 年度・締切・一言 の3つ。送る文面をその場でプレビュー。前提（LINE 設定・対象者数）が揃わないと「開始」は無効になり理由が出る。</div>
+</div>
+
+<!-- ─────────── 進行中ボード ─────────── -->
+<div class="col">
+  <div class="collabel">進行中 ── 集計・タブ・名簿の写し（差分・代理回答）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">設定</a><span>›</span><a href="#">会員</a><span>›</span><span>年度確認</span></div>
+        <h1 class="title" style="font-size:24px">2026年度 登録確認</h1>
+        <div class="subline">締切 3/25(水) ／ 開始 3/10 ／ 次のリマインド 3/16 20:00 <a class="lnk" href="#" style="margin-left:6px">締切を変更</a></div>
+      </div>
+
+      <div class="caprow" style="padding-top:14px">
+        <span class="ci"><span class="n">24</span><span class="u">/ 31 確認済み</span></span>
+        <span class="ci"><span class="n" style="font-size:var(--kg-text-md)">40</span><span class="u">/ 52 学年</span></span>
+      </div>
+      <div class="tabs">
+        <span class="on ng"><b>7</b>未回答</span>
+        <span><b>15</b>変更なし</span>
+        <span><b>6</b>変更あり</span>
+        <span><b>3</b>登録しない</span>
+      </div>
+
+      <div class="grph">正会員<span class="n">未回答 6</span></div>
+      <details class="mrow" open>
+        <summary><span class="mn">北海 太郎<span class="g">A</span><span class="dan">四段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary>
+        <div class="mbody">
+          <div class="mmeta"><span>LINE 紐付け済み ・ リマインド 2回</span><a class="lnk" href="#">代理で回答する</a></div>
+          <table class="flat">
+            <tr><th>ふりがな</th><td>ほっかい たろう</td></tr>
+            <tr><th>生年月日</th><td class="date">2004-06-12 <span class="vary">正会員</span></td></tr>
+            <tr><th>性別</th><td>男</td></tr>
+            <tr><th>郵便番号</th><td>001-0017</td></tr>
+            <tr><th>住所1</th><td>北海道札幌市北区北17条西3-1-38</td></tr>
+            <tr><th>住所2</th><td>ボストンハウス501</td></tr>
+            <tr><th>電話番号</th><td><span class="st ng">未入力</span></td></tr>
+            <tr><th>公認資格</th><td>B級公認読手</td></tr>
+          </table>
+        </div>
+      </details>
+      <details class="mrow"><summary><span class="mn">藤野 美咲<span class="g">A</span><span class="dan">四段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary></details>
+      <details class="mrow"><summary><span class="mn">石狩 蓮<span class="g">B</span><span class="dan">参段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary></details>
+      <details class="mrow"><summary><span class="mn">小樽 結衣<span class="g">B</span><span class="dan">参段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary></details>
+      <details class="mrow left"><summary><span class="mn">帯広 花<span class="g">C</span><span class="dan">弐段</span></span><span class="st na">退会</span><span class="chev">›</span></summary></details>
+      <details class="mrow"><summary><span class="mn">旭川 悠<span class="g">C</span><span class="dan">弐段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary></details>
+
+      <div class="grph">准会員<span class="n">未回答 1</span></div>
+      <details class="mrow"><summary><span class="mn">北海 花<span class="g">C</span><span class="dan">弐段</span></span><span class="st ng">未回答</span><span class="chev">›</span></summary></details>
+
+      <div class="sticky"><div style="display:flex;gap:10px;align-items:center;justify-content:space-between"><span class="help">提出・確定後に押す</span><span class="btn b-lg b-outline">登録完了にする</span></div></div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab active">設定</span></div>
+  </div>
+  <div class="colnote">主集計は「確認済み N/31」（全日協）、学年は副集計で小さく。タブは4分類＋件数。行は 名簿の写し（区分ごと）で、開くと名簿の列が flat 表で出る。未回答行は「代理で回答する」。退会処理済みは薄く「退会」。</div>
+</div>
+
+<!-- ─────────── 変更ありタブ ─────────── -->
+<div class="col">
+  <div class="collabel">「変更あり」タブ ── 前→後の差分だけを見せる</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">設定</a><span>›</span><a href="#">会員</a><span>›</span><span>年度確認</span></div>
+        <h1 class="title" style="font-size:24px">2026年度 登録確認</h1>
+        <div class="subline">締切 3/25(水) ／ 開始 3/10 ／ 次のリマインド 3/16 20:00</div>
+      </div>
+      <div class="caprow" style="padding-top:14px">
+        <span class="ci"><span class="n">24</span><span class="u">/ 31 確認済み</span></span>
+        <span class="ci"><span class="n" style="font-size:var(--kg-text-md)">40</span><span class="u">/ 52 学年</span></span>
+      </div>
+      <div class="tabs">
+        <span class="ng"><b>7</b>未回答</span>
+        <span><b>15</b>変更なし</span>
+        <span class="on"><b>6</b>変更あり</span>
+        <span><b>3</b>登録しない</span>
+      </div>
+
+      <div class="grph">正会員<span class="n">変更あり 5</span></div>
+      <details class="mrow" open>
+        <summary><span class="mn">釧路 颯<span class="g">A</span><span class="dan">四段</span></span><span class="st ok">住所</span><span class="chev">›</span></summary>
+        <div class="mbody">
+          <div class="mmeta"><span>3/12 本人が回答</span><a class="lnk" href="#">会員編集</a></div>
+          <div class="kv chg"><span class="k">郵便番号</span><span class="v"><span class="was">001-0013</span><span class="now">183-0013</span></span></div>
+          <div class="kv chg"><span class="k">住所1</span><span class="v"><span class="was">北海道札幌市北区北13条西1-1-8</span><span class="now">東京都府中市小柳町1-20-6</span></span></div>
+          <div class="kv chg"><span class="k">住所2</span><span class="v"><span class="was">サンタの館北大前WEST 810</span><span class="now">ヴィレッジシノ203</span></span></div>
+          <details class="mg"><summary><span class="k">変更のない項目</span><span class="v">ふりがな・生年月日・性別・電話番号 ほか</span></summary></details>
+        </div>
+      </details>
+      <details class="mrow"><summary><span class="mn">石狩 陽向<span class="g">A</span><span class="dan">四段</span></span><span class="st ok">電話番号</span><span class="chev">›</span></summary></details>
+      <details class="mrow"><summary><span class="mn">小樽 楓<span class="g">B</span><span class="dan">参段</span></span><span class="st ok">住所</span><span class="chev">›</span></summary></details>
+      <details class="mrow"><summary><span class="mn">函館 大地<span class="g">B</span><span class="dan">参段</span></span><span class="st ok">住所・電話番号</span><span class="chev">›</span></summary></details>
+      <details class="mrow" open>
+        <summary><span class="mn">室蘭 海<span class="g">C</span><span class="dan">弐段</span></span><span class="st ok">氏名・ふりがな</span><span class="chev">›</span></summary>
+        <div class="mbody">
+          <div class="mmeta"><span>3/14 管理者が代理回答</span><a class="lnk" href="#">会員編集</a></div>
+          <div class="kv chg"><span class="k">氏名</span><span class="v"><span class="was">室蘭 海</span><span class="now">登別 海</span></span></div>
+          <div class="kv chg"><span class="k">ふりがな</span><span class="v"><span class="was">むろらん うみ</span><span class="now">のぼりべつ うみ</span></span></div>
+        </div>
+      </details>
+
+      <div class="grph">准会員<span class="n">変更あり 1</span></div>
+      <details class="mrow"><summary><span class="mn">北海 花<span class="g">C</span><span class="dan">弐段</span></span><span class="st ok">住所</span><span class="chev">›</span></summary></details>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab active">設定</span></div>
+  </div>
+  <div class="colnote">「変更あり」は行の右に変わった項目名を出し、開くと 前（取り消し線）→ 後（朱の太字）だけを並べる。変更届は「変更前／変更後」欄なのでこの形をそのまま写せる。変更のない項目は開閉行に畳む。</div>
+</div>
+
+<!-- ─────────── ダイアログ・完了後・代理回答 ─────────── -->
+<div class="col">
+  <div class="collabel">断片 ── 登録完了の確認／完了後／代理回答</div>
+  <div class="vcard">
+    <div class="vlabel">登録完了の確認ダイアログ（未回答が残っている場合）</div>
+    <div class="dlg">
+      <h3>登録完了にしますか？</h3>
+      <p>「登録しない」と回答した <b>3名</b> の全日協登録をオフにします。</p>
+      <p>未回答 <b>2名</b> はそのまま（継続扱い）です。<br><span class="names">藤野 美咲、小樽 結衣</span></p>
+      <p>これ以降、会員は回答を変更できず、未送信のリマインドは取り消されます。取り消しはできません。</p>
+      <div class="dacts"><span class="btn b-sm b-outline">やめる</span><span class="btn b-sm b-primary">登録完了にする</span></div>
+    </div>
+    <div class="vnote">押す前に「フラグを消す人数」「未回答の氏名」「取り消せない」を1画面で見せる。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">完了後（読み取り専用）</div>
+    <div class="sec">
+      <div class="sech"><h2>2026年度 登録確認</h2><span class="aux">完了 5/12</span></div>
+      <div class="caprow" style="padding-top:2px">
+        <span class="ci"><span class="n">29</span><span class="u">/ 31 確認済み</span></span>
+        <span class="ci"><span class="n" style="font-size:var(--kg-text-md)">26</span><span class="u">継続</span></span>
+        <span class="ci"><span class="n" style="font-size:var(--kg-text-md)">3</span><span class="u">登録しない</span></span>
+      </div>
+      <div class="tabs"><span><b>2</b>未回答</span><span><b>20</b>変更なし</span><span><b>6</b>変更あり</span><span><b>3</b>登録しない</span></div>
+      <p class="help" style="margin-top:10px">完了後は閲覧のみ。次の年度確認は 2027年3月に開始できます。</p>
+    </div>
+    <div class="vnote">同じボードを読み取り専用で残す（翌年の突き合わせ用）。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">代理回答（行の「代理で回答する」を押した状態）</div>
+    <div class="dlg">
+      <h3>北海 太郎 の回答を代理で記録</h3>
+      <div class="choice">
+        <div class="opt on"><span class="rad"></span><span class="ot">今年度も登録する</span></div>
+        <div class="opt"><span class="rad"></span><span class="ot">今年度は登録しない</span></div>
+      </div>
+      <p style="margin-top:8px">登録内容の修正は会員編集で行ってください。差分は同じ規則で出ます。</p>
+      <div class="dacts"><span class="btn b-sm b-outline">やめる</span><span class="btn b-sm b-primary">記録する</span></div>
+    </div>
+    <div class="vnote">代理回答は 2択だけ。項目の修正は既存の会員編集に任せる（同じ導出で差分に出る）。</div>
+  </div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>ボードの単位は名簿の写し</b>: 正会員／准会員の区分ごとに並べ、行を開くと名簿の列が出る。紙を書くときはこの順で目を走らせる。</li>
+    <li><b>タブ4分類</b>: 未回答／変更なし／変更あり／登録しない。件数付き。初期表示は未回答。</li>
+    <li><b>差分の見せ方</b>: 前（取り消し線・砂）→ 後（朱・太字）。変更のない項目は畳む。</li>
+    <li><b>登録完了</b>: sticky の外線ボタン。確認ダイアログで人数・氏名・不可逆を明示。</li>
+  </ul>
+</div>
+
+</body></html>

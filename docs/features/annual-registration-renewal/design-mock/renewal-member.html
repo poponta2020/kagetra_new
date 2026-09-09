@@ -1,0 +1,200 @@
+<!-- @dsCard group="年度確認（annual-registration-renewal）" name="S1 年度確認（会員）" subtitle="両セクション対象・未回答／最終学年の3択／登録しない／回答済み／学年のみ対象／必須欠落" viewport="2080x1180" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_arr.css">
+<title>年度確認（会員） — S1 /renewal</title>
+</head><body>
+
+<!-- ============================================================
+     S1 /renewal — 本人が「全日協の登録」と「4月からの学年」を答える画面。
+       上: 固定ヘッダー（年度・締切）＋回答状態バー
+       ①全日協の登録: 2択（登録する／登録しない）→ 名簿の列を1行ずつ「値＋修正」。未入力は入力欄。
+          会員区分（導出）と公認資格は読み取り専用。
+       ②4月からの学年: 現在→次（既定 +1）。最終学年は 進学／卒業／留年 の3択。
+       下: sticky「回答する」。回答後も同じ画面で修正できる。
+     名前・住所は架空。
+     ============================================================ -->
+
+<!-- ─────────── 両セクション対象・未回答 ─────────── -->
+<div class="col">
+  <div class="collabel">未回答 ── 全日協＋学年（学部3年・電話が未入力）</div>
+  <div class="phone auto">
+    <div class="main"><div class="page">
+
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">ホーム</a><span>›</span><span>年度確認</span></div>
+        <h1 class="title">2026年度 登録確認</h1>
+        <div class="subline">回答締切 3/25(水) ／ 全日本かるた協会・北海道大学かるた会</div>
+      </div>
+
+      <div class="ans ng">
+        <span class="bdg ng">未回答</span>
+        <span class="at">全日協の登録と 4月からの学年<span class="as">締切まであと 13 日</span></span>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>全日協の登録</h2><span class="aux">正会員</span></div>
+        <p class="help" style="padding-bottom:10px">今年度も全日本かるた協会に登録するかを答え、登録する場合は下の内容が今も正しいか確認してください。</p>
+        <div class="choice">
+          <div class="opt on"><span class="rad"></span><span class="ot">今年度も登録する<span class="os">下の登録内容を確認してください。変わった項目はその場で直せます。</span></span></div>
+          <div class="opt"><span class="rad"></span><span class="ot">今年度は登録しない<span class="os">全日協へ退会届を出します（会・アプリの退会ではありません）。</span></span></div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="kv"><span class="k">氏名<span class="req">*</span></span><span class="v">北海 太郎</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">ふりがな<span class="req">*</span></span><span class="v">ほっかい たろう</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">生年月日<span class="req">*</span></span><span class="v">2004-06-12</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">性別<span class="req">*</span></span><span class="v">男</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">段位</span><span class="v">四段</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">級<span class="req">*</span></span><span class="v">A</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">郵便番号<span class="req">*</span></span><span class="v">001-0017</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">住所1<span class="req">*</span></span><span class="v">北海道札幌市北区北17条西3-1-38</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv"><span class="k">住所2</span><span class="v">ボストンハウス501</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+          <div class="kv miss"><span class="k">電話番号<span class="req">*</span></span><span class="v"><span class="in ph" style="width:100%">090-0000-0000</span><div class="errmsg">未入力です。登録するには入力が必要です</div></span></div>
+          <div class="kv"><span class="k">会員区分</span><span class="v ro">正会員<span class="ronote">3/31 時点で 20 歳以上</span></span></div>
+          <div class="kv"><span class="k">公認資格</span><span class="v ro">B級公認読手<span class="ronote">変更は管理者へ</span></span></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>4月からの学年</h2><span class="aux">サークル所属</span></div>
+        <div class="cur"><span class="k">現在</span><span>工学部 <b>3年</b></span><span class="arrow">→</span><span class="k">4月から</span><span class="sel">4年</span></div>
+        <p class="help">学年は 4/1 に反映されます。学部等名が変わる場合や、サークルを離れる場合は下から選んでください。</p>
+        <div style="display:flex;gap:14px;margin-top:8px"><a class="lnk" href="#">学部等名を変える</a><a class="lnk" href="#">サークルを離れる</a></div>
+      </div>
+
+      <div class="sticky"><span class="btn b-lg b-dis b-block">未入力の項目があります</span></div>
+    </div></div>
+    <div class="bottomnav"><span class="tab active">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab">設定</span></div>
+  </div>
+  <div class="colnote">上から「回答状態 → 全日協（2択→名簿の列）→ 学年 → 回答する」。名簿の列順は全日協の名簿と同じ。未入力（電話）は行の中が入力欄になり、埋まるまで下のボタンは無効。会員区分・公認資格は読み取り専用。</div>
+</div>
+
+<!-- ─────────── 最終学年: 進学／卒業／留年 ─────────── -->
+<div class="col">
+  <div class="collabel">学年セクション ── 最終学年（学部4年）は既定値なしの3択</div>
+  <div class="vcard">
+    <div class="vlabel">進学を選んだ状態（大学院の学部等名・学年を続けて入力）</div>
+    <div class="sec">
+      <div class="sech"><h2>4月からの学年</h2><span class="aux">サークル所属</span></div>
+      <div class="cur"><span class="k">現在</span><span>工学部 <b>4年</b>（最終学年）</span></div>
+      <div class="rlist">
+        <div class="rrow on"><span class="rad"></span><span class="rt">進学する<span class="rs">大学院・専門職大学院へ。新しい学部等名と学年を入力</span></span>
+          <div class="sub">
+            <div class="f"><span class="lbl">所属<span class="req">*</span></span><div class="segbar"><span>学部</span><span class="on">大学院</span></div></div>
+            <div class="f"><span class="lbl">学部等名<span class="req">*</span></span><span class="in" style="width:100%">工学院</span>
+              <div class="sug"><div class="hl"><b>工学院</b></div><div>総合化学院</div><div>情報科学院</div></div></div>
+            <div class="f"><span class="lbl">学年<span class="req">*</span></span><span class="sel">修士1年</span></div>
+          </div>
+        </div>
+        <div class="rrow"><span class="rad"></span><span class="rt">卒業する<span class="rs">サークルを離れます（全日協の登録とは別）</span></span></div>
+        <div class="rrow"><span class="rad"></span><span class="rt">留年（4年のまま）</span></div>
+      </div>
+    </div>
+    <div class="vnote">最終学年（学部4年／6年制は6年・修士2年・博士3年・専門職3年）は +1 の既定値を置かず、3択にする。「進学」は登録フォームと同じ 所属→学部等名（候補つき）→学年 を続けて出す。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">最終学年以外で「サークルを離れる」を開いた状態</div>
+    <div class="sec">
+      <div class="sech"><h2>4月からの学年</h2><span class="aux">サークル所属</span></div>
+      <div class="cur"><span class="k">現在</span><span>文学部 <b>2年</b></span></div>
+      <div class="rlist">
+        <div class="rrow"><span class="rad"></span><span class="rt">3年に進む<span class="rs">既定</span></span></div>
+        <div class="rrow"><span class="rad"></span><span class="rt">学年を自分で選ぶ<span class="rs">留年・転学部など</span></span></div>
+        <div class="rrow on"><span class="rad"></span><span class="rt">サークルを離れる<span class="rs">4/1 にサークル所属が外れます。学部等名・学年は残ります</span></span></div>
+      </div>
+    </div>
+    <div class="vnote">既定（+1）が上・例外が下。「サークルを離れる」は 4/1 反映なので、3月の遠征届には影響しない旨を添える。</div>
+  </div>
+</div>
+
+<!-- ─────────── 登録しない／回答済み ─────────── -->
+<div class="col">
+  <div class="collabel">「今年度は登録しない」を選んだ状態 ── 名簿の列は畳む</div>
+  <div class="vcard">
+    <div class="vlabel">登録しない（必須欠落があっても回答できる）</div>
+    <div class="sec">
+      <div class="sech"><h2>全日協の登録</h2><span class="aux">准会員</span></div>
+      <div class="choice">
+        <div class="opt"><span class="rad"></span><span class="ot">今年度も登録する</span></div>
+        <div class="opt on out"><span class="rad"></span><span class="ot">今年度は登録しない<span class="os">全日協へ退会届を出します（会・アプリの退会ではありません）。移籍する場合は管理者に伝えてください。</span></span></div>
+      </div>
+      <details class="mg" style="margin-top:10px"><summary><span class="k">登録内容</span><span class="v">北海 花 ・ 弐段 C ・ 札幌市北区</span><span class="mgaux">確認だけ</span></summary></details>
+    </div>
+    <div class="sticky" style="margin-top:14px"><span class="btn b-lg b-primary b-block">この内容で回答する</span></div>
+    <div class="vnote">「登録しない」は藤鼠（neutral）で塗り分け、名簿の列は開閉行に畳む（退会届に載る内容の確認用・修正不要）。</div>
+  </div>
+
+  <div class="collabel" style="margin-top:14px">回答済み ── 同じ画面で修正できる</div>
+  <div class="vcard">
+    <div class="vlabel">回答済み（登録する・住所を修正した）</div>
+    <div class="ans">
+      <span class="bdg ok">回答済み</span>
+      <span class="at">今年度も登録する ・ 4年<span class="as">3/12 に回答 ・ 変更あり: 住所1・住所2</span></span>
+      <a class="lnk" href="#">修正</a>
+    </div>
+    <div class="sec" style="padding-top:18px">
+      <div class="sech"><h2>全日協の登録</h2><span class="aux">正会員</span></div>
+      <div class="kv"><span class="k">氏名</span><span class="v">北海 太郎</span></div>
+      <div class="kv chg"><span class="k">住所1</span><span class="v"><span class="was">北海道札幌市北区北17条西3-1-38</span><span class="now">東京都葛飾区亀有5丁目38-6</span></span></div>
+      <div class="kv chg"><span class="k">住所2</span><span class="v"><span class="was">ボストンハウス501</span><span class="now">AELL亀有 204</span></span></div>
+      <div class="kv"><span class="k">電話番号</span><span class="v">090-0000-0000</span></div>
+    </div>
+    <div class="vnote">回答後は状態バーが藤（済み）になり、変更した項目は「前（取り消し線）→ 後（朱）」で本人にも見せる。「修正」で編集状態へ戻る。</div>
+  </div>
+</div>
+
+<!-- ─────────── 学年のみ対象／全日協のみ対象 ─────────── -->
+<div class="col">
+  <div class="collabel">片方だけ対象の断片</div>
+  <div class="vcard">
+    <div class="vlabel">学年のみ（全日協未登録の D 級サークル員）</div>
+    <div class="ans ng">
+      <span class="bdg ng">未回答</span>
+      <span class="at">4月からの学年<span class="as">締切まであと 13 日</span></span>
+    </div>
+    <div class="sec" style="padding-top:18px">
+      <div class="sech"><h2>4月からの学年</h2><span class="aux">サークル所属</span></div>
+      <div class="cur"><span class="k">現在</span><span>総合教育部 <b>1年</b></span><span class="arrow">→</span><span class="k">4月から</span><span class="sel">2年</span></div>
+      <p class="help">総合教育部から学部へ移る場合は「学部等名を変える」から入力してください。</p>
+      <div style="display:flex;gap:14px;margin-top:8px"><a class="lnk" href="#">学部等名を変える</a><a class="lnk" href="#">サークルを離れる</a></div>
+    </div>
+    <p class="help" style="margin-top:14px">全日本かるた協会の登録確認は対象外です（登録者ではありません）。</p>
+    <div class="sticky" style="margin-top:14px"><span class="btn b-lg b-primary b-block">回答する</span></div>
+    <div class="vnote">該当しないセクションは見出しごと出さず、末尾に一文だけ添える。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">全日協のみ（社会人会員・サークル外）</div>
+    <div class="ans ng">
+      <span class="bdg ng">未回答</span>
+      <span class="at">全日協の登録<span class="as">締切まであと 13 日</span></span>
+    </div>
+    <div class="sec" style="padding-top:18px">
+      <div class="sech"><h2>全日協の登録</h2><span class="aux">正会員</span></div>
+      <div class="choice">
+        <div class="opt on"><span class="rad"></span><span class="ot">今年度も登録する</span></div>
+        <div class="opt"><span class="rad"></span><span class="ot">今年度は登録しない</span></div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="kv"><span class="k">氏名</span><span class="v">釧路 颯</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+        <div class="kv"><span class="k">住所1</span><span class="v">東京都府中市小柳町1-20-6</span><span class="act"><a class="lnk" href="#">修正</a></span></div>
+        <div class="kv"><span class="k">…</span><span class="v ro">（以下、名簿の列）</span></div>
+      </div>
+    </div>
+    <div class="vnote">学年セクションは出ない（サークル所属 OFF）。</div>
+  </div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>2択の置き場所</b>: 名簿の列より上。「登録しない」を選ぶと列は開閉行に畳まれ、必須欠落があっても回答できる。</li>
+    <li><b>行内修正</b>: 各行の「修正」で値が下線入力に変わる（別画面へ飛ばない）。未入力の行は最初から入力欄。</li>
+    <li><b>学年の既定値</b>: 「現在 → 4月から」の1行。最終学年だけ3択（進学／卒業／留年）。反映は 4/1 と明記。</li>
+    <li><b>回答後</b>: 状態バーが藤に変わり、差分は「前→後」で本人にも見せる。締切後も登録完了まで修正可。</li>
+  </ul>
+</div>
+
+</body></html>

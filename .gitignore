@@ -25,3 +25,7 @@ scripts/diagnostics/
 
 # /design-screen ライブプロト worktree (C:/tmp/design-live-kagetra) へのジャンクション
 .design-live
+# 全日協登録の実提出物（実名・住所・口座の PII）。commit しない
+docs/全日協登録/
+# 会員登録用の実提出物（実名・住所・生年月日・電話の PII）。commit しない
+docs/会員登録用/
