@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import {
+  clubLineGroups,
   eventLineBroadcasts,
   events,
   lineChannels,
@@ -201,6 +202,9 @@ async function loadChannelByDestination(
   // event-grade-group-broadcast: `grade_broadcast` チャネル (級別常設グループ)
   // もここで解決する必要があるので purpose フィルタを2値へ広げる。1 チャネル =
   // 1 purpose なので、戻り値の purpose を見るだけで下流の振り分けが排他になる。
+  // annual-registration-renewal タスク3: `club_chat`（会 LINE グループ用に
+  // 転換した Bot）も同じ理由でここに加える。加えないと join イベントの宛先が
+  // 一切解決できず、グループ ID の捕捉が構造的に動かない。
   const rows = await db
     .select({
       id: lineChannels.id,
@@ -212,7 +216,7 @@ async function loadChannelByDestination(
       purpose: lineChannels.purpose,
     })
     .from(lineChannels)
-    .where(sql`${lineChannels.purpose} IN ('event_broadcast','grade_broadcast')`)
+    .where(sql`${lineChannels.purpose} IN ('event_broadcast','grade_broadcast','club_chat')`)
   const hit = rows.find((row) => {
     if (row.webhookDestinationId === destination) return true
     // Backward-compat fallback: only fires when webhookDestinationId is
@@ -355,6 +359,11 @@ export async function applyWebhookEvents(
     return
   }
 
+  if (purpose === 'club_chat') {
+    await applyClubChatWebhookEvents(db, channelId, payload, log)
+    return
+  }
+
   for (const event of payload.events) {
     try {
       switch (event.type) {
@@ -476,6 +485,91 @@ async function applyGradeGroupWebhookEvents(
       })
     }
   }
+}
+
+/**
+ * annual-registration-renewal タスク3 (R10・AC-26): 会 LINE グループ
+ * (`club_line_groups` / purpose='club_chat') 用の webhook 処理。
+ *
+ * 大会用・級グループ用のどちらとも別物として独立させる:
+ *   - **reply を一切送らない**。招待コードのやり取りが無いグループなので、
+ *     案内文を返す replyToken 消費が発生しない
+ *   - **message は種別を問わず完全に無視する**。招待コード判定
+ *     (`INVITE_CODE_PATTERN`) にも line-chat-commands にも流さない
+ *     （requirements R10「グループ内の発言は無視する」）
+ *   - join で webhook 側グループ ID (`club_line_groups.line_group_id`) を
+ *     捕捉、**`leave`（Bot 自身がグループから外された）でだけ** NULL 化する。
+ *     ★`memberLeft`（会員が 1 人抜けた）では消さない —— 消すと 3 月の年度確認
+ *     期間中に誰か 1 人が退出しただけで捕捉が失われ、再捕捉は Bot の再招待
+ *     （join）でしか起きないため、以後のリマインドが無言で全員テキスト列挙へ
+ *     フォールバックし続ける。requirements R10 も「join で捕捉」としか言って
+ *     おらず、`memberLeft` を含める根拠が無い
+ *   - 対象行は `club_line_groups.line_channel_id = channelId` の 1 行のみ。
+ *     転換前のプール Bot で誤って join されても、既に設定済みの本番の紐付けを
+ *     向け変えない（implementation-plan「その他の確定事項」）
+ */
+async function applyClubChatWebhookEvents(
+  db: typeof appDb,
+  channelId: number,
+  payload: LineWebhookPayload,
+  log: (event: string, ctx: Record<string, unknown>) => void,
+): Promise<void> {
+  for (const event of payload.events) {
+    try {
+      switch (event.type) {
+        case 'join': {
+          await handleClubChatJoin(db, channelId, event)
+          break
+        }
+        case 'leave': {
+          await handleClubChatLeave(db, channelId)
+          break
+        }
+        default:
+          // message・memberLeft を含む他の全イベント種別は副作用なく無視する
+          // (R10)。`memberLeft` を無視する理由は上のコメント参照。
+          break
+      }
+    } catch (err) {
+      log('webhook_event_failed', {
+        channelId,
+        eventType: event.type,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+}
+
+async function handleClubChatJoin(
+  db: typeof appDb,
+  channelId: number,
+  event: LineWebhookEvent,
+): Promise<void> {
+  const groupId = event.source?.groupId
+  if (!groupId) return
+
+  await db
+    .update(clubLineGroups)
+    .set({
+      lineGroupId: groupId,
+      lineGroupCapturedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(clubLineGroups.lineChannelId, channelId))
+}
+
+async function handleClubChatLeave(db: typeof appDb, channelId: number): Promise<void> {
+  // `line_channel_id` が UNIQUE なので対象行は高々1件。大会用 handleLeave と
+  // 違い、このチャネルは会グループ専用の常設設定なので source.groupId との
+  // 突き合わせは不要（別グループへ迷い込む余地が無い）。
+  await db
+    .update(clubLineGroups)
+    .set({
+      lineGroupId: null,
+      lineGroupCapturedAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(clubLineGroups.lineChannelId, channelId))
 }
 
 async function handleJoin(

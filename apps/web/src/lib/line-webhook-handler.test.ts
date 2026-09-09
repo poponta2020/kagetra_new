@@ -21,6 +21,7 @@ import {
 } from './line-webhook-handler'
 import {
   attachmentShareTokens,
+  clubLineGroups,
   eventBroadcastMessages,
   eventLineBroadcasts,
   events,
@@ -63,10 +64,13 @@ async function resetDb() {
   // line_channels を ON DELETE RESTRICT で参照するので、lineChannels の
   // 削除より前に消す (無いと次の resetDb() で FK 違反が起きて既存の
   // event_broadcast 系テストまで巻き込んで壊れる)。
+  // annual-registration-renewal タスク3: club_line_groups も同じ理由
+  // (line_channel_id が RESTRICT) で先に消す。
   await db.delete(eventBroadcastMessages)
   await db.delete(attachmentShareTokens)
   await db.delete(eventLineBroadcasts)
   await db.delete(lineGradeGroupBindings)
+  await db.delete(clubLineGroups)
   await db.delete(lineChannels)
   await db.delete(tournamentDrafts)
   await db.delete(mailAttachments)
@@ -82,7 +86,7 @@ async function insertChannel(overrides: Partial<{
   channelAccessToken: string
   botId: string
   webhookDestinationId: string | null
-  purpose: 'event_broadcast' | 'grade_broadcast'
+  purpose: 'event_broadcast' | 'grade_broadcast' | 'club_chat'
 }> = {}) {
   const inserted = await db
     .insert(lineChannels)
@@ -124,6 +128,29 @@ async function insertGradeBinding(
       inviteCode: overrides.inviteCode ?? null,
       inviteCodeExpiresAt: overrides.inviteCodeExpiresAt ?? null,
       lineGroupId: overrides.lineGroupId ?? null,
+    })
+    .returning()
+  return inserted[0]!
+}
+
+/**
+ * annual-registration-renewal タスク3: club_chat 用に転換済みチャネルの
+ * `club_line_groups` 行を1件 seed する。URL/表示名は club-line-group.test.ts
+ * と同じダミー値(webhook のテストでは中身を見ないので固定値でよい)。
+ */
+async function insertClubLineGroup(
+  channelId: number,
+  overrides: Partial<{ lineGroupId: string | null; lineGroupCapturedAt: Date | null }> = {},
+) {
+  const inserted = await db
+    .insert(clubLineGroups)
+    .values({
+      lineChannelId: channelId,
+      oamAccountPath: 'U16c4a1b2c3d4e5f60718293a4b5c6d70',
+      oamChatRoomId: 'C432c0102030405060708090a0b0c0d0e',
+      chatRoomName: '会グループ',
+      lineGroupId: overrides.lineGroupId ?? null,
+      lineGroupCapturedAt: overrides.lineGroupCapturedAt ?? null,
     })
     .returning()
   return inserted[0]!
@@ -1343,6 +1370,186 @@ describe('grade_broadcast チャネル宛の webhook（級グループ紐付け�
     })
     expect(gradeBinding?.status).toBe('invite_pending')
     expect(gradeBinding?.lineGroupId).toBeNull()
+  })
+})
+
+// annual-registration-renewal タスク3 (AC-26): purpose='club_chat' チャネル宛の
+// webhook 処理。会 LINE グループは招待コードのやり取りを持たない常設グループなので、
+// 大会用・級グループ用のどちらの経路にも流れないことと、join/leave による
+// line_group_id の捕捉/NULL化・message の完全無視を検証する。
+describe('club_chat チャネル宛の webhook（会 LINE グループの join 捕捉）', () => {
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('join でグループIDが記録され captured_at が入る。reply は送らない (handleLineWebhook 経由でルーティングも検証)', async () => {
+    const channel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(channel.id)
+
+    const payload = {
+      destination: channel.webhookDestinationId,
+      events: [
+        {
+          type: 'join',
+          replyToken: 'club-join-1',
+          source: { type: 'group', groupId: 'G-club-1' },
+        },
+      ],
+    }
+    const body = JSON.stringify(payload)
+    const replyClient = makeReplyClient()
+    const res = await handleLineWebhook(db, body, signBody(body), replyClient.client)
+    expect(res.status).toBe(200)
+
+    const row = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, channel.id),
+    })
+    expect(row?.lineGroupId).toBe('G-club-1')
+    expect(row?.lineGroupCapturedAt).not.toBeNull()
+    // R10: join では reply を送らない（招待コードのやり取りが無いグループ）。
+    expect(replyClient.captured).toHaveLength(0)
+  })
+
+  it('leave で line_group_id / captured_at が NULL に戻る', async () => {
+    const channel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(channel.id, {
+      lineGroupId: 'G-club-2',
+      lineGroupCapturedAt: new Date(),
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'leave',
+          source: { type: 'group', groupId: 'G-club-2' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client, {}, 'club_chat')
+
+    const row = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, channel.id),
+    })
+    expect(row?.lineGroupId).toBeNull()
+    expect(row?.lineGroupCapturedAt).toBeNull()
+  })
+
+  it('memberLeft（会員が1人抜けた）では捕捉を消さない', async () => {
+    // ★消してしまうと、年度確認の期間中に誰か1人が退出しただけで表示名解決が
+    // できなくなり、再捕捉は Bot の再招待（join）でしか起きないため、以後の
+    // リマインドが無言で全員テキスト列挙へフォールバックし続ける。NULL 化は
+    // `leave`（Bot 自身がグループから外された）だけの挙動にする。
+    const capturedAt = new Date()
+    const channel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(channel.id, {
+      lineGroupId: 'G-club-3',
+      lineGroupCapturedAt: capturedAt,
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'memberLeft',
+          source: { type: 'group', groupId: 'G-club-3' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client, {}, 'club_chat')
+
+    const row = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, channel.id),
+    })
+    expect(row?.lineGroupId).toBe('G-club-3')
+    expect(row?.lineGroupCapturedAt).not.toBeNull()
+  })
+
+  it('テキスト発言は完全に無視する（招待コード判定にも line-chat-commands にも流れない・reply なし）', async () => {
+    const channel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(channel.id, { lineGroupId: 'G-club-4' })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'club-text-1',
+          source: { type: 'group', groupId: 'G-club-4' },
+          // 6桁の招待コードに見える文字列でも無視される。
+          message: { type: 'text', text: '123456' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, channel.id, 'token', payload, reply.client, {}, 'club_chat')
+
+    expect(reply.captured).toHaveLength(0)
+    const row = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, channel.id),
+    })
+    // 発言は line_group_id にも一切影響しない。
+    expect(row?.lineGroupId).toBe('G-club-4')
+  })
+
+  it('groupId の無い join は no-op（例外なし）', async () => {
+    const channel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(channel.id)
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [{ type: 'join', source: { type: 'user' } }],
+    }
+    const reply = makeReplyClient()
+    await expect(
+      applyWebhookEvents(db, channel.id, 'token', payload, reply.client, {}, 'club_chat'),
+    ).resolves.toBeUndefined()
+
+    const row = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, channel.id),
+    })
+    expect(row?.lineGroupId).toBeNull()
+  })
+
+  it('event_broadcast / grade_broadcast チャネル宛の既存挙動は club_chat チャネルが同時に存在しても変わらない（回帰）', async () => {
+    const clubChannel = await insertChannel({ purpose: 'club_chat' })
+    await insertClubLineGroup(clubChannel.id)
+
+    const eventChannel = await insertChannel({ purpose: 'event_broadcast', status: 'assigned' })
+    const entryGroupId = await insertEvent()
+    const future = new Date(Date.now() + 10 * 60 * 1000)
+    await insertBroadcast(entryGroupId, eventChannel.id, {
+      status: 'joined_waiting_code',
+      inviteCode: '975310',
+      inviteCodeExpiresAt: future,
+      lineGroupId: 'C-event-vs-club',
+    })
+
+    const payload: LineWebhookPayload = {
+      destination: '@dummy',
+      events: [
+        {
+          type: 'message',
+          replyToken: 'e-vs-club-1',
+          source: { type: 'group', groupId: 'C-event-vs-club' },
+          message: { type: 'text', text: '975310' },
+        },
+      ],
+    }
+    const reply = makeReplyClient()
+    await applyWebhookEvents(db, eventChannel.id, 'token', payload, reply.client)
+
+    const broadcast = await db.query.eventLineBroadcasts.findFirst({
+      where: eq(eventLineBroadcasts.lineChannelId, eventChannel.id),
+    })
+    expect(broadcast?.status).toBe('linked')
+
+    const clubRow = await db.query.clubLineGroups.findFirst({
+      where: eq(clubLineGroups.lineChannelId, clubChannel.id),
+    })
+    expect(clubRow?.lineGroupId).toBeNull()
   })
 })
 

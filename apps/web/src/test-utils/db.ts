@@ -28,9 +28,19 @@ export const testDb = drizzle(testPool, { schema })
 // event-grade-group-broadcast added `line_grade_group_bindings` (FK→line_channels)
 // と `event_grade_broadcasts` (FK→events)。どちらも CASCADE で消えるが、identity を
 // 揃えるため同じ規約で明示列挙する。
+//
+// annual-registration-renewal added 年度確認の 3 テーブルと `club_line_groups`。
+// TRUNCATE CASCADE は ON DELETE の指定ではなく **FK 参照そのもの**を辿るので
+// users / line_channels 経由で消えはするが、`membership_renewals.fiscal_year` は
+// UNIQUE なので取り残すとテスト間で年度が衝突する。identity を揃える意味も含め
+// 同じ規約で明示列挙する（子 → 親の順）。
 export async function truncateAll() {
   await testDb.execute(sql`
     TRUNCATE TABLE
+      line_chat_tasks,
+      membership_renewal_members,
+      membership_renewals,
+      club_line_groups,
       line_grade_group_bindings,
       event_grade_broadcasts,
       tournament_roster_import_drafts,

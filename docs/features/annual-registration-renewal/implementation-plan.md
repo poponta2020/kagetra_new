@@ -76,13 +76,14 @@ status: completed
 - **対応Issue:** #621
 
 ### タスク3: S3 会 LINE グループ設定・Bot 転換・webhook の join 捕捉
-- [ ] 完了
+- [x] 完了
 - **目的:** `/settings/club-line-group`（design-spec S3）と `club_line_groups` の保存、Bot の CAS 転換／復帰、webhook の `club_chat` 分岐（join で `line_group_id` 捕捉・leave で NULL 化・発言無視・reply なし）
 - **対応AC:** AC-24・AC-25・AC-26
 - **主な変更領域:** `apps/web/src/app/(app)/settings/club-line-group/{page,actions,ClubLineGroupForm}.tsx`・`apps/web/src/lib/club-line-group.ts`（load/save/parseOamRoomUrl/convertBot/revertBot）・`apps/web/src/lib/line-webhook-handler.ts`（`IN` リストに `'club_chat'`＋`applyClubChatWebhookEvents`）・`apps/web/src/app/(app)/settings/page.tsx`（導線）
 - **依存タスク:** タスク1。**タスク4 とは変更領域が重ならない**（webhook ハンドラ vs api route）
 - **必要なテスト:** URL パース（正常・不正・人数括弧）／転換 CAS（available でない Bot は失敗）／復帰は進行中 renewal・未終了タスクがあれば拒否／webhook: join で捕捉・leave で NULL・text 無視・既存 event/grade ハンドラへ流れない
 - **完了条件:** テスト green・S3 の 2 状態が design-spec どおり
+- **結果:** task-implementer へ委譲。★受け入れ確認で **`memberLeft`（会員が 1 人抜けた）でグループ ID を NULL 化していたのを main が修正**（消すと期間中に誰か 1 人が退出しただけで表示名解決が死に、再捕捉は Bot の再招待でしか起きない）。NULL 化は `leave`（Bot 自身が外された）だけ。表示名は末尾の人数括弧を保存時に機械的に除去する（照合キーが完全一致のため）。★申し送り: 開始 Action（タスク5）は `club_line_groups` を `FOR UPDATE` すること（revert とのレース）
 - **対応Issue:** #622
 
 ### タスク4: 送信タスク store・ワーカー API・管理者通知の中継

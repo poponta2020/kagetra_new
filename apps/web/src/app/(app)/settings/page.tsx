@@ -163,6 +163,11 @@ export default async function SettingsPage() {
           description: 'LINE Bot プールとグループの紐付け',
         },
         {
+          href: '/settings/club-line-group',
+          label: '会 LINE グループ',
+          description: '年度確認の案内・リマインドを流すグループの設定',
+        },
+        {
           href: '/settings/travel-report',
           label: '遠征届設定',
           description: '遠征届の顧問教員欄に使う会の情報',
