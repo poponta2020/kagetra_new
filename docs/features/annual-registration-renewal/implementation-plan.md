@@ -65,13 +65,14 @@ status: completed
 - **対応Issue:** #620
 
 ### タスク2: 純ロジック（membership-kind / snapshot / diff / school-year / schedule / messages / dan-kanji / authz）
-- [ ] 完了
+- [x] 完了
 - **目的:** DB 非依存の判定・導出・文面を純関数で固める（S1・S2・バッチ・API が共用）
 - **対応AC:** AC-4・AC-7（差分）・AC-11・AC-12（判定部）・AC-15（対象日）・AC-16/16b（文面・分割）・AC-17（再計算）
 - **主な変更領域:** `apps/web/src/lib/membership-renewal/{membership-kind,snapshot,diff,school-year,schedule,messages,dan-kanji,authz}.ts`＋各 `.test.ts`（`snapshot.ts` に `RenewalSnapshot` の zod parse/reject を含む）
 - **依存タスク:** タスク1
 - **必要なテスト:** 3/31・4/1 の境界／NULL／郵便番号正規化／最終学年 4 種＋6 年制／`resolveSchoolYearApply` の 4/1 前後／対象日集合（締切前日と 3 日おきの重なり・締切超過）／分割と衝突回避／テンプレに中括弧・URL・締切が入る
 - **完了条件:** テスト green・lint 通過
+- **結果:** 8 モジュール＋各テストを実装（task-implementer へ委譲）。`finalSchoolYearFor` は大学院で `null` を返し、最終学年判定は `isFinalSchoolYear` が学年文字列を `GRADUATE_FINAL_YEARS` と照合する（研究科名だけでは課程が決まらないため）。★`defaultNextSchoolYear` は最終学年を見ないので、**呼び出し側は `isFinalSchoolYear` を先に呼んで 3 択へ分岐すること**（タスク6 への申し送り）
 - **対応Issue:** #621
 
 ### タスク3: S3 会 LINE グループ設定・Bot 転換・webhook の join 捕捉
