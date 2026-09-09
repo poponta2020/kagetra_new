@@ -28,6 +28,9 @@
 > - `apps/web/public/sw.js`（Service Worker: push受信・バッジ・通知クリック）
 > - `apps/web/scripts/send-lifecycle-reminders.ts`（日次リマインド送信バッチ）
 > - `apps/web/scripts/release-expired-broadcasts.ts`（期限切れBot解放バッチ）
+> - `apps/web/src/lib/line-chat-tasks.ts`（annual-registration-renewal: `line_chat_tasks` store・ワーカー契約・管理者通知の中継）
+> - `apps/web/src/lib/line-chat-worker-token.ts`（`X-Service-Token` の静的トークン検証）
+> - `apps/web/src/app/api/line-chat-worker/tasks/route.ts` / `[id]/result/route.ts` / `session-warning/route.ts`（match-tracker `line-chat-worker` 向け公開API）
 
 ## 機能仕様
 
@@ -43,6 +46,7 @@
 4b. **openchat-broadcast**: 大会当日用の LINE オープンチャット招待 URL を、メールから抽出して 1. と同じ大会別 Bot グループへ Flex Message で配信する。**トリガーは人間**（管理者がメールを大会に紐付ける既存操作の延長）で、抽出は決定的（AI なし）。配信は **1. と同じ「実行する」に相乗り**する（抽出シートは保存だけを行う）。詳細は下記。
 5. **mail-triage-badge (Web Push)**: 管理者/副管理者の端末に、新着メール到着をWeb Pushで通知し、未処理件数をPWAのアプリアイコンバッジに反映する。
 6. **payment-notice**: 確定名簿が出た申込グループの会計へ、振込金額を 1. と同じ大会別 Bot グループへ手動で連絡する。宛先は 2. と同じグループだが、`@会計` メンションを使い、金額を扱う唯一の通知である点が違う。
+7. **line-chat-worker**: annual-registration-renewal（年度確認）の「会 LINE グループ」（登録会員全員が参加）への案内・リマインド配信。グループ push は人数分課金されるため、代わりに **LINE Official Account Manager（OAM）のチャット予約送信**を使う。送信の実操作は kagetra 本体ではなく別リポジトリの Playwright 常駐ワーカー（match-tracker `line-chat-worker`）が担い、kagetra は送信タスクのキュー（`line_chat_tasks`）を公開 API（`/api/line-chat-worker/**`）としてワーカーに渡す側。
 
 メンションを使う仕組み（1. の紐付け案内・2. の会計向け・6.）は共通のメンション基盤に載る（後述）。
 
@@ -329,6 +333,24 @@ LINE Messaging API の `textV2` を使い、`@All` / `@管理者` / `@会計` �
 
 LINE 未紐付けのグループでは保存だけ行い配信しない。配信の失敗は保存をロールバックせず、保存は成功・配信は失敗として記録して再試行できる。**再試行の導線は `/admin/entries/[groupId]` のオープンチャット欄直下の「オープンチャットを配信」**（管理者・副管理者のみ・`OpenChatBroadcastControl`）——統合処理フォームは未処理のメールにしか出ないため、実行後に push が失敗するとメール詳細からはやり直せない（「未処理に戻す」は名簿の採用まで取り消すので代替にならない）。失敗したことは直近の配信試行（status が sent 以外）として、統合処理フォームのチェック脇とこのボタンの脇の両方に出す——記録だけして画面に出さないと「保存は成功・配信は失敗」が誰にも届かない。保存済み URL は `/events/[id]` のオープンチャット欄から**全会員が**辿れる（LINE を見逃した会員の救済。`spec/events-attendance.md`）。
 
+### line-chat-worker: OAM チャット予約送信のタスクキュー（annual-registration-renewal）
+
+年度確認（`membership_renewals`）の会 LINE グループ向け配信は、Messaging API push（人数分課金）ではなく **OAM のチャット予約送信**を使う。OAM の自動操作（Playwright）は kagetra には持たず、match-tracker リポジトリの常駐ワーカー `line-chat-worker` が同一 VM 上で 5 分間隔ポーリングして実行する（storageState は LINE Business ID 単位で配下の全 OA に共通）。kagetra 側は「タスクキューを公開する側」に徹し、OAM の DOM 操作・ログインセッション管理は一切持たない。
+
+**タスク（`line_chat_tasks`）の作成は本節の対象外**——開始時の案内タスク、19:30 日次バッチが作る未回答者リマインドタスクは、それぞれ年度確認の開始 Action・日次バッチの責務（`docs/features/annual-registration-renewal/`）。ここで扱うのは、作られたタスクを**ワーカーへ渡す・結果を受け取る**契約だけ。
+
+**認証**: 全エンドポイント共通で `X-Service-Token` ヘッダを環境変数 `LINE_CHAT_WORKER_TOKEN`（kagetra 専用・match-tracker の他連携キーとは共有しない）と `timingSafeEqual` で突き合わせる（`lib/line-chat-worker-token.ts`。`lib/external-api-key.ts` と同形の fail-closed: env 未設定・空文字なら常に不一致）。Auth.js のセッション認証とは独立の経路で、middleware の matcher から除外されている（`api/external` と同じ理由）。**ヘッダ無しは 401、ヘッダはあるが不一致は 403**——この2つを区別する。
+
+**`GET /api/line-chat-worker/tasks`**: `PENDING` / `CANCEL_PENDING` の未処理タスクだけを、match-tracker `line-chat-worker` の `WorkerTask` 契約と互換な形で返す（`id` / `status` / `chatRoomId` / `chatRoomName` / `scheduledSendAt`（ISO8601・`+09:00`固定・10分境界）/ `messageText` / `mentions?`）。match-tracker 固有の `broadcastGroupId` / `sessionId` は返さない（ワーカー側で optional 化）。`mentions` が空配列のときは**キーごと省略**し、`mentions` を解さない旧ワーカー・候補不一致の場合でも本文（氏名テキスト列挙済み）がそのまま送られる形で後方互換を保つ。`club_line_groups`（S3 の設定）が未登録なら空配列を返す（エラーにしない）。送信予定時刻 − `LINE_CHAT_RESERVE_MARGIN_MINUTES`（既定5分）を過ぎた行は返さない——それらは日次バッチの `reconcileTasks` が `FAILED`（`PENDING_EXPIRED`）へ倒す対象で、期限直前に新規予約させても間に合わない。
+
+**`POST /api/line-chat-worker/{id}/result`**: body は `{ status, errorCode?, errorMessage?, mentionResult?: { matched[], unmatched[] } }`。状態遷移は `PENDING → RESERVING → RESERVED | FAILED | MANUAL_REVIEW_REQUIRED | DRY_RUN_SUCCEEDED`、`CANCEL_PENDING → CANCELLED` のみを許可し、条件付き UPDATE（現在の `status` を `WHERE` に含める。読んでから書く形にしない）で遷移する。遷移表に無い報告・存在しない `id` は拒否する（存在しない `id` は 404、遷移不可は 409）。`mentionResult` を受け取れば `mention_result` へ保存する。
+
+**`POST /api/line-chat-worker/session-warning`**: ワーカーの 30日SSO 失効の先回り警告を中継する。body の形はワーカー側の任意（`{ message?: string, ... }` 程度）で固定されていないため、**受け取った本文をそのまま横流ししない**——`message` フィールドだけを要点として抜き出し、固定の見出し・注意文と組み合わせた定型文に整形してから送る（OAM のルーム ID・URL 等の外部入力値をそのまま管理者 LINE へ露出させない）。
+
+**管理者通知**: 結果報告が `FAILED` / `MANUAL_REVIEW_REQUIRED` のとき、および `session-warning` を受けたときは、**既存の `entry-overdue-alert.ts` の `loadSystemChannel` / `pushSystemText` を再利用**して管理者個人 LINE（`system_notify` チャネル）へ1通送る（新しい push 実装は作らない）。`RESERVED` / `DRY_RUN_SUCCEEDED` 等の成功報告では通知しない。system_notify チャネル未設定・`notification_line_user_id` 未設定でも 500 にはせず、通知をスキップするだけ（`entry-overdue-alert` と同方針）。**push によるグループへのフォールバック送信は行わない**——失敗・要確認は必ず管理者が個別に把握し、手で対応する。
+
+**再試行**: 失敗したタスクの再試行（`FAILED → PENDING`。送信予定が未来のときのみ）は `lib/line-chat-tasks.ts` の `retryChatTask(taskId)` を、S3（会 LINE グループ設定画面）の Server Action が `admin`/`vice_admin` の確認をしてから呼ぶ（`retryChatTask` 自体は認可を持たない——`apply-entries-applied.ts` 等の既存 lib と同じ役割分担）。
+
 ## 画面
 
 - **`/settings/line-link`**: 現在連携中のLINEアカウントID（末尾6文字以外マスク表示）と、切替導線のみのシンプルな画面。エラーコード（`missing_env` / `state_mismatch` / `denied` / `conflict` / `oauth_failed`）ごとに日本語メッセージを出し分ける。
@@ -413,5 +435,9 @@ LINE 未紐付けのグループでは保存だけ行い配信しない。配信
 | `claimLifecycleNotification` / `finalizeLifecycleNotification` / `sendClaimedNotification` / `sendReminderNotification` | ライブラリ関数 | 同上 | once-ever通知ログのclaim/finalize/送信ヘルパー群 |
 | `collectOverdueEntries` / `buildOverdueAlertMessage` / `loadSystemChannel` / `pushSystemText` / `sendEntryOverdueAlert` | ライブラリ関数 | 呼び出し元（日次バッチ）が実行環境を担保 | 締切超過アラートの抽出・文面組立・system_notifyチャネル解決・push（`entry-overdue-alert.ts`） |
 | `apps/web/scripts/send-entry-overdue-alert.ts` | バッチ（systemd timer） | ホスト実行（`kagetra` ユーザー） | 毎朝 JST 07:00 に `sendEntryOverdueAlert` を1回実行。`--dry-run` は候補と文面の表示のみ |
+| `GET /api/line-chat-worker/tasks` | route handler | サービストークン（`X-Service-Token`・fail-closed。ヘッダ無し401／不一致403） | match-tracker `line-chat-worker` 向け未処理タスク一覧（`WorkerTask[]`契約）。`club_line_groups`未設定なら空配列 |
+| `POST /api/line-chat-worker/[id]/result` | route handler | 同上 | ワーカーからのタスク結果報告。条件付きUPDATEで状態遷移（不正な遷移は409・存在しないidは404）。`FAILED`/`MANUAL_REVIEW_REQUIRED`は管理者個人LINEへ通知 |
+| `POST /api/line-chat-worker/session-warning` | route handler | 同上 | ワーカーのOAM 30日SSO失効の先回り警告を、本文をそのまま横流しせず定型文へ整形して管理者個人LINEへ中継 |
+| `createChatTask` / `createChatTasks` / `listWorkerTasks` / `reportTaskResult` / `cancelTasks` / `reconcileTasks` / `retryChatTask` / `notifyRenewalAdmin` | ライブラリ関数 | 呼び出し元（開始Action/日次バッチ/S3のServer Action）が認可を担保 | `line_chat_tasks` の作成・ワーカー向け一覧・結果報告・取消・reconcile・再試行・管理者通知の中継（`line-chat-tasks.ts`） |
 
 `generateInviteCodeForEvent` / `revokeBroadcast` / `extendBroadcastLifetime` / `manualBroadcast` / `setEntryApplied` / `setEntryNotApplying` / `setPaymentType` / `setPaymentPaid` は `apps/web/src/app/(app)/events/[id]/actions.ts` に実装されているが、大会画面のServer Actionとしての位置づけは `spec/events-attendance.md` の正典とし、本ファイルではLINE通知観点の挙動のみを機能仕様節で記述した。

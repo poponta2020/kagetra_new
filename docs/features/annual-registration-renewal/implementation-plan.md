@@ -87,13 +87,14 @@ status: completed
 - **対応Issue:** #622
 
 ### タスク4: 送信タスク store・ワーカー API・管理者通知の中継
-- [ ] 完了
+- [x] 完了
 - **目的:** `line_chat_tasks` の作成／遷移／取消／再試行を 1 モジュールに集約し、`/api/line-chat-worker/{tasks,[id]/result,session-warning}` をサービストークンで提供。FAILED／要確認／session-warning を `pushSystemText` で管理者へ
 - **対応AC:** AC-21・AC-22・AC-23・AC-16c（失敗理由の記録）
 - **主な変更領域:** `apps/web/src/lib/line-chat-tasks.ts`・`apps/web/src/lib/line-chat-worker-token.ts`・`apps/web/src/app/api/line-chat-worker/{tasks,[id]/result,session-warning}/route.ts`・`apps/web/src/middleware.ts`（matcher 除外）・`docs/spec/notifications.md`（契約）
 - **依存タスク:** タスク1
 - **必要なテスト:** 401/403/200・tasks が PENDING/CANCEL_PENDING だけ＆送信時刻−5 分超過を返さない・`WorkerTask` 形（`broadcastGroupId` を含まない）・遷移表と 409・`mentionResult` 保存・通知の呼び出し（push はモック）
 - **完了条件:** テスト green・セッション認可エンドポイントにトークンで入れないことの回帰
+- **結果:** task-implementer へ委譲。store は送信時刻・本文・メンションを**呼び出し側から受け取るだけ**（`schedule.ts`/`messages.ts` を import しない）＝タスク2 と領域が重ならない。`retryChatTask` だけ `dbc` を取らず（S3 の Action がその形で呼ぶ）、他は第 1 引数に `dbc` を足した。認可は呼び出し側の Server Action が持つ
 - **対応Issue:** #623
 
 ### タスク5: 年度確認 store と Server Actions（開始・回答・代理回答・締切変更・登録完了）

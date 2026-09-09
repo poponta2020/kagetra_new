@@ -193,3 +193,30 @@ describe('middleware — matcher（未認証前提ルートの除外。external-
     expect(pattern.test('/mail/123')).toBe(true)
   })
 })
+
+describe('middleware — matcher（line-chat-worker 除外。annual-registration-renewal タスク4）', () => {
+  const pattern = new RegExp(`^${matcher}$`)
+
+  it('/api/line-chat-worker/** は matcher の対象外（サービストークン認証は route 内で行う）', () => {
+    expect(pattern.test('/api/line-chat-worker/tasks')).toBe(false)
+    expect(pattern.test('/api/line-chat-worker/42/result')).toBe(false)
+    expect(pattern.test('/api/line-chat-worker/session-warning')).toBe(false)
+  })
+
+  // requirements R12: 「既存のセッション認可エンドポイントにサービストークンでは
+  // 入れない」ことの回帰。matcher はヘッダの中身を見ないので、この除外の追加が
+  // 他の保護対象パスを巻き込んでいないこと自体をここで確認し、実際にヘッダを
+  // 付けてもセッション必須のままであることを下のテストで確認する。
+  it('既存の保護対象 API は引き続き matcher の対象（この除外に巻き込まれない）', () => {
+    expect(pattern.test('/api/admin/mail/unprocessed-count')).toBe(true)
+    expect(pattern.test('/api/mail/attachments/7')).toBe(true)
+  })
+
+  it('X-Service-Token ヘッダを付けてもセッション必須のまま（サービストークンによるセッション代替は起きない）', () => {
+    const req = request('/api/admin/mail/unprocessed-count', null) as NextRequest
+    req.headers.set('x-service-token', 'whatever-token-value')
+    const res = middleware(req)
+    expect(res.status).toBe(307)
+    expect(locationOf(res)).toBe('/auth/signin')
+  })
+})
