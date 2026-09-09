@@ -25,6 +25,7 @@ import { isSchoolYearForKind, isValidSchoolYear } from '@kagetra/shared'
 import type { FacultyKind } from '@kagetra/shared/types'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
+const READER_CERTIFICATIONS = ['B', 'A'] as const
 const GENDERS = ['male', 'female'] as const
 // invite-register-redesign: ひらがな（小書き含む）＋長音記号 ー のみ。
 const HIRAGANA_RE = /^[ぁ-ゖー]+$/
@@ -128,6 +129,11 @@ const updateProfileSchema = z.object({
   facultyKind: z.enum(['undergraduate', 'graduate']).nullable(),
   faculty: z.string().trim().max(50, '学部等名は50文字以内で入力してください').nullable(),
   schoolYear: z.string().trim().nullable(),
+  // annual-registration-renewal R11: 全日協の公認資格。申請で決まる値なので
+  // **管理者だけが編集**する（本人は年度確認 S1 で読むだけ）。読手の「なし」は
+  // enum 値ではなく列の NULL（未選択と同義にする＝3値目を作らない）。
+  readerCertification: z.enum(READER_CERTIFICATIONS).nullable(),
+  isAssociateReferee: z.boolean(),
 })
 
 export type UpdateProfileState = {
@@ -172,6 +178,8 @@ export async function updateMemberProfile(
     facultyKind: formEntryOrNull(formData.get('facultyKind')),
     faculty: formEntryOrNull(formData.get('faculty')),
     schoolYear: formEntryOrNull(formData.get('schoolYear')),
+    readerCertification: formEntryOrNull(formData.get('readerCertification')),
+    isAssociateReferee: formData.get('isAssociateReferee') === 'on',
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? '入力が不正です' }
@@ -220,6 +228,8 @@ export async function updateMemberProfile(
       address2: data.address2,
       isCircleMember: data.isCircleMember,
       ...circleFieldsToWrite,
+      readerCertification: data.readerCertification,
+      isAssociateReferee: data.isAssociateReferee,
       updatedAt: new Date(),
     })
     .where(eq(users.id, data.userId))

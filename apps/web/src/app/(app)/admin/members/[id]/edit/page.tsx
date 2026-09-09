@@ -55,6 +55,8 @@ export default async function EditMemberPage({
       facultyKind: true,
       faculty: true,
       schoolYear: true,
+      readerCertification: true,
+      isAssociateReferee: true,
       isTravelReportSubmitter: true,
       isCircleLeader: true,
       deactivatedAt: true,
@@ -107,6 +109,8 @@ export default async function EditMemberPage({
         facultyKind={member.facultyKind ?? null}
         faculty={member.faculty ?? ''}
         schoolYear={member.schoolYear ?? ''}
+        readerCertification={member.readerCertification ?? null}
+        isAssociateReferee={member.isAssociateReferee}
         grades={GRADES}
         genders={GENDERS}
       />

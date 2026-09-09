@@ -1,8 +1,8 @@
 'use client'
 
-import { useActionState, useState } from 'react'
-import type { Grade, Gender, FacultyKind } from '@kagetra/shared/types'
-import { schoolYearOptions } from '@kagetra/shared'
+import { useActionState, useId, useState } from 'react'
+import type { Grade, Gender, FacultyKind, ReaderCertification } from '@kagetra/shared/types'
+import { READER_CERTIFICATION_LABELS, READER_CERTIFICATION_NONE_LABEL, schoolYearOptions } from '@kagetra/shared'
 import { FacultyCombobox } from '@/components/members/FacultyCombobox'
 import {
   updateMemberName,
@@ -106,6 +106,8 @@ export function EditMemberForm({
   facultyKind,
   faculty,
   schoolYear,
+  readerCertification,
+  isAssociateReferee,
   grades,
   genders,
 }: {
@@ -134,6 +136,9 @@ export function EditMemberForm({
   facultyKind: FacultyKind | null
   faculty: string
   schoolYear: string
+  // annual-registration-renewal R11: 全日協の公認資格。NULL = 読手なし。
+  readerCertification: ReaderCertification | null
+  isAssociateReferee: boolean
   grades: readonly Grade[]
   genders: readonly Gender[]
 }) {
@@ -147,6 +152,9 @@ export function EditMemberForm({
   )
   const [circleFaculty, setCircleFaculty] = useState(faculty)
   const [circleSchoolYear, setCircleSchoolYear] = useState(schoolYear)
+  // 読手は「なし」を空文字（＝列の NULL）で表す。3 値目の enum を作らない。
+  const [reader, setReader] = useState<string>(readerCertification ?? '')
+  const [associateReferee, setAssociateReferee] = useState(isAssociateReferee)
 
   return (
     <>
@@ -463,6 +471,33 @@ export function EditMemberForm({
               className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
+
+          {/* annual-registration-renewal R11 / AC-27: 全日協の名簿「公認資格」欄。
+              申請で決まる値なので**管理者だけが編集**する（本人は年度確認 S1 で
+              読むだけ）。読手の「なし」は列の NULL で表し、3 値目の enum を作らない。 */}
+          <div className="border-t border-border-soft pt-3">
+            <p className="text-xs font-medium text-ink-2">公認資格</p>
+            <p className="mt-0.5 text-[11px] text-ink-meta">
+              全日協の名簿「公認資格」欄。本人は変更できません（申請で決まるため）。
+            </p>
+            <div className="mt-2">
+              <span className="block text-xs text-ink-2">読手</span>
+              <ReaderCertificationSegment value={reader} onChange={setReader} />
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                id="isAssociateReferee"
+                name="isAssociateReferee"
+                type="checkbox"
+                checked={associateReferee}
+                onChange={(e) => setAssociateReferee(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <label htmlFor="isAssociateReferee" className="text-sm text-ink-2">
+                準公認審判員
+              </label>
+            </div>
+          </div>
         </fieldset>
 
         {state.error && (
@@ -485,5 +520,54 @@ export function EditMemberForm({
         </button>
       </form>
     </>
+  )
+}
+
+/**
+ * 読手（なし／B級公認／A級公認）の 3 値セグメント（design-spec S5）。
+ * 見た目は登録フォーム（`register/[token]/register-form.tsx`）の `SegmentGroup`
+ * と同じ規約（選択中だけ下線を `--kg-brand` に、非選択は `--kg-border`）。
+ * 「なし」は空文字を送り、Server Action 側で列の NULL になる。
+ */
+function ReaderCertificationSegment({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const groupId = useId()
+  const options = [
+    { value: '', label: READER_CERTIFICATION_NONE_LABEL },
+    { value: 'B', label: READER_CERTIFICATION_LABELS.B },
+    { value: 'A', label: READER_CERTIFICATION_LABELS.A },
+  ]
+  return (
+    <div role="radiogroup" aria-label="読手" className="mt-1 flex gap-1">
+      {options.map((opt) => {
+        const selected = value === opt.value
+        const inputId = `${groupId}-reader-${opt.value || 'none'}`
+        return (
+          <label
+            key={opt.value}
+            htmlFor={inputId}
+            className={`flex-1 cursor-pointer border-b-2 pb-2 pt-1 text-center text-sm transition-colors ${
+              selected ? 'border-brand font-semibold text-ink' : 'border-border text-ink-meta'
+            }`}
+          >
+            <input
+              id={inputId}
+              type="radio"
+              name="readerCertification"
+              value={opt.value}
+              checked={selected}
+              onChange={() => onChange(opt.value)}
+              className="sr-only"
+            />
+            {opt.label}
+          </label>
+        )
+      })}
+    </div>
   )
 }

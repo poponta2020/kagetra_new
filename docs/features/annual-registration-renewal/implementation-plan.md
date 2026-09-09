@@ -118,13 +118,14 @@ status: completed
 - **対応Issue:** #625
 
 ### タスク7: S5 会員編集の公認資格
-- [ ] 完了
+- [x] 完了
 - **目的:** `/admin/members/[id]/edit` に 読手（なし／B級公認／A級公認）と 準公認審判員 を追加
 - **対応AC:** AC-27（編集部分）
 - **主な変更領域:** `apps/web/src/app/(app)/admin/members/[id]/edit/{actions,edit-member-form}.tsx`・`docs/spec/auth-admin.md`
 - **依存タスク:** タスク1。他タスクと領域が重ならない
 - **必要なテスト:** zod（不正値拒否）・保存と読み戻し・既存プロフィール項目の回帰
 - **完了条件:** テスト green
+- **結果:** main 直実装（小径）。読手は 3 値セグメント（`register-form.tsx` の `SegmentGroup` と同じ視覚規約をこのファイル内にローカル実装。ui/ への抽出は「ついでリファクタ」になるので行わない）＋「なし」は空文字→列 NULL。準公認審判員は同ファイル既存のチェックボックス様式に合わせた（mock の `BoxlessCheckbox` は register フォームの意匠で、会員編集フォームは素の input 様式のため）。edit 配下 122 件 green
 - **対応Issue:** #626
 
 ### タスク8: 日次バッチ（リマインド作成・reconcile・学年反映）・表示名解決・systemd

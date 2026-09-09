@@ -119,6 +119,7 @@
 編集ページ（`[id]/edit/page.tsx`）でできること:
 
 - **プロフィール更新**（`updateMemberProfile`）: 級・性別・所属・段位・全日協フラグ・姓名/ふりがな・生年月日・電話・郵便番号・住所を編集する。`name`（合成表示名・UNIQUE 制約キー）自体はここでは再合成しない。
+- **公認資格**（`updateMemberProfile`、annual-registration-renewal）: 全日協ブロック末尾の 読手（なし／B級公認／A級公認 の3値セグメント。`users.reader_certification`。**「なし」は列の NULL** で表し3値目の enum を作らない）と 準公認審判員（`users.is_associate_referee`）。★**本人は編集できない** —— 全日協への申請で決まる値なので、年度確認（`/renewal`）では読み取り専用で表示するだけ。名簿の「公認資格」欄にそのまま出る。
 - **ロール変更**（`updateMemberRole`、`MemberRoleSection`、**`admin` 限定**）: `admin` / `vice_admin` / `member` の3択を選んで保存する（確認ダイアログあり）。拒否条件は「RBAC（3層ロール）」節を参照。UI 側では自分自身の行はフォームごと出さず理由文のみを表示し、未紐付け・退会済みの行は昇格の選択肢を無効化する（現在のロールは選択可能なまま残して降格の導線を保つ）。この無効化は誤操作を減らすための案内で、認可そのものは Server Action 側が同じ条件で判定する。
 - **サークル所属と学部属性**（`updateMemberProfile`、travel-report）: `is_circle_member` のチェックと 学部区分（学部／大学院）・学部等名（区分で候補が切り替わる自由入力）・学年（選択のみ）、ゲストは姓・名。★管理者編集では既存の全日協 PII と同じく**形式検証のみ**で、「サークル所属 ON なら必須」を強制するのは自己登録フロー（`/register/[token]`）だけ。欠けた属性は遠征経路の入力画面（S8）の「あなたの情報」で本人が埋め、プロフィールへ書き戻される。電話・生年月日は全日協と**同じ列**（`users.phone` / `birth_date`）を共用し、どちらの条件でも入力欄は1つ。
 - **副連絡責任者フラグ**（`updateMemberTravelFlags`、admin/vice_admin、travel-report）: `users.is_travel_report_submitter` のトグル。★**会計フラグとは逆にこの列は認可に使う** — 「@副連絡責任者」のメンション対象であると同時に、遠征届の操作権限（必要/不要・経路入力の開始・代理入力・作成・ダウンロード・開催地修正・遠征届設定）そのもの。提出係は一般会員のことが多く、副管理者ロールを渡すと他の管理操作まで開くためフラグで認可する。判定の正典は `lib/travel-report/authz.ts` の1ヘルパー（**提出権限者 ＝ admin ∪ vice_admin ∪（`role='member'` ∧ フラグ ∧ 未退会）**）で、ページ・Server Action・route handler の三箇所すべてがこれを通る。**ゲストにフラグが付いても権限にはならない**（会員編集でもゲストにはこのチェックを出さない）。フラグは session に載せず都度 DB から引く（退会・剥奪を次のリクエストから効かせるため。同一 RSC ツリー内は React `cache()` で1回に束ねる）。
@@ -174,7 +175,7 @@
   - `revokeRegistrationInvite(id)` — 招待リンク失効。admin/vice_admin。
   - `listActiveRegistrationInvites(now?)` — 有効な招待リンク一覧取得。admin/vice_admin。
 - `apps/web/src/app/(app)/admin/members/[id]/edit/actions.ts`
-  - `updateMemberProfile(prevState, formData)` — プロフィール更新。admin/vice_admin。
+  - `updateMemberProfile(prevState, formData)` — プロフィール更新。admin/vice_admin。公認資格（読手・準公認審判員）もここで保存する（本人からは編集できない）。
   - `updateMemberName(prevState, formData)` — 名前変更（未紐付け・`member` 限定）。admin/vice_admin。
   - `deleteMember(prevState, formData)` — ハード削除（未紐付け・`member`・無参照限定）。admin/vice_admin。
   - `toggleMemberDeactivation(formData)` — 退会切替。admin/vice_admin。
