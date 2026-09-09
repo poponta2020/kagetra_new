@@ -43,9 +43,9 @@ beforeEach(async () => {
   process.env.PUBLIC_BASE_URL = 'https://example.test'
 })
 
-function formOf(data: Record<string, string>) {
+function formOf(data: Record<string, string | number | boolean>) {
   const fd = new FormData()
-  for (const [k, v] of Object.entries(data)) fd.append(k, v)
+  for (const [k, v] of Object.entries(data)) fd.append(k, String(v))
   return fd
 }
 

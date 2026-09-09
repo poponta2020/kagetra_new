@@ -4,6 +4,7 @@ import type { Grade } from '@kagetra/shared/types'
 import { HomeTimeline } from './HomeTimeline'
 import type {
   HomeEntrant,
+  HomeRenewalAlert,
   HomeTimelineData,
   HomeTimelineEvent,
   HomeTravelRouteAlert,
@@ -49,9 +50,14 @@ function data(overrides: Partial<HomeTimelineData> = {}): HomeTimelineData {
     today: [],
     upcoming: [],
     alerts: [],
+    renewalAlert: null,
     travelRouteAlerts: [],
     ...overrides,
   }
+}
+
+function renewalAlert(overrides: Partial<HomeRenewalAlert> = {}): HomeRenewalAlert {
+  return { label: '全日協の登録と学年', daysLeft: 13, ...overrides }
 }
 
 function travelAlert(
@@ -125,6 +131,52 @@ describe('HomeTimeline', () => {
       expect(screen.getAllByText('未回答')).toHaveLength(2)
       expect(screen.getByText('あと3日')).toBeTruthy()
       expect(screen.getByText('本日締切')).toBeTruthy()
+    })
+  })
+
+  describe('登録確認バナー（annual-registration-renewal タスク6・S4・AC-20）', () => {
+    it('null なら行を描かない', () => {
+      render(<HomeTimeline data={data({ upcoming: [event(1)] })} />)
+      expect(screen.queryByText('登録確認')).toBeNull()
+    })
+
+    it('ラベルとカウントダウンを出し、/renewal へリンクする', () => {
+      render(
+        <HomeTimeline
+          data={data({ renewalAlert: renewalAlert({ label: '全日協の登録', daysLeft: 5 }) })}
+        />,
+      )
+      expect(screen.getByText('登録確認')).toBeTruthy()
+      expect(screen.getByText('全日協の登録')).toBeTruthy()
+      expect(screen.getByText('あと5日')).toBeTruthy()
+      const link = screen.getByText('登録確認').closest('a')
+      expect(link?.getAttribute('href')).toBe('/renewal')
+    })
+
+    it('締切を過ぎても行を描き続ける（daysLeft が負値でも消えない）', () => {
+      render(<HomeTimeline data={data({ renewalAlert: renewalAlert({ daysLeft: -3 }) })} />)
+      expect(screen.getByText('登録確認')).toBeTruthy()
+      expect(screen.getByText('3日超過')).toBeTruthy()
+    })
+
+    it('未回答アラートと遠征経路アラートの間に並ぶ', () => {
+      render(
+        <HomeTimeline
+          data={data({
+            alerts: [
+              { eventId: 9, displayName: '石狩CD', baseDeadline: '2026-07-31', daysLeft: 3 },
+            ],
+            renewalAlert: renewalAlert(),
+            travelRouteAlerts: [travelAlert('2026-10-10')],
+          })}
+        />,
+      )
+
+      const container = screen.getByText('未回答').closest('a')?.parentElement
+      const labels = Array.from(container?.querySelectorAll('a') ?? []).map(
+        (a) => a.querySelector('span')?.textContent,
+      )
+      expect(labels).toEqual(['未回答', '登録確認', '遠征経路'])
     })
   })
 

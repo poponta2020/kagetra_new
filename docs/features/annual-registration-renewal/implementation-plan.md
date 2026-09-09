@@ -109,13 +109,14 @@ status: completed
 - **対応Issue:** #624
 
 ### タスク6: S1 会員画面 `/renewal` ＋ S4 ホームのバナー
-- [ ] 完了
+- [x] 完了
 - **目的:** design-spec S1（回答状態バー・2 択カード・名簿の列の行内修正・学年 1 行／最終学年 3 択・回答済みの前→後）と S4（`RenewalAlertRow`）の実装
 - **対応AC:** AC-5（表示）・AC-10・AC-11（UI）・AC-20・AC-28
 - **主な変更領域:** `apps/web/src/app/(app)/renewal/{page,RenewalForm,...}.tsx`・`apps/web/src/components/membership-renewal/*`・`apps/web/src/app/(app)/dashboard/{page,HomeTimeline,home-timeline-types}.tsx`・`apps/web/src/lib/membership-renewal/alerts.ts`・`guest-access`（許可しない）
 - **依存タスク:** タスク5。**タスク8・9 とは領域が重ならない**
 - **必要なテスト:** page（対象外・両セクション・片方）・行内修正の状態遷移・必須欠落でボタン無効・最終学年で 3 択・バナーの出る／消える条件（jsdom・素の DOM）
 - **完了条件:** テスト green・`design-mock/renewal-member.html` と同じトークン・要素順（design-spec §8）
+- **結果:** task-implementer へ委譲（API 接続エラーとセッション上限で 2 度中断したため、最後の詰め＝テスト断言の修正と `page.test.tsx` は main が引き取った）。RenewalForm 14 件＋page 7 件 green。★編集していない行も `answer==="register"` の間は hidden input で現在値を送る（`rosterPatchSchema` は部分パッチではないので、送り忘れると `users` の当該列が空で上書きされる）
 - **対応Issue:** #625
 
 ### タスク7: S5 会員編集の公認資格

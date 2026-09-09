@@ -9,6 +9,8 @@ import { diffDays, todayInJst } from '@/lib/jst-date'
 import { surname } from '@/lib/surname'
 import { getUpcomingEntrants, type UpcomingEntrant } from '@/lib/upcoming-entrants'
 import { loadTravelRouteAlerts } from '@/lib/travel-report/alerts'
+import { loadMemberRenewalView } from '@/lib/membership-renewal/store'
+import { deriveRenewalAlert } from '@/lib/membership-renewal/alerts'
 // 表示名（通称 + 対象級）の導出は `/admin/entries` の純関数が唯一の実装なので
 // 再実装しない（design-spec §6「大会表示名」）。引数は `NameSource`（title /
 // shortName / eligibleGrades だけの構造型）なので、getUpcomingEntrants が返す
@@ -114,6 +116,25 @@ export default async function DashboardPage() {
   // 前に計算する（出場タイムラインが空でも遠征アラートは出ることがある）。
   const travelRouteAlerts = await loadTravelRouteAlerts(viewerUserId, todayStr)
 
+  // annual-registration-renewal タスク6 (S4・AC-20): 「登録確認」バナー。
+  // 判定ロジックは `@/lib/membership-renewal/alerts`（純関数）に切り出し済み。
+  // `loadMemberRenewalView` は進行中が無ければ直近の完了済みを返すので、
+  // `deriveRenewalAlert` 側の `status !== 'open'` ガードで完了後は消える。
+  const renewalView = await loadMemberRenewalView(viewerUserId)
+  const renewalAlert = renewalView
+    ? deriveRenewalAlert(
+        {
+          renewalStatus: renewalView.renewal.status,
+          deadline: renewalView.renewal.deadline,
+          isZennichikyoTarget: renewalView.isZennichikyoTarget,
+          isCircleTarget: renewalView.isCircleTarget,
+          answer: renewalView.answer,
+          schoolYearAnsweredAt: renewalView.schoolYearAnsweredAt,
+        },
+        todayStr,
+      )
+    : null
+
   // 母集団が空なら出場予定もアラートも空。以降のクエリを投げる意味がない。
   if (upcomingEvents.length === 0) {
     return (
@@ -125,6 +146,7 @@ export default async function DashboardPage() {
             today: [],
             upcoming: [],
             alerts: [],
+            renewalAlert,
             travelRouteAlerts,
           }}
         />
@@ -221,6 +243,7 @@ export default async function DashboardPage() {
     today,
     upcoming,
     alerts,
+    renewalAlert,
     travelRouteAlerts,
   }
 

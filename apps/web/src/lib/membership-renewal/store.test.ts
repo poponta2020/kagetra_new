@@ -259,7 +259,13 @@ describe('findMissingRegisterFields（AC-5）', () => {
 
 describe('saveRenewalAnswer（AC-5・AC-6・AC-8・AC-12・AC-14）', () => {
   async function startWith(
-    overrides: Partial<typeof FULL_PROFILE> = {},
+    // 必須欠落のケースを作るため、名簿の列は明示的に null にできる形にする
+    // （`zen_nichikyo` は NOT NULL なので boolean のまま）。
+    overrides: {
+      [K in keyof typeof FULL_PROFILE]?: K extends 'zenNichikyo'
+        ? boolean
+        : (typeof FULL_PROFILE)[K] | null
+    } = {},
     now = new Date('2027-03-10T03:00:00Z'),
   ) {
     await seedClubLineGroup()

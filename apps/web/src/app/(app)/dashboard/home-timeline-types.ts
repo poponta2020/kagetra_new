@@ -117,6 +117,18 @@ export interface HomeTravelRouteAlert {
   routeEventId: number
 }
 
+/**
+ * annual-registration-renewal タスク6 (S4・AC-20): 「登録確認」バナー 1 件分。
+ * 進行中の年度確認で自分に未回答セクションがあるときだけ非 null になる
+ * （組み立ては `@/lib/membership-renewal/alerts` の `deriveRenewalAlert`）。
+ */
+export interface HomeRenewalAlert {
+  /** 未回答のセクション名（例: 「全日協の登録と学年」）。 */
+  label: string
+  /** 今日から締切までの日数。負値＝締切超過（登録完了までバナーを出し続けるため）。 */
+  daysLeft: number
+}
+
 export interface HomeTimelineData {
   /** JST の今日（`todayInJst()`）。クライアントで `Date.now()` を呼ばないため。 */
   todayStr: string
@@ -128,6 +140,11 @@ export interface HomeTimelineData {
   upcoming: HomeTimelineEvent[]
   /** 未回答アラート。基準締切の早い順。 */
   alerts: HomeUnansweredAlert[]
+  /**
+   * annual-registration-renewal タスク6 (S4・AC-20): 「登録確認」バナー。
+   * 未回答アラートの下・遠征経路アラートの上に並べる（design-spec §3）。
+   */
+  renewalAlert: HomeRenewalAlert | null
   /**
    * 遠征経路の未入力アラート（S9）。既存の未回答アラートの下に並べる。
    * ゲストはホームに入れないため（AC-9）ここにゲストが混ざることは無い。

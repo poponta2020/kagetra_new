@@ -10,6 +10,7 @@ import { formatEventDate } from '@/lib/event-date'
 import { roleViewLabel } from '@/lib/role-preview'
 import type {
   HomeEntrant,
+  HomeRenewalAlert,
   HomeTimelineData,
   HomeTimelineEvent,
   HomeTravelRouteAlert,
@@ -36,16 +37,19 @@ import {
  * ここにも足さない。`page-padding.test.ts` が機械的に固定している）。
  */
 export function HomeTimeline({ data }: { data: HomeTimelineData }) {
-  const { today, upcoming, alerts, travelRouteAlerts, viewerUserId } = data
+  const { today, upcoming, alerts, renewalAlert, travelRouteAlerts, viewerUserId } = data
   const isEmpty = today.length === 0 && upcoming.length === 0
 
   return (
     <div className="flex flex-col gap-4">
-      {(alerts.length > 0 || travelRouteAlerts.length > 0) && (
+      {(alerts.length > 0 || renewalAlert != null || travelRouteAlerts.length > 0) && (
         <div className="flex flex-col gap-2">
           {alerts.map((alert) => (
             <UnansweredAlertRow key={alert.eventId} alert={alert} />
           ))}
+          {/* annual-registration-renewal タスク6 (S4・AC-20): 未回答アラートの下・
+              遠征経路アラートの上に並べる（design-spec §3）。 */}
+          {renewalAlert && <RenewalAlertRow alert={renewalAlert} />}
           {/* travel-report タスク7 (S9・AC-17): 未回答アラートの下に並べる。 */}
           {travelRouteAlerts.map((alert) => (
             <TravelRouteAlertRow
@@ -133,6 +137,35 @@ function TravelRouteAlertRow({ alert }: { alert: HomeTravelRouteAlert }) {
       </span>
       <span className="shrink-0 text-[12px] font-semibold text-accent-fg tabular-nums">
         未入力
+      </span>
+      <span aria-hidden className="shrink-0 text-[13px] text-accent-fg">
+        ›
+      </span>
+    </Link>
+  )
+}
+
+/**
+ * annual-registration-renewal タスク6 (S4・AC-20): 「登録確認」バナー。
+ * `UnansweredAlertRow` と**同じ高さ・角丸・配色**（design-spec §8）で、タグだけ
+ * 「登録確認」に差し替える。右端は既存の未回答アラートと同じカウントダウン規則
+ * （`alertCountdown`）——締切を過ぎても登録完了までは出し続けるので、大会の
+ * 未回答アラートと違い負の `daysLeft` もそのまま渡す。
+ */
+function RenewalAlertRow({ alert }: { alert: HomeRenewalAlert }) {
+  return (
+    <Link
+      href="/renewal"
+      className="flex items-center gap-2.5 rounded-[10px] border border-accent bg-accent-bg px-3 py-2.5 transition-opacity hover:opacity-90"
+    >
+      <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-ink-on-brand">
+        登録確認
+      </span>
+      <span className="min-w-0 flex-1 truncate font-display text-[15px] font-bold text-ink">
+        {alert.label}
+      </span>
+      <span className="shrink-0 text-[12px] font-semibold text-accent-fg tabular-nums">
+        {alertCountdown(alert.daysLeft)}
       </span>
       <span aria-hidden className="shrink-0 text-[13px] text-accent-fg">
         ›
