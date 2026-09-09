@@ -83,6 +83,13 @@ export default async function MembersPage() {
       >
         サークル所属の一括編集
       </Link>
+      {/* annual-registration-renewal タスク9: 年度確認（全日協登録更新）の管理ボードへの導線。 */}
+      <Link
+        href="/admin/members/renewal"
+        className="inline-block text-sm text-brand hover:underline"
+      >
+        年度確認
+      </Link>
       <NewMemberForm />
       <RegistrationInviteSection activeInvites={activeInvites} />
       <div className="overflow-x-auto rounded-lg bg-surface shadow-sm">

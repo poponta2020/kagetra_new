@@ -142,13 +142,14 @@ status: completed
 - **対応Issue:** #627
 
 ### タスク9: S2 管理ボード `/admin/members/renewal`
-- [ ] 完了
+- [x] 完了
 - **目的:** design-spec S2（未開始フォーム＋前提チェック＋文面プレビュー／進行中の集計・4 タブ・区分別の名簿の写し・差分・代理回答・締切変更・登録完了ダイアログ／完了後の閲覧）と会員一覧からの導線
 - **対応AC:** AC-7（表示）・AC-13・AC-14（UI）・AC-19（ダイアログ）・AC-28
 - **主な変更領域:** `apps/web/src/app/(app)/admin/members/renewal/{page,RenewalBoard,StartForm,MemberRow,CompleteDialog,ProxyAnswerDialog}.tsx`・`apps/web/src/app/(app)/admin/members/page.tsx`（導線 1 行）
 - **依存タスク:** タスク5。**タスク6・8 とは領域が重ならない**
 - **必要なテスト:** page（3 状態）・タブ件数・区分見出し・差分行・退会印・ダイアログの 3 点・admin 以外は /403
 - **完了条件:** テスト green・`design-mock/renewal-admin.html` と同じ要素順（design-spec §8）
+- **結果:** task-implementer へ委譲。3 状態（未開始の開始フォーム＋前提チェック＋文面プレビュー／進行中のボード／完了後の読み取り専用）を実装。会員一覧への導線は 1 行だけ追加
 - **対応Issue:** #628
 
 ### タスク10: docs・忠実度チェックリスト・回帰
