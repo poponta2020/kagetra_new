@@ -98,13 +98,14 @@ status: completed
 - **対応Issue:** #623
 
 ### タスク5: 年度確認 store と Server Actions（開始・回答・代理回答・締切変更・登録完了）
-- [ ] 完了
+- [x] 完了
 - **目的:** `membership_renewals`／`_members` の store と Action 群。開始（対象者確定＋スナップショット＋案内タスクを 1 tx）・本人回答（名簿の列の一括保存＝既存会員編集と同じ検証・`name` 不変・学年の絶対値保存＋4/1 以降即時反映）・代理回答・締切変更（日程再計算と取消）・登録完了（フラグ OFF・取消・完了）
 - **対応AC:** AC-1・2・3・5・6・8・9・12（即時反映）・14・17・18・19
 - **主な変更領域:** `apps/web/src/lib/membership-renewal/store.ts`・`apps/web/src/app/(app)/renewal/actions.ts`・`apps/web/src/app/(app)/admin/members/renewal/actions.ts`
 - **依存タスク:** タスク1・2・4
 - **必要なテスト:** DB-backed。対象者確定の条件・開始拒否 4 条件・tx 原子性・必須欠落で「登録する」が拒否／「登録しない」は可・他人 id で不可・差分導出・代理回答の記録・締切変更で取消される行とされない行・登録完了の効果（退会処理済みはフラグ不変）
 - **完了条件:** テスト green
+- **結果:** main 直実装。store 23 件＋Action 15 件 green。★「必須検証は既存の zod を流用する」を満たすため `apps/web/src/lib/member-profile-fields.ts` を新設して**名簿の列の形式検証だけ**を抽出し、会員編集の `updateProfileSchema` と S1 の両方がそこから組む（必須／任意の判断は各呼び出し側に残す＝管理者編集の「全項目任意」を壊さない）。会員編集の既存 122 件が回帰ガード。開始は tx の外で URL・文面を解決してから tx に入り、tx 内で `club_line_groups` を FOR UPDATE →進行中/同一年度を確認する。締切変更は `kinds: ['reminder']` 必須（案内を消さない）で、新対象日 0 件のときは `keepTargetDates` を渡さない
 - **対応Issue:** #624
 
 ### タスク6: S1 会員画面 `/renewal` ＋ S4 ホームのバナー

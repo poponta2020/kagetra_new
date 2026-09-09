@@ -22,109 +22,44 @@ import {
   users,
 } from '@kagetra/shared/schema'
 import { isSchoolYearForKind, isValidSchoolYear } from '@kagetra/shared'
+// 名簿の列の**形式検証**は lib/member-profile-fields.ts が正典（会員編集・招待登録・
+// 年度確認の行内修正が同じ列へ書くため、規則を1箇所に集めている）。必須／任意の
+// 判断はここ（管理者編集＝全項目任意）に残す。
+import {
+  MEMBER_GENDERS,
+  MEMBER_GRADES,
+  formEntryOrNull,
+  memberProfileFieldSchemas as f,
+} from '@/lib/member-profile-fields'
 import type { FacultyKind } from '@kagetra/shared/types'
 
-const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
+const GRADES = MEMBER_GRADES
+const GENDERS = MEMBER_GENDERS
 const READER_CERTIFICATIONS = ['B', 'A'] as const
-const GENDERS = ['male', 'female'] as const
-// invite-register-redesign: ひらがな（小書き含む）＋長音記号 ー のみ。
-const HIRAGANA_RE = /^[ぁ-ゖー]+$/
-const PHONE_RE = /^[0-9-]+$/
-
-// Normalize a FormData entry for strict zod validation. Returns:
-//   - null: when the field is missing or empty (→ nullable zod accepts as null)
-//   - the trimmed string: otherwise (zod enum / coerce validates strictness)
-function formEntryOrNull(raw: FormDataEntryValue | null): string | null {
-  if (typeof raw !== 'string') return null
-  const s = raw.trim()
-  return s.length === 0 ? null : s
-}
-
-// 'YYYY-MM-DD', a real calendar date, year ≥ 1900, not in the future.
-// Mirrors validateBirthDate in the register flow so both write paths into the
-// shared users.birth_date column reject the same values — a future birth date
-// is invalid regardless of whether it was entered at self-registration or by
-// an admin editing the profile.
-function isRealYmd(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
-  const y = Number(s.slice(0, 4))
-  const m = Number(s.slice(5, 7))
-  const d = Number(s.slice(8, 10))
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  if (
-    dt.getUTCFullYear() !== y ||
-    dt.getUTCMonth() !== m - 1 ||
-    dt.getUTCDate() !== d ||
-    y < 1900
-  ) {
-    return false
-  }
-  const now = new Date()
-  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  return dt.getTime() <= todayUtc
-}
 
 const unlinkLineInputSchema = z.object({ userId: z.string().min(1) })
 
 const updateProfileSchema = z.object({
   userId: z.string().min(1),
-  // Unknown enum values (e.g. 'Z', 'anything') → zod rejects (not silently → null)
-  grade: z.enum(GRADES).nullable(),
-  gender: z.enum(GENDERS).nullable(),
+  grade: f.grade,
+  gender: f.gender,
   affiliation: z.string().max(255).nullable(),
-  // Strictly integer 0-9. Rejects '3abc', '3.5', negatives, etc.
-  // Preprocess: empty/null → null; otherwise require /^\d+$/ and parse to int.
-  dan: z.preprocess((v) => {
-    if (v === null) return null
-    if (typeof v !== 'string') return v
-    const s = v.trim()
-    if (s.length === 0) return null
-    if (!/^\d+$/.test(s)) return Number.NaN // force zod int() to reject
-    return Number.parseInt(s, 10)
-  }, z.union([z.number().int().min(0).max(9), z.null()])),
+  dan: f.dan,
   zenNichikyo: z.boolean(),
-  // invite-register-redesign: structured name + 全日協 PII. Admin/vice_admin can
-  // view + edit; all nullable (empty → null). `name` stays canonical and is NOT
-  // recomposed here — these columns are auxiliary profile data (see register
-  // flow / requirements §4.4). 五十音順 sorting relies on kana being ひらがな.
-  familyName: z.string().trim().max(20, '姓は20文字以内で入力してください').nullable(),
-  givenName: z.string().trim().max(20, '名は20文字以内で入力してください').nullable(),
-  familyKana: z
-    .string()
-    .trim()
-    .max(30, 'せいは30文字以内で入力してください')
-    .regex(HIRAGANA_RE, 'せい（ふりがな）はひらがなで入力してください')
-    .nullable(),
-  givenKana: z
-    .string()
-    .trim()
-    .max(30, 'めいは30文字以内で入力してください')
-    .regex(HIRAGANA_RE, 'めい（ふりがな）はひらがなで入力してください')
-    .nullable(),
-  birthDate: z.union([
-    z.string().refine(isRealYmd, '生年月日が正しくありません'),
-    z.null(),
-  ]),
-  phone: z
-    .string()
-    .trim()
-    .regex(PHONE_RE, '電話番号は数字とハイフンで入力してください')
-    .refine((s) => {
-      const d = s.replace(/-/g, '')
-      return d.length >= 10 && d.length <= 13
-    }, '電話番号の桁数が不正です（10〜13桁）')
-    .nullable(),
-  // 郵便番号はハイフン/空白除去の7桁に正規化保存。
-  postalCode: z.preprocess(
-    (v) => (typeof v === 'string' ? v.replace(/[\s-]/g, '') : v),
-    z.union([z.string().regex(/^\d{7}$/, '郵便番号は7桁で入力してください'), z.null()]),
-  ),
-  address1: z.string().trim().max(100, '住所は100文字以内で入力してください').nullable(),
-  address2: z.string().trim().max(100, '建物名・部屋番号は100文字以内で入力してください').nullable(),
-  // travel-report R1: サークル所属と学部属性。管理者編集は既存の全日協 PII と
-  // 同じ流儀（項目の有無で必須を強制せず、値が来たときだけ形式検証する）。
-  // サークル所属 ON 時の必須強制はサーバー側で行う登録フロー（S1）の役割で、
-  // ここは「後から直せる」管理画面の性質上あえて緩くしてある。
+  // invite-register-redesign: 構造化氏名＋全日協 PII（admin/vice_admin が閲覧・編集）。
+  // 全て nullable ＝ **管理者編集は「値が来たときだけ形式検証する」**（後から直せる
+  // 画面という性質）。「サークル所属 ON なら必須」等の必須強制は自己登録フローと
+  // 年度確認の「登録する」だけが行う。`name`（合成表示名）はここでは再合成しない。
+  familyName: f.familyName,
+  givenName: f.givenName,
+  familyKana: f.familyKana,
+  givenKana: f.givenKana,
+  birthDate: f.birthDate,
+  phone: f.phone,
+  postalCode: f.postalCode,
+  address1: f.address1,
+  address2: f.address2,
+  // travel-report R1: サークル所属と学部属性。
   isCircleMember: z.boolean(),
   facultyKind: z.enum(['undergraduate', 'graduate']).nullable(),
   faculty: z.string().trim().max(50, '学部等名は50文字以内で入力してください').nullable(),

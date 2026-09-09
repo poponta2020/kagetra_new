@@ -54,6 +54,8 @@ function renderForm(
       facultyKind={circleOverrides.facultyKind ?? null}
       faculty={circleOverrides.faculty ?? ''}
       schoolYear={circleOverrides.schoolYear ?? ''}
+      readerCertification={null}
+      isAssociateReferee={false}
       grades={GRADES}
       genders={GENDERS}
     />,
