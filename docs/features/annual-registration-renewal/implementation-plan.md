@@ -153,13 +153,14 @@ status: completed
 - **対応Issue:** #628
 
 ### タスク10: docs・忠実度チェックリスト・回帰
-- [ ] 完了
+- [x] 完了
 - **目的:** `docs/spec/membership-renewal.md` 新設＋`docs/SPECIFICATION.md` 索引、`notifications.md`（ワーカー経路）、`ui-shell.md`（設定ハブ）、`features/INDEX.md` の主要領域更新、design-spec §8 の全項目確認、`git grep` で PII・トークンのログ出力が無いこと
 - **対応AC:** AC-28・AC-29
 - **主な変更領域:** `docs/**`・design-spec.md
 - **依存タスク:** タスク3〜9
 - **必要なテスト:** 既存テスト・lint・typecheck（CI）
 - **完了条件:** design-spec §8 全項目チェック・CI green
+- **結果:** main 直実装。`docs/spec/membership-renewal.md` 新設＋`docs/SPECIFICATION.md` 索引、`ui-shell.md` の設定ハブに「会 LINE グループ」を追記（`notifications.md` はタスク4 で、`features/INDEX.md` は初回コミットで反映済み）。忠実度 13 項目のうち **12 項目をコード照合で確認**し、**375px の横スクロール無しだけ未確認**（静的照合では判定不可・ブラウザ検証は方針上行わない）。PII/トークンのログ出力は `git grep` で 0 件・モックの仮データ混入も無し（placeholder 文言のみ）
 - **対応Issue:** #629
 
 ### タスク11: match-tracker ワーカーの複数アプリ対応＋メンション（別リポジトリ・main が手動）

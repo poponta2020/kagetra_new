@@ -65,7 +65,7 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 ページ構成は上から: 見出し「設定」＋ `${name}さん`、「アカウント」セクション、「管理」セクション（`isAdmin` のときのみ描画）、「表示ロール」セクション（`rolePreview` が非 null のときのみ描画）、ログアウトボタン。
 
 - アカウント: `LINE アカウント切替`（`/settings/line-link` へのリンク）— 全ユーザーに表示。中身は [spec/auth-admin.md](auth-admin.md) 参照
-- 管理（`isAdmin` のみ）: `会員`（`/admin/members`）、`メール通知`（`/settings/notifications`。中身は [spec/notifications.md](notifications.md) 参照）、`Bot`（`/admin/line-channels`）
+- 管理（`isAdmin` のみ）: `会員`（`/admin/members`）、`メール通知`（`/settings/notifications`。中身は [spec/notifications.md](notifications.md) 参照）、`Bot`（`/admin/line-channels`）、`会 LINE グループ`（`/settings/club-line-group`。年度確認の案内・リマインドを流すグループの設定。中身は [spec/membership-renewal.md](membership-renewal.md) 参照）
 - 遠征届（travel-report）: `遠征届`（`/settings/travel-report`。顧問教員3項目）。**管理者だけでなく提出権限者（`is_travel_report_submitter` の付いた一般会員）にも出す** — 提出係は一般会員のことが多く、管理セクションの中に置くと本人が辿り着けない。判定は `lib/travel-report/authz.ts`（[spec/auth-admin.md](auth-admin.md)）
 - 表示ロール: `setRolePreviewAction` を叩く `<form>` 内に、選べるロールぶんの submit ボタンを並べたセクション。現在の実効ロールのボタンに `aria-current="true"` が付く。フォームは `<input type="hidden" name="returnTo" value="/settings">` を持ち、切替後もこのページに留まる（以前はシートを開いた画面へ戻す設計だったが、シートが全画面から開ける前提が無くなったため）。ロールの意味・許可条件・認可規律は [spec/auth-admin.md](auth-admin.md) 参照
 
