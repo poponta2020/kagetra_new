@@ -1,0 +1,34 @@
+[Unit]
+Description=Kagetra annual-registration-renewal school-year apply (年度確認: 4/1 以降の学年反映)
+After=network.target postgresql.service
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/annual-registration-renewal.md
+
+[Service]
+# Type=oneshot — idempotent batch job. `school_year_applied_at IS NULL` を鍵に
+# した CAS で反映するため、同日再実行しても二重反映しない。
+Type=oneshot
+
+# Same dedicated system user as the other kagetra services.
+User=kagetra
+Group=kagetra
+
+WorkingDirectory=/opt/kagetra
+
+# Required env: DATABASE_URL のみ（`users` への反映だけで LINE には触れない
+# ので PUBLIC_BASE_URL は不要）。
+EnvironmentFile=/opt/kagetra/.env.production
+
+# NOTE: `pnpm --filter @kagetra/web exec` runs the command with cwd set to the
+# package directory (apps/web), NOT WorkingDirectory. So `tsx scripts/...`
+# resolves to apps/web/scripts/renewal-daily.ts. WorkingDirectory is only the
+# repo root from which pnpm discovers the workspace. This mirrors the
+# production-running kagetra-lifecycle-reminders.service.
+ExecStart=/usr/bin/corepack pnpm --filter @kagetra/web exec tsx scripts/renewal-daily.ts --apply-school-year
+
+StandardOutput=journal
+StandardError=journal
+
+# Bounded: at most a few dozen circle-target rows to check. Cap at 10 min to
+# catch a runaway query.
+TimeoutStartSec=600
+TimeoutStopSec=30

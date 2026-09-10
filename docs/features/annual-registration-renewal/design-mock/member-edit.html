@@ -1,0 +1,33 @@
+<!-- @dsCard group="年度確認（annual-registration-renewal）" name="S5 会員編集：公認資格" subtitle="全日協ブロックの末尾に 読手（なし/B級公認/A級公認）と 準公認審判員 を足す delta" viewport="860x620" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_arr.css">
+<title>会員編集 — 公認資格（S5）</title>
+</head><body>
+
+<!-- ============================================================
+     S5 /admin/members/[id]/edit — 既存フォームの「全日協登録」ブロック末尾に
+     公認資格 2 項目を足すだけの delta。読手＝3値セグメント、審判＝チェック1つ。
+     ============================================================ -->
+
+<div class="col">
+  <div class="collabel">全日協ブロックの末尾に「公認資格」</div>
+  <div class="vcard">
+    <div class="vlabel">会員編集（既存フォーム内・該当箇所のみ）</div>
+    <div class="frm" style="padding-top:8px">
+      <div class="lbl">（上略: 級・段位・性別・生年月日・電話・郵便番号・住所）</div>
+      <div class="grp">
+        <div class="gt">公認資格</div>
+        <p class="help">全日協の名簿「公認資格」欄。本人は変更できません（申請で決まるため）。</p>
+        <div class="f"><span class="lbl">読手</span><div class="segbar"><span class="on">なし</span><span>B級公認</span><span>A級公認</span></div></div>
+        <div class="cb"><span class="bx"></span>準公認審判員</div>
+      </div>
+      <div class="lbl">（下略: サークル所属・保存）</div>
+    </div>
+    <div class="vnote">名簿では「準審」「B公認」と略記される。アプリでは正式名で持ち、S1・S2 の表示は「B級公認読手」「準公認審判員」（両方なら「・」区切り）。</div>
+  </div>
+</div>
+
+</body></html>

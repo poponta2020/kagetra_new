@@ -1,0 +1,119 @@
+/* ============================================================
+   annual-registration-renewal 追加スタイル
+   語彙は travel-report/design-mock/_tr.css（＝entry-group-page の _grp.css を内包）を
+   そのまま継承する。ここで足すのは「年度確認」固有の部品だけ:
+     2択の大きな選択・名簿の写し（項目行＋差分）・ボードの会員行とタブ・
+     手順リスト・送信タスク行・ダイアログ断片。
+   色・フォント・角丸・影は colors_and_type.css の --kg-* からしか取らない。
+   リテラル px はレイアウト都合の一回限りの値（列幅・丸の径など）のみ。
+   ============================================================ */
+@import url("../../travel-report/design-mock/_tr.css");
+
+/* ── 2択の大きな選択（今年度も登録する／登録しない） ── */
+.choice{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.opt{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--kg-border);border-radius:var(--kg-radius-lg);background:var(--kg-surface)}
+.opt.on{border-color:var(--kg-brand);box-shadow:0 0 0 1px var(--kg-brand) inset}
+.opt .rad{flex:none;margin-top:3px;width:16px;height:16px;border-radius:50%;border:1px solid var(--kg-border-strong);background:var(--kg-surface);position:relative}
+.opt.on .rad{border-color:var(--kg-brand)}
+.opt.on .rad::after{content:'';position:absolute;left:3px;top:3px;width:8px;height:8px;border-radius:50%;background:var(--kg-brand)}
+.opt .ot{font-size:var(--kg-text-base);font-weight:var(--kg-w-semibold);color:var(--kg-fg)}
+.opt .os{display:block;font-size:var(--kg-text-xs);font-weight:var(--kg-w-regular);color:var(--kg-fg-3);margin-top:2px;line-height:1.6}
+.opt.on.out{border-color:var(--kg-neutral-fg);box-shadow:0 0 0 1px var(--kg-neutral-fg) inset}
+.opt.on.out .rad{border-color:var(--kg-neutral-fg)}
+.opt.on.out .rad::after{background:var(--kg-neutral-fg)}
+
+/* ── 名簿の写し（項目行）。S1 は「値＋修正」、S2 は「値＋差分」 ── */
+.kv .v.ro{color:var(--kg-fg-2)}
+.kv .v .ronote{margin-left:6px;font-size:var(--kg-text-xs);color:var(--kg-fg-muted)}
+.kv.miss .v .in{border-bottom-color:var(--kg-accent)}
+.kv .k .req{margin-left:1px}
+.kv .act .lnk{font-size:var(--kg-text-xs)}
+.kv .v .was{display:block;font-size:var(--kg-text-xs);color:var(--kg-fg-muted);text-decoration:line-through;text-decoration-color:var(--kg-border-strong)}
+.kv .v .now{display:block;font-weight:var(--kg-w-semibold);color:var(--kg-accent-fg)}
+.kv.chg .k{color:var(--kg-accent-fg);font-weight:var(--kg-w-semibold)}
+
+/* ── 回答状態バー（S1 上部） ── */
+.ans{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:var(--kg-radius-lg);border:1px solid var(--kg-border);background:var(--kg-surface)}
+.ans .bdg{flex:none}
+.ans .at{flex:1;min-width:0;font-size:var(--kg-text-sm);color:var(--kg-fg)}
+.ans .at .as{display:block;font-size:var(--kg-text-xs);color:var(--kg-fg-3);margin-top:1px}
+.ans.ng{border-color:var(--kg-accent);background:var(--kg-accent-bg)}
+.ans.ng .at .as{color:var(--kg-accent-fg)}
+
+/* ── ラジオ縦並び（学年: 進学／卒業／留年） ── */
+.rlist{display:flex;flex-direction:column}
+.rrow{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--kg-border-soft)}
+.rrow:first-child{border-top:0}
+.rrow .rad{flex:none;margin-top:3px;width:16px;height:16px;border-radius:50%;border:1px solid var(--kg-border-strong);background:var(--kg-surface);position:relative}
+.rrow.on .rad{border-color:var(--kg-brand)}
+.rrow.on .rad::after{content:'';position:absolute;left:3px;top:3px;width:8px;height:8px;border-radius:50%;background:var(--kg-brand)}
+.rrow .rt{flex:1;min-width:0;font-size:var(--kg-text-sm);color:var(--kg-fg)}
+.rrow .rs{display:block;font-size:var(--kg-text-xs);color:var(--kg-fg-3);margin-top:1px}
+.rrow .sub{flex-basis:100%;margin-left:26px;display:flex;flex-direction:column;gap:10px;padding-top:4px}
+.rrow.on{flex-wrap:wrap}
+.cur{display:flex;align-items:baseline;gap:8px;font-size:var(--kg-text-sm);color:var(--kg-fg-2);padding-bottom:8px}
+.cur .k{font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.cur .arrow{color:var(--kg-fg-muted)}
+.cur b{color:var(--kg-fg);font-weight:var(--kg-w-semibold)}
+
+/* ── S2 ボード: 集計・タブ・会員行 ── */
+.tabs{display:flex;gap:4px;margin-top:12px}
+.tabs span{flex:1;text-align:center;padding:6px 0 8px;border-bottom:2px solid var(--kg-border);font-size:var(--kg-text-xs);color:var(--kg-fg-3);white-space:nowrap}
+.tabs span b{display:block;font-family:var(--kg-font-display);font-size:var(--kg-text-md);font-weight:var(--kg-w-bold);color:var(--kg-fg-2);line-height:1.2;font-variant-numeric:tabular-nums}
+.tabs span.on{border-bottom-color:var(--kg-brand);color:var(--kg-brand)}
+.tabs span.on b{color:var(--kg-brand)}
+.tabs span.ng b{color:var(--kg-accent-fg)}
+.grph{display:flex;align-items:baseline;gap:8px;margin-top:16px;padding-bottom:5px;border-bottom:1px solid var(--kg-border-strong);font-size:var(--kg-text-xs);font-weight:var(--kg-w-semibold);color:var(--kg-fg-3);letter-spacing:.04em}
+.grph .n{margin-left:auto;font-weight:var(--kg-w-regular);font-variant-numeric:tabular-nums}
+.mrow{border-top:1px solid var(--kg-border-soft)}
+.mrow:first-of-type{border-top:0}
+.mrow>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:9px 0;min-width:0}
+.mrow>summary::-webkit-details-marker{display:none}
+.mrow .mn{flex:1;min-width:0;font-size:var(--kg-text-sm);color:var(--kg-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .mn .g{font-family:var(--kg-font-mono);font-size:var(--kg-text-xs);color:var(--kg-fg-3);margin-left:5px}
+.mrow .mn .dan{font-size:var(--kg-text-xs);color:var(--kg-fg-3);margin-left:3px}
+.mrow .st{flex:none}
+.mrow .chev{flex:none;font-size:10px;color:var(--kg-fg-muted)}
+.mrow[open] .chev{transform:rotate(90deg)}
+.mrow .mbody{padding:0 0 12px 8px}
+.mrow .mbody table.flat th{width:72px}
+.mrow .mmeta{display:flex;align-items:baseline;gap:8px;font-size:var(--kg-text-xs);color:var(--kg-fg-3);padding-bottom:4px}
+.mrow .mmeta .lnk{margin-left:auto}
+.mrow.left{opacity:.55}
+
+/* ── 開始フォーム・前提チェック ── */
+.pre{display:flex;align-items:baseline;gap:8px;padding:7px 0;font-size:var(--kg-text-sm);border-top:1px solid var(--kg-border-soft)}
+.pre:first-child{border-top:0}
+.pre .pk{flex:none;width:96px;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.pre .pv{flex:1;min-width:0;color:var(--kg-fg)}
+.pre .pv .sub{display:block;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.pre .bdg{flex:none}
+.ta{display:block;width:100%;min-height:64px;border:1px solid var(--kg-border);border-radius:var(--kg-radius-md);background:var(--kg-surface);padding:8px 10px;font-size:var(--kg-text-sm);color:var(--kg-fg);line-height:1.6}
+.ta.ph{color:var(--kg-fg-muted)}
+.preview{margin-top:8px;border-left:2px solid var(--kg-border-strong);padding:4px 0 4px 10px;font-size:var(--kg-text-xs);line-height:1.8;color:var(--kg-fg-2);white-space:pre-line}
+
+/* ── ダイアログ断片 ── */
+.dlg{background:var(--kg-surface);border:1px solid var(--kg-border);border-radius:var(--kg-radius-xl);padding:16px 16px 14px;box-shadow:var(--kg-shadow-lg);margin:14px 0}
+.dlg h3{font-family:var(--kg-font-display);font-size:var(--kg-text-md);font-weight:var(--kg-w-bold);color:var(--kg-fg);margin-bottom:8px}
+.dlg p{font-size:var(--kg-text-sm);color:var(--kg-fg-2);line-height:1.7}
+.dlg p+p{margin-top:6px}
+.dlg .dacts{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.dlg .names{font-size:var(--kg-text-xs);color:var(--kg-fg-3);line-height:1.7}
+
+/* ── S3: 手順・送信タスク ── */
+.steps{margin:6px 0 0 0;padding-left:0;list-style:none;counter-reset:s}
+.steps li{position:relative;padding:6px 0 6px 26px;font-size:var(--kg-text-sm);color:var(--kg-fg-2);line-height:1.6;counter-increment:s}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:18px;height:18px;border-radius:50%;background:var(--kg-brand-bg);color:var(--kg-brand-fg);font-size:11px;font-weight:var(--kg-w-bold);display:flex;align-items:center;justify-content:center}
+.task{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:var(--kg-text-sm)}
+.task+.task{border-top:1px solid var(--kg-border-soft)}
+.task .tk{flex:none;width:64px;font-size:var(--kg-text-xs);color:var(--kg-fg-3)}
+.task .tw{flex:1;min-width:0;color:var(--kg-fg);font-variant-numeric:tabular-nums;line-height:1.5}
+.task .tw .te{display:block;font-size:var(--kg-text-xs);color:var(--kg-accent-fg)}
+.task .bdg{flex:none}
+.urlin{font-family:var(--kg-font-mono);font-size:var(--kg-text-xs)}
+
+/* ── ホーム: 登録確認バナー（既存 UnansweredAlertRow と同型・タグ違い） ── */
+.alert.renew .tag{background:var(--kg-accent)}
+.alert.brand{border-color:var(--kg-brand);background:var(--kg-brand-bg)}
+.alert.brand .tag{background:var(--kg-brand)}
+.alert.brand .cd,.alert.brand .chev{color:var(--kg-brand-fg)}

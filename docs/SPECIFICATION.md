@@ -28,6 +28,7 @@
 | 選手 | 選手の名寄せ（姓名キー）・display_name・検索一覧・戦績詳細・会員とのセルフ紐付け（self-identify） | [spec/players.md](spec/players.md) |
 | 統計 | 選手ランキング・大会統計（フィルタ正規化・集計・チャート描画） | [spec/stats.md](spec/stats.md) |
 | 認証・会員管理 | LINE 認証（Auth.js v5・招待制）・RBAC 3層・招待リンク登録・会員管理 | [spec/auth-admin.md](spec/auth-admin.md) |
+| 年度確認 | 全日協の年度登録更新（継続可否・登録情報の変更・学年の 4/1 反映）の確認と集計、会 LINE グループへの案内・リマインド、会 LINE グループ設定 | [spec/membership-renewal.md](spec/membership-renewal.md) |
 | メール取込 | IMAP 取込・AI 大会案内抽出・管理者承認・受信箱 UI・添付プレビュー配信 | [spec/mail-worker.md](spec/mail-worker.md) |
 | 通知・LINE・Push | 大会単位 LINE グループ配信（Bot プール）・ライフサイクル通知・LINE アカウント切替・Web Push バッジ | [spec/notifications.md](spec/notifications.md) |
 | UI シェル | 共通外枠（ボトムナビ）・PWA・設定ハブ（`/settings`）・モーダル/ボトムシート CSS 規約 | [spec/ui-shell.md](spec/ui-shell.md) |

@@ -1,0 +1,21 @@
+[Unit]
+Description=Run kagetra annual-registration-renewal school-year apply once daily at 00:05 JST
+Documentation=https://github.com/poponta2020/kagetra_new/blob/main/docs/deploy/annual-registration-renewal.md
+Requires=kagetra-renewal-school-year.service
+
+[Timer]
+# 00:05 JST — 4/1（JST）になったかどうかを日付境界の直後に判定する
+# （implementation-plan「技術設計（確定）」の定期実行）。systemd は
+# OnCalendar をホストのローカル時刻で評価するため、デプロイ手順書がホストの
+# タイムゾーンを Asia/Tokyo に固定する。
+OnCalendar=*-*-* 00:05:00
+AccuracySec=5min
+
+# Catch up after host downtime — CAS で二重反映しないので、catch-up 起動は
+# 単に「反映が遅れて届く」だけで安全。
+Persistent=true
+
+Unit=kagetra-renewal-school-year.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,106 @@
+<!-- @dsCard group="年度確認（annual-registration-renewal）" name="S3 会 LINE グループ設定" subtitle="Bot 選択・OAM ルーム URL・グループ ID の捕捉状態・手順・送信タスク一覧（未設定／設定済み）" viewport="1240x1100" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_arr.css">
+<title>会 LINE グループ設定 — S3 /settings/club-line-group</title>
+</head><body>
+
+<!-- ============================================================
+     S3 /settings/club-line-group — 設定ハブ配下（admin / vice_admin）。
+       ① Bot: プールから1体選ぶ（選ぶと専用用途に転換。戻すリンク）
+       ② グループ: OAM のルーム URL と表示名。URL からアカウントパス U… とルーム C… を取り出して表示。
+          webhook 側グループ ID の捕捉状態（join で自動）。
+       ③ 手順（招待 → 一言発言 → OAM にルーム → URL をコピー）
+       ④ 送信タスク: 直近の予約（種別・予定・状態・エラー・再試行）
+     既存 /admin/line-grade-groups・/settings/entry-form の流儀。
+     ============================================================ -->
+
+<!-- ─────────── 未設定 ─────────── -->
+<div class="col">
+  <div class="collabel">未設定 ── Bot を選んで、手順どおりにルーム URL を貼る</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">設定</a><span>›</span><span>会 LINE グループ</span></div>
+        <h1 class="title" style="font-size:24px">会 LINE グループ</h1>
+        <div class="subline">年度確認の案内・リマインドを流すグループ</div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>Bot</h2><span class="aux">プールから1体</span></div>
+        <div class="frm" style="padding-top:2px"><div class="f"><span class="lbl">使う Bot<span class="req">*</span></span><span class="sel">かげとら-12（@600txdhj）</span><p class="help">選ぶと大会・級別の配信には使われなくなります。</p></div></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>グループ</h2></div>
+        <ol class="steps">
+          <li>上の Bot を会の LINE グループに招待する</li>
+          <li>グループで誰かが一言発言する（Bot がルームを認識します）</li>
+          <li>LINE Official Account Manager でこの Bot のチャットを開き、グループのルームを開く</li>
+          <li>ブラウザの URL（<span class="urlin">https://chat.line.biz/U…/chat/C…</span>）と、画面上部のグループ名を下に貼る</li>
+        </ol>
+        <div class="frm" style="padding-top:8px">
+          <div class="f"><span class="lbl">ルーム URL<span class="req">*</span></span><span class="in ph urlin" style="width:100%">https://chat.line.biz/U16c4…/chat/C432c…</span></div>
+          <div class="f"><span class="lbl">グループ表示名<span class="req">*</span></span><span class="in ph" style="width:100%">令和8年度北海道大学かるた会</span><p class="help">OAM の見出しと完全に同じ文字列（人数の括弧は含めない）。</p></div>
+        </div>
+        <div class="pre" style="margin-top:6px"><span class="pk">グループ ID</span><span class="pv">未捕捉<span class="sub">Bot を招待すると自動で入ります。未捕捉の間はリマインドのメンションが使えず、名前の列挙になります</span></span><span class="bdg warn">未捕捉</span></div>
+      </div>
+
+      <div class="sticky"><span class="btn b-lg b-primary b-block">保存</span></div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab active">設定</span></div>
+  </div>
+  <div class="colnote">Bot → 手順 → URL/表示名 → 捕捉状態 の順。URL は貼るだけで U…／C… を取り出す（別々に聞かない）。</div>
+</div>
+
+<!-- ─────────── 設定済み＋送信タスク ─────────── -->
+<div class="col">
+  <div class="collabel">設定済み ── 捕捉済み・送信タスクの一覧（失敗と再試行）</div>
+  <div class="phone">
+    <div class="main"><div class="page">
+      <div class="stickyhead">
+        <div class="crumb"><a href="#">設定</a><span>›</span><span>会 LINE グループ</span></div>
+        <h1 class="title" style="font-size:24px">会 LINE グループ</h1>
+        <div class="subline">令和8年度北海道大学かるた会 ／ Bot: かげとら-12</div>
+      </div>
+
+      <div class="sec tight">
+        <div class="sech"><h2>Bot</h2><a class="lnk danger" href="#">プールへ戻す</a></div>
+        <div class="kv"><span class="k">Bot</span><span class="v">かげとら-12（@600txdhj）</span></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>グループ</h2><a class="lnk" href="#">編集</a></div>
+        <div class="kv"><span class="k">表示名</span><span class="v">令和8年度北海道大学かるた会</span></div>
+        <div class="kv"><span class="k">OAM ルーム</span><span class="v urlin">U16c4…／C432c…</span></div>
+        <div class="kv"><span class="k">グループ ID</span><span class="v urlin">Cd663…<span class="ronote" style="font-family:var(--kg-font-sans)">3/9 に捕捉</span></span><span class="act"><span class="bdg ok">捕捉済み</span></span></div>
+      </div>
+
+      <div class="sec">
+        <div class="sech"><h2>送信タスク</h2><span class="aux">直近 10 件</span></div>
+        <div class="task"><span class="tk">リマインド</span><span class="tw">3/16 20:00<span class="te">予約に失敗: ログイン画面を検出（LINE_AUTH_EXPIRED）</span></span><span class="bdg ng">失敗</span><a class="lnk" href="#">再試行</a></div>
+        <div class="task"><span class="tk">リマインド</span><span class="tw">3/13 20:00 ・ 未回答 9名</span><span class="bdg ok">予約済み</span></div>
+        <div class="task"><span class="tk">リマインド</span><span class="tw">3/13 20:10 ・ 未回答 3名（分割 2/2）</span><span class="bdg ok">予約済み</span></div>
+        <div class="task"><span class="tk">案内</span><span class="tw">3/10 14:20</span><span class="bdg ok">予約済み</span></div>
+        <div class="task"><span class="tk">リマインド</span><span class="tw">3/8 20:00<span class="te">要確認: 同一日時の予約が既に存在（DUPLICATE_RESERVATION_FOUND）</span></span><span class="bdg warn">要確認</span></div>
+        <p class="help" style="margin-top:10px">失敗・要確認は管理者の LINE にも届きます。ワーカー（match-tracker）が止まっている間は「待機中」のまま残ります。</p>
+      </div>
+    </div></div>
+    <div class="bottomnav"><span class="tab">ホーム</span><span class="tab">大会</span><span class="tab">申込管理</span><span class="tab">統計</span><span class="tab">メール</span><span class="tab active">設定</span></div>
+  </div>
+  <div class="colnote">設定済みは kv の読み取り表示に切り替え。送信タスクは 種別・予定時刻・状態バッジ・エラー1行・再試行。分割したリマインドは「(分割 2/2)」で同じ日の別行。</div>
+</div>
+
+<div class="note">
+  <h3>この画面で決めたいこと</h3>
+  <ul>
+    <li><b>Bot 選択の意味</b>: 選んだ瞬間にプールから外れる。戻すのは朱のリンク。</li>
+    <li><b>URL 1本で登録</b>: U… と C… を別々に入力させない。表示名は OAM と完全一致（ワーカーの照合キー）。</li>
+    <li><b>捕捉状態を見せる</b>: 未捕捉だとメンションが使えないことをここで知らせる。</li>
+    <li><b>送信タスクは読むだけ</b>: 再試行以外の操作は置かない（予約の中身は編集しない）。</li>
+  </ul>
+</div>
+
+</body></html>

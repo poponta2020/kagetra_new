@@ -127,4 +127,15 @@ describe('MembersPage の副連絡責任者・サークル長バッジ', () => {
     const link = screen.getByRole('link', { name: 'サークル所属の一括編集' })
     expect(link.getAttribute('href')).toBe('/admin/members/circle')
   })
+
+  // annual-registration-renewal タスク9: 年度確認（S2）への導線。
+  it('「年度確認」への導線がテーブル外にある', async () => {
+    const admin = await createAdmin({ name: 'badge-admin-4' })
+    await setAuthSession({ id: admin.id, role: 'admin' })
+
+    await renderPage()
+
+    const link = screen.getByRole('link', { name: '年度確認' })
+    expect(link.getAttribute('href')).toBe('/admin/members/renewal')
+  })
 })

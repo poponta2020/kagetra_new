@@ -120,6 +120,13 @@ export const config = {
     // 同じモデル）。ここを通すと開いた全員が /auth/signin へ飛ばされ、
     // 本改修の目的が丸ごと失われる。会員向けの /mail・/mail/[id] は
     // 除外対象ではない（`mail-share/` にだけ一致する）。
-    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|api/external|mail-share/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
+    // annual-registration-renewal（line-chat-worker）: /api/line-chat-worker/**
+    // は match-tracker `line-chat-worker` 常駐ワーカーからのポーリング専用で、
+    // Auth.js セッションとは独立の静的トークン認証（`X-Service-Token`・
+    // fail-closed）。ここを通すと /auth/signin へリダイレクトされて到達不能に
+    // なるため、`api/external` と同じ理由で除外する。ガードは各 route 内の
+    // `verifyLineChatWorkerToken` が全部担う。この名前空間には
+    // ワーカー用エンドポイント以外を作らないこと。
+    '/((?!api/auth|api/webhook/line|api/line-broadcast|api/zip|api/external|api/line-chat-worker|mail-share/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|apple-touch-icon.png|sw.js).*)',
   ],
 }

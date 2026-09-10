@@ -1,0 +1,43 @@
+<!-- @dsCard group="年度確認（annual-registration-renewal）" name="S4 ホーム：登録確認バナー" subtitle="既存の未回答アラート枠に並ぶ（全日協＋学年／学年のみ／締切当日）" viewport="1240x760" -->
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="../../../design/colors_and_type.css">
+<link rel="stylesheet" href="_arr.css">
+<title>ホーム — 登録確認バナー（S4）</title>
+</head><body>
+
+<!-- ============================================================
+     S4 /dashboard — 既存の未回答アラート（UnansweredAlertRow）・遠征経路アラートと
+     同じ枠に「登録確認」行を足す。同じ高さ・角丸・配色。タグだけ「登録確認」。
+     右端は締切までの日数。回答すると消える。登録完了で全員から消える。
+     ============================================================ -->
+
+<div class="col">
+  <div class="collabel">アラート枠 ── 大会の未回答・遠征経路と同列に「登録確認」</div>
+  <div class="vcard">
+    <div class="vlabel">全日協＋学年（締切まで 13 日）</div>
+    <div style="padding-top:8px">
+      <a class="alert" href="#"><span class="tag">未回答</span><span class="nm">帯広新人戦</span><span class="cd">あと3日</span><span class="chev">›</span></a>
+      <a class="alert renew" href="#"><span class="tag">登録確認</span><span class="nm">全日協の登録と学年</span><span class="cd">あと13日</span><span class="chev">›</span></a>
+      <a class="alert" href="#"><span class="tag">遠征経路</span><span class="nm">帯広新人戦 11/7・11/8</span><span class="cd">未入力</span><span class="chev">›</span></a>
+    </div>
+    <div class="vnote">既存2種と同じ行型。名前の位置は「未回答のセクション名」（年度は S1 の見出しに出るので省く）。</div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">学年のみ（サークル員・全日協未登録）</div>
+    <div style="padding-top:8px">
+      <a class="alert renew" href="#"><span class="tag">登録確認</span><span class="nm">4月からの学年</span><span class="cd">あと13日</span><span class="chev">›</span></a>
+    </div>
+  </div>
+  <div class="vcard">
+    <div class="vlabel">締切当日／締切後（登録完了まで）</div>
+    <div style="padding-top:8px">
+      <a class="alert renew" href="#"><span class="tag">登録確認</span><span class="nm">全日協の登録</span><span class="cd">本日締切</span><span class="chev">›</span></a>
+      <a class="alert renew" href="#" style="margin-top:6px"><span class="tag">登録確認</span><span class="nm">全日協の登録</span><span class="cd">締切超過</span><span class="chev">›</span></a>
+    </div>
+    <div class="vnote">締切を過ぎても登録完了までは出し続ける（回答は受け付ける）。右端の語は 大会の未回答アラートと同じ規則（あとN日／本日締切／締切超過）。</div>
+  </div>
+</div>
+
+</body></html>

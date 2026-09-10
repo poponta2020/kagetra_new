@@ -2,6 +2,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Grade } from '@kagetra/shared/types'
 import {
+  clubLineGroups,
+  lineChannels,
   tournamentEntryRosterEntries,
   tournamentEntryRosters,
   tournamentSeries,
@@ -9,6 +11,7 @@ import {
 } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import {
+  createAdmin,
   createEntryGroup,
   createEvent,
   createEventAttendance,
@@ -16,6 +19,7 @@ import {
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
+import { startRenewal } from '@/lib/membership-renewal/store'
 
 /**
  * ホーム `/dashboard`「会の出場予定」のサーバー側（母集団・確定/希望の切り替え・
@@ -785,6 +789,72 @@ describe('/dashboard（会の出場予定）', () => {
       expect(texts).toHaveLength(2)
       expect(texts[0]).toContain('先の締切大会')
       expect(texts[1]).toContain('後の締切大会')
+    })
+  })
+
+  describe('登録確認バナー（annual-registration-renewal タスク6・S4・AC-20）', () => {
+    const ORIGINAL_BASE_URL = process.env.PUBLIC_BASE_URL
+
+    beforeEach(() => {
+      process.env.PUBLIC_BASE_URL = 'https://example.test'
+    })
+    afterAll(() => {
+      if (ORIGINAL_BASE_URL === undefined) delete process.env.PUBLIC_BASE_URL
+      else process.env.PUBLIC_BASE_URL = ORIGINAL_BASE_URL
+    })
+
+    /** S3（会 LINE グループ設定）を満たす（`startRenewal` の開始前提）。 */
+    async function seedClubLineGroup() {
+      const [channel] = await testDb
+        .insert(lineChannels)
+        .values({
+          channelId: `ch-${crypto.randomUUID()}`,
+          channelSecret: 's',
+          channelAccessToken: 't',
+          botId: '@club-bot',
+          purpose: 'club_chat',
+          status: 'assigned',
+        })
+        .returning({ id: lineChannels.id })
+      await testDb.insert(clubLineGroups).values({
+        lineChannelId: channel!.id,
+        oamAccountPath: 'U16c4a1b2c3d4e5f60718293a4b5c6d70',
+        oamChatRoomId: 'C432c0102030405060708090a0b0c0d0e',
+        chatRoomName: '会グループ',
+      })
+    }
+
+    it('進行中の年度確認で自分に未回答セクションがあればバナーが出る', async () => {
+      await seedClubLineGroup()
+      const admin = await createAdmin({ name: '年度管理' })
+      // 全日協 ON・サークル未所属 ── 全日協セクションだけが対象。
+      const viewer = await createUser({
+        name: '年度 太郎',
+        grade: 'C',
+        zenNichikyo: true,
+      })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+
+      const today = todayJst()
+      const started = await startRenewal(
+        { fiscalYear: 2099, deadline: addDays(today, 5), note: null },
+        admin.id,
+      )
+      expect('renewalId' in started).toBe(true)
+
+      await renderPage()
+      expect(screen.getByText('登録確認')).toBeTruthy()
+      expect(screen.getByText('全日協の登録')).toBeTruthy()
+      const link = screen.getByText('登録確認').closest('a')
+      expect(link?.getAttribute('href')).toBe('/renewal')
+    })
+
+    it('進行中の年度確認が無ければバナーは出ない', async () => {
+      const viewer = await createUser({ name: '対象外 太郎', grade: 'C' })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+
+      await renderPage()
+      expect(screen.queryByText('登録確認')).toBeNull()
     })
   })
 })

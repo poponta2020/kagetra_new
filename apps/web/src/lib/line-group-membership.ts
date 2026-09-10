@@ -62,6 +62,62 @@ export const defaultLineGroupMembershipClient: LineGroupMembershipClient = {
   },
 }
 
+export interface FetchGroupMemberDisplayNameOptions {
+  /** テスト用に fetch を差し替える。既定はグローバル fetch。 */
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * annual-registration-renewal タスク8（R7・AC-16・AC-16c）: グループメンバーの
+ * LINE 表示名を取得する。`isMember` と**同じエンドポイント・同じ 30 秒
+ * タイムアウト**（`GET /v2/bot/group/{groupId}/member/{userId}`）・**同じ
+ * throw 方針**を使う —— 200 なら `displayName` を取り出し、404（未在籍）は
+ * `null`、それ以外（タイムアウト・5xx 等の「API 失敗」）は throw する。
+ * 在籍判定（`isMember`/`filterToGroupMembers`）とは別の関心事として分離した
+ * だけで、失敗の伝え方は揃える。
+ *
+ * throw することで、呼び出し側（19:30 バッチのメンション解決）が
+ * 「404＝未在籍（テキスト列挙で足りる）」と「API 失敗（失敗理由を記録すべき
+ * ＝AC-16c）」を区別できる。呼び出し側は 1 人の失敗でリマインド全体を止めず、
+ * その人だけメンションから外して続行する（`filterToGroupMembers` と同方針）。
+ */
+export async function fetchGroupMemberDisplayName(
+  args: { groupId: string; userId: string; channelAccessToken: string },
+  opts: FetchGroupMemberDisplayNameOptions = {},
+): Promise<string | null> {
+  const fetchImpl = opts.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+  try {
+    const res = await fetchImpl(
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(args.groupId)}/member/${encodeURIComponent(args.userId)}`,
+      {
+        headers: { Authorization: `Bearer ${args.channelAccessToken}` },
+        signal: controller.signal,
+      },
+    )
+    if (res.status === 200) {
+      const body: unknown = await res.json()
+      const displayName =
+        body && typeof body === 'object' && 'displayName' in body
+          ? (body as { displayName?: unknown }).displayName
+          : undefined
+      return typeof displayName === 'string' && displayName.length > 0 ? displayName : null
+    }
+    if (res.status === 404) return null
+    throw new Error(`LINE group member profile fetch failed: ${res.status}`)
+  } catch (err) {
+    const isAbort =
+      err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message))
+    if (isAbort) {
+      throw new Error('LINE group member profile fetch timed out after 30s')
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * userIds のうちグループ在籍者だけを**元の順序を保って**返す。
  * プローブが throw したユーザーは安全側（除外）に倒し、`membership_probe_failed`

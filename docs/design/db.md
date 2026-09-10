@@ -32,7 +32,7 @@
 | mail_worker_run_status | mailWorkerRunStatusEnum | running, success, imap_failed, ai_failed, partial |
 | mail_worker_job_status | mailWorkerJobStatusEnum | pending, claimed, done, failed |
 | mail_worker_job_kind | mailWorkerJobKindEnum | fetch, manual_extract, result_parse, roster_parse |
-| line_channel_purpose | lineChannelPurposeEnum | system_notify, event_broadcast |
+| line_channel_purpose | lineChannelPurposeEnum | system_notify, event_broadcast, grade_broadcast, club_chat（`club_chat` は会 LINE グループへの OAM チャット予約送信用に、プールから1体だけ転換したチャネル） |
 | event_line_broadcast_status | eventLineBroadcastStatusEnum | invite_pending, joined_waiting_code, linked, revoked, released |
 | event_broadcast_message_status | eventBroadcastMessageStatusEnum | pending, sending, sent, partial, failed |
 | open_chat_source | openChatSourceEnum | body, attachment_text, qr, manual |
@@ -59,6 +59,12 @@
 | travel_destination_source | travelDestinationSourceEnum | ai, manual（開催地の出所。ai のときだけ「AI推定」バッジを出す） |
 | travel_selection_status | travelSelectionStatusEnum | confirmed, waitlisted, not_participating（名簿確定時の手入力。抽選実績の `selection_outcome` とは別軸） |
 | travel_way_kind | travelWayKindEnum | sapporo, hometown, other（行き／帰りの種別。ラベルだけ向きで変わる） |
+| reader_certification | readerCertificationEnum | B, A（公認資格・読手。NULL＝なし。準公認審判員は boolean 列） |
+| membership_renewal_status | membershipRenewalStatusEnum | open, completed（年度確認。完了は取り消せない） |
+| renewal_answer | renewalAnswerEnum | register, not_register（全日協セクションの回答。未回答は列の NULL） |
+| renewal_school_year_kind | renewalSchoolYearKindEnum | advance, custom, leave（学年の回答種別。反映値は種別から再計算せず `next_*` に絶対値で持つ） |
+| line_chat_task_kind | lineChatTaskKindEnum | announcement, reminder（会 LINE グループへの予約送信タスクの種別） |
+| line_chat_task_status | lineChatTaskStatusEnum | PENDING, RESERVING, RESERVED, FAILED, MANUAL_REVIEW_REQUIRED, DRY_RUN_SUCCEEDED, CANCEL_PENDING, CANCELLED（**大文字**は match-tracker `line-chat-worker` の公開契約に合わせたもの） |
 
 ## ドメイン別テーブル一覧
 
@@ -74,6 +80,10 @@
 | line_channels | lineChannels | LINE Messaging API チャネルのプール（system_notify/event_broadcast/grade_broadcast） | schema/line-channels.ts |
 | push_subscriptions | pushSubscriptions | Web Push 購読情報（未処理メールバッジ通知） | schema/push-subscriptions.ts |
 | app_settings | appSettings | 汎用 key-value の会定数ストア（申込書の会情報6項目ほか） | schema/app-settings.ts |
+| club_line_groups | clubLineGroups | 会 LINE グループの設定（転換した Bot・OAM のアカウントパス/ルームID・表示名・webhook 側グループID） | schema/club-line-groups.ts |
+| membership_renewals | membershipRenewals | 年度確認1回分（対象年度・回答締切・一言・状態） | schema/membership-renewals.ts |
+| membership_renewal_members | membershipRenewalMembers | 年度確認の対象者と回答（開始時スナップショット＋継続可否＋学年の回答） | schema/membership-renewal-members.ts |
+| line_chat_tasks | lineChatTasks | 会 LINE グループへの OAM チャット予約送信タスク（案内・リマインド） | schema/line-chat-tasks.ts |
 
 ### イベント・出欠・スケジュール・LINE配信（db-tables-events.md）
 
@@ -163,6 +173,10 @@
 - `resultDrafts` N : 1 `mailMessages`（`mail`）／N : 1 `tournaments`（`tournament`）
 - `tournamentEntryRosters` N : 1 `events`（`event`）／N : 1 `mailAttachments`（`sourceAttachment`）／1 : N `tournamentEntryRosterEntries`（`entries`）
 - `tournamentEntryRosterEntries` N : 1 `tournamentEntryRosters`（`roster`）／N : 1 `players`（`player`）／N : 1 `users`（`user`）
+- `membershipRenewals` 1 : N `membershipRenewalMembers`（`members`）／1 : N `lineChatTasks`（`chatTasks`）／N : 1 `users`（`startedByUser` / `completedByUser`）
+- `membershipRenewalMembers` N : 1 `membershipRenewals`（`renewal`）／N : 1 `users`（`user` / `answeredByUser`）
+- `lineChatTasks` N : 1 `membershipRenewals`（`renewal`）
+- `clubLineGroups` N : 1 `lineChannels`（`channel`、実質1:1）／N : 1 `users`（`updatedByUser`）
 
 意図的にORM relationを張っていないFK/列（`relations.ts`冒頭コメントに明記）:
 - `tournaments.sourceResultDraftId`（プロビナンス。FK自体はmigrationのraw ALTERで付与）

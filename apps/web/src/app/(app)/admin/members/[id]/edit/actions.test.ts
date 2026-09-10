@@ -438,6 +438,72 @@ describe('Admin member profile edit actions', () => {
       expect(updated?.schoolYear).toBe('2年')
     })
 
+    // ── annual-registration-renewal R11 / AC-27: 公認資格 ────────────────
+    it('公認資格（読手 B/A・準公認審判員）を保存でき、既存プロフィール項目を壊さない', async () => {
+      const admin = await createAdmin({ name: 'admin-cert' })
+      const target = await createUser({ name: '公認 対象', grade: 'A' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({
+          userId: target.id,
+          grade: 'A',
+          gender: 'male',
+          dan: '4',
+          zenNichikyo: 'on',
+          familyName: '読手',
+          givenName: '太郎',
+          readerCertification: 'B',
+          isAssociateReferee: 'on',
+        }),
+      )
+      expect(result.error).toBeUndefined()
+
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.readerCertification).toBe('B')
+      expect(updated?.isAssociateReferee).toBe(true)
+      // 既存項目の回帰。
+      expect(updated?.grade).toBe('A')
+      expect(updated?.dan).toBe(4)
+      expect(updated?.familyName).toBe('読手')
+    })
+
+    it('読手の「なし」は空文字で送られ列は NULL になる。準公認審判員は未送信で false', async () => {
+      const admin = await createAdmin({ name: 'admin-cert-2' })
+      const target = await createUser({ name: '公認 解除' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      await testDb
+        .update(users)
+        .set({ readerCertification: 'A', isAssociateReferee: true })
+        .where(eq(users.id, target.id))
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({ userId: target.id, readerCertification: '' }),
+      )
+      expect(result.error).toBeUndefined()
+
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.readerCertification).toBeNull()
+      expect(updated?.isAssociateReferee).toBe(false)
+    })
+
+    it('読手に未知の値を入れると入力エラーになり DB は変わらない', async () => {
+      const admin = await createAdmin({ name: 'admin-cert-3' })
+      const target = await createUser({ name: '公認 不正' })
+      await setAuthSession({ id: admin.id, role: 'admin' })
+
+      const result = await updateMemberProfile(
+        {},
+        formOf({ userId: target.id, readerCertification: 'S' }),
+      )
+      expect(result.error).toBeTruthy()
+
+      const updated = await testDb.query.users.findFirst({ where: eq(users.id, target.id) })
+      expect(updated?.readerCertification).toBeNull()
+    })
+
     it('候補外の学部等名も自由入力として保存できる（AC-4）', async () => {
       const admin = await createAdmin({ name: 'admin-circle-4' })
       const target = await createUser({ name: 'circle-target-4' })
