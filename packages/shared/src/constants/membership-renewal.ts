@@ -148,5 +148,17 @@ export const RENEWAL_REMINDER_SEND_MINUTE = 0
 /** `RESERVING` のまま滞留したタスクを要確認へ倒すまでの分数。 */
 export const LINE_CHAT_RESERVING_STALE_MINUTES = 30
 
+/**
+ * 19:30 バッチが LINE の表示名解決に使ってよい**合計時間**（ミリ秒）。
+ *
+ * 表示名の取得は 1 人ずつ直列に呼ぶうえ、1 件あたりのタイムアウトが 30 秒ある。
+ * 未回答者が 20 人いて LINE API が全件タイムアウトすると 600 秒＝systemd の
+ * `TimeoutStartSec=600` に達し、**タスクを 1 件も作らないまま**サービスが停止して
+ * その日のリマインドが丸ごと消える（Codex レビュー PR #631 blocker）。
+ * 予算を超えた対象者は解決を諦めて氏名のテキスト列挙へフォールバックする
+ * ——リマインド自体は必ず送る、が要件（AC-16c）。
+ */
+export const RENEWAL_DISPLAY_NAME_BUDGET_MS = 120_000
+
 /** 管理者の一言（案内文に添える自由文）の上限文字数（requirements R2）。 */
 export const RENEWAL_NOTE_MAX_LENGTH = 200

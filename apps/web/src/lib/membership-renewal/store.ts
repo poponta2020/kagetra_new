@@ -10,6 +10,7 @@ import {
   RENEWAL_NOTE_MAX_LENGTH,
   ROSTER_FIELDS,
   ROSTER_FIELD_LABELS,
+  isSchoolYearForKind,
 } from '@kagetra/shared'
 import type {
   FacultyKind,
@@ -32,6 +33,22 @@ import { announcementSendAt, reminderTargetDates } from './schedule'
 import { buildAnnouncementMessage } from './messages'
 import { resolveSchoolYearApply } from './school-year'
 import { resolveRenewalPageUrl } from './base-url'
+
+/**
+ * `YYYY-MM-DD` が**実在する日付**か。正規表現だけだと `2027-02-30` のような
+ * 形式は正しいが存在しない日付が通り、PostgreSQL の `date` 列への INSERT/UPDATE で
+ * 未処理例外になる（Action が返すエラー状態にならない。Codex レビュー PR #631）。
+ * UTC で組み直して各要素が一致することまで確認する（既存の会員編集
+ * `isRealYmd` と同形。時刻を持たない日付なのでタイムゾーンの影響を受けない）。
+ */
+function isRealYmd(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const y = Number(value.slice(0, 4))
+  const m = Number(value.slice(5, 7))
+  const d = Number(value.slice(8, 10))
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+}
 
 /**
  * membership-renewal store: 年度確認（annual-registration-renewal）の
@@ -146,7 +163,7 @@ export async function startRenewal(
   now: Date = new Date(),
 ): Promise<StartRenewalResult> {
   const todayJst = todayInJst(now)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.deadline)) {
+  if (!isRealYmd(input.deadline)) {
     return { error: '回答締切の日付が不正です' }
   }
   if (input.deadline <= todayJst) {
@@ -422,6 +439,22 @@ export async function saveRenewalAnswer(
   const todayJst = todayInJst(now)
 
   return db.transaction(async (tx) => {
+    // ★最初に年度確認行を `FOR UPDATE` する（`completeRenewal` と同じロック順序）。
+    // 会員行だけをロックしていると、回答の保存と登録完了が並行したときに直列化
+    // されず、「完了処理は未回答として扱って zen_nichikyo を残したのに、回答行
+    // だけ not_register になる」不整合が起きる（＝全日協へ退会届を出し損ねる。
+    // Codex レビュー PR #631 blocker）。ロック取得後に status を再確認する。
+    const [lockedRenewal] = await tx
+      .select({ id: membershipRenewals.id, status: membershipRenewals.status })
+      .from(membershipRenewals)
+      .where(eq(membershipRenewals.id, input.renewalId))
+      .for('update')
+      .limit(1)
+    if (!lockedRenewal) return { error: '年度確認の対象ではありません' }
+    if (lockedRenewal.status !== 'open') {
+      return { error: 'この年度確認は登録完了しているため、回答を変更できません' }
+    }
+
     const [row] = await tx
       .select({
         member: membershipRenewalMembers,
@@ -491,13 +524,51 @@ export async function saveRenewalAnswer(
       if (!row.member.isCircleTarget) {
         return { error: '学年の確認の対象ではありません' }
       }
+      const kind = input.schoolYear.schoolYearKind
+      // 「卒業（サークルを離れる）」は学部等名・学年を残す（R4）ので、next_* が
+      // 送られてきても保存しない（スキーマのコメントどおり 3 列とも NULL）。
       const answer = {
-        schoolYearKind: input.schoolYear.schoolYearKind,
-        nextFacultyKind: input.schoolYear.nextFacultyKind ?? null,
-        nextFaculty: input.schoolYear.nextFaculty ?? null,
-        nextSchoolYear: input.schoolYear.nextSchoolYear ?? null,
+        schoolYearKind: kind,
+        nextFacultyKind: kind === 'leave' ? null : (input.schoolYear.nextFacultyKind ?? null),
+        nextFaculty: kind === 'leave' ? null : (input.schoolYear.nextFaculty ?? null),
+        nextSchoolYear: kind === 'leave' ? null : (input.schoolYear.nextSchoolYear ?? null),
       }
+
+      // ★区分と学年の整合性は**この境界で**検証する。Action 側は
+      // `isValidSchoolYear`（区分をまたいだ全集合）しか見ていないため、
+      // `nextFacultyKind` を省いて `nextSchoolYear: '博士4年'` を直接 POST すると
+      // `faculty_kind='undergraduate'` なのに `school_year='博士4年'` という
+      // 不整合が保存できてしまう（Codex レビュー PR #631 blocker）。
+      // 進学で区分を変えない場合は現在の区分が実効値になる。
+      if (kind === 'advance' || kind === 'custom') {
+        if (!answer.nextSchoolYear) {
+          return { error: '4月からの学年を選んでください' }
+        }
+        const effectiveFacultyKind = answer.nextFacultyKind ?? current.facultyKind
+        if (!effectiveFacultyKind) {
+          return { error: '所属（学部／大学院）を選んでください' }
+        }
+        if (!isSchoolYearForKind(answer.nextSchoolYear, effectiveFacultyKind)) {
+          return { error: '選んだ所属では指定できない学年です' }
+        }
+      }
+
+      // ★4/1 以降に「サークルを離れる」が **反映済み** の人が回答を継続側へ
+      // 変えたら、`users.is_circle_member` を戻す。戻さないと回答行だけ継続に
+      // 変わり、users は非所属のまま残る（遠征届の対象から外れたまま。
+      // Codex レビュー PR #631 blocker）。対象者は開始時点でサークル員だった
+      // （`is_circle_target`）ので、復元して差し支えない。
+      const revertsAppliedLeave =
+        row.member.schoolYearKind === 'leave' &&
+        row.member.schoolYearAppliedAt !== null &&
+        kind !== 'leave'
+
       const patch = resolveSchoolYearApply(answer, todayJst, row.fiscalYear)
+      const usersPatch =
+        patch || revertsAppliedLeave
+          ? { ...(patch ?? {}), ...(revertsAppliedLeave ? { isCircleMember: true } : {}) }
+          : null
+
       await tx
         .update(membershipRenewalMembers)
         .set({
@@ -509,12 +580,12 @@ export async function saveRenewalAnswer(
           updatedAt: now,
         })
         .where(eq(membershipRenewalMembers.id, row.member.id))
-      if (patch) {
+      if (usersPatch) {
         await tx
           .update(users)
-          .set({ ...patch, updatedAt: now })
+          .set({ ...usersPatch, updatedAt: now })
           .where(eq(users.id, input.userId))
-        appliedSchoolYear = true
+        appliedSchoolYear = patch !== null
       }
     }
 
@@ -545,7 +616,7 @@ export async function changeRenewalDeadline(
   now: Date = new Date(),
 ): Promise<ChangeDeadlineResult> {
   const todayJst = todayInJst(now)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDeadline)) return { error: '締切の日付が不正です' }
+  if (!isRealYmd(newDeadline)) return { error: '締切の日付が不正です' }
   if (newDeadline < todayJst) return { error: '締切は今日以降の日付にしてください' }
 
   return db.transaction(async (tx) => {

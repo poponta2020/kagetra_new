@@ -1,5 +1,5 @@
-import { and, asc, eq, gt, inArray, lt, lte, notInArray } from 'drizzle-orm'
-import { clubLineGroups, lineChatTasks } from '@kagetra/shared/schema'
+import { and, asc, eq, gt, inArray, lt, lte, notInArray, or } from 'drizzle-orm'
+import { clubLineGroups, lineChatTasks, membershipRenewals } from '@kagetra/shared/schema'
 import {
   LINE_CHAT_RESERVE_MARGIN_MINUTES,
   LINE_CHAT_RESERVING_STALE_MINUTES,
@@ -163,9 +163,17 @@ export async function createChatTasks(
 
 /**
  * ワーカーへ渡す未処理タスク一覧。`club_line_groups` が未設定なら空配列（エラーに
- * しない）。送信予定時刻 − `LINE_CHAT_RESERVE_MARGIN_MINUTES` を過ぎた行は返さない
- * ——それらは 19:30 バッチの `reconcileTasks` が `FAILED`（`PENDING_EXPIRED`）へ
- * 倒す対象であり、期限直前でワーカーに新規予約させても間に合わないため。
+ * しない）。
+ *
+ * 予約マージン（送信予定時刻 − `LINE_CHAT_RESERVE_MARGIN_MINUTES`）を適用するのは
+ * **`PENDING` だけ**。それらは 19:30 バッチの `reconcileTasks` が `FAILED`
+ * （`PENDING_EXPIRED`）へ倒す対象で、期限直前に新規予約させても間に合わないため。
+ *
+ * ★`CANCEL_PENDING` には**適用しない**。マージンは「これから予約を取りに行って
+ * 間に合うか」の判定であって、既に OAM 側にある予約を**消す**要求とは無関係。
+ * 適用すると、送信 5 分前以内に締切変更・登録完了で取り消したタスクがワーカーへ
+ * 渡らず、取り消したはずのリマインドが予約時刻にそのまま送信される
+ * （Codex レビュー PR #631 blocker）。
  */
 export async function listWorkerTasks(dbc: DbOrTx, now: Date): Promise<WorkerTask[]> {
   const [group] = await dbc.select().from(clubLineGroups).limit(1)
@@ -179,7 +187,10 @@ export async function listWorkerTasks(dbc: DbOrTx, now: Date): Promise<WorkerTas
     .where(
       and(
         inArray(lineChatTasks.status, ['PENDING', 'CANCEL_PENDING']),
-        gt(lineChatTasks.scheduledSendAt, marginBoundary),
+        or(
+          eq(lineChatTasks.status, 'CANCEL_PENDING'),
+          gt(lineChatTasks.scheduledSendAt, marginBoundary),
+        ),
       ),
     )
     .orderBy(asc(lineChatTasks.scheduledSendAt), asc(lineChatTasks.id))
@@ -337,6 +348,16 @@ export async function cancelTasks(dbc: DbOrTx, opts: CancelTasksOptions): Promis
  */
 export async function retryChatTask(taskId: number): Promise<{ error?: string }> {
   const now = new Date()
+  // ★進行中（`open`）の年度確認のタスクだけを戻す。これが無いと、登録完了で
+  // 取り消し・終了したはずの失敗タスクを S3 の「再試行」で `PENDING` へ復活させ、
+  // 廃止済みのリマインドを送れてしまう（Codex レビュー PR #631 blocker）。
+  // 条件は UPDATE の WHERE に入れる —— 読んでから書く形にすると、確認から
+  // UPDATE までの間に登録完了が走ったときにすり抜ける。
+  const openRenewalIds = db
+    .select({ id: membershipRenewals.id })
+    .from(membershipRenewals)
+    .where(eq(membershipRenewals.status, 'open'))
+
   const updated = await db
     .update(lineChatTasks)
     .set({ status: 'PENDING', errorCode: null, errorMessage: null, updatedAt: now })
@@ -345,17 +366,26 @@ export async function retryChatTask(taskId: number): Promise<{ error?: string }>
         eq(lineChatTasks.id, taskId),
         eq(lineChatTasks.status, 'FAILED'),
         gt(lineChatTasks.scheduledSendAt, now),
+        inArray(lineChatTasks.renewalId, openRenewalIds),
       ),
     )
     .returning({ id: lineChatTasks.id })
   if (updated.length > 0) return {}
 
   const [row] = await db
-    .select({ status: lineChatTasks.status, scheduledSendAt: lineChatTasks.scheduledSendAt })
+    .select({
+      status: lineChatTasks.status,
+      scheduledSendAt: lineChatTasks.scheduledSendAt,
+      renewalStatus: membershipRenewals.status,
+    })
     .from(lineChatTasks)
+    .innerJoin(membershipRenewals, eq(membershipRenewals.id, lineChatTasks.renewalId))
     .where(eq(lineChatTasks.id, taskId))
     .limit(1)
   if (!row) return { error: 'タスクが見つかりません' }
+  if (row.renewalStatus !== 'open') {
+    return { error: '登録完了した年度確認のタスクは再試行できません' }
+  }
   if (row.status !== 'FAILED') return { error: '再試行できるのは失敗したタスクだけです' }
   return { error: '送信予定時刻を過ぎているため再試行できません' }
 }

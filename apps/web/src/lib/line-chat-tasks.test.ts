@@ -25,12 +25,15 @@ import {
  * タスク4・AC-21/22/23・16c）。
  */
 
-async function seedRenewal(overrides: { fiscalYear?: number; deadline?: string } = {}) {
+async function seedRenewal(
+  overrides: { fiscalYear?: number; deadline?: string; status?: 'open' | 'completed' } = {},
+) {
   const [row] = await testDb
     .insert(membershipRenewals)
     .values({
       fiscalYear: overrides.fiscalYear ?? 2026,
       deadline: overrides.deadline ?? '2026-04-30',
+      status: overrides.status ?? 'open',
     })
     .returning()
   if (!row) throw new Error('failed to seed membership_renewals')
@@ -361,6 +364,37 @@ describe('line-chat-tasks', () => {
   // -------------------------------------------------------------------------
   // reportTaskResult (POST /{id}/result の中身。AC-21)
   // -------------------------------------------------------------------------
+  describe('listWorkerTasks（取消要求のマージン）', () => {
+    // Codex レビュー PR #631 blocker の回帰: マージンは「これから予約を取りに
+    // 行って間に合うか」の判定なので、既存の予約を**消す**要求には適用しない。
+    // 適用すると、送信 5 分前以内に取り消したリマインドがそのまま送信される。
+    it('送信予定の 5 分前を過ぎた CANCEL_PENDING もワーカーへ返す', async () => {
+      await seedClubLineGroup()
+      const renewal = await seedRenewal()
+      const sendAt = new Date('2026-03-10T20:00:00+09:00')
+      const cancelling = await seedTask(renewal.id, {
+        status: 'CANCEL_PENDING',
+        scheduledSendAt: sendAt,
+      })
+      // 送信 2 分前（マージン 5 分の内側）。
+      const now = new Date('2026-03-10T19:58:00+09:00')
+      const result = await listWorkerTasks(testDb, now)
+      expect(result.map((t) => t.id)).toEqual([cancelling.id])
+      expect(result[0]!.status).toBe('CANCEL_PENDING')
+    })
+
+    it('同じ時刻でも PENDING にはマージンを適用して返さない', async () => {
+      await seedClubLineGroup()
+      const renewal = await seedRenewal()
+      await seedTask(renewal.id, {
+        status: 'PENDING',
+        scheduledSendAt: new Date('2026-03-10T20:00:00+09:00'),
+      })
+      const result = await listWorkerTasks(testDb, new Date('2026-03-10T19:58:00+09:00'))
+      expect(result).toEqual([])
+    })
+  })
+
   describe('reportTaskResult', () => {
     it('PENDING → RESERVING が成立し reservingAt が記録される', async () => {
       const renewal = await seedRenewal()
@@ -566,6 +600,18 @@ describe('line-chat-tasks', () => {
     it('存在しない id はエラーを返す', async () => {
       const result = await retryChatTask(999_999)
       expect(result.error).toBeTruthy()
+    })
+
+    // Codex レビュー PR #631 blocker の回帰: 登録完了で取り消し・終了したはずの
+    // 失敗タスクを「再試行」で PENDING へ復活させられないこと。
+    it('登録完了した年度確認のタスクは、FAILED かつ未来でも再試行できない', async () => {
+      const renewal = await seedRenewal({ status: 'completed' })
+      const future = new Date(Date.now() + 60 * 60_000)
+      const task = await seedTask(renewal.id, { status: 'FAILED', scheduledSendAt: future })
+      const result = await retryChatTask(task.id)
+      expect(result.error).toContain('登録完了')
+      const [row] = await testDb.select().from(lineChatTasks).where(eq(lineChatTasks.id, task.id))
+      expect(row!.status).toBe('FAILED')
     })
   })
 

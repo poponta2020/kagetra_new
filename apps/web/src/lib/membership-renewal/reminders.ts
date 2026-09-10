@@ -1,6 +1,10 @@
 import { and, eq, ne } from 'drizzle-orm'
 import { clubLineGroups, lineChannels, lineChatTasks } from '@kagetra/shared/schema'
-import { LINE_CHAT_RESERVE_MARGIN_MINUTES, RENEWAL_MENTION_LIMIT_PER_MESSAGE } from '@kagetra/shared'
+import {
+  LINE_CHAT_RESERVE_MARGIN_MINUTES,
+  RENEWAL_DISPLAY_NAME_BUDGET_MS,
+  RENEWAL_MENTION_LIMIT_PER_MESSAGE,
+} from '@kagetra/shared'
 import type { RenewalMentionTarget } from '@kagetra/shared'
 import { db } from '@/lib/db'
 import { todayInJst } from '@/lib/jst-date'
@@ -83,12 +87,19 @@ async function loadClubChatChannel(): Promise<{
  * - 個々の API 失敗は throw させず、その人だけ mentions から外して続行する
  *   （1 人の判定失敗でリマインド全体を止めない）。全員が失敗すれば結果的に
  *   「全員テキスト列挙」になる（AC-16c）。
+ * - **`deadline` を過ぎたら以降の解決を打ち切る**。表示名の取得は 1 人ずつ直列で
+ *   1 件あたり 30 秒のタイムアウトがあるため、LINE API が遅いと 20 人で 600 秒＝
+ *   systemd の `TimeoutStartSec=600` に達し、タスクを 1 件も作らないまま
+ *   サービスが停止して**その日のリマインドが丸ごと消える**（Codex レビュー
+ *   PR #631 blocker）。打ち切った分は氏名のテキスト列挙で送る。
  */
 async function resolveMentionsForChunk(
   chunk: readonly UnansweredTarget[],
   club: { lineGroupId: string | null; channelAccessToken: string } | null,
   resolveDisplayName: ResolveDisplayNameFn,
   logger: Logger,
+  /** 表示名解決を打ち切る時刻（バッチ全体で共有する時間予算）。 */
+  deadline: number,
 ): Promise<{ mentions: RenewalMentionTarget[]; errorCode: string | null; errorMessage: string | null }> {
   if (!club || !club.lineGroupId) {
     return {
@@ -101,8 +112,16 @@ async function resolveMentionsForChunk(
 
   const mentions: RenewalMentionTarget[] = []
   let anyFailure = false
+  let budgetExceeded = false
   for (const target of chunk) {
     if (!target.lineUserId) continue
+    if (Date.now() >= deadline) {
+      budgetExceeded = true
+      logger.warn('renewal reminder: display name budget exceeded; falling back to text', {
+        remaining: chunk.length - mentions.length,
+      })
+      break
+    }
     try {
       const displayName = await resolveDisplayName({
         groupId: club.lineGroupId,
@@ -119,6 +138,14 @@ async function resolveMentionsForChunk(
     }
   }
 
+  if (budgetExceeded) {
+    return {
+      mentions,
+      errorCode: 'DISPLAY_NAME_BUDGET_EXCEEDED',
+      errorMessage:
+        '表示名の取得に時間がかかりすぎたため途中で打ち切りました。解決できなかった対象者はメンションせず氏名のテキスト列挙のみになります',
+    }
+  }
   return {
     mentions,
     errorCode: anyFailure ? 'DISPLAY_NAME_FETCH_FAILED' : null,
@@ -207,6 +234,10 @@ export async function createReminderTasksForToday(
   const splitCount = chunks.length
   const taken = await loadTakenSendAts(renewal.id)
 
+  // 全チャンクで共有する 1 つの時間予算。チャンクごとに配り直すと、分割数が
+  // 増えたぶんだけ合計時間が伸びて systemd のタイムアウトに戻ってしまう。
+  const displayNameDeadline = Date.now() + RENEWAL_DISPLAY_NAME_BUDGET_MS
+
   const taskIds: number[] = []
   for (let splitIndex = 0; splitIndex < chunks.length; splitIndex++) {
     const chunk = chunks[splitIndex]!
@@ -219,6 +250,7 @@ export async function createReminderTasksForToday(
       club,
       resolveDisplayName,
       logger,
+      displayNameDeadline,
     )
     const messageText = buildReminderMessage({
       fiscalYear: renewal.fiscalYear,

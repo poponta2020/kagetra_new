@@ -487,6 +487,88 @@ describe('saveRenewalAnswer（AC-5・AC-6・AC-8・AC-12・AC-14）', () => {
     expect(l?.schoolYear).toBe('4年')
   })
 
+  // Codex レビュー PR #631 blocker の回帰: 4/1 以降に「サークルを離れる」が反映
+  // 済みの人が回答を継続側へ変えたら users.is_circle_member を戻す。戻さないと
+  // 回答行だけ継続に変わり、users は非所属のまま残る（遠征届の対象から外れる）。
+  it('4/1 以降に反映済みの「サークルを離れる」を撤回するとサークル所属が戻る', async () => {
+    await seedClubLineGroup()
+    const admin = await createAdmin({ name: 'admin' })
+    const member = await createUser({
+      name: '撤回',
+      isCircleMember: true,
+      facultyKind: 'undergraduate',
+      faculty: '文学部',
+      schoolYear: '4年',
+    })
+    const started = await startRenewal(
+      { fiscalYear: 2027, deadline: '2027-03-25', note: null },
+      admin.id,
+      new Date('2027-03-10T03:00:00Z'),
+    )
+    const renewalId = (started as { renewalId: number }).renewalId
+    const afterApril = new Date('2027-04-02T03:00:00Z')
+
+    await saveRenewalAnswer(
+      {
+        renewalId,
+        userId: member.id,
+        actorUserId: member.id,
+        byAdmin: false,
+        schoolYear: { schoolYearKind: 'leave' },
+      },
+      afterApril,
+    )
+    expect(
+      (await testDb.query.users.findFirst({ where: eq(users.id, member.id) }))?.isCircleMember,
+    ).toBe(false)
+
+    // 気が変わって「留年（同じ学年）」へ変更する。
+    await saveRenewalAnswer(
+      {
+        renewalId,
+        userId: member.id,
+        actorUserId: member.id,
+        byAdmin: false,
+        schoolYear: { schoolYearKind: 'custom', nextSchoolYear: '4年' },
+      },
+      afterApril,
+    )
+    const after = await testDb.query.users.findFirst({ where: eq(users.id, member.id) })
+    expect(after?.isCircleMember).toBe(true)
+    expect(after?.schoolYear).toBe('4年')
+  })
+
+  // Codex レビュー PR #631 blocker の回帰: Action を直接叩いて区分を省いても、
+  // store 境界で現在の区分と突き合わせて弾く。
+  it('現在の区分と矛盾する学年は保存できない（区分を省いた直接呼び出し）', async () => {
+    await seedClubLineGroup()
+    const admin = await createAdmin({ name: 'admin' })
+    // 学年セクションの対象になるよう、**開始前に**サークル所属にしておく。
+    const member = await createUser({
+      name: '学部生',
+      isCircleMember: true,
+      facultyKind: 'undergraduate',
+      faculty: '工学部',
+      schoolYear: '3年',
+    })
+    const started = await startRenewal(
+      { fiscalYear: 2027, deadline: '2027-03-25', note: null },
+      admin.id,
+      new Date('2027-03-10T03:00:00Z'),
+    )
+    const renewalId = (started as { renewalId: number }).renewalId
+
+    // 区分（graduate）を省いて大学院の学年だけを送る＝画面からは起きない直接 POST。
+    const result = await saveRenewalAnswer({
+      renewalId,
+      userId: member.id,
+      actorUserId: member.id,
+      byAdmin: false,
+      schoolYear: { schoolYearKind: 'custom', nextSchoolYear: '博士4年' },
+    })
+    expect(result).toEqual({ error: expect.stringContaining('指定できない学年') })
+  })
+
   it('登録完了後は回答を変更できない', async () => {
     const { admin, member, renewalId } = await startWith()
     await completeRenewal(renewalId, admin.id)
@@ -499,6 +581,20 @@ describe('saveRenewalAnswer（AC-5・AC-6・AC-8・AC-12・AC-14）', () => {
       answer: 'register',
     })
     expect(result).toEqual({ error: expect.stringContaining('登録完了') })
+  })
+})
+
+describe('実在しない日付の締切（Codex レビュー PR #631）', () => {
+  it('形式だけ正しい存在しない日付は、DB 例外ではなくエラーとして返る', async () => {
+    await seedClubLineGroup()
+    const admin = await createAdmin({ name: 'admin' })
+    const result = await startRenewal(
+      { fiscalYear: 2027, deadline: '2027-02-30', note: null },
+      admin.id,
+      new Date('2027-01-10T03:00:00Z'),
+    )
+    expect(result).toEqual({ error: expect.stringContaining('日付が不正') })
+    expect(await testDb.select().from(membershipRenewals)).toHaveLength(0)
   })
 })
 
