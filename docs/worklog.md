@@ -3055,3 +3055,4 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-08 /auto-review-loop PR #618: 4R(i+d+f+fd), verdict=pass, effort=h→h→m→h, tokens=563887/500000, result=pass
 - 2026-09-08 /ship PR #618 (mail-ai-extract-refinements: D・E 級の地域制限判定): merged。親 #612・子 #613-617 クローズ。マイグレーション無し・PROMPT_VERSION 3.1.0。Codex 4R(i+d+f+fd) pass・累計 564k・WONTFIX なし。CI（Lint/Typecheck/Test）pending のままマージ（赤なら追修正）。★残 DoD=AC-80 実要綱5件（兵庫 att#45・丸亀 #60・北海道初心者 #96・横浜 E #97・埼玉 D #89）の再 AI 抽出目視・承認フォーム警告ブロックの 375px 視覚確認
 - 2026-09-09 /auto-review-loop PR #631: 1R(i), verdict=なし, effort=high, tokens=468848/500000, result=codex-error（Codex 利用上限。14,653 行の全差分を effort=high で流し、結果 JSON が出る前に上限到達。reset 2026-09-10 04:14）
+- 2026-09-10 /auto-review-loop PR #631: 2R(i+d), verdict=cutoff, effort=medium(固定), tokens=624661/1000000, result=cutoff（R1 blockers 8+should_fix 3 → 修正 9 / 見送り 4、R2 delta pass。final は残予算 375k < 実測 511k のためユーザー判断で省略）
