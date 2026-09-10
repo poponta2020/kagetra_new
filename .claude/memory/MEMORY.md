@@ -405,3 +405,12 @@
 - [auto-review PR #618](auto-review-round-pr618.md) — 4R(i+d+f+fd) verdict=pass・累計563k・WONTFIX なし。★ガード拡張は同型経路まで一度に
 - [fix PR #618](impl_fix-pr618.md) — R1 blockers 3件＋R3 final の混合級ガード拡張を修正
 - [D・E 級の地域制限と北海道の出場可否を AI に判定させる（mail-ai-extract-refinements 3.1.0）](project_ship-mail-ai-regional-eligibility.md) — shipped: PR #618。★残 DoD=AC-80 実要綱5件の目視・375px 確認
+- [annual-registration-renewal（年度確認）要件定義](project_annual_registration_renewal_def.md) — 親Issue #619・子#620-630。全日協年度更新の確認をアプリ化。LINE は match-tracker ワーカー共用・メンション PoC ゲート
+- [年度確認 タスク1（スキーマ・migration 0066）](impl_annual-registration-renewal-task1.md) — packages/shared に zod 無し→snapshot zod はタスク2へ移動。テストDBは push なので migration SQL は未実行
+- [年度確認 Wave 2（タスク2・3・4）](impl_annual-registration-renewal-wave2.md) — 3並行で排他成功。memberLeft の NULL 化を main が是正・worker_verify:none でテスト未実行の FK 違反を main が回収
+- [年度確認 タスク5（store と Server Actions）](impl_annual-registration-renewal-task5.md) — 形式検証だけを member-profile-fields.ts へ抽出（必須判断は呼び出し側）。締切変更の kinds:['reminder'] は案内を守るため必須
+- [年度確認 Wave 4（タスク6・8・9）](impl_annual-registration-renewal-wave4.md) — ワーカー3体が同時にAPI障害で中断→ディスクの成果物を測って残りだけ main が引き取る。新systemd unitはsudoers登録が必須
+- [年度確認 タスク10（docs・忠実度ゲート）](impl_annual-registration-renewal-task10.md) — 忠実度12/13をコード照合・375pxのみ未確認。残DoD=sudoers先行反映・トークン投入・S3設定・match-tracker
+- [auto-review PR #631](auto-review-round-pr631.md) — R1 needs_changes(8+3)→修正9/見送り4→R2 delta pass。累計624,661
+- [fix PR #631](impl_fix-pr631.md) — Codex R1 の blockers 6件+should_fix 3件を修正・4件はWONTFIX
+- [年度確認（annual-registration-renewal）出荷](project_ship-annual-registration-renewal.md) — shipped: PR #631 — 残DoD=sudoers本番反映が最優先
