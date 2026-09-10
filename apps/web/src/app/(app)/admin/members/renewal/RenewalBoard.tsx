@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { formatEventDate, formatFlowDate } from '@/lib/event-date'
 import { cn } from '@/lib/utils'
@@ -105,9 +105,13 @@ function DeadlineChangeForm({
   const [state, formAction, pending] = useActionState(changeDeadlineAction, deadlineInitialState)
   const [value, setValue] = useState(currentDeadline)
 
-  if (state.success) {
-    onDone()
-  }
+  // render 中に親の setEditingDeadline を直接呼ぶと React の
+  // render 中更新警告になり Strict Mode で不安定化するため、
+  // CompleteDialog と同様に成功フラグの変化を useEffect で監視する。
+  useEffect(() => {
+    if (state.success) onDone()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.success])
 
   return (
     <form action={formAction} className="mt-1 flex items-center gap-2 pb-2 text-xs">

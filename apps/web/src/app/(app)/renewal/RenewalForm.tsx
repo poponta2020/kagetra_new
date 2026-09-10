@@ -256,6 +256,27 @@ function RenewalFormBody({ view }: { view: RenewalFormView }) {
     setZenEditMode(true)
   }, [state.missingFields])
 
+  // Server Action 成功後は編集フォームを閉じる（Codex レビュー PR #631 の
+  // should_fix）。`zenEditMode`/`yearEditMode` は mount 時の `view` から
+  // useState で初期化するだけなので、revalidatePath による props 更新
+  // だけでは再初期化されず開いたまま残ってしまう。成功フラグに加えて
+  // 実際に回答済みへ更新された props（`view.answer` / `view.schoolYearAnsweredAtIso`）
+  // も見て、更新が反映された区分だけを閉じる（revalidate 反映前に閉じて
+  // 一瞬「未回答」表示へ戻るのを避ける）。表示は `view.current` / `view.diff`
+  // を直接参照するため、`values` / `schoolYearAnswer` の再同期は不要。
+  useEffect(() => {
+    if (!state.success) return
+    if (view.isZennichikyoTarget && view.answer !== null) setZenEditMode(false)
+    if (view.isCircleTarget && view.schoolYearAnsweredAtIso !== null) setYearEditMode(false)
+  }, [
+    state.success,
+    view.isZennichikyoTarget,
+    view.isCircleTarget,
+    view.answer,
+    view.answeredAtIso,
+    view.schoolYearAnsweredAtIso,
+  ])
+
   function updateField<K extends keyof RenewalSnapshotSource>(
     field: K,
     val: RenewalSnapshotSource[K],
