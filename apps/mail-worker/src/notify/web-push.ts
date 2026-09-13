@@ -1,6 +1,7 @@
 import webpush from 'web-push'
-import { count, eq, inArray, ne } from 'drizzle-orm'
-import { mailMessages, pushSubscriptions, users } from '@kagetra/shared/schema'
+import { eq, inArray } from 'drizzle-orm'
+import { pushSubscriptions, users } from '@kagetra/shared/schema'
+import { countUnprocessedMails } from '@kagetra/shared/queries'
 import type { Db } from '../db.js'
 import type { WebPushConfig } from '../config.js'
 import type { NotifyLogger } from './line.js'
@@ -19,8 +20,9 @@ const NOOP_LOGGER: NotifyLogger = {
 /**
  * mail-triage-badge: 新着メール1件を admin/vice_admin の全 Web Push 購読へ配信する。
  *
- * - ペイロードに未処理総数（triage_status != 'processed'）を `badge` として載せ、
- *   Service Worker (apps/web/public/sw.js) が navigator.setAppBadge で反映する。
+ * - ペイロードに未処理件数（`countUnprocessedMails`。取込中のメールは除外）を
+ *   `badge` として載せ、Service Worker (apps/web/public/sw.js) が
+ *   navigator.setAppBadge で反映する。
  * - HTTP 410(Gone)/404 が返った購読は失効とみなし push_subscriptions から削除する。
  * - 送信失敗は best-effort（呼び出し元の pipeline を止めない）。既存の LINE 通知
  *   (line.ts) とは独立した別レイヤ。
@@ -33,13 +35,10 @@ export async function notifyNewMailPush(
 ): Promise<void> {
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
 
-  // バッジは未処理総数（= unprocessed）。count API と同じ条件。
-  // mail-inbox-mailer: 2 状態化により deferred は廃止。
-  const [row] = await db
-    .select({ value: count() })
-    .from(mailMessages)
-    .where(ne(mailMessages.triageStatus, 'processed'))
-  const badge = row?.value ?? 0
+  // バッジは共有ヘルパー（`@kagetra/shared/queries`）経由の未処理件数。
+  // 一覧・count API と同じ条件で、取込中のメールを除外する
+  // （tournament-results 2026-09-13 改修 タスク3）。
+  const badge = await countUnprocessedMails(db)
 
   // 配信先は admin / vice_admin の全端末（購読は端末ごと）。
   const subs = await db
@@ -121,11 +120,10 @@ export async function notifyExtractCompleted(
 ): Promise<void> {
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
 
-  const [row] = await db
-    .select({ value: count() })
-    .from(mailMessages)
-    .where(ne(mailMessages.triageStatus, 'processed'))
-  const badge = row?.value ?? 0
+  // バッジは共有ヘルパー（`@kagetra/shared/queries`）経由の未処理件数。
+  // 一覧・count API と同じ条件で、取込中のメールを除外する
+  // （tournament-results 2026-09-13 改修 タスク3）。
+  const badge = await countUnprocessedMails(db)
 
   const subs = await db
     .select({

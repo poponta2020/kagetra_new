@@ -1,5 +1,5 @@
 import webpush from 'web-push'
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   mailAttachments,
   mailMessages,
@@ -8,6 +8,7 @@ import {
   resultDrafts,
   users,
 } from '@kagetra/shared/schema'
+import { countUnprocessedMails } from '@kagetra/shared/queries'
 import { getDb } from '../db.js'
 import { loadCostGuardConfig, type WebPushConfig } from '../config.js'
 import type { PipelineLogger } from '../pipeline.js'
@@ -604,11 +605,10 @@ async function notifyResultParseCompleted(
 ): Promise<void> {
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
 
-  const [row] = await db
-    .select({ value: sql<number>`count(*)::int` })
-    .from(mailMessages)
-    .where(ne(mailMessages.triageStatus, 'processed'))
-  const badge = row?.value ?? 0
+  // バッジは共有ヘルパー（`@kagetra/shared/queries`）経由の未処理件数。
+  // 一覧・count API と同じ条件で、取込中のメールを除外する
+  // （tournament-results 2026-09-13 改修 タスク3）。
+  const badge = await countUnprocessedMails(db)
 
   const subs = await db
     .select({
