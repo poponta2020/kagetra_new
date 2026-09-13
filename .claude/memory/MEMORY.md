@@ -5,6 +5,7 @@
 
 ## Project
 
+- [LINE グループ自動作成の実現可能性調査(2026-09-14)](project_line_group_autocreate_feasibility.md) — 公式手段(Messaging API/OAM/LINE WORKS)は全て不可。残るは LINE Chrome 拡張を Playwright で操作する経路のみでグレー＋PoC 未実施。作成アカウントは会専用・全員友だち前提・表示名だけで同定しない。要件定義未着手
 - [LINEでBotメンション→ステータス更新の調査経緯(2026-09-07)](project_line_bot_entry_status_feasibility.md) — **要件定義完了=親#606**(正典=docs/features/line-chat-commands/ と project_line-chat-commands.md)。★遠征届はスコープ外に確定・級グループは大会特定不可で対象外・誤爆が取り消せない(once-everスロット消費＋LINE通知2通)
 - [ライラック配色+立体感 実装完了(2026-08-29)](project_lilac_palette_direction.md) — 正典=docs/features/lilac-palette/design-spec.md。**ライラック=西洋lilac(326°)でなく和の藤色(295°)として読む**。藤(brand=success)+朱(据置)+琥珀(warn新設)、3段2層の影+背景微細ノイズ。★「地味」の原因は測定可能=14トークンが色相80-92°の1系統+カード↔背景ΔL0.024+Cardに影ゼロ。★影のalphaは据え置き不可・`--color-warn`新設は`bg-warn`等をlive化(裸参照0件を確認済)・hex照合は無効
 
