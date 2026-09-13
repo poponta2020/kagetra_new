@@ -427,3 +427,4 @@
 - [auto-review PR #640](auto-review-round-pr640.md) — 3R(i+d+f) verdict=pass・blocker1件修正(完了通知のbadge順序)・1件WONTFIX
 - [受信箱の結果取込を「押したら消える → 承認待ちで復活」にする](project_ship-tournament-results-inbox-visibility.md) — shipped: PR #640
 - [年度確認の本番反映復旧（PR #638・#641）](project_ship-renewal-production-rollout.md) — shipped: PR #638。★#631 の出荷は本番に届いていなかった
+- [会 LINE グループ設定の本番完了（2026-09-13）](project_club_line_group_setup.md) — ★join は行が在り purpose=club_chat でないと空振り。OAM の U…/C… は Messaging API の ID と別体系
