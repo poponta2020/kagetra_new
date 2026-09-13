@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { InferInsertModel } from 'drizzle-orm'
 import { fireEvent, render, screen } from '@testing-library/react'
 import {
   entryGroupPaymentNotices,
   mailAttachments,
+  resultDrafts,
   tournamentEntryRosterFiles,
   tournamentRosterImportDrafts,
 } from '@kagetra/shared/schema'
@@ -39,6 +41,23 @@ const { default: MailDetailPage } = await import('./page')
 async function renderDetail(id: number | string) {
   const ui = await MailDetailPage({ params: Promise.resolve({ id: String(id) }) })
   return render(ui)
+}
+
+// tournament-results タスク4: 「対応不要」の結果ドラフトガード用ヘルパー
+// （`@kagetra/shared` には実 DB テスト基盤が無いため、他のテストファイルと
+// 同様にここへローカルで持つ）。
+type NewResultDraft = InferInsertModel<typeof resultDrafts>
+
+async function seedResultDraft(
+  mailId: number,
+  overrides: Partial<NewResultDraft> = {},
+): Promise<void> {
+  await testDb.insert(resultDrafts).values({
+    messageId: mailId,
+    status: 'pending_review',
+    parserVersion: 'test-1.0',
+    ...overrides,
+  })
 }
 
 async function createAttachment(mailId: number, filename = 'roster.xlsx') {
@@ -412,6 +431,31 @@ describe('admin/mail-inbox/mail/[id] detail page', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '未選択' }))
       expect(screen.getByText('試合結果の取込')).toBeTruthy()
+    })
+
+    // tournament-results タスク4 (AC-29/AC-30): 結果ドラフトが承認待ちのあいだは
+    // 「対応不要」で処理済みにされて宙に浮くのを防ぐ。
+    it('AC-29: 結果ドラフトが pending_review のときは「対応不要」を出さない', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await seedResultDraft(mail.id, { status: 'pending_review' })
+
+      await renderDetail(mail.id)
+
+      // フォーム本体（種別選択）は出したまま、「対応不要」だけ隠す。
+      expect(screen.getByRole('button', { name: '未選択' })).toBeTruthy()
+      expect(screen.queryByText('対応不要')).toBeNull()
+    })
+
+    it('結果ドラフトが無いメールでは「対応不要」を出す（回帰）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+
+      await renderDetail(mail.id)
+
+      expect(screen.getByText('対応不要')).toBeTruthy()
     })
 
     it('AC-13: 採用済みの添付は選択肢に出さず、採用状態と解除ボタンを出す', async () => {
