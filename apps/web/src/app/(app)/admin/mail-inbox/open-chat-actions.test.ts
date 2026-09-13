@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
+  clubLineGroups,
   entryGroupOpenChatBroadcasts,
   entryGroupOpenChats,
   eventBroadcastMessages,
@@ -76,6 +77,9 @@ async function resetDb() {
   await db.delete(entryGroupOpenChats)
   await db.delete(eventBroadcastMessages)
   await db.delete(eventLineBroadcasts)
+  // club_line_groups.line_channel_id は RESTRICT なので line_channels より先に消す
+  // （先行テストファイルが残した行に引っかかる。line-webhook-handler.test.ts と同じ形）。
+  await db.delete(clubLineGroups)
   await db.delete(lineChannels)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)

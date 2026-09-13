@@ -13,6 +13,7 @@ import { createEntryGroup } from '@/test-utils/seed'
 import { sendGuidelinesOnLink } from './line-broadcast-guidelines'
 import {
   attachmentShareTokens,
+  clubLineGroups,
   eventBroadcastGuidelineAttachments,
   eventBroadcastMessages,
   eventLineBroadcasts,
@@ -44,6 +45,9 @@ async function resetDb() {
   await db.delete(eventBroadcastMessages)
   await db.delete(attachmentShareTokens)
   await db.delete(eventLineBroadcasts)
+  // club_line_groups.line_channel_id は RESTRICT なので line_channels より先に消す
+  // （先行テストファイルが残した行に引っかかる。line-webhook-handler.test.ts と同じ形）。
+  await db.delete(clubLineGroups)
   await db.delete(lineChannels)
   await db.delete(mailAttachments)
   await db.delete(mailMessages)

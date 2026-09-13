@@ -3,7 +3,7 @@ import { DisclosureRow, FlatTable, LinkAction, LinkActionLink } from '@/componen
 import type { FlatTableRow } from '@/components/events/detail'
 import { cn } from '@/lib/utils'
 import { formatRosterValue } from '@/lib/membership-renewal/diff'
-import { findMissingRegisterFields } from '@/lib/membership-renewal/store'
+import { findMissingRegisterFields } from '@/lib/membership-renewal/snapshot'
 import type { RenewalBoardRow } from '@/lib/membership-renewal/store'
 import { MEMBERSHIP_KIND_LABELS } from '@/lib/membership-renewal/membership-kind'
 import { formatDanKanji } from '@/lib/membership-renewal/dan-kanji'

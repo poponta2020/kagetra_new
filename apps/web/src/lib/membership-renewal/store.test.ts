@@ -14,7 +14,6 @@ import {
   changeRenewalDeadline,
   completeRenewal,
   countRenewalTargets,
-  findMissingRegisterFields,
   loadCompletionPreview,
   loadMemberRenewalView,
   loadRenewalBoard,
@@ -218,42 +217,6 @@ describe('startRenewal（AC-1・AC-2・AC-3）', () => {
     expect(
       await startRenewal({ fiscalYear: 2027, deadline: '2027-03-25', note: null }, admin.id, now),
     ).toEqual({ error: expect.stringContaining('実施済み') })
-  })
-})
-
-describe('findMissingRegisterFields（AC-5）', () => {
-  const base = {
-    familyName: '北海',
-    givenName: '太郎',
-    familyKana: 'ほっかい',
-    givenKana: 'たろう',
-    birthDate: '2004-06-12',
-    gender: 'male' as const,
-    dan: null,
-    grade: 'B' as const,
-    postalCode: '0010017',
-    address1: '札幌市北区',
-    address2: null,
-    phone: '090-0000-0000',
-    facultyKind: null,
-    faculty: null,
-    schoolYear: null,
-  }
-
-  it('全て埋まっていれば空（住所2・段位は B 級では必須ではない）', () => {
-    expect(findMissingRegisterFields(base)).toEqual([])
-  })
-
-  it('欠けた項目のラベルを返す', () => {
-    expect(findMissingRegisterFields({ ...base, phone: null, address1: null })).toEqual([
-      '住所1',
-      '電話番号',
-    ])
-  })
-
-  it('段位は A 級のときだけ必須', () => {
-    expect(findMissingRegisterFields({ ...base, grade: 'A', dan: null })).toEqual(['段位'])
-    expect(findMissingRegisterFields({ ...base, grade: 'A', dan: 4 })).toEqual([])
   })
 })
 
