@@ -12,6 +12,9 @@
 
 ## 0. scoped sudoers を本番へ配置する（必須・**マージ前が望ましい**）
 
+> **状態: 2026-09-13 に反映済み**（`visudo -c` parsed OK / `440 root:root` / `kagetra` に renewal 8 エントリ）。
+> 以降 `infra/sudoers/kagetra-deploy` を変えたときだけ この手順を再実施する。
+
 本機能は新規 systemd unit を 4 ファイル（2 timer + 2 service）追加する。
 `infra/sudoers/kagetra-deploy` は unit 名を固定列挙しており（ワイルドカード禁止＝privilege escalation 対策）、
 **sudoers を本番に反映しないまま unit を含む PR をマージすると、auto-deploy が unit の `install` で sudo に蹴られて fail する**。
@@ -55,12 +58,37 @@ openssl rand -base64 48 | tr -d '\n'
 
 ## 2. マージ → auto-deploy
 
-`main` へマージすると GitHub Actions の deploy が走り、以下を自動で行う:
+`main` へマージすると GitHub Actions の deploy が走り、変更されたパスに応じて以下を行う:
 
-- migration `0066_minor_black_bolt.sql` の適用（`db:migrate`）
+- migration `0066_minor_black_bolt.sql` の適用（`apply-migrations.sh`）
 - `apps/web/systemd/kagetra-renewal-*.{service,timer}` の `/etc/systemd/system/` への配置
 - `daemon-reload` → 新規 timer の `enable --now` → `restart`
 - `kagetra-web.service` の restart
+
+> **⚠️ 2026-09-10 の初回マージ（PR #631）ではこれらは実行されなかった。**
+>
+> deploy は build で失敗し（クライアントバンドルへ `pg` が混入し `Module not found: 'net'`。
+> 修正 = PR #638）、build は migration よりも unit 配置よりも**前**にあるため以降が全て未実行になった。
+> さらに `auto-deploy.sh` は `OLD=$(git rev-parse HEAD)` と `origin/main` の差分で適用対象を決めるが、
+> `git checkout` が build より**前**にあるため、失敗してもホストの HEAD は先に進む。
+> 結果として **0066 と unit の差分は以降のどのデプロイにも現れなくなった**。
+>
+> 2026-09-13 に以下を手作業で実施済み（同じ事態が再発したときはこの手順を使う）:
+>
+> ```bash
+> # ① 先にバックアップを 1 回走らせる
+> sudo systemctl start kagetra-backup.service
+> # ② migration を適用（journal+hash で冪等。適用済みは SKIP される）
+> sudo -u kagetra bash -c 'DB_URL=$(grep -E "^DATABASE_URL=" /opt/kagetra/.env.production | head -1 | sed -E "s/^DATABASE_URL=//; s/^\"(.*)\"$/\1/") >   DATABASE_URL="$DB_URL" bash /opt/kagetra/scripts/deploy/apply-migrations.sh'
+> # ③ unit を配置（sudoers 反映後。kagetra に限定された install 権限を使う）
+> sudo -u kagetra sudo -n /usr/bin/install -m 644 -o root -g root >   /opt/kagetra/apps/web/systemd/<unit> /etc/systemd/system/<unit>
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now kagetra-renewal-reminders.timer kagetra-renewal-school-year.timer
+> ```
+>
+> **教訓**: デプロイが失敗したら、そのコミットに `packages/shared/drizzle/*.sql` や `apps/*/systemd/` が
+> 含まれていなかったかを必ず確かめること。含まれていたら手動適用が要る。
+> （CI に `pnpm build` を入れたので、クライアント・サーバー境界違反による build 失敗は以降 PR 段階で止まる）
 
 ## 3. デプロイ後の確認
 
