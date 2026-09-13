@@ -426,3 +426,4 @@
 - [auto-review PR #641](auto-review-round-pr641.md) — R1 verdict=pass
 - [auto-review PR #640](auto-review-round-pr640.md) — 3R(i+d+f) verdict=pass・blocker1件修正(完了通知のbadge順序)・1件WONTFIX
 - [受信箱の結果取込を「押したら消える → 承認待ちで復活」にする](project_ship-tournament-results-inbox-visibility.md) — shipped: PR #640
+- [年度確認の本番反映復旧（PR #638・#641）](project_ship-renewal-production-rollout.md) — shipped: PR #638。★#631 の出荷は本番に届いていなかった
