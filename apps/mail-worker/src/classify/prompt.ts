@@ -56,8 +56,12 @@ import {
  * with an unrestricted D grade, Example 4 added (D and E restricted
  * differently, with a lottery-priority clause that must NOT be read as a
  * restriction).
+ *
+ * 3.1.1 (rename-app-to-hokumei, PR #639): patch. Wording only — the
+ * assistant's self-introduction names the app 北溟 instead of kagetra.
+ * No schema or guidance change; no behavioural shift expected.
  */
-export const PROMPT_VERSION = '3.1.0'
+export const PROMPT_VERSION = '3.1.1'
 
 /**
  * The system prompt is intentionally long, but not to satisfy any cache
