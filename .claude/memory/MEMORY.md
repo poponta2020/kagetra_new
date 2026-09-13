@@ -423,3 +423,6 @@
 - [tournament-results 受信箱可視性 タスク1（共有モジュール）](impl_tournament-results-inbox-visibility-task1.md) — 取込中/滞留/対応不要ガードを packages/shared の削除可能な葉+配線1行に集約
 - [tournament-results 受信箱可視性 タスク2-5](impl_tournament-results-inbox-visibility-task2-5.md) — Wave2並行実装＋docs。describe 追加で truncateAll が全滅する罠・processMail 経路はスコープ外
 - [closeTestDb は describe ごとに置かない](feedback_vitest_close_test_db_per_describe.md) — 2つ目の describe を足すと truncateAll が全滅する（機構は未特定・対処は末尾に1つだけ）
+- [auto-review PR #641](auto-review-round-pr641.md) — R1 verdict=pass
+- [auto-review PR #640](auto-review-round-pr640.md) — 3R(i+d+f) verdict=pass・blocker1件修正(完了通知のbadge順序)・1件WONTFIX
+- [受信箱の結果取込を「押したら消える → 承認待ちで復活」にする](project_ship-tournament-results-inbox-visibility.md) — shipped: PR #640

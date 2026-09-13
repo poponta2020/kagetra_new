@@ -3060,3 +3060,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-13 /auto-review-loop PR #638: 1R(i), verdict=pass, effort=medium, tokens=132251/500000, result=pass（--no-auto-ship: マージ前に本番へ 0066 適用が必要）
 - 2026-09-13 /auto-review-loop PR #639: 3R(i+d+f), verdict=pass, effort=h→m→h, tokens=295466/500000, result=pass
 - 2026-09-13 /ship PR #639: アプリ名「かげとら」→「北溟」（表示名のみ・PROMPT_VERSION 3.1.1）。merge 808c634・CI pending のままマージ。残=本番実機確認・アイコン差し替え
+- 2026-09-13 /auto-review-loop PR #640: 3R(i+d+f), verdict=pass, effort=m, tokens=333214/500000, result=pass（blocker 1件修正=完了通知の badge 順序 / 1件 WONTFIX=dismiss と enqueue の直列化）
+- 2026-09-13 /ship PR #640: tournament-results 受信箱可視性（取込中は消す→承認待ちで復活・未処理件数の述語統一・「対応不要」ガード拡張）。merge d4efe71・CI pending のままマージ・親 #632 クローズ。残=AC-37 本番実機確認／processMail 経路の穴は別 Issue 候補
