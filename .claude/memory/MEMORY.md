@@ -421,5 +421,5 @@
 - [auto-deployの差分ゲートは失敗デプロイの変更を永久に取りこぼす](feedback_deploy_diff_gate_misses_failed_deploy.md) — checkoutがbuildより前なので失敗してもHEADは進む。migration/systemd unitが二度と差分に出ない
 - [アプリ名を「かげとら」から「北溟」へ変更](project_ship-rename-app-to-hokumei.md) — shipped: PR #639（表示名のみ・アイコン差し替えは残課題）
 - [tournament-results 受信箱可視性 タスク1（共有モジュール）](impl_tournament-results-inbox-visibility-task1.md) — 取込中/滞留/対応不要ガードを packages/shared の削除可能な葉+配線1行に集約
-- [tournament-results 受信箱可視性 タスク2-5](impl_tournament-results-inbox-visibility-task2-5.md) — Wave2並行実装＋docs。describe追加でafterAll(closeTestDb)がpoolを閉じる罠
+- [tournament-results 受信箱可視性 タスク2-5](impl_tournament-results-inbox-visibility-task2-5.md) — Wave2並行実装＋docs。describe 追加で truncateAll が全滅する罠・processMail 経路はスコープ外
 - [closeTestDb は describe ごとに置かない](feedback_vitest_close_test_db_per_describe.md) — 2つ目の describe を足すと truncateAll が全滅する（機構は未特定・対処は末尾に1つだけ）

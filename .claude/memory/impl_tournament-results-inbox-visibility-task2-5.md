@@ -19,3 +19,5 @@ tournament-results 2026-09-13 改修のタスク2-5（Wave 2 = タスク2/3/4 �
 **検証結果（main が直列実行）**: web 型検査クリーン / mail-worker 型検査クリーン / shared 型検査クリーン / page.test.tsx 20 / actions.test.ts + mail[id]/page.test.tsx 222 / result-import-visibility 29 / mail-history 3ファイル 36（AC-30 回帰）/ mail-worker web-push 9 / eslint 全変更ファイル 0件。
 
 **既存の乖離（今回の変更が生むものではない・触っていない）**: 一覧見出しの「未処理 (N)」は描画行数（`ACTIVE_LIMIT=100` 上限）、バッジ API は真の `COUNT(*)`。100件超では改修前から数字が食い違う。
+
+**★スコープ外として残した穴（別 Issue 候補・今回の変更が作ったものではない）**: メール詳細の統合処理フォームの表示条件は `showProcessForm = !mail.draft && triageStatus === 'unprocessed'` のままなので、`pending_review` の**結果**ドラフトを持つメールでもフォームは出る。「対応不要」ボタンだけは塞いだが、`processMail`（種別＋紐付けの実行）経由なら依然として processed にできる。`tournament_drafts` の場合はフォームごと出ないので非対称。要件 §3.6・AC-29 は `dismissMail` しか名指ししておらず、改修前から到達可能だったため今回は直していない。
