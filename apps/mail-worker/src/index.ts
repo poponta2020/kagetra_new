@@ -16,7 +16,7 @@ import {
   recoverStaleClaimedJobs,
   STALE_CLAIM_RECOVERY_MS_EXTRACT,
 } from './jobs.js'
-import { runResultParse } from './result-import/run.js'
+import { notifyResultParseCompleted, runResultParse } from './result-import/run.js'
 import { runRosterParse } from './roster-import/run.js'
 import { buildLotteryBackfillReport } from './roster-import/backfill-report.js'
 import { getLotteryCoverageReport } from './roster-import/coverage-report.js'
@@ -405,11 +405,29 @@ async function runExtractOnlyDispatcher(opts: {
         mailMessageId,
         attachmentId,
         triggeredByUserId: job.requestedByUserId,
-        webPushConfig: opts.webPushConfig,
         logger: opts.log,
         ai,
       })
       await markJobDone(db, job.id, result.runId)
+
+      // Web Push（best-effort）は markJobDone の後で送る — 通知が
+      // runResultParse の内側（ジョブがまだ claimed）にあると、共有ヘルパーが
+      // 完了メール自身を「取込中」として除外してしまい、届いた瞬間の badge が
+      // 実際より少なくなるため。
+      if (opts.webPushConfig) {
+        try {
+          await notifyResultParseCompleted(db, opts.webPushConfig, {
+            mailMessageId,
+            result: result.status,
+          })
+        } catch (pushErr) {
+          opts.log.warn('result_parse: web push failed', {
+            runId: result.runId,
+            mailMessageId,
+            err: pushErr instanceof Error ? pushErr.message : String(pushErr),
+          })
+        }
+      }
 
       console.log('result_parse result:', result)
     } else if (job.kind === 'roster_parse') {

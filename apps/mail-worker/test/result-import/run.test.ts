@@ -114,8 +114,9 @@ function setupHappyPath() {
   dbMock.update.mockReturnValueOnce({
     set: () => ({ where: () => Promise.resolve() }),
   })
-  // Note: all tests pass webPushConfig:null so the badge/subs/subject selects
-  // inside notifyResultParseCompleted are never reached — do not add them here.
+  // Note: notifyResultParseCompleted is no longer called from inside
+  // runResultParse (moved to the dispatcher, after markJobDone) — the
+  // badge/subs/subject selects it issues are never reached by these tests.
 }
 
 // Queues a spy-backed insert().values() so a test can assert on the exact
@@ -146,7 +147,6 @@ describe('runResultParse — happy path', () => {
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(result.status).toBe('success')
@@ -160,7 +160,6 @@ describe('runResultParse — happy path', () => {
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(readExcelMock).toHaveBeenCalledWith(expect.any(Buffer), 'result.xlsx')
@@ -194,7 +193,6 @@ describe('runResultParse — parse failure', () => {
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(result.status).toBe('parse_failed')
@@ -225,7 +223,6 @@ describe('runResultParse — attachment not found', () => {
       mailMessageId: MAIL_ID,
       attachmentId: 999,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(result.status).toBe('parse_failed')
@@ -255,7 +252,6 @@ describe('runResultParse — draft-state policy (matches triggerResultParse)', (
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     // Parse succeeded but the approved draft is left intact (no overwrite).
@@ -282,7 +278,6 @@ describe('runResultParse — draft-state policy (matches triggerResultParse)', (
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(result.status).toBe('success')
@@ -313,7 +308,6 @@ describe('runResultParse — draft-state policy (matches triggerResultParse)', (
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
     })
 
     expect(result.status).toBe('success')
@@ -359,7 +353,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -394,7 +387,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -427,7 +419,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -458,7 +449,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -493,7 +483,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -530,7 +519,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -569,7 +557,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -613,7 +600,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -650,7 +636,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -690,7 +675,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -725,7 +709,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -763,7 +746,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -794,7 +776,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
@@ -826,7 +807,6 @@ describe('runResultParse — AI routing/extraction (tournament-results AI revamp
       mailMessageId: MAIL_ID,
       attachmentId: ATT_ID,
       triggeredByUserId: USER_ID,
-      webPushConfig: null,
       ai,
     })
 
