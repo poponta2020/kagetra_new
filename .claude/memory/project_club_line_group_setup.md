@@ -32,6 +32,8 @@ runbook の手順どおり先に招待すると必ず 1 回空振りし、退出
 - **アカウント: OAM `Uce868b2…` ≠ Bot の userId `U29ac7e62…`（= webhook destination）**。
   後者は要件定義書に書かれておらず、`webhook_destination_id` と突合して「別アカウントだ」と誤診した。
   OAM の URL は OAM から実際にコピーした値がそのまま正で、Messaging API 側の ID と照合してはいけない。
+  **決着**: `GET https://chat.line.biz/api/v1/bots/Uce868b2…`（ワーカーの storageState の cookie で）→
+  `name=北大エナガ / userPermissionType=ADMIN`。同じ Bot の別 ID 体系だと確認した。照合したいときはこの API の `name` を見る。
 
 ## 検証済み（本番実測）
 
