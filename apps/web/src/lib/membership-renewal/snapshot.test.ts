@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { RENEWAL_SNAPSHOT_VERSION, type RenewalSnapshot } from '@kagetra/shared'
 import {
   buildRenewalSnapshot,
+  findMissingRegisterFields,
   parseRenewalSnapshot,
   renewalSnapshotSchema,
   safeParseRenewalSnapshot,
@@ -91,5 +92,41 @@ describe('renewalSnapshotSchema（zod による読み出し検証）', () => {
     expect(safeParseRenewalSnapshot(null)).toBeNull()
     expect(safeParseRenewalSnapshot('not an object')).toBeNull()
     expect(safeParseRenewalSnapshot([])).toBeNull()
+  })
+})
+
+describe('findMissingRegisterFields（AC-5）', () => {
+  const base = {
+    familyName: '北海',
+    givenName: '太郎',
+    familyKana: 'ほっかい',
+    givenKana: 'たろう',
+    birthDate: '2004-06-12',
+    gender: 'male' as const,
+    dan: null,
+    grade: 'B' as const,
+    postalCode: '0010017',
+    address1: '札幌市北区',
+    address2: null,
+    phone: '090-0000-0000',
+    facultyKind: null,
+    faculty: null,
+    schoolYear: null,
+  }
+
+  it('全て埋まっていれば空（住所2・段位は B 級では必須ではない）', () => {
+    expect(findMissingRegisterFields(base)).toEqual([])
+  })
+
+  it('欠けた項目のラベルを返す', () => {
+    expect(findMissingRegisterFields({ ...base, phone: null, address1: null })).toEqual([
+      '住所1',
+      '電話番号',
+    ])
+  })
+
+  it('段位は A 級のときだけ必須', () => {
+    expect(findMissingRegisterFields({ ...base, grade: 'A', dan: null })).toEqual(['段位'])
+    expect(findMissingRegisterFields({ ...base, grade: 'A', dan: 4 })).toEqual([])
   })
 })

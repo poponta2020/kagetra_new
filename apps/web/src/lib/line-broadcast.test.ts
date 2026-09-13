@@ -13,6 +13,7 @@ import { broadcastMailToEvent } from './line-broadcast'
 import { buildMailBodyFlexMessage } from '@/lib/line-flex-mail-body'
 import {
   attachmentShareTokens,
+  clubLineGroups,
   entryGroups,
   eventBroadcastMessages,
   eventGradeBroadcasts,
@@ -56,6 +57,9 @@ async function resetDb() {
   // 残した行に引っかかる。実行順が変わったときだけ露出する脆さだった）。
   await db.delete(lineGradeGroupBindings)
   await db.delete(eventGradeBroadcasts)
+  // club_line_groups.line_channel_id は RESTRICT なので line_channels より先に消す
+  // （先行テストファイルが残した行に引っかかる。line-webhook-handler.test.ts と同じ形）。
+  await db.delete(clubLineGroups)
   await db.delete(lineChannels)
   // entry-groups: 名簿は entry_groups を **RESTRICT** で参照する（旧: events を cascade）。
   // events を消してもグループには追従しないので、entry_groups の前に明示的に消さないと

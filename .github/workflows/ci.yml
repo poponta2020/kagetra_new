@@ -75,6 +75,21 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
+      # 本番ビルドの検証。lint/check-types/vitest はどれも
+      # クライアント/サーバー境界を見ないため、'use client' 配下から
+      # サーバー専用モジュール（`db` → `pg`）を値 import しても全て green になる。
+      # E2E は `next dev` を使うので build を通らない — この穴を PR #631 が
+      # 踏んで、本番デプロイが `Module not found: 'net'` で落ちた（Issue: main 赤）。
+      # ここで落として本番へ行かせない。
+      - name: Build
+        run: pnpm build
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          AUTH_SECRET: ci-build-secret-do-not-use-in-production
+          AUTH_TRUST_HOST: 'true'
+          AUTH_LINE_ID: ci-build-line-id
+          AUTH_LINE_SECRET: ci-build-line-secret
+
       - name: Test (Vitest)
         run: pnpm test
 

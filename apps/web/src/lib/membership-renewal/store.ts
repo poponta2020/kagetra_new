@@ -9,7 +9,6 @@ import {
 import {
   RENEWAL_NOTE_MAX_LENGTH,
   ROSTER_FIELDS,
-  ROSTER_FIELD_LABELS,
   isSchoolYearForKind,
 } from '@kagetra/shared'
 import type {
@@ -25,7 +24,7 @@ import { db } from '@/lib/db'
 import { todayInJst } from '@/lib/jst-date'
 import { cancelTasks, createChatTask } from '@/lib/line-chat-tasks'
 import { resolveMembershipKind } from './membership-kind'
-import { buildRenewalSnapshot, safeParseRenewalSnapshot } from './snapshot'
+import { buildRenewalSnapshot, findMissingRegisterFields, safeParseRenewalSnapshot } from './snapshot'
 import type { RenewalSnapshotSource } from './snapshot'
 import { diffRoster } from './diff'
 import type { RosterDiffEntry } from './diff'
@@ -365,39 +364,6 @@ function pickRosterSource(row: Record<string, unknown>): RenewalSnapshotSource {
 // ---------------------------------------------------------------------------
 // 回答（R3・R4・R6・AC-5〜9・AC-12・AC-14）
 // ---------------------------------------------------------------------------
-
-/** 「登録する」に必要な項目（R3）。段位は A 級のみ必須なので別扱い。 */
-const REGISTER_REQUIRED_FIELDS = [
-  'familyName',
-  'givenName',
-  'familyKana',
-  'givenKana',
-  'birthDate',
-  'gender',
-  'grade',
-  'postalCode',
-  'address1',
-  'phone',
-] as const
-
-/**
- * 「登録する」の必須検証（AC-5）。欠けている項目のラベルを返す（空なら充足）。
- * 形式検証は `lib/member-profile-fields.ts` が済ませている前提で、ここは
- * **必須の有無だけ**を見る（管理者編集は同じ列を任意で扱うため、必須はこの
- * 経路だけの関心事）。
- */
-export function findMissingRegisterFields(source: RenewalSnapshotSource): string[] {
-  const missing: string[] = []
-  for (const field of REGISTER_REQUIRED_FIELDS) {
-    const value = source[field]
-    if (value === null || value === '') missing.push(ROSTER_FIELD_LABELS[field])
-  }
-  // 段位は A 級のみ必須（既存の登録フローと同じ規則）。
-  if (source.grade === 'A' && (source.dan === null || source.dan === 0)) {
-    missing.push(ROSTER_FIELD_LABELS.dan)
-  }
-  return missing
-}
 
 export interface SchoolYearAnswerInput {
   schoolYearKind: RenewalSchoolYearKind

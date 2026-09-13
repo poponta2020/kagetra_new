@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   EMPTY_RENEWAL_SNAPSHOT,
   RENEWAL_SNAPSHOT_VERSION,
+  ROSTER_FIELD_LABELS,
   type FacultyKind,
   type Gender,
   type Grade,
@@ -100,4 +101,41 @@ export function parseRenewalSnapshot(value: unknown): RenewalSnapshot {
 export function safeParseRenewalSnapshot(value: unknown): RenewalSnapshot | null {
   const result = renewalSnapshotSchema.safeParse(value)
   return result.success ? result.data : null
+}
+
+/** 「登録する」に必要な項目（R3）。段位は A 級のみ必須なので別扱い。 */
+const REGISTER_REQUIRED_FIELDS = [
+  'familyName',
+  'givenName',
+  'familyKana',
+  'givenKana',
+  'birthDate',
+  'gender',
+  'grade',
+  'postalCode',
+  'address1',
+  'phone',
+] as const
+
+/**
+ * 「登録する」の必須検証（AC-5）。欠けている項目のラベルを返す（空なら充足）。
+ * 形式検証は `lib/member-profile-fields.ts` が済ませている前提で、ここは
+ * **必須の有無だけ**を見る（管理者編集は同じ列を任意で扱うため、必須はこの
+ * 経路だけの関心事）。
+ *
+ * DB に触れないのでここ（snapshot.ts）に置く。S2 の会員行（`MemberRow.tsx`）が
+ * クライアントバンドルから呼ぶため、`store.ts`（`db` を import する）に置くと
+ * `pg` がクライアント側に巻き込まれて `next build` が `Module not found: 'net'` で落ちる。
+ */
+export function findMissingRegisterFields(source: RenewalSnapshotSource): string[] {
+  const missing: string[] = []
+  for (const field of REGISTER_REQUIRED_FIELDS) {
+    const value = source[field]
+    if (value === null || value === '') missing.push(ROSTER_FIELD_LABELS[field])
+  }
+  // 段位は A 級のみ必須（既存の登録フローと同じ規則）。
+  if (source.grade === 'A' && (source.dan === null || source.dan === 0)) {
+    missing.push(ROSTER_FIELD_LABELS.dan)
+  }
+  return missing
 }
