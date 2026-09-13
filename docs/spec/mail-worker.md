@@ -133,7 +133,7 @@ extract-only dispatcher（30 秒間隔）がこのジョブを claim し、`pipe
 
 LINE SDK の例外は `LineNotifyError` にラップして catch され、通知失敗はパイプライン成功を巻き込まない（`LINE_NOTIFY_DRY_RUN=1` でテスト時は実送信をスキップ）。
 
-mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notify/web-push.ts`）。新着メール insert 毎（`onMailInserted` フック）と AI 抽出完了時に、`admin`/`vice_admin` 全端末の `push_subscriptions` へ配信する。ペイロードの `badge` は `triage_status != 'processed'` の件数（`/api/admin/mail/unprocessed-count` と同じクエリ）。410/404 応答の購読は失効とみなし削除する。
+mail-triage-badge（未処理バッジ）は別チャネルの Web Push（`notify/web-push.ts`）。新着メール insert 毎（`onMailInserted` フック）と AI 抽出完了時・結果取込完了時（`result-import/run.ts` の `notifyResultParseCompleted`）に、`admin`/`vice_admin` 全端末の `push_subscriptions` へ配信する。ペイロードの `badge` は `countUnprocessedMails`（`packages/shared/src/queries/unprocessed-mails.ts`）が算出する未処理件数で、一覧・`/api/admin/mail/unprocessed-count` と**同じ述語を共有する唯一の定義**（`triage_status != 'processed'` から結果取込中のメールを除外する。[spec/tournaments-results.md](tournaments-results.md) の「取込中・承認待ちの受信箱表示」）。述語を書き写すとバッジだけ取込中を数えて一覧とズレるため、各所で直書きしない。410/404 応答の購読は失効とみなし削除する。
 
 ### 受信箱 UI（`/admin/mail-inbox`）
 
