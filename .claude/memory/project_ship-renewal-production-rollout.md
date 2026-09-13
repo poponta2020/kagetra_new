@@ -30,12 +30,12 @@ PR #631（年度確認）の出荷後、main の CI と本番デプロイが両�
 | PR #638 マージ → デプロイ | **success**（#631 以降で初）。web は 730eca2 で 21:29:40 に restart・HTTP 307 |
 | systemd unit 2 組配置 | kagetra の限定 sudo 経路で install → daemon-reload → enable --now → restart。**両 timer active/enabled**（次回 00:05 と 19:30） |
 | timer の初回発火 | 両サービスとも成功の no-op（`reminders: skipped (no-open-renewal)` / `apply-school-year: done {checked:0,applied:0}`）＝新コードが本番 DB の新テーブルに対して正常動作することの実地確認 |
+| PR #641 マージ → sudoers 再反映 | デプロイ success。`visudo -c` parsed OK・**kagetra として `is-active` が両 timer で active を返す**（以前は sudo に蹴られていた） |
 | ワーカー API の fail-closed | トークン無し **401** / 不正 **403** / 正しい **200 + 本文 []**（AC-21・22 のとおり） |
 
 ## 残り（ユーザー作業）
 
 - `/settings/club-line-group` の設定（Bot 招待 → 発言 → OAM URL → join でグループ ID 捕捉）
 - VM の line-chat-worker/.env に `APPS_JSON` を入れて再起動（kagetra 側 serviceToken は本番の `LINE_CHAT_WORKER_TOKEN` と一致させる）
-- PR #641 マージ後に sudoers を本番へ再反映
 - AC-28（375px 実機）・AC-30/31/32（本番送信・メンション PoC）— **未確認**
 - 親 Issue #619 は #630（メンション実装）が残るため OPEN のまま
