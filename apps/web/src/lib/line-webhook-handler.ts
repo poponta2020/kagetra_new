@@ -889,7 +889,7 @@ async function handleInviteCode(
       mention,
       label: '@管理者',
       template:
-        '景虎上の申込人数は' +
+        '北溟上の申込人数は' +
         headcountParts.template +
         'です。管理者・会計を除いたグループの人数が一致していることを確認してください。',
       values: headcountParts.values,

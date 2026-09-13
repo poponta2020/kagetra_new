@@ -123,7 +123,7 @@ describe('resendPaymentReport', () => {
       const first = pushBatches(fetchSpy)[0]!
       firstText = first[0]!.text!
       firstImageUrl = first[1]!.originalContentUrl!
-      expect(firstText).toContain('景虎上の想定金額は')
+      expect(firstText).toContain('北溟上の想定金額は')
     } finally {
       fetchSpy.mockRestore()
     }

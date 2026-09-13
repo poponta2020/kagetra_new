@@ -20,7 +20,7 @@ vi.mock('./bottom-nav', () => ({
 }))
 
 describe('MobileShell', () => {
-  // AC-1 / AC-2: nav-settings-hub で上部バー（ワードマーク「かげとら」＋
+  // AC-1 / AC-2: nav-settings-hub で上部バー（ワードマーク「北溟」＋
   // `{name}さん` の設定シートトリガー）を廃止した。シェルの子は <main> と
   // <nav> の 2 つだけになったことを機械的に固定する。
   it('子は <main> と <nav> の 2 つだけで、ワードマークもユーザー名も DOM に無い', () => {
@@ -32,7 +32,7 @@ describe('MobileShell', () => {
     const shell = container.firstChild as HTMLElement
     const childTags = Array.from(shell.children).map((el) => el.tagName)
     expect(childTags).toEqual(['MAIN', 'NAV'])
-    expect(screen.queryByText('かげとら')).toBeNull()
+    expect(screen.queryByText('北溟')).toBeNull()
     expect(screen.queryByText(/さん$/)).toBeNull()
   })
 

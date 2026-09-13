@@ -21,7 +21,7 @@ export default async function SignInPage({
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-md space-y-6 rounded-lg bg-surface p-8 shadow-lg">
         <div>
-          <h1 className="text-xl font-bold">かげとら ログイン</h1>
+          <h1 className="text-xl font-bold">北溟 ログイン</h1>
           <p className="mt-2 text-sm text-ink-2">
             LINE アカウントでログインします。
           </p>

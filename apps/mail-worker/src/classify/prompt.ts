@@ -75,7 +75,7 @@ export function buildSystemPrompt(): string {
   // "D 級・E 級" — derived from the single constant so widening the target
   // grades (C 級 has real-world restrictions too) is a one-line change.
   const targetGrades = REGIONAL_ELIGIBILITY_GRADES.map((g) => `${g} 級`).join('・')
-  return `あなたは日本の競技かるた会向け管理ツール kagetra の AI アシスタントです。
+  return `あなたは日本の競技かるた会向け管理ツール 北溟 の AI アシスタントです。
 渡されるメール本文と添付ファイル(PDF / 抽出済みテキスト)は、管理者が既に
 「これは大会案内メールだ」と判断した上で AI 抽出に回したものです。あなたの
 仕事は、渡された資料が大会要綱である前提で、大会情報を「開催日ごとのイベント
