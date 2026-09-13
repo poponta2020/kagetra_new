@@ -191,11 +191,35 @@ export function resultImportBlocksDismiss(input: {
 }
 
 /**
+ * 1 メールに取込中の `result_parse` ジョブがあるか。読み取り専用（行ロックしない）ので
+ * 画面の描画条件から呼んでよい。
+ */
+export async function hasInFlightResultImportJob(
+  dbc: ResultImportDbLike,
+  mailId: number,
+  opts?: ResultImportVisibilityOptions,
+): Promise<boolean> {
+  const jobRows = await dbc
+    .select({ id: mailWorkerJobs.id })
+    .from(mailWorkerJobs)
+    .where(
+      and(
+        eq(mailWorkerJobs.kind, 'result_parse'),
+        inArray(mailWorkerJobs.status, [...OPEN_JOB_STATUSES]),
+        sql`${mailWorkerJobs.payload}->>'mail_message_id' = ${String(mailId)}`,
+        gte(mailWorkerJobs.requestedAt, resolveCutoff(opts)),
+      ),
+    )
+    .limit(1)
+  return jobRows.length > 0
+}
+
+/**
  * サーバーガード用。1 メールについて「対応不要」を塞ぐ理由を返す（塞がないなら null）。
  *
  * `dismissMail` のトランザクション内から呼ぶ想定で、`result_drafts` は
  * 既存の `tournament_drafts` ガードと同じく `FOR UPDATE` で直列化する。
- * 判定そのものは {@link resultImportBlocksDismiss} に委ねる（一覧と同じ規則）。
+ * 判定そのものは {@link resultImportBlocksDismiss} に委ねる（画面と同じ規則）。
  */
 export async function loadResultImportDismissBlock(
   dbc: ResultImportDbLike,
@@ -209,19 +233,7 @@ export async function loadResultImportDismissBlock(
     .for('update')
   const draftStatus = draftRows[0]?.status ?? null
 
-  const jobRows = await dbc
-    .select({ id: mailWorkerJobs.id })
-    .from(mailWorkerJobs)
-    .where(
-      and(
-        eq(mailWorkerJobs.kind, 'result_parse'),
-        inArray(mailWorkerJobs.status, [...OPEN_JOB_STATUSES]),
-        sql`${mailWorkerJobs.payload}->>'mail_message_id' = ${String(mailId)}`,
-        gte(mailWorkerJobs.requestedAt, resolveCutoff(opts)),
-      ),
-    )
-    .limit(1)
-  const inFlight = jobRows.length > 0
+  const inFlight = await hasInFlightResultImportJob(dbc, mailId, opts)
 
   if (!resultImportBlocksDismiss({ draftStatus, inFlight })) return null
   if (inFlight) return 'in_flight'
