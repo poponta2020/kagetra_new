@@ -3,7 +3,7 @@ import { eventAttendances, events, users } from '@kagetra/shared/schema'
 import type { db as appDb } from '@/lib/db'
 
 /**
- * entry-headcount: 申込グループの「景虎上の申込人数」（event-line-broadcast §3.1.3 の③）。
+ * entry-headcount: 申込グループの「北溟上の申込人数」（event-line-broadcast §3.1.3 の③）。
  *
  * ★母集団は**参加費集計（`entry-fee-tally.ts`）とは別物**。混同しないこと:
  *

@@ -1,6 +1,6 @@
 ---
 name: kagetra-design
-description: Use this skill to generate well-branded interfaces and assets for Kagetra (かげとら), a competitive karuta club groupware — for production or throwaway prototypes/mocks. Contains essential design guidelines, colors, type, fonts, assets, and UI kit components for prototyping.
+description: Use this skill to generate well-branded interfaces and assets for Kagetra (北溟), a competitive karuta club groupware — for production or throwaway prototypes/mocks. Contains essential design guidelines, colors, type, fonts, assets, and UI kit components for prototyping.
 user-invocable: true
 ---
 

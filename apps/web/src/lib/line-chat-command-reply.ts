@@ -57,8 +57,8 @@ export function buildNegatedReply(): LineMessage {
 export function buildNoTargetReply(action: ChatReplyAction): LineMessage {
   return buildTextMessage(
     action === 'entry'
-      ? '申込済みにできる開催日がありませんでした。景虎の進行管理から確認してください。'
-      : '支払済みにできる開催日がありませんでした（事前払いの日がありません）。景虎の進行管理から確認してください。',
+      ? '申込済みにできる開催日がありませんでした。北溟の進行管理から確認してください。'
+      : '支払済みにできる開催日がありませんでした（事前払いの日がありません）。北溟の進行管理から確認してください。',
   )
 }
 
@@ -83,7 +83,7 @@ export function buildPartialPaymentReply(
 export function buildFailureReply(action: ChatReplyAction): LineMessage {
   return buildTextMessage(
     action === 'entry'
-      ? '申込済みへの変更に失敗しました。景虎の進行管理から操作してください。'
-      : '支払済みへの変更に失敗しました。景虎の進行管理から操作してください。',
+      ? '申込済みへの変更に失敗しました。北溟の進行管理から操作してください。'
+      : '支払済みへの変更に失敗しました。北溟の進行管理から操作してください。',
   )
 }

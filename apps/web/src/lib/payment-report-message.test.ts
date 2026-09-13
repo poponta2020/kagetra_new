@@ -49,7 +49,7 @@ describe('buildPaymentReportMessage', () => {
       [
         '参加費の振り込みが完了しました。',
         '',
-        '景虎上の想定金額は 12,500円 です。',
+        '北溟上の想定金額は 12,500円 です。',
         '添付の明細と金額が一致しているかご確認ください。',
       ].join('\n'),
     )
@@ -67,7 +67,7 @@ describe('buildPaymentReportMessage', () => {
       [
         '参加費の振り込みが完了しました。',
         '',
-        '景虎上の想定金額は 12,500円 です。',
+        '北溟上の想定金額は 12,500円 です。',
         '※級未設定 2名は未算入',
         '添付の明細と金額が一致しているかご確認ください。',
       ].join('\n'),
@@ -86,7 +86,7 @@ describe('buildPaymentReportMessage', () => {
       [
         '参加費の振り込みが完了しました。',
         '',
-        '景虎上の想定金額は 12,500円 です。',
+        '北溟上の想定金額は 12,500円 です。',
         '添付の明細と金額が一致しているかご確認ください。',
       ].join('\n'),
     )
@@ -99,7 +99,7 @@ describe('buildPaymentReportMessage', () => {
       unknownGradeCount: 0,
       receiptCount: 1,
     })
-    expect(result).toContain('景虎上の想定金額は 1,234,500円 です。')
+    expect(result).toContain('北溟上の想定金額は 1,234,500円 です。')
   })
 
   it('証憑が複数枚でも本文は receiptCount=0 との分岐だけで変わらない', () => {

@@ -105,7 +105,7 @@ describe('/mail-share/[token] 公開の全文ページ', () => {
       screen.getByText('このリンクは無効か、有効期限（60日）が切れています。'),
     ).toBeTruthy()
     expect(
-      screen.getByText('かげとらの会員は、アプリの「受信メール」から同じメールを検索できます。'),
+      screen.getByText('北溟の会員は、アプリの「受信メール」から同じメールを検索できます。'),
     ).toBeTruthy()
   })
 

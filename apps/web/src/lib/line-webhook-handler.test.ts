@@ -531,7 +531,7 @@ describe('applyWebhookEvents — invite code path', () => {
       type: 'mention',
       mentionee: { type: 'user', userId: admin.lineUserId! },
     })
-    expect(headcountMessage.text).toContain('景虎上の申込人数は2名（内他会1名）です')
+    expect(headcountMessage.text).toContain('北溟上の申込人数は2名（内他会1名）です')
   })
 
   it('③: ゲストが0名のときは括弧を省略する (AC-24)', async () => {
@@ -569,7 +569,7 @@ describe('applyWebhookEvents — invite code path', () => {
     // 管理者を LINE 紐付けしていないので userIds が空 → 素テキストへ倒れる
     // (buildMentionMessage の仕様。AC-5 と同じ挙動)。
     const headcountMessage = reply.captured[0]!.messages[2]!
-    expect(headcountMessage.text).toContain('景虎上の申込人数は1名です')
+    expect(headcountMessage.text).toContain('北溟上の申込人数は1名です')
     expect(headcountMessage.text).not.toContain('内他会')
   })
 
@@ -1675,7 +1675,7 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
     const headcountMessage = reply.captured[0]!.messages[2]!
     expect(headcountMessage.type).toBe('text')
     expect(headcountMessage.text).toContain('@管理者')
-    expect(headcountMessage.text).toContain('景虎上の申込人数は')
+    expect(headcountMessage.text).toContain('北溟上の申込人数は')
   })
 
   it('AC-3: プローブがエラーを返した管理者は除外され、送信は継続する', async () => {

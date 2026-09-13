@@ -353,7 +353,7 @@ export const paymentReportStatusEnum = pgEnum('payment_report_status', [
   'skipped_no_change',
 ])
 
-// payment-receipt-broadcast: 文面に載せた「景虎上の想定金額」の出典（要件 §3.2.3-9）。
+// payment-receipt-broadcast: 文面に載せた「北溟上の想定金額」の出典（要件 §3.2.3-9）。
 // payment_notice=送信済み振込連絡の総額 / tally=その場の参加費集計 /
 // none=いずれも算出できず金額行を省いた。
 // ★級未設定の注記（`※級未設定 N名は未算入`）が付くのは tally のときだけ（AC-11）。

@@ -11,7 +11,7 @@ import { PaymentReportSheet } from './PaymentReportSheet'
 
 const MESSAGE_WITHOUT = '参加費の振り込みが完了しました。'
 const MESSAGE_WITH =
-  '参加費の振り込みが完了しました。\n\n景虎上の想定金額は 12,500円 です。\n添付の明細と金額が一致しているかご確認ください。'
+  '参加費の振り込みが完了しました。\n\n北溟上の想定金額は 12,500円 です。\n添付の明細と金額が一致しているかご確認ください。'
 
 /**
  * jsdom は canvas も `Image` のデコードも持たない。ここでは「読み込めた画像」と
