@@ -108,3 +108,5 @@ kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-backup.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-broadcast-cleanup.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-lifecycle-reminders.timer
 kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-entry-overdue-alert.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-renewal-reminders.timer
+kagetra ALL=(root) NOPASSWD: /usr/bin/systemctl is-active kagetra-renewal-school-year.timer

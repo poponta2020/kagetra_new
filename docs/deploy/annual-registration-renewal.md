@@ -12,7 +12,9 @@
 
 ## 0. scoped sudoers を本番へ配置する（必須・**マージ前が望ましい**）
 
-> **状態: 2026-09-13 に反映済み**（`visudo -c` parsed OK / `440 root:root` / `kagetra` に renewal 8 エントリ）。
+> **状態: 2026-09-13 に反映済み**（`visudo -c` parsed OK / `440 root:root`）。
+> ただし初回反映分には timer の `is-active` 2 行が漏れており、PR #641 で追加して再反映している
+> （漏れを機械的に検出するテスト = `apps/web/scripts/__tests__/systemd-sudoers.test.ts`）。
 > 以降 `infra/sudoers/kagetra-deploy` を変えたときだけ この手順を再実施する。
 
 本機能は新規 systemd unit を 4 ファイル（2 timer + 2 service）追加する。
