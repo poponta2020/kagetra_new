@@ -105,7 +105,7 @@ function Shell({ children }: { children: ReactNode }) {
       <div className="mx-auto w-full max-w-[340px] space-y-6">
         <header className="border-b border-border pb-4">
           <h1 className="font-display text-2xl font-semibold tracking-wide text-ink">
-            かげとら
+            北溟
           </h1>
           <p className="mt-1 text-xs text-ink-meta">北大かるた会 大会管理アプリ</p>
         </header>

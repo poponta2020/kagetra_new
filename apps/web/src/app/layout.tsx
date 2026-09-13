@@ -19,12 +19,12 @@ const notoSerifJP = Noto_Serif_JP({
 })
 
 export const metadata: Metadata = {
-  title: 'かげとら',
+  title: '北溟',
   description: '競技かるた会グループウェア',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
-    title: 'かげとら',
+    title: '北溟',
     statusBarStyle: 'default',
   },
   icons: {

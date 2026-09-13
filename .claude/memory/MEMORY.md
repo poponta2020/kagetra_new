@@ -414,3 +414,9 @@
 - [auto-review PR #631](auto-review-round-pr631.md) — R1 needs_changes(8+3)→修正9/見送り4→R2 delta pass。累計624,661
 - [fix PR #631](impl_fix-pr631.md) — Codex R1 の blockers 6件+should_fix 3件を修正・4件はWONTFIX
 - [年度確認（annual-registration-renewal）出荷](project_ship-annual-registration-renewal.md) — shipped: PR #631 — 残DoD=sudoers本番反映が最優先
+- [tournament-results 受信箱可視性 要件定義(2026-09-13)](project_tournament_results_inbox_visibility_def.md) — 親Issue #632・取込中は一覧から消し承認待ちで復活。triage は書き換えない
+- [auto-review PR #638](auto-review-round-pr638.md) — R1 verdict=pass
+- [quickfix: rename-app-to-hokumei](quickfix_rename-app-to-hokumei.md) — PR #639 アプリ名を北溟へ（表示名のみ・アイコン差し替えは別途）
+- [quickfix: renewal-client-bundle-and-fk-cleanup](quickfix_renewal-client-bundle-and-fk-cleanup.md) — PR #638
+- [auto-deployの差分ゲートは失敗デプロイの変更を永久に取りこぼす](feedback_deploy_diff_gate_misses_failed_deploy.md) — checkoutがbuildより前なので失敗してもHEADは進む。migration/systemd unitが二度と差分に出ない
+- [アプリ名を「かげとら」から「北溟」へ変更](project_ship-rename-app-to-hokumei.md) — shipped: PR #639（表示名のみ・アイコン差し替えは残課題）

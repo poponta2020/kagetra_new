@@ -5,7 +5,7 @@ import { createEntryGroup, createEvent, createEventAttendance, createUser } from
 import { resolvePaymentReportAmount } from './payment-report-amount'
 
 /**
- * payment-receipt-broadcast タスク3: 「景虎上の想定金額」の決定（要件 §3.2.3-9〜11）。
+ * payment-receipt-broadcast タスク3: 「北溟上の想定金額」の決定（要件 §3.2.3-9〜11）。
  * DB を使うテスト（`payment-notice-context.test.ts` と同じ流儀）。
  */
 describe('resolvePaymentReportAmount', () => {

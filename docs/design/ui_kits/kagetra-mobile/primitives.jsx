@@ -112,7 +112,7 @@ const AvatarStack = ({ ids, max = 5, size = 22 }) => {
 // ============================================================
 // MobileFrame — 375×700 chrome
 // ============================================================
-const MobileFrame = ({ children, title = 'かげとら', user = '山田さん', showTopBar = true, showNav = true, activeNav = 'home' }) => (
+const MobileFrame = ({ children, title = '北溟', user = '山田さん', showTopBar = true, showNav = true, activeNav = 'home' }) => (
   <div style={{
     width: 375, height: 700, background: C.bg,
     display: 'flex', flexDirection: 'column', color: C.fg,

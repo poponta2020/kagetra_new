@@ -1,101 +1,110 @@
 ---
 status: completed
 ---
-# tournament-results 実装手順書（2026-08-22 改修: AI 取込補助 + 突合・部分承認・差し替え）
+# tournament-results 実装手順書（2026-09-13 改修: 受信箱で「取込中は消す → 承認待ちで復活」）
 
-> 対象要件 = [requirements.md](requirements.md)（2026-08-22 改修版）。初版（決定的パーサ v1）のタスクは完了済み・git 履歴参照。
+> 対象要件 = [requirements.md](requirements.md) §3.6 / AC-23〜AC-39。
+> 2026-08-22 改修（AI 取込補助 + 突合・部分承認・差し替え）までのタスクは完了済み・git 履歴参照。
 > 現行仕様の正典 = docs/spec/tournaments-results.md。
 
 ## 設計メモ（タスク共通の確定事項）
 
-- **AI モジュール**: `apps/mail-worker/src/result-import/ai/` 新設。既存 `classify/llm/` と同じパターン（provider 中立インターフェース + forced tool use + Zod 検証 + fixture 注入 + `calculateCostUsd` 流用）。モデル定数はモジュール内に `ANTHROPIC_MODEL_ID = 'claude-sonnet-5'`（classify とは独立に bump 可能）。ルーティングは非ストリーミング max_tokens 4096・thinking disabled。フル抽出は `client.messages.stream()` + max_tokens 100_000・thinking disabled（出力中央値33k/p90 74k トークンの実測による）。
-- **ルーティング出力スキーマ**（`RoutingResultSchema`）: `verdict: 'adopt'|'escalate'|'out_of_scope'` / `outOfScopeKind: 'team'|'roster_or_lottery'|'other'|null` / `classMap: [{ className, normalizedClassName, grade(A-E|null), exclude, note }]` / `meta: { tournamentName|null, editionNumber|null, eventDate|null, isCorrection }` / `issues: string[]`。
-- **payload 拡張**: `ParsedClassSchema` に optional `rawClassName: string | null` を追加（正規化適用時に原値を保持。optional なので既存 payload と後方互換）。フル抽出産 payload は `parserVersion: 'ai-extract-<PROMPT_VERSION>'`。
-- **result_drafts 新列**（全て nullable・既存行に影響なし）: `ai_routing jsonb` / `ai_model text` / `ai_prompt_version text` / `ai_tokens_input integer` / `ai_tokens_output integer` / `ai_cost_usd numeric(10,6)`（ルーティング+抽出の合算） / `ai_error text`（fail-open 時の記録） / `extraction_source text`（'parser' | 'ai'）。
-- **承認フォームの契約**（T5/T6 共通。ここを正とする）: 既存フィールドに加えて `selectedClasses`（payload.classes の index 配列を JSON 文字列で送る。例 `"[0,2,3]"`）と `replaceGrades`（差し替えを明示した grade の配列 JSON。例 `"[\"C\"]"`）。approveResultDraft(draftId, formData) のシグネチャは不変。
-- **差し替えトランザクション順序**（deep-advisor 設計・要件 §3.4）: ①draft/edition FOR UPDATE → ②旧 class id 群と旧側 player_id 集合を収集 → ③選択級のみで materialize（新 tournaments 行） → ④差し替え級の active fact（valid_to IS NULL）が旧 class を指すなら `linkActualResultClass(..., replaceExisting: true)` で新級へ → ⑤旧 class 群 DELETE（cascade）・class が 0 になった旧 tournaments 行も DELETE → ⑥監査: 全級差し替え時は旧 draft を status='superseded' + superseded_by_draft_id、部分差し替え時は旧 tournaments.note へ追記 → ⑦`recomputePlayerDisplayNames` + `syncPlayersToUniqueMembers` を（旧側∪新側 player）で再実行。
-- **edition×級 突合データ**: `getEditionImportedGrades(editionId)` — edition 配下の tournaments→tournament_classes を grade 別に集計して返す read-only Server Action（`result-drafts/[id]/actions.ts` に新設。admin/mail-inbox/actions.ts には足さない=T4/T6 との衝突回避）。
-- **将来制約の注記**: メール添付のプルーニングを将来導入する場合、approved / superseded の result_drafts が参照する添付は削除対象から除外すること（差し替えの復旧原本のため）。T7 で spec に明記。
+- **マイグレーションは行わない**。判定は既存 `mail_worker_jobs`（`kind='result_parse'` / `status` / `requested_at` / `payload->>'mail_message_id'`）と `result_drafts`（`status` / `updated_at`）から導出する。新規列・新規 enum 値を追加しない（要件 §6）。
+- **置き場所は `packages/shared/src/queries/result-import-visibility.ts`（新設）**。呼び出し元 5 箇所が `apps/web` と `apps/mail-worker` の両パッケージに跨っており、mail-worker から `apps/web/src/lib` を import する前例はゼロ（調査済み）。`packages/shared` は senseki-boundary の「残す」側（`docs/audits/senseki-boundary-audit.md:9` で DB スキーマは共通のまま残すと明文化）なので、依存の向きに違反しない。
+- **senseki-boundary の作法**: 判定をこのファイル1本に閉じる。配布版で結果取込ドメインを落とすときは、**このファイルを消して呼び出し側の「除外 ID 集合」を空配列・カウントを素の `triage != 'processed'` に戻すだけ**で現行挙動へ縮退する形にする（`apps/web/src/lib/mail-history.result-import.ts` と同じ「削除可能な葉 + 配線1行」パターン）。「残す」側から `apps/mail-worker/src/result-import/` へ import を張らない（監査 AC-8）。
+- **in-flight ジョブの引き当ては既存前例を踏襲**: `apps/web/src/app/(app)/admin/mail-inbox/actions.ts:2604-2617`（`roster_parse` の重複ジョブ検出）と同形で、`eq(kind, 'result_parse')` + `inArray(status, ['pending','claimed'])` + `` sql`${mailWorkerJobs.payload}->>'mail_message_id' = ${String(mailId)}` ``。本改修は逆引き（ID 集合の取得）なので `payload->>'mail_message_id'` を select して数値化する。`payload` は常に JSON number で書かれている（`parseResultParsePayload` が number 以外を throw する契約）。
+- **述語は2クエリ方式**（相関サブクエリを Relational Query Builder に埋め込まない）: ① 除外対象の mail id 群を引く → ② 既存クエリに `notInArray(mailMessages.id, ids)` を足す。**空配列のときは句ごと落とす**（drizzle の `inArray`/`notInArray` は空配列で壊れる。memory `feedback_drizzle_sql_int_array_binding`）。
+- **30 分の基準時刻は `mail_worker_jobs.requested_at`**。stale-claim recovery は `claimed → pending` へ戻すだけで `requested_at` を変えないため、クラッシュループしているジョブでも 30 分で必ず復活する。
+- **表示の優先順位**（要件 §3.6。実装の if 連鎖の順序をこれに合わせる）: ① in-flight なら一覧に出さない（最優先） ② ジョブ要求より後に書かれた draft があればその状態（承認待ち / 取込失敗）を表示 ③ それが無いまま 30 分超なら滞留警告。
 
 ## 実装タスク
 
-### タスク1: shared スキーマ + migration（result_drafts AI 列）
-- [x] 完了
-- **目的:** AI 所見・コスト記録の永続化列を追加する
-- **対応AC:** AC-5（記録先）、AC-9（extraction_source）
-- **主な変更領域:** `packages/shared/src/schema/result-drafts.ts`、`packages/shared/drizzle/`（新規 migration 1本）、`docs/design/db.md`
-- **依存タスク:** なし（migration 生成は main が担当）
-- **必要なテスト:** スキーマ snapshot（既存パターンがあれば）。migration はテスト DB の自動 push で検証される
-- **完了条件:** `pnpm check-types` 通過・migration が生成済み・db.md 更新
-- **対応Issue:** #534
+### タスク1: 未処理可視性の共有モジュールを packages/shared に新設
+- [ ] 完了
+- **目的:** 「取込中のメールを未処理から除外する」判定を単一定義にし、web / mail-worker の 5 箇所が同じ述語を使えるようにする（要件 §6 の単一定義制約）。
+- **対応AC:** AC-23, AC-24, AC-27, AC-31, AC-38, AC-39（下流タスクの土台）
+- **主な変更領域:**
+  - `packages/shared/src/queries/result-import-visibility.ts`（新規。エクスポートは `RESULT_IMPORT_INFLIGHT_WINDOW_MS` / `loadInFlightResultImportMailIds` / `loadStalledResultImportMailIds` / `countUnprocessedMails`）
+  - `packages/shared/src/queries/index.ts`（新規・再エクスポート）
+  - `packages/shared/package.json`（`exports` に `"./queries"` を追加）
+  - DB 引数の型は `apps/web/src/lib/mail-history.queries.ts` の `DbLike`（`NodePgDatabase<typeof schema>`）パターンを踏襲し、web / worker のどちらの db インスタンスも受けられるようにする
+  - 時刻とウィンドウはオプション引数（`{ now?: Date; windowMs?: number }`）で注入可能にする（テストで境界を固定するため。既定は `new Date()` と 30 分）
+- **依存タスク:** なし
+- **必要なテスト:**
+  - `loadInFlightResultImportMailIds`: `pending`/`claimed` を拾う・`done`/`failed` は拾わない・`kind` 違い（`manual_extract`/`roster_parse`）は拾わない・`requested_at` が窓外なら拾わない・同一メールに複数ジョブがあっても重複しない・該当ゼロで `[]` を返す
+  - `loadStalledResultImportMailIds`: 窓を超えた未終端ジョブを拾う・**ジョブ要求より後に `result_drafts` が更新されていれば拾わない**（AC-39）・draft が無ければ拾う
+  - `countUnprocessedMails`: `triage != 'processed'` から in-flight を除外した件数を返す・in-flight ゼロなら現行と同値（回帰）
+  - 空配列ケースがクエリを壊さないことを**テストで固定する**（規約でなくテストで担保）
+  - `packages/shared` に実 DB を使うテストの前例が無い場合は、テストのみ `apps/web` 側の実 DB テスト基盤（`@/test-utils/db` + `@/test-utils/seed`）に置いてよい。**モジュール本体は必ず `packages/shared` に置く**
+- **完了条件:** 上記テストが green・`pnpm check-types` 通過・`packages/shared` の新 exports が web / worker の両方から型解決できる
+- **対応Issue:** #633
 
-### タスク2: mail-worker AI 基盤モジュール（result-import/ai/）
-- [x] 完了
-- **目的:** ルーティングとフル抽出の AI クライアントを、テスト可能な provider 中立モジュールとして実装する
-- **対応AC:** AC-1（classMap 生成）、AC-8（フル抽出出力の Zod 検証）
-- **主な変更領域:** `apps/mail-worker/src/result-import/ai/`（新規: types.ts / routing-schema.ts / prompt.ts / anthropic.ts / fixture.ts）、`apps/mail-worker/src/result-import/schema.ts`（rawClassName 追加）、`apps/mail-worker/test/result-import/ai-*.test.ts`
-- **依存タスク:** なし（新規ファイル群 + schema.ts の後方互換追加のみ）
-- **必要なテスト:** ルーティングスキーマ検証・classMap 適用純関数・フル抽出出力の schema 不整合→エラー・fixture クライアントの契約テスト（classify/llm/fixture.ts 踏襲）
-- **完了条件:** 新規テスト green（ファイルスコープ lint 通過）
-- **対応Issue:** #535
+### タスク2: 受信箱一覧の除外と復活表示
+- [ ] 完了
+- **目的:** 取込中のメールを一覧から消し、読み取り完了・失敗・滞留で未処理へ復活させて状態を明示する。
+- **対応AC:** AC-23, AC-25, AC-26, AC-27, AC-28, AC-29（一覧側の抑制）, AC-38, AC-39
+- **主な変更領域:**
+  - `apps/web/src/app/(app)/admin/mail-inbox/page.tsx`
+    - タスク1 のヘルパーで hidden / stalled の ID 集合を取得し、`activeRows`・`processedRows` の両方から hidden を除外（要件: 未処理にも処理済みにも出さない）
+    - `LIST_WITH` に `resultDraft`（`columns: { id, status }`）を追加。relation は `packages/shared/src/schema/relations.ts:216` に `mailMessages.resultDraft`（one-to-one）として宣言済み（確認済み）
+    - カードの表示を優先順位どおりに分岐: `pending_review` → 「結果の承認待ち」ピル + `/admin/mail-inbox/result-drafts/[id]` への直リンク（既存 `DraftCard` と同じ見た目の導線）／`parse_failed` → 「結果の取込に失敗（再試行が必要）」ピル + メール詳細へ／stalled → 「取込が進んでいません」警告ピル + メール詳細へ
+    - 「対応不要」（`TriageActions`）の表示条件に結果ドラフト状態を追加（`pending_review` / `parse_failed` では出さない）
+    - 並び順は受信日降順のまま（先頭固定にしない = AC-28）
+  - `apps/web/src/app/(app)/admin/mail-inbox/components/`（ピル表示を切り出す場合のみ。既存 `Pill` / `DraftCard` のパターンを再利用し、新しい色・トークンを発明しない）
+  - `apps/web/src/app/(app)/admin/mail-inbox/page.test.tsx`
+- **依存タスク:** タスク1
+- **必要なテスト:** 実 DB シード（`createMailMessage` + `mail_worker_jobs` + `result_drafts`）で、①in-flight のメールが未処理・処理済みのどちらにも出ない ②`pending_review` で復活し承認画面リンクが出る ③`parse_failed` で復活し失敗表示が出る ④30 分超の滞留で警告が出る ⑤`parse_failed` draft がある状態で再取込ジョブが in-flight なら非表示（AC-38）⑥ジョブ要求後に draft が更新されていれば滞留警告でなく draft 状態を出す（AC-39）⑦承認待ち・取込失敗のカードに「対応不要」が出ない
+- **完了条件:** 上記テスト green・既存 `page.test.tsx` が無改修で green（回帰）
+- **対応Issue:** #634
 
-### タスク3: run.ts へのルーティング統合（fail-open・エスカレート・PDF・AI 列保存）
-- [x] 完了
-- **目的:** result_parse ジョブに AI ルーティングを組み込み、判定に応じて採用/フル抽出/警告へ振り分ける
-- **対応AC:** AC-1, AC-2（fail-open）, AC-4（メタ保存）, AC-5, AC-6（worker 側 PDF 経路）, AC-7, AC-8, AC-9
-- **主な変更領域:** `apps/mail-worker/src/result-import/run.ts`、`apps/mail-worker/src/index.ts` / `config.ts`（API キーの受け渡し配線）、`apps/mail-worker/test/result-import/run.test.ts`
-- **依存タスク:** タスク1（AI 列）、タスク2（モジュール）
-- **必要なテスト:** fixture 注入で ①adopt 時の classMap 適用+原値保持 ②AI 例外時の fail-open（ai_error 記録・pending_review 生成） ③0 classes→フル抽出発動 ④PDF→抽出直行 ⑤escalate verdict→フル抽出 ⑥AI 列（トークン・コスト合算・extraction_source）の保存
-- **完了条件:** run.test.ts green・既存ケースの回帰なし
-- **対応Issue:** #536
+### タスク3: 未処理件数を数える全経路の統一
+- [ ] 完了
+- **目的:** 一覧の件数とバッジ件数を常に一致させる（述語が散らばったままだとバッジだけ取込中を数えてズレる）。
+- **対応AC:** AC-24, AC-31
+- **主な変更領域:**
+  - `apps/web/src/app/api/admin/mail/unprocessed-count/route.ts:29`
+  - `apps/mail-worker/src/notify/web-push.ts:41`（`notifyNewMailPush`）, `:127`（`notifyExtractCompleted`）
+  - `apps/mail-worker/src/result-import/run.ts:610`（`notifyResultParseCompleted`）
+  - いずれもタスク1 の `countUnprocessedMails` 呼び出しへ置き換える（`ne(mailMessages.triageStatus, 'processed')` の直書きを残さない）
+  - `apps/web/src/app/api/admin/mail/unprocessed-count/route.test.ts` と、mail-worker 側に badge のテストがあれば同様に更新
+- **依存タスク:** タスク1
+- **必要なテスト:** 取込中 1 通 + 未処理 2 通のとき count API が 2 を返す・in-flight ゼロなら現行と同値（回帰）・worker の badge 算出が同じ数を返す
+- **完了条件:** 上記テスト green・`ne(mailMessages.triageStatus, 'processed')` の直書きが本改修の対象 5 箇所から消えている（`apps/web/src/lib/events/confirmed-roster.ts` の `eq(...,'processed')` は別目的なので触らない）
+- **対応Issue:** #635
 
-### タスク4: PDF トリガー許可（web 側導線）
-- [x] 完了
-- **目的:** `.pdf` 添付でも「結果として取り込む」を実行できるようにする
-- **対応AC:** AC-6（トリガー側）
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（triggerResultParse の拡張子条件 L2106-2109）、`apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`（セクション表示条件）、`apps/web/src/app/(app)/admin/mail-inbox/components/ResultParseButton.tsx`
-- **依存タスク:** なし（**actions.ts はタスク6 も触るため、タスク6 より先に完了させる順序制約**）
-- **必要なテスト:** triggerResultParse の拡張子受理（.pdf 許可・その他拒否）テスト
-- **完了条件:** テスト green
-- **対応Issue:** #537
+### タスク4: 「対応不要」ガードを結果ドラフトへ拡張
+- [ ] 完了
+- **目的:** 承認待ち・取込失敗・取込中の結果ドラフトを持つメールが「対応不要」で処理済みにされ、承認待ちが宙に浮くのを防ぐ（現行は `tournament_drafts` しか見ていない既存の穴）。
+- **対応AC:** AC-29, AC-30
+- **主な変更領域:**
+  - `apps/web/src/app/(app)/admin/mail-inbox/actions.ts` の `dismissMail`（`:1311`）: 既存の `tournament_drafts` ガードに続けて、`result_drafts` が `pending_review` / `parse_failed` のとき、および in-flight な `result_parse` ジョブがあるときに日本語エラーで拒否する（既存ガードと同じ `FOR UPDATE` + トランザクション内で判定）
+  - `apps/web/src/app/(app)/admin/mail-inbox/mail/[id]/page.tsx`: 詳細画面に「対応不要」導線が出ている場合は同じ条件で抑制する（`MailProcessForm` 側にある場合はそちらを確認して抑制する。導線が無ければ変更不要と記録して終える）
+  - `apps/web/src/app/(app)/admin/mail-inbox/actions.test.ts`
+- **依存タスク:** タスク1
+- **必要なテスト:** `pending_review` / `parse_failed` / in-flight の各ケースで `dismissMail` が拒否される・結果ドラフトが無いメールや `approved` / `rejected` のメールでは従来どおり処理済みにできる（回帰）
+- **完了条件:** 上記テスト green・既存 `dismissMail` の `tournament_drafts` ガードの挙動が不変
+- **対応Issue:** #636
 
-### タスク5: 承認画面 UI（AI 所見・級チェックボックス・突合バッジ・差し替え操作）
-- [x] 完了
-- **目的:** 部分承認・差し替え・AI 所見を承認画面で操作/確認できるようにする
-- **対応AC:** AC-3, AC-4（プリフィル）, AC-9（由来表示）, AC-10, AC-13（クライアント側ガード）, AC-16, AC-17
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/result-drafts/[id]/`（page.tsx / components/ApproveResultDraftForm.tsx / **新規** actions.ts=getEditionImportedGrades）・同ディレクトリのコンポーネントテスト
-- **依存タスク:** タスク1（AI 列の読み出し）。フォーム契約は本書「設計メモ」を正とする
-- **必要なテスト:** ①AI 所見（対象外警告・訂正版促し・AI 抽出由来・AI 検証なし）の表示分岐 ②edition 確定時の取込済みバッジ+既定 OFF ③edition 未確定時の全級既定 ON ④0級選択時の submit ガード ⑤eventDate/大会名プリフィル
-- **完了条件:** コンポーネントテスト green
-- **対応Issue:** #538
-
-### タスク6: 承認アクション（級選択フィルタ・差し替えトランザクション）
-- [x] 完了
-- **目的:** 部分承認と差し替え（物理削除+fact 再リンク+監査記録）を approveResultDraft に実装する
-- **対応AC:** AC-11, AC-12（回帰）, AC-13, AC-14, AC-15, AC-18（回帰）, AC-22
-- **主な変更領域:** `apps/web/src/app/(app)/admin/mail-inbox/actions.ts`（approveResultDraft）、必要なら `apps/web/src/lib/result-import/`（差し替えヘルパー切り出し）、対応テスト
-- **依存タスク:** タスク1、タスク4（actions.ts 順序）、タスク5（フォーム契約の確定。並行させず後続にする）
-- **必要なテスト:** ①部分承認: 選択級のみ materialize ②全級選択=現行結果と同一（回帰） ③0級エラー ④差し替え: 旧級 DELETE・空 tournaments DELETE・draft superseded（全級時）/note 追記（部分時） ⑤active fact の新級への再リンク（revision 生成） ⑥display_name/会員リンクの削除後再計算 ⑦既存の状態ガード回帰
-- **完了条件:** テスト green（DB 依存テストはテスト DB・--no-file-parallelism）
-- **対応Issue:** #539
-
-### タスク7: docs 更新 + 総合回帰
-- [x] 完了
-- **目的:** 正典 docs を変更後の姿へ更新し、全体回帰を確認する
-- **対応AC:** AC-19, AC-20（CI green）
-- **主な変更領域:** `docs/spec/tournaments-results.md`（取込フロー・AI ルーティング・部分承認・差し替え・復旧手順）、`docs/spec/mail-worker.md`（添付プルーニング将来制約の注記）、`docs/design/db.md`（タスク1で未反映なら）
-- **依存タスク:** タスク3、タスク5、タスク6
-- **必要なテスト:** なし（docs）。全パッケージのテスト・lint・typecheck は CI に委譲
-- **完了条件:** docs 更新済み・CI green
-- **対応Issue:** #540
+### タスク5: 仕様書への反映と回帰確認
+- [ ] 完了
+- **目的:** 現行仕様の正典（docs/spec）を更新し、関連機能の requirements から相互参照できるようにする。
+- **対応AC:** AC-30, AC-32, AC-33, AC-34, AC-35, AC-36
+- **主な変更領域:**
+  - `docs/spec/tournaments-results.md`: 取込トリガ後の受信箱可視性（取込中は非表示・復活条件・優先順位・30 分の根拠）を追記
+  - `docs/spec/mail-worker.md`: badge 算出が共有ヘルパー経由になったことを追記
+  - `docs/features/mail-inbox-mailer/requirements.md`: 受信箱一覧の未処理判定に結果取込由来の除外が重なる旨を **1 行だけ**相互参照として追記（仕様本体は tournament-results 側に置き、二重化しない）
+  - `docs/features/INDEX.md`: `tournament-results` 行に今回の改修を追記
+- **依存タスク:** タスク2, タスク3, タスク4
+- **必要なテスト:** （ドキュメントのみ。回帰は CI の既存スイートで確認）
+- **完了条件:** 会員向け `/mail` の履歴テスト（`mail-history*.test.ts`）が無改修で green・大会案内 AI 抽出／名簿取込の既存テストが無改修で green・lint / check-types 通過
+- **対応Issue:** #637
 
 ## 実装順序（Wave = 並行実装できるタスクの組）
 
-- Wave 1: タスク1（shared+migration・main 担当）, タスク2（mail-worker 新規モジュール）, タスク4（web actions.ts+mail 詳細） — 3タスクは変更領域が重ならない
-- Wave 2: タスク3（mail-worker run.ts。T1+T2 依存）, タスク5（web result-drafts/[id]/**。T1 依存） — 領域直交で並行可
-- Wave 3: タスク6（actions.ts。T4 完了済み・T5 のフォーム契約確定後）
-- Wave 4: タスク7（docs+総合回帰）
+- **Wave 1: タスク1**（単独。5 つの呼び出し元が依存する共有ホットスポットで、`packages/shared/` 変更は profile の `DEVFLOW_TEST_CMDS` により全パッケージのテストスコープを起動する）
+- **Wave 2: タスク2, タスク3, タスク4**（変更領域が重ならない: タスク2=`page.tsx` / タスク3=`unprocessed-count/route.ts` + mail-worker 2 ファイル / タスク4=`actions.ts` + `mail/[id]/page.tsx`）
+- **Wave 3: タスク5**（docs のみ。Wave 2 の結果を反映する）
 
-## AC-21（manual）の消化手順
+## 出荷後に残る手作業
 
-出荷後、本番で級別分割の後続メール（例: 次に届く多摩/さがみ野系の級別報告）を1通取り込み、①先行取込済みの級に「取込済み」バッジが出る ②未取込級だけの部分承認が通る ことを実機確認する。確認完了を memory の残 DoD に記録する。
+- AC-37（manual）: 本番で実メール 1 通を「取込 → 一覧から消える → 完了後に承認待ちで復活 → 承認」まで実機確認する。出荷直後に実施し、結果を worklog へ記録する。

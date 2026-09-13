@@ -11,7 +11,7 @@ const LoginScreen = () => (
       alignItems: 'center', justifyContent: 'center',
       padding: '0 32px', background: C.surface,
     }}>
-      <div style={{ fontFamily: 'var(--font-display, inherit)', fontSize: 28, fontWeight: 700, color: C.brand, marginBottom: 6, letterSpacing: '0.04em' }}>かげとら</div>
+      <div style={{ fontFamily: 'var(--font-display, inherit)', fontSize: 28, fontWeight: 700, color: C.brand, marginBottom: 6, letterSpacing: '0.04em' }}>北溟</div>
       <div style={{ fontSize: 13, color: C.fg3, marginBottom: 40 }}>会員管理システム</div>
 
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -5,7 +5,7 @@ import type { db as appDb } from '@/lib/db'
 import { tallyEntryFeesForGroup } from '@/lib/entry-fee-tally'
 
 /**
- * payment-receipt-broadcast タスク3: 「景虎上の想定金額」の決定（要件 §3.2.3-9〜11）。
+ * payment-receipt-broadcast タスク3: 「北溟上の想定金額」の決定（要件 §3.2.3-9〜11）。
  *
  * 優先順は次の2段:
  * 1. そのグループの振込連絡が**送信済み**（`entry_group_payment_notices.last_sent_at`

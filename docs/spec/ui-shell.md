@@ -81,7 +81,7 @@ height: 100svh;  /* small viewport ＝ 最終的な採用値 */
 
 ### PWA（manifest・Service Worker・standalone）
 
-`apps/web/public/manifest.webmanifest` は `display: "standalone"`、`orientation: "portrait"`、`start_url` / `scope` とも `/`、`lang: "ja"` を指定する静的ファイル。アイコンは 192px・512px（`purpose: "any"`）と 512px maskable の3種（`apps/web/public/icons/`）。`RootLayout`（`apps/web/src/app/layout.tsx`）の `metadata.manifest` でこのファイルを参照し、`metadata.appleWebApp = { capable: true, title: 'かげとら', statusBarStyle: 'default' }` と `metadata.icons.apple` で iOS のホーム画面追加（standalone 起動）に対応する。
+`apps/web/public/manifest.webmanifest` は `display: "standalone"`、`orientation: "portrait"`、`start_url` / `scope` とも `/`、`lang: "ja"` を指定する静的ファイル。アイコンは 192px・512px（`purpose: "any"`）と 512px maskable の3種（`apps/web/public/icons/`）。`RootLayout`（`apps/web/src/app/layout.tsx`）の `metadata.manifest` でこのファイルを参照し、`metadata.appleWebApp = { capable: true, title: '北溟', statusBarStyle: 'default' }` と `metadata.icons.apple` で iOS のホーム画面追加（standalone 起動）に対応する。
 
 `viewport` エクスポートで `maximumScale: 1` と `userScalable: false` を設定し、ブラウザタブ表示時のピンチズームを抑制してネイティブアプリに近い操作感にする（姉妹アプリ match-tracker の `maximum-scale=1.0` に合わせた仕様）。`userScalable: false` は Android Chrome 向けの補強で、iOS Safari は単独では無視するが `maximumScale: 1` と組み合わせて機能する。`viewportFit: 'cover'` は `env(safe-area-inset-*)` を非ゼロにするために必須で、`BottomNav` の safe-area padding-bottom はこの設定に依存する。
 

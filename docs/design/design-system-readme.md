@@ -1,6 +1,6 @@
 # Kagetra Design System
 
-かげとら — competitive karuta (競技かるた) club groupware.
+北溟 — competitive karuta (競技かるた) club groupware.
 
 This design system defines the visual and interaction vocabulary for the **kagetra_new mobile product** — a tournament-application and result-management app being built as a full rewrite of the original `kagetra` groupware.
 

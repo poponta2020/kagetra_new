@@ -11,11 +11,11 @@ import { buildSystemPrompt, PROMPT_VERSION } from '../../src/classify/prompt.js'
  * returns X" test would be tautological here since `FixtureLLMExtractor`
  * just echoes canned JSON, it doesn't run the prompt through a model.
  */
-describe('buildSystemPrompt (PROMPT_VERSION 3.1.0)', () => {
+describe('buildSystemPrompt (PROMPT_VERSION 3.1.1)', () => {
   const prompt = buildSystemPrompt()
 
-  it('AC-6 / AC-66: PROMPT_VERSION is 3.1.0 (additive: regional_eligibility)', () => {
-    expect(PROMPT_VERSION).toBe('3.1.0')
+  it('AC-6 / AC-66: PROMPT_VERSION is 3.1.1 (patch: 北溟 rename on top of 3.1.0 regional_eligibility)', () => {
+    expect(PROMPT_VERSION).toBe('3.1.1')
   })
 
   // ── AC-5: forbidden strings from the removed classification era ──

@@ -56,8 +56,12 @@ import {
  * with an unrestricted D grade, Example 4 added (D and E restricted
  * differently, with a lottery-priority clause that must NOT be read as a
  * restriction).
+ *
+ * 3.1.1 (rename-app-to-hokumei, PR #639): patch. Wording only — the
+ * assistant's self-introduction names the app 北溟 instead of kagetra.
+ * No schema or guidance change; no behavioural shift expected.
  */
-export const PROMPT_VERSION = '3.1.0'
+export const PROMPT_VERSION = '3.1.1'
 
 /**
  * The system prompt is intentionally long, but not to satisfy any cache
@@ -75,7 +79,7 @@ export function buildSystemPrompt(): string {
   // "D 級・E 級" — derived from the single constant so widening the target
   // grades (C 級 has real-world restrictions too) is a one-line change.
   const targetGrades = REGIONAL_ELIGIBILITY_GRADES.map((g) => `${g} 級`).join('・')
-  return `あなたは日本の競技かるた会向け管理ツール kagetra の AI アシスタントです。
+  return `あなたは日本の競技かるた会向け管理ツール 北溟 の AI アシスタントです。
 渡されるメール本文と添付ファイル(PDF / 抽出済みテキスト)は、管理者が既に
 「これは大会案内メールだ」と判断した上で AI 抽出に回したものです。あなたの
 仕事は、渡された資料が大会要綱である前提で、大会情報を「開催日ごとのイベント

@@ -38,7 +38,7 @@ export function buildPaymentReportMessage(input: PaymentReportMessageInput): str
   // §3.2.4-13: 金額が出せないときも固定文言のみ（画像は別途送られる）。
   if (input.source === 'none' || input.amountJpy == null) return fixedMessage()
 
-  const lines = [fixedMessage(), '', `景虎上の想定金額は ${formatFeeAmount(input.amountJpy)} です。`]
+  const lines = [fixedMessage(), '', `北溟上の想定金額は ${formatFeeAmount(input.amountJpy)} です。`]
 
   // AC-11: 未算入注記が付くのは金額をその場集計（tally）で出したときだけ。
   if (input.source === 'tally' && input.unknownGradeCount > 0) {
