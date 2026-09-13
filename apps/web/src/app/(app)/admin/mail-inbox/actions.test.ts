@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, type InferInsertModel } from 'drizzle-orm'
 import {
   entryGroups,
   eventLineBroadcasts,
@@ -237,6 +237,39 @@ async function getDraft(id: number) {
 async function getMail(id: number) {
   return testDb.query.mailMessages.findFirst({
     where: eq(mailMessages.id, id),
+  })
+}
+
+// ── tournament-results タスク4: dismissMail の結果ドラフトガード用ヘルパー
+// （`packages/shared` には実 DB テスト基盤が無いため、result-import-visibility.test.ts
+// と同様にここへローカルで持つ）。─────────────────────────────────────────
+type NewResultDraft = InferInsertModel<typeof resultDrafts>
+type NewMailWorkerJob = InferInsertModel<typeof mailWorkerJobs>
+
+async function seedResultDraft(
+  mailId: number,
+  overrides: Partial<NewResultDraft> = {},
+): Promise<void> {
+  await testDb.insert(resultDrafts).values({
+    messageId: mailId,
+    status: 'pending_review',
+    parserVersion: 'test-1.0',
+    ...overrides,
+  })
+}
+
+async function seedResultParseJob(
+  mailId: number,
+  requestedByUserId: string,
+  overrides: Partial<NewMailWorkerJob> = {},
+): Promise<void> {
+  await testDb.insert(mailWorkerJobs).values({
+    requestedByUserId,
+    status: 'pending',
+    kind: 'result_parse',
+    payload: { mail_message_id: mailId, attachment_id: 1 },
+    requestedAt: new Date(),
+    ...overrides,
   })
 }
 
@@ -2703,6 +2736,66 @@ describe('admin/mail-inbox actions', () => {
       await createTournamentDraft({
         messageId: mail.id,
         status: 'rejected',
+      })
+
+      await dismissMail(mail.id)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('processed')
+    })
+
+    // tournament-results タスク4: 承認待ち・取込失敗の結果ドラフトが宙に浮くのを
+    // 防ぐ（AC-29/AC-30）。判定規則は loadResultImportDismissBlock に委譲する。
+    it.each([
+      ['pending_review', '承認待ちの結果ドラフトがあるため対応不要にできません'],
+      ['parse_failed', '結果の取込に失敗したドラフトがあるため対応不要にできません'],
+    ] as const)('dismissMail は結果ドラフトが %s のメールでは拒否される', async (status, expectedMessage) => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await seedResultDraft(mail.id, { status })
+
+      await expect(dismissMail(mail.id)).rejects.toThrow(expectedMessage)
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('unprocessed')
+    })
+
+    it('dismissMail は取込中の result_parse ジョブがあるメールでは拒否される', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await seedResultParseJob(mail.id, admin.id)
+
+      await expect(dismissMail(mail.id)).rejects.toThrow(
+        '結果の取込中のため対応不要にできません',
+      )
+
+      const after = await getMail(mail.id)
+      expect(after?.triageStatus).toBe('unprocessed')
+    })
+
+    it.each(['approved', 'rejected', 'superseded'] as const)(
+      'dismissMail は結果ドラフトが %s なら通る（回帰）',
+      async (status) => {
+        const admin = await createAdmin()
+        await setAuthSession({ id: admin.id, role: 'admin' })
+        const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+        await seedResultDraft(mail.id, { status })
+
+        await dismissMail(mail.id)
+
+        const after = await getMail(mail.id)
+        expect(after?.triageStatus).toBe('processed')
+      },
+    )
+
+    it('dismissMail は30分を超えて滞留した result_parse ジョブだけなら通る（警告付きで一覧に出ているため）', async () => {
+      const admin = await createAdmin()
+      await setAuthSession({ id: admin.id, role: 'admin' })
+      const mail = await createMailMessage({ triageStatus: 'unprocessed' })
+      await seedResultParseJob(mail.id, admin.id, {
+        requestedAt: new Date(Date.now() - 31 * 60 * 1000),
       })
 
       await dismissMail(mail.id)

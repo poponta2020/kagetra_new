@@ -90,6 +90,10 @@ import {
   ATTACHMENT_TOTAL_LIMIT_BYTES,
   exceededAttachmentTotalBytes,
 } from '@kagetra/mail-worker/classify/attachment-budget'
+import {
+  loadResultImportDismissBlock,
+  type ResultImportDismissBlock,
+} from '@kagetra/shared/queries'
 
 // Set of statuses still subject to operator action. `approved`, `rejected`,
 // and `superseded` are terminal: any further mutation would corrupt review
@@ -1299,6 +1303,14 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
 // ─────────────────────────────────────────────────────────────────────────
 
 
+// tournament-results タスク4: 「対応不要」を塞いだ理由ごとの日本語エラー文言
+// （★senseki-boundary 削除対象）。
+const RESULT_IMPORT_DISMISS_BLOCK_MESSAGES: Record<ResultImportDismissBlock, string> = {
+  in_flight: '結果の取込中のため対応不要にできません',
+  pending_review: '承認待ちの結果ドラフトがあるため対応不要にできません',
+  parse_failed: '結果の取込に失敗したドラフトがあるため対応不要にできません',
+}
+
 /**
  * 対応不要として片付ける（→ processed、未処理バッジから除外）。
  *
@@ -1307,6 +1319,13 @@ export async function linkDraftToEvent(draftId: number, eventId: number) {
  * 未処理キューから消えて見落とされる。transaction 化して FOR UPDATE で
  * 拒否する。draft が無いか、terminal status (approved / rejected / superseded)
  * のメールのみ「対応不要」可能。
+ *
+ * tournament-results タスク4: 上と同じ理由で、結果ドラフト（result_drafts）が
+ * 承認待ち（pending_review）・取込失敗（parse_failed）のとき、および取込中の
+ * `result_parse` ジョブがあるときも拒否する。判定規則は
+ * `loadResultImportDismissBlock`（`resultImportBlocksDismiss` を経由）に委譲し、
+ * ここでベタ書きしない — 一覧・詳細画面の表示条件と同じ規則を通さないと、
+ * 画面に出ないボタンが API では通る事故になる（★senseki-boundary 削除対象）。
  */
 export async function dismissMail(mailId: number) {
   const session = await requireAdminSession()
@@ -1332,6 +1351,12 @@ export async function dismissMail(mailId: number) {
       if (ds === 'ai_processing' || ds === 'pending_review' || ds === 'ai_failed') {
         throw new Error('未完了の AI 抽出 draft があるため対応不要にできません')
       }
+    }
+
+    // tournament-results タスク4: 結果ドラフト側のガード（★senseki-boundary 削除対象）。
+    const resultImportBlock = await loadResultImportDismissBlock(tx, mailId)
+    if (resultImportBlock != null) {
+      throw new Error(RESULT_IMPORT_DISMISS_BLOCK_MESSAGES[resultImportBlock])
     }
 
     await tx

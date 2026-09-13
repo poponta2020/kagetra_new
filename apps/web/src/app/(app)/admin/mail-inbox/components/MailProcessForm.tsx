@@ -100,6 +100,7 @@ export function MailProcessForm({
   aiExtractAttachments,
   pdfSizeLimitKb,
   resultImportSection,
+  dismissBlocked,
 }: {
   mailId: number
   attachments: MailProcessAttachment[]
@@ -116,6 +117,14 @@ export function MailProcessForm({
    * と決まっているブロックなので、条件も描画も 1 箇所に閉じておく。
    */
   resultImportSection?: ReactNode
+  /**
+   * tournament-results タスク4: 結果ドラフトが承認待ち/取込失敗、または取込中の
+   * `result_parse` ジョブがあるとき true。true なら「対応不要」ボタンを描画しない
+   * （フォーム本体は隠さない）。サーバーガード（`dismissMail`）と同じ規則
+   * （`resultImportBlocksDismiss`）で呼び出し側が算出する — ここでは条件を
+   * 再実装しない。★senseki-boundary 削除対象。
+   */
+  dismissBlocked?: boolean
 }) {
   const [kind, setKind] = useState<Kind>('none')
   const [groupId, setGroupId] = useState<number | null>(null)
@@ -899,10 +908,13 @@ export function MailProcessForm({
         </div>
       </Card>
 
-      {/* 「対応不要」は処理カードの外側に ghost で置く（誤タップ防止・design-spec）。 */}
-      <Btn kind="ghost" size="lg" block disabled={pending} onClick={onDismiss}>
-        対応不要
-      </Btn>
+      {/* 「対応不要」は処理カードの外側に ghost で置く（誤タップ防止・design-spec）。
+          tournament-results タスク4: 結果ドラフトが宙に浮くケースでは出さない。 */}
+      {!dismissBlocked && (
+        <Btn kind="ghost" size="lg" block disabled={pending} onClick={onDismiss}>
+          対応不要
+        </Btn>
+      )}
 
       {/* 種別 = 未選択 のときだけ出す（AC-20）。 */}
       {kind === 'none' && resultImportSection}

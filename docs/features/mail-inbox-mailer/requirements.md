@@ -82,6 +82,7 @@ design_required: true
 
 #### 3.1.2 メール一覧（`/admin/mail-inbox`）
 - レイアウト・並び順・未処理カウントは現行維持
+  - （2026-09-13 追記）未処理判定には結果取込由来の除外が重なる（取込中のメールは一覧・件数から外れる）。仕様は [tournament-results/requirements.md](../tournament-results/requirements.md) §3.6 が正典
 - **区分ピルを AI 由来の `classification`（大会案内 / ノイズ / 不明）から手動種別へ差し替える**。
   種別が未選択のメールには種別ピルを出さない（`classification` 列自体は pre-filter・
   AI 用途で残す＝表示から外すだけ）

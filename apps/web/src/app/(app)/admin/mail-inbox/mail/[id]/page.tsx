@@ -25,6 +25,10 @@ import {
 } from '../../components/ResultParseButton'
 import { isResultImportAttachment } from '@/lib/result-import/attachment'
 import { loadPaymentNoticeStatusByEvent } from '@/lib/events/payment-notice-context'
+import {
+  hasInFlightResultImportJob,
+  resultImportBlocksDismiss,
+} from '@kagetra/shared/queries'
 
 /**
  * /admin/mail-inbox/mail/[id] — mail-inbox-mailer 「メーラー詳細」画面。
@@ -183,6 +187,19 @@ export default async function MailDetailPage({
   const showProcessForm = !mail.draft && mail.triageStatus === 'unprocessed'
   const candidateGroups = showProcessForm ? await loadProcessCandidateGroups() : []
   const cutoffStr = linkableEventCutoffStr()
+
+  // tournament-results タスク4: 「対応不要」ボタンを隠すかどうかを、サーバー
+  // ガード（dismissMail → loadResultImportDismissBlock）と同じ規則
+  // （resultImportBlocksDismiss）で算出する。ここで条件をベタ書きすると片側だけ
+  // 厳しくなる事故につながるため、規則そのものは共有関数に委ねる。フォームを
+  // 出す条件のときだけ問い合わせる（無駄なクエリを増やさない）。
+  // ★senseki-boundary 削除対象。
+  const dismissBlocked = showProcessForm
+    ? resultImportBlocksDismiss({
+        draftStatus: mail.resultDraft?.status ?? null,
+        inFlight: await hasInFlightResultImportJob(db, mail.id),
+      })
+    : false
 
   // 添付ごとの採用状態は統合フォーム内の「採用する名簿ファイル」欄に出す
   // （AC-13: 採用済みは選択肢に出さず、採用状態と解除ボタンにする）。
@@ -387,6 +404,7 @@ export default async function MailDetailPage({
           aiExtractAttachments={aiExtractAttachments}
           pdfSizeLimitKb={pdfSizeLimitKb}
           resultImportSection={resultImportSection}
+          dismissBlocked={dismissBlocked}
         />
       ) : mail.draft.status === 'ai_processing' ? (
         <ExtractionInProgressCard mailId={mail.id} />

@@ -5,6 +5,11 @@ import { desc } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { Card, Pill, type PillTone } from '@/components/ui'
 import { mailWorkerRuns } from '@kagetra/shared/schema'
+import {
+  loadInFlightResultImportMailIds,
+  loadStalledResultImportMailIds,
+  resultImportBlocksDismiss,
+} from '@kagetra/shared/queries'
 import { AttachmentList } from './components/AttachmentList'
 import { DraftCard } from './components/DraftCard'
 import { TriggerFetchButton } from './components/TriggerFetchButton'
@@ -96,7 +101,48 @@ const LIST_WITH = {
       extractedPayload: true,
     },
   },
+  // tournament-results 2026-09-13 改修 タスク2 (AC-25/26): 結果取込ドラフトの
+  // 状態を一覧カードに出す（承認待ち/取込失敗の復活表示）。
+  resultDraft: {
+    columns: {
+      id: true,
+      status: true,
+    },
+  },
 } as const
+
+// tournament-results 2026-09-13 改修 タスク2 (AC-25/26/29): 結果取込ドラフトの
+// 状態を一覧カードのピルへ落とし込む。承認待ち=info・取込失敗=danger・
+// 滞留=warn は既存 Pill プリミティブの既存 tone を流用する（新規トークンは作らない）。
+type ResultImportRowState = 'stalled' | 'pending_review' | 'parse_failed'
+
+const RESULT_IMPORT_STATE_LABEL: Record<ResultImportRowState, { label: string; tone: PillTone }> =
+  {
+    pending_review: { label: '結果の承認待ち', tone: 'info' },
+    parse_failed: { label: '結果の取込に失敗（再試行が必要）', tone: 'danger' },
+    stalled: { label: '取込が進んでいません', tone: 'warn' },
+  }
+
+/**
+ * 表示優先順位は「滞留 → ドラフト状態」（要件 §3.6 の優先順位③）。
+ *
+ * `loadStalledResultImportMailIds` は「未終端ジョブが要求から 30 分を超え、かつ
+ * その要求より後に result_drafts が書かれていない」場合だけを滞留集合に入れる
+ * （AC-39 の除外は関数内で完結済み）。つまりこの集合に入っている時点で、
+ * そのメールの result_drafts（あっても）はジョブ要求より古い。ここで先に
+ * ドラフト状態（例: parse_failed）を見てしまうと、「古い失敗ドラフトを
+ * 抱えたまま再取込が詰まっている」ケースを常に「取込失敗」と表示してしまい、
+ * 進捗が止まっていること自体（滞留）に気づけなくなる。
+ */
+function resolveResultImportState(
+  row: { id: number; resultDraft: { status: string } | null },
+  stalledMailIds: ReadonlySet<number>,
+): ResultImportRowState | null {
+  if (stalledMailIds.has(row.id)) return 'stalled'
+  if (row.resultDraft?.status === 'pending_review') return 'pending_review'
+  if (row.resultDraft?.status === 'parse_failed') return 'parse_failed'
+  return null
+}
 
 function formatJst(date: Date): string {
   return date.toLocaleString('ja-JP', {
@@ -132,19 +178,35 @@ export default async function MailInboxPage() {
     .orderBy(desc(mailWorkerRuns.startedAt))
     .limit(5)
 
+  // tournament-results 2026-09-13 改修 タスク2 (AC-23/38): 取込中（未終端の
+  // result_parse ジョブが30分以内）のメールは未処理・処理済みのどちらにも
+  // 出さない。ACTIVE_LIMIT/PROCESSED_LIMIT の枠を後段 filter で消費させない
+  // ため、除外は .filter() でなく WHERE 句に入れる。drizzle の notInArray は
+  // 空配列で壊れるため、該当ゼロのときは句ごと落とす。
+  const hiddenMailIds = await loadInFlightResultImportMailIds(db)
+  // AC-27/39: 30分超の未終端ジョブのうち、要求より後に result_drafts が
+  // 書かれていないものだけが滞留（警告ピル対象）。
+  const stalledMailIds = new Set(await loadStalledResultImportMailIds(db))
+
   // 未処理 + 保留（triage != processed）を優先取得。処理済みは別枠で最新のみ。
   // bytea の attachment data は projection から除外（list は本文/バイナリを載せない）。
   const activeRows = await db.query.mailMessages.findMany({
     columns: LIST_COLUMNS,
     with: LIST_WITH,
-    where: (m, { ne }) => ne(m.triageStatus, 'processed'),
+    where: (m, { and, ne, notInArray }) =>
+      hiddenMailIds.length > 0
+        ? and(ne(m.triageStatus, 'processed'), notInArray(m.id, hiddenMailIds))
+        : ne(m.triageStatus, 'processed'),
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: ACTIVE_LIMIT,
   })
   const processedRows = await db.query.mailMessages.findMany({
     columns: LIST_COLUMNS,
     with: LIST_WITH,
-    where: (m, { eq }) => eq(m.triageStatus, 'processed'),
+    where: (m, { and, eq, notInArray }) =>
+      hiddenMailIds.length > 0
+        ? and(eq(m.triageStatus, 'processed'), notInArray(m.id, hiddenMailIds))
+        : eq(m.triageStatus, 'processed'),
     orderBy: (m, { desc }) => [desc(m.receivedAt)],
     limit: PROCESSED_LIMIT,
   })
@@ -161,6 +223,15 @@ export default async function MailInboxPage() {
       tone: 'neutral' as const,
     }
     const mailKind = row.mailKind ? MAIL_KIND_LABEL[row.mailKind] : null
+    const resultImportState = resolveResultImportState(row, stalledMailIds)
+    // tournament-results 2026-09-13 改修 タスク2 (AC-38): 「対応不要」の抑制条件は
+    // resultImportBlocksDismiss（サーバーガード dismissMail と共通の唯一の規則）を
+    // 通す。ベタ書きすると規則が2箇所に分岐し、画面と API で判定がズレる事故になる。
+    // 描画されている行はそもそも取込中(hidden)ではないので inFlight は常に false。
+    const resultImportBlocksThisDismiss = resultImportBlocksDismiss({
+      draftStatus: row.resultDraft?.status ?? null,
+      inFlight: false,
+    })
     return (
       <Card key={row.id}>
         <div className="flex flex-col gap-1">
@@ -189,6 +260,27 @@ export default async function MailInboxPage() {
               <DraftCard draft={row.draft} />
             </Link>
           )}
+          {/* tournament-results 2026-09-13 改修 タスク2 (AC-25/26/38/39): 結果取込の
+              復活表示。承認待ちのみ承認画面(result-drafts/[id])への直リンクを持つ
+              （既存 DraftCard と同じ見た目の導線）。取込失敗・滞留は既存の件名
+              リンク（mail/[id]）が導線を兼ねるためピルのみ出す。 */}
+          {resultImportState === 'pending_review' && row.resultDraft && (
+            <Link
+              href={`/admin/mail-inbox/result-drafts/${row.resultDraft.id}`}
+              className="mt-2 flex items-center gap-1.5 rounded-[6px] border border-border-soft bg-surface-alt p-2 text-xs"
+            >
+              <Pill tone={RESULT_IMPORT_STATE_LABEL.pending_review.tone} size="sm">
+                {RESULT_IMPORT_STATE_LABEL.pending_review.label}
+              </Pill>
+            </Link>
+          )}
+          {resultImportState != null && resultImportState !== 'pending_review' && (
+            <div className="mt-2">
+              <Pill tone={RESULT_IMPORT_STATE_LABEL[resultImportState].tone} size="sm">
+                {RESULT_IMPORT_STATE_LABEL[resultImportState].label}
+              </Pill>
+            </div>
+          )}
           <div className="mt-1">
             {/* mail-inbox-mailer (Codex r3 blocker): processed 行の
                 「未処理に戻す」が triage だけを戻すと linked_event_id が残る。
@@ -204,7 +296,8 @@ export default async function MailInboxPage() {
               <UndoTriageButton mailId={row.id} />
             ) : row.draft?.status === 'ai_processing' ||
               row.draft?.status === 'pending_review' ||
-              row.draft?.status === 'ai_failed' ? null : (
+              row.draft?.status === 'ai_failed' ||
+              resultImportBlocksThisDismiss ? null : (
               <TriageActions mailId={row.id} triageStatus={row.triageStatus} />
             )}
           </div>

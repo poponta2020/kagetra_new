@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { mailMessages, pushSubscriptions, users } from '@kagetra/shared/schema'
+import { mailMessages, mailWorkerJobs, pushSubscriptions, users } from '@kagetra/shared/schema'
 
 // web-push を hoisted モックで差し替え（実 HTTP を出さない）。
 const mocks = vi.hoisted(() => ({
@@ -49,12 +49,29 @@ async function seedSub(userId: string, endpoint: string) {
 }
 
 async function seedMail(triageStatus: 'unprocessed' | 'processed') {
-  await testDb.insert(mailMessages).values({
-    messageId: `<${crypto.randomUUID()}@test>`,
-    fromAddress: 'organizer@example.com',
-    toAddresses: ['kagetra@example.com'],
-    receivedAt: new Date(),
-    triageStatus,
+  const [mail] = await testDb
+    .insert(mailMessages)
+    .values({
+      messageId: `<${crypto.randomUUID()}@test>`,
+      fromAddress: 'organizer@example.com',
+      toAddresses: ['kagetra@example.com'],
+      receivedAt: new Date(),
+      triageStatus,
+    })
+    .returning()
+  if (!mail) throw new Error('seed mail failed')
+  return mail
+}
+
+// tournament-results 2026-09-13 改修 タスク3: badge が countUnprocessedMails
+// （取込中を除外する共有ヘルパー）を経由することの確認用。
+async function seedInFlightResultParseJob(mailId: number, requestedByUserId: string) {
+  await testDb.insert(mailWorkerJobs).values({
+    requestedByUserId,
+    status: 'pending',
+    kind: 'result_parse',
+    payload: { mail_message_id: mailId, attachment_id: 1 },
+    requestedAt: new Date(),
   })
 }
 
@@ -94,6 +111,26 @@ describe('notifyNewMailPush (mail-triage-badge)', () => {
     expect(payload.url).toBe('/admin/mail-inbox')
     expect(payload.body).toContain('テスト大会のご案内')
     expect(payload.body).toContain('主催者')
+  })
+
+  // tournament-results 2026-09-13 改修 タスク3: badge は countUnprocessedMails
+  // （一覧・count API と共有）経由なので、取込中のメールは除外する（AC-24/AC-31）。
+  it('取込中のメールは badge から除外する', async () => {
+    const admin = await seedUser('admin')
+    await seedSub(admin.id, 'https://push.example/admin')
+    const inFlight = await seedMail('unprocessed')
+    await seedMail('unprocessed')
+    await seedInFlightResultParseJob(inFlight.id, admin.id)
+
+    await notifyNewMailPush(testDb, CONFIG, {
+      subject: 'テスト大会のご案内',
+      fromName: '主催者',
+      fromAddress: 'organizer@example.com',
+    })
+
+    expect(mocks.send).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(mocks.send.mock.calls[0]![1] as string)
+    expect(payload.badge).toBe(1)
   })
 
   // guest-role AC-28: ゲストへはアプリから一切通知を送らない。

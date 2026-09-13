@@ -203,6 +203,19 @@ AI 所見の表示（`result_drafts` の AI 列由来）: `verdict='out_of_scope
 3. 管理者が `/admin/mail-inbox/result-drafts/[id]` でプレビューと AI 所見を確認し、大会名・開催日・会場（AI 抽出値でプリフィル）と**取り込む級**を選んで承認、または理由を入力して却下
 4. 承認時は `approveResultDraft` → `materializeResultDraft` が同一トランザクションで実行され、**選択した級だけ**が `tournaments`/`tournament_classes`/`tournament_participants`/`matches` へ確定保存される。既取込級の差し替えを指定していれば旧級の削除と実出場原本の再リンクも同じトランザクションで行う。以後この大会結果は `/tournaments/[id]` 等の閲覧画面（stats ドメイン集計経由）に反映される
 
+### 取込中・承認待ちの受信箱表示
+
+取込の起点と承認導線は `/admin/mail-inbox` の一覧に出る。**取込は `mail_messages.triage_status` を書き換えない** — 書き換えると `deriveHistory` が働き、まだ承認していないのに会員向け `/mail` へ「対応不要として処理」と表示されてしまう。一覧の未処理判定に「結果取込が進行中のメールを除外する」条件を重ねる形で実現する。
+
+- **取込中（一覧から消える）**: そのメールの `result_parse` ジョブが未終端（`pending`/`claimed`）で、かつ最後の取込要求から 30 分以内。未処理セクションにも処理済みセクションにも出さない。取込中であることはメール詳細と一覧上部の「最近の取り込み履歴」で確認できる
+- **復活（未処理へ戻る）**: 受信日降順の並びの中に他の未処理と同じ規則で戻り、カードに状態ピルを 1 つ出す。`result_drafts.status='pending_review'` →「結果の承認待ち」＋承認画面への直リンク／`parse_failed` →「結果の取込に失敗（再試行が必要）」／30 分超で未終端 →「取込が進んでいません」警告
+- **表示の優先順位**: ①取込中なら出さない（`parse_failed` のドラフトを再取込した場合、再試行の間は「取込失敗」ではなく非表示） ②未終端ジョブの要求より**後に**書かれたドラフトがあればその状態を表示 ③後にドラフトが書かれないまま 30 分を超えたときだけ滞留警告
+- **30 分の根拠**: extract-only dispatcher は 30 秒間隔で、実行自体は通常 1 分前後（PDF のフル AI 抽出でも数分）。30 分は通常の 30 倍の余裕があり、超過したら mail-worker 停止を疑うべき水準。ここで復活させないと worker 障害時にメールが消えたまま戻らない。基準時刻は `mail_worker_jobs.requested_at`（stale-claim recovery は `claimed → pending` へ戻すだけで `requested_at` を変えないため、クラッシュループ中のジョブでも必ず復活する）
+- **未処理件数の一致**: 件数を数える経路（バッジ API・mail-worker の Web Push badge 3 箇所）は `countUnprocessedMails`（`packages/shared/src/queries/unprocessed-mails.ts`）を共有し、一覧と同じ述語で取込中を除外する
+- **「対応不要」のガード**: 結果ドラフトが取込中・`pending_review`・`parse_failed` のメールでは一覧・詳細に「対応不要」を出さず、`dismissMail` もサーバー側で拒否する。判定規則は `resultImportBlocksDismiss` 1 本で、画面とサーバーガードの両方がこれを通る
+- **senseki-boundary**: 判定は `packages/shared/src/queries/result-import-visibility.ts` に閉じた削除可能な葉。配布版で結果取込ドメインを落とす際はこのファイルを削除し、`unprocessed-mails.ts` の import と 1 行（除外 ID を空配列にする）を外せば現行挙動へ縮退する
+- 承認すると従来どおり `processed` になり処理済みへ移る。却下後は未処理のまま残る
+
 ### 名簿取込フロー
 
 管理者がメール詳細から対応する添付または本文を原本単位で解析し、`tournament_roster_import_drafts` に確認用ドラフトを生成する。レビュー画面では開催回・対象イベント・原本用途（申込／抽選結果／後日確定）・初回／訂正／追加発表・発表日と級別factを明示し、全級をまとめて採用する。行の級が一部だけ欠けた複数級ドラフトは先頭級へ寄せず採用を拒否する。採用時は設定した級をイベントの `eligible_grades` へ反映し、開催回の大会区分と根拠メモを同じ管理者・原本メールで監査記録する。A級抽選は抽出行の主催者枠・抽選除外表示を確認し、「該当なし」を含め分類確認を明示しなければ採用できない。この承認をfactの `verified_at` / `verified_by_user_id` に記録し、全falseが未確認なのか確認済み0人なのかを区別する運用契約とする。訂正は指定したactive rosterだけをsupersedeし、後日追加発表は旧版と併存する。申込名簿を確定名簿として兼用する場合も級ごとに明示する。同一級の氏名重複などの検証エラーは抽出行とともにレビュー画面へ残るが、解消前の採用はできない。既存の大会詳細から行う直接取込は後方互換として維持する。

@@ -1,5 +1,5 @@
 import webpush from 'web-push'
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   mailAttachments,
   mailMessages,
@@ -8,6 +8,7 @@ import {
   resultDrafts,
   users,
 } from '@kagetra/shared/schema'
+import { countUnprocessedMails } from '@kagetra/shared/queries'
 import { getDb } from '../db.js'
 import { loadCostGuardConfig, type WebPushConfig } from '../config.js'
 import type { PipelineLogger } from '../pipeline.js'
@@ -65,13 +66,16 @@ function gridToCsv(grid: CellGrid): string {
  *      将来の訂正版フロー（Task4）のため、現 Task3 では terminal 状態への上書きを避け
  *      "既に確定済み" エラーを返す。
  * 4. mail_worker_runs 行を作成して start → finish を記録し run_id を返す。
- * 5. Web Push（best-effort）。
+ *
+ * Web Push 通知（best-effort）はこの関数の外（呼び出し元の dispatcher が
+ * markJobDone を終えた後）で行う — `notifyResultParseCompleted` を参照。
+ * ジョブがまだ claimed のうちに通知すると、共有ヘルパーが完了メール自身を
+ * 「取込中」として除外してしまい badge が実際より少なくなるため。
  */
 export async function runResultParse(opts: {
   mailMessageId: number
   attachmentId: number
   triggeredByUserId: string
-  webPushConfig: WebPushConfig | null
   logger?: PipelineLogger
   ai?: ResultImportAi
 }): Promise<ResultParseResult> {
@@ -578,37 +582,24 @@ export async function runResultParse(opts: {
     })
     .where(eq(mailWorkerRuns.id, runId))
 
-  // 5. Web Push (best-effort).
-  if (opts.webPushConfig) {
-    try {
-      await notifyResultParseCompleted(db, opts.webPushConfig, {
-        mailMessageId: opts.mailMessageId,
-        result: parseStatus,
-      })
-    } catch (pushErr) {
-      log.warn('result_parse: web push failed', {
-        runId,
-        mailMessageId: opts.mailMessageId,
-        err: pushErr instanceof Error ? pushErr.message : String(pushErr),
-      })
-    }
-  }
-
   return { runId, status: parseStatus, draftId }
 }
 
-async function notifyResultParseCompleted(
+/**
+ * 結果取込完了の Web Push（best-effort）。呼び出し元の dispatcher が
+ * `markJobDone` でジョブを確定させた後に呼ぶこと（run.ts 冒頭のコメント参照）。
+ */
+export async function notifyResultParseCompleted(
   db: ReturnType<typeof getDb>,
   config: WebPushConfig,
   info: { mailMessageId: number; result: 'success' | 'parse_failed' },
 ): Promise<void> {
   webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey)
 
-  const [row] = await db
-    .select({ value: sql<number>`count(*)::int` })
-    .from(mailMessages)
-    .where(ne(mailMessages.triageStatus, 'processed'))
-  const badge = row?.value ?? 0
+  // バッジは共有ヘルパー（`@kagetra/shared/queries`）経由の未処理件数。
+  // 一覧・count API と同じ条件で、取込中のメールを除外する
+  // （tournament-results 2026-09-13 改修 タスク3）。
+  const badge = await countUnprocessedMails(db)
 
   const subs = await db
     .select({
