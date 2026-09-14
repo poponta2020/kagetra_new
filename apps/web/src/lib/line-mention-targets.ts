@@ -65,6 +65,23 @@ export async function loadAdminLineUserIds(dbc: DbOrTx): Promise<string[]> {
   return rows.flatMap((r) => (r.lineUserId == null ? [] : [r.lineUserId]))
 }
 
+/**
+ * event-line-broadcast §3.1.3（2026-09-14 改訂）: 紐付け完了の案内③だけが使う
+ * 「**正管理者だけ**（`role='admin'`）」の `line_user_id`。id 昇順・該当0人なら空配列。
+ *
+ * ★`loadAdminLineUserIds`（`@管理者` = admin + vice_admin）とは**意味が違う**ので
+ * 別関数にしてある。汎用の `@管理者` の意味を `admin` だけに狭めると、会計・振込連絡など
+ * 他の通知が巻き添えで届かなくなる（AC-H16 の Non-goals）。
+ */
+export async function loadPrimaryAdminLineUserIds(dbc: DbOrTx): Promise<string[]> {
+  const rows = await dbc
+    .select({ lineUserId: users.lineUserId })
+    .from(users)
+    .where(and(eq(users.role, 'admin'), ...mentionableConditions()))
+    .orderBy(asc(users.id))
+  return rows.flatMap((r) => (r.lineUserId == null ? [] : [r.lineUserId]))
+}
+
 /** `buildMentionMessage` へそのまま渡せる形にする糖衣。 */
 export function toMentionTarget(userIds: readonly string[]): MentionTarget {
   return { kind: 'users', userIds }

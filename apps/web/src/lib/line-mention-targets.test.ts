@@ -3,6 +3,7 @@ import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createAdmin, createUser, createViceAdmin } from '@/test-utils/seed'
 import {
   loadAdminLineUserIds,
+  loadPrimaryAdminLineUserIds,
   loadTreasurerLineUserIds,
   resolveTreasurerMention,
 } from './line-mention-targets'
@@ -98,6 +99,35 @@ describe('line-mention-targets', () => {
       await createUser({ name: 'a-treasurer', isTreasurer: true, ...linked('id-1', 'Utre') })
 
       expect(await loadAdminLineUserIds(testDb)).toEqual([])
+    })
+  })
+
+  describe('loadPrimaryAdminLineUserIds', () => {
+    it('role=admin だけを id 昇順で返し、vice_admin は返さない（AC-H16）', async () => {
+      await createViceAdmin({ name: 'p-vice', ...linked('id-b', 'Uvice') })
+      await createAdmin({ name: 'p-admin2', ...linked('id-c', 'Uadmin2') })
+      await createAdmin({ name: 'p-admin1', ...linked('id-a', 'Uadmin1') })
+      await createUser({ name: 'p-member', ...linked('id-d', 'Umember') })
+
+      expect(await loadPrimaryAdminLineUserIds(testDb)).toEqual(['Uadmin1', 'Uadmin2'])
+      // 汎用の `@管理者` の意味は変わっていない（vice_admin を含む）。
+      expect(await loadAdminLineUserIds(testDb)).toEqual(['Uadmin1', 'Uvice', 'Uadmin2'])
+    })
+
+    it('未紐付け・退会済みの管理者は外れる（AC-H6）', async () => {
+      await createAdmin({ id: 'id-1', name: 'p-nolink', lineUserId: null })
+      await createAdmin({
+        name: 'p-deactivated',
+        deactivatedAt: new Date(),
+        ...linked('id-2', 'Udead'),
+      })
+      await createAdmin({ name: 'p-ok', ...linked('id-3', 'Uok') })
+
+      expect(await loadPrimaryAdminLineUserIds(testDb)).toEqual(['Uok'])
+    })
+
+    it('管理者が0人なら空配列を返す（素テキストへ倒す・AC-H17）', async () => {
+      expect(await loadPrimaryAdminLineUserIds(testDb)).toEqual([])
     })
   })
 })

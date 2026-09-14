@@ -11,7 +11,8 @@
 > - `apps/web/src/lib/event-lifecycle-notify.ts`（申込/支払い等の定型LINE通知・push transport）
 > - `apps/web/src/lib/line-mention.ts`（textV2 メンションメッセージの組み立て・pure）
 > - `apps/web/src/lib/line-mention-targets.ts`（`@会計` / `@管理者` の対象解決）
-> - `apps/web/src/lib/entry-headcount.ts`（紐付け案内③の申込人数。実人数・ゲスト込み）
+> - `apps/web/src/lib/entry-headcount.ts`（紐付け案内③の内訳の材料。実人数・ゲスト除外）
+> - `apps/web/src/lib/entry-headcount-breakdown.ts`（紐付け案内③の内訳5行の組み立て・pure）
 > - `apps/web/src/lib/payment-notice.ts` / `apps/web/src/lib/events/payment-notice-context.ts`（名簿確定後の振込連絡）
 > - `apps/web/src/lib/broadcast-lead-presets.ts`（配信冒頭見出しのプリセット文言）
 > - `apps/web/src/lib/invite-code.ts`（6桁招待コードの生成・検証）
@@ -65,9 +66,9 @@ invite_pending → joined_waiting_code → linked → revoked / released
 - `linked`: グループ内で正しい6桁コードが発言されると、`event_line_broadcasts` を `linked` に、対応する `line_channels` を `status='active'` に更新する（同一トランザクション、CAS条件付きUPDATEで多重発言・レースを弾く）。招待コードはグループ紐付け専用のため、`user`/`room` からの発言や、別グループでの発言、既存 `lineGroupId` との不一致は拒否する。紐付け成立時は**4通の案内を1リクエストで返信**する（reply は1回5通まで）:
   1. `〇〇大会案内用LINEグループです！` / `以下確認をお願いします。`（`〇〇` は `deriveEntryGroupName`。複数日は `大阪AB` 形式）
   2. `@All` メンション＋主催者の申込締切（`events.entry_deadline`・`M/D(曜)`。NULLなら「未定」）と、締切までに申込アナウンスが届かなければ管理者を急かすよう促す文
-  3. `@管理者` メンション＋北溟上の申込人数（`〇名（内他会〇名）`。ゲスト0名なら括弧ごと省略）と、グループ在籍人数との突き合わせ依頼
+  3. `@管理者` メンション（**`role='admin'` のみ**。`vice_admin` は対象外）＋「グループの人数が〇名であることを確認してください。」と、大会参加者・管理者・会計・副連絡責任者・Bot の5行の内訳
   4. `以下大会要項になります、適宜ご確認ください`（固定文。直後の要綱Flex送信への前置き）
-  ③の人数は**実人数**（グループ全体で重複排除・ゲスト込み）で、参加費集計（延べ・ゲスト除外）とは母集団が異なる。LINEグループの在籍人数と突き合わせるための数字なので意図的に別物（`lib/entry-headcount.ts`）。締切・抽選日はグループ単位で同一という運用前提に立ち、日別に出し分けない。
+  ③の人数は**実人数**（グループ全体で重複排除・**ゲスト除外**）で、参加費集計（延べ・ゲスト除外）とは数え方が異なる。LINEグループの在籍人数と突き合わせるための数字なので意図的に別物（`lib/entry-headcount.ts` ＋ `lib/entry-headcount-breakdown.ts`）。5行は互いに排他（優先順位 大会参加者 ＞ 会計 ＞ 副連絡責任者 ＞ 管理者）で、その単純和が先頭の合計になる。役割行は LINE 紐付け済み・未無効化の人だけを数え、0名の行には理由（`未設定` / `大会参加のため` / `遠征届不要のため` 等）を注記する。副連絡責任者は遠征届が要るとき（サークル所属 ON の参加会員またはゲスト参加者がいるとき）だけ数える。締切・抽選日はグループ単位で同一という運用前提に立ち、日別に出し分けない。
 - `revoked`: Botがグループから追い出された（`leave` イベント、`source.groupId` が現在の紐付け先と一致する場合のみ）、管理者による強制解放（`/admin/line-channels/[id]` の「強制解放」、`releaseChannel`）、または配信失敗時の自動リカバリ（後述）で遷移する。チャネルは `available` に戻り、招待コードはNULL化される。
 - `released`: `apps/web/scripts/release-expired-broadcasts.ts`（日次バッチ）が、`linked` 状態のうち `COALESCE(extended_until, グループ内 MAX(event_date) + 30日)` を過ぎた行を自動解放する。複数日グループは最も遅い開催日を基準にする（相関サブクエリで算出。events への単純JOINは1行が日数分にfan outし誤判定するため使わない）。**イベントが0件になったグループ**（付け替えで空になったが紐付けを残しているグループ）は MAX(event_date) が NULL になるため、`extended_until` が未設定なら即解放対象として Bot をプールへ戻す。運営が反省会等の連絡を見込んで `extendBroadcastLifetime` で猶予日を個別延長できる。同バッチは、招待コード期限切れのまま `invite_pending`/`joined_waiting_code` に取り残された異常行（コードNULLも含む）も `revoked` へ回収する。
 
