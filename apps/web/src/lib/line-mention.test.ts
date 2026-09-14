@@ -121,6 +121,53 @@ describe('buildMentionMessage', () => {
     expect(v2.text).toBe('{m0}\n締め切りは7/25(土)です')
   })
 
+  it('substitutes a { text } value into the body (AC-H18)', () => {
+    const result = buildMentionMessage({
+      mention: { kind: 'all' },
+      label: '@All',
+      template: '副連絡責任者：1名（%s）',
+      values: [{ text: '土居' }],
+    })
+    const v2 = result as LineTextV2Message
+    expect(v2.text).toBe('{m0}\n副連絡責任者：1名（土居）')
+  })
+
+  it('strips braces from a { text } value instead of throwing (AC-H18)', () => {
+    const result = buildMentionMessage({
+      mention: { kind: 'all' },
+      label: '@All',
+      template: '管理者：1名（%s）',
+      values: [{ text: 'a{b}c' }],
+    })
+    const v2 = result as LineTextV2Message
+    expect(v2.text).toBe('{m0}\n管理者：1名（abc）')
+  })
+
+  // ★substitution のキーそのものに見える文字列が来ても、本文のプレースホルダが
+  // 増えない（＝メンションの解決先がずれない）ことを確かめる。
+  it('keeps mentions intact when a { text } value looks like a substitution key (AC-H18)', () => {
+    const result = buildMentionMessage({
+      mention: { kind: 'users', userIds: ['u1', 'u2'] },
+      label: '@管理者',
+      template: '管理者：1名（%s）',
+      values: [{ text: '{m0}' }],
+    })
+    const v2 = result as LineTextV2Message
+    expect(v2.text).toBe('{m0} {m1}\n管理者：1名（m0）')
+    expect(extractPlaceholderNames(v2.text)).toEqual(Object.keys(v2.substitution))
+  })
+
+  it('does not interpret $-patterns in a { text } value as replacement syntax', () => {
+    const result = buildMentionMessage({
+      mention: { kind: 'all' },
+      label: '@All',
+      template: '会計：1名（%s）',
+      values: [{ text: '$&$1' }],
+    })
+    const v2 = result as LineTextV2Message
+    expect(v2.text).toBe('{m0}\n会計：1名（$&$1）')
+  })
+
   // LINE のメンション上限は20件（substitution 全体の100件とは別の制約）。超過すると
   // メッセージ全体が拒否されるので、厳しい側で切る。
   it('caps mentions at 20 when userIds exceeds 20', () => {

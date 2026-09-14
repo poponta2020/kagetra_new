@@ -10,9 +10,10 @@ import { formatEventDate } from '@/lib/event-date'
  *
  * ★中核の制約（要件 §3.2.2）: `textV2` は本文中の中括弧 `{}` をプレースホルダ構文として
  * 解釈するため、大会名・支払情報などの自由記述文字列をメンション付きメッセージへ混ぜると
- * 本文が壊れる。そのため差し込める値を `number`（人数・金額）と `{ dateIso }`（日付）だけに
- * **型で**制限し、さらに `template` / `label` に中括弧が含まれていないかを**実行時にも**検証する
- * （AC-8）。自由記述（`payment_info` 等）は `buildTextMessage` でメンションを持たない
+ * 本文が壊れる。そのため差し込める値を `number`（人数・金額）・`{ dateIso }`（日付）・
+ * `{ text }`（短い語句。差し込み時に中括弧を**除去**する）だけに **型で**制限し、さらに
+ * `template` / `label` に中括弧が含まれていないかを**実行時にも**検証する（AC-8）。
+ * 長い自由記述（`payment_info` 等）は `buildTextMessage` でメンションを持たない
  * 別メッセージとして送る。
  */
 
@@ -66,8 +67,16 @@ export type MentionTarget =
   | { kind: 'all' }
   | { kind: 'users'; userIds: readonly string[] }
 
-/** 本文テンプレートへ差し込める値。**自由記述の string は受け取らない**（AC-8）。 */
-export type MentionValue = number | { dateIso: string }
+/**
+ * 本文テンプレートへ差し込める値。**素の string は受け取らない**（AC-8）。
+ *
+ * `{ text }` は「名字」など**短い語句**のための逃げ道（event-line-broadcast AC-H18）。
+ * 生の string を許すと呼び出し側が自由記述をそのまま流し込めてしまうので、
+ * ラッパーを1枚かませて「中括弧が壊れる値である」と型の上で意識させる。
+ * 値に含まれる `{` `}` は差し込み時に**除去**する（throw しない） —
+ * ③は①〜④の一括 reply の1通なので、名字の1文字で案内が丸ごと落ちてはならない。
+ */
+export type MentionValue = number | { dateIso: string } | { text: string }
 
 export interface MentionMessageInput {
   /** メンション対象。 */
@@ -77,7 +86,8 @@ export interface MentionMessageInput {
   /** 本文（メンション行の**下**に置かれる）。呼び出し側のリテラル定数であること。
    *  `%s` を values で順に置換する。中括弧を含むと throw する。 */
   template: string
-  /** `%s` へ順に差し込む値。number はそのまま10進表記、`{ dateIso }` は `formatEventDate` で `M/D(曜)` へ。 */
+  /** `%s` へ順に差し込む値。number はそのまま10進表記、`{ dateIso }` は `formatEventDate` で
+   *  `M/D(曜)` へ、`{ text }` は中括弧を除去した文字列へ。 */
   values?: readonly MentionValue[]
 }
 
@@ -102,6 +112,9 @@ function assertNoBraces(value: string, fieldName: string): void {
 /** `values[i]` を本文へ差し込む文字列へ変換する。number は桁区切り無し。 */
 function formatMentionValue(value: MentionValue): string {
   if (typeof value === 'number') return String(value)
+  // 中括弧を落とすだけで十分: `{m0}` のように substitution のキーそのものに見える
+  // 文字列でも `m0` になり、LINE 側はプレースホルダとして解釈しない（AC-H18）。
+  if ('text' in value) return value.text.replace(/[{}]/g, '')
   return formatEventDate(value.dateIso)
 }
 
