@@ -429,3 +429,7 @@
 - [受信箱の結果取込を「押したら消える → 承認待ちで復活」にする](project_ship-tournament-results-inbox-visibility.md) — shipped: PR #640
 - [年度確認の本番反映復旧（PR #638・#641）](project_ship-renewal-production-rollout.md) — shipped: PR #638。★#631 の出荷は本番に届いていなかった
 - [会 LINE グループ設定の本番完了（2026-09-13）](project_club_line_group_setup.md) — ★join は行が在り purpose=club_chat でないと空振り。OAM の U…/C… は Messaging API の ID と別体系
+- [紐付け案内③ 役割別人数内訳 要件定義(2026-09-14)](project_line_group_headcount_breakdown_def.md) — 親Issue #642・ゲスト除外で前提反転・本番はフラグ未設定
+- [event-line-broadcast ③人数内訳 実装（タスク1-4）](impl_event-line-broadcast-headcount-breakdown.md) — 紐付け案内③を役割別の内訳へ。★遠征届不要時に副連絡バケットを空にしないと兼務の管理者が消える
+- [auto-review PR #647](auto-review-round-pr647.md) — R1 verdict=needs_changes→cutoff(user-wontfix)・blockers2件見送り
+- [紐付け案内③を役割別の人数内訳へ改訂](project_ship-event-line-headcount-breakdown.md) — shipped: PR #647

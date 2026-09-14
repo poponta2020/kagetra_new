@@ -12,7 +12,7 @@
 - `bulk-result-import` — 過去大会結果の一括投入（開催×級identity・訂正版優先dedup・リハーサル+冪等+read-back）（主要領域: scripts, apps/web）
 - `entry-notify-lottery-treasurer` — 大会申込の確定時に参加者と会計係へLINE通知を送る機能（主要領域: apps/web, packages/shared）
 - `event-lifecycle-notify` — イベントの申込開始・締切等ライフサイクルをBotが自動通知（主要領域: apps/web, packages/shared）
-- `event-line-broadcast` — 承認済み大会案内メールのLINEグループ自動配信（主要領域: apps/web, apps/mail-worker） / 2026-09-14 改訂: 紐付け案内③を役割別の人数内訳へ（大会参加者・管理者・会計・副連絡責任者・Bot の5行＋合計、ゲストを人数から除外、メンションを role=admin のみへ。親 Issue #642）
+- `event-line-broadcast` — 承認済み大会案内メールのLINEグループ自動配信（主要領域: apps/web, apps/mail-worker） / 2026-09-14 改訂: 紐付け案内③を役割別の人数内訳へ（大会参加者・管理者・会計・副連絡責任者・Bot の5行＋合計、ゲストを人数から除外、メンションを role=admin のみへ。親 Issue #642） [shipped: PR #647]
 - `event-list-refinements` — イベント一覧の締切ソート・残日数3段階表示・申込可能フィルタ（主要領域: apps/web）
 - `invite-link-registration` — 招待リンクによる会員セルフ登録→LINEログイン完結（主要領域: apps/web, packages/shared）
 - `invite-register-redesign` — 招待URL会員登録のリデザインとプロフィール項目拡張（主要領域: apps/web, packages/shared）

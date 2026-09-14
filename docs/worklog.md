@@ -3066,3 +3066,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-13 PR #641 出荷: sudoers の is-active 漏れを追加し systemd unit と sudoers の照合テストを新設。本番へ再反映し、kagetra として is-active が両 timer で active を返すことを確認（以前は sudo に蹴られていた）。match-tracker PR #1553（APPS_JSON）も出荷済み。
 - 2026-09-13 会 LINE グループ設定を本番で完了: Bot=@850jhxpv を club_chat へ転換、OAM ルーム登録、webhook グループ ID 捕捉（退出→再招待）、グループ名は LINE API から取得して確定。メンション解決は LINE 連携済み 7 名全員が 200。残りはワーカー VM の APPS_JSON 設定。
 - 2026-09-14 調査: LINE グループ自動作成（OAM 自動操作の応用）の実現可能性。公式手段は3系統とも不可（Messaging API・OAM・LINE WORKS Bot API に作成・招待が無い）。残るは LINE Chrome 拡張を Playwright で操作する経路のみでグレー＋PoC 未実施、非公式プロトコルは不採用前提。要件定義には進めずユーザー判断待ち（.claude/memory/project_line_group_autocreate_feasibility.md）
+- 2026-09-14 /auto-review-loop PR #647: 1R(i), verdict=cutoff, effort=m, tokens=300905/500000, result=cutoff(user-wontfix 2件)
+- 2026-09-14 /ship PR #647: event-line-broadcast 紐付け案内③を役割別の人数内訳へ改訂（合計＋5行・排他・ゲスト除外・メンションは role=admin のみ）。親 #642 / 子 #643-646 クローズ。残DoD=AC-H25 本番実機確認＋役割フラグの本番投入（運用）
