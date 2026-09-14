@@ -100,7 +100,7 @@ Bot：1名
 - **対応Issue:** #644
 
 ### タスク3: 内訳の組み立て（pure・新規）
-- [ ] 完了
+- [x] 完了
 - **目的:** facts から5行の人数と括弧の中身を決め、`buildMentionMessage` へ渡す
   `{ template, values }` を返す
 - **対応AC:** AC-H1, AC-H2, AC-H7, AC-H8, AC-H9, AC-H10, AC-H11, AC-H12, AC-H13, AC-H14, AC-H15
