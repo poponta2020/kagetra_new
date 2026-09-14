@@ -67,8 +67,9 @@ Bot：1名
     `formatMentionValue` で `{` `}` を除去して返す
   - `apps/web/src/lib/line-mention.test.ts`
 - **依存タスク:** なし
-- **必要なテスト:** `{ text: '土居' }` が本文へ入る／`{ text: 'a{b}c' }` でも throw せず
-  `substitution` のキーと衝突しない／既存の `number`・`{ dateIso }` の挙動が変わらない
+- **必要なテスト:** `{ text: '土居' }` が本文へ入る／`{ text: 'a{b}c' }` でも throw しない／
+  **`{ text: '{m0}' }`（substitution のキーそのものに見える文字列）でメンションが壊れない**／
+  既存の `number`・`{ dateIso }` の挙動が変わらない
 - **完了条件:** `line-mention.test.ts` green・typecheck 通過
 - **対応Issue:** #643
 
@@ -77,8 +78,10 @@ Bot：1名
 - **目的:** 参加者の母集団と役割保持者を1回で取り、pure 層へ渡す事実（facts）にする
 - **対応AC:** AC-H3, AC-H5, AC-H6, AC-H16, AC-H19, AC-H20, AC-H21
 - **主な変更領域:**
-  - `apps/web/src/lib/entry-headcount.ts` — `countGroupEntrants` / `formatEntrantCountParts` を
-    `loadGroupHeadcountFacts(dbc, entryGroupId)` へ置き換える。返すのは
+  - `apps/web/src/lib/entry-headcount.ts` — `loadGroupHeadcountFacts(dbc, entryGroupId)` を**追加**する。
+    ★`countGroupEntrants` / `formatEntrantCountParts` は**このタスクでは消さない**（唯一の呼び出し元
+    `line-webhook-handler.ts` を差し替えるのはタスク4なので、ここで消すと Wave 1 の時点で
+    リポジトリが typecheck を通らなくなる）。削除はタスク4で行う。返すのは
     ①ゲストを除いた参加者の実人数 ②ゲスト参加者が1人以上か ③サークル所属 ON の参加会員が
     1人以上か ④役割保持者3種（`role='admin'` / `is_treasurer` / `is_travel_report_submitter`）の
     `{ userId, displayName }[]`（`line_user_id IS NOT NULL AND deactivated_at IS NULL`・`id` 昇順・
@@ -115,8 +118,10 @@ Bot：1名
     - `template` は静的リテラル、`values` は `number` と `{ text }` のみ
   - `apps/web/src/lib/entry-headcount-breakdown.test.ts`（新規）
 - **依存タスク:** タスク1, タスク2（両方の型を使う）
-- **必要なテスト:** 合計が各行の和と一致することを全分岐で／排他の優先順位（会計を兼ねる管理者・
-  副連絡を兼ねる会計・参加者を兼ねる役割者）／副連絡責任者の5分岐／0人・複数人の表記
+- **必要なテスト:** ★**合計はテスト側で独立に数えた期待値と突き合わせる**（行の和をそのまま
+  assert すると AC-H2 が恒真になり何も検証しない）。兼務を含むケースで実人数と一致すること／
+  排他の優先順位（会計を兼ねる管理者・副連絡を兼ねる会計・参加者を兼ねる役割者）／
+  副連絡責任者の5分岐／0人・複数人の表記／複数該当の一部だけが外れたときの注記の付き方
 - **完了条件:** `entry-headcount-breakdown.test.ts` green・typecheck 通過
 - **対応Issue:** #645
 
@@ -129,7 +134,9 @@ Bot：1名
     呼び出し（838-840行付近）を `loadGroupHeadcountFacts` + 組み立てへ、
     `loadAdminLineUserIds`（850行付近）を `loadPrimaryAdminLineUserIds` へ。
     `buildLinkedMessages` の③だけを差し替え、**①②④・在籍プローブ・reply 失敗時の push
-    フォールバック・`bindingStillLinked` の両送信点での再検証は一切触らない**
+    フォールバック・`bindingStillLinked` の両送信点での再検証は一切触らない**。
+    差し替え後に**タスク2で残した `countGroupEntrants` / `formatEntrantCountParts` を削除**する
+    （参照ゼロを `git grep` で確認してから）
   - `apps/web/src/lib/line-webhook-handler.test.ts` — ③を見ているテスト
     （528-534 / 571-573 / 1654-1730 行付近）を新文面へ。「内他会」を期待するテストは削除
 - **依存タスク:** タスク3
@@ -142,7 +149,8 @@ Bot：1名
 ## 実装順序（Wave = 並行実装できるタスクの組）
 
 - **Wave 1: タスク1, タスク2** — 互いに依存なし。変更ファイルが完全に別
-  （`line-mention.ts` ↔ `entry-headcount.ts` / `line-mention-targets.ts`）
+  （`line-mention.ts` ↔ `entry-headcount.ts` / `line-mention-targets.ts`）。
+  ★タスク2 は**既存関数を消さずに追加する**ので、Wave 1 の終わりでもリポジトリは typecheck を通る
 - **Wave 2: タスク3** — タスク1・2 の型を使う
 - **Wave 3: タスク4** — タスク3 に依存。唯一の呼び出し元を差し替える
 
