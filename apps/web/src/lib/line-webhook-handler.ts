@@ -11,7 +11,8 @@ import type { db as appDb } from '@/lib/db'
 import { isValidInviteCodeFormat, verifyInviteCode } from '@/lib/invite-code'
 import { sendGuidelinesOnLink } from '@/lib/line-broadcast-guidelines'
 import { deriveEntryGroupName, selectRepresentativeEvent } from '@/lib/entry-groups'
-import { countGroupEntrants, formatEntrantCountParts } from '@/lib/entry-headcount'
+import { loadGroupHeadcountFacts } from '@/lib/entry-headcount'
+import { buildHeadcountBreakdown } from '@/lib/entry-headcount-breakdown'
 import { todayInJst } from '@/lib/jst-date'
 import {
   defaultLineGroupMembershipClient,
@@ -24,7 +25,7 @@ import {
   type LineMessage,
   type MentionTarget,
 } from '@/lib/line-mention'
-import { loadAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
+import { loadPrimaryAdminLineUserIds, toMentionTarget } from '@/lib/line-mention-targets'
 import { parseChatCommand, type LineMessageMention } from '@/lib/line-chat-command'
 import { resolveLineChatPermissions } from '@/lib/line-chat-authz'
 import {
@@ -835,8 +836,9 @@ async function handleInviteCode(
   // — 決定的な1件を選ぶ基準をこれ以上増やさないため。
   const entryDeadline = representative?.entryDeadline ?? null
 
-  const headcountParts = formatEntrantCountParts(
-    await countGroupEntrants(db, candidate.entryGroupId),
+  // ③の内訳（§3.1.3a）。DB から集めた事実を pure 層が5行へ組み立てる。
+  const headcountParts = buildHeadcountBreakdown(
+    await loadGroupHeadcountFacts(db, candidate.entryGroupId),
   )
 
   // groupIdMissing ガードを通過しているので sourceGroupId は string 確定。
@@ -847,7 +849,12 @@ async function handleInviteCode(
   // 案内が全滅する。紐付け直後の新設グループに管理者全員が揃っていることは
   // 稀なので、③のメンション対象は在籍プローブで在籍者だけへ絞る
   // （0名なら buildMentionMessage の仕様で素テキスト `@管理者` 行へ倒れる）。
-  const adminLineUserIds = await loadAdminLineUserIds(db)
+  //
+  // ★対象は**正管理者だけ**（`role='admin'`。2026-09-14 改訂・AC-H16）。
+  // 汎用の `@管理者`（admin + vice_admin）とは別なので専用ヘルパーを使う。
+  // 内訳の管理者行が `0名（大会参加のため）` になってもメンションは飛ばす —
+  // 「誰に知らせるか」と「グループに何人いるはずか」は別の問い。
+  const adminLineUserIds = await loadPrimaryAdminLineUserIds(db)
   const memberAdminIds = await filterToGroupMembers(
     adminLineUserIds,
     { groupId: linkedGroupId, channelAccessToken },
@@ -883,15 +890,12 @@ async function handleInviteCode(
             '大会の申し込み締め切りは%sです。当日までにこのLINE BOTから申込をした旨のアナウンスが届かない場合は申込を忘れているので、管理者を急かしてください。',
           values: [{ dateIso: entryDeadline }],
         }),
-    // ③: 人数の文言（〇名／〇名（内他会〇名）)は formatEntrantCountParts が
-    // 数値だけを返す（自由記述を textV2 本文へ混ぜられないため）。
+    // ③: 合計＋役割別の内訳5行（§3.1.3a）。template は静的リテラルで、
+    // 名字・注記は `{ text }` で差し込む（textV2 本文の中括弧対策）。
     buildMentionMessage({
       mention,
       label: '@管理者',
-      template:
-        '北溟上の申込人数は' +
-        headcountParts.template +
-        'です。管理者・会計を除いたグループの人数が一致していることを確認してください。',
+      template: headcountParts.template,
       values: headcountParts.values,
     }),
     // ④: 固定文。

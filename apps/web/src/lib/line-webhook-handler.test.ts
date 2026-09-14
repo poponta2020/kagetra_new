@@ -483,7 +483,7 @@ describe('applyWebhookEvents — invite code path', () => {
     expect(deadlineMessage.text).toContain('大会の申し込み締め切りは未定です')
   })
 
-  it('③: 参加人数はゲスト込みで〇名（内他会〇名）になり、@管理者へメンションする (AC-24)', async () => {
+  it('③: 合計＋役割別の内訳5行を送り、ゲストは数えない（AC-H1, AC-H3, AC-H4）', async () => {
     const group = await createEntryGroup()
     const ev = await createEvent({
       entryGroupId: group.id,
@@ -491,6 +491,7 @@ describe('applyWebhookEvents — invite code path', () => {
       eventDate: '2030-02-02',
     })
     const admin = await createAdmin({
+      familyName: '酒井',
       lineUserId: 'Uadmin00000000000000000000000000',
       lineLinkedAt: new Date(),
     })
@@ -531,10 +532,23 @@ describe('applyWebhookEvents — invite code path', () => {
       type: 'mention',
       mentionee: { type: 'user', userId: admin.lineUserId! },
     })
-    expect(headcountMessage.text).toContain('北溟上の申込人数は2名（内他会1名）です')
+    // ゲストは大会参加者に数えないが、遠征届の要否判定には効く（副連絡責任者の行）。
+    // 合計 = 会員1 + 管理者1 + Bot1 = 3。
+    expect(headcountMessage.text.split('\n')).toEqual([
+      '{m0}',
+      'グループの人数が3名であることを確認してください。',
+      '',
+      '内訳',
+      '大会参加者：1名',
+      '管理者：1名（酒井）',
+      '会計：0名（未設定）',
+      '副連絡責任者：0名（未設定）',
+      'Bot：1名',
+    ])
+    expect(headcountMessage.text).not.toContain('内他会')
   })
 
-  it('③: ゲストが0名のときは括弧を省略する (AC-24)', async () => {
+  it('③: 在籍する管理者が0人なら素テキストの @管理者 行で内訳を送る（AC-H17）', async () => {
     const group = await createEntryGroup()
     const ev = await createEvent({
       entryGroupId: group.id,
@@ -569,8 +583,18 @@ describe('applyWebhookEvents — invite code path', () => {
     // 管理者を LINE 紐付けしていないので userIds が空 → 素テキストへ倒れる
     // (buildMentionMessage の仕様。AC-5 と同じ挙動)。
     const headcountMessage = reply.captured[0]!.messages[2]!
-    expect(headcountMessage.text).toContain('北溟上の申込人数は1名です')
-    expect(headcountMessage.text).not.toContain('内他会')
+    expect(headcountMessage.type).toBe('text')
+    expect(headcountMessage.text.split('\n')).toEqual([
+      '@管理者',
+      'グループの人数が2名であることを確認してください。',
+      '',
+      '内訳',
+      '大会参加者：1名',
+      '管理者：0名（未設定）',
+      '会計：0名（未設定）',
+      '副連絡責任者：0名（遠征届不要のため）',
+      'Bot：1名',
+    ])
   })
 
   it('rejects expired codes without altering state', async () => {
@@ -1658,6 +1682,31 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
     })
   })
 
+  it('AC-H16: ③のメンションは role=admin だけで、vice_admin は対象にならない', async () => {
+    await seedLinkableBroadcast()
+    const admin = await createAdmin({
+      lineUserId: 'Uadmin1a000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+    const vice = await createViceAdmin({
+      lineUserId: 'Uvice1a0000000000000000000000000',
+      lineLinkedAt: new Date(),
+    })
+
+    const reply = makeReplyClient()
+    const membership = makeMembershipClient([admin.lineUserId!, vice.lineUserId!])
+    await applyWebhookEvents(db, channelId, 'token', codePayload(), reply.client, {
+      membershipClient: membership.client,
+    })
+
+    // 副管理者は在籍していてもプローブすらされない（母集団に入らない）。
+    expect(membership.probed).toEqual([admin.lineUserId!])
+    const headcountMessage = reply.captured[0]!.messages[2]! as LineTextV2Message
+    expect(headcountMessage.substitution).toEqual({
+      m0: { type: 'mention', mentionee: { type: 'user', userId: admin.lineUserId! } },
+    })
+  })
+
   it('AC-2: 在籍管理者が0名なら③は素テキスト（@管理者 行）で送られる', async () => {
     await seedLinkableBroadcast()
     await createAdmin({
@@ -1675,7 +1724,8 @@ describe('linked 案内の在籍プローブと送信フォールバック (bug 
     const headcountMessage = reply.captured[0]!.messages[2]!
     expect(headcountMessage.type).toBe('text')
     expect(headcountMessage.text).toContain('@管理者')
-    expect(headcountMessage.text).toContain('北溟上の申込人数は')
+    expect(headcountMessage.text).toContain('であることを確認してください。')
+    expect(headcountMessage.text).toContain('内訳')
   })
 
   it('AC-3: プローブがエラーを返した管理者は除外され、送信は継続する', async () => {

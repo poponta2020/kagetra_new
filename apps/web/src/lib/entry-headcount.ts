@@ -57,13 +57,6 @@ export interface GroupHeadcountFacts {
   travelReportSubmitters: HeadcountRoleHolder[]
 }
 
-export interface EntryHeadcount {
-  /** 参加と回答した実人数（ゲスト込み・グループ全体で重複排除）。 */
-  total: number
-  /** うちゲスト（他会）の人数。 */
-  guests: number
-}
-
 /** 対象イベントの級フィルタ（`eligibleAttendingList` と同じ規則）。 */
 function gradeFilterFor(eligibleGrades: (typeof events.$inferSelect)['eligibleGrades']) {
   return eligibleGrades?.length
@@ -74,7 +67,7 @@ function gradeFilterFor(eligibleGrades: (typeof events.$inferSelect)['eligibleGr
 /**
  * ③の内訳の材料を1回で集める（§3.1.3a）。
  *
- * 参加者の母集団は `countGroupEntrants` と同じ（中止日を除く・級フィルタ・
+ * 参加者の母集団は参加費集計と同じ規則（中止日を除く・級フィルタ・
  * グループ全体で重複排除）で、**ゲストだけ扱いが違う** — 人数には数えず、
  * 「ゲスト参加者がいるか」のフラグとしてだけ持ち帰る。
  *
@@ -167,55 +160,4 @@ export async function loadGroupHeadcountFacts(
     treasurers,
     travelReportSubmitters,
   }
-}
-
-/**
- * グループ全日の「参加」回答を重複排除して数える。中止した日は数えない
- * （`tallyEntryFeesForGroup` と同じく `status='cancelled'` を除く）。
- */
-export async function countGroupEntrants(
-  dbc: DbOrTx,
-  entryGroupId: number,
-): Promise<EntryHeadcount> {
-  const eventRows = await dbc
-    .select({ id: events.id, eligibleGrades: events.eligibleGrades })
-    .from(events)
-    .where(and(eq(events.entryGroupId, entryGroupId), ne(events.status, 'cancelled')))
-
-  // userId → ゲストかどうか。同じ会員が複数日に出ていても1人として数える。
-  const seen = new Map<string, boolean>()
-  for (const ev of eventRows) {
-    const gradeFilter = ev.eligibleGrades?.length
-      ? and(eq(users.isInvited, true), inArray(users.grade, ev.eligibleGrades))
-      : eq(users.isInvited, true)
-
-    const rows = await dbc
-      .select({ userId: eventAttendances.userId, role: users.role })
-      .from(eventAttendances)
-      .innerJoin(users, eq(eventAttendances.userId, users.id))
-      .where(and(eq(eventAttendances.eventId, ev.id), eq(eventAttendances.attend, true), gradeFilter))
-
-    for (const row of rows) seen.set(row.userId, row.role === 'guest')
-  }
-
-  let guests = 0
-  for (const isGuest of seen.values()) if (isGuest) guests++
-  return { total: seen.size, guests }
-}
-
-/**
- * ③の人数表記。`〇名（内他会〇名）`。**ゲストが0名なら括弧ごと省略**する
- * （event-line-broadcast §3.1.3・AC-24）。
- *
- * 数値だけを返す純関数にしてあるのは、この文字列が `textV2`（メンション付き）の
- * 本文に入るため — 自由記述を混ぜられない制約（§3.2.2）に沿って、呼び出し側が
- * 数値として `buildMentionMessage` へ渡せるようにしている。
- */
-export function formatEntrantCountParts(count: EntryHeadcount): {
-  template: string
-  values: number[]
-} {
-  return count.guests > 0
-    ? { template: '%s名（内他会%s名）', values: [count.total, count.guests] }
-    : { template: '%s名', values: [count.total] }
 }
