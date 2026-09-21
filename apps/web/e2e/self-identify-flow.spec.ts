@@ -98,7 +98,7 @@ test.describe('/self-identify — first-time LINE claim', () => {
     await page
       .getByRole('checkbox', { name: '北海道大学のサークル「北大かるた会」に所属している' })
       .check()
-    await page.getByText('大学院', { exact: true }).click()
+    await page.getByRole('radiogroup', { name: '所属' }).getByText('大学院', { exact: true }).click()
     await page.getByLabel('学部等名').fill('情報科学院')
     await page.getByLabel('学年').selectOption('修士1年')
     // 電話は名簿で空なので入力欄が出る。生年月日は登録済みなので出ない。

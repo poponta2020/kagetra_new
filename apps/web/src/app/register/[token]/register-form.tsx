@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { startTransition, useActionState, useState, type FormEvent } from 'react'
 import { schoolYearOptions } from '@kagetra/shared'
 import type { FacultyKind } from '@kagetra/shared/types'
 import { FacultyCombobox } from '@/components/members/FacultyCombobox'
@@ -32,7 +32,11 @@ const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
  *       - 全日協 ON     → ＋全日協登録情報（性別/生年月日/電話/郵便→住所検索/住所1・2）
  *
  * Inputs are controlled so a validation / duplicate error keeps what the user
- * typed (React 19 resets uncontrolled fields after a form action). Server-side
+ * typed. Submission goes through onSubmit (not `<form action>`): with a form
+ * action React 19 calls form.reset() after it settles, and since React never
+ * mirrors a controlled `checked` into `defaultChecked`, the 級 radios and the
+ * 全日協 / サークル所属 checkboxes would visually fall back to unselected while
+ * state still says selected — a resubmit would then drop grade / 所属. Server-side
  * invariants in registerViaInvite are authoritative — hidden fields are simply
  * not submitted, so this UI only needs to gate visibility + front-side required.
  * `token` is fixed via `.bind`. On success the action redirects to the
@@ -92,9 +96,15 @@ export function RegisterForm({
   const boundAction = registerViaInvite.bind(null, token)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
 
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    startTransition(() => formAction(formData))
+  }
+
   if (kind === 'guest') {
     return (
-      <form action={formAction} className="space-y-7">
+      <form onSubmit={handleSubmit} className="space-y-7">
         <section className="space-y-2">
           <Field label="表示名" htmlFor="guest-name">
             <UnderlineInput
@@ -330,7 +340,7 @@ export function RegisterForm({
   }
 
   return (
-    <form action={formAction} className="space-y-7">
+    <form onSubmit={handleSubmit} className="space-y-7">
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-ink">お名前</h2>
         <div className="grid grid-cols-2 gap-x-4 gap-y-5">

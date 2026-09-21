@@ -434,3 +434,56 @@ describe('RegisterForm 名簿選択への誘導（suggestRoster）', () => {
     expect(screen.queryByRole('button', { name: '名簿から選ぶ' })).toBeNull()
   })
 })
+
+// action のエラー後も、級・全日協・サークル所属の選択が見た目ごと残ること。
+// <form action> だと React 19 の完了後 form.reset() で checked が初期値へ戻り、
+// そのまま再送信すると grade / 所属が送られなくなる。
+describe('RegisterForm エラー後の選択保持', () => {
+  beforeEach(() => {
+    registerMock.mockReset()
+  })
+
+  it('会員用: 級ラジオ・全日協・サークル所属チェックが checked のまま残り、再送信にも入る', async () => {
+    registerMock.mockResolvedValue({ error: '同名の会員が既に存在します。管理者にご連絡ください。' })
+    const { container } = render(<RegisterForm token="t" />)
+    fillNames()
+    selectGrade('B')
+    const circle = screen.getByRole('checkbox', {
+      name: '北海道大学のサークル「北大かるた会」に所属している',
+    }) as HTMLInputElement
+    fireEvent.click(circle)
+    submit(container)
+
+    await screen.findByRole('alert')
+    expect((screen.getByRole('radio', { name: 'B級' }) as HTMLInputElement).checked).toBe(true)
+    expect(
+      (screen.getByRole('checkbox', { name: '全日本かるた協会（全日協）に登録済み' }) as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+    expect(circle.checked).toBe(true)
+
+    submit(container)
+    await waitFor(() => expect(registerMock).toHaveBeenCalledTimes(2))
+    const fd = lastFormData()
+    expect(fd.get('grade')).toBe('B')
+    expect(fd.get('zenNichikyo')).toBe('on')
+    expect(fd.get('isCircleMember')).toBe('on')
+  })
+
+  it('ゲスト用: 級ラジオとサークル所属チェックが checked のまま残る', async () => {
+    registerMock.mockResolvedValue({ error: '同名の会員が既に存在します。管理者にご連絡ください。' })
+    const { container } = render(<RegisterForm token="t" kind="guest" />)
+    fireEvent.change(screen.getByLabelText('表示名'), { target: { value: '山田 太郎' } })
+    selectGrade('C')
+    fireEvent.change(screen.getByLabelText('所属会'), { target: { value: 'よその会' } })
+    const circle = screen.getByRole('checkbox', {
+      name: '北海道大学のサークル「北大かるた会」に所属している',
+    }) as HTMLInputElement
+    fireEvent.click(circle)
+    submit(container)
+
+    await screen.findByRole('alert')
+    expect((screen.getByRole('radio', { name: 'C級' }) as HTMLInputElement).checked).toBe(true)
+    expect(circle.checked).toBe(true)
+  })
+})
