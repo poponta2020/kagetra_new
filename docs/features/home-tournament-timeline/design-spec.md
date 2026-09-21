@@ -48,12 +48,12 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
 
 ## 4. 使用コンポーネント
 
-- **既存プリミティブ:** `Card` / `Pill`（確定=brand・希望=neutral）/ `SectionLabel`（action に「大会申込へ」）/ `Link`
+- **既存プリミティブ:** `Card` / `Pill`（大会ステータスピル: 名簿確定=brand・申込済=info・参加受付中=warn・締切済=neutral。[requirements.md](requirements.md) §3.2.4）/ `SectionLabel`（action に「大会申込へ」）/ `Link`
 - **既存ヘルパー:** `formatEventDate`（今日カード）/ `surname()`（チップ表示名。`/events`・イベント詳細と同一規約）
 - **新規:**
   - `HomeTimeline.tsx`（`'use client'`。「もっと見る」の展開だけが state）
   - `home-timeline-types.ts`（表示 DTO）
-  - `home-timeline-utils.ts`（純関数: `splitTimelineDate` / `confidenceLabel` / `alertCountdown` / `INITIAL_VISIBLE_COUNT`）
+  - `home-timeline-utils.ts`（純関数: `splitTimelineDate` / `deriveHomeEventStatus` / `HOME_EVENT_STATUS_PILL` / `alertCountdown` / `INITIAL_VISIBLE_COUNT`）
   - 出場者チップ（新規要素。姓＋級の添え字、自分は藍塗り）
 
 ## 5. 状態（state）
@@ -74,15 +74,16 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
 **新テーブル・新カラムは不要。** 既存テーブルの再構成のみ。
 
 - **母集団:** `/admin/entries` と同じ（`event_date >= todayInJst()` ∧ `status <> 'cancelled'` ∧ `kind = 'individual'`）。**出場者0名の大会はホームに載せない**
-- **出場者「確定」（`confidence: 'confirmed'`）:** `tournament_entry_rosters` の `roster_type = 'confirmed'` ∧ `superseded_at IS NULL` の版に属する `tournament_entry_roster_entries`。名簿の帰属は event ではなく **`entry_group_id`**
+- **出場者「確定」（名簿パス）:** `tournament_entry_rosters` の `roster_type = 'confirmed'` ∧ `superseded_at IS NULL` の版に属する `tournament_entry_roster_entries`。名簿の帰属は event ではなく **`entry_group_id`**
   - **出場する人の定義（本仕様で確定）:** `status IN ('confirmed', 'carried_up')` かつ `selection_outcome NOT IN ('waitlisted', 'rejected')`
     - 根拠: 確定名簿の行は `roster-import/materialize.ts` の `mapEntryStatus` が必ず `status` を埋める（明示テキストが無ければ `'confirmed'`）。一方 `selection_outcome` は `unknown` のまま残ることがあり、`roster-import/adoption.ts` が `unknown` 件数を別途数えている＝**`status` を主軸、`selection_outcome` は明示的な補欠/落選の除外にのみ使う**
     - `carry_up_declined`（繰上り辞退）・`cancelled` は出場しないので除外
-- **出場者「希望」（`confidence: 'hoped'`）:** 確定名簿が無いグループのフォールバック。`event_attendances.attend = true`
+- **出場者「希望」（出欠パス）:** 確定名簿が無いグループのフォールバック。`event_attendances.attend = true`
 - **対象級外の stale 行除外は「希望」パスにのみ適用する:** イベント詳細 AC-26 と同じ（`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`。`eligible_grades` が空/null なら `is_invited` のみ）。
   **確定パスには適用しない** — 名簿がその大会の出場者の唯一の権威であり、現在の `users.grade` で絞ると昇級者が「実際に載っている名簿」から消える。確定パスの絞りは `user_id IS NOT NULL`（自会員として同定できた行）だけ
 - **チップの級の出所（重要）:** 確定パスは **`tournament_entry_roster_entries.grade`**（＝その大会で出る級）を使い、null のときだけ `users.grade` へフォールバックする。希望パスは出欠に級が無いので `users.grade`。
   `users.grade` で統一してはいけない —— 級はシーズン途中で上がるため、C級で申し込んだ会員が昇級すると「石狩CD」のカードに `B` のチップが出る（`eligible_grades` に無い級が表示される）。チップの級は常に**その大会で出る級**を意味させる
+- **大会ステータスピルは出場者の出所とは別に導出する:** 4値（参加受付中／締切済／申込済／名簿確定）の判定は [requirements.md](requirements.md) §3.2 が正典。「名簿確定」は `lib/events/confirmed-roster.ts` の4材料で判定するが、上の名簿パスへ切り替わるのはパース済み名簿（材料①）だけ。そのため手動フラグ・確定名簿メールだけのグループは、ピルが「名簿確定」でもチップは出欠パスのまま
 - **大会表示名:** 通称 + 対象級（`entry-board-utils.displayName` の純関数を使う。`events` → `edition` → `series` を **leftJoin**。edition 未紐付けは `events.title`）
 - **未回答アラート:** 自分の級が `events.eligible_grades` に含まれる大会のうち、`COALESCE(internal_deadline, entry_deadline)` の **7日前〜締切当日**で、自分の `event_attendances` 行が**無い**もの。基準締切の早い順
 - **仮データのまま確定した項目 ★実装で必ず実配線する:** `home-timeline-proto-data.ts` の全体（会員名・大会名・会場・日付すべて架空）と `page.tsx` の状態切替バー・`searchParams`。実装時に**ファイルごと削除**する
@@ -96,10 +97,10 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
 ## 8. 忠実度チェックリスト ★実装の完了ゲート
 
 - [x] 画面の縦順が上から: 未回答アラート → 今日カード → 「出場予定」セクション見出し → タイムライン → もっと見る。アラート・今日カードは**該当が無ければ枠ごと消える**（空枠・プレースホルダーを置かない）
-- [x] タイムライン行の構造が「左に日付レール（M/D を明朝太字・下に曜日1文字）／右に 大会名 → 確定/希望ピル → （右端）人数」で、その下段に出場者チップ
+- [x] タイムライン行の構造が「左に日付レール（M/D を明朝太字・下に曜日1文字）／右に 大会名 → ステータスピル → （右端）人数」で、その下段に出場者チップ
 - [x] 出場者チップは**級で束ねず一列**。チップ表示名は `surname()` の姓のみで、級は同じチップ内の小さな添え字（`font-mono`）。今日カードも同じ一列
 - [x] 自分のチップだけ `bg-brand` ＋ `text-ink-on-brand` ＋ 太字。それ以外は `bg-surface-alt` ＋ `border-border-soft` ＋ `text-ink-2`。チップ内の級添え字は非自分側で `text-neutral-fg`（`text-ink-meta` は surface-alt 上で 4.16:1 でコントラスト不足）
-- [x] 確度ピルは 確定=`tone="brand"` / 希望=`tone="neutral"`。独自色を作らない
+- [x] ステータスピルは 名簿確定=`tone="brand"` / 申込済=`tone="info"` / 参加受付中=`tone="warn"` / 締切済=`tone="neutral"`（[requirements.md](requirements.md) §3.2.4）。タイムライン行と今日カードで同じ文言・トーン。独自色を作らない
 - [x] 朱（`accent` 系トークン）を使うのは未回答アラート行だけ。タイムライン・今日カード・チップに朱を使わない
 - [x] 今日カードは藍帯（`bg-brand`）がカード左右端まで届き、その中に「本日」＋`formatEventDate` の日付。会場は `location` があるときだけ大会名の下に出る
 - [x] タイムラインは初期4件（`INITIAL_VISIBLE_COUNT`）＋「もっと見る（残りN件）」。展開は同一画面内で、`/events` へ遷移しない

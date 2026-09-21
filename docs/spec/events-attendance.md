@@ -147,6 +147,8 @@
 
 **出場者チップの級**は、確定パスが `tournament_entry_roster_entries.grade`（＝その大会で出る級。null のときだけ `users.grade`）、希望パスが `users.grade`。級はシーズン途中で上がるため、`users.grade` で統一すると対象級外の級がチップに出る。
 
+**大会ステータスピル**は今日カードとタイムライン行の大会名の横に 1 つずつ出し、出場者リストの確度（上記 2 系統）とは**別に**大会の進行状況を 4 値で表す（導出は `dashboard/home-timeline-utils.ts` の `deriveHomeEventStatus`、文言とトーンは同ファイルの `HOME_EVENT_STATUS_PILL`）。上から順に最初に当てはまったもの: **名簿確定**（`brand`。申込グループが「確定名簿あり」＝ `lib/events/confirmed-roster.ts` の 4 材料の OR。`entryStatus`・締切は問わない）→ **申込済**（`info`。`entryStatus = 'applied'`。会内締切前でも申込済）→ **締切済**（`neutral`。基準締切 `COALESCE(internalDeadline, entryDeadline)` < 今日）→ **参加受付中**（`warn`。それ以外＝締切当日を含む、または基準締切なし）。締切当日を受付中とする境界は申込管理ボードの区画分類と同じ。`entryStatus = 'not_applying'` は新しい値を作らず日付どおりに判定する（ホームに載る範囲も変えない）。名前チップの出所は確度 2 系統のまま変えないので、確定名簿メール・手動フラグだけで名簿確定になったグループでは、ピルが「名簿確定」でもチップは出欠「出る」の会員になる（名前入りの名簿が無いので落選・補欠の人を除けない。意図した仕様）。朱（`accent` / `danger`）は使わない。
+
 **遠征経路の未入力アラート**（travel-report S9）は未回答アラートの**下**に、既存の未回答アラート行と同じ高さ・角丸・配色（朱＝「自分が手を動かす必要がある」）でタグ「遠征経路」・右端「未入力」固定の行として並ぶ。出る条件は 遠征届が「必要」∧ 経路入力が開いている ∧ 自分がその単位の対象者 ∧ 未入力 ∧ **単位の最終日を過ぎていない**（`lib/travel-report/alerts.ts`）。0件なら何も出ない。ゲストはホームに入れないので S7 だけが導線になる。
 
 **未回答アラート**は、自分の級が対象（`eligibleGrades` が空/null なら全員が対象）で、基準締切 `COALESCE(internalDeadline, entryDeadline)` が今日から 7 日以内（締切当日を含み、超過は出さない）、かつ自分の `event_attendances` 行が**無い**大会を基準締切の早い順に並べる。`attend` の値は問わない（「不参加」と回答済みなら出さない）。母集団は上記そのもので、出場者 0 名の大会も対象にする。締切超過分の督促は管理者への LINE 通知（[notifications.md](notifications.md) の entry-overdue-alert）が担う。

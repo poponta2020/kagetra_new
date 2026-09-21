@@ -6,6 +6,10 @@
  * `entry-board-utils.ts` と同じ方針）。
  */
 
+// type-only import に限る —— このモジュールはクライアント（HomeTimeline.tsx）からも読まれる。
+import type { PillTone } from '@/components/ui/pill'
+import type { HomeEventStatus } from './home-timeline-types'
+
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
 
@@ -27,9 +31,50 @@ export function splitTimelineDate(eventDate: string): {
   return { md: `${month}/${day}`, weekday: WEEKDAY_JA[dow] ?? '' }
 }
 
-/** 出場者リストの確度ラベル。 */
-export function confidenceLabel(confidence: 'confirmed' | 'hoped'): string {
-  return confidence === 'confirmed' ? '確定' : '希望'
+/** {@link deriveHomeEventStatus} の入力。DB の値をそのまま詰める。 */
+export interface HomeEventStatusInput {
+  /**
+   * 申込グループが「確定名簿あり」か。`@/lib/events/confirmed-roster` の
+   * `loadConfirmedRosterStates` の `settled`（判定の正典）をそのまま渡す。
+   * ここで4材料を組み直さない。
+   */
+  rosterSettled: boolean
+  entryStatus: 'not_applied' | 'applied' | 'not_applying'
+  internalDeadline: string | null
+  entryDeadline: string | null
+}
+
+/**
+ * 大会ステータスを導出する（requirements §3.2.1）。上から順に最初に当てはまったもの:
+ * 名簿確定 → 申込済 → 締切済（基準締切 < 今日） → 参加受付中。
+ *
+ * - 基準締切 = 会内締切 ?? 申込締切（`entry-board-utils.baseDeadlineOf` と同じ規約）。
+ *   締切当日は「参加受付中」で、翌日から「締切済」（`classify` の `base >= todayStr` と同じ境界）
+ * - `not_applying` は `not_applied` と同じく日付どおりに判定する（新しいステータスを作らない）
+ */
+export function deriveHomeEventStatus(
+  input: HomeEventStatusInput,
+  todayStr: string,
+): HomeEventStatus {
+  if (input.rosterSettled) return 'roster_confirmed'
+  if (input.entryStatus === 'applied') return 'applied'
+  const base = input.internalDeadline ?? input.entryDeadline
+  if (base != null && base < todayStr) return 'closed'
+  return 'open'
+}
+
+/**
+ * ステータスピルの文言とトーン（requirements §3.2.4）。既存の `Pill` トーンだけを使う。
+ * 朱（`accent` / `danger`）は未回答アラート専用なのでここでは使わない（design-spec §3）。
+ */
+export const HOME_EVENT_STATUS_PILL: Record<
+  HomeEventStatus,
+  { label: string; tone: PillTone }
+> = {
+  roster_confirmed: { label: '名簿確定', tone: 'brand' },
+  applied: { label: '申込済', tone: 'info' },
+  open: { label: '参加受付中', tone: 'warn' },
+  closed: { label: '締切済', tone: 'neutral' },
 }
 
 /**

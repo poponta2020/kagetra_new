@@ -37,7 +37,7 @@ function event(
     displayName: `大会${eventId}`,
     eventDate: `2026-08-${String(eventId).padStart(2, '0')}`,
     venue: null,
-    confidence: 'confirmed',
+    status: 'roster_confirmed',
     entrants: [entrant('佐々木', 'A')],
     ...overrides,
   }
@@ -351,19 +351,50 @@ describe('HomeTimeline', () => {
       expect(chipOf('神谷').textContent).toBe('神谷')
     })
 
-    it('確度ピルは 確定 / 希望 を出し分ける', () => {
+    // AC-10: 4ステータスの文言とトーン（Pill の TONE_CLASS）。今日カード（/events/1）と
+    // タイムライン行（/events/2）の両方に同じ文言・トーンで出ることを見る。
+    it.each([
+      { status: 'roster_confirmed', label: '名簿確定', toneClass: 'bg-brand-bg' },
+      { status: 'applied', label: '申込済', toneClass: 'bg-info-bg' },
+      { status: 'open', label: '参加受付中', toneClass: 'bg-warn-bg' },
+      { status: 'closed', label: '締切済', toneClass: 'bg-neutral-bg' },
+    ] as const)(
+      'ステータスピル「$label」は今日カードとタイムライン行の両方に $toneClass で出る',
+      ({ status, label, toneClass }) => {
+        render(
+          <HomeTimeline
+            data={data({
+              today: [event(1, { status })],
+              upcoming: [event(2, { status })],
+            })}
+          />,
+        )
+        const pills = screen.getAllByText(label)
+        expect(
+          pills.map((p) => p.closest('a')?.getAttribute('href')).sort(),
+        ).toEqual(['/events/1', '/events/2'])
+        for (const pill of pills) expect(pill.className).toContain(toneClass)
+      },
+    )
+
+    // AC-11: 旧「確定／希望」のピルは出ない。「名簿確定」は「確定」を部分文字列に
+    // 含むので、要素のテキスト全体が一致するかで見る（getByText の既定 exact）。
+    it('ステータスピルに旧文言「確定」「希望」は出ない', () => {
       render(
         <HomeTimeline
           data={data({
+            today: [event(1, { status: 'roster_confirmed' })],
             upcoming: [
-              event(1, { confidence: 'confirmed' }),
-              event(2, { confidence: 'hoped' }),
+              event(2, { status: 'roster_confirmed' }),
+              event(3, { status: 'applied' }),
+              event(4, { status: 'open' }),
+              event(5, { status: 'closed' }),
             ],
           })}
         />,
       )
-      expect(screen.getByText('確定')).toBeTruthy()
-      expect(screen.getByText('希望')).toBeTruthy()
+      expect(screen.queryByText('確定')).toBeNull()
+      expect(screen.queryByText('希望')).toBeNull()
     })
 
     it('今日カードは会場があるときだけ会場行を出す', () => {
