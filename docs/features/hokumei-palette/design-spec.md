@@ -251,18 +251,18 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 8. 忠実度チェックリスト ★実装の完了ゲート
 
-- [ ] `globals.css` の `@theme --color-*` 全トークンが §2 の表と一致する（`palette-check.mjs` の `PINNED` と同値）
-- [ ] `:root --kg-*` のミラーが `@theme` 側と全て同値である（`canvas`↔`bg`、`ink*`↔`fg*`、`line*`↔`line-green*` の名前対応を含む）
-- [ ] 同値関係が保たれている: `success*` == `brand*`（3 本）、`danger*` == `accent*`（3 本）、`info-fg` == `neutral-fg`、`ink-on-brand` == `surface`
-- [ ] 朱・山吹の 6 トークンと LINE 緑・`--kg-nonattend` の値が**変わっていない**
-- [ ] トークン名の増減が 0（新設も削除もしない）。`bg-white` / `text-white` の例外 6 箇所を置換していない。コンポーネントの className に差分が無い
-- [ ] 影 3 本が 2 層のまま、基色 `rgba(23, 43, 73, α)`、alpha は現行と同じ。`--kg-texture` と段の割り当ては不変
-- [ ] `themeColor` == canvas `#d3eafa`
-- [ ] LINE Flex の `BADGE_COLOR` と `FLEX_BTN_BG` がどちらも brand `#15387d`
-- [ ] `GRADE_TONES.A` == brand、A→E で明度が単調増加、`ALL_SERIES_TONE` == neutral-fg
-- [ ] `docs/design/colors_and_type.css` が globals.css と同値。`design.md` に「純白は使わない」が残っていない
-- [ ] `globals.css` のコメント内の実測値（Ink 節のコントラスト・Surfaces 節の ΔL・nonattend の比）が新値に書き換わっている（古い数値が残ると次の変更者を誤らせる）
-- [ ] `palette-check.mjs` が exit 0
+- [x] `globals.css` の `@theme --color-*` 全トークンが §2 の表と一致する（`palette-check.mjs` の `PINNED` と同値）
+- [x] `:root --kg-*` のミラーが `@theme` 側と全て同値である（`canvas`↔`bg`、`ink*`↔`fg*`、`line*`↔`line-green*` の名前対応を含む）
+- [x] 同値関係が保たれている: `success*` == `brand*`（3 本）、`danger*` == `accent*`（3 本）、`info-fg` == `neutral-fg`、`ink-on-brand` == `surface`
+- [x] 朱・山吹の 6 トークンと LINE 緑・`--kg-nonattend` の値が**変わっていない**
+- [x] トークン名の増減が 0（新設も削除もしない）。`bg-white` / `text-white` の例外 6 箇所を置換していない。コンポーネントの className に差分が無い
+- [x] 影 3 本が 2 層のまま、基色 `rgba(23, 43, 73, α)`、alpha は現行と同じ。`--kg-texture` と段の割り当ては不変
+- [x] `themeColor` == canvas `#d3eafa`
+- [x] LINE Flex の `BADGE_COLOR` と `FLEX_BTN_BG` がどちらも brand `#15387d`
+- [x] `GRADE_TONES.A` == brand、A→E で明度が単調増加、`ALL_SERIES_TONE` == neutral-fg
+- [x] `docs/design/colors_and_type.css` が globals.css と同値。`design.md` に「純白は使わない」が残っていない
+- [x] `globals.css` のコメント内の実測値（Ink 節のコントラスト・Surfaces 節の ΔL・nonattend の比）が新値に書き換わっている（古い数値が残ると次の変更者を誤らせる）
+- [x] `palette-check.mjs` が exit 0
 
 ---
 

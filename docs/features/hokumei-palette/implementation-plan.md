@@ -61,7 +61,7 @@ status: completed
 - **対応Issue:** なし
 
 ### タスク5: memory の更新と忠実度ゲート
-- [ ] 完了
+- [x] 完了
 - **目的:** 偽になる記憶を直し、完了ゲートを通す
 - **対応チェック:** §8 全項目
 - **主な変更領域:** `.claude/memory/project_kagetra_color_tokens.md`
