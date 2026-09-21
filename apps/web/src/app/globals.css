@@ -30,7 +30,7 @@
 /* ---------- Tailwind v4 @theme (maps tokens to utility classes) ---------- */
 @theme {
   /* Brand 紺 / Accent 朱 / LINE green (auth only)
-     brand は初代の藍 (#2b4e8c・色相 261°) と同じ色相軸のまま、明度を
+     brand は初代の藍 (色相 261°) と同じ色相軸のまま、明度を
      0.43 → 0.36 へ沈め、彩度を 0.111 → 0.124 へ上げた一段深い紺。
      白の上のコントラストは 7.8 → 11.1:1。
      brand-bg の彩度 0.058 は、この明度 (0.885)・色相 (250°) での sRGB

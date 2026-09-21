@@ -28,7 +28,7 @@ status: completed
 - **対応Issue:** なし
 
 ### タスク2: コード内リテラルの追随
-- [ ] 完了
+- [x] 完了
 - **目的:** CSS 変数を使えない箇所の色を新 brand / canvas へ揃える
 - **対応チェック:** §8 の 5・7・8
 - **主な変更領域:** `apps/web/src/app/layout.tsx`、`apps/web/src/lib/line-flex-mail-body.ts` と同 `.test.ts`、`apps/web/src/lib/open-chat/flex.ts`、`apps/web/src/app/(app)/events/EventListClient.tsx`（コメントのみ）、`apps/web/src/components/events/detail/TravelReportCta.test.tsx`（テスト名の表記のみ）
