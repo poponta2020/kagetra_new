@@ -1,164 +1,184 @@
 ---
 status: completed
+completed_sections: [変更の動機と内容, 変更後の挙動, 変わらないもの, 互換性・データ, Acceptance Criteria と Non-goals]
+approved_at: 2026-09-21
+next_section: —
+design_required: false
 ---
 # invite-link-registration（招待リンクによる会員セルフ登録）要件定義書
+
+> 生きた仕様。招待リンクの発行・`/register/[token]` の流れ・名簿からの本人選択（`/self-identify` を含む）を定義する。
+> 新規登録フォームの入力項目と検証は次の各書が正典で、本書では再記述しない:
+> 会員用フォーム＝[invite-register-redesign](../invite-register-redesign/requirements.md) §3.1、サークル所属の項目＝[travel-report](../travel-report/requirements.md) R1、ゲスト用フォーム＝[guest-role](../guest-role/requirements.md)。
 
 ## 1. 概要
 
 ### 目的
-管理者が発行した**招待URL**を新規会員に渡すだけで、本人が「会員登録 → LINE 紐付け → ログイン」までを自己完結できるようにする。これまで必須だった「管理者が事前に会員レコードを作成する（[admin createMember](apps/web/src/app/(app)/admin/members/actions.ts)）」工程を、本人セルフ登録で代替できる導線を追加する。
+- 管理者が発行した**招待URL**を渡すだけで、本人が「会員登録 → LINE 紐付け → ログイン」まで自分で済ませられるようにする。
+- **名簿に既に行がある会員**（管理者作成・一括投入）も**同じ招待URL**から入れるようにする。名簿から自分の名前を選んで LINE を紐付け、サークル所属と学部・学年だけを入力する。住所・電話などの登録済みの値は打ち直させない。
 
 ### 背景・動機
-- 現状の入会導線は **管理者が先に会員行を作成 → 本人が LINE ログイン → [/self-identify](apps/web/src/app/self-identify/page.tsx) で自分の名前を選択** の2段構え。新入会者が出るたびに管理者が手入力する必要がある。
-- 「URLを渡せば本人が登録〜ログインまで済む」形にしたい。配布先は管理者が限定するため、**不正登録対策（レート制限・本人性検証・CAPTCHA等）は不要**。ガードは**有効期限のみ**とする（ユーザー明示）。
-- アプリの認証は LINE のみ・招待制という前提は維持する。招待URL経由でも **LINE ログインを通す**ことで、再ログイン・LINE通知が成立する。
+- 当初の入会導線は「管理者が会員行を作る → 本人が LINE ログイン → `/self-identify` で自分の名前を選ぶ」の2段構えで、新入会者のたびに管理者の手入力が要った。招待URLで本人登録を可能にした（PR #182）。
+- 2026-09-08 に全日協登録者など26名を名簿へ一括投入した。この人たちの住所・電話・生年月日は**全日協へ届け出ている値そのもの**なので、全角・半角の揺れなどで別の値に打ち直されたくない。
+- 一方で遠征届（travel-report）には学部・学年・サークル所属が要る。26名とも未入力で、管理者が全員分を入れるのは負担が大きい。
+- 今の招待URLは名簿の行があるかを見ずに新しい行を作るので、名簿の人が招待フォームで登録すると、同名エラーで止まるか、表記が違えば**同じ人の2行目が作られる**。
 
 ## 2. ユーザーストーリー
 
 ### 対象ユーザー
-- **管理者・副管理者**: 招待URLを発行し、新入会者に配布する。
-- **新規会員（未登録の人）**: 受け取ったURLから自分で会員登録してログインする。
+- **管理者・副管理者**: 招待URLを発行し、新入会者と名簿の未ログイン会員へまとめて配る。
+- **新規会員（名簿に行が無い人）**: URL から自分で会員登録してログインする。
+- **名簿の会員（行はあるが LINE 未紐付けの人）**: URL（またはトップの LINE ログイン）から自分の名前を選び、サークル所属と学部・学年を入れてログインする。
 
 ### 利用シナリオ
-1. 管理者が会員管理画面で「招待リンクを発行」し、有効期限（1日/7日/30日）を選んでURLを得る。
-2. 管理者がそのURLを新入会者（1人または複数人のグループ）に配布する。
-3. 新入会者がURLを開く → 「LINEで登録」→ LINE ログイン → 氏名（必須）と級（任意）を入力 → 登録完了し、そのままログイン状態でダッシュボードへ。
-4. 期限が切れたURLを開くと「期限切れ」表示となり登録できない。
+1. 管理者が会員管理画面で「招待リンクを発行」し、種別（会員用／ゲスト用）と有効期限（1日/7日/30日）を選んで URL を得る。
+2. 管理者が会員用 URL を会の LINE グループ等に流す。
+3. URL を開く → 「LINE で認証する」→ LINE 認証 → 次のどちらかへ進む。
+   - **名簿から選ぶ**: 名簿（LINE 未紐付けの会員の氏名一覧）から自分を選び、サークル所属（ON なら学部区分・学部等名・学年）を入れて送信 → 紐付けと保存を同時に行いダッシュボードへ。
+   - **新しく登録する**: 会員用フォーム（氏名・かな・級・段位・全日協・サークル所属）を入れて送信 → 会員行を作成してダッシュボードへ。
+4. トップの「LINE でログイン」から来た未紐付けの人は、これまでどおり `/self-identify` に着く。名簿から選ぶときに、3 と同じサークル所属の入力をして送信する。
+5. 期限切れ・取消済みの URL は「無効」表示で登録できない。
 
 ### ゴール
-- 管理者: 新入会者ごとの手入力をなくし、URL配布だけで入会を完了させる。
-- 新規会員: 1つのURLから迷わず登録・ログインまで到達する。
+- 管理者: 新入会者も名簿の会員も、URL を1本流すだけで入会・紐付けが済む。学部・学年の手入力が要らない。
+- 名簿の会員: 登録済みの住所などを打ち直さずに、1回の送信でログインまで済む。
 
 ## 3. 機能要件
 
-### 3.1 画面仕様
+### 3.1 画面と遷移（design-spec は作らない。見た目は末尾「画面の組み方」と既存の A-flat 部品に従う）
 
-#### (A) 招待リンク発行 UI（管理者・副管理者）
-- 設置場所: [/admin/members](apps/web/src/app/(app)/admin/members/page.tsx)（既存の会員追加と同じ画面）に「招待リンク」セクションを追加。
-- 操作:
-  - 「招待リンクを発行」ボタン → 有効期限プリセット（**1日 / 7日 / 30日**、既定 7日）を選択 → 発行。
-  - 発行後モーダルに **完全なURL**、有効期限（残り時間カウントダウン＋失効日時）、**コピー**ボタンを表示（[InviteCodeModal](apps/web/src/components/events/InviteCodeModal.tsx) のUIパターンを踏襲）。
-  - 「現在有効な招待リンク」一覧（発行日時・失効日時・無効化ボタン）を表示。
-- 権限: `admin` / `vice_admin` のみ（createMember と同じ authz）。一般会員には発行 UI を出さない。
+| ID | 画面 | 変更 | 役割 |
+|----|------|------|------|
+| S1 | 招待リンク発行（`/admin/members` 内） | 変更なし | 種別・期限を選んで発行、URL のコピー、有効リンクの一覧と無効化（admin / vice_admin のみ） |
+| S2 | 招待登録 `/register/[token]` | **変更** | 会員用トークン・LINE 認証済み・未紐付けのとき、「名簿から選ぶ」と「新しく登録する」の2つの入口を出す |
+| S2a | 名簿から選ぶ（S2 内） | **新設** | 候補の氏名一覧（検索つき）から1人選び、サークル所属ブロックを入力して1回で送信 |
+| S2b | 新しく登録する（S2 内） | 変更なし（同名時の文言のみ変更） | 既存の会員用登録フォーム |
+| S3 | 本人選択 `/self-identify` | **変更** | 氏名一覧から選ぶのに加え、S2a と同じサークル所属ブロックを入力して1回で送信 |
 
-#### (B) 登録ページ `/register/[token]`（未ログイン〜登録完了）
-- **未ログインで開いた場合**: ウェルカム画面（会名・案内文）＋「LINEで登録」ボタン。押下で LINE OAuth を開始し、完了後この同じURLへ戻る（`signIn('line', { redirectTo: '/register/<token>' })`）。
-- **LINEログイン済み・未紐付けで戻ってきた場合**: 登録フォームを表示。
-  - 入力項目: **氏名（必須, 1〜50文字）**、**級（任意, A〜E のセレクト、未選択可）**。
-  - 「登録する」ボタン → 会員レコード作成＋LINE紐付け → ダッシュボード（`/`）へ。
-- **トークンが無効/期限切れ/無効化済みの場合**: 「この招待リンクは無効か期限切れです。管理者にご連絡ください。」を表示し、登録フォーム・LINEボタンは出さない。
-- **既にLINE紐付け済み（既存会員）が開いた場合**: 登録不要のためダッシュボード（`/`）へリダイレクト。
+**遷移**
+```
+[招待URL /register/<token>]
+  ├─ 紐付け済みのログインユーザー → / (ダッシュボード)          … 変更なし
+  ├─ トークン無効・期限切れ・取消済み → 無効表示（導線なし）      … 変更なし
+  ├─ 未ログイン → ウェルカム +「LINE で認証する」→ LINE → 同じURLへ … 変更なし
+  └─ LINE 認証済み・未紐付け
+       ├─ ゲスト用トークン → ゲスト登録フォーム                 … 変更なし
+       └─ 会員用トークン
+            ├─ 名簿から選ぶ（S2a）→ 送信 → 紐付け+保存 → /
+            └─ 新しく登録する（S2b）→ 送信 → 行作成+紐付け → /
+                 └─ 氏名が名簿の未紐付け行と一致 → 「名簿から選んでください」→ S2a へ
 
-#### エラー表示（登録ページ）
-- 氏名未入力 / 50文字超: フォール内バリデーションメッセージ。
-- 同名の会員が既に存在（UNIQUE 衝突, 退会済み含む）: 「同名の会員が既に存在します。管理者にご連絡ください。」（createMember の文言を踏襲）。
-- 送信時点で期限切れ/無効化: 「招待リンクの有効期限が切れています。」
-- 同一LINEアカウントが既に登録済み（二重送信等の race）: ダッシュボードへ誘導。
+[トップ → LINE でログイン]
+  └─ 未紐付け → /self-identify（S3）→ 名簿から選ぶ+サークル所属 → 送信 → /
+```
+
+- 名簿の候補が0人のとき、S2 は「新しく登録する」だけを出す（S2a の入口を出さない）。S3 は今の「選択可能な会員がいません。管理者にご連絡ください。」表示のまま。
 
 ### 3.2 ビジネスルール
 
-- **登録で作成される会員**は常に `role = 'member'`（管理者/副管理者はセルフ登録不可）。`isInvited = true`、`invitedAt = now`、`lineUserId = <セッションのLINE ID>`、`lineLinkedAt = now`、`lineLinkedMethod = 'invite_link'`（enum 新値）。
-- 1つの招待URLは**有効期限内なら複数人が利用可能**。利用上限・人数カウントは設けない。
-- **同一LINEアカウント＝1会員**: `users.line_user_id` の UNIQUE 制約で、同じLINEアカウントからの二重作成を防止。
-- **トークン有効性**: `revoked_at IS NULL` かつ `now < expires_at` のときのみ有効。ページ表示時と**送信時の両方**で再判定する（ページを開いたまま期限を跨ぐケース対策）。
-- 有効期限はガードの中心。**無効化（revoke）**は配布ミス時の安全弁として用意するが、必須要件ではない補助機能。
-- 不正登録対策（レート制限・本人性検証・CAPTCHA・メール確認）は**実装しない**（配布先限定＋期限で受容、ユーザー明示）。
-- 既存の入会導線（admin createMember ＋ self-identify）は**そのまま残す**（移行済み会員・既存招待会員向けに併存）。本機能は追加導線。
+#### 招待リンク（変更なし）
+- トークンは `revoked_at IS NULL` かつ `now < expires_at` のときだけ有効。**ページ表示時と送信時の両方**で判定する（S2a の送信も含む）。
+- 1本の URL は有効期限内なら何人でも使える。種別（会員用／ゲスト用）は発行時に決まり、送信値からは決めない。
+- 不正登録対策（レート制限・本人確認・CAPTCHA）は行わない（配布先限定＋期限で受容）。
 
-### 境界・例外
-- 期限切れ・無効化済みトークン、存在しないトークン → 一律「無効」表示（理由は出し分けない）。
-- 退会済み（`deactivatedAt`）のLINEアカウントで招待URLを開く → 既存の signIn コールバックが `?error=deactivated` を返すため、退会者は登録できない（再入会は管理者経由）。
-- 級は任意。未選択時は `grade = null`（後から管理者が会員編集で補完）。
+#### 名簿の候補（S2a・S3 共通）
+- 候補は `line_user_id IS NULL` ∧ `is_invited = true` ∧ `deactivated_at IS NULL` の会員（今の `/self-identify` と同じ）。
+- 一覧に出すのは**氏名だけ**。級・住所・電話・生年月日などの登録内容は、画面にもサーバーからの応答にも一切含めない（誤選択で他人の個人情報が見えないようにする）。
+- 例外として、下記の「電話・生年月日が空の人だけ聞く」のために、候補ごとに**電話・生年月日が空かどうかの印（真偽値）だけ**をクライアントへ渡してよい。値そのものは渡さない。
+- 選択時の本人確認は行わない（既存のリスク受容の範囲）。
 
-## 4. 技術設計
+#### 名簿から選んだときの入力と保存（S2a・S3 共通）
+- 入力するのは**サークル所属ブロックだけ**:
+  - 「北大かるた会に所属している」チェック（既定 OFF）。
+  - ON のとき必須: 学部区分（学部／大学院）・学部等名・学年。検証は travel-report R1 と同じ（学部等名 1〜50 文字・候補外も可、学年は区分に合う選択肢のみ）。
+  - ON のとき、選んだ会員の**電話または生年月日が DB で空の場合だけ**、その項目の入力欄を出して必須にする。値が入っている項目は入力欄を出さない。
+- 送信すると**1回の処理で**、選んだ行に LINE を紐付け（`line_user_id`・`line_linked_at`・`line_link_method`）、サークル所属と学部区分・学部等名・学年（と空欄だった電話・生年月日）を保存する。
+- `line_link_method` は経路で分ける: 招待URL（S2a）から選んだ場合は `invite_link`、`/self-identify`（S3）から選んだ場合は `self_identify`（今と同じ）。
+- **更新してよい列はこれだけ**: 紐付け3列（`line_user_id`・`line_linked_at`・`line_link_method`）、サークル4列（`is_circle_member`・`faculty_kind`・`faculty`・`school_year`）、DB で空だった `phone`・`birth_date`、`updated_at`。`users` のそれ以外の列（氏名・ふりがな・級・段位・性別・郵便番号・住所・全日協フラグ・ロール・各種フラグ・所属会など）は、送信値に何が入っていても変更しない。
+- サークル所属 OFF で送信した場合は `is_circle_member = false` で紐付ける。学部等は保存しない（既存値があれば保持）。
+- 検証エラー、または送信時点で候補から外れていた場合（他の人が先に紐付けた・退会済みになった等）は、**紐付けも保存も行わない**。入力は保持して同じ画面にエラーを出す。
+- 紐付け後は、今の `/self-identify` と同じ方法でセッションを更新してダッシュボードへ進む（失敗しても次の表示で自己回復）。
 
-### 4.1 ルーティング / 認証フロー
-- 新規ページ: `apps/web/src/app/register/[token]/page.tsx`（`(app)` レイアウト外＝モバイルシェルを被せない、signin/self-identify と同じ独立レイアウト）。
-- [middleware.ts](apps/web/src/middleware.ts) を拡張し、`/register/` プレフィックスを新カテゴリとして扱う:
-  - 未ログイン＋ `/register/*` → 通す（ウェルカム＋LINEボタンを表示）。
-  - ログイン済み・未紐付け（`!session.user.id`）＋ `/register/*` → 通す（self-identify への強制リダイレクトの**例外**にする）。
-  - ログイン済み・紐付け済み＋ `/register/*` → `/` へリダイレクト（登録不要）。
-- LINE OAuth の往復はサーバーアクション `signIn('line', { redirectTo: '/register/<token>' })` で `redirectTo` にトークン付きURLを渡して維持する。
-- 登録確定後は self-identify と同様に `unstable_update` で JWT を更新しつつ、失敗しても [nodeJwtCallback](apps/web/src/lib/node-jwt-callback.ts) が次回 render で `lineUserId → users.id` を解決する（自己回復）。
+#### 新しく登録する（S2b）
+- 入力・検証・保存は既存どおり（invite-register-redesign §3.1、travel-report R1）。
+- 合成した氏名が既存の行と衝突したとき:
+  - 衝突相手が**名簿の候補（未紐付け・招待済み・未退会）**なら、「名簿に同じお名前があります。『名簿から選ぶ』から選んでください。」と表示し、名簿選択へ戻れるようにする。行は作らない。
+  - それ以外（紐付け済み・退会済みと同名）は、今の「同名の会員が既に存在します。管理者にご連絡ください。」のまま。
+- 同じ LINE アカウントが既に紐付いていた（二重送信など）ときは、今と同じくダッシュボードへ進める。
 
-### 4.2 DB 設計
+#### 境界・例外
+- 退会済みの LINE アカウントは、既存のログイン時判定で `?error=deactivated` になり、登録にも名簿選択にも進めない（変更なし）。
+- 同じ会員を2人がほぼ同時に選んだ場合は、先に送信した方だけが紐付き、後の人には「既に別の方に紐付けられています」のエラーを出して候補を出し直す。
 
-**新規テーブル `registration_invites`**（`packages/shared/src/schema/` に追加）:
+## 4. Acceptance Criteria
 
-| カラム | 型 | 制約 | 説明 |
-|---|---|---|---|
-| id | text | PK, default uuid | |
-| token | text | NOT NULL, UNIQUE | URLに載る高エントロピー乱数（`crypto.randomBytes(32).toString('base64url')`） |
-| expires_at | timestamptz | NOT NULL | 失効日時 |
-| created_by | text | NOT NULL, FK→users.id | 発行した管理者 |
-| created_at | timestamptz | NOT NULL, default now | |
-| revoked_at | timestamptz | NULL | 無効化日時（NULL=有効） |
+| ID | 条件（客観的に判定できる文） | 検証手段 |
+|----|------|------|
+| AC-1 | 会員用トークン・LINE 認証済み・未紐付けで `/register/<token>` を開くと、「名簿から選ぶ」と「新しく登録する」の両方に進める。候補が0人なら「新しく登録する」だけが出る | auto-test |
+| AC-2 | 名簿の候補は `line_user_id IS NULL` ∧ `is_invited` ∧ 未退会の会員だけで、ページとサーバー応答に含まれる候補の情報は id・氏名・電話が空かどうか・生年月日が空かどうかの真偽値だけ（級・住所・電話や生年月日の値そのものを含まない） | auto-test |
+| AC-3 | S2a で候補を選んで送信すると、その行に `line_user_id`・`line_linked_at` と `line_link_method = 'invite_link'` が入り、新しい行は作られず（users の件数が変わらない）、ダッシュボードへ進む | auto-test |
+| AC-4 | S2a の送信で更新されるのは、紐付け3列（`line_user_id`・`line_linked_at`・`line_link_method`）、サークル4列（`is_circle_member`・`faculty_kind`・`faculty`・`school_year`）、DB で空だった `phone`・`birth_date`、`updated_at` だけ。`users` のそれ以外の列は送信値にかかわらず変わらず、値が入っていた電話・生年月日も変わらない | auto-test |
+| AC-5 | サークル所属 ON のとき、学部区分・学部等名・学年が欠けると項目別のエラーで拒否され、紐付けも保存も行われない。そろっていれば `is_circle_member = true` と3項目が保存される | auto-test |
+| AC-6 | サークル所属 ON で、選んだ会員の電話（または生年月日）が DB で空なら、その入力欄が出て必須になり保存される。値が入っている会員には入力欄が出ない | auto-test |
+| AC-7 | サークル所属 OFF なら学部等を入れずに送信でき、`is_circle_member = false` で紐付く | auto-test |
+| AC-8 | `/self-identify` でも、名簿から選ぶときに AC-5〜AC-7 と同じ入力・検証・保存が行われ、`line_link_method = 'self_identify'` で紐付く。更新される列は AC-4 と同じ範囲に限られる。検証エラー時は入力が保持される | auto-test |
+| AC-9 | 送信時点で選んだ会員が候補から外れていた（他の人が紐付け済み・退会済み）場合、既存の「既に別の方に紐付けられています」系のエラーで戻り、紐付けも学部等の保存も行われない | auto-test |
+| AC-10 | 送信時点で招待リンクが期限切れ・取消済みなら、S2a の送信も既存の「招待リンクの有効期限が切れています。」で拒否され、紐付けされない | auto-test |
+| AC-11 | S2b で合成氏名が名簿の候補と一致すると「名簿に同じお名前があります。『名簿から選ぶ』から選んでください。」が出て行は作られない。紐付け済み・退会済みの会員と一致した場合は既存の「同名の会員が既に存在します。管理者にご連絡ください。」が出る | auto-test |
+| AC-12 | E2E: 招待URL → LINE 認証 → 名簿から選ぶ → サークル所属 ON で学部等を入力 → ダッシュボード到達、DB に紐付けと学部等が保存されている | auto-test |
+| AC-13 | （回帰）ゲスト用トークンでは名簿選択が出ず、既存のゲスト登録フォーム（表示名・級・所属会＋サークル所属）のまま登録できる | auto-test |
+| AC-14 | （回帰）S2b の会員用登録フォームの項目・段階表示・検証・保存の不変条件（級≠A→段位 null、D/E→全日協 false、全日協 OFF→PII null 等）は変わらない | auto-test |
+| AC-15 | （回帰）無効トークンの表示、紐付け済みユーザーの `/register/*`→`/`、未ログイン時のウェルカム表示、`/self-identify` の候補条件と未紐付けユーザーの強制遷移は変わらない | auto-test |
+| AC-16 | 既存テスト・lint・typecheck が CI で green（ローカル全実行は要求しない） | auto-test |
 
-**enum 変更**: [enums.ts](packages/shared/src/schema/enums.ts) の `lineLinkMethodEnum` に `'invite_link'` を追加（`ALTER TYPE ... ADD VALUE` のマイグレーション）。
+## 5. Non-goals
 
-**`users` テーブルは変更なし**（既存の `isInvited` / `invitedAt` / `lineUserId` / `lineLinkedMethod` を再利用）。どの招待リンク経由かのFKは持たない（監査は `lineLinkedMethod='invite_link'` で十分、スコープ外）。
+- 既に LINE 紐付け済みの会員（本番7名）の学部・学年の入力導線。管理者が「サークル所属の一括編集」で入れる。
+- 名簿の会員が DB の空欄（ふりがな・全日協の住所など）を埋める導線。空欄は管理者が会員編集で埋める。
+- 名簿から選ぶ際の級・段位・全日協フラグ・氏名の変更。
+- 名簿選択時の本人確認（PIN・管理者承認など）。
+- 表記ゆれ（例: 山﨑／山崎、空白の有無）による同名の検出。一致判定は合成氏名の完全一致だけ。
+- ゲスト用招待リンクへの名簿選択の追加。
+- 新規登録フォームの項目変更（D/E 級からの住所収集など）。
+- サークル長・副連絡責任者の設定（管理者の作業のまま）。
+- 本人用プロフィール編集画面の新設。
+- 招待リンク発行 UI（S1）の変更。
 
-マイグレーションは Drizzle journal ベースで新規連番を1つ追加（テーブル作成＋enum値追加）。本番は `db:migrate`（非interactive）で適用。
+## 6. 技術的制約・契約
 
-### 4.3 フロントエンド設計
-- `register/[token]/page.tsx`（Server Component）: トークン検証 → 状態に応じて以下を出し分け。
-  - 無効 → エラー表示コンポーネント。
-  - 未ログイン → ウェルカム＋「LINEで登録」フォーム（server action で signIn）。
-  - 未紐付け → 登録フォーム（氏名・級）クライアントコンポーネント。
-- `RegistrationInviteModal`（クライアント）: 発行後のURL/期限/コピー表示。InviteCodeModal を参考にした新規コンポーネント。
-- 会員管理画面に「招待リンク」セクション（発行ボタン＋期限選択＋有効リンク一覧）を追加。
+- **互換性**: middleware のルーティング（`/register/*` の未ログイン通過・未紐付け時の `/self-identify` 強制の例外・紐付け済みは `/`）は変えない。
+- **DB**: スキーマ変更は想定しない（`is_circle_member`・`faculty_kind`・`faculty`・`school_year`・`phone`・`birth_date` は既存列）。
+- **紐付けの競合**: 紐付けは今の `/self-identify` と同じく、`line_user_id IS NULL ∧ is_invited ∧ 未退会` を条件にした単一 UPDATE で行い、0件なら候補外エラーにする。学部等の保存も同じ UPDATE（または同一トランザクション）に含め、片方だけ反映される状態を作らない。
+- **個人情報**: 候補一覧としてクライアントへ渡すのは id・氏名・電話が空かどうか・生年月日が空かどうかだけ（RSC payload を含む）。値そのものは渡さない。保存時の「空なら書く」判定はサーバー側で DB の現在値に対して行い、クライアントの印を信用しない。
+- **権限**: 招待リンクの発行・無効化は admin / vice_admin のみ（変更なし）。名簿選択は LINE 認証済み・未紐付けのセッションだけが行える。
+- **公開契約**: 外部 API（match-tracker 向け）に変更なし。
+- **現行の構成（参考。本改修で変えない部分）**: 招待は `registration_invites` テーブル（`token` UNIQUE・`kind` member/guest・`expires_at`・`revoked_at`・`created_by`）。紐付け経路は `line_link_method` enum（`self_identify` / `admin_link` / `account_switch` / `invite_link`）。未紐付けセッションは JWT に `lineUserId` だけを持ち、次の Node 側描画で `users.id` へ解決される（`node-jwt-callback`）。middleware は DB を読まず JWT の `id` 有無でだけ振り分ける。
+- **技術論点の決着（技術計画 2026-09-21）**:
+  - `/self-identify` の送信処理は、検証エラーをクエリ付きリダイレクトで返す形から、`useActionState` で状態を返す形に変える（入力保持のため。AC-8）。
+  - S2a・S3 は、候補の取得・入力の検証・紐付けの保存処理を1つの共通モジュールにまとめ、画面も1つのフォーム部品を共用する。電話・生年月日の要否は DB の現在値で決まるので、紐付けは「候補条件つきの行ロック → 検証 → 候補条件つき UPDATE」を1トランザクションで行う（詳細は implementation-plan.md）。
 
-### 4.4 バックエンド設計（Server Actions / lib）
-- `lib/registration-invite.ts`: トークン生成・有効期限算出・検証（`generateRegistrationToken` / `invitedExpiresAt(preset)` / `verifyRegistrationToken`）。[invite-code.ts](apps/web/src/lib/invite-code.ts) の純関数パターンを踏襲しユニットテスト可能に。
-- 発行アクション `createRegistrationInvite(preset)`: admin/vice_admin チェック → `registration_invites` に INSERT → URL を返す。
-- 無効化アクション `revokeRegistrationInvite(id)`: admin/vice_admin チェック → `revoked_at = now` UPDATE。
-- 登録確定アクション `registerViaInvite(token, formData)`:
-  1. セッションの `lineUserId` 取得（無ければ `/register/<token>` で再ログイン誘導）。既に `session.user.id` 有り → `/` へ。
-  2. トークン再検証（無効/期限切れ → エラー）。
-  3. `users` に INSERT（name, grade, role='member', isInvited=true, invitedAt, lineUserId, lineLinkedAt, lineLinkedMethod='invite_link'）。`users.name` / `users.line_user_id` の UNIQUE 違反をそれぞれ文言ハンドリング。
-  4. `unstable_update` → `revalidatePath('/')` → `redirect('/')`。
+## 7. 設計判断の根拠
 
-### 処理フロー（正常系）
-```
-管理者: /admin/members で「発行」(期限選択)
-  → createRegistrationInvite → registration_invites INSERT → URL をモーダル表示 → 配布
+- **名簿選択を招待URLに統合する（URLは1本のまま）**: 名簿の人と新しい人で URL を配り分けずに済み、名簿の人が招待フォームで2行目を作る問題も塞げる。
+- **登録内容は表示しない（氏名だけ）**: 名簿選択に本人確認が無いので、誤選択で他人の住所・電話・生年月日が見えるのを避ける。今の `/self-identify` が氏名だけを出している方針とも揃う。
+- **入力はサークル所属ブロックだけ**: 住所・電話は全日協へ届け出た値そのものなので打ち直させない。遠征届に要るのは学部・学年・サークル所属で、電話・生年月日は空の人だけ聞けば足りる。
+- **1回の送信で紐付けと保存を同時に行う**: 途中で閉じても「紐付いたが学部等が未入力」という状態が生まれない。未回答を追いかける列も要らない。
+- **`/self-identify` にも同じ入力を出す**: 招待URLを使わずトップから入った名簿の会員でも、学部・学年が抜けない。
+- **同名時に名簿へ誘導する**: 名簿の人が誤って「新しく登録する」を選んでも、正しい経路へ戻れる。表記ゆれは検出しない（誤検出で別人を誘導するリスクと、実装の複雑さを避ける）。
+- **LINE ログインを必須にする／トークンは高エントロピー乱数／有効期限を主ガードにする**（当初からの判断）: アプリ全体が LINE 認証のみで、通知と再ログインが LINE 前提。URL に載るので推測可能な短いコードにしない。配布先を管理者が限定するので期限で足りる。
 
-新規会員: /register/<token> を開く（未ログイン）
-  → middleware 通過 → ウェルカム表示 →「LINEで登録」
-  → signIn('line', {redirectTo:'/register/<token>'}) → LINE OAuth
-  → /register/<token> へ復帰（未紐付け, middleware 例外で通過）
-  → 氏名+級 フォーム → registerViaInvite
-  → users INSERT(role=member, lineLinkedMethod=invite_link) → JWT更新 → / へ
-```
+## 画面の組み方（デザイン工程は省略。2026-09-21 ユーザー判断で実装側に一任）
 
-## 5. 影響範囲
+- **S2（LINE 認証済み・会員用）**: 候補が1人以上なら、最初に2択を出す。既定の選択はなく、どちらかを押すまでフォームは出さない。
+  - 「名簿から選ぶ」: 補助文「すでに会の名簿にお名前がある方」。
+  - 「新しく登録する」: 補助文「はじめて登録する方」。
+  - 選ぶと下にそのフォームが開き、上の2択でいつでも切り替えられる。見た目は既存の下線セグメント（invite-register-redesign の A-flat）を使う。
+  - 候補0人なら2択を出さず、今の登録フォームだけを出す。
+- **S2a**: 検索欄 → 氏名のラジオ一覧（縦スクロール枠）→ サークル所属ブロック（チェック → 学部区分・学部等名・学年、必要なときだけ電話・生年月日）→ 送信ボタン「このお名前で登録する」。部品は登録フォームの A-flat 部品（アンダーライン入力・下線セグメント・箱なしチェック）を共用する。
+- **S2b の同名エラー**: エラー文の直下に「名簿から選ぶ」ボタンを置き、押すと S2a に切り替わる。
+- **S3（`/self-identify`）**: 今のカード型の外枠・見出し・説明文は変えず、中の一覧を S2a と同じ部品（検索＋一覧＋サークル所属ブロック）に置き換える。送信ボタンの文言は今の「このメンバーとして続ける」のまま。
 
-### 変更が必要な既存ファイル
-- [apps/web/src/middleware.ts](apps/web/src/middleware.ts) — `/register/*` の通過ルール追加（未ログイン通過＋未紐付け時の self-identify 例外＋紐付け済みは `/` へ）。
-- [packages/shared/src/schema/enums.ts](packages/shared/src/schema/enums.ts) — `lineLinkMethodEnum` に `invite_link` 追加。
-- `packages/shared/src/schema/` — `registration_invites` テーブル追加（＋ relations 必要なら）。
-- [apps/web/src/app/(app)/admin/members/page.tsx](apps/web/src/app/(app)/admin/members/page.tsx) — 招待リンク発行セクション追加。
-- [apps/web/src/app/(app)/admin/members/actions.ts](apps/web/src/app/(app)/admin/members/actions.ts) または新規 actions — 発行/無効化アクション。
-- `apps/web/src/auth.config.ts` の `lineLinkLinkedMethod` 型（`'self_identify' | 'admin_link' | 'account_switch'`）に `'invite_link'` を追加（[auth.config.ts](apps/web/src/auth.config.ts) / [next-auth.d.ts](apps/web/src/next-auth.d.ts) / [node-jwt-callback.ts](apps/web/src/lib/node-jwt-callback.ts) の型を横断更新）。
+## 変更履歴
 
-### 新規ファイル
-- `apps/web/src/app/register/[token]/page.tsx`、登録フォームクライアントコンポーネント、`register/[token]/actions.ts`。
-- `apps/web/src/lib/registration-invite.ts`（＋ `.test.ts`）。
-- `apps/web/src/components/admin/RegistrationInviteModal.tsx`。
-- Drizzle マイグレーション（新規連番）。
-
-### 既存機能への影響
-- **認証/ルーティング**: middleware にパスカテゴリが増えるのみ。既存の signin / self-identify / (app) 配下のゲートは不変。
-- **self-identify**: 招待リンク登録者は作成時点で `lineUserId` が埋まるため self-identify 候補（`lineUserId IS NULL`）には現れず、二重 claim は起きない。既存導線はそのまま併存。
-- **会員一意性**: `users.name` UNIQUE は不変。同名衝突は従来どおりエラー。
-- **LINE通知**: 既存どおり `lineLinkedMethod` 値が1つ増えるだけ。配信ロジックへの影響なし。
-
-## 6. 設計判断の根拠
-
-- **LINEログインを必須にする**: アプリ全体が LINE 認証のみ。LINE を通さないと再ログイン手段も通知手段も成立しないため、招待リンクでも LINE ログインを経由させる（ユーザー選択）。
-- **1本のURLを期限内で複数人**（per-person 単発トークンにしない）: 「URLを渡す人を限定するので不正登録は考えなくてよい／期限だけ設ければよい」というユーザー方針に最も素直。新入会者グループへまとめて配布でき、運用が最小。
-- **入力は氏名＋級のみ**: 氏名は `users.name`（UNIQUE）の必須キー、級はかるた会で最も使う属性。段位・所属・性別は後から管理者が補完できるため初回入力から外し、入力負担と誤入力を抑える。
-- **トークンは高エントロピー乱数（6桁コードにしない）**: 6桁コードは LINE グループで口頭発言する用途（[invite-code.ts](apps/web/src/lib/invite-code.ts)）。本機能はURLに載るため、不正対策不要でも推測可能URLは避け、`crypto.randomBytes` で生成する（コスト0）。
-- **`lineLinkMethod='invite_link'` を追加**: 入会経路を監査可能にする。既存3値と衝突しない追加のみ。
-- **revoke は補助**: ユーザーは「期限だけでよい」としているため有効期限を主ガードとし、配布ミス時の安全弁として無効化を軽量に用意（必須ではない）。
-- **既存導線を残す**: self-identify は移行済み/既存招待会員に必要。置き換えず追加導線とすることで後方互換とリグレッション回避。
+- 2026-06-26: 初版（PR #182）。招待リンクの発行と `/register/[token]` での本人登録。
+- 2026-09-21: 名簿に行がある会員も招待URLから名簿を選んで紐付けられるようにし、名簿選択（`/register` と `/self-identify`）でサークル所属・学部・学年だけを入力させる。同名時は名簿選択へ誘導する（理由: 一括投入した全日協登録者の住所・電話を打ち直させず、遠征届に要る学部・学年を本人に入れてもらうため。名簿の人が招待フォームで2行目を作る問題も塞ぐ）。

@@ -15,6 +15,12 @@
 > - `apps/web/src/app/register/[token]/page.tsx`
 > - `apps/web/src/app/register/[token]/register-form.tsx`
 > - `apps/web/src/app/register/[token]/actions.ts`
+> - `apps/web/src/app/register/[token]/member-register-entry.tsx`
+> - `apps/web/src/lib/roster-claim.ts`
+> - `apps/web/src/lib/roster-claim-input.ts`
+> - `apps/web/src/lib/profile-validators.ts`
+> - `apps/web/src/components/register/RosterClaimForm.tsx`
+> - `apps/web/src/components/register/flat-fields.tsx`
 > - `apps/web/src/app/(app)/admin/members/page.tsx`
 > - `apps/web/src/app/(app)/admin/members/new-member-form.tsx`
 > - `apps/web/src/app/(app)/admin/members/registration-invite-section.tsx`
@@ -102,13 +108,20 @@
 会員登録には2つの経路があり、どちらも `users.role = 'member'` を強制する。
 
 1. **管理者による直接作成**（`createMember` in `admin/members/actions.ts`）: 名前と級のみを入力してその場で `users` 行を作成する。`isInvited: true` / `invitedAt: now` を立てるが `lineUserId` は `null` のまま作成するため、作成直後の状態は「LINE 未紐付けの招待済み会員」であり、本人が LINE でログインして `/self-identify` から自分の行を選ぶことで紐付く（紐付き完了後の `lineLinkedMethod` は `self_identify` になる。詳細は [spec/players.md](players.md)）。
-2. **招待リンクによる自己登録**（`registration_invites` テーブル + `/register/[token]`）: admin / vice_admin が有効期限プリセット（`1d` / `7d` / `30d`、既定 `7d`。`apps/web/src/lib/registration-invite.ts` の `EXPIRY_PRESETS`）を選んでリンクを発行し（`createRegistrationInvite`）、URL（`/register/<token>`）を LINE 等で共有する。招待対象者はそのリンクを開いて LINE ログイン後、姓名（漢字・ふりがな）・級・（A/B/C 級かつ全日協登録者のみ）性別/生年月日/電話/住所を入力して自分自身の `users` 行を作成する（`registerViaInvite` in `register/[token]/actions.ts`）。この経路で作られた行は最初から `lineUserId` が入り、`lineLinkedMethod = 'invite_link'` になる。
+2. **招待リンクによる自己登録**（`registration_invites` テーブル + `/register/[token]`）: admin / vice_admin が有効期限プリセット（`1d` / `7d` / `30d`、既定 `7d`。`apps/web/src/lib/registration-invite.ts` の `EXPIRY_PRESETS`）を選んでリンクを発行し（`createRegistrationInvite`）、URL（`/register/<token>`）を LINE 等で共有する。招待対象者はそのリンクを開いて LINE ログイン後、姓名（漢字・ふりがな）・級・（A/B/C 級かつ全日協登録者のみ）性別/生年月日/電話/住所を入力して自分自身の `users` 行を作成する（`registerViaInvite` in `register/[token]/actions.ts`）。この経路で作られた行は最初から `lineUserId` が入り、`lineLinkedMethod = 'invite_link'` になる。会員用リンクで名簿の候補（下記）が1人以上いるときは、LINE ログイン後に「名簿から選ぶ」「新しく登録する」の2択を出し、名簿の会員は同じリンクから既存の行へ紐付ける（`claimViaInvite`、`lineLinkedMethod = 'invite_link'`）。「新しく登録する」で合成名が名簿の候補と衝突したときは、行を作らずに名簿選択へ誘導する。
+
+名簿からの紐付け（招待リンクの「名簿から選ぶ」と `/self-identify` で共通。`apps/web/src/lib/roster-claim.ts`）:
+
+- 候補は `line_user_id IS NULL ∧ is_invited ∧ deactivated_at IS NULL` の行（氏名昇順）。クライアントへ渡すのは id・氏名と、電話・生年月日が空かどうかの真偽値だけで、値そのもの（級・住所・電話・生年月日など）は SQL の段階で読まない。
+- 送信では、選んだ行に LINE を紐付けると同時に「サークル所属」ブロックを保存する。所属 ON のときは学部区分・学部等名・学年が必須で、電話・生年月日は**DB で空の項目だけ**必須にして書き込む（所属 OFF なら聞かず、学部等にも触れない）。
+- 更新してよい列は紐付け3列（`line_user_id`・`line_linked_at`・`line_link_method`）、サークル4列（`is_circle_member`・`faculty_kind`・`faculty`・`school_year`）、空だった `phone`・`birth_date`、`updated_at` だけ。送信値に他の列（氏名・級・ロール・住所など）が入っていても書かない。
+- 処理は「候補条件つきの行ロック（`FOR UPDATE`）→ ロックした行の空欄の印で入力を検証 → 候補条件つき UPDATE」を1トランザクションで行う。検証エラー・候補外（他の人が先に紐付けた・退会済みになった等）のときは何も書かない。同じ `lineUserId` が別の行に既にあると UNIQUE 違反で `duplicate` になる。
 
 招待リンクの仕様（`registration_invites` テーブル、`packages/shared/src/schema/registration-invites.ts`）:
 
 - トークンは `generateRegistrationToken()`（`registration-invite.ts`）が生成する 32 バイトの CSPRNG 由来 base64url 文字列（43文字）。このモジュールは管理画面（クライアントコンポーネント）からも import されるため `node:crypto` を使わず、Web Crypto グローバル（`crypto.getRandomValues`）で生成する。
 - 1つのリンクは失効するまで**何人でも**使い回せる（利用回数上限は無い。配布は運用者側で制御する前提）。
-- 有効性は `revokedAt IS NULL AND now() < expiresAt` の一点で判定し（`isRegistrationInviteUsable()`）、ページ描画時と `registerViaInvite` の実行時の双方でこの判定を再実行する（開いたままのタブが有効期限をまたいでも登録できないようにするため）。
+- 有効性は `revokedAt IS NULL AND now() < expiresAt` の一点で判定し（`isRegistrationInviteUsable()`）、ページ描画時と送信時（`registerViaInvite`・`claimViaInvite`）の双方でこの判定を再実行する（開いたままのタブが有効期限をまたいでも登録できないようにするため）。
 - 失効（`revokeRegistrationInvite`）は明示的な取り消し操作で、`revokedAt IS NULL` を条件にした冪等な UPDATE。管理画面には有効なリンクのみを一覧表示する（`listActiveRegistrationInvites`）。
 - `registration_invites` に `users` への逆参照 FK は無い。登録の監査証跡は `users.lineLinkedMethod = 'invite_link'` で十分としている。
 
@@ -135,7 +148,7 @@
 
 - **`/auth/signin`**（`apps/web/src/app/auth/signin/page.tsx`）: 「LINE でログイン」ボタン1つのみの画面。`searchParams.error` に応じてエラーメッセージを出し分ける（`deactivated` / `Configuration` / `AccessDenied` / その他）。ボタン押下は Server Action で `signIn('line', { redirectTo: '/' })` を呼ぶ。
 - **`/403`**（`apps/web/src/app/403/page.tsx`）: ロール不足時の静的な汎用エラー画面。
-- **`/register/[token]`**（`apps/web/src/app/register/[token]/page.tsx` + `register-form.tsx`）: モバイルシェル外（ナビ無し）の単独ページ。分岐は「1. 既に紐付き済みなら `/` へ、2. トークンが無効/失効ならエラー表示のみ、3. 未ログインなら『LINE で認証する』ボタン、4. LINE ログイン済み・未紐付けなら登録フォーム」の4段。
+- **`/register/[token]`**（`apps/web/src/app/register/[token]/page.tsx` + `register-form.tsx`）: モバイルシェル外（ナビ無し）の単独ページ。分岐は「1. 既に紐付き済みなら `/` へ、2. トークンが無効/失効ならエラー表示のみ、3. 未ログインなら『LINE で認証する』ボタン、4. LINE ログイン済み・未紐付けなら登録フォーム」の4段。4 は、会員用リンクで名簿の候補が1人以上いれば `member-register-entry.tsx` が「名簿から選ぶ」「新しく登録する」の2択（既定の選択なし）を出し、選んだ側のフォーム（`RosterClaimForm` か `RegisterForm`）を開く。候補0人、またはゲスト用リンクなら従来のフォームだけを出す。
 - **`/admin/members`**（`admin/members/page.tsx`）: 会員一覧 + 会員作成フォーム（`new-member-form.tsx`）+ 招待リンク発行セクション（`registration-invite-section.tsx`、発行ダイアログでプリセット選択・URL コピー・有効リンク一覧・失効操作を提供）。
 - **`/admin/members/[id]/edit`**（`[id]/edit/page.tsx` + `edit-member-form.tsx` + `member-role-section.tsx` + `member-treasurer-section.tsx` + `delete-member-section.tsx`）: 個別会員のプロフィール編集フォーム、ロールセクション（`admin` の場合のみ表示）、会計セクション（admin/vice_admin）、LINE 紐付け情報表示 + 解除ボタン（紐付け済みの場合のみ）、退会切替ボタン、削除セクション（未紐付けの `member` の場合のみ表示）。
 
@@ -153,8 +166,8 @@
 
 1. admin/vice_admin が `/admin/members` で有効期限プリセットを選んでリンクを発行（`createRegistrationInvite`）。
 2. 招待対象者がリンクを開く（`/register/<token>`）→トークンの有効性チェック→未ログインなら LINE ログイン（成功後も同じ `/register/<token>` に戻る）。
-3. ログイン後、姓名・ふりがな・級・（該当者のみ）全日協 PII を入力して送信（`registerViaInvite`）。
-4. サーバー側でトークンを再検証し、`users` 行を `role: 'member', lineLinkedMethod: 'invite_link'` で作成。`users.name`（合成名）の UNIQUE 制約違反時は「同名の会員が既に存在します」を返す。同一 LINE アカウントでの二重送信・競合時（`lineUserId` の UNIQUE 制約違反）はエラーにせずそのままダッシュボードへログインさせる。
+3. ログイン後、会員用リンクで名簿の候補がいれば「名簿から選ぶ」「新しく登録する」を選ぶ。名簿から選ぶ場合は、氏名一覧から自分を選びサークル所属ブロックを入力して送信（`claimViaInvite`）→ トークンを再検証し、上記「名簿からの紐付け」の処理で既存の行に紐付ける。新しく登録する場合は、姓名・ふりがな・級・（該当者のみ）全日協 PII を入力して送信（`registerViaInvite`）。
+4. `registerViaInvite` はサーバー側でトークンを再検証し、`users` 行を `role: 'member', lineLinkedMethod: 'invite_link'` で作成。`users.name`（合成名）の UNIQUE 制約違反時は、衝突相手が名簿の候補なら「名簿に同じお名前があります。『名簿から選ぶ』から選んでください。」（`suggestRoster: true`。フォームに「名簿から選ぶ」ボタンが出る）、それ以外は「同名の会員が既に存在します」を返す（ゲスト用リンクは常に後者）。同一 LINE アカウントでの二重送信・競合時（`lineUserId` の UNIQUE 制約違反）はエラーにせずそのままダッシュボードへログインさせる。
 5. `unstable_update()` でセッションの LINE 紐付けメタデータを即時反映を試みる（失敗しても次回リクエストで `nodeJwtCallback` が自己修復する）。
 
 ### 管理者による会員の是正操作
@@ -184,6 +197,7 @@
   - `updateMemberTreasurer(prevState, formData)` — 会計フラグ（`users.is_treasurer`）の切替。admin/vice_admin。**認可判断には使われない識別専用の列**。
 - `apps/web/src/app/register/[token]/actions.ts`
   - `registerViaInvite(token, prevState, formData)` — 招待リンク経由の自己登録完了。認可は「有効な招待トークン + LINE ログイン済み」であることそのもの（ロールチェックは無い）。
+  - `claimViaInvite(token, prevState, formData)` — 招待リンクから名簿の既存行を選んで紐付ける。認可は `registerViaInvite` と同じで、会員用リンクに限る（ゲスト用リンクは拒否）。エラーは state（`{ error }`）で返し、候補外のときは `/register/<token>` を revalidate して候補を出し直す。
 - `apps/web/src/app/(app)/role-preview-actions.ts`
   - `setRolePreviewAction(formData)` — 表示ロールのプレビュー切替/解除。認可は `ROLE_PREVIEW_USER_IDS` 許可リスト所属 + 本物のロール以下への切替（`realRole` で判定、実効ロールは使わない）。
 

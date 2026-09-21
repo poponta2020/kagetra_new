@@ -8,15 +8,17 @@ import { auth, unstable_update } from '@/auth'
 import { db } from '@/lib/db'
 import { isUniqueViolation, uniqueViolationConstraint } from '@/lib/db-errors'
 import { isRegistrationInviteUsable } from '@/lib/registration-invite'
+import { claimRosterMember, hasRosterCandidateNamed, ROSTER_CLAIM_MESSAGES } from '@/lib/roster-claim'
 import { registrationInvites, users } from '@kagetra/shared/schema'
 import { isSchoolYearForKind } from '@kagetra/shared'
 import type { FacultyKind } from '@kagetra/shared/types'
+import { validateBirthDate, validatePhone } from '@/lib/profile-validators'
+import type { RosterClaimFormState } from '@/components/register/RosterClaimForm'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
 // ひらがな（小書き・濁点合成済み）＋長音記号 ー のみ。漢字/カタカナ/英数は弾く。
 const HIRAGANA_RE = /^[ぁ-ゖー]+$/
-const PHONE_RE = /^[0-9-]+$/
 
 // Structured-name + grade schema (always-required core). Unlike createMember
 // (single `name`, A–E), invite registration collects 姓/名×漢字/かな and derives
@@ -103,24 +105,6 @@ function gradeEntryOrNull(raw: FormDataEntryValue | null): string | null {
 // "false") means unchecked.
 function isChecked(raw: FormDataEntryValue | null): boolean {
   return typeof raw === 'string' && raw.length > 0 && raw !== 'false'
-}
-
-// 'YYYY-MM-DD', a real calendar date, year ≥ 1900, not in the future.
-function validateBirthDate(s: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '生年月日を入力してください'
-  const parts = s.split('-')
-  const y = Number(parts[0])
-  const m = Number(parts[1])
-  const d = Number(parts[2])
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
-    return '生年月日が正しくありません'
-  }
-  if (y < 1900) return '生年月日が正しくありません'
-  const now = new Date()
-  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  if (dt.getTime() > todayUtc) return '生年月日に未来の日付は指定できません'
-  return null
 }
 
 /**
@@ -220,13 +204,8 @@ function parseRegistration(
     birthDate = bd
 
     const ph = strOf(formData.get('phone')).trim()
-    if (!PHONE_RE.test(ph)) {
-      return { error: '電話番号は数字とハイフンで入力してください' }
-    }
-    const digits = ph.replace(/-/g, '')
-    if (digits.length < 10 || digits.length > 13) {
-      return { error: '電話番号の桁数が不正です（10〜13桁）' }
-    }
+    const phError = validatePhone(ph)
+    if (phError) return { error: phError }
     phone = ph
   }
 
@@ -343,13 +322,8 @@ function parseGuestRegistration(
     birthDate = bd
 
     const ph = strOf(formData.get('phone')).trim()
-    if (!PHONE_RE.test(ph)) {
-      return { error: '電話番号は数字とハイフンで入力してください' }
-    }
-    const digits = ph.replace(/-/g, '')
-    if (digits.length < 10 || digits.length > 13) {
-      return { error: '電話番号の桁数が不正です（10〜13桁）' }
-    }
+    const phError = validatePhone(ph)
+    if (phError) return { error: phError }
     phone = ph
   }
 
@@ -372,6 +346,9 @@ function parseGuestRegistration(
 
 export type RegisterViaInviteState = {
   error?: string
+  // roster-claim: 名簿に同名の候補がいて衝突したときだけ true。RegisterForm
+  // が「名簿から選ぶ」への切替導線を出すかどうかの判定に使う。
+  suggestRoster?: boolean
 }
 
 /**
@@ -413,11 +390,18 @@ async function finishRegistration(now: Date): Promise<never> {
  *       default (NULL/false) — guests are never asked for PII.
  *   3b. kind='member' → validate the structured name + conditional 段位/全日協
  *       PII and 合成 `name`, then INSERT users(role=member, ...) as before.
- *   4. Either branch: users.name UNIQUE → contact-admin message;
+ *   4. Either branch: users.name UNIQUE → contact-admin message (member branch
+ *      only: if the collision is against a roster candidate — unlinked,
+ *      invited, not deactivated — return `suggestRoster: true` instead, so
+ *      RegisterForm can offer the "名簿から選ぶ" switch. Guest branch never
+ *      suggests roster — guest rows aren't roster candidates);
  *      users.line_user_id UNIQUE (double-submit / race — this LINE account
  *      already registered) → just log them in.
  *   5. Best-effort JWT refresh (self-heals via nodeJwtCallback if it fails) →
  *      dashboard.
+ *
+ * See also `claimViaInvite` below — the roster-claim counterpart used when the
+ * user picks "名簿から選ぶ" instead of filling this form.
  */
 export async function registerViaInvite(
   token: string,
@@ -531,12 +515,64 @@ export async function registerViaInvite(
         redirect('/')
       }
       // Otherwise the (composed) name collided (users.name UNIQUE, incl. deactivated).
+      // 衝突相手が名簿の候補（未紐付け・招待済み・未退会）なら、名簿選択へ誘導する。
+      if (await hasRosterCandidateNamed(v.name)) {
+        return {
+          error: '名簿に同じお名前があります。『名簿から選ぶ』から選んでください。',
+          suggestRoster: true,
+        }
+      }
       return { error: '同名の会員が既に存在します。管理者にご連絡ください。' }
     }
     throw err
   }
 
   return finishRegistration(now)
+}
+
+/**
+ * roster-claim: 会員用招待リンクを開いた未紐付け LINE ユーザーが「名簿から
+ * 選ぶ」で既存の招待済み行を選んだときの確定処理。照合・保存の実処理は
+ * 共通モジュール `claimRosterMember` に委譲し、ここではトークン再検証
+ * （開いたままのタブが期限をまたぐ対策）と結果種別ごとのルーティングだけを
+ * 担う。ゲスト用リンクには名簿選択の導線が無いため kind='member' のみ許可する。
+ */
+export async function claimViaInvite(
+  token: string,
+  _prev: RosterClaimFormState,
+  formData: FormData,
+): Promise<RosterClaimFormState> {
+  const session = await auth()
+  if (session?.user?.id) redirect('/')
+  const lineUserId = session?.user?.lineUserId
+  if (!lineUserId) redirect(`/register/${token}`)
+
+  // 送信時にもトークンを再検証する（開いたままのタブが期限をまたぐため）。
+  const invite = await db.query.registrationInvites.findFirst({
+    where: eq(registrationInvites.token, token),
+    columns: { revokedAt: true, expiresAt: true, kind: true },
+  })
+  if (!invite || !isRegistrationInviteUsable(invite)) {
+    return { error: '招待リンクの有効期限が切れています。' }
+  }
+  // 名簿選択は会員用リンクだけ（ゲスト用リンクには出さない）。
+  if (invite.kind !== 'member') {
+    return { error: 'この招待リンクでは名簿から選べません。' }
+  }
+
+  const result = await claimRosterMember({ lineUserId, method: 'invite_link', formData })
+  switch (result.kind) {
+    case 'ok':
+      return finishRegistration(result.linkedAt)
+    case 'unavailable':
+      // 候補の最新状態で一覧を出し直す。
+      revalidatePath(`/register/${token}`)
+      return { error: ROSTER_CLAIM_MESSAGES.unavailable }
+    case 'duplicate':
+      return { error: ROSTER_CLAIM_MESSAGES.duplicate }
+    case 'invalid':
+      return { error: result.message }
+  }
 }
 
 function isRedirectError(err: unknown): boolean {

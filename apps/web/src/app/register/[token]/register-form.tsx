@@ -1,9 +1,10 @@
 'use client'
 
-import { useActionState, useId, useState } from 'react'
+import { startTransition, useActionState, useState, type FormEvent } from 'react'
 import { schoolYearOptions } from '@kagetra/shared'
 import type { FacultyKind } from '@kagetra/shared/types'
 import { FacultyCombobox } from '@/components/members/FacultyCombobox'
+import { BoxlessCheckbox, Field, SegmentGroup, UNDERLINE_INPUT_CLASS, UnderlineInput, UnderlineSelect } from '@/components/register/flat-fields'
 import { registerViaInvite, type RegisterViaInviteState } from './actions'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
@@ -18,9 +19,6 @@ const initialState: RegisterViaInviteState = {}
 
 const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
 
-const UNDERLINE_INPUT_CLASS =
-  'w-full border-0 border-b border-border bg-transparent px-0 py-1.5 text-sm text-ink outline-none focus:border-brand'
-
 /**
  * Invite-link registration form (A-flat). `kind` (from the invite row, decided
  * at issue time — never chosen here) selects which form renders:
@@ -34,18 +32,29 @@ const UNDERLINE_INPUT_CLASS =
  *       - 全日協 ON     → ＋全日協登録情報（性別/生年月日/電話/郵便→住所検索/住所1・2）
  *
  * Inputs are controlled so a validation / duplicate error keeps what the user
- * typed (React 19 resets uncontrolled fields after a form action). Server-side
+ * typed. Submission goes through onSubmit (not `<form action>`): with a form
+ * action React 19 calls form.reset() after it settles, and since React never
+ * mirrors a controlled `checked` into `defaultChecked`, the 級 radios and the
+ * 全日協 / サークル所属 checkboxes would visually fall back to unselected while
+ * state still says selected — a resubmit would then drop grade / 所属. Server-side
  * invariants in registerViaInvite are authoritative — hidden fields are simply
  * not submitted, so this UI only needs to gate visibility + front-side required.
  * `token` is fixed via `.bind`. On success the action redirects to the
  * dashboard, so there is no success state to render here.
+ *
+ * roster-claim: `onSwitchToRoster` is optional and only meaningful for the
+ * member branch — when the action returns a name collision against a roster
+ * candidate (`suggestRoster: true`), this renders a switch button that
+ * delegates back to the caller (MemberRegisterEntry) instead of navigating.
  */
 export function RegisterForm({
   token,
   kind = 'member',
+  onSwitchToRoster,
 }: {
   token: string
   kind?: 'member' | 'guest'
+  onSwitchToRoster?: () => void
 }) {
   const [guestName, setGuestName] = useState('')
   const [guestGrade, setGuestGrade] = useState('')
@@ -87,9 +96,15 @@ export function RegisterForm({
   const boundAction = registerViaInvite.bind(null, token)
   const [state, formAction, pending] = useActionState(boundAction, initialState)
 
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    startTransition(() => formAction(formData))
+  }
+
   if (kind === 'guest') {
     return (
-      <form action={formAction} className="space-y-7">
+      <form onSubmit={handleSubmit} className="space-y-7">
         <section className="space-y-2">
           <Field label="表示名" htmlFor="guest-name">
             <UnderlineInput
@@ -325,7 +340,7 @@ export function RegisterForm({
   }
 
   return (
-    <form action={formAction} className="space-y-7">
+    <form onSubmit={handleSubmit} className="space-y-7">
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-ink">お名前</h2>
         <div className="grid grid-cols-2 gap-x-4 gap-y-5">
@@ -545,9 +560,20 @@ export function RegisterForm({
       )}
 
       {state.error && (
-        <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
-          {state.error}
-        </p>
+        <div className="space-y-3">
+          <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
+            {state.error}
+          </p>
+          {state.suggestRoster && onSwitchToRoster && (
+            <button
+              type="button"
+              onClick={onSwitchToRoster}
+              className="w-full rounded-[4px] border border-brand px-4 py-2.5 text-sm font-semibold text-brand"
+            >
+              名簿から選ぶ
+            </button>
+          )}
+        </div>
       )}
 
       <button
@@ -558,181 +584,5 @@ export function RegisterForm({
         {pending ? '登録中…' : '登録する'}
       </button>
     </form>
-  )
-}
-
-function Field({
-  label,
-  htmlFor,
-  asGroup,
-  children,
-}: {
-  label: string
-  htmlFor: string
-  asGroup?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-1">
-      <label
-        htmlFor={asGroup ? undefined : htmlFor}
-        className="block text-xs font-medium text-ink-2"
-      >
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-/** 学年（選択のみ・自由入力不可）用のセレクト。requirements R1 の候補以外は選ばせない。 */
-function UnderlineSelect({
-  id,
-  name,
-  value,
-  onChange,
-  options,
-  required,
-}: {
-  id: string
-  name: string
-  value: string
-  onChange: (v: string) => void
-  options: readonly string[]
-  required?: boolean
-}) {
-  return (
-    <select
-      id={id}
-      name={name}
-      value={value}
-      required={required}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full border-0 border-b border-border bg-transparent px-0 py-1.5 text-sm text-ink outline-none focus:border-brand"
-    >
-      <option value="" disabled>
-        選択してください
-      </option>
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function UnderlineInput({
-  id,
-  name,
-  value,
-  onChange,
-  type = 'text',
-  required,
-  maxLength,
-  inputMode,
-  disabled,
-  autoComplete,
-  className = '',
-}: {
-  id: string
-  name: string
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  required?: boolean
-  maxLength?: number
-  inputMode?: 'numeric' | 'tel'
-  disabled?: boolean
-  autoComplete?: string
-  className?: string
-}) {
-  return (
-    <input
-      id={id}
-      name={name}
-      type={type}
-      value={value}
-      required={required}
-      maxLength={maxLength}
-      inputMode={inputMode}
-      disabled={disabled}
-      autoComplete={autoComplete}
-      onChange={(e) => onChange(e.target.value)}
-      className={`w-full border-0 border-b border-border bg-transparent px-0 py-1.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-50 ${className}`}
-    />
-  )
-}
-
-function SegmentGroup({
-  name,
-  ariaLabel,
-  value,
-  onChange,
-  options,
-}: {
-  name: string
-  ariaLabel: string
-  value: string
-  onChange: (v: string) => void
-  options: ReadonlyArray<{ value: string; label: string; ariaLabel: string }>
-}) {
-  const groupId = useId()
-  return (
-    <div role="radiogroup" aria-label={ariaLabel} className="flex gap-1">
-      {options.map((opt) => {
-        const selected = value === opt.value
-        const inputId = `${groupId}-${name}-${opt.value}`
-        return (
-          <label
-            key={opt.value}
-            htmlFor={inputId}
-            className={`flex-1 cursor-pointer border-b-2 pb-2 pt-1 text-center text-sm transition-colors ${
-              selected ? 'border-brand font-semibold text-ink' : 'border-border text-ink-meta'
-            }`}
-          >
-            <input
-              id={inputId}
-              type="radio"
-              name={name}
-              value={opt.value}
-              checked={selected}
-              aria-label={opt.ariaLabel}
-              onChange={() => onChange(opt.value)}
-              className="sr-only"
-            />
-            {opt.label}
-          </label>
-        )
-      })}
-    </div>
-  )
-}
-
-function BoxlessCheckbox({
-  name,
-  checked,
-  onChange,
-  label,
-  small,
-}: {
-  name?: string
-  checked: boolean
-  onChange: (c: boolean) => void
-  label: string
-  small?: boolean
-}) {
-  return (
-    <label className={`flex cursor-pointer items-center gap-2 ${small ? 'text-xs text-ink-meta' : 'text-sm text-ink-2'}`}>
-      <input
-        type="checkbox"
-        name={name}
-        value="on"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 shrink-0 accent-brand"
-      />
-      {label}
-    </label>
   )
 }

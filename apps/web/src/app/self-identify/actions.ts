@@ -2,75 +2,46 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { and, eq, isNull } from 'drizzle-orm'
-import { z } from 'zod'
 import { auth, unstable_update } from '@/auth'
-import { db } from '@/lib/db'
-import { isUniqueViolation } from '@/lib/db-errors'
-import { users } from '@kagetra/shared/schema'
-
-const inputSchema = z.object({ userId: z.string().min(1) })
+import { claimRosterMember, ROSTER_CLAIM_MESSAGES } from '@/lib/roster-claim'
+import type { RosterClaimFormState } from '@/components/register/RosterClaimForm'
 
 /**
- * Self-identify claim: bind the current session's LINE user ID to the selected
- * invited member row.
+ * Self-identify claim: bind the current session's LINE user ID to the
+ * selected invited member row, together with the roster-claim「サークル
+ * 所属」ブロック（所属チェック・学部区分・学部等名・学年、名簿で空なら
+ * 電話・生年月日）。
  *
- * The UPDATE is a single statement with all preconditions in the WHERE clause
- * — if any of them fail (row was claimed by someone else, member was
- * deactivated, etc.) it returns zero rows and we redirect back with an error.
- * This keeps the race-safe path tight without explicit locking.
+ * 実処理は `claimRosterMember`（`/register/[token]` と共用）に委譲する。
+ * 対象行を `FOR UPDATE` でロックしてから、その行の現在値を根拠に検証し、
+ * 明示的に列挙した列だけを更新する（race-safe）。`useActionState` 経由で
+ * 呼ばれるため、エラーは redirect ではなく state として返し、フォームの
+ * 選択・入力内容を保ったまま再表示できるようにする。
  */
-export async function claimMemberIdentity(formData: FormData) {
+export async function claimMemberIdentity(
+  _prev: RosterClaimFormState,
+  formData: FormData,
+): Promise<RosterClaimFormState> {
   const session = await auth()
   const lineUserId = session?.user?.lineUserId
   if (!lineUserId) redirect('/auth/signin')
-  // 既に内部 user.id まで持っている場合、自己申告は不要 (middleware が
-  // 通常ここに来させないが二重防御)。
+  // 既に内部 user.id まで持っている場合、自己申告は不要（middleware が
+  // 通常ここに来させないが二重防御）。
   if (session.user?.id) redirect('/')
 
-  const parsed = inputSchema.safeParse({ userId: formData.get('userId') })
-  if (!parsed.success) redirect('/self-identify?error=invalid_input')
-
-  const now = new Date()
-  try {
-    const updated = await db
-      .update(users)
-      .set({
-        lineUserId,
-        lineLinkedAt: now,
-        lineLinkedMethod: 'self_identify',
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(users.id, parsed.data.userId),
-          isNull(users.lineUserId),
-          eq(users.isInvited, true),
-          isNull(users.deactivatedAt),
-        ),
-      )
-      .returning({ id: users.id })
-
-    if (updated.length === 0) {
-      // 他者 claim / 未招待 / 退会済 etc. 候補の最新状態を再表示させる。
-      redirect('/self-identify?error=unavailable')
-    }
-  } catch (err) {
-    // next/navigation redirect() throws a sentinel error — re-throw it so
-    // Next.js can handle it. Only our DB-level errors should be inspected.
-    if (isRedirectError(err)) throw err
-    // UNIQUE violation: 同じ lineUserId を別 row に持つケース (通常発生しにくい
-    // が、account switch と衝突する race 等で起こり得る)。
-    if (isUniqueViolation(err)) {
-      redirect('/self-identify?error=duplicate')
-    }
-    throw err
+  const result = await claimRosterMember({ lineUserId, method: 'self_identify', formData })
+  if (result.kind === 'unavailable') {
+    // 他者 claim / 未招待 / 退会済 etc. 候補の最新状態を再表示させる。
+    revalidatePath('/self-identify')
+    return { error: ROSTER_CLAIM_MESSAGES.unavailable }
   }
+  if (result.kind === 'duplicate') return { error: ROSTER_CLAIM_MESSAGES.duplicate }
+  if (result.kind === 'invalid') return { error: result.message }
 
   try {
     await unstable_update({
       user: {
-        lineLinkedAt: now.toISOString(),
+        lineLinkedAt: result.linkedAt.toISOString(),
         lineLinkedMethod: 'self_identify',
       },
     })
@@ -80,10 +51,4 @@ export async function claimMemberIdentity(formData: FormData) {
 
   revalidatePath('/')
   redirect('/')
-}
-
-function isRedirectError(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null) return false
-  const digest = (err as { digest?: unknown }).digest
-  return typeof digest === 'string' && digest.includes('NEXT_REDIRECT')
 }

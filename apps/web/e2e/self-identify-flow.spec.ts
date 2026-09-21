@@ -77,6 +77,52 @@ test.describe('/self-identify — first-time LINE claim', () => {
     await context.close()
   })
 
+  test('サークル所属 ON: 学部等と（名簿で空の）電話を入力して紐付く', async ({
+    browser,
+  }) => {
+    const bob = await createUser({
+      name: 'Bob Circle',
+      isInvited: true,
+      lineUserId: null,
+      phone: null,
+      birthDate: '1999-09-09',
+    })
+    const { sessionToken } = await issueUnboundLineSession('Uclaim-bob-circle')
+
+    const context = await browser.newContext()
+    await addSessionCookie(context, sessionToken)
+    const page = await context.newPage()
+
+    await page.goto('/self-identify')
+    await page.getByRole('radio', { name: /Bob Circle/ }).check()
+    await page
+      .getByRole('checkbox', { name: '北海道大学のサークル「北大かるた会」に所属している' })
+      .check()
+    await page.getByRole('radiogroup', { name: '所属' }).getByText('大学院', { exact: true }).click()
+    await page.getByLabel('学部等名').fill('情報科学院')
+    await page.getByLabel('学年').selectOption('修士1年')
+    // 電話は名簿で空なので入力欄が出る。生年月日は登録済みなので出ない。
+    await page.getByLabel('電話番号').fill('090-2222-3333')
+    await expect(page.getByLabel('生年月日')).toHaveCount(0)
+    await page.getByRole('button', { name: 'このメンバーとして続ける' }).click()
+
+    await page.waitForURL(/\/(dashboard)?$/, { timeout: 5000 })
+
+    const updated = await testDb.query.users.findFirst({
+      where: eq(users.id, bob.id),
+    })
+    expect(updated?.lineUserId).toBe('Uclaim-bob-circle')
+    expect(updated?.lineLinkedMethod).toBe('self_identify')
+    expect(updated?.isCircleMember).toBe(true)
+    expect(updated?.facultyKind).toBe('graduate')
+    expect(updated?.faculty).toBe('情報科学院')
+    expect(updated?.schoolYear).toBe('修士1年')
+    expect(updated?.phone).toBe('090-2222-3333')
+    expect(updated?.birthDate).toBe('1999-09-09')
+
+    await context.close()
+  })
+
   test('既に紐付け済み user は /self-identify に来ずに dashboard へ直行', async ({
     browser,
   }) => {

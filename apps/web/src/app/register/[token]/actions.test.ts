@@ -1,9 +1,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
 import { registrationInvites, users } from '@kagetra/shared/schema'
 import { closeTestDb, testDb, truncateAll } from '@/test-utils/db'
 import { createUser } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
+import { ROSTER_CLAIM_MESSAGES } from '@/lib/roster-claim'
 
 vi.mock('@/auth', () => {
   const mod = mockAuthModule() as unknown as Record<string, unknown>
@@ -12,7 +14,7 @@ vi.mock('@/auth', () => {
 })
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-const { registerViaInvite } = await import('./actions')
+const { registerViaInvite, claimViaInvite } = await import('./actions')
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -774,5 +776,216 @@ describe('registerViaInvite (guest invite)', () => {
     expect(created?.isCircleMember).toBe(false)
     expect(created?.familyName).toBeNull()
     expect(created?.facultyKind).toBeNull()
+  })
+})
+
+// roster-claim/AC-11: registerViaInvite（会員用）が名簿の候補と同名衝突したとき
+// だけ、名簿選択への誘導 (suggestRoster) を返す。
+describe('registerViaInvite (name collision → roster suggestion)', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('合成名が名簿の候補（未紐付け・招待済み・未退会）と衝突すると名簿選択へ誘導する（AC-11）', async () => {
+    const issuer = await createUser({ name: 'issuer-suggest-1', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await createUser({ name: '山田 太郎', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-suggest-1' })
+
+    const before = await testDb.select().from(users)
+    const result = await registerViaInvite(token, {}, nameForm({ grade: 'D' }))
+    expect(result.error).toBe('名簿に同じお名前があります。『名簿から選ぶ』から選んでください。')
+    expect(result.suggestRoster).toBe(true)
+
+    const after = await testDb.select().from(users)
+    expect(after).toHaveLength(before.length)
+  })
+
+  it('合成名が紐付け済みの会員と衝突すると従来のエラーで誘導は出ない', async () => {
+    const issuer = await createUser({ name: 'issuer-suggest-2', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await createUser({ name: '山田 太郎', lineUserId: 'Uother-suggest' })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-suggest-2' })
+
+    const result = await registerViaInvite(token, {}, nameForm({ grade: 'D' }))
+    expect(result.error).toBe('同名の会員が既に存在します。管理者にご連絡ください。')
+    expect(result.suggestRoster).toBeUndefined()
+  })
+
+  it('合成名が未招待の行と衝突すると従来のエラーで誘導は出ない', async () => {
+    const issuer = await createUser({ name: 'issuer-suggest-3', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    await createUser({ name: '山田 太郎', lineUserId: null, isInvited: false })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Unew-suggest-3' })
+
+    const result = await registerViaInvite(token, {}, nameForm({ grade: 'D' }))
+    expect(result.error).toBe('同名の会員が既に存在します。管理者にご連絡ください。')
+    expect(result.suggestRoster).toBeUndefined()
+  })
+})
+
+describe('claimViaInvite', () => {
+  beforeEach(async () => {
+    await truncateAll()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('候補を選びサークル所属OFFで送信すると LINE 紐付けのみ行われ、users 件数は変わらない（AC-3）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-1', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({ name: '候補 花子', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-1' })
+
+    const before = await testDb.select().from(users)
+
+    await expect(
+      claimViaInvite(token, {}, formOf({ userId: candidate.id })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const after = await testDb.select().from(users)
+    expect(after).toHaveLength(before.length)
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBe('Uclaim-1')
+    expect(updated?.lineLinkedAt).toBeInstanceOf(Date)
+    expect(updated?.lineLinkedMethod).toBe('invite_link')
+    expect(updated?.isCircleMember).toBe(false)
+  })
+
+  it('サークル所属ONで送信すると3項目と isCircleMember=true が保存される（AC-5）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-2', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({
+      name: '候補 太郎',
+      lineUserId: null,
+      isInvited: true,
+      // 電話・生年月日は既に名簿にある想定（needsPhone/needsBirthDate=false）。
+      phone: '090-0000-0000',
+      birthDate: '2000-01-01',
+    })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-2' })
+
+    await expect(
+      claimViaInvite(
+        token,
+        {},
+        formOf({
+          userId: candidate.id,
+          isCircleMember: 'on',
+          facultyKind: 'undergraduate',
+          faculty: '法学部',
+          schoolYear: '2年',
+        }),
+      ),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.isCircleMember).toBe(true)
+    expect(updated?.facultyKind).toBe('undergraduate')
+    expect(updated?.faculty).toBe('法学部')
+    expect(updated?.schoolYear).toBe('2年')
+  })
+
+  it('サークル所属ONで学部等名が欠けるとエラーで未紐付けのまま（AC-5）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-3', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({ name: '候補 次郎', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-3' })
+
+    const result = await claimViaInvite(
+      token,
+      {},
+      formOf({ userId: candidate.id, isCircleMember: 'on', facultyKind: 'undergraduate', schoolYear: '2年' }),
+    )
+    expect(result.error).toBe('学部等名を入力してください')
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
+  })
+
+  it('期限切れトークンは拒否され紐付かない（AC-10）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-4', role: 'admin' })
+    const token = await seedInvite(issuer.id, { expiresAt: new Date(Date.now() - DAY_MS) })
+    const candidate = await createUser({ name: '候補 期限', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-4' })
+
+    const result = await claimViaInvite(token, {}, formOf({ userId: candidate.id }))
+    expect(result.error).toBe('招待リンクの有効期限が切れています。')
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
+  })
+
+  it('取消済みトークンは拒否され紐付かない（AC-10）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-5', role: 'admin' })
+    const token = await seedInvite(issuer.id, { revokedAt: new Date() })
+    const candidate = await createUser({ name: '候補 取消', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-5' })
+
+    const result = await claimViaInvite(token, {}, formOf({ userId: candidate.id }))
+    expect(result.error).toBe('招待リンクの有効期限が切れています。')
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
+  })
+
+  it('ゲスト用トークンでは名簿から選べずエラーになり紐付かない', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-6', role: 'admin' })
+    const token = await seedInvite(issuer.id, { kind: 'guest', token: 'guest-claim-token' })
+    const candidate = await createUser({ name: '候補 ゲスト', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-6' })
+
+    const result = await claimViaInvite(token, {}, formOf({ userId: candidate.id }))
+    expect(result.error).toBeDefined()
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
+  })
+
+  it('候補が既に他人に紐付け済みなら unavailable エラーで一覧を再表示させる（AC-9）', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-7', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({ name: '候補 他人済み', lineUserId: 'Uother', isInvited: true })
+    await setAuthSession({ id: '', role: 'member', lineUserId: 'Uclaim-7' })
+    vi.mocked(revalidatePath).mockClear()
+
+    const result = await claimViaInvite(token, {}, formOf({ userId: candidate.id }))
+    expect(result.error).toBe(ROSTER_CLAIM_MESSAGES.unavailable)
+    expect(revalidatePath).toHaveBeenCalledWith(`/register/${token}`)
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBe('Uother')
+  })
+
+  it('未ログインは /register/<token> へリダイレクトし紐付かない', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-8', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({ name: '候補 未ログイン', lineUserId: null, isInvited: true })
+    await setAuthSession(null)
+
+    try {
+      await claimViaInvite(token, {}, formOf({ userId: candidate.id }))
+      throw new Error('expected redirect')
+    } catch (err) {
+      expectRedirect(err, `/register/${token}`)
+    }
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
+  })
+
+  it('紐付け済みセッションは / へリダイレクトし紐付かない', async () => {
+    const issuer = await createUser({ name: 'issuer-claim-9', role: 'admin' })
+    const token = await seedInvite(issuer.id)
+    const candidate = await createUser({ name: '候補 バインド済み', lineUserId: null, isInvited: true })
+    await setAuthSession({ id: 'some-internal-id', role: 'member', lineUserId: 'Ubound-claim' })
+
+    await expect(
+      claimViaInvite(token, {}, formOf({ userId: candidate.id })),
+    ).rejects.toMatchObject(NEXT_REDIRECT)
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, candidate.id) })
+    expect(updated?.lineUserId).toBeNull()
   })
 })
