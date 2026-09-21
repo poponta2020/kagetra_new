@@ -438,3 +438,7 @@
 - [auto-review PR #648](auto-review-round-pr648.md) — R1 verdict=pass
 - [北溟配色（白波 × 紺）への刷新](project_ship-hokumei-palette.md) — shipped: PR #648
 - [配色トークンの正典と例外(2026-09-21更新)](project_kagetra_color_tokens.md) — globals.css の @theme + :root(--kg-*) 2系統・globals-tokens.test.ts が同値を固定。2026-09 に藤×墨→白波×紺。bg-white 6箇所は surface と同値でも置換しない・リテラル追随3箇所(themeColor/Flex/級トーン)。★hex照合は無効
+- [ホーム大会ピル4値ステータス化 要件定義(2026-09-21)](project_home_status_pill_def.md) — 親Issue #649
+- [home-tournament-timeline 大会ピル4値化 実装(タスク1-3)](impl_home-tournament-timeline-status-pill.md) — PR前。★「名簿確定」⊃「確定」でtextContent判定不可→exact getByText・info/neutralトーンがほぼ同色(AC-17未確認)・DB統合テスト未実行(Docker停止)
+- [auto-review PR #659](auto-review-round-pr659.md) — R1 verdict=pass
+- [ホーム大会ピルを4値ステータスへ](project_ship-home-tournament-timeline-status-pill.md) — shipped: PR #659（★残DoD=AC-17 本番実機確認・申込済/締切済がほぼ同色）

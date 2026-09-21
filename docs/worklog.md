@@ -3070,3 +3070,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-14 /ship PR #647: event-line-broadcast 紐付け案内③を役割別の人数内訳へ改訂（合計＋5行・排他・ゲスト除外・メンションは role=admin のみ）。親 #642 / 子 #643-646 クローズ。残DoD=AC-H25 本番実機確認＋役割フラグの本番投入（運用）
 - 2026-09-21 /auto-review-loop PR #648: 1R(i), verdict=pass, effort=m, tokens=81877/500000, result=pass
 - 2026-09-21 /ship PR #648: hokumei-palette 配色を藤 × 墨から白波 × 紺へ刷新（surface 純白・canvas 水色 #d3eafa・brand 紺 #15387d。globals-tokens.test.ts 新設・Flex/級トーン/themeColor 追随・design.md で純白禁止を撤回）。Issue なし。CI pending のままマージ。残DoD=本番の実画面確認5項目（水色の強さ・影・テクスチャ・nonattend・LINE Flex の紺）
+- 2026-09-21 /auto-review-loop PR #659: 1R(i), verdict=pass, effort=m, tokens=109140/500000, result=pass
+- 2026-09-21 /ship PR #659: home-tournament-timeline ホームの大会ピルを「確定／希望」から4値ステータス（名簿確定 > 申込済 > 締切済 > 参加受付中）へ。名簿確定は confirmed-roster.ts の4材料で判定・名前チップの出所と外部APIは不変。親 #649 / 子 #650-652 クローズ。CI pending のままマージ・DB 統合テストはローカル未実行（CI で確認）。残DoD=AC-17 本番375px 実機確認（申込済 info と締切済 neutral がほぼ同色＝ユーザー判断で要件どおり出荷）
