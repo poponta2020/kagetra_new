@@ -17,7 +17,8 @@
 > - `apps/web/src/lib/surname.ts`（姓抽出ユーティリティ。実際の利用箇所は `/events` の参加者チップのみ）
 > - `apps/web/src/app/self-identify/page.tsx`
 > - `apps/web/src/app/self-identify/actions.ts`（`claimMemberIdentity`）
-> - `apps/web/src/app/self-identify/candidate-list.tsx`
+> - `apps/web/src/components/register/RosterClaimForm.tsx`（`/register/[token]` と共用の名簿選択フォーム）
+> - `apps/web/src/lib/roster-claim.ts`（候補の取得・紐付けの保存。招待リンクの名簿選択と共通）
 > - `packages/shared/src/schema/players.ts`（`players` テーブル）
 
 ## 機能仕様
@@ -80,7 +81,7 @@ Postgres の集約 `mode()` は tiebreak を制御できないため使わず、
 
 ### 本人紐付け（self-identify）
 
-`/self-identify` は LINE ログイン済みだが内部 `users.id` にまだ紐付いていないセッションに対し、招待済み（`isInvited=true`）かつ未紐付け（`lineUserId IS NULL`）・非退会（`deactivatedAt IS NULL`）の `users` 候補一覧から本人を選ばせ、選択した `users` 行にセッションの `lineUserId` を紐付ける機能である。
+`/self-identify` は LINE ログイン済みだが内部 `users.id` にまだ紐付いていないセッションに対し、招待済み（`isInvited=true`）かつ未紐付け（`lineUserId IS NULL`）・非退会（`deactivatedAt IS NULL`）の `users` 候補一覧から本人を選ばせ、選択した `users` 行にセッションの `lineUserId` を紐付ける機能である。紐付けと同時に「サークル所属」ブロック（所属チェック・学部区分・学部等名・学年、名簿で空なら電話・生年月日）を保存する。候補の条件・クライアントへ渡す情報・更新してよい列・競合時の扱いは、招待リンクの「名簿から選ぶ」と同じ共通処理で、正典は [spec/auth-admin.md](auth-admin.md) の「名簿からの紐付け」。
 
 **重要な注意**: self-identify自体が紐付けるのは `users`（会員アカウント）行であり、`players.userId` は更新しない。会員↔選手の自動紐付けは名簿または大会結果のmaterialize時に、上記の一意な正規化姓名一致規則で別途行われる。会員アカウント自体のロール・招待・登録の仕様は [spec/auth-admin.md](auth-admin.md) を参照。
 
@@ -110,14 +111,14 @@ Postgres の集約 `mode()` は tiebreak を制御できないため使わず、
 
 ### 本人紐付け (`/self-identify`)
 
-LINE ログイン済みかつ内部 `session.user.id` が未確定のセッションのみアクセスする（`session.user.id` が既にあれば `/` へリダイレクトする二重防御。通常は middleware が制御）。候補一覧（招待済み・未紐付け・非退会の `users`、氏名昇順）をクライアント側で名前フィルタしながらラジオボタンで選び、送信すると `claimMemberIdentity` が呼ばれる。エラー時は `?error=` クエリでメッセージを出し分ける（`unavailable`＝他者に先取りされた等／`duplicate`＝同一 LINE アカウントが既に別会員に紐付き済み／`invalid_input`）。
+LINE ログイン済みかつ内部 `session.user.id` が未確定のセッションのみアクセスする（`session.user.id` が既にあれば `/` へリダイレクトする二重防御。通常は middleware が制御）。候補一覧（招待済み・未紐付け・非退会の `users`、氏名昇順）をクライアント側で名前フィルタしながらラジオボタンで選び、サークル所属ブロックを入力して送信すると `claimMemberIdentity` が呼ばれる（フォームは `RosterClaimForm`、送信ボタンは「このメンバーとして続ける」）。エラーは action の state で返し、入力を保持したまま同じ画面に出す（`unavailable`＝他者に先取りされた等／`duplicate`＝同一 LINE アカウントが既に別会員に紐付き済み／`invalid_input`、およびサークル所属ブロックの検証エラー）。候補0人のときはフォームを出さず、管理者への連絡を促す。
 
 ## フロー
 
 1. 選手検索（`/players?q=...`）→ 結果行タップ → 戦績詳細（`/players/{id}`）
 2. ランキング（`/players/ranking`）の行タップ → `?from=ranking&...` 付きで戦績詳細 → 絞り込み済み一覧・ヘッダを閲覧 → 「絞り込みを解除」または「← ランキングへ戻る」
 3. 戦績詳細内の相手名タップ（解決済みのみ）→ `?from={元のid}` 付きで相手の戦績詳細 → 「← ○○の戦績へ戻る」で元に戻る
-4. LINE 初回ログイン（未紐付け）→ middleware が `/self-identify` へ誘導 → 候補選択 → `claimMemberIdentity` が単一 UPDATE で `lineUserId` 等を確定 → セッション更新 → `/` へ redirect
+4. LINE 初回ログイン（未紐付け）→ middleware が `/self-identify` へ誘導 → 候補選択＋サークル所属ブロック入力 → `claimMemberIdentity` が行ロック → 検証 → 候補条件つき UPDATE を1トランザクションで行い `lineUserId` とサークル所属等を確定 → セッション更新 → `/` へ redirect
 
 ## API
 
@@ -131,7 +132,7 @@ LINE ログイン済みかつ内部 `session.user.id` が未確定のセッシ�
 
 ### Server Action
 
-- `claimMemberIdentity(formData)`（`apps/web/src/app/self-identify/actions.ts`）: セッションの `lineUserId` を検証 → 入力（`userId`）を zod でバリデーション → 全前提条件（未紐付け・招待済み・非退会）を1つの `UPDATE ... WHERE` に含めた単一ステートメントで紐付ける（0行更新なら他者に先取りされた等として `?error=unavailable` へ redirect）。UNIQUE 制約違反（同一 `lineUserId` の競合）は `?error=duplicate` へ。成功時は `unstable_update` でセッションの JWT を更新し、`revalidatePath('/')` の上 `/` へ redirect。明示的なロック（`FOR UPDATE` 等）ではなく、WHERE 句に全前提を詰めた単一 UPDATE の atomicity で競合を防ぐ設計。
+- `claimMemberIdentity(prevState, formData)`（`apps/web/src/app/self-identify/actions.ts`。`useActionState` 用）: セッションの `lineUserId` を検証（無ければ `/auth/signin`、`user.id` があれば `/` へ redirect）→ 共通処理 `claimRosterMember`（`apps/web/src/lib/roster-claim.ts`、`method = 'self_identify'`）で「候補条件つきの行ロック → サークル所属ブロックの検証 → 候補条件つき UPDATE」を1トランザクションで行う。候補外なら `/self-identify` を revalidate して `unavailable` の文言を、UNIQUE 制約違反（同一 `lineUserId` が別の行に既にある）は `duplicate` の文言を、検証エラーはその文言を state で返す。成功時は `unstable_update` でセッションの JWT を更新し、`revalidatePath('/')` の上 `/` へ redirect。
 
 ### バッチ処理（`apps/web/src/lib/players/recompute-display-name.ts`）
 

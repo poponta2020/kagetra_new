@@ -72,7 +72,7 @@ status: completed
 - **対応Issue:** #656
 
 ### タスク4: 本人選択画面（/self-identify）への組み込み（S3）
-- [ ] 完了
+- [x] 完了
 - **目的:** トップからログインした名簿の会員にも、同じサークル所属の入力をさせる。
 - **対応AC:** AC-8, AC-9（S3 側）, AC-15（`/self-identify` 側）
 - **主な変更領域:** `apps/web/src/app/self-identify/actions.ts`（state 型へ変更・共通モジュール利用）・`page.tsx`（`RosterClaimForm` へ置き換え・searchParams のエラー表示撤去）・`candidate-list.tsx`（削除）・`actions.test.ts`（AC-8 に合わせて書き換え）・`page.test.tsx`（新規）
