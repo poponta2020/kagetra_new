@@ -433,3 +433,8 @@
 - [event-line-broadcast ③人数内訳 実装（タスク1-4）](impl_event-line-broadcast-headcount-breakdown.md) — 紐付け案内③を役割別の内訳へ。★遠征届不要時に副連絡バケットを空にしないと兼務の管理者が消える
 - [auto-review PR #647](auto-review-round-pr647.md) — R1 verdict=needs_changes→cutoff(user-wontfix)・blockers2件見送り
 - [紐付け案内③を役割別の人数内訳へ改訂](project_ship-event-line-headcount-breakdown.md) — shipped: PR #647
+- [北溟配色（白波 × 紺）design-spec 確定・出荷(2026-09-21)](project_hokumei_palette_def.md) — 藤×墨→白波×紺。surface 純白/canvas 水色 #d3eafa/brand 紺 #15387d・メリハリの本体は ΔL 0.075・純白禁止の原則を撤回・朱と山吹は据置。**shipped: PR #648**（[出荷記録](project_ship-hokumei-palette.md)）。★残DoD=本番の実画面確認5項目（水色の強さ・影・テクスチャ・nonattend・Flex の紺）
+- [hokumei-palette 実装（タスク1-5）](impl_hokumei-palette.md) — 白波×紺の配色差し替え。Docker無しでピュアテストを回す設定・生成CSS照合の手順あり
+- [auto-review PR #648](auto-review-round-pr648.md) — R1 verdict=pass
+- [北溟配色（白波 × 紺）への刷新](project_ship-hokumei-palette.md) — shipped: PR #648
+- [配色トークンの正典と例外(2026-09-21更新)](project_kagetra_color_tokens.md) — globals.css の @theme + :root(--kg-*) 2系統・globals-tokens.test.ts が同値を固定。2026-09 に藤×墨→白波×紺。bg-white 6箇所は surface と同値でも置換しない・リテラル追随3箇所(themeColor/Flex/級トーン)。★hex照合は無効

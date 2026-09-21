@@ -3068,3 +3068,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-14 調査: LINE グループ自動作成（OAM 自動操作の応用）の実現可能性。公式手段は3系統とも不可（Messaging API・OAM・LINE WORKS Bot API に作成・招待が無い）。残るは LINE Chrome 拡張を Playwright で操作する経路のみでグレー＋PoC 未実施、非公式プロトコルは不採用前提。要件定義には進めずユーザー判断待ち（.claude/memory/project_line_group_autocreate_feasibility.md）
 - 2026-09-14 /auto-review-loop PR #647: 1R(i), verdict=cutoff, effort=m, tokens=300905/500000, result=cutoff(user-wontfix 2件)
 - 2026-09-14 /ship PR #647: event-line-broadcast 紐付け案内③を役割別の人数内訳へ改訂（合計＋5行・排他・ゲスト除外・メンションは role=admin のみ）。親 #642 / 子 #643-646 クローズ。残DoD=AC-H25 本番実機確認＋役割フラグの本番投入（運用）
+- 2026-09-21 /auto-review-loop PR #648: 1R(i), verdict=pass, effort=m, tokens=81877/500000, result=pass
+- 2026-09-21 /ship PR #648: hokumei-palette 配色を藤 × 墨から白波 × 紺へ刷新（surface 純白・canvas 水色 #d3eafa・brand 紺 #15387d。globals-tokens.test.ts 新設・Flex/級トーン/themeColor 追随・design.md で純白禁止を撤回）。Issue なし。CI pending のままマージ。残DoD=本番の実画面確認5項目（水色の強さ・影・テクスチャ・nonattend・LINE Flex の紺）
