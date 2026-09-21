@@ -13,7 +13,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: `globals.css` の全面更新とトークン同期テスト
-- [ ] 完了
+- [x] 完了
 - **目的:** 配色の正典を A1 白波へ差し替える。あわせて 2 系統の同値と spec 値との一致を機械検証できるようにする
 - **対応チェック:** §8 の 1〜6・11・12
 - **主な変更領域:** `apps/web/src/app/globals.css`、`apps/web/src/app/globals-tokens.test.ts`（新設）
