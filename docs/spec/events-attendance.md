@@ -193,7 +193,7 @@ DB 側は CHECK `(payment_deadline IS NOT NULL) = (payment_deadline_kind = 'fixe
 
 **オープンチャット欄**（`OpenChatSection`。openchat-broadcast）は、大会当日用の LINE オープンチャット招待 URL を**ログイン済みの全会員**へ出す表示専用のセクション。追加・編集・削除の導線は置かない（編集はメール詳細の抽出フローからのみ）。帰属は**申込グループ**（`entry_group_open_chats.entry_group_id`）なので**開催日で絞らない** — 6/21 の詳細でも 6/20 対象の行が見える。対象日はラベルに出るので取り違えは起きず、「別の日のオプチャが見つからない」事故を防ぐ方を優先した。行は `ORDER BY sort_order, id` で取り、**取得順のまま描画する**（LINE を見逃した会員が配信済み Flex と同じ順序で辿れるようにするため。DTO は `sortOrder` を持たず、コンポーネント側で再ソートできない形にしてある）。ラベルは Flex と同一の `resolveOpenChatLabel`（`lib/open-chat/label.ts`）で解決するので必ず一致する。**保存済みが0件のときは見出しごと出さない** —「未設定」と出すと会員に「運営が忘れている」と読ませるが、実際は主催者がまだ配っていないだけのことが多い。
 
-**遠征届セクション**（travel-report S7。`TravelReportCta`）は `GroupBackLink` の**直下**（参加者より上）に出る。対象者で未入力なら朱（`accent` 枠＋`accent-bg` 地＋タグ「未入力」）の「遠征経路を入力する」、入力済みなら藤（`border`＋`surface` 地＋タグ「入力済み」）の「確認・修正」。提出権限者にはさらに原本（.dotx）ダウンロードとグループページへの導線が出る。**出すものが無い**（対象外の一般会員・未開始・不要）ならセクションごと描かない。提出権限者向けの値は `isTravelReportSubmitter` が true のときだけ組み立て、RSC payload にも載せない。`events/[id]/page.tsx` にはヘルパーコンポーネントを増やさない制約（`page-padding.test.ts`）があるため、CTA は `components/events/detail/` に置いて page 側は1箇所置くだけにしてある。
+**遠征届セクション**（travel-report S7。`TravelReportCta`）は `GroupBackLink` の**直下**（参加者より上）に出る。対象者で未入力なら朱（`accent` 枠＋`accent-bg` 地＋タグ「未入力」）の「遠征経路を入力する」、入力済みなら紺（`border`＋`surface` 地＋タグ「入力済み」）の「確認・修正」。提出権限者にはさらに原本（.dotx）ダウンロードとグループページへの導線が出る。**出すものが無い**（対象外の一般会員・未開始・不要）ならセクションごと描かない。提出権限者向けの値は `isTravelReportSubmitter` が true のときだけ組み立て、RSC payload にも載せない。`events/[id]/page.tsx` にはヘルパーコンポーネントを増やさない制約（`page-padding.test.ts`）があるため、CTA は `components/events/detail/` に置いて page 側は1箇所置くだけにしてある。
 
 ### `/events/[id]/travel-route` 遠征経路の入力（travel-report S8）
 

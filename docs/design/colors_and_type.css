@@ -1,15 +1,15 @@
 /* ============================================================
    Kagetra Design System — Colors & Type
-   Direction: 藤 × 墨 (fuji-violet × sumi)
-   Fuji-nezu surfaces · 藤 (wisteria violet) brand · 朱 (vermillion) accent
-   · 山吹 (amber) warning.
+   Direction: 白波 × 紺 (shiranami × kon)
+   White-crest surfaces on a pale-blue sea · 紺 (deep indigo) brand
+   · 朱 (vermillion) accent · 山吹 (amber) warning.
    Display headings in Noto Serif JP; body in Noto Sans JP.
 
    Note: this file mirrors apps/web/src/app/globals.css, which is the
    canonical source. Keep the two in sync — globals.css references this
    file by name in its header, so a stale copy here is silent rot.
    全トークンは OKLCH で導出し、コントラストを実測済み（AA 未達 0 件）。
-   経緯は docs/features/lilac-palette/design-spec.md。
+   経緯は docs/features/hokumei-palette/design-spec.md。
    ============================================================ */
 
 /* ---------- Webfonts ---------- */
@@ -17,13 +17,14 @@
 
 :root {
   /* =============================================
-     Brand — 藤 (fuji-violet)
-     旧・藍 (#2B4E8C) の OKLCH L と C を保ち色相だけ 261° → 293° へ回した
+     Brand — 紺 (kon)
+     初代の藍と同じ色相軸 (262°) のまま明度を 0.43 → 0.36 へ沈め、
+     彩度を上げた一段深い紺。白の上で 11.1:1
      ============================================= */
-  --kg-brand:        #534286;
-  --kg-brand-hover:  #402F6E;
-  --kg-brand-bg:     #E0D7FD;  /* indigo-tinted washi */
-  --kg-brand-fg:     #3E3067;  /* readable ink on brand-bg */
+  --kg-brand:        #15387D;
+  --kg-brand-hover:  #092563;
+  --kg-brand-bg:     #BDDDFF;  /* pale indigo — also the 参加 pill ground */
+  --kg-brand-fg:     #0E2C67;  /* readable ink on brand-bg */
 
   /* =============================================
      Accent — 朱 (vermillion / shu-iro)
@@ -42,56 +43,57 @@
   --kg-line-green-hv:  #05a648;
 
   /* =============================================
-     Surfaces — 藤鼠 (fuji-nezu)
-     Cool off-white canvas; cards sit one shade lighter.
-     canvas → surface の明度差は ΔL 0.045（旧配色は 0.024 でカードが
-     背景から浮かなかった）。
+     Surfaces — 白波・海面 (shiranami / umi)
+     Pale-blue canvas (the sea); cards are pure white (the white crests).
+     surface → canvas は ΔL 0.075（下限 0.07）、canvas → surface-alt は
+     0.041（下限 0.035）。メリハリの本体はこの明度差。
      ============================================= */
-  --kg-bg:           #E8E6F2;  /* page canvas (washi) */
-  --kg-surface:      #F7F5FE;  /* card fill (lighter washi) */
-  --kg-surface-alt:  #DEDCEA;  /* nested/recessed surface */
+  --kg-bg:           #D3EAFA;  /* page canvas (sea) */
+  --kg-surface:      #FFFFFF;  /* card fill (white crest) */
+  --kg-surface-alt:  #C3DDF0;  /* nested/recessed surface */
 
   /* =============================================
      Borders
      ============================================= */
-  --kg-border:         #C7C3D4;
-  --kg-border-soft:    #D7D4E3;
-  --kg-border-strong:  #A4A0B5;
+  --kg-border:         #A8C2D6;
+  --kg-border-soft:    #BDD5E6;
+  --kg-border-strong:  #839BB3;
 
   /* =============================================
      Text — 墨 (sumi)
-     藤みを帯びた near-black; three mute levels.
+     Near-neutral near-black (chroma ≤ 0.03 — not tinted indigo);
+     three mute levels.
      fg-3 (meta) は surface / canvas / surface-alt の 3 面すべてで
-     WCAG AA を満たす（5.75 / 5.04 / 4.59）。
+     WCAG AA を満たす（6.78 / 5.46 / 4.82）。
      ============================================= */
-  --kg-fg:         #1C1A21;  /* primary ink */
-  --kg-fg-2:       #35333D;  /* secondary text */
-  --kg-fg-3:       #625F6E;  /* meta / labels */
-  --kg-fg-muted:   #9995A7;  /* placeholders / disabled */
-  --kg-fg-on-brand: #F7F5FE; /* text on brand fill */
+  --kg-fg:         #121824;  /* primary ink */
+  --kg-fg-2:       #283040;  /* secondary text */
+  --kg-fg-3:       #515C6C;  /* meta / labels */
+  --kg-fg-muted:   #8594A5;  /* placeholders / disabled */
+  --kg-fg-on-brand: #FFFFFF; /* text on brand fill */
 
   /* =============================================
-     Semantic — 藤・朱・山吹で意味を作る
-     参加 = 藤 (success),   不参加 = 朱 (danger)
-     締切・注意 = 山吹 (warn),  級・補足 = 藤鼠 (info / neutral)
+     Semantic — 紺・朱・山吹で意味を作る
+     参加 = 紺 (success),   不参加 = 朱 (danger)
+     締切・注意 = 山吹 (warn),  級・補足 = 水色鼠 (info / neutral)
      ============================================= */
-  --kg-success:     #534286;
-  --kg-success-bg:  #E0D7FD;
-  --kg-success-fg:  #3E3067;
+  --kg-success:     #15387D;
+  --kg-success-bg:  #BDDDFF;
+  --kg-success-fg:  #0E2C67;
 
   --kg-danger:      #B33C2D;
   --kg-danger-bg:   #F4D5CF;
   --kg-danger-fg:   #8F2D20;
 
-  --kg-info-bg:     #DFDCEA;
-  --kg-info-fg:     #4F4B5F;
+  --kg-info-bg:     #D2DEE9;
+  --kg-info-fg:     #3D4958;
 
   --kg-warn:        #B17915;
   --kg-warn-bg:     #F5DDB8;
   --kg-warn-fg:     #785214;
 
-  --kg-neutral-bg:  #DCDAE2;
-  --kg-neutral-fg:  #4F4B5F;
+  --kg-neutral-bg:  #D8DDE2;
+  --kg-neutral-fg:  #3D4958;
 
   /* =============================================
      Banners (use the semantic pairs above)
@@ -104,10 +106,10 @@
   /* =============================================
      Canonical status-pill pairs
      Keep the Japanese labels anchored to colour:
-       公開 / 公認 / 参加   → success (藤)
+       公開 / 公認 / 参加   → success (紺)
        中止 / 不参加 / error → danger  (朱)
-       下書き / 非公認 / その他 → neutral (藤鼠)
-       練習 / 級          → info    (藤鼠・深め)
+       下書き / 非公認 / その他 → neutral (水色鼠)
+       練習 / 級          → info    (水色鼠・深め)
        会議 / 懇親会 / 終了   → neutral variants
      ============================================= */
   --kg-pill-success-bg: var(--kg-success-bg); --kg-pill-success-fg: var(--kg-success-fg);
@@ -162,16 +164,16 @@
   --kg-radius-full: 9999px; /* pills, grade chips */
 
   /* =============================================
-     Shadows — 藤みの影 (violet-tinted)
+     Shadows — 藍みの影 (indigo-tinted)
      3 段の高度。段1 = Card、段2 = ボトムナビ（上向き）、段3 = シート。
      2 層で書くのは意図的で、接地の鋭い影と環境光の柔らかい影を重ねて
      初めて「紙」に見える（1 層だと「にじみ」になる）。
-     alpha は旧配色より引き上げてある — canvas が暗くなった分、影が地を
-     暗くできる余地が減るため。
+     基色は rgba(23,43,73) = OKLCH L 0.29 / C 0.06 / 色相 258°。alpha は
+     藤 × 墨の頃から据え置き（canvas の明度がほぼ同じため）。
      ============================================= */
-  --kg-shadow-sm:  0 1px 2px rgba(45,38,70,0.10), 0 3px 8px rgba(45,38,70,0.07);
-  --kg-shadow-nav: 0 -1px 3px rgba(45,38,70,0.06), 0 -4px 14px rgba(45,38,70,0.08);
-  --kg-shadow-lg:  0 8px 28px rgba(45,38,70,0.20), 0 2px 6px rgba(45,38,70,0.10);
+  --kg-shadow-sm:  0 1px 2px rgba(23,43,73,0.10), 0 3px 8px rgba(23,43,73,0.07);
+  --kg-shadow-nav: 0 -1px 3px rgba(23,43,73,0.06), 0 -4px 14px rgba(23,43,73,0.08);
+  --kg-shadow-lg:  0 8px 28px rgba(23,43,73,0.20), 0 2px 6px rgba(23,43,73,0.10);
 
   /* =============================================
      Motion

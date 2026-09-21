@@ -50,7 +50,7 @@ status: completed
 - **対応Issue:** なし
 
 ### タスク4: ドキュメントの同期
-- [ ] 完了
+- [x] 完了
 - **目的:** 配色の第 2 コピーと設計書を新値へ。2 世代腐っているコピーに歯止めをかける
 - **対応チェック:** §8 の 10
 - **主な変更領域:** `docs/design/colors_and_type.css`、`docs/design/design.md`、`docs/design/ui_kits/kagetra-mobile/palette.css`、`docs/design/design-system-readme.md`、`docs/design/SKILL.md`、`docs/spec/notifications.md`、`docs/spec/events-attendance.md`、`docs/features/INDEX.md`
