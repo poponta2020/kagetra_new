@@ -60,7 +60,7 @@ status: completed
 - **対応Issue:** #655
 
 ### タスク3: 招待登録ページへの組み込み（S2 / S2a / S2b）
-- [ ] 完了
+- [x] 完了
 - **目的:** 招待URLで名簿から選んで紐付けられるようにし、同名時に名簿へ誘導する。
 - **対応AC:** AC-1, AC-2（ページ側）, AC-3, AC-10, AC-11, AC-13, AC-14, AC-15（`/register` 側）
 - **主な変更領域:** `apps/web/src/app/register/[token]/actions.ts`（`claimViaInvite` 新設・`registerViaInvite` の同名分岐・state 型）・`page.tsx`・`member-register-entry.tsx`（新規）・`register-form.tsx`（`onSwitchToRoster` prop とボタン）・`actions.test.ts`（追加のみ）・`page.test.tsx`（新規）

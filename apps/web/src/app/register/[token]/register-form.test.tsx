@@ -384,3 +384,53 @@ describe('RegisterForm (kind=guest)', () => {
     expect(alert.textContent).toContain('同名の会員が既に存在します')
   })
 })
+
+// roster-claim: 名簿衝突時の「名簿から選ぶ」への切替導線（会員用フォームのみ）。
+describe('RegisterForm 名簿選択への誘導（suggestRoster）', () => {
+  beforeEach(() => {
+    registerMock.mockReset()
+    registerMock.mockResolvedValue({})
+  })
+
+  it('suggestRoster=true かつ onSwitchToRoster ありでボタンが出て、押すとコールバックが呼ばれる', async () => {
+    registerMock.mockResolvedValue({
+      error: '名簿に同じお名前があります。『名簿から選ぶ』から選んでください。',
+      suggestRoster: true,
+    })
+    const onSwitchToRoster = vi.fn()
+    const { container } = render(<RegisterForm token="t" onSwitchToRoster={onSwitchToRoster} />)
+    fillNames()
+    selectGrade('D')
+    submit(container)
+
+    const button = await screen.findByRole('button', { name: '名簿から選ぶ' })
+    fireEvent.click(button)
+    expect(onSwitchToRoster).toHaveBeenCalled()
+  })
+
+  it('suggestRoster=true でも onSwitchToRoster が無ければボタンは出ない', async () => {
+    registerMock.mockResolvedValue({
+      error: '名簿に同じお名前があります。『名簿から選ぶ』から選んでください。',
+      suggestRoster: true,
+    })
+    const { container } = render(<RegisterForm token="t" />)
+    fillNames()
+    selectGrade('D')
+    submit(container)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: '名簿から選ぶ' })).toBeNull()
+  })
+
+  it('suggestRoster が無いエラーではボタンは出ない', async () => {
+    registerMock.mockResolvedValue({ error: '同名の会員が既に存在します。管理者にご連絡ください。' })
+    const onSwitchToRoster = vi.fn()
+    const { container } = render(<RegisterForm token="t" onSwitchToRoster={onSwitchToRoster} />)
+    fillNames()
+    selectGrade('D')
+    submit(container)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: '名簿から選ぶ' })).toBeNull()
+  })
+})

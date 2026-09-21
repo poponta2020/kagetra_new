@@ -5,6 +5,8 @@ import { auth, signIn } from '@/auth'
 import { db } from '@/lib/db'
 import { registrationInvites } from '@kagetra/shared/schema'
 import { isRegistrationInviteUsable } from '@/lib/registration-invite'
+import { listRosterCandidates } from '@/lib/roster-claim'
+import { MemberRegisterEntry } from './member-register-entry'
 import { RegisterForm } from './register-form'
 
 /**
@@ -20,7 +22,10 @@ import { RegisterForm } from './register-form'
  *   1. already a bound member → dashboard
  *   2. invalid / expired / revoked token → error (no LINE button, no form)
  *   3. not logged in → welcome + "LINEで登録" (returns to this same URL)
- *   4. logged in via LINE, unbound → profile registration form
+ *   4. logged in via LINE, unbound → for member-kind invites with 1+ roster
+ *      candidates (unlinked/invited/not-deactivated rows), a "名簿から選ぶ /
+ *      新しく登録する" entry (MemberRegisterEntry); otherwise (0 candidates,
+ *      or a guest-kind invite) the registration form directly, as before.
  */
 export default async function RegisterPage({
   params,
@@ -79,7 +84,10 @@ export default async function RegisterPage({
     )
   }
 
-  // 4. Logged in via LINE but unbound → profile registration form.
+  // 4. Logged in via LINE but unbound. 会員用リンクで名簿の候補が1人以上いれ
+  //    ば「名簿から選ぶ／新しく登録する」の2択を出す。候補0人、またはゲスト
+  //    用リンクなら従来どおり登録フォームだけを出す。
+  const candidates = invite.kind === 'member' ? await listRosterCandidates() : []
   return (
     <Shell>
       <p className="flex items-center gap-1.5 text-xs text-ink-meta">
@@ -90,7 +98,11 @@ export default async function RegisterPage({
         />
         LINE 認証済み
       </p>
-      <RegisterForm token={token} kind={invite.kind} />
+      {candidates.length > 0 ? (
+        <MemberRegisterEntry token={token} candidates={candidates} />
+      ) : (
+        <RegisterForm token={token} kind={invite.kind} />
+      )}
     </Shell>
   )
 }

@@ -37,13 +37,20 @@ const gradeAllowsZen = (g: string) => g === 'A' || g === 'B' || g === 'C'
  * not submitted, so this UI only needs to gate visibility + front-side required.
  * `token` is fixed via `.bind`. On success the action redirects to the
  * dashboard, so there is no success state to render here.
+ *
+ * roster-claim: `onSwitchToRoster` is optional and only meaningful for the
+ * member branch — when the action returns a name collision against a roster
+ * candidate (`suggestRoster: true`), this renders a switch button that
+ * delegates back to the caller (MemberRegisterEntry) instead of navigating.
  */
 export function RegisterForm({
   token,
   kind = 'member',
+  onSwitchToRoster,
 }: {
   token: string
   kind?: 'member' | 'guest'
+  onSwitchToRoster?: () => void
 }) {
   const [guestName, setGuestName] = useState('')
   const [guestGrade, setGuestGrade] = useState('')
@@ -543,9 +550,20 @@ export function RegisterForm({
       )}
 
       {state.error && (
-        <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
-          {state.error}
-        </p>
+        <div className="space-y-3">
+          <p role="alert" className="rounded-[4px] border border-accent/40 bg-accent-bg px-3 py-2 text-sm text-accent-fg">
+            {state.error}
+          </p>
+          {state.suggestRoster && onSwitchToRoster && (
+            <button
+              type="button"
+              onClick={onSwitchToRoster}
+              className="w-full rounded-[4px] border border-brand px-4 py-2.5 text-sm font-semibold text-brand"
+            >
+              名簿から選ぶ
+            </button>
+          )}
+        </div>
       )}
 
       <button
