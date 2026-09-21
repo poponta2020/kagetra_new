@@ -3,7 +3,6 @@ import {
   HOME_EVENT_STATUS_PILL,
   INITIAL_VISIBLE_COUNT,
   alertCountdown,
-  confidenceLabel,
   deriveHomeEventStatus,
   splitTimelineDate,
   type HomeEventStatusInput,
@@ -61,13 +60,6 @@ describe('alertCountdown', () => {
 
   it('負値は防御的に N日超過（アラートの対象外だが握り潰さない）', () => {
     expect(alertCountdown(-2)).toBe('2日超過')
-  })
-})
-
-describe('confidenceLabel', () => {
-  it('confirmed は確定 / hoped は希望', () => {
-    expect(confidenceLabel('confirmed')).toBe('確定')
-    expect(confidenceLabel('hoped')).toBe('希望')
   })
 })
 

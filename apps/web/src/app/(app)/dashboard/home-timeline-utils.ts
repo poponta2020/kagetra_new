@@ -31,11 +31,6 @@ export function splitTimelineDate(eventDate: string): {
   return { md: `${month}/${day}`, weekday: WEEKDAY_JA[dow] ?? '' }
 }
 
-/** 出場者リストの確度ラベル。 */
-export function confidenceLabel(confidence: 'confirmed' | 'hoped'): string {
-  return confidence === 'confirmed' ? '確定' : '希望'
-}
-
 /** {@link deriveHomeEventStatus} の入力。DB の値をそのまま詰める。 */
 export interface HomeEventStatusInput {
   /**

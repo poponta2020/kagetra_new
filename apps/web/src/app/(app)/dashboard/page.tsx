@@ -4,6 +4,7 @@ import type { Grade } from '@kagetra/shared/types'
 import { eventAttendances, users } from '@kagetra/shared/schema'
 import { auth } from '@/auth'
 import { db } from '@/lib/db'
+import { loadConfirmedRosterStates } from '@/lib/events/confirmed-roster'
 import { isGuestRole } from '@/lib/guest-access'
 import { diffDays, todayInJst } from '@/lib/jst-date'
 import { surname } from '@/lib/surname'
@@ -17,6 +18,7 @@ import { deriveRenewalAlert } from '@/lib/membership-renewal/alerts'
 // イベント行をそのまま渡せる。
 import { displayName } from '@/app/(app)/admin/entries/entry-board-utils'
 import { HomeTimeline } from './HomeTimeline'
+import { deriveHomeEventStatus } from './home-timeline-utils'
 import type {
   HomeEntrant,
   HomeTimelineData,
@@ -85,8 +87,8 @@ function toHomeEntrant(e: UpcomingEntrant): HomeEntrant {
  * doc コメントが正典（design-spec §6）。あいさつ・権限カードは撤去した。
  *
  * 出場者の導出（母集団・確定/希望・ゲスト合流）は `@/lib/upcoming-entrants` へ
- * 切り出し済み（外部向け出場者 API と共有するため）。ここに残るのは、閲覧者
- * スコープの未回答アラートと表示の組み立てだけ。
+ * 切り出し済み（外部向け出場者 API と共有するため）。ここに残るのは、大会ステータス
+ * ピルの導出・閲覧者スコープの未回答アラート・表示の組み立てだけ。
  */
 export default async function DashboardPage() {
   const session = await auth()
@@ -189,6 +191,15 @@ export default async function DashboardPage() {
     session.user.role === 'admin' || session.user.role === 'vice_admin'
   const viewerCanRespond = viewerIsAdmin || viewer?.isInvited === true
 
+  // 大会ステータスピルの「名簿確定」判定（requirements §3.2.2）。正典は
+  // confirmed-roster.ts の4材料 OR で、ホーム側で条件を組み直さない。出場者の出所
+  // （`e.hasConfirmedRoster`＝パース済み名簿のみ）とは別物 —— 手動フラグ・確定名簿
+  // メールだけのグループは、ピルが「名簿確定」でもチップは出欠パスのまま（意図した
+  // 非対称。名前入りの名簿が無いので出場者を組めない）。
+  const rosterStates = await loadConfirmedRosterStates(
+    upcomingEvents.map((e) => e.entryGroupId),
+  )
+
   // --- 出場者の組み立て -----------------------------------------------------
 
   const timelineEvents: HomeTimelineEvent[] = []
@@ -203,7 +214,15 @@ export default async function DashboardPage() {
       displayName: displayName(e),
       eventDate: e.eventDate,
       venue: e.location,
-      confidence: e.hasConfirmedRoster ? 'confirmed' : 'hoped',
+      status: deriveHomeEventStatus(
+        {
+          rosterSettled: rosterStates.get(e.entryGroupId)?.settled ?? false,
+          entryStatus: e.entryStatus,
+          internalDeadline: e.internalDeadline,
+          entryDeadline: e.entryDeadline,
+        },
+        todayStr,
+      ),
       entrants,
     })
   }

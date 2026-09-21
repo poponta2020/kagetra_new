@@ -17,9 +17,9 @@ import type {
   HomeUnansweredAlert,
 } from './home-timeline-types'
 import {
+  HOME_EVENT_STATUS_PILL,
   INITIAL_VISIBLE_COUNT,
   alertCountdown,
-  confidenceLabel,
   splitTimelineDate,
 } from './home-timeline-utils'
 
@@ -209,8 +209,8 @@ function TodayCard({
           <div className="mt-1 text-[13px] text-ink-meta">{event.venue}</div>
         )}
         <div className="mt-3 flex items-baseline gap-2">
-          <Pill tone={event.confidence === 'confirmed' ? 'brand' : 'neutral'}>
-            {confidenceLabel(event.confidence)}
+          <Pill tone={HOME_EVENT_STATUS_PILL[event.status].tone}>
+            {HOME_EVENT_STATUS_PILL[event.status].label}
           </Pill>
           <EntrantCount count={event.entrants.length} />
         </div>
@@ -287,11 +287,8 @@ function TimelineRow({
           <span className="min-w-0 truncate font-display text-[16px] font-bold text-ink">
             {event.displayName}
           </span>
-          <Pill
-            tone={event.confidence === 'confirmed' ? 'brand' : 'neutral'}
-            size="sm"
-          >
-            {confidenceLabel(event.confidence)}
+          <Pill tone={HOME_EVENT_STATUS_PILL[event.status].tone} size="sm">
+            {HOME_EVENT_STATUS_PILL[event.status].label}
           </Pill>
           <span className="ml-auto shrink-0 pl-1">
             <EntrantCount count={event.entrants.length} />

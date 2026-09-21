@@ -58,7 +58,7 @@ status: completed
 - **対応Issue:** #651（親 #649）
 
 ### タスク3: ホームへの配線と旧「確定／希望」の撤去
-- [ ] 完了
+- [x] 完了（ローカルでは Docker 未起動のため DB 統合テスト `page.test.tsx`・`upcoming-entrants.test.ts` 等は未実行＝CI で確認。`home-timeline-utils.test.ts`・`HomeTimeline.test.tsx`・`tsc`・対象ファイルの eslint は green）
 - **目的:** ホームの DTO を `confidence` から `status` へ置き換え、サーバーで4値を導出して今日カード・タイムライン行のピルに出す
 - **対応AC:** AC-8, AC-9, AC-10（描画側）, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16
 - **主な変更領域:**

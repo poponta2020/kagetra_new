@@ -73,7 +73,16 @@ export interface UpcomingEntrantsEvent {
   eligibleGrades: Grade[] | null
   internalDeadline: string | null
   entryDeadline: string | null
-  /** 確定名簿があるイベントか（`confidence` 導出用）。 */
+  /**
+   * `events.entry_status`（会の申込状態）。ホームの大会ステータスピル
+   * （`deriveHomeEventStatus`）の入力。出場者の判定には使わない。
+   */
+  entryStatus: 'not_applied' | 'applied' | 'not_applying'
+  /**
+   * パース済み確定名簿があるイベントか。名簿パス切替（出場者の出所）用。
+   * ホームのステータスは confirmed-roster.ts の settled で判定する
+   * （こちらはパース済み名簿だけを見るので「名簿確定」の判定には使わない）。
+   */
   hasConfirmedRoster: boolean
   /**
    * 出場者。`hasConfirmedRoster` のときは**出場する人だけ**を含める
@@ -135,6 +144,7 @@ export async function getUpcomingEntrants({
       eligibleGrades: events.eligibleGrades,
       internalDeadline: events.internalDeadline,
       entryDeadline: events.entryDeadline,
+      entryStatus: events.entryStatus,
     })
     .from(events)
     .leftJoin(
@@ -374,6 +384,7 @@ export async function getUpcomingEntrants({
       eligibleGrades: e.eligibleGrades,
       internalDeadline: e.internalDeadline,
       entryDeadline: e.entryDeadline,
+      entryStatus: e.entryStatus,
       hasConfirmedRoster,
       entrants,
     }

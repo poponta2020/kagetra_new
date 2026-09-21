@@ -9,20 +9,22 @@ import type { Grade } from '@kagetra/shared/types'
  *
  * - 母集団: `/admin/entries` と同じ（`event_date >= 今日` ∧ `status <> 'cancelled'`
  *   ∧ `kind = 'individual'`）。出場者が 0 名の大会はホームに載せない
- * - 出場者「希望」: `event_attendances.attend = true`
- * - 出場者「確定」: `tournament_entry_rosters` の `roster_type = 'confirmed'` かつ
- *   `superseded_at IS NULL` の版に属する `tournament_entry_roster_entries`
- *   （名簿の帰属は event ではなく `entry_group_id`）
+ * - 出場者の出所「希望」（出欠パス）: `event_attendances.attend = true`
+ * - 出場者の出所「確定」（名簿パス）: `tournament_entry_rosters` の
+ *   `roster_type = 'confirmed'` かつ `superseded_at IS NULL` の版に属する
+ *   `tournament_entry_roster_entries`（名簿の帰属は event ではなく `entry_group_id`）
  * - 対象級外の stale 行除外: イベント詳細 AC-26 と同じ
  *   （`users.is_invited = true` ∧ `users.grade ∈ events.eligible_grades`）
- * - guest-role R5/AC-22: `confidence === 'confirmed'` のイベントでも、ゲスト
+ * - guest-role R5/AC-22: 名簿パスのイベントでも、ゲスト
  *   （`users.role = 'guest'`）だけは出欠回答（`attend = true`）から別に合流する
  *   —— ゲストは会の申込名簿に構造的に載らないため。会員は名簿だけが正のまま
  *   変えない（design-spec §7 の意図的な非対称）
+ *
+ * ピルに出す大会ステータス（{@link HomeEventStatus}）は出場者の出所とは別に導出する
+ * （requirements §3.2）。「名簿確定」は confirmed-roster.ts の4材料で判定するが、
+ * 名簿パスへ切り替わるのはパース済み名簿だけ —— 手動フラグ・確定名簿メールだけの
+ * グループは、ピルが「名簿確定」でも出場者は出欠パスのまま。
  */
-
-/** 出場者リストの確度。確定名簿があれば `confirmed`、無ければ出欠○の `hoped`。 */
-export type EntrantConfidence = 'confirmed' | 'hoped'
 
 /**
  * 大会の進行状況（ホームのステータスピル）。導出は
@@ -37,8 +39,8 @@ export type HomeEventStatus = 'open' | 'closed' | 'applied' | 'roster_confirmed'
 export interface HomeEntrant {
   /**
    * 会員 id。自分ハイライトの判定に使う。
-   * - `hoped`: `event_attendances.user_id`
-   * - `confirmed`: `tournament_entry_roster_entries.user_id`
+   * - 出欠パス: `event_attendances.user_id`
+   * - 名簿パス: `tournament_entry_roster_entries.user_id`
    *
    * **サーバー側の組み立てでは常に非 null**（希望パスは出欠の `user_id`、確定パスは
    * `users` への innerJoin ＝「自会員として同定できた行」だけを出場者にする）。
@@ -57,7 +59,7 @@ export interface HomeEntrant {
   /**
    * guest-role R5/AC-21/AC-22: `users.role === 'guest'` ならゲスト印を出す。
    * 確定名簿があるグループでもゲストは名簿に載らない（会経由で申し込まない
-   * ため）ので、`confidence === 'confirmed'` のイベントでも出欠回答
+   * ため）ので、名簿パスのイベントでも出欠回答
    * （`attend=true`）から合流したゲストが混ざりうる（design-spec §7）。
    */
   isGuest: boolean
@@ -74,9 +76,10 @@ export interface HomeTimelineEvent {
   eventDate: string
   /** `events.location`。**今日カードでのみ**描画する（タイムライン行には出さない）。 */
   venue: string | null
-  confidence: EntrantConfidence
+  /** 大会ステータス（ピルの文言・トーン）。導出は `deriveHomeEventStatus`。 */
+  status: HomeEventStatus
   /**
-   * 出場者。`confidence === 'confirmed'` のときは**出場する人だけ**を含める
+   * 出場者。名簿パス（パース済み確定名簿あり）のときは**出場する人だけ**を含める
    * （補欠・落選はホームに出さない）。
    *
    * 「出場する人」の定義（design-spec §6 で確定）:

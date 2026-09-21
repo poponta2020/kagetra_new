@@ -1,10 +1,14 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import type { Grade } from '@kagetra/shared/types'
+import { eq } from 'drizzle-orm'
 import {
   clubLineGroups,
+  entryGroups,
   lineChannels,
+  mailAttachments,
   tournamentEntryRosterEntries,
+  tournamentEntryRosterFiles,
   tournamentEntryRosters,
   tournamentSeries,
   tournamentSeriesEditions,
@@ -16,14 +20,15 @@ import {
   createEvent,
   createEventAttendance,
   createGuest,
+  createMailMessage,
   createUser,
 } from '@/test-utils/seed'
 import { mockAuthModule, setAuthSession } from '@/test-utils/auth-mock'
 import { startRenewal } from '@/lib/membership-renewal/store'
 
 /**
- * ホーム `/dashboard`「会の出場予定」のサーバー側（母集団・確定/希望の切り替え・
- * チップの級の出所・未回答アラート）。実装手順書 タスク2。
+ * ホーム `/dashboard`「会の出場予定」のサーバー側（母集団・出場者の出所の切り替え・
+ * チップの級の出所・大会ステータスピル・未回答アラート）。
  *
  * 表示の分岐（空状態・もっと見る展開・自分ハイライト）は HomeTimeline.test.tsx、
  * 純関数は home-timeline-utils.test.ts が持つ。
@@ -65,6 +70,18 @@ function rowOf(displayName: string): HTMLElement {
   const anchor = screen.getByText(displayName).closest('a')
   if (!anchor) throw new Error(`row not found: ${displayName}`)
   return anchor
+}
+
+/**
+ * 行のステータスピルが `label` であることを確かめる。旧文言「確定」「希望」の
+ * ピルが無いことも併せて見る（requirements AC-11）。「名簿確定」は「確定」を部分
+ * 文字列に含むので `textContent` の部分一致では判定できない —— 要素のテキストが
+ * 丸ごと一致するかで見る（getByText の既定 exact）。
+ */
+function expectStatusPill(row: HTMLElement, label: string) {
+  expect(within(row).getByText(label)).toBeTruthy()
+  expect(within(row).queryByText('確定')).toBeNull()
+  expect(within(row).queryByText('希望')).toBeNull()
 }
 
 /** 未回答アラート行（朱の行）。「未回答」バッジを持つ `<a>` を上から順に返す。 */
@@ -116,6 +133,45 @@ async function seedConfirmedRoster(
   return roster!
 }
 
+/** 確定名簿の原本ファイルを採用済みにする（材料②。`lib/events/confirmed-roster.test.ts` と同形）。 */
+async function seedAdoptedRosterFile(entryGroupId: number) {
+  const mail = await createMailMessage({ subject: '名簿添付' })
+  const [attachment] = await testDb
+    .insert(mailAttachments)
+    .values({
+      mailMessageId: mail.id,
+      filename: '名簿.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      sizeBytes: 3,
+      data: Buffer.from('xls'),
+    })
+    .returning()
+  await testDb.insert(tournamentEntryRosterFiles).values({
+    entryGroupId,
+    rosterType: 'confirmed',
+    sourceAttachmentId: attachment!.id,
+    sourceMailMessageId: mail.id,
+  })
+}
+
+/** 処理済みの確定名簿メールを指定イベントに紐付ける（材料③）。 */
+async function seedConfirmedRosterMail(linkedEventId: number) {
+  await createMailMessage({
+    subject: '大会確定連絡',
+    linkedEventId,
+    mailKind: 'confirmed_roster',
+    triageStatus: 'processed',
+  })
+}
+
+/** グループの手動フラグを立てる（材料④）。 */
+async function setRosterOverride(entryGroupId: number) {
+  await testDb
+    .update(entryGroups)
+    .set({ confirmedRosterOverride: true })
+    .where(eq(entryGroups.id, entryGroupId))
+}
+
 describe('/dashboard（会の出場予定）', () => {
   beforeEach(async () => {
     await truncateAll()
@@ -152,7 +208,7 @@ describe('/dashboard（会の出場予定）', () => {
   })
 
   describe('確定名簿がある大会（確定パス）', () => {
-    it('確定ピルが出て、補欠・落選・繰上り辞退・取消は出場者に含まれない', async () => {
+    it('名簿確定ピルが出て、補欠・落選・繰上り辞退・取消は出場者に含まれない', async () => {
       const viewer = await createUser({ grade: 'C' })
       await setAuthSession({ id: viewer.id, role: 'member' })
 
@@ -193,8 +249,7 @@ describe('/dashboard（会の出場予定）', () => {
       await renderPage()
 
       const row = rowOf(event.title)
-      expect(row.textContent).toContain('確定')
-      expect(row.textContent).not.toContain('希望')
+      expectStatusPill(row, '名簿確定')
       expect(row.textContent).toContain('出場C')
       expect(row.textContent).toContain('繰上D')
       expect(row.textContent).not.toContain('補欠')
@@ -335,7 +390,7 @@ describe('/dashboard（会の出場予定）', () => {
 
       await renderPage()
       const row = rowOf(event.title)
-      expect(row.textContent).toContain('確定')
+      expectStatusPill(row, '名簿確定')
       // 会員は名簿ベースのまま（ゲスト印は付かない）
       expect(row.textContent).toContain('名簿C')
       // 落選した会員は attend=true でも確定パスには現れない
@@ -381,7 +436,7 @@ describe('/dashboard（会の出場予定）', () => {
       expect((row.textContent?.match(/転会/g) ?? []).length).toBe(1)
     })
 
-    it('差し替え済み（superseded）の確定名簿は使わず、希望へフォールバックする', async () => {
+    it('差し替え済み（superseded）の確定名簿は使わず、出欠パスへフォールバックする（ピルも名簿確定にならない）', async () => {
       const viewer = await createUser({ grade: 'C' })
       await setAuthSession({ id: viewer.id, role: 'member' })
 
@@ -394,7 +449,7 @@ describe('/dashboard（会の出場予定）', () => {
       })
 
       const oldOne = await createMember('旧版', 'C')
-      const hoping = await createMember('希望', 'C')
+      const hoping = await createMember('回答', 'C')
       const [roster] = await testDb
         .insert(tournamentEntryRosters)
         .values({
@@ -419,14 +474,14 @@ describe('/dashboard（会の出場予定）', () => {
 
       await renderPage()
       const row = rowOf(event.title)
-      expect(row.textContent).toContain('希望')
-      expect(row.textContent).toContain('希望C')
+      expectStatusPill(row, '参加受付中')
+      expect(row.textContent).toContain('回答C')
       expect(row.textContent).not.toContain('旧版')
     })
   })
 
   describe('確定名簿が無い大会（希望フォールバック）', () => {
-    it('出欠 attend=true が出場者になり、希望ピルが出る', async () => {
+    it('出欠 attend=true が出場者になり、参加受付中ピルが出る', async () => {
       const viewer = await createUser({ grade: 'C' })
       await setAuthSession({ id: viewer.id, role: 'member' })
 
@@ -444,8 +499,7 @@ describe('/dashboard（会の出場予定）', () => {
       await renderPage()
 
       const row = rowOf(event.title)
-      expect(row.textContent).toContain('希望')
-      expect(row.textContent).not.toContain('確定')
+      expectStatusPill(row, '参加受付中')
       expect(row.textContent).toContain('参加C')
       expect(row.textContent).not.toContain('不参')
     })
@@ -471,7 +525,7 @@ describe('/dashboard（会の出場予定）', () => {
 
       await renderPage()
       const row = rowOf(event.title)
-      expect(row.textContent).toContain('希望')
+      expectStatusPill(row, '参加受付中')
       expect(row.textContent).toContain('客人Cゲスト')
     })
 
@@ -526,6 +580,142 @@ describe('/dashboard（会の出場予定）', () => {
 
       await renderPage()
       expect(rowOf(event.title).textContent).toContain('全級E')
+    })
+  })
+
+  // requirements §3.2（AC-1〜AC-9）: ピルは出場者の出所とは別に、大会の進行状況を
+  // 4値で出す。境界の網羅は home-timeline-utils.test.ts（純関数）が持ち、ここは
+  // DB の値からの配線を確かめる。
+  describe('大会ステータスピル（4値）', () => {
+    /** attend=true の会員が1人いる大会（出場者0名で落ちないように）を作る。 */
+    async function seedEventWithAttendee(
+      title: string,
+      overrides: Parameters<typeof createEvent>[0] = {},
+    ) {
+      const group = await createEntryGroup()
+      const event = await createEvent({
+        title,
+        eventDate: addDays(todayJst(), 20),
+        entryGroupId: group.id,
+        ...overrides,
+      })
+      const member = await createMember(`出欠${title}`, 'C')
+      await createEventAttendance({ eventId: event.id, userId: member.id, attend: true })
+      return { group, event, member }
+    }
+
+    // AC-8（AC-1 込み）: 4材料それぞれ単独で「名簿確定」。未申込 ∧ 会内締切超過
+    // ＝名簿が無ければ「締切済」になる大会で、名簿確定が優先することも見る。
+    it.each(['parsed', 'file', 'mail', 'override'] as const)(
+      '確定名簿の材料「%s」だけでも名簿確定になる（entry_status・締切にかかわらない）',
+      async (signal) => {
+        const viewer = await createUser({ grade: 'C' })
+        await setAuthSession({ id: viewer.id, role: 'member' })
+
+        const { group, event, member } = await seedEventWithAttendee('材料大会', {
+          entryStatus: 'not_applied',
+          internalDeadline: addDays(todayJst(), -1),
+        })
+        if (signal === 'parsed') {
+          await seedConfirmedRoster(group.id, [
+            { userId: member.id, grade: 'C', status: 'confirmed' },
+          ])
+        } else if (signal === 'file') {
+          await seedAdoptedRosterFile(group.id)
+        } else if (signal === 'mail') {
+          await seedConfirmedRosterMail(event.id)
+        } else {
+          await setRosterOverride(group.id)
+        }
+
+        await renderPage()
+        expectStatusPill(rowOf('材料大会'), '名簿確定')
+      },
+    )
+
+    // AC-9: 手動フラグ・確定名簿メールだけの名簿確定では、名簿パスへ切り替わらない
+    // （名前入りの名簿が無い）。チップは出欠「出る」の会員のまま。
+    it.each(['mail', 'override'] as const)(
+      '材料「%s」だけで名簿確定になった大会のチップは出欠 attend=true の会員のまま',
+      async (signal) => {
+        const viewer = await createUser({ grade: 'C' })
+        await setAuthSession({ id: viewer.id, role: 'member' })
+
+        const { group, event } = await seedEventWithAttendee('旗大会', {
+          eligibleGrades: ['C', 'D'],
+        })
+        const second = await createMember('二人', 'D')
+        await createEventAttendance({ eventId: event.id, userId: second.id, attend: true })
+        const absent = await createMember('欠席', 'C')
+        await createEventAttendance({ eventId: event.id, userId: absent.id, attend: false })
+        if (signal === 'mail') await seedConfirmedRosterMail(event.id)
+        else await setRosterOverride(group.id)
+
+        await renderPage()
+        const row = rowOf('旗大会')
+        expectStatusPill(row, '名簿確定')
+        expect(row.textContent).toContain('出欠旗大会C')
+        expect(row.textContent).toContain('二人D')
+        expect(row.textContent).not.toContain('欠席')
+      },
+    )
+
+    // AC-2〜AC-4 の統合確認。閲覧者は is_invited=false にして未回答アラートを
+    // 出さない（締切が7日以内の大会はアラート行にも同じ大会名が出て rowOf が
+    // 1行に定まらなくなるため）。
+    it('申込済・締切済・参加受付中を entry_status と会内締切から出し分ける', async () => {
+      const viewer = await createUser({ grade: 'C', isInvited: false })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+      const today = todayJst()
+
+      await seedEventWithAttendee('申込大会', {
+        entryStatus: 'applied',
+        internalDeadline: addDays(today, 3),
+      })
+      await seedEventWithAttendee('締切大会', {
+        entryStatus: 'not_applied',
+        internalDeadline: addDays(today, -1),
+      })
+      await seedEventWithAttendee('当日大会', {
+        entryStatus: 'not_applied',
+        internalDeadline: today,
+      })
+      await seedEventWithAttendee('受付大会', {
+        entryStatus: 'not_applied',
+        internalDeadline: addDays(today, 3),
+      })
+
+      await renderPage()
+      expectStatusPill(rowOf('申込大会'), '申込済')
+      expectStatusPill(rowOf('締切大会'), '締切済')
+      expectStatusPill(rowOf('当日大会'), '参加受付中')
+      expectStatusPill(rowOf('受付大会'), '参加受付中')
+    })
+
+    // AC-5 / AC-7 の統合確認。
+    it('会内締切が無ければ申込締切で判定し、not_applying も日付どおりでホームから消えない', async () => {
+      const viewer = await createUser({ grade: 'C', isInvited: false })
+      await setAuthSession({ id: viewer.id, role: 'member' })
+      const today = todayJst()
+
+      await seedEventWithAttendee('代替大会', {
+        entryStatus: 'not_applied',
+        internalDeadline: null,
+        entryDeadline: addDays(today, -1),
+      })
+      await seedEventWithAttendee('見送前大会', {
+        entryStatus: 'not_applying',
+        internalDeadline: addDays(today, 3),
+      })
+      await seedEventWithAttendee('見送後大会', {
+        entryStatus: 'not_applying',
+        internalDeadline: addDays(today, -1),
+      })
+
+      await renderPage()
+      expectStatusPill(rowOf('代替大会'), '締切済')
+      expectStatusPill(rowOf('見送前大会'), '参加受付中')
+      expectStatusPill(rowOf('見送後大会'), '締切済')
     })
   })
 

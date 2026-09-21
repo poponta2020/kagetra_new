@@ -100,7 +100,7 @@ prototype_base: d42b7011c31f0ada48c450c7044bd9b7874f77be
 - [x] タイムライン行の構造が「左に日付レール（M/D を明朝太字・下に曜日1文字）／右に 大会名 → ステータスピル → （右端）人数」で、その下段に出場者チップ
 - [x] 出場者チップは**級で束ねず一列**。チップ表示名は `surname()` の姓のみで、級は同じチップ内の小さな添え字（`font-mono`）。今日カードも同じ一列
 - [x] 自分のチップだけ `bg-brand` ＋ `text-ink-on-brand` ＋ 太字。それ以外は `bg-surface-alt` ＋ `border-border-soft` ＋ `text-ink-2`。チップ内の級添え字は非自分側で `text-neutral-fg`（`text-ink-meta` は surface-alt 上で 4.16:1 でコントラスト不足）
-- [ ] ステータスピルは 名簿確定=`tone="brand"` / 申込済=`tone="info"` / 参加受付中=`tone="warn"` / 締切済=`tone="neutral"`（[requirements.md](requirements.md) §3.2.4）。タイムライン行と今日カードで同じ文言・トーン。独自色を作らない
+- [x] ステータスピルは 名簿確定=`tone="brand"` / 申込済=`tone="info"` / 参加受付中=`tone="warn"` / 締切済=`tone="neutral"`（[requirements.md](requirements.md) §3.2.4）。タイムライン行と今日カードで同じ文言・トーン。独自色を作らない
 - [x] 朱（`accent` 系トークン）を使うのは未回答アラート行だけ。タイムライン・今日カード・チップに朱を使わない
 - [x] 今日カードは藍帯（`bg-brand`）がカード左右端まで届き、その中に「本日」＋`formatEventDate` の日付。会場は `location` があるときだけ大会名の下に出る
 - [x] タイムラインは初期4件（`INITIAL_VISIBLE_COUNT`）＋「もっと見る（残りN件）」。展開は同一画面内で、`/events` へ遷移しない
