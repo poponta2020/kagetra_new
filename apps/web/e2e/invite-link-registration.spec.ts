@@ -41,12 +41,21 @@ async function addSessionCookie(
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** Seed a registration_invites row (with a throwaway issuer for the FK). */
+/**
+ * Seed a registration_invites row (with a throwaway issuer for the FK).
+ * The issuer is LINE-linked so it is not a roster candidate — otherwise the
+ * page would show the 「名簿から選ぶ／新しく登録する」 choice instead of the form.
+ */
 async function seedInvite(
   token: string,
   opts?: { expiresAt?: Date; revokedAt?: Date | null },
 ) {
-  const issuer = await createUser({ name: `issuer-${token}`, role: 'admin' })
+  const issuer = await createUser({
+    name: `issuer-${token}`,
+    role: 'admin',
+    lineUserId: `Uissuer-${token}`,
+    lineLinkedAt: new Date(),
+  })
   await testDb.insert(registrationInvites).values({
     token,
     expiresAt: opts?.expiresAt ?? new Date(Date.now() + 7 * DAY_MS),
@@ -238,10 +247,11 @@ test.describe('invite-link-registration', () => {
     await context.close()
   })
 
-  test('合成名が既存会員と衝突するとエラー表示・新規行は作られない', async ({
+  test('合成名が名簿の候補と衝突すると名簿選択へ誘導され、新規行は作られない', async ({
     browser,
   }) => {
     await seedInvite('e2e-dup')
+    // 未紐付け・招待済み・未退会＝名簿の候補。
     await createUser({ name: '山田 太郎', lineUserId: null })
     const { sessionToken } = await issueUnboundLineSession('Ureg-e2e-dup')
 
@@ -250,6 +260,44 @@ test.describe('invite-link-registration', () => {
     const page = await context.newPage()
 
     await page.goto('/register/e2e-dup')
+    // 候補がいるので最初は2択だけ。
+    await expect(page.getByLabel('姓（漢字）')).toHaveCount(0)
+    await page.getByRole('radio', { name: '新しく登録する' }).click()
+    await fillNames(page)
+    await pickSegment(page, 'D')
+    await page.getByRole('button', { name: '登録する' }).click()
+
+    await expect(
+      page.getByRole('alert').filter({
+        hasText: '名簿に同じお名前があります。『名簿から選ぶ』から選んでください。',
+      }),
+    ).toBeVisible()
+    // The new LINE account was not bound to anything.
+    expect(
+      await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Ureg-e2e-dup') }),
+    ).toBeUndefined()
+
+    // エラー直下のボタンで名簿選択へ切り替わる。
+    await page.getByRole('button', { name: '名簿から選ぶ' }).click()
+    await expect(page.getByRole('radio', { name: '山田 太郎' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'このお名前で登録する' })).toBeVisible()
+
+    await context.close()
+  })
+
+  test('合成名が紐付け済みの会員と衝突すると従来のエラー表示・新規行は作られない', async ({
+    browser,
+  }) => {
+    await seedInvite('e2e-dup-linked')
+    // 紐付け済み＝名簿の候補ではない（候補0人なので最初からフォームが出る）。
+    await createUser({ name: '山田 太郎', lineUserId: 'Ualready-yamada', lineLinkedAt: new Date() })
+    const { sessionToken } = await issueUnboundLineSession('Ureg-e2e-dup-linked')
+
+    const context = await browser.newContext()
+    await addSessionCookie(context, sessionToken)
+    const page = await context.newPage()
+
+    await page.goto('/register/e2e-dup-linked')
     await fillNames(page)
     await pickSegment(page, 'D')
     await page.getByRole('button', { name: '登録する' }).click()
@@ -257,10 +305,67 @@ test.describe('invite-link-registration', () => {
     await expect(
       page.getByRole('alert').filter({ hasText: '同名の会員が既に存在します' }),
     ).toBeVisible()
-    // The new LINE account was not bound to anything.
+    await expect(page.getByRole('button', { name: '名簿から選ぶ' })).toHaveCount(0)
     expect(
-      await testDb.query.users.findFirst({ where: eq(users.lineUserId, 'Ureg-e2e-dup') }),
+      await testDb.query.users.findFirst({
+        where: eq(users.lineUserId, 'Ureg-e2e-dup-linked'),
+      }),
     ).toBeUndefined()
+
+    await context.close()
+  })
+
+  test('名簿の会員: 名簿から選ぶ → サークル所属 ON で学部等を入力 → dashboard、既存行に紐付く', async ({
+    browser,
+  }) => {
+    await seedInvite('e2e-roster')
+    const member = await createUser({
+      name: '名簿 花子',
+      isInvited: true,
+      lineUserId: null,
+      grade: 'C',
+      phone: '090-0000-1111',
+      birthDate: '2001-01-01',
+      address1: '札幌市北区北八条西5',
+    })
+    const countBefore = (await testDb.select({ id: users.id }).from(users)).length
+    const { sessionToken } = await issueUnboundLineSession('Ureg-e2e-roster')
+
+    const context = await browser.newContext()
+    await addSessionCookie(context, sessionToken)
+    const page = await context.newPage()
+
+    await page.goto('/register/e2e-roster')
+    await page.getByRole('radio', { name: '名簿から選ぶ' }).click()
+    // 候補の登録内容（住所・電話）は画面に出ない。
+    await expect(page.getByText('札幌市北区北八条西5')).toHaveCount(0)
+    await expect(page.getByText('090-0000-1111')).toHaveCount(0)
+
+    await page.getByRole('radio', { name: '名簿 花子' }).check()
+    await page
+      .getByRole('checkbox', { name: '北海道大学のサークル「北大かるた会」に所属している' })
+      .check()
+    await page.getByLabel('学部等名').fill('法学部')
+    await page.getByLabel('学年').selectOption('2年')
+    // 電話・生年月日は登録済みなので入力欄は出ない。
+    await expect(page.getByLabel('電話番号')).toHaveCount(0)
+    await page.getByRole('button', { name: 'このお名前で登録する' }).click()
+
+    await page.waitForURL(/\/(dashboard)?$/, { timeout: 5000 })
+
+    const updated = await testDb.query.users.findFirst({ where: eq(users.id, member.id) })
+    expect(updated?.lineUserId).toBe('Ureg-e2e-roster')
+    expect(updated?.lineLinkedMethod).toBe('invite_link')
+    expect(updated?.isCircleMember).toBe(true)
+    expect(updated?.facultyKind).toBe('undergraduate')
+    expect(updated?.faculty).toBe('法学部')
+    expect(updated?.schoolYear).toBe('2年')
+    // 登録済みの値は変わらない。
+    expect(updated?.phone).toBe('090-0000-1111')
+    expect(updated?.address1).toBe('札幌市北区北八条西5')
+    expect(updated?.grade).toBe('C')
+    // 新しい行は作られない。
+    expect((await testDb.select({ id: users.id }).from(users)).length).toBe(countBefore)
 
     await context.close()
   })

@@ -82,7 +82,7 @@ status: completed
 - **対応Issue:** #657
 
 ### タスク5: E2E（招待URLの名簿選択・同名誘導・self-identify の回帰）
-- [ ] 完了
+- [x] 完了
 - **目的:** 実ブラウザで一連の流れを通し、既存の E2E が壊れていないことを確かめる。
 - **対応AC:** AC-11（E2E 側）, AC-12, AC-13〜AC-15（E2E 回帰）, AC-16
 - **主な変更領域:** `apps/web/e2e/invite-link-registration.spec.ts`・`apps/web/e2e/self-identify-flow.spec.ts`
