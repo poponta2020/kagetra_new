@@ -24,6 +24,16 @@ import type { Grade } from '@kagetra/shared/types'
 /** 出場者リストの確度。確定名簿があれば `confirmed`、無ければ出欠○の `hoped`。 */
 export type EntrantConfidence = 'confirmed' | 'hoped'
 
+/**
+ * 大会の進行状況（ホームのステータスピル）。導出は
+ * `home-timeline-utils.deriveHomeEventStatus`（判定順は requirements §3.2.1）。
+ * - `open`: 参加受付中（基準締切 ≥ 今日、または基準締切なし）
+ * - `closed`: 締切済（基準締切 < 今日）
+ * - `applied`: 申込済（`events.entry_status = 'applied'`）
+ * - `roster_confirmed`: 名簿確定（申込グループが「確定名簿あり」）
+ */
+export type HomeEventStatus = 'open' | 'closed' | 'applied' | 'roster_confirmed'
+
 export interface HomeEntrant {
   /**
    * 会員 id。自分ハイライトの判定に使う。

@@ -28,7 +28,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: ステータス導出の純関数とピル定義
-- [ ] 完了
+- [x] 完了
 - **目的:** 4値ステータスの判定とピルの文言・トーンを、DB に触れない純関数・定数として用意する（追加のみ。既存の `confidenceLabel` はまだ消さない）
 - **対応AC:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-10（定義側）
 - **主な変更領域:** `apps/web/src/app/(app)/dashboard/home-timeline-utils.ts`・`home-timeline-utils.test.ts`（`home-timeline-types.ts` に `HomeEventStatus` 型を**追加**する。`confidence` の削除はタスク3）
