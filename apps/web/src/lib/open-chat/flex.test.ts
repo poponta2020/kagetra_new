@@ -61,6 +61,15 @@ describe('buildOpenChatFlexMessage', () => {
     expect(JSON.stringify(msg5.contents)).not.toContain('carousel')
   })
 
+  it('ボタンの背景はブランド色 紺（globals.css の --kg-brand と同値）', () => {
+    const msg = buildOpenChatFlexMessage(
+      [makeRow({ label: 'B級' }), makeRow({ label: 'C級' })],
+      '鳳玉大会CD級',
+    )
+    const buttons = collectByType(msg.contents, 'button')
+    expect(buttons.map((b) => b.color)).toEqual(['#15387d', '#15387d'])
+  })
+
   it('AC-31: パスワードのある行だけボタン直下にパスワードが表示される', () => {
     const rows: OpenChatFlexRow[] = [
       makeRow({ label: 'B級', url: 'https://line.me/ti/g2/tokenB', password: null }),

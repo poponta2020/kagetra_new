@@ -1,5 +1,7 @@
 # Kagetra Design System
 
+> **配色の記述について**: このファイルの色の記述（和紙 × 藍墨・藍 `#2B4E8C`・砂色のニュートラルほか）は初代のもので、現在の配色（白波 × 紺）とは一致しない。配色の正典は `apps/web/src/app/globals.css` と `docs/design/design.md` を参照すること。
+
 北溟 — competitive karuta (競技かるた) club groupware.
 
 This design system defines the visual and interaction vocabulary for the **kagetra_new mobile product** — a tournament-application and result-management app being built as a full rewrite of the original `kagetra` groupware.

@@ -1,17 +1,22 @@
 @import "tailwindcss";
 
 /* ============================================================
-   Kagetra Design System — 藤 × 墨 (fuji-violet × sumi)
+   Kagetra Design System — 白波 × 紺 (shiranami × kon)
    Source: docs/design/design.md · docs/design/colors_and_type.css
 
-   アプリ名「ライラック」に合わせた配色。ただし西洋の lilac
-   (OKLCH 色相 326° = 赤紫) ではなく、和の藤色 290° / 菫色 297° /
-   紫苑 295° として読む。軸は色相 295°。百人一首という題材に対して
-   古典的なトーンを当てるという設計方針は、和紙 × 藍墨から変わって
-   いない — 色相を茶系から藤系へ移しただけである。
+   アプリ名「北溟」に合わせた配色。北溟は『荘子』逍遥遊の「北冥有魚」、
+   北の果ての大海を指す。これを白波・海面・深みの 3 層として読み、
+   面の 3 役にそのまま割り当てる:
+     白波  surface（カード・シート）      純白
+     海面  canvas（ページの地）           水色
+     深み  brand（ブランド・主要操作・肯定） 紺
+   百人一首 76 番の結句「沖つ白波」は題材の内側にある像で、古典的な
+   題材に古典のトーンを当てるという設計方針は、和紙 × 藍墨、藤 × 墨の
+   頃から変わっていない。
 
    全トークンは OKLCH で導出し、全ペアのコントラストを実測済み
-   (WCAG AA 未達 0 件)。詳細は docs/features/lilac-palette/design-spec.md。
+   (WCAG AA 未達 0 件)。詳細は docs/features/hokumei-palette/design-spec.md、
+   導出と実測の再現は同ディレクトリの palette-check.mjs。
    ============================================================ */
 
 /* ---------- Webfonts ----------
@@ -24,14 +29,16 @@
 
 /* ---------- Tailwind v4 @theme (maps tokens to utility classes) ---------- */
 @theme {
-  /* Brand 藤 / Accent 朱 / LINE green (auth only)
-     brand は旧・藍 (#2b4e8c) の OKLCH L と C をそのまま保ち、色相だけ
-     261° → 293° へ回して作った。明度と彩度が同じなのでコントラスト比が
-     ほぼ完全に維持される。 */
-  --color-brand: #534286;
-  --color-brand-hover: #402f6e;
-  --color-brand-bg: #e0d7fd;
-  --color-brand-fg: #3e3067;
+  /* Brand 紺 / Accent 朱 / LINE green (auth only)
+     brand は初代の藍 (色相 261°) と同じ色相軸のまま、明度を
+     0.43 → 0.36 へ沈め、彩度を 0.111 → 0.124 へ上げた一段深い紺。
+     白の上のコントラストは 7.8 → 11.1:1。
+     brand-bg の彩度 0.058 は、この明度 (0.885)・色相 (250°) での sRGB
+     ガマット上限に当たる。これ以上鮮やかにはできない。 */
+  --color-brand: #15387d;
+  --color-brand-hover: #092563;
+  --color-brand-bg: #bdddff;
+  --color-brand-fg: #0e2c67;
 
   --color-accent: #b33c2d;
   --color-accent-bg: #f4d5cf;
@@ -40,62 +47,66 @@
   --color-line: #06c755;
   --color-line-hover: #05a648;
 
-  /* Surfaces 藤鼠 (fuji-nezu)
-     surface → canvas → surface-alt の明度差を意図的に広げてある。
-     旧配色は ΔL 0.024 / 0.015 でカードが背景から浮かず、これが
-     「のっぺりしている」の機械的な原因だった。 */
-  --color-canvas: #e8e6f2; /* L 0.930 */
-  --color-surface: #f7f5fe; /* L 0.975 — canvas との ΔL 0.045 */
-  --color-surface-alt: #dedcea; /* L 0.900 — canvas との ΔL 0.030 */
+  /* Surfaces 白波・海面 (shiranami / umi)
+     surface は純白（白波）、canvas は水色（海面）。surface → canvas →
+     surface-alt の明度差を意図的に広げてあり、メリハリの本体はここ:
+       surface → canvas       ΔL 0.075（下限 0.07）
+       canvas → surface-alt   ΔL 0.041（下限 0.035）
+     前回は 0.044 / 0.030 で、カードが地から浮かず「のぺっとしている」と
+     指摘された。canvas の彩度は 0.033。これを下回ると水色と読めない。 */
+  --color-canvas: #d3eafa; /* L 0.925 */
+  --color-surface: #ffffff; /* L 1.000 — canvas との ΔL 0.075 */
+  --color-surface-alt: #c3ddf0; /* L 0.884 — canvas との ΔL 0.041 */
 
   /* Borders */
-  --color-border-soft: #d7d4e3;
-  --color-border: #c7c3d4;
-  --color-border-strong: #a4a0b5;
+  --color-border-soft: #bdd5e6;
+  --color-border: #a8c2d6;
+  --color-border-strong: #839bb3;
 
-  /* Ink 墨（藤みを帯びた墨）
+  /* Ink 墨（近無彩色。彩度 0.03 以下で、藍を帯びさせない —
+     朱・山吹の文字と同じ強度で並ばせるため）
      コントラスト実測（本文サイズ = WCAG AA 4.5:1 基準）:
-       ink-meta on surface     5.75:1  OK
-       ink-meta on canvas      5.04:1  OK
-       ink-meta on surface-alt 4.59:1  OK
-     旧配色では canvas / surface-alt の上で AA 未達（4.35 / 4.16）だった
-     ため「surface-alt の上では neutral-fg を使う」という制約があったが、
-     ink-meta の明度を下げて 3 面すべてで AA を満たしたので**その制約は
-     解消している**（既存の使い分けを変える必要はない。緩む方向のみ）。
+       ink-meta on surface     6.78:1  OK
+       ink-meta on canvas      5.46:1  OK
+       ink-meta on surface-alt 4.82:1  OK
+     3 面すべてで AA を満たすので、かつてあった「surface-alt の上では
+     neutral-fg を使う」という制約は引き続き不要（既存の使い分けを
+     変える必要はない。緩む方向のみ）。
 
-     ink-muted は本文には使わない（surface 上で 2.70:1）。退会行など
+     ink-muted は本文には使わない（surface 上で 3.10:1）。退会行など
      「読めなくてよい」装飾的に落とす用途に限る。 */
-  --color-ink: #1c1a21;
-  --color-ink-2: #35333d;
-  --color-ink-meta: #625f6e;
-  --color-ink-muted: #9995a7;
-  --color-ink-on-brand: #f7f5fe;
+  --color-ink: #121824;
+  --color-ink-2: #283040;
+  --color-ink-meta: #515c6c;
+  --color-ink-muted: #8594a5;
+  --color-ink-on-brand: #ffffff;
 
   /* Semantic pairs
-     success は brand と同値のまま（参加 = 藤色）。danger は accent と
-     同値のまま。**warn は danger から分離した**（琥珀）— 旧配色では
-     warn-bg/fg が danger-bg/fg と完全に同じ hex で、「締切まで3日」も
-     「送信エラー」も同じ赤で出ていた。これは情報設計の誤りだった。
+     success は brand と同値（参加 = 紺）。danger は accent と同値。
+     **warn は danger から分離した**山吹 — かつては warn-bg/fg が
+     danger-bg/fg と完全に同じ hex で、「締切まで3日」も「送信エラー」も
+     同じ赤で出ていた。これは情報設計の誤りだった。
 
-     警告色の琥珀は色相 75〜78°。これは今回捨てた和紙ベージュ (88°) と
-     ほぼ同じ系統で、和紙の記憶が差し色として残る。 */
-  --color-success: #534286;
-  --color-success-bg: #e0d7fd;
-  --color-success-fg: #3e3067;
+     朱・山吹の 6 値は前回から据え置き。山吹は紺のほぼ補色（ピル地
+     どうしの色相差 171°）で、画面の中で最も遠い色になる。朱の文字は
+     canvas の上でも AA を満たす（4.70:1）。 */
+  --color-success: #15387d;
+  --color-success-bg: #bdddff;
+  --color-success-fg: #0e2c67;
   --color-danger: #b33c2d;
   --color-danger-bg: #f4d5cf;
   --color-danger-fg: #8f2d20;
-  --color-info-bg: #dfdcea;
-  --color-info-fg: #4f4b5f;
+  --color-info-bg: #d2dee9;
+  --color-info-fg: #3d4958;
   --color-warn: #b17915;
   --color-warn-bg: #f5ddb8;
   --color-warn-fg: #785214;
-  /* neutral-bg は彩度を 0.011 と無彩色寄りに落としてある。brand-bg
-     (彩度 0.052) と色相が 2° しか違わないため、彩度で弁別させている。
+  /* neutral-bg は彩度を 0.009 と無彩色寄りに落としてある。brand-bg
+     (彩度 0.058) と色相が 2° しか違わないため、彩度で弁別させている。
      brand-bg は「ブランドの淡色面」と「参加ピルの地」を兼ねているので、
      この 2 つは必ず対で調整すること（片方だけ動かすと両方壊れる）。 */
-  --color-neutral-bg: #dcdae2;
-  --color-neutral-fg: #4f4b5f;
+  --color-neutral-bg: #d8dde2;
+  --color-neutral-fg: #3d4958;
 
   /* Fonts (next/font variables injected by layout.tsx) */
   --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system,
@@ -104,14 +115,14 @@
     "Hiragino Mincho ProN", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Radii (restrained — washi reads calmer with small radii) */
+  /* Radii (restrained — the UI reads calmer with small radii) */
   --radius-xs: 3px;
   --radius-sm: 5px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
 
-  /* Shadows 藤みの影 (violet-tinted)
+  /* Shadows 藍みの影 (indigo-tinted)
      3 段の高度 (elevation) を表す。段の割り当て:
        段 0  canvas（ページ背景）        — 影なし
        段 1  Card・警告ボックス          — --shadow-sm
@@ -122,19 +133,23 @@
      広く柔らかい影を重ねて初めて「紙」に見える。1 層だと「にじみ」に
      見える（旧 --shadow-sm は 1 層 × alpha .06 で事実上見えていなかった）。
 
-     alpha は旧配色から**引き上げてある**。canvas が L 0.953 → 0.930 と
-     暗くなったぶん、影が地を暗くできる余地が減るため、同じ alpha を
-     持ち越すと以前より見えなくなる。
+     基色 rgba(23, 43, 73) は OKLCH L 0.29 / C 0.06 / 色相 258°。前回の
+     藤みの影 rgba(45, 38, 70) と明度・彩度を揃え、色相だけ 290° → 258°
+     へ回した。alpha は前回から**据え置き**。影が落ちる先の canvas の
+     明度がほぼ変わらないため（L 0.930 → 0.925。前回 alpha を引き上げた
+     のは canvas が 0.953 → 0.930 と暗くなったからで、今回その事情は
+     無い）。カードが純白になり輪郭が明度差だけで立つようになったので、
+     影が過剰に見えるなら alpha を下げる方向で調整する。
 
      段 2 の「下向き」は作っていない。シェルに sticky ヘッダが無いため
      （AppBar は nav-settings-hub で廃止済み）。ページ側の `sticky top-0`
      要素 10 箇所は z-index の事情がそれぞれ異なるので、一律に影を当てず
      別タスクとした。旧 --shadow-md / --shadow-fab は使用 0 回だったので
      削除している（未使用トークンを残すと text-ink-1 と同じ rot になる）。 */
-  --shadow-sm: 0 1px 2px rgba(45, 38, 70, 0.1), 0 3px 8px rgba(45, 38, 70, 0.07);
-  --shadow-nav: 0 -1px 3px rgba(45, 38, 70, 0.06),
-    0 -4px 14px rgba(45, 38, 70, 0.08);
-  --shadow-lg: 0 8px 28px rgba(45, 38, 70, 0.2), 0 2px 6px rgba(45, 38, 70, 0.1);
+  --shadow-sm: 0 1px 2px rgba(23, 43, 73, 0.1), 0 3px 8px rgba(23, 43, 73, 0.07);
+  --shadow-nav: 0 -1px 3px rgba(23, 43, 73, 0.06),
+    0 -4px 14px rgba(23, 43, 73, 0.08);
+  --shadow-lg: 0 8px 28px rgba(23, 43, 73, 0.2), 0 2px 6px rgba(23, 43, 73, 0.1);
 }
 
 /* ---------- Design-system CSS variables (kg-* namespace) ----------
@@ -144,11 +159,11 @@
      - Pill colour pairs consumed by shared primitives
 */
 :root {
-  /* Brand 藤 (fuji-violet) */
-  --kg-brand: #534286;
-  --kg-brand-hover: #402f6e;
-  --kg-brand-bg: #e0d7fd;
-  --kg-brand-fg: #3e3067;
+  /* Brand 紺 (kon) */
+  --kg-brand: #15387d;
+  --kg-brand-hover: #092563;
+  --kg-brand-bg: #bdddff;
+  --kg-brand-fg: #0e2c67;
 
   /* Accent 朱 (vermillion / shu-iro) */
   --kg-accent: #b33c2d;
@@ -159,46 +174,46 @@
   --kg-line-green: #06c755;
   --kg-line-green-hv: #05a648;
 
-  /* Surfaces 藤鼠 (fuji-nezu) */
-  --kg-bg: #e8e6f2;
-  --kg-surface: #f7f5fe;
-  --kg-surface-alt: #dedcea;
+  /* Surfaces 白波・海面 (shiranami / umi) */
+  --kg-bg: #d3eafa;
+  --kg-surface: #ffffff;
+  --kg-surface-alt: #c3ddf0;
 
   /* Borders */
-  --kg-border: #c7c3d4;
-  --kg-border-soft: #d7d4e3;
-  --kg-border-strong: #a4a0b5;
+  --kg-border: #a8c2d6;
+  --kg-border-soft: #bdd5e6;
+  --kg-border-strong: #839bb3;
 
   /* Ink 墨 (sumi) */
-  --kg-fg: #1c1a21;
-  --kg-fg-2: #35333d;
-  --kg-fg-3: #625f6e;
-  --kg-fg-muted: #9995a7;
-  --kg-fg-on-brand: #f7f5fe;
+  --kg-fg: #121824;
+  --kg-fg-2: #283040;
+  --kg-fg-3: #515c6c;
+  --kg-fg-muted: #8594a5;
+  --kg-fg-on-brand: #ffffff;
 
-  /* Semantic — 参加=藤, 不参加=朱, 注意=琥珀, 補足=藤鼠 */
-  --kg-success: #534286;
-  --kg-success-bg: #e0d7fd;
-  --kg-success-fg: #3e3067;
+  /* Semantic — 参加=紺, 不参加=朱, 注意=山吹, 補足=水色鼠 */
+  --kg-success: #15387d;
+  --kg-success-bg: #bdddff;
+  --kg-success-fg: #0e2c67;
   --kg-danger: #b33c2d;
   --kg-danger-bg: #f4d5cf;
   --kg-danger-fg: #8f2d20;
-  --kg-info-bg: #dfdcea;
-  --kg-info-fg: #4f4b5f;
+  --kg-info-bg: #d2dee9;
+  --kg-info-fg: #3d4958;
   --kg-warn: #b17915;
   --kg-warn-bg: #f5ddb8;
   --kg-warn-fg: #785214;
-  --kg-neutral-bg: #dcdae2;
-  --kg-neutral-fg: #4f4b5f;
+  --kg-neutral-bg: #d8dde2;
+  --kg-neutral-fg: #3d4958;
 
   /* Attendance bar — 不参加セグメント。danger 系より淡い専用の朱で、
-     細い積み上げバーの中でも 参加(藤) と潰れずに読み分けられる
-     （藤 #534286 との比 4.82:1・色相差 274°）。
+     細い積み上げバーの中でも 参加(紺) と潰れずに読み分けられる
+     （紺 #15387d との比 6.34:1）。
      Tailwind ユーティリティは不要（inline style から var() で参照）。
      消費元: components/ui/attendance-counts.tsx (variant="bar") */
   --kg-nonattend: #f3b4b4;
 
-  /* 背景テクスチャ — 和紙の粒子感を色ではなくテクスチャで継承する。
+  /* 背景テクスチャ — 紙の粒子感を色ではなくテクスチャで与える。
      SVG の feTurbulence を data URI で埋め込み、タイル繰り返しで敷く。
      `stitchTiles='stitch'` はタイル境界の継ぎ目を消すために必須。
 

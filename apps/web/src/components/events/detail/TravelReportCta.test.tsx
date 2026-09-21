@@ -40,7 +40,7 @@ describe('TravelReportCta', () => {
     expect(screen.queryByText('大学に出す様式（原本）')).toBeNull()
   })
 
-  it('対象者で入力済みなら藤の行（border・surface 地・タグ「入力済み」、文言は確認・修正）', () => {
+  it('対象者で入力済みなら紺の行（border・surface 地・タグ「入力済み」、文言は確認・修正）', () => {
     render(
       <TravelReportCta
         data={{

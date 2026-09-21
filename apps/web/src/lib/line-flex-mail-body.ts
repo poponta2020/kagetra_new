@@ -22,8 +22,8 @@ const NO_SUBJECT_LABEL = '(件名なし)'
 /** 訂正版マーカー。件名の先頭に付く（配信単位の情報。全文ページには出さない）。 */
 const CORRECTION_PREFIX = '【訂正】'
 
-/** バッジ背景 = ブランド色 藤（globals.css の `--kg-brand`）。Flex JSON はリテラルしか持てない。 */
-const BADGE_COLOR = '#534286'
+/** バッジ背景 = ブランド色 紺（globals.css の `--kg-brand`）。Flex JSON はリテラルしか持てない。 */
+const BADGE_COLOR = '#15387d'
 
 /**
  * カード見出しに載せる件名の上限 (UTF-16 単位)。

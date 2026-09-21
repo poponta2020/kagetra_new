@@ -14,8 +14,8 @@ describe('buildMailBodyFlexMessage', () => {
 
     const json = JSON.stringify(msg.contents)
     expect(json).toContain('"uri":"https://example.com/mail-share/tok123"')
-    // ブランド色（globals.css の --kg-brand 藤）の 48px バッジに白の ✉。
-    expect(json).toContain('"backgroundColor":"#534286"')
+    // ブランド色（globals.css の --kg-brand 紺）の 48px バッジに白の ✉。
+    expect(json).toContain('"backgroundColor":"#15387d"')
     expect(json).toContain('"width":"48px"')
     expect(json).toContain('"text":"✉"')
     expect(json).toContain('"text":"第33回◯◯大会について"')

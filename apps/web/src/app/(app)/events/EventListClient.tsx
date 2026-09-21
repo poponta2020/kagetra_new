@@ -105,9 +105,10 @@ export function EventListClient({
               applicableOnly ? 'bg-brand' : 'bg-neutral-bg',
             )}
           >
-            {/* つまみは意図的に純白のまま。OFF 時のトラックが bg-neutral-bg
-                (#dcdae2) なので、bg-surface (#f7f5fe) だとコントラストが
-                足りずつまみの位置が読み取れない（白 1.38:1 に対し 1.28:1）。 */}
+            {/* つまみは意図的に bg-white（OFF 時のトラック bg-neutral-bg
+                #d8dde2 に対して 1.37:1）。surface も純白になり今は同値だが、
+                つまみは surface の変化に追随させないため bg-surface にしない
+                （surface に色が付くとつまみの位置が読み取れなくなる）。 */}
             <span
               className={cn(
                 'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',

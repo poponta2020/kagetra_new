@@ -4,6 +4,8 @@ description: Use this skill to generate well-branded interfaces and assets for K
 user-invocable: true
 ---
 
+> **配色の記述について**: このファイルの色の記述（和紙 × 藍墨・藍 `#2B4E8C`・砂色のニュートラルほか）は初代のもので、現在の配色（白波 × 紺）とは一致しない。配色の正典は `apps/web/src/app/globals.css` と `docs/design/design.md` を参照すること。
+
 Read `README.md` within this skill to absorb content and visual foundations, then explore other files as needed:
 
 - `colors_and_type.css` — every token (CSS vars + semantic classes)

@@ -8,11 +8,27 @@ import {
 } from './grade-tones'
 
 const ACCENT = '#b33c2d' // 朱（accent）
+const BRAND = '#15387d' // 紺（brand）
+const NEUTRAL_FG = '#3d4958' // neutral-fg（中立インク）
 
 describe('GRADE_TONES', () => {
-  it('A〜E の 5 トーン・A は藍（brand）', () => {
+  it('A〜E の 5 トーン・A は紺（brand）', () => {
     expect(Object.keys(GRADE_TONES)).toEqual(['A', 'B', 'C', 'D', 'E'])
-    expect(GRADE_TONES.A).toBe('#2b4e8c')
+    expect(GRADE_TONES.A).toBe(BRAND)
+  })
+
+  it('紺→水色鼠のランプ（hokumei-palette design-spec §4）', () => {
+    expect(GRADE_TONES).toEqual({
+      A: '#15387d',
+      B: '#305892',
+      C: '#5079a7',
+      D: '#749abb',
+      E: '#9bb9ce',
+    })
+  })
+
+  it('全級トーンは neutral-fg と同値', () => {
+    expect(ALL_SERIES_TONE).toBe(NEUTRAL_FG)
   })
 
   it('朱（accent）をデータ装飾トーンに使わない（design-spec §8）', () => {
@@ -24,7 +40,7 @@ describe('GRADE_TONES', () => {
 
   it('GRADE_TONE_ENTRIES は [grade, tone] 5 件', () => {
     expect(GRADE_TONE_ENTRIES).toHaveLength(5)
-    expect(GRADE_TONE_ENTRIES[0]).toEqual(['A', '#2b4e8c'])
+    expect(GRADE_TONE_ENTRIES[0]).toEqual(['A', BRAND])
   })
 })
 

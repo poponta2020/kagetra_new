@@ -53,11 +53,13 @@ function truncateToUtf16Units(text: string, limit: number): string {
 }
 
 // design-spec.md 「Flex はトークンの外」の色表 (--oc-flex-*) をそのまま転記。
+// ただしボタン背景だけはブランド色 = globals.css の `--kg-brand` 紺に揃える
+// （色表の値は初代の藍のままで、配色の刷新に追随していなかった）。
 // このファイル内でのみ使う値のためモジュール外へは export しない。
 const FLEX_FG = '#111111' // 大会名
 const FLEX_FG_2 = '#6E7B8A' // 「大会オープンチャット」・パスワード文字
 const FLEX_SEP = '#E7EBF0' // 区切り線
-const FLEX_BTN_BG = '#2B4E8C' // ボタン背景
+const FLEX_BTN_BG = '#15387d' // ボタン背景（brand 紺）
 const FLEX_PW_BG = '#F4F6F9' // パスワード行の背景
 
 /**
