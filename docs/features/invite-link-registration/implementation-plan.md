@@ -50,7 +50,7 @@ status: completed
 - **対応Issue:** #654
 
 ### タスク2: 共有フォーム部品（A-flat 部品の切り出し＋RosterClaimForm）
-- [ ] 完了
+- [x] 完了
 - **目的:** S2a・S3 で共用する名簿選択フォームを作る。登録フォームの A-flat 部品を共有ファイルへ移す。
 - **対応AC:** AC-6（画面側）, AC-8（入力保持の土台）
 - **主な変更領域:** `apps/web/src/components/register/flat-fields.tsx`（新規）・`apps/web/src/components/register/RosterClaimForm.tsx`（新規）・`RosterClaimForm.test.tsx`（新規）・`apps/web/src/app/register/[token]/register-form.tsx`（部品を import に置き換えるだけ。マークアップ不変）
