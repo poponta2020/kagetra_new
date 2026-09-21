@@ -37,7 +37,7 @@ status: completed
 ## 実装タスク
 
 ### タスク1: 名簿紐付けの共通モジュール（サーバー＋純関数）
-- [ ] 完了
+- [x] 完了
 - **目的:** 候補の取得・入力の検証・紐付けの保存を1か所にまとめ、S2a・S3 から同じ処理を呼べるようにする。
 - **対応AC:** AC-2, AC-4, AC-5, AC-6（サーバー側）, AC-7, AC-9
 - **主な変更領域:** `apps/web/src/lib/profile-validators.ts`（新規）・`apps/web/src/lib/roster-claim-input.ts`（新規）・`apps/web/src/lib/roster-claim.ts`（新規）・各 `.test.ts`・`apps/web/src/app/register/[token]/actions.ts`（`validateBirthDate`/電話検証を import に置き換えるだけ。挙動不変）

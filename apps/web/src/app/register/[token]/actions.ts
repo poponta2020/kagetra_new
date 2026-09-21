@@ -11,12 +11,12 @@ import { isRegistrationInviteUsable } from '@/lib/registration-invite'
 import { registrationInvites, users } from '@kagetra/shared/schema'
 import { isSchoolYearForKind } from '@kagetra/shared'
 import type { FacultyKind } from '@kagetra/shared/types'
+import { validateBirthDate, validatePhone } from '@/lib/profile-validators'
 
 const GRADES = ['A', 'B', 'C', 'D', 'E'] as const
 const GENDERS = ['male', 'female'] as const
 // ひらがな（小書き・濁点合成済み）＋長音記号 ー のみ。漢字/カタカナ/英数は弾く。
 const HIRAGANA_RE = /^[ぁ-ゖー]+$/
-const PHONE_RE = /^[0-9-]+$/
 
 // Structured-name + grade schema (always-required core). Unlike createMember
 // (single `name`, A–E), invite registration collects 姓/名×漢字/かな and derives
@@ -103,24 +103,6 @@ function gradeEntryOrNull(raw: FormDataEntryValue | null): string | null {
 // "false") means unchecked.
 function isChecked(raw: FormDataEntryValue | null): boolean {
   return typeof raw === 'string' && raw.length > 0 && raw !== 'false'
-}
-
-// 'YYYY-MM-DD', a real calendar date, year ≥ 1900, not in the future.
-function validateBirthDate(s: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '生年月日を入力してください'
-  const parts = s.split('-')
-  const y = Number(parts[0])
-  const m = Number(parts[1])
-  const d = Number(parts[2])
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
-    return '生年月日が正しくありません'
-  }
-  if (y < 1900) return '生年月日が正しくありません'
-  const now = new Date()
-  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  if (dt.getTime() > todayUtc) return '生年月日に未来の日付は指定できません'
-  return null
 }
 
 /**
@@ -220,13 +202,8 @@ function parseRegistration(
     birthDate = bd
 
     const ph = strOf(formData.get('phone')).trim()
-    if (!PHONE_RE.test(ph)) {
-      return { error: '電話番号は数字とハイフンで入力してください' }
-    }
-    const digits = ph.replace(/-/g, '')
-    if (digits.length < 10 || digits.length > 13) {
-      return { error: '電話番号の桁数が不正です（10〜13桁）' }
-    }
+    const phError = validatePhone(ph)
+    if (phError) return { error: phError }
     phone = ph
   }
 
@@ -343,13 +320,8 @@ function parseGuestRegistration(
     birthDate = bd
 
     const ph = strOf(formData.get('phone')).trim()
-    if (!PHONE_RE.test(ph)) {
-      return { error: '電話番号は数字とハイフンで入力してください' }
-    }
-    const digits = ph.replace(/-/g, '')
-    if (digits.length < 10 || digits.length > 13) {
-      return { error: '電話番号の桁数が不正です（10〜13桁）' }
-    }
+    const phError = validatePhone(ph)
+    if (phError) return { error: phError }
     phone = ph
   }
 
