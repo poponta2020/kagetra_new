@@ -12,3 +12,5 @@ metadata:
 **Why:** `/implement` は `git worktree add <path> -b feature/<summary> origin/main` でリモートの main から worktree を作る。untracked ファイルはリモートに存在しないので worktree には反映されず、要件定義書・実装手順書が worktree 内に無い状態で実装を始めることになる（2026-07-05, player-tournament-shortname で発覚）。
 
 **How to apply:** `/implement` の Step 6（worktree作成）の直後、Step 2 で読んだ `docs/features/<機能名>/` 配下のファイルが worktree 内に存在するか確認する。無ければメイン作業ツリーから `cp` して worktree 側で `git add && git commit`（進捗チェックボックス更新も一緒に）してから実装タスクへ進む。逆に `/define-feature` 側を直す（要件定義書完成時に commit させる）のも将来の改善候補だが、今回はスコープ外として `/implement` 側での吸収に留めた。
+
+**追記（2026-09-21, invite-link-registration 改修で判明）:** 改修モードの `/define-feature` は既存の `requirements.md`／`implementation-plan.md` を**上書き**するので、`git status` は `??` でなく ` M` になる。このとき worktree には**古い版がコミット済みで存在する**ため、「存在確認→無ければ cp」では素通りし、実装者が古い要件（旧 AC・全タスク完了済みの旧手順書）を読んでしまう。→ 存在の有無ではなく、**メイン作業ツリーの版と diff して差があれば cp で上書き**してから commit する。

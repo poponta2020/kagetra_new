@@ -439,6 +439,12 @@
 - [北溟配色（白波 × 紺）への刷新](project_ship-hokumei-palette.md) — shipped: PR #648
 - [配色トークンの正典と例外(2026-09-21更新)](project_kagetra_color_tokens.md) — globals.css の @theme + :root(--kg-*) 2系統・globals-tokens.test.ts が同値を固定。2026-09 に藤×墨→白波×紺。bg-white 6箇所は surface と同値でも置換しない・リテラル追随3箇所(themeColor/Flex/級トーン)。★hex照合は無効
 - [ホーム大会ピル4値ステータス化 要件定義(2026-09-21)](project_home_status_pill_def.md) — 親Issue #649
+- [invite-link-registration 改修: 名簿から選んで紐付け 要件定義(2026-09-21)](project_invite_link_registration_roster_claim.md) — 親Issue #653。shipped: PR #660
 - [home-tournament-timeline 大会ピル4値化 実装(タスク1-3)](impl_home-tournament-timeline-status-pill.md) — PR前。★「名簿確定」⊃「確定」でtextContent判定不可→exact getByText・info/neutralトーンがほぼ同色(AC-17未確認)・DB統合テスト未実行(Docker停止)
 - [auto-review PR #659](auto-review-round-pr659.md) — R1 verdict=pass
+- [invite-link-registration 名簿紐付け Wave1(T1+T2)](impl_invite-link-registration-wave1.md) — 共通モジュール+フォーム部品。★React19 form action後のresetでcontrolled radio/checkboxが外れる→onSubmit+startTransitionで回避
 - [ホーム大会ピルを4値ステータスへ](project_ship-home-tournament-timeline-status-pill.md) — shipped: PR #659（★残DoD=AC-17 本番実機確認・申込済/締切済がほぼ同色）
+- [invite-link-registration 名簿紐付け Wave2(T3+T4)](impl_invite-link-registration-wave2.md) — /register 2択+claimViaInvite・/self-identify を state 型へ。★createUser 既定だと招待発行者も名簿候補になる
+- [invite-link-registration 名簿紐付け タスク5(E2E)](impl_invite-link-registration-task5.md) — 発行者を紐付け済みにして既存ケース温存・AC-11/12 と self-identify 所属ON。ローカル未実行=CI 任せ
+- [auto-review PR #660](auto-review-round-pr660.md) — R1 verdict=needs_changes→cutoff(user-wontfix: 招待検証と紐付けのTOCTOU)
+- [名簿の会員が招待URLから名簿を選んで紐付け（invite-link-registration 改修）](project_ship-invite-link-registration-roster-claim.md) — shipped: PR #660。★残DoD=本番で2択・名簿選択・/self-identify の所属入力を確認、配布前に招待リンク再発行
