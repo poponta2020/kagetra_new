@@ -24,14 +24,14 @@
   --accent-fg: #8F2D20;
 
   /* ---------- Surfaces (白波・海面) ---------- */
-  --bg: #D3EAFA;
+  --bg: #DFE8ED;
   --surface: #FFFFFF;
-  --surface-alt: #C3DDF0;
+  --surface-alt: #D1DBE2;
 
   /* ---------- Borders ---------- */
-  --border: #A8C2D6;
-  --border-soft: #BDD5E6;
-  --border-strong: #839BB3;
+  --border: #B6BFC7;
+  --border-soft: #CAD2D9;
+  --border-strong: #9099A2;
 
   /* ---------- Text (墨) ---------- */
   --fg: #121824;
