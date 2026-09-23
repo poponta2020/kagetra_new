@@ -3074,3 +3074,5 @@ DoD: A1/A2/A3/B1(CI green)/D1 PASS。**C1 はユーザー明示指示で --skip-
 - 2026-09-21 /ship PR #659: home-tournament-timeline ホームの大会ピルを「確定／希望」から4値ステータス（名簿確定 > 申込済 > 締切済 > 参加受付中）へ。名簿確定は confirmed-roster.ts の4材料で判定・名前チップの出所と外部APIは不変。親 #649 / 子 #650-652 クローズ。CI pending のままマージ・DB 統合テストはローカル未実行（CI で確認）。残DoD=AC-17 本番375px 実機確認（申込済 info と締切済 neutral がほぼ同色＝ユーザー判断で要件どおり出荷）
 - 2026-09-21 /auto-review-loop PR #660: 1R(i), verdict=needs_changes→cutoff(user-wontfix 1件: 招待検証と紐付けのTOCTOU), effort=m, tokens=209176/500000, result=cutoff
 - 2026-09-21 /ship PR #660: invite-link-registration 改修。名簿の未紐付け会員が招待URLの『名簿から選ぶ』で LINE 紐付け＋サークル所属（学部区分・学部等名・学年、名簿で空なら電話・生年月日）を1回で保存。/self-identify も同じ共通処理（lib/roster-claim.ts）とフォームへ。同名時は名簿へ誘導。同梱: 登録フォームのエラー後に級・所属の選択が外れる既存不具合を修正。親 #653 / 子 #654-658 クローズ。レビューは R1 の TOCTOU 指摘1件をユーザー判断で見送り（cutoff）。CI pending のままマージ・E2E はローカル未実行（CI で確認）。残DoD=本番で2択・名簿選択・/self-identify の所属入力を確認、配布前に招待リンクを新規発行
+- 2026-09-23 /auto-review-loop PR #661: 1R(i), verdict=pass, effort=low, tokens=21302/500000, result=pass
+- 2026-09-23 北溟配色 round 4 出荷: PR #661 マージ（地と枠線の彩度を 0.375 倍へ。canvas #d3eafa → #dfe8ed）。Codex 1R pass・CI pending のままマージ。★残 DoD = 本番 375px の実画面確認 5 項目

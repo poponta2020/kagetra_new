@@ -1,54 +1,34 @@
 ---
 name: feature-def-hokumei-palette
-description: 北溟配色の design-spec 確定。白波・海面・深みの3層読み。不採用案と前回取り残しのリテラル箇所を記録
+description: 北溟配色の design-spec。round 4 で地と枠線の彩度を 0.375 倍へ（明度は据え置き）。不採用案と注意点を記録
 type: project
 ---
 
-# 北溟配色（白波 × 紺）design-spec 確定 / 出荷済み（PR #648）
+# 北溟配色（白波 × 紺）design-spec — round 4 で地の青みを落とす
 
-**日付**: 2026-09-21
-**正典**: `docs/features/hokumei-palette/design-spec.md`（`status: locked`）
-**検証スクリプト**: `docs/features/hokumei-palette/palette-check.mjs`（依存なし。全数値を再導出・再実測。exit 0 が合格）
-**状態**: 出荷済み（PR #648・2026-09-21 マージ）。残 DoD = 本番の実画面確認 5 項目（[[ship-hokumei-palette]]）
+**正典**: `docs/features/hokumei-palette/design-spec.md`（`status: locked`・`round: 4`）
+**検証スクリプト**: `docs/features/hokumei-palette/palette-check.mjs`（依存なし。exit 0 が合格。`LADDER_CHROMA` でラダーの彩度倍率を持つ）
+**状態**: round 1〜3 は PR #648 で出荷済み（2026-09-21）。**round 4 は design-spec 確定・実装未着手（2026-09-22）**。次 = `/implement hokumei-palette`（Issue なし＝UI リデザインの前例どおり）
 
-## 決まったこと
+## round 4（2026-09-22）: 地の青みを落とす
 
-アプリ名が北溟に確定し（PR #639）、藤 × 墨の根拠（ライラック）が消えたため配色を刷新する。ユーザー要望は「北の海・藍と白・地は水色でよい・藍は濃いものも・白はもっと白く・メリハリ」。
+- 発端: 本番の実画面を見たユーザーが「背景まで水色は少しやりすぎ」と判断した。A1 の残DoD「地の水色の強さ」が**強すぎる側**に振れた
+- **明度は据え置き、彩度だけを落とした**。面と枠線のラダー 5 トークンの OKLCH 彩度を一律 0.375 倍にした（canvas 0.033 → 0.012）。明度を上げると純白カードとの ΔL が縮み、round 1 の「のぺっと」が再発するため
+- 新値: canvas `#dfe8ed`・surface-alt `#d1dbe2`・border-soft `#cad2d9`・border `#b6bfc7`・border-strong `#9099a2`。ΔL は 0.074 / 0.040（下限 0.07 / 0.035 を維持）。コントラストは全ペアで実質不変
+- 候補は彩度 0.020 / 0.016 / 0.012 の 3 案を同じ画面モックで並べた。ユーザーは最初「ほんのり水色を残す」を選び、比較のうえで最も淡い 0.012（案3）を選んだ。**寂しすぎた場合の調整先は案2 `#dde8f0`（倍率 0.5）。どちらへ動かしても明度は動かさない**
+- 触らないもの: brand 系・ピル地・墨・朱・山吹・影・テクスチャ・LINE Flex・級トーン。ユーザーは「背景以外は特になし」と回答した
+- 副作用（受容）: `neutral-bg`・`info-bg` と `surface-alt` がほぼ同色になる（1.03:1・OKLab 色差 0.011）。メール取込の下書きカード（`DraftCard` の surface-alt 箱の中の info/neutral ピル）と `admin/members` の種別バッジで見える。藤 × 墨の頃も同じかそれ以上に同色で、A1 で分かれていたのは副次効果だったので直さない
+- 失効した記述: 「canvas 彩度 0.033 を下回ると水色と読めない」と、A2 `#c6e8fc` を調整先とする記述
+- 実装の注意: 改訂 3 ファイルは main で**未コミットの変更**。`/implement` の worktree に cp して最初にコミットする。変わるのは globals.css の 10 行・`globals-tokens.test.ts` の spec 値・`layout.tsx` の themeColor・docs/design の 3 ファイル
+- **define-feature で起動されたが、純UIのため requirements.md は作らず design-spec を改訂した**（[[feedback_design_spec_is_requirement_for_ui]]）
 
-### 中心的な設計判断
+## round 1〜3（PR #648）の要点
 
-北溟（『荘子』の北の大海）を **白波・海面・深み** の 3 層として読み、`surface` 純白 / `canvas` 水色 `#d3eafa` / `brand` 紺 `#15387d` に割り当てる。百人一首 76 番の結句「沖つ白波」が題材の内側にある像なので、design.md の「古典的な題材に古典のトーン」の論の中に収まる。
+- 北溟（『荘子』の北の大海）を **白波・海面・深み** の 3 層として読み、surface 純白 / canvas / brand 紺 `#15387d` に割り当てた
+- メリハリの本体は明度ラダー（カード↔地の ΔL 0.07 以上）。brand L 0.36（白の上で 11.1:1）
+- 不採用: A2 濤（brand と見出しの墨の明度差が 0.022 しかない）・A3 藍墨（朱・山吹の文字が浮く）・B 藍染の色階。C 藍 × 雪は「地は水色」の要望で落としたが、round 4 でその要望は緩んだ
+- 「純白は使わない」原則は撤回済み。`bg-white` / `text-white` の例外 6 箇所は surface と同値でも `bg-surface` へ置換しない
+- hex 照合は無効（`success == brand`・`danger == accent`・`surface == ink-on-brand == white`）。照合は参照名で行う
+- `globals-tokens.test.ts` が 2 系統（`@theme` ⇔ `:root --kg-*`）の同値と spec 値を固定している
 
-### メリハリの本体は明度ラダー
-
-初回案 A が「のぺっと」していた原因は測定できた。カード↔地の ΔL 0.046・地の彩度 0.016（水色と呼べない）・brand の明度が初代の藍と同じ 0.42。採用した A1 は ΔL **0.075**（下限 0.07）・地の彩度 0.033・brand L **0.36**（白上 11.1:1）。
-
-### 不採用案（蒸し返し防止）
-
-- A2 濤（brand を留紺 L 0.31・地の彩度 0.045）: brand と見出しの墨 ink-2 の明度差が 0.022 になり、ボタンと見出しの階層が色で読めなくなる。**地の水色 `#c6e8fc` だけは A1 が実画面で物足りなかった場合の調整先として残してある**
-- A3 藍墨（文字色まで濃紺）: 朱・山吹の文字だけ暖色として浮き、警告の強度が意図せず上がる
-- B 藍染の色階（淡い面ほど青緑）・C 藍 × 雪（無彩色の地）: 初回で A に敗退
-
-## 実装前に必ず読むこと
-
-- **「純白は使わない」原則を撤回する**（design.md の視覚原則）。surface = `#ffffff`。A1 の選択がユーザー承認にあたる
-- **`bg-white` / `text-white` の例外 6 箇所は surface と同値になるが `bg-surface` へ置換しない**。「surface がどう変わっても白」であるべき箇所で意味が違う
-- **hex 照合はさらに無効になる**。`success == brand`・`danger == accent` に加えて `surface == ink-on-brand == white` が衝突する。照合は参照名で
-- 朱・山吹の 6 トークンは**値を変えない**。根拠の説明だけ差し替える（山吹＝紺のほぼ補色 171°。「和紙の記憶」は失効）
-- 影は構造・alpha とも据え置き、基色だけ `rgba(45,38,70)` → **`rgba(23,43,73)`**。前回 alpha を上げたのは canvas が暗くなったためで、今回 canvas の L は 0.930 → 0.925 とほぼ同じ
-- トークン名は 1 つも増減させない。コンポーネントの className も変えない
-- **リテラルで色を持つ箇所が追随しない**: `layout.tsx` の themeColor、`lib/line-flex-mail-body.ts` の BADGE_COLOR（テストが hex 固定）、`lib/open-chat/flex.ts` の FLEX_BTN_BG（**初代の藍 `#2B4E8C` のまま前回取り残されていた**）、`lib/stats/grade-tones.ts`（**「藍→砂」ランプも前回取り残し**。紺→水色鼠へ引き直す）
-- docs の腐り: `docs/design/ui_kits/kagetra-mobile/palette.css`・`design-system-readme.md`・`SKILL.md` は**初代（和紙 × 藍墨）の値のまま 2 世代放置**されていた。brand が藍へ戻ると「ほぼ正しいが hex が違う」状態になりかえって危険なので、palette.css は機械更新、残り 2 つは冒頭に注記 1 つ
-- 新設テスト `apps/web/src/app/globals-tokens.test.ts` で 2 系統（`@theme` ⇔ `:root --kg-*`）の同値と spec 値を固定する。名前対応は `canvas`↔`bg`・`ink*`↔`fg*`・`ink-meta`↔`fg-3`・`line*`↔`line-green*`
-- 成果物 3 ファイルは main に **untracked**。`/implement` の worktree 作成直後に cp してコミットする
-
-## 実画面でしか確認できない項目（出荷後に本番で）
-
-地の水色の強さ（375px 全面）／純白カード上の影の alpha／テクスチャの見え方／`--kg-nonattend` の見え方／LINE トーク上の Flex の紺
-
-## 関連して決まった副次事項
-
-- アプリアイコン差し替え（別タスク）の地色は brand `#15387d`
-- 会員向けガイド PDF の紫配色は、本 spec の brand 系へ寄せればよい（別作業。「藍へ戻すか保留」の判断材料が揃った）
-
-関連: [[project-kagetra-color-tokens]]（出荷時に更新が必要）・[[project_lilac_palette_direction]]（前回の刷新）
+関連: [[project-kagetra-color-tokens]]（round 4 出荷時に canvas 系の値を更新する）・[[ship-hokumei-palette]]

@@ -433,7 +433,7 @@
 - [event-line-broadcast ③人数内訳 実装（タスク1-4）](impl_event-line-broadcast-headcount-breakdown.md) — 紐付け案内③を役割別の内訳へ。★遠征届不要時に副連絡バケットを空にしないと兼務の管理者が消える
 - [auto-review PR #647](auto-review-round-pr647.md) — R1 verdict=needs_changes→cutoff(user-wontfix)・blockers2件見送り
 - [紐付け案内③を役割別の人数内訳へ改訂](project_ship-event-line-headcount-breakdown.md) — shipped: PR #647
-- [北溟配色（白波 × 紺）design-spec 確定・出荷(2026-09-21)](project_hokumei_palette_def.md) — 藤×墨→白波×紺。surface 純白/canvas 水色 #d3eafa/brand 紺 #15387d・メリハリの本体は ΔL 0.075・純白禁止の原則を撤回・朱と山吹は据置。**shipped: PR #648**（[出荷記録](project_ship-hokumei-palette.md)）。★残DoD=本番の実画面確認5項目（水色の強さ・影・テクスチャ・nonattend・Flex の紺）
+- [北溟配色（白波 × 紺）design-spec（round 4: 地の青みを落とす・2026-09-22）](project_hokumei_palette_def.md) — canvas #d3eafa→#dfe8ed（彩度 0.033→0.012・明度据え置き）。round 1〜3 は PR #648 で出荷済み。★round 4 は実装未着手で改訂 3 ファイルは main に未コミット。次=/implement hokumei-palette
 - [hokumei-palette 実装（タスク1-5）](impl_hokumei-palette.md) — 白波×紺の配色差し替え。Docker無しでピュアテストを回す設定・生成CSS照合の手順あり
 - [auto-review PR #648](auto-review-round-pr648.md) — R1 verdict=pass
 - [北溟配色（白波 × 紺）への刷新](project_ship-hokumei-palette.md) — shipped: PR #648
@@ -448,3 +448,6 @@
 - [invite-link-registration 名簿紐付け タスク5(E2E)](impl_invite-link-registration-task5.md) — 発行者を紐付け済みにして既存ケース温存・AC-11/12 と self-identify 所属ON。ローカル未実行=CI 任せ
 - [auto-review PR #660](auto-review-round-pr660.md) — R1 verdict=needs_changes→cutoff(user-wontfix: 招待検証と紐付けのTOCTOU)
 - [名簿の会員が招待URLから名簿を選んで紐付け（invite-link-registration 改修）](project_ship-invite-link-registration-roster-claim.md) — shipped: PR #660。★残DoD=本番で2択・名簿選択・/self-identify の所属入力を確認、配布前に招待リンク再発行
+- [北溟配色 round 4 実装(2026-09-23)](impl_hokumei-palette-round4.md) — 地と枠線の彩度を0.375倍へ。タスク1=globals.css正典+test+themeColor / タスク2=docs/design同期。★L注記0.925→0.926も実値ずれ・「10行」は値行のみ・生成CSS照合スクリプトはcreateRequireで解決基点をworktreeへ
+- [auto-review PR #661](auto-review-round-pr661.md) — R1 verdict=pass（1ラウンド・sol/low・21.3k tokens）。docs/配下は既定除外で未レビュー
+- [北溟配色 round 4: 地と枠線の彩度を 0.375 倍へ落とす](project_ship-hokumei-palette-round4.md) — shipped: PR #661

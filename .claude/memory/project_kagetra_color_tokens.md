@@ -21,7 +21,7 @@ metadata:
 
 和紙 × 藍墨（初代）→ 藤 × 墨（2026-08・lilac-palette）→ **白波 × 紺（2026-09・hokumei-palette）**。正典は `docs/features/hokumei-palette/design-spec.md`、導出と全コントラストの再現は同ディレクトリの `palette-check.mjs`（依存なし・exit 0 が合格）。詳細は [[feature-def-hokumei-palette]]。
 
-アプリ名「北溟」（北の大海）を **白波・海面・深み** の3層として読み、`surface` 純白 `#ffffff` / `canvas` 水色 `#d3eafa` / `brand` 紺 `#15387d` に割り当てた。**メリハリの本体は明度ラダー**（surface→canvas ΔL 0.075・下限 0.07、canvas→surface-alt 0.041・下限 0.035）。
+アプリ名「北溟」（北の大海）を **白波・海面・深み** の3層として読み、`surface` 純白 `#ffffff` / `canvas` 水色鼠 `#dfe8ed` / `brand` 紺 `#15387d` に割り当てた。**メリハリの本体は明度ラダー**（surface→canvas ΔL 0.074・下限 0.07、canvas→surface-alt 0.040・下限 0.035）。**round 4（PR #661）で面と枠線のラダー 5 トークン（canvas・surface-alt・border-soft・border・border-strong）の彩度だけを 0.375 倍へ落とした**（canvas は `#d3eafa` → `#dfe8ed`、彩度 0.033 → 0.012）。明度と色相は据え置き — 地の青みを弱めたくても**明度を上げてはいけない**（白へ寄せると surface との ΔL が下限 0.07 を割り「のぺっと」が再発する）。
 
 セマンティクス: **参加/成功 = 紺**（brand・success `#15387d`）、不参加/危険 = 朱（accent・danger `#b33c2d`・据置）、注意 = 山吹（warn `#b17915`・据置）、補足 = 水色鼠（info・neutral `#3d4958` 系）。文字（ink）は墨のまま藍を帯びさせない。
 
@@ -61,7 +61,7 @@ metadata:
 
 CSS 変数を使えずリテラルで色を持つ箇所（**トークンを変えても追随しない**。変えたら同時に直す）:
 
-- `apps/web/src/app/layout.tsx` の `themeColor`（= canvas `#d3eafa`。`<meta>` 出力のため）
+- `apps/web/src/app/layout.tsx` の `themeColor`（= canvas `#dfe8ed`。`<meta>` 出力のため）
 - `lib/line-flex-mail-body.ts` の `BADGE_COLOR` と `lib/open-chat/flex.ts` の `FLEX_BTN_BG`（= brand `#15387d`。Flex JSON はリテラルのみ。★オープンチャットのボタンは藤 × 墨の刷新で初代の藍のまま取り残されていた）
 - `lib/stats/grade-tones.ts`（紺→水色鼠ランプ。A = brand・全級 = neutral-fg。★これも藤 × 墨の刷新で「藍→砂」のまま取り残されていた）
 
