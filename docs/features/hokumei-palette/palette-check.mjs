@@ -1,4 +1,4 @@
-// 北溟パレット（A1 白波）の導出と検証。
+// 北溟パレット（A1 白波・round 4 で地の彩度を落とした版）の導出と検証。
 //
 //   node docs/features/hokumei-palette/palette-check.mjs
 //
@@ -64,12 +64,17 @@ function contrast(a, b) {
 }
 
 // ---------- 導出仕様（OKLCH [L, C, h]） ----------
+// 面と枠線のラダー（round 4）: 明度と色相は A1 のまま、彩度だけを A1 の
+// 0.375 倍へ落とす（canvas 0.032 → 0.012）。「背景まで水色はやりすぎ」への
+// 対応で、明度を上げるとカード↔地の ΔL が縮んで「のぺっと」が再発するため、
+// 明度は動かさない。
+const LADDER_CHROMA = 0.375
 const SPEC = {
-  canvas: [0.925, 0.032, 238],
-  'surface-alt': [0.885, 0.038, 238],
-  'border-soft': [0.86, 0.035, 240],
-  border: [0.8, 0.04, 242],
-  'border-strong': [0.68, 0.045, 248],
+  canvas: [0.925, 0.032 * LADDER_CHROMA, 238],
+  'surface-alt': [0.885, 0.038 * LADDER_CHROMA, 238],
+  'border-soft': [0.86, 0.035 * LADDER_CHROMA, 240],
+  border: [0.8, 0.04 * LADDER_CHROMA, 242],
+  'border-strong': [0.68, 0.045 * LADDER_CHROMA, 248],
   ink: [0.21, 0.025, 262],
   'ink-2': [0.31, 0.03, 262],
   'ink-meta': [0.47, 0.03, 258],
@@ -93,11 +98,11 @@ const SPEC = {
 // ---------- design-spec.md に書いた確定値 ----------
 const PINNED = {
   surface: '#ffffff',
-  canvas: '#d3eafa',
-  'surface-alt': '#c3ddf0',
-  'border-soft': '#bdd5e6',
-  border: '#a8c2d6',
-  'border-strong': '#839bb3',
+  canvas: '#dfe8ed',
+  'surface-alt': '#d1dbe2',
+  'border-soft': '#cad2d9',
+  border: '#b6bfc7',
+  'border-strong': '#9099a2',
   ink: '#121824',
   'ink-2': '#283040',
   'ink-meta': '#515c6c',
@@ -149,7 +154,7 @@ for (const [name, d, min] of ladder) {
   console.log(`  ${ok ? 'OK ' : 'NG '} ΔL ${name.padEnd(22)} ${d.toFixed(3)} (下限 ${min})`)
 }
 for (const k of ['brand-bg', 'accent-bg', 'warn-bg', 'neutral-bg', 'info-bg']) {
-  console.log(`      ΔL ${k.padEnd(11)} vs surface ${(L('surface') - L(k)).toFixed(3)} / vs canvas ${Math.abs(L('canvas') - L(k)).toFixed(3)}`)
+  console.log(`      ΔL ${k.padEnd(11)} vs surface ${(L('surface') - L(k)).toFixed(3)} / vs canvas ${Math.abs(L('canvas') - L(k)).toFixed(3)} / vs surface-alt ${Math.abs(L('surface-alt') - L(k)).toFixed(3)}`)
 }
 
 console.log('\n== 3. コントラスト（本文 4.5:1） ==')
@@ -184,6 +189,9 @@ ref('nonattend on surface-alt（バーの溝）', T.nonattend, T['surface-alt'])
 ref('white つまみ on neutral-bg（トグル）', '#ffffff', T['neutral-bg'])
 ref('white 紙面 on canvas（文書プレビュー）', '#ffffff', T.canvas)
 ref('LINE Flex: white on brand', '#ffffff', T.brand)
+ref('neutral-bg vs surface-alt（ほぼ同色）', T['neutral-bg'], T['surface-alt'])
+ref('info-bg vs surface-alt（ほぼ同色）', T['info-bg'], T['surface-alt'])
+console.log(`      canvas の彩度 ${hexToOklch(T.canvas).C.toFixed(3)}（A1 は 0.033。ほんのり青みの水色鼠）`)
 const pillChroma = (k) => hexToOklch(T[k]).C.toFixed(3)
 console.log(`      brand-bg と neutral-bg は色相がほぼ同じ → 彩度で弁別: ${pillChroma('brand-bg')} vs ${pillChroma('neutral-bg')}`)
 

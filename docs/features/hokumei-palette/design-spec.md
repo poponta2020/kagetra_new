@@ -3,8 +3,8 @@ status: locked
 slug: hokumei-palette
 target: apps/web/src/app/globals.css（全画面に効くデザイントークン）
 design_source: none      # 視覚の正は本ファイル §2〜§4 のトークン値そのもの（モックも patch も無い）
-chosen_direction: A1 白波
-round: 3
+chosen_direction: A1 白波（round 4 で地と枠線の彩度を 0.375 倍へ）
+round: 4
 mock_dir: null
 design_project: null
 prototype_branch: null
@@ -12,7 +12,7 @@ prototype_base: null
 ---
 # 北溟配色（白波 × 紺）design-spec
 
-**状態**: 確定（ユーザー承認済み 2026-09-21・実装未着手）
+**状態**: round 4 確定（ユーザー承認済み 2026-09-22・実装未着手）。round 3 までは PR #648 で出荷済み
 **種別**: UI リデザイン（design-spec が要件成果物。requirements.md と GitHub Issue は作らない。前例 = `lilac-palette`）
 **検証スクリプト**: `docs/features/hokumei-palette/palette-check.mjs`（本 spec の全数値を再導出・再実測する。exit 0 が合格）
 
@@ -34,7 +34,7 @@ prototype_base: null
 | 層 | 役 | トークン |
 |---|---|---|
 | 白波 | カード・シート（手前に浮くもの） | `surface` 純白 |
-| 海面 | ページの地 | `canvas` 水色 |
+| 海面 | ページの地 | `canvas` 水色鼠（ほんのり青み） |
 | 深み | ブランド・主要操作・肯定 | `brand` 紺 |
 
 百人一首 76 番（法性寺入道前関白太政大臣）の結句が「沖つ白波」であり、海の上の白波は題材の内側にある像である。`design.md` の「百人一首＝古典的な題材に古典のトーンを当てる」という論は、和紙 × 藍墨、藤 × 墨から変わっていない。色相を藤から藍へ戻し、面を和紙でも藤鼠でもなく白と水色にしただけである。
@@ -52,26 +52,55 @@ prototype_base: null
 | A2 濤 | brand を留紺（L 0.31）まで沈めると見出しの墨（ink-2）との明度差が 0.022 になり、ボタンと見出しの階層が色で読めなくなる。地の水色（彩度 0.045）も 375px 全面では強すぎる懸念 |
 | A3 藍墨 | 文字色まで濃紺にする案。朱・山吹の文字だけが暖色として浮き、警告の強度が意図せず上がる |
 
-A2 の地の水色は、実画面で A1 が物足りなかった場合の調整先として残す（§7 の実画面確認項目）。
+A2 の地の水色 `#c6e8fc` を「A1 が物足りなかった場合の調整先」として残していたが、round 4 で逆方向（青みを減らす）に決まったので撤回する。
+
+### round 4: 地の青みを落とす（2026-09-22）
+
+PR #648 の出荷後、ユーザーが本番の実画面を見て「背景まで水色は少しやりすぎ」と判断した。§7 で「実画面でしか確認できない」としていた 1 番目の項目（地の水色の強さ）が、強すぎる側に振れた。
+
+**明度は動かさず、彩度だけを落とす。** 背景を白へ寄せる（明るくする）と、純白カードとの ΔL が縮む。それは round 1 の「のぺっとしている」の原因そのものである。そこで面と枠線のラダー 5 トークン（`canvas`・`surface-alt`・`border-soft`・`border`・`border-strong`）の OKLCH 彩度を一律 0.375 倍にした。明度と色相は A1 のまま据え置く。canvas の彩度は 0.033 → **0.012** になる。
+
+| 候補 | canvas | 彩度 | 結果 |
+|---|---|---|---|
+| A1（PR #648） | `#d3eafa` | 0.033 | 実画面で強すぎた |
+| 案1 | `#dbe9f2` | 0.020 | 不採用 |
+| 案2 | `#dde8f0` | 0.016 | 不採用。**round 4 が物足りなかった場合の調整先** |
+| **案3** | **`#dfe8ed`** | **0.012** | **採用**。青みはごく淡く、明るく冷たい灰に近い |
+
+ユーザーの最初の選択は「ほんのり水色を残す（彩度 0.015 前後）」だった。そのうえで同じ画面モックを 3 案並べて比較し、最も淡い案3を選んだ。
+
+これにより次の 2 つの記述は失効する。
+
+- round 1〜3 の要望「地（メイン）は水色でよい」と、それに基づく「canvas の彩度は 0.033。これを下回ると水色と読めない」という主張。地は「はっきり水色」から「ほんのり青みの水色鼠」へ変わる。北溟の 3 層の読み（白波・海面・深み）はそのまま使う。海面の色が淡くなるだけである
+- C 藍 × 雪の不採用理由（地が無彩色で「メインは水色」の要望に合わない）。ただし案3は彩度 0.012 で無彩色ではない。C を採用したわけではない
 
 ---
 
-## 2. 配色（A1 白波）
+## 2. 配色（A1 白波・round 4）
 
 すべて OKLCH で導出し、全ペアのコントラストを実測済み。**WCAG AA 未達 0 件**。導出式と実測は `palette-check.mjs` にある。
 
 ### 2.1 面と枠線（色相 238〜248°）
 
-| トークン | 新 | 現行 | L |
-|---|---|---|---|
-| `surface` | `#ffffff` | `#f7f5fe` | 1.000 |
-| `canvas` | `#d3eafa` | `#e8e6f2` | 0.925 |
-| `surface-alt` | `#c3ddf0` | `#dedcea` | 0.884 |
-| `border-soft` | `#bdd5e6` | `#d7d4e3` | 0.861 |
-| `border` | `#a8c2d6` | `#c7c3d4` | 0.801 |
-| `border-strong` | `#839bb3` | `#a4a0b5` | 0.679 |
+| トークン | round 4 | A1（PR #648） | 藤 × 墨（参考） | L |
+|---|---|---|---|---|
+| `surface` | `#ffffff` | `#ffffff` | `#f7f5fe` | 1.000 |
+| `canvas` | `#dfe8ed` | `#d3eafa` | `#e8e6f2` | 0.926 |
+| `surface-alt` | `#d1dbe2` | `#c3ddf0` | `#dedcea` | 0.886 |
+| `border-soft` | `#cad2d9` | `#bdd5e6` | `#d7d4e3` | 0.860 |
+| `border` | `#b6bfc7` | `#a8c2d6` | `#c7c3d4` | 0.800 |
+| `border-strong` | `#9099a2` | `#839bb3` | `#a4a0b5` | 0.679 |
 
-**明度ラダーを再び拡大する**: surface→canvas ΔL 0.044 → **0.075**（下限 0.07）、canvas→surface-alt ΔL 0.030 → **0.041**（下限 0.035）。メリハリの本体はここである。canvas の彩度は 0.016 → **0.033** で、初めて「水色」と読める値になる。
+**明度ラダーは A1 のまま保つ**: surface→canvas ΔL **0.074**（下限 0.07）、canvas→surface-alt ΔL **0.040**（下限 0.035）。メリハリの本体はここである。藤 × 墨の頃は 0.044 / 0.030 だった。round 4 は彩度だけを 0.375 倍にしたので、ΔL は丸め誤差の範囲（0.001）しか動かない。canvas の彩度は **0.012**（A1 は 0.033）。導出は `palette-check.mjs` の `LADDER_CHROMA` にある。
+
+**`neutral-bg`・`info-bg` と `surface-alt` がほぼ同色になる。** どちらもコントラスト 1.03・ΔL 0.009 である。OKLab の色差は、neutral が 0.031 → 0.011、info が 0.021 → 0.011 に縮む（知覚できる差の目安は 0.02 前後）。A1 では `surface-alt` の彩度が 0.038 あり、ピル地（0.009・0.020）と彩度の差で分かれていた。round 4 で `surface-alt` の彩度が 0.015 まで下がったため、その差が消える。`brand-bg`（彩度 0.058）は逆に A1 より `surface-alt` から離れる。朱・山吹は色相で分かれる。
+
+影響が見えるのは、`surface-alt` の上に neutral / info の地を置いている箇所である（いずれも管理者画面）。
+
+- `admin/mail-inbox/components/DraftCard.tsx`: `bg-surface-alt` の箱の中に、下書き状態の `Pill`（`tone="info"`・`tone="neutral"`）を置いている。`admin/mail-inbox/page.tsx` にも同じ形の箱がある
+- `admin/members/page.tsx`: 種別バッジとして `bg-neutral-bg` 1 個と `bg-surface-alt` 3 個が並ぶ
+
+ピルの輪郭は溶けるが、文字（`neutral-fg`・`info-fg`・`ink-2`）と文言で読めるので、今回は直さない（§10）。藤 × 墨の頃も色差は neutral 0.011・info 0.001 で、同じかそれ以上に同色だった。A1 で分かれていたのは副次的な効果で、意図した仕様ではない。
 
 **`surface` を純白にする**。`design.md` の視覚原則「純白 `#FFF` は使わない」は本変更で撤回する（§5）。初代は和紙、前回は藤鼠という「紙の色」が面の個性を担っていたが、今回は白波＝純白そのものが個性であり、色を混ぜると要望の「もっと白く」に反する。
 
@@ -124,7 +153,7 @@ A2 の地の水色は、実画面で A1 が物足りなかった場合の調整�
 - **朱**: 藍 × 朱は初代と同じ、和の定番の取り合わせ。`accent == danger` の同値も維持。
 - **山吹**: 紺のほぼ補色（ピル地どうしの色相差 171°）で、画面の中で最も遠い色になる。前回の根拠「捨てた和紙ベージュの記憶」は失効するが、役割（danger と分離された注意色）は変わらない。
 
-朱の文字は新 canvas の上でも AA を満たす（4.70）。ピル地は白カード上で ΔL 0.09〜0.10 離れ、現行（0.07〜0.08）より浮く。canvas 直上でも色相差（朱 141°・山吹 171°）で弁別できる。
+朱の文字は canvas の上でも AA を満たす（round 4 で 4.69。A1 は 4.70）。ピル地は白カード上で ΔL 0.09〜0.10 離れ、現行（0.07〜0.08）より浮く。canvas 直上でも色相差（朱 141°・山吹 171°）で弁別できる。
 
 ### 2.6 補足・中立
 
@@ -163,15 +192,19 @@ A2 の地の水色は、実画面で A1 が物足りなかった場合の調整�
 
 alpha は据え置く。影が落ちる先の canvas は L 0.930 → 0.925 でほぼ同じだからである（前回 alpha を上げたのは canvas が 0.953 → 0.930 と暗くなったため。今回その事情は無い）。ただしカードが純白になり輪郭が明度差だけで立つようになるので、影が過剰に見える可能性はある。実画面確認項目（§7）。
 
+round 4 でも影は変えない。canvas の明度は動いておらず、ユーザーは実画面を見たうえで影に指摘を出していない。影の基色は色相 258° の藍みで、青みが淡くなった canvas の上ではやや冷たい影になる。これも §7 の確認項目に含める。
+
 ---
 
 ## 4. コード内リテラルの追随
 
 CSS 変数を使えずリテラルで色を持つ箇所。トークンを替えただけでは追随しない。
 
+**round 4 で動くのは `themeColor` だけである。** ほかのリテラル（Flex の紺・級トーン）は brand 系なので round 4 の対象外。級トーンの E `#9bb9ce` は白カードの上に描くので、canvas の青みとは関係しない。
+
 | 箇所 | 現状 | 新 | 備考 |
 |---|---|---|---|
-| `apps/web/src/app/layout.tsx` `themeColor` | `#e8e6f2` | `#d3eafa` | canvas と同値。`<meta>` 出力のためリテラル必須。コメントの「藤鼠」も直す |
+| `apps/web/src/app/layout.tsx` `themeColor` | `#e8e6f2` | `#d3eafa` → round 4 で **`#dfe8ed`** | canvas と同値。`<meta>` 出力のためリテラル必須。コメントの「canvas 水色」も「水色鼠」へ直す |
 | `lib/line-flex-mail-body.ts` `BADGE_COLOR` | `#534286` | `#15387d` | brand と同値。Flex JSON はリテラルのみ。テストが hex を固定している |
 | `lib/open-chat/flex.ts` `FLEX_BTN_BG` | `#2B4E8C` | `#15387d` | **初代の藍のまま取り残されていた**。brand へ揃える。白文字との比 11.09 |
 | `lib/stats/grade-tones.ts` | 藍→砂 | 紺→水色鼠 | 下記 |
@@ -196,6 +229,20 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 5. `design.md` の改訂
 
+### round 4 で直す箇所
+
+round 1〜3 の改訂（下の 1〜7）は PR #648 で反映済み。round 4 では、地の色を書いた箇所だけを直す。
+
+- 「なぜこの方向か」の 3 層の説明: 海面 = `canvas`（ページの地）を「水色」から「水色鼠（ほんのり青み）」へ
+- 視覚原則「White-crest surfaces」: 「地は水色 `#D3EAFA`」を「地は水色鼠 `#DFE8ED`」へ。ΔL 0.07 の下限の記述はそのまま残す。**明度を上げて青みを消そうとすると下限を割る**、という一文を足す（次の変更者が白へ寄せないため）
+- 基調カラー節: `canvas` `#DFE8ED` / `recessed` `#D1DBE2`
+- コンポーネント表の `Card`: 枠 `1px #CAD2D9`
+- §6 トークン抜粋: `--kg-canvas` / `--kg-surface-alt` / `--kg-border-soft` / `--kg-border` / `--kg-border-strong` を §2.1 の round 4 値へ。`--kg-canvas` のコメント「水色（海面）」は「水色鼠（海面）」へ
+- AI 要項取り込みの行: upload ゾーンの破線 `#A8C2D6` → `#B6BFC7`
+- 最終更新行と経緯: round 4 を追記する
+
+### round 1〜3 の改訂（PR #648 で反映済み）
+
 1. **§2 の表題と導入**: 「藤 × 墨」→「白波 × 紺」。経緯の引用に本 spec を追加する（和紙 × 藍墨 → 藤 × 墨 → 白波 × 紺）。「なぜこの方向か」は §1 の読み方へ差し替える。
 2. **視覚原則「Fuji-nezu surfaces」**: 「純白 `#FFF` は使わない」を**撤回**し、「カードは純白、地は水色。surface ↔ canvas は ΔL 0.07 が下限」へ書き換える。例外 6 箇所の記述は「`bg-surface` へ置換しない」旨に改める。
 3. **視覚原則「Violet-tinted shadows」**: 基色を `rgba(23,43,73, ...)` へ。2 層の規約は維持。
@@ -207,6 +254,22 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 ---
 
 ## 6. 影響範囲
+
+### round 4
+
+| ファイル | 内容 |
+|---|---|
+| `apps/web/src/app/globals.css` | **正典**。`@theme` の `--color-canvas` / `--color-surface-alt` / `--color-border-soft` / `--color-border` / `--color-border-strong` と、`:root` の `--kg-bg` / `--kg-surface-alt` / `--kg-border-soft` / `--kg-border` / `--kg-border-strong`（2 系統で計 10 行）。ヘッダコメントの「海面 canvas 水色」、Surfaces 節のコメント（ΔL 0.075 / 0.041 → 0.074 / 0.040、「canvas の彩度は 0.033。これを下回ると水色と読めない」の撤回と round 4 の理由）、各行末の L・ΔL の注記 |
+| `apps/web/src/app/globals-tokens.test.ts` | spec 値の 5 トークンを round 4 値へ。2 系統の同値の検証はそのまま効く |
+| `apps/web/src/app/layout.tsx` | `themeColor` `#dfe8ed` とコメント |
+| `docs/design/colors_and_type.css` | globals.css の第 2 コピー。同じ 5 値と ΔL のコメント |
+| `docs/design/ui_kits/kagetra-mobile/palette.css` | 同じ 5 値 |
+| `docs/design/design.md` | §5 の round 4 の箇所 |
+| `.claude/memory/project_kagetra_color_tokens.md` | 「canvas 水色 `#d3eafa`」の記述を round 4 値へ（出荷時） |
+
+brand 系・朱・山吹・墨・ピル地・影・テクスチャ・LINE Flex・級トーンは触らない。コンポーネントの className も変えない。
+
+### round 1〜3（PR #648 で反映済み）
 
 | ファイル | 内容 |
 |---|---|
@@ -231,6 +294,16 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 7. 検証方法
 
+### round 4 の実画面確認（未確認として報告し、出荷後に本番で確認）
+
+- 地の青みが淡くなりすぎていないか。375px の全面で「冷たい灰」に見えて寂しい場合の調整先は案2 `#dde8f0`（`LADDER_CHROMA` を 0.5 へ）。逆に、まだ青いなら彩度をさらに落とす。**どちらの場合も明度は動かさない**
+- 背景テクスチャ（opacity 0.05）が、青みの淡い canvas の上で汚れて見えないか
+- 藍みの影が、青みの淡い canvas の上で浮いて見えないか
+- `surface-alt` の上の neutral / info の地（§2.1: メール取込の下書きカードの状態ピル、`admin/members` の種別バッジ）が読めるか。輪郭が溶けるのは想定内で、文字と文言で読めれば今回は直さない
+- PWA のステータスバー色（`themeColor`）が地と揃っているか。反映には PWA の再追加が要ることがある
+
+round 1〜3 の実画面確認のうち、「地の水色の強さ」は round 4 の起点になった。そのほかの項目（影の alpha・テクスチャ・`--kg-nonattend`・LINE Flex の紺）について、ユーザーは実画面を見たうえで指摘を出していない（2026-09-22 のヒアリングでは「特になし」）。
+
 ### 静的に検証できるもの
 
 - `node docs/features/hokumei-palette/palette-check.mjs` が exit 0（OKLCH 導出値 = spec 値、ラダー下限、コントラスト全ペア）
@@ -239,9 +312,9 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 - 照合は `var(--color-*)` の**参照名**で行う。**hex 照合は無効**（`success == brand`、`danger == accent`、今回からは `surface == ink-on-brand == white` も衝突する）
 - 既存テスト・lint・typecheck は CI で green を確認する（ローカル全実行を要求しない）
 
-### 実画面でしか検証できないもの（未確認として報告し、出荷後に本番で確認）
+### round 1〜3 の実画面確認項目（記録）
 
-- 地の水色が 375px 全面で強すぎないか・物足りなくないか（調整先は A2 の `#c6e8fc` 側。動かすなら `surface-alt` 以下のラダーも一緒に動かす）
+- 地の水色が 375px 全面で強すぎないか・物足りなくないか → **強すぎた。round 4 で対応**
 - 純白カードの上で影が過剰に見えないか（alpha の再調整）
 - テクスチャ（opacity 0.05）が彩度の上がった canvas の上でどう見えるか
 - `--kg-nonattend`（暖色ピンク）が水色の面の上で意図的に見えるか
@@ -251,13 +324,28 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 8. 忠実度チェックリスト ★実装の完了ゲート
 
+### round 4（今回の完了ゲート）
+
+- [ ] `node docs/features/hokumei-palette/palette-check.mjs` が exit 0（round 4 の `PINNED` と導出値が一致し、ラダー下限とコントラストが全て合格）
+- [ ] `globals.css` の `@theme` の 5 トークンが §2.1 の round 4 値と一致する: `canvas #dfe8ed`・`surface-alt #d1dbe2`・`border-soft #cad2d9`・`border #b6bfc7`・`border-strong #9099a2`
+- [ ] `:root` のミラー（`--kg-bg`・`--kg-surface-alt`・`--kg-border-soft`・`--kg-border`・`--kg-border-strong`）が `@theme` 側と同値
+- [ ] 上の 5 トークン以外の値が 1 つも変わっていない（`git diff` で `globals.css` の値の変更がちょうど 10 行。brand・朱・山吹・墨・ピル地・影・テクスチャ・`--kg-nonattend` は不変）
+- [ ] トークン名の増減が 0。コンポーネントの className に差分が無い
+- [ ] `globals-tokens.test.ts` の spec 値が round 4 値へ更新され、green
+- [ ] `layout.tsx` の `themeColor` == canvas `#dfe8ed`
+- [ ] `docs/design/colors_and_type.css`・`docs/design/ui_kits/kagetra-mobile/palette.css`・`docs/design/design.md` から A1 のラダー値（`#d3eafa` `#c3ddf0` `#bdd5e6` `#a8c2d6` `#839bb3`。大文字小文字を問わない）が消えている。`docs/features/hokumei-palette/` の経緯の記述と `docs/worklog.md` は除く
+- [ ] `globals.css` と `colors_and_type.css` のコメントから「canvas の彩度は 0.033。これを下回ると水色と読めない」が消え、ΔL の注記が 0.074 / 0.040 になっている
+- [ ] 生成 CSS の実コンパイル照合で、5 トークンの `--color-*` が round 4 値で出力されている（Tailwind v4 は未定義トークンを無言で握り潰すため）
+
+### round 1〜3（PR #648 でクリア済み。同値関係・据え置き・名前の不変などの条件は round 4 でも有効。canvas 系の hex と `themeColor` の値は round 4 の表が優先する）
+
 - [x] `globals.css` の `@theme --color-*` 全トークンが §2 の表と一致する（`palette-check.mjs` の `PINNED` と同値）
 - [x] `:root --kg-*` のミラーが `@theme` 側と全て同値である（`canvas`↔`bg`、`ink*`↔`fg*`、`line*`↔`line-green*` の名前対応を含む）
 - [x] 同値関係が保たれている: `success*` == `brand*`（3 本）、`danger*` == `accent*`（3 本）、`info-fg` == `neutral-fg`、`ink-on-brand` == `surface`
 - [x] 朱・山吹の 6 トークンと LINE 緑・`--kg-nonattend` の値が**変わっていない**
 - [x] トークン名の増減が 0（新設も削除もしない）。`bg-white` / `text-white` の例外 6 箇所を置換していない。コンポーネントの className に差分が無い
 - [x] 影 3 本が 2 層のまま、基色 `rgba(23, 43, 73, α)`、alpha は現行と同じ。`--kg-texture` と段の割り当ては不変
-- [x] `themeColor` == canvas `#d3eafa`
+- `themeColor` == canvas（値は round 4 の `#dfe8ed` が正。A1 の `#d3eafa` は PR #648 時点の値）
 - [x] LINE Flex の `BADGE_COLOR` と `FLEX_BTN_BG` がどちらも brand `#15387d`
 - [x] `GRADE_TONES.A` == brand、A→E で明度が単調増加、`ALL_SERIES_TONE` == neutral-fg
 - [x] `docs/design/colors_and_type.css` が globals.css と同値。`design.md` に「純白は使わない」が残っていない
@@ -268,6 +356,14 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 9. 実装プロセス上の注意
 
+### round 4
+
+- `docs/features/hokumei-palette/` の 3 ファイルは tracked である。ただし round 4 の改訂は **main の作業ディレクトリで未コミットの変更**（`git status` で ` M`）として置かれている。`/implement` の worktree は origin/main から作るので、**worktree には round 3 の古い版が存在する**。「ファイルが無ければ cp」では素通りしてしまう。**worktree 作成直後に 3 ファイル（`design-spec.md`・`implementation-plan.md`・`palette-check.mjs`）をメイン作業ツリーの版と diff し、cp で上書きして最初にコミットする**こと
+- `globals.css` は全画面に効く単一ファイルである。着手前に、他ブランチが UI トークンを触っていないか確認する
+- 地の強さ・テクスチャ・影の見え方は jsdom で検証できない。確認済みと偽らず、§7 の round 4 実画面確認項目として「未確認」で報告する
+
+### round 1〜3
+
 - 本ディレクトリは **main の作業ディレクトリに untracked で置かれている**。`/implement` の worktree には存在しないので、**worktree 作成直後に `docs/features/hokumei-palette/` を cp して最初にコミットする**こと（`palette-check.mjs` を含む 3 ファイル）。
 - `globals.css` は全画面に効く単一ファイルである。着手前に他ブランチが UI トークンを触っていないか確認する。2026-09-21 時点で開いている worktree（`design/travel-report`・`feature/import-past-results`・`feature/remove-schedule`）は `globals.css`・`docs/design`・上表のリテラル箇所のいずれも触っていない。
 - 影・テクスチャ・水色の強さは jsdom で検証できない。確認済みと偽らず §7 の未確認項目として報告する。
@@ -275,6 +371,16 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 ---
 
 ## 10. Non-goals
+
+### round 4 で追加
+
+- brand 系（紺）・`brand-bg`・`success*` の変更。ユーザーは「背景以外に気になる点は特になし」と回答した
+- `info-bg`・`neutral-bg` の変更。`surface-alt` との同色化（§2.1）も直さない
+- 影の alpha・基色、テクスチャの opacity の変更（§7 の実画面確認で問題が出たら別途）
+- 明度ラダー（ΔL）の変更
+- `design.md` の round 4 の箇所（§5）以外の書き換え
+
+### round 1〜3 から継続
 
 - ダークモードの追加
 - タイポグラフィ・角丸・余白・レイアウトの変更。コンポーネントの className 変更
@@ -290,4 +396,11 @@ CSS 変数を使えずリテラルで色を持つ箇所。トークンを替え�
 
 ## 11. 要件への宿題（→ /define-feature hokumei-palette）
 
-なし（新ロジック・新データなし）。
+なし（新ロジック・新データなし）。round 4 も同じく、色の値の変更だけで完結する。
+
+---
+
+## 12. 変更履歴
+
+- 2026-09-21: round 1〜3。藤 × 墨から白波 × 紺（A1）へ刷新。PR #648 で出荷
+- 2026-09-22: round 4。面と枠線のラダー 5 トークンの彩度を 0.375 倍にした（canvas `#d3eafa` → `#dfe8ed`、彩度 0.033 → 0.012）。明度・色相とそれ以外の全トークンは据え置き（理由: 本番の実画面で「背景まで水色は少しやりすぎ」。明度を上げるとカードとの ΔL が縮み「のぺっと」が再発するため、彩度だけを動かした）
