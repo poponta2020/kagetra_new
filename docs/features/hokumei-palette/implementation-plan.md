@@ -1,5 +1,5 @@
 ---
-status: completed
+status: in-progress
 round: 4
 ---
 # 北溟配色 round 4（地の青みを落とす）実装手順書
@@ -28,7 +28,7 @@ round: 4
 ## 実装タスク
 
 ### タスク1: 正典（globals.css）・トークン同期テスト・themeColor の更新
-- [ ] 完了
+- [x] 完了
 - **目的:** 面と枠線のラダー 5 トークンを round 4 値へ差し替え、機械検証を round 4 値で通す
 - **対応チェック:** §8 round 4 の 1〜7・9（globals.css 側）・10
 - **主な変更領域:** `apps/web/src/app/globals.css`、`apps/web/src/app/globals-tokens.test.ts`、`apps/web/src/app/layout.tsx`

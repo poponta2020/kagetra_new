@@ -48,15 +48,16 @@ const shadows = decls(block('@theme'), 'shadow-')
 const t = (name: string) => theme.get(name)?.toLowerCase()
 const k = (name: string) => kg.get(name)?.toLowerCase()
 
-// design-spec §2 の確定値（A1 白波）。palette-check.mjs の PINNED と同じもの。
+// design-spec §2 の確定値（A1 白波・round 4）。palette-check.mjs の PINNED と同じもの。
+// round 4 で面と枠線のラダー 5 トークンの彩度を 0.375 倍へ落とした（明度・色相は据え置き）。
 const SPEC: Readonly<Record<string, string>> = {
   // §2.1 面と枠線
   surface: '#ffffff',
-  canvas: '#d3eafa',
-  'surface-alt': '#c3ddf0',
-  'border-soft': '#bdd5e6',
-  border: '#a8c2d6',
-  'border-strong': '#839bb3',
+  canvas: '#dfe8ed',
+  'surface-alt': '#d1dbe2',
+  'border-soft': '#cad2d9',
+  border: '#b6bfc7',
+  'border-strong': '#9099a2',
   // §2.2 墨
   ink: '#121824',
   'ink-2': '#283040',

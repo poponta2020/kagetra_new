@@ -8,7 +8,7 @@
    北の果ての大海を指す。これを白波・海面・深みの 3 層として読み、
    面の 3 役にそのまま割り当てる:
      白波  surface（カード・シート）      純白
-     海面  canvas（ページの地）           水色
+     海面  canvas（ページの地）           水色鼠
      深み  brand（ブランド・主要操作・肯定） 紺
    百人一首 76 番の結句「沖つ白波」は題材の内側にある像で、古典的な
    題材に古典のトーンを当てるという設計方針は、和紙 × 藍墨、藤 × 墨の
@@ -48,20 +48,23 @@
   --color-line-hover: #05a648;
 
   /* Surfaces 白波・海面 (shiranami / umi)
-     surface は純白（白波）、canvas は水色（海面）。surface → canvas →
+     surface は純白（白波）、canvas は水色鼠（海面）。surface → canvas →
      surface-alt の明度差を意図的に広げてあり、メリハリの本体はここ:
-       surface → canvas       ΔL 0.075（下限 0.07）
-       canvas → surface-alt   ΔL 0.041（下限 0.035）
-     前回は 0.044 / 0.030 で、カードが地から浮かず「のぺっとしている」と
-     指摘された。canvas の彩度は 0.033。これを下回ると水色と読めない。 */
-  --color-canvas: #d3eafa; /* L 0.925 */
-  --color-surface: #ffffff; /* L 1.000 — canvas との ΔL 0.075 */
-  --color-surface-alt: #c3ddf0; /* L 0.884 — canvas との ΔL 0.041 */
+       surface → canvas       ΔL 0.074（下限 0.07）
+       canvas → surface-alt   ΔL 0.040（下限 0.035）
+     藤 × 墨の頃は 0.044 / 0.030 で、カードが地から浮かず「のぺっとしている」
+     と指摘された。round 4 で canvas の彩度を 0.033 → 0.012 へ落としている
+     （本番の実画面で背景の青みが強すぎたため）。**明度は動かさないこと** —
+     背景を白へ寄せて青みを消すと surface との ΔL が下限 0.07 を割り、
+     「のぺっと」が再発する。淡くしたいときは彩度だけを下げる。 */
+  --color-canvas: #dfe8ed; /* L 0.926 */
+  --color-surface: #ffffff; /* L 1.000 — canvas との ΔL 0.074 */
+  --color-surface-alt: #d1dbe2; /* L 0.886 — canvas との ΔL 0.040 */
 
   /* Borders */
-  --color-border-soft: #bdd5e6;
-  --color-border: #a8c2d6;
-  --color-border-strong: #839bb3;
+  --color-border-soft: #cad2d9;
+  --color-border: #b6bfc7;
+  --color-border-strong: #9099a2;
 
   /* Ink 墨（近無彩色。彩度 0.03 以下で、藍を帯びさせない —
      朱・山吹の文字と同じ強度で並ばせるため）
@@ -175,14 +178,14 @@
   --kg-line-green-hv: #05a648;
 
   /* Surfaces 白波・海面 (shiranami / umi) */
-  --kg-bg: #d3eafa;
+  --kg-bg: #dfe8ed;
   --kg-surface: #ffffff;
-  --kg-surface-alt: #c3ddf0;
+  --kg-surface-alt: #d1dbe2;
 
   /* Borders */
-  --kg-border: #a8c2d6;
-  --kg-border-soft: #bdd5e6;
-  --kg-border-strong: #839bb3;
+  --kg-border: #b6bfc7;
+  --kg-border-soft: #cad2d9;
+  --kg-border-strong: #9099a2;
 
   /* Ink 墨 (sumi) */
   --kg-fg: #121824;
