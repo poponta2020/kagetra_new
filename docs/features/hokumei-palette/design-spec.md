@@ -326,16 +326,16 @@ round 1〜3 の実画面確認のうち、「地の水色の強さ」は round 4
 
 ### round 4（今回の完了ゲート）
 
-- [ ] `node docs/features/hokumei-palette/palette-check.mjs` が exit 0（round 4 の `PINNED` と導出値が一致し、ラダー下限とコントラストが全て合格）
-- [ ] `globals.css` の `@theme` の 5 トークンが §2.1 の round 4 値と一致する: `canvas #dfe8ed`・`surface-alt #d1dbe2`・`border-soft #cad2d9`・`border #b6bfc7`・`border-strong #9099a2`
-- [ ] `:root` のミラー（`--kg-bg`・`--kg-surface-alt`・`--kg-border-soft`・`--kg-border`・`--kg-border-strong`）が `@theme` 側と同値
-- [ ] 上の 5 トークン以外の値が 1 つも変わっていない（`git diff` で `globals.css` の値の変更がちょうど 10 行。brand・朱・山吹・墨・ピル地・影・テクスチャ・`--kg-nonattend` は不変）
-- [ ] トークン名の増減が 0。コンポーネントの className に差分が無い
-- [ ] `globals-tokens.test.ts` の spec 値が round 4 値へ更新され、green
-- [ ] `layout.tsx` の `themeColor` == canvas `#dfe8ed`
-- [ ] `docs/design/colors_and_type.css`・`docs/design/ui_kits/kagetra-mobile/palette.css`・`docs/design/design.md` から A1 のラダー値（`#d3eafa` `#c3ddf0` `#bdd5e6` `#a8c2d6` `#839bb3`。大文字小文字を問わない）が消えている。`docs/features/hokumei-palette/` の経緯の記述と `docs/worklog.md` は除く
-- [ ] `globals.css` と `colors_and_type.css` のコメントから「canvas の彩度は 0.033。これを下回ると水色と読めない」が消え、ΔL の注記が 0.074 / 0.040 になっている
-- [ ] 生成 CSS の実コンパイル照合で、5 トークンの `--color-*` が round 4 値で出力されている（Tailwind v4 は未定義トークンを無言で握り潰すため）
+- [x] `node docs/features/hokumei-palette/palette-check.mjs` が exit 0（round 4 の `PINNED` と導出値が一致し、ラダー下限とコントラストが全て合格）
+- [x] `globals.css` の `@theme` の 5 トークンが §2.1 の round 4 値と一致する: `canvas #dfe8ed`・`surface-alt #d1dbe2`・`border-soft #cad2d9`・`border #b6bfc7`・`border-strong #9099a2`
+- [x] `:root` のミラー（`--kg-bg`・`--kg-surface-alt`・`--kg-border-soft`・`--kg-border`・`--kg-border-strong`）が `@theme` 側と同値
+- [x] 上の 5 トークン以外の値が 1 つも変わっていない（`git diff` で `globals.css` の値の変更がちょうど 10 行。brand・朱・山吹・墨・ピル地・影・テクスチャ・`--kg-nonattend` は不変）
+- [x] トークン名の増減が 0。コンポーネントの className に差分が無い
+- [x] `globals-tokens.test.ts` の spec 値が round 4 値へ更新され、green
+- [x] `layout.tsx` の `themeColor` == canvas `#dfe8ed`
+- [x] `docs/design/colors_and_type.css`・`docs/design/ui_kits/kagetra-mobile/palette.css`・`docs/design/design.md` から A1 のラダー値（`#d3eafa` `#c3ddf0` `#bdd5e6` `#a8c2d6` `#839bb3`。大文字小文字を問わない）が消えている。`docs/features/hokumei-palette/` の経緯の記述と `docs/worklog.md` は除く
+- [x] `globals.css` と `colors_and_type.css` のコメントから「canvas の彩度は 0.033。これを下回ると水色と読めない」が消え、ΔL の注記が 0.074 / 0.040 になっている
+- [x] 生成 CSS の実コンパイル照合で、5 トークンの `--color-*` が round 4 値で出力されている（Tailwind v4 は未定義トークンを無言で握り潰すため）
 
 ### round 1〜3（PR #648 でクリア済み。同値関係・据え置き・名前の不変などの条件は round 4 でも有効。canvas 系の hex と `themeColor` の値は round 4 の表が優先する）
 

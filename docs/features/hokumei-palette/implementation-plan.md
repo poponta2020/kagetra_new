@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: completed
 round: 4
 ---
 # 北溟配色 round 4（地の青みを落とす）実装手順書
@@ -44,7 +44,7 @@ round: 4
 - **対応Issue:** なし
 
 ### タスク2: デザイン文書の同期
-- [ ] 完了
+- [x] 完了
 - **目的:** globals.css のコピーと design.md を round 4 値へ揃え、A1 のラダー値を docs から消す
 - **対応チェック:** §8 round 4 の 8・9（colors_and_type.css 側）
 - **主な変更領域:** `docs/design/colors_and_type.css`、`docs/design/ui_kits/kagetra-mobile/palette.css`、`docs/design/design.md`
